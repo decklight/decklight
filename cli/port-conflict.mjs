@@ -5,7 +5,7 @@
 // The occupant is usually a PAST edit server (you started one
 // yesterday, forgot, and now `init`/`open` wants the same default port) — so
 // rather than guess at a PID, ask it directly: every edit server answers
-// GET /deck/ping with the deck it's serving, and POST /edit/shutdown stops it
+// GET /deck/ping with the deck it's serving, and POST /deck/edit/shutdown stops it
 // as cleanly as its own Ctrl-C (final autocommit included). That makes "kill
 // it and take over" a plain HTTP round trip, no lsof/ps, no platform split.
 //
@@ -93,7 +93,7 @@ export function identifyStranger(port, { exec = null } = {}) {
 /** Ask it to stop — it saves (a snapshot, or a commit under --git-mode timer) and exits, same as its own Ctrl-C. Resolves once the port is free. */
 export async function shutdownEditServer(port, host = '127.0.0.1') {
   try {
-    await fetch(`http://${host}:${port}/edit/shutdown`, { method: 'POST', signal: AbortSignal.timeout(800) });
+    await fetch(`http://${host}:${port}/deck/edit/shutdown`, { method: 'POST', signal: AbortSignal.timeout(800) });
   } catch {
     // it may hang up mid-response as it exits — that's the expected shape
   }

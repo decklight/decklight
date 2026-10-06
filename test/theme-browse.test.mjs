@@ -106,7 +106,7 @@ async function startEditingTour(t, h, { deck: body = DECK } = {}) {
 
 test('Browse lists theme entries, qualified, and nothing that is not a theme', async (t) => {
   const { base } = await startEditingTour(t, home(marketplace()));
-  const j = await (await fetch(`${base}/edit/theme/browse`)).json();
+  const j = await (await fetch(`${base}/deck/edit/theme/browse`)).json();
 
   assert.equal(j.ok, true);
   assert.deepEqual(j.themes.map((x) => x.qualified).sort(), ['broken@nord-pack', 'nord-deep@nord-pack']);
@@ -120,7 +120,7 @@ test('a registered-but-never-fetched marketplace is named, not silently empty', 
   // fetched, by design. An empty list there would be the common case looking
   // like a broken one.
   const { base } = await startEditingTour(t, home(marketplace(), { update: false }));
-  const j = await (await fetch(`${base}/edit/theme/browse`)).json();
+  const j = await (await fetch(`${base}/deck/edit/theme/browse`)).json();
   assert.ok(j.stale.includes('decklight'), 'the first-party one is reported unfetched, honestly');
   assert.ok(!j.themes.some((x) => x.marketplace === 'decklight'), 'and offers nothing it has not read');
   assert.equal(j.cacheOnly, true, 'and listing never fetched anything to find out');
@@ -139,7 +139,7 @@ test('a cached catalog whose FILES are not on disk is stale too — not an offer
   writeFileSync(regPath, JSON.stringify(reg, null, 2));
 
   const { base, deck } = await startEditingTour(t, h);
-  const j = await (await fetch(`${base}/edit/theme/browse`)).json();
+  const j = await (await fetch(`${base}/deck/edit/theme/browse`)).json();
   assert.ok(j.stale.includes('nord-pack'), 'reported as needing an update, honestly');
   assert.ok(!j.themes.some((x) => x.marketplace === 'nord-pack'), 'and offered as nothing');
 
@@ -152,7 +152,7 @@ test('a cached catalog whose FILES are not on disk is stale too — not an offer
 
 // ── what marking does ──────────────────────────────────────────────────────
 
-const mark = (base, ref, marked = true) => fetch(`${base}/edit/theme/mark`, {
+const mark = (base, ref, marked = true) => fetch(`${base}/deck/edit/theme/mark`, {
   method: 'POST', headers: { 'content-type': 'application/json' },
   body: JSON.stringify(ref === undefined ? {} : { ref, marked }),
 });
@@ -187,7 +187,7 @@ test('a mark from the open picker updates it in place — the page is not reload
   // reloads, the export card's "mark and carry on" included (it resumes
   // across that reload).
   const { base, deck } = await startEditingTour(t, home(marketplace()));
-  const post = (body) => fetch(`${base}/edit/theme/mark`, {
+  const post = (body) => fetch(`${base}/deck/edit/theme/mark`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
   const quiet = await reloadWithin(base, 800, () => post({ ref: 'nord-deep@nord-pack', marked: true, quiet: true }));
@@ -222,7 +222,7 @@ test('marking records a reference in the config block — never the CSS — as o
   assert.equal(after.replace(/data-decklight-config>[\s\S]*?<\/script>/, ''),
     before.replace(/data-decklight-config>[\s\S]*?<\/script>/, ''), 'and nothing but the block changed');
 
-  const listed = await (await fetch(`${base}/edit/theme/browse`)).json();
+  const listed = await (await fetch(`${base}/deck/edit/theme/browse`)).json();
   assert.equal(listed.themes.find((x) => x.name === 'nord-deep').marked, true, 'the listing says so');
 });
 
@@ -349,7 +349,7 @@ test('an entry whose bytes live at a URL is read when marked, and served from th
   const url = `http://127.0.0.1:${origin.address().port}/gist/remote.css`;
   const { base } = await startEditingTour(t, home(marketplace({ extra: [{ name: 'remote', type: 'theme', source: url }] })));
 
-  const listed = (await (await fetch(`${base}/edit/theme/browse`)).json()).themes.find((x) => x.name === 'remote');
+  const listed = (await (await fetch(`${base}/deck/edit/theme/browse`)).json()).themes.find((x) => x.name === 'remote');
   assert.equal(listed.remote, true, 'listed, and flagged as not on this machine yet');
   assert.equal(hits, 0, 'listing read nothing');
 
@@ -369,14 +369,14 @@ test('exporting in an unmarked marketplace theme asks first, naming it', async (
   // the next press.
   const { base, deck } = await startEditingTour(t, home(marketplace()));
   const before = readFileSync(deck, 'utf8');
-  const r = await fetch(`${base}/edit/export`, {
+  const r = await fetch(`${base}/deck/edit/export`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ kind: 'pdf', theme: 'nord-deep' }),
   });
   assert.equal(r.status, 409);
   assert.equal((await r.json()).unmarked, 'nord-deep@nord-pack');
   // the bundle row asks the same question, and carries the answer
-  const bundle = await fetch(`${base}/edit/export`, {
+  const bundle = await fetch(`${base}/deck/edit/export`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ kind: 'bundle', theme: 'nord-deep' }),
   });
@@ -412,11 +412,11 @@ test('the player reaches the edit server for this and nowhere else', () => {
   const fetches = [...code.matchAll(/fetch\(([^\n]*)/g)].map((m) => m[1].trim());
   assert.equal(fetches.length, 2, 'listing and marking, and no third request');
   for (const arg of fetches) {
-    assert.match(arg, /^editBase\(\) \+ '\/edit\//, `built from a literal path: ${arg}`);
+    assert.match(arg, /^editBase\(\) \+ '\/deck\/edit\//, `built from a literal path: ${arg}`);
   }
 
-  const routes = [...code.matchAll(/'(\/edit\/[^']+)'/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(routes)].sort(), ['/edit/theme/browse', '/edit/theme/mark'],
+  const routes = [...code.matchAll(/'(\/deck\/edit\/[^']+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(routes)].sort(), ['/deck/edit/theme/browse', '/deck/edit/theme/mark'],
     'and it uses exactly the two routes the listing is made of');
 
   // A theme it looks at is linked by a RELATIVE path built from two names —

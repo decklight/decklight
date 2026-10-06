@@ -121,7 +121,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const inner = cur.el.innerHTML;
     if (inner === cur.original) return; // nothing changed: nothing written, no reload
     try {
-      const src = await boundedFetch(`${base()}/edit/element/source?slide=${cur.slide}&index=${cur.index}`);
+      const src = await boundedFetch(`${base()}/deck/edit/element/source?slide=${cur.slide}&index=${cur.index}`);
       const j = await src.json().catch(() => ({}));
       if (!src.ok || typeof j.html !== 'string') throw new Error(j.error || 'no source for this element');
       // The SOURCE of the top-level element, parsed inertly, so the file's own
@@ -132,7 +132,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       const node = nodeAtPath(top, cur.path);
       if (!node) throw new Error('the source has no element where the click landed');
       node.innerHTML = inner;
-      await post('/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
+      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
       toast('saved — reloading', 1400);
     } catch (e) {
       cur.el.innerHTML = cur.original;
@@ -167,7 +167,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   // ── double-click a code block ─────────────────────────────────────────────
   /** The source text of the `<code>` at `path` inside a top-level element, straight from the file. */
   async function codeSource(slide, index, path) {
-    const src = await boundedFetch(`${base()}/edit/element/source?slide=${slide}&index=${index}`);
+    const src = await boundedFetch(`${base()}/deck/edit/element/source?slide=${slide}&index=${index}`);
     const j = await src.json().catch(() => ({}));
     if (!src.ok || typeof j.html !== 'string') throw new Error(j.error || 'no source for this code block');
     const tpl = document.createElement('template');
@@ -236,7 +236,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       // `<`, `>` and `&` on the way out — the attributes are never touched
       const raw = node.textContent;
       node.textContent = (raw.startsWith('\n') ? '\n' : '') + text + raw.match(/\s*$/)[0];
-      await post('/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
+      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
       toast('saved — reloading', 1400);
     } catch (e) {
       putBack(cur);
@@ -342,12 +342,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   async function placePictures(files, where, index) {
     const job = (async () => { for (const file of files) {
       try {
-        const up = await fetch(base() + '/edit/asset', {
+        const up = await fetch(base() + '/deck/edit/asset', {
           method: 'POST', headers: { 'content-type': file.type, 'x-decklight-name': file.name }, body: file,
         });
         const j = await up.json().catch(() => ({}));
         if (!up.ok) throw new Error(j.error || String(up.status));
-        const placed = await post('/edit/element/image', { slide: where.slide, index, src: j.src, alt: altFromName(file.name) });
+        const placed = await post('/deck/edit/element/image', { slide: where.slide, index, src: j.src, alt: altFromName(file.name) });
         // a second picture goes after the first, not before it
         if (Number.isInteger(placed.index)) index = placed.index;
         toast(`${file.name} added to slide ${where.slide} as ${j.src} — reloading`, 2200);

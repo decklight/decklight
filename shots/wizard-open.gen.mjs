@@ -7,7 +7,7 @@
 // exists while an edit server serves the deck, and tools/shot.mjs shoots
 // file:// copies, so this generator bakes the same miniature server stand-in the
 // engine-render harness uses (ping advertising one configurable engine, GET
-// /edit/wizard handing over a vetted schema WITH its provenance — the player
+// /deck/edit/wizard handing over a vetted schema WITH its provenance — the player
 // refuses to mount without it) into a small REAL deck. Everything on screen —
 // palette row, form, password field, provenance line — is the real bundled
 // engine rendering it; only the loopback server is stubbed, exactly as in
@@ -37,7 +37,7 @@ fs.writeFileSync(path.join(shots, 'wizard-deck.html'), `<!doctype html>
   <link rel="stylesheet" href="../dist/decklight.css">
   <script>
     // The edit server, in miniature (as in test/engine.html mode=wizard):
-    // enough of /deck/ping and GET /edit/wizard for the palette to grow its
+    // enough of /deck/ping and GET /deck/edit/wizard for the palette to grow its
     // Configure row and the wizard to mount a vetted schema.
     const SCHEMA = {
       engine: 'elevenlabs', title: 'ElevenLabs',
@@ -61,7 +61,7 @@ fs.writeFileSync(path.join(shots, 'wizard-deck.html'), `<!doctype html>
         return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
           wizards: [{ name: 'elevenlabs', qualified: 'elevenlabs@voices', title: 'ElevenLabs' }] });
       }
-      if (u.includes('/edit/wizard') && init?.method !== 'POST') {
+      if (u.includes('/deck/edit/wizard') && init?.method !== 'POST') {
         return json({ ok: true, schema: SCHEMA, from: 'elevenlabs@voices', provenance: PROVENANCE });
       }
       return new Response('', { status: 404 });

@@ -131,7 +131,7 @@ export function createEditMode({
     // server answered (see the note on editBase above).
     if (!editAvailable) return null;
     try {
-      const r = await fetch(editBase + '/edit/commit');
+      const r = await fetch(editBase + '/deck/edit/commit');
       const j = await r.json();
       if (j?.ok) { commitNow = j; paintCommitChip(); return j; }
     } catch { /* the chip simply says nothing */ }
@@ -240,7 +240,7 @@ export function createEditMode({
         input.placeholder = text;
       });
       try {
-        const r = await fetch(editBase + '/edit/commit/subject', { method: 'POST' });
+        const r = await fetch(editBase + '/deck/edit/commit/subject', { method: 'POST' });
         const j = await r.json();
         if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
         if (!commitEl) return;
@@ -269,7 +269,7 @@ export function createEditMode({
       if (!message) { input.focus(); return; }
       go.textContent = 'committing…';
       try {
-        const r = await fetch(editBase + '/edit/commit', {
+        const r = await fetch(editBase + '/deck/edit/commit', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ message }),
@@ -352,7 +352,7 @@ export function createEditMode({
           // REHEARSAL_TIMINGS); with no edit server it is undefined and the
           // timings stay in the browser instead.
           instance.__saveTimings = async (timings) => {
-            const res = await writeFetch(editBase + '/edit/timings', {
+            const res = await writeFetch(editBase + '/deck/edit/timings', {
               method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ timings }),
             });
             if (!res.ok) throw new Error(await res.text());
@@ -362,7 +362,7 @@ export function createEditMode({
           preferredAgent = typeof j.preferredAgent === 'string' ? j.preferredAgent : null;
           editWizards = Array.isArray(j.wizards) ? j.wizards : [];
           // No QR and no clicker on this path: the edit server binds
-          // 127.0.0.1 and serves no /remote/* at all (READ_ONLY#REMOTE). A deck
+          // 127.0.0.1 and serves no /deck/remote/* at all (READ_ONLY#REMOTE). A deck
           // being AUTHORED has a keyboard in front of it; a deck being
           // PRESENTED is what wireRemote wires up.
           // Said once per session, and only when there is enough of it to be
@@ -464,7 +464,7 @@ export function createEditMode({
 
   // ── the editing lock (PRESENTING) ─────────────────────────────────────────
   // Started in write mode, the author can turn changes off to avoid making
-  // one by mistake, and back on. The state is the SERVER's (POST /edit/lock),
+  // one by mistake, and back on. The state is the SERVER's (POST /deck/edit/lock),
   // so every tab and the agent see the same thing; this is what the page
   // shows of it: a chip while locked, and every author affordance gone, since
   // `available()` is false until it is lifted.
@@ -499,7 +499,7 @@ export function createEditMode({
   async function toggleLock(want = !locked) {
     if (!served || readOnly) { toast('this deck was opened read-only — there is no editing to unlock', 3000); return; }
     try {
-      const r = await fetch(editBase + '/edit/lock', {
+      const r = await fetch(editBase + '/deck/edit/lock', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locked: want }),
       });
       const j = await r.json().catch(() => ({}));
@@ -521,7 +521,7 @@ export function createEditMode({
   // ── the deck update overlay (H, read-only mode) — SPEC READ_ONLY#UPSTREAM ─────
   //
   // The author's H is the deck's own history. A PRESENTED deck has no history
-  // to show — there is no edit server and no /edit/history/at to preview a commit with
+  // to show — there is no edit server and no /deck/edit/history/at to preview a commit with
   // — so the same key answers the question that IS live there: has the person
   // who wrote this pushed anything since I cloned it?
   //
@@ -620,7 +620,7 @@ export function createEditMode({
 
   async function wireRemote(base, j) {
     try {
-      instance.__remoteQr = j.remote ? `${base || location.origin}/remote/qr.svg` : null;
+      instance.__remoteQr = j.remote ? `${base || location.origin}/deck/remote/qr.svg` : null;
       // H in read-only mode. The routes only exist when the deck is a tracked
       // file in a clone with an upstream, so this base is enough to tell: a
       // deck that is not one gets a 404/405 and H says so, rather than the
@@ -638,7 +638,7 @@ export function createEditMode({
       // No `onmessage` handler: the unnamed `reload` message is the edit
       // server's, and a presenting server has no file watcher to send one.
       const postPos = () => {
-        fetch(base + '/remote/pos', {
+        fetch(base + '/deck/remote/pos', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ i: instance.state.slide, n: instance.state.totalSlides }),
@@ -681,7 +681,7 @@ export function createEditMode({
     }
     if (inflight.size) await Promise.allSettled([...inflight]);
     try {
-      const res = await fetch(editBase + '/edit/' + dir, { method: 'POST' });
+      const res = await fetch(editBase + '/deck/edit/' + dir, { method: 'POST' });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) { toast(j.error || `${dir} failed`); return; }
       toast(`${dir} — ${j.undo} back · ${j.redo} forward`);
@@ -838,7 +838,7 @@ export function createEditMode({
       sel.addEventListener('change', () => {
         pickedAgent = sel.value;
         preferredAgent = sel.value;
-        fetch(editBase + '/edit/agent/prefer', {
+        fetch(editBase + '/deck/edit/agent/prefer', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ agent: sel.value }),
@@ -853,7 +853,7 @@ export function createEditMode({
       if (!prompt) return;
       if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return; }
       try {
-        const res = await fetch(editBase + '/edit/agent', {
+        const res = await fetch(editBase + '/deck/edit/agent', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ prompt, agent: pickedAgent, slide: instance.state.slide }),
@@ -1016,7 +1016,7 @@ export function createEditMode({
       syncChanged();
       try { sessionStorage.setItem(NOTES_OPEN_KEY, JSON.stringify({ slide: sl, caret: ta.selectionStart, scroll: ta.scrollTop, t: Date.now() })); } catch { /* no storage: the card closes, as before */ }
       try {
-        const res = await writeFetch(editBase + '/edit/slide/notes', {
+        const res = await writeFetch(editBase + '/deck/edit/slide/notes', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ slide: sl, text: ta.value, from: PAGE_ID }),
@@ -1184,7 +1184,7 @@ export function createEditMode({
         ta.readOnly = true;   // the answer is to THIS text; typing meanwhile would be overwritten
         const stop = thinking((t) => { btn.textContent = `${b.label.split(' ')[0]} ${t}`; }, { label: b.drafting });
         try {
-          const r = await fetch(editBase + '/edit/enhance/text', {
+          const r = await fetch(editBase + '/deck/edit/enhance/text', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ text, kind: b.kind }),
           });
@@ -1420,7 +1420,7 @@ export function createEditMode({
   async function slideOp(op, { slide = instance.state.slide, to = null } = {}) {
     if (!editAvailable) { toast(needsDevMode('editing slides', location), 3200); return; }
     try {
-      const res = await writeFetch(editBase + '/edit/slide', {
+      const res = await writeFetch(editBase + '/deck/edit/slide', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ op, slide, ...(op === 'move' ? { to } : {}) }),
       });
@@ -1447,7 +1447,7 @@ export function createEditMode({
     closeElementMenu();
     if (index === null) { toast('nothing selected to remove', 2000); return; }
     try {
-      const res = await writeFetch(editBase + '/edit/element/remove', {
+      const res = await writeFetch(editBase + '/deck/edit/element/remove', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ slide, index }),
       });
@@ -1463,7 +1463,7 @@ export function createEditMode({
     const { slide, index } = menuTarget;
     closeElementMenu();
     try {
-      const res = await writeFetch(editBase + '/edit/element/effect', {
+      const res = await writeFetch(editBase + '/deck/edit/element/effect', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ slide, index, effect }),
       });
@@ -1500,7 +1500,7 @@ export function createEditMode({
       onClose: () => { colorCard = null; },
       onApply: async (edits) => {
         try {
-          const res = await writeFetch(editBase + '/edit/element/style', {
+          const res = await writeFetch(editBase + '/deck/edit/element/style', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ slide, index, edits }),
           });
@@ -1591,7 +1591,7 @@ export function createEditMode({
     });
     const save = async () => {
       try {
-        const res = await writeFetch(editBase + '/edit/element/content', {
+        const res = await writeFetch(editBase + '/deck/edit/element/content', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ slide, index, html: ta.value }),
         });
@@ -1629,7 +1629,7 @@ export function createEditMode({
         // Bounded, so a request the browser never sends (every socket to this
         // origin pinned by another tab's live reload) reaches the catch below
         // and its toast, rather than leaving the textarea on `loading…` for good.
-        const res = await boundedFetch(`${editBase}/edit/element/source?slide=${slide}&index=${index}`);
+        const res = await boundedFetch(`${editBase}/deck/edit/element/source?slide=${slide}&index=${index}`);
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j.ok) throw new Error(j.error || res.status);
         // Dedented, so the element reads at its own depth rather than at the
@@ -1715,7 +1715,7 @@ export function createEditMode({
     docOf: (t) => t.doc,
     // in the theme on screen: an old version opens on ITS configured theme,
     // and the history is for seeing what changed, not the theme it had then
-    srcFor: (t) => `${editBase}/edit/history/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}`,
+    srcFor: (t) => `${editBase}/deck/edit/history/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}`,
     messageFor: (t) => ({ __decklightPreview: { goto: [t.slide, 0] } }),
   });
   // Armed, not fired. `⏎` on a row used to restore it on the spot, and a CLICK
@@ -1839,7 +1839,7 @@ export function createEditMode({
     let entries = [];
     let remote = null;
     try {
-      const r = await fetch(editBase + '/edit/history');
+      const r = await fetch(editBase + '/deck/edit/history');
       const j = await r.json();
       if (!j.ok) return toast(`${label}: ${j.error}`, 3000);
       entries = j.entries || [];
@@ -2028,7 +2028,7 @@ export function createEditMode({
     if (!entry || !restoreArmed) return;
     closeRestore();
     try {
-      const r = await writeFetch(editBase + '/edit/restore', {
+      const r = await writeFetch(editBase + '/deck/edit/restore', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ref: entry.hash }),
       });
@@ -2108,7 +2108,7 @@ export function createEditMode({
     }
     let schema, prov;
     try {
-      const r = await fetch(`${editBase}/edit/wizard?engine=${encodeURIComponent(engine)}`);
+      const r = await fetch(`${editBase}/deck/edit/wizard?engine=${encodeURIComponent(engine)}`);
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.schema) { toast(j.error || `no wizard for ${engine}`, 3200); return; }
       // No provenance, no form (#232). Every string the schema itself puts on
@@ -2202,7 +2202,7 @@ export function createEditMode({
       save.disabled = true;
       status.textContent = 'checking…';
       try {
-        const r = await fetch(`${editBase}/edit/wizard`, {
+        const r = await fetch(`${editBase}/deck/edit/wizard`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ engine: schema.engine, answers }),
@@ -2268,7 +2268,7 @@ export function createEditMode({
   // what `audio` a bundle carries its narration as, when it is not as recorded
   const AUDIO_HOW = { aac: 'AAC', opus: 'Opus' };
   /**
-   * How big the bundle would be (GET /edit/export/estimate): the file without
+   * How big the bundle would be (GET /deck/edit/export/estimate): the file without
    * its audio, and what each way of carrying the audio adds. Null when the
    * server cannot say; the reason is toasted, since bundling would hit it too.
    */
@@ -2276,7 +2276,7 @@ export function createEditMode({
     try {
       // in the theme on screen, which is what the export will bundle in
       const { theme } = renderTheme() ?? {};
-      const r = await fetch(editBase + '/edit/export/estimate?kind=bundle' + (theme ? `&theme=${encodeURIComponent(theme)}` : ''));
+      const r = await fetch(editBase + '/deck/edit/export/estimate?kind=bundle' + (theme ? `&theme=${encodeURIComponent(theme)}` : ''));
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
       return j;
@@ -2322,7 +2322,7 @@ export function createEditMode({
     (async () => {
       try { sessionStorage.setItem(RESUME_KEY, JSON.stringify({ ...resume, at: Date.now() })); } catch { /* no storage: marks, does not resume */ }
       try {
-        const r = await fetch(editBase + '/edit/theme/mark', {
+        const r = await fetch(editBase + '/deck/edit/theme/mark', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ ref: armed.ref, marked: true }),
         });
@@ -2375,7 +2375,7 @@ export function createEditMode({
     const run = progress(`${doing} — this takes a moment…`);
     exportRun = { run, what, doing };
     try {
-      const r = await fetch(editBase + '/edit/export', {
+      const r = await fetch(editBase + '/deck/edit/export', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           kind,
@@ -2442,7 +2442,7 @@ export function createEditMode({
     const run = progress(`${k.doing}: ${what}${k.with} — asking the agent…`);
     enhanceRun = { run, what, kind };
     try {
-      const r = await fetch(editBase + '/edit/enhance', {
+      const r = await fetch(editBase + '/deck/edit/enhance', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ slides, kind }),
       });
@@ -2512,7 +2512,7 @@ export function createEditMode({
       ? 'publishing — pushing the deck…'
       : 'publishing — bundling the deck and pushing it…');
     try {
-      const r = await fetch(editBase + '/edit/publish', {
+      const r = await fetch(editBase + '/deck/edit/publish', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         // the theme on screen is the one the published page opens on
         body: JSON.stringify(theme ? { theme } : {}),
@@ -2537,7 +2537,7 @@ export function createEditMode({
       return;
     }
     try {
-      const r = await fetch(editBase + '/edit/publish/plan');
+      const r = await fetch(editBase + '/deck/edit/publish/plan');
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
       // Never arm something that cannot happen: publish signs the deck and
@@ -2587,7 +2587,7 @@ export function createEditMode({
     // working; it opens the history, because that is where restoring lives now.
     // ONE KEY, and it answers the question that is live where you pressed it.
     // Authoring, that is "what have I changed, and what is unpushed". Presenting
-    // — where there is no edit server and no /edit/history/at to preview a commit with —
+    // — where there is no edit server and no /deck/edit/history/at to preview a commit with —
     // it is "has the author pushed anything since I cloned this".
     history: {
       open: () => (!editAvailable && presenting ? openUpstream() : openHistory()),

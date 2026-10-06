@@ -9,7 +9,7 @@
 //
 //   - the guard: an element edit on such a slide may change an element's
 //     content, never drop the `data-slot` that puts it in its place;
-//   - the layout picker's writes (POST /edit/slide/system-layout): put a
+//   - the layout picker's writes (POST /deck/edit/slide/system-layout): put a
 //     slide INTO a layout (convert), move it to another (switch), take it out
 //     (remove), or insert a new slide built from one — each one edit, so one
 //     undo — and a report of what went where, in words.

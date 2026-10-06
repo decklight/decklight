@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Port-conflict resolution for `decklight <deck>`'s edit server: who's on a
-// taken port, and the two ways out — take it over (POST /edit/shutdown) or
+// taken port, and the two ways out — take it over (POST /deck/edit/shutdown) or
 // move to the next free port. planPortConflict() is pure and unit-tested
 // directly; identify/shutdown/bump are exercised against a real edit server.
 

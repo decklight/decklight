@@ -120,40 +120,40 @@ async function startEditingTour(t, h, body) {
 }
 const post = async (base, route, body) => { const r = await fetch(`${base}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, ...(await r.json()) }; };
 
-test('POST /edit/slide/system-layout: convert, switch, insert and remove — each one undo, the layout read from the package', async (t) => {
+test('POST /deck/edit/slide/system-layout: convert, switch, insert and remove — each one undo, the layout read from the package', async (t) => {
   const h = home(t);
   const { base, deck: deckPath } = await startEditingTour(t, h, deck(PLAIN));
   const original = readFileSync(deckPath, 'utf8');
-  const convert = await post(base, '/edit/slide/system-layout', { slide: 1, layout: 'acme/section-divider' });
+  const convert = await post(base, '/deck/edit/slide/system-layout', { slide: 1, layout: 'acme/section-divider' });
   assert.equal(convert.status, 200, JSON.stringify(convert));
   assert.equal(convert.mode, 'convert');
   assert.match(convert.said, /h2 → title \(hint h1,h2\)/);
   assert.match(readFileSync(deckPath, 'utf8'), /<h2 data-slot="title">A title<\/h2>/);
-  const sw = await post(base, '/edit/slide/system-layout', { slide: 1, layout: 'acme/statement' });
+  const sw = await post(base, '/deck/edit/slide/system-layout', { slide: 1, layout: 'acme/statement' });
   assert.deepEqual(sw.lacking, ['kicker']);
-  const ins = await post(base, '/edit/slide/system-layout', { slide: 1, layout: 'acme/statement', insert: true });
+  const ins = await post(base, '/deck/edit/slide/system-layout', { slide: 1, layout: 'acme/statement', insert: true });
   assert.equal(ins.inserted, 2);
   assert.equal(slideLayoutOf(readFileSync(deckPath, 'utf8'), 2), 'acme/statement');
-  const rm = await post(base, '/edit/slide/system-layout', { slide: 1, layout: null });
+  const rm = await post(base, '/deck/edit/slide/system-layout', { slide: 1, layout: null });
   assert.equal(rm.mode, 'remove');
-  for (let i = 0; i < 4; i++) await post(base, '/edit/undo', {});
+  for (let i = 0; i < 4; i++) await post(base, '/deck/edit/undo', {});
   assert.equal(readFileSync(deckPath, 'utf8'), original, 'four actions, four undos, back to the start');
   // what the server will not do, said
-  assert.match((await post(base, '/edit/slide/system-layout', { slide: 1, layout: 'acme/nope' })).error, /acme@acme-mkt has no layout "nope" — it has section-divider, statement/);
-  assert.match((await post(base, '/edit/slide/system-layout', { slide: 1, layout: 'other/x' })).error, /does not use a design system called "other"/);
-  assert.equal((await post(base, '/edit/slide/system-layout', { slide: 1, layout: null, insert: true })).status, 400);
+  assert.match((await post(base, '/deck/edit/slide/system-layout', { slide: 1, layout: 'acme/nope' })).error, /acme@acme-mkt has no layout "nope" — it has section-divider, statement/);
+  assert.match((await post(base, '/deck/edit/slide/system-layout', { slide: 1, layout: 'other/x' })).error, /does not use a design system called "other"/);
+  assert.equal((await post(base, '/deck/edit/slide/system-layout', { slide: 1, layout: null, insert: true })).status, 400);
   assert.equal(readFileSync(deckPath, 'utf8'), original);
 });
 
-test('POST /edit/element/content refuses a write that drops data-slot on a design-system slide', async (t) => {
+test('POST /deck/edit/element/content refuses a write that drops data-slot on a design-system slide', async (t) => {
   const h = home(t);
   const converted = applySystemLayout(deck(PLAIN), 1, DIVIDER).html;
   const { base, deck: deckPath } = await startEditingTour(t, h, converted);
-  const refused = await post(base, '/edit/element/content', { slide: 1, index: 0, html: '<h2>Lost its slot</h2>' });
+  const refused = await post(base, '/deck/edit/element/content', { slide: 1, index: 0, html: '<h2>Lost its slot</h2>' });
   assert.equal(refused.status, 409);
   assert.match(refused.error, /keep data-slot="title"/);
   assert.equal(readFileSync(deckPath, 'utf8'), converted);
-  const ok = await post(base, '/edit/element/content', { slide: 1, index: 0, html: '<h2 data-slot="title">A better title</h2>' });
+  const ok = await post(base, '/deck/edit/element/content', { slide: 1, index: 0, html: '<h2 data-slot="title">A better title</h2>' });
   assert.equal(ok.status, 200);
   assert.match(readFileSync(deckPath, 'utf8'), /<h2 data-slot="title">A better title<\/h2>/, 'only the slot\'s element changed');
 });

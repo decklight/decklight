@@ -6,7 +6,7 @@
 //
 // Each row says whether this deck references it — ● uses, ○ does not — and
 // Space (or ⏎, or a click) toggles it through the edit server
-// (POST /edit/design-system/mark): one entry in the deck's config block, one
+// (POST /deck/edit/design-system/mark): one entry in the deck's config block, one
 // undo entry, and the reload that brings the deck back WITH the design system
 // linked, since linking is the server's job. Cache-only, like the theme
 // picker: a marketplace that could not be read is named with the command that
@@ -81,7 +81,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
     sel = 0;
     render({ loading: true });
     try {
-      const r = await fetch(`${base()}/edit/design-system/browse`);
+      const r = await fetch(`${base()}/deck/edit/design-system/browse`);
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error ?? `the edit server answered ${r.status}`);
       render({ systems: j.systems ?? [], stale: j.stale ?? [], unfetched: j.unfetched ?? [] });
@@ -98,7 +98,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
     try {
       // its recommended themes and fonts come with it unless ⇧ is held — the
       // UI's --no-recommended (SPEC DESIGN_SYSTEMS)
-      const r = await fetch(`${base()}/edit/design-system/mark`, {
+      const r = await fetch(`${base()}/deck/edit/design-system/mark`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ref: s.qualified, used: !s.used, recommended: !alone }),
       });
@@ -147,7 +147,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
 // Adding a design system brings its recommended themes and fonts; APPLYING
 // them — the deck's theme and font — is offered, never automatic (SPEC
 // DESIGN_SYSTEMS): one dialog, the slide previewing the look live behind it,
-// ⏎ applies (POST /edit/design-system/apply, one undo), Esc keeps the current
+// ⏎ applies (POST /deck/edit/design-system/apply, one undo), Esc keeps the current
 // look. The offer survives the reload the add causes, in sessionStorage.
 
 const OFFER_KEY = () => 'decklight-look-offer:' + location.pathname;
@@ -195,7 +195,7 @@ export function createLookOffer({ root, base, toast, preview, restore, keep, deb
     if (!el || busy) return;
     busy = true;
     try {
-      const r = await fetch(`${base()}/edit/design-system/apply`, {
+      const r = await fetch(`${base()}/deck/edit/design-system/apply`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ref: offer.ref }),
       });
@@ -227,7 +227,7 @@ export function createLookOffer({ root, base, toast, preview, restore, keep, deb
 // another, take it out, or insert a new slide in one (SPEC DESIGN_SYSTEMS).
 // The layouts listed are the ones the PAGE carries (the meta block the server
 // injected); the write goes to the edit server, which reads the layout from
-// the package on disk, never from here — POST /edit/slide/system-layout, one
+// the package on disk, never from here — POST /deck/edit/slide/system-layout, one
 // undo entry, and a sentence saying what went where.
 
 
@@ -328,7 +328,7 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
     if (busy) return;
     busy = true;
     try {
-      const r = await fetch(`${base()}/edit/slide/system-layout`, {
+      const r = await fetch(`${base()}/deck/edit/slide/system-layout`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
       });
       const j = await r.json().catch(() => ({}));

@@ -10,7 +10,7 @@
 // the captured transcript as a terminal window for tools/shot.mjs.
 //
 // It used to shoot `author --remote`, which is where the remote lived until the
-// clicker stopped costing an editing server on the LAN. There is no `/edit/*` to
+// clicker stopped costing an editing server on the LAN. There is no `/deck/edit/*` to
 // refuse here: the seam is that `--remote` widens the LISTENER and nothing else.
 //
 //   node shots/read-only-remote-transcript.mjs    → .shots/read-only-remote.png
@@ -56,13 +56,13 @@ const until = async (re, ms = 10000) => {
 };
 
 const [, port] = await until(/http:\/\/127\.0\.0\.1:(\d+)/);
-await until(/\/remote\?t=([A-Za-z0-9_-]+)/);
+await until(/\/deck\/remote\?t=([A-Za-z0-9_-]+)/);
 await new Promise((r) => setTimeout(r, 300));
 
 const curl = (...args) => spawnSync('curl', ['-si', '--max-time', '5', ...args], { encoding: 'utf8' }).stdout
   .split('\n').filter((l) => /^(HTTP\/|forbidden|\{)/.test(l)).join('\n').trim();
 
-// The seam: off this machine only /remote/* answers. The deck is not /remote/*.
+// The seam: off this machine only /deck/remote/* answers. The deck is not /deck/remote/*.
 const lanRefused = curl(`http://${lan}:${port}/deck.html`);
 const loopbackOk = curl(`http://127.0.0.1:${port}/deck/ping`);
 
@@ -75,9 +75,9 @@ fs.rmSync(dir, { recursive: true, force: true });
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const paintDev = (s) => esc(s)
   .replace(/^(deck ⁠?\s*)/gm, '<span class="tag">deck </span>')
-  .replace(/(http:\/\/[\d.]+:\d+\/remote\?t=[\w-]+)/g, '<a class="url">$1</a>')
+  .replace(/(http:\/\/[\d.]+:\d+\/deck\/remote\?t=[\w-]+)/g, '<a class="url">$1</a>')
   .replace(/^(<span class="tag">deck <\/span>\s+remote:.*)$/gm, '<span class="ok">$1</span>')
-  .replace(/^(.*ONLY \/remote\/\* answers.*)$/gm, '<span class="hint">$1</span>')
+  .replace(/^(.*ONLY \/deck\/remote\/\* answers.*)$/gm, '<span class="hint">$1</span>')
   .replace(/^(<span class="tag">deck <\/span>\s+off this machine.*)$/gm, '<span class="hint">$1</span>');
 const paintCurl = (s) => esc(s)
   .replace(/^(HTTP\/1\.1 403.*)$/gm, '<span class="bad">$1</span>')
@@ -105,7 +105,7 @@ const html = `<!doctype html>
 </style></head><body>
 <div class="term">
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
-    <span class="t">decklight <deck.html> --read-only --remote — LAN listener + per-run token; only /remote/* answers off this machine</span></div>
+    <span class="t">decklight <deck.html> --read-only --remote — LAN listener + per-run token; only /deck/remote/* answers off this machine</span></div>
   <div class="body">${block('decklight deck.html --read-only --remote', paintDev(out.trimEnd()))}
 ${block(`curl http://${lan}:${port}/deck.html                   # the deck itself, from the LAN`, paintCurl(lanRefused))}
 ${block(`curl http://127.0.0.1:${port}/deck/ping             # the same server, over loopback`, paintCurl(loopbackOk))}</div>

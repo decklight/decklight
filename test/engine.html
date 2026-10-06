@@ -39,7 +39,7 @@
     // No network in a harness: answer everything fast so nothing stays pending.
     // The restore overlay (R) is the exception — it only exists when an edit
     // server does, so that mode stands one up in miniature: enough of /deck/ping
-    // and /edit/history for the overlay to mount and list something real.
+    // and /deck/edit/history for the overlay to mount and list something real.
     const HARNESS_MODE = new URLSearchParams(location.search).get('mode') ?? 'themepicker';
     const FAKE_HISTORY = [
       { hash: 'aaaaaaa', when: '2 minutes ago', subject: 'tighten the closing slide' },
@@ -69,7 +69,7 @@
     }
     // Marketplace themes in the overlay (MARKETPLACE.md THEME_BROWSE#UI) need
     // an edit server to exist at all, so `browse` stands one up in
-    // miniature — enough of /deck/ping, /edit/theme/browse and /edit/theme/mark
+    // miniature — enough of /deck/ping, /deck/edit/theme/browse and /deck/edit/theme/mark
     // to drive them. `nobrowse` is the same deck with NO server, which is where
     // they must be absent.
     // …and a theme the deck already MARKS, linked by the server the way
@@ -119,8 +119,8 @@
       else CALLS.get.push(u);
       if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historycaptions') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
-        if (u.includes('/edit/restore')) return json({ ok: true, changed: true, short: 'aaaaaaa', undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
+        if (u.includes('/deck/edit/restore')) return json({ ok: true, changed: true, short: 'aaaaaaa', undo: 1, redo: 0 });
       }
       // The commit window (K, and its ⌘K/⌃K alias) needs an edit server for
       // editAvailable, plus the two routes it actually calls. `messages:false`
@@ -129,8 +129,8 @@
       // the editing lock (lockmode): write mode, unlocked; the lock route answers
       if (HARNESS_MODE === 'lockmode') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], readOnly: false, locked: false });
-        if (u.includes('/edit/lock')) { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, locked: b.locked === true }); }
-        if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+        if (u.includes('/deck/edit/lock')) { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, locked: b.locked === true }); }
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
       }
       // the read-only server (readonlymode): the one probe says so, and nothing edits
       if (HARNESS_MODE === 'readonlymode') {
@@ -142,17 +142,17 @@
             commit: { dirty: true, lines: 7, sinceMs: 0, nag: false, canWrite: true, messages: false } });
         }
         // The agent's draft, held for a second so the wait can be watched.
-        if (u.includes('/edit/commit/subject')) {
+        if (u.includes('/deck/edit/commit/subject')) {
           await new Promise((ok) => setTimeout(ok, 1500));
           return json({ ok: true, subject: 'split the crowded video slides' });
         }
-        if (u.includes('/edit/commit') && (init?.method ?? 'GET') === 'GET') {
+        if (u.includes('/deck/edit/commit') && (init?.method ?? 'GET') === 'GET') {
           return json({ ok: true, dirty: true, lines: 7, sinceMs: 0, nag: false,
             canWrite: true, messages: window.__commitMessages === true, deck: 'engine.html',
             describer: window.__describer === undefined ? { name: 'claude', label: 'Claude Code' } : window.__describer,
             subjectsOff: window.__subjectsOff === true });
         }
-        if (u.includes('/edit/commit')) {
+        if (u.includes('/deck/edit/commit')) {
           window.__committed = JSON.parse(init?.body ?? '{}').message;
           return json({ ok: true, committed: true, subject: window.__committed,
             undo: 0, redo: 0, dirty: false, lines: 0, sinceMs: 0, nag: false, canWrite: true });
@@ -167,7 +167,7 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         // The video card's voices: a folder recorded by `say` (a manifest, so
         // offerable), your own take (no manifest, so not), and a piper bridge.
-        if (HARNESS_MODE === 'exportvideo' && u.includes('/edit/narration/tracks')) {
+        if (HARNESS_MODE === 'exportvideo' && u.includes('/deck/edit/narration/tracks')) {
           return json({ ok: true, tracks: [
             { dir: 'voices/me', files: 3, segments: false, ext: 'wav', engine: null, voice: null, manifest: false },
             { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true, stale: 0 },
@@ -180,12 +180,12 @@
         }
         // the bundle card's figures: 12 files, ten minutes of voice; this
         // machine's ffmpeg has AAC and no Opus, so Opus is shown blocked
-        if (u.includes('/edit/export/estimate')) {
+        if (u.includes('/deck/edit/export/estimate')) {
           return json({ ok: true, base: 800000, audio: {
             files: 12, bytes: 40e6, seconds: 600, folders: 'voices/t/ (12)',
             original: 53e6, aac: 3.2e6, opus: null, why: { opus: 'needs ffmpeg with libopus' } } });
         }
-        if (u.includes('/edit/export')) {
+        if (u.includes('/deck/edit/export')) {
           const kind = JSON.parse(init?.body ?? '{}').kind;
           return HARNESS_MODE === 'exportfail'
             ? json({ ok: false, error: 'no Chrome found — install one, or point $CHROME at it' }, 503)
@@ -202,20 +202,20 @@
             agentAsks: [{ id: 1, agent: 'claude', prompt: 'make the title shorter', slide: 1, startedAt: Date.now() - 60000,
               state: 'done', ok: true, changed: true, tail: 'Shortened the title.' }] });
         }
-        if (u.includes('/edit/agent')) return json({ ok: true, agent: 'claude', label: 'Claude Code' });
+        if (u.includes('/deck/edit/agent')) return json({ ok: true, agent: 'claude', label: 'Claude Code' });
       }
       // Design systems… (SPEC DESIGN_SYSTEMS): the edit server lists what the
       // registered marketplaces offer and what the deck uses; marking toggles it
       if (HARNESS_MODE === 'designsystems') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/design-system/browse')) {
+        if (u.includes('/deck/edit/design-system/browse')) {
           return json({ ok: true, cacheOnly: true, unfetched: ['decklight'], stale: ['old-mkt'], systems: [
             { name: 'acme', marketplace: 'acme-mkt', qualified: 'acme@acme-mkt', group: 'Acme', version: '1.2.0', description: 'Acme Brand', used: false },
             { name: 'globex', marketplace: 'acme-mkt', qualified: 'globex@acme-mkt', group: 'Acme', version: '2.0.0', description: 'Globex', used: true },
             { name: 'future', marketplace: 'acme-mkt', qualified: 'future@acme-mkt', group: 'Acme', missing: 'future@acme-mkt needs a newer decklight', used: false },
           ] });
         }
-        if (u.includes('/edit/design-system/mark')) {
+        if (u.includes('/deck/edit/design-system/mark')) {
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, ref: body.ref, used: body.used, changed: true, undo: 1, redo: 0 });
         }
@@ -224,11 +224,11 @@
       // slides it will ask about; the rest arrives as 'enhance' events.
       if (HARNESS_MODE === 'enhance') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
-        if (u.includes('/edit/enhance/text')) {
+        if (u.includes('/deck/edit/enhance/text')) {
           const { text } = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, text: `[warm] ${text}`, agent: 'claude', label: 'Claude Code' });
         }
-        if (u.includes('/edit/enhance')) {
+        if (u.includes('/deck/edit/enhance')) {
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, of: body.slides === 'all' ? 3 : 1, agent: 'claude', label: 'Claude Code' });
         }
@@ -241,12 +241,12 @@
       // what the assertions check.
       if (HARNESS_MODE === 'publish') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        // the longer path first: /edit/publish is a prefix of /edit/publish/plan
-        if (u.includes('/edit/publish/plan')) {
+        // the longer path first: /deck/edit/publish is a prefix of /deck/edit/publish/plan
+        if (u.includes('/deck/edit/publish/plan')) {
           return json({ ok: true, remote: 'origin', branch: 'gh-pages', bundled: false,
             url: 'https://acme.github.io/talks/', signing: true, why: null });
         }
-        if (u.includes('/edit/publish')) {
+        if (u.includes('/deck/edit/publish')) {
           return json({ ok: true, remote: 'origin', branch: 'gh-pages', commit: 'abc1234',
             url: 'https://acme.github.io/talks/' });
         }
@@ -256,7 +256,7 @@
       // saying what it points at that THIS deck will not have.
       if (HARNESS_MODE === 'sourcesedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/slide/sources')) {
+        if (u.includes('/deck/edit/slide/sources')) {
           const b = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, undo: 1, redo: 0,
             dropped: b.links.filter((l) => /^javascript:/i.test(l.href ?? '')).map((l) => l.href) });
@@ -264,25 +264,25 @@
       }
       if (HARNESS_MODE.startsWith('template')) {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/template/browse')) {
+        if (u.includes('/deck/edit/template/browse')) {
           return json({ ok: true, cacheOnly: true, stale: [],
             installed: ['startup-pitch'],
             offered: [{ name: 'quarterly', qualified: 'quarterly@acme', marketplace: 'acme', description: 'a review deck' }] });
         }
-        if (u.includes('/edit/template/slides')) {
+        if (u.includes('/deck/edit/template/slides')) {
           return json({ ok: true, name: 'startup-pitch', slides: [
             { n: 1, title: 'Startup pitch', hidden: false, needs: [], clashes: [] },
             { n: 2, title: 'Pricing', hidden: false, needs: ['assets/table.png'], clashes: [] },
             { n: 3, title: 'Backup', hidden: true, needs: [], clashes: ['.breaks'] },
           ] });
         }
-        if (u.includes('/edit/template/apply')) {
+        if (u.includes('/deck/edit/template/apply')) {
           const b = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, to: b.to, from: b.slide, name: 'startup-pitch', fromTitle: 'Pricing',
             applied: { 'data-layout': 'split', class: 'tinted' }, replaced: { 'data-layout': 'centered' },
             undo: 1, redo: 0, styles: { carried: ['.tinted'], clashed: [], dangling: [] } });
         }
-        if (u.includes('/edit/template/insert')) {
+        if (u.includes('/deck/edit/template/insert')) {
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, inserted: body.slides.length, after: body.after, name: 'startup-pitch',
             titles: ['Pricing'], needs: ['assets/table.png'], undo: 1, redo: 0,
@@ -291,8 +291,8 @@
       }
       if (HARNESS_MODE === 'browse') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/theme/browse')) return json(FAKE_BROWSE);
-        if (u.includes('/edit/theme/mark')) {
+        if (u.includes('/deck/edit/theme/browse')) return json(FAKE_BROWSE);
+        if (u.includes('/deck/edit/theme/mark')) {
           const { ref, marked } = JSON.parse(init?.body ?? '{}');
           // The refusal is `theme add`'s own, verbatim — the picker is not
           // allowed to have a laxer opinion than the command line.
@@ -304,14 +304,14 @@
       // Element edit mode (E, then right-click a slide element — #112) needs
       // an edit server to exist at all, same as every other write-mode
       // feature here: enough of /deck/ping for editAvailable, plus the four
-      // /edit/element/* routes the menu's actions actually call.
+      // /deck/edit/element/* routes the menu's actions actually call.
       // Mouse editing (authoring.js): a double-click saves through the SOURCE
       // of the element and the content route, and the slide operations are one
       // POST each answering with the slide to land on.
       // the overview rearranging slides (overviewedit): the slide route, answering where to land
       if (HARNESS_MODE === 'overviewedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/slide')) {
+        if (u.includes('/deck/edit/slide')) {
           const b = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, slide: b.op === 'move' ? b.to : b.op === 'delete' ? b.slide : b.slide + 1, total: 5, undo: 1, redo: 0 });
         }
@@ -319,36 +319,36 @@
       // `editbar` is the same server, driven from the bar and the selection
       if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
-        if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
-        if (u.includes('/edit/slide/layout')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+        if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/slide/layout')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         // Slow on purpose: a real save reads the source, then writes. Undo must
         // queue behind a write still in flight, and these markers say when each
         // one actually landed.
-        if (u.includes('/edit/element/content')) {
+        if (u.includes('/deck/edit/element/content')) {
           await new Promise((ok) => setTimeout(ok, 250));
           CALLS.post.push({ u: 'LANDED element content', body: {} });
           return json({ ok: true, changed: true, undo: 1, redo: 0 });
         }
-        if (u.includes('/edit/slide')) {
+        if (u.includes('/deck/edit/slide')) {
           const b = JSON.parse(init?.body ?? '{}');
           await new Promise((ok) => setTimeout(ok, 250));
           CALLS.post.push({ u: 'LANDED slide op', body: {} });
           return json({ ok: true, slide: b.op === 'delete' ? b.slide : b.slide + 1, total: 5, undo: 1, redo: 0 });
         }
-        if (u.includes('/edit/undo')) return json({ ok: true, undo: 0, redo: 1 });
-        if (u.includes('/edit/redo')) return json({ ok: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/undo')) return json({ ok: true, undo: 0, redo: 1 });
+        if (u.includes('/deck/edit/redo')) return json({ ok: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'editor') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         // a long element: eighty lines, one of them four hundred characters —
         // the shape whose painted layer fell out of step with the textarea (#529)
-        if (u.includes('/edit/element/source')) {
+        if (u.includes('/deck/edit/element/source')) {
           const lines = [];
           for (let i = 1; i <= 80; i++) lines.push(i === 7 ? `<text x="1" y="1">${'lorem ipsum '.repeat(34)}</text>` : `<rect x="${i}" y="${i}" width="10" height="10"/>`);
           return json({ ok: true, html: `<g>\n${lines.join('\n')}\n</g>` });
         }
-        if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       // ⌘⏎ saves the notes card from anywhere (#646): an edit server whose
       // notes route answers `changed` — false when the box matches the file
@@ -356,7 +356,7 @@
       // "saving…" mark can be seen, and the same no-op answer as notessave
       if (HARNESS_MODE === 'notesreopen' || HARNESS_MODE === 'notesreopenstale') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/slide/notes')) {
+        if (u.includes('/deck/edit/slide/notes')) {
           const text = JSON.parse(init?.body ?? '{}').text;
           await new Promise((ok) => setTimeout(ok, 300));
           return json({ ok: true, changed: text !== 'Same as the file.', undo: 1, redo: 0 });
@@ -365,16 +365,16 @@
       // notes saved IN PLACE: no reload; every page is sent the new notes
       if (HARNESS_MODE === 'notesinplace' || HARNESS_MODE === 'notesauto') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/slide/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/slide/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
       }
       // a save that fails: the drawer must keep what was typed rather than close on it
       if (HARNESS_MODE === 'notesautofail') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/slide/notes')) return json({ ok: false, error: 'disk full' }, 500);
+        if (u.includes('/deck/edit/slide/notes')) return json({ ok: false, error: 'disk full' }, 500);
       }
       if (HARNESS_MODE === 'notessave') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/slide/notes')) {
+        if (u.includes('/deck/edit/slide/notes')) {
           const text = JSON.parse(init?.body ?? '{}').text;
           return json({ ok: true, changed: text !== 'Same as the file.', undo: 1, redo: 0 });
         }
@@ -382,30 +382,30 @@
       if (HARNESS_MODE === 'typingdock') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true,
           agents: [{ name: 'claude', label: 'Claude Code', installed: true }] });
-        if (u.includes('/edit/slide/notes')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/slide/notes')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'codeedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/element/source')) {
+        if (u.includes('/deck/edit/element/source')) {
           return json({ ok: true, html: '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>' });
         }
-        if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       // A design system's look (SPEC DESIGN_SYSTEMS, #642): an edit server
       // that adds one with its recommended theme and font, and applies its look
       if (HARNESS_MODE === 'dslook') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/design-system/browse')) {
+        if (u.includes('/deck/edit/design-system/browse')) {
           return json({ ok: true, cacheOnly: true, stale: [], unfetched: [], systems: [
             { name: 'acme', marketplace: 'acme-mkt', qualified: 'acme@acme-mkt', group: 'Acme', version: '1.2.0', description: 'Acme Brand', used: false },
           ] });
         }
-        if (u.includes('/edit/design-system/mark')) {
+        if (u.includes('/deck/edit/design-system/mark')) {
           return json({ ok: true, ref: 'acme@acme-mkt', used: true, changed: true, undo: 1, redo: 0,
             pulled: [{ kind: 'theme', rec: 'paper', ref: 'paper', status: 'add' }, { kind: 'font', rec: 'humanist', status: 'stack' }],
             look: { title: 'Acme', theme: 'paper', font: 'humanist', themeChanges: true, fontChanges: true, differs: true, phrase: 'theme paper, font humanist' } });
         }
-        if (u.includes('/edit/design-system/apply')) {
+        if (u.includes('/deck/edit/design-system/apply')) {
           return json({ ok: true, ref: 'acme@acme-mkt', changed: true, undo: 2, redo: 0,
             look: { title: 'Acme', theme: 'paper', font: 'humanist', themeChanges: true, fontChanges: true, differs: true, phrase: 'theme paper, font humanist' } });
         }
@@ -414,7 +414,7 @@
       // offer one font package, which Space references from the deck
       if (HARNESS_MODE === 'fontswrite') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/font/browse')) {
+        if (u.includes('/deck/edit/font/browse')) {
           return json({ ok: true, cacheOnly: true, stale: [], unfetched: [], fonts: [
             { name: 'inter', marketplace: 'type-mkt', qualified: 'inter@type-mkt', group: 'Type', title: 'Inter', family: 'Inter',
               fallback: 'system-ui, sans-serif', stack: "'Inter', system-ui, sans-serif", role: 'body', used: false,
@@ -422,35 +422,35 @@
             { name: 'broken', marketplace: 'type-mkt', qualified: 'broken@type-mkt', missing: 'it no longer passes the font check' },
           ] });
         }
-        if (u.includes('/edit/font/mark')) return json({ ok: true, ref: 'inter@type-mkt', used: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/font/mark')) return json({ ok: true, ref: 'inter@type-mkt', used: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       // Editing a design-system slide (SPEC DESIGN_SYSTEMS): an edit server
       // that answers the element routes and the layout picker's write
       if (HARNESS_MODE === 'dsedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
-        if (u.includes('/edit/slide/system-layout')) {
+        if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/slide/system-layout')) {
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, mode: 'switch', said: `now ${body.layout} — content stays by slot name`, undo: 1, redo: 0 });
         }
       }
       if (HARNESS_MODE === 'contextmenu') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
-        if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
-        if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
-        if (u.includes('/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+        if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'wizard') {
         if (u.includes('/deck/ping')) {
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
             wizards: [{ name: 'elevenlabs', qualified: 'elevenlabs@voices', title: 'ElevenLabs' }] });
         }
-        if (u.includes('/edit/wizard')) {
+        if (u.includes('/deck/edit/wizard')) {
           if (init?.method !== 'POST') {
             // an old or hostile server that hands over a schema with no
             // provenance — the player must refuse to prompt with it (#232)
@@ -459,7 +459,7 @@
               from: 'elevenlabs@voices', provenance: FAKE_WIZARD_PROVENANCE });
           }
           // first answers rejected (the wrong-key path), second accepted
-          return CALLS.post.filter((c) => c.u.includes('/edit/wizard')).length <= 1
+          return CALLS.post.filter((c) => c.u.includes('/deck/edit/wizard')).length <= 1
             ? json({ ok: false, state: 'rejected', error: 'that key did not authenticate' }, 400)
             : json({ ok: true, state: 'configured', stored: { apiKey: 'set (13 chars)', voice: 'Rachel', cache: true } });
         }
@@ -791,7 +791,7 @@
           // ABSENT: a presented deck lists what it marks and nothing else, and
           // never reaches for a catalog to find out what else there is.
           r.noMarketplacePack = !find(/Nord Pack/);
-          r.neverAskedForCatalogs = !CALLS.get.some((u) => u.includes('/edit/theme/browse'));
+          r.neverAskedForCatalogs = !CALLS.get.some((u) => u.includes('/deck/edit/theme/browse'));
           find(/all themes/)?.click();
           r.absentInAll = !find(/nord-deep/);
           r.stillHasThemes = rows().length > 2;
@@ -811,8 +811,8 @@
         // offline honesty: a list short of a marketplace must never hide one
         // that could not be read, and listing itself never went to the network
         r.namesUnfetchedCatalogs = /not listed: decklight/.test(note());
-        r.listingWasAGet = CALLS.get.some((u) => u.includes('/edit/theme/browse'))
-          && !CALLS.post.some((c) => c.u.includes('/edit/theme/browse'));
+        r.listingWasAGet = CALLS.get.some((u) => u.includes('/deck/edit/theme/browse'))
+          && !CALLS.post.some((c) => c.u.includes('/deck/edit/theme/browse'));
 
         pack.click();
         const nord = find(/nord-deep/);
@@ -833,7 +833,7 @@
         find(/nord-deep/).dispatchEvent(new MouseEvent('mouseenter'));
         press(' ');
         await settle();
-        const marks = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark'));
+        const marks = CALLS.post.filter((c) => c.u.includes('/deck/edit/theme/mark'));
         r.marksByQualifiedRef = marks.length === 2 && marks[1].body.ref === 'nord-deep@nord-pack'
           && marks[1].body.marked === true;
         // …and QUIETLY: the author is still choosing, so the server must not
@@ -855,12 +855,12 @@
         press(' ');
         await settle();
         const duskRow = () => find(/^dusk/);
-        r.unmarksALinkedTheme = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark')).at(-1)?.body.marked === false
+        r.unmarksALinkedTheme = CALLS.post.filter((c) => c.u.includes('/deck/edit/theme/mark')).at(-1)?.body.marked === false
           && duskRow()?.classList.contains('tp-unmarked');
         duskRow().dispatchEvent(new MouseEvent('mouseenter'));
         press(' ');
         await settle();
-        const last = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark')).at(-1)?.body;
+        const last = CALLS.post.filter((c) => c.u.includes('/deck/edit/theme/mark')).at(-1)?.body;
         r.marksItAgain = last?.ref === 'dusk@nord-pack' && last?.marked === true && duskRow()?.classList.contains('tp-marked');
         r.neverSaysCarried = ![...document.querySelectorAll('.decklight-toast')]
           .some((t) => /carried inside the deck/.test(t.textContent));
@@ -872,7 +872,7 @@
         r.shippedCaptionSaysSpace = /Space marks it to include it in the bundle/.test(caption());
         press(' ');
         await settle();
-        const shippedMark = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark')).at(-1)?.body;
+        const shippedMark = CALLS.post.filter((c) => c.u.includes('/deck/edit/theme/mark')).at(-1)?.body;
         r.marksAShippedTheme = shippedMark?.ref === 'ember' && shippedMark?.marked === true && shippedMark?.quiet === true;
         r.shippedRowSaysMarked = /●/.test(find(/^ember/)?.querySelector('.tp-tag')?.textContent ?? '')
           && /marked — part of the bundle/.test(caption());
@@ -1009,7 +1009,7 @@
         await settle();
         press(' ', { shiftKey: true });   // ⇧ Space: the design system alone
         await settle(); await settle();
-        const sent = CALLS.post.find((c) => c.u.includes('/edit/design-system/mark'))?.body;
+        const sent = CALLS.post.find((c) => c.u.includes('/deck/edit/design-system/mark'))?.body;
         r.shiftIsAlone = sent?.ref === 'acme@acme-mkt' && sent?.recommended === false;
         r.toastSaysWhatCame = [...document.querySelectorAll('.decklight-toast')].some((n) => /now uses acme@acme-mkt — with theme paper/.test(n.textContent));
         r.offerKeptForTheReload = /"theme":"paper"/.test(sessionStorage.getItem('decklight-look-offer:' + location.pathname) ?? '');
@@ -1030,14 +1030,14 @@
         r.escDialogGone = !dialog();
         r.escFontBack = body() === fontBefore;
         r.escThemeBack = [...document.querySelectorAll('link[rel="stylesheet"]')].some((n) => /themes\/aurora\.css/.test(n.href));
-        r.escNoApply = !CALLS.post.some((c) => c.u.includes('/edit/design-system/apply'));
+        r.escNoApply = !CALLS.post.some((c) => c.u.includes('/deck/edit/design-system/apply'));
         r.escKeeps = r.escDialogGone && r.escFontBack && r.escThemeBack && r.escNoApply;
         await fromPalette('Use design-system layout');
         document.querySelector('.decklight-ds-layouts .dsl-look')?.click();
         await settle();
         press('Enter');
         await settle(); await settle();
-        r.enterApplies = !dialog() && CALLS.post.some((c) => c.u.includes('/edit/design-system/apply') && c.body.ref === 'acme')
+        r.enterApplies = !dialog() && CALLS.post.some((c) => c.u.includes('/deck/edit/design-system/apply') && c.body.ref === 'acme')
           && localStorage.getItem('decklight-font:' + location.pathname) === 'humanist' && /Seravek/.test(body());
         r.PASS = r.shiftIsAlone && r.toastSaysWhatCame && r.offerKeptForTheReload && r.layoutPickerHints && r.dialogAsks
           && r.previewsLive && r.escKeeps && r.enterApplies;
@@ -1135,7 +1135,7 @@
             && /'Inter'/.test(body());
           press(' ');
           await settle(); await settle();
-          const sent = CALLS.post.find((c) => c.u.includes('/edit/font/mark'))?.body;
+          const sent = CALLS.post.find((c) => c.u.includes('/deck/edit/font/mark'))?.body;
           r.spaceReferencesIt = sent?.ref === 'inter@type-mkt' && sent?.used === true && sent?.quiet === true;
           r.rowSaysSo = /● Type/.test(inter()?.textContent ?? '');
           r.staysOpen = !!document.querySelector(F);
@@ -1347,7 +1347,7 @@
       // PRESENTING: exporting to PowerPoint from inside the deck. The deck
       // cannot run Chrome, so the row asks the edit server — what this
       // asserts is the round trip: the row exists when a server does, it POSTs
-      // to /edit/export, and the ANSWER reaches the presenter as a message
+      // to /deck/edit/export, and the ANSWER reaches the presenter as a message
       // naming the file (or saying why not). A row that fires and reports
       // nothing is indistinguishable from a broken one, which is the whole
       // reason the toast is part of the contract.
@@ -1402,7 +1402,7 @@
         enterInBox();
         await settle();
         r.badRangeStaysOpen = !!card() && /not a range of this deck/.test(card().textContent);
-        r.nothingPostedYet = !CALLS.post.some((c) => c.u.includes('/edit/export'));
+        r.nothingPostedYet = !CALLS.post.some((c) => c.u.includes('/deck/edit/export'));
         box().value = '2-3';
         enterInBox();
         // read BEFORE yielding: the stand-in server answers within one settle,
@@ -1416,7 +1416,7 @@
         r.saysTheRenderPhase = said().some((t) => /slides 2–3 — slide 2 of 2/.test(t));
         await settle();
         await settle();
-        const sent = CALLS.post.find((c) => c.u.includes('/edit/export'))?.body;
+        const sent = CALLS.post.find((c) => c.u.includes('/deck/edit/export'))?.body;
         r.postsTheRange = sent?.kind === 'video' && sent.slides === '2-3' && !('narration' in sent)
           && sent.synthesize?.engine === 'piper' && sent.synthesize.model === 'en_US-ryan-high'
           && sent.synthesize.voice === 'en_US-ryan-high' && sent.synthesize.dir === 'voices/en-us-ryan-high'
@@ -1451,7 +1451,7 @@
         r.oneRowNotMany = said().length === before;
         await settle();
         await settle();
-        r.posted = CALLS.post.some((c) => c.u.includes('/edit/export'));
+        r.posted = CALLS.post.some((c) => c.u.includes('/deck/edit/export'));
         r.answered = mode === 'exportfail'
           ? said().some((t) => /could not export to PowerPoint — no Chrome found/.test(t))
           : said().some((t) => /wrote deck\.pptx/.test(t) && /6\.2s/.test(t));
@@ -1465,7 +1465,7 @@
           .some((t) => /Export a PDF handout/.test(t));
         press('Escape');
         // told the theme on screen (#547) — aurora, the linked one
-        r.toldTheTheme = CALLS.post.find((c) => c.u.includes('/edit/export'))?.body.theme === 'aurora';
+        r.toldTheTheme = CALLS.post.find((c) => c.u.includes('/deck/edit/export'))?.body.theme === 'aurora';
 
         let themedOk = true;
         if (mode === 'exportpptx') {
@@ -1485,14 +1485,14 @@
             await settle();
             await settle();
           };
-          const lastPost = () => CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body ?? {};
+          const lastPost = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/export')).at(-1)?.body ?? {};
           if (document.querySelector(Q)) press('Escape');
           press('/');
           for (const ch of 'standalone') press(ch);
           r.bundleRowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].filter((n) => /Bundle into one file/.test(n.textContent)).length === 1;
           press('Escape');
           await openBundle();
-          r.estimatedInTheThemeOnScreen = CALLS.get.some((u) => u.includes('/edit/export/estimate?kind=bundle&theme=aurora'));
+          r.estimatedInTheThemeOnScreen = CALLS.get.some((u) => u.includes('/deck/edit/export/estimate?kind=bundle&theme=aurora'));
           r.cardAsks = /and the narration audio\?/.test(card()?.textContent ?? '')
             && /12 recorded files, 10:00 of voice, 38\.1 MB in voices\/t\/ \(12\)/.test(card()?.textContent ?? '');
           const texts = cardRows().map((n) => n.textContent);
@@ -1538,8 +1538,8 @@
           await settle();
           await settle();
           r.noAudioRowWithoutAVoice = !document.querySelector('.decklight-choice')
-            && !CALLS.get.some((u) => u.includes('/edit/export/estimate'))
-            && CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body?.kind === 'bundle';
+            && !CALLS.get.some((u) => u.includes('/deck/edit/export/estimate'))
+            && CALLS.post.filter((c) => c.u.includes('/deck/edit/export')).at(-1)?.body?.kind === 'bundle';
           themedOk = r.noAudioRowWithoutAVoice;
         }
         if (mode === 'exportpptx') {
@@ -1550,13 +1550,13 @@
           if (document.querySelector(Q)) press('Escape');  // the first Esc above cleared the query
           press('t', { ctrlKey: true });   // ⌃T rolls a generated theme
           await settle();
-          const posts = CALLS.post.filter((c) => c.u.includes('/edit/export')).length;
+          const posts = CALLS.post.filter((c) => c.u.includes('/deck/edit/export')).length;
           press('/');
           for (const ch of 'powerpoint') press(ch);
           press('Enter');
           await settle();
           await settle();
-          const second = CALLS.post.filter((c) => c.u.includes('/edit/export'));
+          const second = CALLS.post.filter((c) => c.u.includes('/deck/edit/export'));
           const body = second.at(-1)?.body ?? {};
           let rolled = null;
           try { rolled = JSON.parse(decodeURIComponent(escape(atob(body.gen.replace(/-/g, '+').replace(/_/g, '/'))))); } catch { /* reported below */ }
@@ -1590,13 +1590,13 @@
         await settle();
         await settle();
         r.asksFirst = said().some((t) => /publish to origin gh-pages → https:\/\/acme\.github\.io\/talks\/\? — pick the row again/.test(t));
-        r.askedWithAGet = CALLS.get.some((u) => u.includes('/edit/publish/plan'));
-        r.publishedNothingYet = !CALLS.post.some((c) => c.u.includes('/edit/publish'));
+        r.askedWithAGet = CALLS.get.some((u) => u.includes('/deck/edit/publish/plan'));
+        r.publishedNothingYet = !CALLS.post.some((c) => c.u.includes('/deck/edit/publish'));
 
         pick();
         await settle();
         await settle();
-        r.secondPressPublishes = CALLS.post.some((c) => c.u.includes('/edit/publish'));
+        r.secondPressPublishes = CALLS.post.some((c) => c.u.includes('/deck/edit/publish'));
         r.saysTheUrl = said().some((t) => /published — https:\/\/acme\.github\.io\/talks\//.test(t));
 
         r.PASS = r.rowIsThere && r.asksFirst && r.askedWithAGet && r.publishedNothingYet
@@ -1680,7 +1680,7 @@
         press('Enter');                       // insert, because insert is the mode
         await settle();
         await settle();
-        const posted = CALLS.post.find((c) => c.u.includes('/edit/template/insert'));
+        const posted = CALLS.post.find((c) => c.u.includes('/deck/edit/template/insert'));
         r.enterInsertsTheCursorRow = !!posted && posted.body.name === 'startup-pitch'
           && JSON.stringify(posted.body.slides) === '[2]';
         r.postsTheChoice = r.enterInsertsTheCursorRow;
@@ -1728,23 +1728,23 @@
         press('ArrowDown');                   // onto Pricing
         await settle();
         r.lMarksTheMode = r.noModeKeys;
-        r.lAloneChangedNothing = !CALLS.post.some((c) => c.u.includes('/edit/template/apply'));
+        r.lAloneChangedNothing = !CALLS.post.some((c) => c.u.includes('/deck/edit/template/apply'));
 
         // the preview stops showing THEIR slide and starts showing YOURS
         // wearing their look — a different document, so a reload
         const frame = () => document.querySelector(`${P} .tp-preview iframe`);
         r.previewShowsTheOutcome = await until(() =>
-          /\/edit\/template\/preview\?.*name=startup-pitch&slide=2&to=\d+&mode=apply/.test(frame().src));
+          /\/deck\/edit\/template\/preview\?.*name=startup-pitch&slide=2&to=\d+&mode=apply/.test(frame().src));
         r.captionSaysWhoseSlide = /slide \d+ of yours, wearing slide 2's look/.test(
           document.querySelector(`${P} .tp-caption`).textContent);
 
         press('Enter');                       // now it applies
         await settle();
         await settle();
-        const posted = CALLS.post.find((c) => c.u.includes('/edit/template/apply'));
+        const posted = CALLS.post.find((c) => c.u.includes('/deck/edit/template/apply'));
         r.postsTheLook = !!posted && posted.body.name === 'startup-pitch' && posted.body.slide === 2;
         r.appliesToTheSlideYouAreOn = !!posted && posted.body.to === deck.state.slide;
-        r.tookNothingElse = !CALLS.post.some((c) => c.u.includes('/edit/template/insert'));
+        r.tookNothingElse = !CALLS.post.some((c) => c.u.includes('/deck/edit/template/insert'));
         r.closesAfter = !document.querySelector(P);
         const said = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
         r.saysWhatItDid = said.some((t) => /now looks like startup-pitch slide 2/.test(t) && /Z takes it back/.test(t));
@@ -1858,7 +1858,7 @@
         r.opensEmptyForAuthoring = !!document.querySelector(`${P} .src-edit-row`);
         r.startsWithOneLinkRow = document.querySelectorAll(`${P} .src-edit-row`).length === 1;
         press('Escape');
-        r.escapeWroteNothing = !CALLS.post.some((c) => c.u.includes('/edit/slide/sources'));
+        r.escapeWroteNothing = !CALLS.post.some((c) => c.u.includes('/deck/edit/slide/sources'));
 
         // a slide with some: I reads, e edits, and the draft is seeded from it
         deck.goto(2, 0);
@@ -1885,7 +1885,7 @@
         press('Enter');
         await settle();
         await settle();
-        const posted = CALLS.post.find((c) => c.u.includes('/edit/slide/sources'));
+        const posted = CALLS.post.find((c) => c.u.includes('/deck/edit/slide/sources'));
         r.enterSaves = !!posted && posted.body.slide === 2;
         r.sentTheEditedFact = !!posted
           && posted.body.facts.some(([k, v]) => k === 'owner' && v === 'docs-team');
@@ -1921,7 +1921,7 @@
         h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
         await settle();
         await settle();
-        const saved = CALLS.post.find((c) => c.u.includes('/edit/element/content'));
+        const saved = CALLS.post.find((c) => c.u.includes('/deck/edit/element/content'));
         r.enterSaves = !!saved && saved.body.slide === 1 && saved.body.index === 0;
         r.savedIntoTheSource = !!saved && saved.body.html === '<h1>One, edited</h1>';
         r.editableReleased = !h1.isContentEditable && !h1.classList.contains('dl-editing');
@@ -1931,19 +1931,19 @@
         h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
         await settle();
         r.escapeReverts = h1.textContent === 'One, edited' && !h1.isContentEditable;
-        r.escapeWroteNothing = CALLS.post.filter((c) => c.u.includes('/edit/element/content')).length === 1;
+        r.escapeWroteNothing = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content')).length === 1;
         // an unchanged edit writes nothing either
         dbl(h1);
         h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
         await settle();
-        r.unchangedWritesNothing = CALLS.post.filter((c) => c.u.includes('/edit/element/content')).length === 1;
+        r.unchangedWritesNothing = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content')).length === 1;
 
         // the slide as a whole, from the palette
         press('/');
         for (const ch of 'duplicate') press(ch);
         press('Enter');
         await new Promise((ok) => setTimeout(ok, 400));   // the fake op answers in 250ms
-        const op = CALLS.post.find((c) => c.u.includes('/edit/slide'));
+        const op = CALLS.post.find((c) => c.u.includes('/deck/edit/slide'));
         r.paletteRunsASlideOp = !!op && op.body.op === 'duplicate' && op.body.slide === 1;
         r.landsOnTheNewSlide = location.hash === '#/2/0';
         r.saysWhatItDid = [...document.querySelectorAll('.decklight-toast')].some((n) => /slide 1 duplicated/.test(n.textContent));
@@ -1965,7 +1965,7 @@
         // first, find nothing, and let the edit land behind it (reported as "after
         // double-clicking, I cannot undo").
         const posts = () => CALLS.post.map((c) => c.u);
-        const undos = () => posts().filter((u) => u.includes('/edit/undo')).length;
+        const undos = () => posts().filter((u) => u.includes('/deck/edit/undo')).length;
         deck.goto(1, 0);
         await settle();
         const h1b = document.querySelector('.decklight-stage > section.active h1');
@@ -1976,7 +1976,7 @@
         press('z');
         await new Promise((ok) => setTimeout(ok, 700));
         r.undoWaitsForTheTextSave = undos() === undosBeforeText + 1
-          && posts().findLastIndex((u) => u.includes('/edit/undo')) > posts().lastIndexOf('LANDED element content');
+          && posts().findLastIndex((u) => u.includes('/deck/edit/undo')) > posts().lastIndexOf('LANDED element content');
         const undosBeforeOp = undos();
         press('/');
         for (const ch of 'duplicate') press(ch);
@@ -1985,7 +1985,7 @@
         press('z');
         await new Promise((ok) => setTimeout(ok, 700));
         r.undoWaitsForTheSlideOp = undos() === undosBeforeOp + 1
-          && posts().findLastIndex((u) => u.includes('/edit/undo')) > posts().lastIndexOf('LANDED slide op');
+          && posts().findLastIndex((u) => u.includes('/deck/edit/undo')) > posts().lastIndexOf('LANDED slide op');
 
         // ⌘Z on a Mac, Ctrl+Z elsewhere — the undo every editor trained —
         // does what Z does, and ⇧ with it redoes. The OTHER platform's chord is
@@ -1993,7 +1993,7 @@
         const mac = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
         const chord = (shiftKey = false, on = document.body) => on.dispatchEvent(new KeyboardEvent('keydown',
           { key: 'z', bubbles: true, cancelable: true, shiftKey, ...(mac ? { metaKey: true } : { ctrlKey: true }) }));
-        const redos = () => posts().filter((u) => u.includes('/edit/redo')).length;
+        const redos = () => posts().filter((u) => u.includes('/deck/edit/redo')).length;
         const u0 = undos();
         chord();
         await new Promise((ok) => setTimeout(ok, 300));
@@ -2082,7 +2082,7 @@
         const card = () => document.querySelector('.decklight-editor');
         const box = () => document.querySelector('.decklight-editor textarea.edit-notes');
         const mark = () => document.querySelector('.decklight-editor .notes-dirty-mark');
-        const posts = () => CALLS.post.filter((c) => c.u.includes('/edit/slide/notes')).map((c) => c.body);
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/notes')).map((c) => c.body);
         const type = (t) => { box().value = t; box().dispatchEvent(new Event('input', { bubbles: true })); };
         r.opensAsADrawerAtTheBottom = card()?.dataset.dock === 'bottom';
         r.headingSaysItSavesItself = /notes — slide 2 · saves itself/.test(card()?.textContent ?? '');
@@ -2146,7 +2146,7 @@
         box().setSelectionRange(6, 6);
         box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
         await settle(); await settle();
-        const sent = CALLS.post.find((c) => c.u.includes('/edit/slide/notes'))?.body;
+        const sent = CALLS.post.find((c) => c.u.includes('/deck/edit/slide/notes'))?.body;
         r.saveSaysWhichPage = typeof sent?.from === 'string' && sent.from.length > 4;
         r.ownSaveStaysPut = !!box() && box().selectionStart === 6 && /notes saved/.test(said()) && !/reloading/.test(said()) && mark().hidden;
         // …and its own echo, which comes back normalised, leaves the box as typed
@@ -2184,7 +2184,7 @@
         const box = document.querySelector('.decklight-editor textarea');
         r.opens = !!box;
         if (box) box.value = 'Edited from anywhere.';
-        const posts = () => CALLS.post.filter((c) => c.u.includes('/edit/slide/notes'));
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/notes'));
         const chord = (target, mod = 'metaKey') => target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', [mod]: true, bubbles: true, cancelable: true }));
         const button = document.querySelector('.decklight-editor .notes-reset') ?? document.querySelector('.decklight-editor button');
         button?.focus();
@@ -2257,13 +2257,13 @@
         // ⌫ with nothing selected removes nothing (it is the ink tool's clear)…
         press('Backspace');
         await settle();
-        r.backspaceAloneRemovesNothing = !CALLS.post.some((c) => c.u.includes('/edit/element/remove'));
+        r.backspaceAloneRemovesNothing = !CALLS.post.some((c) => c.u.includes('/deck/edit/element/remove'));
         // …and on a selection it removes the element, through the menu's own route
         click(h1());
         press('Backspace');
         await settle();
         await settle();
-        const removed = CALLS.post.find((c) => c.u.includes('/edit/element/remove'));
+        const removed = CALLS.post.find((c) => c.u.includes('/deck/edit/element/remove'));
         r.backspaceRemoves = !!removed && removed.body.slide === 1 && removed.body.index === 0 && !document.querySelector('.dl-selected');
         // the ⋯ handle opens the element's menu by left-click
         click(h1());
@@ -2296,7 +2296,7 @@
         await settle();
         bar().querySelector('.eb-redo').click();
         await settle();
-        r.undoRedoButtonsWork = CALLS.post.some((c) => c.u.includes('/edit/undo')) && CALLS.post.some((c) => c.u.includes('/edit/redo'));
+        r.undoRedoButtonsWork = CALLS.post.some((c) => c.u.includes('/deck/edit/undo')) && CALLS.post.some((c) => c.u.includes('/deck/edit/redo'));
         // Done is E
         bar().querySelector('.eb-done').click();
         await settle();
@@ -2326,7 +2326,7 @@
         await settle();
         const grid = () => document.querySelector('.decklight-overview-grid');
         const cells = () => [...(grid()?.querySelectorAll('.ov-cell') ?? [])];
-        const ops = () => CALLS.post.filter((c) => c.u.includes('/edit/slide')).map((c) => c.body);
+        const ops = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide')).map((c) => c.body);
         r.overviewOpens = !!grid() && cells().length === deck.state.totalSlides;
         if (mode === 'overviewplain') {
           r.noToolsWithoutAServer = !grid().classList.contains('ov-editable') && !cells().some((c) => c.querySelector('.ov-tools'))
@@ -2445,7 +2445,7 @@
         const Q = '.decklight-palette', ROW = '.pal-row';
         const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
         const chip = () => document.querySelector('.decklight-lock-chip');
-        const locks = () => CALLS.post.filter((c) => c.u.includes('/edit/lock')).map((c) => c.body.locked);
+        const locks = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/lock')).map((c) => c.body.locked);
         r.startsUnlocked = deck.editmode?.available?.() !== false && !chip();
         press('/');
         for (const ch of 'lock editing') press(ch);
@@ -2620,10 +2620,10 @@
         n.ta.value = 'a half-written note';
         press('ArrowRight'); await settle(); await settle();
         r.notesDraftSavedThenFollows = deck.state.slide === 3 && /slide 3/.test(heading())
-          && CALLS.post.some((c) => c.u.includes('/edit/slide/notes') && c.body.slide === 2 && c.body.text === 'a half-written note');
+          && CALLS.post.some((c) => c.u.includes('/deck/edit/slide/notes') && c.body.slide === 2 && c.body.text === 'a half-written note');
         n.ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
         await settle();
-        r.notesSavesItsOwnSlide = CALLS.post.some((c) => c.u.includes('/edit/slide/notes') && c.body.slide === 2);
+        r.notesSavesItsOwnSlide = CALLS.post.some((c) => c.u.includes('/deck/edit/slide/notes') && c.body.slide === 2);
         r.notesPersists = JSON.parse(localStorage.getItem('decklight-notes-dock:' + location.pathname) ?? '{}').mode === 'right';
         press('Escape'); await settle();
         r.notesEscapeCloses = !document.querySelector(N);
@@ -2667,7 +2667,7 @@
         press('e');                           // editing on: the double-click edits
         await settle();
         const key = (k, o = {}) => code.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...o }));
-        const contentPosts = () => CALLS.post.filter((c) => c.u.includes('/edit/element/content'));
+        const contentPosts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content'));
         const firstLine = code.querySelector('.code-line');
         r.renderedHighlighted = !!firstLine;
         dbl(code);
@@ -3150,7 +3150,7 @@
         ta.value = '<img src=x onerror="window.__xss=1"> split this slide';
         ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
         await settle();
-        const sent = CALLS.post.filter((c) => c.u.includes('/edit/agent')).pop()?.body;
+        const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).pop()?.body;
         r.sentSlide = sent?.slide;
         r.stayedOpen = !!document.querySelector(A);
         r.cleared = document.querySelector(`${A} textarea`)?.value === '';
@@ -3195,7 +3195,7 @@
         r.titleIsAnElement = rows().includes('Remove element');
         [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.textContent === 'Remove element')?.click();
         await settle();
-        const rm = CALLS.post.filter((c) => c.u.includes('/edit/element/remove')).pop()?.body;
+        const rm = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/remove')).pop()?.body;
         // in the file: kicker 0, title 1, subtitle 2 — whatever order the layout put them in
         r.fileIndex = rm?.slide === n && rm?.index === 1;
         if (document.querySelector(M)) press('Escape');
@@ -3230,7 +3230,7 @@
         r.actions = /Switch slide \d+ to it/.test(picker?.textContent ?? '') && /Insert a new slide in it after slide/.test(picker?.textContent ?? '');
         press('Enter');                              // switch
         await settle(); await settle();
-        const sent = CALLS.post.filter((c) => c.u.includes('/edit/slide/system-layout')).pop()?.body;
+        const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/system-layout')).pop()?.body;
         r.posted = sent?.slide === n && sent?.layout === 'acme/statement' && !sent?.insert;
         r.said = [...document.querySelectorAll('.decklight-toast')].some((x) => /now acme\/statement — content stays by slot name — Z takes it back/.test(x.textContent));
         r.PASS = r.titleIsAnElement && r.fileIndex && r.decorationIsNothing && r.paletteRow && r.offersRemove && r.listsLayouts
@@ -3316,7 +3316,7 @@
           && lines.some((n) => /old-mkt's cached catalog could not be read — decklight marketplace update old-mkt/.test(n.textContent) && n.classList.contains('rec-warn'));
         press(' ');                                     // Space on the first row
         await settle(); await settle();
-        const sent = CALLS.post.filter((c) => c.u.includes('/edit/design-system/mark')).pop()?.body;
+        const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/design-system/mark')).pop()?.body;
         r.toggled = sent?.ref === 'acme@acme-mkt' && sent?.used === true;
         r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — its layouts are in \/ → Use design-system layout… · Z takes it back/.test(n.textContent));
         r.closed = !document.querySelector('.decklight-design-systems');
@@ -3345,7 +3345,7 @@
         await settle();
         deck.goto(2, 0);
         r.slideRow = await run('enhance', /Enhance this slide's voiceover script/);
-        r.sentSlide = JSON.stringify(CALLS.post.filter((c) => c.u.includes('/edit/enhance')).pop()?.body?.slides);
+        r.sentSlide = JSON.stringify(CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).pop()?.body?.slides);
         r.saysDrafting = /Claude Code is drafting audio tags \(read-only\)/.test(said());
         window.__es.emit('enhance', { state: 'slide', slide: 2, ok: true, changed: true, done: 1, of: 1 });
         await settle();
@@ -3354,21 +3354,21 @@
         await settle();
         r.saysDone = /enhanced slide 2 — Z undoes/.test(said());
         r.allRow = await run('enhance', /Enhance every slide's voiceover script/);
-        r.sentAll = CALLS.post.filter((c) => c.u.includes('/edit/enhance')).pop()?.body?.slides === 'all';
+        r.sentAll = CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).pop()?.body?.slides === 'all';
         window.__es.emit('enhance', { state: 'done', ok: true, changed: [1, 3], failed: [{ slide: 2, why: 'the agent changed the words — the prompt allows only tags and emphasis' }], stale: [] });
         await settle();
         r.saysWhatWasLeft = /enhanced 2 slides — Z undoes · slide 2 left as it was: the agent changed the words/.test(said());
         // written for the ear, for the MODULE this slide is in (slide 2 opens
         // "Foundations", which runs to slide 3 — slide 4 opens "Operations")
         r.earModuleRow = await run('ear', /Write this module's notes for the ear/);
-        const earBody = CALLS.post.filter((c) => c.u.includes('/edit/enhance')).pop()?.body;
+        const earBody = CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).pop()?.body;
         r.sentModuleSpoken = JSON.stringify(earBody?.slides) === '[2,3]' && earBody?.kind === 'spoken';
         r.saysWritingForTheEar = /writing for the ear: the “Foundations” module \(slides 2–3\)/.test(said());
         window.__es.emit('enhance', { state: 'done', ok: true, changed: [2, 3], failed: [], stale: [], kind: 'spoken' });
         await settle();
         r.saysWrote = /wrote 2 slides for the ear — Z undoes/.test(said());
         // …and the notes editor's own button: the draft lands IN THE BOX, and
-        // nothing is posted to /edit/slide/notes until ⌘⏎
+        // nothing is posted to /deck/edit/slide/notes until ⌘⏎
         if (document.querySelector(Q)) press('Escape');
         await settle();
         deck.goto(2, 0);
@@ -3380,7 +3380,7 @@
         r.idleWhenUnchanged = !!btnOf('notes-reset')?.disabled && !!btnOf('notes-compare')?.disabled;
         if (box) box.value = 'An unsaved line. [pause] And another.';   // a draft, not yet saved
         const before = box?.value;
-        const notesPosts = () => CALLS.post.filter((c) => c.u.includes('/edit/slide/notes')).length;
+        const notesPosts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/notes')).length;
         const posted = notesPosts();
         r.editorButton = !!document.querySelector('.decklight-editor .notes-enhance');
         r.tooltipNamesTheAgent = /Claude Code drafts ElevenLabs v4 audio tags/.test(document.querySelector('.decklight-editor .notes-enhance')?.title ?? '');
@@ -3410,7 +3410,7 @@
         btnOf('notes-reset')?.click();
         await settle();
         r.resetToSaved = box.value === saved && !!btnOf('notes-reset')?.disabled && notesPosts() === posted;
-        r.boxAskedForTags = CALLS.post.filter((c) => c.u.includes('/edit/enhance/text')).pop()?.body?.kind === 'tags';
+        r.boxAskedForTags = CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance/text')).pop()?.body?.kind === 'tags';
         // 🗣 write it for the ear: the same choice; the whole deck is written in the file
         const spoken = document.querySelector('.decklight-editor .notes-spoken');
         r.spokenButton = spoken?.textContent === '🗣 write it for the ear' && /sentences a person would say out loud/.test(spoken.title);
@@ -3519,7 +3519,7 @@
         r.cmdEnterCommits = window.__committed === 'tighten the closing slide';
         r.closesAfterCommitting = !document.querySelector(O);
 
-        const subjectAsks = () => CALLS.post.filter((c) => c.u.includes('/edit/commit/subject')).length;
+        const subjectAsks = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/commit/subject')).length;
         const hintNow = () => document.querySelector('.decklight-commit .rec-hint')?.textContent ?? '';
         // BY DEFAULT the button is there and asks only when pressed; before it
         // is pressed, its tooltip says where the changes go — the agent
@@ -3612,10 +3612,10 @@
         // told it, or every commit opens on the theme it had configured then
         r.themeApplied = deck.theme('ember') === true;
         press('r');
-        await settle();                       // let /edit/history resolve
+        await settle();                       // let /deck/edit/history resolve
         r.opens = !!document.querySelector(O);
         const frameSrc = document.querySelector(`${O} iframe`)?.getAttribute('src') ?? '';
-        r.previewInTheThemeOnScreen = /\/edit\/history\/at\?ref=[^&]+&embedded&theme=ember(?:&|$)/.test(frameSrc);
+        r.previewInTheThemeOnScreen = /\/deck\/edit\/history\/at\?ref=[^&]+&embedded&theme=ember(?:&|$)/.test(frameSrc);
         const a = selectedIndex(O, ROW, SEL);
         r.listsEveryCommit = a.count === 3;
         r.hasSelection = a.i === 0;           // newest first, newest selected
@@ -3674,7 +3674,7 @@
         try { localStorage.removeItem(KEY); } catch { /* no storage: the default is the test */ }
         await settle();                       // let /deck/ping resolve
         press('h');
-        await settle();                       // let /edit/history resolve
+        await settle();                       // let /deck/edit/history resolve
         r.opens = !!document.querySelector(O);
         r.hiddenByDefault = !!caption() && !shown();
         r.stillWritten = /aaaaaaa/.test(caption()?.textContent ?? '');
@@ -3725,7 +3725,7 @@
         r.paletteGone = !document.querySelector('.decklight-palette');
         // asked by QUALIFIED name, so two marketplaces sharing a bare name
         // cannot silently resolve to whichever answered first
-        r.asksByQualifiedName = CALLS.get.some((u) => u.includes('/edit/wizard?engine=elevenlabs%40voices'));
+        r.asksByQualifiedName = CALLS.get.some((u) => u.includes('/deck/edit/wizard?engine=elevenlabs%40voices'));
 
         // the provenance line (#232): who is asking (the registry's qualified
         // name, not the schema's own title) and where the answers go, standing
@@ -3759,7 +3759,7 @@
         secret.value = 'sk-live-right';
         secret.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
         await settle();
-        const posts = CALLS.post.filter((c) => c.u.includes('/edit/wizard'));
+        const posts = CALLS.post.filter((c) => c.u.includes('/deck/edit/wizard'));
         r.postsTypedAnswers = posts.length === 2 && posts[1].body.engine === 'elevenlabs'
           && posts[1].body.answers.apiKey === 'sk-live-right'
           && posts[1].body.answers.voice === 'Rachel'
@@ -3831,7 +3831,7 @@
         // Escape takes the preview back and posts nothing
         press('Escape');
         r.escapeRestores = !document.querySelector(C) && box.style.fill === 'var(--d-fill-1)'
-          && !CALLS.post.some((c) => c.u.includes('/edit/element/style'));
+          && !CALLS.post.some((c) => c.u.includes('/deck/edit/element/style'));
 
         // fill from the palette, text from the Custom tab, one save for the pair
         openOn(box);
@@ -3848,7 +3848,7 @@
         r.hexTyped = q('.cp-hex').value === '#0a0b0c' && label.style.fill !== '';
         q('.cp-apply').click();
         await settle();
-        const post = CALLS.post.find((c) => c.u.includes('/edit/element/style'));
+        const post = CALLS.post.find((c) => c.u.includes('/deck/edit/element/style'));
         const edits = post?.body.edits ?? [];
         r.postsBoth = post?.body.slide === 5 && post?.body.index === 1 && edits.length === 2
           && edits[0].prop === 'fill' && edits[0].value === 'var(--accent)' && edits[0].tag === 'rect'
@@ -3864,7 +3864,7 @@
         q('.cp-reset').click();
         q('.cp-apply').click();
         await settle();
-        const reset = CALLS.post.filter((c) => c.u.includes('/edit/element/style'))[1];
+        const reset = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'))[1];
         r.resetPostsNull = reset?.body.edits.length === 1 && reset.body.edits[0].value === null;
 
         // an HTML block, from the inline run inside it: background-color and color, on the block
@@ -3872,7 +3872,7 @@
         q('.cp-swatch[data-token="--d-fill-2"]').click();
         q('.cp-apply').click();
         await settle();
-        const html = CALLS.post.filter((c) => c.u.includes('/edit/element/style'))[2];
+        const html = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'))[2];
         r.htmlBlock = html?.body.index === 2 && html.body.edits.length === 1 && html.body.edits[0].tag === 'blockquote'
           && html.body.edits[0].prop === 'background-color' && JSON.stringify(html.body.edits[0].path) === '[]';
 
@@ -3910,7 +3910,7 @@
         r.previews = box.style.fill === 'var(--acme-blue, #0056f9)' && getComputedStyle(box).fill === 'rgb(0, 86, 249)';
         q('.cp-apply').click();
         await settle();
-        const post = CALLS.post.find((c) => c.u.includes('/edit/element/style'));
+        const post = CALLS.post.find((c) => c.u.includes('/deck/edit/element/style'));
         r.writesTheFallback = post?.body.edits[0]?.value === 'var(--acme-blue, #0056f9)';
         // the file now says so, with a fallback gone stale since: still marked, by the token
         box.style.fill = 'var(--acme-blue, #123456)';
@@ -3924,7 +3924,7 @@
         q('.cp-swatch[data-token="--accent"]').click();
         q('.cp-apply').click();
         await settle();
-        r.themePickPlain = CALLS.post.filter((c) => c.u.includes('/edit/element/style'))[1]?.body.edits[0]?.value === 'var(--accent)';
+        r.themePickPlain = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'))[1]?.body.edits[0]?.value === 'var(--accent)';
         r.PASS = r.groupsAfterTheTheme && r.itsOwnNames && r.undefinedLeftOut && r.previews && r.writesTheFallback
           && r.markedByTheToken && r.customOpensOnWhatShows && r.themePickPlain;
       }
@@ -3977,7 +3977,7 @@
           && fx.includes('none (instant)') && fx.includes('remove effect') && fx.length === 10;
         clickRow('fade-up');
         await settle();
-        const fxPost = CALLS.post.find((c) => c.u.includes('/edit/element/effect'));
+        const fxPost = CALLS.post.find((c) => c.u.includes('/deck/edit/element/effect'));
         r.postsEffect = fxPost?.body.slide === 1 && fxPost?.body.index === 0 && fxPost?.body.effect === 'fade-up';
         r.closesAfterEffect = !document.querySelector(M);
 
@@ -3985,11 +3985,11 @@
         rightClick(h1);
         clickRow('Remove element');
         await settle();
-        const rmPost = CALLS.post.find((c) => c.u.includes('/edit/element/remove'));
+        const rmPost = CALLS.post.find((c) => c.u.includes('/deck/edit/element/remove'));
         r.postsRemove = rmPost?.body.slide === 1 && rmPost?.body.index === 0;
 
         // "Edit content (HTML)" reads the element's outerHTML fresh from the
-        // FILE (the fake /edit/element/source above), never the live DOM, and
+        // FILE (the fake /deck/edit/element/source above), never the live DOM, and
         // Save posts the edited value back
         rightClick(h1);
         clickRow('Edit content (HTML)');
@@ -4001,7 +4001,7 @@
         ta.value = '<h1>Renamed</h1>';
         ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
         await settle();
-        const contentPost = CALLS.post.find((c) => c.u.includes('/edit/element/content'));
+        const contentPost = CALLS.post.find((c) => c.u.includes('/deck/edit/element/content'));
         r.postsContent = contentPost?.body.slide === 1 && contentPost?.body.index === 0
           && contentPost?.body.html === '<h1>Renamed</h1>';
         r.escapeClosesContentEditor = escapeUntilClosed(W);

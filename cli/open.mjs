@@ -330,7 +330,7 @@ export async function openMain(args) {
   // --read-only first, --help after: the read-only way in prints its own usage
   // --read-only: the same command, the read-only server (PRESENTING). It is
   // the read-only server's serving core, not the edit server with the writes refused: no
-  // /edit/* route exists in that process, the deck is served from its own
+  // /deck/edit/* route exists in that process, the deck is served from its own
   // directory under the CSP, and the ingredients label runs first. The one
   // door to a deck, whichever way it is opened.
   const named = args.find((a) => !a.startsWith('-') && /\.decklight$/i.test(a));
@@ -344,8 +344,8 @@ export async function openMain(args) {
   let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   if (plan.gone.length) {
     console.error(`decklight does not take ${plan.gone.join(' or ')} in write mode — the phone remote is a read-only thing.`);
-    console.error('  A clicker used to cost you an editing server on the LAN: /edit/slide/notes, /edit/slide/layout and');
-    console.error('  /edit/agent were reachable from the same run you were not watching. The read-only server');
+    console.error('  A clicker used to cost you an editing server on the LAN: /deck/edit/slide/notes, /deck/edit/slide/layout and');
+    console.error('  /deck/edit/agent were reachable from the same run you were not watching. The read-only server');
     console.error('  has no edit surface to widen, so that is where it lives.');
     console.error(`\n  decklight ${plan.deck ?? '<deck.html>'} --read-only --remote`);
     process.exitCode = 2;

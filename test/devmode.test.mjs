@@ -235,7 +235,7 @@ const stalledFetch = (url, init) => new Promise((_, reject) => {
 
 test('a fetch the browser never sends fails within the bound, with a message an author can act on', async () => {
   const t0 = Date.now();
-  await assert.rejects(boundedFetch('/edit/element/source', {}, { ms: 40, fetchFn: stalledFetch }), (e) => {
+  await assert.rejects(boundedFetch('/deck/edit/element/source', {}, { ms: 40, fetchFn: stalledFetch }), (e) => {
     assert.equal(e.message, stalledMessage(40), 'the browser’s own abort wording never reaches a toast');
     return true;
   });
@@ -252,19 +252,19 @@ test('the stalled message fits the toasts’ 60-character slice and names the re
 test('an answer, or a failure of its own, passes through untouched', async () => {
   const seen = [];
   const answers = async (url, init) => { seen.push({ url, init }); return { ok: true, status: 200 }; };
-  const res = await boundedFetch('/edit/slide/notes', { method: 'POST', body: '{}' }, { ms: 40, fetchFn: answers });
+  const res = await boundedFetch('/deck/edit/slide/notes', { method: 'POST', body: '{}' }, { ms: 40, fetchFn: answers });
   assert.equal(res.status, 200);
   assert.equal(seen[0].init.method, 'POST', 'the caller’s init is forwarded');
   assert.ok(seen[0].init.signal instanceof AbortSignal, 'with the timer’s signal attached');
   assert.equal(seen[0].init.signal.aborted, false, 'an answered request is never aborted after the fact');
   const refused = async () => { throw new TypeError('Failed to fetch'); };
-  await assert.rejects(boundedFetch('/edit/slide/notes', {}, { ms: 40, fetchFn: refused }), /Failed to fetch/,
+  await assert.rejects(boundedFetch('/deck/edit/slide/notes', {}, { ms: 40, fetchFn: refused }), /Failed to fetch/,
     'a connection refused is reported as itself, not as a stall');
 });
 
 test('a caller’s own signal still cancels, and is not mistaken for the timer', async () => {
   const ctl = new AbortController();
-  const p = boundedFetch('/edit/element/source', { signal: ctl.signal }, { ms: 5000, fetchFn: stalledFetch });
+  const p = boundedFetch('/deck/edit/element/source', { signal: ctl.signal }, { ms: 5000, fetchFn: stalledFetch });
   ctl.abort();
   await assert.rejects(p, (e) => e.name === 'AbortError');
 });

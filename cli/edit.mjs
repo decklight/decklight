@@ -19,28 +19,28 @@
 //
 //   GET  /deck/ping            → { ok, deck, undo, redo, git, agents, agentBusy, wizards }
 //   GET  /deck/events          → SSE; `reload` on deck change, `agent` job status
-//   POST /edit/slide/notes           → { slide, text }           rewrite that slide's notes
-//   POST /edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
-//   POST /edit/slide/layout          → { slide, layout }         write data-layout to the file
-//   POST /edit/slide/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
-//   GET  /edit/template/browse   → deck templates installed here, and what a marketplace offers
-//   GET  /edit/template/slides → ?name=   that template's slides, numbered, with what each needs
-//   POST /edit/template/add    → { ref }  install a template from a marketplace (UNITS#REST)
-//   POST /edit/template/insert → { name, slides, after }  its slides into THIS deck, one undo entry
-//   POST /edit/export          → { kind }   write the deck out as a file (the palette's hand-over rows)
-//   GET  /edit/publish/plan    → where publishing would put this deck, without putting it there
-//   POST /edit/publish         → bundle the deck and push it (the palette's Publish row)
-//   GET  /edit/export/estimate → ?kind=bundle&theme=  how big that file would be, before it is written
-//   GET  /edit/element/source  → ?slide=&index=            an element's outerHTML, fresh from the file
-//   POST /edit/element/remove  → { slide, index }          delete that element
-//   POST /edit/element/content → { slide, index, html }    replace its outerHTML
-//   POST /edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
-//   POST /edit/undo            → step the deck file back through the edit history
-//   POST /edit/redo            → step it forward again
-//   POST /edit/agent           → { prompt, agent?, slide? } one-shot AI agent edit
-//   POST /edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags') or written for the ear ('spoken')
-//   POST /edit/enhance/text    → { text, agent?, kind? } → { text }   the same, for the notes editor's box (writes nothing)
-//   POST /edit/shutdown        → final autocommit, then exit — same as Ctrl-C, so a
+//   POST /deck/edit/slide/notes           → { slide, text }           rewrite that slide's notes
+//   POST /deck/edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
+//   POST /deck/edit/slide/layout          → { slide, layout }         write data-layout to the file
+//   POST /deck/edit/slide/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
+//   GET  /deck/edit/template/browse   → deck templates installed here, and what a marketplace offers
+//   GET  /deck/edit/template/slides → ?name=   that template's slides, numbered, with what each needs
+//   POST /deck/edit/template/add    → { ref }  install a template from a marketplace (UNITS#REST)
+//   POST /deck/edit/template/insert → { name, slides, after }  its slides into THIS deck, one undo entry
+//   POST /deck/edit/export          → { kind }   write the deck out as a file (the palette's hand-over rows)
+//   GET  /deck/edit/publish/plan    → where publishing would put this deck, without putting it there
+//   POST /deck/edit/publish         → bundle the deck and push it (the palette's Publish row)
+//   GET  /deck/edit/export/estimate → ?kind=bundle&theme=  how big that file would be, before it is written
+//   GET  /deck/edit/element/source  → ?slide=&index=            an element's outerHTML, fresh from the file
+//   POST /deck/edit/element/remove  → { slide, index }          delete that element
+//   POST /deck/edit/element/content → { slide, index, html }    replace its outerHTML
+//   POST /deck/edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
+//   POST /deck/edit/undo            → step the deck file back through the edit history
+//   POST /deck/edit/redo            → step it forward again
+//   POST /deck/edit/agent           → { prompt, agent?, slide? } one-shot AI agent edit
+//   POST /deck/edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags') or written for the ear ('spoken')
+//   POST /deck/edit/enhance/text    → { text, agent?, kind? } → { text }   the same, for the notes editor's box (writes nothing)
+//   POST /deck/edit/shutdown        → final autocommit, then exit — same as Ctrl-C, so a
 //                                port conflict can take over an old session cleanly
 //
 // Every mutation goes through ONE undo history — snapshots of the whole
@@ -125,7 +125,7 @@ import { escapeHtml, staticFiles, listenTakingOverIfNeeded, allowEditRequest } f
 import { reviewsWaiting, reviewLine, reviewCheckSuppressed, setCommentDone } from './review-remote.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 
-// The `/edit/*` surface answers loopback only — but "loopback" is the wrong
+// The `/deck/edit/*` surface answers loopback only — but "loopback" is the wrong
 // boundary for the threat (#222). The dangerous caller is not off-machine: it
 // is the user's own browser, where any open tab can `fetch()` this port. Binding
 // 127.0.0.1 does nothing about that, and a wildcard `access-control-allow-origin`
@@ -143,7 +143,7 @@ const corsHeadersFor = (origin) => ({
 
 // ── remote access & static serving: extracted to serve.mjs / remote.mjs ────
 // (READ_ONLY_SERVER in MARKETPLACE.md: `decklight <deck> --read-only` reuses the same core
-// with the /edit/* routes ABSENT, not merely refused.) Re-exported here so
+// with the /deck/edit/* routes ABSENT, not merely refused.) Re-exported here so
 // existing importers — the tests, init.mjs — and SPEC citations keep working.
 export { isLoopback, lanAddress, escapeHtml } from './serve.mjs';
 
@@ -898,7 +898,7 @@ function reviewerName(cwd = process.cwd()) {
 }
 
 export async function editMain(args, { onListen = null } = {}) {
-  // /review/incoming's answer, briefly remembered (see the route).
+  // /deck/review/incoming's answer, briefly remembered (see the route).
   let incomingCache = null;
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     console.log(`usage: node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
@@ -939,8 +939,8 @@ export async function editMain(args, { onListen = null } = {}) {
   const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));
   if (gone.length) {
     console.error(`write mode does not take ${gone.join(' or ')} — the phone remote is a read-only thing.`);
-    console.error('  A clicker used to cost you an editing server on the LAN: /edit/slide/notes, /edit/slide/layout and');
-    console.error('  /edit/agent were reachable from the same run you were not watching. The read-only server');
+    console.error('  A clicker used to cost you an editing server on the LAN: /deck/edit/slide/notes, /deck/edit/slide/layout and');
+    console.error('  /deck/edit/agent were reachable from the same run you were not watching. The read-only server');
     console.error('  has no edit surface to widen, so that is where it lives.');
     console.error(`\n  decklight ${firstPositional(args, VALUE_FLAGS) ?? '<deck.html>'} --read-only --remote`);
     process.exitCode = 2;
@@ -1325,7 +1325,7 @@ export async function editMain(args, { onListen = null } = {}) {
    * Every entry a registered marketplace declares a wizard for, qualified.
    * Advertised in /deck/ping beside the agents: the palette's Configure rows
    * come from here, so a player never has to guess an engine name to ask
-   * /edit/wizard about (ENGINES#WIZARD).
+   * /deck/edit/wizard about (ENGINES#WIZARD).
    */
   const configurableEngines = async () => {
     const { loadRegistry, loadCatalog } = await import('./marketplace.mjs');
@@ -1549,8 +1549,8 @@ export async function editMain(args, { onListen = null } = {}) {
   // ── the session: what a deck asks on load, and how it ends ───────────────
 
   // ── the bridges, on this origin (#520) ───────────────────────────────────
-  // A deck served here reaches its live voice at `/tts` (and the sibling
-  // routes the runtime derives from it) and its lip-sync at `/lipsync/*` —
+  // A deck served here reaches its live voice at `/deck/tts` (and the sibling
+  // routes the runtime derives from it) and its lip-sync at `/deck/lipsync/*` —
   // the deck's own origin, never a port it would have to spell (SPEC
   // NARRATION). The bridges are separate processes on their own ports
   // (`--tts-port`, `--lipsync-port`); these forward to them, body and
@@ -1577,13 +1577,15 @@ export async function editMain(args, { onListen = null } = {}) {
     // request streams through — audio for the lip-sync bridge included
     if (body !== undefined) upstream.end(body); else req.pipe(upstream);
   });
-  const ttsProxy = proxyTo(ttsPort, 'voice');
-  const lipsyncProxy = proxyTo(lipsyncPort, 'lip-sync', (p) => p.slice('/lipsync'.length));
+  // both bridges serve their routes at their own roots; on the deck's origin
+  // they sit under /deck/, and the prefix comes off on the way through
+  const ttsProxy = proxyTo(ttsPort, 'voice', (p) => p.slice('/deck'.length));
+  const lipsyncProxy = proxyTo(lipsyncPort, 'lip-sync', (p) => p.slice('/deck/lipsync'.length));
 
   // The editing LOCK (PRESENTING): started in write mode, the author can turn
   // changes off to avoid making one by mistake, and back on. It lives here,
   // not in a page, so every tab and the agent see the same state: locked,
-  // every POST to /edit/* but this one answers 423, the ping says so, and the
+  // every POST to /deck/edit/* but this one answers 423, the ping says so, and the
   // live-reload channel tells every open page. A server started --read-only
   // has no lock to turn, because it has no write route to lock.
   let locked = false;
@@ -1674,7 +1676,7 @@ export async function editMain(args, { onListen = null } = {}) {
   }
 
   // ── the deck's durable history (#129): what the R overlay reads ────
-  // Loopback-only like every other /edit/* path: this serves arbitrary
+  // Loopback-only like every other /deck/edit/* path: this serves arbitrary
   // historical revisions of the deck, which is nobody else's business.
   function historyRoute({ json }) {
     if (!gitOn) return json(409, { ok: false, error: 'git is off for this session — there is no history' });
@@ -1712,14 +1714,14 @@ export async function editMain(args, { onListen = null } = {}) {
    * themes it marks referenced. Without it the frame drew the deck's bare
    * markup, dark text on the panel's dark ground — a black rectangle. The
    * `<base>` comes first, so those references resolve from the root, where
-   * `staticFiles` answers them, not from under /edit/.
+   * `staticFiles` answers them, not from under /deck/edit/.
    */
   const asServed = (html) => linkFonts(linkDesignSystems(linkAddedThemes(linkRuntime(withBaseHref(html)))));
 
   function deckAtRoute({ res, url, json, CORS }) {
     if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
     try {
-      // <base href="/"> because this is served from /edit/, not the root:
+      // <base href="/"> because this is served from /deck/edit/, not the root:
       // without it every relative ../dist and ./casts path in the deck
       // would resolve one directory too deep and the preview would be bare.
       const html = asServed(deckAt(deckPath, url.searchParams.get('ref') || '', root));
@@ -2063,7 +2065,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // whether this deck references it, with the faces a preview needs — the
   // font picker's marketplace rows. Cache-only, like the theme browse.
   /**
-   * GET /edit/export/estimate?kind=bundle — how big an export would be, before
+   * GET /deck/edit/export/estimate?kind=bundle — how big an export would be, before
    * it is written. Only the bundle has one today: the file without its audio
    * (`base`), and what each way of carrying the narration's recorded audio
    * would add (cli/bundle-audio.mjs), so the bundle card can say "Opus — ≈ 2.1
@@ -2158,7 +2160,7 @@ export async function editMain(args, { onListen = null } = {}) {
     return json(200, { ok: true, ref: deckRef, used: on, changed: out.changed, ...history.counts() });
   }
 
-  // `/edit/theme/add` was 0.9.0's name for installing from Browse. A deck that
+  // `/deck/edit/theme/add` was 0.9.0's name for installing from Browse. A deck that
   // carries its OWN copy of the runtime still asks for it; it means "mark".
   const themeAddRoute = ({ body, json }) =>
     themeMarkRoute({ body: JSON.stringify({ ref: JSON.parse(body || '{}').ref, marked: true }), json });
@@ -3007,7 +3009,7 @@ export async function editMain(args, { onListen = null } = {}) {
   }
 
   // ── the route table ──────────────────────────────────────────────────────
-  // Every `/edit/*` surface, keyed `METHOD /path`. This was forty-four
+  // Every `/deck/edit/*` surface, keyed `METHOD /path`. This was forty-four
   // `if (req.method === … && url.pathname === …)` arms in one eleven-hundred
   // line function: adding a route meant finding a place in the chain, reading
   // a route meant scrolling to it, and the ORDER of two unrelated routes was
@@ -3016,59 +3018,59 @@ export async function editMain(args, { onListen = null } = {}) {
   // sequence DOES still matter say so out loud rather than by position
   // (`BEFORE_BODY`, and the prefix list below).
   const routes = new Map(Object.entries({
-    'POST /edit/lock': lockRoute,
-    // the voice bridge, on this origin (#520): `/tts` speaks, and everything
-    // else of the bridge's lives under `/tts/` (the prefix list below)
-    'POST /tts': ttsProxy,
-    'POST /edit/shutdown': shutdownRoute,
-    'POST /edit/undo': undoRedoRoute,
-    'POST /edit/redo': undoRedoRoute,
+    'POST /deck/edit/lock': lockRoute,
+    // the voice bridge, on this origin (#520): `/deck/tts` speaks, and everything
+    // else of the bridge's lives under `/deck/tts/` (the prefix list below)
+    'POST /deck/tts': ttsProxy,
+    'POST /deck/edit/shutdown': shutdownRoute,
+    'POST /deck/edit/undo': undoRedoRoute,
+    'POST /deck/edit/redo': undoRedoRoute,
 
-    'GET /edit/commit': commitStatusRoute,
-    'POST /edit/commit': commitRoute,
-    'POST /edit/commit/subject': commitSubjectRoute,
-    'POST /edit/commit/dismiss': commitDismissRoute,
-    'GET /edit/history': historyRoute,
-    'GET /edit/history/at': deckAtRoute,
-    'POST /edit/restore': restoreRoute,
+    'GET /deck/edit/commit': commitStatusRoute,
+    'POST /deck/edit/commit': commitRoute,
+    'POST /deck/edit/commit/subject': commitSubjectRoute,
+    'POST /deck/edit/commit/dismiss': commitDismissRoute,
+    'GET /deck/edit/history': historyRoute,
+    'GET /deck/edit/history/at': deckAtRoute,
+    'POST /deck/edit/restore': restoreRoute,
 
     // the owner's half of a review (REVIEW): registered here alone, beside
     // the routes both servers share
-    'GET /review/incoming': reviewIncomingRoute,
-    'GET /review/at': reviewAtRoute,
-    'POST /review/done': reviewDoneRoute,
+    'GET /deck/review/incoming': reviewIncomingRoute,
+    'GET /deck/review/at': reviewAtRoute,
+    'POST /deck/review/done': reviewDoneRoute,
 
-    'GET /edit/theme/browse': themeBrowseRoute,
-    'POST /edit/theme/add': themeAddRoute,
-    'POST /edit/theme/mark': themeMarkRoute,
-    'GET /edit/design-system/browse': designSystemBrowseRoute,
-    'POST /edit/design-system/mark': designSystemMarkRoute,
-    'POST /edit/design-system/apply': designSystemApplyRoute,
-    'GET /edit/font/browse': fontBrowseRoute,
-    'POST /edit/font/mark': fontMarkRoute,
-    'GET /edit/wizard': wizardSchemaRoute,
-    'POST /edit/wizard': wizardConfigureRoute,
-    'POST /edit/wizard/forget': wizardForgetRoute,
+    'GET /deck/edit/theme/browse': themeBrowseRoute,
+    'POST /deck/edit/theme/add': themeAddRoute,
+    'POST /deck/edit/theme/mark': themeMarkRoute,
+    'GET /deck/edit/design-system/browse': designSystemBrowseRoute,
+    'POST /deck/edit/design-system/mark': designSystemMarkRoute,
+    'POST /deck/edit/design-system/apply': designSystemApplyRoute,
+    'GET /deck/edit/font/browse': fontBrowseRoute,
+    'POST /deck/edit/font/mark': fontMarkRoute,
+    'GET /deck/edit/wizard': wizardSchemaRoute,
+    'POST /deck/edit/wizard': wizardConfigureRoute,
+    'POST /deck/edit/wizard/forget': wizardForgetRoute,
 
-    'GET /edit/template/browse': templateListRoute,
-    'GET /edit/template/slides': templateSlidesRoute,
-    'GET /edit/template/preview': templatePreviewRoute,
-    'POST /edit/template/apply': templateApplyRoute,
-    'POST /edit/template/add': templateAddRoute,
-    'POST /edit/template/insert': templateInsertRoute,
+    'GET /deck/edit/template/browse': templateListRoute,
+    'GET /deck/edit/template/slides': templateSlidesRoute,
+    'GET /deck/edit/template/preview': templatePreviewRoute,
+    'POST /deck/edit/template/apply': templateApplyRoute,
+    'POST /deck/edit/template/add': templateAddRoute,
+    'POST /deck/edit/template/insert': templateInsertRoute,
 
-    'POST /edit/narration/record': recordRoute,
-    'GET /edit/narration/tracks': tracksRoute,
+    'POST /deck/edit/narration/record': recordRoute,
+    'GET /deck/edit/narration/tracks': tracksRoute,
 
-    'POST /edit/export': exportRoute,
-    'GET /edit/export/estimate': exportEstimateRoute,
-    'GET /edit/publish/plan': publishPlanRoute,
-    'POST /edit/publish': publishRoute,
+    'POST /deck/edit/export': exportRoute,
+    'GET /deck/edit/export/estimate': exportEstimateRoute,
+    'GET /deck/edit/publish/plan': publishPlanRoute,
+    'POST /deck/edit/publish': publishRoute,
 
-    'POST /edit/agent': agentRoute,
-    'POST /edit/agent/prefer': agentPreferRoute,
-    'POST /edit/enhance': enhanceRoute,
-    'POST /edit/enhance/text': enhanceTextRoute,
+    'POST /deck/edit/agent': agentRoute,
+    'POST /deck/edit/agent/prefer': agentPreferRoute,
+    'POST /deck/edit/enhance': enhanceRoute,
+    'POST /deck/edit/enhance/text': enhanceTextRoute,
   }));
 
   // The slide mutations are a file of their own (cli/edit-slides.mjs): thirteen
@@ -3076,7 +3078,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // result through applyEdit — that between them want four of editMain's
   // bindings and none of the rest. Handed those four explicitly, they can be
   // called from a test with a temp deck and no socket at all. `deckPath` is the
-  // odd one: /edit/asset saves a dropped image beside the deck, so it needs to
+  // odd one: /deck/edit/asset saves a dropped image beside the deck, so it needs to
   // know where the deck is and not only what it says.
   registerSlideRoutes(routes, {
     readDeck, applyEdit, history, deckPath,
@@ -3086,21 +3088,21 @@ export async function editMain(args, { onListen = null } = {}) {
   });
 
   // The routes that run BEFORE the shared body read, and the only reason the
-  // dispatcher below has a sequence at all. `/edit/narration/record`'s body is BINARY and
+  // dispatcher below has a sequence at all. `/deck/edit/narration/record`'s body is BINARY and
   // megabytes of it — a slide of speech is ~48 kB a second — so the string
   // concat and its 1 MB ceiling would both be wrong, and it reads the stream
-  // itself under its own 64 MB limit. `/edit/asset` is the same case with a
+  // itself under its own 64 MB limit. `/deck/edit/asset` is the same case with a
   // different payload — an image dropped on the stage, read under its own
   // 25 MB limit. The other three carry no body, and never had one read for them.
   const BEFORE_BODY = new Set([
-    'POST /tts',
-    'POST /edit/narration/record', 'POST /edit/asset',
-    'POST /edit/shutdown', 'POST /edit/undo', 'POST /edit/redo',
+    'POST /deck/tts',
+    'POST /deck/edit/narration/record', 'POST /deck/edit/asset',
+    'POST /deck/edit/shutdown', 'POST /deck/edit/undo', 'POST /deck/edit/redo',
   ]);
 
   // Prefix routes, tried IN ORDER once the exact table has missed and before
   // the static fallback — the one dispatch rule a Map cannot express. Every
-  // `/edit/*` path is exact today, so the list is empty; it is declared so the
+  // `/deck/edit/*` path is exact today, so the list is empty; it is declared so the
   // first route that needs a prefix has somewhere to go other than the bottom
   // of the dispatcher, where the chain used to grow.
   const PREFIX_ROUTES = [   // { method, prefix, handler }
@@ -3108,18 +3110,18 @@ export async function editMain(args, { onListen = null } = {}) {
     // /tts/voices… — forwarded as they are, since the bridge serves the same
     // paths itself. Nothing of the bridge's sits at the root, where it would
     // shadow a file beside the deck (`voices/` is the narration's folder).
-    { method: 'GET', prefix: '/tts/', handler: ttsProxy, beforeBody: true },
-    { method: 'POST', prefix: '/tts/', handler: ttsProxy, beforeBody: true },
-    // the lip-sync bridge, on this origin (#520): `/lipsync/ping`, `/viseme`, `/video`
+    { method: 'GET', prefix: '/deck/tts/', handler: ttsProxy, beforeBody: true },
+    { method: 'POST', prefix: '/deck/tts/', handler: ttsProxy, beforeBody: true },
+    // the lip-sync bridge, on this origin (#520): `/deck/lipsync/ping`, `/viseme`, `/video`
     // the audio a POST carries is binary and can pass the body cap, so it
-    // streams through unread, like /edit/narration/record's
-    { method: 'GET', prefix: '/lipsync/', handler: lipsyncProxy, beforeBody: true },
-    { method: 'POST', prefix: '/lipsync/', handler: lipsyncProxy, beforeBody: true },
+    // streams through unread, like /deck/edit/narration/record's
+    { method: 'GET', prefix: '/deck/lipsync/', handler: lipsyncProxy, beforeBody: true },
+    { method: 'POST', prefix: '/deck/lipsync/', handler: lipsyncProxy, beforeBody: true },
   ];
 
   // the deck's channel and the shared review routes, beside this server's own
   for (const [key, handler] of deck.routes) routes.set(key, handler);
-  for (const key of ['GET /review/comments', 'POST /review/comments', 'POST /review/submit']) {
+  for (const key of ['GET /deck/review/comments', 'POST /deck/review/comments', 'POST /deck/review/submit']) {
     routes.set(key, ({ req, res, url, body }) => review.handle(req, res, url, body ?? ''));
   }
 
@@ -3148,7 +3150,7 @@ export async function editMain(args, { onListen = null } = {}) {
       if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
       // locked: no edit route writes, whatever it was aimed at — the one
       // POST that still answers is the lock itself, so it can be lifted
-      if (locked && req.method === 'POST' && url.pathname.startsWith('/edit/') && url.pathname !== '/edit/lock') {
+      if (locked && req.method === 'POST' && url.pathname.startsWith('/deck/edit/') && url.pathname !== '/deck/edit/lock') {
         return json(423, { ok: false, locked: true, error: 'editing is locked — unlock it from the palette or the lock chip' });
       }
       const key = `${req.method} ${url.pathname}`;

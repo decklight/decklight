@@ -1334,7 +1334,7 @@ test('the AGENTS.md section points its readers at the bug flow too, idempotently
 
 test('the skill tells agents to commit their own logical changes', () => {
   const md = claudeSkillMd();
-  assert.match(md, /POST localhost:8788\/edit\/commit/);
+  assert.match(md, /POST localhost:8788\/deck\/edit\/commit/);
   assert.match(md, /One call per logical change/);
   // it must be honest about WHY the server cannot do this for them
   assert.match(md, /it did not\s*\n?start you/);
@@ -1344,7 +1344,7 @@ test('the skill tells agents to commit their own logical changes', () => {
 });
 
 test('the AGENTS.md section carries the same instruction for agents that read it', () => {
-  assert.match(agentsSection(), /\/edit\/commit/);
+  assert.match(agentsSection(), /\/deck\/edit\/commit/);
   assert.match(agentsSection(), /No server listening means no\n?authoring/);
 });
 
@@ -1751,7 +1751,7 @@ test('record refuses a --dir it could not write into, before serving anything', 
   assert.equal(dirProblem(undefined), null);       // unset: the deck decides
   assert.equal(dirProblem('voiceover'), null);
   assert.equal(dirProblem('audio/take-2'), null);
-  // the same three shapes /edit/narration/record refuses, refused here so a typo costs a
+  // the same three shapes /deck/edit/narration/record refuses, refused here so a typo costs a
   // message rather than a 400 per beat halfway through a take
   assert.match(dirProblem('/etc'), /absolute path/);
   assert.match(dirProblem('C:\\Windows'), /absolute path/);

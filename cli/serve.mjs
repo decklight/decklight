@@ -7,7 +7,7 @@
 //
 // Extracted from edit.mjs so `decklight <deck> --read-only` (MARKETPLACE.md,
 // READ_ONLY_SERVER) can serve a deck read-only by reusing this core with the
-// /edit/* routes ABSENT — not merely refused. Nothing in this module writes a
+// /deck/edit/* routes ABSENT — not merely refused. Nothing in this module writes a
 // file.
 
 import { readFileSync, existsSync, statSync, createReadStream } from 'node:fs';
@@ -24,7 +24,7 @@ import { linkFonts, fontAsset, inFontNamespace } from './font-refs.mjs';
 
 // ── remote access: the security seam for the phone remote (#39) ────────────
 // --remote widens the LISTENER, never the editing surface: off-loopback,
-// only /remote/* answers, and only with the per-run token; every /edit/*
+// only /deck/remote/* answers, and only with the per-run token; every /deck/edit/*
 // mutation (and the static files) refuses non-loopback callers
 // unconditionally, flag or no flag.
 
@@ -57,7 +57,7 @@ export function isLoopbackOrigin(origin) {
 }
 
 /**
- * The CSRF gate for the edit server's `/edit/*` surface (#222). The attacker
+ * The CSRF gate for the edit server's `/deck/edit/*` surface (#222). The attacker
  * is the user's OWN browser: while `decklight <deck>` runs, any page in any tab
  * can `fetch()` loopback, and a permissive `access-control-allow-origin` is no
  * defense — a "simple" `text/plain` POST is sent with NO preflight, so the
@@ -96,7 +96,7 @@ export function allowEditRequest(req) {
  * which the edit gate admits by design.
  *
  * Used by the one route in `--read-only` that ACTS. The looser gate is right for
- * `/edit/*`, where the server exists to be written to and a curl from the
+ * `/deck/edit/*`, where the server exists to be written to and a curl from the
  * author's own machine is a feature; it is wrong here.
  */
 export function isOwnOrigin(req, port) {
@@ -111,9 +111,9 @@ export function isOwnOrigin(req, port) {
 
 /**
  * Pure request classifier: may this request be answered at all?
- * Loopback: always. Off-loopback: only /remote/* paths carrying the per-run
+ * Loopback: always. Off-loopback: only /deck/remote/* paths carrying the per-run
  * token (?t= query or x-decklight-token header) — everything else, all
- * /edit/* mutations included, is refused regardless of any token. `token`
+ * /deck/edit/* mutations included, is refused regardless of any token. `token`
  * is null when --remote is off, which refuses every off-loopback request
  * (defense in depth behind the 127.0.0.1 binding).
  */
@@ -122,14 +122,14 @@ export function allowRemote(req, token) {
   if (!token) return false;
   let url;
   try { url = new URL(req.url, 'http://x'); } catch { return false; }
-  // new URL() normalizes dot segments, so /remote/../edit/slide/notes is /edit/slide/notes
-  if (url.pathname !== '/remote' && !url.pathname.startsWith('/remote/')) return false;
+  // new URL() normalizes dot segments, so /deck/remote/../deck/edit/slide/notes is /deck/edit/slide/notes
+  if (url.pathname !== '/deck/remote' && !url.pathname.startsWith('/deck/remote/')) return false;
   const sent = Buffer.from(String(url.searchParams.get('t') ?? req.headers?.['x-decklight-token'] ?? ''));
   const want = Buffer.from(token);
   return sent.length === want.length && timingSafeEqual(sent, want);
 }
 
-/** The machine's LAN address — what the printed /remote?t= URL should carry. */
+/** The machine's LAN address — what the printed /deck/remote?t= URL should carry. */
 export function lanAddress(interfaces = networkInterfaces()) {
   for (const addrs of Object.values(interfaces)) {
     for (const a of addrs ?? []) {

@@ -91,7 +91,7 @@ plugin** proves the boundary that has no package-level test anywhere else: it
 installs into `~/.decklight/plugins/`, `--read-only` layers it onto what it SERVES
 while the file on disk keeps its mtime, and a bundle made a moment later carries
 no byte of it. A **theme** is marked for the deck through the edit server
-(`POST /edit/theme/mark`), the one marketplace consumer the rest of the journey
+(`POST /deck/edit/theme/mark`), the one marketplace consumer the rest of the journey
 skips, which writes a reference into the config block and never CSS; the leg
 checks the served page links it from the marketplace and that `bundle --theme`
 carries it, then takes the mark back with `Z`, which is both the route's own

@@ -131,7 +131,7 @@ export function createReview({
 
   async function load() {
     const base = await reviewBase();
-    const from = `${base !== null ? base : (editBase() ?? '')}/review/comments`;
+    const from = `${base !== null ? base : (editBase() ?? '')}/deck/review/comments`;
     if (base === null && editBase() == null) return { records: [], skipped: 0, can: 'none' };
     try {
       const r = await fetch(from);
@@ -143,7 +143,7 @@ export function createReview({
       // for a minute. A reviewer's overlay has no edit server and skips it.
       if (state.can === 'resolve') {
         try {
-          const ir = await fetch(`${editBase() ?? ''}/review/incoming`);
+          const ir = await fetch(`${editBase() ?? ''}/deck/review/incoming`);
           const ij = await ir.json();
           if (ij?.ok) state.incoming = ij;
         } catch { /* the section simply is not there */ }
@@ -433,7 +433,7 @@ export function createReview({
     const base = editBase();
     if (base == null) { toast('only the edit server can look that far back'); return; }
     try {
-      const res = await fetch(`${base}/review/at?id=${encodeURIComponent(r.id)}`);
+      const res = await fetch(`${base}/deck/review/at?id=${encodeURIComponent(r.id)}`);
       const j = await res.json();
       if (!j?.ok) throw new Error(j?.error || `HTTP ${res.status}`);
       context = { id: r.id, data: j };
@@ -461,7 +461,7 @@ export function createReview({
     const here = instance.state.slide;
     const at = slidesNow()[here - 1];
     try {
-      const res = await fetch(`${base}/review/comments`, {
+      const res = await fetch(`${base}/deck/review/comments`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ op: 'anchor', re: r.id, slide: here, title: at?.title, fp: at?.fp }),
@@ -482,8 +482,8 @@ export function createReview({
     // both never meets two shapes of the same thing).
     const rbase = await reviewBase();
     const where = rbase !== null
-      ? { url: `${rbase}/review/comments`, mine: false }
-      : editBase() != null ? { url: `${editBase()}/review/comments`, mine: true } : null;
+      ? { url: `${rbase}/deck/review/comments`, mine: false }
+      : editBase() != null ? { url: `${editBase()}/deck/review/comments`, mine: true } : null;
     if (!where) return false;
     try {
       const r = await fetch(where.url, {
@@ -529,7 +529,7 @@ export function createReview({
     // Somebody else's comment: toggle the local mark, no arming, reversible.
     if (r.branch) {
       try {
-        const res = await fetch(`${base}/review/done`, {
+        const res = await fetch(`${base}/deck/review/done`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ branch: r.branch, id: r.id, done: !r.done }),
@@ -546,7 +546,7 @@ export function createReview({
     if (armed !== r.id) { armed = r.id; render(await load()); return; }
     armed = null;
     try {
-      const res = await fetch(`${base}/review/comments`, {
+      const res = await fetch(`${base}/deck/review/comments`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ op: 'resolve', re: r.id }),
@@ -564,7 +564,7 @@ export function createReview({
     if (!armedSubmit) { armedSubmit = true; render(await load()); return; }
     armedSubmit = false;
     try {
-      const r = await fetch(`${base}/review/submit`, { method: 'POST' });
+      const r = await fetch(`${base}/deck/review/submit`, { method: 'POST' });
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       toast(`review pushed → ${j.branch}`);

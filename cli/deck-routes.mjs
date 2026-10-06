@@ -22,7 +22,7 @@
 // extras rather than its own copy of the whole.
 //
 // Nothing here writes. The lock, the upstream, the review's owner routes and
-// everything under /edit/ are the modes' own and registered beside these.
+// everything under /deck/edit/ are the modes' own and registered beside these.
 
 import { basename } from 'node:path';
 import { sseChannel } from './serve.mjs';

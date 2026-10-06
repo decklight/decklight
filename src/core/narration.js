@@ -570,12 +570,12 @@ export function createNarration({
   // that set instead of depending on the bridge.
   const narrKey = 'decklight-narration:' + location.pathname;
   // Same origin by convention (#520): a deck never spells a port. Served by
-  // `open`, `/tts` (and the sibling routes derived below) is proxied to the
+  // `open`, `/deck/tts` (and the sibling routes derived below) is proxied to the
   // voice bridge author started; opened from disk there is no origin to speak
   // of, and the bridge's own default port is the one thing left to assume.
   // `narration.liveUrl` in the config still overrides both.
   const LIVE_URL = config.narration?.liveUrl
-    ?? (/^https?:$/.test(location.protocol) ? `${location.origin}/tts` : 'http://127.0.0.1:8787/tts');
+    ?? (/^https?:$/.test(location.protocol) ? `${location.origin}/deck/tts` : 'http://127.0.0.1:8787/tts');
   // keep in sync with tools/gemini-tts.mjs GEMINI_VOICES
   const GEMINI_VOICES = [
     ['Zephyr', 'bright'], ['Puck', 'upbeat'], ['Charon', 'informative'],
@@ -3165,7 +3165,7 @@ export function createNarration({
     const base = editBase();
     if (base == null) return [];
     try {
-      const r = await fetch(`${base}/edit/narration/tracks`);
+      const r = await fetch(`${base}/deck/edit/narration/tracks`);
       const j = await r.json();
       return Array.isArray(j?.tracks) ? j.tracks : [];
     } catch { return []; }
@@ -3263,7 +3263,7 @@ export function createNarration({
   async function saveRecording(slide, kind, blob, dir, seg = null) {
     if (dir) {
       try {
-        const r = await fetch(`${dir.base}/edit/narration/record?slide=${slide}&kind=${kind}`
+        const r = await fetch(`${dir.base}/deck/edit/narration/record?slide=${slide}&kind=${kind}`
           + (seg == null ? '' : `&seg=${seg}`)
           + `&dir=${encodeURIComponent(dir.name)}`, { method: 'POST', body: blob });
         if ((await r.json())?.ok) return true;
@@ -3336,7 +3336,7 @@ export function createNarration({
     if (base == null) return;
     btn.textContent = 'saving…';
     try {
-      const r = await fetch(`${base}/edit/narration`, {
+      const r = await fetch(`${base}/deck/edit/narration`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ files: dir, ...cfg }),
@@ -3441,7 +3441,7 @@ export function createNarration({
     const saveManifest = async () => {
       if (!dir) return;
       try {
-        await fetch(`${dir.base}/edit/narration/record?slide=1&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
+        await fetch(`${dir.base}/deck/edit/narration/record?slide=1&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveCfg.style, range, slides: recorded }),

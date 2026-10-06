@@ -564,7 +564,7 @@ test('the edit server hands the player a VETTED schema, or refuses to', async (t
   });
   const { base } = await startEditingTour(t, home);
 
-  const got = await (await fetch(`${base}/edit/wizard?engine=elevenlabs`)).json();
+  const got = await (await fetch(`${base}/deck/edit/wizard?engine=elevenlabs`)).json();
   assert.equal(got.ok, true);
   assert.equal(got.schema.title, 'ElevenLabs');
   assert.deepEqual(got.schema.fields[0], { name: 'apiKey', label: 'apiKey', type: 'secret', required: true });
@@ -577,13 +577,13 @@ test('the edit server hands the player a VETTED schema, or refuses to', async (t
     'one wording, derived by the same function the unit tests pin down');
   assert.match(got.provenance.sentTo, /\/validate/);
 
-  const missing = await fetch(`${base}/edit/wizard?engine=nope`);
+  const missing = await fetch(`${base}/deck/edit/wizard?engine=nope`);
   assert.equal(missing.status, 404);
 });
 
 test('ping advertises what a wizard can configure — the palette rows come from here', async (t) => {
   // Without this list the player half is unreachable: nothing in a deck knows
-  // an engine name to ask /edit/wizard about, so openWizard has no caller.
+  // an engine name to ask /deck/edit/wizard about, so openWizard has no caller.
   const home = catalogHome({ engine: 'elevenlabs', title: 'ElevenLabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
   const { base } = await startEditingTour(t, home);
   const ping = await (await fetch(`${base}/deck/ping`)).json();
@@ -598,7 +598,7 @@ test('a catalog declaring a field core cannot render is refused on the way OUT',
   // The entry is named elevenlabs; what it DECLARES is the unrenderable thing.
   const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'x', type: 'html' }] });
   const { base } = await startEditingTour(t, home);
-  const r = await fetch(`${base}/edit/wizard?engine=elevenlabs`);
+  const r = await fetch(`${base}/deck/edit/wizard?engine=elevenlabs`);
   assert.equal(r.status, 400);
   assert.match((await r.json()).error, /cannot render/);
 });
@@ -607,7 +607,7 @@ test('a configured engine is stored restricted, and the response is redacted', a
   const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
   const { base, log } = await startEditingTour(t, home);
 
-  const r = await fetch(`${base}/edit/wizard`, {
+  const r = await fetch(`${base}/deck/edit/wizard`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ engine: 'elevenlabs', answers: { apiKey: 'sk-live-secret-value' } }),
   });
@@ -627,7 +627,7 @@ test('a configured engine is stored restricted, and the response is redacted', a
     'and the server logs what is actually protecting it, not what it hoped');
 
   // and forgetting works through the same surface
-  const f = await fetch(`${base}/edit/wizard/forget`, {
+  const f = await fetch(`${base}/deck/edit/wizard/forget`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ engine: 'elevenlabs' }),
   });
@@ -638,7 +638,7 @@ test('a configured engine is stored restricted, and the response is redacted', a
 test('an engine no marketplace declares is a third answer, not one of the two failures', async (t) => {
   const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'k', type: 'secret' }] });
   const { base } = await startEditingTour(t, home);
-  const r = await fetch(`${base}/edit/wizard`, {
+  const r = await fetch(`${base}/deck/edit/wizard`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ engine: 'ghost', answers: {} }),
   });
@@ -654,7 +654,7 @@ test('bad answers come back 400 with the schema\'s own complaint', async (t) => 
     fields: [{ name: 'apiKey', type: 'secret', required: true }, { name: 'voice', type: 'choice', options: ['Rachel'] }],
   });
   const { base } = await startEditingTour(t, home);
-  const r = await fetch(`${base}/edit/wizard`, {
+  const r = await fetch(`${base}/deck/edit/wizard`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ engine: 'elevenlabs', answers: { voice: 'Nobody' } }),
   });

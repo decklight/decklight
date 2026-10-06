@@ -4,7 +4,7 @@
 // A zero-dependency QR encoder (ISO/IEC 18004) — the building block the phone
 // remote (#39) needs to put a scannable URL in the speaker view. Deliberately
 // narrow: byte mode, error-correction level L, versions 1–10 (a v10-L symbol
-// holds 271 bytes; a `http://host:port/remote?t=token` URL is well under v4).
+// holds 271 bytes; a `http://host:port/deck/remote?t=token` URL is well under v4).
 // Numeric/alphanumeric modes and higher EC levels buy nothing here and are
 // left out. Node-only (cli/): the browser runtime bundle never sees this.
 

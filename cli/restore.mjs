@@ -195,7 +195,7 @@ export function deckAt(deckPath, ref, cwd, exec = execFileSync) {
 }
 
 /**
- * Give a previewed deck a root `<base>`, because it is served from `/edit/`
+ * Give a previewed deck a root `<base>`, because it is served from `/deck/edit/`
  * rather than the root and every relative `../dist` and `./casts` path in it
  * would otherwise resolve one directory too deep — a preview with no runtime.
  *

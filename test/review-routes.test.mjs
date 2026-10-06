@@ -37,7 +37,7 @@ async function open(t, mode) {
   });
   return { base, dir, log: () => out };
 }
-const post = (base, body) => fetch(`${base}/review/comments`, {
+const post = (base, body) => fetch(`${base}/deck/review/comments`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 
@@ -69,7 +69,7 @@ for (const mode of ['read-only', 'write']) {
     assert.equal(rec.body, 'Say less here.');
     assert.deepEqual(readFileSync(deck), before, 'the deck is byte-identical');
 
-    const listed = await (await fetch(`${base}/review/comments`)).json();
+    const listed = await (await fetch(`${base}/deck/review/comments`)).json();
     assert.equal(listed.records.length, 1);
     assert.equal(listed.records[0].id, j.id);
 
@@ -82,7 +82,7 @@ for (const mode of ['read-only', 'write']) {
 
 test('read-only mode still has no edit route, with the review routes beside it', async (t) => {
   const { base } = await open(t, 'read-only');
-  const edit = await fetch(`${base}/edit/slide/notes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
+  const edit = await fetch(`${base}/deck/edit/slide/notes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
   assert.equal(edit.status, 405, 'as unknown as a POST to anything else');
   const page = await fetch(`${base}/talk.html`);
   assert.ok(page.headers.get('content-security-policy')?.startsWith("default-src 'none'"), 'under the policy');

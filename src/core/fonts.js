@@ -134,7 +134,7 @@ export function createFonts({
     if (!authoring() || offeredState) return;
     offeredState = { loading: true };
     try {
-      const r = await fetch(editBase() + '/edit/font/browse');
+      const r = await fetch(editBase() + '/deck/edit/font/browse');
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the edit server said ${r.status}`);
       offered = (j.fonts ?? []).filter((f) => !f.missing && FAMILY_RE.test(f.family ?? '') && STACK_RE.test(f.stack ?? ''))
@@ -250,7 +250,7 @@ export function createFonts({
     const f = rows[sel];
     if (!authoring() || !f || f.kind !== 'offered') return false;
     try {
-      const r = await fetch(editBase() + '/edit/font/mark', {
+      const r = await fetch(editBase() + '/deck/edit/font/mark', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ref: f.qualified, used: !f.used, quiet: true }),
       });

@@ -251,8 +251,8 @@ test('the CSP also rides on errors and the control channels — no uncovered res
   assert.equal((await covered('/missing.html')).status, 404);
   assert.equal((await covered('/talk.html', { method: 'POST', body: '{}' })).status, 405);
   assert.equal((await covered('/deck/ping')).status, 200);
-  assert.equal((await covered('/remote')).status, 200, 'the controller is a document — where a policy matters most');
-  assert.equal((await covered('/remote/qr.svg')).status, 404, 'without --remote the QR refuses — covered too');
+  assert.equal((await covered('/deck/remote')).status, 200, 'the controller is a document — where a policy matters most');
+  assert.equal((await covered('/deck/remote/qr.svg')).status, 404, 'without --remote the QR refuses — covered too');
 
   // the SSE stream: its headers arrive before any event does
   const ctl = new AbortController();
@@ -295,16 +295,16 @@ test('the honest caveat is stated where a user reads it', () => {
 
 // ── the negative space: no editing surface ─────────────────────────────────
 
-test('no /edit/* route is registered — the source never mentions one', () => {
+test('no /deck/edit/* route is registered — the source never mentions one', () => {
   const src = readFileSync(SRC, 'utf8');
-  // Only the prose may say "/edit/*"; no string literal may route one.
+  // Only the prose may say "/deck/edit/*"; no string literal may route one.
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   // The deck's own channel (/deck/ping, /deck/events) is not an edit route:
   // the probe REPORTS the server is read-only, and no write route may be named.
-  assert.doesNotMatch(code, /['"`]\/edit\//, 'no /edit path literal outside comments');
+  assert.doesNotMatch(code, /['"`]\/deck\/edit\//, 'no /edit path literal outside comments');
   // The relay DOES live here now (READ_ONLY#REMOTE) — that is the whole point of
   // moving it: a clicker should not require an editing server. What must stay
-  // true is that it arrived without one, which the /edit/* assertion above and
+  // true is that it arrived without one, which the /deck/edit/* assertion above and
   // the route tests below cover.
 });
 
@@ -319,11 +319,11 @@ test('the one probe answers here too, and says read-only', async (t) => {
   assert.equal(j.agents, undefined, 'no roster, nothing to edit with');
 });
 
-test('a POST to /edit/slide/notes is as unknown as a POST to anything else', async (t) => {
+test('a POST to /deck/edit/slide/notes is as unknown as a POST to anything else', async (t) => {
   const dir = deckDir();
   const { base } = await startPresent(t, dir);
 
-  const edit = await fetch(base + '/edit/slide/notes', {
+  const edit = await fetch(base + '/deck/edit/slide/notes', {
     method: 'POST', body: JSON.stringify({ slide: 1, text: 'pwned' }),
   });
   const nonsense = await fetch(base + '/nonsense', { method: 'POST', body: '{}' });
@@ -351,8 +351,8 @@ test('nothing is written — the directory is byte-identical after a session', a
 
   await fetch(base + '/');
   await fetch(base + '/theme.css');
-  await fetch(base + '/edit/slide/notes', { method: 'POST', body: '{"slide":1,"text":"x"}' });
-  await fetch(base + '/edit/slide/layout', { method: 'POST', body: '{"slide":1,"layout":"split"}' });
+  await fetch(base + '/deck/edit/slide/notes', { method: 'POST', body: '{"slide":1,"text":"x"}' });
+  await fetch(base + '/deck/edit/slide/layout', { method: 'POST', body: '{"slide":1,"layout":"split"}' });
   await fetch(base + '/missing.html');
 
   assert.deepEqual(snapshot(dir), before, 'no file created, changed, or touched');
@@ -451,7 +451,7 @@ test('a deck that is not there is named, not stack-traced', async () => {
 
 // ── the phone remote lives here now (READ_ONLY#REMOTE) ───────────────────────
 
-test('--remote hosts the clicker, and still registers no /edit/* route', async (t) => {
+test('--remote hosts the clicker, and still registers no /deck/edit/* route', async (t) => {
   const dir = deckDir();
   const { base, log } = await startPresent(t, dir, { extraArgs: ['--remote'] });
 
@@ -461,18 +461,18 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
   assert.equal(ping.agents, undefined, 'and reports no agent roster — there is nothing here that runs one');
 
   // …the controller and its QR are served…
-  assert.equal((await fetch(base + '/remote')).status, 200);
-  assert.equal((await fetch(base + '/remote/qr.svg')).status, 200);
+  assert.equal((await fetch(base + '/deck/remote')).status, 200);
+  assert.equal((await fetch(base + '/deck/remote/qr.svg')).status, 200);
 
   // …a tap relays to the deck…
-  const key = await (await fetch(base + '/remote/key', {
+  const key = await (await fetch(base + '/deck/remote/key', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"key":"next"}',
   })).json();
   assert.equal(key.ok, true);
   assert.equal(key.key, 'next');
 
   // …and the whole point: no editing surface came along with it.
-  for (const p of ['/edit/slide/notes', '/edit/slide/layout', '/edit/undo', '/edit/commit', '/edit/shutdown']) {
+  for (const p of ['/deck/edit/slide/notes', '/deck/edit/slide/layout', '/deck/edit/undo', '/deck/edit/commit', '/deck/edit/shutdown']) {
     const res = await fetch(base + p, { method: 'POST', body: '{}' });
     assert.equal(res.status, 405, `${p} is unknown, not refused`);
   }
@@ -481,7 +481,7 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
   assert.equal(probe.readOnly, true, 'the ping says read-only');
   assert.equal(probe.agents, undefined, 'and names nothing that edits');
 
-  assert.match(log(), /ONLY \/remote\/\* answers/i);
+  assert.match(log(), /ONLY \/deck\/remote\/\* answers/i);
   assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8'), DECK, 'and nothing was written');
 });
 
@@ -494,23 +494,23 @@ test('allowRemote: loopback always answers — token or no token, any path', () 
   for (const addr of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '127.8.9.10']) {
     assert.equal(allowRemote(reqOf(addr, '/talk.html'), null), true, addr);
     assert.equal(allowRemote(reqOf(addr, '/deck/ping'), 'tok'), true, addr);
-    assert.equal(allowRemote(reqOf(addr, '/remote/pos'), null), true, addr);
+    assert.equal(allowRemote(reqOf(addr, '/deck/remote/pos'), null), true, addr);
   }
 });
 
-test('allowRemote: off-loopback, only /remote/* — and only with the right token', () => {
+test('allowRemote: off-loopback, only /deck/remote/* — and only with the right token', () => {
   const LAN = '192.168.1.23';
-  // the /remote?t= URL the phone will carry, and its sub-paths
-  assert.equal(allowRemote(reqOf(LAN, '/remote?t=tok'), 'tok'), true);
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t=tok'), 'tok'), true);
+  // the /deck/remote?t= URL the phone will carry, and its sub-paths
+  assert.equal(allowRemote(reqOf(LAN, '/deck/remote?t=tok'), 'tok'), true);
+  assert.equal(allowRemote(reqOf(LAN, '/deck/remote/state?t=tok'), 'tok'), true);
   // the token can ride a header too (fetches from the controller page)
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state', { 'x-decklight-token': 'tok' }), 'tok'), true);
+  assert.equal(allowRemote(reqOf(LAN, '/deck/remote/state', { 'x-decklight-token': 'tok' }), 'tok'), true);
   // wrong token, missing token: refused
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t=nope'), 'tok'), false);
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state'), 'tok'), false);
+  assert.equal(allowRemote(reqOf(LAN, '/deck/remote/state?t=nope'), 'tok'), false);
+  assert.equal(allowRemote(reqOf(LAN, '/deck/remote/state'), 'tok'), false);
   // no --remote (token null): nothing off-loopback answers at all
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t='), null), false);
-  assert.equal(allowRemote(reqOf(LAN, '/remote?t=null'), null), false);
+  assert.equal(allowRemote(reqOf(LAN, '/deck/remote/state?t='), null), false);
+  assert.equal(allowRemote(reqOf(LAN, '/deck/remote?t=null'), null), false);
 });
 
 test('allowRemote: the deck itself refuses off-loopback UNCONDITIONALLY', () => {
@@ -521,14 +521,14 @@ test('allowRemote: the deck itself refuses off-loopback UNCONDITIONALLY', () => 
     assert.equal(allowRemote(reqOf(LAN, `${p}?t=tok`), 'tok'), false, p);
   }
   // path tricks normalize before the check, and a prefix is not a directory
-  assert.equal(allowRemote(reqOf(LAN, '/remote/../talk.html?t=tok'), 'tok'), false);
+  assert.equal(allowRemote(reqOf(LAN, '/deck/remote/../talk.html?t=tok'), 'tok'), false);
   assert.equal(allowRemote(reqOf(LAN, '/remotely?t=tok'), 'tok'), false);
 });
 
 test('the controller is a self-contained page — no asset a phone could not reach', async (t) => {
   const dir = deckDir();
   const { base } = await startPresent(t, dir, { extraArgs: ['--remote'] });
-  const res = await fetch(base + '/remote');
+  const res = await fetch(base + '/deck/remote');
   assert.match(res.headers.get('content-type'), /text\/html/);
   const html = await res.text();
   assert.match(html, /id="next"/);
@@ -546,7 +546,7 @@ test('the QR refuses to encode a URL a phone cannot use', async (t) => {
   // a code that scans cleanly and then goes nowhere is worse than no code.
   const dir = deckDir();
   const { base } = await startPresent(t, dir);
-  const res = await fetch(base + '/remote/qr.svg');
+  const res = await fetch(base + '/deck/remote/qr.svg');
   assert.equal(res.status, 404);
   assert.match((await res.json()).error, /--remote/, 'and it names the flag that would make it real');
 });
@@ -558,13 +558,13 @@ test('a locally-presented deck still gets its position readout', async (t) => {
   const dir = deckDir();
   const { base } = await startPresent(t, dir);
   assert.equal((await (await fetch(base + '/deck/ping')).json()).remote, false);
-  const pos = await fetch(base + '/remote/pos', {
+  const pos = await fetch(base + '/deck/remote/pos', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"i":2,"n":9}',
   });
   assert.equal(pos.status, 200);
 });
 
-test('POST /remote/pos is deck→phones only — an off-loopback caller is refused, not rebroadcast', () => {
+test('POST /deck/remote/pos is deck→phones only — an off-loopback caller is refused, not rebroadcast', () => {
   // The deck is the one thing that knows the position and it reports from
   // this machine. A phone — or anyone who obtained the QR token — posting a
   // fabricated {i,n} would desync the readout every other phone shows, and a
@@ -585,14 +585,14 @@ test('POST /remote/pos is deck→phones only — an off-loopback caller is refus
   };
 
   // a phone subscribes to the readout stream…
-  const phone = answer('192.168.1.23', 'GET', '/remote/events');
+  const phone = answer('192.168.1.23', 'GET', '/deck/remote/events');
   // …and another LAN caller, token in hand, tries to fabricate the position
-  const forged = answer('192.168.1.99', 'POST', '/remote/pos', '{"i":99,"n":99}');
+  const forged = answer('192.168.1.99', 'POST', '/deck/remote/pos', '{"i":99,"n":99}');
   assert.equal(forged.code, 403, 'refused — pos is not a phone-facing input');
   assert.ok(!phone.chunks.some((c) => c.includes('event: pos')), 'and nothing reached the phones');
 
   // the deck itself, over loopback, still lands and reaches the phone
-  const deck = answer('127.0.0.1', 'POST', '/remote/pos', '{"i":2,"n":9}');
+  const deck = answer('127.0.0.1', 'POST', '/deck/remote/pos', '{"i":2,"n":9}');
   assert.equal(deck.code, 200);
   assert.ok(phone.chunks.some((c) => c.includes('"i":2')), 'the readout shows the real position');
 });
@@ -603,7 +603,7 @@ test('the remote never writes, and a malformed payload is refused not crashed', 
   const { base } = await startPresent(t, dir, { extraArgs: ['--remote'] });
 
   for (const body of ['{"key":"rm -rf"}', '{"i":"nope"}', 'not json at all', '']) {
-    const res = await fetch(base + '/remote/key', { method: 'POST', body });
+    const res = await fetch(base + '/deck/remote/key', { method: 'POST', body });
     assert.ok(res.status >= 400, `refused: ${body}`);
   }
   assert.deepEqual(snapshot(dir), before, 'no file created, changed, or touched');

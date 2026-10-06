@@ -7,6 +7,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createDeckRoutes } from '../cli/deck-routes.mjs';
 
 const review = { ping: () => ({ mode: 'write', git: false, by: 'Me <me@x>', store: 'talk.review.jsonl' }) };
@@ -48,4 +51,31 @@ test('the stream is the channel every tab joins, and broadcast reaches it', asyn
   assert.equal(d.channel.size, 1);
   d.broadcast('lock', { locked: true });
   assert.ok(written.some((c) => c.includes('event: lock') && c.includes('"locked":true')));
+});
+
+// ── the one rule: the server owns /deck/, every other path is a file ─────────
+
+test('every route either server registers is under /deck/ — nothing decklight answers sits at the root', () => {
+  // Read from the sources rather than a running server, so a route added
+  // anywhere is seen here without a fixture knowing to ask for it. Comments
+  // are stripped first: prose may name an old path to say it is gone.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const files = ['edit.mjs', 'edit-slides.mjs', 'read-only.mjs', 'review-routes.mjs', 'remote.mjs', 'deck-routes.mjs'];
+  const strays = [];
+  let seen = 0;
+  for (const f of files) {
+    // line-based: a `/*` inside a glob or a regex is not a comment, and a
+    // block stripper that thought so once swallowed the whole route table
+    const src = readFileSync(path.join(here, '..', 'cli', f), 'utf8')
+      .replace(/^\s*(?:\/\/|\/\*|\*).*$/gm, '');
+    // `'GET /x'` / `'POST /x'` table keys, `prefix: '/x'`, and `pathname === '/x'`
+    for (const m of src.matchAll(/['"`](?:GET|POST|DELETE) (\/[^'"`\s]*)['"`]|prefix: ['"`](\/[^'"`]+)['"`]|pathname === ['"`](\/[^'"`]*)['"`]/g)) {
+      const route = m[1] ?? m[2] ?? m[3];
+      seen += 1;
+      if (route === '/' || route.startsWith('/deck/')) continue;
+      strays.push(`${f}: ${route}`);
+    }
+  }
+  assert.ok(seen > 60, `the scan saw only ${seen} routes — the literals changed shape and this test reads nothing`);
+  assert.deepEqual(strays, [], 'a route outside /deck/ would shadow a file beside the deck');
 });

@@ -309,7 +309,7 @@ export function speakerState(instance, url) {
     timings: plannedTimings(instance._sections, readJson(timingsKey())),
     // The phone-remote QR, or null when the remote is off (#39) — editmode's
     // read-only wiring sets it from /deck/ping (READ_ONLY#REMOTE); the edit
-    // server serves no /remote/* at all, so a deck in write mode never offers one.
+    // server serves no /deck/remote/* at all, so a deck in write mode never offers one.
     qr: instance.__remoteQr ?? null,
   };
 }

@@ -16,7 +16,7 @@
     one deck is still found after the deck moves, which is the whole feature and
     is decided by DOM text extraction.
 
-    The servers are mocked: `/review/*` for a reviewer, `/edit/*` for an author.
+    The servers are mocked: `/deck/review/*` for a reviewer, `/deck/edit/*` for an author.
     Which one answers is what decides whether M can take a comment or resolve
     one, so each mode runs with exactly one of them up.
   -->
@@ -61,12 +61,12 @@
           : new Response(JSON.stringify({ ok: true, name: 'review.html', undo: 0, redo: 0, review: { mode: 'write', git: false, by: 'Me <me@x>', store: 'review.review.jsonl' } }),
             { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.endsWith('/review/submit')) {
+      if (u.endsWith('/deck/review/submit')) {
         window.__submitCalls = (window.__submitCalls || 0) + 1;
         return new Response(JSON.stringify({ ok: true, branch: 'review/me-2026-08-24', comments: window.__store.length, resubmit: false }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.endsWith('/review/incoming')) {
+      if (u.endsWith('/deck/review/incoming')) {
         // A done review is still LISTED — struck through, so it can be
         // un-done — it simply stops counting as waiting.
         const reviews = [{
@@ -85,13 +85,13 @@
         return new Response(JSON.stringify({ ok: true, state: reviews.some((v) => !v.done) ? 'ok' : 'none', reviews }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.includes('/review/at?')) {
+      if (u.includes('/deck/review/at?')) {
         window.__atCalls = (window.__atCalls || 0) + 1;
         return new Response(JSON.stringify({ ok: true, known: true, deck: 'abc1234', slide: 3,
           title: 'Cut me', text: 'Cut me doomed' }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.endsWith('/review/done')) {
+      if (u.endsWith('/deck/review/done')) {
         const req_ = JSON.parse(opts.body);
         window.__doneCalls = (window.__doneCalls || 0) + 1;
         // the server's half: ONE comment's mark is remembered, and nothing is
@@ -101,7 +101,7 @@
         return new Response(JSON.stringify({ ok: true, branch: req_.branch, id: req_.id, done: !!req_.done }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.endsWith('/review/comments')) {
+      if (u.endsWith('/deck/review/comments')) {
         if (opts?.method === 'POST') {
           const rec = JSON.parse(opts.body);
           window.__posted.push(rec);

@@ -215,7 +215,7 @@ agent it started itself (A) commits on its own — and it did not start you. So
 when you finish one logical change, say so:
 
 \`\`\`sh
-curl -sf -X POST localhost:8788/edit/commit \\
+curl -sf -X POST localhost:8788/deck/edit/commit \\
   -H 'content-type: application/json' \\
   -d '{"message":"split the crowded video slides"}'
 \`\`\`
@@ -270,7 +270,7 @@ or layout the design system does not have.
 
 When the deck is open in write mode (\`decklight deck.html\`), commit each logical
 change you finish rather than leaving it to the timer's generic \`autosave\`:
-\`curl -sf -X POST localhost:8788/edit/commit -H 'content-type: application/json'
+\`curl -sf -X POST localhost:8788/deck/edit/commit -H 'content-type: application/json'
 -d '{"message":"what this change did"}'\`. No server listening means no
 authoring session — skip it and carry on.
 

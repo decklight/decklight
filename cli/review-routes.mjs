@@ -4,15 +4,15 @@
 // The review routes — SPEC REVIEW — as one thing every server that opens a
 // deck registers, whichever way it was opened:
 //
-//   GET  /review/comments    what has been said
-//   POST /review/comments    append one record: a comment, a reply (`re`),
+//   GET  /deck/review/comments    what has been said
+//   POST /deck/review/comments    append one record: a comment, a reply (`re`),
 //                            a resolve or a re-anchor (`op`)
-//   POST /review/submit      push what was said to a branch of its own
+//   POST /deck/review/submit      push what was said to a branch of its own
 //
 // What a page needs to know before it comments (`review` on /deck/ping: the
 // mode, whether comments commit, who is writing, the store) comes from
 // `ping()` here too. The edit server adds the owner's routes beside these
-// (/review/incoming, /review/at, /review/done: a fetch, a look into git
+// (/deck/review/incoming, /deck/review/at, /deck/review/done: a fetch, a look into git
 // history, a mark in git config), registered by it alone, the way the
 // read-only server alone registers /deck/upstream.
 //
@@ -197,17 +197,17 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
   };
 
   /** Is `url` one of these routes? The caller reads the body (REVIEW_BODY_MAX) before `handle`. */
-  const matches = (req, url) => url.pathname === '/review/comments' || url.pathname === '/review/submit';
+  const matches = (req, url) => url.pathname === '/deck/review/comments' || url.pathname === '/deck/review/submit';
   /** Answer the request; true when it was one of these routes. `body` is the POST text. */
   async function handle(req, res, url, body = '') {
     if (!matches(req, url)) return false;
-    if (req.method === 'GET' && url.pathname === '/review/comments') { json(res, 200, list()); return true; }
-    if (req.method === 'POST' && url.pathname === '/review/comments') {
+    if (req.method === 'GET' && url.pathname === '/deck/review/comments') { json(res, 200, list()); return true; }
+    if (req.method === 'POST' && url.pathname === '/deck/review/comments') {
       const r = post(body);
       json(res, r.ok ? 200 : r.code, r.ok ? r : { ok: false, error: r.error });
       return true;
     }
-    if (req.method === 'POST' && url.pathname === '/review/submit') {
+    if (req.method === 'POST' && url.pathname === '/deck/review/submit') {
       const r = await submit();
       json(res, r.ok ? 200 : r.code, r.ok ? r : { ok: false, error: r.error });
       return true;

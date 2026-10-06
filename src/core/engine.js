@@ -862,7 +862,7 @@ export function init(userConfig = {}) {
     const sec = instance._sections?.[slide - 1];
     if (!sec) return;
     try {
-      const r = await fetch(editmode.base() + '/edit/slide/hidden', {
+      const r = await fetch(editmode.base() + '/deck/edit/slide/hidden', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slide, hidden }),
       });
       if (!r.ok) throw new Error(String(r.status));
@@ -1412,7 +1412,7 @@ export function init(userConfig = {}) {
       checkOverflow(sec, idx);
       return sec.hasAttribute('data-split-conflict');
     },
-    post: (body) => fetch(editmode.base() + '/edit/slide/layout', {
+    post: (body) => fetch(editmode.base() + '/deck/edit/slide/layout', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -1832,7 +1832,7 @@ export function init(userConfig = {}) {
   }
   // The overview is where a deck is REARRANGED (PRESENTING, write mode): a
   // cell drags to a new place, and each cell carries new / duplicate / delete.
-  // Every one is the same `POST /edit/slide` the palette's rows and the
+  // Every one is the same `POST /deck/edit/slide` the palette's rows and the
   // element menu's Slide ▸ make, through editmode.slideOp, so one undo entry
   // each. The write reloads the page; the overview reopens on the slide the
   // server named, so a second drag follows the first without pressing O again.

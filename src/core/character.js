@@ -86,10 +86,10 @@ export function lipCorrection(d, rate = 1) {
 export function createCharacter({ root, config, debugLog, toast }) {
   const cfg = config.narration?.character ?? {};
   // Same origin by convention (#520), like the voice bridge: `open` proxies
-  // `/lipsync/*` to the lip-sync bridge it started; from disk, the bridge's
+  // `/deck/lipsync/*` to the lip-sync bridge it started; from disk, the bridge's
   // own default port. `narration.character.bridgeUrl` overrides both.
   const BRIDGE = cfg.bridgeUrl
-    ?? (/^https?:$/.test(location.protocol) ? `${location.origin}/lipsync` : 'http://127.0.0.1:8789');
+    ?? (/^https?:$/.test(location.protocol) ? `${location.origin}/deck/lipsync` : 'http://127.0.0.1:8789');
   const FALLBACK = cfg.fallback ?? 'amplitude';
   const storeKey = 'decklight-character:' + location.pathname;
 

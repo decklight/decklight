@@ -4,7 +4,7 @@
 
 // Evidence for #239: every response `decklight <deck> --read-only` writes carries the
 // Content-Security-Policy header — the error pages and control channels
-// included, not only the deck — and `POST /remote/pos` answers the deck alone.
+// included, not only the deck — and `POST /deck/remote/pos` answers the deck alone.
 // Nothing changes in the browser, so the shot is the CLI surface itself: this
 // script starts a REAL `decklight deck.html --read-only --remote`, curls a 404 and
 // the control-channel ping over loopback to show the header riding on both,
@@ -56,7 +56,7 @@ const until = async (re, ms = 10000) => {
 };
 
 const [, port] = await until(/http:\/\/127\.0\.0\.1:(\d+)/);
-const [, token] = await until(/\/remote\?t=([A-Za-z0-9_-]+)/);
+const [, token] = await until(/\/deck\/remote\?t=([A-Za-z0-9_-]+)/);
 await new Promise((r) => setTimeout(r, 300));
 
 const curl = (...args) => spawnSync('curl', ['-si', '--max-time', '5', ...args], { encoding: 'utf8' }).stdout
@@ -66,8 +66,8 @@ const curl = (...args) => spawnSync('curl', ['-si', '--max-time', '5', ...args],
 const notFound = curl(`http://127.0.0.1:${port}/missing.html`);
 const ping = curl(`http://127.0.0.1:${port}/deck/ping`);
 // The pos seam: token or no token, position reports are the deck's to make.
-const forged = curl('-X', 'POST', '-d', '{"i":99,"n":99}', `http://${lan}:${port}/remote/pos?t=${token}`);
-const real = curl('-X', 'POST', '-d', '{"i":2,"n":9}', `http://127.0.0.1:${port}/remote/pos`);
+const forged = curl('-X', 'POST', '-d', '{"i":99,"n":99}', `http://${lan}:${port}/deck/remote/pos?t=${token}`);
+const real = curl('-X', 'POST', '-d', '{"i":2,"n":9}', `http://127.0.0.1:${port}/deck/remote/pos`);
 
 dev.kill('SIGINT');
 await new Promise((r) => dev.on('exit', r));
@@ -102,11 +102,11 @@ const html = `<!doctype html>
 </style></head><body>
 <div class="term">
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
-    <span class="t">decklight · read-only — the CSP rides on EVERY response, and /remote/pos answers the deck alone (#239)</span></div>
+    <span class="t">decklight · read-only — the CSP rides on EVERY response, and /deck/remote/pos answers the deck alone (#239)</span></div>
   <div class="body">${block('curl -si http://127.0.0.1:' + port + '/missing.html               # a 404 error page', paintCurl(notFound))}
 ${block('curl -si http://127.0.0.1:' + port + '/deck/ping              # the control channel', paintCurl(ping))}
-${block(`curl -si -X POST -d '{"i":99,"n":99}' http://${lan}:${port}/remote/pos?t=…   # fabricated, from the LAN, token in hand`, paintCurl(forged))}
-${block(`curl -si -X POST -d '{"i":2,"n":9}' http://127.0.0.1:${port}/remote/pos      # the deck's own report, over loopback`, paintCurl(real))}</div>
+${block(`curl -si -X POST -d '{"i":99,"n":99}' http://${lan}:${port}/deck/remote/pos?t=…   # fabricated, from the LAN, token in hand`, paintCurl(forged))}
+${block(`curl -si -X POST -d '{"i":2,"n":9}' http://127.0.0.1:${port}/deck/remote/pos      # the deck's own report, over loopback`, paintCurl(real))}</div>
 </div>
 </body></html>
 `;

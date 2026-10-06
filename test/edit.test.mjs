@@ -428,24 +428,24 @@ test('the editing lock: locked, no edit route writes; the ping and the channel s
   })();
   t.after(() => reader.cancel().catch(() => {}));
 
-  const lock = await (await post(base, '/edit/lock', { locked: true })).json();
+  const lock = await (await post(base, '/deck/edit/lock', { locked: true })).json();
   assert.equal(lock.ok, true);
   assert.equal(lock.locked, true);
   assert.equal((await ping()).locked, true);
-  const refused = await post(base, '/edit/slide/notes', { slide: 1, text: 'should not land' });
+  const refused = await post(base, '/deck/edit/slide/notes', { slide: 1, text: 'should not land' });
   assert.equal(refused.status, 423);
   assert.match((await refused.json()).error, /editing is locked/);
   assert.equal(readFileSync(deck, 'utf8'), before, 'nothing was written');
-  const op = await post(base, '/edit/slide', { op: 'duplicate', slide: 1 });
+  const op = await post(base, '/deck/edit/slide', { op: 'duplicate', slide: 1 });
   assert.equal(op.status, 423, 'every edit route, not one');
   await new Promise((r) => setTimeout(r, 200));
   assert.ok(events.join('').includes('event: lock') && events.join('').includes('"locked":true'), 'every open page is told');
 
-  const unlock = await (await post(base, '/edit/lock', { locked: false })).json();
+  const unlock = await (await post(base, '/deck/edit/lock', { locked: false })).json();
   assert.equal(unlock.locked, false);
-  const saved = await post(base, '/edit/slide/notes', { slide: 1, text: 'lands now' });
+  const saved = await post(base, '/deck/edit/slide/notes', { slide: 1, text: 'lands now' });
   assert.equal(saved.status, 200, 'unlocked, the same route writes');
-  const bad = await post(base, '/edit/lock', { locked: 'yes' });
+  const bad = await post(base, '/deck/edit/lock', { locked: 'yes' });
   assert.equal(bad.status, 400);
   await reader.cancel().catch(() => {});
   await pump;
@@ -463,38 +463,38 @@ test('layout, undo, and redo write the deck FILE — and share one history', asy
     { ok: true, undo: 0, redo: 0, git: false, agents: [] });
 
   // layout lands in the file
-  let r = await (await post(base, '/edit/slide/layout', { slide: 1, layout: 'split' })).json();
+  let r = await (await post(base, '/deck/edit/slide/layout', { slide: 1, layout: 'split' })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
   assert.match(readFileSync(deck, 'utf8'), /<section data-layout="split">/);
 
   // same layout again: no write, no history entry
-  r = await (await post(base, '/edit/slide/layout', { slide: 1, layout: 'split' })).json();
+  r = await (await post(base, '/deck/edit/slide/layout', { slide: 1, layout: 'split' })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: false, undo: 1 });
 
   // notes go on the SAME stack
-  await post(base, '/edit/slide/notes', { slide: 1, text: 'hello ⟨CLICK⟩ world' });
+  await post(base, '/deck/edit/slide/notes', { slide: 1, text: 'hello ⟨CLICK⟩ world' });
   assert.match(readFileSync(deck, 'utf8'), /<aside class="notes">/);
 
   // undo twice: notes off, then layout off — back to the original file
-  r = await (await post(base, '/edit/undo')).json();
+  r = await (await post(base, '/deck/edit/undo')).json();
   assert.deepEqual({ undo: r.undo, redo: r.redo }, { undo: 1, redo: 1 });
-  r = await (await post(base, '/edit/undo')).json();
+  r = await (await post(base, '/deck/edit/undo')).json();
   assert.deepEqual({ undo: r.undo, redo: r.redo }, { undo: 0, redo: 2 });
   assert.equal(readFileSync(deck, 'utf8'), DECK);
 
   // a third undo is a clean 409, not a crash
-  const empty = await post(base, '/edit/undo');
+  const empty = await post(base, '/deck/edit/undo');
   assert.equal(empty.status, 409);
   assert.match((await empty.json()).error, /nothing to undo/);
 
   // redo replays the layout
-  r = await (await post(base, '/edit/redo')).json();
+  r = await (await post(base, '/deck/edit/redo')).json();
   assert.deepEqual({ undo: r.undo, redo: r.redo }, { undo: 1, redo: 1 });
   assert.match(readFileSync(deck, 'utf8'), /data-layout="split"/);
 
   // garbage in, 400 out
-  assert.equal((await post(base, '/edit/slide/layout', { slide: 1, layout: 'sideways' })).status, 400);
-  assert.equal((await post(base, '/edit/slide/layout', { slide: 'x', layout: 'top' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/slide/layout', { slide: 1, layout: 'sideways' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/slide/layout', { slide: 'x', layout: 'top' })).status, 400);
 });
 
 test('element edit mode: source, content, effect, and remove all land on the undo stack', async (t) => {
@@ -504,37 +504,37 @@ test('element edit mode: source, content, effect, and remove all land on the und
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
 
   // GET source reads fresh from the FILE — index 0 is slide 1's <h2>
-  let r = await (await fetch(base + '/edit/element/source?slide=1&index=0')).json();
+  let r = await (await fetch(base + '/deck/edit/element/source?slide=1&index=0')).json();
   assert.deepEqual(r, { ok: true, html: '<h2>Alpha</h2>' });
-  assert.equal((await fetch(base + '/edit/element/source?slide=1&index=9')).status, 404);
+  assert.equal((await fetch(base + '/deck/edit/element/source?slide=1&index=9')).status, 404);
 
   // content: replace that element's outerHTML
-  r = await (await post(base, '/edit/element/content', { slide: 1, index: 0, html: '<h2>Renamed</h2>' })).json();
+  r = await (await post(base, '/deck/edit/element/content', { slide: 1, index: 0, html: '<h2>Renamed</h2>' })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
   assert.match(readFileSync(deck, 'utf8'), /<h2>Renamed<\/h2>/);
 
   // effect: writes data-build; 'none' is accepted as a real value
-  r = await (await post(base, '/edit/element/effect', { slide: 1, index: 0, effect: 'fade-up' })).json();
+  r = await (await post(base, '/deck/edit/element/effect', { slide: 1, index: 0, effect: 'fade-up' })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 2 });
   assert.match(readFileSync(deck, 'utf8'), /<h2 data-build="fade-up">Renamed<\/h2>/);
 
   // effect: null strips it back off — the separate "remove effect" action
-  r = await (await post(base, '/edit/element/effect', { slide: 1, index: 0, effect: null })).json();
+  r = await (await post(base, '/deck/edit/element/effect', { slide: 1, index: 0, effect: null })).json();
   assert.equal(r.changed, true);
   assert.doesNotMatch(readFileSync(deck, 'utf8'), /data-build/);
 
   // remove: the element is gone; Z takes every one of these back in order
-  r = await (await post(base, '/edit/element/remove', { slide: 1, index: 0 })).json();
+  r = await (await post(base, '/deck/edit/element/remove', { slide: 1, index: 0 })).json();
   assert.equal(r.changed, true);
   assert.doesNotMatch(readFileSync(deck, 'utf8'), /Renamed/);
-  assert.deepEqual((await (await post(base, '/edit/undo')).json()).undo, 3);
+  assert.deepEqual((await (await post(base, '/deck/edit/undo')).json()).undo, 3);
   assert.match(readFileSync(deck, 'utf8'), /Renamed/, 'undo brought the element back');
 
-  // garbage in, 400 out — same contract as /edit/slide/layout
-  assert.equal((await post(base, '/edit/element/remove', { slide: 1, index: -1 })).status, 400);
-  assert.equal((await post(base, '/edit/element/content', { slide: 1, index: 0, html: 5 })).status, 400);
-  assert.equal((await post(base, '/edit/element/effect', { slide: 1, index: 0, effect: 'sideways' })).status, 400);
-  assert.equal((await post(base, '/edit/element/remove', { slide: 1, index: 99 })).status, 400);
+  // garbage in, 400 out — same contract as /deck/edit/slide/layout
+  assert.equal((await post(base, '/deck/edit/element/remove', { slide: 1, index: -1 })).status, 400);
+  assert.equal((await post(base, '/deck/edit/element/content', { slide: 1, index: 0, html: 5 })).status, 400);
+  assert.equal((await post(base, '/deck/edit/element/effect', { slide: 1, index: 0, effect: 'sideways' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/element/remove', { slide: 1, index: 99 })).status, 400);
 });
 
 test('element colours: a shape and its label in one edit, by path, and only ever a colour', async (t) => {
@@ -547,7 +547,7 @@ test('element colours: a shape and its label in one edit, by path, and only ever
   const text = { path: [0, 1], tag: 'text', prop: 'fill' };
 
   // a theme token by reference for the box, a literal for its label: ONE undo entry
-  let r = await (await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: 'var(--accent)' }, { ...text, value: '#ffb319' }] })).json();
+  let r = await (await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: 'var(--accent)' }, { ...text, value: '#ffb319' }] })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
   let html = readFileSync(deck, 'utf8');
   assert.match(html, /<rect width="40" height="20" style="stroke: red; fill: var\(--accent\)"\/>/, 'the old fill is replaced, the stroke kept');
@@ -555,36 +555,36 @@ test('element colours: a shape and its label in one edit, by path, and only ever
   assert.match(html, /viewBox="0 0 100 50"><!-- a note -->/, 'nothing else in the element moved');
 
   // null takes it back off, and an emptied style attribute goes with it
-  r = await (await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...text, value: null }] })).json();
+  r = await (await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...text, value: null }] })).json();
   assert.equal(r.changed, true);
   assert.match(readFileSync(deck, 'utf8'), /<text x="5" y="10">hi<\/text>/);
 
   // an HTML element is its own path
-  r = await (await post(base, '/edit/element/style', { slide: 1, index: 0, edits: [{ path: [], tag: 'h2', prop: 'background-color', value: 'var(--d-fill-2)' }, { path: [], tag: 'h2', prop: 'color', value: '#fff' }] })).json();
+  r = await (await post(base, '/deck/edit/element/style', { slide: 1, index: 0, edits: [{ path: [], tag: 'h2', prop: 'background-color', value: 'var(--d-fill-2)' }, { path: [], tag: 'h2', prop: 'color', value: '#fff' }] })).json();
   assert.match(readFileSync(deck, 'utf8'), /<h2 style="background-color: var\(--d-fill-2\); color: #fff">Alpha<\/h2>/);
 
   // the page and the file disagree (the engine drew it, or the deck moved on): 409, file untouched
   const before = readFileSync(deck, 'utf8');
-  let res = await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, tag: 'text', value: '#fff' }] });
+  let res = await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, tag: 'text', value: '#fff' }] });
   assert.equal(res.status, 409);
   assert.match((await res.json()).error, /the file has <rect>/);
-  assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ path: [0, 7], tag: 'rect', prop: 'fill', value: '#fff' }] })).status, 409);
+  assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ path: [0, 7], tag: 'rect', prop: 'fill', value: '#fff' }] })).status, 409);
 
   // the value lands inside an attribute: a colour, or nothing
   // a design system's token carries exactly one hex fallback (SPEC DESIGN_SYSTEMS)
   for (const good of ['var(--x)', 'var(--x,#fff)', 'var(--x, #0a1b2c)']) {
-    const r2 = await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: good }] });
+    const r2 = await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: good }] });
     assert.equal(r2.status, 200, good);
   }
   assert.match(readFileSync(deck, 'utf8'), /fill: var\(--x, #0a1b2c\)/);
   writeFileSync(deck, before);
   for (const bad of ['red" onload="x', 'url(javascript:1)', 'var(--x); position: fixed', 'expression(1)',
     'var(--x, red)', 'var(--x,#fff);x', 'var(--a, var(--b))', 'var(--x, #fff, #000)']) {
-    assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: bad }] })).status, 400, bad);
+    assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: bad }] })).status, 400, bad);
   }
-  assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, prop: 'position', value: '#fff' }] })).status, 400);
-  assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [] })).status, 400);
-  assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, path: [-1], value: '#fff' }] })).status, 400);
+  assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, prop: 'position', value: '#fff' }] })).status, 400);
+  assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [] })).status, 400);
+  assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, path: [-1], value: '#fff' }] })).status, 400);
   assert.equal(readFileSync(deck, 'utf8'), before);
 });
 
@@ -600,7 +600,7 @@ test('a notes save is announced as `notes`, never a reload; any other change to 
   let stream = '';
   (async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) break; stream += new TextDecoder().decode(value); } } catch { /* aborted */ } })();
   await new Promise((ok) => setTimeout(ok, 200));
-  const r = await (await post(base, '/edit/slide/notes', { slide: 1, text: 'Said in place.', from: 'p1' })).json();
+  const r = await (await post(base, '/deck/edit/slide/notes', { slide: 1, text: 'Said in place.', from: 'p1' })).json();
   assert.deepEqual([r.changed, r.inPlace], [true, true]);
   await new Promise((ok) => setTimeout(ok, 700));   // past the watcher's debounce
   assert.match(stream, /event: notes\ndata: \{"slide":1,"aside":"<p>Said in place\.<\/p>","from":"p1"\}/);
@@ -626,9 +626,9 @@ test('--git auto-commits on a cadence; undo/redo never consume the commits', asy
   assert.equal(readFileSync(path.join(dir, '.gitignore'), 'utf8'), STARTER_GITIGNORE);
 
   // edit + undo + redo through the server: the file churns, git holds still
-  await post(base, '/edit/slide/layout', { slide: 1, layout: 'top' });
-  await post(base, '/edit/undo');
-  await post(base, '/edit/redo');
+  await post(base, '/deck/edit/slide/layout', { slide: 1, layout: 'top' });
+  await post(base, '/deck/edit/undo');
+  await post(base, '/deck/edit/redo');
   assert.equal(git(['rev-list', '--count', 'HEAD'], dir), '1', 'history moves the file, never git');
   assert.match(readFileSync(deck, 'utf8'), /data-layout="top"/);
 });
@@ -664,7 +664,7 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   const ping = await (await fetch(base + '/deck/ping')).json();
   assert.deepEqual(ping.agents, [{ name: 'claude', label: 'Claude Code' }]);
 
-  const started = await (await post(base, '/edit/agent', { prompt: 'sign the deck' })).json();
+  const started = await (await post(base, '/deck/edit/agent', { prompt: 'sign the deck' })).json();
   assert.deepEqual({ ok: started.ok, agent: started.agent }, { ok: true, agent: 'claude' });
 
   // the run is async — wait for the edit to land on the undo stack
@@ -675,11 +675,11 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   }
   assert.match(readFileSync(deck, 'utf8'), /agent-was-here/);
 
-  await post(base, '/edit/undo');
+  await post(base, '/deck/edit/undo');
   assert.equal(readFileSync(deck, 'utf8'), DECK, 'undo takes the agent edit back');
 
   // asking for an agent that isn't there is a clean 400
-  const missing = await post(base, '/edit/agent', { prompt: 'x', agent: 'codex' });
+  const missing = await post(base, '/deck/edit/agent', { prompt: 'x', agent: 'codex' });
   assert.equal(missing.status, 400);
 });
 
@@ -693,7 +693,7 @@ test('the asks of a session are kept on the server — slide, prompt and outcome
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
   assert.deepEqual((await (await fetch(base + '/deck/ping')).json()).agentAsks, [], 'none yet');
 
-  await post(base, '/edit/agent', { prompt: 'move the diagram left', slide: 3 });
+  await post(base, '/deck/edit/agent', { prompt: 'move the diagram left', slide: 3 });
   let p;
   for (let i = 0; i < 200; i++) {
     p = await (await fetch(base + '/deck/ping')).json();
@@ -708,7 +708,7 @@ test('the asks of a session are kept on the server — slide, prompt and outcome
   assert.equal(ask.changed, true);
   assert.match(ask.tail ?? '', /Moved the diagram left\./, "the agent's own output");
 
-  await post(base, '/edit/agent', { prompt: 'no slide given', slide: 'x' });
+  await post(base, '/deck/edit/agent', { prompt: 'no slide given', slide: 'x' });
   for (let i = 0; i < 200; i++) {
     p = await (await fetch(base + '/deck/ping')).json();
     if (p.agentAsks.length === 2 && p.agentAsks[1].state === 'done') break;
@@ -717,7 +717,7 @@ test('the asks of a session are kept on the server — slide, prompt and outcome
   assert.equal(p.agentAsks[1].slide, undefined, 'a slide that is not a slide number is left out');
 });
 
-test('POST /edit/enhance: the agent drafts tags read-only, decklight writes the slides that kept their words — in ONE undo', async (t) => {
+test('POST /deck/edit/enhance: the agent drafts tags read-only, decklight writes the slides that kept their words — in ONE undo', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const withNotes = DECK
@@ -734,11 +734,11 @@ test('POST /edit/enhance: the agent drafts tags read-only, decklight writes the 
   ].join('\n'));
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
 
-  const bad = await post(base, '/edit/enhance', { slides: [0] });
+  const bad = await post(base, '/deck/edit/enhance', { slides: [0] });
   assert.equal(bad.status, 400, 'slide numbers are 1-based');
-  const started = await (await post(base, '/edit/enhance', { slides: 'all' })).json();
+  const started = await (await post(base, '/deck/edit/enhance', { slides: 'all' })).json();
   assert.deepEqual({ ok: started.ok, of: started.of, agent: started.agent }, { ok: true, of: 2, agent: 'claude' });
-  const again = await post(base, '/edit/enhance', { slides: 'all' });
+  const again = await post(base, '/deck/edit/enhance', { slides: 'all' });
   assert.equal(again.status, 409, 'one run at a time');
 
   for (let i = 0; i < 200; i++) {
@@ -749,19 +749,19 @@ test('POST /edit/enhance: the agent drafts tags read-only, decklight writes the 
   assert.match(after, /<p>\[warm\] Hello there!<\/p>\s*<p>\[click\]<\/p>\s*<p>Next beat\.<\/p>/);
   assert.match(after, /Keep my words\./, 'the reworded answer was not written');
   assert.doesNotMatch(after, /Change my words/);
-  await post(base, '/edit/undo');
+  await post(base, '/deck/edit/undo');
   assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes the whole run back');
 
-  const none = await post(base, '/edit/enhance', { slides: [2] });
+  const none = await post(base, '/deck/edit/enhance', { slides: [2] });
   assert.equal(none.status, 200, 'slide 2 has notes');
   for (let i = 0; i < 200; i++) {
-    const r = await post(base, '/edit/enhance', { slides: [1] });
+    const r = await post(base, '/deck/edit/enhance', { slides: [1] });
     if (r.status !== 409) break;
     await new Promise((res) => setTimeout(res, 50));
   }
 });
 
-test('POST /edit/enhance/text: the notes editor\'s box comes back tagged — and nothing is written', async (t) => {
+test('POST /deck/edit/enhance/text: the notes editor\'s box comes back tagged — and nothing is written', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
@@ -773,16 +773,16 @@ test('POST /edit/enhance/text: the notes editor\'s box comes back tagged — and
     "console.log(script.includes('REWORD') ? 'something else' : script.replace('Hello.', '[warm] Hello!'));",
   ].join('\n'));
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
-  const ok = await (await post(base, '/edit/enhance/text', { text: 'Hello.\n\n[click]\n\nNext.' })).json();
+  const ok = await (await post(base, '/deck/edit/enhance/text', { text: 'Hello.\n\n[click]\n\nNext.' })).json();
   assert.deepEqual({ ok: ok.ok, text: ok.text, changed: ok.changed }, { ok: true, text: '[warm] Hello!\n\n[click]\n\nNext.', changed: true });
   assert.equal(readFileSync(deck, 'utf8'), DECK, 'the file is the author\'s to save');
-  const bad = await post(base, '/edit/enhance/text', { text: 'REWORD me.' });
+  const bad = await post(base, '/deck/edit/enhance/text', { text: 'REWORD me.' });
   assert.equal(bad.status, 422);
   assert.match((await bad.json()).error, /changed the words/);
-  assert.equal((await post(base, '/edit/enhance/text', { text: '  ' })).status, 422);
+  assert.equal((await post(base, '/deck/edit/enhance/text', { text: '  ' })).status, 422);
 });
 
-test('POST /edit/enhance { kind: "spoken" }: the notes written for the ear, in ONE undo — the box, and the deck', async (t) => {
+test('POST /deck/edit/enhance { kind: "spoken" }: the notes written for the ear, in ONE undo — the box, and the deck', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const withNotes = DECK
@@ -797,25 +797,25 @@ test('POST /edit/enhance { kind: "spoken" }: the notes written for the ear, in O
     "console.log(prompt.includes('writing for the ear') ? script.replace('Fluffed a line? Backspace retakes it.', 'And if you fluff a line, just press Backspace to take it again.') : script);",
   ].join('\n'));
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
-  const box = await (await post(base, '/edit/enhance/text', { text: 'Fluffed a line? Backspace retakes it.', kind: 'spoken' })).json();
+  const box = await (await post(base, '/deck/edit/enhance/text', { text: 'Fluffed a line? Backspace retakes it.', kind: 'spoken' })).json();
   assert.equal(box.text, 'And if you fluff a line, just press Backspace to take it again.');
   assert.equal(readFileSync(deck, 'utf8'), withNotes, 'the box writes nothing');
-  const started = await (await post(base, '/edit/enhance', { slides: [1], kind: 'spoken' })).json();
+  const started = await (await post(base, '/deck/edit/enhance', { slides: [1], kind: 'spoken' })).json();
   assert.deepEqual({ ok: started.ok, of: started.of, kind: started.kind }, { ok: true, of: 1, kind: 'spoken' });
   for (let i = 0; i < 200; i++) {
     if ((await (await fetch(base + '/deck/ping')).json()).undo === 1) break;
     await new Promise((res) => setTimeout(res, 50));
   }
   assert.match(readFileSync(deck, 'utf8'), /<p>And if you fluff a line, just press Backspace to take it again\.<\/p>/);
-  await post(base, '/edit/undo');
+  await post(base, '/deck/edit/undo');
   assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes it back');
 });
 
-test('POST /edit/enhance with no agent on the machine is a 400 that says so', async (t) => {
+test('POST /deck/edit/enhance with no agent on the machine is a 400 that says so', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK.replace('<h2>Beta</h2>', '<h2>Beta</h2><aside class="notes"><p>Words.</p></aside>'));
   const { base } = await startEdit(t, dir, { env: { PATH: '' } });
-  const r = await post(base, '/edit/enhance', { slides: 'all' });
+  const r = await post(base, '/deck/edit/enhance', { slides: 'all' });
   assert.equal(r.status, 400);
   assert.match((await r.json()).error, /no agent CLI|install one/);
 });
@@ -848,21 +848,21 @@ test('the edit server binds 127.0.0.1 — the LAN cannot even connect', async (t
     'the LAN address must not be listening');
 });
 
-test('no /remote/* route is registered here at all', async (t) => {
-  // The negative space, mirroring read-only.test.mjs's "no /edit/* route": a
+test('no /deck/remote/* route is registered here at all', async (t) => {
+  // The negative space, mirroring read-only.test.mjs's "no /deck/edit/* route": a
   // clicker must not cost you an editing server, so the two capabilities do not
   // live in one process. Absent, not refused.
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
 
-  for (const p of ['/remote', '/remote/qr.svg', '/remote/events']) {
+  for (const p of ['/deck/remote', '/deck/remote/qr.svg', '/deck/remote/events']) {
     assert.equal((await fetch(base + p)).status, 404, p);
   }
   // a POST lands as 405 — unknown method on an unknown path, exactly what any
   // other made-up route gets. Not a refusal: there is nothing to have refused.
-  assert.equal((await post(base, '/remote/key', { key: 'next' })).status, 405);
-  assert.equal((await post(base, '/remote/pos', { i: 1, n: 2 })).status, 405);
+  assert.equal((await post(base, '/deck/remote/key', { key: 'next' })).status, 405);
+  assert.equal((await post(base, '/deck/remote/pos', { i: 1, n: 2 })).status, 405);
 
   const src = readFileSync(EDIT, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(src, /createRemoteRelay|remoteControllerHtml/,
@@ -915,7 +915,7 @@ function rawReq(base, { method = 'GET', path = '/deck/ping', headers = {}, body 
   });
 }
 
-test('a foreign web origin is refused at every /edit/* route, with no CORS grant', async (t) => {
+test('a foreign web origin is refused at every /deck/edit/* route, with no CORS grant', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
@@ -923,7 +923,7 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
 
   // the RCE vector itself: a POST that runs a coding agent against the deck dir
   const agent = await rawReq(base, {
-    method: 'POST', path: '/edit/agent', body: JSON.stringify({ prompt: 'rm the repo' }),
+    method: 'POST', path: '/deck/edit/agent', body: JSON.stringify({ prompt: 'rm the repo' }),
     headers: { origin: EVIL, 'content-type': 'application/json' },
   });
   assert.equal(agent.status, 403, 'the agent endpoint refuses a foreign origin');
@@ -931,16 +931,16 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
   assert.notEqual(agent.headers['access-control-allow-origin'], EVIL, 'nor echoes the attacker back');
 
   // reads leak the deck too — refused the same way
-  for (const path_ of ['/deck/ping', '/edit/history']) {
+  for (const path_ of ['/deck/ping', '/deck/edit/history']) {
     const r = await rawReq(base, { path: path_, headers: { origin: EVIL } });
     assert.equal(r.status, 403, path_);
   }
   // disk-writing mutations, all refused — including the one that writes a file
   // BESIDE the deck rather than the deck itself
   for (const [path_, payload] of [
-    ['/edit/slide/notes', { slide: 1, text: 'x' }], ['/edit/restore', { ref: 'HEAD' }],
-    ['/edit/element/remove', { slide: 1, index: 0 }],
-    ['/edit/narration/record?slide=1&kind=wav&dir=voiceover', 'RIFF'],
+    ['/deck/edit/slide/notes', { slide: 1, text: 'x' }], ['/deck/edit/restore', { ref: 'HEAD' }],
+    ['/deck/edit/element/remove', { slide: 1, index: 0 }],
+    ['/deck/edit/narration/record?slide=1&kind=wav&dir=voiceover', 'RIFF'],
   ]) {
     const r = await rawReq(base, {
       method: 'POST', path: path_, body: JSON.stringify(payload),
@@ -950,7 +950,7 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
   }
   // and the browser's preflight for such a POST is refused before it is sent
   const pre = await rawReq(base, {
-    method: 'OPTIONS', path: '/edit/agent',
+    method: 'OPTIONS', path: '/deck/edit/agent',
     headers: { origin: EVIL, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' },
   });
   assert.equal(pre.status, 403, 'the preflight itself is refused');
@@ -967,13 +967,13 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
 // download path, so a recorded deck arrived as thirty slide-NN.wav in the OS
 // download folder — never the deck's, which is the only folder `bundle` reads.
 
-test('POST /edit/narration writes the config, undoes like any other edit', async (t) => {
+test('POST /deck/edit/narration writes the config, undoes like any other edit', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, BOOT_DECK('Decklight.init({});'));
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
 
-  const r = await (await post(base, '/edit/narration',
+  const r = await (await post(base, '/deck/edit/narration',
     { files: 'voiceover', ext: 'wav', segments: true, label: 'My voice' })).json();
   assert.equal(r.ok, true);
   assert.equal(r.changed, true);
@@ -984,15 +984,15 @@ test('POST /edit/narration writes the config, undoes like any other edit', async
 
   // one door for every mutation, so Z takes this back like a notes edit
   assert.equal(r.undo, 1);
-  await post(base, '/edit/undo');
+  await post(base, '/deck/edit/undo');
   assert.doesNotMatch(readFileSync(deck, 'utf8'), /narration:/);
 
-  // the same three shapes /edit/narration/record refuses for a folder — this one is
+  // the same three shapes /deck/edit/narration/record refuses for a folder — this one is
   // written INTO the deck, where a bad value is not a failed request but a
   // deck that no longer plays
   for (const bad of [{ files: '/etc' }, { files: '../..' }, { files: 'C:\\x' },
     { files: '' }, { files: 5 }, { files: 'ok', ext: '../x' }, { files: 'ok', segments: 'yes' }]) {
-    assert.equal((await post(base, '/edit/narration', bad)).status, 400, JSON.stringify(bad));
+    assert.equal((await post(base, '/deck/edit/narration', bad)).status, 400, JSON.stringify(bad));
   }
 });
 
@@ -1007,7 +1007,7 @@ test('a second voice is ADDED to the deck, never written over the first', async 
     + "{ label: 'Adam · elevenlabs', dir: 'voices/adam' }] } });"));
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
 
-  await post(base, '/edit/narration',
+  await post(base, '/deck/edit/narration',
     { files: 'voices/me', ext: 'wav', segments: true, label: 'My voice' });
   let html = readFileSync(deck, 'utf8');
   assert.match(html, /voices\/rachel/, 'the first cloned voice survives');
@@ -1016,7 +1016,7 @@ test('a second voice is ADDED to the deck, never written over the first', async 
 
   // …and recording into the same folder again UPDATES it rather than listing
   // it twice — the picker must not show one folder as two rows
-  await post(base, '/edit/narration',
+  await post(base, '/deck/edit/narration',
     { files: 'voices/me', ext: 'wav', segments: true, label: 'My voice, take 2' });
   html = readFileSync(deck, 'utf8');
   assert.equal(html.match(/dir: 'voices\/me'/g).length, 1);
@@ -1025,7 +1025,7 @@ test('a second voice is ADDED to the deck, never written over the first', async 
   assert.equal(html.match(/dir: 'voices\//g).length, 3, 'three tracks, still');
 });
 
-test('POST /edit/narration says WHY when a deck builds its config elsewhere', async (t) => {
+test('POST /deck/edit/narration says WHY when a deck builds its config elsewhere', async (t) => {
   // Not a failure of this server — a deck whose config is not a literal at the
   // call site. Naming that is the difference between "paste this line" and
   // "it did not work".
@@ -1035,19 +1035,19 @@ test('POST /edit/narration says WHY when a deck builds its config elsewhere', as
   const before = readFileSync(deck, 'utf8');
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
 
-  const res = await post(base, '/edit/narration', { files: 'voiceover', ext: 'wav' });
+  const res = await post(base, '/deck/edit/narration', { files: 'voiceover', ext: 'wav' });
   assert.equal(res.status, 409);
   assert.match((await res.json()).error, /outside the Decklight\.init/);
   assert.equal(readFileSync(deck, 'utf8'), before, 'and it wrote nothing');
 });
 
-test('POST /edit/narration/record writes slide-NN.wav into a folder beside the deck', async (t) => {
+test('POST /deck/edit/narration/record writes slide-NN.wav into a folder beside the deck', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
 
   const wav = Buffer.from('RIFF....WAVEfmt ');
-  const r = await (await fetch(base + '/edit/narration/record?slide=7&kind=wav&dir=voiceover', {
+  const r = await (await fetch(base + '/deck/edit/narration/record?slide=7&kind=wav&dir=voiceover', {
     method: 'POST', body: wav,
   })).json();
   assert.deepEqual(r, { ok: true, dir: 'voiceover', file: 'slide-07.wav' });
@@ -1057,25 +1057,25 @@ test('POST /edit/narration/record writes slide-NN.wav into a folder beside the d
 
   // the character's sidecar rides the same route under the name bundle looks for
   const tl = JSON.stringify({ frames: [] });
-  const v = await (await fetch(base + '/edit/narration/record?slide=7&kind=visemes&dir=voiceover', {
+  const v = await (await fetch(base + '/deck/edit/narration/record?slide=7&kind=visemes&dir=voiceover', {
     method: 'POST', body: tl,
   })).json();
   assert.equal(v.file, 'slide-07.visemes.json');
   assert.equal(readFileSync(path.join(dir, 'voiceover', 'slide-07.visemes.json'), 'utf8'), tl);
 
   // a deck that names its own narration folder records into THAT one
-  await fetch(base + '/edit/narration/record?slide=1&kind=wav&dir=audio%2Ftake-2', { method: 'POST', body: wav });
+  await fetch(base + '/deck/edit/narration/record?slide=1&kind=wav&dir=audio%2Ftake-2', { method: 'POST', body: wav });
   assert.ok(existsSync(path.join(dir, 'audio', 'take-2', 'slide-01.wav')));
 });
 
 // ── ⇧R: one file per ⟨CLICK⟩ beat, which is what steps the builds ─────────
-test('POST /edit/narration/record?seg writes slide-NN-KK.wav — and refuses a seg it cannot name', async (t) => {
+test('POST /deck/edit/narration/record?seg writes slide-NN-KK.wav — and refuses a seg it cannot name', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
   const wav = Buffer.from('RIFF....WAVEfmt seg');
 
-  const r = await (await fetch(base + '/edit/narration/record?slide=4&kind=wav&seg=2&dir=voiceover', {
+  const r = await (await fetch(base + '/deck/edit/narration/record?slide=4&kind=wav&seg=2&dir=voiceover', {
     method: 'POST', body: wav,
   })).json();
   // zero-padded on BOTH halves — the name tools/voiceover.mjs writes and the
@@ -1085,10 +1085,10 @@ test('POST /edit/narration/record?seg writes slide-NN-KK.wav — and refuses a s
 
   // the whole-slide file is still its own name — the two live side by side,
   // because every reader that predates segments only knows the short one
-  await fetch(base + '/edit/narration/record?slide=4&kind=wav&dir=voiceover', { method: 'POST', body: wav });
+  await fetch(base + '/deck/edit/narration/record?slide=4&kind=wav&dir=voiceover', { method: 'POST', body: wav });
   assert.deepEqual(readdirSync(path.join(dir, 'voiceover')).sort(), ['slide-04-02.wav', 'slide-04.wav']);
 
-  const post = (qs) => fetch(`${base}/edit/narration/record?${qs}`, { method: 'POST', body: 'x' });
+  const post = (qs) => fetch(`${base}/deck/edit/narration/record?${qs}`, { method: 'POST', body: 'x' });
   // `seg` is half of a filename this server builds, so it is bounded exactly
   // like `slide`
   for (const bad of ['seg=0', 'seg=-1', 'seg=1.5', 'seg=x', 'seg=1000', 'seg=..%2F..%2Fx']) {
@@ -1100,18 +1100,18 @@ test('POST /edit/narration/record?seg writes slide-NN-KK.wav — and refuses a s
   // the player plays one beat at a time, so a timeline for the whole slide
   // starts at zero against every one of them.
   const tl = JSON.stringify({ cues: [], duration: 0.4 });
-  const v = await (await fetch(base + '/edit/narration/record?slide=4&kind=visemes&seg=2&dir=voiceover', {
+  const v = await (await fetch(base + '/deck/edit/narration/record?slide=4&kind=visemes&seg=2&dir=voiceover', {
     method: 'POST', body: tl,
   })).json();
   assert.equal(v.file, 'slide-04-02.visemes.json');
   assert.equal(readFileSync(path.join(dir, 'voiceover', 'slide-04-02.visemes.json'), 'utf8'), tl);
 });
 
-test('POST /edit/narration/record names the folder only — never the file, and never one outside the deck', async (t) => {
+test('POST /deck/edit/narration/record names the folder only — never the file, and never one outside the deck', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-  const post = (qs) => fetch(`${base}/edit/narration/record?${qs}`, { method: 'POST', body: 'x' });
+  const post = (qs) => fetch(`${base}/deck/edit/narration/record?${qs}`, { method: 'POST', body: 'x' });
 
   // the file name is built server-side, so the only lever a caller has is the
   // folder — and every way out of the served root is refused
@@ -1147,7 +1147,7 @@ test('the legitimate callers still get through — loopback, file://, and the CL
   assert.equal(JSON.parse(cli.body).ok, true);
   // a preflight from the served deck is granted, echoing its origin
   const pre = await rawReq(base, {
-    method: 'OPTIONS', path: '/edit/slide/notes',
+    method: 'OPTIONS', path: '/deck/edit/slide/notes',
     headers: { origin: base, 'access-control-request-method': 'POST' },
   });
   assert.equal(pre.status, 204);
@@ -1221,7 +1221,7 @@ test('an agent can mark its own commit boundary, and cannot when git is off', as
 
   // no repo and --no-git: the endpoint refuses rather than pretending
   const off = await startEdit(t, dir, { env: { PATH: dir }, extraArgs: ['--no-git'] });
-  const refused = await post(off.base, '/edit/commit', { message: 'nope' });
+  const refused = await post(off.base, '/deck/edit/commit', { message: 'nope' });
   assert.equal(refused.status, 409);
 
   // a real repo: the agent's message becomes the subject
@@ -1233,7 +1233,7 @@ test('an agent can mark its own commit boundary, and cannot when git is off', as
   const on = await startEdit(t, repo, { extraArgs: ['--git'] });
 
   writeFileSync(path.join(repo, 'deck.html'), DECK.replace('Alpha', 'Beta'));
-  const res = await post(on.base, '/edit/commit', { message: 'split the crowded slides' });
+  const res = await post(on.base, '/deck/edit/commit', { message: 'split the crowded slides' });
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.committed, true);
@@ -1256,11 +1256,11 @@ const gitRepoWithDeck = (t) => {
   return dir;
 };
 
-test('/edit/history lists the deck history, newest first', async (t) => {
+test('/deck/edit/history lists the deck history, newest first', async (t) => {
   const dir = gitRepoWithDeck(t);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
 
-  const j = await (await fetch(base + '/edit/history')).json();
+  const j = await (await fetch(base + '/deck/edit/history')).json();
   assert.equal(j.ok, true);
   assert.ok(j.entries.length >= 2);
   assert.equal(j.entries[0].subject, 'second version');
@@ -1268,14 +1268,14 @@ test('/edit/history lists the deck history, newest first', async (t) => {
   assert.ok(j.entries[0].when, 'a human-readable age');
 });
 
-test('/edit/history carries what each version was and what it changed', async (t) => {
+test('/deck/edit/history carries what each version was and what it changed', async (t) => {
   // The overlay draws a slide count and a +/− pair on every row, and it has no
   // way to compute either: the runtime has zero dependencies and cannot spawn
   // git, so if this route does not send the numbers there are no numbers.
   const dir = gitRepoWithDeck(t);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
 
-  const { entries } = await (await fetch(base + '/edit/history')).json();
+  const { entries } = await (await fetch(base + '/deck/edit/history')).json();
   for (const e of entries) {
     assert.equal(typeof e.slides, 'number', `${e.subject}: no slide count`);
     assert.ok(e.slides > 0, `${e.subject}: a deck with no slides`);
@@ -1288,19 +1288,19 @@ test('/edit/history carries what each version was and what it changed', async (t
   assert.ok(first.add > 0);
 });
 
-test('/edit/history/at previews a version — with a base href so its assets resolve', async (t) => {
+test('/deck/edit/history/at previews a version — with a base href so its assets resolve', async (t) => {
   const dir = gitRepoWithDeck(t);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
 
-  const { entries } = await (await fetch(base + '/edit/history')).json();
+  const { entries } = await (await fetch(base + '/deck/edit/history')).json();
   const oldest = entries[entries.length - 1].hash;
 
-  const res = await fetch(`${base}/edit/history/at?ref=${oldest}`);
+  const res = await fetch(`${base}/deck/edit/history/at?ref=${oldest}`);
   assert.equal(res.status, 200);
   const html = await res.text();
   assert.match(html, /Alpha/, 'the OLD content, not the current file');
   assert.doesNotMatch(html, /Second/);
-  // served from /edit/, so relative ../dist paths need a root base to resolve
+  // served from /deck/edit/, so relative ../dist paths need a root base to resolve
   assert.match(html, /<base href="\/">/);
   // a deck that is data carries no runtime: the preview must be given one, or
   // the frame shows bare markup — dark text on a dark panel, a black box
@@ -1309,26 +1309,26 @@ test('/edit/history/at previews a version — with a base href so its assets res
   assert.match(html, /<link rel="stylesheet" href="themes\/aurora\.css">/);
   assert.ok(html.indexOf('<base href="/">') < html.indexOf('decklight.css'), 'and they resolve from the root');
 
-  assert.equal((await fetch(base + '/edit/history/at?ref=nosuchref')).status, 404);
+  assert.equal((await fetch(base + '/deck/edit/history/at?ref=nosuchref')).status, 404);
 });
 
-test('/edit/restore rides on top and lands on the undo stack', async (t) => {
+test('/deck/edit/restore rides on top and lands on the undo stack', async (t) => {
   const dir = gitRepoWithDeck(t);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
 
-  const { entries } = await (await fetch(base + '/edit/history')).json();
+  const { entries } = await (await fetch(base + '/deck/edit/history')).json();
   const oldest = entries[entries.length - 1].hash;
   const before = git(['log', '--oneline'], dir).split('\n').length;
 
-  const j = await (await post(base, '/edit/restore', { ref: oldest })).json();
+  const j = await (await post(base, '/deck/edit/restore', { ref: oldest })).json();
   assert.equal(j.ok, true);
   assert.equal(j.changed, true);
   assert.match(readFileSync(path.join(dir, 'deck.html'), 'utf8'), /Alpha/);
   assert.equal(git(['log', '--oneline'], dir).split('\n').length, before + 1, 'a new commit, not a rewrite');
   assert.ok(j.undo >= 1, 'Z can take the restore back');
 
-  assert.equal((await post(base, '/edit/restore', { ref: 'nosuchref' })).status, 400);
-  assert.equal((await post(base, '/edit/restore', {})).status, 400);
+  assert.equal((await post(base, '/deck/edit/restore', { ref: 'nosuchref' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/restore', {})).status, 400);
 });
 
 test('the history endpoints refuse when git is off, rather than pretending', async (t) => {
@@ -1336,9 +1336,9 @@ test('the history endpoints refuse when git is off, rather than pretending', asy
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir }, extraArgs: ['--no-git'] });
 
-  assert.equal((await fetch(base + '/edit/history')).status, 409);
-  assert.equal((await fetch(base + '/edit/history/at?ref=HEAD')).status, 409);
-  assert.equal((await post(base, '/edit/restore', { ref: 'HEAD' })).status, 409);
+  assert.equal((await fetch(base + '/deck/edit/history')).status, 409);
+  assert.equal((await fetch(base + '/deck/edit/history/at?ref=HEAD')).status, 409);
+  assert.equal((await post(base, '/deck/edit/restore', { ref: 'HEAD' })).status, 409);
 });
 
 test('an agent commit contains the agent\'s work only, not what you left uncommitted', async (t) => {
@@ -1368,7 +1368,7 @@ test('an agent commit contains the agent\'s work only, not what you left uncommi
 
   // a hand edit the player never committed, made BEFORE asking the agent
   writeFileSync(deck, DECK.replace('Alpha', 'MY OWN EDIT'));
-  await post(base, '/edit/agent', { prompt: 'sign the deck', message: 'sign the deck' });
+  await post(base, '/deck/edit/agent', { prompt: 'sign the deck', message: 'sign the deck' });
 
   for (let i = 0; i < 200; i++) {
     const p = await (await fetch(base + '/deck/ping')).json();
@@ -1424,31 +1424,31 @@ test('setSlideHidden adds data-hidden once, beside what the section already carr
   assert.throws(() => setSlideHidden(DECK, 3, true), /no slide 3 \(deck has 2\)/);
 });
 
-test('/edit/slide/hidden hides and unhides one slide through the same undo stack, and refuses a bad payload', async (t) => {
+test('/deck/edit/slide/hidden hides and unhides one slide through the same undo stack, and refuses a bad payload', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-  let r = await (await post(base, '/edit/slide/hidden', { slide: 2, hidden: true })).json();
+  let r = await (await post(base, '/deck/edit/slide/hidden', { slide: 2, hidden: true })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
   assert.match(readFileSync(deck, 'utf8'), /<section data-layout="centered" data-hidden>/);
-  r = await (await post(base, '/edit/slide/hidden', { slide: 2, hidden: true })).json();
+  r = await (await post(base, '/deck/edit/slide/hidden', { slide: 2, hidden: true })).json();
   assert.equal(r.changed, false, 'already hidden — nothing written, nothing to undo');
-  r = await (await post(base, '/edit/slide/hidden', { slide: 2, hidden: false })).json();
+  r = await (await post(base, '/deck/edit/slide/hidden', { slide: 2, hidden: false })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 2 });
   assert.equal(readFileSync(deck, 'utf8'), DECK);
-  assert.equal((await post(base, '/edit/slide/hidden', { slide: 2, hidden: 'yes' })).status, 400);
-  assert.equal((await post(base, '/edit/slide/hidden', { slide: 0, hidden: true })).status, 400);
+  assert.equal((await post(base, '/deck/edit/slide/hidden', { slide: 2, hidden: 'yes' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/slide/hidden', { slide: 0, hidden: true })).status, 400);
 });
 
-test('/edit/slide/sources writes a slide\u2019s sources, replaces them, and clears them', async (t) => {
+test('/deck/edit/slide/sources writes a slide\u2019s sources, replaces them, and clears them', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
   const { base } = await startEdit(t, dir);
   const before = readFileSync(deck, 'utf8');
 
-  const r = await (await post(base, '/edit/slide/sources', {
+  const r = await (await post(base, '/deck/edit/slide/sources', {
     slide: 2,
     facts: [['owner', 'platform-team'], ['', 'dropped: no name']],
     links: [{ title: 'KIP-98', href: 'https://example.invalid/kip', note: 'the original' }],
@@ -1461,27 +1461,27 @@ test('/edit/slide/sources writes a slide\u2019s sources, replaces them, and clea
   assert.match(after, /<a href="https:\/\/example\.invalid\/kip">KIP-98<\/a> \u2014 the original/);
 
   // editing again replaces the aside rather than stacking a second one
-  await post(base, '/edit/slide/sources', { slide: 2, facts: [['owner', 'docs-team']], links: [] });
+  await post(base, '/deck/edit/slide/sources', { slide: 2, facts: [['owner', 'docs-team']], links: [] });
   const again = readFileSync(deck, 'utf8');
   assert.equal((again.match(/<aside class="sources">/g) ?? []).length, 1);
   assert.match(again, /<dd>docs-team<\/dd>/);
 
   // and emptying it takes the aside away rather than leaving an empty one
-  await post(base, '/edit/slide/sources', { slide: 2, facts: [], links: [] });
+  await post(base, '/deck/edit/slide/sources', { slide: 2, facts: [], links: [] });
   assert.doesNotMatch(readFileSync(deck, 'utf8'), /aside class="sources"/);
 
   // three edits, three undo entries
-  for (let i = 0; i < 3; i++) await post(base, '/edit/undo', {});
+  for (let i = 0; i < 3; i++) await post(base, '/deck/edit/undo', {});
   assert.equal(readFileSync(deck, 'utf8'), before, 'Z walks all the way back');
 });
 
-test('/edit/slide/sources refuses a link that would RUN, and says which', async (t) => {
+test('/deck/edit/slide/sources refuses a link that would RUN, and says which', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
   const { base } = await startEdit(t, dir);
 
-  const r = await (await post(base, '/edit/slide/sources', {
+  const r = await (await post(base, '/deck/edit/slide/sources', {
     slide: 1,
     facts: [],
     links: [
@@ -1499,21 +1499,21 @@ test('/edit/slide/sources refuses a link that would RUN, and says which', async 
   assert.match(after, /example\.invalid\/ok/, 'the honest one is still written');
 });
 
-test('/edit/timings writes every slide\'s rehearsed time in ONE edit, and refuses a bad payload', async (t) => {
+test('/deck/edit/timings writes every slide\'s rehearsed time in ONE edit, and refuses a bad payload', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-  const r = await (await post(base, '/edit/timings', { timings: [{ slide: 1, seconds: 42.6 }, { slide: 2, seconds: 90 }] })).json();
+  const r = await (await post(base, '/deck/edit/timings', { timings: [{ slide: 1, seconds: 42.6 }, { slide: 2, seconds: 90 }] })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 }, 'two slides, one history entry');
   const html = readFileSync(deck, 'utf8');
   assert.match(html, /<section data-timing="43">\s*<h2>Alpha<\/h2>/);
   assert.match(html, /<section data-layout="centered" data-timing="90">\s*<h2>Beta<\/h2>/, 'beside the layout it already had');
-  assert.equal((await post(base, '/edit/timings', { timings: [{ slide: 'one', seconds: 5 }] })).status, 400);
-  assert.equal((await post(base, '/edit/timings', { timings: 'nope' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/timings', { timings: [{ slide: 'one', seconds: 5 }] })).status, 400);
+  assert.equal((await post(base, '/deck/edit/timings', { timings: 'nope' })).status, 400);
 });
 
-// ── /edit/export — the palette's hand-over rows (PRESENTING) ───────────────
+// ── /deck/edit/export — the palette's hand-over rows (PRESENTING) ───────────────
 //
 // The export itself is `decklight pptx`, tested in test/pptx-export.test.mjs
 // and run for real in test/pptx-render.mjs. What is under test HERE is the
@@ -1552,7 +1552,7 @@ if (printed) writeFileSync(printed.slice('--print-to-pdf='.length), '%PDF-1.4\\n
 // browser half of the row runs on every platform in engine-render.
 const noFakeChrome = process.platform === 'win32';
 
-test('/edit/export writes the PowerPoint and names the file it wrote', async (t) => {
+test('/deck/edit/export writes the PowerPoint and names the file it wrote', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
@@ -1560,7 +1560,7 @@ test('/edit/export writes the PowerPoint and names the file it wrote', async (t)
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
   const { base, log } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } });
 
-  const r = await (await post(base, '/edit/export', { kind: 'pptx' })).json();
+  const r = await (await post(base, '/deck/edit/export', { kind: 'pptx' })).json();
   assert.equal(r.ok, true, `export refused: ${r.error}`);
   assert.equal(r.file, 'deck.pptx', 'the path is relative to where the deck is open');
   assert.equal(typeof r.seconds, 'number');
@@ -1581,7 +1581,7 @@ test('/edit/export writes the PowerPoint and names the file it wrote', async (t)
   assert.equal((await (await fetch(base + '/deck/ping')).json()).undo, 0);
 });
 
-test('/edit/export runs one export at a time, and the deck is told which', async (t) => {
+test('/deck/edit/export runs one export at a time, and the deck is told which', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
@@ -1593,17 +1593,17 @@ test('/edit/export runs one export at a time, and the deck is told which', async
   // so waiting for that line is a fact rather than a guess about scheduling.
   // (Two `Promise.all`ed fetches passed here and failed on CI, where they
   // shared one keep-alive socket and simply ran in sequence.)
-  const first = post(base, '/edit/export', { kind: 'pptx' });
+  const first = post(base, '/deck/edit/export', { kind: 'pptx' });
   await waitFor(/export: deck\.html → PowerPoint/);
   // its own socket, for the same reason — and a DIFFERENT kind, because the
   // lock is one browser on one machine, not one output path
-  const second = await rawPost(base, '/edit/export', { kind: 'pdf' });
+  const second = await rawPost(base, '/deck/edit/export', { kind: 'pdf' });
   assert.equal(second.status, 409, 'a second export while one is in flight');
   assert.match(second.body, /already running/);
 
   assert.equal((await first).status, 200, 'the first one still finishes');
   // and once it is done, the row works again
-  assert.equal((await post(base, '/edit/export', { kind: 'pptx' })).status, 200);
+  assert.equal((await post(base, '/deck/edit/export', { kind: 'pptx' })).status, 200);
 });
 
 test('an export that fails says so and leaves the edit server serving', async (t) => {
@@ -1614,7 +1614,7 @@ test('an export that fails says so and leaves the edit server serving', async (t
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
   const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_BLANK: '1' } });
 
-  const res = await post(base, '/edit/export', { kind: 'pptx' });
+  const res = await post(base, '/deck/edit/export', { kind: 'pptx' });
   assert.equal(res.status, 500);
   assert.match((await res.json()).error, /export refused/);
   assert.ok(!existsSync(path.join(dir, 'deck.pptx')), 'nothing half-written was left behind');
@@ -1630,7 +1630,7 @@ const DATA_DECK = (cfg) => '<!doctype html><html><head><title>T</title>\n'
   + '</head><body><div class="decklight"><section><h1>One</h1></section><section><h1>Two</h1></section></div></body></html>\n';
 const cfgIn = (html) => JSON.parse(html.match(/data-decklight-config>([\s\S]*?)<\/script>/)[1]);
 
-test('/edit/export bundles the deck into one file — every marked theme in it, opening on the one on screen, no browser launched', async (t) => {
+test('/deck/edit/export bundles the deck into one file — every marked theme in it, opening on the one on screen, no browser launched', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
@@ -1641,7 +1641,7 @@ test('/edit/export bundles the deck into one file — every marked theme in it, 
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
   const { base, log } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_LOG: launches } });
 
-  const r = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'fjord' })).json();
+  const r = await (await post(base, '/deck/edit/export', { kind: 'bundle', theme: 'fjord' })).json();
   assert.equal(r.ok, true, `bundle refused: ${r.error}`);
   assert.equal(r.file, 'deck-standalone.html', "the CLI's own name for it, beside the deck");
   assert.equal(r.what, 'one file');
@@ -1654,7 +1654,7 @@ test('/edit/export bundles the deck into one file — every marked theme in it, 
   assert.equal(readFileSync(deck, 'utf8'), source, 'the deck itself is untouched');
 
   // the theme the deck opens on needs no mark — every bundle carries it
-  const configured = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora' })).json();
+  const configured = await (await post(base, '/deck/edit/export', { kind: 'bundle', theme: 'aurora' })).json();
   assert.equal(configured.ok, true, configured.error);
 });
 
@@ -1667,19 +1667,19 @@ test('the bundle row asks first when the theme on screen is not marked — a shi
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
   const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } });
 
-  const asked = await post(base, '/edit/export', { kind: 'bundle', theme: 'midnight' });
+  const asked = await post(base, '/deck/edit/export', { kind: 'bundle', theme: 'midnight' });
   assert.equal(asked.status, 409);
   assert.equal((await asked.json()).unmarked, 'midnight', 'the shipped theme on screen, by name — what the mark route takes');
   assert.ok(!existsSync(path.join(dir, 'deck-standalone.html')), 'nothing written before the answer');
   assert.equal(readFileSync(deck, 'utf8'), source, 'and the deck untouched');
 
   // a PDF renders the theme and carries nothing: no question there
-  const pdf = await post(base, '/edit/export', { kind: 'pdf', theme: 'midnight' });
+  const pdf = await post(base, '/deck/edit/export', { kind: 'pdf', theme: 'midnight' });
   assert.notEqual(pdf.status, 409);
 
   // the second press marks it, and the bundle then carries both marks
-  assert.equal((await post(base, '/edit/theme/mark', { ref: 'midnight', marked: true })).status, 200);
-  const r = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'midnight' })).json();
+  assert.equal((await post(base, '/deck/edit/theme/mark', { ref: 'midnight', marked: true })).status, 200);
+  const r = await (await post(base, '/deck/edit/export', { kind: 'bundle', theme: 'midnight' })).json();
   assert.equal(r.ok, true, r.error);
   const out = readFileSync(path.join(dir, 'deck-standalone.html'), 'utf8');
   assert.equal(cfgIn(out).theme, 'midnight');
@@ -1696,25 +1696,25 @@ test('the bundle row carries the narration audio only when asked, and estimates 
   const audioIn = () => /data-decklight-audio="voices\/slide-01\.m4a"/.test(readFileSync(standalone, 'utf8'));
 
   // the card's figures, before anything is written
-  const est = await (await fetch(base + '/edit/export/estimate?kind=bundle&theme=aurora')).json();
+  const est = await (await fetch(base + '/deck/edit/export/estimate?kind=bundle&theme=aurora')).json();
   assert.equal(est.ok, true, est.error);
   assert.equal(est.audio.files, 1);
   assert.equal(est.audio.folders, 'voices/ (1)');
   assert.ok(est.audio.original > 0 && est.base > 0);
   assert.ok(!existsSync(standalone), 'an estimate writes nothing');
 
-  const plain = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora' })).json();
+  const plain = await (await post(base, '/deck/edit/export', { kind: 'bundle', theme: 'aurora' })).json();
   assert.equal(plain.ok, true, plain.error);
   assert.equal(audioIn(), false, 'with no audio asked for, it stays beside the deck');
   assert.equal(statSync(standalone).size, est.base, 'and the file is the size the card said');
-  const voiced = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora', audio: 'original' })).json();
+  const voiced = await (await post(base, '/deck/edit/export', { kind: 'bundle', theme: 'aurora', audio: 'original' })).json();
   assert.equal(voiced.ok, true, voiced.error);
   assert.equal(audioIn(), true, 'asked, it is carried inside');
   assert.equal(statSync(standalone).size, est.base + est.audio.original, 'at exactly the size the card said');
   // 'aac' is --audio aac: here the file is not audio, so ffmpeg refuses it,
   // and that refusal is the proof the route asked for the re-encode
   if (have('ffmpeg')) {
-    const small = await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora', audio: 'aac' });
+    const small = await post(base, '/deck/edit/export', { kind: 'bundle', theme: 'aurora', audio: 'aac' });
     assert.equal(small.status, 500);
     assert.match((await small.json()).error, /--audio aac could not re-encode voices\/slide-01\.m4a/);
   }
@@ -1725,19 +1725,19 @@ test('the bundle estimate says there is no audio to carry, and why it cannot bun
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
   const { base } = await startEdit(t, dir);
-  const none = await (await fetch(base + '/edit/export/estimate?kind=bundle')).json();
-  assert.equal((await fetch(base + '/edit/export/estimate')).status, 400, 'an estimate is of one kind');
-  assert.equal((await fetch(base + '/edit/export/estimate?kind=pptx')).status, 400, 'and only the bundle has one');
+  const none = await (await fetch(base + '/deck/edit/export/estimate?kind=bundle')).json();
+  assert.equal((await fetch(base + '/deck/edit/export/estimate')).status, 400, 'an estimate is of one kind');
+  assert.equal((await fetch(base + '/deck/edit/export/estimate?kind=pptx')).status, 400, 'and only the bundle has one');
   assert.equal(none.ok, true, none.error);
   assert.equal(none.audio, null, 'no recorded audio, no question to ask');
   // a theme on screen the bundle cannot carry yet is estimated in the deck's own
-  const elsewhere = await (await fetch(base + '/edit/export/estimate?kind=bundle&theme=nosuchtheme')).json();
+  const elsewhere = await (await fetch(base + '/deck/edit/export/estimate?kind=bundle&theme=nosuchtheme')).json();
   assert.equal(elsewhere.ok, true, elsewhere.error);
   assert.equal(elsewhere.base, none.base);
   const { execFileSync: run } = await import('node:child_process');
   run(process.execPath, [path.resolve(here, '../cli/decklight.mjs'), 'bundle', 'deck.html', '-o', 'one.html'], { cwd: dir, stdio: 'ignore' });
   writeFileSync(deck, readFileSync(path.join(dir, 'one.html')));
-  const one = await fetch(base + '/edit/export/estimate?kind=bundle');
+  const one = await fetch(base + '/deck/edit/export/estimate?kind=bundle');
   assert.equal(one.status, 409);
   assert.match((await one.json()).error, /already self-contained/);
 });
@@ -1748,19 +1748,19 @@ test('the bundle row refuses what it cannot bundle, with a sentence', async (t) 
   writeFileSync(deck, DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
   const { base } = await startEdit(t, dir);
   // a generated theme is tokens in a browser, with no file to embed
-  const gen = await post(base, '/edit/export', { kind: 'bundle', gen: 'eyJuYW1lIjoiZ2VuLXgifQ' });
+  const gen = await post(base, '/deck/edit/export', { kind: 'bundle', gen: 'eyJuYW1lIjoiZ2VuLXgifQ' });
   assert.equal(gen.status, 400);
   assert.match((await gen.json()).error, /a generated theme lives only in this browser — save it/);
   // a deck that already IS one file has nothing to bundle
   const { execFileSync: run } = await import('node:child_process');
   run(process.execPath, [path.resolve(here, '../cli/decklight.mjs'), 'bundle', 'deck.html', '-o', 'one.html'], { cwd: dir, stdio: 'ignore' });
   writeFileSync(deck, readFileSync(path.join(dir, 'one.html')));
-  const one = await post(base, '/edit/export', { kind: 'bundle' });
+  const one = await post(base, '/deck/edit/export', { kind: 'bundle' });
   assert.equal(one.status, 409);
   assert.match((await one.json()).error, /already one file — send it as it is/);
 });
 
-test('/edit/export writes each of the PDFs `decklight pdf` writes, under its own name', async (t) => {
+test('/deck/edit/export writes each of the PDFs `decklight pdf` writes, under its own name', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
@@ -1770,14 +1770,14 @@ test('/edit/export writes each of the PDFs `decklight pdf` writes, under its own
   // The variant names are `pdfOut`'s, not this route's — a handout that landed
   // on deck.pdf would quietly replace the slides somebody exported first.
   for (const [kind, file] of [['pdf', 'deck.pdf'], ['pdf-notes', 'deck.notes.pdf'], ['pdf-handout', 'deck.handout.pdf']]) {
-    const r = await (await post(base, '/edit/export', { kind })).json();
+    const r = await (await post(base, '/deck/edit/export', { kind })).json();
     assert.equal(r.ok, true, `${kind} refused: ${r.error}`);
     assert.equal(r.file, file);
     assert.ok(existsSync(path.join(dir, file)), `${kind} wrote no ${file}`);
   }
 });
 
-test('/edit/export renders in the theme on screen — the browser names it, the render is told (#547)', async (t) => {
+test('/deck/edit/export renders in the theme on screen — the browser names it, the render is told (#547)', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
@@ -1790,7 +1790,7 @@ test('/edit/export renders in the theme on screen — the browser names it, the 
   // applies as ?theme= — reaching an inline block as well as a file.
   for (const kind of ['pptx', 'pdf']) {
     writeFileSync(seen, '');
-    const r = await (await post(base, '/edit/export', { kind, theme: 'eclipse' })).json();
+    const r = await (await post(base, '/deck/edit/export', { kind, theme: 'eclipse' })).json();
     assert.equal(r.ok, true, `${kind} refused: ${r.error}`);
     const urls = readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean);
     assert.ok(urls.length && urls.every((u) => /[?&]theme=eclipse(?:[&#]|$)/.test(u)),
@@ -1799,7 +1799,7 @@ test('/edit/export renders in the theme on screen — the browser names it, the 
 
   // A name, and nothing else — it becomes an argument and a query parameter
   for (const theme of ['../x', 'a b', 42, 'x'.repeat(65)]) {
-    const bad = await post(base, '/edit/export', { kind: 'pptx', theme });
+    const bad = await post(base, '/deck/edit/export', { kind: 'pptx', theme });
     assert.equal(bad.status, 400, `took ${JSON.stringify(theme)}`);
     assert.match((await bad.json()).error, /theme name/);
   }
@@ -1808,7 +1808,7 @@ test('/edit/export renders in the theme on screen — the browser names it, the 
   // base64url JSON, handed on as --gen and loaded by the render as ?gen=
   const gen = Buffer.from(JSON.stringify({ name: 'mine', tokens: { '--bg': '#123456' } })).toString('base64url');
   writeFileSync(seen, '');
-  const g = await (await post(base, '/edit/export', { kind: 'pptx', gen })).json();
+  const g = await (await post(base, '/deck/edit/export', { kind: 'pptx', gen })).json();
   assert.equal(g.ok, true, `gen refused: ${g.error}`);
   assert.ok(readFileSync(seen, 'utf8').trim().split('\n').every((u) => u.includes(`gen=${gen}`)), 'rendered without the tokens');
   for (const [body, why] of [
@@ -1816,20 +1816,20 @@ test('/edit/export renders in the theme on screen — the browser names it, the 
     [{ kind: 'pptx', gen: 'a'.repeat(16385) }, /base64url/],
     [{ kind: 'pptx', gen, theme: 'eclipse' }, /one theme/],
   ]) {
-    const bad = await post(base, '/edit/export', body);
+    const bad = await post(base, '/deck/edit/export', body);
     assert.equal(bad.status, 400);
     assert.match((await bad.json()).error, why);
   }
 });
 
-test('/edit/export refuses a file it does not write, and still answers the old name', async (t) => {
+test('/deck/edit/export refuses a file it does not write, and still answers the old name', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
   const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } });
 
-  const bad = await post(base, '/edit/export', { kind: 'keynote' });
+  const bad = await post(base, '/deck/edit/export', { kind: 'keynote' });
   assert.equal(bad.status, 400);
   assert.match((await bad.json()).error, /not a file this server writes: keynote/);
 });
@@ -1891,10 +1891,10 @@ async function videoSession(t, { deck = DECK } = {}) {
   return { dir, ...(await startEdit(t, dir, { env })) };
 }
 
-test('/edit/export renders a video of just the slides asked for, named for them', async (t) => {
+test('/deck/edit/export renders a video of just the slides asked for, named for them', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t);
-  const r = await (await post(base, '/edit/export', { kind: 'video', slides: '2', narration: null })).json();
+  const r = await (await post(base, '/deck/edit/export', { kind: 'video', slides: '2', narration: null })).json();
   assert.equal(r.ok, true, `export refused: ${r.error}`);
   assert.equal(r.file, 'deck.slides-2.mp4', 'a range never overwrites the whole talk');
   assert.ok(existsSync(path.join(dir, 'deck.slides-2.mp4')), 'the file landed beside the deck');
@@ -1904,11 +1904,11 @@ test('/edit/export renders a video of just the slides asked for, named for them'
   assert.equal(readFileSync(path.join(dir, 'deck.html'), 'utf8'), DECK, 'an export is not an edit');
 });
 
-test('/edit/export refuses a video it cannot make as asked, and says why', async (t) => {
+test('/deck/edit/export refuses a video it cannot make as asked, and says why', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base } = await videoSession(t);
   const ask = async (body) => {
-    const res = await post(base, '/edit/export', { kind: 'video', ...body });
+    const res = await post(base, '/deck/edit/export', { kind: 'video', ...body });
     return { status: res.status, error: (await res.json()).error };
   };
   // checked before anything runs: both fields come from a page
@@ -1929,11 +1929,11 @@ test('/edit/export refuses a video it cannot make as asked, and says why', async
   assert.equal((await (await fetch(base + '/deck/ping')).json()).ok, true, 'the session survives its refusal');
 });
 
-test('/edit/export voices the range with the live voice first, into a folder a second export reuses', async (t) => {
+test('/deck/edit/export voices the range with the live voice first, into a folder a second export reuses', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t, { deck: SPOKEN_DECK });
   const synthesize = { engine: 'piper', model: 'en_US-ryan-high', voice: 'en_US-ryan-high', style: 'warm', dir: 'voices/en-us-ryan-high' };
-  const r = await (await post(base, '/edit/export', { kind: 'video', slides: '2', synthesize })).json();
+  const r = await (await post(base, '/deck/edit/export', { kind: 'video', slides: '2', synthesize })).json();
   assert.equal(r.ok, true, `export refused: ${r.error}\n${log()}`);
   assert.equal(r.file, 'deck.slides-2.mp4');
   assert.equal(r.voiced, 'voices/en-us-ryan-high', 'the deck is told where the voice went');
@@ -1950,19 +1950,19 @@ test('/edit/export voices the range with the live voice first, into a folder a s
 
   // the same export again re-pays nothing: the folder is refreshed in place and
   // the unchanged slide is kept
-  const again = await (await post(base, '/edit/export', { kind: 'video', slides: '2', synthesize })).json();
+  const again = await (await post(base, '/deck/edit/export', { kind: 'video', slides: '2', synthesize })).json();
   assert.equal(again.ok, true, again.error);
   assert.match(log(), /slide 02: unchanged — kept/);
 });
 
-test('/edit/export re-voices a machine-voiced track\'s stale slide in the track\'s own voice, then renders (#553)', async (t) => {
+test('/deck/edit/export re-voices a machine-voiced track\'s stale slide in the track\'s own voice, then renders (#553)', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t, { deck: SPOKEN_DECK });
   // the voice is "downloaded": engineStatus looks for the model before a render may use it
   mkdirSync(path.join(dir, '.local', 'share', 'piper'), { recursive: true });
   writeFileSync(path.join(dir, '.local', 'share', 'piper', 'en_US-ryan-high.onnx'), '');
   const synthesize = { engine: 'piper', model: 'en_US-ryan-high', voice: 'en_US-ryan-high', style: 'warm', dir: 'voices/ryan' };
-  assert.equal((await (await post(base, '/edit/export', { kind: 'video', synthesize })).json()).ok, true, log());
+  assert.equal((await (await post(base, '/deck/edit/export', { kind: 'video', synthesize })).json()).ok, true, log());
   const track = path.join(dir, 'voices', 'ryan');
   const before = JSON.parse(readFileSync(path.join(track, 'manifest.json'), 'utf8'));
 
@@ -1971,7 +1971,7 @@ test('/edit/export re-voices a machine-voiced track\'s stale slide in the track\
   let n = 0;
   writeFileSync(deckFile, readFileSync(deckFile, 'utf8').replace(/Said aloud\./g, (m) => (++n === 2 ? 'Said differently now.' : m)));
 
-  const r = await (await post(base, '/edit/export', { kind: 'video', narration: 'voices/ryan' })).json();
+  const r = await (await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/ryan' })).json();
   assert.equal(r.ok, true, `the stale slide was refused rather than re-voiced: ${r.error}\n${log()}`);
   assert.match(log(), /re-voicing slide 2 in the track's own voice — 1 clip from piper \(en_US-ryan-high\)/);
   const after = JSON.parse(readFileSync(path.join(track, 'manifest.json'), 'utf8'));
@@ -1982,11 +1982,11 @@ test('/edit/export re-voices a machine-voiced track\'s stale slide in the track\
   assert.deepEqual([after.engine, after.voice], [before.engine, before.voice]);
 });
 
-test('/edit/export never synthesizes over a recorded take, and passes an engine\'s refusal through', async (t) => {
+test('/deck/edit/export never synthesizes over a recorded take, and passes an engine\'s refusal through', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base } = await videoSession(t, { deck: SPOKEN_DECK });
   const ask = async (body) => {
-    const res = await post(base, '/edit/export', { kind: 'video', ...body });
+    const res = await post(base, '/deck/edit/export', { kind: 'video', ...body });
     return { status: res.status, error: (await res.json()).error };
   };
   // your own voice: audio, and no manifest
@@ -2022,19 +2022,19 @@ test('/edit/export never synthesizes over a recorded take, and passes an engine\
   assert.ok(!existsSync(path.join(dir, 'deck.slides-2.mp4')));
 });
 
-test('/edit/export renders silent when silence is picked, even beside a voiceover/', async (t) => {
+test('/deck/edit/export renders silent when silence is picked, even beside a voiceover/', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t);
   const vo = path.join(dir, 'voiceover');
   mkdirSync(vo, { recursive: true });
   writeFileSync(path.join(vo, 'slide-01.m4a'), 'audio');
   writeFileSync(path.join(vo, 'manifest.json'), JSON.stringify({ engine: 'say', voice: 'Samantha', slides: [{ file: 'slide-01.m4a', hash: 'x' }, null] }));
-  const r = await (await post(base, '/edit/export', { kind: 'video', silent: true })).json();
+  const r = await (await post(base, '/deck/edit/export', { kind: 'video', silent: true })).json();
   assert.equal(r.ok, true, r.error);
   assert.match(log(), /0 narrated \(silent\)/, 'the voiceover/ beside it was not used');
 });
 
-test('/edit/export writes the format, quality and subtitles the card asked for', async (t) => {
+test('/deck/edit/export writes the format, quality and subtitles the card asked for', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t);
   const vo = path.join(dir, 'voiceover');
@@ -2045,7 +2045,7 @@ test('/edit/export writes the format, quality and subtitles the card asked for',
   writeFileSync(path.join(vo, 'manifest.json'), JSON.stringify({ engine: 'say', voice: 'Samantha', slides: [{ file: 'slide-01.m4a' }, null] }));
   const calls = () => readFileSync(path.join(dir, 'ffmpeg-calls.log'), 'utf8');
 
-  const r = await (await post(base, '/edit/export', { kind: 'video', narration: 'voiceover', format: 'webm', quality: 'draft', subtitles: 'file' })).json();
+  const r = await (await post(base, '/deck/edit/export', { kind: 'video', narration: 'voiceover', format: 'webm', quality: 'draft', subtitles: 'file' })).json();
   assert.equal(r.ok, true, `export refused: ${r.error}\n${log()}`);
   assert.equal(r.file, 'deck.webm');
   assert.equal(r.subtitles, 'deck.vtt', 'WebM carries WebVTT, and the deck is told where');
@@ -2054,7 +2054,7 @@ test('/edit/export writes the format, quality and subtitles the card asked for',
   assert.equal(readFileSync(path.join(dir, 'deck.vtt'), 'utf8'),
     'WEBVTT\n\n00:00:00.000 --> 00:00:00.833\nHello there.\n\n00:00:00.833 --> 00:00:02.500\nThis is the first slide.\n');
 
-  const embedded = await (await post(base, '/edit/export', { kind: 'video', narration: 'voiceover', format: 'mov', quality: 'high', subtitles: 'embed' })).json();
+  const embedded = await (await post(base, '/deck/edit/export', { kind: 'video', narration: 'voiceover', format: 'mov', quality: 'high', subtitles: 'embed' })).json();
   assert.equal(embedded.ok, true, embedded.error);
   assert.equal(embedded.file, 'deck.mov');
   assert.equal(embedded.subtitles, undefined, 'an embedded track is not a file to open');
@@ -2065,23 +2065,23 @@ test('/edit/export writes the format, quality and subtitles the card asked for',
   // refused before anything runs
   for (const [body, why] of [[{ format: 'avi' }, /format must be mp4, mov, webm/],
     [{ quality: 'ultra' }, /quality must be draft, standard, high/], [{ subtitles: 'burn' }, /subtitles must be none, embed, file/]]) {
-    const res = await post(base, '/edit/export', { kind: 'video', ...body });
+    const res = await post(base, '/deck/edit/export', { kind: 'video', ...body });
     assert.equal(res.status, 400);
     assert.match((await res.json()).error, why);
   }
 });
 
-test('/edit/export writes no subtitles for a render with nothing spoken, and says so', async (t) => {
+test('/deck/edit/export writes no subtitles for a render with nothing spoken, and says so', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t);
-  const r = await (await post(base, '/edit/export', { kind: 'video', silent: true, subtitles: 'file' })).json();
+  const r = await (await post(base, '/deck/edit/export', { kind: 'video', silent: true, subtitles: 'file' })).json();
   assert.equal(r.ok, true, r.error);
   assert.equal(r.subtitles, undefined);
   assert.ok(!existsSync(path.join(dir, 'deck.srt')));
   assert.match(log(), /subtitles: nothing is spoken in this render — none written/);
 });
 
-test('/edit/history/at previews a deck over 1MB, and says why when it cannot (#508)', async (t) => {
+test('/deck/edit/history/at previews a deck over 1MB, and says why when it cannot (#508)', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   // over Node's 1 MB execFileSync default, which used to throw ENOBUFS and be
@@ -2097,7 +2097,7 @@ test('/edit/history/at previews a deck over 1MB, and says why when it cannot (#5
   const at = g(['rev-parse', '--short', 'HEAD']).trim();
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
 
-  const r = await fetch(`${base}/edit/history/at?ref=${at}&embedded`);
+  const r = await fetch(`${base}/deck/edit/history/at?ref=${at}&embedded`);
   assert.equal(r.status, 200, 'a big deck is not a missing revision');
   const html = await r.text();
   assert.ok(html.length > 1024 * 1024, `the whole deck came back (${html.length} bytes)`);
@@ -2105,7 +2105,7 @@ test('/edit/history/at previews a deck over 1MB, and says why when it cannot (#5
 
   // a ref git really does not know is still a 404 — but a legible one, because
   // this body is rendered inside the preview frame
-  const missing = await fetch(`${base}/edit/history/at?ref=nosuchref&embedded`);
+  const missing = await fetch(`${base}/deck/edit/history/at?ref=nosuchref&embedded`);
   assert.equal(missing.status, 404);
   const body = await missing.text();
   assert.match(body, /no such revision of this deck/);
@@ -2161,20 +2161,20 @@ async function startWithTemplate(t, dir, { install = true } = {}) {
   return startEdit(t, dir, { env: { DECKLIGHT_HOME: home } });
 }
 
-test('/edit/template/browse says what is installed here, without reaching the network', async (t) => {
+test('/deck/edit/template/browse says what is installed here, without reaching the network', async (t) => {
   const dir = tmp(t);
   const { base } = await startWithTemplate(t, dir);
-  const j = await (await fetch(base + '/edit/template/browse')).json();
+  const j = await (await fetch(base + '/deck/edit/template/browse')).json();
   assert.equal(j.ok, true);
   assert.deepEqual(j.installed, ['startup-pitch']);
   assert.equal(j.cacheOnly, true, 'listing is a read of the cache, never a fetch');
   assert.deepEqual(j.offered, [], 'no marketplace registered, so nothing to offer');
 });
 
-test('/edit/template/slides reads the template as a numbered list, and names what a slide needs', async (t) => {
+test('/deck/edit/template/slides reads the template as a numbered list, and names what a slide needs', async (t) => {
   const dir = tmp(t);
   const { base } = await startWithTemplate(t, dir);
-  const j = await (await fetch(base + '/edit/template/slides?name=startup-pitch')).json();
+  const j = await (await fetch(base + '/deck/edit/template/slides?name=startup-pitch')).json();
   assert.equal(j.ok, true);
   assert.deepEqual(j.slides.map((s) => [s.n, s.title, s.hidden]), [
     [1, 'Startup pitch', false], [2, 'Pricing', false], [3, 'Backup', true],
@@ -2182,18 +2182,18 @@ test('/edit/template/slides reads the template as a numbered list, and names wha
   assert.deepEqual(j.slides[1].needs, ['assets/table.png'],
     'said before the slide is taken, not discovered afterwards');
 
-  const missing = await fetch(base + '/edit/template/slides?name=nope');
+  const missing = await fetch(base + '/deck/edit/template/slides?name=nope');
   assert.equal(missing.status, 404);
   assert.match((await missing.json()).error, /no template "nope" is installed here/);
 });
 
-test('/edit/template/insert puts the chosen slides after a slide, as ONE undo entry', async (t) => {
+test('/deck/edit/template/insert puts the chosen slides after a slide, as ONE undo entry', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const { base } = await startWithTemplate(t, dir);
   const before = readFileSync(deck, 'utf8');
 
-  const r = await (await post(base, '/edit/template/insert',
+  const r = await (await post(base, '/deck/edit/template/insert',
     { name: 'startup-pitch', slides: [2, 1], after: 1 })).json();
   assert.equal(r.ok, true, r.error);
   assert.equal(r.inserted, 2);
@@ -2213,16 +2213,16 @@ test('/edit/template/insert puts the chosen slides after a slide, as ONE undo en
 
   // ONE entry: an insert is an ordinary edit, so Z takes the whole thing back
   assert.equal(r.undo, 1);
-  assert.equal((await post(base, '/edit/undo')).status, 200);
+  assert.equal((await post(base, '/deck/edit/undo')).status, 200);
   assert.equal(readFileSync(deck, 'utf8'), before, 'undo took back all of it');
 });
 
-test('/edit/template/insert takes the shape and leaves the words behind', async (t) => {
+test('/deck/edit/template/insert takes the shape and leaves the words behind', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const { base } = await startWithTemplate(t, dir);
 
-  const r = await (await post(base, '/edit/template/insert',
+  const r = await (await post(base, '/deck/edit/template/insert',
     { name: 'startup-pitch', slides: [2], after: 1 })).json();
   assert.equal(r.ok, true);
   const after = readFileSync(deck, 'utf8');
@@ -2233,17 +2233,17 @@ test('/edit/template/insert takes the shape and leaves the words behind', async 
   assert.match(after, /<h2>Alpha<\/h2>/, 'and your own slides are not loremised');
 });
 
-test('/edit/template/preview shows the very words the insert will write', async (t) => {
+test('/deck/edit/template/preview shows the very words the insert will write', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const { base } = await startWithTemplate(t, dir);
 
   const shown = await (await fetch(
-    base + '/edit/template/preview?embedded&name=startup-pitch&slide=2&to=1&mode=insert')).text();
+    base + '/deck/edit/template/preview?embedded&name=startup-pitch&slide=2&to=1&mode=insert')).text();
   const heading = /<h2>(\w+)<\/h2>/.exec(shown.slice(shown.indexOf('Alpha')));
   assert.match(shown, /<script src="decklight\.js" data-decklight-runtime="js"><\/script>/,
     'a preview of a deck that is data is given the runtime, like any page served');
-  await post(base, '/edit/template/insert', { name: 'startup-pitch', slides: [2], after: 1 });
+  await post(base, '/deck/edit/template/insert', { name: 'startup-pitch', slides: [2], after: 1 });
   const landed = readFileSync(deck, 'utf8');
   assert.ok(heading, 'the preview has a loremised heading');
   assert.match(landed, new RegExp(`<h2>${heading[1]}</h2>`),
@@ -2251,21 +2251,21 @@ test('/edit/template/preview shows the very words the insert will write', async 
     + 'right about the layout and wrong about the text is not a preview');
 });
 
-test('/edit/template/insert refuses a slide the template has not, and a position the deck has not', async (t) => {
+test('/deck/edit/template/insert refuses a slide the template has not, and a position the deck has not', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const { base } = await startWithTemplate(t, dir);
   const before = readFileSync(deck, 'utf8');
 
-  const noSlide = await post(base, '/edit/template/insert', { name: 'startup-pitch', slides: [9], after: 1 });
+  const noSlide = await post(base, '/deck/edit/template/insert', { name: 'startup-pitch', slides: [9], after: 1 });
   assert.equal(noSlide.status, 400);
   assert.match((await noSlide.json()).error, /has no slide 9 \(it has 3\)/);
 
-  const noSpot = await post(base, '/edit/template/insert', { name: 'startup-pitch', slides: [1], after: 99 });
+  const noSpot = await post(base, '/deck/edit/template/insert', { name: 'startup-pitch', slides: [1], after: 99 });
   assert.equal(noSpot.status, 400);
   assert.match((await noSpot.json()).error, /cannot insert after slide 99/);
 
-  const noTemplate = await post(base, '/edit/template/insert', { name: 'ghost', slides: [1], after: 1 });
+  const noTemplate = await post(base, '/deck/edit/template/insert', { name: 'ghost', slides: [1], after: 1 });
   assert.equal(noTemplate.status, 404);
 
   assert.equal(readFileSync(deck, 'utf8'), before, 'a refused insert wrote nothing');
@@ -2293,13 +2293,13 @@ const STYLED_TEMPLATE = `<!doctype html><html><head>
 </div>
 </body></html>`;
 
-test('/edit/template/insert brings the rules the taken slide is shaped by', async (t) => {
+test('/deck/edit/template/insert brings the rules the taken slide is shaped by', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const { base } = await startWithTemplate(t, dir);
   writeFileSync(path.join(dir, 'home', 'templates', 'styled.html'), STYLED_TEMPLATE);
 
-  const r = await (await post(base, '/edit/template/insert', { name: 'styled', slides: [1], after: 1 })).json();
+  const r = await (await post(base, '/deck/edit/template/insert', { name: 'styled', slides: [1], after: 1 })).json();
   assert.equal(r.ok, true);
   assert.deepEqual(r.styles.carried, ['.breaks']);
   assert.deepEqual(r.styles.clashed, []);
@@ -2313,7 +2313,7 @@ test('/edit/template/insert brings the rules the taken slide is shaped by', asyn
     "somebody else's bare `p` rule would restyle every paragraph in this deck");
 
   // one undo entry: the section and the rules that shape it are one edit
-  await post(base, '/edit/undo', {});
+  await post(base, '/deck/edit/undo', {});
   const back = readFileSync(deck, 'utf8');
   assert.doesNotMatch(back, /data-from-template/);
   assert.doesNotMatch(back, /Failures/);
@@ -2332,11 +2332,11 @@ test('a class the deck already means something else by keeps the deck’s rules,
   const { base } = await startEdit(t, dir, { env: { DECKLIGHT_HOME: home } });
 
   // said in the picker, beside `needs`, rather than in the toast afterwards
-  const listed = await (await fetch(base + '/edit/template/slides?name=styled')).json();
+  const listed = await (await fetch(base + '/deck/edit/template/slides?name=styled')).json();
   assert.deepEqual(listed.slides[0].clashes, ['.breaks']);
   assert.deepEqual(listed.slides[1].clashes, [], 'a slide that does not use the name is not warned about it');
 
-  const r = await (await post(base, '/edit/template/insert', { name: 'styled', slides: [1], after: 1 })).json();
+  const r = await (await post(base, '/deck/edit/template/insert', { name: 'styled', slides: [1], after: 1 })).json();
   assert.deepEqual(r.styles.clashed, ['.breaks']);
   assert.deepEqual(r.styles.carried, []);
   const after = readFileSync(deck, 'utf8');
@@ -2344,7 +2344,7 @@ test('a class the deck already means something else by keeps the deck’s rules,
   assert.doesNotMatch(after, /gap: 12px/, 'and the template’s was refused, not merged');
 });
 
-test('/edit/template/apply gives a slide you wrote the look of one you did not', async (t) => {
+test('/deck/edit/template/apply gives a slide you wrote the look of one you did not', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const { base } = await startWithTemplate(t, dir);
@@ -2354,7 +2354,7 @@ test('/edit/template/apply gives a slide you wrote the look of one you did not',
     + '<section data-layout="split" class="tinted" data-background-image="a.png" data-hidden><h2>Theirs</h2></section>'
     + '</div></body></html>');
 
-  const r = await (await post(base, '/edit/template/apply', { name: 'looks', slide: 1, to: 2 })).json();
+  const r = await (await post(base, '/deck/edit/template/apply', { name: 'looks', slide: 1, to: 2 })).json();
   assert.equal(r.ok, true);
   assert.deepEqual(r.applied, { 'data-layout': 'split', class: 'tinted', 'data-background-image': 'a.png' });
   assert.deepEqual(r.replaced, { 'data-layout': 'centered' }, 'and says what it took off');
@@ -2368,13 +2368,13 @@ test('/edit/template/apply gives a slide you wrote the look of one you did not',
   assert.match(after, /<style data-from-template="looks">[\s\S]*\.tinted/);
 
   // one undo entry: the tag and the rules it now needs are one edit
-  await post(base, '/edit/undo', {});
+  await post(base, '/deck/edit/undo', {});
   const back = readFileSync(deck, 'utf8');
   assert.match(back, /<section data-layout="centered">/);
   assert.doesNotMatch(back, /data-from-template/);
 });
 
-test('/edit/template/preview renders what apply WOULD do, and writes nothing', async (t) => {
+test('/deck/edit/template/preview renders what apply WOULD do, and writes nothing', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const { base } = await startWithTemplate(t, dir);
@@ -2385,7 +2385,7 @@ test('/edit/template/preview renders what apply WOULD do, and writes nothing', a
     + '</div></body></html>');
   const before = readFileSync(deck, 'utf8');
 
-  const r = await fetch(base + '/edit/template/preview?name=looks&slide=1&to=2&embedded');
+  const r = await fetch(base + '/deck/edit/template/preview?name=looks&slide=1&to=2&embedded');
   assert.equal(r.status, 200);
   assert.match(r.headers.get('content-type'), /text\/html/);
   const html = await r.text();
@@ -2400,13 +2400,13 @@ test('/edit/template/preview renders what apply WOULD do, and writes nothing', a
   const ping = await (await fetch(base + '/deck/ping')).json();
   assert.equal(ping.undo, 0, 'and never make an undo entry');
 
-  const nope = await fetch(base + '/edit/template/preview?name=looks&slide=9&to=2');
+  const nope = await fetch(base + '/deck/edit/template/preview?name=looks&slide=9&to=2');
   assert.equal(nope.status, 404);
-  const noTarget = await fetch(base + '/edit/template/preview?name=looks&slide=1&to=99');
+  const noTarget = await fetch(base + '/deck/edit/template/preview?name=looks&slide=1&to=99');
   assert.equal(noTarget.status, 404);
 });
 
-test('/edit/template/preview shows a taken slide in THIS deck, never in the template’s theme', async (t) => {
+test('/deck/edit/template/preview shows a taken slide in THIS deck, never in the template’s theme', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   // a deck with a theme of its own, and a template with a different one
@@ -2420,7 +2420,7 @@ test('/edit/template/preview shows a taken slide in THIS deck, never in the temp
   const before = readFileSync(deck, 'utf8');
 
   const html = await (await fetch(
-    base + '/edit/template/preview?name=styled&slide=1&to=1&mode=insert&embedded')).text();
+    base + '/deck/edit/template/preview?name=styled&slide=1&to=1&mode=insert&embedded')).text();
   assert.match(html, /<style data-theme="mine">/, 'this deck’s theme dresses the slide');
   assert.doesNotMatch(html, /data-theme="theirs"/,
     'a slide taken out of a template does not bring the template’s theme, so neither may the preview');
@@ -2430,43 +2430,43 @@ test('/edit/template/preview shows a taken slide in THIS deck, never in the temp
   assert.equal(readFileSync(deck, 'utf8'), before, 'and nothing written');
 
   // 0 is a legal insert position: before slide 1
-  const first = await fetch(base + '/edit/template/preview?name=styled&slide=1&to=0&mode=insert');
+  const first = await fetch(base + '/deck/edit/template/preview?name=styled&slide=1&to=0&mode=insert');
   assert.equal(first.status, 200);
   // but not for apply — there is no slide 0 to retag
-  const noZero = await fetch(base + '/edit/template/preview?name=styled&slide=1&to=0');
+  const noZero = await fetch(base + '/deck/edit/template/preview?name=styled&slide=1&to=0');
   assert.equal(noZero.status, 404);
 });
 
-test('/edit/template/apply refuses a slide neither deck has', async (t) => {
+test('/deck/edit/template/apply refuses a slide neither deck has', async (t) => {
   const dir = tmp(t);
   const { base } = await startWithTemplate(t, dir);
-  const noSlide = await post(base, '/edit/template/apply', { name: 'startup-pitch', slide: 9, to: 1 });
+  const noSlide = await post(base, '/deck/edit/template/apply', { name: 'startup-pitch', slide: 9, to: 1 });
   assert.equal(noSlide.status, 400);
   assert.match((await noSlide.json()).error, /has no slide 9/);
 
-  const noTarget = await post(base, '/edit/template/apply', { name: 'startup-pitch', slide: 1, to: 99 });
+  const noTarget = await post(base, '/deck/edit/template/apply', { name: 'startup-pitch', slide: 1, to: 99 });
   assert.equal(noTarget.status, 400);
   assert.match((await noTarget.json()).error, /cannot apply to slide 99 — this deck has 2/);
 });
 
-test('/edit/template/insert takes the whole template when no slides are named', async (t) => {
+test('/deck/edit/template/insert takes the whole template when no slides are named', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const { base } = await startWithTemplate(t, dir);
 
-  const r = await (await post(base, '/edit/template/insert', { name: 'startup-pitch', after: 0 })).json();
+  const r = await (await post(base, '/deck/edit/template/insert', { name: 'startup-pitch', after: 0 })).json();
   assert.equal(r.inserted, 3, 'all of them, hidden slide included — it is still a slide');
   const headings = [...readFileSync(deck, 'utf8').matchAll(/<h[12][^>]*>([^<]+)<\/h[12]>/g)].map((m) => m[1]);
   assert.equal(headings.length, 5, 'all three of theirs, then both of yours');
   assert.deepEqual(headings.slice(3), ['Alpha', 'Beta'], 'after 0 is before the first slide');
 });
 
-test('/edit/publish/plan names where the deck would go, without putting it there', async (t) => {
+test('/deck/edit/publish/plan names where the deck would go, without putting it there', async (t) => {
   const dir = tmp(t);
   repoWithRemote(dir);
   const { base } = await startEdit(t, dir);
 
-  const j = await (await fetch(base + '/edit/publish/plan')).json();
+  const j = await (await fetch(base + '/deck/edit/publish/plan')).json();
   assert.equal(j.ok, true, j.error);
   assert.equal(j.remote, 'origin');
   assert.equal(j.branch, 'gh-pages');
@@ -2485,12 +2485,12 @@ test('/edit/publish/plan names where the deck would go, without putting it there
   assert.equal(git(['status', '--porcelain'], dir), '');
 });
 
-test('/edit/publish/plan refuses when there is nowhere to publish to', async (t) => {
+test('/deck/edit/publish/plan refuses when there is nowhere to publish to', async (t) => {
   const dir = tmp(t);
   repoWithRemote(dir, ONE_FILE_DECK, { remote: null });
   const { base } = await startEdit(t, dir);
 
-  const r = await fetch(base + '/edit/publish/plan');
+  const r = await fetch(base + '/deck/edit/publish/plan');
   assert.equal(r.status, 409);
   assert.match((await r.json()).error, /nowhere to publish to/);
 });
@@ -2506,10 +2506,10 @@ test('publishing without the client that signs it is a refusal, not an unsigned 
   const { loadClient } = await import('../cli/sign.mjs');
   if (await loadClient()) return t.skip('sigstore is installed here — the refusal cannot be provoked');
 
-  const plan = await (await fetch(base + '/edit/publish/plan')).json();
+  const plan = await (await fetch(base + '/deck/edit/publish/plan')).json();
   assert.equal(plan.signing, false, 'the plan claims it could sign');
 
-  const r = await post(base, '/edit/publish');
+  const r = await post(base, '/deck/edit/publish');
   assert.equal(r.status, 500);
   assert.match((await r.json()).error, /sign/i);
   assert.equal(git(['branch', '--list', 'gh-pages'], dir), '', 'a branch was written anyway');
@@ -2540,7 +2540,7 @@ test('a long export says where it is, slide by slide, on the event stream', asyn
   })();
   t.after(() => reader.cancel().catch(() => { /* already closed */ }));
 
-  assert.equal((await post(base, '/edit/export', { kind: 'pptx' })).status, 200);
+  assert.equal((await post(base, '/deck/edit/export', { kind: 'pptx' })).status, 200);
   const stop = Date.now() + 4000;
   while (!events.some((e) => e.state === 'done') && Date.now() < stop) await new Promise((ok) => setTimeout(ok, 25));
 
@@ -2574,7 +2574,7 @@ test('a server-side edit lands whole, leaves no staging file, and reloads exactl
   })();
   t.after(() => reader.cancel().catch(() => { /* already closed */ }));
 
-  assert.equal((await post(base, '/edit/slide/layout', { slide: 1, layout: 'split' })).status, 200);
+  assert.equal((await post(base, '/deck/edit/slide/layout', { slide: 1, layout: 'split' })).status, 200);
   // well past the 150 ms debounce, so a second event would have arrived
   const stop = Date.now() + 2500;
   while (reloads < 1 && Date.now() < stop) await new Promise((ok) => setTimeout(ok, 25));
@@ -2614,16 +2614,16 @@ test('a recorded track is written into the configuration block, as JSON, every o
 });
 
 // ── the deck recorder's take gets a manifest (#535) ───────────────────────
-test('POST /edit/narration/record?kind=manifest writes the take’s manifest.json — hashed from the deck’s notes, merged per range, and the folder becomes a track', async (t) => {
+test('POST /deck/edit/narration/record?kind=manifest writes the take’s manifest.json — hashed from the deck’s notes, merged per range, and the folder becomes a track', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), SPOKEN_DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
   const { manifestHash, slideTexts } = await import('../tools/narration-manifest.mjs');
   const wav = Buffer.from('RIFF....WAVEfmt ');
-  await fetch(base + '/edit/narration/record?slide=1&kind=wav&dir=voices%2Fkore', { method: 'POST', body: wav });
-  await fetch(base + '/edit/narration/record?slide=1&kind=wav&seg=1&dir=voices%2Fkore', { method: 'POST', body: wav });
+  await fetch(base + '/deck/edit/narration/record?slide=1&kind=wav&dir=voices%2Fkore', { method: 'POST', body: wav });
+  await fetch(base + '/deck/edit/narration/record?slide=1&kind=wav&seg=1&dir=voices%2Fkore', { method: 'POST', body: wav });
   const header = { engine: 'gemini', model: 'gemini-2.5-pro-tts', voice: 'Kore', style: 'warm, welcoming' };
-  const post = (body) => fetch(base + '/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fkore', {
+  const post = (body) => fetch(base + '/deck/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fkore', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
   // after slide 1 of a whole-deck take: one entry, the rest of the range null
@@ -2645,7 +2645,7 @@ test('POST /edit/narration/record?kind=manifest writes the take’s manifest.jso
   m = JSON.parse(readFileSync(path.join(dir, 'voices', 'kore', 'manifest.json'), 'utf8'));
   assert.equal(m.slides[0]?.file, 'slide-01.wav', 'outside the range, the take stands');
   // the folder is now a track the export can offer, refreshed into by this voice
-  const tracks = (await (await fetch(base + '/edit/narration/tracks')).json()).tracks;
+  const tracks = (await (await fetch(base + '/deck/edit/narration/tracks')).json()).tracks;
   const kore = tracks.find((x) => x.dir === 'voices/kore');
   assert.equal(kore?.manifest, true);
   assert.equal(kore?.engine, 'gemini');
@@ -2653,12 +2653,12 @@ test('POST /edit/narration/record?kind=manifest writes the take’s manifest.jso
   // what it refuses: no engine, a bad range, not JSON, a folder outside the deck
   assert.equal((await post({ voice: 'Kore', range: [1, 2], slides: {} })).status, 400);
   assert.equal((await post({ ...header, range: [2, 1], slides: {} })).status, 400);
-  assert.equal((await fetch(base + '/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fkore', { method: 'POST', body: '{nope' })).status, 400);
-  assert.equal((await fetch(base + '/edit/narration/record?slide=1&kind=manifest&dir=..%2Fout', { method: 'POST', body: '{}' })).status, 400);
+  assert.equal((await fetch(base + '/deck/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fkore', { method: 'POST', body: '{nope' })).status, 400);
+  assert.equal((await fetch(base + '/deck/edit/narration/record?slide=1&kind=manifest&dir=..%2Fout', { method: 'POST', body: '{}' })).status, 400);
 });
 
 // ── a track recorded from older notes is named, and refused unless allowed (#536) ──
-test('/edit/export refuses a narration recorded from other notes, names the slides, and renders it when the card says so', async (t) => {
+test('/deck/edit/export refuses a narration recorded from other notes, names the slides, and renders it when the card says so', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t, { deck: SPOKEN_DECK });
   const { manifestHash, slideTexts } = await import('../tools/narration-manifest.mjs');
@@ -2674,21 +2674,21 @@ test('/edit/export refuses a narration recorded from other notes, names the slid
     { file: 'slide-02.m4a', hash: manifestHash(header, 'what the notes used to say') },
   ] }));
   // the card learns it from the track list
-  const tracks = (await (await fetch(base + '/edit/narration/tracks')).json()).tracks;
+  const tracks = (await (await fetch(base + '/deck/edit/narration/tracks')).json()).tracks;
   assert.equal(tracks.find((x) => x.dir === 'voices/samantha')?.stale, 1, 'one slide recorded from older notes');
   // refused by default, with the slide and the way out
-  let r = await post(base, '/edit/export', { kind: 'video', narration: 'voices/samantha' });
+  let r = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/samantha' });
   assert.equal(r.status, 500);
   const why = (await r.json()).error;
   assert.match(why, /recorded from older notes on slide 2/);
   assert.match(why, /re-record those slides .* or pass --allow-stale/);
   assert.match(log(), /slide 2: narration was recorded from different notes/);
   // a range that does not reach the stale slide is not stopped by it
-  r = await post(base, '/edit/export', { kind: 'video', narration: 'voices/samantha', slides: '1' });
+  r = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/samantha', slides: '1' });
   assert.equal((await r.json()).ok, true, 'slide 1 alone is in step');
   // picked on the card with the mark showing: rendered, and still said
-  r = await post(base, '/edit/export', { kind: 'video', narration: 'voices/samantha', allowStale: true });
+  r = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/samantha', allowStale: true });
   assert.equal((await r.json()).ok, true);
   assert.match(log(), /--allow-stale: rendering slide 2 with the older narration/);
-  assert.equal((await post(base, '/edit/export', { kind: 'video', narration: 'voices/samantha', allowStale: 'yes' })).status, 400, 'a flag, not a string');
+  assert.equal((await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/samantha', allowStale: 'yes' })).status, 400, 'a flag, not a string');
 });

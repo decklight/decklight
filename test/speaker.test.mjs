@@ -48,7 +48,7 @@ test('the QR is offered only when a remote is actually running', () => {
   assert.equal(speakerState(fakeDeck(), 'deck.html').qr, null);
   assert.equal(speakerState(fakeDeck({ __remoteQr: null }), 'deck.html').qr, null);
 
-  const url = 'http://192.168.1.4:8788/remote/qr.svg';
+  const url = 'http://192.168.1.4:8788/deck/remote/qr.svg';
   assert.equal(speakerState(fakeDeck({ __remoteQr: url }), 'deck.html').qr, url);
 });
 

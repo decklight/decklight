@@ -10,7 +10,7 @@
 // automatic, because the page and the type stay the author's choice.
 //
 // Shared by `design-system add|apply` and the edit server's
-// /edit/design-system/mark|apply, so the command line and the UI resolve,
+// /deck/edit/design-system/mark|apply, so the command line and the UI resolve,
 // gate and refuse by the same code:
 //
 //   planRecommended(html, ds)  → what each recommendation is: added, already

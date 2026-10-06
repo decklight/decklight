@@ -42,7 +42,7 @@ const DECK = `<!doctype html>
  * A deck on disk and the four bindings the handlers are given, wired exactly
  * as editMain wires them — `applyEdit` snapshots onto the history and writes,
  * and answers whether anything changed, and `deckPath` is the deck itself,
- * which is what /edit/asset saves an image beside.
+ * which is what /deck/edit/asset saves an image beside.
  */
 function harness(t, html = DECK, deps = {}) {
   const dir = tmp('edit-slides', t);
@@ -82,27 +82,27 @@ async function call(routes, key, { body, query = '' } = {}) {
 test('every slide-mutation route the server dispatches is registered here', () => {
   const { routes } = harness();
   assert.deepEqual([...routes.keys()].sort(), [
-    'GET /edit/element/source',
-    'POST /edit/asset',
-    'POST /edit/element/content',
-    'POST /edit/element/effect',
-    'POST /edit/element/image',
-    'POST /edit/element/remove',
-    'POST /edit/element/style',
-    'POST /edit/narration',
-    'POST /edit/slide',
-    'POST /edit/slide/hidden',
-    'POST /edit/slide/layout',
-    'POST /edit/slide/notes',
-    'POST /edit/slide/sources',
-    'POST /edit/slide/system-layout',
-    'POST /edit/timings',
+    'GET /deck/edit/element/source',
+    'POST /deck/edit/asset',
+    'POST /deck/edit/element/content',
+    'POST /deck/edit/element/effect',
+    'POST /deck/edit/element/image',
+    'POST /deck/edit/element/remove',
+    'POST /deck/edit/element/style',
+    'POST /deck/edit/narration',
+    'POST /deck/edit/slide',
+    'POST /deck/edit/slide/hidden',
+    'POST /deck/edit/slide/layout',
+    'POST /deck/edit/slide/notes',
+    'POST /deck/edit/slide/sources',
+    'POST /deck/edit/slide/system-layout',
+    'POST /deck/edit/timings',
   ], 'a route that leaves this list has left the edit server too');
 });
 
-test('POST /edit/slide/notes writes the aside and leaves one undo entry behind', async (t) => {
+test('POST /deck/edit/slide/notes writes the aside and leaves one undo entry behind', async (t) => {
   const { routes, readDeck, history } = harness(t);
-  const r = await call(routes, 'POST /edit/slide/notes', { body: { slide: 1, text: 'say this [click] then this' } });
+  const r = await call(routes, 'POST /deck/edit/slide/notes', { body: { slide: 1, text: 'say this [click] then this' } });
   assert.equal(r.code, 200);
   assert.equal(r.body.ok, true);
   assert.equal(r.body.undo, 1, 'the write must be one step of the ONE undo history');
@@ -113,11 +113,11 @@ test('POST /edit/slide/notes writes the aside and leaves one undo entry behind',
   assert.equal(history.counts().redo, 0, 'a fresh edit clears the redo stack');
 });
 
-test('POST /edit/slide/notes says whether it wrote: the same notes again is `changed: false`, and no undo entry (#646)', async (t) => {
+test('POST /deck/edit/slide/notes says whether it wrote: the same notes again is `changed: false`, and no undo entry (#646)', async (t) => {
   const { routes, history } = harness(t);
-  const first = await call(routes, 'POST /edit/slide/notes', { body: { slide: 1, text: 'Say this.' } });
+  const first = await call(routes, 'POST /deck/edit/slide/notes', { body: { slide: 1, text: 'Say this.' } });
   assert.equal(first.body.changed, true);
-  const again = await call(routes, 'POST /edit/slide/notes', { body: { slide: 1, text: 'Say this.  ' } });
+  const again = await call(routes, 'POST /deck/edit/slide/notes', { body: { slide: 1, text: 'Say this.  ' } });
   assert.deepEqual([again.code, again.body.ok, again.body.changed], [200, true, false], 'normalises to the same bytes: nothing written, so no reload is coming');
   assert.equal(history.counts().undo, 1, 'a write that did not happen is not an undo step');
 });
@@ -140,32 +140,32 @@ test('notes and sources are the author\'s text: $1, $&, $` and $\' are written l
   assert.doesNotMatch(again, /Revenue grew/, 'replaced, not spliced');
 });
 
-test('POST /edit/slide/notes saves in place: a quiet write, and every page sent the slide\'s new notes, never a reload', async (t) => {
+test('POST /deck/edit/slide/notes saves in place: a quiet write, and every page sent the slide\'s new notes, never a reload', async (t) => {
   const quiet = [];
   const sent = [];
   const { routes, readDeck } = harness(t, DECK, { quiet: (html) => quiet.push(html), broadcast: (e, d) => sent.push([e, d]) });
-  const r = await call(routes, 'POST /edit/slide/notes', { body: { slide: 1, text: 'Said here.', from: 'page-1' } });
+  const r = await call(routes, 'POST /deck/edit/slide/notes', { body: { slide: 1, text: 'Said here.', from: 'page-1' } });
   assert.deepEqual([r.body.changed, r.body.inPlace], [true, true]);
   assert.deepEqual(quiet, [readDeck()], 'the bytes written are the quiet ones: the watcher skips their reload');
   assert.deepEqual(sent, [['notes', { slide: 1, aside: '<p>Said here.</p>', from: 'page-1' }]]);
-  const again = await call(routes, 'POST /edit/slide/notes', { body: { slide: 1, text: 'Said here.' } });
+  const again = await call(routes, 'POST /deck/edit/slide/notes', { body: { slide: 1, text: 'Said here.' } });
   assert.equal(again.body.changed, false);
   assert.equal(sent.length, 1, 'nothing written, nothing sent');
 });
 
-test('POST /edit/slide/notes keeps the paragraphs: a blank line is a new <p>, never merged away', async (t) => {
+test('POST /deck/edit/slide/notes keeps the paragraphs: a blank line is a new <p>, never merged away', async (t) => {
   const { routes, readDeck } = harness(t);
-  const r = await call(routes, 'POST /edit/slide/notes', { body: { slide: 1, text: 'First para.\n\nSecond para,\nsame one.\n\n[click]\n\nBeat two.\n\n\nMore of it.' } });
+  const r = await call(routes, 'POST /deck/edit/slide/notes', { body: { slide: 1, text: 'First para.\n\nSecond para,\nsame one.\n\n[click]\n\nBeat two.\n\n\nMore of it.' } });
   assert.equal(r.code, 200);
   const aside = /<aside class="notes">([\s\S]*?)<\/aside>/.exec(readDeck())[1];
   assert.deepEqual([...aside.matchAll(/<p>(.*?)<\/p>/g)].map((m) => m[1]),
     ['First para.', 'Second para, same one.', '[click]', 'Beat two.', 'More of it.']);
 });
 
-test('POST /edit/slide/notes reads every marker spelling and writes each one in brackets', async (t) => {
+test('POST /deck/edit/slide/notes reads every marker spelling and writes each one in brackets', async (t) => {
   const { routes, readDeck } = harness(t);
   const text = 'one <pause> two ⟨PAUSE⟩⟨PAUSE⟩ [whispers] three\n\n<click>\n\n[CLICK]\n\nfour ⟨SLOW⟩slowly⟨/SLOW⟩';
-  const r = await call(routes, 'POST /edit/slide/notes', { body: { slide: 1, text } });
+  const r = await call(routes, 'POST /deck/edit/slide/notes', { body: { slide: 1, text } });
   assert.equal(r.code, 200);
   const aside = /<aside class="notes">([\s\S]*?)<\/aside>/.exec(readDeck())[1];
   assert.match(aside, /<p>one \[pause\] two \[long pause\] \[whispers\] three<\/p>/, 'an audio tag is kept as written');
@@ -174,47 +174,47 @@ test('POST /edit/slide/notes reads every marker spelling and writes each one in 
   assert.doesNotMatch(aside, /⟨|&lt;/, 'no angle-bracket form survives the save');
 });
 
-test('POST /edit/slide/layout writes data-layout, and saying it twice changes nothing', async (t) => {
+test('POST /deck/edit/slide/layout writes data-layout, and saying it twice changes nothing', async (t) => {
   const { routes, readDeck } = harness(t);
-  const first = await call(routes, 'POST /edit/slide/layout', { body: { slide: 1, layout: 'split' } });
+  const first = await call(routes, 'POST /deck/edit/slide/layout', { body: { slide: 1, layout: 'split' } });
   assert.equal(first.code, 200);
   assert.equal(first.body.changed, true);
   assert.match(readDeck(), /<section data-layout="split">/);
 
   // The idempotent write is the one that matters: a picker that re-sends the
   // layout it is already on must not spend an undo entry on nothing.
-  const again = await call(routes, 'POST /edit/slide/layout', { body: { slide: 1, layout: 'split' } });
+  const again = await call(routes, 'POST /deck/edit/slide/layout', { body: { slide: 1, layout: 'split' } });
   assert.equal(again.body.changed, false, 'an unchanged write took a snapshot');
   assert.equal(again.body.undo, 1, 'and it spent an undo entry doing it');
 });
 
-test('POST /edit/slide/hidden takes a slide out of the talk and puts it back', async (t) => {
+test('POST /deck/edit/slide/hidden takes a slide out of the talk and puts it back', async (t) => {
   const { routes, readDeck } = harness(t);
-  await call(routes, 'POST /edit/slide/hidden', { body: { slide: 2, hidden: true } });
+  await call(routes, 'POST /deck/edit/slide/hidden', { body: { slide: 2, hidden: true } });
   assert.match(readDeck(), /<section data-layout="centered" data-hidden>/,
     'data-hidden lands beside the layout, not instead of it (DECK_ANATOMY HIDDEN_SLIDES)');
-  await call(routes, 'POST /edit/slide/hidden', { body: { slide: 2, hidden: false } });
+  await call(routes, 'POST /deck/edit/slide/hidden', { body: { slide: 2, hidden: false } });
   assert.doesNotMatch(readDeck(), /data-hidden/, 'showing it again must take the attribute off');
   assert.match(readDeck(), /data-layout="centered"/, 'and must leave the rest of the tag alone');
 });
 
-test('GET /edit/element/source reads the FILE, and 404s past the last element', async (t) => {
+test('GET /deck/edit/element/source reads the FILE, and 404s past the last element', async (t) => {
   const { routes } = harness(t);
-  const ok = await call(routes, 'GET /edit/element/source', { query: '?slide=1&index=1' });
+  const ok = await call(routes, 'GET /deck/edit/element/source', { query: '?slide=1&index=1' });
   assert.equal(ok.code, 200);
   assert.equal(ok.body.html, '<ul><li>one</li></ul>', 'the element comes back verbatim, not as the DOM has it');
 
-  const gone = await call(routes, 'GET /edit/element/source', { query: '?slide=1&index=9' });
+  const gone = await call(routes, 'GET /deck/edit/element/source', { query: '?slide=1&index=9' });
   assert.equal(gone.code, 404, 'an index the slide does not have is not found, not a crash');
   assert.equal(gone.body.ok, false);
 
-  const bad = await call(routes, 'GET /edit/element/source', { query: '?slide=0&index=1' });
+  const bad = await call(routes, 'GET /deck/edit/element/source', { query: '?slide=0&index=1' });
   assert.equal(bad.code, 400, 'slide 0 is a bad payload, and is refused before the file is opened');
 });
 
-test('POST /edit/slide/sources writes the card, and refuses a link that would execute', async (t) => {
+test('POST /deck/edit/slide/sources writes the card, and refuses a link that would execute', async (t) => {
   const { routes, readDeck } = harness(t);
-  const r = await call(routes, 'POST /edit/slide/sources', {
+  const r = await call(routes, 'POST /deck/edit/slide/sources', {
     body: {
       slide: 1,
       facts: [['sample', '1,200 people']],
@@ -234,9 +234,9 @@ test('POST /edit/slide/sources writes the card, and refuses a link that would ex
   assert.doesNotMatch(html, /javascript:/, 'an executable href must never reach the file — this aside travels');
 });
 
-test('POST /edit/timings writes every slide in ONE edit, so Z takes the rehearsal back at once', async (t) => {
+test('POST /deck/edit/timings writes every slide in ONE edit, so Z takes the rehearsal back at once', async (t) => {
   const { routes, readDeck, history } = harness(t);
-  const r = await call(routes, 'POST /edit/timings', {
+  const r = await call(routes, 'POST /deck/edit/timings', {
     body: { timings: [{ slide: 1, seconds: 42 }, { slide: 2, seconds: 90.4 }] },
   });
   assert.equal(r.code, 200);
@@ -251,7 +251,7 @@ test('a bad payload throws rather than writing, and the dispatcher turns that in
   const { routes, readDeck } = harness(t);
   const before = readDeck();
   for (const body of [{ slide: 0, text: 'x' }, { slide: 1, text: 7 }, { slide: 1.5, text: 'x' }]) {
-    await assert.rejects(() => call(routes, 'POST /edit/slide/notes', { body }), /bad payload/,
+    await assert.rejects(() => call(routes, 'POST /deck/edit/slide/notes', { body }), /bad payload/,
       `${JSON.stringify(body)} was accepted`);
   }
   assert.equal(readDeck(), before, 'a refused write must leave the deck byte-for-byte alone');
@@ -280,9 +280,9 @@ const THREE = `<!doctype html>
 /** The deck's running order, read back out of the file. */
 const titles = (html) => [...html.matchAll(/<h2>([^<]*)<\/h2>/g)].map((m) => m[1]);
 
-test('POST /edit/slide makes a blank slide after the one you were on and moves you to it', async (t) => {
+test('POST /deck/edit/slide makes a blank slide after the one you were on and moves you to it', async (t) => {
   const { routes, readDeck, history } = harness(t, THREE);
-  const r = await call(routes, 'POST /edit/slide', { body: { op: 'new', slide: 1 } });
+  const r = await call(routes, 'POST /deck/edit/slide', { body: { op: 'new', slide: 1 } });
   assert.equal(r.code, 200);
   assert.deepEqual([r.body.ok, r.body.slide, r.body.total], [true, 2, 4],
     'the answer carries where the stage should BE, so the browser does not redo the arithmetic');
@@ -291,9 +291,9 @@ test('POST /edit/slide makes a blank slide after the one you were on and moves y
   assert.match(readDeck(), /<aside class="notes"><\/aside>/, 'the blank slide arrives ready for notes');
 });
 
-test('POST /edit/slide duplicates a slide byte for byte, and lands you on the copy', async (t) => {
+test('POST /deck/edit/slide duplicates a slide byte for byte, and lands you on the copy', async (t) => {
   const { routes, readDeck } = harness(t, THREE);
-  const r = await call(routes, 'POST /edit/slide', { body: { op: 'duplicate', slide: 2 } });
+  const r = await call(routes, 'POST /deck/edit/slide', { body: { op: 'duplicate', slide: 2 } });
   assert.deepEqual([r.body.slide, r.body.total], [3, 4]);
   const html = readDeck();
   assert.deepEqual(titles(html), ['Alpha', 'Beta', 'Beta', 'Gamma']);
@@ -301,91 +301,91 @@ test('POST /edit/slide duplicates a slide byte for byte, and lands you on the co
     'the copy keeps the original\'s layout — a duplicate is the same slide twice');
 });
 
-test('POST /edit/slide deletes a slide, and deleting the last one leaves you on the new last', async (t) => {
+test('POST /deck/edit/slide deletes a slide, and deleting the last one leaves you on the new last', async (t) => {
   const { routes, readDeck } = harness(t, THREE);
-  const mid = await call(routes, 'POST /edit/slide', { body: { op: 'delete', slide: 2 } });
+  const mid = await call(routes, 'POST /deck/edit/slide', { body: { op: 'delete', slide: 2 } });
   assert.deepEqual([mid.body.slide, mid.body.total], [2, 2], 'you stay at the same number, now a different slide');
   assert.deepEqual(titles(readDeck()), ['Alpha', 'Gamma']);
   assert.doesNotMatch(readDeck(), /\n[ \t]*\n/, 'the line the slide sat on must go with it');
 
-  const last = await call(routes, 'POST /edit/slide', { body: { op: 'delete', slide: 2 } });
+  const last = await call(routes, 'POST /deck/edit/slide', { body: { op: 'delete', slide: 2 } });
   assert.deepEqual([last.body.slide, last.body.total], [1, 1],
     'there is no slide 2 to stand on any more, so the answer walks you back');
 });
 
-test('POST /edit/slide refuses to delete the only slide a deck has', async (t) => {
+test('POST /deck/edit/slide refuses to delete the only slide a deck has', async (t) => {
   const one = THREE.replace(/ {4}<section data-layout[\s\S]*?<\/section>\n/, '')
     .replace(/ {4}<section>\n {6}<h2>Gamma<\/h2>\n {4}<\/section>\n/, '');
   const { routes, readDeck } = harness(t, one);
   const before = readDeck();
-  const r = await call(routes, 'POST /edit/slide', { body: { op: 'delete', slide: 1 } });
+  const r = await call(routes, 'POST /deck/edit/slide', { body: { op: 'delete', slide: 1 } });
   assert.equal(r.code, 409);
   assert.deepEqual(r.body, { ok: false, error: 'a deck needs at least one slide' },
     'a deck with no slides is not a deck, and the refusal has to say so in words');
   assert.equal(readDeck(), before, 'a refused op must leave the file byte-for-byte alone');
 });
 
-test('POST /edit/slide moves a slide up and down, and refuses at the two ends', async (t) => {
+test('POST /deck/edit/slide moves a slide up and down, and refuses at the two ends', async (t) => {
   const { routes, readDeck, history } = harness(t, THREE);
-  const up = await call(routes, 'POST /edit/slide', { body: { op: 'up', slide: 2 } });
+  const up = await call(routes, 'POST /deck/edit/slide', { body: { op: 'up', slide: 2 } });
   assert.deepEqual([up.body.slide, up.body.total], [1, 3], 'you follow the slide you moved');
   assert.deepEqual(titles(readDeck()), ['Beta', 'Alpha', 'Gamma']);
   assert.equal(history.counts().undo, 1, 'two sections changed places in ONE undo entry');
 
-  const down = await call(routes, 'POST /edit/slide', { body: { op: 'down', slide: 1 } });
+  const down = await call(routes, 'POST /deck/edit/slide', { body: { op: 'down', slide: 1 } });
   assert.deepEqual([down.body.slide, down.body.total], [2, 3]);
   assert.deepEqual(titles(readDeck()), ['Alpha', 'Beta', 'Gamma'], 'down undoes up, so the deck is back');
 
-  const top = await call(routes, 'POST /edit/slide', { body: { op: 'up', slide: 1 } });
+  const top = await call(routes, 'POST /deck/edit/slide', { body: { op: 'up', slide: 1 } });
   assert.equal(top.code, 409);
   assert.equal(top.body.error, 'already the first slide');
-  const bottom = await call(routes, 'POST /edit/slide', { body: { op: 'down', slide: 3 } });
+  const bottom = await call(routes, 'POST /deck/edit/slide', { body: { op: 'down', slide: 3 } });
   assert.equal(bottom.code, 409);
   assert.equal(bottom.body.error, 'already the last slide');
   assert.equal(history.counts().undo, 2, 'neither refusal spent an undo entry');
 
   // `move` is what a drag in the overview asks for: the slide ends up AT `to`
-  const far = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 1, to: 3 } });
+  const far = await call(routes, 'POST /deck/edit/slide', { body: { op: 'move', slide: 1, to: 3 } });
   assert.deepEqual([far.body.slide, far.body.total], [3, 3], 'you follow the slide to where it landed');
   assert.deepEqual(titles(readDeck()), ['Beta', 'Gamma', 'Alpha']);
-  const back = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 3, to: 1 } });
+  const back = await call(routes, 'POST /deck/edit/slide', { body: { op: 'move', slide: 3, to: 1 } });
   assert.deepEqual(titles(readDeck()), ['Alpha', 'Beta', 'Gamma'], 'and back');
   assert.equal(back.body.slide, 1);
-  const there = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 2, to: 2 } });
+  const there = await call(routes, 'POST /deck/edit/slide', { body: { op: 'move', slide: 2, to: 2 } });
   assert.equal(there.code, 409);
   assert.equal(there.body.error, 'slide 2 is already there');
-  const past = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 2, to: 9 } });
+  const past = await call(routes, 'POST /deck/edit/slide', { body: { op: 'move', slide: 2, to: 9 } });
   assert.equal(past.code, 404);
-  const noTo = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 2 } });
+  const noTo = await call(routes, 'POST /deck/edit/slide', { body: { op: 'move', slide: 2 } });
   assert.equal(noTo.code, 400);
   assert.equal(history.counts().undo, 4, 'a move is one undo entry however far it went, and a refusal none');
 });
 
-test('POST /edit/slide counts hidden slides like any other section', async (t) => {
+test('POST /deck/edit/slide counts hidden slides like any other section', async (t) => {
   // Numbering is by SOURCE ORDER here (DECK_ANATOMY) — the same way comments,
   // review anchors and history number a deck.
   const { routes, readDeck } = harness(t, THREE.replace('<section data-layout="centered">', '<section data-hidden>'));
-  const r = await call(routes, 'POST /edit/slide', { body: { op: 'down', slide: 2 } });
+  const r = await call(routes, 'POST /deck/edit/slide', { body: { op: 'down', slide: 2 } });
   assert.deepEqual([r.body.slide, r.body.total], [3, 3], 'a hidden slide is still slide 2');
   assert.deepEqual(titles(readDeck()), ['Alpha', 'Gamma', 'Beta']);
 });
 
-test('POST /edit/slide refuses a bad op or slide with 400, and an absent slide with 404', async (t) => {
+test('POST /deck/edit/slide refuses a bad op or slide with 400, and an absent slide with 404', async (t) => {
   const { routes, readDeck } = harness(t, THREE);
   const before = readDeck();
   for (const body of [{ op: 'shuffle', slide: 1 }, { op: 'new', slide: 1.5 }, { op: 'new', slide: 0 }, { slide: 1 }]) {
-    const r = await call(routes, 'POST /edit/slide', { body });
+    const r = await call(routes, 'POST /deck/edit/slide', { body });
     assert.equal(r.code, 400, `${JSON.stringify(body)} was accepted`);
     assert.equal(r.body.error, 'bad payload');
   }
-  const gone = await call(routes, 'POST /edit/slide', { body: { op: 'new', slide: 9 } });
+  const gone = await call(routes, 'POST /deck/edit/slide', { body: { op: 'new', slide: 9 } });
   assert.equal(gone.code, 404, 'a slide the deck does not have is not found, not a crash');
   assert.match(gone.body.error, /no slide 9 \(deck has 3\)/);
   assert.equal(readDeck(), before, 'and nothing was written on the way to either answer');
 });
 
 /**
- * Call POST /edit/asset the way the dispatcher calls a BEFORE_BODY route: the
+ * Call POST /deck/edit/asset the way the dispatcher calls a BEFORE_BODY route: the
  * raw request stream and its headers, and no body string at all.
  *
  * `pulled` counts the chunks the handler actually took, which is how the size
@@ -393,8 +393,8 @@ test('POST /edit/slide refuses a bad op or slide with 400, and an absent slide w
  * announcing it costs more than it saves.
  */
 async function upload(routes, { type = 'image/png', name = 'photo.PNG', chunks = ['x'], length } = {}) {
-  const handler = routes.get('POST /edit/asset');
-  assert.ok(handler, 'no handler registered for POST /edit/asset');
+  const handler = routes.get('POST /deck/edit/asset');
+  assert.ok(handler, 'no handler registered for POST /deck/edit/asset');
   let pulled = 0;
   const req = Readable.from((function* () {
     for (const c of chunks) { pulled++; yield Buffer.from(c); }
@@ -406,13 +406,13 @@ async function upload(routes, { type = 'image/png', name = 'photo.PNG', chunks =
   };
   const sent = {};
   await handler({
-    req, res: {}, url: new URL('http://x/edit/asset'),
+    req, res: {}, url: new URL('http://x/deck/edit/asset'),
     json: (code, obj) => { sent.code = code; sent.body = obj; }, CORS: {},
   });
   return { ...sent, pulled };
 }
 
-test('POST /edit/asset saves a dropped image under assets/, named safely', async (t) => {
+test('POST /deck/edit/asset saves a dropped image under assets/, named safely', async (t) => {
   const { routes, dir } = harness(t, THREE);
   const r = await upload(routes, { name: 'My Holiday Photo!.jpeg', type: 'image/png', chunks: ['png-bytes'] });
   assert.equal(r.code, 200);
@@ -422,7 +422,7 @@ test('POST /edit/asset saves a dropped image under assets/, named safely', async
     'the bytes are saved as they arrived — an editor that rewrote them would be lying about the slide');
 });
 
-test('POST /edit/asset never writes outside assets/, whatever the name claims', async (t) => {
+test('POST /deck/edit/asset never writes outside assets/, whatever the name claims', async (t) => {
   const { routes, dir } = harness(t, THREE);
   for (const [name, expected] of [
     ['../../etc/passwd', 'assets/passwd.png'],
@@ -440,7 +440,7 @@ test('POST /edit/asset never writes outside assets/, whatever the name claims', 
   assert.ok(!existsSync(path.join(dir, 'passwd.png')), 'a name that climbed out would land beside the deck');
 });
 
-test('POST /edit/asset de-duplicates rather than overwriting a picture already on a slide', async (t) => {
+test('POST /deck/edit/asset de-duplicates rather than overwriting a picture already on a slide', async (t) => {
   const { routes, dir } = harness(t, THREE);
   const first = await upload(routes, { name: 'logo.png', chunks: ['one'] });
   const second = await upload(routes, { name: 'logo.png', chunks: ['two'] });
@@ -452,7 +452,7 @@ test('POST /edit/asset de-duplicates rather than overwriting a picture already o
     'overwriting the first would change a slide the author was not editing');
 });
 
-test('POST /edit/asset refuses anything that is not an image a slide can carry', async (t) => {
+test('POST /deck/edit/asset refuses anything that is not an image a slide can carry', async (t) => {
   const { routes, dir } = harness(t, THREE);
   for (const type of ['text/html', 'application/pdf', 'image/tiff', null, '']) {
     const r = await upload(routes, { type, chunks: ['x'] });
@@ -462,7 +462,7 @@ test('POST /edit/asset refuses anything that is not an image a slide can carry',
   assert.ok(!existsSync(path.join(dir, 'assets')), 'a refused upload must not even make the folder');
 });
 
-test('POST /edit/asset refuses an oversized upload WITHOUT reading it', async (t) => {
+test('POST /deck/edit/asset refuses an oversized upload WITHOUT reading it', async (t) => {
   const { routes } = harness(t, THREE);
   // The declared length is the cheap refusal: the browser said how big it is,
   // so the bytes never have to cross the socket at all.
@@ -477,7 +477,7 @@ test('POST /edit/asset refuses an oversized upload WITHOUT reading it', async (t
   assert.ok(streamed.pulled <= 26, `read ${streamed.pulled} MB before refusing — the cap is not stopping the stream`);
 });
 
-test('POST /edit/asset takes an SVG as it is, but refuses one carrying a script', async (t) => {
+test('POST /deck/edit/asset takes an SVG as it is, but refuses one carrying a script', async (t) => {
   const { routes, dir } = harness(t, THREE);
   const plain = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>';
   const ok = await upload(routes, { type: 'image/svg+xml', name: 'diagram.svg', chunks: [plain] });
@@ -496,9 +496,9 @@ test('POST /edit/asset takes an SVG as it is, but refuses one carrying a script'
   assert.ok(!existsSync(path.join(dir, 'assets', 'trap.svg')), 'a refused SVG must not reach the disk at all');
 });
 
-test('POST /edit/element/image puts the picture on the slide, not inside the notes', async (t) => {
+test('POST /deck/edit/element/image puts the picture on the slide, not inside the notes', async (t) => {
   const { routes, readDeck, history } = harness(t, THREE);
-  const r = await call(routes, 'POST /edit/element/image', {
+  const r = await call(routes, 'POST /deck/edit/element/image', {
     body: { slide: 1, index: null, src: 'assets/chart.png', alt: 'revenue by quarter' },
   });
   assert.equal(r.code, 200);
@@ -508,36 +508,36 @@ test('POST /edit/element/image puts the picture on the slide, not inside the not
     'an image inside the aside is an image the audience never sees');
 });
 
-test('POST /edit/element/image accepts an explicit index, addressed like the element routes', async (t) => {
+test('POST /deck/edit/element/image accepts an explicit index, addressed like the element routes', async (t) => {
   const { routes, readDeck } = harness(t, THREE);
-  const r = await call(routes, 'POST /edit/element/image', { body: { slide: 2, index: 0, src: 'assets/a.png', alt: '' } });
+  const r = await call(routes, 'POST /deck/edit/element/image', { body: { slide: 2, index: 0, src: 'assets/a.png', alt: '' } });
   assert.equal(r.body.index, 1);
   assert.match(readDeck(), /<h2>Beta<\/h2>\n {6}<img src="assets\/a\.png" alt="">/);
 });
 
-test('POST /edit/element/image refuses an src that is not a path beside the deck', async (t) => {
+test('POST /deck/edit/element/image refuses an src that is not a path beside the deck', async (t) => {
   const { routes, readDeck } = harness(t, THREE);
   const before = readDeck();
   for (const src of [
     'https://example.org/a.png', 'javascript:alert(1)', 'data:image/png;base64,AAA',
     '/etc/passwd.png', '../secrets/a.png', 'a/../../b.png', '', 7, null,
   ]) {
-    const r = await call(routes, 'POST /edit/element/image', { body: { slide: 1, index: null, src, alt: '' } });
+    const r = await call(routes, 'POST /deck/edit/element/image', { body: { slide: 1, index: null, src, alt: '' } });
     assert.equal(r.code, 400, `${JSON.stringify(src)} was accepted as an image src`);
     assert.equal(r.body.ok, false);
   }
   assert.equal(readDeck(), before, 'a deck is one file and what sits beside it — nothing else reached it');
 });
 
-test('POST /edit/element/image refuses a bad payload with 400 and an absent slide with 404', async (t) => {
+test('POST /deck/edit/element/image refuses a bad payload with 400 and an absent slide with 404', async (t) => {
   const { routes } = harness(t, THREE);
   for (const body of [{ slide: 0, src: 'a.png' }, { slide: 1, index: -1, src: 'a.png' }, { slide: 1, index: 1.5, src: 'a.png' }]) {
-    const r = await call(routes, 'POST /edit/element/image', { body });
+    const r = await call(routes, 'POST /deck/edit/element/image', { body });
     assert.equal(r.code, 400, `${JSON.stringify(body)} was accepted`);
   }
-  const gone = await call(routes, 'POST /edit/element/image', { body: { slide: 9, index: null, src: 'a.png', alt: '' } });
+  const gone = await call(routes, 'POST /deck/edit/element/image', { body: { slide: 9, index: null, src: 'a.png', alt: '' } });
   assert.equal(gone.code, 404);
   assert.match(gone.body.error, /no slide 9/);
-  const noChild = await call(routes, 'POST /edit/element/image', { body: { slide: 2, index: 7, src: 'a.png', alt: '' } });
+  const noChild = await call(routes, 'POST /deck/edit/element/image', { body: { slide: 2, index: 7, src: 'a.png', alt: '' } });
   assert.equal(noChild.code, 404, 'an index the slide does not have is not found, not a crash');
 });

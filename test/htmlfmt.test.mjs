@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { dedentHtml, dedentable } from '../src/core/htmlfmt.js';
 
 test('the file\'s nesting depth comes off, and the element keeps its own', () => {
-  // Verbatim from `/edit/element/source` on a scaffolded deck: the slice ate
+  // Verbatim from `/deck/edit/element/source` on a scaffolded deck: the slice ate
   // the first line's indentation, and every other line still carries where the
   // element happened to sit in the file.
   const src = '<aside class="notes">\n        <p>Welcome.</p>\n      </aside>';

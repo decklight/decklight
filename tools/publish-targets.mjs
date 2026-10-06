@@ -15,7 +15,7 @@
  *
  * WHERE THE TOKEN COMES FROM. Not a terminal prompt, and not the browser wizard.
  * `decklight publish` is a one-shot, often-headless command (CI has no browser to
- * paste a key into, and no /edit/wizard to post it to — that endpoint is served by
+ * paste a key into, and no /deck/edit/wizard to post it to — that endpoint is served by
  * the AUTHOR server, which publish never starts). The existing precedent for
  * exactly this shape is ElevenLabs' own key (tools/elevenlabs-tts.mjs): read from
  * the environment, never written to disk, "not boring enough" for a config file.

@@ -17,7 +17,7 @@
  * who can edit the payload edits the meta tag in the same pass.
  *
  * This module registers exactly one capability: GET a file under the deck's
- * directory. There is no `/edit/*` route to refuse, because none is ever
+ * directory. There is no `/deck/edit/*` route to refuse, because none is ever
  * registered (#168 split `cli/serve.mjs` out of `cli/edit.mjs` for precisely
  * this), and nothing here writes to disk.
  *
@@ -112,7 +112,7 @@ export const CSP = [
  * Serve files under `root` over http://127.0.0.1 with this module's CSP on
  * EVERY response, for the render tools (`tools/shot.mjs`, `tools/video.mjs`).
  *
- * It is the read-only server's serving core with the audit/strict/remote/edit surface
+ * It is the read-only server's serving core with the audit/strict/deck/remote/edit surface
  * stripped off: `withHeaders` for the policy, `staticFiles` for a
  * traversal-guarded GET, an ephemeral loopback port. A deck screenshotted or
  * filmed BEFORE anyone presents it therefore runs under the same policy
@@ -186,7 +186,7 @@ const USAGE = `usage: decklight <deck.html|deck.decklight|repository url> --read
              fetchable by the deck's own script — which is why widening the
              root is a flag you type, never something the cwd decides.
   --remote   also listen on the LAN for the phone remote. Off this machine ONLY
-             /remote/* answers, and only with the per-run token the printed URL
+             /deck/remote/* answers, and only with the per-run token the printed URL
              and its QR carry — the deck itself, and every file beside it, stay
              unreachable from the LAN whether or not this flag is passed.
   --host A   the address --remote binds                            [0.0.0.0]
@@ -247,7 +247,7 @@ const USAGE = `usage: decklight <deck.html|deck.decklight|repository url> --read
   charts and background media are markup, CSS and attributes — never at risk. A
   clean deck under --strict is byte-identical to the same deck without it.
 
-  There is no editing surface: the /edit/* routes are not registered at all, so
+  There is no editing surface: the /deck/edit/* routes are not registered at all, so
   a POST to one is as unknown as a POST to anything else. That is also why the
   phone remote lives here rather than on the edit server — getting a clicker
   should not mean running write endpoints against your deck while you are on
@@ -296,8 +296,8 @@ export async function readOnlyMain(args, { client } = {}) {
   // --remote widens the LISTENER and nothing else (READ_ONLY#REMOTE). The point
   // of moving the phone remote here is that getting a clicker should not mean
   // running an editing server against your deck while you are on stage and not
-  // looking at it — so this server still registers no /edit/* route, and the
-  // only paths a caller off this machine can reach are /remote/*, with the
+  // looking at it — so this server still registers no /deck/edit/* route, and the
+  // only paths a caller off this machine can reach are /deck/remote/*, with the
   // per-run token. allowRemote is the same classifier the edit server uses;
   // one implementation, tested once.
   const remote = args.includes('--remote') || opt('--host') !== undefined;
@@ -518,7 +518,7 @@ export async function readOnlyMain(args, { client } = {}) {
   const relay = createRemoteRelay({
     deckName: basename(deckPath),
     token,
-    remoteUrl: () => `http://${lanAddress() ?? host}:${actualPort}/remote?t=${token}`,
+    remoteUrl: () => `http://${lanAddress() ?? host}:${actualPort}/deck/remote?t=${token}`,
     relayToDeck: (event, data) => decks.broadcast(event, data),
     deckCount: () => decks.size,
     CORS,
@@ -649,11 +649,11 @@ export async function readOnlyMain(args, { client } = {}) {
   // clone whose branch tracks something (READ_ONLY#UPSTREAM): on a deck you
   // were emailed they are not refused, they do not exist — a POST lands on
   // the same 405 as a POST to anything else, which is the argument the
-  // module header makes about /edit/*. No CORS on any of those: /deck/ping
+  // module header makes about /deck/edit/*. No CORS on any of those: /deck/ping
   // and /deck/events carry it because the phone's origin differs, and the
   // phone has no business here in either direction.
   const routes = new Map(deckRoutes.routes);
-  for (const key of ['GET /review/comments', 'POST /review/comments', 'POST /review/submit']) {
+  for (const key of ['GET /deck/review/comments', 'POST /deck/review/comments', 'POST /deck/review/submit']) {
     routes.set(key, ({ req, res, url, body }) => review.handle(req, res, url, body ?? ''));
   }
   if (upstream) {
@@ -677,17 +677,17 @@ export async function readOnlyMain(args, { client } = {}) {
   }
   // How much of a POST's body a route reads: a comment is prose, so its cap
   // is the comment's, not the remote's; every other route reads none.
-  const BODY_MAX = new Map([['POST /review/comments', REVIEW_BODY_MAX]]);
+  const BODY_MAX = new Map([['POST /deck/review/comments', REVIEW_BODY_MAX]]);
 
   const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
-    // Loopback always; off-loopback only /remote/* carrying the per-run token,
+    // Loopback always; off-loopback only /deck/remote/* carrying the per-run token,
     // and only when --remote asked for a listener at all. Every other path is
     // refused off this machine unconditionally — flag or no flag, token or no
     // token — which is why the static files and the deck itself cannot be
     // reached from the LAN even while the remote can.
     if (!allowRemote(req, token)) {
       res.writeHead(403);
-      res.end('forbidden: this deck is served to this machine only; off it, only /remote/* answers, with the session token');
+      res.end('forbidden: this deck is served to this machine only; off it, only /deck/remote/* answers, with the session token');
       return;
     }
     let url;
@@ -701,7 +701,7 @@ export async function readOnlyMain(args, { client } = {}) {
       res.writeHead(405); res.end('method not allowed'); return;
     }
     // staticFiles answers GET (200/403/404) and declines everything else. A
-    // POST to /edit/slide/notes lands here exactly like a POST to /anything — there
+    // POST to /deck/edit/slide/notes lands here exactly like a POST to /anything — there
     // is no route to have refused it, which is the point of the ticket.
     // The presenting control channel. `/deck/ping` is how a deck discovers
     // it is being presented rather than authored, and the answer deliberately
@@ -754,10 +754,10 @@ export async function readOnlyMain(args, { client } = {}) {
   actualPort = actual;
   console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
   console.log(`  serving ${root} — ${rootArg ? '--root as given' : "the deck's own directory"};`
-    + ' dotfiles and non-deck file types refused; no /edit/* routes, nothing is written');
+    + ' dotfiles and non-deck file types refused; no /deck/edit/* routes, nothing is written');
   if (token) {
-    console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/remote?t=${token}`);
-    console.log('  off this machine ONLY /remote/* answers, with that token — the deck itself does not');
+    console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/deck/remote?t=${token}`);
+    console.log('  off this machine ONLY /deck/remote/* answers, with that token — the deck itself does not');
   }
   // Before the first slide renders, not after — the point is to be able to
   // decide not to open it.

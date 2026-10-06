@@ -32,7 +32,7 @@
  * BACK rather than repeating what the write intended: the one thing worse than
  * a key with weak permissions is a key with weak permissions and a CLI saying
  * otherwise. Loopback-only by construction rather than by check: the author
- * server refuses every `/edit/*` mutation off-loopback unconditionally
+ * server refuses every `/deck/edit/*` mutation off-loopback unconditionally
  * (`allowRemote`), flag or no flag. Never logged, never written into the deck,
  * never picked up by `bundle` — a key that reached a deck would travel with it.
  *

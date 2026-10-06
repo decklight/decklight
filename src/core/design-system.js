@@ -89,7 +89,7 @@ const fileIndex = new WeakMap();
 /** What a section was expanded from: the key, and the authored elements it moved. */
 const expanded = new WeakMap();
 
-/** The element's index among its section's children in the file — what `/edit/element/*` addresses. */
+/** The element's index among its section's children in the file — what `/deck/edit/element/*` addresses. */
 export const fileIndexOf = (el) => fileIndex.get(el);
 
 /**
@@ -106,7 +106,7 @@ export function authoredTop(sec, target) {
   return null;
 }
 
-/** That element's index among its section's children IN THE FILE — what `/edit/element/*` addresses. */
+/** That element's index among its section's children IN THE FILE — what `/deck/edit/element/*` addresses. */
 export const authoredIndex = (sec, el) => fileIndex.get(el) ?? Array.prototype.indexOf.call(sec.children, el);
 
 /** The authored content of an expanded slide that has not moved since — or null if it changed. */

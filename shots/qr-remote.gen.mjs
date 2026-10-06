@@ -20,7 +20,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const shots = path.join(root, '.shots');
 fs.mkdirSync(shots, { recursive: true });
 
-const url = 'http://192.168.1.23:8123/remote?t=k3XR9v';
+const url = 'http://192.168.1.23:8123/deck/remote?t=k3XR9v';
 const svg = qrSvg(url);
 const version = (encodeQR(url).length - 17) / 4;
 

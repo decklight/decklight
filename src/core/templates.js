@@ -289,7 +289,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
    * same way, generated and custom ones travelling as tokens.
    */
   const previewDoc = (name, slide, to, how) =>
-    `${base()}/edit/template/preview${themes().previewQuery()}`
+    `${base()}/deck/edit/template/preview${themes().previewQuery()}`
     + `&name=${encodeURIComponent(name)}&slide=${slide}&to=${to}&mode=${how}`;
 
   function syncPreview() {
@@ -335,7 +335,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
     if (slideCache.has(name)) return slideCache.get(name);
     let got;
     try {
-      const r = await fetch(`${base()}/edit/template/slides?name=${encodeURIComponent(name)}`);
+      const r = await fetch(`${base()}/deck/edit/template/slides?name=${encodeURIComponent(name)}`);
       const j = await r.json().catch(() => ({}));
       got = r.ok && j.ok ? { slides: j.slides ?? [] } : { error: j.error || `the edit server said ${r.status}` };
     } catch {
@@ -354,7 +354,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
     sel = 0;
     render();
     try {
-      const r = await fetch(base() + '/edit/template/browse');
+      const r = await fetch(base() + '/deck/edit/template/browse');
       const j = await r.json().catch(() => ({}));
       listing = r.ok && j.ok
         ? { installed: j.installed ?? [], offered: j.offered ?? [], stale: j.stale ?? [] }
@@ -385,7 +385,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
     busy = true;
     toast(`installing ${qualified}…`);
     try {
-      const r = await fetch(base() + '/edit/template/add', {
+      const r = await fetch(base() + '/deck/edit/template/add', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ref: qualified }),
       });
       const j = await r.json().catch(() => ({}));
@@ -407,7 +407,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
     busy = true;
     const after = deck().state.slide;
     try {
-      const r = await fetch(base() + '/edit/template/insert', {
+      const r = await fetch(base() + '/deck/edit/template/insert', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: opened.name, slides, after }),
       });
@@ -440,7 +440,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
     busy = true;
     const to = deck().state.slide;
     try {
-      const r = await fetch(base() + '/edit/template/apply', {
+      const r = await fetch(base() + '/deck/edit/template/apply', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: opened.name, slide: slide.n, to }),
       });

@@ -145,7 +145,7 @@
     // ── mock edit server: only the `record` mode has one ──────────────────
     // ⇧V writes its slide-NN.wav through the server that owns the deck file
     // (PRESENTING), so proving it stopped using the browser's download folder
-    // means standing an /deck/ping and an /edit/narration/record up in front of it. Gated
+    // means standing an /deck/ping and an /deck/edit/narration/record up in front of it. Gated
     // on the mode: every OTHER mode must keep failing that probe, or a fetch
     // left pending would freeze Chrome's virtual clock and hang the page.
     const AUTHOR = 'http://127.0.0.1:8788';
@@ -155,7 +155,7 @@
     // browser's download folder is the honest fallback and must still work
     const authored = recording && !params.has('nosrv');
     const ttsSeen = new Set();   // sentences the mock bridge has synthesized once
-    window.__recorded = [];   // every /edit/narration/record the deck posted
+    window.__recorded = [];   // every /deck/edit/narration/record the deck posted
     window.__narrationWritten = [];   // …and every config it wrote back
     window.__downloaded = []; // …and every file it handed the browser instead
     // downloadFromUrl builds an <a download> and clicks it; that click is the
@@ -180,7 +180,7 @@
           return new Response(JSON.stringify({ ok: true, name: 'narration.html', undo: 0, redo: 0 }),
             { status: 200, headers: { 'content-type': 'application/json' } });
         }
-        if (u.endsWith('/edit/narration/tracks')) {
+        if (u.endsWith('/deck/edit/narration/tracks')) {
           // A folder already recorded with the voice about to be used, so
           // rule 2 (refresh, do not accumulate takes) has something to find.
           // ?dir tests rule 3 instead — the deck's OWN configured folder — so
@@ -189,7 +189,7 @@
             { dir: 'voices/alnilam', files: 6, segments: false, ext: 'm4a', engine: 'mock', voice: 'Alnilam' },
           ] }), { status: 200, headers: { 'content-type': 'application/json' } });
         }
-        if (u.endsWith('/edit/narration')) {
+        if (u.endsWith('/deck/edit/narration')) {
           const cfg = JSON.parse(opts.body);
           // ?badconfig — a deck that builds its config elsewhere, which the
           // real server answers 409 for. The card must say so, not shrug.
@@ -202,7 +202,7 @@
           return new Response(JSON.stringify({ ok: true, changed: true }),
             { status: 200, headers: { 'content-type': 'application/json' } });
         }
-        if (u.includes('/edit/narration/record')) {
+        if (u.includes('/deck/edit/narration/record')) {
           const q = new URL(u).searchParams;
           // a blob (audio, a sidecar) or a string (the take's manifest, #535)
           const buf = typeof opts.body === 'string' ? null : await opts.body.arrayBuffer();

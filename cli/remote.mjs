@@ -59,14 +59,14 @@ export function remoteControllerHtml(deckName) {
   var pos = document.getElementById('pos');
   var state = document.getElementById('state');
   function send(key) {
-    return fetch('/remote/key' + q, {
+    return fetch('/deck/remote/key' + q, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ key: key }),
     }).catch(function () { state.textContent = 'offline'; });
   }
   document.getElementById('next').onclick = function () { send('next'); };
   document.getElementById('prev').onclick = function () { send('prev'); };
-  var es = new EventSource('/remote/events' + q);
+  var es = new EventSource('/deck/remote/events' + q);
   es.addEventListener('pos', function (e) {
     try { var p = JSON.parse(e.data); pos.textContent = p.i + ' / ' + p.n; } catch (err) {}
   });
@@ -78,7 +78,7 @@ export function remoteControllerHtml(deckName) {
 }
 
 /**
- * The relay. handle(req, res, url[, body]) answers every /remote/* route and
+ * The relay. handle(req, res, url[, body]) answers every /deck/remote/* route and
  * returns whether it did. GET routes need no body; the mounting server hands
  * POST bodies in after its own read. A bad payload throws — the mounting
  * server's error path answers 400, exactly as when this lived inline.
@@ -87,11 +87,11 @@ export function remoteControllerHtml(deckName) {
  *   token       the per-run token (null when --remote is off — QR refuses)
  *   remoteUrl   () => the LAN URL the QR encodes (port known only after bind)
  *   relayToDeck (event, data) => broadcast into the deck's own SSE stream
- *   deckCount   () => how many decks are listening (the /remote/key echo)
+ *   deckCount   () => how many decks are listening (the /deck/remote/key echo)
  *   CORS        the mounting server's CORS headers
  */
 export function createRemoteRelay({ deckName, token, remoteUrl, relayToDeck, deckCount, CORS }) {
-  const phones = sseChannel();  // phones watching /remote/events
+  const phones = sseChannel();  // phones watching /deck/remote/events
   let lastPos = null;           // the last position the deck reported
   const pushPos = () => { if (lastPos) phones.raw(`event: pos\ndata: ${JSON.stringify(lastPos)}\n\n`); };
   return {
@@ -101,12 +101,12 @@ export function createRemoteRelay({ deckName, token, remoteUrl, relayToDeck, dec
         res.end(JSON.stringify(obj));
         return true;
       };
-      if (req.method === 'GET' && url.pathname === '/remote') {
+      if (req.method === 'GET' && url.pathname === '/deck/remote') {
         res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
         res.end(remoteControllerHtml(deckName));
         return true;
       }
-      if (req.method === 'GET' && url.pathname === '/remote/qr.svg') {
+      if (req.method === 'GET' && url.pathname === '/deck/remote/qr.svg') {
         // Only meaningful with --remote: without it there is no LAN URL to
         // scan, and a QR encoding 127.0.0.1 would be a lie a phone can't use.
         if (!token) return json(404, { ok: false, error: 'the remote is off — start with --remote' });
@@ -114,14 +114,14 @@ export function createRemoteRelay({ deckName, token, remoteUrl, relayToDeck, dec
         res.end(qrSvg(remoteUrl()));
         return true;
       }
-      if (req.method === 'GET' && url.pathname === '/remote/events') {
+      if (req.method === 'GET' && url.pathname === '/deck/remote/events') {
         const sub = phones.add(req, res, CORS);
         // a phone joining mid-talk should show the right number immediately,
         // not stay blank until the presenter happens to advance
         if (lastPos) sub.write(`event: pos\ndata: ${JSON.stringify(lastPos)}\n\n`);
         return true;
       }
-      if (req.method === 'POST' && url.pathname === '/remote/key') {
+      if (req.method === 'POST' && url.pathname === '/deck/remote/key') {
         const { key } = JSON.parse(body);
         if (key !== 'next' && key !== 'prev') throw new Error('bad payload');
         // relayed as a named event on the stream the deck ALREADY listens to —
@@ -129,7 +129,7 @@ export function createRemoteRelay({ deckName, token, remoteUrl, relayToDeck, dec
         relayToDeck('remote', { key });
         return json(200, { ok: true, key, decks: deckCount() });
       }
-      if (req.method === 'POST' && url.pathname === '/remote/pos') {
+      if (req.method === 'POST' && url.pathname === '/deck/remote/pos') {
         // The deck→phones direction, and only that. The deck reporting its
         // position is a loopback caller; a phone — or anyone who obtained the
         // QR token — has no business posting here, and accepting it would let

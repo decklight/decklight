@@ -45,7 +45,7 @@ import { foldReview } from '../tools/review-anchor.mjs';
 /** Every review branch a remote has. A literal, not built from anything. */
 const REVIEW_GLOB = 'refs/heads/review/*';
 /** …and where they land locally: exactly where a plain `git fetch <remote>` would put them. */
-const refspecFor = (remote) => `+refs/heads/review/*:refs/remotes/${remote}/review/*`;
+const refspecFor = (remote) => `+refs/heads/review/*:refs/remotes/${remote}/deck/review/*`;
 
 /** Refuse a remote name git could misread, rather than repairing it. */
 export function remoteNameProblem(remote) {

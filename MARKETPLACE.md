@@ -341,7 +341,7 @@ safe way to play a deck you did not author.
   nothing unverified ever executes.
 - **Architectural bonus:** the phone remote and its QR currently live in the
   *edit* server (`cli/edit.mjs`, gated by `allowRemote`), so getting a clicker
-  today means running an editing server with `/edit/*` write endpoints against
+  today means running an editing server with `/deck/edit/*` write endpoints against
   your deck. Read-only mode is the natural home for speaker view and the remote with
   **no edit surface registered at all**.
 
@@ -406,9 +406,9 @@ any other word that is not a command. A refusal stub naming the old word is a
 migration aid, and decklight has no released users to migrate: every stub is a
 line of dispatch, a test and a paragraph of docs bought for nobody. The two
 servers underneath are one command's two modes (`cli/open.mjs`,
-`cli/read-only.mjs`): the read-only one registers no `/edit/*` route, answers
+`cli/read-only.mjs`): the read-only one registers no `/deck/edit/*` route, answers
 the one probe as read-only, and the review routes are both servers' (SPEC
-REVIEW). **The `/edit/*` endpoints are the contract and are unchanged**, only
+REVIEW). **The `/deck/edit/*` endpoints are the contract and are unchanged**, only
 the way the server starts changed.
 
 ### ENGINES · On demand: core owns the affordance, the marketplace owns the engine
@@ -454,7 +454,7 @@ than this", never "you can't do anything yet".
    stored under `~/.decklight/` restricted to the account that pasted them
    (`0600` on POSIX, an explicit ACL on Windows, decklight prints which, read
    back off the file). Loopback-only by construction
-   (`allowRemote` refuses `/edit/*` off-loopback unconditionally). Never
+   (`allowRemote` refuses `/deck/edit/*` off-loopback unconditionally). Never
    logged, never written into the deck, never picked up by `bundle`.
 3. **Never outside write mode.** Read-only, or in a bundled deck, `V` with no
    engine says so and stops. A credential prompt in a deck you were emailed is
@@ -541,7 +541,7 @@ Of that list, one is still deliberately out:
   terminal prompt or the browser wizard: `publish` is a one-shot, often-
   headless command with no edit server to post a pasted key to, so it
   follows the ElevenLabs-key precedent (env, never written to disk) rather
-  than `/edit/wizard`'s. The schema is still a real `ENGINES#WIZARD` schema,
+  than `/deck/edit/wizard`'s. The schema is still a real `ENGINES#WIZARD` schema,
   validated by the same `validateSchema`/`checkAnswers` every engine goes
   through. **S3 is deliberately not here yet**: the one target needing
   request signing (SigV4) rather than a bearer token, and a hand-rolled signer
@@ -698,13 +698,13 @@ to play someone else's deck is a single command.
       processes, no network
 - [ ] ~~`decklight edit` refuses out loud with the new command named~~ →
       superseded (COMMANDS): `edit` is simply not a command, and says so the
-      way any other unknown one does; the `/edit/*` endpoint contract is
+      way any other unknown one does; the `/deck/edit/*` endpoint contract is
       byte-for-byte unchanged
 
 **Safety and integrity**
 
 - [ ] `decklight <deck> --read-only` serves read-only over localhost with **no
-      `/edit/*` routes registered**, and sets a `Content-Security-Policy` HTTP
+      `/deck/edit/*` routes registered**, and sets a `Content-Security-Policy` HTTP
       header
 - [ ] `--read-only` prints an ingredients label (runtime version and hash, script
       blocks accounted and unaccounted) and never prints a safety verdict
@@ -747,7 +747,7 @@ every bundled one are still there, instantly.
 - `cli/bundle.mjs` inlines runtime, themes, casts and media today and is the
   correct chokepoint for signing and for refusing undeclared script.
 - `cli/edit.mjs` holds `allowRemote` and the remote/QR; `--read-only` should reuse
-  the server plumbing with `/edit/*` **absent**, not merely refused.
+  the server plumbing with `/deck/edit/*` **absent**, not merely refused.
 - `cli/zip.mjs` is the container plumbing from `skills --pack`.
 - `src/core/print.js` restructures once and never runs again: the `?print` and
   `pdf` paths are already static, so strict mode has a precedent for "no JS
@@ -772,7 +772,7 @@ Depends column cites tickets by mnemonic, never by position.
 
 | Ticket | Scope | Depends on |
 |---|---|---|
-| `READ_ONLY_SERVER` | `decklight <deck> --read-only`: read-only server, CSP header, no `/edit/*` | — |
+| `READ_ONLY_SERVER` | `decklight <deck> --read-only`: read-only server, CSP header, no `/deck/edit/*` | — |
 | `READ_ONLY#AUDIT` | runtime hashing, ingredients label, unaccounted-script detection | `READ_ONLY_SERVER` |
 | `READ_ONLY#STRICT` | strip unverified script, prove the deck still plays | `READ_ONLY#AUDIT` |
 | `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `--read-only` | `READ_ONLY#AUDIT` |
