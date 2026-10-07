@@ -103,7 +103,7 @@ const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
  * ships, which is the harder half of the upgrade.
  */
 const OLDER_RELEASE = '0.2.0';
-const TOTAL = 60;
+const TOTAL = 61;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -897,7 +897,7 @@ try {
     must(lines.some((l) => /^decklight · deck\.html$/.test(l)), 'the banner does not open with the deck\'s name');
     const at = lines.findIndex((l) => DECK_URL_RE.test(l));
     must(/^\s+▸ /.test(lines[at]), `the url line is not the arrow line: ${JSON.stringify(lines[at])}`);
-    must(/E edit · L layouts · Z undo/.test(lines[at + 1] ?? ''), `the keys do not sit under the url: ${JSON.stringify(lines[at + 1])}`);
+    must(/L layouts · Z undo/.test(lines[at + 1] ?? ''), `the keys do not sit under the url: ${JSON.stringify(lines[at + 1])}`);
   });
 
   await step('a slide is added by writing the file', async () => {
@@ -993,6 +993,32 @@ try {
     must(bad.status === 400, `a move with nowhere to go was accepted (${bad.status})`);
     const undo = await postJson(editSrv.base, '/deck/edit/undo', {});
     must(undo.status === 200 && deck() === before, 'Z did not take the whole move back in one press');
+  });
+
+  await step('the deck locks from write mode, and unlocks', async () => {
+    // The lock the server holds (PRESENTING): editing is on; locked, every
+    // edit route refuses with 423 and the deck is not touched; the ping says
+    // so to every tab; the same route writes again the moment it is unlocked.
+    const ping = async () => (await get(editSrv.base, '/deck/ping')).json();
+    must((await ping()).locked === false, 'a fresh session started locked');
+    const lock = await postJson(editSrv.base, '/deck/edit/lock', { locked: true });
+    must(lock.status === 200 && lock.body.locked === true, `lock returned ${JSON.stringify(lock.body)}`);
+    const probed = await ping();
+    must(probed.locked === true && probed.readOnly === false, `locked, the probe says ${JSON.stringify({ locked: probed.locked, readOnly: probed.readOnly })}`);
+    const before = deck();
+    const refused = await postJson(editSrv.base, '/deck/edit/slide/notes', { slide: 3, text: 'typed while locked' });
+    must(refused.status === 423, `a locked deck answered an edit with ${refused.status}`);
+    must(/deck is locked/.test(refused.body?.error ?? ''), `the refusal is not named: ${refused.body?.error}`);
+    must(deck() === before, 'a locked deck was written to');
+    const undo = await post(editSrv.base, '/deck/edit/undo', {});
+    must(undo.status === 423, `locked, undo still answered ${undo.status}`);
+    await until('the server to say it locked', () => /deck locked/.test(editSrv.log()), { ms: 5000 });
+    const bad = await post(editSrv.base, '/deck/edit/lock', { locked: 'yes' });
+    must(bad.status === 400, 'the lock took something other than true or false');
+    const unlock = await postJson(editSrv.base, '/deck/edit/lock', { locked: false });
+    must(unlock.body?.locked === false && (await ping()).locked === false, 'unlocking did not unlock');
+    const saved = await postJson(editSrv.base, '/deck/edit/slide/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
+    must(saved.status === 200, `unlocked, the same route answered ${saved.status}`);
   });
 
   await step('a comment is left from write mode, beside the deck and outside it', async () => {

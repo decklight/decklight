@@ -1581,6 +1581,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // not live.
   const deck = createDeckRoutes(deckPath, {
     readOnly,
+    locked: () => readOnly || locked,
     review,
     extras: async () => (readOnly ? {
       // Read-only mode names nothing that edits: no roster, no history, no
@@ -2053,6 +2054,24 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const ttsProxy = proxyTo(ttsPort, 'voice', (p) => p.slice('/deck'.length));
   const lipsyncProxy = proxyTo(lipsyncPort, 'lip-sync', (p) => p.slice('/deck/lipsync'.length));
 
+  // ── the lock (PRESENTING) ─────────────────────────────────────────────────
+  // Editing is on from the moment write mode answers; the lock is the one
+  // switch that turns changes off, to avoid making one by mistake, and back
+  // on. It lives here, not in a page, so every tab and the agent see the
+  // same state: locked, every POST to /deck/edit/* but this one answers 423,
+  // the ping says so, and the channel tells every open page. Read-only mode
+  // has no lock to turn: the write family refuses there anyway.
+  let locked = false;
+  function lockRoute({ body, json }) {
+    const { locked: want } = JSON.parse(body || '{}');
+    if (typeof want !== 'boolean') return json(400, { ok: false, error: 'locked is true or false' });
+    if (want !== locked) {
+      locked = want;
+      console.log(locked ? '  deck locked — nothing is written until it is unlocked' : '  deck unlocked');
+      broadcast('lock', { locked });
+    }
+    return json(200, { ok: true, locked });
+  }
   function shutdownRoute({ res, json, CORS }) {
     res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -3472,6 +3491,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // sequence DOES still matter say so out loud rather than by position
   // (`BEFORE_BODY`, and the prefix list below).
   const routes = new Map(Object.entries({
+    'POST /deck/edit/lock': lockRoute,
     // the voice bridge, on this origin (#520): `/deck/tts` speaks, and everything
     // else of the bridge's lives under `/deck/tts/` (the prefix list below)
     'POST /deck/tts': ttsProxy,
@@ -3680,6 +3700,11 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (readOnly && WRITE_FAMILY(url.pathname)) {
         return json(403, { ok: false, readOnly: true, error: 'this deck is open read-only — nothing here changes it' });
       }
+      // locked: no edit route writes, whatever it was aimed at — the one
+      // POST that still answers is the lock itself, so it can be lifted
+      if (locked && req.method === 'POST' && url.pathname.startsWith('/deck/edit/') && url.pathname !== '/deck/edit/lock') {
+        return json(423, { ok: false, locked: true, error: 'the deck is locked — unlock it from the palette or the lock chip' });
+      }
       const key = `${req.method} ${url.pathname}`;
       const prefixed = routes.has(key) ? null
         : PREFIX_ROUTES.find((r) => r.method === req.method && url.pathname.startsWith(r.prefix));
@@ -3766,9 +3791,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // banner has to be the one that actually answers.
     console.log(readyLine({
       url: `http://127.0.0.1:${actual}${deckUrl}`,
-      keys: 'E edit · L layouts · Z undo · A agent · Ctrl-C stops',
+      keys: 'L layouts · Z undo · A agent · Ctrl-C stops',
     }));
-  } else console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
+  } else console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — editing on, L layouts, Z undo, A agent. Ctrl-C stops`);
   if (token) {
     console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/deck/remote?t=${token}`);
     console.log('  off this machine ONLY /deck/remote/* answers, with that token — the deck itself does not');

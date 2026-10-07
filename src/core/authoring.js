@@ -269,17 +269,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!available()) return;
     const where = sectionOf(e.target);
     if (!where || where.sec.hasAttribute('data-markdown-removed')) return;
-    // A double-click on the slide changes nothing until editing is on (E):
-    // a reader can double-click a word to select it, or by accident, and
-    // the file must not move for it. Outside editing it says the key.
-    if (!editmode.elementEditOn?.()) {
-      const code = e.target?.closest?.(CODE_EDITABLE);
-      if (editableTarget(e.target, where.sec) || (code && where.sec.contains(code))) {
-        e.preventDefault();
-        toast('press E to edit this deck — then double-click text to change it', 3200);
-      }
-      return;
-    }
+    // editing is on whenever the page may write (locked, it is not)
+    if (!editmode.elementEditOn?.()) return;
     const code = e.target?.closest?.(CODE_EDITABLE);
     if (code && where.sec.contains(code) && !code.closest('.terminal, aside, [data-chart]')) {
       e.preventDefault();

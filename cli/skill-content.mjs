@@ -98,7 +98,7 @@ a claim worth attributing; leave it off when it does not:
 \`\`\`
 
 **CLI** (\`npx decklight@latest <command>\`, no install needed):
-- \`decklight deck.html\` — the whole authoring loop: serve with live reload; **E** in the browser edits speaker notes back into the file
+- \`decklight deck.html\` — the whole authoring loop: serve with live reload; editing is on in the browser — text, pictures, layouts and speaker notes are written back into the file
 - \`decklight cast script.term.yaml\` — record a truthful terminal cast in a real PTY, for \`<div class="terminal">\` (this records a TERMINAL; \`decklight record\` records the author's voice)
 - \`decklight bundle deck.html --themes all\` — flatten into one self-contained file to hand off or publish
 - \`decklight pdf deck.html\` — render every slide to a PDF, and report the ones that overflow

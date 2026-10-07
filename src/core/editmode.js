@@ -48,6 +48,7 @@ export function createEditMode({
   // own loopback origin, a file:// deck's is `null`, and both are admitted
   // while a foreign tab's fetch is refused server-side (#222, cli/serve.mjs).
   let editAvailable = false;
+  let locked = false;     // the deck's lock (PRESENTING): the server's state, mirrored here
   let served = false;     // a server answered the probe, read-only or not
   let readOnly = false;   // …and it was the read-only one
   let editBase = '';
@@ -344,7 +345,10 @@ export function createEditMode({
           }
           served = true;
           editBase = base;
-          editAvailable = true;
+          locked = j.locked === true;
+          editAvailable = !locked;
+          paintLockChip();
+          syncEditing();   // editing is on from the moment write mode answers
           // The speaker view saves rehearsal timings through this (PRESENTING
           // REHEARSAL_TIMINGS); with no edit server it is undefined and the
           // timings stay in the browser instead.
@@ -376,6 +380,10 @@ export function createEditMode({
           reopenNotes();      // …and the notes card a save reloaded, where the author was
           const es = new EventSource(base + '/deck/events');
           es.onmessage = () => location.reload();
+          // the lock turned, in this tab or another: every page follows
+          es.addEventListener('lock', (ev) => {
+            try { setLocked(JSON.parse(ev.data).locked === true); } catch { /* malformed */ }
+          });
           // The phone remote is the server's in either mode (READ_ONLY#REMOTE):
           // with --remote, write mode gets the clicker and the QR too.
           wireClicker(base, es, j);
@@ -452,6 +460,54 @@ export function createEditMode({
       }
       probeSettled();   // asked everything, wired up nothing
     })();
+  }
+
+  // ── the lock (PRESENTING) ─────────────────────────────────────────────────
+  // Editing is on from the moment write mode answers; the lock is the one
+  // switch that turns changes off, to avoid making one by mistake, and back
+  // on. The state is the SERVER's (POST /deck/edit/lock), so every tab and
+  // the agent see the same thing; this is what the page shows of it: a chip
+  // while locked, the bar gone, and every author affordance saying so, since
+  // `available()` is false until it is lifted.
+  let lockChip = null;
+  function paintLockChip() {
+    if (!locked || !served || readOnly) { lockChip?.remove(); lockChip = null; return; }
+    if (!lockChip) {
+      lockChip = document.createElement('div');
+      lockChip.className = 'decklight-lock-chip';
+      lockChip.setAttribute('role', 'status');
+      lockChip.tabIndex = 0;
+      lockChip.title = 'the deck is locked: nothing you do here changes the file — click to unlock';
+      const flip = () => toggleLock();
+      lockChip.addEventListener('click', flip);
+      lockChip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+      root.appendChild(lockChip);
+    }
+    lockChip.textContent = '🔒 locked — click to unlock';
+  }
+  function setLocked(on) {
+    if (on === locked) return;
+    locked = on;
+    editAvailable = served && !readOnly && !locked;
+    syncEditing();   // the bar and its selection go with the capability
+    paintLockChip();
+    for (const fn of lockListeners) fn(locked);
+    toast(locked ? 'deck locked — nothing changes the file until you unlock it' : 'deck unlocked', 2600);
+  }
+  const lockListeners = new Set();
+  /** Flip the lock on the server; every page, this one included, follows the channel. */
+  async function toggleLock(want = !locked) {
+    if (!served || readOnly) { toast('this deck is open read-only (--read-only) — there is no lock to turn', 3000); return; }
+    try {
+      const r = await fetch(editBase + '/deck/edit/lock', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locked: want }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      setLocked(j.locked === true);
+    } catch (e) {
+      toast(`could not ${want ? 'lock' : 'unlock'} the deck — ${e.message}`, 4000);
+    }
   }
 
   /**
@@ -1207,7 +1263,7 @@ export function createEditMode({
     setTimeout(() => ta.focus(), 0);
   }
 
-  // ── element edit mode (E) + its right-click menu — SPEC PRESENTING, #112 ──
+  // ── editing (on by default) + its right-click menu — SPEC PRESENTING, #112 ──
   // E only ARMS the mode; the actual editing surface is right-clicking the
   // current slide. A specific element gets the full menu (notes / remove /
   // edit content / add a text effect); the bare slide background gets only
@@ -1227,15 +1283,16 @@ export function createEditMode({
   // who wants to know when E turns editing on or off: the editing bar (editbar.js)
   const elementEditListeners = new Set();
 
-  function toggleElementEdit({ force = false } = {}) {
-    if (force) { if (!elementEditOn) return; }
-    else if (!editAvailable) {
-      toast(served && readOnly ? 'this deck is open read-only (--read-only) — editing needs write mode' : needsDevMode('editing', location), 3200);
-      return;
-    }
-    elementEditOn = force ? false : !elementEditOn;
-    closeElementMenu();
-    toast(elementEditOn ? 'editing — click to select, double-click text to change it, E when finished' : 'editing finished', 2600);
+  /**
+   * Editing follows the capability: on whenever this page may write the deck
+   * (write mode answered, and the deck is not locked), off the moment it may
+   * not. There is no key for it — the lock is the one switch.
+   */
+  function syncEditing() {
+    const want = editAvailable;
+    if (want === elementEditOn) return;
+    elementEditOn = want;
+    if (!want) closeElementMenu();
     for (const fn of elementEditListeners) fn(elementEditOn);
   }
 
@@ -2511,7 +2568,6 @@ export function createEditMode({
     toggleEditor,
     toggleAgentAsk,
     /** E — arm/disarm the right-click element menu (#112). Refuses outside write mode. */
-    toggleElementEdit,
     /** Is editing on? The palette's own on/off label and the editing bar ask. */
     elementEditOn: () => elementEditOn,
     /** Be told when E turns editing on or off. */
@@ -2549,6 +2605,10 @@ export function createEditMode({
     /** Did a server answer at all, and in which mode? */
     served: () => served,
     readOnly: () => readOnly,
+    /** The lock (PRESENTING): its state, flipping it, and being told. */
+    locked: () => locked,
+    toggleLock,
+    onLockChange: (fn) => { lockListeners.add(fn); },
     /** Resolves once the probe has an answer either way — see `settled`. */
     settled: () => { if (printMode || params.has('embedded')) probeSettled(); return settled; },
     /** Its origin ('' when the deck is served BY the edit server); null under the read-only one. */

@@ -126,6 +126,15 @@
       // editAvailable, plus the two routes it actually calls. `messages:false`
       // so no agent is asked to draft a subject — the shortcut is what is under
       // test here, not the drafting.
+      // the lock route answers in every write-mode harness: the bar's Lock
+      // button and the chip post to it wherever the bar is on screen
+      if (u.includes('/deck/edit/lock') && init?.method === 'POST') { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, locked: b.locked === true }); }
+      // the lock (lockmode): write mode, unlocked
+      if (HARNESS_MODE === 'lockmode') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], readOnly: false, locked: false });
+        if (u.includes('/deck/edit/lock')) { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, locked: b.locked === true }); }
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+      }
       // read-only mode (readonlymode): the one probe says so, and nothing edits
       if (HARNESS_MODE === 'readonlymode') {
         if (u.includes('/deck/ping')) return json({ ok: true, name: 'engine.html', readOnly: true, locked: true, phone: false, container: false });
@@ -1164,7 +1173,7 @@
         r.groupsFold = ['Export & share…', 'Slide…', 'Print…', 'Write for the ear…', 'Add audio tags…'].every((g) => top.some((t) => t.startsWith(g)))
           && !top.some((t) => /Export to PDF…|Export a PDF handout…|Delete this slide|Print handout/.test(t));
         r.writeRowsUnderOneHeader = heads().join('|') === 'write mode'
-          && top.indexOf(top.find((t) => /Edit this deck…/.test(t))) > top.indexOf(top.find((t) => /^Theme…/.test(t)));
+          && top.indexOf(top.find((t) => /^Lock deck/.test(t))) > top.indexOf(top.find((t) => /^Theme…/.test(t)));
         // into a group, and back
         const exportRow = [...document.querySelectorAll(`${Q} ${ROW}`)].find((n) => /^Export & share…/.test(n.textContent));
         exportRow.click();
@@ -1900,12 +1909,7 @@
         await settle();
         const h1 = document.querySelector('.decklight-stage > section.active h1');
         const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-        // outside editing a double-click changes nothing and says the key
-        dbl(h1);
-        r.noEditUntilE = !h1.isContentEditable
-          && [...document.querySelectorAll('.decklight-toast')].some((n) => /press E to edit/.test(n.textContent));
-        press('e');                           // editing on: the double-click edits
-        await settle();
+        // editing is on from the ping: the double-click edits at once
         dbl(h1);
         r.becomesEditable = h1.isContentEditable && h1.classList.contains('dl-editing');
         // the deck's shortcuts stand aside while a word is being fixed
@@ -2012,7 +2016,7 @@
         const help = (() => { press('?'); const t = document.querySelector('.help-card')?.textContent ?? ''; press('?'); return t; })();
         r.helpNamesTheChord = help.includes(mac ? '⌘Z' : 'Ctrl+Z');
 
-        r.PASS = r.noEditUntilE && r.chordUndoes && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes
+        r.PASS = r.chordUndoes && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes
           && r.chordInTextIsTheBrowsers && r.helpNamesTheChord
           && r.undoWaitsForTheTextSave && r.undoWaitsForTheSlideOp
           && r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
@@ -2222,12 +2226,9 @@
         const h1 = () => document.querySelector('.decklight-stage > section.active h1');
         const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
         const sec1 = document.querySelector('.decklight-stage > section');
-        r.noBarUntilE = !bar();
-        press('e');
-        await settle();
-        r.eOpensTheBar = !!bar() && document.querySelector('.decklight').classList.contains('dl-editmode');
-        r.barNamesEveryDoor = labels().join('|') === 'Text|Picture|Layout · auto|Notes|Slide ▾|Undo|Redo|Done';
-        r.barShowsTheKeys = ['⏎', 'L', 'S', 'Z', '⇧Z', 'E'].every((k) => keys().includes(k));
+        r.barAtOnce = !!bar() && document.querySelector('.decklight').classList.contains('dl-editmode');
+        r.barNamesEveryDoor = labels().join('|') === 'Text|Picture|Layout · auto|Notes|Slide ▾|Undo|Redo|Lock';
+        r.barShowsTheKeys = ['⏎', 'L', 'S', 'Z', '⇧Z'].every((k) => keys().includes(k));
         // a click selects: outlined, with a ⋯ handle at its corner
         click(h1());
         r.clickSelects = h1().classList.contains('dl-selected') && !!document.querySelector('.dl-handle');
@@ -2291,16 +2292,17 @@
         bar().querySelector('.eb-redo').click();
         await settle();
         r.undoRedoButtonsWork = CALLS.post.some((c) => c.u.includes('/deck/edit/undo')) && CALLS.post.some((c) => c.u.includes('/deck/edit/redo'));
-        // Done is E
-        bar().querySelector('.eb-done').click();
-        await settle();
-        r.doneCloses = !bar() && !document.querySelector('.decklight').classList.contains('dl-editmode') && !document.querySelector('.dl-handle');
+        // Lock is the last button: it asks the server, and the bar goes with the capability
+        bar().querySelector('.eb-lock').click();
+        await settle(); await settle();
+        r.doneCloses = !bar() && !document.querySelector('.decklight').classList.contains('dl-editmode') && !document.querySelector('.dl-handle')
+          && CALLS.post.some((c) => c.u.includes('/deck/edit/lock') && c.body.locked === true);
         // the palette calls it what it is
         press('/');
-        for (const ch of 'edit this deck') press(ch);
-        r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /Edit this deck…/.test(n.textContent));
+        for (const ch of 'lock deck') press(ch);
+        r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(n.textContent));
         press('Escape');
-        r.PASS = r.noBarUntilE && r.eOpensTheBar && r.barNamesEveryDoor && r.barShowsTheKeys && r.clickSelects
+        r.PASS = r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.clickSelects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
           && r.layoutButtonCycles && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
@@ -2432,6 +2434,52 @@
         return;
       }
 
+      if (mode === 'lockmode') {
+        // The lock (PRESENTING): editing is on from the ping; the server's
+        // lock, flipped from the palette, the bar or the chip, takes every
+        // author affordance away while it is on.
+        await settle();   // the ping: write mode, unlocked
+        const Q = '.decklight-palette', ROW = '.pal-row';
+        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+        const chip = () => document.querySelector('.decklight-lock-chip');
+        const bar = () => document.querySelector('.decklight-editbar');
+        const locks = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/lock')).map((c) => c.body.locked);
+        r.startsEditing = !!bar() && !chip();
+        press('/');
+        for (const ch of 'lock deck') press(ch);
+        r.paletteOffersTheLock = rows().some((t) => /^Lock deck/.test(t));
+        press('Enter');
+        await settle(); await settle();
+        r.lockIsPosted = locks().at(-1) === true;
+        r.chipSaysSo = !!chip() && /locked/.test(chip().textContent);
+        // the bar is gone, and a double-click edits nothing
+        const h1 = document.querySelector('.decklight-stage > section.active h1');
+        h1?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        await settle();
+        r.editingOffWhileLocked = !bar() && !h1?.isContentEditable;
+        // the author rows are gone from the palette, the unlock row is there
+        press('/');
+        const locked = rows();
+        r.writeRowsGone = !locked.some((t) => /^Export & share…|^Slide…/.test(t)) && locked.some((t) => /^Unlock deck/.test(t));
+        press('Escape');
+        // another tab turned it off: the channel says so, the chip goes, the bar is back
+        window.__es.emit('lock', { locked: false });
+        await settle();
+        r.channelUnlocks = !chip() && !!bar();
+        // …the bar's Lock button asks the server…
+        bar().querySelector('.eb-lock').click();
+        await settle(); await settle();
+        r.barLocks = locks().at(-1) === true && !!chip() && !bar();
+        // …and the chip, clicked, asks it back
+        chip()?.click();
+        await settle(); await settle();
+        r.chipUnlocks = locks().at(-1) === false && !chip() && !!bar();
+        r.PASS = r.startsEditing && r.paletteOffersTheLock && r.lockIsPosted && r.chipSaysSo && r.editingOffWhileLocked
+          && r.writeRowsGone && r.channelUnlocks && r.barLocks && r.chipUnlocks;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'readonlymode') {
         // Read-only mode answers the one probe: no author affordance, the
         // write rows gone, no row that would leave the mode — the mode is
@@ -2441,16 +2489,17 @@
         const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
         r.notAvailable = deck.editmode?.available?.() !== true;
         r.noChip = !document.querySelector('.decklight-lock-chip');
-        press('e');
+        // nothing edits: no bar, and a double-click changes nothing
+        const h1 = document.querySelector('.decklight-stage > section.active h1');
+        h1?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
         await settle();
-        r.eSaysWriteMode = !document.querySelector('.decklight-editbar')
-          && [...document.querySelectorAll('.decklight-toast')].some((n) => /needs write mode/.test(n.textContent));
+        r.nothingEdits = !document.querySelector('.decklight-editbar') && !h1?.isContentEditable;
         press('/');
         const top = rows();
         r.noModeRow = !top.some((t) => /^Write mode|^Read-only mode|^Lock editing|^Export & share…/.test(t));
         press('Escape');
         r.presentedChannelWired = CALLS.get.some((u) => u.includes('/deck/events')) || !!window.__es;
-        r.PASS = r.notAvailable && r.noChip && r.eSaysWriteMode && r.noModeRow;
+        r.PASS = r.notAvailable && r.noChip && r.nothingEdits && r.noModeRow;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -3896,8 +3945,7 @@
         const sections = [...document.querySelectorAll('.decklight section')];
         const h1 = sections[0].querySelector('h1');
 
-        // E arms the mode; it does not open anything by itself
-        press('e');
+        // editing is on from the ping; nothing opens a menu by itself
         r.armingOpensNoMenu = !document.querySelector(M);
 
         // right-click ON an element → the full menu
@@ -3973,8 +4021,9 @@
         document.querySelector(M)?.click();
         r.backdropCloses = !document.querySelector(M);
 
-        // E again disarms — no more menu on right-click
-        press('e');
+        // locked, there is no menu on right-click
+        window.__es.emit('lock', { locked: true });
+        await settle();
         rightClick(h1);
         r.disarmedNoMenu = !document.querySelector(M);
 

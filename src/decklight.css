@@ -1165,6 +1165,16 @@
    up at the same time (an agent edit is exactly what leaves work uncommitted).
    Clickable, because a statement you can act on should be actionable where it
    is, and the deck's own keyboard help is one key away. */
+/* the lock (editmode.js): a statement at the other corner, while changes are off */
+.decklight-lock-chip {
+  position: absolute; left: 16px; bottom: 16px; z-index: 42;
+  background: rgba(0, 0, 0, .72); color: #fff;
+  font: 500 13px/1 var(--font-mono, monospace);
+  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .16);
+}
+.decklight-lock-chip:hover { background: rgba(0, 0, 0, .85); }
+.decklight-lock-chip:focus-visible { outline: 2px solid var(--accent, #6af); outline-offset: 2px; }
 .decklight-commit-chip {
   position: absolute;
   right: 16px;
@@ -2215,7 +2225,7 @@
   font-size: 13px;
 }
 
-/* element edit mode's right-click menu (E arms it, then right-click a slide
+/* editing's right-click menu (editing is on in write mode; right-click a slide
    element — #112). The first CURSOR-ANCHORED overlay: every other one dims
    the whole screen and centers a card — this one must not, since the slide
    under the cursor is the thing the menu is about. The backdrop stays fully
@@ -2601,7 +2611,7 @@
   padding: 3px 5px; border-radius: 5px;
   background: rgba(255, 255, 255, .12); color: rgba(255, 255, 255, .7);
 }
-.decklight-editbar .eb-done { margin-left: 4px; border-left: 1px solid rgba(255, 255, 255, .14); border-radius: 0 10px 10px 0; }
+.decklight-editbar .eb-lock { margin-left: 4px; border-left: 1px solid rgba(255, 255, 255, .14); border-radius: 0 10px 10px 0; }
 .decklight-editbar .eb-file { display: none; }
 /* while editing: what the pointer is over, and what was chosen */
 .decklight.dl-editmode .decklight-stage section .dl-hover:not(.dl-selected):not(.dl-editing) { outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 4px; border-radius: 2px; }

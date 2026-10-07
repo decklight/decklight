@@ -37,7 +37,7 @@ const BUTTONS = [
   { id: 'slide', label: 'Slide ▾', key: '', title: 'new, duplicate, move or delete this slide' },
   { id: 'undo', label: 'Undo', key: 'Z', title: 'take the last edit back' },
   { id: 'redo', label: 'Redo', key: '⇧Z', title: 'put it back' },
-  { id: 'done', label: 'Done', key: 'E', title: 'stop editing' },
+  { id: 'lock', label: 'Lock', key: '', title: 'lock the deck: nothing changes the file until you unlock it' },
 ];
 
 export function createEditBar({
@@ -130,7 +130,7 @@ export function createEditBar({
       }
       case 'undo': deckHistory('undo'); break;
       case 'redo': deckHistory('redo'); break;
-      case 'done': editmode.toggleElementEdit(); break;
+      case 'lock': editmode.toggleLock(true); break;
       default: break;
     }
   }

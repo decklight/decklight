@@ -957,7 +957,9 @@ export function init(userConfig = {}) {
       { label: 'Commit…', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() },
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
-      { label: editmode.elementEditOn() ? 'Stop editing (dev)' : 'Edit this deck… (dev)', hint: 'E', alias: 'element edit mode right-click remove delete html content build animation entrance effect context menu toolbar select', run: toggleElementEdit },
+      // the lock (PRESENTING): changes off to avoid one by mistake, and back on
+      editmode.served() && !editmode.readOnly() && { label: editmode.locked() ? 'Unlock deck (dev)' : 'Lock deck — nothing changes the file until you unlock it (dev)',
+        alias: 'lock unlock read only readonly protect freeze avoid changes by mistake editing off', run: () => editmode.toggleLock() },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
       { label: 'Print view (all slides, new tab)', group: 'Print', hint: '', run: () => window.open(location.pathname + '?print') },
       // The two print variants the runtime already had (PRINTING) — reachable
@@ -2071,7 +2073,6 @@ export function init(userConfig = {}) {
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette — find, themes, everything (“Welcome to Decklight” reopens the intro)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
-      <tr><td>E</td><td>element edit mode — right-click a slide element (write mode)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
       <tr><td>L / ⇧L</td><td>slide layout — writes the file (write mode)</td></tr>
@@ -2295,7 +2296,6 @@ export function init(userConfig = {}) {
       // R is history's other door — kept because it is in people's fingers.
       // the your-voice recorder records YOUR voice; bare R stays history, which is in people's fingers.
       case 'r': case 'R': editmode.history.open(); break;
-      case 'e': case 'E': toggleElementEdit(); break;
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': narration.openPicker(); break;   // everything about the voice
       case 'i': case 'I': sources.open(); break;           // (I)nformation: where this slide got that
@@ -2573,7 +2573,7 @@ export function init(userConfig = {}) {
     try { again = sessionStorage.getItem(OVERVIEW_OPEN_KEY) === '1'; sessionStorage.removeItem(OVERVIEW_OPEN_KEY); } catch { /* no storage */ }
     if (again && editmode.available() && !overviewEl) toggleOverview();
   });
-  const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
+  const { deckHistory, toggleEditor, toggleAgentAsk } = editmode;
 
   // A design-system slide that could not be expanded, or a design system the
   // page could not have (SPEC DESIGN_SYSTEMS): badged on the slide and said
@@ -2663,7 +2663,6 @@ export function init(userConfig = {}) {
   // The engine wizard (ENGINES#WIZARD), for drivers that cannot click the
   // palette's Configure rows. Same write-mode gate either way.
   instance.wizard = editmode.wizard;
-  instance.toggleElementEdit = toggleElementEdit;           // E programmatically; write mode only
   // Double-click text to edit it, drop a picture to add it (authoring.js):
   // the two gestures every editor teaches, on top of the routes above.
   const authoring = createAuthoring({ root, instance, toast, editmode, debugLog });
