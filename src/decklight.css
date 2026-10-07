@@ -2597,6 +2597,25 @@
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
 }
+/* the emphasis pill (authoring.js): above a selection in an element being
+   edited in place, three buttons, gone with the selection. Fixed, on the body,
+   so the stage's scale never moves it off the text it is about. */
+.dl-fmt {
+  position: fixed; z-index: 60; transform: translate(-50%, -100%);
+  display: flex; gap: 2px; padding: 3px;
+  border-radius: 10px; border: 1px solid rgba(160, 160, 160, .28);
+  background: rgba(20, 20, 22, .82); color: #e6e6e6;
+  font: 600 13px/1 system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+.dl-fmt button {
+  min-width: 30px; padding: 7px 9px; border: 0; border-radius: 7px;
+  background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.dl-fmt button:hover { background: rgba(255, 255, 255, .1); }
+.dl-fmt button.on { background: rgba(255, 255, 255, .2); }
+.dl-fmt .fmt-em { font-style: italic; font-weight: 500; }
+.dl-fmt .fmt-code { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 500; }
 .decklight-editbar .eb-btn {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 8px 11px;

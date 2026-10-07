@@ -116,6 +116,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!cur) return;
     if (cur.code) return saveCode(cur);
     editing = null;
+    placePill();
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
     const inner = cur.el.innerHTML;
@@ -153,6 +154,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const cur = editing;
     if (!cur) return;
     editing = null;
+    placePill();
     if (cur.code) {
       cur.el.removeAttribute('contenteditable');
       cur.el.classList.remove('dl-editing');
@@ -163,6 +165,93 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
   }
+
+  // ── emphasis while editing in place (PRESENTING) ──────────────────────────
+  // ⌘B, ⌘I and ⌘E (Ctrl on Windows and Linux) wrap the selection in <strong>,
+  // <em> or <code>, and take it off again; a pill above any selection offers
+  // the same three to the mouse. The file gets the semantic tag, never the
+  // <b> or <i> a browser's own bold command writes, so every theme's rule
+  // for `strong` (the heading colour) is what the emphasis looks like.
+  const EMPHASIS = { b: 'strong', i: 'em', e: 'code' };
+  const TAGS = ['strong', 'em', 'code'];
+  function selectionIn(el) {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+    const range = sel.getRangeAt(0);
+    return el.contains(range.commonAncestorContainer) ? range : null;
+  }
+  /** The `tag` element the selection sits inside, within `el`, or null. */
+  function wrappedIn(range, tag, el) {
+    let n = range.commonAncestorContainer;
+    if (n.nodeType === Node.TEXT_NODE) n = n.parentNode;
+    while (n && n !== el) {
+      if (n.tagName?.toLowerCase() === tag) return n;
+      n = n.parentNode;
+    }
+    return null;
+  }
+  function toggleEmphasis(tag) {
+    const cur = editing;
+    if (!cur || cur.code) return false;
+    const range = selectionIn(cur.el);
+    if (!range) { toast('select some text first', 1600); return false; }
+    const sel = window.getSelection();
+    const had = wrappedIn(range, tag, cur.el);
+    if (had) {
+      // off: the children step out of the tag and stay selected
+      const parent = had.parentNode;
+      const first = had.firstChild, last = had.lastChild;
+      while (had.firstChild) parent.insertBefore(had.firstChild, had);
+      parent.removeChild(had);
+      if (first && last) {
+        const r = document.createRange();
+        r.setStartBefore(first); r.setEndAfter(last);
+        sel.removeAllRanges(); sel.addRange(r);
+      }
+    } else {
+      // on: the selection, however it cuts across nodes, moves into the tag
+      const wrap = document.createElement(tag);
+      wrap.appendChild(range.extractContents());
+      range.insertNode(wrap);
+      const r = document.createRange();
+      r.selectNodeContents(wrap);
+      sel.removeAllRanges(); sel.addRange(r);
+    }
+    // a split left nothing behind: no empty <strong></strong> in the file
+    for (const e of cur.el.querySelectorAll(TAGS.join(','))) if (!e.textContent) e.remove();
+    cur.el.normalize();
+    placePill();
+    return true;
+  }
+  let pill = null;
+  /** The pill above the selection: there while something is selected in the element being edited, gone otherwise. */
+  function placePill() {
+    const cur = editing;
+    const range = cur && !cur.code ? selectionIn(cur.el) : null;
+    if (!range) { pill?.remove(); pill = null; return; }
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.className = 'dl-fmt';
+      pill.setAttribute('role', 'toolbar');
+      pill.setAttribute('aria-label', 'emphasis');
+      for (const [key, tag, label] of [['b', 'strong', 'B'], ['i', 'em', 'I'], ['e', 'code', '‹›']]) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `fmt-${tag}`;
+        b.textContent = label;
+        b.title = `${tag} — ⌘${key.toUpperCase()} / Ctrl+${key.toUpperCase()}`;
+        // mousedown, not click: a click would move the selection the pill is about
+        b.addEventListener('mousedown', (ev) => { ev.preventDefault(); toggleEmphasis(tag); });
+        pill.appendChild(b);
+      }
+      document.body.appendChild(pill);
+    }
+    const rect = range.getBoundingClientRect();
+    pill.style.left = `${Math.max(48, rect.left + rect.width / 2)}px`;
+    pill.style.top = `${Math.max(40, rect.top - 8)}px`;
+    for (const b of pill.children) b.classList.toggle('on', !!wrappedIn(range, b.className.slice(4), cur.el));
+  }
+  document.addEventListener('selectionchange', () => { if (editing) placePill(); });
 
   // ── double-click a code block ─────────────────────────────────────────────
   /** The source text of the `<code>` at `path` inside a top-level element, straight from the file. */
@@ -295,6 +384,10 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveInline(); }
     else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
+    else if ((e.metaKey || e.ctrlKey) && !e.altKey && EMPHASIS[e.key?.toLowerCase?.()]) {
+      e.preventDefault();
+      toggleEmphasis(EMPHASIS[e.key.toLowerCase()]);
+    }
   }, true);
   root.addEventListener('focusout', (e) => {
     if (editing && e.target === editing.el) saveInline();

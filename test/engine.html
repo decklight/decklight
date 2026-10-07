@@ -320,7 +320,7 @@
         }
       }
       // `editbar` is the same server, driven from the bar and the selection
-      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
+      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'emphasis' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -1903,6 +1903,47 @@
 
       // Double-click to edit, and the slide as a whole from the palette and the
       // right-click menu (authoring.js, SPEC PRESENTING write mode).
+      if (mode === 'emphasis') {
+        // Emphasis while editing in place (PRESENTING): ⌘B / ⌘I / ⌘E wrap the
+        // selection in the semantic tag and take it off again; the pill above
+        // the selection offers the same three; the file gets the tags.
+        await settle(); deck.goto(1, 0); await settle();
+        const h1 = document.querySelector('.decklight-stage > section.active h1');
+        h1.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const selectWord = (el, word) => {
+          const t = el.firstChild; const i = t.textContent.indexOf(word);
+          const r = document.createRange(); r.setStart(t, i); r.setEnd(t, i + word.length);
+          const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+          document.dispatchEvent(new Event('selectionchange'));
+        };
+        const pill = () => document.querySelector('.dl-fmt');
+        const chord = (k) => h1.dispatchEvent(new KeyboardEvent('keydown', { key: k, metaKey: true, bubbles: true, cancelable: true }));
+        r.noPillWithoutSelection = !pill();
+        selectWord(h1, 'One');
+        await settle();
+        r.pillOnSelection = !!pill() && [...pill().querySelectorAll('button')].map((b) => b.textContent).join('|') === 'B|I|‹›';
+        chord('b');
+        r.chordWrapsStrong = h1.innerHTML === '<strong>One</strong>';
+        r.pillSaysOn = pill()?.querySelector('.fmt-strong')?.classList.contains('on') === true;
+        chord('b');
+        r.chordAgainUnwraps = h1.innerHTML === 'One' && pill()?.querySelector('.fmt-strong')?.classList.contains('on') === false;
+        chord('i');
+        r.chordWrapsEm = h1.innerHTML === '<em>One</em>';
+        // the pill's own button, on the same selection: code inside the em
+        pill().querySelector('.fmt-code').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        r.pillWrapsCode = h1.innerHTML === '<em><code>One</code></em>';
+        r.stillEditing = h1.isContentEditable;
+        h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const saved = CALLS.post.find((c) => c.u.includes('/deck/edit/element/content'));
+        r.savedWithTheTags = !!saved && saved.body.html === '<h1><em><code>One</code></em></h1>';
+        r.pillGoneAfterSave = !pill() && !h1.isContentEditable;
+        r.PASS = r.noPillWithoutSelection && r.pillOnSelection && r.chordWrapsStrong && r.pillSaysOn && r.chordAgainUnwraps
+          && r.chordWrapsEm && r.pillWrapsCode && r.stillEditing && r.savedWithTheTags && r.pillGoneAfterSave;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'authoring') {
         await settle();                       // /deck/ping: editAvailable
         deck.goto(1, 0);
