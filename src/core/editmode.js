@@ -104,10 +104,13 @@ export function createEditMode({
   // commit (what changed, and the key), louder once the server asks.
   let commitNow = null;   // last {dirty, lines, sinceMs, nag, canWrite, messages}
   let commitChip = null;
+  document.addEventListener('fullscreenchange', () => paintCommitChip());
   function paintCommitChip() {
     const text = commitChipText(commitNow);
-    root.classList.toggle('has-commit-chip', !!text);
-    if (!text) { commitChip?.remove(); commitChip = null; return; }
+    // fullscreen is a rehearsal: nothing about git belongs on that screen
+    const show = !!text && !document.fullscreenElement;
+    root.classList.toggle('has-commit-chip', show);
+    if (!show) { commitChip?.remove(); commitChip = null; return; }
     if (!commitChip) {
       commitChip = document.createElement('div');
       commitChip.className = 'decklight-commit-chip';

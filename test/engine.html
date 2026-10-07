@@ -2313,6 +2313,19 @@
         document.dispatchEvent(new Event('fullscreenchange'));
         await settle();
         r.leavingShows = !!bar();
+        // the commit chip goes with it: a rehearsal screen says nothing about git
+        window.__es.emit('commit', { dirty: true, lines: 3, sinceMs: 60000, nag: false, wip: null, canWrite: true });
+        await settle();
+        const chip = () => document.querySelector('.decklight-commit-chip');
+        r.chipShown = !!chip();
+        Object.defineProperty(document, 'fullscreenElement', { get: () => document.querySelector('.decklight'), configurable: true });
+        document.dispatchEvent(new Event('fullscreenchange'));
+        await settle();
+        r.chipHidesInFullscreen = !chip();
+        Object.defineProperty(document, 'fullscreenElement', { get: () => null, configurable: true });
+        document.dispatchEvent(new Event('fullscreenchange'));
+        await settle();
+        r.chipBackAfter = !!chip();
         // a click selects: outlined, with a ⋯ handle at its corner
         click(h1());
         r.clickSelects = h1().classList.contains('dl-selected') && !!document.querySelector('.dl-handle');
@@ -2387,7 +2400,7 @@
         r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(n.textContent));
         press('Escape');
         r.PASS = r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
-          && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.clickSelects
+          && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.clickSelects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
           && r.layoutButtonCycles && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
