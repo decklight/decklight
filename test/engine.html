@@ -2457,6 +2457,11 @@
         h1?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
         await settle();
         r.editingOffWhileLocked = !bar() && !h1?.isContentEditable;
+        // a door that writes says why, and it is the lock, not "run decklight"
+        press('l');
+        await settle();
+        r.doorsSayLocked = [...document.querySelectorAll('.decklight-toast')].some((n) => /deck is locked — unlock it/.test(n.textContent))
+          && ![...document.querySelectorAll('.decklight-toast')].some((n) => /needs write mode/.test(n.textContent));
         // the author rows are gone from the palette, the unlock row is there
         press('/');
         const locked = rows();
@@ -2474,7 +2479,7 @@
         chip()?.click();
         await settle(); await settle();
         r.chipUnlocks = locks().at(-1) === false && !chip() && !!bar();
-        r.PASS = r.startsEditing && r.paletteOffersTheLock && r.lockIsPosted && r.chipSaysSo && r.editingOffWhileLocked
+        r.PASS = r.startsEditing && r.paletteOffersTheLock && r.lockIsPosted && r.chipSaysSo && r.editingOffWhileLocked && r.doorsSayLocked
           && r.writeRowsGone && r.channelUnlocks && r.barLocks && r.chipUnlocks;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

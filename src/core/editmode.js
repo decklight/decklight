@@ -152,7 +152,7 @@ export function createEditMode({
   function closeCommit() { commitEl?.remove(); commitEl = null; commitAsking = false; }
   async function openCommit() {
     if (commitEl) return closeCommit();
-    if (!editAvailable) { toast(needsDevMode('committing', location), 3200); return; }
+    if (!editAvailable) { toast(cannot('committing'), 3200); return; }
     const state = (await refreshCommit()) ?? commitNow;
     if (!state?.canWrite) { toast('this session is not committing — open the deck with --git', 3000); return; }
     if (!state.dirty) { toast('nothing to commit — the deck matches its last commit', 2400); return; }
@@ -469,6 +469,17 @@ export function createEditMode({
   // the agent see the same thing; this is what the page shows of it: a chip
   // while locked, the bar gone, and every author affordance saying so, since
   // `available()` is false until it is lifted.
+  /**
+   * Why this page cannot write right now, for a toast. Three answers, in the
+   * order they are true: the deck is locked (your own, and a click away),
+   * it was opened without trust (the flag's doing, and the flag's to undo),
+   * or nothing serves it that takes edits (the command to run).
+   */
+  function cannot(what) {
+    if (served && locked) return `the deck is locked — unlock it from the palette or the 🔒 chip, then ${what}`;
+    if (served && noTrust) return `this deck is open without trust — ${what} needs write mode: open it again and say you trust it, or pass --trust`;
+    return needsDevMode(what, location);
+  }
   let lockChip = null;
   function paintLockChip() {
     if (!locked || !served || noTrust) { lockChip?.remove(); lockChip = null; return; }
@@ -681,7 +692,7 @@ export function createEditMode({
   // then reloads every browser (the hash keeps the position).
   async function deckHistory(dir) {
     if (!editAvailable) {
-      toast(needsDevMode(dir, location), 3200);
+      toast(cannot(dir), 3200);
       return;
     }
     if (inflight.size) await Promise.allSettled([...inflight]);
@@ -801,7 +812,7 @@ export function createEditMode({
       return;
     }
     if (!editAvailable) {
-      toast(needsDevMode('asking an agent', location), 3200);
+      toast(cannot('asking an agent'), 3200);
       return;
     }
     if (!editAgents.length) {
@@ -1424,7 +1435,7 @@ export function createEditMode({
    * before the file watcher's reload lands, so the reload opens on it.
    */
   async function slideOp(op, { slide = instance.state.slide, to = null } = {}) {
-    if (!editAvailable) { toast(needsDevMode('editing slides', location), 3200); return; }
+    if (!editAvailable) { toast(cannot('editing slides'), 3200); return; }
     try {
       const res = await writeFetch(editBase + '/deck/edit/slide', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1839,7 +1850,7 @@ export function createEditMode({
     // reaching for it during a presentation must be told where it went rather
     // than getting a shrug.
     if (!editAvailable) {
-      return toast(`the progress bar moved to J — ${needsDevMode('history', location)}`, 3800);
+      return toast(`the progress bar moved to J — ${cannot('history')}`, 3800);
     }
     const label = 'history';
     let entries = [];
@@ -2109,7 +2120,7 @@ export function createEditMode({
     // server, there is nothing to post a credential TO — and a prompt that
     // collected one anyway would be a phishing form with a deck around it.
     if (!editAvailable) {
-      toast(needsDevMode('configuring an engine', location), 3200);
+      toast(cannot('configuring an engine'), 3200);
       return;
     }
     let schema, prov;
@@ -2434,7 +2445,7 @@ export function createEditMode({
     return { title, from, to };
   }
   async function enhanceScript(scope = 'slide', { kind = 'tags' } = {}) {
-    if (!editAvailable) { toast(needsDevMode(kind === 'spoken' ? 'rewriting the notes' : 'enhancing the script', location), 3200); return; }
+    if (!editAvailable) { toast(cannot(kind === 'spoken' ? 'rewriting the notes' : 'enhancing the script'), 3200); return; }
     if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
     if (enhanceRun) { toast('the agent is already rewriting the script — one run at a time'); return; }
     const k = REWRITES[kind] ?? REWRITES.tags;
@@ -2605,6 +2616,8 @@ export function createEditMode({
     /** Did a server answer at all, and in which mode? */
     served: () => served,
     noTrust: () => noTrust,
+    /** Why this page cannot write right now — locked, without trust, or no server — for a toast. */
+    cannot,
     /** The lock (PRESENTING): its state, flipping it, and being told. */
     locked: () => locked,
     toggleLock,

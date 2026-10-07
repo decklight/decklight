@@ -24,7 +24,6 @@ import { createEditBar } from './editbar.js';
 import { createTemplates } from './templates.js';
 import { createSources } from './sources.js';
 import { createOnboarding, TIPS } from './onboarding.js';
-import { needsDevMode } from './devmode.js';
 import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
 import { createRangePicker } from './ranges.js';
@@ -1398,7 +1397,7 @@ export function init(userConfig = {}) {
       hasSplitPair: splitContent(sec).length > 1,
     }),
     available: () => editmode.available(),
-    unavailableMessage: () => needsDevMode('layout', location),
+    unavailableMessage: () => editmode.cannot('picking a layout'),
     apply: (sec, name) => {
       if (name === 'auto') sec.removeAttribute('data-layout');
       else sec.setAttribute('data-layout', name);

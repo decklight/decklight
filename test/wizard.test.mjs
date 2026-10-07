@@ -672,7 +672,7 @@ test('bad answers come back 400 with the schema\'s own complaint', async (t) => 
 
 test('the player gate: the overlay refuses without an edit server', () => {
   // The runtime asks editAvailable before it renders a single input, and the
-  // refusal is the same needsDevMode line every other author-only affordance
+  // refusal is the same `cannot` line every other author-only affordance
   // uses. A prompt that collected a credential with nowhere to post it would be
   // a phishing form with a deck around it.
   const src = readFileSync(path.join(ROOT, 'src/core/editmode.js'), 'utf8');
@@ -680,7 +680,7 @@ test('the player gate: the overlay refuses without an edit server', () => {
   assert.match(fn, /if \(!editAvailable\)/, 'gated before anything is built');
   assert.ok(fn.indexOf('if (!editAvailable)') < fn.indexOf('createElement'),
     'and gated BEFORE the first element, not after the form is on screen');
-  assert.match(fn, /needsDevMode/);
+  assert.match(fn, /\bcannot\(/);
   assert.doesNotMatch(fn, /innerHTML/, 'core builds inputs, it never sets markup a catalog supplied');
   assert.match(fn, /type = f\.type === 'secret' \? 'password'/, 'a secret is not read over a shoulder');
 
