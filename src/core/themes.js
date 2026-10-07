@@ -278,7 +278,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   const mktLabel = (p) => [...themeSource.values()].find((v) => v.pack === p)?.label;
   // short in the list (it sits beside a count and the current-theme mark);
   // the caption under the preview says whose recommendation it is
-  const packLabel = (p) => (p === 'recommended' ? '★ Recommended'
+  const packLabel = (p) => (p === 'recommended' ? '★ Recommended' : p === MARKED ? '● Marked'
     : mktLabel(p) ?? PACKS?.labels?.[p] ?? DYNAMIC_LABELS[p] ?? p);
   function packOf(name) {
     if (customThemes[name]) return 'custom';
@@ -338,10 +338,18 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     return { names, by };
   }
   const RECOMMENDED = 'recommended';
+  const MARKED = 'marked';
+  /** The themes this deck marks, among `list`, in the list's order. */
+  const markedIn = (list) => list.filter((n) => marked.has(n));
   // [ [packName, [themes…]] … ] for the available list, dynamic packs last —
   // and, when a design system recommends themes, those first
   function packEntries(list) {
     const out = [];
+    // The deck's own set first, in every mode: the themes it marks are the
+    // ones its bundle carries, and a reader without trust (or a bundle opened
+    // from disk) has no other way to tell them from the forty beside them
+    const mine = markedIn(list);
+    if (mine.length) out.push([MARKED, mine]);
     const rec = recommendation(list);
     if (rec.names.length) out.push([RECOMMENDED, rec.names]);
     for (const p of PACKS.order) {
@@ -714,9 +722,9 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     if (pickerFilter) {
       pickerEntries = list.filter((n) => n.includes(pickerFilter));
     } else if (!PACKS || pickerView === 'all') {
-      // flattened, the recommended themes still come first
-      const rec = recommendation(list).names;
-      const flat = [...rec, ...list.filter((n) => !rec.includes(n))];
+      // flattened, the deck's marked themes come first, then the recommended
+      const first = [...new Set([...markedIn(list), ...recommendation(list).names])];
+      const flat = [...first, ...list.filter((n) => !first.includes(n))];
       pickerEntries = PACKS ? [GEN_ROW, BACK_ROW, ...flat] : [GEN_ROW, ...flat];
     } else if (pickerView === 'packs') {
       pickerEntries = [GEN_ROW, ...packEntries(list).map(([p]) => PACK_ROW + p), ALL_ROW];
@@ -753,13 +761,14 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       } else {
         row.className = 'tp-row' + (name === cur ? ' tp-current' : '');
         row.textContent = name;
-        // While authoring, a marketplace theme's tag says whether the deck
-        // bundles it: ● marked (part of the bundle), ○ not (only on screen). A
-        // shipped theme is tagged only when marked — ○ on every one of them
-        // would be forty rows of noise; the caption says Space marks it.
+        // A theme the deck marks is tagged ● in every mode: the mark is a
+        // fact of the file (part of the bundle), not of who is looking. Only
+        // ○ — not marked, Space marks it — is authoring's, and only on a
+        // marketplace row: ○ on every shipped theme would be forty rows of
+        // noise, so a shipped row is tagged only when marked.
         const market = isMarketTheme(name);
-        const mark = !authoring() || !refOf(name) ? ''
-          : marked.has(name) ? '●' : market ? '○' : '';
+        const mark = !refOf(name) ? ''
+          : marked.has(name) ? '●' : authoring() && market ? '○' : '';
         if (market && mark) row.classList.add(marked.has(name) ? 'tp-marked' : 'tp-unmarked');
         const extra = customThemes[name] ? 'custom'
           : (genTheme && name === genTheme.name) ? 'generated'
@@ -863,16 +872,18 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const caption = name === GEN_ROW ? (pickerCandidate ? `✨ ${pickerCandidate.name}` : 'generate new')
       : name === BACK_ROW ? (homeView() === 'packs' ? 'back to packs' : 'back to the theme list')
       : name === ALL_ROW ? `all ${list.length} themes, flattened`
+      : name === PACK_ROW + MARKED
+        ? `marked by the deck — the themes its bundle carries`
       : name === PACK_ROW + RECOMMENDED
         ? `recommended by ${recommendation(list).by.join(', ')} — the themes it was drawn for`
       : name.startsWith(PACK_ROW)
         ? `${packLabel(name.slice(PACK_ROW.length))} · ${packEntries(list).find(([q]) => q === name.slice(PACK_ROW.length))?.[1].length ?? 0} themes`
-      : authoring() && refOf(name) ? markCaption(name)
+      : markSaid(name) ? markCaption(name)
       : PACKS ? `${packLabel(packOf(name))} · ${name}` : name;
     const captionEl = pickerEl.querySelector('.tp-caption');
     captionEl.textContent = caption;
     // a reference and a sentence, not a theme name to title-case
-    captionEl.classList.toggle('tp-plain', (authoring() && !!refOf(name)) || name === PACK_ROW + RECOMMENDED);
+    captionEl.classList.toggle('tp-plain', markSaid(name) || name === PACK_ROW + RECOMMENDED || name === PACK_ROW + MARKED);
     clearTimeout(pickerDebounce);
     // Navigation rows keep the current preview; only theme/gen rows swap it.
     // So does a marketplace theme whose bytes are not on this machine yet.
@@ -882,11 +893,15 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     if (immediate) previewSwap(frame, name);
     else pickerDebounce = setTimeout(() => previewSwap(frame, name), 60);
   }
+  // Does the caption speak of the mark? While authoring, for every row that
+  // can be marked; in every other mode, for a row the deck marks — the fact
+  // travels with the file, the Space to change it does not.
+  const markSaid = (name) => !!refOf(name) && (authoring() || marked.has(name));
   function markCaption(name) {
     const o = offered.get(name);
     const market = isMarketTheme(name);
     return [market ? refOf(name) : `${packLabel(packOf(name))} · ${name}`, o?.description,
-      marked.has(name) ? 'marked — part of the bundle · Space unmarks'
+      marked.has(name) ? (authoring() ? 'marked — part of the bundle · Space unmarks' : 'marked — part of the bundle')
         : o?.remote ? 'lives at a URL — Space marks it, which reads it once'
         : 'not marked — Space marks it to include it in the bundle',
     ].filter(Boolean).join(' · ');

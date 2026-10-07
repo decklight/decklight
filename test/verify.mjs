@@ -75,7 +75,7 @@ const NARRATION_HARNESSES = Object.keys(NARRATION_GROUPS).map((g) => `narration-
  * broke, where `engine-render FAILED` named a file.
  */
 const ENGINE_GROUPS = {
-  themes: ['decktheme', 'themepicker', 'dsrecommended', 'fonts', 'fontslegacy', 'fontswrite', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard'],
+  themes: ['decktheme', 'themepicker', 'markedread', 'dsrecommended', 'fonts', 'fontslegacy', 'fontswrite', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard'],
   palette: ['palette', 'palettegroups', 'paletteplain', 'settings', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'designsystems', 'skeys', 'skeys&nosrv'],
   narration: ['narration', 'nonarration', 'panel'],
   navigation: ['overviewedit', 'overviewplain', 'restore', 'historycaptions', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],

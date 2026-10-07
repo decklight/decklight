@@ -683,7 +683,10 @@
         // the deck's own default font: a referenced package, by name
         : HARNESS_MODE === 'fonts' ? { font: 'sample' }
           : HARNESS_MODE === 'bleedoff' ? { bleed: false }
-            : {});
+            // a deck that marks two shipped themes, opened with NO server —
+            // a reader's page, where the marks must still show (markedread)
+            : HARNESS_MODE === 'markedread' ? { markedThemes: ['midnight', 'ember'] }
+              : {});
 
     const ovSelected = () => [...document.querySelectorAll('.decklight-overview-grid .ov-cell')].findIndex((c) => c.classList.contains('ov-selected'));
     const press = (k, opts = {}) => document.body.dispatchEvent(
@@ -2635,6 +2638,44 @@
         r.chipUnlocks = locks().at(-1) === false && !chip() && !!bar();
         r.PASS = r.startsEditing && r.paletteOffersTheLock && r.lockIsPosted && r.chipSaysSo && r.editingOffWhileLocked && r.doorsSayLocked
           && r.writeRowsGone && r.channelUnlocks && r.barLocks && r.chipUnlocks;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'markedread') {
+        // The mark is the deck's, shown to whoever opens it (SPEC
+        // THEME_DISTRIBUTION): with no server at all, T lists the two themes
+        // the deck marks first, under their own pack, tagged ●, and the
+        // caption says what a mark is without offering Space. ○, the mark
+        // that is not there, stays authoring's.
+        await settle(); await settle();
+        const P = '.decklight-theme-picker', ROW = '.tp-row';
+        const rows = () => [...document.querySelectorAll(`${P} ${ROW}`)];
+        const texts = () => rows().map((n) => n.textContent);
+        const caption = () => document.querySelector(`${P} .tp-caption`)?.textContent ?? '';
+        r.notAuthoring = deck.editmode?.available?.() !== true;
+        press('t');
+        r.opens = !!document.querySelector(P);
+        // the pack list: ● Marked first, counting two
+        const packs = texts();
+        r.markedPackFirst = /^▸ ● Marked2$/.test(packs[1] ?? '');
+        // into it: the two rows, each tagged ●, nothing tagged ○
+        rows()[1].dispatchEvent(new MouseEvent('mouseenter')); press('Enter');
+        const inside = texts();
+        r.listsTheTwo = inside.slice(1).map((t) => t.replace(/[●★ ]/g, '')).sort().join(',') === 'ember,midnight';
+        r.eachTaggedMarked = rows().slice(1).every((n) => n.querySelector('.tp-tag')?.textContent.includes('●'));
+        r.noHollowMark = !inside.some((t) => t.includes('○'));
+        press('ArrowDown');
+        r.captionSaysMarked = /marked — part of the bundle/.test(caption()) && !/Space/.test(caption());
+        // flattened, the marked themes head the list
+        press('Escape');
+        for (const k of 'ember') press(k);
+        const hit = texts();
+        r.filterKeepsTheMark = hit.length === 1 && hit[0].includes('ember') && hit[0].includes('●');
+        press('Escape'); press('Escape');
+        r.closed = !document.querySelector(P);
+        r.PASS = r.notAuthoring && r.opens && r.markedPackFirst && r.listsTheTwo && r.eachTaggedMarked
+          && r.noHollowMark && r.captionSaysMarked && r.filterKeepsTheMark && r.closed;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
