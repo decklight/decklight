@@ -2326,6 +2326,11 @@
         document.dispatchEvent(new Event('fullscreenchange'));
         await settle();
         r.chipBackAfter = !!chip();
+        // ⌘⏎ is the present chord: it asks for fullscreen when no card is open
+        let asked = 0;
+        document.querySelector('.decklight').requestFullscreen = () => { asked += 1; return Promise.resolve(); };
+        press('Enter', { metaKey: true });
+        r.presentChordAsksFullscreen = asked === 1;
         // a click selects: outlined, with a ⋯ handle at its corner
         click(h1());
         r.clickSelects = h1().classList.contains('dl-selected') && !!document.querySelector('.dl-handle');
@@ -2400,7 +2405,7 @@
         r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(n.textContent));
         press('Escape');
         r.PASS = r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
-          && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.clickSelects
+          && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordAsksFullscreen && r.clickSelects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
           && r.layoutButtonCycles && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork

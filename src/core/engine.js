@@ -2071,7 +2071,7 @@ export function init(userConfig = {}) {
       <tr><td>M</td><td>comments — yours and every review's, grouped by who said them, ⏎ jumps</td></tr>
       <tr><td>⇧M</td><td>leave a comment on the slide you are looking at</td></tr>
       <tr><td>P</td><td>narration play / pause — ⎵'s alias</td></tr>
-      <tr><td>F</td><td>fullscreen</td></tr>
+      <tr><td>F / ⌘⏎ / Ctrl+Enter</td><td>fullscreen (⌘⏎ is the present chord; the bar and the commit chip leave with it)</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette — find, themes, everything (“Welcome to Decklight” reopens the intro)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
@@ -2222,6 +2222,14 @@ export function init(userConfig = {}) {
     // and before the modifier early-return below, which swallowed it.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter' && overlays.active()?.save?.()) {
       e.preventDefault();
+      return;
+    }
+    // ⌘⏎ / Ctrl+Enter — fullscreen: the present chord Google Slides taught a
+    // Mac, and the one a browser leaves free (F5 is reload). Below the save
+    // above, so a card that is open keeps its ⌘⏎; the deck gets it otherwise.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter') {
+      e.preventDefault();
+      toggleFullscreen();
       return;
     }
     // The undo chord is the one modifier combination that goes on: BELOW the
