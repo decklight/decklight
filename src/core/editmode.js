@@ -320,7 +320,8 @@ export function createEditMode({
   // recorder read it 700ms after load and sent a whole take to the download
   // folder because the answer had not arrived, not because there was no server.
   let probeSettled;
-  const settled = new Promise((r) => { probeSettled = r; });
+  let probed = false;   // the probe has answered, either way
+  const settled = new Promise((r) => { probeSettled = () => { probed = true; r(); }; });
   if (!printMode && !params.has('embedded')) {
     const bases = config.edit?.url ? [config.edit.url]
       : /^https?:$/.test(location.protocol) ? [''] : ['http://127.0.0.1:8788'];
@@ -480,6 +481,10 @@ export function createEditMode({
    * or nothing serves it that takes edits (the command to run).
    */
   function cannot(what) {
+    // Every write reloads every page, and a key pressed in the moment between
+    // the reload and the new page's probe answering finds no server YET: that
+    // is not "run decklight", it is "one moment".
+    if (!probed) return `one moment — the deck is still connecting to its server; ${what} again`;
     if (served && locked) return `the deck is locked — unlock it from the palette or the 🔒 chip, then ${what}`;
     if (served && noTrust) return `this deck is open without trust — ${what} needs write mode: open it again and say you trust it, or pass --trust`;
     return needsDevMode(what, location);
@@ -2628,6 +2633,8 @@ export function createEditMode({
     onLockChange: (fn) => { lockListeners.add(fn); },
     /** Resolves once the probe has an answer either way — see `settled`. */
     settled: () => { if (printMode || params.has('embedded')) probeSettled(); return settled; },
+    /** Has the probe answered yet, either way? A door pressed before it has waits rather than refuses. */
+    probed: () => probed,
     /** Its origin ('' when the deck is served BY the edit server); null without trust. */
     base: () => (noTrust ? null : editBase),
     /** K: the commit window — what changed, what to call it, one button. */

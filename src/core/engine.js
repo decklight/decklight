@@ -2320,7 +2320,9 @@ export function init(userConfig = {}) {
       case '<': changeNarrRate(-0.25); break;  // youtube's ⇧<
       case ']': cycleFont(1); break;
       case '[': cycleFont(-1); break;
-      case 'l': case 'L': cycleLayout(e.shiftKey ? -1 : 1); break;
+      // L right after a write lands while the reloaded page is still asking
+      // its server: wait for the answer, then do what was asked
+      case 'l': case 'L': { const dir = e.shiftKey ? -1 : 1; if (editmode.probed()) cycleLayout(dir); else editmode.settled().then(() => cycleLayout(dir)); break; }
       case 'z': case 'Z': deckHistory(e.shiftKey ? 'redo' : 'undo'); break;
       case 'a': case 'A': toggleAgentAsk(); break;
       case 'w': case 'W': toggleInk(e.shiftKey ? 'laser' : 'pen'); break;

@@ -2254,10 +2254,21 @@
       }
 
       if (mode === 'editbar') {
-        // Editing has a face (editbar.js): E opens a bar that names every
-        // door, a click selects an element, and the keys a selection answers
-        // go through the same routes the gestures and the menu already use.
+        // Editing has a face (editbar.js): a bar that names every door, a
+        // click selects an element, and the keys a selection answers go
+        // through the same routes the gestures and the menu already use.
+        // L pressed BEFORE the probe answers (the moment after a reload)
+        // waits for it rather than refusing with "run decklight"
+        press('l');
         await settle();                       // /deck/ping: editAvailable
+        await settle();
+        // the ring answered (its write sits behind a debounce), and nothing said "run decklight"
+        {
+          const tx = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+          r.earlyLWaitsThenLands = tx.some((t) => /^layout: /.test(t)) && !tx.some((t) => /needs write mode|run npx decklight|one moment/.test(t));
+        }
+        press('L', { shiftKey: true });       // and back, so the bar's Layout button below starts from auto
+        await settle();
         deck.goto(1, 0);
         await settle();
         const bar = () => document.querySelector('.decklight-editbar');
@@ -2404,7 +2415,7 @@
         for (const ch of 'lock deck') press(ch);
         r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(n.textContent));
         press('Escape');
-        r.PASS = r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
+        r.PASS = r.earlyLWaitsThenLands && r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
           && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordAsksFullscreen && r.clickSelects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
