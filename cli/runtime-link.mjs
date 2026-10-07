@@ -169,6 +169,58 @@ export function withConfigVersion(html, version = PKG.version) {
   return html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd);
 }
 
+/**
+ * The block's text with `theme` set — the value swapped, or the key added
+ * after `decklight` (or first), so the author's own formatting survives.
+ * Null when there is no block.
+ */
+export function withConfigTheme(html, name) {
+  const block = configBlock(html);
+  if (!block) return null;
+  const keyRe = /("theme"\s*:\s*)"[^"]*"/;
+  let inner;
+  if (keyRe.test(block.inner)) inner = block.inner.replace(keyRe, `$1"${name}"`);
+  else {
+    const afterVersion = /("decklight"\s*:\s*"[^"]*")/;
+    if (afterVersion.test(block.inner)) inner = block.inner.replace(afterVersion, `$1, "theme": "${name}"`);
+    else {
+      const open = block.inner.indexOf('{');
+      if (open === -1) return null;
+      const rest = block.inner.slice(open + 1);
+      const empty = /^\s*}/.test(rest);
+      inner = `${block.inner.slice(0, open + 1)} "theme": "${name}"${empty ? ' ' : ', '}${rest.replace(/^\s+/, empty ? '' : '')}`;
+    }
+  }
+  return html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd);
+}
+
+/**
+ * The deck's theme, written the way this deck carries it (PRESENTING): the
+ * configuration block's `theme` for a deck that is data; for a bundle, the
+ * active one among its embedded `<style data-theme>` blocks (`media="all"`
+ * on the chosen, `not all` on the rest — the shape `bundle` and `upgrade`
+ * write); for a source deck, the `themes/<name>.css` link. Null when the
+ * deck carries its theme in none of those ways, or does not have `name`.
+ */
+export function setDeckTheme(html, name) {
+  if (!/^[\w-]+$/.test(name)) return null;
+  if (configBlock(html)) return withConfigTheme(html, name);
+  const styles = [...html.matchAll(/<style\b([^>]*\bdata-theme\s*=\s*["']([\w-]+)["'][^>]*)>/gi)];
+  if (styles.length) {
+    if (!styles.some((m) => m[2] === name)) return null;
+    let out = html;
+    for (const m of styles) {
+      const attrs = m[1].replace(/\s*\bmedia\s*=\s*["'][^"']*["']/i, '');
+      const tag = `<style${attrs}${m[2] === name ? '' : ' media="not all"'}>`;
+      out = out.replace(m[0], tag);
+    }
+    return out;
+  }
+  const link = /(<link\b[^>]*\bhref\s*=\s*["'][^"']*themes\/)([\w-]+)(\.css(?:[?#][^"']*)?["'][^>]*>)/i;
+  if (link.test(html)) return html.replace(link, `$1${name}$3`);
+  return null;
+}
+
 /** JSON text that is safe inside a `<script>`: a `</script` in a string value cannot end the block early. */
 const jsonSafe = (text) => text.replace(/<\/(script)/gi, '<\\/$1').replace(/<!--/g, '<\\u0021--');
 

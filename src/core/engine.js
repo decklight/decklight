@@ -1404,6 +1404,8 @@ export function init(userConfig = {}) {
     checkOverflow(sec, idx);
     return sec.hasAttribute('data-split-conflict');
   }
+  // the deck's theme, picked on another page of this deck (editmode.js relays the event)
+  root.addEventListener('decklight:theme', (e) => { const name = e.detail?.theme; if (typeof name === 'string') themes.applyTheme(name, true); });
   // a layout picked on another page of this deck (editmode.js relays the event)
   root.addEventListener('decklight:layout', (e) => {
     const { slide, layout: name } = e.detail ?? {};
@@ -2463,6 +2465,7 @@ export function init(userConfig = {}) {
   });
 
   instance.theme = (name) => applyTheme(name);
+  instance.currentTheme = () => currentTheme();              // the theme on screen, by name
   instance.themePicker = { open: themes.openPicker, close: themes.closePicker };
   instance.generateTheme = rollTheme;                       // ⌃T, programmatic
   instance.cycleFont = cycleFont;                           // [ / ], programmatic (±1)

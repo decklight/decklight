@@ -95,7 +95,7 @@ const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts
   '--host', '--root', '--branch', '--into', '--upstream-every'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
-import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
+import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime, setDeckTheme } from './runtime-link.mjs';
 import { linkAddedThemes } from './theme-refs.mjs';
 import { linkDesignSystems } from './design-system-refs.mjs';
 import { linkFonts } from './font-refs.mjs';
@@ -2072,6 +2072,25 @@ export async function editMain(args, { onListen = null, client } = {}) {
     }
     return json(200, { ok: true, locked });
   }
+  // The deck's theme (PRESENTING): in write mode a pick is the deck's, not
+  // the viewer's — written the way this deck carries it (setDeckTheme), quiet
+  // and in place like a layout pick, with a `theme` event for every other
+  // page. One undo entry, so Z takes it back.
+  function themeRoute({ body, json }) {
+    const { theme, quiet: inPlace, from } = JSON.parse(body || '{}');
+    if (typeof theme !== 'string' || !/^[\w-]+$/.test(theme)) return json(400, { ok: false, error: 'theme is a name' });
+    let unwritable = false;
+    const changed = applyEdit((html) => { const next = setDeckTheme(html, theme); if (next === null) unwritable = true; return next ?? html; });
+    if (unwritable) return json(409, { ok: false, error: `this deck does not carry a theme the server can set to ${theme} — a bundle holds only the themes it embeds` });
+    if (changed) {
+      console.log(`  theme saved: ${theme}`);
+      if (inPlace === true) {
+        quietWrite = readDeck();
+        broadcast('theme', { theme, from: typeof from === 'string' ? from.slice(0, 64) : null });
+      }
+    }
+    return json(200, { ok: true, changed, inPlace: changed && inPlace === true, ...history.counts() });
+  }
   function shutdownRoute({ res, json, CORS }) {
     res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -3513,6 +3532,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'GET /deck/review/at': reviewAtRoute,
     'POST /deck/review/done': reviewDoneRoute,
 
+    'POST /deck/edit/theme': themeRoute,
     'GET /deck/edit/theme/browse': themeBrowseRoute,
     'POST /deck/edit/theme/add': themeAddRoute,
     'POST /deck/edit/theme/mark': themeMarkRoute,

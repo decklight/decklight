@@ -473,6 +473,36 @@ test('the lock: locked, no edit route writes; the ping and the channel say so; u
   await pump;
 });
 
+test('POST /deck/edit/theme writes the deck\'s theme in place: quiet, a theme event to every page, one undo entry', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
+  const { base, log } = await startEdit(t, dir, { env: { PATH: dir } });
+  const events = [];
+  const es = await fetch(base + '/deck/events');
+  const reader = es.body.getReader();
+  const pump = (async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) break; events.push(new TextDecoder().decode(value)); } } catch { /* closed */ } })();
+  t.after(() => reader.cancel().catch(() => {}));
+  const r = await post(base, '/deck/edit/theme', { theme: 'paper', quiet: true, from: 'page-1' });
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  assert.deepEqual([j.changed, j.inPlace, j.undo], [true, true, 1]);
+  assert.match(readFileSync(deck, 'utf8'), /"theme":\s*"paper"/, 'the configuration block says so');
+  await new Promise((res) => setTimeout(res, 300));
+  assert.ok(events.join('').includes('event: theme') && events.join('').includes('"theme":"paper"'), 'every open page is told');
+  assert.ok(!events.join('').includes('data: reload'), 'and not reloaded');
+  assert.match(log(), /theme saved: paper/);
+  const same = await (await post(base, '/deck/edit/theme', { theme: 'paper', quiet: true })).json();
+  assert.deepEqual([same.changed, same.inPlace], [false, false], 'already the theme: nothing written, nothing sent');
+  assert.equal((await post(base, '/deck/edit/theme', { theme: 'not a name' })).status, 400);
+  const undo = await (await post(base, '/deck/edit/undo')).json();
+  assert.equal(undo.undo, 0, 'one entry, taken back');
+  await new Promise((res) => setTimeout(res, 300));
+  assert.match(readFileSync(deck, 'utf8'), /"theme":\s*"aurora"/);
+  await reader.cancel().catch(() => {});
+  await pump;
+});
+
 test('layout, undo, and redo write the deck FILE — and share one history', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');

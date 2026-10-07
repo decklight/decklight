@@ -55,7 +55,7 @@
     // The exports are told the theme on screen (#547), so they run on a deck
     // that HAS one — linked, the way a data-only deck is served.
     if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'restore' || HARNESS_MODE === 'dslook'
-        || HARNESS_MODE === 'historycaptions') {
+        || HARNESS_MODE === 'historycaptions' || HARNESS_MODE === 'decktheme') {
       document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="../themes/aurora.css">');
     }
     if (HARNESS_MODE === 'added') {
@@ -292,8 +292,13 @@
             styles: { carried: ['.pricing'], clashed: ['.breaks'], dangling: ['--card-bg'] } });
         }
       }
+      if (HARNESS_MODE === 'decktheme') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (/\/deck\/edit\/theme$/.test(u)) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'browse') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (/\/deck\/edit\/theme$/.test(u)) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/theme/browse')) return json(FAKE_BROWSE);
         if (u.includes('/deck/edit/theme/mark')) {
           const { ref, marked } = JSON.parse(init?.body ?? '{}');
@@ -761,6 +766,30 @@
         return;
       }
 
+      if (mode === 'decktheme') {
+        // In write mode a theme pick is the DECK's (PRESENTING): the cycle
+        // keys write it, quiet, from this page; a pick made on another page
+        // lands here without a reload.
+        await settle();   // the ping: write mode
+        const themePosts = () => CALLS.post.filter((c) => /\/deck\/edit\/theme$/.test(c.u));
+        const before = deck.currentTheme();
+        const step = async () => { press('.'); await settle(); if ([...document.querySelectorAll('.decklight-toast')].some((n) => /pack next/.test(n.textContent))) { press('.'); await settle(); } };
+        // three presses in a row: the screen follows each one, the file is written once, after they stop
+        await step(); await step(); await step();
+        r.cycleChangedTheTheme = deck.currentTheme() !== before;
+        r.browsingWritesNothingYet = themePosts().length === 0;
+        await new Promise((res) => setTimeout(res, 800));
+        const wrote = themePosts().pop()?.body;
+        r.pickWritesTheDeck = themePosts().length === 1 && !!wrote && wrote.quiet === true && typeof wrote.from === 'string' && wrote.theme === deck.currentTheme();
+        window.__es.emit('theme', { theme: 'paper', from: 'another-page' });
+        await settle();
+        r.themeFromElsewhereLands = deck.currentTheme() === 'paper';
+        r.followingWritesNothing = themePosts().length === 1;
+        r.PASS = r.cycleChangedTheTheme && r.browsingWritesNothingYet && r.pickWritesTheDeck && r.themeFromElsewhereLands && r.followingWritesNothing;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'browse' || mode === 'nobrowse') {
         // Marketplace themes in the overlay (MARKETPLACE.md THEME_BROWSE#UI).
         // Both modes run the same deck; the only difference is whether an
@@ -889,6 +918,8 @@
         r.appliesUnmarked = !!onDemand && onDemand.media === 'all'
           && /decklight-theme\/nord-pack\/nord-deep\.css$/.test(onDemand.href);
         r.closesOnApply = !document.querySelector(P);
+        // a MARKED marketplace theme is the deck's to pick: applying it wrote the deck's theme, quiet, from this page
+        r.markedPickWritesTheDeck = CALLS.post.some((c) => /\/deck\/edit\/theme$/.test(c.u) && c.body?.theme === 'nord-deep' && c.body?.quiet === true && typeof c.body?.from === 'string');
         // …and applied, it is still ONE theme: linked on the page and offered
         // by its marketplace is one name, not two rows — and the preview of it
         // is still told where it lives, since the preview's page never had it
@@ -901,7 +932,7 @@
         // nothing in the player fetched a stylesheet itself
         r.playerNeverFetchedCss = !CALLS.get.some((u) => /\.css/.test(u));
 
-        r.PASS = r.paletteRow && r.paletteRouteOpensThePicker && r.marketplaceIsAPack
+        r.PASS = r.markedPickWritesTheDeck && r.paletteRow && r.paletteRouteOpensThePicker && r.marketplaceIsAPack
           && r.namesUnfetchedCatalogs && r.listingWasAGet && r.listsMarketplaceThemes && r.saysUnmarked
           && r.captionDescribes && r.refusalKeepsPickerOpen && r.refusalNamesProblems
           && r.marksByQualifiedRef && r.marksQuietly && r.markKeepsPickerOpen

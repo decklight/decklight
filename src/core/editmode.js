@@ -395,6 +395,13 @@ export function createEditMode({
           // A notes save is not a reload: every open view of the deck gets
           // the slide's new notes and puts them in place (narration, the
           // speaker view, a notes card left open in another tab)
+          // the deck's theme, picked on another page: follow it, no reload
+          es.addEventListener('theme', (ev) => {
+            try {
+              const d = JSON.parse(ev.data);
+              if (d.from !== PAGE_ID && typeof d.theme === 'string') root.dispatchEvent(new CustomEvent('decklight:theme', { detail: { theme: d.theme } }));
+            } catch { /* malformed: the next reload settles it */ }
+          });
           // a layout picked on another page: put it on the slide here, no reload
           es.addEventListener('layout', (ev) => {
             try {

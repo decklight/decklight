@@ -190,7 +190,42 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
    * default is where it opens, not a pick somebody made, and saving it would
    * freeze today's default in over tomorrow's.
    */
-  function applyTheme(name, silent = false, { persist = true } = {}) {
+  // In write mode a pick is the DECK's theme, not this viewer's: written to
+  // the file (quiet, in place; every other page is sent it) for a shipped
+  // theme or a marked one — the themes the server can serve as the deck's
+  // base. An unmarked marketplace theme is a look until Space marks it, and a
+  // generated one lives in this browser until it is saved; neither is written.
+  async function writeDeckTheme(name) {
+    const em = editmode?.();
+    if (!em?.available?.()) return;
+    const shipped = !addedThemes.has(name) && !offered.has(name) && !customThemes[name] && !(genTheme && name === genTheme.name);
+    if (!shipped && !marked.has(name)) return;
+    try {
+      const r = await fetch(editBase() + '/deck/edit/theme', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ theme: name, quiet: true, from: em.pageId?.() ?? null }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `the server said ${r.status}`);
+    } catch (e) {
+      toast(`the theme is on screen but not in the file — ${String(e.message || e).slice(0, 100)}`, 4000);
+    }
+  }
+  // The cycle keys browse: the theme on screen changes on every press, and
+  // the deck is written once, after the presses stop — the layout ring's
+  // own debounce — and only if the theme stopped on is not the deck's
+  // already. ⏎ in the picker is one deliberate pick and writes at once.
+  let deckWriteTimer = null;
+  let deckWritten = null;   // the last name written this session, so a burst that comes back writes nothing
+  function writeDeckThemeLater(name) {
+    clearTimeout(deckWriteTimer);
+    deckWriteTimer = setTimeout(() => { deckWriteTimer = null; if (name !== deckWritten) writeDeckThemeNow(name); }, 600);
+  }
+  function writeDeckThemeNow(name) {
+    clearTimeout(deckWriteTimer); deckWriteTimer = null;
+    deckWritten = name;
+    writeDeckTheme(name);
+  }
+  function applyTheme(name, silent = false, { persist = true, deck = false } = {}) {
     if (!name || !/^[\w-]+$/.test(name)) return false;
     let unsavedGen = false;
     if (genTheme && genStyle && name === genTheme.name) {
@@ -229,6 +264,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     if (!silent) toast(name);
     debugLog('theme', name);
     updateCanvas(); // inline/generated swaps take effect synchronously
+    if (persist && deck === 'later') writeDeckThemeLater(name);
+    else if (persist && deck) writeDeckThemeNow(name);
     return true;
   }
   // ── theme packs (SPEC PRESENTING) — baked from themes/packs.json at build time ────
@@ -393,7 +430,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       const p = cyclePending;
       clearTimeout(p.timer);
       cyclePending = null;
-      if (p.dir === dir) applyTheme(p.name); // repeat = confirm
+      if (p.dir === dir) applyTheme(p.name, false, { deck: 'later' }); // repeat = confirm
       else toast('theme cycle cancelled');   // opposite = cancel
       return;
     }
@@ -407,7 +444,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       toast(`⤳ ${packLabel(packOf(next))} pack next (${next}) — ${key} confirms · ${opp} or Esc cancels`, 4000);
       return;
     }
-    applyTheme(next);
+    applyTheme(next, false, { deck: 'later' });
   }
 
   // Embedded preview decks accept theme swaps from their parent (the picker)
@@ -895,7 +932,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       toast(`${name} is not on this machine yet — Space marks it, which reads it`, 3200);
       return;
     }
-    applyTheme(name);
+    applyTheme(name, false, { deck: true });
     closeThemePicker();
   }
   function closeThemePicker() {
