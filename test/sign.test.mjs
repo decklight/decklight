@@ -275,7 +275,7 @@ test('plain bundle neither signs nor warns — offline-clean by default', () => 
   assert.doesNotMatch(log, /signed|signing|\.sig\b/i, 'no nag: the default is a choice, not an oversight');
 });
 
-test('--read-only --check fails a deck whose signature does not verify', () => {
+test('--no-trust --check fails a deck whose signature does not verify', () => {
   const dir = tmp();
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, '<html><body><script>Decklight.init()</script></body></html>');
@@ -283,7 +283,7 @@ test('--read-only --check fails a deck whose signature does not verify', () => {
 
   let code = 0; let out = '';
   try {
-    out = execFileSync(process.execPath, [CLI, deck, '--read-only', '--check'],
+    out = execFileSync(process.execPath, [CLI, deck, '--no-trust', '--check'],
       { encoding: 'utf8', stdio: 'pipe', env: noIdentityEnv() });
   } catch (e) { code = e.status; out = String(e.stdout); }
   assert.equal(code, 1, 'a gate that passes what it could not stand behind is not a gate');
@@ -305,7 +305,7 @@ test('--check routes a nameless verified signature the same as unchecked', async
     const lines = [];
     const orig = console.log;
     console.log = (...a) => { lines.push(a.join(' ')); };
-    try { return { code: await editMain([deck, '--read-only', '--check'], { client }), out: lines.join('\n') }; }
+    try { return { code: await editMain([deck, '--no-trust', '--check'], { client }), out: lines.join('\n') }; }
     finally { console.log = orig; }
   };
 
@@ -322,7 +322,7 @@ test('an unsigned deck passes --check — most decks are unsigned', () => {
   const dir = tmp();
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, '<html><body><script>Decklight.init()</script></body></html>');
-  const out = execFileSync(process.execPath, [CLI, deck, '--read-only', '--check'],
+  const out = execFileSync(process.execPath, [CLI, deck, '--no-trust', '--check'],
     { encoding: 'utf8', env: noIdentityEnv() });
   assert.doesNotMatch(out, /signature/, 'and nothing is said about a signature that was never claimed');
 });

@@ -5,9 +5,9 @@
 // an editing endpoint: the loopback/token security classifier, static file
 // serving with a traversal guard, SSE fan-out, and port binding with takeover.
 //
-// Extracted from edit.mjs when `--read-only` was a server of its own; now it
+// Extracted from edit.mjs when `--no-trust` was a server of its own; now it
 // is a mode of the one server (PRESENTING), and this is still the core both
-// modes stand on, plus the policy the read-only mode puts on every response
+// modes stand on, plus the policy the no-trust mode puts on every response
 // and the tiny server the render tools run behind. Nothing in this module
 // writes a file.
 
@@ -97,7 +97,7 @@ export function allowEditRequest(req) {
  * asked for. Pinning the port refuses another loopback dev server's page too,
  * which the edit gate admits by design.
  *
- * Used by the one route in `--read-only` that ACTS. The looser gate is right for
+ * Used by the one route in `--no-trust` that ACTS. The looser gate is right for
  * `/deck/edit/*`, where the server exists to be written to and a curl from the
  * author's own machine is a feature; it is wrong here.
  */
@@ -162,7 +162,7 @@ export { escapeHtml } from '../tools/escape.mjs';
  * the deck, its assets, error pages, JSON, SSE, all of it. They are set
  * before the handler runs, and writeHead merges them under any headers a
  * route names itself, so a route can sharpen one but can never lose one by
- * not mentioning it. This is the seam the read-only server's
+ * not mentioning it. This is the seam the no-trust mode's
  * Content-Security-Policy arrives through (PRESENT): "every response
  * carries the header" holds by construction here, instead of by every
  * writeHead in every route remembering.
@@ -199,7 +199,7 @@ function rangeOf(header, size) {
  *
  * `html` rewrites the text of every text/html response on its way out and
  * leaves every other type alone; after it, a deck that carries no runtime
- * (#520) has the installed one referenced into its text (`linkRuntime`). It is how `--read-only --strict` (READ_ONLY#STRICT)
+ * (#520) has the installed one referenced into its text (`linkRuntime`). It is how `--no-trust --strict` (NO_TRUST#STRICT)
  * serves a deck with the unaccounted blocks removed while the file on disk
  * stays exactly as it arrived: the transform sits between the read and the
  * write, so there is no point in this path where the modified bytes could be
@@ -211,7 +211,7 @@ function rangeOf(header, size) {
  * read same-origin it can also send anywhere.
  *
  * `knownTypesOnly` additionally refuses every extension the MIME table does
- * not name. `--read-only` passes it: the table is the set of types a deck can
+ * not name. `--no-trust` passes it: the table is the set of types a deck can
  * actually use, and a file beside a travelled deck that is none of them —
  * `id_rsa`, a `.pem`, a database — is only ever fetched to be exfiltrated.
  * The edit server does not, so an author's exotic asset still serves as
@@ -281,7 +281,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     };
 
     // A page's bytes are not the file's: the caller's rewrite (`--strict`,
-    // READ_ONLY#STRICT; a render's driver) runs on the text on its way out, and
+    // NO_TRUST#STRICT; a render's driver) runs on the text on its way out, and
     // then a deck that carries no runtime — a deck as data (#520) — gets the
     // engine, its stylesheet and its theme referenced (`linkRuntime`, which
     // leaves every other document exactly as it was). So its length and its
@@ -411,12 +411,12 @@ export async function listenTakingOverIfNeeded(server, port, host = '127.0.0.1')
 }
 
 /**
- * The read-only mode's policy (PRESENTING), and honestly what it is worth.
+ * The no-trust mode's policy (PRESENTING), and honestly what it is worth.
  *
  * `script-src` has to carry `'unsafe-inline'`: a bundled deck IS inline script
  * (the runtime is inlined by `decklight bundle`) and even a source deck calls
  * `Decklight.init()` from an inline block. So this header does not stop a deck from running
- * script — that is what READ_ONLY#AUDIT names and READ_ONLY#STRICT strips, and
+ * script — that is what NO_TRUST#AUDIT names and NO_TRUST#STRICT strips, and
  * claiming otherwise here would manufacture confidence the mechanism cannot
  * back.
  *
@@ -443,7 +443,7 @@ export async function listenTakingOverIfNeeded(server, port, host = '127.0.0.1')
  *
  * The bridges sit on the deck's own origin (`/deck/tts`, `/deck/lipsync/`), so
  * `'self'` would let a deck reach them; the server refuses those families in
- * read-only mode instead (MARKETPLACE.md ENGINES: engines never come up outside
+ * no-trust mode instead (MARKETPLACE.md ENGINES: engines never come up outside
  * write mode — a deck you were emailed asking to reach a local service is the
  * shape of a probe). Recorded narration needs no bridge and is unaffected.
  */
@@ -470,7 +470,7 @@ export const CSP = [
  * stripped off: `withHeaders` for the policy, `staticFiles` for a
  * traversal-guarded GET, an ephemeral loopback port. A deck screenshotted or
  * filmed BEFORE anyone presents it therefore runs under the same policy
- * read-only mode gives it — instead of over `file://` with
+ * no-trust mode gives it — instead of over `file://` with
  * `--allow-file-access-from-files`, the flag that let a deck's own JS read any
  * local file it could name and ship it anywhere (#229). An http origin cannot
  * read `file://` at all, and the CSP bounds where the rest can reach; a read is

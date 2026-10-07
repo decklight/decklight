@@ -56,7 +56,7 @@
       // reads before it comments (SPEC REVIEW)
       if (u.endsWith('/deck/ping')) {
         return reviewer
-          ? new Response(JSON.stringify({ ok: true, name: 'review.html', readOnly: true, locked: true, review: { mode: 'read-only', git: true, by: 'Me <me@x>', store: 'review.review.jsonl' } }),
+          ? new Response(JSON.stringify({ ok: true, name: 'review.html', noTrust: true, locked: true, review: { mode: 'no-trust', git: true, by: 'Me <me@x>', store: 'review.review.jsonl' } }),
             { status: 200, headers: { 'content-type': 'application/json' } })
           : new Response(JSON.stringify({ ok: true, name: 'review.html', undo: 0, redo: 0, review: { mode: 'write', git: false, by: 'Me <me@x>', store: 'review.review.jsonl' } }),
             { status: 200, headers: { 'content-type': 'application/json' } });

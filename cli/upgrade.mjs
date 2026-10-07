@@ -56,7 +56,7 @@ const kb = (s) => `${(Buffer.byteLength(s) / 1024).toFixed(1)} KB`;
  */
 const maskComments = (html) => html.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '));
 
-// Exported because the ingredients label (cli/audit.mjs, READ_ONLY#AUDIT) has to
+// Exported because the ingredients label (cli/audit.mjs, NO_TRUST#AUDIT) has to
 // enumerate exactly the blocks this command knows how to find. Two scanners
 // that drift apart would mean upgrade rewriting a block the audit calls
 // unaccounted, or the reverse — so there is one of each.
@@ -119,7 +119,7 @@ Options:
 A deck that is data, or that links the runtime, is always current — it runs
 whatever is installed — so upgrade only refreshes the version it records
 itself as written for (the block's "decklight", or data-decklight-version on
-the <script src>), which is what --read-only --check compares.
+the <script src>), which is what --no-trust --check compares.
 `);
     return 0;
   }
@@ -170,7 +170,7 @@ the <script src>), which is what --read-only --check compares.
   // Slides plus a configuration block, no runtime in the file (#520): it runs
   // whatever is installed, so it is always current. What it can be behind on
   // is its own record of the version it was written for — the block's
-  // `decklight` key, which --read-only --check compares — and that is what is
+  // `decklight` key, which --no-trust --check compares — and that is what is
   // refreshed. --link asks for the shape it already has.
   if (!linked && !hasEmbeddedRuntime(html)) {
     const block = configBlock(html);

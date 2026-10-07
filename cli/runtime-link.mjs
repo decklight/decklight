@@ -6,7 +6,7 @@
  * runtime in the file — no `<script src="decklight.js">`, no embedded engine,
  * no `Decklight.init(…)` call. The server adds the engine on the way out
  * (`linkRuntime`, applied by `staticFiles` to every html response and by
- * `--read-only` to the deck it serves from memory); `bundle` embeds it at
+ * `--no-trust` to the deck it serves from memory); `bundle` embeds it at
  * hand-over through the same function, and then flattens the references it
  * just added exactly as it flattens a deck that wrote them itself.
  *
@@ -20,7 +20,7 @@
  * boots — `Decklight.init()` with no argument takes its options from it, and
  * the engine boots itself once the document is parsed when a deck calls no
  * `init` of its own. Two keys are the file's, not the engine's: `decklight`
- * is the version the deck was written for (what --read-only --check compares
+ * is the version the deck was written for (what --no-trust --check compares
  * against the runtime this install serves), `theme` names the theme the
  * server links (default `aurora`).
  *

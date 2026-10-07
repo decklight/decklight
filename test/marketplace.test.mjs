@@ -408,7 +408,7 @@ test('nothing on the deck-load or presenting path can FETCH from a marketplace',
       .filter((f) => /\.(js|mjs)$/.test(f)).map((f) => path.join('src', f)),
     'cli/serve.mjs', 'cli/edit.mjs', 'cli/open.mjs', 'cli/bundle.mjs', 'cli/upgrade.mjs',
     // cli/plugin.mjs is on the presenting path (present injects presenter
-    // chrome from the local library, READ_ONLY#PLUGINS). It reads the catalog
+    // chrome from the local library, NO_TRUST#PLUGINS). It reads the catalog
     // CACHE to resolve `plugin add`, which is the same considered read the
     // wizard makes; what it must never grow is a catalog fetch, and this is
     // where that is held.

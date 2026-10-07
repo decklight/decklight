@@ -21,7 +21,7 @@ function harness(answers) {
   const run = {
     init: async (args) => { calls.push(['init', args]); return 0; },
     write: async (args) => { calls.push(['write', args]); return 0; },
-    'read-only': async (args) => { calls.push(['read-only', args]); return 0; },
+    'no-trust': async (args) => { calls.push(['no-trust', args]); return 0; },
   };
   const ask = async (q) => { out.push(q); return answers.shift() ?? ''; };
   return { out: { write: (s) => out.push(s) }, ask, run, calls, log: () => out.join('') };
@@ -35,11 +35,11 @@ test('the plan reads the directory: nothing to open offers init, one deck offers
     'off a terminal there is nobody to ask — the short help, not a hang');
 });
 
-test('Enter means write mode; r or p means read-only; anything else opens nothing', () => {
+test('Enter means write mode; n means without trust; anything else opens nothing', () => {
   assert.equal(pickVerb(''), 'write', 'the deck in front of you is one you are working on, more often than not');
     assert.equal(pickVerb('edit'), 'write');
-  assert.equal(pickVerb('r'), 'read-only');
-  assert.equal(pickVerb('R'), 'read-only');
+  assert.equal(pickVerb('n'), 'no-trust');
+  assert.equal(pickVerb('N'), 'no-trust');
   assert.equal(pickVerb('q'), null);
 });
 
@@ -78,12 +78,12 @@ test('one deck is found and opened in write mode with the browser, on Enter', as
   assert.deepEqual(h.calls, [['write', ['talk.html', '--open']]]);
 });
 
-test('r opens the deck read-only instead, and q opens nothing', async (t) => {
+test('n opens the deck without trust instead, and q opens nothing', async (t) => {
   const dir = tmp('start', t);
   writeFileSync(path.join(dir, 'talk.html'), DECK);
-  const p = harness(['r']);
+  const p = harness(['n']);
   await startMain([], { cwd: dir, tty: true, ...p });
-  assert.deepEqual(p.calls, [['read-only', ['talk.html', '--read-only']]]);
+  assert.deepEqual(p.calls, [['no-trust', ['talk.html', '--no-trust']]]);
   const q = harness(['q']);
   await startMain([], { cwd: dir, tty: true, ...q });
   assert.deepEqual(q.calls, []);

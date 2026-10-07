@@ -276,7 +276,7 @@ test('the runtime version and the package version are the same number', () => {
   // These drifted silently: src/index.js sat at 0.1.0 while package.json reached
   // 0.3.0, so every bundled deck carried a banner two releases stale — and the
   // banner is not decoration. `decklight init` quotes it back when it refuses a
-  // collision, `upgrade` locates the runtime by it, and since READ_ONLY#AUDIT the
+  // collision, `upgrade` locates the runtime by it, and since NO_TRUST#AUDIT the
   // ingredients label prints it to whoever opens a deck they did not author. A
   // stamped version nobody checks is read as a fact, which is what makes a wrong
   // one worse than none.

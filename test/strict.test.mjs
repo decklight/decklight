@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Strict mode (MARKETPLACE.md READ_ONLY#STRICT). The design rejects two failure
+// Strict mode (MARKETPLACE.md NO_TRUST#STRICT). The design rejects two failure
 // modes and both are testable: it must never refuse to serve, and it must never
 // serve the unaccounted block. Everything else here defends the third promise —
 // that a deck still presents faithfully once the stripping is done — because a
@@ -141,7 +141,7 @@ function deckDir(html = CLEAN, name = 'talk.html') {
 
 /** Start the server on an ephemeral port; resolve its base URL and its log. */
 async function startPresent(t, dir, { deck = 'talk.html', extraArgs = [] } = {}) {
-  const child = spawn(process.execPath, [CLI, deck, '--read-only', '--port', '0', ...extraArgs],
+  const child = spawn(process.execPath, [CLI, deck, '--no-trust', '--port', '0', ...extraArgs],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(async () => { await stop(child); rmTemp(dir); });
   let out = '';
@@ -235,7 +235,7 @@ test('strict covers every html response, not just the deck', async (t) => {
 });
 
 test('there is no way to turn it back off', async () => {
-  // Not an omission — READ_ONLY#STRICT rejects the escape hatch outright, because
+  // Not an omission — NO_TRUST#STRICT rejects the escape hatch outright, because
   // the moment it would be reached for is the moment it should not exist. So no
   // argument is READ that could re-enable the block; the usage text is allowed
   // to name --force precisely because it is explaining that there isn't one.
@@ -247,7 +247,7 @@ test('there is no way to turn it back off', async () => {
 
 test('--help documents the automatic degrade, not just the flag', async () => {
   const { execFileSync } = await import('node:child_process');
-  const out = execFileSync(process.execPath, [CLI, 'deck.html', '--read-only', '--help'], { encoding: 'utf8' });
+  const out = execFileSync(process.execPath, [CLI, 'deck.html', '--no-trust', '--help'], { encoding: 'utf8' });
   assert.match(out, /--strict/);
   assert.match(out, /turns itself on|turns ITSELF on/i, 'the behaviour someone will meet without asking for it');
 });

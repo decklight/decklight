@@ -64,10 +64,10 @@
   </g>
 
   <!-- ── verification band ────────────────────────────────────────── -->
-  <!-- read-only mode of the one server: the mode whose write
+  <!-- no-trust mode of the one server: the mode whose write
        surface is a single sidecar file (SPEC REVIEW) -->
   <rect x="710" y="356" width="180" height="86" rx="10" fill="#274035" stroke="#43695a" stroke-width="1.5"/>
-  <text x="800" y="382" text-anchor="middle" font-size="13" font-weight="700" fill="#e8eaf2">decklight talk.html --read-only</text>
+  <text x="800" y="382" text-anchor="middle" font-size="13" font-weight="700" fill="#e8eaf2">decklight talk.html --no-trust</text>
   <text x="800" y="400" text-anchor="middle" font-size="10.5" fill="#aeb4c6">M leaves comments on a slide</text>
   <text x="800" y="416" text-anchor="middle" font-size="10.5" fill="#aeb4c6">writes deck.review.jsonl only</text>
   <text x="800" y="432" text-anchor="middle" font-size="10.5" fill="#aeb4c6">git carries it · /deck/edit/* refuses</text>

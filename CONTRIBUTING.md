@@ -88,7 +88,7 @@ covered before. `extension check` runs as the marketplace's own admission gate,
 asserting that the digest it prints is the same `sha256` the catalog entry pins,
 and that a transform calling `fetch()` is refused by name. A **presenter
 plugin** proves the boundary that has no package-level test anywhere else: it
-installs into `~/.decklight/plugins/`, `--read-only` layers it onto what it SERVES
+installs into `~/.decklight/plugins/`, `--no-trust` layers it onto what it SERVES
 while the file on disk keeps its mtime, and a bundle made a moment later carries
 no byte of it. A **theme** is marked for the deck through the edit server
 (`POST /deck/edit/theme/mark`), the one marketplace consumer the rest of the journey

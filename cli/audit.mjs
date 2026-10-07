@@ -147,7 +147,7 @@ export function classifyScripts(html) {
     const type = /\btype\s*=\s*["']([^"']+)["']/i.exec(s.attrs)?.[1]?.toLowerCase() ?? '';
     const src = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(s.attrs)?.[1] ?? null;
     // start/end are the block's byte range in `html` — carried so a caller can
-    // act on a block, not merely name it (READ_ONLY#STRICT splices on them).
+    // act on a block, not merely name it (NO_TRUST#STRICT splices on them).
     const at = { line: lineAt(html, s.start), bytes: s.inner.length, start: s.start, end: s.end };
     if (s === runtimeBlock) return { kind: 'runtime', ...at, inner: s.inner };
     if (src) {
@@ -210,13 +210,13 @@ const blankInner = (html, re) =>
 /**
  * Executable ATTRIBUTES — what no `<script>` scan can see.
  *
- * `script-src 'unsafe-inline'` (which a bundled deck forces, cli/read-only.mjs)
+ * `script-src 'unsafe-inline'` (which a bundled deck forces, cli/edit.mjs)
  * does not only permit script blocks: it is exactly what lets an inline
  * `onerror=` handler or a `javascript:` href run too. A deck's canonical shape
  * contains neither — content is markup, behaviour lives in the runtime — so
  * every one found is named, the same way an unaccounted block is.
  *
- * Named, in the one scan the label and the stripper share (READ_ONLY#STRICT):
+ * Named, in the one scan the label and the stripper share (NO_TRUST#STRICT):
  *   - `on*` handler attributes carrying a value (`onerror=`, `onclick=`, …)
  *   - URL attributes (href, src, action, formaction, xlink:href, data) whose
  *     value resolves to `javascript:` or `data:text/html`
@@ -282,7 +282,7 @@ export function executableAttributes(html) {
 }
 
 /**
- * The whole label, as data. the read-only server prints it; `--check` exits on it.
+ * The whole label, as data. the no-trust mode prints it; `--check` exits on it.
  *
  * `runtime.state` is deliberately three-valued. A version this install does not
  * have cannot be hash-checked here at all, and saying so is the honest answer —
@@ -352,10 +352,10 @@ export function auditDeck(html, { installed = installedRuntime() } = {}) {
 }
 
 /**
- * The same inventory, with the unaccounted blocks taken out (READ_ONLY#STRICT).
+ * The same inventory, with the unaccounted blocks taken out (NO_TRUST#STRICT).
  *
  * Pure: it takes HTML and returns HTML. Nothing here touches the filesystem,
- * which is the whole design — the read-only server strips on the way OUT, so the deck you
+ * which is the whole design — the no-trust mode strips on the way OUT, so the deck you
  * were sent is still the deck you were sent, byte for byte, and you can hand
  * the same file to someone else or diff it against the original.
  *

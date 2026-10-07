@@ -24,11 +24,11 @@ function call(handler, extra = {}) {
 test('the probe says the mode, the lock, the review block and then the mode\'s extras, computed per call', async () => {
   let locked = false;
   let n = 0;
-  const d = createDeckRoutes('/tmp/talk.html', { readOnly: false, locked: () => locked, review, extras: async () => ({ undo: ++n }) });
+  const d = createDeckRoutes('/tmp/talk.html', { noTrust: false, locked: () => locked, review, extras: async () => ({ undo: ++n }) });
   assert.equal(d.name, 'talk.html');
   const first = await call(d.routes.get('GET /deck/ping'));
   assert.equal(first.code, 200);
-  assert.deepEqual(first.obj, { ok: true, name: 'talk.html', readOnly: false, locked: false, review: review.ping(), undo: 1 });
+  assert.deepEqual(first.obj, { ok: true, name: 'talk.html', noTrust: false, locked: false, review: review.ping(), undo: 1 });
   assert.equal(first.headers['access-control-allow-origin'], 'null', 'a deck opened from disk probes cross-origin');
   locked = true;
   const second = await call(d.routes.get('GET /deck/ping'));
@@ -36,14 +36,14 @@ test('the probe says the mode, the lock, the review block and then the mode\'s e
   assert.equal(second.obj.undo, 2, 'and so are the extras');
 });
 
-test('read-only answers locked whatever is passed, with its own extras', async () => {
-  const d = createDeckRoutes('/x/deck.html', { readOnly: true, review, extras: () => ({ remote: true }) });
+test('no trust answers locked whatever is passed, with its own extras', async () => {
+  const d = createDeckRoutes('/x/deck.html', { noTrust: true, review, extras: () => ({ remote: true }) });
   const { obj } = await call(d.routes.get('GET /deck/ping'));
-  assert.deepEqual(obj, { ok: true, name: 'deck.html', readOnly: true, locked: true, review: review.ping(), remote: true });
+  assert.deepEqual(obj, { ok: true, name: 'deck.html', noTrust: true, locked: true, review: review.ping(), remote: true });
 });
 
 test('the stream is the channel every tab joins, and broadcast reaches it', async () => {
-  const d = createDeckRoutes('/x/deck.html', { readOnly: true, review });
+  const d = createDeckRoutes('/x/deck.html', { noTrust: true, review });
   const written = [];
   const res = { writeHead: () => {}, write: (c) => written.push(c) };
   const req = { on: () => {} };

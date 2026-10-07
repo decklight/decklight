@@ -366,7 +366,7 @@ function starterDeck(title, themeNames, activeTheme, { inline = false } = {}) {
   title = escapeHtml(title); // a prompt invites &, < and quotes
   // The deck is DATA (#520): slides, plus one JSON block holding its
   // configuration and the version it was written for. No runtime in the file
-  // — `open`, `--read-only` and every render reference the installed one on
+  // — `open`, `--no-trust` and every render reference the installed one on
   // the way out, and `bundle` embeds it at hand-over. A few KB of slides, a
   // git history that is only slides, and nothing in the file that executes.
   // `--inline` is the self-contained scaffold: double-clickable, pinned to

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The review routes are the one server's, in both of its modes (SPEC REVIEW):
-// a comment lands in the sidecar whether the deck was opened read-only or to
+// a comment lands in the sidecar whether the deck was opened without trust or to
 // write, the deck itself is never touched by one, and the ping says which
 // mode is answering.
 
@@ -24,7 +24,7 @@ async function open(t, mode) {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-review-routes-'));
   writeFileSync(path.join(dir, 'talk.html'), DECK);
   const home = mkdtempSync(path.join(tmpdir(), 'decklight-review-routes-home-'));
-  const args = ['talk.html', '--port', '0', '--no-git', ...(mode === 'read-only' ? ['--read-only'] : ['--no-open', '--no-tts', '--no-lipsync'])];
+  const args = ['talk.html', '--port', '0', '--no-git', ...(mode === 'no-trust' ? ['--no-trust'] : ['--no-open', '--no-tts', '--no-lipsync'])];
   const child = spawn(process.execPath, [CLI, ...args], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';
@@ -41,7 +41,7 @@ const post = (base, body) => fetch(`${base}/deck/review/comments`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 
-for (const mode of ['read-only', 'write']) {
+for (const mode of ['no-trust', 'write']) {
   test(`in ${mode} mode a comment is appended to the sidecar, listed back, and the deck is never touched`, async (t) => {
     const { base, dir } = await open(t, mode);
     const deck = path.join(dir, 'talk.html');
@@ -49,9 +49,9 @@ for (const mode of ['read-only', 'write']) {
 
     const ping = await (await fetch(`${base}/deck/ping`)).json();
     assert.equal(ping.ok, true);
-    assert.equal(ping.readOnly, mode === 'read-only', 'the one probe says which mode is answering');
+    assert.equal(ping.noTrust, mode === 'no-trust', 'the one probe says which mode is answering');
     assert.equal(ping.review?.mode, mode, 'and its review block says the same');
-    assert.equal(ping.review.git, mode === 'read-only' ? false : false, 'comments commit only in read-only mode, and --no-git turned that off here');
+    assert.equal(ping.review.git, mode === 'no-trust' ? false : false, 'comments commit only in no-trust mode, and --no-git turned that off here');
     assert.equal(ping.name, 'talk.html');
 
     const r = await post(base, { slide: 2, title: 'Beta', body: 'Say less here.' });
@@ -80,8 +80,8 @@ for (const mode of ['read-only', 'write']) {
   });
 }
 
-test('read-only mode refuses every edit route, with the review routes beside it', async (t) => {
-  const { base } = await open(t, 'read-only');
+test('no-trust mode refuses every edit route, with the review routes beside it', async (t) => {
+  const { base } = await open(t, 'no-trust');
   const edit = await fetch(`${base}/deck/edit/slide/notes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
   assert.equal(edit.status, 403, 'refused by the mode, by name');
   const page = await fetch(`${base}/talk.html`);

@@ -387,16 +387,16 @@ test('exporting in an unmarked marketplace theme asks first, naming it', async (
 
 // ── write mode only ───────────────────────────────────────────────────────
 
-test('read-only mode refuses the browse and mark surface with the rest of /deck/edit/', async () => {
+test('no-trust mode refuses the browse and mark surface with the rest of /deck/edit/', async () => {
   // Marking is a deck edit. The one server registers the routes in both
   // modes and the mode gate refuses the whole family before any of them
-  // runs — read-only.test.mjs drives that gate end to end; this pins that
+  // runs — no-trust.test.mjs drives that gate end to end; this pins that
   // the gate is where it must be, ahead of the table, and names the family.
   // line-based stripping: a `/*` inside a glob in edit.mjs is not a comment
   const src = readFileSync(path.join(ROOT, 'cli/edit.mjs'), 'utf8');
   const code = src.replace(/^\s*(?:\/\/|\/\*|\*).*$/gm, '');
   assert.match(code, /pathname\.startsWith\('\/deck\/edit\/'\)/, 'the gate names the family');
-  assert.match(code, /if \(readOnly && WRITE_FAMILY\(url\.pathname\)\)/, 'and runs on every request in read-only mode');
+  assert.match(code, /if \(noTrust && WRITE_FAMILY\(url\.pathname\)\)/, 'and runs on every request in no-trust mode');
 });
 
 test('the player reaches the edit server for this and nowhere else', () => {

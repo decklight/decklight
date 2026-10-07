@@ -151,7 +151,7 @@
     const AUTHOR = 'http://127.0.0.1:8788';
     const recording = mode === 'record' || mode === 'recordseg' || mode === 'reccount';
     // ?nosrv — no edit server answers, which is a `file://` deck or one served
-    // read-only by `decklight <deck> --read-only`: nothing here may write to disk, so the
+    // without trust by `decklight <deck> --no-trust`: nothing here may write to disk, so the
     // browser's download folder is the honest fallback and must still work
     const authored = recording && !params.has('nosrv');
     const ttsSeen = new Set();   // sentences the mock bridge has synthesized once

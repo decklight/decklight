@@ -58,7 +58,7 @@ export const COMMANDS = {
   tts: { module: '../tools/voiceover-server.mjs', main: 'ttsMain' },
   lipsync: { module: '../tools/lipsync-server.mjs', main: 'lipsyncMain' },
   video: { module: '../tools/video.mjs', main: 'videoMain' },
-  // THE command: `decklight <deck.html | url> [--read-only]`. Reached through
+  // THE command: `decklight <deck.html | url> [--no-trust]`. Reached through
   // routeForPath, never typed as a word, and listed nowhere (`hidden`): the
   // deck is the command.
   open: { module: './open.mjs', main: 'openMain', hidden: true },
@@ -126,7 +126,7 @@ export function shortHelp() {
 
 Usage:
   decklight <deck.html | url>    open a deck: live reload, edits from the browser, an AI agent on A
-  decklight <deck> --read-only   open it in read-only mode: the safe way in for a deck you did not write
+  decklight <deck> --no-trust   open it in no-trust mode: the safe way in for a deck you did not write
   decklight <talk.pptx>          bring a PowerPoint, Keynote or Google Slides deck across
   decklight                      in a directory: start a deck here, or pick one to open
   decklight <command> [options]  (decklight <command> --help for its flags)
@@ -143,7 +143,7 @@ ${rows.join('\n')}
  *
  * `decklight talk.html` was "unknown command", which is the least useful
  * answer to the most natural thing to type. A deck opens in write mode, a
- * `.decklight` container is somebody else's deck and plays read-only, an
+ * `.decklight` container is somebody else's deck and plays without trust, an
  * Office file or a Slides URL is something to import, a YAML script is a
  * terminal cast to record. A REPOSITORY is a deck to open too: `open`
  * clones it and opens the deck inside (#514), so `decklight <repo url>` is the
@@ -174,7 +174,7 @@ export function routeForPath(arg) {
   const ext = /\.([a-z0-9]+)$/i.exec(a)?.[1]?.toLowerCase();
   if (!ext) return null;
   if (ext === 'html' || ext === 'htm') return 'open';
-  if (ext === 'decklight') return 'open';   // a container is read-only by nature: open.mjs says so
+  if (ext === 'decklight') return 'open';   // a container is without trust by nature: open.mjs says so
   if (ext === 'pptx' || ext === 'key' || ext === 'keynote') return 'import';
   if (ext === 'yaml' || ext === 'yml') return 'cast';
   return null;
@@ -242,15 +242,15 @@ export function suggestCommand(name) {
 export const GLOBAL_HELP = `decklight — author, record, and package Decklight presentations
 
 Usage:
-  decklight <deck.html | repository url> [--read-only] [--port 8788] [--git | --no-git] [--agent <name>] …
+  decklight <deck.html | repository url> [--no-trust] [--port 8788] [--git | --no-git] [--agent <name>] …
            open a deck. Write mode by default: live reload, every edit from the browser written
            to the file, the bridges this machine can run, an AI agent on A, one Ctrl-C.
-           --read-only is the same server in read-only mode: every edit route refuses, the deck is
+           --no-trust is the same server in no-trust mode: every edit route refuses, the deck is
            served from its own directory under a CSP header, and what the file will execute is
            listed before it runs — the way in for a deck you did not write, and where --strict and
            --check live. The phone remote (--remote) and comments (M) work in either mode.
            A repository URL is cloned (in full) and the deck inside opened. A .decklight
-           container is read-only by nature. (decklight <deck> --help for every flag)
+           container is without trust by nature. (decklight <deck> --help for every flag)
   decklight <command> [options]        (decklight <command> --help for full flags)
 
 Commands:
@@ -294,8 +294,8 @@ Commands:
   marketplace  register catalogs (git repos with .decklight/marketplace.json) — registered, not fetched
            EXAMPLE: decklight marketplace add owner/repo   (or a git URL, or a local path)
            EXAMPLE: decklight marketplace list              (offline-safe: reads only the cache)
-  plugin   install presenter chrome into YOUR library — read-only mode loads it, bundle never does
-           EXAMPLE: decklight plugin add timer      (then: decklight talk.html --read-only)
+  plugin   install presenter chrome into YOUR library — no-trust mode loads it, bundle never does
+           EXAMPLE: decklight plugin add timer      (then: decklight talk.html --no-trust)
            EXAMPLE: decklight plugin list           (says which ones read your speaker notes)
   template install deck templates from a marketplace — scaffold with: decklight init --from <name>
            EXAMPLE: decklight template add startup-pitch
@@ -346,12 +346,12 @@ Commands:
            EXAMPLE: decklight enhance talk.html --slides 3   (or --all; --dry-run to only look)
   comments what reviewers said, resolved against the deck as it is now — a comment
            whose slide moved is found anyway, and one whose slide is gone is still shown;
-           a reviewer leaves them with M in a deck opened either way (--read-only for one
+           a reviewer leaves them with M in a deck opened either way (--no-trust for one
            they were sent), and \`comments submit\` pushes them to a review/<you>-<date> branch
            EXAMPLE: decklight comments talk.html   (--import to take in a reviewer's file,
            --incoming to see what reviews are waiting on the remote)
            EXAMPLE: decklight comments submit talk.html   (--pr opens a pull request)
-  associate  wire double-clicking a .decklight file to decklight <file> (read-only by nature)
+  associate  wire double-clicking a .decklight file to decklight <file> (without trust by nature)
   trust    list the decks whose script you said you trust, or forget one so decklight <deck> asks again
            EXAMPLE: decklight associate   (per-user, no admin rights; --uninstall undoes it)
   report-bug  gather the version + environment facts a Decklight bug report needs, and the issue URL

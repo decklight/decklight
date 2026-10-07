@@ -12,7 +12,7 @@
 //   { "theme": "acme", "markedThemes": ["acme@acme-themes"] }
 //
 // A theme in that list is MARKED: it will be part of the deck's bundle. The servers link it
-// from the marketplace already on this machine, the read-only server lists it, and
+// from the marketplace already on this machine, the no-trust mode lists it, and
 // `bundle` inlines it at hand-over, where the reference would mean nothing to
 // whoever opens the file. A theme that is not marked is still listed while
 // authoring (every registered marketplace's themes are), and can be looked at
@@ -294,7 +294,7 @@ const REF_ASSET = /(?:^|\/)decklight-theme\/([\w-]+)\/([\w-]+)\.css$/;
  * `staticFiles`' answer for a reference's CSS — `{ file, type }`, or null.
  * Matched on the path's tail like `packageAsset`, so a deck in `slides/`
  * resolves too. Cache and checkout only: this is on every server's path,
- * `--read-only` included, and it never fetches.
+ * `--no-trust` included, and it never fetches.
  */
 export function themeRefAsset(rel, home = configHome()) {
   const m = REF_ASSET.exec(String(rel ?? '').split('\\').join('/'));

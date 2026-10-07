@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The .decklight container (MARKETPLACE.md DECK_FILE) and the file association
-// that makes double-clicking one land read-only (DECK_FILE#ASSOC).
+// that makes double-clicking one land without trust (DECK_FILE#ASSOC).
 //
 // The claim that carries the most weight is the least obvious one: a container
 // renamed to .html still plays. That is what keeps the format from being a
@@ -164,7 +164,7 @@ test('a repacked origin claim is carried but never printed — the signature doe
   // End to end: the --check transcript carries the container line without the claim.
   let log = '';
   try {
-    log = execFileSync(process.execPath, [CLI, file, '--read-only', '--check'], { encoding: 'utf8', stdio: 'pipe' });
+    log = execFileSync(process.execPath, [CLI, file, '--no-trust', '--check'], { encoding: 'utf8', stdio: 'pipe' });
   } catch (e) { log = String(e.stdout); }
   assert.match(log, /container — says:/);
   assert.doesNotMatch(log, /trusted\/repo/);
@@ -224,7 +224,7 @@ test('--deck and --no-sign together are refused before anything happens', () => 
 
 // ── present on a container ─────────────────────────────────────────────────
 
-test('--read-only --check reads a container like the deck it wraps', async () => {
+test('--no-trust --check reads a container like the deck it wraps', async () => {
   const dir = tmp();
   const out = path.join(dir, 'out.html');
   const { bundleMain } = await import('../cli/bundle.mjs');
@@ -232,7 +232,7 @@ test('--read-only --check reads a container like the deck it wraps', async () =>
 
   let code = 0; let log = '';
   try {
-    log = execFileSync(process.execPath, [CLI, containerFor(out), '--read-only', '--check'],
+    log = execFileSync(process.execPath, [CLI, containerFor(out), '--no-trust', '--check'],
       { encoding: 'utf8', stdio: 'pipe' });
   } catch (e) { code = e.status; log = String(e.stdout); }
 
@@ -258,7 +258,7 @@ test('a container with no signature inside degrades — it is not read as "unsig
 
   let code = 0; let log = '';
   try {
-    log = execFileSync(process.execPath, [CLI, file, '--read-only', '--check'], { encoding: 'utf8', stdio: 'pipe' });
+    log = execFileSync(process.execPath, [CLI, file, '--no-trust', '--check'], { encoding: 'utf8', stdio: 'pipe' });
   } catch (e) { code = e.status; log = String(e.stdout); }
   assert.equal(code, 1, 'a container that attests to nothing does not pass a gate about attestation');
   assert.match(log, /DOES NOT VERIFY|carries no signature/);
@@ -269,7 +269,7 @@ test('a container with no signature inside degrades — it is not read as "unsig
 test('the linux entry runs present on the double-clicked file, and declares the type', () => {
   const [desktop, mime] = linuxFiles('/home/x', '/usr/bin/node', '/opt/decklight/cli/decklight.mjs');
   assert.match(desktop.path, /\.local\/share\/applications\/decklight\.desktop$/);
-  assert.match(desktop.text, /Exec=\/usr\/bin\/node \/opt\/decklight\/cli\/decklight\.mjs %f --read-only/);
+  assert.match(desktop.text, /Exec=\/usr\/bin\/node \/opt\/decklight\/cli\/decklight\.mjs %f --no-trust/);
   assert.match(desktop.text, /%f\b/, 'one file — the command takes one deck');
   assert.doesNotMatch(desktop.text, /%F\b/, 'not a multi-select that would silently present the first');
   assert.match(desktop.text, /Terminal=true/, 'the label prints to a terminal someone can read');
@@ -290,7 +290,7 @@ test('the macOS bundle exports a UTI, because only an application can', () => {
 
   assert.match(launcher.path, /Contents\/MacOS\/decklight$/);
   assert.equal(launcher.mode, 0o755, 'a launcher the OS cannot execute is not a launcher');
-  assert.match(launcher.text, /--read-only/);
+  assert.match(launcher.text, /--no-trust/);
 });
 
 test('windows writes per-user classes — no administrator anywhere in this', () => {
@@ -299,7 +299,7 @@ test('windows writes per-user classes — no administrator anywhere in this', ()
   assert.match(flat, /HKCU\\Software\\Classes\\\.decklight/);
   assert.doesNotMatch(flat, /HKLM|HKEY_LOCAL_MACHINE/, 'per-user only: no admin rights are needed or asked for');
   assert.match(flat, /shell\\open\\command/);
-  assert.match(flat, /"%1" --read-only/);
+  assert.match(flat, /"%1" --no-trust/);
 });
 
 test('an unknown platform is refused by name, not silently skipped', () => {

@@ -4,20 +4,20 @@
 // The deck's own channel (SPEC PRESENTING): what every served deck gets,
 // whichever way it was opened, and the one place it is implemented.
 //
-//   GET /deck/ping     the one probe every served deck makes: `readOnly` says
+//   GET /deck/ping     the one probe every served deck makes: `noTrust` says
 //                      which mode answered, `locked` whether anything writes
 //                      right now, `review` what a page needs to know before it
 //                      comments (review-routes.mjs), and then whatever the
 //                      mode adds (write mode: history, git, agents, the
-//                      commit chip; read-only mode: whether the phone remote
+//                      commit chip; no-trust mode: whether the phone remote
 //                      is on, and whether the deck is a container)
 //   GET /deck/events   the stream every tab of the deck listens on; what
 //                      travels on it is the mode's (reload, lock and export
 //                      events in write mode, the remote's taps in either, the
-//                      upstream's news in read-only mode)
+//                      upstream's news in no-trust mode)
 //
 // Two servers used to answer the probe with two literals that drifted apart
-// — one said `present: true`, the other `readOnly: false`, and the page had
+// — one said `present: true`, the other `noTrust: false`, and the page had
 // to know both. Now there is one server and the shape is this function's;
 // a mode contributes its extras rather than its own copy of the whole.
 //
@@ -30,22 +30,22 @@ import { sseChannel } from './serve.mjs';
 /**
  * The routes for one served deck.
  *
- * `readOnly` is the mode — a boolean, or a function of it, since the one
+ * `noTrust` is the mode — a boolean, or a function of it, since the one
  * server can change mode mid-session; `locked` says whether anything writes
- * right now (true in read-only mode, false in write mode); `review`
+ * right now (true in no-trust mode, false in write mode); `review`
  * is the review routes' object, for the probe's `review` block; `extras` is
  * what the mode adds to the probe, computed on every call so a ping is never
  * stale.
  */
-export function createDeckRoutes(deckPath, { readOnly, locked = null, review, extras = async () => ({}) }) {
+export function createDeckRoutes(deckPath, { noTrust, locked = null, review, extras = async () => ({}) }) {
   const name = basename(deckPath);
   const channel = sseChannel();
-  const isReadOnly = typeof readOnly === 'function' ? readOnly : () => readOnly;
+  const isReadOnly = typeof noTrust === 'function' ? noTrust : () => noTrust;
   const isLocked = locked ?? isReadOnly;
 
   /** The probe's answer, whole. */
   async function ping() {
-    return { ok: true, name, readOnly: isReadOnly(), locked: isLocked(), review: review.ping(), ...(await extras()) };
+    return { ok: true, name, noTrust: isReadOnly(), locked: isLocked(), review: review.ping(), ...(await extras()) };
   }
 
   /** `METHOD /path` → handler({ req, res, url, json, CORS }), the same shape as the server's own table. */

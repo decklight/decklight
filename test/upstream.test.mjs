@@ -1,10 +1,10 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// the read-only server's upstream check — SPEC PRESENTING (READ_ONLY#UPSTREAM).
+// the no-trust mode's upstream check — SPEC PRESENTING (NO_TRUST#UPSTREAM).
 //
 // This file is mostly about what the feature REFUSES, because that is where its
-// safety lives. `--read-only` gained its first route that acts, and the argument
+// safety lives. `--no-trust` gained its first route that acts, and the argument
 // that this is still not an editing server rests on three things a test can
 // hold: the feature is unreachable for a deck that is not in a clone, the pull
 // takes no parameter of any kind, and a fetch that failed is never reported as

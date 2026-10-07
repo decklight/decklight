@@ -484,7 +484,7 @@ test('POST /deck/edit/asset takes an SVG as it is, but refuses one carrying a sc
   assert.equal(ok.code, 200);
   assert.equal(ok.body.src, 'assets/diagram.svg');
   assert.equal(readFileSync(path.join(dir, 'assets', 'diagram.svg'), 'utf8'), plain,
-    'nothing is stripped — decklight --read-only --check names what a deck runs (SPEC PRESENTING), it does not edit it');
+    'nothing is stripped — decklight --no-trust --check names what a deck runs (SPEC PRESENTING), it does not edit it');
 
   const armed = await upload(routes, {
     type: 'image/svg+xml',

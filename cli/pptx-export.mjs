@@ -62,7 +62,7 @@ const titleOf = (html, file) => cleanNotes(/<title>([\s\S]*?)<\/title>/i.exec(ht
  * Chrome, ASYNC — `runAsync`, never `run`.
  *
  * The deck is served from THIS process (serveForRender, PRESENTING) so that a
- * relative asset still resolves and the CSP is the one `--read-only` applies. A
+ * relative asset still resolves and the CSP is the one `--no-trust` applies. A
  * synchronous child blocks the event loop, so the server never answers the
  * browser it just launched: Chrome waits for a first byte that cannot arrive
  * until Chrome exits. 0.8.0 shipped exactly that — every `decklight pptx`

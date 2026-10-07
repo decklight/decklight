@@ -3,7 +3,7 @@
 
 // `decklight associate` — the macOS launcher (SPEC PRESENTING, MARKETPLACE
 // DECK_FILE#ASSOC). The double-clicked path is the filename of a file someone
-// *sent*, and the launcher runs before `--read-only` checks a byte, so the one
+// *sent*, and the launcher runs before `--no-trust` checks a byte, so the one
 // property worth a test is: that filename is data, never code. These tests run
 // the generated launcher under `sh` against a stub `osascript` that records
 // its argv and stdin and executes nothing — which is exactly the boundary the

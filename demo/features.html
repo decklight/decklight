@@ -762,7 +762,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       <h2>Somebody Else&rsquo;s Two Cents</h2>
       <p><strong>M</strong> leaves a comment on a slide &mdash; git carries it back to you</p>
       <ul data-build>
-        <li><strong>decklight &lt;deck&gt; --read-only</strong> &mdash; they comment with M; your deck is never touched</li>
+        <li><strong>decklight &lt;deck&gt; --no-trust</strong> &mdash; they comment with M; your deck is never touched</li>
         <li><code>M</code> on a slide, and the comment remembers <em>which</em> slide</li>
         <li>Insert three slides above it and the comment still finds it</li>
         <li>Changed? Moved? Gone? It says which, instead of guessing</li>
@@ -774,7 +774,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
       <aside class="rehearse">
         <p>Reviewing a deck had nowhere to put remarks</p>
-        <p>&#10216;CLICK&#10217;</p><p>--read-only &mdash; read and comment, never rewrite</p>
+        <p>&#10216;CLICK&#10217;</p><p>--no-trust &mdash; read and comment, never rewrite</p>
         <p>&#10216;CLICK&#10217;</p><p>M &rarr; remembers the slide, not the number</p>
         <p>&#10216;CLICK&#10217;</p><p>Insert slides above &mdash; still finds it</p>
         <p>&#10216;CLICK&#10217;</p><p>Unsure? Says which. One line each, no conflicts</p>
@@ -784,7 +784,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
 
     <section>
       <h2>Playing a Deck You Didn't Write</h2>
-      <p><code>decklight &lt;deck&gt; --read-only</code> — read-only over localhost, under a real CSP <em>header</em></p>
+      <p><code>decklight &lt;deck&gt; --no-trust</code> — without trust over localhost, under a real CSP <em>header</em></p>
       <ul data-build>
         <li>An <strong>ingredients label</strong> before the first slide: the runtime's hash against the build you have, and <strong>every unaccounted script by line number</strong></li>
         <li>An <em>inventory, never a verdict</em> — no green check, because a check promises more than a heuristic can keep</li>
@@ -792,7 +792,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
         <li>The audit runs <strong>because it is the only way in</strong> — a standalone <code>verify</code> is a step people skip</li>
       </ul>
       <aside class="notes">
-        <p>A deck arrives on machines belonging to people who agreed to nothing, so there's a command for playing one you didn't write. It serves the file read-only over localhost under a real CSP — an HTTP header, which the document cannot override, unlike a meta tag inside a file an attacker may have edited.</p><p>[click]</p><p>Before the first slide renders it prints an ingredients label: which runtime is embedded and whether its hash matches the build this install ships, the counts of inert data, and then every script block it could not account for, with line numbers and opening lines.</p><p>[click]</p><p>And it refuses to print a verdict. No green check, no score. It's a heuristic reading a file someone may have edited, and a green mark would promise more than the mechanism can keep. A list of what will run promises nothing and is still what you needed.</p><p>[click]</p><p>Strict mode strips every script that isn't the verified runtime, and the deck still plays — because a well-formed decklight deck carries no third-party JavaScript in the first place. Content is HTML, themes are CSS, charts and casts are JSON read by trusted code.</p><p>[click]</p><p>And the audit runs because it's the only way in. A standalone verify command is a step people skip; folding it into the command you'd use anyway means it runs every time at no extra effort.</p>
+        <p>A deck arrives on machines belonging to people who agreed to nothing, so there's a command for playing one you didn't write. It serves the file without trust over localhost under a real CSP — an HTTP header, which the document cannot override, unlike a meta tag inside a file an attacker may have edited.</p><p>[click]</p><p>Before the first slide renders it prints an ingredients label: which runtime is embedded and whether its hash matches the build this install ships, the counts of inert data, and then every script block it could not account for, with line numbers and opening lines.</p><p>[click]</p><p>And it refuses to print a verdict. No green check, no score. It's a heuristic reading a file someone may have edited, and a green mark would promise more than the mechanism can keep. A list of what will run promises nothing and is still what you needed.</p><p>[click]</p><p>Strict mode strips every script that isn't the verified runtime, and the deck still plays — because a well-formed decklight deck carries no third-party JavaScript in the first place. Content is HTML, themes are CSS, charts and casts are JSON read by trusted code.</p><p>[click]</p><p>And the audit runs because it's the only way in. A standalone verify command is a step people skip; folding it into the command you'd use anyway means it runs every time at no extra effort.</p>
       </aside>
       <aside class="rehearse">
         <p>CSP as a HEADER, not a meta tag</p>

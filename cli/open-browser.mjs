@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Hand a URL to the platform's launcher. Lived in init.mjs, which meant
-// `record` and `--read-only` imported the whole scaffolding module — the skill text,
+// `record` and `--no-trust` imported the whole scaffolding module — the skill text,
 // the template machinery — to open one browser tab. Nothing here reads a file.
 
 import { spawn } from 'node:child_process';

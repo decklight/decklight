@@ -437,7 +437,7 @@ test('the lock: locked, no edit route writes; the ping and the channel say so; u
   const before = readFileSync(deck, 'utf8');
   const { base } = await startEdit(t, dir);
   const ping = async () => (await (await fetch(base + '/deck/ping')).json());
-  assert.equal((await ping()).readOnly, false, 'write mode says so');
+  assert.equal((await ping()).noTrust, false, 'write mode says so');
   assert.equal((await ping()).locked, false, 'and starts unlocked');
 
   // the channel hears the lock turn
@@ -842,12 +842,12 @@ test('POST /deck/edit/enhance with no agent on the machine is a 400 that says so
   assert.match((await r.json()).error, /no agent CLI|install one/);
 });
 
-// ── the server is loopback-only unless --remote (READ_ONLY#REMOTE) ─────────
+// ── the server is loopback-only unless --remote (NO_TRUST#REMOTE) ─────────
 
 test('--remote in write mode: the relay answers, the probe says so, and nothing else is widened', async (t) => {
   // The phone remote is the server's in either mode. Off this machine only
   // /deck/remote/* answers, with the token — allowRemote, tested in
-  // read-only.test.mjs — so a clicker no longer costs a second server.
+  // no-trust.test.mjs — so a clicker no longer costs a second server.
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base, log } = await startEdit(t, dir, { extraArgs: ['--remote', '--host', '127.0.0.1'], env: { PATH: dir } });
@@ -857,7 +857,7 @@ test('--remote in write mode: the relay answers, the probe says so, and nothing 
   assert.match(log(), /remote: listening on 127\.0\.0\.1/, 'the LAN URL is advertised');
   const ping = await (await fetch(base + '/deck/ping')).json();
   assert.equal(ping.phone, true);
-  assert.equal(ping.readOnly, false, 'still write mode');
+  assert.equal(ping.noTrust, false, 'still write mode');
   assert.equal((await fetch(base + '/deck/remote/qr.svg')).status, 200, 'the QR has a URL to encode');
   const key = await (await post(base, '/deck/remote/key', { key: 'next' })).json();
   assert.equal(key.ok, true);

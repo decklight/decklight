@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * the read-only server's upstream check — SPEC PRESENTING (`READ_ONLY#UPSTREAM`).
+ * the no-trust mode's upstream check — SPEC PRESENTING (`NO_TRUST#UPSTREAM`).
  *
- * A deck cloned before a talk goes stale silently: the read-only server reads the file
+ * A deck cloned before a talk goes stale silently: the no-trust mode reads the file
  * once and serves those bytes, so a fix the author pushed an hour ago is
  * invisible. This asks the upstream, and — with `--upstream-pull` — lets the
  * deck fast-forward to it.
  *
  * ## What makes this safe, in one place
  *
- * The feature is UNREACHABLE for the deck the rest of `--read-only` is written
+ * The feature is UNREACHABLE for the deck the rest of `--no-trust` is written
  * against. A deck you were emailed is a single file with no repository, no
  * remote and no upstream, so `resolveUpstream` returns `no-repo` and nothing —
  * not the routes, not the timer — is ever registered.

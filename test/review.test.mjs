@@ -340,7 +340,7 @@ test('the file reader names a slide the way the finder would', () => {
 test('bundle never inlines the sidecar, and the audit never counts it', async (t) => {
   // A comment is a reviewer talking to an author. It must not travel inside a
   // deck that gets handed to an audience — and writing it into the deck at all
-  // would invalidate `talk.html.sig` and read as `tampered` under `--read-only`
+  // would invalidate `talk.html.sig` and read as `tampered` under `--no-trust`
   // (SPEC INTEGRITY#SIGNING), which is why the store is a sidecar in the first
   // place. Asserted rather than assumed: bundle walks narration folders and
   // this file is not in one, so nothing inlines it TODAY — and a future

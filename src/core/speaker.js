@@ -308,7 +308,7 @@ export function speakerState(instance, url) {
     // planned seconds per slide (REHEARSAL_TIMINGS): the deck's, else this browser's
     timings: plannedTimings(instance._sections, readJson(timingsKey())),
     // The phone-remote QR, or null when the remote is off (#39) — editmode's
-    // read-only wiring sets it from /deck/ping (READ_ONLY#REMOTE); the edit
+    // no-trust wiring sets it from /deck/ping (NO_TRUST#REMOTE); the edit
     // server serves no /deck/remote/* at all, so a deck in write mode never offers one.
     qr: instance.__remoteQr ?? null,
   };

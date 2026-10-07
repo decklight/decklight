@@ -4,7 +4,7 @@
 
 // decklight, end to end: pack this repo, install the tarball into an empty
 // project, and drive the INSTALLED `decklight` bin through one full user
-// journey — create, import, marketplace, write mode, edit, git, read-only, bundle,
+// journey — create, import, marketplace, write mode, edit, git, no trust, bundle,
 // transform, pdf, publish, validate, open — plus a sweep of the whole command
 // roster. Runnable manually — `npm run soak` — and NOT part of
 // `npm test` (the *.test.mjs glob) or `npm run verify`: it runs a real npm
@@ -20,7 +20,7 @@
 //     Windows profile with one). This repo lives at a space-free path — hence
 //     the space in both the temp dirs and the imported fixture's name below,
 //     which is load-bearing rather than decorative.
-//   · `--read-only` reported `runtime — DIFFERS from this install's build` on a
+//   · `--no-trust` reported `runtime — DIFFERS from this install's build` on a
 //     deck decklight had written seconds earlier — an IMPORTED one. Every
 //     render harness passed, because the deck renders perfectly: the
 //     divergence is a hash, not a behaviour. Hence the ingredients-label
@@ -380,9 +380,9 @@ const TRANSFORM_MJS = 'export default async function transform(html) {\n'
   + '}\n';
 
 /**
- * A presenter plugin (SPEC READ_ONLY#PLUGINS): two files, and the whole point is
+ * A presenter plugin (SPEC NO_TRUST#PLUGINS): two files, and the whole point is
  * where they do NOT go. It is chrome — it renders in a sandboxed frame with an
- * opaque origin, `--read-only` layers it on at serve time, and `bundle` cannot see
+ * opaque origin, `--no-trust` layers it on at serve time, and `bundle` cannot see
  * it, so a deck someone else opens is the same deck whatever this machine has
  * installed.
  */
@@ -683,7 +683,7 @@ try {
   });
 
   await step('the ingredients label vouches for the runtime', () => {
-    const r = dl(['deck.html', '--read-only', '--check']);
+    const r = dl(['deck.html', '--no-trust', '--check']);
     must(vouchesForRuntime(r.all), `the label does not vouch for the runtime (the 0.3.0 near-miss): ${r.all}`);
     must(/0 unaccounted script blocks/.test(r.all), 'the deck carries unaccounted script');
     must(/0 inline handlers/.test(r.all), 'the deck carries inline handlers');
@@ -719,7 +719,7 @@ try {
     // the runtime through its own copy of a transform which escaped `</script`
     // but not `<!--`, so every imported deck rendered perfectly and hashed
     // differently. Only the label can see that.
-    const r = dl(['q3-review.html', '--read-only', '--check']);
+    const r = dl(['q3-review.html', '--no-trust', '--check']);
     must(vouchesForRuntime(r.all),
       `an imported deck reports a runtime that is not this install — the 0.3.0 bug, exactly: ${r.all}`);
     must(/0 unaccounted script blocks/.test(r.all), 'the imported deck carries unaccounted script');
@@ -1004,7 +1004,7 @@ try {
     const lock = await postJson(editSrv.base, '/deck/edit/lock', { locked: true });
     must(lock.status === 200 && lock.body.locked === true, `lock returned ${JSON.stringify(lock.body)}`);
     const probed = await ping();
-    must(probed.locked === true && probed.readOnly === false, `locked, the probe says ${JSON.stringify({ locked: probed.locked, readOnly: probed.readOnly })}`);
+    must(probed.locked === true && probed.noTrust === false, `locked, the probe says ${JSON.stringify({ locked: probed.locked, noTrust: probed.noTrust })}`);
     const before = deck();
     const refused = await postJson(editSrv.base, '/deck/edit/slide/notes', { slide: 3, text: 'typed while locked' });
     must(refused.status === 423, `a locked deck answered an edit with ${refused.status}`);
@@ -1229,8 +1229,8 @@ try {
 
   // ── present ──────────────────────────────────────────────────────────────
   let presentSrv = null;
-  await step('read-only mode serves the deck and nothing else', async () => {
-    presentSrv = await startServer(['deck.html', '--read-only', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
+  await step('no-trust mode serves the deck and nothing else', async () => {
+    presentSrv = await startServer(['deck.html', '--no-trust', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
       { timeoutMs: 15000 });
     await until('the ingredients label', () => /ingredients/.test(presentSrv.log()), { ms: 5000 });
     must(vouchesForRuntime(presentSrv.log()), `the label does not vouch for the runtime: ${presentSrv.log()}`);
@@ -1249,24 +1249,24 @@ try {
     must(served.includes('<title>Soak Deck</title>'), 'the served page is not this deck');
     must(sectionBodies(served).length === sectionBodies(deck()).length, 'present served a different set of slides');
     must(/Decklight\.init|decklight\.js/.test(served), 'present served a deck with no runtime to play it');
-    // the one probe answers read-only, and names nothing that edits (PRESENTING)
+    // the one probe answers no trust, and names nothing that edits (PRESENTING)
     const probe = await get(presentSrv.base, '/deck/ping');
-    must(probe.status === 200, `/deck/ping answered ${probe.status} under --read-only`);
+    must(probe.status === 200, `/deck/ping answered ${probe.status} under --no-trust`);
     const probed = await probe.json();
-    must(probed.readOnly === true && probed.agents === undefined, 'the read-only probe did not say read-only');
+    must(probed.noTrust === true && probed.agents === undefined, 'the no-trust probe did not say so');
     must((await post(presentSrv.base, '/deck/edit/slide/notes', { slide: 1, text: 'x' })).status >= 400,
-      '--read-only accepted an edit');
+      '--no-trust accepted an edit');
     const after = statSync(deckPath());
-    must(before.size === after.size && before.mtimeMs === after.mtimeMs, '--read-only touched the deck');
+    must(before.size === after.size && before.mtimeMs === after.mtimeMs, '--no-trust touched the deck');
   });
 
   await step('the deck renders', () => {
     if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
-    // Rendered from FILE, not from the running read-only server — and that is a
+    // Rendered from FILE, not from the running no-trust mode — and that is a
     // constraint, not a preference: a deck SERVED BY PRESENT can never be
     // dumped under `--virtual-time-budget`, by design. `/deck/ping` answers
     // `{present:true}`, so the runtime opens an EventSource on
-    // `/deck/events` for the phone remote (READ_ONLY#REMOTE, `editmode.js`
+    // `/deck/events` for the phone remote (NO_TRUST#REMOTE, `editmode.js`
     // wireRemote), that stream never ends, and Chrome's virtual clock
     // does not advance while a fetch is pending — so the dump never returns.
     // Over file:// the ping finds nothing and the stream is never opened.
@@ -1290,7 +1290,7 @@ try {
     return undefined;
   });
 
-  await step('read-only mode lets go of its port', async () => {
+  await step('no-trust mode lets go of its port', async () => {
     presentSrv.child.kill('SIGTERM');
     must(await waitExit(presentSrv.child, 5000), 'present did not exit on SIGTERM');
     must((await isPortOpen(presentSrv.port)) === false, 'the present port is still bound');
@@ -1403,7 +1403,7 @@ try {
     must(stale !== read(), 'the runtime block marker was not found — has it been renamed?');
     writeFileSync(aged, stale);
 
-    const before = dl(['aged.html', '--read-only', '--check'], { allowFail: true });
+    const before = dl(['aged.html', '--no-trust', '--check'], { allowFail: true });
     must(/DIFFERS from this install/.test(before.all),
       'the label did not notice a runtime that is not this install — the 0.3.0 near-miss, undetected');
 
@@ -1412,7 +1412,7 @@ try {
     dl(['upgrade', 'aged.html']);
     must(existsSync(`${aged}.bak`), 'upgrade did not write a backup');
 
-    const after = dl(['aged.html', '--read-only', '--check']);
+    const after = dl(['aged.html', '--no-trust', '--check']);
     must(after.all.includes('identical to this install'), 'the upgraded runtime still is not this install');
     locateSlide(read(), 3);   // throws if the added slide did not survive
     must(read().includes('edited by the soak'), 'the element edit did not survive the upgrade');
@@ -1452,12 +1452,12 @@ try {
     must(themesThen > 0, 'the older deck inlined no themes');
 
     // This install must SEE that the deck is not its own.
-    const before = dl(['from-an-older-decklight.html', '--read-only', '--check'], { allowFail: true });
+    const before = dl(['from-an-older-decklight.html', '--no-trust', '--check'], { allowFail: true });
     must(/DIFFERS from this install/.test(before.all),
       `a deck from ${OLDER_RELEASE} was not reported as differing from this build: ${before.all}`);
 
     const up = dl(['upgrade', 'from-an-older-decklight.html']);
-    const after = dl(['from-an-older-decklight.html', '--read-only', '--check']);
+    const after = dl(['from-an-older-decklight.html', '--no-trust', '--check']);
     must(after.all.includes('identical to this install'),
       `upgrade did not bring a ${OLDER_RELEASE} deck up to this build: ${after.all}`);
 
@@ -1510,12 +1510,12 @@ try {
       `plugin list said: ${list.all}`);
   });
 
-  await step('read-only mode layers the chrome on, and bundle never sees it', async () => {
-    // The asymmetry in one step. `--read-only` injects the plugin into what it
+  await step('no-trust mode layers the chrome on, and bundle never sees it', async () => {
+    // The asymmetry in one step. `--no-trust` injects the plugin into what it
     // SERVES — the file on disk is untouched — and a bundle made a moment later
     // does not carry a byte of it.
     const before = statSync(join(PROJECT, 'linked.html'));
-    const srv = await startServer(['linked.html', '--read-only', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
+    const srv = await startServer(['linked.html', '--no-trust', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
       { timeoutMs: 15000 });
     await until('the chrome line', () => /chrome: soak-timer/.test(srv.log()), { ms: 5000 });
     must(/chrome: soak-timer \(corner-br\) — yours, not in the deck/.test(srv.log()),
@@ -1530,7 +1530,7 @@ try {
     const onDisk = readFileSync(join(PROJECT, 'linked.html'), 'utf8');
     must(!onDisk.includes('soak-timer'), 'present wrote the chrome into the deck');
     const after = statSync(join(PROJECT, 'linked.html'));
-    must(before.size === after.size && before.mtimeMs === after.mtimeMs, '--read-only touched the deck');
+    must(before.size === after.size && before.mtimeMs === after.mtimeMs, '--no-trust touched the deck');
 
     srv.child.kill('SIGTERM');
     must(await waitExit(srv.child, 5000), 'present did not exit on SIGTERM');
@@ -1681,7 +1681,7 @@ try {
       + '<section><h2>The claim</h2><p>because the numbers say so</p></section>'
       + '</div><script src="decklight.js"></script><script>Decklight.init({});</script></body></html>');
 
-    const srv = await startServer(['reviewed.html', '--read-only', '--port', '0'],
+    const srv = await startServer(['reviewed.html', '--no-trust', '--port', '0'],
       /http:\/\/127\.0\.0\.1:(\d+)/, { timeoutMs: 15000 });
     const say = async (body) => {
       const r = await fetch(`${srv.base}/deck/review/comments`, {
@@ -1702,7 +1702,7 @@ try {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ slide: 1, text: 'rewritten by a reviewer' }),
     });
-    must(edit.status === 403, `/deck/edit/slide/notes answered ${edit.status} in read-only mode — the mode refuses it by name`);
+    must(edit.status === 403, `/deck/edit/slide/notes answered ${edit.status} in no-trust mode — the mode refuses it by name`);
 
     srv.child.kill('SIGTERM');
     must(await waitExit(srv.child, 5000), 'review did not exit on SIGTERM');
@@ -1879,7 +1879,7 @@ try {
     }
     for (const [args, want] of [
       [['voiceover'], /decklight voiceover: name the deck/],
-      [['nope.html', '--read-only'], /decklight: deck not found/],
+      [['nope.html', '--no-trust'], /decklight: deck not found/],
       [['import', 'deck.html'], /import:/],
       [['marketplace', 'add', SPACE], /marketplace add:/],
       [['theme', 'check', 'nope.css'], /theme check:/],
@@ -1917,8 +1917,8 @@ try {
     return undefined;
   });
 
-  await step('--read-only --check validates the bundle', () => {
-    const r = dl(['linked bundle.html', '--read-only', '--check']);
+  await step('--no-trust --check validates the bundle', () => {
+    const r = dl(['linked bundle.html', '--no-trust', '--check']);
     must(r.all.includes('identical to this install'), 'the bundled runtime is not this install');
     must(/0 unaccounted script blocks/.test(r.all), 'the bundle carries unaccounted script');
     must(/0 inline handlers/.test(r.all), 'the bundle carries inline handlers');
@@ -1929,7 +1929,7 @@ try {
     // injectBeforeBodyEnd, not a replace: the inlined runtime carries a literal
     // </body> in its speaker-view template.
     writeFileSync(join(PROJECT, 'tampered.html'), injectBeforeBodyEnd(src, '<script>window.__soak = 1;</script>'));
-    const r = dl(['tampered.html', '--read-only', '--check'], { allowFail: true });
+    const r = dl(['tampered.html', '--no-trust', '--check'], { allowFail: true });
     must(r.code === 1, `--check passed a tampered deck (exit ${r.code}) — the gate is decoration`);
     must(/1 unaccounted script block/.test(r.all), 'the report does not name the spliced script');
   });

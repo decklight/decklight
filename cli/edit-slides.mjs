@@ -395,7 +395,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    *
    * Every character that could make this a PATH rather than a name is gone
    * before `resolve` ever sees it — a separator, a drive letter, a `..`, a
-   * leading dot that would hide the file from the read-only server's dotfile rule. The
+   * leading dot that would hide the file from the no-trust mode's dotfile rule. The
    * containment check at the write is the second lock on the same door, not
    * the first.
    */
@@ -424,7 +424,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * SVG is accepted and NOTHING is stripped from it. A saved file is the
    * author's bytes, and an editor that silently rewrote them would be lying
    * about what is on the slide; if that SVG is ever inlined into the deck,
-   * `decklight --read-only --check` names its scripts like any other block, which
+   * `decklight --no-trust --check` names its scripts like any other block, which
    * is the mechanism that exists for this (SPEC PRESENTING, the ingredients
    * label). What is refused is an SVG that arrives with a script already in
    * it — that is not an author's picture, and saving it would be putting a

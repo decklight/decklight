@@ -489,14 +489,14 @@ test('no credential can reach a deck: bundle never reads the credentials file', 
     'and the bundled deck mentions neither the file nor a field name');
 });
 
-test('read-only mode refuses the wizard — a credential prompt in an emailed deck is phishing', () => {
-  // The wizard routes live under /deck/edit/, which read-only mode refuses as
-  // a family (read-only.test.mjs drives the gate). What this pins is that no
+test('no-trust mode refuses the wizard — a credential prompt in an emailed deck is phishing', () => {
+  // The wizard routes live under /deck/edit/, which no-trust mode refuses as
+  // a family (no-trust.test.mjs drives the gate). What this pins is that no
   // wizard route sits OUTSIDE that family, where the gate would miss it.
   const src = readFileSync(path.join(ROOT, 'cli/edit.mjs'), 'utf8');
   const code = src.replace(/^\s*(?:\/\/|\/\*|\*).*$/gm, '');
   for (const m of code.matchAll(/['"](?:GET|POST) (\/[^'"]*wizard[^'"]*)['"]/g)) {
-    assert.ok(m[1].startsWith('/deck/edit/'), `${m[1]} is outside the family read-only mode refuses`);
+    assert.ok(m[1].startsWith('/deck/edit/'), `${m[1]} is outside the family no-trust mode refuses`);
   }
 });
 

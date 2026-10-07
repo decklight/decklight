@@ -1,8 +1,8 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// `decklight <deck> --read-only` — the read-only deck server (MARKETPLACE.md
-// READ_ONLY_SERVER). The claims worth testing are negative ones: no editing
+// `decklight <deck> --no-trust` — the no-trust mode (MARKETPLACE.md
+// NO_TRUST). The claims worth testing are negative ones: no editing
 // route exists, nothing is written, nothing off-loopback is answered — so most
 // of these assert the ABSENCE of a capability, against a real server.
 
@@ -54,7 +54,7 @@ function deckDir() {
  * Start the server on an ephemeral port; resolve its base URL.
  *
  * DECKLIGHT_HOME points at an empty directory so the presenter's own plugin
- * library (READ_ONLY#PLUGINS) cannot reach these tests. Several of them assert
+ * library (NO_TRUST#PLUGINS) cannot reach these tests. Several of them assert
  * the deck is served byte for byte, and that is a claim about a machine with
  * nothing installed — on the machine of a developer who installed a timer it
  * would otherwise fail for a reason that has nothing to do with the change
@@ -70,7 +70,7 @@ async function startPresent(t, dir, { deck = 'talk.html', cwd = dir, extraArgs =
   // file:// remote this fixture created.
   const childEnv = { ...process.env, DECKLIGHT_HOME: home, ...env };
   for (const k of Object.keys(childEnv)) if (childEnv[k] === undefined) delete childEnv[k];
-  const child = spawn(process.execPath, [CLI, deck, '--read-only', '--port', '0', ...extraArgs],
+  const child = spawn(process.execPath, [CLI, deck, '--no-trust', '--port', '0', ...extraArgs],
     { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv });
   t.after(async () => { await stop(child); rmTemp(dir); });
   let out = '';
@@ -201,7 +201,7 @@ test('a deck outside the chosen --root is refused, not silently rooted elsewhere
   const cwd = mkdtempSync(path.join(tmpdir(), 'decklight-cwd-'));
   let code = 0; let out = '';
   try {
-    execFileSync(process.execPath, [CLI, path.join(outer, 'talk.html'), '--read-only', '--port', '0', '--root', '.'],
+    execFileSync(process.execPath, [CLI, path.join(outer, 'talk.html'), '--no-trust', '--port', '0', '--root', '.'],
       { cwd, encoding: 'utf8', stdio: 'pipe', timeout: 8000 });
   } catch (e) { code = e.status; out = String(e.stderr); }
   rmTemp(outer);
@@ -297,7 +297,7 @@ test('the honest caveat is stated where a user reads it', () => {
 
 // ── the negative space: the write family refuses ─────────────────────────
 
-test('read-only mode refuses the whole write family by name — before a route runs', async (t) => {
+test('no-trust mode refuses the whole write family by name — before a route runs', async (t) => {
   // One server, two modes (PRESENTING). The routes that write are registered
   // in both; the mode gate refuses them ahead of the table, so nothing of
   // theirs runs — not the body read, not a validation, not a file write. The
@@ -318,17 +318,17 @@ test('read-only mode refuses the whole write family by name — before a route r
   for (const [method, p, body] of family) {
     const res = await fetch(base + p, { method, ...(body === null ? {} : { body }) });
     assert.equal(res.status, 403, `${method} ${p}`);
-    assert.equal((await res.json()).readOnly, true, `${method} ${p} names the mode`);
+    assert.equal((await res.json()).noTrust, true, `${method} ${p} names the mode`);
   }
   // and the deck on disk is untouched by every attempt
   assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8'), DECK);
 });
 
-test('the one probe answers here too, and says read-only', async (t) => {
+test('the one probe answers here too, and says no trust', async (t) => {
   const { base } = await startPresent(t, deckDir());
   const j = await (await fetch(base + '/deck/ping')).json();
   assert.equal(j.ok, true);
-  assert.equal(j.readOnly, true, 'what the player gates every author affordance on');
+  assert.equal(j.noTrust, true, 'what the player gates every author affordance on');
   assert.equal(j.locked, true, 'and a lock that cannot be lifted');
   assert.equal(j.name, 'talk.html');
   assert.equal(j.agents, undefined, 'no roster, nothing to edit with');
@@ -399,8 +399,8 @@ test('a disk edit after startup never reaches the audience — the deck serves f
 
 test('--help prints the policy it will enforce, and exits 0', async () => {
   const { execFileSync } = await import('node:child_process');
-  const out = execFileSync(process.execPath, [CLI, 'deck.html', '--read-only', '--help'], { encoding: 'utf8' });
-  assert.match(out, /usage: decklight <deck\.html\|deck\.decklight\|repository url> --read-only/);
+  const out = execFileSync(process.execPath, [CLI, 'deck.html', '--no-trust', '--help'], { encoding: 'utf8' });
+  assert.match(out, /usage: decklight <deck\.html\|deck\.decklight\|repository url> --no-trust/);
   assert.match(out, /default-src 'none'/, 'the actual policy, not a description of one');
   assert.match(out, /--port/);
 });
@@ -420,7 +420,7 @@ test('--port binds the port asked for, and Ctrl-C exits clean', { skip: noSignal
   t.after(() => rmTemp(dir));
   const port = await freePort();
 
-  const child = spawn(process.execPath, [CLI, 'talk.html', '--read-only', '--port', String(port)],
+  const child = spawn(process.execPath, [CLI, 'talk.html', '--no-trust', '--port', String(port)],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => stop(child));
   let out = '';
@@ -443,13 +443,13 @@ test('a deck that is not there is named, not stack-traced', async () => {
   const { execFileSync } = await import('node:child_process');
   let code = 0; let out = '';
   try {
-    execFileSync(process.execPath, [CLI, 'nope.html', '--read-only'], { encoding: 'utf8', stdio: 'pipe' });
+    execFileSync(process.execPath, [CLI, 'nope.html', '--no-trust'], { encoding: 'utf8', stdio: 'pipe' });
   } catch (e) { code = e.status; out = String(e.stderr); }
   assert.equal(code, 1);
   assert.match(out, /^decklight: deck not found: .*nope\.html/m);
 });
 
-// ── the phone remote lives here now (READ_ONLY#REMOTE) ───────────────────────
+// ── the phone remote lives here now (NO_TRUST#REMOTE) ───────────────────────
 
 test('--remote hosts the clicker, and the write family still refuses', async (t) => {
   const dir = deckDir();
@@ -457,7 +457,7 @@ test('--remote hosts the clicker, and the write family still refuses', async (t)
 
   // the presenting control channel exists…
   const ping = await (await fetch(base + '/deck/ping')).json();
-  assert.deepEqual(ping, { ok: true, name: 'talk.html', readOnly: true, locked: true, review: { mode: 'read-only', git: false, by: null, store: 'talk.review.jsonl' }, phone: true, container: false });
+  assert.deepEqual(ping, { ok: true, name: 'talk.html', noTrust: true, locked: true, review: { mode: 'no-trust', git: false, by: null, store: 'talk.review.jsonl' }, phone: true, container: false });
   assert.equal(ping.agents, undefined, 'and reports no agent roster — there is nothing here that runs one');
 
   // …the controller and its QR are served…
@@ -476,9 +476,9 @@ test('--remote hosts the clicker, and the write family still refuses', async (t)
     const res = await fetch(base + p, { method: 'POST', body: '{}' });
     assert.equal(res.status, 403, `${p} is refused by the mode`);
   }
-  // the one probe answers, and what it identifies is read-only mode, not an editor
+  // the one probe answers, and what it identifies is no-trust mode, not an editor
   const probe = await (await fetch(base + '/deck/ping')).json();
-  assert.equal(probe.readOnly, true, 'the ping says read-only');
+  assert.equal(probe.noTrust, true, 'the ping says no trust');
   assert.equal(probe.agents, undefined, 'and names nothing that edits');
 
   assert.match(log(), /ONLY \/deck\/remote\/\* answers/i);
@@ -609,9 +609,9 @@ test('the remote never writes, and a malformed payload is refused not crashed', 
   assert.deepEqual(snapshot(dir), before, 'no file created, changed, or touched');
 });
 
-// ── the upstream (READ_ONLY#UPSTREAM) — promised in #342, written in this review ─
+// ── the upstream (NO_TRUST#UPSTREAM) — promised in #342, written in this review ─
 //
-// These are the only routes in `--read-only` that ACT, and they shipped without
+// These are the only routes in `--no-trust` that ACT, and they shipped without
 // route tests. The design's whole safety argument is a list of refusals —
 // structurally absent on a deck outside a clone, 403 on any origin that is not
 // exactly this server's own (a sandboxed plugin iframe's origin is `null`, and

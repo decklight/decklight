@@ -3147,7 +3147,7 @@ export function createNarration({
   // next to the deck: that is the one place `narration.files` can name and the
   // one place `decklight bundle` looks. The browser's download folder is
   // neither, so it is the FALLBACK — for a deck opened from a file:// or served
-  // read-only by `decklight <deck> --read-only`, where nothing on this machine is allowed
+  // without trust by `decklight <deck> --no-trust`, where nothing on this machine is allowed
   // to write. In write mode the server that owns the deck file writes them.
   //
   // The folder is the deck's own `narration.files` when that names a plain
@@ -3544,7 +3544,7 @@ export function createNarration({
   // MediaRecorder (webm/opus is a format nothing else in this toolchain reads),
   // and not an AudioWorklet: a worklet's module has to be fetched from a URL,
   // which on a zero-dependency single-file runtime means a blob: URL, and
-  // `decklight <deck> --read-only` serves `script-src 'self' 'unsafe-inline'` with no
+  // `decklight <deck> --no-trust` serves `script-src 'self' 'unsafe-inline'` with no
   // blob:. A ScriptProcessorNode is deprecated and universally shipped, and
   // works under that policy today.
   let micEl = null, micView = 'intro', micRun = 0, micTarget = null;

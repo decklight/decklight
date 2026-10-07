@@ -86,7 +86,7 @@ const HELP = `usage: decklight comments <deck.html> [--unresolved] [--all] [--im
                  comment was made against
 
   comments live in <deck>.review.jsonl beside the deck; reviewers write them
-  with: decklight <deck.html> --read-only   (then M)
+  with: decklight <deck.html> --no-trust   (then M)
 `;
 
 /**
@@ -338,7 +338,7 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
     // Not an error: no comments is the state every deck starts in, and the
     // useful answer is how somebody would leave one.
     out.write(`${name} — no comments yet\n`);
-    out.write(`  a reviewer leaves them with:  decklight ${relative(cwd, deckPath) || name} --read-only   (then M)\n`);
+    out.write(`  a reviewer leaves them with:  decklight ${relative(cwd, deckPath) || name} --no-trust   (then M)\n`);
     return 0;
   }
   const { records, skipped } = parseReview(read(storePath));

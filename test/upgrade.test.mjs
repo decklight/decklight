@@ -283,7 +283,7 @@ test('a deck that links the runtime is always current — upgrade only records t
   assert.equal(again.status, 0);
   assert.match(again.stdout, /links the runtime and is written for decklight .* already current/);
   assert.equal(fs.readFileSync(p, 'utf8'), after);
-  // an older record is refreshed — the thing --read-only --check compares
+  // an older record is refreshed — the thing --no-trust --check compares
   fs.writeFileSync(p, after.replace(/data-decklight-version="[^"]+"/, 'data-decklight-version="0.1.0"'));
   const dry = spawnSync('node', [CLI, 'upgrade', p, '--dry-run'], { encoding: 'utf8' });
   assert.match(dry.stdout, /would record it as written for decklight .* \(was 0\.1\.0\)/);

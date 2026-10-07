@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Presenter plugins (MARKETPLACE.md READ_ONLY#PLUGINS), measured in a real browser.
+ * Presenter plugins (MARKETPLACE.md NO_TRUST#PLUGINS), measured in a real browser.
  *
  * The unit tests prove the manifest vocabulary refuses a plugin that ASKS for
  * slide content. That is the polite half, and on its own it is worth very
@@ -201,7 +201,7 @@ const delivery = resultsFrom(render(deliveryPage, 8000), 'DELIVERY', 'delivery')
 // runs even under 'none'. That is what lets a plugin load without widening the
 // presenting CSP by a single source and without a route to serve it from.
 // Measured with the strictest possible policy: if it survives frame-src
-// 'none', it survives the read-only server's frame-src 'self'.
+// 'none', it survives the no-trust mode's frame-src 'self'.
 const policyPage = path.join(dir, 'policy.html');
 writeFileSync(policyPage, `<!doctype html><html><head>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'none'; child-src 'none'">

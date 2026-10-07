@@ -77,8 +77,8 @@ test('the refusal names the flag and quotes what was typed', () => {
 
 // ── the regressions, end to end ────────────────────────────────────────────
 
-test('--read-only --port <n> <deck> refuses the DECK by name, not the port number', () => {
-  const r = run('cli/edit.mjs', ['--read-only', '--port', '8790', 'no-such-deck.html']);
+test('--no-trust --port <n> <deck> refuses the DECK by name, not the port number', () => {
+  const r = run('cli/edit.mjs', ['--no-trust', '--port', '8790', 'no-such-deck.html']);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /deck not found: .*no-such-deck\.html/);
   assert.doesNotMatch(r.stderr, /8790/, 'the port was read as the deck');
@@ -92,7 +92,7 @@ test('edit.mjs --git-mode <mode> <deck> refuses the DECK by name, not the mode',
 });
 
 test('a typo in --port is a one-line refusal, not a RangeError with a stack', () => {
-  for (const [flags, cmd] of [[['--read-only'], 'read-only'], [[], 'write']]) {
+  for (const [flags, cmd] of [[['--no-trust'], 'no-trust'], [[], 'write']]) {
     const r = run('cli/edit.mjs', [...flags, '--port', 'abc', script('demo/intro.html')]);
     assert.equal(r.status, 1, `${cmd}: ${r.stderr}`);
     assert.match(r.stderr, /decklight: --port wants a port number/, cmd);

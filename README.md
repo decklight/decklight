@@ -53,17 +53,17 @@ After that you rarely need a command name:
 ```sh
 decklight                 # in a folder: start a deck, or pick one to open
 decklight talk.html       # open a deck: write mode, live reload, an AI agent on A
-decklight talk.html --read-only   # open one you did not write: read-only mode
+decklight talk.html --no-trust   # open one you did not write: no-trust mode
 decklight https://github.com/you/talk  # clone a deck's repository and open it
 decklight talk.pptx       # bring a PowerPoint, Keynote or Slides deck across
-decklight talk.decklight  # play somebody else's deck, read-only
+decklight talk.decklight  # play somebody else's deck, without trust
 decklight bundle talk.html  # one self-contained file to send — the runtime embedded
 decklight doctor          # what this machine can do, and how to get the rest
 ```
 
 Type a command wrong and it tells you which one you meant. Or skip the scaffold
 and write the HTML yourself. A deck you author is *data* (slides and a JSON
-configuration block) and `decklight <deck>` adds the runtime as it serves it, in write mode and in `--read-only`;
+configuration block) and `decklight <deck>` adds the runtime as it serves it, in write mode and in `--no-trust`;
 `bundle` embeds it when you hand the file over. This is the whole anatomy:
 
 ```html
@@ -153,7 +153,7 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   still asks, in the theme on screen.
 - **Safe to receive.** A deck that runs code of its own is named before it
   opens, and asked about: trust its source and it opens in write mode, decline
-  and it plays read-only under a CSP with that code stripped. `--read-only`
+  and it plays without trust under a CSP with that code stripped. `--no-trust`
   forces the safe mode; `publish` signs what it ships.
 - **Extensible without shipping code to the audience.** Themes, templates,
   speech engines and presenter plugins install from any git repo. Nothing
@@ -177,7 +177,7 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Sharing | |
 |---|---|
-| `<deck> --read-only` | open a deck you didn't write in read-only mode: every edit route refuses, it is served under a CSP, and what it will execute is listed first (a repository URL clones it first, into the same clone write mode uses). Comments (`M`) work here too; a `.decklight` is read-only by nature |
+| `<deck> --no-trust` | open a deck you didn't write in no-trust mode: every edit route refuses, it is served under a CSP, and what it will execute is listed first (a repository URL clones it first, into the same clone write mode uses). Comments (`M`) work here too; a `.decklight` is without trust by nature |
 | `bundle deck.html` | one self-contained HTML file (`--all` merges a playlist, `--sign`, `--deck`) |
 | `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder |
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
@@ -202,14 +202,14 @@ Every item above has a SPEC section behind it. The index at the top of
 | `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide layouts, served from the marketplace on this machine (`list`, `layouts`, and `check`, the gate a catalog runs) |
 | `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `check`, the gate a catalog runs) |
 | `marketplace list` / `update <name>` | what each catalog offers, and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it) |
-| `plugin add <name>` | presenter chrome for your machine only; read-only mode loads it, `bundle` never does |
+| `plugin add <name>` | presenter chrome for your machine only; no-trust mode loads it, `bundle` never does |
 | `template\|importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library |
 | `extension check t.mjs` | the marketplace admission gate for a transform |
 
 | Odds and ends | |
 |---|---|
 | `tts` / `lipsync` | the live voice bridge and the lip-sync bridge the player talks to |
-| `associate` | make double-clicking a `.decklight` file open it read-only |
+| `associate` | make double-clicking a `.decklight` file open it without trust |
 | `report-bug` | print the version and environment facts a bug report needs |
 | `doctor` | what this machine can do (Chrome, ffmpeg, git, agents…) and the install line for what it can't |
 
@@ -222,7 +222,7 @@ the CLI only.
 | Key | Action |
 |---|---|
 | `→` `←` `Space` | next / previous build or slide |
-| `S` | this slide's speaker notes: editable in write mode, read-only under `--read-only` |
+| `S` | this slide's speaker notes: editable in write mode, read-only under `--no-trust` |
 | `⌥⏎` / `Alt+Enter` | speaker view: a second window with notes, next slide and timer (again: rehearse cue cards) |
 | `T` | theme picker, `⌃T` generate a theme |
 | `⎵` | play / pause the voice once one is chosen; otherwise it advances |
@@ -247,7 +247,7 @@ A deck you author carries no runtime: `decklight <deck>` references
 serve it. To hand it over, `bundle`: one file, and nothing else to copy.
 
 <p align="center">
-  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: one deck.html and a theme.css feed a zero-dependency browser runtime; the CLI, the deck server in its write and read-only modes, and the tts bridge run beside it on localhost; a verification band of contrast gates, palette rules and headless render assertions holds everything to SPEC.md.">
+  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: one deck.html and a theme.css feed a zero-dependency browser runtime; the CLI, the deck server in its write and no-trust modes, and the tts bridge run beside it on localhost; a verification band of contrast gates, palette rules and headless render assertions holds everything to SPEC.md.">
 </p>
 
 Every commit needs a DCO sign-off (`git commit -s`). The rest of the process,

@@ -72,7 +72,7 @@ test('only visible slides with notes that say something are asked about', () => 
 test('each slide is asked once, read-only; one that passes is written, one that rewords is left as it was', async () => {
   const html = deck('<p>Hello there.</p><p>[click]</p><p>Next beat.</p>', '<p>Keep my words.</p>', '<p>Third.</p>');
   const asked = [];
-  const resolveAgent = (name, prompt) => ({ bin: 'fake', args: [prompt], name: 'claude', label: 'Claude Code', readOnly: true });
+  const resolveAgent = (name, prompt) => ({ bin: 'fake', args: [prompt], name: 'claude', label: 'Claude Code', noTrust: true });
   const exec = async (cmd) => {
     const script = cmd.args[0].split('# Script\n\n')[1];
     asked.push(script);

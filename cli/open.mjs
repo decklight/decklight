@@ -4,10 +4,10 @@
 
 // decklight <deck> — THE command: open a deck. One server (edit.mjs), two
 // modes: write mode, the default, brings it up as a child plus whichever
-// optional bridges this machine can actually run; --read-only runs the same
-// server in this process, in read-only mode, with no bridge beside it.
+// optional bridges this machine can actually run; --no-trust runs the same
+// server in this process, in no-trust mode, with no bridge beside it.
 //
-//   decklight <deck.html | url> [--read-only] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
+//   decklight <deck.html | url> [--no-trust] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
 //                    [--project <id>] [--rhubarb <bin>] [--portrait <name=img.png|clip.mp4>]…
 //                    [--no-tts] [--no-lipsync] [--remote]
 //
@@ -54,7 +54,7 @@ const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 // run directly. The dispatcher would refuse `edit` out loud.
 const EDIT = fileURLToPath(new URL('./edit.mjs', import.meta.url));
 
-const USAGE = `usage: decklight <deck.html | git url> [--read-only] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
+const USAGE = `usage: decklight <deck.html | git url> [--no-trust] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper|elevenlabs] [--project <id>] [--no-tts]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
   brings up the deck server plus every bridge this machine can run, under one Ctrl-C
@@ -92,20 +92,20 @@ const USAGE = `usage: decklight <deck.html | git url> [--read-only] [--port 8788
                     machine, which may pass them to its provider
   --agent <name>    preferred AI agent for A (default: first detected)
 
-  --read-only       the same server in read-only mode: the deck is served from
+  --no-trust       the same server in no-trust mode: the deck is served from
                     its own directory under a Content-Security-Policy header,
                     the ingredients label runs first, every edit route refuses,
                     and no bridge is started. The way to open a deck you did
                     not write; --strict, --check and --root apply here
-                    (decklight <deck> --read-only --help for that mode's flags)
+                    (decklight <deck> --no-trust --help for that mode's flags)
   --trust           a deck that runs code of its own is opened in write mode
                     without the question. Without a flag, the ingredients
                     label runs first: a deck with nothing to account for opens
                     in write mode; one with script or executable attributes
                     names them, in yellow, and ASKS whether you trust its
                     source — yes is remembered against those bytes (so a
-                    changed script asks again), no is read-only; off a
-                    terminal, read-only
+                    changed script asks again), no opens it without trust; off a
+                    terminal, without trust
   the server binds 127.0.0.1 unless --remote asks for the LAN
 
   --tts-engine E    gemini  Vertex AI, best delivery, honors a style — no free tier  [default]
@@ -178,7 +178,7 @@ export function planServices({
       // that did not reach the server would be a question asked and ignored.
       ...(has('--commit-messages') ? ['--commit-messages'] : []),
       ...(has('--no-commit-messages') ? ['--no-commit-messages'] : []),
-      // the phone remote (READ_ONLY#REMOTE) is the server's, in either mode
+      // the phone remote (NO_TRUST#REMOTE) is the server's, in either mode
       ...(has('--remote') ? ['--remote'] : []), ...pass('--host')],
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
@@ -340,16 +340,16 @@ const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
 
 export async function openMain(args) {
-  // --read-only: the same command, the same server, in read-only mode
-  // (PRESENTING). A .decklight container is read-only by nature — there is
+  // --no-trust: the same command, the same server, in no-trust mode
+  // (PRESENTING). A .decklight container is without trust by nature — there is
   // nothing in it to edit in place — so naming one is the same as the flag.
-  // It runs in THIS process: read-only mode starts no bridge (a deck you were
+  // It runs in THIS process: no-trust mode starts no bridge (a deck you were
   // handed does not get a voice engine beside it), so there is nothing for a
   // supervising parent to own, and the one thing the mode prints — the
   // ingredients label — belongs on a bare terminal, not under a banner.
   const named = args.find((a) => !a.startsWith('-') && /\.decklight$/i.test(a));
-  const readOnly = args.includes('--read-only') || Boolean(named);
-  if (readOnly && args.includes('--help')) return (await import('./edit.mjs')).editMain(args.includes('--read-only') ? args : [...args, '--read-only']);
+  const noTrust = args.includes('--no-trust') || Boolean(named);
+  if (noTrust && args.includes('--help')) return (await import('./edit.mjs')).editMain(args.includes('--no-trust') ? args : [...args, '--no-trust']);
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
 
   let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
@@ -378,30 +378,30 @@ export async function openMain(args) {
     process.chdir(got.dir);
     const local = relative(got.dir, got.deckPath);
     args = args.map((a) => (a === deck ? local : a)).filter((a, i, all) => !(a === '--branch' || a === '--into' || all[i - 1] === '--branch' || all[i - 1] === '--into'));
-    // read-only mode never commits the deck; the clone's git is what H reads
-    if (!readOnly && !args.includes('--no-git') && !args.includes('--git')) args.push('--git');
+    // no-trust mode never commits the deck; the clone's git is what H reads
+    if (!noTrust && !args.includes('--no-git') && !args.includes('--git')) args.push('--git');
     deck = local;
     plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   }
-  // read-only mode names a missing deck itself, the same way for a file, a
+  // no-trust mode names a missing deck itself, the same way for a file, a
   // container and a --check
-  if (!readOnly && !existsSync(deck)) {
+  if (!noTrust && !existsSync(deck)) {
     console.error(`decklight: no such deck: ${deck}`);
     process.exitCode = 1;
     return;
   }
-  // ── script in the deck: trust its source, or read-only (PRESENTING) ───────
-  // The ingredients label runs first, as it always did under --read-only, and
+  // ── script in the deck: trust its source, or not (PRESENTING) ───────
+  // The ingredients label runs first, as it always did under --no-trust, and
   // decides nothing: a deck with nothing to account for opens in write mode
   // (that is your own deck, and any deck that is data); one that runs code of
   // its own names it and asks. The answer is yours, because the label cannot
   // tell your script from a stranger's — only you know where the file came
   // from. Yes is remembered against the bytes of that code (cli/trust.mjs), so
   // the question is asked once per script, not once per start; no is
-  // read-only, strict. Off a terminal nobody can answer, and read-only is the
+  // without trust, strict. Off a terminal nobody can answer, and no trust is the
   // answer that costs nothing: --trust says yes on the command line.
   let untrusted = false;
-  if (!readOnly) {
+  if (!noTrust) {
     // the real path, so a deck under a symlinked folder (/var → /private/var on a Mac) is one deck
     let deckPath = resolvePath(deck);
     try { deckPath = realpathSync(deckPath); } catch { /* resolved is as good as it gets */ }
@@ -426,27 +426,27 @@ export async function openMain(args) {
         if (process.stdin.isTTY && process.stdout.isTTY) {
           const rl = createInterface({ input: process.stdin, output: process.stdout });
           let answer = '';
-          try { answer = await rl.question(`${Y}  do you trust where this deck came from? yes opens it in write mode, and is remembered until its script changes; no opens it read-only [y/N] ${R}`); }
+          try { answer = await rl.question(`${Y}  do you trust where this deck came from? yes opens it in write mode, and is remembered until its script changes; no opens it without trust [y/N] ${R}`); }
           finally { rl.close(); }
           if (/^y/i.test(answer.trim())) {
             remember(deckPath, hash);
             console.log('  trusted — write mode; decklight trust forget <deck> takes it back');
           } else {
             untrusted = true;
-            console.log('  not trusted — read-only, with what could not be accounted for stripped (--trust next time says otherwise)');
+            console.log('  not trusted — without trust, with what could not be accounted for stripped (--trust next time says otherwise)');
           }
         } else {
           untrusted = true;
-          console.log('  no terminal to ask on — opening read-only; --trust opens it in write mode');
+          console.log('  no terminal to ask on — opening without trust; --trust opens it in write mode');
         }
       }
     }
   }
-  if (readOnly || untrusted) {
-    if (named && !args.includes('--read-only')) {
-      console.log('  a .decklight container is read-only by nature: nothing in it can be edited in place');
+  if (noTrust || untrusted) {
+    if (named && !args.includes('--no-trust')) {
+      console.log('  a .decklight container is opened without trust by nature: nothing in it can be edited in place');
     }
-    if (!args.includes('--read-only')) args = [...args, '--read-only'];
+    if (!args.includes('--no-trust')) args = [...args, '--no-trust'];
     // The server, here. A number back is an exit code (--check, a refusal);
     // the server object means it is listening and Ctrl-C is the way out.
     const out = await (await import('./edit.mjs')).editMain(args);

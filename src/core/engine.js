@@ -958,7 +958,7 @@ export function init(userConfig = {}) {
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       // the lock (PRESENTING): changes off to avoid one by mistake, and back on
-      editmode.served() && !editmode.readOnly() && { label: editmode.locked() ? 'Unlock deck (dev)' : 'Lock deck — nothing changes the file until you unlock it (dev)',
+      editmode.served() && !editmode.noTrust() && { label: editmode.locked() ? 'Unlock deck (dev)' : 'Lock deck — nothing changes the file until you unlock it (dev)',
         alias: 'lock unlock read only readonly protect freeze avoid changes by mistake editing off', run: () => editmode.toggleLock() },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
       { label: 'Print view (all slides, new tab)', group: 'Print', hint: '', run: () => window.open(location.pathname + '?print') },
@@ -2518,7 +2518,7 @@ export function init(userConfig = {}) {
 
   // ── review comments (review.js) — SPEC REVIEW ────────────────────────────
   // Somebody else's remarks on this deck, anchored to slides and carried by
-  // git. What M can do depends on which server answered: a read-only server takes
+  // git. What M can do depends on which server answered: a no-trust mode takes
   // a new comment, an edit server resolves one, and with neither the list
   // still reads and says where comments come from.
   const review = createReview({

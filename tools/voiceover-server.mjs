@@ -101,7 +101,7 @@ export async function ttsMain(args) {
   // coverage only when it exits through process.exit, so a bridge the suite
   // stops with SIGKILL — or with an unhandled SIGTERM — reports NOTHING, and
   // the request handler that is this file's whole point read as 27% covered
-  // while thirty tests drove it. The edit and read-only servers already do this.
+  // while thirty tests drove it. The edit and no-trust mode already do this.
   process.on('SIGTERM', () => process.exit(0));
   if (args.includes('--help')) {
     console.log(`usage: decklight tts [--port 8787] [--engine ${ENGINES.join('|')}|<installed>] [--project <id>]

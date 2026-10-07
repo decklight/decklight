@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Strict mode (MARKETPLACE.md READ_ONLY#STRICT), measured in a real browser.
+ * Strict mode (MARKETPLACE.md NO_TRUST#STRICT), measured in a real browser.
  *
  * The unit tests prove the transform removes the right bytes. What they cannot
  * see is the claim that actually decides whether anyone leaves strict on: that

@@ -37,7 +37,7 @@
  * never picked up by `bundle` — a key that reached a deck would travel with it.
  *
  * A credential prompt in a deck you were *emailed* is a phishing primitive, so
- * `--read-only` registers none of this and a bundled deck has nothing to post to.
+ * `--no-trust` registers none of this and a bundled deck has nothing to post to.
  *
  * And the prompt itself names its asker and its destination (#232): every
  * string a schema puts on screen — the title, each field's label — was written

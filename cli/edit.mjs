@@ -11,8 +11,8 @@
 //
 // It binds 127.0.0.1 and nothing else. The phone remote used to be here behind
 // `--remote`, which meant a clicker cost you an editing server on the LAN;
-// `decklight <deck.html> --read-only --remote` hosts it now, with no edit surface to widen
-// (READ_ONLY#REMOTE). Both flags are refused out loud rather than ignored.
+// `decklight <deck.html> --no-trust --remote` hosts it now, with no edit surface to widen
+// (NO_TRUST#REMOTE). Both flags are refused out loud rather than ignored.
 //
 // Serves the current working directory over localhost (so decks that
 // reference ../dist and ../themes just work), watches the deck file, and:
@@ -112,7 +112,7 @@ import { registerSlideRoutes } from './edit-slides.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
 import { classifyScripts, auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
-// The read-only mode's own ingredients (PRESENTING): the signature beside a
+// The no-trust mode's own ingredients (PRESENTING): the signature beside a
 // deck, the .decklight container, the presenter's chrome, the upstream of a
 // clone, and the phone remote. None of them writes.
 import { randomBytes } from 'node:crypto';
@@ -127,7 +127,7 @@ import { corsHeaders, readBody } from '../tools/bridge.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
 import { createReviewRoutes } from './review-routes.mjs';
 import { createDeckRoutes } from './deck-routes.mjs';
-// The arbiters of what a comment IS, shared with the read-only server so two
+// The arbiters of what a comment IS, shared with the no-trust mode so two
 // writers cannot put two shapes into one union-merged file.
 import { commentProblem, reviewRecord } from './review-routes.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
@@ -155,7 +155,7 @@ const corsHeadersFor = (origin) => ({
 });
 
 // ── remote access & static serving: extracted to serve.mjs / remote.mjs ────
-// (READ_ONLY_SERVER in MARKETPLACE.md: `decklight <deck> --read-only` reuses the same core
+// (NO_TRUST in MARKETPLACE.md: `decklight <deck> --no-trust` reuses the same core
 // with the /deck/edit/* routes ABSENT, not merely refused.) Re-exported here so
 // existing importers — the tests, init.mjs — and SPEC citations keep working.
 export { isLoopback, lanAddress, escapeHtml } from './serve.mjs';
@@ -911,12 +911,12 @@ function reviewerName(cwd = process.cwd()) {
 }
 
 
-/** `decklight <deck> --read-only --help`: the read-only mode's own flags. */
-const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository url> --read-only [--port 8788] [--strict]
+/** `decklight <deck> --no-trust --help`: the no-trust mode's own flags. */
+const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository url> --no-trust [--port 8788] [--strict]
                         [--root <dir>] [--remote] [--host <addr>] [--check]
                         [--no-plugins] [--branch <ref>] [--into <dir>]
 
-  opens a deck in read-only mode — the safe way in for one you did not write,
+  opens a deck in no-trust mode — the safe way in for one you did not write,
   and the only mode a .decklight container opens in. The deck is served from
   its own directory, under a Content-Security-Policy header, with every file
   type a deck cannot use and every dotfile refused; every route that writes
@@ -981,7 +981,7 @@ const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository u
   the file, the chrome is listed under it as what it is. Loading one registers
   no route and does not widen the policy below by a single source.
 
-  Every read-only start prints the ingredients label: which runtime is
+  Every no-trust start prints the ingredients label: which runtime is
   embedded and whether its bytes are the ones this install ships, how many
   inert data blocks the runtime will read, and — named, with line numbers —
   every script block that will execute and is NOT accounted for, plus every
@@ -1029,25 +1029,25 @@ const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository u
   code. It stops that code from reaching anywhere it shouldn't.`;
 
 // `client` is the sigstore client — injectable so a test can drive the
-// signature states of `--read-only --check` without the network; `undefined`
+// signature states of `--no-trust --check` without the network; `undefined`
 // means "go load the real one".
 export async function editMain(args, { onListen = null, client } = {}) {
   // /deck/review/incoming's answer, briefly remembered (see the route).
   let incomingCache = null;
   const wantsHelp = args.includes('--help') || args.includes('-h');
-  if (wantsHelp && args.includes('--read-only')) { console.log(READ_ONLY_USAGE); return 0; }
+  if (wantsHelp && args.includes('--no-trust')) { console.log(READ_ONLY_USAGE); return 0; }
   if (wantsHelp || !args.filter((a) => !a.startsWith('-')).length) {
-    console.log(`usage: node cli/edit.mjs <deck.html> [--read-only] [--port 8788] [--git | --no-git]
+    console.log(`usage: node cli/edit.mjs <deck.html> [--no-trust] [--port 8788] [--git | --no-git]
                       [--commit-every <seconds>] [--agent <name>] [--commit-messages]
   serves the cwd, live-reloads the deck on change, and accepts edits from the
   player: notes (right-click a slide's background), per-slide layout (L/⇧L),
   element edit mode (E, then right-click an element), undo/redo (Z/⇧Z), agent asks (A)
   a taken --port offers to take over that session (on a TTY) or moves on to
   the next free one
-  --read-only      the same server in read-only mode: the deck is served from
+  --no-trust      the same server in no-trust mode: the deck is served from
                    its own directory under a CSP header, the ingredients label
                    runs first, and every edit route refuses
-                   (--read-only --help for that mode's flags)
+                   (--no-trust --help for that mode's flags)
   --remote         also listen on the LAN for the phone remote (either mode)
   --git            keep the deck in git (creates the repo if needed): a silent
                    snapshot on refs/decklight/wip, and K commits when you say so
@@ -1078,7 +1078,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // ── the mode (PRESENTING) ─────────────────────────────────────────────────
   // One server, two modes. Write mode is the default: the deck is served from
   // disk, live-reloaded, and every /deck/edit/* route writes it. Read-only
-  // mode (`--read-only`, and always for a .decklight container) serves the
+  // mode (`--no-trust`, and always for a .decklight container) serves the
   // bytes the ingredients label described, under the CSP, with the
   // presenter's chrome layered on, and refuses every route that writes —
   // /deck/edit/*, the bridges, the review owner's half — by name. The mode is
@@ -1092,14 +1092,14 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // (DECK_FILE), unwrapped here and treated exactly like the HTML it wraps —
   // same audit, same CSP, same strict rule. Nothing is written to unwrap it:
   // the payload is a slice of the bytes already read. It never leaves
-  // read-only mode: there is no file to edit in place.
+  // no-trust mode: there is no file to edit in place.
   let container = null;
   if (isContainer(deckPath)) {
     try { container = readContainer(deckPath); } catch (e) { return fail(e.message); }
   }
-  const readOnly = args.includes('--read-only') || !!container;
+  const noTrust = args.includes('--no-trust') || !!container;
 
-  // --remote widens the LISTENER and nothing else (READ_ONLY#REMOTE), in either
+  // --remote widens the LISTENER and nothing else (NO_TRUST#REMOTE), in either
   // mode: off this machine only /deck/remote/* answers, with the per-run
   // token, and the deck itself and every file beside it stay unreachable from
   // the LAN whether or not the flag is passed. allowRemote is the classifier.
@@ -1109,7 +1109,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
   // The served root. In write mode it is the cwd, as it always was: a source
   // deck reaches up for its runtime (`demo/talk.html` loading
-  // `../dist/decklight.js`) and the author chose where to stand. In read-only
+  // `../dist/decklight.js`) and the author chose where to stand. In no-trust
   // mode it is the deck's OWN directory, never the cwd: everything under the
   // root is fetchable by the deck's own script same-origin, and with
   // `connect-src https:` open, fetchable means exfiltratable — a root
@@ -1117,21 +1117,21 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // $HOME via file association) would hand a hostile deck whatever lived
   // there. `--root` widens it, by a flag you typed and printed at startup.
   const rootArg = opt('--root');
-  const root = readOnly
+  const root = noTrust
     ? (rootArg ? resolve(process.cwd(), rootArg) : dirname(deckPath))
     : process.cwd();
   if (!deckPath.startsWith(root + sep)) {
-    return fail(readOnly ? 'deck must live under --root' : 'deck must live under the current directory');
+    return fail(noTrust ? 'deck must live under --root' : 'deck must live under the current directory');
   }
   const deckUrl = '/' + deckPath.slice(root.length + 1).split(sep).join('/');
   const deckRel = deckUrl.slice(1);
 
-  // ── the read-only mode's ingredients (PRESENTING) ─────────────────────────
+  // ── the no-trust mode's ingredients (PRESENTING) ─────────────────────────
   // The audit runs because it is the way in: a standalone `verify` is a step
   // people skip, so folding it into the command you already use means it runs
   // every time, at no extra effort. It reads the bytes, names what will
   // execute, and decides strict — the startup block, reusable, because a
-  // pull (READ_ONLY#UPSTREAM) re-runs it: never new bytes under an old verdict.
+  // pull (NO_TRUST#UPSTREAM) re-runs it: never new bytes under an old verdict.
   const readAndAudit = () => {
     const bytes = container ? readContainer(deckPath).payload : readFileSync(deckPath);
     const rep = auditDeck(bytes.toString('utf8'));
@@ -1166,18 +1166,18 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // move together or not at all. Empty in write mode, which never reads it.
   let audited = null;
   let signature = { state: UNSIGNED };
-  /** Enter (or re-enter) read-only mode: read, audit, decide strict. Says whether the deck itself changed. */
+  /** Enter (or re-enter) no-trust mode: read, audit, decide strict. Says whether the deck itself changed. */
   const audit = () => {
     const before = audited?.payload ?? null;
     const next = readAndAudit();
     const unverified = signature.state !== UNSIGNED && !isVerified(signature);
     // STRICT RATCHETS within a session: a pull may turn it on and can never
     // turn it off. A deck that could clear its own strict flag by pulling
-    // could disarm the one mitigation read-only mode applies unasked.
+    // could disarm the one mitigation no-trust mode applies unasked.
     audited = { ...next, strict: next.strict || unverified || (audited?.strict ?? false) };
     return before === null || !next.payload.equals(before);
   };
-  if (readOnly) {
+  if (noTrust) {
     signature = await verifySignature();
     audit();
   }
@@ -1189,7 +1189,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // not "this deck is malicious", which is a call no exit code should make.
     // `unchecked` counts: a gate that passes when it could not evaluate the
     // claim is not a gate.
-    if (!readOnly) { signature = await verifySignature(); audit(); }
+    if (!noTrust) { signature = await verifySignature(); audit(); }
     for (const line of formatLabel(audited.report, { indent: '' })) console.log(line);
     if (container) console.log(formatManifest(container.manifest, { indent: '' }));
     if (signature.state !== UNSIGNED) console.log(formatSignature(signature, { indent: '' }));
@@ -1197,14 +1197,14 @@ export async function editMain(args, { onListen = null, client } = {}) {
       || (signature.state !== UNSIGNED && !isVerified(signature)) ? 1 : 0;
   }
 
-  // The presenter's own chrome (READ_ONLY#PLUGINS) — a timer, a teleprompter,
+  // The presenter's own chrome (NO_TRUST#PLUGINS) — a timer, a teleprompter,
   // a confidence monitor. It is loaded from ~/.decklight/plugins/, which is
   // the presenter's library and not the deck's: the installer is the
   // risk-bearer and nothing here travels. Loaded after `auditDeck` has read
   // the bytes, so a plugin is never counted as an unaccounted script block in
   // the label (the label describes the file; a plugin is not in the file),
   // and injected after `stripUnaccounted`, so strict never strips the chrome
-  // as if the deck had smuggled it in. Read-only mode only: an author's own
+  // as if the deck had smuggled it in. No-trust mode only: an author's own
   // deck gets no chrome layered over the slides they are editing.
   const chrome = args.includes('--no-plugins') ? { plugins: [], refused: [] } : loadLibrary();
   // Consulted per request rather than decided once: after a pull `strict`
@@ -1227,7 +1227,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // way out, and the audit above described the bytes WITHOUT it — which is
   // the point. `staticFiles` does this for every other page itself.
   const serveAudited = (text) => linkFonts(linkDesignSystems(linkAddedThemes(linkRuntime(rewrite(text, deckPath)))));
-  // The deck itself, in read-only mode, is served from MEMORY — container and
+  // The deck itself, in no-trust mode, is served from MEMORY — container and
   // plain HTML alike — from the bytes the audit read and the signature
   // covered. The label, the signature verdict and `strict` were all decided
   // against those bytes and printed as a verdict; re-reading the file per
@@ -1411,7 +1411,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     describer: describer(),
     subjectsOff,
   });
-  // Write mode's. A deck in read-only mode is somebody else's: no repository
+  // Write mode's. A deck in no-trust mode is somebody else's: no repository
   // is created beside it, no snapshot is taken, nothing of it is committed.
   function startGit() {
     if (noGit || !(wantGit || inGitRepo(root))) return;
@@ -1461,7 +1461,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
           : wipLine(deckRel));
     }
   }
-  if (!readOnly) startGit();
+  if (!noTrust) startGit();
   /**
    * One tick: refresh the snapshot, and decide whether to ask.
    *
@@ -1516,28 +1516,28 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // Precedence, like every other saved choice: the flag wins, then what was
   // remembered (#125), then the first detected agent.
   const agents = detectAgents();
-  // Named at startup in write mode only: read-only mode refuses the agent
+  // Named at startup in write mode only: no-trust mode refuses the agent
   // route with the rest of the write family, and a roster line under the
   // ingredients label would promise a capability that mode does not have.
-  if (agents.length && !readOnly) {
+  if (agents.length && !noTrust) {
     const mark = (a) => a.name + (a.name === agentPref ? ' (preferred)' : '') + (a.installed ? ' (installed)' : '');
     startup('agents', agents.map(mark).join(', '),
       `  agents: ${agents.map(mark).join(', ')} — “Ask agent” (A) is live`);
   }
   // A remembered agent that is not on this machine is said ONCE, at startup,
   // rather than discovered at the moment someone presses A mid-talk.
-  if (!readOnly && agentPref && !agents.some((a) => a.name === agentPref)) {
+  if (!noTrust && agentPref && !agents.some((a) => a.name === agentPref)) {
     console.log(`  agent: ${agentUnavailable(agentPref, agents)}`);
   }
   // A deck that EMBEDS a runtime older than this install is served as it is
   // (the file is the author's), and that runtime probes routes this server
   // may no longer have: it gets a 404, concludes there is no server, and
-  // hides every write-mode affordance without a word. Read-only mode's label
+  // hides every write-mode affordance without a word. No-trust mode's label
   // already says "DIFFERS"; write mode has to say it too, and name the fix,
   // because a page that silently will not wire up is the one failure nobody
   // can diagnose from the page. The audit is the same comparison --check
   // makes: this install's bytes, or a version it cannot vouch for.
-  if (!readOnly) {
+  if (!noTrust) {
     let rt = null;
     try { rt = auditDeck(readDeck()).runtime; } catch { /* the deck is read again by every route; a bad read fails there */ }
     if (rt?.kind === 'inline' && (rt.state === 'differs' || rt.state === 'other-version')) {
@@ -1566,27 +1566,27 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // deck registers: a review can be left in write mode too. The sidecar is
   // appended, never the deck; here it is not committed by itself, because the
   // deck's own commits (the snapshot, K) are what this server keeps.
-  // In read-only mode the sidecar is the ONE file this process writes, and
+  // In no-trust mode the sidecar is the ONE file this process writes, and
   // it is committed by itself as each comment lands when the deck sits in a
   // repository (`--no-git` leaves the committing to you).
   const reviewRepo = gitAvailable(dirname(deckPath)) && inGitRepo(dirname(deckPath));
   const review = createReviewRoutes(deckPath, {
     inRepo: reviewRepo,
-    gitOn: readOnly && reviewRepo && !noGit,
-    mode: readOnly ? 'read-only' : 'write',
+    gitOn: noTrust && reviewRepo && !noGit,
+    mode: noTrust ? 'no-trust' : 'write',
   });
   // The deck's channel (deck-routes.mjs): the probe and the stream, in both
   // modes. What the probe carries beyond the mode is `extras`, computed on
   // every ping like everything else on it: the toast is threshold-driven,
   // not live.
   const deck = createDeckRoutes(deckPath, {
-    readOnly,
-    locked: () => readOnly || locked,
+    noTrust,
+    locked: () => noTrust || locked,
     review,
-    extras: async () => (readOnly ? {
-      // Read-only mode names nothing that edits: no roster, no history, no
+    extras: async () => (noTrust ? {
+      // No-trust mode names nothing that edits: no roster, no history, no
       // git. What the page needs is whether the phone remote is on
-      // (READ_ONLY#REMOTE: the clicker, and the QR in the speaker view) and
+      // (NO_TRUST#REMOTE: the clicker, and the QR in the speaker view) and
       // whether this deck can ever leave the mode.
       phone: !!token,
       container: !!container,
@@ -1613,7 +1613,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const clients = deck.channel;
   const broadcast = deck.broadcast;
 
-  // ── the phone remote (READ_ONLY#REMOTE) ───────────────────────────────────
+  // ── the phone remote (NO_TRUST#REMOTE) ───────────────────────────────────
   // The relay: controller page, QR, readout channel, the phone's taps onto the
   // deck's stream. These are the only paths allowRemote lets through from off
   // this machine, and not one of them writes anything — the phone asks the
@@ -1634,13 +1634,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
     CORS: PHONE_CORS,
   });
 
-  // ── the upstream check (READ_ONLY#UPSTREAM) ───────────────────────────────
-  // A deck opened read-only from a clone: has its author pushed since? Absent
+  // ── the upstream check (NO_TRUST#UPSTREAM) ───────────────────────────────
+  // A deck opened without trust from a clone: has its author pushed since? Absent
   // unless the deck is a tracked file in a clone with an upstream — that is
   // the whole safety argument: a deck you were emailed is a single file and
   // never reaches any of it. Write mode has H for the deck's own history and
   // never resolves this; the routes are registered only when it applies.
-  const suppressed = !readOnly ? 'write mode' : upstreamSuppressed({ args, env: process.env });
+  const suppressed = !noTrust ? 'write mode' : upstreamSuppressed({ args, env: process.env });
   const upstreamCtx = suppressed ? { state: 'disabled' } : await resolveUpstream(deckPath);
   const upstream = upstreamCtx.state === 'ok' ? upstreamCtx : null;
   // The PULL is a second, explicit opt-in. Server-side there is no way to tell
@@ -1676,7 +1676,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   };
   /**
    * Fast-forward, then re-read, re-audit and RE-PRINT. SPEC's condition on
-   * live reload in read-only mode is exactly this: never new bytes under the
+   * live reload in no-trust mode is exactly this: never new bytes under the
    * old verdict. So the label the presenter can see always describes the
    * bytes being served, and the two move together.
    */
@@ -1880,10 +1880,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (filename && filename !== basename(deckPath)) return;
     clearTimeout(pending);
     pending = setTimeout(() => {
-      // Read-only mode serves the audited bytes, never the disk: a file that
+      // No-trust mode serves the audited bytes, never the disk: a file that
       // changed underneath it is not reloaded, because that would be new
       // bytes under the old label. A pull re-audits.
-      if (readOnly) return;
+      if (noTrust) return;
       // A QUIET write is one the pages update themselves in place, which must
       // not reload: a theme marked from the open picker (a reload closes the
       // picker the author is still choosing in), or a notes save, whose new
@@ -2059,7 +2059,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // switch that turns changes off, to avoid making one by mistake, and back
   // on. It lives here, not in a page, so every tab and the agent see the
   // same state: locked, every POST to /deck/edit/* but this one answers 423,
-  // the ping says so, and the channel tells every open page. Read-only mode
+  // the ping says so, and the channel tells every open page. No-trust mode
   // has no lock to turn: the write family refuses there anyway.
   let locked = false;
   function lockRoute({ body, json }) {
@@ -2236,7 +2236,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   }
 
   // ── review comments (SPEC REVIEW) ─────────────────────────────
-  // The author's side of `decklight <deck> --read-only`. The same file, the same
+  // The author's side of `decklight <deck> --no-trust`. The same file, the same
   // append-only rule: this server may add a line (a resolve, a reply) and
   // may not rewrite one, because `merge=union` is what keeps two reviewers
   // from conflicting and an edit in place is what would break it.
@@ -2683,7 +2683,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   }
 
   // Author-mode only, and that is structural rather than checked: this
-  // server answers loopback alone, and `--read-only` registers nothing like
+  // server answers loopback alone, and `--no-trust` registers nothing like
   // these at all. A credential prompt in a deck you were emailed has
   // nowhere to post.
   async function wizardConfigureRoute({ body, json }) {
@@ -3598,7 +3598,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     routes.set(key, ({ req, res, url, body }) => review.handle(req, res, url, body ?? ''));
   }
   // The upstream routes are REGISTERED ONLY when the deck is a tracked file in
-  // a clone whose branch tracks something (READ_ONLY#UPSTREAM): on a deck you
+  // a clone whose branch tracks something (NO_TRUST#UPSTREAM): on a deck you
   // were emailed they are not refused, they do not exist. The strict origin
   // gate, not allowEditRequest: `null` is a sandboxed plugin frame's origin,
   // and presenter chrome must not be able to fast-forward the presenter's
@@ -3620,8 +3620,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
     });
   }
 
-  // What read-only mode refuses, by name: everything that writes the deck or
-  // reaches a bridge, and the review owner's half. A deck opened read-only used to be
+  // What no-trust mode refuses, by name: everything that writes the deck or
+  // reaches a bridge, and the review owner's half. A deck opened without trust used to be
   // served by a process in which none of this was registered; now it is one
   // server, and the refusal is the mode's — a 403 that says which mode would
   // answer, rather than a 405 that pretends the route is unknown.
@@ -3631,7 +3631,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
   // Two static servers for one root, chosen per request by the mode. Write
   // mode serves the cwd with the deck at "/" and an author's exotic asset as
-  // octet-stream. Read-only mode refuses every extension the MIME table does
+  // octet-stream. No-trust mode refuses every extension the MIME table does
   // not name (a file beside a travelled deck that is none of them — `id_rsa`,
   // a `.pem`, a database — is only ever fetched to be exfiltrated), rewrites
   // every html page on its way out (strict, then the chrome), and has no
@@ -3639,12 +3639,12 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const files = staticFiles(root, { index: deckUrl });
   const auditedFiles = staticFiles(root, { html: rewrite, knownTypesOnly: true });
   const server = createServer(async (req, res) => {
-    // Read-only mode: the policy on EVERY response this server writes — the
+    // No-trust mode: the policy on EVERY response this server writes — the
     // deck and its assets, but also the 403/404/405 pages, the control-
     // channel JSON and SSE, and the remote controller. Set before anything
     // runs, and writeHead merges it under whatever a route names itself, so
     // "every response carries the header" holds by construction.
-    if (readOnly) res.setHeader('content-security-policy', CSP);
+    if (noTrust) res.setHeader('content-security-policy', CSP);
     // Loopback always; off-loopback only /deck/remote/* carrying the per-run
     // token, and only when --remote asked for a listener at all. Every other
     // path is refused off this machine unconditionally — flag or no flag,
@@ -3696,9 +3696,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
         res.end(JSON.stringify(obj));
       };
       if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
-      // read-only mode: nothing that writes answers, whatever it was aimed at
-      if (readOnly && WRITE_FAMILY(url.pathname)) {
-        return json(403, { ok: false, readOnly: true, error: 'this deck is open read-only — nothing here changes it' });
+      // no-trust mode: nothing that writes answers, whatever it was aimed at
+      if (noTrust && WRITE_FAMILY(url.pathname)) {
+        return json(403, { ok: false, noTrust: true, error: 'this deck is open without trust — nothing here changes it' });
       }
       // locked: no edit route writes, whatever it was aimed at — the one
       // POST that still answers is the lock itself, so it can be lifted
@@ -3718,11 +3718,11 @@ export async function editMain(args, { onListen = null, client } = {}) {
       }
       if (handler) return await handler({ req, res, url, body, json, CORS });
       // ── the deck and the files beside it ──────────────────────────────
-      // Read-only mode answers the deck's own path from the audited bytes
+      // No-trust mode answers the deck's own path from the audited bytes
       // (servePayload above). For a container that also means the URL a
       // person sees is the file they double-clicked — serving the raw archive
       // bytes there would hand a browser something it cannot render.
-      if (readOnly) {
+      if (noTrust) {
         if (isDeck(url)) {
           if (servePayload(req, res)) return;
           res.writeHead(405); res.end('method not allowed'); return;
@@ -3746,11 +3746,11 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // WHICH port it ended up on (a taken --port moves to the next free one) and
   // to print its own banner instead of the authoring one.
   if (onListen) onListen({ port: actual, deckUrl, server });
-  else if (readOnly) {
+  else if (noTrust) {
     // Before the first slide renders, not after — the point of the label is
     // to be able to decide not to open it. The audience is looking at the
     // deck; none of this goes on the page.
-    console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
+    console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — no trust: its code stripped, CSP enforced. Ctrl-C stops`);
     console.log(`  serving ${root} — ${rootArg ? '--root as given' : "the deck's own directory"};`
       + ' dotfiles and non-deck file types refused; every edit route refuses, nothing is written');
     printLabel();
@@ -3823,7 +3823,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // exception cli/git.mjs names, why it is never on a timer, and why it is
   // nowhere near the SIGINT path (finalCommit above says what lives there and
   // why nothing else may).
-  if (!onListen && !readOnly) {
+  if (!onListen && !noTrust) {
     const skipped = reviewCheckSuppressed({ args });
     if (skipped) {
       startup('reviews', `not checked — ${skipped}`, `  reviews: not checked — ${skipped}`);

@@ -131,13 +131,13 @@
       if (u.includes('/deck/edit/lock') && init?.method === 'POST') { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, locked: b.locked === true }); }
       // the lock (lockmode): write mode, unlocked
       if (HARNESS_MODE === 'lockmode') {
-        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], readOnly: false, locked: false });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], noTrust: false, locked: false });
         if (u.includes('/deck/edit/lock')) { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, locked: b.locked === true }); }
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
       }
-      // read-only mode (readonlymode): the one probe says so, and nothing edits
-      if (HARNESS_MODE === 'readonlymode') {
-        if (u.includes('/deck/ping')) return json({ ok: true, name: 'engine.html', readOnly: true, locked: true, phone: false, container: false });
+      // no-trust mode (notrustmode): the one probe says so, and nothing edits
+      if (HARNESS_MODE === 'notrustmode') {
+        if (u.includes('/deck/ping')) return json({ ok: true, name: 'engine.html', noTrust: true, locked: true, phone: false, container: false });
       }
       if (HARNESS_MODE === 'commit') {
         if (u.includes('/deck/ping')) {
@@ -2480,8 +2480,8 @@
         return;
       }
 
-      if (mode === 'readonlymode') {
-        // Read-only mode answers the one probe: no author affordance, the
+      if (mode === 'notrustmode') {
+        // No-trust mode answers the one probe: no author affordance, the
         // write rows gone, no row that would leave the mode — the mode is
         // the run's — and E says what it needs.
         await settle(); await settle();
@@ -2496,7 +2496,7 @@
         r.nothingEdits = !document.querySelector('.decklight-editbar') && !h1?.isContentEditable;
         press('/');
         const top = rows();
-        r.noModeRow = !top.some((t) => /^Write mode|^Read-only mode|^Lock editing|^Export & share…/.test(t));
+        r.noModeRow = !top.some((t) => /^Write mode|^No-trust mode|^Lock editing|^Export & share…/.test(t));
         press('Escape');
         r.presentedChannelWired = CALLS.get.some((u) => u.includes('/deck/events')) || !!window.__es;
         r.PASS = r.notAvailable && r.noChip && r.nothingEdits && r.noModeRow;

@@ -29,7 +29,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
  *
  * Four of them spawn the CLI, and a command reads the unit library from the
  * config home: `import` resolves its adapter for a `.pptx` from there, and
- * `--read-only` would load the plugin library. On an ephemeral CI runner that home
+ * `--no-trust` would load the plugin library. On an ephemeral CI runner that home
  * is empty and none of this mattered — which is exactly why it went unnoticed
  * until `verify` ran on a real Mac (#309), where the home belongs to a person
  * and holds their marketplaces, plugins and credentials.
@@ -82,7 +82,7 @@ const ENGINE_GROUPS = {
   handover: ['exportpptx', 'exportfail', 'exportvideo', 'publish'],
   templates: ['template', 'templatelook'],
   sources: ['sources', 'sourcesedit'],
-  authoring: ['lockmode', 'readonlymode', 'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesauto', 'notesautofail', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'editingtour', 'editingtourwelcome'],
+  authoring: ['lockmode', 'notrustmode', 'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesauto', 'notesautofail', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'editingtour', 'editingtourwelcome'],
   builds: ['linedraw', 'nestedfills', 'dslayouts', 'dsedit'],
 };
 const ENGINE_HARNESSES = Object.keys(ENGINE_GROUPS).map((g) => `engine-render:${g}`);

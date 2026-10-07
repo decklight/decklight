@@ -200,31 +200,31 @@ test('present and review open a repository URL — into the one clone author mad
   const { url } = bareRepo(root, { 'deck.html': DECK });
   const cwd = path.join(root, 'here'); fs.mkdirSync(cwd);
 
-  const first = await serveFrom(t, [url, '--read-only'], cwd);
+  const first = await serveFrom(t, [url, '--no-trust'], cwd);
   assert.match(first, /cloned file:.*talk\.git → talk/);
-  assert.match(first, /decklight · deck\.html on http:\/\/127\.0\.0\.1:\d+\/deck\.html — read-only/, 'and plays the deck inside');
+  assert.match(first, /decklight · deck\.html on http:\/\/127\.0\.0\.1:\d+\/deck\.html — no trust/, 'and plays the deck inside');
 
-  const second = await serveFrom(t, [url, '--read-only', '--no-git'], cwd);
+  const second = await serveFrom(t, [url, '--no-trust', '--no-git'], cwd);
   assert.match(second, /already cloned — opening talk/);
   assert.doesNotMatch(second, /cloned file:/, 'no second clone');
-  assert.match(second, /decklight · deck\.html on http:\/\/127\.0\.0\.1:\d+\/deck\.html — read-only/);
+  assert.match(second, /decklight · deck\.html on http:\/\/127\.0\.0\.1:\d+\/deck\.html — no trust/);
 
   // from INSIDE the clone, the clone is this directory — not talk/talk
-  const third = await serveFrom(t, [url, '--read-only'], path.join(cwd, 'talk'));
+  const third = await serveFrom(t, [url, '--no-trust'], path.join(cwd, 'talk'));
   assert.match(third, /already cloned — opening \./);
   assert.ok(!fs.existsSync(path.join(cwd, 'talk', 'talk')), 'nothing nested');
   assert.equal(fs.readdirSync(cwd).join(','), 'talk', 'one clone, all three times');
 });
 
-test('--read-only --check works on a repository URL, and a URL that is no repository is a sentence', (t) => {
+test('--no-trust --check works on a repository URL, and a URL that is no repository is a sentence', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-url-check-'));
   t.after(() => rmTemp(root));
   const { url } = bareRepo(root, { 'deck.html': DECK });
   const cwd = path.join(root, 'here'); fs.mkdirSync(cwd);
-  const ok = spawnSync(process.execPath, [CLI, url, '--read-only', '--check'], { cwd, encoding: 'utf8', timeout: 60_000 });
+  const ok = spawnSync(process.execPath, [CLI, url, '--no-trust', '--check'], { cwd, encoding: 'utf8', timeout: 60_000 });
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stderr, /cloned file:.*talk\.git → talk/);
-  for (const flags of [[], ['--read-only']]) {
+  for (const flags of [[], ['--no-trust']]) {
     const cmd = flags.join(' ') || 'write';
     const bad = spawnSync(process.execPath, [CLI, `file://${root}/nowhere.git`, ...flags], { cwd, encoding: 'utf8', timeout: 60_000 });
     assert.notEqual(bad.status, 0, cmd);

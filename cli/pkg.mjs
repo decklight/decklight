@@ -7,8 +7,8 @@
 // WHY THIS IS ONE MODULE AND NOT FIVE CONSTANTS. Four commands write a deck
 // that carries the runtime inline — `init` scaffolds one, `import` converts
 // one, `upgrade` refreshes one, `bundle` inlines a referenced one — and
-// `audit` recomputes what they SHOULD have produced, so that `--read-only` can
-// say whether the runtime in a file is this install's build (READ_ONLY#AUDIT).
+// `audit` recomputes what they SHOULD have produced, so that `--no-trust` can
+// say whether the runtime in a file is this install's build (NO_TRUST#AUDIT).
 // That makes the inlining transform a contract between five files, and it was
 // copied into each of them. `import` copied it slightly wrong: its local
 // escape covered `</script` and `</style` but not `<!--`, so an imported deck
@@ -74,7 +74,7 @@ export const runtimeCss = () => fs.readFileSync(path.join(PKG_ROOT, 'dist/deckli
  * as `{ file, type }`, or null for anything else (#517).
  *
  * A deck that LINKS the runtime instead of carrying it is a few KB of slides
- * whose runtime is whatever is installed. Every server (`open`, `--read-only`,
+ * whose runtime is whatever is installed. Every server (`open`, `--no-trust`,
  * the render server behind pdf/pptx/video) answers those three shapes from
  * here when nothing is on disk, and `bundle` inlines from here at hand-over,
  * so the same deck plays served and travels self-contained. Matched on the

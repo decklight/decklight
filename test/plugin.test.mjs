@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Presenter-library plugins (MARKETPLACE.md READ_ONLY#PLUGINS).
+// Presenter-library plugins (MARKETPLACE.md NO_TRUST#PLUGINS).
 //
 // The claim that matters is not "a plugin can add a timer" — it is everything
 // a plugin CANNOT do, and everything that stays unchanged when one is
@@ -153,7 +153,7 @@ test('loadPlugin refuses a reaching plugin and explains where it actually runs',
 // ── the library ────────────────────────────────────────────────────────────
 
 test('a broken plugin is skipped with a reason, never fatal', () => {
-  // The READ_ONLY#STRICT argument: nothing about a timer should cost someone
+  // The NO_TRUST#STRICT argument: nothing about a timer should cost someone
   // their talk ten minutes before they give it.
   const home = homeWith({
     timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE },
@@ -238,7 +238,7 @@ function deckDir() {
 }
 
 async function startPresent(t, dir, home, extraArgs = []) {
-  const child = spawn(process.execPath, [CLI, 'talk.html', '--read-only', '--port', '0', ...extraArgs],
+  const child = spawn(process.execPath, [CLI, 'talk.html', '--no-trust', '--port', '0', ...extraArgs],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';
@@ -301,9 +301,9 @@ test('a plugin does not widen the CSP or register a route', async (t) => {
 
 test('the ingredients label does not count a plugin', async (t) => {
   const dir = deckDir();
-  const bare = execFileSync(process.execPath, [CLI, 'talk.html', '--read-only', '--check'],
+  const bare = execFileSync(process.execPath, [CLI, 'talk.html', '--no-trust', '--check'],
     { cwd: dir, encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: tmp('plugin-empty-home') } });
-  const withPlugin = execFileSync(process.execPath, [CLI, 'talk.html', '--read-only', '--check'],
+  const withPlugin = execFileSync(process.execPath, [CLI, 'talk.html', '--no-trust', '--check'],
     { cwd: dir, encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } }) } });
   // The label is an inventory of the FILE. A plugin is not in the file, so
   // installing one must not move a single number in it.
@@ -317,7 +317,7 @@ test('strict mode does not strip the chrome it was handed', async (t) => {
   const dir = tmp('plugin-strict');
   writeFileSync(path.join(dir, 'talk.html'), DECK.replace('</body>', '<script>window.x=1</script></body>'));
   const home = homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } });
-  const child = spawn(process.execPath, [CLI, 'talk.html', '--read-only', '--port', '0'],
+  const child = spawn(process.execPath, [CLI, 'talk.html', '--no-trust', '--port', '0'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';

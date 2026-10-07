@@ -57,8 +57,8 @@ export function dumpDom(url, {
     // harness that did not have it is the one that hung (#323).
     //
     // The way to drain a virtual clock is to leave no fetch pending, and one
-    // page in this project cannot: a deck served by `decklight <deck> --read-only` opens
-    // an EventSource on /deck/events for the phone remote (READ_ONLY#REMOTE),
+    // page in this project cannot: a deck served by `decklight <deck> --no-trust` opens
+    // an EventSource on /deck/events for the phone remote (NO_TRUST#REMOTE),
     // which by design never ends. Dump such a deck from file:// — or from a
     // server that does not answer /deck/ping — and it settles in ~2s.
     ...(timeout ? { timeout, killSignal: 'SIGKILL' } : {}),

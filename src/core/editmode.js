@@ -12,7 +12,7 @@
 // message. Nothing else in the engine needs to know the server exists; layout
 // cycling, the one other thing that saves through it, asks available()/base().
 //
-// The phone remote is NOT here (READ_ONLY#REMOTE). It hangs off a second, smaller
+// The phone remote is NOT here (NO_TRUST#REMOTE). It hangs off a second, smaller
 // probe — wireRemote, below — because it belongs to a server with no
 // edit surface at all, and a clicker should never have cost you one.
 
@@ -49,8 +49,8 @@ export function createEditMode({
   // while a foreign tab's fetch is refused server-side (#222, cli/serve.mjs).
   let editAvailable = false;
   let locked = false;     // the deck's lock (PRESENTING): the server's state, mirrored here
-  let served = false;     // a server answered the probe, read-only or not
-  let readOnly = false;   // …and it was the read-only one
+  let served = false;     // a server answered the probe, with trust or without
+  let noTrust = false;   // …and it was without trust
   let editBase = '';
   let editAgents = [];   // [{name, label, installed}] the dev machine can run
   let preferredAgent = null; // the one A reaches for, remembered server-side (#125)
@@ -67,7 +67,7 @@ export function createEditMode({
   // and the job does not. This lives as long as the run does, and ticks, so the
   // difference between "thinking" and "wedged" is visible without pressing A to
   // ask. Built lazily and removed outright — a deck that never asks an agent
-  // never grows the node, and `--read-only` never reaches this code at all.
+  // never grows the node, and `--no-trust` never reaches this code at all.
   let agentChip = null;
   let agentTick = 0;
   function paintAgentChip() {
@@ -332,13 +332,13 @@ export function createEditMode({
             debugLog('edit', `server edits ${j.name}, this deck is ${here} — not wiring up`);
             continue;
           }
-          // The one server in read-only mode: nothing here edits, and the
-          // page wires up what a read-only deck gets (the clicker, the
+          // The one server in no-trust mode: nothing here edits, and the
+          // page wires up what a deck opened without trust gets (the clicker, the
           // upstream readout) and nothing else. Every affordance gated on
           // `available()` keeps saying it needs write mode, because it does.
-          if (j.readOnly) {
+          if (j.noTrust) {
             served = true;
-            readOnly = true;
+            noTrust = true;
             probeSettled();
             await wireRemote(base, j);
             return;
@@ -384,7 +384,7 @@ export function createEditMode({
           es.addEventListener('lock', (ev) => {
             try { setLocked(JSON.parse(ev.data).locked === true); } catch { /* malformed */ }
           });
-          // The phone remote is the server's in either mode (READ_ONLY#REMOTE):
+          // The phone remote is the server's in either mode (NO_TRUST#REMOTE):
           // with --remote, write mode gets the clicker and the QR too.
           wireClicker(base, es, j);
           // A notes save is not a reload: every open view of the deck gets
@@ -471,7 +471,7 @@ export function createEditMode({
   // `available()` is false until it is lifted.
   let lockChip = null;
   function paintLockChip() {
-    if (!locked || !served || readOnly) { lockChip?.remove(); lockChip = null; return; }
+    if (!locked || !served || noTrust) { lockChip?.remove(); lockChip = null; return; }
     if (!lockChip) {
       lockChip = document.createElement('div');
       lockChip.className = 'decklight-lock-chip';
@@ -488,7 +488,7 @@ export function createEditMode({
   function setLocked(on) {
     if (on === locked) return;
     locked = on;
-    editAvailable = served && !readOnly && !locked;
+    editAvailable = served && !noTrust && !locked;
     syncEditing();   // the bar and its selection go with the capability
     paintLockChip();
     for (const fn of lockListeners) fn(locked);
@@ -497,7 +497,7 @@ export function createEditMode({
   const lockListeners = new Set();
   /** Flip the lock on the server; every page, this one included, follows the channel. */
   async function toggleLock(want = !locked) {
-    if (!served || readOnly) { toast('this deck is open read-only (--read-only) — there is no lock to turn', 3000); return; }
+    if (!served || noTrust) { toast('this deck is open without trust (--no-trust) — there is no lock to turn', 3000); return; }
     try {
       const r = await fetch(editBase + '/deck/edit/lock', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locked: want }),
@@ -518,14 +518,14 @@ export function createEditMode({
    * ALLOWED to do, and a shared code path with a boolean in it is how a
    * presenting server quietly acquires an editing capability later.
    */
-  // ── the deck update overlay (H, read-only mode) — SPEC READ_ONLY#UPSTREAM ─────
+  // ── the deck update overlay (H, no-trust mode) — SPEC NO_TRUST#UPSTREAM ─────
   //
   // The author's H is the deck's own history. A PRESENTED deck has no history
   // to show — there is no edit server and no /deck/edit/history/at to preview a commit with
   // — so the same key answers the question that IS live there: has the person
   // who wrote this pushed anything since I cloned it?
   //
-  // It never draws on the slides. read-only.mjs is right that the audience cannot
+  // It never draws on the slides. no-trust mode is right that the audience cannot
   // act on any of this, and this is an overlay somebody opened, not a banner.
   // `''` is a REAL value here — it is the base for a deck served over http,
   // where every fetch is same-origin — so a separate flag says whether we are
@@ -642,7 +642,7 @@ export function createEditMode({
 
   async function wireRemote(base, j) {
     try {
-      // H in read-only mode. The routes only exist when the deck is a tracked
+      // H in no-trust mode. The routes only exist when the deck is a tracked
       // file in a clone with an upstream, so this base is enough to tell: a
       // deck that is not one gets a 404/405 and H says so, rather than the
       // overlay existing and being permanently empty.
@@ -650,7 +650,7 @@ export function createEditMode({
       presenting = true;
       const es = new EventSource(base + '/deck/events');
       // No `onmessage` handler: the unnamed `reload` message is write mode's,
-      // and read-only mode never sends one — it serves the audited bytes.
+      // and no-trust mode never sends one — it serves the audited bytes.
       wireClicker(base, es, j);
       debugLog('remote', `remote connected${base ? ` (${base})` : ''} — no edit surface`);
     } catch { /* not served */ }
@@ -967,12 +967,12 @@ export function createEditMode({
       unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; notesRefresh = null; notesDirty = null; notesDrafted = null; forgetNotesOpen();
       return;
     }
-    // With no edit server behind the deck — read-only, a file —
+    // With no edit server behind the deck — without trust, a file —
     // the same card opens READ-ONLY: the notes to read, following the slide,
     // and nothing that could look like it saves. `decklight <deck>` edits them.
-    const readOnly = notesReadOnly = !editAvailable;
+    const notesRO = notesReadOnly = !editAvailable;
     let sl = instance.state.slide;
-    const heading = () => (readOnly
+    const heading = () => (notesRO
       ? `notes — slide ${sl} · read-only (write mode edits them)`
       : `notes — slide ${sl} · saves itself`);
     const { el, card, title } = typingCard('notes', notesDock, heading(), toggleEditor);
@@ -984,13 +984,13 @@ export function createEditMode({
     const notesText = () => writtenMarks(notesDraft(sl));
     let loaded = ta.value = notesText();
     ta.spellcheck = false;
-    ta.readOnly = readOnly;
-    if (readOnly) ta.classList.add('edit-notes-readonly');
+    ta.readOnly = notesRO;
+    if (notesRO) ta.classList.add('edit-notes-readonly');
     let syncChanged = () => {};   // the reset / before-after buttons, once they exist (not read-only)
     let saving = false;           // a save in flight: the mark says "saving…" 
     let drafted = false;          // the box holds an agent's draft, to be read before it is written
-    if (!readOnly) notesDirty = () => ta.value !== loaded;
-    if (!readOnly) notesDrafted = () => drafted;
+    if (!notesRO) notesDirty = () => ta.value !== loaded;
+    if (!notesRO) notesDrafted = () => drafted;
     notesFollow = () => {
       if (instance.state.slide === sl) return;
       // Edits go to the slide they were written for, and the card moves on
@@ -999,7 +999,7 @@ export function createEditMode({
       if (ta.value !== loaded) {
         // …but an agent's draft stays with the slide it was drafted for,
         // unwritten, until it has been read
-        if (!readOnly && !saving && !drafted) save().then(() => { if (ta.value === loaded) notesFollow?.(); });
+        if (!notesRO && !saving && !drafted) save().then(() => { if (ta.value === loaded) notesFollow?.(); });
         return;
       }
       sl = instance.state.slide;
@@ -1056,15 +1056,15 @@ export function createEditMode({
         toast(`save failed: ${String(e.message || e).slice(0, 90)}`, 6000);
       }
     };
-    if (!readOnly) notesSave = save;
+    if (!notesRO) notesSave = save;
     ta.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { if (!readOnly) save(); e.preventDefault(); }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { if (!notesRO) save(); e.preventDefault(); }
       else if (e.key === 'Escape') { toggleEditor(); e.preventDefault(); }
       // read-only, a box with the caret in it must not eat the deck's keys:
       // → still advances, and the notes follow the slide
-      if (!readOnly) e.stopPropagation();
+      if (!notesRO) e.stopPropagation();
     });
-    if (readOnly) {
+    if (notesRO) {
       card.append(ta);
       unmountEditor = mountTypingCard(el, notesDock);
       return;
@@ -2105,7 +2105,7 @@ export function createEditMode({
 
   async function openWizard(engine) {
     if (wizEl) { closeWizard(); return; }
-    // The gate. In `--read-only`, in a bundled deck, or on file:// with no author
+    // The gate. In `--no-trust`, in a bundled deck, or on file:// with no author
     // server, there is nothing to post a credential TO — and a prompt that
     // collected one anyway would be a phishing form with a deck around it.
     if (!editAvailable) {
@@ -2600,19 +2600,19 @@ export function createEditMode({
       list: () => restoreRows.slice(),
     },
     restore: { open: openHistory, close: closeRestore, list: () => restoreRows.slice() },
-    /** Can this page change the deck? False with no server and in read-only mode. */
+    /** Can this page change the deck? False with no server and in no-trust mode. */
     available: () => editAvailable,
     /** Did a server answer at all, and in which mode? */
     served: () => served,
-    readOnly: () => readOnly,
+    noTrust: () => noTrust,
     /** The lock (PRESENTING): its state, flipping it, and being told. */
     locked: () => locked,
     toggleLock,
     onLockChange: (fn) => { lockListeners.add(fn); },
     /** Resolves once the probe has an answer either way — see `settled`. */
     settled: () => { if (printMode || params.has('embedded')) probeSettled(); return settled; },
-    /** Its origin ('' when the deck is served BY the edit server); null under the read-only one. */
-    base: () => (readOnly ? null : editBase),
+    /** Its origin ('' when the deck is served BY the edit server); null without trust. */
+    base: () => (noTrust ? null : editBase),
     /** K: the commit window — what changed, what to call it, one button. */
     commit: { open: openCommit, close: closeCommit, state: () => commitNow },
     /** The palette's hand-over rows: 'pptx' | 'pdf' | 'pdf-notes' | 'pdf-handout'. */

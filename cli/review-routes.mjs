@@ -14,10 +14,10 @@
 // `ping()` here too. The edit server adds the owner's routes beside these
 // (/deck/review/incoming, /deck/review/at, /deck/review/done: a fetch, a look into git
 // history, a mark in git config), registered by it alone, the way the
-// read-only server alone registers /deck/upstream.
+// no-trust mode alone registers /deck/upstream.
 //
 // A review is
-// something you can do in either mode of the one server: read-only, where the
+// something you can do in either mode of the one server: without trust, where the
 // sidecar is the only file the process will ever write, and write mode, where
 // it is one file among the deck's own. What is written is the same either way:
 // an append to `<deck>.review.jsonl`, never a rewrite, which is what lets two
@@ -87,12 +87,12 @@ export const REVIEW_BODY_MAX = 1e5;
  *
  * `inRepo` says whether the deck sits in a git repository (which commit of it
  * a comment is about is recorded only then); `gitOn` whether each comment is
- * committed by itself as it lands (read-only mode does, write mode leaves the
+ * committed by itself as it lands (no-trust mode does, write mode leaves the
  * sidecar to the deck's own commits); `mode` is what the ping says the server
- * is ('read-only' | 'write'); `out` is the terminal; `onSubmitted` is told
+ * is ('no-trust' | 'write'); `out` is the terminal; `onSubmitted` is told
  * when a submit went through, for the exit line.
  */
-export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mode = 'read-only', out = process.stdout, onSubmitted = () => {} } = {}) {
+export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mode = 'no-trust', out = process.stdout, onSubmitted = () => {} } = {}) {
   // Both may be functions: the one server changes mode mid-session, and what
   // the ping says and whether a comment commits follow the mode of the moment.
   const modeOf = typeof mode === 'function' ? mode : () => mode;

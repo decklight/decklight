@@ -81,7 +81,7 @@ test('the short help names the journey, every row a real command with a summary,
 test('a file as the first argument implies its verb', () => {
   assert.equal(routeForPath('talk.html'), 'open');
   assert.equal(routeForPath('slides/Talk.HTM'), 'open');
-  assert.equal(routeForPath('talk.decklight'), 'open', 'a container opens too: read-only by nature, which open.mjs says');
+  assert.equal(routeForPath('talk.decklight'), 'open', 'a container opens too: without trust by nature, which open.mjs says');
   assert.equal(routeForPath('Q3 Review.pptx'), 'import');
   // a repository is a deck to open: `open` clones it (#514)
   for (const repo of [

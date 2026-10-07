@@ -190,7 +190,7 @@ test('git and agent flags ride along to the edit child', () => {
   assert.equal(plan(['--commit-every', '60', 'deck.html']).deck, 'deck.html');
 });
 
-// ── a deck that runs code of its own asks; off a terminal, read-only (PRESENTING) ──
+// ── a deck that runs code of its own asks; off a terminal, without trust (PRESENTING) ──
 
 const SCRIPTED = '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div>'
   + '<script>Decklight.init()</script><script>window.mine = 1</script></body></html>';
@@ -212,15 +212,15 @@ async function openDeck(t, dir, extra = [], env = {}) {
   return { base, home, log: () => out };
 }
 
-test('a deck with script of its own, off a terminal: named, and opened read-only', async (t) => {
+test('a deck with script of its own, off a terminal: named, and opened without trust', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-trust-'));
   writeFileSync(path.join(dir, 'deck.html'), SCRIPTED);
   const { base, log } = await openDeck(t, dir);
   assert.match(log(), /this deck runs code that is not the runtime/, 'the warning');
   assert.match(log(), /window\.mine = 1/, 'names the block');
-  assert.match(log(), /no terminal to ask on — opening read-only; --trust/, 'and says why read-only, and the way out');
+  assert.match(log(), /no terminal to ask on — opening without trust; --trust/, 'and says why, and the way out');
   const ping = await (await fetch(base + '/deck/ping')).json();
-  assert.equal(ping.readOnly, true);
+  assert.equal(ping.noTrust, true);
   assert.ok((await fetch(base + '/deck.html')).headers.get('content-security-policy')?.startsWith("default-src 'none'"));
 });
 
@@ -229,7 +229,7 @@ test('--trust opens it in write mode and remembers the script; the next open doe
   writeFileSync(path.join(dir, 'deck.html'), SCRIPTED);
   const first = await openDeck(t, dir, ['--trust']);
   assert.match(first.log(), /trusted \(--trust\) — write mode, remembered/);
-  assert.equal((await (await fetch(first.base + '/deck/ping')).json()).readOnly, false);
+  assert.equal((await (await fetch(first.base + '/deck/ping')).json()).noTrust, false);
   const store = JSON.parse(readFileSync(path.join(first.home, 'trust.json'), 'utf8'));
   assert.deepEqual(Object.keys(store), [realpathSync(path.join(dir, 'deck.html'))], 'remembered by its real path');
   // the same home, no flag: trusted before, write mode, no question
@@ -240,19 +240,19 @@ test('--trust opens it in write mode and remembers the script; the next open doe
   const again = await openDeck(t, dir2, [], { DECKLIGHT_HOME: home2 });
   assert.match(again.log(), /trusted before — write mode/);
   assert.doesNotMatch(again.log(), /this deck runs code/);
-  assert.equal((await (await fetch(again.base + '/deck/ping')).json()).readOnly, false);
+  assert.equal((await (await fetch(again.base + '/deck/ping')).json()).noTrust, false);
 });
 
 test('a deck with nothing to account for opens in write mode without a word', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-trust-'));
   writeFileSync(path.join(dir, 'deck.html'), SCRIPTED.replace('<script>window.mine = 1</script>', ''));
   const { base, log } = await openDeck(t, dir);
-  assert.doesNotMatch(log(), /runs code|trusted|read-only/);
-  assert.equal((await (await fetch(base + '/deck/ping')).json()).readOnly, false);
+  assert.doesNotMatch(log(), /runs code|trusted|without trust/);
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).noTrust, false);
 });
 
 test('--remote and --host travel to the deck server, in write mode too', () => {
-  // The phone remote is the server's in either mode (READ_ONLY#REMOTE): off
+  // The phone remote is the server's in either mode (NO_TRUST#REMOTE): off
   // this machine only /deck/remote/* answers, with the token, so the flag
   // widens the listener and nothing else — and the plan passes it through.
   assert.deepEqual(svc(plan(['deck.html', '--remote']), 'edit').args, ['deck.html', '--port', '8788', '--remote']);
@@ -262,13 +262,13 @@ test('--remote and --host travel to the deck server, in write mode too', () => {
   assert.equal(plan(['--host', '0.0.0.0', 'deck.html']).deck, 'deck.html');
 });
 
-test('--read-only is the same server in read-only mode: every edit route refuses, the CSP rides on every response', async (t) => {
+test('--no-trust is the same server in no-trust mode: every edit route refuses, the CSP rides on every response', async (t) => {
   // One command, one server, two modes (PRESENTING): the flag does not start
   // a different server, it starts this one with the write family refused.
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-ro-'));
   writeFileSync(path.join(dir, 'deck.html'), '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div><script>Decklight.init()</script></body></html>');
   const home = mkdtempSync(path.join(tmpdir(), 'decklight-ro-home-'));
-  const child = spawn(process.execPath, [CLI, 'deck.html', '--read-only', '--port', '0'],
+  const child = spawn(process.execPath, [CLI, 'deck.html', '--no-trust', '--port', '0'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';
@@ -279,15 +279,15 @@ test('--read-only is the same server in read-only mode: every edit route refuses
     child.on('exit', () => { clearInterval(scan); reject(new Error('exited early:\n' + out)); });
     setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 10000);
   });
-  assert.match(out, /read-only, CSP enforced/, 'it says what it is');
+  assert.match(out, /no trust: its code stripped, CSP enforced/, 'it says what it is');
   const page = await fetch(base + '/deck.html');
   assert.equal(page.status, 200);
   assert.ok(page.headers.get('content-security-policy')?.startsWith("default-src 'none'"), 'the policy, as an HTTP header');
   const edit = await fetch(base + '/deck/edit/slide/notes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
   assert.equal(edit.status, 403, 'the write family is refused by the mode');
-  assert.equal((await edit.json()).readOnly, true, 'and the refusal says which mode answered');
+  assert.equal((await edit.json()).noTrust, true, 'and the refusal says which mode answered');
   const ping = await (await fetch(base + '/deck/ping')).json();
-  assert.equal(ping.readOnly, true, 'the one probe answers, and says read-only');
+  assert.equal(ping.noTrust, true, 'the one probe answers, and says no trust');
 });
 
 test('the agent roster is part of the plan — the big three included', () => {
@@ -306,17 +306,17 @@ test('inGitRepo trusts git\'s answer and treats failure as "no repo"', () => {
 
 test('the deck is the command: the global help opens with it, and no word for it is listed', () => {
   const help = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  assert.match(help, /^  decklight <deck\.html \| repository url> \[--read-only\]/m, 'the one way to open a deck, first');
+  assert.match(help, /^  decklight <deck\.html \| repository url> \[--no-trust\]/m, 'the one way to open a deck, first');
   for (const word of ['edit', 'dev', 'open']) {
     assert.doesNotMatch(help, new RegExp(`^  ${word} +\\S`, 'm'), `${word} is not a command`);
   }
 
   const openHelp = execFileSync('node', [CLI, 'deck.html', '--help'], { encoding: 'utf8' });
-  assert.match(openHelp, /usage: decklight <deck\.html \| git url> \[--read-only\]/);
+  assert.match(openHelp, /usage: decklight <deck\.html \| git url> \[--no-trust\]/);
   // the remote is a flag of the one command, in either mode
   assert.match(openHelp, /^\s+--remote\b/m, 'the LAN opt-in is offered');
   assert.match(openHelp, /^\s+--host\b/m, 'and so is the bind address');
-  assert.match(openHelp, /^\s+--read-only\b/m, 'the read-only mode is a flag of the same command');
+  assert.match(openHelp, /^\s+--no-trust\b/m, 'the no-trust mode is a flag of the same command');
 });
 
 test('`edit` is not a command, and says so the way any other unknown one does', () => {
@@ -466,7 +466,7 @@ test('SIGKILL to author takes the deck server with it — no orphan holding the 
 });
 
 test('a missing deck fails by name — not a stack trace', () => {
-  const bare = spawnSync('node', [CLI, 'nope.html', '--read-only'], { encoding: 'utf8' });
+  const bare = spawnSync('node', [CLI, 'nope.html', '--no-trust'], { encoding: 'utf8' });
   assert.equal(bare.status, 1);
   assert.match(bare.stderr, /deck not found/);
   assert.doesNotMatch(bare.stderr, /at .*\.mjs:\d+/, 'no stack trace');

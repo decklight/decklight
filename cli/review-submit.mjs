@@ -5,12 +5,12 @@
 // `decklight comments submit` — send the comments back. SPEC REVIEW.
 //
 // A review that never leaves the reviewer's laptop is a review that did not
-// happen. `decklight <deck> --read-only` commits comments locally and then nothing happens:
+// happen. `decklight <deck> --no-trust` commits comments locally and then nothing happens:
 // the reviewer presses Ctrl-C and walks away with commits nobody will ever see.
 //
 // WHAT THIS PUSHES, AND WHAT IT DOES NOT.
 //
-// Not the reviewer's branch. `--read-only` commits each comment onto whatever branch
+// Not the reviewer's branch. `--no-trust` commits each comment onto whatever branch
 // they happen to be on, so pushing that would drag every unrelated local commit
 // into somebody else's pull request. Instead this builds a commit the way
 // cli/publish.mjs does — one blob, one tree parented on what the REMOTE has,
@@ -136,7 +136,7 @@ export function submitReview(deckPath, {
   const storePath = reviewPathFor(resolve(deckPath));
   if (!existsSync(storePath)) {
     fail(`no comments to submit — ${basename(storePath)} does not exist yet`
-      + `\n  leave some first:  decklight ${name} --read-only   (then M)`);
+      + `\n  leave some first:  decklight ${name} --no-trust   (then M)`);
   }
   const bytes = readFileSync(storePath, 'utf8');
   const { records } = parseReview(bytes);
@@ -273,7 +273,7 @@ export function submitReview(deckPath, {
           // comments, which is a pull request about the wrong thing.
           ...(base ? ['--base', base] : []),
           '--title', `Review: ${what} on ${name}`,
-          '--body', `Left with \`decklight ${name} --read-only\` (M in the deck).\n\n`
+          '--body', `Left with \`decklight ${name} --no-trust\` (M in the deck).\n\n`
             + `Read them with:\n\n    decklight comments ${name}\n`,
         ], { cwd, encoding: 'utf8', env: noPromptEnv(), timeout: 60_000 }).trim();
         out.write(`  ${prUrl}\n`);

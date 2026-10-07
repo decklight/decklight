@@ -117,7 +117,7 @@ try {
 // `decklight talk.pptx` imports it, `decklight talk.decklight` presents it.
 let command = resolveCommand(cmd);
 if (!command && cmd.startsWith('-')) {
-  // `decklight --read-only talk.html`, `decklight --port 0 talk.html`: the deck
+  // `decklight --no-trust talk.html`, `decklight --port 0 talk.html`: the deck
   // is the command wherever it sits on the line, and the flags go with it
   const deck = argv.find((a) => !a.startsWith('-') && routeForPath(a));
   if (deck) { rest = argv; cmd = routeForPath(deck); command = resolveCommand(cmd); }

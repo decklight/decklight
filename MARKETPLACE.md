@@ -3,7 +3,7 @@
 Status: **draft for review**. Not filed as an issue yet.
 
 This is the consolidated record of the marketplace design, including the two
-late additions that absorbed most of its safety burden: `--read-only` (once a command of its own) and
+late additions that absorbed most of its safety burden: `--no-trust` (once a command of its own) and
 the `.decklight` container. Where a later decision supersedes an earlier one, the
 earlier one is marked rather than deleted: the reasoning matters.
 
@@ -128,7 +128,7 @@ The decision that resolves the safety problem.
 | | Runs where | Trust model | Travels? |
 |---|---|---|---|
 | **Build-time transform** (default) | Node, on the author's machine, during `bundle` | Installer is the risk-bearer: Claude's model, defensible for the same reason | **No**: only its output does |
-| **Presenter-library plugin** | The presenter's own machine, via `decklight <deck> --read-only` | Installer is the risk-bearer | **No**: lives with the presenter, not the deck |
+| **Presenter-library plugin** | The presenter's own machine, via `decklight <deck> --no-trust` | Installer is the risk-bearer | **No**: lives with the presenter, not the deck |
 | **In-deck runtime** (deferred) | The audience's browser | Recipient consented to nothing | Yes, which is the problem |
 
 A transform takes the deck's HTML and returns HTML. That covers nearly
@@ -157,7 +157,7 @@ transform's assumptions does. Loaded by dynamic `import()`, **in the same
 process as `bundle`** (no subprocess, no VM sandbox) because the trust model
 for build-time code is already decided above (installer is the risk-bearer);
 isolating a transform from the process that invoked it would defend against a
-threat this design already accepted. Contrast `READ_ONLY#PLUGINS`, sandboxed
+threat this design already accepted. Contrast `NO_TRUST#PLUGINS`, sandboxed
 because that code runs on a presenter's machine at a stranger's request, a
 different actor, a different risk.
 
@@ -201,7 +201,7 @@ gate sits at the marketplace's door, once, not on every local iteration.
 
 Named `extension`, not `transform`, on purpose: `decklight plugin check`
 already exists for presenter-library plugins (a different risk: a
-stranger's code on the presenter's machine, SPEC `READ_ONLY#PLUGINS`); this is
+stranger's code on the presenter's machine, SPEC `NO_TRUST#PLUGINS`); this is
 the gate for **build-time** code units specifically, and `EXTENSIONS#ADAPTEREXEC`
 will need the identical two-phase shape for import adapters once *their*
 calling convention is frozen. `--type transform` (default, and the only kind
@@ -211,7 +211,7 @@ Three phases, and they are not the same kind of check:
 
 - **Lint the source text: advisory.** Refuses `fetch(`, `eval(`,
   `XMLHttpRequest`, or a dynamic `import(` appearing anywhere in the file, by
-  the same shallow source-text scan `READ_ONLY#PLUGINS` already uses for its
+  the same shallow source-text scan `NO_TRUST#PLUGINS` already uses for its
   own lint. It states the bar and catches the honest mistake; it does not
   constrain a determined one: a static `import { execSync } from
   'node:child_process'`, a `new Function('return fetch')()`, a
@@ -300,9 +300,9 @@ at `theme add`; templates and skills execute nothing), and a hand-placed unit
 still runs: the pin governs what an *install* writes, `EXTENSIONS`' trust
 model still governs running it.
 
-### PRESENT · `--read-only`, the trusted local viewer
+### PRESENT · `--no-trust`, the trusted local viewer
 
-`decklight <deck> --read-only` serves a deck read-only over localhost and is the
+`decklight <deck> --no-trust` serves a deck without trust over localhost and is the
 safe way to play a deck you did not author.
 
 - **The audit runs because it is the only way in.** A standalone `verify` is a
@@ -320,7 +320,7 @@ safe way to play a deck you did not author.
   own library, so the deck is unchanged and the plugin is theirs. Scope is
   **chrome only** (timer, teleprompter, ink extras, confidence monitor); a
   plugin may not transform slide content, or a deck stops being a deterministic
-  artifact. **Shipped as `READ_ONLY#PLUGINS`, and the enforcement is structural
+  artifact. **Shipped as `NO_TRUST#PLUGINS`, and the enforcement is structural
   rather than a rule**: a plugin's code runs in `<iframe sandbox="allow-scripts"
   srcdoc=…>` with no `allow-same-origin`, so it holds an opaque origin and
   `parent.document` throws. The closed manifest vocabulary and the source lint
@@ -342,7 +342,7 @@ safe way to play a deck you did not author.
 - **Architectural bonus:** the phone remote and its QR currently live in the
   *edit* server (`cli/edit.mjs`, gated by `allowRemote`), so getting a clicker
   today means running an editing server with `/deck/edit/*` write endpoints against
-  your deck. Read-only mode is the natural home for speaker view and the remote with
+  your deck. No-trust mode is the natural home for speaker view and the remote with
   **no edit surface registered at all**.
 
 ### DECK_FILE · `.decklight`, a signed container, not a relabel
@@ -363,17 +363,17 @@ association hands the loser's users a confusing double-click. `.dck` is
 Forge/XMage Magic decks. `.decklight` is verbose, collision-proof and
 self-describing: the verbosity is the feature.
 
-- `decklight talk.decklight` (read-only by nature) verifies **before** rendering.
+- `decklight talk.decklight` (without trust by nature) verifies **before** rendering.
 - The manifest (runtime version, extensions, origin repo, commit SHA) sits
   *outside* the payload, where a tamperer cannot edit it in the same pass,
   which also puts it outside the signature: the sidecar attests to the payload
-  alone, so the manifest stays a claim. Read-only mode therefore never prints the
+  alone, so the manifest stays a claim. No-trust mode therefore never prints the
   manifest's origin: provenance the signature does not cover is
   attacker-controlled even on a verified deck, and a claim nobody vouches for
   adds nothing beside a verified identity. It stays in the manifest for
   tooling to read.
 - A tampered `.decklight` fails verification instead of failing a heuristic scan.
-- OS file association makes double-click land read-only, verified and
+- OS file association makes double-click land without trust, verified and
   CSP-locked, rather than in a raw browser.
 - `cli/zip.mjs` (from `skills --pack`) already provides the container plumbing.
 
@@ -382,7 +382,7 @@ self-describing: the verbosity is the feature.
 | Form | For | Promise |
 |---|---|---|
 | `.html` (canonical, unchanged) | publishing, links, `publish` → gh-pages | opens in any browser, offline, no software: the identity stays intact |
-| `.decklight` (new, optional) | handing a file to a person | verified on open, provenance attached, lands read-only |
+| `.decklight` (new, optional) | handing a file to a person | verified on open, provenance attached, lands without trust |
 
 This maps onto the sharing guidance: **share the link** (HTTPS and repo
 ownership attest it) or **send a `.decklight`** (a signature attests it). An
@@ -391,13 +391,13 @@ unattested emailed `.html` stops being the default way to hand someone a deck.
 ### COMMANDS · The deck is the command
 
 There is no word for opening a deck. `decklight talk.html` opens it in write
-mode, `decklight talk.html --read-only` opens it with no way to change it, and
-a `.decklight` is read-only by nature:
+mode, `decklight talk.html --no-trust` opens it with no way to change it, and
+a `.decklight` is without trust by nature:
 
 ```
 decklight talk.html                  # write mode: live reload, edits from the browser, an agent on A
-decklight talk.html --read-only      # the same server, nothing written; M to comment
-decklight talk.decklight             # verified, read-only
+decklight talk.html --no-trust      # the same server, nothing written; M to comment
+decklight talk.decklight             # verified, without trust
 ```
 
 The words that used to open a deck in one mode or another were retired in
@@ -405,8 +405,8 @@ The words that used to open a deck in one mode or another were retired in
 any other word that is not a command. A refusal stub naming the old word is a
 migration aid, and decklight has no released users to migrate: every stub is a
 line of dispatch, a test and a paragraph of docs bought for nobody. One
-server underneath has two modes (`cli/open.mjs`, `cli/edit.mjs`): read-only
-mode refuses every `/deck/edit/*` route, answers the one probe as read-only,
+server underneath has two modes (`cli/open.mjs`, `cli/edit.mjs`): no-trust
+mode refuses every `/deck/edit/*` route, answers the one probe as no trust,
 and the review routes are both modes' (SPEC REVIEW). **The `/deck/edit/*` endpoints are the contract and are unchanged**, only
 the way the server starts changed.
 
@@ -503,7 +503,7 @@ Verification therefore comes from outside the file.
 
 Named honestly: none of this reaches a recipient who double-clicks an
 emailed `.html` and runs nothing. That is why build-time-by-default remains the
-backstop. Read-only mode protects those who opted into the tooling; `.decklight` and file
+backstop. No-trust mode protects those who opted into the tooling; `.decklight` and file
 association widen that population; share-the-link covers the rest.
 
 ### UNITS · What is distributed
@@ -636,7 +636,7 @@ third-party unreviewed with auto-update off.
   authoring-only; presenter plugins are chrome-only.
 - ~~All five units at once~~ → all five *data* units at once; the in-deck code
   surface is deferred until a live case justifies it.
-- ~~`decklight verify` as a standalone command~~ → a mode of `--read-only`, where it
+- ~~`decklight verify` as a standalone command~~ → a mode of `--no-trust`, where it
   actually runs.
 - ~~Eagerly-started TTS/lipsync bridges (and a lazy-start scheme to fix them)~~
   → engines are marketplace plugins resolved on first use (ENGINES); there is
@@ -691,7 +691,7 @@ to play someone else's deck is a single command.
 - [ ] A pasted credential lands under `~/.decklight/` restricted to the
       account that pasted it (`0600` on POSIX, an explicit ACL on Windows),
       is never logged, and never appears in the deck or a `bundle` of it
-- [ ] The wizard never triggers in `--read-only` or in a deck opened from `file://`:
+- [ ] The wizard never triggers in `--no-trust` or in a deck opened from `file://`:
       `V` with no engine says so and stops
 - [ ] `decklight <deck>` starts instantly with no engines installed: no bridge
       processes, no network
@@ -702,24 +702,24 @@ to play someone else's deck is a single command.
 
 **Safety and integrity**
 
-- [ ] `decklight <deck> --read-only` serves read-only over localhost with **no
+- [ ] `decklight <deck> --no-trust` serves without trust over localhost with **no
       `/deck/edit/*` routes registered**, and sets a `Content-Security-Policy` HTTP
       header
-- [ ] `--read-only` prints an ingredients label (runtime version and hash, script
+- [ ] `--no-trust` prints an ingredients label (runtime version and hash, script
       blocks accounted and unaccounted) and never prints a safety verdict
-- [ ] `--read-only --strict` strips every script block that is not the verified
+- [ ] `--no-trust --strict` strips every script block that is not the verified
       runtime; the deck still presents faithfully: content, themes, layouts,
       charts and casts all work
 - [ ] `publish` signs by default; `bundle` signs with `--sign` and is never
-      silently unsigned offline; `--read-only` verifies before rendering and names
+      silently unsigned offline; `--no-trust` verifies before rendering and names
       the signer
-- [ ] On verification failure `--read-only` degrades to `--strict` and reports what
+- [ ] On verification failure `--no-trust` degrades to `--strict` and reports what
       it stripped in the terminal; it neither refuses outright nor runs the
       unaccounted script
 - [ ] `.decklight` is a container of deck + signature + manifest; a tampered `.decklight`
       fails verification and does not render
-- [ ] Double-clicking a `.decklight` opens `--read-only` on macOS, Windows and Linux
-- [ ] Presenter-library plugins load only under `--read-only`, may add chrome, and
+- [ ] Double-clicking a `.decklight` opens `--no-trust` on macOS, Windows and Linux
+- [ ] Presenter-library plugins load only under `--no-trust`, may add chrome, and
       **cannot modify slide content**, enforced, not documented
 - [ ] Build-time transforms run only during `bundle`; a transform cannot emit a
       `<script>` that is not declared in the manifest
@@ -731,7 +731,7 @@ to play someone else's deck is a single command.
 Add a marketplace, press `T` under `dev`, Browse, preview a theme live, Enter to
 install; it appears under Added and survives a reload. Bundle the deck; the
 output is signed. Append a `<script>alert(1)</script>` to the bundled file and
-run `decklight <deck> --read-only`: it names one unaccounted script block; `--strict`
+run `decklight <deck> --no-trust`: it names one unaccounted script block; `--strict`
 plays the deck with that block stripped and everything else intact. Wrap it as
 `.decklight`, tamper with it, double-click: verification fails and it does not
 render. Then pull the network cable and press `T`: all 46 shipped themes and
@@ -745,7 +745,7 @@ every bundled one are still there, instantly.
   `</style>` hiding in somebody else's CSS.
 - `cli/bundle.mjs` inlines runtime, themes, casts and media today and is the
   correct chokepoint for signing and for refusing undeclared script.
-- `cli/edit.mjs` holds `allowRemote` and the remote/QR; `--read-only` should reuse
+- `cli/edit.mjs` holds `allowRemote` and the remote/QR; `--no-trust` should reuse
   the server plumbing with `/deck/edit/*` **absent**, not merely refused.
 - `cli/zip.mjs` is the container plumbing from `skills --pack`.
 - `src/core/print.js` restructures once and never runs again: the `?print` and
@@ -771,10 +771,10 @@ Depends column cites tickets by mnemonic, never by position.
 
 | Ticket | Scope | Depends on |
 |---|---|---|
-| `READ_ONLY_SERVER` | `decklight <deck> --read-only`: read-only mode, CSP header, `/deck/edit/*` refuses | — |
-| `READ_ONLY#AUDIT` | runtime hashing, ingredients label, unaccounted-script detection | `READ_ONLY_SERVER` |
-| `READ_ONLY#STRICT` | strip unverified script, prove the deck still plays | `READ_ONLY#AUDIT` |
-| `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `--read-only` | `READ_ONLY#AUDIT` |
+| `NO_TRUST` | `decklight <deck> --no-trust`: no-trust mode, CSP header, `/deck/edit/*` refuses | — |
+| `NO_TRUST#AUDIT` | runtime hashing, ingredients label, unaccounted-script detection | `NO_TRUST` |
+| `NO_TRUST#STRICT` | strip unverified script, prove the deck still plays | `NO_TRUST#AUDIT` |
+| `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `--no-trust` | `NO_TRUST#AUDIT` |
 | `DECK_FILE#ASSOC` | `.decklight` container + OS file association (macOS UTI, Windows registry, Linux desktop/MIME) | `INTEGRITY#SIGNING` |
 | `MARKETPLACES#CORE` | manifest, `add/list/update/remove`, cache, first-party registered-not-fetched | — |
 | `THEME_BROWSE#UI` | **Browse** in the picker, authoring-only, installing via `theme add` | `MARKETPLACES#CORE` |
@@ -782,18 +782,18 @@ Depends column cites tickets by mnemonic, never by position.
 | `EXTENSIONS#LOADER` | the pipeline stage: install a transform, run it from `bundle --transform <name>` before signing | `EXTENSIONS#CONVENTION` |
 | `EXTENSIONS#CHECK` | `extension check`: lint (no `fetch`/`eval`/`XMLHttpRequest`/dynamic import), then a headless load of the transform's OUTPUT; failure blocks publish | `EXTENSIONS#LOADER` |
 | `EXTENSIONS#ADAPTEREXEC` | wire the same loader into `cli/import.mjs`: an installed import adapter finally runs | `EXTENSIONS#LOADER` |
-| `READ_ONLY#PLUGINS` | presenter-library plugins, chrome-only, enforced | `READ_ONLY_SERVER`, `MARKETPLACES#CORE` |
+| `NO_TRUST#PLUGINS` | presenter-library plugins, chrome-only, enforced | `NO_TRUST`, `MARKETPLACES#CORE` |
 | `ENGINES#WIZARD` | wizard framework: declarative schema, `~/.decklight/` writes restricted to your account, write-mode-only | `MARKETPLACES#CORE` |
 | `ENGINES#TTS` | TTS engines as marketplace plugins, the proving case for the wizard | `ENGINES#WIZARD` |
 | `ENGINES#LIPSYNC` | proves the framework generalizes (binary + venv + key, all three shapes) | `ENGINES#WIZARD` |
 | `ENGINES#AGENTS` | agent-ask roster via marketplace (closes #125) | `ENGINES#WIZARD` |
 | `UNITS#REST` | templates (`init --from`), skills, importers, publish targets, voices | `MARKETPLACES#CORE` |
 | `COMMANDS#RENAME` | `dev` → `open` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
-| `READ_ONLY#REMOTE` | move speaker view + phone remote off the edit server onto `--read-only` | `READ_ONLY_SERVER` |
+| `NO_TRUST#REMOTE` | move speaker view + phone remote off the edit server onto `--no-trust` | `NO_TRUST` |
 | `THEME_BROWSE#SPLIT` | **landed**: `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) moved to `decklight/decklight-plugins-official`; `palette-rules` no longer grades them, `theme check` still does | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
 | `EXTENSIONS#PIN` | **landed**: `sha256` on transform/importer entries; `add` refuses unpinned or mismatched, `extension check` prints the digest | `EXTENSIONS#CHECK`, `UNITS#REST` |
 
-`READ_ONLY_SERVER` through `DECK_FILE#ASSOC` are a coherent first release with no
+`NO_TRUST` through `DECK_FILE#ASSOC` are a coherent first release with no
 marketplace at all: they make playing someone else's deck safe, which is worth
 shipping on its own. `COMMANDS#RENAME` is independent of everything and cheapest
 before 0.3.0 ships to npm.
@@ -850,7 +850,7 @@ before 0.3.0 ships to npm.
    two calling conventions (`html, opts → html` vs `bytes, opts → html`) move
    on their own schedules.
 3. ~~Where the authoring-time library lives~~: **resolved: `~/.decklight/`**
-   (plugins and credentials both, ENGINES). How `open` and `--read-only` resolve
+   (plugins and credentials both, ENGINES). How `open` and `--no-trust` resolve
    a bare reference is implementation detail of `ENGINES#WIZARD`.
 4. ~~Which themes are core~~: **resolved: `themes/packs.json`'s existing
    `default` + `classics` groups (46 themes) are the graded/compat set that
@@ -904,7 +904,7 @@ before 0.3.0 ships to npm.
    `.deck` is Decker's native format: active, cross-platform, semantically
    adjacent (its decks also export as single HTML documents); `.dck` is
    Forge/XMage Magic decks. Zero-collision verbosity wins (DECK_FILE).
-8. ~~What `--read-only` does when verification fails~~: **resolved: degrade to
+8. ~~What `--no-trust` does when verification fails~~: **resolved: degrade to
    `--strict` and say so** in the terminal, never on the audience-facing page.
    Neither a refusal (a `--force` habit teaches the wrong reflex) nor a
    warn-and-run (PRESENT).
@@ -916,7 +916,7 @@ before 0.3.0 ships to npm.
     gates.
 11. ~~What a presenter plugin is MADE of~~: **resolved: a declarative
     `plugin.json` plus a `plugin.js` that runs in a sandboxed `srcdoc` frame**
-    (READ_ONLY#PLUGINS). The wizard's answer (core renders, a plugin only
+    (NO_TRUST#PLUGINS). The wizard's answer (core renders, a plugin only
     declares) does not stretch this far: a teleprompter has real logic, and a
     vocabulary rich enough to express one would be a rendering language with a
     plugin API hidden in it. So a plugin gets real code and is put somewhere it
@@ -942,7 +942,7 @@ before 0.3.0 ships to npm.
       supplies to their OWN `decklight lipsync` process (`--portrait
       name=face.png`, `tools/lipsync-server.mjs`): never installed, never
       named in any catalog, never travels with the deck. That is
-      `READ_ONLY#PLUGINS`'s own trust model exactly (presenter-owned, the
+      `NO_TRUST#PLUGINS`'s own trust model exactly (presenter-owned, the
       installer is the risk-bearer), not a gap `VOICE_UNITS` left open.
 
     Widening a reference-only rule presupposes a marketplace unit to widen it
