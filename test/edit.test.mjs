@@ -868,6 +868,9 @@ test('--remote in write mode: the relay answers, the probe says so, and nothing 
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base, log } = await startEdit(t, dir, { extraArgs: ['--remote', '--host', '127.0.0.1'], env: { PATH: dir } });
+  // The URL line is what startEdit waits for, and the remote's line follows
+  // it — on Windows the gap was wide enough to read the log in between.
+  for (let i = 0; i < 40 && !/remote: listening/.test(log()); i++) await new Promise((r) => setTimeout(r, 50));
   assert.match(log(), /remote: listening on 127\.0\.0\.1/, 'the LAN URL is advertised');
   const ping = await (await fetch(base + '/deck/ping')).json();
   assert.equal(ping.phone, true);
