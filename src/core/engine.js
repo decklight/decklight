@@ -956,6 +956,9 @@ export function init(userConfig = {}) {
       { label: 'Commit…', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() },
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
+      // the bar, hidden or shown (PRESENTING): editing stays on either way
+      editmode.available() && { label: editbar.hidden() ? 'Show the bar (dev)' : 'Hide the bar (dev)',
+        alias: 'editing bar toolbar hide show toggle chrome buttons', run: () => editbar.toggleHidden() },
       // the lock (PRESENTING): changes off to avoid one by mistake, and back on
       editmode.served() && !editmode.noTrust() && { label: editmode.locked() ? 'Unlock deck (dev)' : 'Lock deck — nothing changes the file until you unlock it (dev)',
         alias: 'lock unlock read only readonly protect freeze avoid changes by mistake editing off', run: () => editmode.toggleLock() },

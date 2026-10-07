@@ -48,7 +48,24 @@ export function createEditBar({
   let selected = null;   // the element target (editmode.elementTargetOf) under the outline
   let hovered = null;    // the top-level element under the pointer
 
-  const on = () => editmode.elementEditOn() && enabled();
+  // Editing on is one thing; the bar on screen is another. The bar can be
+  // hidden by the person (a palette row, remembered per deck) and hides
+  // itself in fullscreen, which in write mode is a rehearsal, not an edit.
+  // Hidden, every door the bar names still works — double-click, drop, L, S,
+  // the right-click menu — because the bar is a surface over them.
+  const HIDE_KEY = 'decklight-editbar-hidden:' + location.pathname;
+  let hiddenByUser = false;
+  try { hiddenByUser = localStorage.getItem(HIDE_KEY) === '1'; } catch { /* no storage: shown */ }
+  const inFullscreen = () => !!document.fullscreenElement;
+  const editingOn = () => editmode.elementEditOn() && enabled();
+  const on = () => editingOn() && !hiddenByUser && !inFullscreen();
+  function setHidden(want) {
+    hiddenByUser = want;
+    try { if (want) localStorage.setItem(HIDE_KEY, '1'); else localStorage.removeItem(HIDE_KEY); } catch { /* no storage: this page only */ }
+    sync();
+    toast(want ? 'the bar is hidden — editing stays on; Show the bar in the palette brings it back' : 'the bar is back', 2600);
+  }
+  document.addEventListener('fullscreenchange', () => sync());
   const inOverlay = (node) => !!node?.closest?.('.decklight-narr, .decklight-ctxmenu, .decklight-palette, .decklight-editbar, .decklight-touch-controls, .decklight-controls');
 
   // ── the bar ───────────────────────────────────────────────────────────────
@@ -302,9 +319,14 @@ export function createEditBar({
   /** After E: show or hide the bar to match. */
   function sync() {
     if (on()) mount(); else unmount();
-    root.classList.toggle('dl-editmode', on());
+    root.classList.toggle('dl-editmode', editingOn());
   }
   editmode.onElementEditChange(sync);
 
-  return { sync, keydown, refresh, selected: () => selected, isOpen: () => !!bar };
+  return {
+    sync, keydown, refresh, selected: () => selected, isOpen: () => !!bar,
+    /** Hidden by the person (not by fullscreen, not by the lock): what the palette row flips. */
+    hidden: () => hiddenByUser,
+    toggleHidden: () => setHidden(!hiddenByUser),
+  };
 }
