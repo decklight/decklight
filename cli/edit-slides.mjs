@@ -117,11 +117,21 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   function layoutRoute({ body, json }) {
-    const { slide, layout } = JSON.parse(body);
+    const { slide, layout, quiet: inPlace, from } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || typeof layout !== 'string') throw new Error('bad payload');
     const changed = applyEdit((html) => setSlideLayout(html, slide, layout));
-    if (changed) console.log(`  layout saved: slide ${slide} → ${layout}`);
-    return json(200, { ok: true, changed, ...history.counts() });
+    if (changed) {
+      console.log(`  layout saved: slide ${slide} → ${layout}`);
+      // The page that asked already shows the pick: an L press applies it
+      // before the write. Asked for IN PLACE, the write is quiet (the
+      // watcher skips its reload) and every page is sent the pick to put on
+      // the slide itself — the notes save's shape, for the same reason.
+      if (inPlace === true) {
+        quiet(readDeck());
+        broadcast('layout', { slide, layout, from: typeof from === 'string' ? from.slice(0, 64) : null });
+      }
+    }
+    return json(200, { ok: true, changed, inPlace: changed && inPlace === true, ...history.counts() });
   }
 
   /**

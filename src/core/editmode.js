@@ -395,6 +395,13 @@ export function createEditMode({
           // A notes save is not a reload: every open view of the deck gets
           // the slide's new notes and puts them in place (narration, the
           // speaker view, a notes card left open in another tab)
+          // a layout picked on another page: put it on the slide here, no reload
+          es.addEventListener('layout', (ev) => {
+            try {
+              const d = JSON.parse(ev.data);
+              if (d.from !== PAGE_ID) root.dispatchEvent(new CustomEvent('decklight:layout', { detail: { slide: d.slide, layout: d.layout } }));
+            } catch { /* malformed: the next reload settles it */ }
+          });
           es.addEventListener('notes', (ev) => {
             try { const { slide, aside, from } = JSON.parse(ev.data); patchNotes(slide, aside, from); } catch { /* malformed: the next reload settles it */ }
           });
@@ -2633,6 +2640,8 @@ export function createEditMode({
     onLockChange: (fn) => { lockListeners.add(fn); },
     /** Resolves once the probe has an answer either way — see `settled`. */
     settled: () => { if (printMode || params.has('embedded')) probeSettled(); return settled; },
+    /** This page's id, so a write it made and the server echoes is told from another page's. */
+    pageId: () => PAGE_ID,
     /** Has the probe answered yet, either way? A door pressed before it has waits rather than refuses. */
     probed: () => probed,
     /** Its origin ('' when the deck is served BY the edit server); null without trust. */

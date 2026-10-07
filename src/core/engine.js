@@ -1392,6 +1392,26 @@ export function init(userConfig = {}) {
   // the pick is a persisted deck edit (data-layout, written back through the
   // edit server), so without that server the key explains itself and changes
   // nothing rather than forking the deck from what is on disk.
+  function applyLayout(sec, name) {
+    if (name === 'auto') sec.removeAttribute('data-layout');
+    else sec.setAttribute('data-layout', name);
+  }
+  function relayoutSlide(sec, idx) {
+    // the one slide that changed, not the whole deck: pinning measures, and
+    // measuring every slide for an L press on one was most of its cost
+    setupPinnedTitles([sec], config);
+    setupSplit([sec], () => idx);
+    checkOverflow(sec, idx);
+    return sec.hasAttribute('data-split-conflict');
+  }
+  // a layout picked on another page of this deck (editmode.js relays the event)
+  root.addEventListener('decklight:layout', (e) => {
+    const { slide, layout: name } = e.detail ?? {};
+    const sec = instance._sections?.[slide - 1];
+    if (!sec || typeof name !== 'string') return;
+    applyLayout(sec, name);
+    relayoutSlide(sec, slide);
+  });
   const layout = createLayoutCycler({
     slideOf: () => instance.state.slide,
     sectionAt: (idx) => instance._sections[idx - 1],
@@ -1401,22 +1421,14 @@ export function init(userConfig = {}) {
     }),
     available: () => editmode.available(),
     unavailableMessage: () => editmode.cannot('picking a layout'),
-    apply: (sec, name) => {
-      if (name === 'auto') sec.removeAttribute('data-layout');
-      else sec.setAttribute('data-layout', name);
-    },
-    relayout: (sec, idx) => {
-      // the one slide that changed, not the whole deck: pinning measures, and
-      // measuring every slide for an L press on one was most of its cost
-      setupPinnedTitles([sec], config);
-      setupSplit([sec], () => idx);
-      checkOverflow(sec, idx);
-      return sec.hasAttribute('data-split-conflict');
-    },
+    apply: applyLayout,
+    relayout: relayoutSlide,
+    // in place: this page already shows the pick, and the write is quiet —
+    // every other page is sent the pick instead of a reload
     post: (body) => fetch(editmode.base() + '/deck/edit/slide/layout', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, quiet: true, from: editmode.pageId() }),
     }).then((r) => { if (!r.ok) throw new Error(r.status); }),
     toast,
     debugLog,

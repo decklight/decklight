@@ -153,6 +153,24 @@ test('POST /deck/edit/slide/notes saves in place: a quiet write, and every page 
   assert.equal(sent.length, 1, 'nothing written, nothing sent');
 });
 
+test('POST /deck/edit/slide/layout with quiet saves in place: a quiet write, a layout event to every page, never a reload', async (t) => {
+  const quiet = [];
+  const sent = [];
+  const { routes, readDeck } = harness(t, DECK, { quiet: (html) => quiet.push(html), broadcast: (e, d) => sent.push([e, d]) });
+  const r = await call(routes, 'POST /deck/edit/slide/layout', { body: { slide: 1, layout: 'split', quiet: true, from: 'page-1' } });
+  assert.deepEqual([r.body.changed, r.body.inPlace], [true, true]);
+  assert.deepEqual(quiet, [readDeck()], 'the bytes written are the quiet ones: the watcher skips their reload');
+  assert.deepEqual(sent, [['layout', { slide: 1, layout: 'split', from: 'page-1' }]]);
+  const again = await call(routes, 'POST /deck/edit/slide/layout', { body: { slide: 1, layout: 'split', quiet: true } });
+  assert.deepEqual([again.body.changed, again.body.inPlace], [false, false], 'nothing written, nothing sent');
+  assert.equal(sent.length, 1);
+  // without quiet, the write reloads as any other does
+  const loud = await call(routes, 'POST /deck/edit/slide/layout', { body: { slide: 1, layout: 'centered' } });
+  assert.deepEqual([loud.body.changed, loud.body.inPlace], [true, false]);
+  assert.equal(quiet.length, 1, 'not a quiet write');
+  assert.equal(sent.length, 1, 'and no event — the reload carries it');
+});
+
 test('POST /deck/edit/slide/notes keeps the paragraphs: a blank line is a new <p>, never merged away', async (t) => {
   const { routes, readDeck } = harness(t);
   const r = await call(routes, 'POST /deck/edit/slide/notes', { body: { slide: 1, text: 'First para.\n\nSecond para,\nsame one.\n\n[click]\n\nBeat two.\n\n\nMore of it.' } });

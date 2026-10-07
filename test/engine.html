@@ -2390,6 +2390,15 @@
         bar().querySelector('.eb-layout').click();
         await settle();
         r.layoutButtonCycles = sec1.getAttribute('data-layout') === 'centered' && labels().includes('Layout · centered');
+        // the pick is written in place: quiet, from this page — and one picked on another page lands here without a reload
+        await new Promise((res) => setTimeout(res, 700));   // the ring's debounce
+        const lp = CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/layout')).pop()?.body;
+        r.layoutWriteIsQuiet = lp?.quiet === true && typeof lp?.from === 'string' && lp.from.length > 0;
+        window.__es.emit('layout', { slide: 1, layout: 'split', from: 'another-page' });
+        await settle();
+        r.layoutFromElsewhereLands = sec1.getAttribute('data-layout') === 'split';
+        window.__es.emit('layout', { slide: 1, layout: 'centered', from: 'another-page' });
+        await settle();
         // Notes opens the notes editor; the same button closes it
         bar().querySelector('.eb-notes').click();
         await settle();
@@ -2419,7 +2428,7 @@
           && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordAsksFullscreen && r.clickSelects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
-          && r.layoutButtonCycles && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
+          && r.layoutButtonCycles && r.layoutWriteIsQuiet && r.layoutFromElsewhereLands && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
           && r.doneCloses && r.paletteOffersEditing;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
