@@ -308,7 +308,7 @@ test('read-only mode refuses the whole write family by name — before a route r
   const family = [
     ['POST', '/deck/edit/slide/notes', '{"slide":1,"text":"pwned"}'],
     ['POST', '/deck/edit/slide/layout', '{}'], ['POST', '/deck/edit/undo', ''], ['POST', '/deck/edit/commit', '{}'],
-    ['POST', '/deck/edit/shutdown', ''], ['POST', '/deck/edit/lock', '{"locked":false}'],
+    ['POST', '/deck/edit/shutdown', ''], ['POST', '/deck/edit/restore', '{}'],
     ['POST', '/deck/edit/agent', '{"prompt":"x"}'], ['POST', '/deck/edit/export', '{"kind":"pdf"}'],
     ['POST', '/deck/edit/wizard', '{}'], ['POST', '/deck/edit/theme/mark', '{}'],
     ['GET', '/deck/edit/history', null], ['GET', '/deck/edit/theme/browse', null], ['GET', '/deck/edit/wizard', null],
@@ -333,6 +333,33 @@ test('the one probe answers here too, and says read-only', async (t) => {
   assert.equal(j.name, 'talk.html');
   assert.equal(j.agents, undefined, 'no roster, nothing to edit with');
   assert.equal(j.undo, undefined, 'no history either');
+});
+
+test('a deck opened read-only can be switched to write mode from the page, and back', async (t) => {
+  // The mode is the session's, not the flag's (PRESENTING): --read-only is
+  // where it starts. Write mode from here is for a deck you trust — the
+  // routes answer, the policy comes off, the file is served from disk. Back
+  // in read-only mode the audit runs again and the label is re-printed.
+  const dir = deckDir();
+  const { base, log } = await startPresent(t, dir);
+  const probe = async () => (await fetch(base + '/deck/ping')).json();
+  assert.equal((await probe()).switched, false, 'opened read-only: nothing on the audience screen');
+  const w = await fetch(base + '/deck/mode', { method: 'POST', body: '{"readOnly":false}' });
+  assert.equal(w.status, 200);
+  assert.equal((await w.json()).readOnly, false);
+  assert.equal((await probe()).readOnly, false);
+  assert.equal((await fetch(base + '/talk.html')).headers.get('content-security-policy'), null, 'no policy in write mode');
+  const notes = await fetch(base + '/deck/edit/slide/notes', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"now mine"}',
+  });
+  assert.equal(notes.status, 200, 'write mode writes');
+  assert.match(readFileSync(path.join(dir, 'talk.html'), 'utf8'), /now mine/);
+  const r = await fetch(base + '/deck/mode', { method: 'POST', body: '{"readOnly":true}' });
+  assert.equal((await r.json()).readOnly, true);
+  assert.equal((await fetch(base + '/talk.html')).headers.get('content-security-policy'), CSP, 'the policy is back');
+  assert.match(await (await fetch(base + '/talk.html')).text(), /now mine/, 're-audited: the bytes written in write mode are what is served');
+  assert.equal((await probe()).switched, true, 'switched from the page: the chip may show');
+  assert.ok((log().match(/ingredients/g) ?? []).length >= 2, 'the label was printed again');
 });
 
 test('a POST to an unknown path is still a 405, and writes nothing', async (t) => {
@@ -457,7 +484,7 @@ test('--remote hosts the clicker, and the write family still refuses', async (t)
 
   // the presenting control channel exists…
   const ping = await (await fetch(base + '/deck/ping')).json();
-  assert.deepEqual(ping, { ok: true, name: 'talk.html', readOnly: true, locked: true, review: { mode: 'read-only', git: false, by: null, store: 'talk.review.jsonl' }, phone: true, container: false });
+  assert.deepEqual(ping, { ok: true, name: 'talk.html', readOnly: true, locked: true, review: { mode: 'read-only', git: false, by: null, store: 'talk.review.jsonl' }, phone: true, container: false, switched: false });
   assert.equal(ping.agents, undefined, 'and reports no agent roster — there is nothing here that runs one');
 
   // …the controller and its QR are served…

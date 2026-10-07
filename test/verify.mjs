@@ -82,7 +82,7 @@ const ENGINE_GROUPS = {
   handover: ['exportpptx', 'exportfail', 'exportvideo', 'publish'],
   templates: ['template', 'templatelook'],
   sources: ['sources', 'sourcesedit'],
-  authoring: ['lockmode', 'readonlymode', 'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesauto', 'notesautofail', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'editingtour', 'editingtourwelcome'],
+  authoring: ['modeswitch', 'readonlymode', 'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesauto', 'notesautofail', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'editingtour', 'editingtourwelcome'],
   builds: ['linedraw', 'nestedfills', 'dslayouts', 'dsedit'],
 };
 const ENGINE_HARNESSES = Object.keys(ENGINE_GROUPS).map((g) => `engine-render:${g}`);

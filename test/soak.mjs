@@ -995,31 +995,35 @@ try {
     must(undo.status === 200 && deck() === before, 'Z did not take the whole move back in one press');
   });
 
-  await step('editing locks from write mode, and unlocks', async () => {
-    // The lock the server holds (PRESENTING): write mode, switched to read-only
-    // to avoid a change by mistake, and back. Locked, every edit route refuses
-    // with 423 and the deck is not touched; the ping says so to every tab; the
-    // same route writes again the moment it is unlocked.
+  await step('the session goes read-only from write mode, and back', async () => {
+    // The mode switch the server holds (PRESENTING): write mode, switched to
+    // read-only to avoid a change by mistake, and back. Read-only, every edit
+    // route refuses with 403 and the deck is not touched; the ping says so to
+    // every tab; the same route writes again the moment write mode is back.
     const ping = async () => (await get(editSrv.base, '/deck/ping')).json();
-    must((await ping()).locked === false, 'a fresh session started locked');
-    const lock = await postJson(editSrv.base, '/deck/edit/lock', { locked: true });
-    must(lock.status === 200 && lock.body.locked === true, `lock returned ${JSON.stringify(lock.body)}`);
+    must((await ping()).readOnly === false, 'a fresh session started read-only');
+    const ro = await postJson(editSrv.base, '/deck/mode', { readOnly: true });
+    must(ro.status === 200 && ro.body.readOnly === true, `the switch returned ${JSON.stringify(ro.body)}`);
     const probed = await ping();
-    must(probed.locked === true && probed.readOnly === false, `locked, the probe says ${JSON.stringify({ locked: probed.locked, readOnly: probed.readOnly })}`);
+    must(probed.readOnly === true && probed.locked === true && probed.switched === true,
+      `read-only, the probe says ${JSON.stringify({ readOnly: probed.readOnly, locked: probed.locked, switched: probed.switched })}`);
     const before = deck();
-    const refused = await postJson(editSrv.base, '/deck/edit/slide/notes', { slide: 3, text: 'typed while locked' });
-    must(refused.status === 423, `a locked server answered an edit with ${refused.status}`);
-    must(/editing is locked/.test(refused.body?.error ?? ''), `the refusal is not named: ${refused.body?.error}`);
-    must(deck() === before, 'a locked server wrote to the deck');
+    const refused = await postJson(editSrv.base, '/deck/edit/slide/notes', { slide: 3, text: 'typed while read-only' });
+    must(refused.status === 403, `read-only mode answered an edit with ${refused.status}`);
+    must(refused.body?.readOnly === true, `the refusal does not name the mode: ${JSON.stringify(refused.body)}`);
+    must(deck() === before, 'read-only mode wrote to the deck');
     const undo = await post(editSrv.base, '/deck/edit/undo', {});
-    must(undo.status === 423, `locked, undo still answered ${undo.status}`);
-    await until('the server to say it locked', () => /editing locked/.test(editSrv.log()), { ms: 5000 });
-    const bad = await post(editSrv.base, '/deck/edit/lock', { locked: 'yes' });
-    must(bad.status === 400, 'the lock took something other than true or false');
-    const unlock = await postJson(editSrv.base, '/deck/edit/lock', { locked: false });
-    must(unlock.body?.locked === false && (await ping()).locked === false, 'unlocking did not unlock');
+    must(undo.status === 403, `read-only, undo still answered ${undo.status}`);
+    const page = await get(editSrv.base, '/deck.html');
+    must(page.headers.get('content-security-policy')?.includes("default-src 'none'"), 'no CSP on the deck in read-only mode');
+    await until('the server to say it went read-only', () => /read-only mode — every edit route refuses/.test(editSrv.log()), { ms: 5000 });
+    const bad = await post(editSrv.base, '/deck/mode', { readOnly: 'yes' });
+    must(bad.status === 400, 'the switch took something other than true or false');
+    const back = await postJson(editSrv.base, '/deck/mode', { readOnly: false });
+    must(back.body?.readOnly === false && (await ping()).readOnly === false, 'switching back did not switch back');
+    must(!(await get(editSrv.base, '/deck.html')).headers.get('content-security-policy'), 'the CSP stayed on in write mode');
     const saved = await postJson(editSrv.base, '/deck/edit/slide/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
-    must(saved.status === 200, `unlocked, the same route answered ${saved.status}`);
+    must(saved.status === 200, `write mode again, the same route answered ${saved.status}`);
   });
 
   await step('a comment is left from write mode, beside the deck and outside it', async () => {

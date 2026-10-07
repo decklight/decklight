@@ -141,7 +141,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     tourEl.className = 'decklight-welcome wel-tour';
     tourEl.innerHTML = `<div class="wel-card">
       <h3>Editing this deck</h3>
-      <p class="wel-lead">This deck is open in write mode (<code>decklight &lt;deck.html&gt;</code>): what you change here is written to the file, snapshotted, and taken back with <b>Z</b>. Lock editing from the <code>/</code> palette to avoid a change by mistake.</p>
+      <p class="wel-lead">This deck is open in write mode (<code>decklight &lt;deck.html&gt;</code>): what you change here is written to the file, snapshotted, and taken back with <b>Z</b>. Switch to read-only mode from the <code>/</code> palette to avoid a change by mistake.</p>
       <table>
         <tr><td>E · double-click</td><td><b>Edit any text</b> in place, once editing is on; <b>⏎</b> keeps it, <b>Esc</b> gives it up.</td></tr>
         <tr><td>drop</td><td><b>Add a picture</b> by dropping a file onto the slide.</td></tr>

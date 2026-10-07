@@ -1098,6 +1098,11 @@ export async function editMain(args, { onListen = null, client } = {}) {
     try { container = readContainer(deckPath); } catch (e) { return fail(e.message); }
   }
   let readOnly = args.includes('--read-only') || !!container;
+  // Whether read-only mode was entered from the page this session, kept
+  // apart from the mode of the moment: a deck switched to read-only from the
+  // page gets a chip saying so, a deck opened read-only gets nothing on the
+  // audience's screen.
+  let switchedFromPage = false;
 
   // --remote widens the LISTENER and nothing else (READ_ONLY#REMOTE), in either
   // mode: off this machine only /deck/remote/* answers, with the per-run
@@ -1170,6 +1175,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // read-only mode is entered, which is the only mode that reads it.
   let audited = null;
   let signature = { state: UNSIGNED };
+  let signatureChecked = false;
   /** Enter (or re-enter) read-only mode: read, audit, decide strict. Says whether the deck itself changed. */
   const audit = () => {
     const before = audited?.payload ?? null;
@@ -1183,6 +1189,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   };
   if (readOnly) {
     signature = await verifySignature();
+    signatureChecked = true;
     audit();
   }
 
@@ -1415,9 +1422,14 @@ export async function editMain(args, { onListen = null, client } = {}) {
     describer: describer(),
     subjectsOff,
   });
-  // Write mode's. A deck opened read-only is somebody else's: no repository
-  // is created beside it, no snapshot is taken, nothing of it is committed.
-  if (!readOnly && !noGit && (wantGit || inGitRepo(root))) {
+  // Write mode's, and started when write mode is entered — at startup, or
+  // from the page later. A deck in read-only mode is somebody else's: no
+  // repository is created beside it, no snapshot is taken, nothing of it is
+  // committed. Idempotent: the second entry into write mode changes nothing.
+  let gitStarted = false;
+  function startGit() {
+    if (gitStarted || noGit || !(wantGit || inGitRepo(root))) return;
+    gitStarted = true;
     if (!inGitRepo(root)) {
       try {
         const wroteIgnore = createRepo(root);
@@ -1464,6 +1476,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
           : wipLine(deckRel));
     }
   }
+  if (!readOnly) startGit();
   /**
    * One tick: refresh the snapshot, and decide whether to ask.
    *
@@ -1554,8 +1567,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const reviewRepo = gitAvailable(dirname(deckPath)) && inGitRepo(dirname(deckPath));
   const review = createReviewRoutes(deckPath, {
     inRepo: reviewRepo,
-    gitOn: readOnly && reviewRepo && !noGit,
-    mode: readOnly ? 'read-only' : 'write',
+    gitOn: () => readOnly && reviewRepo && !noGit,
+    mode: () => (readOnly ? 'read-only' : 'write'),
   });
   // The deck's channel (deck-routes.mjs): the probe and the stream, in both
   // modes. What the probe carries beyond the mode is `extras`, computed on
@@ -1563,7 +1576,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // not live.
   const deck = createDeckRoutes(deckPath, {
     readOnly: () => readOnly,
-    locked: () => readOnly || locked,
     review,
     extras: async () => (readOnly ? {
       // Read-only mode names nothing that edits: no roster, no history, no
@@ -1572,6 +1584,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // whether this deck can ever leave the mode.
       phone: !!token,
       container: !!container,
+      // switched from the page this session: the page shows a chip; a deck
+      // opened read-only shows nothing to the audience
+      switched: switchedFromPage,
     } : {
       deck: deckUrl,
       phone: !!token,
@@ -2036,22 +2051,46 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const ttsProxy = proxyTo(ttsPort, 'voice', (p) => p.slice('/deck'.length));
   const lipsyncProxy = proxyTo(lipsyncPort, 'lip-sync', (p) => p.slice('/deck/lipsync'.length));
 
-  // The editing LOCK (PRESENTING): started in write mode, the author can turn
-  // changes off to avoid making one by mistake, and back on. It lives here,
-  // not in a page, so every tab and the agent see the same state: locked,
-  // every POST to /deck/edit/* but this one answers 423, the ping says so, and the
-  // live-reload channel tells every open page. A server started --read-only
-  // has no lock to turn, because it has no write route to lock.
-  let locked = false;
-  function lockRoute({ body, json }) {
-    const { locked: want } = JSON.parse(body || '{}');
-    if (typeof want !== 'boolean') return json(400, { ok: false, error: 'locked is true or false' });
-    if (want !== locked) {
-      locked = want;
-      console.log(locked ? '  editing locked — nothing is written until it is unlocked' : '  editing unlocked');
-      broadcast('lock', { locked });
+  // ── the mode switch (PRESENTING) ──────────────────────────────────────────
+  // The session changes mode from the page: `POST /deck/mode { readOnly }`,
+  // outside /deck/edit/ so it answers in both modes. It lives here, not in a
+  // page, so every tab sees the same mode: the channel says `mode` and every
+  // page reloads into it — the CSP is a response header on the document, the
+  // audited bytes are a different body, so a reload is the honest switch.
+  // Entering read-only mode re-runs the audit and re-prints the verdict,
+  // exactly as a pull does: never served bytes under a label that did not
+  // describe them. Entering write mode says what runs from here on, out loud,
+  // when strict had stripped something: the file is served from disk and
+  // nothing is stripped there. A .decklight container never leaves read-only
+  // mode; there is nothing in it to edit in place.
+  async function enterReadOnly() {
+    if (!signatureChecked) { signature = await verifySignature(); signatureChecked = true; }
+    audit();
+    readOnly = true;
+    switchedFromPage = true;
+    console.log('  read-only mode — every edit route refuses; the label below describes what is served from here on');
+    printLabel();
+    if (audited.strict) console.log('  serving strict — what could not be accounted for is stripped');
+  }
+  function enterWrite() {
+    readOnly = false;
+    const stripped = audited ? audited.report.counts.unaccounted + audited.report.counts.handlers : 0;
+    console.log(`  write mode — the deck is served from disk and every edit route answers${
+      stripped ? `; the ${stripped} block${stripped === 1 ? '' : 's'} strict stripped now run` : ''}`);
+    startGit();
+  }
+  async function modeRoute({ body, json }) {
+    const { readOnly: want } = JSON.parse(body || '{}');
+    if (typeof want !== 'boolean') return json(400, { ok: false, error: 'readOnly is true or false' });
+    if (container && !want) {
+      return json(409, { ok: false, readOnly: true, container: true,
+        error: 'a .decklight container is read-only by nature — there is nothing in it to edit in place' });
     }
-    return json(200, { ok: true, locked });
+    if (want !== readOnly) {
+      if (want) await enterReadOnly(); else enterWrite();
+      broadcast('mode', { readOnly });
+    }
+    return json(200, { ok: true, readOnly });
   }
   function shutdownRoute({ res, json, CORS }) {
     res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
@@ -3472,7 +3511,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // sequence DOES still matter say so out loud rather than by position
   // (`BEFORE_BODY`, and the prefix list below).
   const routes = new Map(Object.entries({
-    'POST /deck/edit/lock': lockRoute,
+    'POST /deck/mode': modeRoute,
     // the voice bridge, on this origin (#520): `/deck/tts` speaks, and everything
     // else of the bridge's lives under `/deck/tts/` (the prefix list below)
     'POST /deck/tts': ttsProxy,
@@ -3602,8 +3641,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   }
 
   // What read-only mode refuses, by name: everything that writes the deck or
-  // reaches a bridge, and the review owner's half. The lock is write mode's
-  // own switch and refuses with the rest. A deck opened read-only used to be
+  // reaches a bridge, and the review owner's half. A deck opened read-only used to be
   // served by a process in which none of this was registered; now it is one
   // server, and the refusal is the mode's — a 403 that says which mode would
   // answer, rather than a 405 that pretends the route is unknown.
@@ -3682,11 +3720,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (readOnly && WRITE_FAMILY(url.pathname)) {
         return json(403, { ok: false, readOnly: true, error: 'this deck is open read-only — nothing here changes it' });
       }
-      // locked: no edit route writes, whatever it was aimed at — the one
-      // POST that still answers is the lock itself, so it can be lifted
-      if (locked && req.method === 'POST' && url.pathname.startsWith('/deck/edit/') && url.pathname !== '/deck/edit/lock') {
-        return json(423, { ok: false, locked: true, error: 'editing is locked — unlock it from the palette or the lock chip' });
-      }
       const key = `${req.method} ${url.pathname}`;
       const prefixed = routes.has(key) ? null
         : PREFIX_ROUTES.find((r) => r.method === req.method && url.pathname.startsWith(r.prefix));
@@ -3735,6 +3768,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
     console.log(`  serving ${root} — ${rootArg ? '--root as given' : "the deck's own directory"};`
       + ' dotfiles and non-deck file types refused; every edit route refuses, nothing is written');
+    if (!container) console.log('  write mode is a palette row away (/ → Write mode), for a deck you trust');
     printLabel();
     if (upstream) {
       console.log(`  upstream: tracking ${upstream.upstream} — ${intervalMs ? `checking every ${intervalMs / 60000} min` : 'checked when asked'}`

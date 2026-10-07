@@ -93,6 +93,10 @@ export const REVIEW_BODY_MAX = 1e5;
  * when a submit went through, for the exit line.
  */
 export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mode = 'read-only', out = process.stdout, onSubmitted = () => {} } = {}) {
+  // Both may be functions: the one server changes mode mid-session, and what
+  // the ping says and whether a comment commits follow the mode of the moment.
+  const modeOf = typeof mode === 'function' ? mode : () => mode;
+  const commits = typeof gitOn === 'function' ? gitOn : () => gitOn;
   const deckDir = dirname(deckPath);
   const name = basename(deckPath);
   const storePath = reviewPathFor(deckPath);
@@ -111,7 +115,7 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
   };
 
   /** The `review` block of /deck/ping: what a page needs to know before it comments. */
-  const ping = () => ({ mode, git: gitOn, by: by || null, store: storeName });
+  const ping = () => ({ mode: modeOf(), git: commits(), by: by || null, store: storeName });
   const list = () => {
     const text = existsSync(storePath) ? readFileSync(storePath, 'utf8') : '';
     const { records, skipped } = parseReview(text);
@@ -129,7 +133,7 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
     // The reviewer's own prose reaching a command line, so it goes through
     // the sanitizer every other untrusted subject does: one line, capped,
     // never leading `-`.
-    const committed = gitOn ? gitAutocommit(storePath, deckDir, subject) : false;
+    const committed = commits() ? gitAutocommit(storePath, deckDir, subject) : false;
     return { ok: true, ...(rec.id ? { id: rec.id } : {}), committed };
   };
   /**

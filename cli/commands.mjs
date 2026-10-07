@@ -242,8 +242,9 @@ export const GLOBAL_HELP = `decklight — author, record, and package Decklight 
 Usage:
   decklight <deck.html | repository url> [--read-only] [--port 8788] [--git | --no-git] [--agent <name>] …
            open a deck. Write mode by default: live reload, every edit from the browser written
-           to the file, the bridges this machine can run, an AI agent on A, one Ctrl-C. Lock it
-           from the deck's / palette (Lock editing) to avoid a change by mistake, and unlock it.
+           to the file, the bridges this machine can run, an AI agent on A, one Ctrl-C. The
+           deck's / palette switches the session to read-only mode (to avoid a change by
+           mistake) and back to write mode; a .decklight container never leaves read-only.
            --read-only is the same server in read-only mode: every edit route refuses, the deck is
            served from its own directory under a CSP header, and what the file will execute is
            listed before it runs — the way in for a deck you did not write, and where --strict and

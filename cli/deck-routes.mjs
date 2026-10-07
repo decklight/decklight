@@ -32,7 +32,7 @@ import { sseChannel } from './serve.mjs';
  *
  * `readOnly` is the mode — a boolean, or a function of it, since the one
  * server can change mode mid-session; `locked` says whether anything writes
- * right now (always true in read-only mode, the editing lock in write mode); `review`
+ * right now (true in read-only mode, false in write mode); `review`
  * is the review routes' object, for the probe's `review` block; `extras` is
  * what the mode adds to the probe, computed on every call so a ping is never
  * stale.
