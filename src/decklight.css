@@ -2616,6 +2616,18 @@
 .dl-fmt button.on { background: rgba(255, 255, 255, .2); }
 .dl-fmt .fmt-em { font-style: italic; font-weight: 500; }
 .dl-fmt .fmt-code { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 500; }
+/* the grip: the bar moves (editbar.js); moved, it is positioned by its own
+   left/top instead of the bottom-centre default */
+.decklight-editbar .eb-grip {
+  display: inline-flex; align-items: center; align-self: stretch;
+  padding: 0 6px 0 8px; margin-right: 2px;
+  color: rgba(230, 230, 230, .55); font-size: 15px; line-height: 1;
+  cursor: grab; user-select: none; touch-action: none;
+}
+.decklight-editbar .eb-grip:hover { color: #e6e6e6; }
+.decklight-editbar.eb-dragging .eb-grip, .decklight-editbar .eb-grip:active { cursor: grabbing; }
+.decklight-editbar.eb-moved { bottom: auto; transform: none; }
+.decklight-editbar.eb-dragging { transition: none; box-shadow: 0 14px 40px rgba(0, 0, 0, .5); }
 .decklight-editbar .eb-btn {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 8px 11px;

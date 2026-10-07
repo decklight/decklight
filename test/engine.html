@@ -2270,6 +2270,23 @@
         r.barAtOnce = !!bar() && document.querySelector('.decklight').classList.contains('dl-editmode');
         r.barNamesEveryDoor = labels().join('|') === 'Text|Picture|Layout · auto|Notes|Slide ▾|Undo|Redo|Lock';
         r.barShowsTheKeys = ['⏎', 'L', 'S', 'Z', '⇧Z'].every((k) => keys().includes(k));
+        // the grip: the bar moves, the place is remembered, a double-click puts it back
+        const grip = () => bar().querySelector('.eb-grip');
+        const PLACE = 'decklight-editbar-at:' + location.pathname;
+        localStorage.removeItem(PLACE);
+        r.hasGrip = !!grip() && !labels().includes('⠿');
+        const pe = (type, x, y) => grip().dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, clientX: x, clientY: y, button: 0 }));
+        const before = bar().getBoundingClientRect();
+        pe('pointerdown', before.left + 6, before.top + 10);
+        pe('pointermove', before.left + 206, before.top - 290);
+        pe('pointerup', before.left + 206, before.top - 290);
+        const after = bar().getBoundingClientRect();
+        // clamped to the stage, so the exact offset depends on the viewport: it went up, and stayed on
+        r.gripMoves = bar().classList.contains('eb-moved') && after.top < before.top - 100 && after.left >= 0 && after.right <= window.innerWidth;
+        r.placeRemembered = !!localStorage.getItem(PLACE);
+        grip().dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        r.dblclickPutsItBack = !bar().classList.contains('eb-moved') && !localStorage.getItem(PLACE)
+          && Math.round(bar().getBoundingClientRect().left) === Math.round(before.left);
         // a click selects: outlined, with a ⋯ handle at its corner
         click(h1());
         r.clickSelects = h1().classList.contains('dl-selected') && !!document.querySelector('.dl-handle');
@@ -2343,7 +2360,7 @@
         for (const ch of 'lock deck') press(ch);
         r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(n.textContent));
         press('Escape');
-        r.PASS = r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.clickSelects
+        r.PASS = r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack && r.clickSelects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
           && r.layoutButtonCycles && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork

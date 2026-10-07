@@ -62,6 +62,7 @@ export function createEditBar({
     bar.className = 'decklight-editbar';
     bar.setAttribute('role', 'toolbar');
     bar.setAttribute('aria-label', 'Editing');
+    bar.append(grip());
     for (const b of BUTTONS) {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -84,6 +85,7 @@ export function createEditBar({
       bar.append(btn);
     }
     root.appendChild(bar);
+    placeBar(readPlace());
     fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*';
@@ -98,6 +100,81 @@ export function createEditBar({
     bar.append(fileInput);
     refresh();
   }
+  // ── the grip: the bar moves (PRESENTING) ──────────────────────────────────
+  // The bar sits along the bottom, which is sometimes where the slide's
+  // content is. A grip at its left edge drags it anywhere on the stage; the
+  // place is remembered per deck as fractions of the stage, so it survives a
+  // resize; a double-click on the grip puts it back at the bottom centre.
+  const PLACE_KEY = 'decklight-editbar-at:' + location.pathname;
+  function readPlace() {
+    try { const v = JSON.parse(localStorage.getItem(PLACE_KEY) ?? 'null'); return v && Number.isFinite(v.fx) && Number.isFinite(v.fy) ? v : null; } catch { return null; }
+  }
+  function keepPlace(place) {
+    try { if (place) localStorage.setItem(PLACE_KEY, JSON.stringify(place)); else localStorage.removeItem(PLACE_KEY); } catch { /* no storage: the bar moves for this page only */ }
+  }
+  /** Put the bar at `place` ({ fx, fy }: its centre, as fractions of the stage), or back at the bottom centre. */
+  function placeBar(place) {
+    if (!bar) return;
+    if (!place) {
+      bar.classList.remove('eb-moved');
+      bar.style.left = ''; bar.style.top = '';
+      return;
+    }
+    const R = root.getBoundingClientRect(), B = bar.getBoundingClientRect();
+    const w = B.width || 1, h = B.height || 1;
+    // clamped so a place remembered on a wider stage is still reachable
+    const x = Math.min(Math.max(place.fx * R.width - w / 2, 4), Math.max(4, R.width - w - 4));
+    const y = Math.min(Math.max(place.fy * R.height - h / 2, 4), Math.max(4, R.height - h - 4));
+    bar.classList.add('eb-moved');
+    bar.style.left = `${x}px`; bar.style.top = `${y}px`;
+  }
+  function grip() {
+    const g = document.createElement('span');
+    g.className = 'eb-grip';
+    g.setAttribute('role', 'button');
+    g.setAttribute('aria-label', 'move the bar');
+    g.title = 'drag to move the bar · double-click to put it back';
+    g.textContent = '⠿';
+    let drag = null;   // { id, dx, dy }: the pointer, and where in the bar it took hold
+    // The moves and the release are listened for on the window for the
+    // length of the drag, not on the grip: a fast drag leaves the grip behind
+    // before the next move event, and capture is not something every pointer
+    // grants.
+    const move = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const R = root.getBoundingClientRect(), B = bar.getBoundingClientRect();
+      const x = Math.min(Math.max(e.clientX - R.left - drag.dx, 4), Math.max(4, R.width - B.width - 4));
+      const y = Math.min(Math.max(e.clientY - R.top - drag.dy, 4), Math.max(4, R.height - B.height - 4));
+      bar.classList.add('eb-moved');
+      bar.style.left = `${x}px`; bar.style.top = `${y}px`;
+    };
+    const release = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag = null;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+      bar.classList.remove('eb-dragging');
+      const R = root.getBoundingClientRect(), B = bar.getBoundingClientRect();
+      if (!bar.classList.contains('eb-moved')) return;
+      keepPlace({ fx: (B.left - R.left + B.width / 2) / R.width, fy: (B.top - R.top + B.height / 2) / R.height });
+    };
+    g.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();   // no text selection, no focus change for an inline edit in progress
+      const B = bar.getBoundingClientRect();
+      drag = { id: e.pointerId, dx: e.clientX - B.left, dy: e.clientY - B.top };
+      bar.classList.add('eb-dragging');
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', release);
+      window.addEventListener('pointercancel', release);
+    });
+    g.addEventListener('dblclick', (e) => { e.preventDefault(); keepPlace(null); placeBar(null); });
+    g.addEventListener('mousedown', (e) => e.preventDefault());
+    return g;
+  }
+  window.addEventListener('resize', () => { if (bar?.classList.contains('eb-moved')) placeBar(readPlace()); });
+
   function unmount() {
     deselect();
     bar?.remove();
