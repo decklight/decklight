@@ -412,7 +412,7 @@ test('nothing on the deck-load or presenting path can FETCH from a marketplace',
     // CACHE to resolve `plugin add`, which is the same considered read the
     // wizard makes; what it must never grow is a catalog fetch, and this is
     // where that is held.
-    'cli/read-only.mjs', 'cli/wizard.mjs', 'cli/plugin.mjs',
+    'cli/wizard.mjs', 'cli/plugin.mjs',
     // Every server resolves a deck's marked themes (SPEC THEME_DISTRIBUTION)
     // through these two — from the catalog cache and the checkouts, never a
     // catalog fetch.

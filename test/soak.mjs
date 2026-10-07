@@ -1230,7 +1230,7 @@ try {
 
   // ── present ──────────────────────────────────────────────────────────────
   let presentSrv = null;
-  await step('present serves the deck and nothing else', async () => {
+  await step('read-only mode serves the deck and nothing else', async () => {
     presentSrv = await startServer(['deck.html', '--read-only', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
       { timeoutMs: 15000 });
     await until('the ingredients label', () => /ingredients/.test(presentSrv.log()), { ms: 5000 });
@@ -1291,7 +1291,7 @@ try {
     return undefined;
   });
 
-  await step('present lets go of its port', async () => {
+  await step('read-only mode lets go of its port', async () => {
     presentSrv.child.kill('SIGTERM');
     must(await waitExit(presentSrv.child, 5000), 'present did not exit on SIGTERM');
     must((await isPortOpen(presentSrv.port)) === false, 'the present port is still bound');
@@ -1511,7 +1511,7 @@ try {
       `plugin list said: ${list.all}`);
   });
 
-  await step('present layers the chrome on, and bundle never sees it', async () => {
+  await step('read-only mode layers the chrome on, and bundle never sees it', async () => {
     // The asymmetry in one step. `--read-only` injects the plugin into what it
     // SERVES — the file on disk is untouched — and a bundle made a moment later
     // does not carry a byte of it.
@@ -1698,12 +1698,12 @@ try {
     await say({ slide: 2, title: 'The claim', fp: fingerprint(claim), body: 'Which numbers?' });
     await say({ slide: 1, title: 'Opening', fp: fingerprint('Opening the first slide'), body: 'Good opener.' });
 
-    // the capability, on the installed binary: no editing surface exists here
+    // the capability, on the installed binary: the mode refuses the write family
     const edit = await fetch(`${srv.base}/deck/edit/slide/notes`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ slide: 1, text: 'rewritten by a reviewer' }),
     });
-    must(edit.status === 404 || edit.status === 405, `/deck/edit/slide/notes answered ${edit.status} on a read-only server`);
+    must(edit.status === 403, `/deck/edit/slide/notes answered ${edit.status} in read-only mode — the mode refuses it by name`);
 
     srv.child.kill('SIGTERM');
     must(await waitExit(srv.child, 5000), 'review did not exit on SIGTERM');

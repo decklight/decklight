@@ -332,10 +332,10 @@ export function createEditMode({
             debugLog('edit', `server edits ${j.name}, this deck is ${here} — not wiring up`);
             continue;
           }
-          // The one server, read-only: nothing here edits, and the page wires
-          // up what a presented deck gets (the clicker, the upstream readout)
-          // and nothing else. Every affordance gated on `available()` keeps
-          // saying it needs write mode, because it does.
+          // The one server in read-only mode: nothing here edits, and the
+          // page wires up what a read-only deck gets (the clicker, the
+          // upstream readout) and nothing else. Every affordance gated on
+          // `available()` keeps saying it needs write mode, because it does.
           if (j.readOnly) {
             served = true;
             readOnly = true;
@@ -361,10 +361,6 @@ export function createEditMode({
           editAgents = Array.isArray(j.agents) ? j.agents : [];
           preferredAgent = typeof j.preferredAgent === 'string' ? j.preferredAgent : null;
           editWizards = Array.isArray(j.wizards) ? j.wizards : [];
-          // No QR and no clicker on this path: the edit server binds
-          // 127.0.0.1 and serves no /deck/remote/* at all (READ_ONLY#REMOTE). A deck
-          // being AUTHORED has a keyboard in front of it; a deck being
-          // PRESENTED is what wireRemote wires up.
           // Said once per session, and only when there is enough of it to be
           // worth interrupting for. A session that STARTS forty commits behind
           // hears it immediately rather than waiting for the next commit.
@@ -383,6 +379,9 @@ export function createEditMode({
           reopenNotes();      // …and the notes card a save reloaded, where the author was
           const es = new EventSource(base + '/deck/events');
           es.onmessage = () => location.reload();
+          // The phone remote is the server's in either mode (READ_ONLY#REMOTE):
+          // with --remote, write mode gets the clicker and the QR too.
+          wireClicker(base, es, j);
           // A notes save is not a reload: every open view of the deck gets
           // the slide's new notes and puts them in place (narration, the
           // speaker view, a notes card left open in another tab)
@@ -618,9 +617,30 @@ export function createEditMode({
     keydown: (e) => e.key === 'Escape' && (closeUpstream(), true),
   });
 
+  /** The clicker: the phone's taps arrive on the deck's stream, the position goes back. Either mode. */
+  function wireClicker(base, es, j) {
+    instance.__remoteQr = j.phone ? `${base || location.origin}/deck/remote/qr.svg` : null;
+    es.addEventListener('remote', (ev) => {
+      try {
+        const { key } = JSON.parse(ev.data);
+        if (key === 'next') instance.next();
+        else if (key === 'prev') instance.prev();
+      } catch { /* malformed event */ }
+    });
+    const postPos = () => {
+      fetch(base + '/deck/remote/pos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ i: instance.state.slide, n: instance.state.totalSlides }),
+      }).catch(() => {});
+    };
+    instance.on('slide', postPos);
+    instance.on('build', postPos);
+    postPos();
+  }
+
   async function wireRemote(base, j) {
     try {
-      instance.__remoteQr = j.remote ? `${base || location.origin}/deck/remote/qr.svg` : null;
       // H in read-only mode. The routes only exist when the deck is a tracked
       // file in a clone with an upstream, so this base is enough to tell: a
       // deck that is not one gets a 404/405 and H says so, rather than the
@@ -628,27 +648,11 @@ export function createEditMode({
       deckBase = base;
       presenting = true;
       const es = new EventSource(base + '/deck/events');
-      es.addEventListener('remote', (ev) => {
-        try {
-          const { key } = JSON.parse(ev.data);
-          if (key === 'next') instance.next();
-          else if (key === 'prev') instance.prev();
-        } catch { /* malformed event */ }
-      });
-      // No `onmessage` handler: the unnamed `reload` message is the edit
-      // server's, and a presenting server has no file watcher to send one.
-      const postPos = () => {
-        fetch(base + '/deck/remote/pos', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ i: instance.state.slide, n: instance.state.totalSlides }),
-        }).catch(() => {});
-      };
-      instance.on('slide', postPos);
-      instance.on('build', postPos);
-      postPos();
+      // No `onmessage` handler: the unnamed `reload` message is write mode's,
+      // and read-only mode never sends one — it serves the audited bytes.
+      wireClicker(base, es, j);
       debugLog('remote', `remote connected${base ? ` (${base})` : ''} — no edit surface`);
-    } catch { /* not served by present either */ }
+    } catch { /* not served */ }
   }
 
   // ── edits in flight ──────────────────────────────────────────────────────

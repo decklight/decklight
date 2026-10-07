@@ -28,7 +28,7 @@ export const corsHeaders = (expose = '') => ({
  *
  * `max` is opt-in, and which callers set it is the design. The lipsync bridge
  * receives a slide's WAV here and the TTS bridge a sentence; neither has a
- * size a cap could sensibly name. The phone remote in cli/read-only.mjs does:
+ * size a cap could sensibly name. The phone remote in cli/edit.mjs does:
  * it is the one route reachable from OFF this machine under --remote, its
  * payloads are a few dozen bytes of "go to slide 7", and a body past 4 KB is
  * not a bigger request, it is someone probing. So that caller passes `max`,

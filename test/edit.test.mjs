@@ -820,18 +820,22 @@ test('POST /deck/edit/enhance with no agent on the machine is a 400 that says so
   assert.match((await r.json()).error, /no agent CLI|install one/);
 });
 
-// ── the edit server is loopback-only, and has no remote (READ_ONLY#REMOTE) ─
+// ── the server is loopback-only unless --remote (READ_ONLY#REMOTE) ─────────
 
-test('--remote and --host are refused out loud, naming where the remote went', () => {
-  // Silently binding loopback would leave someone holding a phone that never
-  // connects and no way to find out why. The refusal names the replacement.
-  for (const flag of ['--remote', '--host']) {
-    const r = spawnSync(process.execPath, [EDIT, 'deck.html', flag, ...(flag === '--host' ? ['0.0.0.0'] : [])],
-      { encoding: 'utf8' });
-    assert.equal(r.status, 2, flag);
-    assert.match(r.stderr, new RegExp(`write mode does not take \\${flag}`), flag);
-    assert.match(r.stderr, /decklight .* --read-only --remote/, `${flag} names the way in that does this now`);
-  }
+test('--remote in write mode: the relay answers, the probe says so, and nothing else is widened', async (t) => {
+  // The phone remote is the server's in either mode. Off this machine only
+  // /deck/remote/* answers, with the token — allowRemote, tested in
+  // read-only.test.mjs — so a clicker no longer costs a second server.
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base, log } = await startEdit(t, dir, { extraArgs: ['--remote', '--host', '127.0.0.1'], env: { PATH: dir } });
+  assert.match(log(), /remote: listening on 127\.0\.0\.1/, 'the LAN URL is advertised');
+  const ping = await (await fetch(base + '/deck/ping')).json();
+  assert.equal(ping.phone, true);
+  assert.equal(ping.readOnly, false, 'still write mode');
+  assert.equal((await fetch(base + '/deck/remote/qr.svg')).status, 200, 'the QR has a URL to encode');
+  const key = await (await post(base, '/deck/remote/key', { key: 'next' })).json();
+  assert.equal(key.ok, true);
 });
 
 test('the edit server binds 127.0.0.1 — the LAN cannot even connect', async (t) => {
@@ -848,25 +852,18 @@ test('the edit server binds 127.0.0.1 — the LAN cannot even connect', async (t
     'the LAN address must not be listening');
 });
 
-test('no /deck/remote/* route is registered here at all', async (t) => {
-  // The negative space, mirroring read-only.test.mjs's "no /deck/edit/* route": a
-  // clicker must not cost you an editing server, so the two capabilities do not
-  // live in one process. Absent, not refused.
+test('without --remote the controller still answers on loopback, and the QR refuses', async (t) => {
+  // The relay is the server's in both modes: a deck on this machine gets its
+  // position readout flag or no flag. What --remote adds is the LAN listener
+  // and a QR with a URL a phone can use; without it the QR says so.
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-
-  for (const p of ['/deck/remote', '/deck/remote/qr.svg', '/deck/remote/events']) {
-    assert.equal((await fetch(base + p)).status, 404, p);
-  }
-  // a POST lands as 405 — unknown method on an unknown path, exactly what any
-  // other made-up route gets. Not a refusal: there is nothing to have refused.
-  assert.equal((await post(base, '/deck/remote/key', { key: 'next' })).status, 405);
-  assert.equal((await post(base, '/deck/remote/pos', { i: 1, n: 2 })).status, 405);
-
-  const src = readFileSync(EDIT, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.doesNotMatch(src, /createRemoteRelay|remoteControllerHtml/,
-    'and the module does not import the relay it would need to serve them');
+  assert.equal((await fetch(base + '/deck/remote')).status, 200);
+  const qr = await fetch(base + '/deck/remote/qr.svg');
+  assert.equal(qr.status, 404);
+  assert.match((await qr.json()).error, /--remote/);
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).phone, false);
 });
 
 // ── CSRF: a foreign web origin cannot drive the edit server (#222) ───────

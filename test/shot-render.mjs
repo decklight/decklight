@@ -38,7 +38,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { dumpDom, resultsFrom } from './harness.mjs';
-import { serveForRender, CSP } from '../cli/read-only.mjs';
+import { serveForRender, CSP } from '../cli/serve.mjs';
 
 const run = promisify(execFile);
 const SECRET = 'TOPSECRET-229';

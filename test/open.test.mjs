@@ -190,38 +190,20 @@ test('git and agent flags ride along to the edit child', () => {
   assert.equal(plan(['--commit-every', '60', 'deck.html']).deck, 'deck.html');
 });
 
-test('--remote and --host are reported as gone, never passed to the edit child', () => {
-  // The phone remote lives on `--read-only` now (READ_ONLY#REMOTE). The plan REPORTS
-  // the refusal rather than performing it, so it stays pure and openMain is the
-  // one place that prints and exits.
-  assert.deepEqual(plan(['deck.html', '--remote']).gone, ['--remote']);
-  assert.deepEqual(plan(['deck.html', '--host', '192.168.1.5']).gone, ['--host']);
-  assert.deepEqual(plan(['deck.html', '--remote', '--host=1.2.3.4']).gone, ['--remote', '--host']);
-  assert.deepEqual(plan(['deck.html']).gone, [], 'and nothing is reported when nothing was asked');
-
-  // whatever it reports, the edit child never receives them
-  for (const args of [['deck.html'], ['deck.html', '--remote'], ['deck.html', '--host', '0.0.0.0']]) {
-    assert.deepEqual(svc(plan(args), 'edit').args, ['deck.html', '--port', '8788'], args.join(' '));
-  }
-
-  // --host no longer consumes its argument, so a deck sitting after it is still
-  // found rather than being eaten as the bind address
-  assert.equal(plan(['--host', '0.0.0.0', 'deck.html']).deck, '0.0.0.0');
+test('--remote and --host travel to the deck server, in write mode too', () => {
+  // The phone remote is the server's in either mode (READ_ONLY#REMOTE): off
+  // this machine only /deck/remote/* answers, with the token, so the flag
+  // widens the listener and nothing else — and the plan passes it through.
+  assert.deepEqual(svc(plan(['deck.html', '--remote']), 'edit').args, ['deck.html', '--port', '8788', '--remote']);
+  assert.deepEqual(svc(plan(['deck.html', '--host', '192.168.1.5']), 'edit').args, ['deck.html', '--port', '8788', '--host', '192.168.1.5']);
+  assert.deepEqual(svc(plan(['deck.html']), 'edit').args, ['deck.html', '--port', '8788'], 'and nothing travels when nothing was asked');
+  // --host consumes its argument, so a deck sitting after it is still found
+  assert.equal(plan(['--host', '0.0.0.0', 'deck.html']).deck, 'deck.html');
 });
 
-test('open refuses --remote out loud and names the command that replaced it', () => {
-  const r = spawnSync('node', [CLI, 'deck.html', '--remote'], { encoding: 'utf8' });
-  assert.equal(r.status, 2);
-  assert.match(r.stderr, /does not take --remote in write mode/);
-  assert.match(r.stderr, /decklight deck\.html --read-only --remote/,
-    'and names it with the deck already filled in');
-  // it must not have started anything before deciding
-  assert.doesNotMatch(r.stdout, DECK_URL_RE);
-});
-
-test('--read-only is the read-only server: no edit route exists, the CSP rides on every response', async (t) => {
-  // One command, two ways in (PRESENTING): the flag does not refuse writes on
-  // the edit server, it starts the server that has no write route to refuse.
+test('--read-only is the same server in read-only mode: every edit route refuses, the CSP rides on every response', async (t) => {
+  // One command, one server, two modes (PRESENTING): the flag does not start
+  // a different server, it starts this one with the write family refused.
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-ro-'));
   writeFileSync(path.join(dir, 'deck.html'), '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div><script>Decklight.init()</script></body></html>');
   const home = mkdtempSync(path.join(tmpdir(), 'decklight-ro-home-'));
@@ -241,7 +223,8 @@ test('--read-only is the read-only server: no edit route exists, the CSP rides o
   assert.equal(page.status, 200);
   assert.ok(page.headers.get('content-security-policy')?.startsWith("default-src 'none'"), 'the policy, as an HTTP header');
   const edit = await fetch(base + '/deck/edit/slide/notes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
-  assert.equal(edit.status, 405, 'a write route does not exist to refuse');
+  assert.equal(edit.status, 403, 'the write family is refused by the mode');
+  assert.equal((await edit.json()).readOnly, true, 'and the refusal says which mode answered');
   const ping = await (await fetch(base + '/deck/ping')).json();
   assert.equal(ping.readOnly, true, 'the one probe answers, and says read-only');
 });
@@ -269,12 +252,10 @@ test('the deck is the command: the global help opens with it, and no word for it
 
   const openHelp = execFileSync('node', [CLI, 'deck.html', '--help'], { encoding: 'utf8' });
   assert.match(openHelp, /usage: decklight <deck\.html \| git url> \[--read-only\]/);
-  // neither is offered as an author flag any more — a flag listed in the help
-  // is a promise to honour it, and `open` refuses both
-  assert.doesNotMatch(openHelp, /^\s+--remote\b/m, 'the LAN opt-in is gone');
-  assert.doesNotMatch(openHelp, /^\s+--host\b/m, 'and so is the bind address');
-  assert.match(openHelp, /--read-only --remote/, 'but the help says where it went');
-  assert.match(openHelp, /^\s+--read-only\b/m, 'the read-only way in is a flag of the same command');
+  // the remote is a flag of the one command, in either mode
+  assert.match(openHelp, /^\s+--remote\b/m, 'the LAN opt-in is offered');
+  assert.match(openHelp, /^\s+--host\b/m, 'and so is the bind address');
+  assert.match(openHelp, /^\s+--read-only\b/m, 'the read-only mode is a flag of the same command');
 });
 
 test('`edit` is not a command, and says so the way any other unknown one does', () => {

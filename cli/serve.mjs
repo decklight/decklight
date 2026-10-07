@@ -5,11 +5,13 @@
 // an editing endpoint: the loopback/token security classifier, static file
 // serving with a traversal guard, SSE fan-out, and port binding with takeover.
 //
-// Extracted from edit.mjs so `decklight <deck> --read-only` (MARKETPLACE.md,
-// READ_ONLY_SERVER) can serve a deck read-only by reusing this core with the
-// /deck/edit/* routes ABSENT — not merely refused. Nothing in this module writes a
-// file.
+// Extracted from edit.mjs when `--read-only` was a server of its own; now it
+// is a mode of the one server (PRESENTING), and this is still the core both
+// modes stand on, plus the policy the read-only mode puts on every response
+// and the tiny server the render tools run behind. Nothing in this module
+// writes a file.
 
+import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync, createReadStream } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
@@ -406,4 +408,96 @@ export async function listenTakingOverIfNeeded(server, port, host = '127.0.0.1')
   } finally {
     rl?.close();
   }
+}
+
+/**
+ * The read-only mode's policy (PRESENTING), and honestly what it is worth.
+ *
+ * `script-src` has to carry `'unsafe-inline'`: a bundled deck IS inline script
+ * (the runtime is inlined by `decklight bundle`) and even a source deck calls
+ * `Decklight.init()` from an inline block. So this header does not stop a deck from running
+ * script — that is what READ_ONLY#AUDIT names and READ_ONLY#STRICT strips, and
+ * claiming otherwise here would manufacture confidence the mechanism cannot
+ * back.
+ *
+ * What it does stop is what a hostile deck would want to DO with that script:
+ * `default-src 'none'` denies every fetch destination not listed below,
+ * `object-src` kills plugin embedding, `base-uri` stops relative-URL
+ * hijacking, and `form-action 'none'` means a credential form pasted into a
+ * deck has nowhere to post. Exfiltration is narrowed to `https:` rather than
+ * closed, because that is where SPEC'd narration lives (below).
+ *
+ * Each opening is a SPEC'd feature, not a convenience:
+ * - `media-src https:` — a recorded track's `dir` may be an absolute URL, and
+ *   background video stays external by design (PRESENTING). `blob:` is the
+ *   stitched/`createObjectURL` audio path.
+ * - `connect-src https:` — manifest tracks fetch `manifest.signed.json` from a
+ *   bucket; a presigned URL's origin is not knowable ahead of time, so it
+ *   cannot be pinned to an allowlist here.
+ * - `frame-src`/`frame-ancestors 'self'` — the theme picker, the slide finder
+ *   and the speaker view all boot the deck into same-origin iframes. `'none'`
+ *   would break the picker preview; `'self'` still refuses embedding by
+ *   another site.
+ * - `style-src 'unsafe-inline'` — themes are inline `<style data-theme>`
+ *   blocks and the engine writes inline custom properties (`--pin-y`).
+ *
+ * The bridges sit on the deck's own origin (`/deck/tts`, `/deck/lipsync/`), so
+ * `'self'` would let a deck reach them; the server refuses those families in
+ * read-only mode instead (MARKETPLACE.md ENGINES: engines never come up outside
+ * write mode — a deck you were emailed asking to reach a local service is the
+ * shape of a probe). Recorded narration needs no bridge and is unaffected.
+ */
+export const CSP = [
+  "default-src 'none'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https:",
+  "frame-src 'self'",
+  "frame-ancestors 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "object-src 'none'",
+].join('; ');
+
+/**
+ * Serve files under `root` over http://127.0.0.1 with the CSP on EVERY
+ * response, for the render tools (`tools/shot.mjs`, `tools/video.mjs`).
+ *
+ * It is the serving core with the audit/strict/deck/remote/edit surface
+ * stripped off: `withHeaders` for the policy, `staticFiles` for a
+ * traversal-guarded GET, an ephemeral loopback port. A deck screenshotted or
+ * filmed BEFORE anyone presents it therefore runs under the same policy
+ * read-only mode gives it — instead of over `file://` with
+ * `--allow-file-access-from-files`, the flag that let a deck's own JS read any
+ * local file it could name and ship it anywhere (#229). An http origin cannot
+ * read `file://` at all, and the CSP bounds where the rest can reach; a read is
+ * confined to what `staticFiles` will serve under `root`.
+ *
+ * `html` rewrites the text of every text/html response on its way out (shot
+ * injects its driver and `--theme` link there, in memory — no temp file). The
+ * server must be driven with an ASYNC Chrome (execFile, not execFileSync): a
+ * synchronous child blocks the event loop, and this in-process server would
+ * never answer the browser it launched.
+ *
+ * Returns `{ origin, close }` — `origin` is `http://127.0.0.1:<port>`, `close`
+ * resolves when the listener is shut.
+ */
+export async function serveForRender(root, { html = null } = {}) {
+  const files = staticFiles(root, { html });
+
+  const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
+    let url;
+    try { url = new URL(req.url, 'http://127.0.0.1'); }
+    catch { res.writeHead(400); res.end('bad request'); return; }
+    if (files(req, res, url)) return;
+    res.writeHead(405); res.end('method not allowed');
+  }));
+  const port = await listenTakingOverIfNeeded(server, 0, '127.0.0.1');
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    close: () => new Promise((r) => server.close(r)),
+  };
 }

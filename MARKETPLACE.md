@@ -367,7 +367,7 @@ self-describing: the verbosity is the feature.
 - The manifest (runtime version, extensions, origin repo, commit SHA) sits
   *outside* the payload, where a tamperer cannot edit it in the same pass,
   which also puts it outside the signature: the sidecar attests to the payload
-  alone, so the manifest stays a claim. The read-only server therefore never prints the
+  alone, so the manifest stays a claim. Read-only mode therefore never prints the
   manifest's origin: provenance the signature does not cover is
   attacker-controlled even on a verified deck, and a claim nobody vouches for
   adds nothing beside a verified identity. It stays in the manifest for
@@ -404,11 +404,10 @@ The words that used to open a deck in one mode or another were retired in
 0.9.0 and fall through to the ordinary `unknown command` with the help, like
 any other word that is not a command. A refusal stub naming the old word is a
 migration aid, and decklight has no released users to migrate: every stub is a
-line of dispatch, a test and a paragraph of docs bought for nobody. The two
-servers underneath are one command's two modes (`cli/open.mjs`,
-`cli/read-only.mjs`): the read-only one registers no `/deck/edit/*` route, answers
-the one probe as read-only, and the review routes are both servers' (SPEC
-REVIEW). **The `/deck/edit/*` endpoints are the contract and are unchanged**, only
+line of dispatch, a test and a paragraph of docs bought for nobody. One
+server underneath has two modes (`cli/open.mjs`, `cli/edit.mjs`): read-only
+mode refuses every `/deck/edit/*` route, answers the one probe as read-only,
+and the review routes are both modes' (SPEC REVIEW). **The `/deck/edit/*` endpoints are the contract and are unchanged**, only
 the way the server starts changed.
 
 ### ENGINES · On demand: core owns the affordance, the marketplace owns the engine
@@ -772,7 +771,7 @@ Depends column cites tickets by mnemonic, never by position.
 
 | Ticket | Scope | Depends on |
 |---|---|---|
-| `READ_ONLY_SERVER` | `decklight <deck> --read-only`: read-only server, CSP header, no `/deck/edit/*` | — |
+| `READ_ONLY_SERVER` | `decklight <deck> --read-only`: read-only mode, CSP header, `/deck/edit/*` refuses | — |
 | `READ_ONLY#AUDIT` | runtime hashing, ingredients label, unaccounted-script detection | `READ_ONLY_SERVER` |
 | `READ_ONLY#STRICT` | strip unverified script, prove the deck still plays | `READ_ONLY#AUDIT` |
 | `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `--read-only` | `READ_ONLY#AUDIT` |

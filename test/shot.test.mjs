@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 import { shotMain } from '../tools/shot.mjs';
-import { CSP } from '../cli/read-only.mjs';
+import { CSP } from '../cli/serve.mjs';
 
 /**
  * Run shotMain against a deck in a temp cwd with a fake renderer that never

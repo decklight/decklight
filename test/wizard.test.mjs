@@ -489,11 +489,15 @@ test('no credential can reach a deck: bundle never reads the credentials file', 
     'and the bundled deck mentions neither the file nor a field name');
 });
 
-test('present registers nothing of this — a credential prompt in an emailed deck is phishing', () => {
-  const src = readFileSync(path.join(ROOT, 'cli/read-only.mjs'), 'utf8');
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.doesNotMatch(code, /wizard|credential/i,
-    'the read-only viewer has no wizard surface at all, which is why it cannot grow one by default');
+test('read-only mode refuses the wizard — a credential prompt in an emailed deck is phishing', () => {
+  // The wizard routes live under /deck/edit/, which read-only mode refuses as
+  // a family (read-only.test.mjs drives the gate). What this pins is that no
+  // wizard route sits OUTSIDE that family, where the gate would miss it.
+  const src = readFileSync(path.join(ROOT, 'cli/edit.mjs'), 'utf8');
+  const code = src.replace(/^\s*(?:\/\/|\/\*|\*).*$/gm, '');
+  for (const m of code.matchAll(/['"](?:GET|POST) (\/[^'"]*wizard[^'"]*)['"]/g)) {
+    assert.ok(m[1].startsWith('/deck/edit/'), `${m[1]} is outside the family read-only mode refuses`);
+  }
 });
 
 test('the store is the config home ENGINES decided on, beside the registry', () => {

@@ -41,7 +41,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { serveForRender } from '../cli/read-only.mjs';
+import { serveForRender } from '../cli/serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');

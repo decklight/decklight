@@ -108,7 +108,7 @@ const RULES = [
   [/^cli\/pdf\.mjs$/, ['pdf-render'], 'PDF export'],
   [/^cli\/pptx-export\.mjs$/, ['pptx-render'], 'PowerPoint export'],
   [/^tools\/pptx-write\.mjs$/, ['pptx-render'], 'the file the PowerPoint export writes'],
-  [/^cli\/(present|shot)\.mjs$/, ['shot-render'], 'present, and the screenshot containment it asserts'],
+  [/^cli\/(edit|shot)\.mjs$/, ['shot-render'], 'the deck server, and the screenshot containment it asserts'],
   [/^cli\/(comments|review-anchor|review-store|review-remote|review-submit)\.mjs$/, ['review-render'],
     'the CLI half of review — the harness cross-checks the browser against it'],
   [/^cli\/(units|marketplace|loader|pin)\.mjs$/, ['pin-render', 'extension-check-render'],

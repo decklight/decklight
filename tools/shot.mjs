@@ -34,7 +34,7 @@ import { promisify } from 'node:util';
 import { chromeBin, chromeArgs } from './chrome.mjs';
 import { argReader, isMain } from './args.mjs';
 import { injectBeforeBodyEnd } from './deck-html.mjs';
-import { serveForRender } from '../cli/read-only.mjs';
+import { serveForRender } from '../cli/serve.mjs';
 
 const run = promisify(execFile);
 

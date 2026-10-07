@@ -44,7 +44,7 @@ import { renderThemeParams } from './render-theme.mjs';
 import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './video-options.mjs';
 import { splitSentences, speechRuns, stripAudioTags, PAUSE_MARK, CLICK_MARK, canonMarks } from './sentences.mjs';
-import { serveForRender } from '../cli/read-only.mjs';
+import { serveForRender } from '../cli/serve.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
 import { staleSlides, slideTexts, priorSlideTexts, slideNotes, markerPauses } from './narration-manifest.mjs';
 import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs';

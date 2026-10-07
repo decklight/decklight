@@ -80,10 +80,10 @@ for (const mode of ['read-only', 'write']) {
   });
 }
 
-test('read-only mode still has no edit route, with the review routes beside it', async (t) => {
+test('read-only mode refuses every edit route, with the review routes beside it', async (t) => {
   const { base } = await open(t, 'read-only');
   const edit = await fetch(`${base}/deck/edit/slide/notes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
-  assert.equal(edit.status, 405, 'as unknown as a POST to anything else');
+  assert.equal(edit.status, 403, 'refused by the mode, by name');
   const page = await fetch(`${base}/talk.html`);
   assert.ok(page.headers.get('content-security-policy')?.startsWith("default-src 'none'"), 'under the policy');
 });

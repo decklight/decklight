@@ -27,7 +27,7 @@ import {
   SLOTS, NEEDS, MANIFEST_KEYS, validateManifest, readManifest, pluginLint,
   loadPlugin, loadLibrary, chromeMarkup, injectChrome, pluginsDir, PluginError,
 } from '../cli/plugin.mjs';
-import { CSP } from '../cli/read-only.mjs';
+import { CSP } from '../cli/serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');

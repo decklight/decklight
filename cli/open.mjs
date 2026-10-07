@@ -2,17 +2,18 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// decklight <deck> — THE command: open a deck. Write mode is the edit server
-// plus whichever optional bridges this machine can actually run; --read-only
-// is the read-only server, with no edit route in the process (read-only.mjs).
+// decklight <deck> — THE command: open a deck. One server (edit.mjs), two
+// modes: write mode, the default, brings it up as a child plus whichever
+// optional bridges this machine can actually run; --read-only runs the same
+// server in this process, in read-only mode, with no bridge beside it.
 //
 //   decklight <deck.html | url> [--read-only] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
 //                    [--project <id>] [--rhubarb <bin>] [--portrait <name=img.png|clip.mp4>]…
-//                    [--no-tts] [--no-lipsync]
+//                    [--no-tts] [--no-lipsync] [--remote]
 //
 // The bridges keep their OWN PROCESSES on their own ports, exactly as if you
 // had started them by hand — `open` only owns their lifetime, so one Ctrl-C
-// stops everything. That split is the point: the edit server needs nothing (no
+// stops everything. That split is the point: the deck server needs nothing (no
 // credentials, no cost), tts holds Google credentials and spends money per
 // call, lipsync pins a GPU. Folding them into one process would let a Wav2Lip
 // crash or an expired token take down the server you are editing through.
@@ -53,7 +54,7 @@ const EDIT = fileURLToPath(new URL('./edit.mjs', import.meta.url));
 const USAGE = `usage: decklight <deck.html | git url> [--read-only] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper|elevenlabs] [--project <id>] [--no-tts]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
-  brings up the edit server plus every bridge this machine can run, under one Ctrl-C
+  brings up the deck server plus every bridge this machine can run, under one Ctrl-C
 
   A git URL clones the repository (in full — its history is the deck's) into
   ./<repo>, finds the deck in it, and opens that; a directory already cloned
@@ -63,12 +64,15 @@ const USAGE = `usage: decklight <deck.html | git url> [--read-only] [--port 8788
   --branch <ref>    the branch or tag to clone
   --into <dir>      where to clone (default: ./<repo name>)
 
-  --port N          edit server (live reload + edit write-back)       [8788]
+  --port N          the deck server (live reload + edit write-back)   [8788]
                     (taken already? author offers to take over that session
                     on a TTY, or moves to the next free port otherwise)
   --tts-port N      live voice bridge                                 [8787]
   --lipsync-port N  lip-sync bridge (visemes + talking head)          [8789]
   --open            open the deck in your browser once the server is up
+  --remote          also listen on the LAN for the phone remote: off this machine
+                    only /deck/remote/* answers, with the per-run token the QR carries
+  --host A          the address --remote binds                          [0.0.0.0]
   --no-tts          don't start the voice bridge
   --no-lipsync      don't start the lip-sync bridge
   --git / --no-git  keep the deck in git (snapshot + K commits) / never touch git
@@ -85,12 +89,13 @@ const USAGE = `usage: decklight <deck.html | git url> [--read-only] [--port 8788
                     machine, which may pass them to its provider
   --agent <name>    preferred AI agent for A (default: first detected)
 
-  --read-only       open the deck without any way to change it: no edit routes
-                    exist in the process, the deck is served from its own
-                    directory under a Content-Security-Policy header, and the
-                    ingredients label runs first. The way to open a deck you did
-                    not write; --remote, --strict, --check and --root apply here
-  every server binds 127.0.0.1; for a phone remote: decklight <deck> --read-only --remote
+  --read-only       the same server in read-only mode: the deck is served from
+                    its own directory under a Content-Security-Policy header,
+                    the ingredients label runs first, every edit route refuses,
+                    and no bridge is started. The way to open a deck you did
+                    not write; --strict, --check and --root apply here
+                    (decklight <deck> --read-only --help for that mode's flags)
+  the server binds 127.0.0.1 unless --remote asks for the LAN
 
   --tts-engine E    gemini  Vertex AI, best delivery, honors a style — no free tier  [default]
                     chirp   Cloud TTS Chirp 3: HD — same voices, ~1s, 1M chars/month free
@@ -118,7 +123,7 @@ const VALUE_FLAGS = new Set([
   '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
   '--python', '--cache-dir', '--commit-every', '--agent', '--git-mode',
   '--veo-project', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-location', '--veo-face-y',
-  '--branch', '--into',
+  '--branch', '--into', '--host',
 ]);
 
 /**
@@ -161,7 +166,9 @@ export function planServices({
       // BOTH directions travel: the first-run question can answer no, and a no
       // that did not reach the server would be a question asked and ignored.
       ...(has('--commit-messages') ? ['--commit-messages'] : []),
-      ...(has('--no-commit-messages') ? ['--no-commit-messages'] : [])],
+      ...(has('--no-commit-messages') ? ['--no-commit-messages'] : []),
+      // the phone remote (READ_ONLY#REMOTE) is the server's, in either mode
+      ...(has('--remote') ? ['--remote'] : []), ...pass('--host')],
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
 
@@ -291,12 +298,7 @@ export function planServices({
     });
   }
 
-  // Reported, not passed through. The phone remote moved to `--read-only`
-  // (READ_ONLY#REMOTE), and a flag that quietly did nothing would leave someone
-  // holding a phone that never connects. openMain is what prints and exits —
-  // the plan stays pure so a test can ask what it decided.
-  const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));
-  return { deck, run, skip, gone, agents: detectAgents({ env, hasBin }).map((a) => a.name) };
+  return { deck, run, skip, agents: detectAgents({ env, hasBin }).map((a) => a.name) };
 }
 
 /**
@@ -327,30 +329,19 @@ const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
 
 export async function openMain(args) {
-  // --read-only first, --help after: the read-only way in prints its own usage
-  // --read-only: the same command, the read-only server (PRESENTING). It is
-  // the read-only server's serving core, not the edit server with the writes refused: no
-  // /deck/edit/* route exists in that process, the deck is served from its own
-  // directory under the CSP, and the ingredients label runs first. The one
-  // door to a deck, whichever way it is opened.
+  // --read-only: the same command, the same server, in read-only mode
+  // (PRESENTING). A .decklight container is read-only by nature — there is
+  // nothing in it to edit in place — so naming one is the same as the flag.
+  // It runs in THIS process: read-only mode starts no bridge (a deck you were
+  // handed does not get a voice engine beside it), so there is nothing for a
+  // supervising parent to own, and the one thing the mode prints — the
+  // ingredients label — belongs on a bare terminal, not under a banner.
   const named = args.find((a) => !a.startsWith('-') && /\.decklight$/i.test(a));
-  if (args.includes('--read-only') || named) {
-    if (named && !args.includes('--read-only')) console.log('  a .decklight container is read-only by nature: nothing in it can be edited in place');
-    const { readOnlyMain } = await import('./read-only.mjs');
-    return readOnlyMain(args.filter((a) => a !== '--read-only'));
-  }
+  const readOnly = args.includes('--read-only') || Boolean(named);
+  if (readOnly && args.includes('--help')) return (await import('./edit.mjs')).editMain(args.includes('--read-only') ? args : [...args, '--read-only']);
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
 
   let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
-  if (plan.gone.length) {
-    console.error(`decklight does not take ${plan.gone.join(' or ')} in write mode — the phone remote is a read-only thing.`);
-    console.error('  A clicker used to cost you an editing server on the LAN: /deck/edit/slide/notes, /deck/edit/slide/layout and');
-    console.error('  /deck/edit/agent were reachable from the same run you were not watching. The read-only server');
-    console.error('  has no edit surface to widen, so that is where it lives.');
-    console.error(`\n  decklight ${plan.deck ?? '<deck.html>'} --read-only --remote`);
-    process.exitCode = 2;
-    return;
-  }
   let deck = plan.deck;
   if (!deck) {
     console.error('decklight needs a deck: decklight <deck.html>\n');
@@ -376,14 +367,27 @@ export async function openMain(args) {
     process.chdir(got.dir);
     const local = relative(got.dir, got.deckPath);
     args = args.map((a) => (a === deck ? local : a)).filter((a, i, all) => !(a === '--branch' || a === '--into' || all[i - 1] === '--branch' || all[i - 1] === '--into'));
-    if (!args.includes('--no-git') && !args.includes('--git')) args.push('--git');
+    // read-only mode never commits the deck; the clone's git is what H reads
+    if (!readOnly && !args.includes('--no-git') && !args.includes('--git')) args.push('--git');
     deck = local;
     plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   }
-  if (!existsSync(deck)) {
+  // read-only mode names a missing deck itself, the same way for a file, a
+  // container and a --check
+  if (!readOnly && !existsSync(deck)) {
     console.error(`decklight: no such deck: ${deck}`);
     process.exitCode = 1;
     return;
+  }
+  if (readOnly) {
+    if (named && !args.includes('--read-only')) {
+      console.log('  a .decklight container is read-only by nature: nothing in it can be edited in place');
+      args = [...args, '--read-only'];
+    }
+    // The server, here. A number back is an exit code (--check, a refusal);
+    // the server object means it is listening and Ctrl-C is the way out.
+    const out = await (await import('./edit.mjs')).editMain(args);
+    return typeof out === 'number' ? out : 0;
   }
 
   // No repo, no flag: offer one. A repo is where the regular autocommits go —

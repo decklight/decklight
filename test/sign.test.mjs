@@ -295,7 +295,7 @@ test('--check routes a nameless verified signature the same as unchecked', async
   // degrade — gate on the same `state !== UNSIGNED && !isVerified(signature)`
   // expression, so exercising --check through the injectable client covers the
   // one choke point they share.
-  const { readOnlyMain } = await import('../cli/read-only.mjs');
+  const { editMain } = await import('../cli/edit.mjs');
   const dir = tmp();
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, '<html><body><script>Decklight.init()</script></body></html>');
@@ -305,7 +305,7 @@ test('--check routes a nameless verified signature the same as unchecked', async
     const lines = [];
     const orig = console.log;
     console.log = (...a) => { lines.push(a.join(' ')); };
-    try { return { code: await readOnlyMain([deck, '--check'], { client }), out: lines.join('\n') }; }
+    try { return { code: await editMain([deck, '--read-only', '--check'], { client }), out: lines.join('\n') }; }
     finally { console.log = orig; }
   };
 

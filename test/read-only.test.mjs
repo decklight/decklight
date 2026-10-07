@@ -16,7 +16,7 @@ import path from 'node:path';
 import { rmTemp, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
-import { CSP } from '../cli/read-only.mjs';
+import { CSP } from '../cli/serve.mjs';
 import { allowRemote } from '../cli/serve.mjs';
 import { createRemoteRelay } from '../cli/remote.mjs';
 
@@ -33,7 +33,8 @@ const noSignals = process.platform === 'win32'
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
-const SRC = path.resolve(here, '../cli/read-only.mjs');
+const SRC = path.resolve(here, '../cli/edit.mjs');
+const SERVE = path.resolve(here, '../cli/serve.mjs');
 
 const DECK = `<!doctype html>
 <html><head><link rel="stylesheet" href="theme.css"></head><body>
@@ -288,24 +289,39 @@ test('the honest caveat is stated where a user reads it', () => {
   // script-src must carry 'unsafe-inline' — a bundled deck IS inline script —
   // so the usage text has to say the header does not stop code from running.
   assert.match(CSP, /script-src [^;]*'unsafe-inline'/);
-  const src = readFileSync(SRC, 'utf8');
-  assert.match(src, /does not stop a deck from running/i,
-    'usage text refuses to imply the CSP sandboxes the deck');
+  for (const f of [SRC, SERVE]) {
+    assert.match(readFileSync(f, 'utf8'), /does not stop a deck from running/i,
+      `${path.basename(f)} refuses to imply the CSP sandboxes the deck`);
+  }
 });
 
-// ── the negative space: no editing surface ─────────────────────────────────
+// ── the negative space: the write family refuses ─────────────────────────
 
-test('no /deck/edit/* route is registered — the source never mentions one', () => {
-  const src = readFileSync(SRC, 'utf8');
-  // Only the prose may say "/deck/edit/*"; no string literal may route one.
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  // The deck's own channel (/deck/ping, /deck/events) is not an edit route:
-  // the probe REPORTS the server is read-only, and no write route may be named.
-  assert.doesNotMatch(code, /['"`]\/deck\/edit\//, 'no /edit path literal outside comments');
-  // The relay DOES live here now (READ_ONLY#REMOTE) — that is the whole point of
-  // moving it: a clicker should not require an editing server. What must stay
-  // true is that it arrived without one, which the /deck/edit/* assertion above and
-  // the route tests below cover.
+test('read-only mode refuses the whole write family by name — before a route runs', async (t) => {
+  // One server, two modes (PRESENTING). The routes that write are registered
+  // in both; the mode gate refuses them ahead of the table, so nothing of
+  // theirs runs — not the body read, not a validation, not a file write. The
+  // refusal is a 403 that says which mode answered: a 405 pretending the
+  // route is unknown would send someone looking for a typo.
+  const dir = deckDir();
+  const { base } = await startPresent(t, dir);
+  const family = [
+    ['POST', '/deck/edit/slide/notes', '{"slide":1,"text":"pwned"}'],
+    ['POST', '/deck/edit/slide/layout', '{}'], ['POST', '/deck/edit/undo', ''], ['POST', '/deck/edit/commit', '{}'],
+    ['POST', '/deck/edit/shutdown', ''], ['POST', '/deck/edit/lock', '{"locked":false}'],
+    ['POST', '/deck/edit/agent', '{"prompt":"x"}'], ['POST', '/deck/edit/export', '{"kind":"pdf"}'],
+    ['POST', '/deck/edit/wizard', '{}'], ['POST', '/deck/edit/theme/mark', '{}'],
+    ['GET', '/deck/edit/history', null], ['GET', '/deck/edit/theme/browse', null], ['GET', '/deck/edit/wizard', null],
+    ['POST', '/deck/tts', '{"text":"hi"}'], ['GET', '/deck/tts/ping', null], ['GET', '/deck/lipsync/ping', null],
+    ['GET', '/deck/review/incoming', null], ['POST', '/deck/review/done', '{}'],
+  ];
+  for (const [method, p, body] of family) {
+    const res = await fetch(base + p, { method, ...(body === null ? {} : { body }) });
+    assert.equal(res.status, 403, `${method} ${p}`);
+    assert.equal((await res.json()).readOnly, true, `${method} ${p} names the mode`);
+  }
+  // and the deck on disk is untouched by every attempt
+  assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8'), DECK);
 });
 
 test('the one probe answers here too, and says read-only', async (t) => {
@@ -315,22 +331,15 @@ test('the one probe answers here too, and says read-only', async (t) => {
   assert.equal(j.readOnly, true, 'what the player gates every author affordance on');
   assert.equal(j.locked, true, 'and a lock that cannot be lifted');
   assert.equal(j.name, 'talk.html');
-  assert.equal(j.readOnly, true);
   assert.equal(j.agents, undefined, 'no roster, nothing to edit with');
+  assert.equal(j.undo, undefined, 'no history either');
 });
 
-test('a POST to /deck/edit/slide/notes is as unknown as a POST to anything else', async (t) => {
+test('a POST to an unknown path is still a 405, and writes nothing', async (t) => {
   const dir = deckDir();
   const { base } = await startPresent(t, dir);
-
-  const edit = await fetch(base + '/deck/edit/slide/notes', {
-    method: 'POST', body: JSON.stringify({ slide: 1, text: 'pwned' }),
-  });
   const nonsense = await fetch(base + '/nonsense', { method: 'POST', body: '{}' });
-  assert.equal(edit.status, nonsense.status, 'identical treatment — there is no route to have refused');
-  assert.equal(edit.status, 405);
-
-  // and the deck on disk is untouched by the attempt
+  assert.equal(nonsense.status, 405);
   assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8'), DECK);
 });
 
@@ -384,15 +393,6 @@ test('a disk edit after startup never reaches the audience — the deck serves f
   // pinned — a file beside it is read per request, exactly as before.
   writeFileSync(path.join(dir, 'theme.css'), '.decklight { color: blue }');
   assert.match(await (await fetch(base + '/theme.css')).text(), /blue/);
-});
-
-test('the module imports no filesystem writer at all', () => {
-  // Cheaper and stricter than watching for a write: if it cannot write, it
-  // cannot be made to write by a later edit that forgets why.
-  const src = readFileSync(SRC, 'utf8');
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.doesNotMatch(code, /writeFileSync|appendFileSync|createWriteStream|mkdirSync|rmSync|unlinkSync|renameSync/,
-    'no write primitive is imported or called');
 });
 
 // ── arguments ──────────────────────────────────────────────────────────────
@@ -451,13 +451,13 @@ test('a deck that is not there is named, not stack-traced', async () => {
 
 // ── the phone remote lives here now (READ_ONLY#REMOTE) ───────────────────────
 
-test('--remote hosts the clicker, and still registers no /deck/edit/* route', async (t) => {
+test('--remote hosts the clicker, and the write family still refuses', async (t) => {
   const dir = deckDir();
   const { base, log } = await startPresent(t, dir, { extraArgs: ['--remote'] });
 
   // the presenting control channel exists…
   const ping = await (await fetch(base + '/deck/ping')).json();
-  assert.deepEqual(ping, { ok: true, name: 'talk.html', remote: true, readOnly: true, locked: true, review: { mode: 'read-only', git: false, by: null, store: 'talk.review.jsonl' } });
+  assert.deepEqual(ping, { ok: true, name: 'talk.html', readOnly: true, locked: true, review: { mode: 'read-only', git: false, by: null, store: 'talk.review.jsonl' }, phone: true, container: false });
   assert.equal(ping.agents, undefined, 'and reports no agent roster — there is nothing here that runs one');
 
   // …the controller and its QR are served…
@@ -474,9 +474,9 @@ test('--remote hosts the clicker, and still registers no /deck/edit/* route', as
   // …and the whole point: no editing surface came along with it.
   for (const p of ['/deck/edit/slide/notes', '/deck/edit/slide/layout', '/deck/edit/undo', '/deck/edit/commit', '/deck/edit/shutdown']) {
     const res = await fetch(base + p, { method: 'POST', body: '{}' });
-    assert.equal(res.status, 405, `${p} is unknown, not refused`);
+    assert.equal(res.status, 403, `${p} is refused by the mode`);
   }
-  // the one probe answers, and what it identifies is a READ-ONLY server, not an editor
+  // the one probe answers, and what it identifies is read-only mode, not an editor
   const probe = await (await fetch(base + '/deck/ping')).json();
   assert.equal(probe.readOnly, true, 'the ping says read-only');
   assert.equal(probe.agents, undefined, 'and names nothing that edits');
@@ -557,7 +557,7 @@ test('a locally-presented deck still gets its position readout', async (t) => {
   // what --remote adds.
   const dir = deckDir();
   const { base } = await startPresent(t, dir);
-  assert.equal((await (await fetch(base + '/deck/ping')).json()).remote, false);
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).phone, false);
   const pos = await fetch(base + '/deck/remote/pos', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"i":2,"n":9}',
   });

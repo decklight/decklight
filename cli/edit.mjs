@@ -91,7 +91,8 @@ import { runMain, CommandError } from './util.mjs';
 // The flags that take a value, so the deck can be found past them. `--git-mode`
 // was missing, so `edit.mjs --git-mode agent deck.html` refused a deck called
 // "agent". (`decklight <deck>` builds this argv itself and was never affected.)
-const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port'];
+const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port',
+  '--host', '--root', '--branch', '--into', '--upstream-every'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
@@ -110,7 +111,19 @@ import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-man
 import { registerSlideRoutes } from './edit-slides.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
-import { classifyScripts } from './audit.mjs';
+import { classifyScripts, auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
+// The read-only mode's own ingredients (PRESENTING): the signature beside a
+// deck, the .decklight container, the presenter's chrome, the upstream of a
+// clone, and the phone remote. None of them writes.
+import { randomBytes } from 'node:crypto';
+import { verifyFile, verifyBytes, formatSignature, isVerified, UNSIGNED, TAMPERED, VERIFIED } from './sign.mjs';
+import { isContainer, readContainer, formatManifest } from './deckfile.mjs';
+import { loadLibrary, injectChrome } from './plugin.mjs';
+import {
+  SAFE_CONFIG, canPull, checkUpstream, resolveInterval, resolveUpstream, runGit, upstreamSuppressed,
+} from './upstream.mjs';
+import { createRemoteRelay } from './remote.mjs';
+import { corsHeaders, readBody } from '../tools/bridge.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
 import { createReviewRoutes } from './review-routes.mjs';
 import { createDeckRoutes } from './deck-routes.mjs';
@@ -121,7 +134,7 @@ import { foldReview } from '../tools/review-anchor.mjs';
 import { recordingImpact, impactWarning, slidesFromFiles } from '../tools/recording-impact.mjs';
 import { indexDeckFile, slideTextOf, knowsCommit } from './comments.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
-import { escapeHtml, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
+import { escapeHtml, staticFiles, listenTakingOverIfNeeded, allowEditRequest, allowRemote, lanAddress, isOwnOrigin, CSP } from './serve.mjs';
 import { reviewsWaiting, reviewLine, reviewCheckSuppressed, setCommentDone } from './review-remote.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 
@@ -879,7 +892,7 @@ export function createHistory(limit = 200) {
 // The plumbing lives in git.mjs now; imported for editMain's use below and
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
-import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
+import { inGitRepo, gitAvailable, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
 import {
   describeCommit, describeWorking, messagesLine,
 } from './commit-message.mjs';
@@ -897,17 +910,145 @@ function reviewerName(cwd = process.cwd()) {
   return (name && email) ? `${name} <${email}>` : (name || email || '');
 }
 
-export async function editMain(args, { onListen = null } = {}) {
+
+/** `decklight <deck> --read-only --help`: the read-only mode's own flags. */
+const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository url> --read-only [--port 8788] [--strict]
+                        [--root <dir>] [--remote] [--host <addr>] [--check]
+                        [--no-plugins] [--branch <ref>] [--into <dir>]
+
+  opens a deck in read-only mode — the safe way in for one you did not write,
+  and the only mode a .decklight container opens in. The deck is served from
+  its own directory, under a Content-Security-Policy header, with every file
+  type a deck cannot use and every dotfile refused; every route that writes
+  refuses, and nothing is written. The palette's "Write mode" row leaves this
+  mode for your own decks; a container never does.
+
+  A .decklight container (bundle --deck) is unwrapped in memory and treated
+  exactly like the deck it wraps: same audit, same policy, same strict rule. Its
+  signature is verified and its manifest is printed as what it is — the
+  container's own claim about itself, next to the one thing that was checked.
+  The manifest's origin (repo and commit) is never printed: the signature
+  covers the deck alone, so even on a verified container the origin is whatever
+  the packer wrote, and a provenance line nobody vouches for does not belong
+  one skim away from a verified identity. It stays in the manifest for tooling
+  to read.
+
+  A repository URL (https://github.com/you/talk, git@…, …/talk.git; #path
+  picks a deck inside) is cloned to ./<repo> — or the clone already there,
+  whichever command made it, is opened — and the deck in it played. The
+  clone's upstream is what H checks for the author's newer pushes.
+
+  --branch R the branch or tag to clone (a repository URL)
+  --into D   where to clone it (default: ./<repo name>)
+  --port N   port to bind; a taken port offers to take over that session
+             (on a TTY) or moves on to the next free one            [8788]
+  --strict   serve with every script block that is not the runtime removed,
+             along with every inline on*= handler, javascript: URL and srcdoc
+             document. The removal happens on the way out — the file on disk
+             is never touched. Turns itself on when the label finds something.
+  --root D   serve D instead of the deck's directory, for a SOURCE deck that
+             reaches up for its runtime (demo/talk.html loading
+             ../dist/decklight.js). The deck must live under D, and everything
+             under D that passes the dotfile and file-type rules becomes
+             fetchable by the deck's own script — which is why widening the
+             root is a flag you type, never something the cwd decides.
+  --remote   also listen on the LAN for the phone remote. Off this machine ONLY
+             /deck/remote/* answers, and only with the per-run token the printed URL
+             and its QR carry — the deck itself, and every file beside it, stay
+             unreachable from the LAN whether or not this flag is passed.
+  --host A   the address --remote binds                            [0.0.0.0]
+  --check    print the ingredients label and exit — no server. Exits non-zero
+             if the deck runs any script that is not the runtime — a block or
+             an executable attribute — so CI can gate on a deck before it is
+             forwarded or published.
+  --no-plugins  play without your own chrome, whatever is installed.
+  --upstream-every N  minutes between upstream checks; 0 turns the check off  [10]
+  --no-upstream     never look at the upstream — no git, no network
+  --upstream-pull   register the update control the deck's H overlay drives.
+                    OFF by default: with it on, any script in the deck can
+                    fast-forward the clone the deck was served from.
+
+  Your presenter plugins (decklight plugin) are layered on at serve time from
+  ~/.decklight/plugins/ — a timer, a teleprompter, a confidence monitor. They
+  are YOURS: the deck on disk is untouched, nothing is written into it, and the
+  same file played on a machine without them is identical slides and no
+  warning. Each one renders inside a sandboxed frame with an opaque origin, so
+  it draws chrome and cannot reach the slides — a plugin that asks for slide
+  content is refused by name, because a deck has to stay a deterministic
+  artifact or two people presenting the same file present different decks.
+
+  A plugin is never part of the ingredients label: the label counts what is in
+  the file, the chrome is listed under it as what it is. Loading one registers
+  no route and does not widen the policy below by a single source.
+
+  Every read-only start prints the ingredients label: which runtime is
+  embedded and whether its bytes are the ones this install ships, how many
+  inert data blocks the runtime will read, and — named, with line numbers —
+  every script block that will execute and is NOT accounted for, plus every
+  executable attribute (an inline on*= handler, a javascript: or
+  data:text/html URL, an inline srcdoc document — the vectors 'unsafe-inline'
+  below would otherwise let run unnamed). It is an inventory, not a verdict:
+  there is no "safe" here, because the scan is a heuristic over a file someone
+  may have edited and a green check would promise more than it can keep.
+
+  A deck with a detached signature beside it (talk.html.sig) is verified BEFORE
+  it renders, and the terminal names who signed it — an identity you can judge,
+  not a check mark. Sigstore keyless, so there are no keys: the certificate was
+  minted for one signature against the signer's OIDC identity and expired
+  minutes later; the transparency log is what keeps it checkable. A deck with no
+  sidecar is not an alarm — most decks are unsigned, and treating that as a
+  finding would train you to ignore the one that matters. Verifying needs the
+  sigstore client and the network; when it cannot be done here, that is said as
+  its own state and never as a pass.
+
+  When the label finds an unaccounted block — or a signature does not verify,
+  or cannot be checked here — strict mode turns ITSELF on and says so in the
+  terminal. It does not ask, and there is no --force to turn it
+  back off: ten minutes before a talk is the worst possible moment for a
+  refusal, and an escape hatch would be reached for exactly then — so the deck
+  always plays, and the part nobody can account for is the part that doesn't.
+  Removed blocks are named in the terminal, never on the audience's screen.
+
+  What survives strict is what a deck needs to render itself: the runtime, the
+  Decklight.init call, JSON data blocks and templates. Builds, layouts, themes,
+  charts and background media are markup, CSS and attributes — never at risk. A
+  clean deck under --strict is byte-identical to the same deck without it.
+
+  Every response carries this Content-Security-Policy as an HTTP header, which
+  the deck cannot override the way it could a <meta> tag:
+
+    ${CSP.replace(/; /g, ';\n    ')}
+
+  Recorded narration from a bucket and external background video still play —
+  that is what the https: sources in media-src/connect-src are for. Live voice
+  does not: synthesis needs the local bridge, which is a write-mode engine and
+  is refused from here.
+
+  Read the policy honestly: script-src carries 'unsafe-inline' because a
+  bundled deck IS inline script, so this does not stop a deck from running
+  code. It stops that code from reaching anywhere it shouldn't.`;
+
+// `client` is the sigstore client — injectable so a test can drive the
+// signature states of `--read-only --check` without the network; `undefined`
+// means "go load the real one".
+export async function editMain(args, { onListen = null, client } = {}) {
   // /deck/review/incoming's answer, briefly remembered (see the route).
   let incomingCache = null;
-  if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
-    console.log(`usage: node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
+  const wantsHelp = args.includes('--help') || args.includes('-h');
+  if (wantsHelp && args.includes('--read-only')) { console.log(READ_ONLY_USAGE); return 0; }
+  if (wantsHelp || !args.filter((a) => !a.startsWith('-')).length) {
+    console.log(`usage: node cli/edit.mjs <deck.html> [--read-only] [--port 8788] [--git | --no-git]
                       [--commit-every <seconds>] [--agent <name>] [--commit-messages]
   serves the cwd, live-reloads the deck on change, and accepts edits from the
   player: notes (right-click a slide's background), per-slide layout (L/⇧L),
   element edit mode (E, then right-click an element), undo/redo (Z/⇧Z), agent asks (A)
   a taken --port offers to take over that session (on a TTY) or moves on to
   the next free one
+  --read-only      the same server in read-only mode: the deck is served from
+                   its own directory under a CSP header, the ingredients label
+                   runs first, and every edit route refuses
+                   (--read-only --help for that mode's flags)
+  --remote         also listen on the LAN for the phone remote (either mode)
   --git            keep the deck in git (creates the repo if needed): a silent
                    snapshot on refs/decklight/wip, and K commits when you say so
   --no-git         never touch git (default outside a repository)
@@ -916,7 +1057,7 @@ export async function editMain(args, { onListen = null } = {}) {
                    timer  the old five-minute cadence, bookends included
                    off    never commit                                  [agent]
   --agent <name>   preferred AI agent for A (default: first one detected)
-  the server binds 127.0.0.1 only; for a phone remote use decklight <deck> --read-only --remote`);
+  the server binds 127.0.0.1 unless --remote asks for the LAN`);
     return;
   }
   const { opt } = argReader(args);
@@ -932,27 +1073,188 @@ export async function editMain(args, { onListen = null } = {}) {
   let agentPref = opt('--agent') ?? preferredAgent();
   const port = parsePort(opt('--port', 8788));
   if (port === null) { console.error(`decklight: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
-  // Refused out loud, not ignored (READ_ONLY#REMOTE). Someone typing --remote
-  // wants a clicker; silently binding loopback would leave them holding a phone
-  // that never connects and no idea why. the read-only server is where the remote went,
-  // and the reason it went is worth saying at the moment it is asked for.
-  const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));
-  if (gone.length) {
-    console.error(`write mode does not take ${gone.join(' or ')} — the phone remote is a read-only thing.`);
-    console.error('  A clicker used to cost you an editing server on the LAN: /deck/edit/slide/notes, /deck/edit/slide/layout and');
-    console.error('  /deck/edit/agent were reachable from the same run you were not watching. The read-only server');
-    console.error('  has no edit surface to widen, so that is where it lives.');
-    console.error(`\n  decklight ${firstPositional(args, VALUE_FLAGS) ?? '<deck.html>'} --read-only --remote`);
-    process.exitCode = 2;
-    return;
+  const fail = (msg) => { console.error(`decklight: ${msg}`); process.exitCode = 1; return 1; };
+
+  // ── the mode (PRESENTING) ─────────────────────────────────────────────────
+  // One server, two modes. Write mode is the default: the deck is served from
+  // disk, live-reloaded, and every /deck/edit/* route writes it. Read-only
+  // mode (`--read-only`, and always for a .decklight container) serves the
+  // bytes the ingredients label described, under the CSP, with the
+  // presenter's chrome layered on, and refuses every route that writes —
+  // /deck/edit/*, the bridges, the review owner's half — by name. The mode is
+  // a `let` because the session can change it (PRESENTING: the palette's
+  // read-only / write mode row); what cannot change is the root, decided
+  // below from the way the deck was opened.
+  const deckArg = firstPositional(args, VALUE_FLAGS);
+  const deckPath = resolve(process.cwd(), deckArg);
+  if (!existsSync(deckPath)) return fail(`deck not found: ${deckPath}`);
+  // A .decklight is the same deck with its signature and manifest stapled on
+  // (DECK_FILE), unwrapped here and treated exactly like the HTML it wraps —
+  // same audit, same CSP, same strict rule. Nothing is written to unwrap it:
+  // the payload is a slice of the bytes already read. It never leaves
+  // read-only mode: there is no file to edit in place.
+  let container = null;
+  if (isContainer(deckPath)) {
+    try { container = readContainer(deckPath); } catch (e) { return fail(e.message); }
   }
-  const host = '127.0.0.1';
-  const root = process.cwd();
-  const deckPath = resolve(root, firstPositional(args, VALUE_FLAGS));
-  if (!existsSync(deckPath)) { console.error(`deck not found: ${deckPath}`); process.exitCode = 1; return; }
-  if (!deckPath.startsWith(root + sep)) { console.error('deck must live under the current directory'); process.exitCode = 1; return; }
+  let readOnly = args.includes('--read-only') || !!container;
+
+  // --remote widens the LISTENER and nothing else (READ_ONLY#REMOTE), in either
+  // mode: off this machine only /deck/remote/* answers, with the per-run
+  // token, and the deck itself and every file beside it stay unreachable from
+  // the LAN whether or not the flag is passed. allowRemote is the classifier.
+  const remote = args.includes('--remote') || opt('--host') !== undefined;
+  const host = remote ? opt('--host', '0.0.0.0') : '127.0.0.1';
+  const token = remote ? randomBytes(16).toString('base64url') : null;
+
+  // The served root. In write mode it is the cwd, as it always was: a source
+  // deck reaches up for its runtime (`demo/talk.html` loading
+  // `../dist/decklight.js`) and the author chose where to stand. In read-only
+  // mode it is the deck's OWN directory, never the cwd: everything under the
+  // root is fetchable by the deck's own script same-origin, and with
+  // `connect-src https:` open, fetchable means exfiltratable — a root
+  // inherited from wherever the command happened to run (a project checkout,
+  // $HOME via file association) would hand a hostile deck whatever lived
+  // there. `--root` widens it, by a flag you typed and printed at startup.
+  // Decided ONCE, from the mode the deck was opened in: a session that
+  // changes mode keeps its root, because the deck's URL is relative to it.
+  const rootArg = opt('--root');
+  const root = readOnly
+    ? (rootArg ? resolve(process.cwd(), rootArg) : dirname(deckPath))
+    : process.cwd();
+  if (!deckPath.startsWith(root + sep)) {
+    return fail(readOnly ? 'deck must live under --root' : 'deck must live under the current directory');
+  }
   const deckUrl = '/' + deckPath.slice(root.length + 1).split(sep).join('/');
   const deckRel = deckUrl.slice(1);
+
+  // ── the read-only mode's ingredients (PRESENTING) ─────────────────────────
+  // The audit runs because it is the way in: a standalone `verify` is a step
+  // people skip, so folding it into the command you already use means it runs
+  // every time, at no extra effort. It reads the bytes, names what will
+  // execute, and decides strict — the startup block, reusable, because a
+  // pull (READ_ONLY#UPSTREAM) and a later change of mode re-run it: never new
+  // bytes under an old verdict.
+  const readAndAudit = () => {
+    const bytes = container ? readContainer(deckPath).payload : readFileSync(deckPath);
+    const rep = auditDeck(bytes.toString('utf8'));
+    return {
+      payload: bytes,
+      report: rep,
+      strict: args.includes('--strict') || rep.counts.unaccounted > 0 || rep.counts.handlers > 0,
+    };
+  };
+  // The signature, if the deck came with one (INTEGRITY#SIGNING). Costs nothing
+  // when there is no sidecar — the common case returns without touching the
+  // network — and the audit runs either way, because the two answer different
+  // questions: a signature says WHO vouched for these bytes, the label says
+  // what the bytes will do. A signed deck can still run something nobody
+  // should, and the label is what would name it. Verified once, at startup:
+  // it is a sidecar for the file as published, and a deck that changed since
+  // has already invalidated whatever the old one attested.
+  const verifySignature = async () => {
+    if (!container) return verifyFile(deckPath, { client });
+    let sig = container.signature
+      ? await verifyBytes(container.payload, container.signature, { client })
+      : { state: TAMPERED, reason: 'the container carries no signature' };
+    // The manifest is the container's own label. When it does not describe
+    // the deck it is stapled to, something rewrote one half — the same
+    // conclusion as a signature that does not verify, so the same state.
+    if (!container.digestOk && sig.state === VERIFIED) {
+      sig = { state: TAMPERED, reason: 'the manifest digest does not match the payload' };
+    }
+    return sig;
+  };
+  // MUTABLE: a pull may replace all of it, and so may a change of mode. The
+  // bytes, the label and `strict` move together or not at all. Empty until
+  // read-only mode is entered, which is the only mode that reads it.
+  let audited = null;
+  let signature = { state: UNSIGNED };
+  /** Enter (or re-enter) read-only mode: read, audit, decide strict. Says whether the deck itself changed. */
+  const audit = () => {
+    const before = audited?.payload ?? null;
+    const next = readAndAudit();
+    const unverified = signature.state !== UNSIGNED && !isVerified(signature);
+    // STRICT RATCHETS within a session: a pull may turn it on and can never
+    // turn it off. A deck that could clear its own strict flag by pulling
+    // could disarm the one mitigation read-only mode applies unasked.
+    audited = { ...next, strict: next.strict || unverified || (audited?.strict ?? false) };
+    return before === null || !next.payload.equals(before);
+  };
+  if (readOnly) {
+    signature = await verifySignature();
+    audit();
+  }
+
+  if (args.includes('--check')) {
+    // No server. The label, the manifest, the signature — and an exit code CI
+    // can gate on: non-zero means "this deck executes something I could not
+    // account for", or "it carries a signature I could not stand behind" —
+    // not "this deck is malicious", which is a call no exit code should make.
+    // `unchecked` counts: a gate that passes when it could not evaluate the
+    // claim is not a gate.
+    if (!readOnly) { signature = await verifySignature(); audit(); }
+    for (const line of formatLabel(audited.report, { indent: '' })) console.log(line);
+    if (container) console.log(formatManifest(container.manifest, { indent: '' }));
+    if (signature.state !== UNSIGNED) console.log(formatSignature(signature, { indent: '' }));
+    return audited.report.counts.unaccounted || audited.report.counts.handlers
+      || (signature.state !== UNSIGNED && !isVerified(signature)) ? 1 : 0;
+  }
+
+  // The presenter's own chrome (READ_ONLY#PLUGINS) — a timer, a teleprompter,
+  // a confidence monitor. It is loaded from ~/.decklight/plugins/, which is
+  // the presenter's library and not the deck's: the installer is the
+  // risk-bearer and nothing here travels. Loaded after `auditDeck` has read
+  // the bytes, so a plugin is never counted as an unaccounted script block in
+  // the label (the label describes the file; a plugin is not in the file),
+  // and injected after `stripUnaccounted`, so strict never strips the chrome
+  // as if the deck had smuggled it in. Read-only mode only: an author's own
+  // deck gets no chrome layered over the slides they are editing.
+  const chrome = args.includes('--no-plugins') ? { plugins: [], refused: [] } : loadLibrary();
+  // Consulted per request rather than decided once: after a pull `strict`
+  // may have ratcheted on, and the bytes served have to follow the verdict
+  // printed for them.
+  const strip = (text) => (audited?.strict ? stripUnaccounted(text).html : text);
+  // Only the deck gets chrome. Every OTHER html file under the root still
+  // gets the strict rewrite — strict that stopped at one file would be walked
+  // around by a second page under the same root, and the deck can reach one
+  // (the theme picker, the slide finder and the speaker view all boot
+  // documents into same-origin iframes). Those same iframes are why the
+  // chrome is deck-only: presenter chrome belongs to the document the
+  // presenter is looking at, and the shim removes itself if framed anyway.
+  const rewrite = (text, file) => {
+    const out = strip(text);
+    return file === deckPath ? injectChrome(out, chrome.plugins) : out;
+  };
+  // The deck served from memory below goes through the same seam a file
+  // does: a deck that is only data (#520) gets the runtime referenced on its
+  // way out, and the audit above described the bytes WITHOUT it — which is
+  // the point. `staticFiles` does this for every other page itself.
+  const serveAudited = (text) => linkFonts(linkDesignSystems(linkAddedThemes(linkRuntime(rewrite(text, deckPath)))));
+  // The deck itself, in read-only mode, is served from MEMORY — container and
+  // plain HTML alike — from the bytes the audit read and the signature
+  // covered. The label, the signature verdict and `strict` were all decided
+  // against those bytes and printed as a verdict; re-reading the file per
+  // request would let a deck edited on disk AFTER that moment ride out under
+  // it (#235). For a container this also avoids the one write this mode does
+  // not make — unpacking to a temp file that would sit somewhere after the
+  // talk. A pull, or a change of mode, re-audits and re-prints.
+  const servePayload = (req, res) => {
+    if (req.method !== 'GET') return false;
+    const body = Buffer.from(serveAudited(audited.payload.toString('utf8')), 'utf8');
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
+    res.end(body);
+    return true;
+  };
+  // Is this URL the deck? Matched on the RESOLVED path, exactly as staticFiles
+  // would resolve it, so a percent-encoded spelling of the same file cannot
+  // slip past this route into the per-request disk read below it.
+  const isDeck = (url) => {
+    if (url.pathname === '/') return true;
+    let rel;
+    try { rel = decodeURIComponent(url.pathname); } catch { return false; }
+    return resolve(root, '.' + rel) === deckPath;
+  };
 
   const history = createHistory();
   const readDeck = () => readFileSync(deckPath, 'utf8');
@@ -1113,7 +1415,9 @@ export async function editMain(args, { onListen = null } = {}) {
     describer: describer(),
     subjectsOff,
   });
-  if (!noGit && (wantGit || inGitRepo(root))) {
+  // Write mode's. A deck opened read-only is somebody else's: no repository
+  // is created beside it, no snapshot is taken, nothing of it is committed.
+  if (!readOnly && !noGit && (wantGit || inGitRepo(root))) {
     if (!inGitRepo(root)) {
       try {
         const wroteIgnore = createRepo(root);
@@ -1214,14 +1518,17 @@ export async function editMain(args, { onListen = null } = {}) {
   // Precedence, like every other saved choice: the flag wins, then what was
   // remembered (#125), then the first detected agent.
   const agents = detectAgents();
-  if (agents.length) {
+  // Named at startup in write mode only: read-only mode refuses the agent
+  // route with the rest of the write family, and a roster line under the
+  // ingredients label would promise a capability that mode does not have.
+  if (agents.length && !readOnly) {
     const mark = (a) => a.name + (a.name === agentPref ? ' (preferred)' : '') + (a.installed ? ' (installed)' : '');
     startup('agents', agents.map(mark).join(', '),
       `  agents: ${agents.map(mark).join(', ')} — “Ask agent” (A) is live`);
   }
   // A remembered agent that is not on this machine is said ONCE, at startup,
   // rather than discovered at the moment someone presses A mid-talk.
-  if (agentPref && !agents.some((a) => a.name === agentPref)) {
+  if (!readOnly && agentPref && !agents.some((a) => a.name === agentPref)) {
     console.log(`  agent: ${agentUnavailable(agentPref, agents)}`);
   }
   // Said out loud, every session it is on: this is the switch that starts
@@ -1241,17 +1548,34 @@ export async function editMain(args, { onListen = null } = {}) {
   // deck registers: a review can be left in write mode too. The sidecar is
   // appended, never the deck; here it is not committed by itself, because the
   // deck's own commits (the snapshot, K) are what this server keeps.
-  const review = createReviewRoutes(deckPath, { inRepo: inGitRepo(root), gitOn: false, mode: 'write' });
-  // The deck's channel (deck-routes.mjs): the probe and the stream, the same
-  // two routes the read-only server registers. What write mode adds to the
-  // probe is `extras`, computed on every ping like everything else on it: the
-  // toast is threshold-driven, not live.
+  // In read-only mode the sidecar is the ONE file this process writes, and
+  // it is committed by itself as each comment lands when the deck sits in a
+  // repository (`--no-git` leaves the committing to you).
+  const reviewRepo = gitAvailable(dirname(deckPath)) && inGitRepo(dirname(deckPath));
+  const review = createReviewRoutes(deckPath, {
+    inRepo: reviewRepo,
+    gitOn: readOnly && reviewRepo && !noGit,
+    mode: readOnly ? 'read-only' : 'write',
+  });
+  // The deck's channel (deck-routes.mjs): the probe and the stream, in both
+  // modes. What the probe carries beyond the mode is `extras`, computed on
+  // every ping like everything else on it: the toast is threshold-driven,
+  // not live.
   const deck = createDeckRoutes(deckPath, {
-    readOnly: false,
-    locked: () => locked,
+    readOnly: () => readOnly,
+    locked: () => readOnly || locked,
     review,
-    extras: async () => ({
+    extras: async () => (readOnly ? {
+      // Read-only mode names nothing that edits: no roster, no history, no
+      // git. What the page needs is whether the phone remote is on
+      // (READ_ONLY#REMOTE: the clicker, and the QR in the speaker view) and
+      // whether this deck can ever leave the mode.
+      phone: !!token,
+      container: !!container,
+    } : {
       deck: deckUrl,
+      phone: !!token,
+      container: !!container,
       ...history.counts(), git: gitOn,
       // What the player's one push nudge reads. Computed once, like everything
       // else on ping: the toast is threshold-driven, not live.
@@ -1270,6 +1594,132 @@ export async function editMain(args, { onListen = null } = {}) {
   });
   const clients = deck.channel;
   const broadcast = deck.broadcast;
+
+  // ── the phone remote (READ_ONLY#REMOTE) ───────────────────────────────────
+  // The relay: controller page, QR, readout channel, the phone's taps onto the
+  // deck's stream. These are the only paths allowRemote lets through from off
+  // this machine, and not one of them writes anything — the phone asks the
+  // deck to move, it never edits. The phone is a different origin from the
+  // deck (a LAN address, not localhost), so the relay's own endpoints need
+  // CORS; nothing else here does.
+  const PHONE_CORS = corsHeaders();
+  let actualPort = null;
+  // The controller answers on loopback in either mode, flag or no flag (a
+  // deck on this machine gets its position readout); only the LAN listener,
+  // and the QR that points a phone at it, are what --remote adds.
+  const relay = createRemoteRelay({
+    deckName: basename(deckPath),
+    token,
+    remoteUrl: () => `http://${lanAddress() ?? host}:${actualPort}/deck/remote?t=${token}`,
+    relayToDeck: (event, data) => broadcast(event, data),
+    deckCount: () => clients.size,
+    CORS: PHONE_CORS,
+  });
+
+  // ── the upstream check (READ_ONLY#UPSTREAM) ───────────────────────────────
+  // A deck opened read-only from a clone: has its author pushed since? Absent
+  // unless the deck is a tracked file in a clone with an upstream — that is
+  // the whole safety argument: a deck you were emailed is a single file and
+  // never reaches any of it. Write mode has H for the deck's own history and
+  // never resolves this; the routes are registered only when it applies.
+  const suppressed = !readOnly ? 'write mode' : upstreamSuppressed({ args, env: process.env });
+  const upstreamCtx = suppressed ? { state: 'disabled' } : await resolveUpstream(deckPath);
+  const upstream = upstreamCtx.state === 'ok' ? upstreamCtx : null;
+  // The PULL is a second, explicit opt-in. Server-side there is no way to tell
+  // "the presenter clicked" from "a script in the deck called fetch()" — a
+  // page's own script is indistinguishable from its user — so the capability
+  // is "a deck served from a clone can update itself from that clone's
+  // upstream", which is a thing someone should have typed rather than
+  // something the cwd decided. And never with --remote: a phone must not move
+  // somebody's repo.
+  const pullArmed = Boolean(upstream) && args.includes('--upstream-pull') && !token;
+  let upstreamStatus = upstream
+    ? { state: 'unchecked', branch: upstream.branch, upstream: upstream.upstream, message: 'not checked yet' }
+    : { state: upstreamCtx.state, message: suppressed || null };
+  let checking = null;
+  const intervalMs = resolveInterval(args);
+  let lastReported = null;
+  const pullOffer = () => (pullArmed
+    ? { offered: true }
+    : { offered: false, reason: !upstream ? upstreamCtx.state : token ? '--remote is on' : 'start with --upstream-pull' });
+  async function refreshUpstream() {
+    if (!upstream) return upstreamStatus;
+    // Single-flight: a script in a loop must not spawn a hundred fetches.
+    if (!checking) {
+      checking = checkUpstream(upstream).then((st) => { upstreamStatus = st; checking = null; return st; });
+    }
+    return checking;
+  }
+  /** The label, re-printed: what the audience gets from here on. */
+  const printLabel = () => {
+    for (const line of formatLabel(audited.report)) console.log(line);
+    if (container) console.log(formatManifest(container.manifest));
+    console.log(formatSignature(signature));
+  };
+  /**
+   * Fast-forward, then re-read, re-audit and RE-PRINT. SPEC's condition on
+   * live reload in read-only mode is exactly this: never new bytes under the
+   * old verdict. So the label the presenter can see always describes the
+   * bytes being served, and the two move together.
+   */
+  async function doPull() {
+    // Re-checked against a FRESH fetch rather than trusted from the cached
+    // status: what was true ten minutes ago is not a licence to check out now.
+    const fresh = await refreshUpstream();
+    const allowed = canPull(fresh, { offered: pullArmed });
+    if (!allowed.ok) return { ok: false, ...allowed, http: 409 };
+
+    const from = (await runGit(['rev-parse', '--short', 'HEAD'], { cwd: upstream.repoRoot })).stdout;
+    console.log(`  upstream: PULL requested by the deck — fast-forward only, onto ${upstream.upstream}`);
+    const merged = await runGit([...SAFE_CONFIG, '-c', `core.hooksPath=${upstream.repoRoot}/.git/decklight-no-hooks`,
+      'merge', '--ff-only', '--no-verify', '@{upstream}'], { cwd: upstream.repoRoot, timeoutMs: 20000 });
+    if (!merged.ok) {
+      const why = oneline(merged.stderr || merged.err);
+      console.log(`  upstream: the fast-forward was refused — ${why}`);
+      return { ok: false, state: 'not-fast-forward', message: why };
+    }
+    const to = (await runGit(['rev-parse', '--short', 'HEAD'], { cwd: upstream.repoRoot })).stdout;
+
+    // An upstream commit must never blank somebody's talk.
+    if (!existsSync(deckPath)) {
+      console.log(`  upstream: fast-forwarded ${from} → ${to}, but the deck is gone from that commit`);
+      console.log('  still serving the bytes the label above describes');
+      return { ok: false, state: 'deck-gone', to, message: 'the deck is not in that commit — still serving the old bytes' };
+    }
+
+    const wasStrict = audited.strict;
+    const hadFindings = audited.report.counts.unaccounted > 0 || audited.report.counts.handlers > 0;
+    if (!audit()) {
+      console.log(`  upstream: fast-forwarded ${from} → ${to} — the deck itself is unchanged`);
+      await refreshUpstream();
+      return { ok: true, state: 'pulled', from, to, deck: 'unchanged', reload: false, message: `fast-forwarded to ${to} — the deck is unchanged` };
+    }
+    const findings = { unaccounted: audited.report.counts.unaccounted, handlers: audited.report.counts.handlers };
+    const degraded = (findings.unaccounted > 0 || findings.handlers > 0) && !hadFindings;
+
+    console.log(`  upstream: fast-forwarded ${from} → ${to}`);
+    console.log('  the deck file changed — re-read and re-audited; the label below replaces the one above');
+    printLabel();
+    if (audited.strict) {
+      console.log(wasStrict && !(findings.unaccounted > 0 || findings.handlers > 0)
+        ? '  still serving strict — a pull cannot turn it off'
+        : '  serving strict — what could not be accounted for is stripped');
+    }
+    console.log('  the label above describes what the audience gets when the deck is reloaded');
+    await refreshUpstream();
+    return {
+      ok: true, state: 'pulled', from, to, deck: 'changed',
+      strict: audited.strict, degraded, findings,
+      // A degraded deck does NOT reload itself: the swap executes nothing (the
+      // browser is still showing the old DOM), so the reload can wait for a
+      // second confirmation that names what was found.
+      reload: !degraded,
+      message: degraded
+        ? `the updated deck runs ${findings.unaccounted} unaccounted script block(s) and `
+          + `${findings.handlers} inline handler(s) — they are stripped. Reload to show it`
+        : `fast-forwarded to ${to}`,
+    };
+  }
 
   // ── the catalogs, read from cache and never fetched ──────────────────────
   const catalogMap = async () => {
@@ -1412,6 +1862,10 @@ export async function editMain(args, { onListen = null } = {}) {
     if (filename && filename !== basename(deckPath)) return;
     clearTimeout(pending);
     pending = setTimeout(() => {
+      // Read-only mode serves the audited bytes, never the disk: a file that
+      // changed underneath it is not reloaded, because that would be new
+      // bytes under the old label. Entering read-only mode re-audits.
+      if (readOnly) return;
       // A QUIET write is one the pages update themselves in place, which must
       // not reload: a theme marked from the open picker (a reload closes the
       // picker the author is still choosing in), or a notes save, whose new
@@ -3124,9 +3578,86 @@ export async function editMain(args, { onListen = null } = {}) {
   for (const key of ['GET /deck/review/comments', 'POST /deck/review/comments', 'POST /deck/review/submit']) {
     routes.set(key, ({ req, res, url, body }) => review.handle(req, res, url, body ?? ''));
   }
+  // The upstream routes are REGISTERED ONLY when the deck is a tracked file in
+  // a clone whose branch tracks something (READ_ONLY#UPSTREAM): on a deck you
+  // were emailed they are not refused, they do not exist. The strict origin
+  // gate, not allowEditRequest: `null` is a sandboxed plugin frame's origin,
+  // and presenter chrome must not be able to fast-forward the presenter's
+  // repository.
+  if (upstream) {
+    routes.set('GET /deck/upstream', ({ json }) => json(200, { ok: true, ...upstreamStatus, pull: pullOffer() }));
+    routes.set('POST /deck/upstream/check', ({ req, res, json }) => {
+      if (!isOwnOrigin(req, actualPort)) { res.writeHead(403); res.end('forbidden'); return; }
+      return refreshUpstream().then(() => json(200, { ok: true, ...upstreamStatus, pull: pullOffer() }));
+    });
+  }
+  if (pullArmed) {
+    routes.set('POST /deck/upstream/pull', ({ req, res, json }) => {
+      if (!isOwnOrigin(req, actualPort)) { res.writeHead(403); res.end('forbidden'); return; }
+      // The body is never read. No field of the request reaches git or the
+      // filesystem; the repository, the branch and `@{upstream}` are all
+      // constants resolved before the server existed.
+      return doPull().then((out) => json(out.ok ? 200 : (out.http ?? 409), out));
+    });
+  }
 
+  // What read-only mode refuses, by name: everything that writes the deck or
+  // reaches a bridge, and the review owner's half. The lock is write mode's
+  // own switch and refuses with the rest. A deck opened read-only used to be
+  // served by a process in which none of this was registered; now it is one
+  // server, and the refusal is the mode's — a 403 that says which mode would
+  // answer, rather than a 405 that pretends the route is unknown.
+  const WRITE_FAMILY = (pathname) => pathname.startsWith('/deck/edit/')
+    || pathname === '/deck/tts' || pathname.startsWith('/deck/tts/') || pathname.startsWith('/deck/lipsync/')
+    || pathname === '/deck/review/incoming' || pathname === '/deck/review/at' || pathname === '/deck/review/done';
+
+  // Two static servers for one root, chosen per request by the mode. Write
+  // mode serves the cwd with the deck at "/" and an author's exotic asset as
+  // octet-stream. Read-only mode refuses every extension the MIME table does
+  // not name (a file beside a travelled deck that is none of them — `id_rsa`,
+  // a `.pem`, a database — is only ever fetched to be exfiltrated), rewrites
+  // every html page on its way out (strict, then the chrome), and has no
+  // index: "/" is the deck, answered from memory before this is consulted.
   const files = staticFiles(root, { index: deckUrl });
+  const auditedFiles = staticFiles(root, { html: rewrite, knownTypesOnly: true });
   const server = createServer(async (req, res) => {
+    // Read-only mode: the policy on EVERY response this server writes — the
+    // deck and its assets, but also the 403/404/405 pages, the control-
+    // channel JSON and SSE, and the remote controller. Set before anything
+    // runs, and writeHead merges it under whatever a route names itself, so
+    // "every response carries the header" holds by construction.
+    if (readOnly) res.setHeader('content-security-policy', CSP);
+    // Loopback always; off-loopback only /deck/remote/* carrying the per-run
+    // token, and only when --remote asked for a listener at all. Every other
+    // path is refused off this machine unconditionally — flag or no flag,
+    // token or no token — which is why the static files and the deck itself
+    // cannot be reached from the LAN even while the remote can.
+    if (!allowRemote(req, token)) {
+      res.writeHead(403);
+      res.end('forbidden: this deck is served to this machine only; off it, only /deck/remote/* answers, with the session token');
+      return;
+    }
+    let url;
+    try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400); res.end('bad request'); return; }
+    // The phone remote, before the CSRF gate below: the phone's origin is a
+    // LAN address, which that gate rightly refuses for everything else. A
+    // body past 4 KB is a probe, not a request — the socket is destroyed and
+    // the E2BIG never becomes a response.
+    if (url.pathname === '/deck/remote' || url.pathname.startsWith('/deck/remote/')) {
+      let body = '';
+      if (req.method === 'POST') {
+        try { body = (await readBody(req, { max: 4096 })).toString(); } catch { return; }
+      }
+      try {
+        if (relay.handle(req, res, url, body)) return;
+      } catch {
+        res.writeHead(400, { ...PHONE_CORS, 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'bad payload' }));
+        return;
+      }
+      res.writeHead(405); res.end('method not allowed');
+      return;
+    }
     // The CSRF gate (#222), before anything runs. A same-machine browser tab is
     // the threat, not an off-machine caller, so the check is the request's
     // `Origin`, not its socket address. A foreign origin is refused here —
@@ -3138,16 +3669,19 @@ export async function editMain(args, { onListen = null } = {}) {
     const CORS = corsHeadersFor(origin);
     if (!allowEditRequest(req)) {
       res.writeHead(403, { 'content-type': 'text/plain' });
-      res.end('forbidden: the author edit surface answers this machine only, and not a foreign web origin');
+      res.end('forbidden: the deck server answers this machine only, and not a foreign web origin');
       return;
     }
     try {
-      const url = new URL(req.url, 'http://x');
       const json = (code, obj, headers = {}) => {
         res.writeHead(code, { ...CORS, ...headers, 'content-type': 'application/json' });
         res.end(JSON.stringify(obj));
       };
       if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
+      // read-only mode: nothing that writes answers, whatever it was aimed at
+      if (readOnly && WRITE_FAMILY(url.pathname)) {
+        return json(403, { ok: false, readOnly: true, error: 'this deck is open read-only — nothing here changes it' });
+      }
       // locked: no edit route writes, whatever it was aimed at — the one
       // POST that still answers is the lock itself, so it can be lifted
       if (locked && req.method === 'POST' && url.pathname.startsWith('/deck/edit/') && url.pathname !== '/deck/edit/lock') {
@@ -3165,7 +3699,19 @@ export async function editMain(args, { onListen = null } = {}) {
         for await (const chunk of req) { body += chunk; if (body.length > 1e6) throw new Error('too large'); }
       }
       if (handler) return await handler({ req, res, url, body, json, CORS });
-      // ── static files from the cwd (staticFiles, serve.mjs) ───────────
+      // ── the deck and the files beside it ──────────────────────────────
+      // Read-only mode answers the deck's own path from the audited bytes
+      // (servePayload above). For a container that also means the URL a
+      // person sees is the file they double-clicked — serving the raw archive
+      // bytes there would hand a browser something it cannot render.
+      if (readOnly) {
+        if (isDeck(url)) {
+          if (servePayload(req, res)) return;
+          res.writeHead(405); res.end('method not allowed'); return;
+        }
+        if (auditedFiles(req, res, url)) return;
+        res.writeHead(405); res.end('method not allowed'); return;
+      }
       if (files(req, res, url)) return;
       res.writeHead(405);
       res.end();
@@ -3177,11 +3723,51 @@ export async function editMain(args, { onListen = null } = {}) {
   });
 
   const actual = await listenTakingOverIfNeeded(server, port, host);
+  actualPort = actual;
   // `decklight record` runs this same server in-process and needs to know
   // WHICH port it ended up on (a taken --port moves to the next free one) and
   // to print its own banner instead of the authoring one.
   if (onListen) onListen({ port: actual, deckUrl, server });
-  else if (process.env.DECKLIGHT_BANNER) {
+  else if (readOnly) {
+    // Before the first slide renders, not after — the point of the label is
+    // to be able to decide not to open it. The audience is looking at the
+    // deck; none of this goes on the page.
+    console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
+    console.log(`  serving ${root} — ${rootArg ? '--root as given' : "the deck's own directory"};`
+      + ' dotfiles and non-deck file types refused; every edit route refuses, nothing is written');
+    printLabel();
+    if (upstream) {
+      console.log(`  upstream: tracking ${upstream.upstream} — ${intervalMs ? `checking every ${intervalMs / 60000} min` : 'checked when asked'}`
+        + (pullArmed ? ', update control ON (--upstream-pull)' : ''));
+      if (!pullArmed && args.includes('--upstream-pull') && token) {
+        console.log('  upstream: --remote is on — the update control is off; pull from your own terminal');
+      }
+    } else if (suppressed && suppressed !== 'write mode') {
+      console.log(`  upstream: not checked — ${suppressed}`);
+    }
+    // Reported UNDER the label and never inside it: a plugin is not in the
+    // file. Naming which plugins read the speaker notes is the other half of
+    // `needs: ["notes"]` being a declaration rather than a silent grant.
+    for (const pl of chrome.plugins) {
+      console.log(`  chrome: ${pl.name} (${pl.slot}) — yours, not in the deck`
+        + `${pl.needs.includes('notes') ? '; reads your speaker notes' : ''}`);
+    }
+    for (const r of chrome.refused) {
+      console.log(`  chrome: ${r.name} REFUSED — not loaded, the deck plays without it`);
+      console.log(`    ${r.reason.replace(/\n/g, '\n    ')}`);
+    }
+    if (audited.strict) {
+      const n = audited.report.counts.unaccounted, h = audited.report.counts.handlers;
+      if (signature.state !== UNSIGNED && !isVerified(signature)) console.log('  the signature did not verify — serving strict');
+      const removed = [
+        n ? `${n} unaccounted script block${n === 1 ? '' : 's'}` : '',
+        h ? `${h} executable attribute${h === 1 ? '' : 's'}` : '',
+      ].filter(Boolean).join(' and ');
+      console.log(removed
+        ? `  ${removed} stripped — serving strict. The file on disk is untouched`
+        : `  nothing to strip — this deck is served exactly as ${container ? 'the container carries it' : 'it was read from disk'}`);
+    }
+  } else if (process.env.DECKLIGHT_BANNER) {
     // The port is reported rather than assumed: `listenTakingOverIfNeeded` can
     // land somewhere other than the port `open` resolved, and the URL on the
     // banner has to be the one that actually answers.
@@ -3190,6 +3776,27 @@ export async function editMain(args, { onListen = null } = {}) {
       keys: 'E edit · L layouts · Z undo · A agent · Ctrl-C stops',
     }));
   } else console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
+  if (token) {
+    console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/deck/remote?t=${token}`);
+    console.log('  off this machine ONLY /deck/remote/* answers, with that token — the deck itself does not');
+  }
+  // The upstream, said once at startup and then only when it CHANGES. `up to
+  // date` every ten minutes for an hour is noise that trains people to stop
+  // reading the terminal — which is where the ingredients label lives. Kicked
+  // AFTER the last startup line and never awaited: nothing about it can delay
+  // the server coming up or hang a talk on a remote that is down.
+  if (upstream) {
+    const tick = () => refreshUpstream().then((st) => {
+      if (st.state !== lastReported) {
+        lastReported = st.state;
+        console.log(`  upstream: ${st.message}`);
+      }
+    }).catch(() => {});
+    tick();
+    // unref'd so a Ctrl-C exits now rather than after an in-flight fetch.
+    // `--upstream-every 0` keeps the manual check and drops only the timer.
+    if (intervalMs > 0) setInterval(tick, intervalMs).unref();
+  }
 
   // Did somebody review this deck? Asked ONCE, after the last startup line,
   // detached and never awaited — the update-check shape: nothing about it can
@@ -3198,7 +3805,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // exception cli/git.mjs names, why it is never on a timer, and why it is
   // nowhere near the SIGINT path (finalCommit above says what lives there and
   // why nothing else may).
-  if (!onListen) {
+  if (!onListen && !readOnly) {
     const skipped = reviewCheckSuppressed({ args });
     if (skipped) {
       startup('reviews', `not checked — ${skipped}`, `  reviews: not checked — ${skipped}`);

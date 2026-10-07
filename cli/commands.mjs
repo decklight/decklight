@@ -124,7 +124,7 @@ export function shortHelp() {
 
 Usage:
   decklight <deck.html | url>    open a deck: live reload, edits from the browser, an AI agent on A
-  decklight <deck> --read-only   open it with no way to change it: the safe way in for a deck you did not write
+  decklight <deck> --read-only   open it in read-only mode: the safe way in for a deck you did not write
   decklight <talk.pptx>          bring a PowerPoint, Keynote or Google Slides deck across
   decklight                      in a directory: start a deck here, or pick one to open
   decklight <command> [options]  (decklight <command> --help for its flags)
@@ -244,10 +244,10 @@ Usage:
            open a deck. Write mode by default: live reload, every edit from the browser written
            to the file, the bridges this machine can run, an AI agent on A, one Ctrl-C. Lock it
            from the deck's / palette (Lock editing) to avoid a change by mistake, and unlock it.
-           --read-only opens it with no way to change it: no edit route exists in that process,
-           the deck is served from its own directory under a CSP header, and what the file will
-           execute is listed before it runs — the way in for a deck you did not write, and where
-           the phone remote (--remote), --strict and --check live. Comments (M) work either way.
+           --read-only is the same server in read-only mode: every edit route refuses, the deck is
+           served from its own directory under a CSP header, and what the file will execute is
+           listed before it runs — the way in for a deck you did not write, and where --strict and
+           --check live. The phone remote (--remote) and comments (M) work in either mode.
            A repository URL is cloned (in full) and the deck inside opened. A .decklight
            container is read-only by nature. (decklight <deck> --help for every flag)
   decklight <command> [options]        (decklight <command> --help for full flags)
@@ -293,7 +293,7 @@ Commands:
   marketplace  register catalogs (git repos with .decklight/marketplace.json) — registered, not fetched
            EXAMPLE: decklight marketplace add owner/repo   (or a git URL, or a local path)
            EXAMPLE: decklight marketplace list              (offline-safe: reads only the cache)
-  plugin   install presenter chrome into YOUR library — present loads it, bundle never does
+  plugin   install presenter chrome into YOUR library — read-only mode loads it, bundle never does
            EXAMPLE: decklight plugin add timer      (then: decklight talk.html --read-only)
            EXAMPLE: decklight plugin list           (says which ones read your speaker notes)
   template install deck templates from a marketplace — scaffold with: decklight init --from <name>

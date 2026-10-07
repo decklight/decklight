@@ -60,7 +60,7 @@ test('every route either server registers is under /deck/ — nothing decklight 
   // anywhere is seen here without a fixture knowing to ask for it. Comments
   // are stripped first: prose may name an old path to say it is gone.
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const files = ['edit.mjs', 'edit-slides.mjs', 'read-only.mjs', 'review-routes.mjs', 'remote.mjs', 'deck-routes.mjs'];
+  const files = ['edit.mjs', 'edit-slides.mjs', 'review-routes.mjs', 'remote.mjs', 'deck-routes.mjs'];
   const strays = [];
   let seen = 0;
   for (const f of files) {

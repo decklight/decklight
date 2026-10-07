@@ -20,7 +20,7 @@ import { stripUnaccounted, classifyScripts } from '../cli/audit.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
-const SRC = path.resolve(here, '../cli/read-only.mjs');
+const SRC = path.resolve(here, '../cli/edit.mjs');
 
 /** A deck with one of everything the label accounts for. */
 const CLEAN = `<!doctype html>

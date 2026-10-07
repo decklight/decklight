@@ -36,7 +36,7 @@ test('every harness a rule names is a real harness', () => {
     'src/core/engine.js', 'src/core/review.js', 'src/core/narration.js',
     'src/core/character.js', 'src/decklight.css', 'src/terminal/player.mjs',
     'cli/audit.mjs', 'cli/pdf.mjs', 'cli/plugin.mjs', 'cli/import.mjs',
-    'cli/deckfile.mjs', 'cli/read-only.mjs', 'cli/comments.mjs', 'cli/units.mjs',
+    'cli/deckfile.mjs', 'cli/edit.mjs', 'cli/comments.mjs', 'cli/units.mjs',
     'tools/extension-check.mjs', 'tools/color.mjs', 'tools/chrome.mjs',
     'themes/anything.css', 'demo/smoke.html', 'build.mjs', 'package.json',
   ];
