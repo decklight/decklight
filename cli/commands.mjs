@@ -73,6 +73,7 @@ export const COMMANDS = {
   associate: { module: './associate.mjs', main: 'associateMain' },
   'report-bug': { module: './report-bug.mjs', main: 'reportBugMain' },
   doctor: { module: './doctor.mjs', main: 'doctorMain' },
+  trust: { module: './trust.mjs', main: 'trustMain' },
   check: { module: './check.mjs', main: 'checkMain' },
 };
 
@@ -114,6 +115,7 @@ const SHORT = {
   bundle: 'one self-contained HTML file to hand over',
   publish: 'bundle and push to GitHub Pages, Netlify, Vercel or a folder',
   doctor: 'what this machine can do, and the install line for what it cannot',
+  trust: 'the decks whose script you said you trust: list them, or forget one so it asks again',
 };
 
 export function shortHelp() {
@@ -350,6 +352,7 @@ Commands:
            --incoming to see what reviews are waiting on the remote)
            EXAMPLE: decklight comments submit talk.html   (--pr opens a pull request)
   associate  wire double-clicking a .decklight file to decklight <file> (read-only by nature)
+  trust    list the decks whose script you said you trust, or forget one so decklight <deck> asks again
            EXAMPLE: decklight associate   (per-user, no admin rights; --uninstall undoes it)
   report-bug  gather the version + environment facts a Decklight bug report needs, and the issue URL
            EXAMPLE: decklight report-bug   (prints and exits — nothing is sent anywhere)

@@ -151,9 +151,10 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   data, SmartArt as diagrams, and what somebody drew (shapes, lines, groups,
   rotation) as the drawing it was. PDF and PowerPoint go out for whoever
   still asks, in the theme on screen.
-- **Safe to receive.** `decklight <deck> --read-only` plays a deck you didn't write
-  read-only under a CSP and prints what the file will execute. `publish` signs
-  what it ships.
+- **Safe to receive.** A deck that runs code of its own is named before it
+  opens, and asked about: trust its source and it opens in write mode, decline
+  and it plays read-only under a CSP with that code stripped. `--read-only`
+  forces the safe mode; `publish` signs what it ships.
 - **Extensible without shipping code to the audience.** Themes, templates,
   speech engines and presenter plugins install from any git repo. Nothing
   executable travels inside a deck.

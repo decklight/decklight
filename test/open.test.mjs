@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { execFileSync, spawnSync, spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { rmTemp, stop } from './helpers.mjs';
@@ -188,6 +188,67 @@ test('git and agent flags ride along to the edit child', () => {
   // the deck is still found past the new value flags
   assert.equal(plan(['--agent', 'claude', 'deck.html']).deck, 'deck.html');
   assert.equal(plan(['--commit-every', '60', 'deck.html']).deck, 'deck.html');
+});
+
+// ── a deck that runs code of its own asks; off a terminal, read-only (PRESENTING) ──
+
+const SCRIPTED = '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div>'
+  + '<script>Decklight.init()</script><script>window.mine = 1</script></body></html>';
+
+/** Start `decklight deck.html` off a terminal in `dir`, resolve its base URL and log. */
+async function openDeck(t, dir, extra = [], env = {}) {
+  const home = mkdtempSync(path.join(tmpdir(), 'decklight-trust-home-'));
+  const child = spawn(process.execPath, [CLI, 'deck.html', '--port', '0', '--no-tts', '--no-lipsync', '--no-git', ...extra],
+    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home, ...env } });
+  t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  const base = await new Promise((resolve, reject) => {
+    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
+    child.on('exit', () => { clearInterval(scan); reject(new Error('exited early:\n' + out)); });
+    setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 15000);
+  });
+  return { base, home, log: () => out };
+}
+
+test('a deck with script of its own, off a terminal: named, and opened read-only', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-trust-'));
+  writeFileSync(path.join(dir, 'deck.html'), SCRIPTED);
+  const { base, log } = await openDeck(t, dir);
+  assert.match(log(), /this deck runs code that is not the runtime/, 'the warning');
+  assert.match(log(), /window\.mine = 1/, 'names the block');
+  assert.match(log(), /no terminal to ask on — opening read-only; --trust/, 'and says why read-only, and the way out');
+  const ping = await (await fetch(base + '/deck/ping')).json();
+  assert.equal(ping.readOnly, true);
+  assert.ok((await fetch(base + '/deck.html')).headers.get('content-security-policy')?.startsWith("default-src 'none'"));
+});
+
+test('--trust opens it in write mode and remembers the script; the next open does not ask', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-trust-'));
+  writeFileSync(path.join(dir, 'deck.html'), SCRIPTED);
+  const first = await openDeck(t, dir, ['--trust']);
+  assert.match(first.log(), /trusted \(--trust\) — write mode, remembered/);
+  assert.equal((await (await fetch(first.base + '/deck/ping')).json()).readOnly, false);
+  const store = JSON.parse(readFileSync(path.join(first.home, 'trust.json'), 'utf8'));
+  assert.deepEqual(Object.keys(store), [realpathSync(path.join(dir, 'deck.html'))], 'remembered by its real path');
+  // the same home, no flag: trusted before, write mode, no question
+  const dir2 = mkdtempSync(path.join(tmpdir(), 'decklight-trust-'));
+  writeFileSync(path.join(dir2, 'deck.html'), SCRIPTED);
+  const home2 = mkdtempSync(path.join(tmpdir(), 'decklight-trust-home2-'));
+  writeFileSync(path.join(home2, 'trust.json'), JSON.stringify({ [realpathSync(path.join(dir2, 'deck.html'))]: Object.values(store)[0] }));
+  const again = await openDeck(t, dir2, [], { DECKLIGHT_HOME: home2 });
+  assert.match(again.log(), /trusted before — write mode/);
+  assert.doesNotMatch(again.log(), /this deck runs code/);
+  assert.equal((await (await fetch(again.base + '/deck/ping')).json()).readOnly, false);
+});
+
+test('a deck with nothing to account for opens in write mode without a word', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-trust-'));
+  writeFileSync(path.join(dir, 'deck.html'), SCRIPTED.replace('<script>window.mine = 1</script>', ''));
+  const { base, log } = await openDeck(t, dir);
+  assert.doesNotMatch(log(), /runs code|trusted|read-only/);
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).readOnly, false);
 });
 
 test('--remote and --host travel to the deck server, in write mode too', () => {

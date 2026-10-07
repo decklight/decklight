@@ -24,7 +24,7 @@
 // its own (each bridge is probed via /ping).
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { onPath, detectAgents } from './agents.mjs';
@@ -45,6 +45,9 @@ import { loadLipsyncConfig, SETUP_HINT } from '../tools/lipsync-config.mjs';
 import { isPortOpen, resolvePortConflict, identifyBridge, identifyStranger, canBind } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
 import { nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
+import { auditDeck, formatLabel } from './audit.mjs';
+import { scriptHash, isTrusted, remember } from './trust.mjs';
+import { resolve as resolvePath } from 'node:path';
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 // The deck server's entry since `edit` stopped being a command: its module,
@@ -95,6 +98,14 @@ const USAGE = `usage: decklight <deck.html | git url> [--read-only] [--port 8788
                     and no bridge is started. The way to open a deck you did
                     not write; --strict, --check and --root apply here
                     (decklight <deck> --read-only --help for that mode's flags)
+  --trust           a deck that runs code of its own is opened in write mode
+                    without the question. Without a flag, the ingredients
+                    label runs first: a deck with nothing to account for opens
+                    in write mode; one with script or executable attributes
+                    names them, in yellow, and ASKS whether you trust its
+                    source — yes is remembered against those bytes (so a
+                    changed script asks again), no is read-only; off a
+                    terminal, read-only
   the server binds 127.0.0.1 unless --remote asks for the LAN
 
   --tts-engine E    gemini  Vertex AI, best delivery, honors a style — no free tier  [default]
@@ -379,11 +390,63 @@ export async function openMain(args) {
     process.exitCode = 1;
     return;
   }
-  if (readOnly) {
+  // ── script in the deck: trust its source, or read-only (PRESENTING) ───────
+  // The ingredients label runs first, as it always did under --read-only, and
+  // decides nothing: a deck with nothing to account for opens in write mode
+  // (that is your own deck, and any deck that is data); one that runs code of
+  // its own names it and asks. The answer is yours, because the label cannot
+  // tell your script from a stranger's — only you know where the file came
+  // from. Yes is remembered against the bytes of that code (cli/trust.mjs), so
+  // the question is asked once per script, not once per start; no is
+  // read-only, strict. Off a terminal nobody can answer, and read-only is the
+  // answer that costs nothing: --trust says yes on the command line.
+  let untrusted = false;
+  if (!readOnly) {
+    // the real path, so a deck under a symlinked folder (/var → /private/var on a Mac) is one deck
+    let deckPath = resolvePath(deck);
+    try { deckPath = realpathSync(deckPath); } catch { /* resolved is as good as it gets */ }
+    const html = readFileSync(deckPath, 'utf8');
+    const report = auditDeck(html);
+    const findings = report.counts.unaccounted + report.counts.handlers;
+    if (findings) {
+      const hash = scriptHash(html, report);
+      const trustFlag = args.includes('--trust');
+      if (isTrusted(deckPath, hash)) {
+        console.log(`  script: ${findings} finding${findings === 1 ? '' : 's'} in this deck, trusted before — write mode`);
+      } else if (trustFlag) {
+        remember(deckPath, hash);
+        console.log(`  script: ${findings} finding${findings === 1 ? '' : 's'} in this deck, trusted (--trust) — write mode, remembered until the script changes`);
+      } else {
+        const Y = process.stdout.isTTY ? '\x1b[33m' : '', R = process.stdout.isTTY ? '\x1b[0m' : '';
+        console.log(`${Y}  this deck runs code that is not the runtime:${R}`);
+        for (const line of formatLabel(report, { indent: '' })) {
+          // the findings, and the counts that are not zero — the zero lines are the label's, not the question's
+          if (/^\s+line\s+\d+/.test(line) || /^\s*[1-9]\d* (unaccounted|inline|executable)/.test(line)) console.log(`${Y}  ${line.trim().replace(' — this file runs code that is not the runtime:', ':')}${R}`);
+        }
+        if (process.stdin.isTTY && process.stdout.isTTY) {
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          let answer = '';
+          try { answer = await rl.question(`${Y}  do you trust where this deck came from? yes opens it in write mode, and is remembered until its script changes; no opens it read-only [y/N] ${R}`); }
+          finally { rl.close(); }
+          if (/^y/i.test(answer.trim())) {
+            remember(deckPath, hash);
+            console.log('  trusted — write mode; decklight trust forget <deck> takes it back');
+          } else {
+            untrusted = true;
+            console.log('  not trusted — read-only, with what could not be accounted for stripped (--trust next time says otherwise)');
+          }
+        } else {
+          untrusted = true;
+          console.log('  no terminal to ask on — opening read-only; --trust opens it in write mode');
+        }
+      }
+    }
+  }
+  if (readOnly || untrusted) {
     if (named && !args.includes('--read-only')) {
       console.log('  a .decklight container is read-only by nature: nothing in it can be edited in place');
-      args = [...args, '--read-only'];
     }
+    if (!args.includes('--read-only')) args = [...args, '--read-only'];
     // The server, here. A number back is an exit code (--check, a refusal);
     // the server object means it is listening and Ctrl-C is the way out.
     const out = await (await import('./edit.mjs')).editMain(args);
