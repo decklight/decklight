@@ -126,17 +126,9 @@
       // editAvailable, plus the two routes it actually calls. `messages:false`
       // so no agent is asked to draft a subject — the shortcut is what is under
       // test here, not the drafting.
-      // the mode switch (modeswitch): write mode; the mode route answers
-      if (HARNESS_MODE === 'modeswitch') {
-        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], readOnly: false, locked: false, container: false });
-        if (u.includes('/deck/mode')) { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, readOnly: b.readOnly === true }); }
-        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
-      }
-      // read-only mode (readonlymode): the one probe says so, and nothing edits;
-      // `switched` says it was entered from the page, so the chip shows
+      // read-only mode (readonlymode): the one probe says so, and nothing edits
       if (HARNESS_MODE === 'readonlymode') {
-        if (u.includes('/deck/ping')) return json({ ok: true, name: 'engine.html', readOnly: true, locked: true, phone: false, container: false, switched: true });
-        if (u.includes('/deck/mode')) { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, readOnly: b.readOnly === true }); }
+        if (u.includes('/deck/ping')) return json({ ok: true, name: 'engine.html', readOnly: true, locked: true, phone: false, container: false });
       }
       if (HARNESS_MODE === 'commit') {
         if (u.includes('/deck/ping')) {
@@ -2440,52 +2432,25 @@
         return;
       }
 
-      if (mode === 'modeswitch') {
-        // The mode switch (PRESENTING): write mode offers the read-only row,
-        // and choosing it asks the server; the page then reloads on the
-        // channel's word, which the harness never sends.
-        await settle();   // the ping: write mode
-        const Q = '.decklight-palette', ROW = '.pal-row';
-        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
-        const chip = () => document.querySelector('.decklight-lock-chip');
-        const posted = () => CALLS.post.filter((c) => c.u.includes('/deck/mode')).map((c) => c.body.readOnly);
-        r.startsWritable = deck.editmode?.available?.() !== false && !chip();
-        press('/');
-        for (const ch of 'read-only mode') press(ch);
-        r.paletteOffersReadOnly = rows().some((t) => /^Read-only mode/.test(t)) && !rows().some((t) => /^Write mode/.test(t));
-        press('Enter');
-        await settle(); await settle();
-        r.switchIsPosted = posted().at(-1) === true;
-        r.toastSaysSo = [...document.querySelectorAll('.decklight-toast')].some((n) => /read-only mode/.test(n.textContent));
-        r.PASS = r.startsWritable && r.paletteOffersReadOnly && r.switchIsPosted && r.toastSaysSo;
-        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
-        return;
-      }
-
       if (mode === 'readonlymode') {
         // Read-only mode answers the one probe: no author affordance, the
-        // write rows gone, the Write mode row there, and — switched from the
-        // page this session — a chip that asks the server for write mode.
+        // write rows gone, no row that would leave the mode — the mode is
+        // the run's — and E says what it needs.
         await settle(); await settle();
         const Q = '.decklight-palette', ROW = '.pal-row';
         const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
-        const chip = () => document.querySelector('.decklight-lock-chip');
-        const posted = () => CALLS.post.filter((c) => c.u.includes('/deck/mode')).map((c) => c.body.readOnly);
         r.notAvailable = deck.editmode?.available?.() !== true;
-        r.chipSaysSo = !!chip() && /read-only/.test(chip().textContent);
+        r.noChip = !document.querySelector('.decklight-lock-chip');
         press('e');
         await settle();
         r.eSaysWriteMode = !document.querySelector('.decklight-editbar')
           && [...document.querySelectorAll('.decklight-toast')].some((n) => /needs write mode/.test(n.textContent));
         press('/');
         const top = rows();
-        r.writeRowOffered = top.some((t) => /^Write mode/.test(t)) && !top.some((t) => /^Read-only mode|^Export & share…/.test(t));
+        r.noModeRow = !top.some((t) => /^Write mode|^Read-only mode|^Lock editing|^Export & share…/.test(t));
         press('Escape');
-        chip()?.click();
-        await settle(); await settle();
-        r.chipAsksForWriteMode = posted().at(-1) === false;
         r.presentedChannelWired = CALLS.get.some((u) => u.includes('/deck/events')) || !!window.__es;
-        r.PASS = r.notAvailable && r.chipSaysSo && r.eSaysWriteMode && r.writeRowOffered && r.chipAsksForWriteMode;
+        r.PASS = r.notAvailable && r.noChip && r.eSaysWriteMode && r.noModeRow;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

@@ -957,12 +957,6 @@ export function init(userConfig = {}) {
       { label: 'Commit…', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() },
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
-      // the mode switch (PRESENTING): read-only to avoid a change by mistake,
-      // write mode for a deck you trust; a container is read-only by nature
-      editmode.served() && { label: editmode.readOnly()
-        ? (editmode.container() ? 'Read-only by nature — a .decklight container (dev)' : 'Write mode (dev)')
-        : 'Read-only mode — nothing changes the file until you switch back (dev)',
-      alias: 'read only readonly write mode switch lock unlock protect freeze avoid changes by mistake', run: () => editmode.setMode(!editmode.readOnly()) },
       { label: editmode.elementEditOn() ? 'Stop editing (dev)' : 'Edit this deck… (dev)', hint: 'E', alias: 'element edit mode right-click remove delete html content build animation entrance effect context menu toolbar select', run: toggleElementEdit },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
       { label: 'Print view (all slides, new tab)', group: 'Print', hint: '', run: () => window.open(location.pathname + '?print') },

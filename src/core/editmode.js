@@ -50,8 +50,6 @@ export function createEditMode({
   let editAvailable = false;
   let served = false;     // a server answered the probe, read-only or not
   let readOnly = false;   // …and it was the read-only one
-  let container = false;  // a .decklight: read-only by nature, never leaves the mode
-  let switched = false;   // read-only mode entered from the page this session, not at startup
   let editBase = '';
   let editAgents = [];   // [{name, label, installed}] the dev machine can run
   let preferredAgent = null; // the one A reaches for, remembered server-side (#125)
@@ -337,13 +335,9 @@ export function createEditMode({
           // page wires up what a read-only deck gets (the clicker, the
           // upstream readout) and nothing else. Every affordance gated on
           // `available()` keeps saying it needs write mode, because it does.
-          container = j.container === true;
           if (j.readOnly) {
             served = true;
             readOnly = true;
-            switched = j.switched === true;
-            deckBase = base;
-            paintModeChip();
             probeSettled();
             await wireRemote(base, j);
             return;
@@ -388,9 +382,6 @@ export function createEditMode({
           // A notes save is not a reload: every open view of the deck gets
           // the slide's new notes and puts them in place (narration, the
           // speaker view, a notes card left open in another tab)
-          // the mode changed, from this tab or another: every page reloads
-          // into it (the CSP and the served bytes are the document's)
-          es.addEventListener('mode', () => location.reload());
           es.addEventListener('notes', (ev) => {
             try { const { slide, aside, from } = JSON.parse(ev.data); patchNotes(slide, aside, from); } catch { /* malformed: the next reload settles it */ }
           });
@@ -461,47 +452,6 @@ export function createEditMode({
       }
       probeSettled();   // asked everything, wired up nothing
     })();
-  }
-
-  // ── the mode switch (PRESENTING) ──────────────────────────────────────────
-  // One server, two modes, and the session changes between them from here:
-  // the palette's "Read-only mode" / "Write mode" row, and a chip while the
-  // deck was switched to read-only from the page. The state is the SERVER's
-  // (`POST /deck/mode { readOnly }`, said by `/deck/ping` and by a `mode` event
-  // on the channel), so every tab and the agent see the same thing; the page
-  // reloads into the new mode. A deck opened read-only gets no chip: the
-  // audience is looking at it. A .decklight container never leaves the mode.
-  let modeChip = null;
-  function paintModeChip() {
-    if (!served || !readOnly || !switched) { modeChip?.remove(); modeChip = null; return; }
-    if (!modeChip) {
-      modeChip = document.createElement('div');
-      modeChip.className = 'decklight-lock-chip';
-      modeChip.setAttribute('role', 'status');
-      modeChip.tabIndex = 0;
-      modeChip.title = 'read-only mode: nothing you do here changes the file — click for write mode';
-      const flip = () => setMode(false);
-      modeChip.addEventListener('click', flip);
-      modeChip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
-      root.appendChild(modeChip);
-    }
-    modeChip.textContent = '🔒 read-only — click for write mode';
-  }
-  /** Ask the server for the other mode; every page, this one included, reloads on the channel's word. */
-  async function setMode(wantReadOnly) {
-    if (!served) { toast(needsDevMode('changing the mode', location), 3200); return; }
-    if (container && !wantReadOnly) { toast('a .decklight container is read-only by nature — there is nothing in it to edit in place', 3400); return; }
-    if (wantReadOnly === readOnly) return;
-    try {
-      const r = await fetch((readOnly ? deckBase : editBase) + '/deck/mode', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ readOnly: wantReadOnly }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
-      toast(wantReadOnly ? 'read-only mode — nothing changes the file until you switch back' : 'write mode', 2600);
-    } catch (e) {
-      toast(`could not switch to ${wantReadOnly ? 'read-only' : 'write'} mode — ${e.message}`, 4000);
-    }
   }
 
   /**
@@ -645,8 +595,6 @@ export function createEditMode({
       const es = new EventSource(base + '/deck/events');
       // No `onmessage` handler: the unnamed `reload` message is write mode's,
       // and read-only mode never sends one — it serves the audited bytes.
-      // The mode changing is the one thing that reloads this page.
-      es.addEventListener('mode', () => location.reload());
       wireClicker(base, es, j);
       debugLog('remote', `remote connected${base ? ` (${base})` : ''} — no edit surface`);
     } catch { /* not served */ }
@@ -1282,7 +1230,7 @@ export function createEditMode({
   function toggleElementEdit({ force = false } = {}) {
     if (force) { if (!elementEditOn) return; }
     else if (!editAvailable) {
-      toast(served && readOnly ? 'this deck is open read-only — it needs write mode: / → Write mode' : needsDevMode('editing', location), 3200);
+      toast(served && readOnly ? 'this deck is open read-only (--read-only) — editing needs write mode' : needsDevMode('editing', location), 3200);
       return;
     }
     elementEditOn = force ? false : !elementEditOn;
@@ -2598,13 +2546,9 @@ export function createEditMode({
     restore: { open: openHistory, close: closeRestore, list: () => restoreRows.slice() },
     /** Can this page change the deck? False with no server and in read-only mode. */
     available: () => editAvailable,
-    /** Did a server answer at all, and in which mode? The mode row asks. */
+    /** Did a server answer at all, and in which mode? */
     served: () => served,
     readOnly: () => readOnly,
-    /** A .decklight container: read-only by nature, so the mode row says so instead of offering write mode. */
-    container: () => container,
-    /** The mode switch (PRESENTING): ask the server for the other mode; every page reloads into it. */
-    setMode,
     /** Resolves once the probe has an answer either way — see `settled`. */
     settled: () => { if (printMode || params.has('embedded')) probeSettled(); return settled; },
     /** Its origin ('' when the deck is served BY the edit server); null under the read-only one. */

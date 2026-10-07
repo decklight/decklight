@@ -169,14 +169,14 @@ Every item above has a SPEC section behind it. The index at the top of
 |---|---|
 | `init ["Title"]` | scaffold a deck and the agent skill, then open it in write mode (`--no-open` keeps the browser closed, `--from <template>`) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob |
-| `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser: `E` for the editing bar, double-click text to edit it, drop a picture onto a slide, `O` to rearrange slides; `Read-only mode` in the palette turns changes off until you switch back |
+| `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser: `E` for the editing bar, double-click text to edit it, drop a picture onto a slide, `O` to rearrange slides |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
 | `record deck.html` | record the narration in your own voice, one [click] beat at a time |
 | `cast script.term.yaml` | record a terminal session in a real PTY (`refresh` re-runs, `export` writes asciicast) |
 
 | Sharing | |
 |---|---|
-| `<deck> --read-only` | open a deck you didn't write in read-only mode: every edit route refuses, it is served under a CSP, and what it will execute is listed first (a repository URL clones it first, into the same clone write mode uses). Comments (`M`) work here too; the palette's `Write mode` row leaves the mode for a deck you trust, and a `.decklight` never does |
+| `<deck> --read-only` | open a deck you didn't write in read-only mode: every edit route refuses, it is served under a CSP, and what it will execute is listed first (a repository URL clones it first, into the same clone write mode uses). Comments (`M`) work here too; a `.decklight` is read-only by nature |
 | `bundle deck.html` | one self-contained HTML file (`--all` merges a playlist, `--sign`, `--deck`) |
 | `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder |
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |

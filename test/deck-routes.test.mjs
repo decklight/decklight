@@ -49,8 +49,8 @@ test('the stream is the channel every tab joins, and broadcast reaches it', asyn
   const req = { on: () => {} };
   await call(d.routes.get('GET /deck/events'), { req, res });
   assert.equal(d.channel.size, 1);
-  d.broadcast('mode', { readOnly: true });
-  assert.ok(written.some((c) => c.includes('event: mode') && c.includes('"readOnly":true')));
+  d.broadcast('reload', { why: 'test' });
+  assert.ok(written.some((c) => c.includes('event: reload') && c.includes('"why":"test"')));
 });
 
 // ── the one rule: the server owns /deck/, every other path is a file ─────────

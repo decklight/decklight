@@ -407,66 +407,6 @@ const post = (base, ep, body) => fetch(base + ep, {
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
-test('the mode switch: read-only from write mode refuses every edit under the CSP; write mode serves from disk again', async (t) => {
-  const dir = tmp(t);
-  const deck = path.join(dir, 'deck.html');
-  writeFileSync(deck, DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
-  const before = readFileSync(deck, 'utf8');
-  const { base, log } = await startEdit(t, dir);
-  const ping = async () => (await (await fetch(base + '/deck/ping')).json());
-  assert.equal((await ping()).readOnly, false, 'write mode says so');
-  assert.equal((await ping()).locked, false, 'and nothing is locked');
-
-  // the channel hears the mode change
-  const events = [];
-  const es = await fetch(base + '/deck/events');
-  const reader = es.body.getReader();
-  const pump = (async () => {
-    try { for (;;) { const { value, done } = await reader.read(); if (done) break; events.push(new TextDecoder().decode(value)); } }
-    catch { /* terminated with the server */ }
-  })();
-  t.after(() => reader.cancel().catch(() => {}));
-
-  const ro = await (await post(base, '/deck/mode', { readOnly: true })).json();
-  assert.equal(ro.ok, true);
-  assert.equal(ro.readOnly, true);
-  const probed = await ping();
-  assert.equal(probed.readOnly, true);
-  assert.equal(probed.locked, true, 'read-only mode is locked by definition');
-  assert.equal(probed.switched, true, 'and the page is told it was switched here, not opened so');
-  assert.equal(probed.agents, undefined, 'the probe went lean');
-  assert.match(log(), /read-only mode — every edit route refuses/, 'the terminal says so, and re-prints the label');
-  assert.match(log(), /ingredients/);
-  const refused = await post(base, '/deck/edit/slide/notes', { slide: 1, text: 'should not land' });
-  assert.equal(refused.status, 403);
-  assert.equal((await refused.json()).readOnly, true);
-  assert.equal(readFileSync(deck, 'utf8'), before, 'nothing was written');
-  const op = await post(base, '/deck/edit/slide', { op: 'duplicate', slide: 1 });
-  assert.equal(op.status, 403, 'every edit route, not one');
-  const page = await fetch(base + '/deck.html');
-  assert.ok(page.headers.get('content-security-policy')?.startsWith("default-src 'none'"), 'the policy rides on the deck now');
-  // the deck is served from the audited bytes: a disk edit does not reach the page
-  writeFileSync(deck, before.replace('aurora', 'ember'));
-  assert.match(await (await fetch(base + '/deck.html')).text(), /aurora/, 'still the audited bytes');
-  await new Promise((r) => setTimeout(r, 200));
-  assert.ok(events.join('').includes('event: mode') && events.join('').includes('"readOnly":true'), 'every open page is told');
-
-  const back = await (await post(base, '/deck/mode', { readOnly: false })).json();
-  assert.equal(back.readOnly, false);
-  assert.match(log(), /write mode — the deck is served from disk/);
-  assert.equal((await ping()).readOnly, false);
-  assert.equal((await fetch(base + '/deck.html')).headers.get('content-security-policy'), null, 'no policy in write mode');
-  assert.match(await (await fetch(base + '/deck.html')).text(), /ember/, 'served from disk again');
-  const saved = await post(base, '/deck/edit/slide/notes', { slide: 1, text: 'lands now' });
-  assert.equal(saved.status, 200, 'write mode, the same route writes');
-  const same = await (await post(base, '/deck/mode', { readOnly: false })).json();
-  assert.equal(same.readOnly, false, 'asking for the mode you are in is a no-op');
-  const bad = await post(base, '/deck/mode', { readOnly: 'yes' });
-  assert.equal(bad.status, 400);
-  await reader.cancel().catch(() => {});
-  await pump;
-});
-
 test('a deck that embeds a runtime older than this install is named at startup, with the upgrade to run', async (t) => {
   // Found by hand on the 0.9.0 pass: a September runtime inside the deck
   // probed /edit/ping, got a 404 from a server that only has /deck/ping, and

@@ -920,8 +920,8 @@ const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository u
   and the only mode a .decklight container opens in. The deck is served from
   its own directory, under a Content-Security-Policy header, with every file
   type a deck cannot use and every dotfile refused; every route that writes
-  refuses, and nothing is written. The palette's "Write mode" row leaves this
-  mode for your own decks; a container never does.
+  refuses, and nothing is written. The mode is the run's: it is decided here,
+  when the deck is opened, and never from the page.
 
   A .decklight container (bundle --deck) is unwrapped in memory and treated
   exactly like the deck it wraps: same audit, same policy, same strict rule. Its
@@ -1082,9 +1082,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // bytes the ingredients label described, under the CSP, with the
   // presenter's chrome layered on, and refuses every route that writes —
   // /deck/edit/*, the bridges, the review owner's half — by name. The mode is
-  // a `let` because the session can change it (PRESENTING: the palette's
-  // read-only / write mode row); what cannot change is the root, decided
-  // below from the way the deck was opened.
+  // the run's: decided here, from the flag, and never from the page — a page
+  // that could grant itself write access would make the flag worth nothing
+  // for the deck it exists for, the one you did not write.
   const deckArg = firstPositional(args, VALUE_FLAGS);
   const deckPath = resolve(process.cwd(), deckArg);
   if (!existsSync(deckPath)) return fail(`deck not found: ${deckPath}`);
@@ -1097,12 +1097,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   if (isContainer(deckPath)) {
     try { container = readContainer(deckPath); } catch (e) { return fail(e.message); }
   }
-  let readOnly = args.includes('--read-only') || !!container;
-  // Whether read-only mode was entered from the page this session, kept
-  // apart from the mode of the moment: a deck switched to read-only from the
-  // page gets a chip saying so, a deck opened read-only gets nothing on the
-  // audience's screen.
-  let switchedFromPage = false;
+  const readOnly = args.includes('--read-only') || !!container;
 
   // --remote widens the LISTENER and nothing else (READ_ONLY#REMOTE), in either
   // mode: off this machine only /deck/remote/* answers, with the per-run
@@ -1121,8 +1116,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // inherited from wherever the command happened to run (a project checkout,
   // $HOME via file association) would hand a hostile deck whatever lived
   // there. `--root` widens it, by a flag you typed and printed at startup.
-  // Decided ONCE, from the mode the deck was opened in: a session that
-  // changes mode keeps its root, because the deck's URL is relative to it.
   const rootArg = opt('--root');
   const root = readOnly
     ? (rootArg ? resolve(process.cwd(), rootArg) : dirname(deckPath))
@@ -1138,8 +1131,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // people skip, so folding it into the command you already use means it runs
   // every time, at no extra effort. It reads the bytes, names what will
   // execute, and decides strict — the startup block, reusable, because a
-  // pull (READ_ONLY#UPSTREAM) and a later change of mode re-run it: never new
-  // bytes under an old verdict.
+  // pull (READ_ONLY#UPSTREAM) re-runs it: never new bytes under an old verdict.
   const readAndAudit = () => {
     const bytes = container ? readContainer(deckPath).payload : readFileSync(deckPath);
     const rep = auditDeck(bytes.toString('utf8'));
@@ -1170,12 +1162,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
     }
     return sig;
   };
-  // MUTABLE: a pull may replace all of it, and so may a change of mode. The
-  // bytes, the label and `strict` move together or not at all. Empty until
-  // read-only mode is entered, which is the only mode that reads it.
+  // MUTABLE: a pull may replace all of it. The bytes, the label and `strict`
+  // move together or not at all. Empty in write mode, which never reads it.
   let audited = null;
   let signature = { state: UNSIGNED };
-  let signatureChecked = false;
   /** Enter (or re-enter) read-only mode: read, audit, decide strict. Says whether the deck itself changed. */
   const audit = () => {
     const before = audited?.payload ?? null;
@@ -1189,7 +1179,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
   };
   if (readOnly) {
     signature = await verifySignature();
-    signatureChecked = true;
     audit();
   }
 
@@ -1245,7 +1234,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // request would let a deck edited on disk AFTER that moment ride out under
   // it (#235). For a container this also avoids the one write this mode does
   // not make — unpacking to a temp file that would sit somewhere after the
-  // talk. A pull, or a change of mode, re-audits and re-prints.
+  // talk. A pull re-audits and re-prints.
   const servePayload = (req, res) => {
     if (req.method !== 'GET') return false;
     const body = Buffer.from(serveAudited(audited.payload.toString('utf8')), 'utf8');
@@ -1422,14 +1411,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
     describer: describer(),
     subjectsOff,
   });
-  // Write mode's, and started when write mode is entered — at startup, or
-  // from the page later. A deck in read-only mode is somebody else's: no
-  // repository is created beside it, no snapshot is taken, nothing of it is
-  // committed. Idempotent: the second entry into write mode changes nothing.
-  let gitStarted = false;
+  // Write mode's. A deck in read-only mode is somebody else's: no repository
+  // is created beside it, no snapshot is taken, nothing of it is committed.
   function startGit() {
-    if (gitStarted || noGit || !(wantGit || inGitRepo(root))) return;
-    gitStarted = true;
+    if (noGit || !(wantGit || inGitRepo(root))) return;
     if (!inGitRepo(root)) {
       try {
         const wroteIgnore = createRepo(root);
@@ -1587,15 +1572,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const reviewRepo = gitAvailable(dirname(deckPath)) && inGitRepo(dirname(deckPath));
   const review = createReviewRoutes(deckPath, {
     inRepo: reviewRepo,
-    gitOn: () => readOnly && reviewRepo && !noGit,
-    mode: () => (readOnly ? 'read-only' : 'write'),
+    gitOn: readOnly && reviewRepo && !noGit,
+    mode: readOnly ? 'read-only' : 'write',
   });
   // The deck's channel (deck-routes.mjs): the probe and the stream, in both
   // modes. What the probe carries beyond the mode is `extras`, computed on
   // every ping like everything else on it: the toast is threshold-driven,
   // not live.
   const deck = createDeckRoutes(deckPath, {
-    readOnly: () => readOnly,
+    readOnly,
     review,
     extras: async () => (readOnly ? {
       // Read-only mode names nothing that edits: no roster, no history, no
@@ -1604,9 +1589,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // whether this deck can ever leave the mode.
       phone: !!token,
       container: !!container,
-      // switched from the page this session: the page shows a chip; a deck
-      // opened read-only shows nothing to the audience
-      switched: switchedFromPage,
     } : {
       deck: deckUrl,
       phone: !!token,
@@ -1899,7 +1881,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     pending = setTimeout(() => {
       // Read-only mode serves the audited bytes, never the disk: a file that
       // changed underneath it is not reloaded, because that would be new
-      // bytes under the old label. Entering read-only mode re-audits.
+      // bytes under the old label. A pull re-audits.
       if (readOnly) return;
       // A QUIET write is one the pages update themselves in place, which must
       // not reload: a theme marked from the open picker (a reload closes the
@@ -2071,47 +2053,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const ttsProxy = proxyTo(ttsPort, 'voice', (p) => p.slice('/deck'.length));
   const lipsyncProxy = proxyTo(lipsyncPort, 'lip-sync', (p) => p.slice('/deck/lipsync'.length));
 
-  // ── the mode switch (PRESENTING) ──────────────────────────────────────────
-  // The session changes mode from the page: `POST /deck/mode { readOnly }`,
-  // outside /deck/edit/ so it answers in both modes. It lives here, not in a
-  // page, so every tab sees the same mode: the channel says `mode` and every
-  // page reloads into it — the CSP is a response header on the document, the
-  // audited bytes are a different body, so a reload is the honest switch.
-  // Entering read-only mode re-runs the audit and re-prints the verdict,
-  // exactly as a pull does: never served bytes under a label that did not
-  // describe them. Entering write mode says what runs from here on, out loud,
-  // when strict had stripped something: the file is served from disk and
-  // nothing is stripped there. A .decklight container never leaves read-only
-  // mode; there is nothing in it to edit in place.
-  async function enterReadOnly() {
-    if (!signatureChecked) { signature = await verifySignature(); signatureChecked = true; }
-    audit();
-    readOnly = true;
-    switchedFromPage = true;
-    console.log('  read-only mode — every edit route refuses; the label below describes what is served from here on');
-    printLabel();
-    if (audited.strict) console.log('  serving strict — what could not be accounted for is stripped');
-  }
-  function enterWrite() {
-    readOnly = false;
-    const stripped = audited ? audited.report.counts.unaccounted + audited.report.counts.handlers : 0;
-    console.log(`  write mode — the deck is served from disk and every edit route answers${
-      stripped ? `; the ${stripped} block${stripped === 1 ? '' : 's'} strict stripped now run` : ''}`);
-    startGit();
-  }
-  async function modeRoute({ body, json }) {
-    const { readOnly: want } = JSON.parse(body || '{}');
-    if (typeof want !== 'boolean') return json(400, { ok: false, error: 'readOnly is true or false' });
-    if (container && !want) {
-      return json(409, { ok: false, readOnly: true, container: true,
-        error: 'a .decklight container is read-only by nature — there is nothing in it to edit in place' });
-    }
-    if (want !== readOnly) {
-      if (want) await enterReadOnly(); else enterWrite();
-      broadcast('mode', { readOnly });
-    }
-    return json(200, { ok: true, readOnly });
-  }
   function shutdownRoute({ res, json, CORS }) {
     res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -3531,7 +3472,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // sequence DOES still matter say so out loud rather than by position
   // (`BEFORE_BODY`, and the prefix list below).
   const routes = new Map(Object.entries({
-    'POST /deck/mode': modeRoute,
     // the voice bridge, on this origin (#520): `/deck/tts` speaks, and everything
     // else of the bridge's lives under `/deck/tts/` (the prefix list below)
     'POST /deck/tts': ttsProxy,
@@ -3788,7 +3728,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
     console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
     console.log(`  serving ${root} — ${rootArg ? '--root as given' : "the deck's own directory"};`
       + ' dotfiles and non-deck file types refused; every edit route refuses, nothing is written');
-    if (!container) console.log('  write mode is a palette row away (/ → Write mode), for a deck you trust');
     printLabel();
     if (upstream) {
       console.log(`  upstream: tracking ${upstream.upstream} — ${intervalMs ? `checking every ${intervalMs / 60000} min` : 'checked when asked'}`
