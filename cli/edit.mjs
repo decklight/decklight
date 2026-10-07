@@ -1544,6 +1544,26 @@ export async function editMain(args, { onListen = null, client } = {}) {
   if (!readOnly && agentPref && !agents.some((a) => a.name === agentPref)) {
     console.log(`  agent: ${agentUnavailable(agentPref, agents)}`);
   }
+  // A deck that EMBEDS a runtime older than this install is served as it is
+  // (the file is the author's), and that runtime probes routes this server
+  // may no longer have: it gets a 404, concludes there is no server, and
+  // hides every write-mode affordance without a word. Read-only mode's label
+  // already says "DIFFERS"; write mode has to say it too, and name the fix,
+  // because a page that silently will not wire up is the one failure nobody
+  // can diagnose from the page. The audit is the same comparison --check
+  // makes: this install's bytes, or a version it cannot vouch for.
+  if (!readOnly) {
+    let rt = null;
+    try { rt = auditDeck(readDeck()).runtime; } catch { /* the deck is read again by every route; a bad read fails there */ }
+    if (rt?.kind === 'inline' && (rt.state === 'differs' || rt.state === 'other-version')) {
+      const what = rt.state === 'other-version'
+        ? `embeds runtime ${rt.version}; this install is ${rt.installedVersion}`
+        : `embeds a runtime that is not this install's build${rt.installedVersion ? ` of ${rt.installedVersion}` : ''}`;
+      startup('runtime',
+        `${basename(deckPath)} ${what} — it may not wire up to this server; decklight upgrade ${deckRel}`,
+        `  runtime: ${basename(deckPath)} ${what} — the deck may not wire up to this server; run decklight upgrade ${deckRel}`);
+    }
+  }
   // Said out loud, every session it is on: this is the switch that starts
   // sending the deck somewhere, and a capability nobody is reminded of is one
   // they stop counting on being off. Printed HERE rather than up with the other

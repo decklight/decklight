@@ -467,6 +467,29 @@ test('the mode switch: read-only from write mode refuses every edit under the CS
   await pump;
 });
 
+test('a deck that embeds a runtime older than this install is named at startup, with the upgrade to run', async (t) => {
+  // Found by hand on the 0.9.0 pass: a September runtime inside the deck
+  // probed /edit/ping, got a 404 from a server that only has /deck/ping, and
+  // hid every write-mode row without a word. The server knows — the audit
+  // compares the embedded bytes to this install's — so it says so.
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK.replace('</body>', '<script data-decklight-runtime="js">var Decklight = { init() {} }</script>\n</body>'));
+  const { log } = await startEdit(t, dir, { env: { PATH: dir } });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.match(log(), /runtime: deck\.html embeds a runtime that is not this install's build/, 'the mismatch is named');
+  assert.match(log(), /may not wire up to this server/, 'and what it costs');
+  assert.match(log(), /decklight upgrade deck\.html/, 'and the fix');
+});
+
+test('a deck that is data, or links the runtime, gets no runtime warning', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
+  const { log } = await startEdit(t, dir, { env: { PATH: dir } });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.doesNotMatch(log(), /runtime:/, 'nothing to upgrade, nothing said');
+});
+
 test('layout, undo, and redo write the deck FILE — and share one history', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
