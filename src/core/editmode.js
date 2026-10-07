@@ -106,6 +106,7 @@ export function createEditMode({
   let commitChip = null;
   function paintCommitChip() {
     const text = commitChipText(commitNow);
+    root.classList.toggle('has-commit-chip', !!text);
     if (!text) { commitChip?.remove(); commitChip = null; return; }
     if (!commitChip) {
       commitChip = document.createElement('div');

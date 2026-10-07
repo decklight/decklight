@@ -1066,6 +1066,8 @@
   pointer-events: none;
   user-select: none;
 }
+/* the commit chip has the corner: the clock steps down under it */
+.decklight.has-commit-chip .decklight-clock { top: 60px; }
 .decklight-clock .clk-elapsed { color: var(--accent, #6af); }
 /* The element content editor's highlighted layers (write mode). A textarea
    cannot render markup, so the colour is a <pre> BEHIND a textarea whose own
@@ -1161,8 +1163,11 @@
    Quiet by construction — it reports rather than asks, and nothing about a
    background job should compete with the slide. */
 /* The commit chip (SPEC PRESENTING) — "this is not committed", said once.
-   Bottom-RIGHT, not centre: the agent chip owns the centre and the two can be
-   up at the same time (an agent edit is exactly what leaves work uncommitted).
+   TOP-RIGHT: the editing bar is along the bottom whenever a deck is open to
+   edit, and this chip is exactly what an edit leaves behind, so the bottom
+   corner it used to take is the bar's now. The agent chip owns the bottom
+   centre and the two can be up at the same time. The clock shares the
+   corner and steps down while the chip is up (`has-commit-chip`).
    Clickable, because a statement you can act on should be actionable where it
    is, and the deck's own keyboard help is one key away. */
 /* the lock (editmode.js): a statement at the other corner, while changes are off */
@@ -1178,7 +1183,7 @@
 .decklight-commit-chip {
   position: absolute;
   right: 16px;
-  bottom: 16px;
+  top: 14px;
   z-index: 42;
   background: rgba(0, 0, 0, .72);
   color: #fff;
