@@ -95,6 +95,7 @@ test('the review sidecar counts with the deck — a resolve the author pressed R
   let d = deckDirty(dir, rel, { also: [side] });
   assert.equal(d.dirty, true, 'an untracked sidecar is uncommitted work');
   assert.equal(d.untracked, true);
+  assert.deepEqual(d.files, [side], 'and the card can say which file');
   assert.deepEqual(deckDirty(dir, rel), { dirty: false, lines: 0 }, 'without `also` the deck alone is clean');
   g('add', side); g('commit', '-q', '-m', 'review');
   assert.deepEqual(deckDirty(dir, rel, { also: [side] }), { dirty: false, lines: 0 });
@@ -102,6 +103,9 @@ test('the review sidecar counts with the deck — a resolve the author pressed R
   d = deckDirty(dir, rel, { also: [side] });
   assert.equal(d.dirty, true);
   assert.equal(d.lines, 1, 'the appended line is counted');
+  assert.deepEqual(d.files, [side]);
+  fs.appendFileSync(path.join(dir, rel), '<section><h2>More</h2></section>\n');
+  assert.deepEqual(deckDirty(dir, rel, { also: [side] }).files, [rel, side], 'both, deck first');
 });
 
 test('a deck git has never seen is the most uncommitted a file can be', (t) => {

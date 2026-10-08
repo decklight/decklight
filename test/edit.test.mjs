@@ -1312,6 +1312,11 @@ test('an agent can mark its own commit boundary, and cannot when git is off', as
   assert.equal(resolved.status, 200);
   const state = await (await fetch(on.base + '/deck/edit/commit')).json();
   assert.equal(state.dirty, true, 'a sidecar-only change is uncommitted work the card must offer');
+  // …and the union attribute the first record wrote, which K carries too
+  assert.deepEqual(state.files, ['deck.review.jsonl', '.gitattributes'], 'the card says which files, not the deck');
+  const written = await (await post(on.base, '/deck/edit/commit/subject', {})).json();
+  assert.equal(written.ok, true);
+  assert.equal(written.subject, 'review: resolve 1 comment', 'a review-only change writes its own subject, no agent needed');
   const res2 = await post(on.base, '/deck/edit/commit', { message: "resolve ana's point" });
   assert.equal((await res2.json()).committed, true);
   const shown = git(['show', '--stat', '--format=', 'HEAD'], repo);

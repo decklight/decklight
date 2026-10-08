@@ -73,27 +73,30 @@ export function deckDirty(cwd, deckRel, { run = boundedGit, also = [] } = {}) {
   try { out = run(['diff', '--numstat', 'HEAD', '--', ...rels], cwd); }
   catch { return { dirty: true, lines: 0, firstCommit: true }; }
   let lines = 0;
-  let any = false;
+  const files = [];
   for (const line of (out ?? '').split('\n').filter(Boolean)) {
-    const [add, del] = line.split('\t');
+    const [add, del, file] = line.split('\t');
     lines += (Number(add) || 0) + (Number(del) || 0);
-    any = true;
+    if (file) files.push(file);
   }
-  if (any) return { dirty: true, lines };
+  // `files` says WHICH of them changed, in the order asked, so the card can
+  // say "1 line in talk.review.jsonl" rather than naming the deck for a
+  // resolve the author pressed R for.
+  if (files.length) return { dirty: true, lines, files: rels.filter((r) => files.includes(r)) };
   // Nothing against HEAD — but an untracked file has no diff either, and it
   // is the most uncommitted a file can be. The deck untracked is the deck
   // uncommitted; a sidecar untracked counts only if it is there to commit.
-  let untracked = false;
+  const untracked = [];
   try { run(['ls-files', '--error-unmatch', '--', deckRel], cwd); }
-  catch { untracked = true; }
-  if (!untracked) {
+  catch { untracked.push(deckRel); }
+  if (!untracked.length) {
     for (const rel of also.filter(Boolean)) {
       let there = '';
       try { there = run(['ls-files', '--others', '--exclude-standard', '--', rel], cwd); } catch { /* not ours to say */ }
-      if (there) { untracked = true; break; }
+      if (there) untracked.push(rel);
     }
   }
-  return untracked ? { dirty: true, lines: 0, untracked: true } : { dirty: false, lines: 0 };
+  return untracked.length ? { dirty: true, lines: 0, untracked: true, files: untracked } : { dirty: false, lines: 0 };
 }
 
 /**

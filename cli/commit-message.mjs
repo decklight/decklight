@@ -30,7 +30,7 @@
 
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { basename, relative } from 'node:path';
+import { basename, relative, resolve as resolvePath } from 'node:path';
 import { agentAsk } from './agents.mjs';
 import { commitSubject, git } from './git.mjs';
 
@@ -366,17 +366,33 @@ export async function describeCommit({
 export async function describeWorking({
   cwd, deckPath, deckRel, template, agent = null,
   env = process.env, timeoutMs = ASK_TIMEOUT_MS, run = git, exec = ask,
-  resolve = agentAsk, read = null,
+  resolve = agentAsk, read = null, also = [],
 } = {}) {
   const deck = basename(deckPath);
-  const cmd = resolve(agent, 'x', { env });
-  if (!cmd) return null;
   const rel = deckRel || relative(cwd, deckPath) || deck;
 
   let out_;
   try { out_ = run(['diff', '--unified=1', 'HEAD', '--', rel], cwd) ?? ''; }
   catch { return null; }
-  if (!out_.trim()) return null;
+  if (!out_.trim()) {
+    // The deck did not change. The review sidecar may have (REVIEW: it rides
+    // the deck's commits), and its lines are records, not prose: the subject
+    // is derived from them, with no agent in the loop, because "resolve
+    // Ana's comment on slide 2" is a fact and not a thing to make up.
+    for (const other of also.filter(Boolean)) {
+      let side = '';
+      try { side = run(['diff', '--unified=0', 'HEAD', '--', other], cwd) ?? ''; } catch { side = ''; }
+      if (!side.trim()) {
+        try { side = run(['ls-files', '--others', '--exclude-standard', '--', other], cwd) ? (read ?? readFileSync)(resolvePath(cwd, other), 'utf8').split('\n').map((l) => `+${l}`).join('\n') : ''; }
+        catch { side = ''; }
+      }
+      const subject = reviewSubject(side);
+      if (subject) return subject;
+    }
+    return null;
+  }
+  const cmd = resolve(agent, 'x', { env });
+  if (!cmd) return null;
   const truncated = out_.length > MAX_DIFF;
   const diff = truncated ? out_.slice(0, MAX_DIFF) : out_;
 
@@ -397,6 +413,34 @@ export async function describeWorking({
   if (!found) return null;
   const subject = commitSubject(found, template);
   return subject === template ? null : subject;
+}
+
+/**
+ * A subject for a change that is only review records: the added lines of the
+ * sidecar's diff, read as records. One comment names its slide; several, or
+ * a mix, are counted. Null when nothing was added.
+ */
+export function reviewSubject(diff) {
+  const added = [];
+  for (const line of String(diff ?? '').split('\n')) {
+    if (!line.startsWith('+') || line.startsWith('+++')) continue;
+    try { added.push(JSON.parse(line.slice(1))); } catch { /* a half line is not a record */ }
+  }
+  if (!added.length) return null;
+  const comments = added.filter((r) => !r.op && r.id);
+  const ops = added.filter((r) => r.op);
+  const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
+  if (comments.length === 1 && !ops.length) return `review: a comment on slide ${comments[0].slide}`;
+  if (!comments.length && ops.length) {
+    const kinds = [...new Set(ops.map((r) => r.op))];
+    if (kinds.length === 1) {
+      const verb = { resolve: 'resolve', reopen: 'reopen', delete: 'delete', anchor: 'move' }[kinds[0]] ?? kinds[0];
+      return `review: ${verb} ${count(ops.length, 'comment')}`;
+    }
+    return `review: ${count(ops.length, 'change')} to comments`;
+  }
+  if (comments.length && !ops.length) return `review: ${count(comments.length, 'comment')}`;
+  return `review: ${count(comments.length, 'comment')}, ${count(ops.length, 'change')}`;
 }
 
 /** The startup line: what is on, who does it, and what leaves the machine. */

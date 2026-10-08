@@ -1374,6 +1374,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const watchEveryMs = Math.min(commitEvery * 1000, WATCH_EVERY_MS);
   let dirtySince = 0;      // when this stretch of uncommitted work began
   let dirtyLines = 0;      // how much of the deck (and its sidecar) differs from HEAD
+  let dirtyFiles = [];     // which of them, by name beside the deck
   // The review sidecar rides the deck's own commits in write mode (REVIEW):
   // K, the agent's boundary and the session's bookends stage it beside the
   // deck when it changed, and the card counts its lines. The snapshot ref
@@ -1389,7 +1390,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   let lastWip = null;      // the snapshot sha, so the ping can prove it exists
   /** A commit happened: this stretch of uncommitted work is over. */
   const resetEpisode = () => {
-    dirtySince = 0; dirtyLines = 0; nagged = false; nagDismissed = false;
+    dirtySince = 0; dirtyLines = 0; dirtyFiles = []; nagged = false; nagDismissed = false;
   };
   /**
    * Re-read what is uncommitted, right now.
@@ -1403,15 +1404,17 @@ export async function editMain(args, { onListen = null, client } = {}) {
    */
   const measureDirty = () => {
     const d = deckDirty(root, deckRel, { also: alsoRels() });
-    if (!d.dirty) { dirtySince = 0; dirtyLines = 0; return d; }
+    if (!d.dirty) { dirtySince = 0; dirtyLines = 0; dirtyFiles = []; return d; }
     if (!dirtySince) dirtySince = Date.now();
     dirtyLines = d.lines;
+    dirtyFiles = (d.files ?? []).map((f) => basename(f));
     return d;
   };
   /** What the deck knows about uncommitted work — ping and SSE both send this. */
   const commitState = () => ({
     dirty: dirtySince > 0,
     lines: dirtyLines,
+    files: dirtyFiles,
     sinceMs: dirtySince ? Date.now() - dirtySince : 0,
     nag: nagged && !nagDismissed,
     wip: lastWip,
@@ -2182,14 +2185,19 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (subjectsOff) {
       return json(403, { ok: false, error: 'commit subjects are off in this session — it was started with --no-commit-messages' });
     }
-    if (!describer()) {
-      return json(409, { ok: false, error: 'no agent is installed on this machine to write one — decklight doctor lists the ones it can use' });
-    }
+    // A change that is only review records (a resolve, a comment of your
+    // own) gets its subject from the records, with no agent in the loop, so
+    // it is asked for first; the deck's own diff is what needs an agent.
     const subject = await describeWorking({
       cwd: root, deckPath, deckRel, agent: agentPref,
       template: `decklight: autosave ${basename(deckPath)}`,
+      also: alsoRels(),
     });
-    return json(200, { ok: true, subject: subject ?? null });
+    if (subject) return json(200, { ok: true, subject });
+    if (!describer()) {
+      return json(409, { ok: false, error: 'no agent is installed on this machine to write one — decklight doctor lists the ones it can use' });
+    }
+    return json(200, { ok: true, subject: null });
   }
 
   function commitDismissRoute({ json }) {

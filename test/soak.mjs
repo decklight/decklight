@@ -1716,8 +1716,11 @@ try {
     must(rrefs.length === 1 && /^review\/[a-z0-9._-]+-\d{4}-\d{2}-\d{2}$/.test(rrefs[0]),
       `expected one local review branch, got: ${JSON.stringify(rrefs)}`);
     must(git(['show', `${rrefs[0]}:reviewed.review.jsonl`]).trim().split('\n').length === 2, 'one line per comment on the branch');
-    must(git(['status', '--porcelain', '--', 'reviewed.html', 'reviewed.review.jsonl']).trim() === '',
-      'reviewing dirtied the work tree');
+    // (reviewed.html itself is still untracked here — the next step commits
+    // it; what must not appear is the sidecar, and HEAD must not have moved)
+    must(git(['status', '--porcelain', '--', 'reviewed.review.jsonl']).trim() === '',
+      'reviewing put the sidecar into the work tree');
+    must(!git(['log', '-1', '--format=%s']).startsWith('review:'), 'reviewing committed on the checked-out branch');
     must(!readFileSync(join(PROJECT, 'reviewed.html'), 'utf8').includes('Which numbers'),
       'a comment was written into the deck');
 
