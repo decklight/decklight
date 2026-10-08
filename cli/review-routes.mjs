@@ -13,9 +13,10 @@
 // What a page needs to know before it comments (`review` on /deck/ping: the
 // mode, whether comments commit, who is writing, the store) comes from
 // `ping()` here too. The edit server adds the owner's routes beside these
-// (/deck/review/incoming, /deck/review/at, /deck/review/done: a fetch, a look into git
-// history, a mark in git config), registered by it alone, the way the
-// no-trust mode alone registers /deck/upstream.
+// (/deck/review/incoming, /deck/review/at: a fetch, a look into git history),
+// registered by it alone, the way the no-trust mode alone registers
+// /deck/upstream. A reviewer's comment is resolved through THIS route, by an
+// op in the author's own sidecar naming the reviewer's id.
 //
 // A review is
 // something you can do in either mode of the one server: without trust, where the
@@ -85,7 +86,7 @@ export const REVIEW_BODY_MAX = 1e5;
  * is ('no-trust' | 'write'); `out` is the terminal; `onSubmitted` is told
  * when a submit went through, for the exit line.
  */
-export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mode = 'no-trust', out = process.stdout, onSubmitted = () => {} } = {}) {
+export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mode = 'no-trust', out = process.stdout, onSubmitted = () => {}, onRecord = () => {} } = {}) {
   // Both may be functions: the one server changes mode mid-session, and what
   // the ping says and whether a comment commits follow the mode of the moment.
   const modeOf = typeof mode === 'function' ? mode : () => mode;
@@ -127,6 +128,7 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
     // the sanitizer every other untrusted subject does: one line, capped,
     // never leading `-`.
     const committed = commits() ? gitAutocommit(storePath, deckDir, subject) : false;
+    onRecord(rec);
     return { ok: true, ...(rec.id ? { id: rec.id } : {}), committed };
   };
   /**

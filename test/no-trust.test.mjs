@@ -313,7 +313,7 @@ test('no-trust mode refuses the whole write family by name — before a route ru
     ['POST', '/deck/edit/wizard', '{}'], ['POST', '/deck/edit/theme/mark', '{}'],
     ['GET', '/deck/edit/history', null], ['GET', '/deck/edit/theme/browse', null], ['GET', '/deck/edit/wizard', null],
     ['POST', '/deck/tts', '{"text":"hi"}'], ['GET', '/deck/tts/ping', null], ['GET', '/deck/lipsync/ping', null],
-    ['GET', '/deck/review/incoming', null], ['POST', '/deck/review/done', '{}'],
+    ['GET', '/deck/review/incoming', null], ['GET', '/deck/review/at?id=x', null],
   ];
   for (const [method, p, body] of family) {
     const res = await fetch(base + p, { method, ...(body === null ? {} : { body }) });

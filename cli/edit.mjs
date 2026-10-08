@@ -135,7 +135,7 @@ import { recordingImpact, impactWarning, slidesFromFiles } from '../tools/record
 import { indexDeckFile, slideTextOf, knowsCommit } from './comments.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, staticFiles, listenTakingOverIfNeeded, allowEditRequest, allowRemote, lanAddress, isOwnOrigin, CSP } from './serve.mjs';
-import { reviewsWaiting, reviewLine, reviewCheckSuppressed, setCommentDone } from './review-remote.mjs';
+import { reviewsWaiting, reviewLine, reviewCheckSuppressed } from './review-remote.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 
 // The `/deck/edit/*` surface answers loopback only — but "loopback" is the wrong
@@ -1574,6 +1574,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
     inRepo: reviewRepo,
     gitOn: noTrust && reviewRepo && !noGit,
     mode: noTrust ? 'no-trust' : 'write',
+    // A record just landed in the sidecar — a resolve naming a reviewer's
+    // comment changes what the incoming listing says is done, so the cached
+    // listing must not outlive it.
+    onRecord: () => { incomingCache = null; },
   });
   // The deck's channel (deck-routes.mjs): the probe and the stream, in both
   // modes. What the probe carries beyond the mode is `extras`, computed on
@@ -2307,32 +2311,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
         text: slideTextOf(thenHtml, c.slide) || '',
       });
     } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
-  }
-
-  function reviewDoneRoute({ body, json }) {
-    // Mark ONE of a reviewer's comments done, or take the mark off. Their
-    // comments live on their branch, which is not ours to write, so the
-    // mark is kept in this clone's git config — private, never pushed.
-    // Your OWN comments do not come through here at all: they already have
-    // a way to be finished with, the append-only `resolve` record below,
-    // which travels so the reviewer can see you dealt with their point.
-    //
-    // The branch is looked up in what the incoming reader LISTED, so it is
-    // data here and never an argument; the id is shape-checked before it
-    // becomes half of a config key.
-    const { branch, id, done = true } = JSON.parse(body || '{}');
-    const listed = incomingCache?.r?.reviews?.find((v) => v.branch === branch);
-    if (!listed) return json(400, { ok: false, error: 'not a review this deck knows about — press M again to refresh' });
-    if (!listed.records?.some((r) => r.id === id)) {
-      return json(400, { ok: false, error: 'no such comment in that review' });
-    }
-    if (!setCommentDone(root, branch, id, !!done)) {
-      return json(500, { ok: false, error: 'could not write the mark to git config' });
-    }
-    // the list just changed shape — the cache must not keep the old marks
-    incomingCache = null;
-    console.log(`  review: ${branch} ${id} ${done ? 'marked done' : 'reopened'}`);
-    return json(200, { ok: true, branch, id, done: !!done });
   }
 
   // ── marketplace themes, and marking (THEME_BROWSE#UI) ─────────────────
@@ -3530,7 +3508,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // the routes both servers share
     'GET /deck/review/incoming': reviewIncomingRoute,
     'GET /deck/review/at': reviewAtRoute,
-    'POST /deck/review/done': reviewDoneRoute,
 
     'POST /deck/edit/theme': themeRoute,
     'GET /deck/edit/theme/browse': themeBrowseRoute,
@@ -3647,7 +3624,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // answer, rather than a 405 that pretends the route is unknown.
   const WRITE_FAMILY = (pathname) => pathname.startsWith('/deck/edit/')
     || pathname === '/deck/tts' || pathname.startsWith('/deck/tts/') || pathname.startsWith('/deck/lipsync/')
-    || pathname === '/deck/review/incoming' || pathname === '/deck/review/at' || pathname === '/deck/review/done';
+    || pathname === '/deck/review/incoming' || pathname === '/deck/review/at';
 
   // Two static servers for one root, chosen per request by the mode. Write
   // mode serves the cwd with the deck at "/" and an author's exotic asset as
