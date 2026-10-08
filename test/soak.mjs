@@ -511,10 +511,7 @@ function buildMarket() {
       description: 'a speech engine that never speaks',
     }],
   }, null, 2)}\n`);
-  writeFileSync(join(MARKET, 'skills', 'soak-pitch', 'SKILL.md'), '# soak-pitch
-
-A skill the soak installs and removes.
-');
+  writeFileSync(join(MARKET, 'skills', 'soak-pitch', 'SKILL.md'), '# soak-pitch\n\nA skill the soak installs and removes.\n');
   const g = (...args) => spawnSync('git', args, { cwd: MARKET, encoding: 'utf8' });
   g('init', '-q');
   g('add', '-A');
