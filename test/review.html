@@ -520,9 +520,29 @@
           r.tickGone = !!(await until(() => sel_()?.dataset.id === localId && !sel_()?.querySelector('.rv-tick')));
           r.legendSaysSo = /R marks one done, again reopens it/.test(card2.querySelector('.rec-hint')?.textContent ?? '');
 
+          // D hides what is done — the local comment resolved again here, and
+          // the one the fixture already had resolved — says how many, keeps
+          // the heading's count, and D again shows them. Remembered per deck.
+          press('r');
+          await until(() => window.__posted.length === 3);
+          await until(() => card2.querySelectorAll('.rv-row.rv-resolved').length >= 2);
+          const resolvedBefore = card2.querySelectorAll('.rv-row.rv-resolved').length;
+          press('d');
+          r.hideDoneHides = !!(await until(() => !card2.querySelector('.rv-row.rv-resolved')
+            && new RegExp(`${resolvedBefore} done hidden · D shows them`).test(card2.textContent)));
+          r.hideDoneKeepsTheCount = new RegExp(`of ${resolvedBefore + card2.querySelectorAll('.rv-row:not(.rv-inc)').length} left`).test(card2.textContent)
+            || /✓ your comments — all/.test(card2.textContent);
+          r.hideDoneRemembered = localStorage.getItem('decklight-review-hide-done:' + location.pathname) === 'true';
+          r.hideDoneInTheLegend = /D hides done/.test(card2.querySelector('.rec-hint')?.textContent ?? '');
+          press('d');
+          r.showDoneShows = !!(await until(() => card2.querySelectorAll('.rv-row.rv-resolved').length === resolvedBefore
+            && !/done hidden/.test(card2.textContent)));
+
           r.PASS = r.editCanWrite && r.saysResolveIsThere && r.resolvedAtOnce
             && r.resolveIsAnAppend && r.stillOpen && r.tickedAndFollowed
             && r.reopenedOwn && r.tickGone && r.legendSaysSo && r.incomingShown
+            && r.hideDoneHides && r.hideDoneKeepsTheCount && r.hideDoneRemembered
+            && r.hideDoneInTheLegend && r.showDoneShows
             && r.incomingSaysWhoAndHowMany && r.incomingShowsTheComments && r.noGitCommandAsked
             && r.incomingJumps && r.panelStayedAfterIncomingJump
             && r.markedOneDone && r.nothingImported && r.onlyOneMarked

@@ -95,6 +95,12 @@ export function createReview({
   // commenting on stays in view and navigable. The mechanism is shared with the
   // sources panel (dock.js); the key names this deck AND this panel, so docking
   // one does not move the other.
+  // D hides what is done — yours resolved, a reviewer's marked — and shows it
+  // again. This browser's choice, per deck, like the dock: a filter on the
+  // view, never on the file.
+  const HIDE_KEY = 'decklight-review-hide-done:' + location.pathname;
+  let hideDone = readJson(HIDE_KEY, false) === true;
+  const hiddenLine = (n) => el_('div', 'rv-skipped', `${n} done hidden · D shows them`);
   const dock = createDock({
     root,
     reflow: () => instance._reflow?.(),
@@ -268,11 +274,15 @@ export function createReview({
             ? `✓ ${v.who} — all ${open.length} done · ${v.branch}`
             : `↓ ${v.who} — ${left} of ${open.length} left · ${v.branch}`));
           // Open first, done struck through below them: the mark is reversible,
-          // so a finished comment is moved out of the way rather than hidden.
+          // so a finished comment is moved out of the way rather than hidden —
+          // unless D asked for exactly that, and then a line says how many.
           const inOrder = [...open].sort((a, b) => Number(doneIds.has(a.id)) - Number(doneIds.has(b.id)));
           for (const c of inOrder) {
+            if (hideDone && doneIds.has(c.id)) continue;
             boxI.append(commentRow(c, slides, { branch: v.branch, done: doneIds.has(c.id) }));
           }
+          const hid = hideDone ? open.length - left : 0;
+          if (hid) boxI.append(hiddenLine(hid));
         }
         card.append(boxI);
       } else if (inc.state && !['ok', 'none', 'no-repo', 'untracked', 'no-remote', 'suppressed'].includes(inc.state)) {
@@ -311,7 +321,9 @@ export function createReview({
     // comments already had a way to be finished with, and a second state beside
     // it would be two names for one thing.
     const order = [...comments].sort((a, b) => Number(!!a.resolved) - Number(!!b.resolved));
-    for (const c of order) list.append(commentRow(c, slides));
+    for (const c of order) if (!(hideDone && c.resolved)) list.append(commentRow(c, slides));
+    const hid = hideDone ? comments.filter((c) => c.resolved).length : 0;
+    if (hid) list.append(hiddenLine(hid));
     card.append(list);
 
     // The way out of the room. A review that stays on the reviewer's laptop is
@@ -329,8 +341,8 @@ export function createReview({
 
     card.append(el_('div', 'rec-hint', state.can === 'resolve'
       ? (incomingNow.length
-        ? '⏎ jumps · R marks one done, again reopens it · A moves here · ⇧M writes · Esc closes'
-        : '⏎ jumps (on a gone slide: shows what it said) · R marks one done, again reopens it · A moves here · ⇧M writes · Esc closes')
+        ? '⏎ jumps · R marks one done, again reopens it · D hides done · A moves here · ⇧M writes · Esc closes'
+        : '⏎ jumps (on a gone slide: shows what it said) · R marks one done, again reopens it · D hides done · A moves here · ⇧M writes · Esc closes')
       : state.can === 'comment'
         ? '⏎ jumps to the slide · ⇧M writes · S submits the review · Esc closes'
         : '⏎ jumps to the slide · Esc closes'));
@@ -746,6 +758,12 @@ export function createReview({
         case 'r': case 'R': resolve(); break;
         case 's': case 'S': submitAll(); break;
         case 'a': case 'A': anchorHere(); break;
+        case 'd': case 'D':
+          hideDone = !hideDone;
+          writeJson(HIDE_KEY, hideDone);
+          debugLog('review', hideDone ? 'done comments hidden' : 'done comments shown');
+          load().then((s) => el && render(s));
+          break;
         // ⇧M writes, M closes — the same pair the deck's own keys are
         case 'm': case 'M': if (e.shiftKey) { if (!focusDraft()) openCompose(); } else close(); break;
         default: return false;
