@@ -599,7 +599,7 @@
         <script type="application/json" data-design-system-meta="acme">{"name":"acme","version":"1.2.0","title":"Acme Brand","palette":[],"layouts":[{"id":"section-divider","title":"Section divider","slots":[{"name":"kicker","hint":"p","required":false,"default":false},{"name":"title","hint":"h1,h2","required":true,"default":false},{"name":"subtitle","hint":"p","required":false,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"statement","title":"Statement","slots":[{"name":"title","hint":"","required":true,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"quote","title":"quote","slots":[{"name":"quote","hint":"","required":false,"default":false}]}]}<\/script>
         <template data-design-system-layouts="acme">
           <template data-layout="section-divider" data-title="Section divider">
-            <div class="acme-divider">
+            <div class="acme-divider" data-ds-bleed>
               <div data-slot="kicker" data-slot-hint="p">Module 01</div>
               <div data-slot="title" data-slot-hint="h1,h2" data-slot-required></div>
               <div data-slot="subtitle" data-slot-hint="p"></div>
@@ -3448,6 +3448,14 @@
         const filled = sec('ds-filled');
         r.expanded = filled.getAttribute('data-ds-expanded') === 'section-divider@1.2.0';
         r.structure = !!filled.querySelector(':scope > .acme-divider[data-ds-injected]');
+        // the divider's root is the slide's art (data-ds-bleed, SPEC DESIGN_SYSTEMS):
+        // on screen it is painted on the bleed layer, past the stage, and the
+        // on-stage copy is hidden
+        r.dividerMarksItsArt = !!filled.querySelector(':scope > .acme-divider[data-ds-injected][data-ds-bleed]');
+        deck.goto(deck._sections.indexOf(filled) + 1, 0);
+        await settle();
+        r.dividerBleeds = filled.hasAttribute('data-bled')
+          && /divider\.svg/.test(document.querySelector('.decklight-bleed .bleed-piece')?.style.backgroundImage ?? '');
         r.slotted = filled.querySelector('[data-slot="title"][data-ds-injected] > h2[data-slot="title"]')?.textContent === 'Flink on Confluent Cloud'
           && filled.querySelector('[data-slot="kicker"][data-ds-injected] > p')?.textContent === 'Module 07'
           && !/Module 01/.test(filled.textContent);
@@ -3486,7 +3494,7 @@
           && filled.querySelectorAll('h2[data-slot="title"]').length === 1
           && filled.querySelectorAll('.acme-divider').length === 1
           && filled.querySelector('[data-slot="kicker"] > p')?.textContent === 'Module 07';
-        r.PASS = r.expanded && r.structure && r.slotted && r.notesStay && r.noPin && r.defaults && r.requiredFine
+        r.PASS = r.expanded && r.structure && r.slotted && r.notesStay && r.noPin && r.defaults && r.requiredFine && r.dividerMarksItsArt && r.dividerBleeds
           && r.unslottedBox && r.buildsCounted && r.buildsStep && r.missingLayout && r.missingSystem && r.scrubbed
           && r.idempotent && r.relaid;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);

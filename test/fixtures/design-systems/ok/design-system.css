@@ -14,10 +14,13 @@
   --heading-weight: 600;
 }
 
-/* the divider's art on the slide; its page and text stay the theme's */
-.decklight section[data-layout="acme/section-divider"] {
+/* the divider's art is the layout's top-level element, marked data-ds-bleed
+   in layouts.html, so it fills the screen past a 16:9 stage (SPEC
+   DESIGN_SYSTEMS, bleed); its page and text stay the theme's */
+.decklight .acme-divider {
+  position: absolute; inset: 0; box-sizing: border-box;
   background: url(assets/divider.svg) no-repeat right bottom / 40%;
+  padding: var(--acme-divider-pad); font-family: "Acme Sans", var(--font-heading);
 }
-.decklight .acme-divider { padding: var(--acme-divider-pad); font-family: "Acme Sans", var(--font-heading); }
 .decklight .acme-divider [data-ds-injected][data-slot="kicker"] { color: var(--acme-coral); letter-spacing: .08em; }
 .decklight .acme-statement { border-left: .4em solid var(--acme-blue); padding-left: 1em; }
