@@ -57,30 +57,43 @@ export const NAG_AFTER_LINES = 40;
 /**
  * How much of the deck differs from HEAD, and whether anything does.
  *
- * `--numstat` over the deck alone, because the deck is the only thing decklight
- * commits and the only thing it is entitled to describe. A repository holding
- * somebody's whole project reports its own state through git; this reports the
- * deck's.
+ * `--numstat` over the deck and what `also` names (the review sidecar, which
+ * rides the deck's commits in write mode), because those are the only things
+ * decklight commits and the only things it is entitled to describe. A
+ * repository holding somebody's whole project reports its own state through
+ * git; this reports the deck's.
  *
  * A deck with no HEAD to compare against (the very first commit has not
  * happened) counts as dirty with unknown size: there is something to commit,
  * and no numstat can say how much.
  */
-export function deckDirty(cwd, deckRel, { run = boundedGit } = {}) {
+export function deckDirty(cwd, deckRel, { run = boundedGit, also = [] } = {}) {
+  const rels = [deckRel, ...also.filter(Boolean)];
   let out;
-  try { out = run(['diff', '--numstat', 'HEAD', '--', deckRel], cwd); }
+  try { out = run(['diff', '--numstat', 'HEAD', '--', ...rels], cwd); }
   catch { return { dirty: true, lines: 0, firstCommit: true }; }
-  const line = (out ?? '').split('\n').find(Boolean);
-  if (!line) {
-    // Nothing against HEAD — but an untracked deck has no diff either, and it
-    // is the most uncommitted a file can be.
-    let tracked = true;
-    try { run(['ls-files', '--error-unmatch', '--', deckRel], cwd); }
-    catch { tracked = false; }
-    return tracked ? { dirty: false, lines: 0 } : { dirty: true, lines: 0, untracked: true };
+  let lines = 0;
+  let any = false;
+  for (const line of (out ?? '').split('\n').filter(Boolean)) {
+    const [add, del] = line.split('\t');
+    lines += (Number(add) || 0) + (Number(del) || 0);
+    any = true;
   }
-  const [add, del] = line.split('\t');
-  return { dirty: true, lines: (Number(add) || 0) + (Number(del) || 0) };
+  if (any) return { dirty: true, lines };
+  // Nothing against HEAD — but an untracked file has no diff either, and it
+  // is the most uncommitted a file can be. The deck untracked is the deck
+  // uncommitted; a sidecar untracked counts only if it is there to commit.
+  let untracked = false;
+  try { run(['ls-files', '--error-unmatch', '--', deckRel], cwd); }
+  catch { untracked = true; }
+  if (!untracked) {
+    for (const rel of also.filter(Boolean)) {
+      let there = '';
+      try { there = run(['ls-files', '--others', '--exclude-standard', '--', rel], cwd); } catch { /* not ours to say */ }
+      if (there) { untracked = true; break; }
+    }
+  }
+  return untracked ? { dirty: true, lines: 0, untracked: true } : { dirty: false, lines: 0 };
 }
 
 /**

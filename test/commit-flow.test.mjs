@@ -84,6 +84,26 @@ test('a committed deck is clean, an edited one is dirty and counted', (t) => {
   assert.ok(d.lines >= 2, `expected a line count, got ${d.lines}`);
 });
 
+test('the review sidecar counts with the deck — a resolve the author pressed R for is work to commit', (t) => {
+  // REVIEW: in write mode the sidecar rides the deck's own commits, so the
+  // card has to count it, or K would say "nothing to commit" over a resolve
+  // the reviewer is waiting to see.
+  const { dir, rel, g } = repo(t);
+  const side = rel.replace(/\.html$/, '.review.jsonl');
+  assert.deepEqual(deckDirty(dir, rel, { also: [side] }), { dirty: false, lines: 0 }, 'no sidecar, nothing extra');
+  fs.writeFileSync(path.join(dir, side), '{"op":"resolve","re":"yc9lhw"}\n');
+  let d = deckDirty(dir, rel, { also: [side] });
+  assert.equal(d.dirty, true, 'an untracked sidecar is uncommitted work');
+  assert.equal(d.untracked, true);
+  assert.deepEqual(deckDirty(dir, rel), { dirty: false, lines: 0 }, 'without `also` the deck alone is clean');
+  g('add', side); g('commit', '-q', '-m', 'review');
+  assert.deepEqual(deckDirty(dir, rel, { also: [side] }), { dirty: false, lines: 0 });
+  fs.appendFileSync(path.join(dir, side), '{"op":"reopen","re":"yc9lhw"}\n');
+  d = deckDirty(dir, rel, { also: [side] });
+  assert.equal(d.dirty, true);
+  assert.equal(d.lines, 1, 'the appended line is counted');
+});
+
 test('a deck git has never seen is the most uncommitted a file can be', (t) => {
   const { dir } = repo(t);
   fs.writeFileSync(path.join(dir, 'other.html'), '<section>hi</section>');

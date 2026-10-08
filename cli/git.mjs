@@ -143,19 +143,27 @@ export function commitSubject(raw, fallback) {
  */
 export let lastCommitSha = null;
 
-export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${basename(deckPath)}`) {
+/**
+ * Commit the deck, and with it whatever `also` names that exists and changed —
+ * the review sidecar beside it (REVIEW: in write mode the sidecar rides the
+ * deck's own commits, so a resolve the author pressed R for reaches the
+ * reviewer by the same push the deck does). Nothing else: a repository holding
+ * somebody's whole project is not decklight's to sweep.
+ */
+export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${basename(deckPath)}`, { also = [] } = {}) {
   lastCommitSha = null;
+  const paths = [deckPath, ...also.filter((p) => p && existsSync(p))];
   try {
-    if (!git(['status', '--porcelain', '--', deckPath], cwd)) return false;
-    git(['add', '--', deckPath], cwd);
+    if (!git(['status', '--porcelain', '--', ...paths], cwd)) return false;
+    git(['add', '--', ...paths], cwd);
     try {
-      git(['commit', '-m', message, '--', deckPath], cwd);
+      git(['commit', '-m', message, '--', ...paths], cwd);
     } catch (e) {
       // a fresh machine has no git identity — commit anyway rather than
       // silently dropping the safety net, without touching global config
       if (!isIdentityError(e)) throw e;
       git(['-c', 'user.name=decklight', '-c', 'user.email=decklight@localhost',
-        'commit', '-m', message, '--', deckPath], cwd);
+        'commit', '-m', message, '--', ...paths], cwd);
     }
     try { lastCommitSha = git(['rev-parse', 'HEAD'], cwd); } catch { lastCommitSha = null; }
     return true;

@@ -324,6 +324,19 @@ test('gitAutocommit commits the deck only when it changed', (t) => {
   assert.equal(gitAutocommit(deck, dir), true);
   assert.equal(git(['rev-list', '--count', 'HEAD'], dir), '2');
   assert.match(git(['log', '-1', '--format=%s'], dir), /decklight: autosave deck\.html/);
+
+  // …and with it the review sidecar, when asked and when it is there: a
+  // resolve the author pressed R for reaches the reviewer by the deck's push
+  const side = path.join(dir, 'deck.review.jsonl');
+  assert.equal(gitAutocommit(deck, dir, 'k', { also: [side] }), false, 'a sidecar that does not exist is not a change');
+  writeFileSync(side, '{"op":"resolve","re":"yc9lhw"}\n');
+  assert.equal(gitAutocommit(deck, dir, 'resolve one', { also: [side] }), true, 'a sidecar-only change is a commit');
+  assert.match(git(['show', '--stat', '--format=', 'HEAD'], dir), /deck\.review\.jsonl/);
+  assert.doesNotMatch(git(['status', '--porcelain'], dir), /review\.jsonl/, 'it is committed, not left behind');
+  // the deck's path is the commit's; another file beside it is nobody's business
+  writeFileSync(path.join(dir, 'unrelated.txt'), 'x');
+  assert.equal(gitAutocommit(deck, dir, 'k', { also: [side] }), false);
+  assert.match(git(['status', '--porcelain'], dir), /unrelated\.txt/, 'an unrelated file was swept in');
 });
 
 test('inGitRepo tells a work tree from a plain directory', (t) => {
@@ -1291,6 +1304,18 @@ test('an agent can mark its own commit boundary, and cannot when git is off', as
   assert.equal(body.committed, true);
   assert.equal(body.subject, 'split the crowded slides');
   assert.match(git(['log', '-1', '--format=%s'], repo), /split the crowded slides/);
+
+  // K commits the review sidecar WITH the deck (REVIEW): a resolve the
+  // author pressed R for is counted as work to commit, and lands in the
+  // same commit the deck does, so the reviewer sees it after the push
+  const resolved = await post(on.base, '/deck/review/comments', { op: 'resolve', re: 'yc9lhw' });
+  assert.equal(resolved.status, 200);
+  const state = await (await fetch(on.base + '/deck/edit/commit')).json();
+  assert.equal(state.dirty, true, 'a sidecar-only change is uncommitted work the card must offer');
+  const res2 = await post(on.base, '/deck/edit/commit', { message: "resolve ana's point" });
+  assert.equal((await res2.json()).committed, true);
+  assert.match(git(['show', '--stat', '--format=', 'HEAD'], repo), /deck\.review\.jsonl/);
+  assert.equal(git(['status', '--porcelain'], repo), '', 'nothing left behind');
 });
 
 // ── the restore overlay's server side (#129) ───────────────────────────────
