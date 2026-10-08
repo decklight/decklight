@@ -191,7 +191,6 @@ async function listIncoming(deckPath, { remote, name, out, err }) {
   if (r.state === 'ok') {
     for (const v of r.reviews) {
       out.write(`${v.branch}  ${v.comments} comment${v.comments === 1 ? '' : 's'}`
-        + `${v.replies ? ` (+${v.replies} repl${v.replies === 1 ? 'y' : 'ies'})` : ''}`
         + `${v.unreadable ? ` (${v.unreadable} unreadable line${v.unreadable === 1 ? '' : 's'})` : ''}`
         + ` · ${v.who}${v.at ? ` · ${ago(v.at)}` : ''}\n`);
     }
@@ -395,11 +394,6 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
     out.write(`${indent}${who}${c.at ? ` · ${ago(c.at)}` : ''}${against(c)}`
       + `${c.resolved ? '  ✓ resolved' : ''}  [${c.id}]\n`);
     for (const line of String(c.body ?? '').split('\n')) out.write(`${indent}  ${line}\n`);
-    for (const r of c.replies ?? []) {
-      const rw = r.by ? r.by.replace(/\s*<[^>]*>$/, '') : 'someone';
-      out.write(`${indent}  ↳ ${rw}${r.at ? ` · ${ago(r.at)}` : ''}\n`);
-      for (const line of String(r.body ?? '').split('\n')) out.write(`${indent}    ${line}\n`);
-    }
     out.write('\n');
   };
 

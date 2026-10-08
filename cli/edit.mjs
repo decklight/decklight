@@ -2256,7 +2256,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
   // ── review comments (SPEC REVIEW) ─────────────────────────────
   // The author's side of `decklight <deck> --no-trust`. The same file, the same
-  // append-only rule: this server may add a line (a resolve, a reply) and
+  // append-only rule: this server may add a line (a resolve, a move) and
   // may not rewrite one, because `merge=union` is what keeps two reviewers
   // from conflicting and an edit in place is what would break it.
   // What reviews are waiting on the remote — the M overlay's incoming

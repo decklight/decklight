@@ -1857,7 +1857,6 @@
 .decklight-review .rv-tick { color: #7cd6a3; margin-left: auto; }
 .decklight-review .rv-body { margin-top: 3px; white-space: pre-wrap; }
 .decklight-review .rv-note { margin-top: 4px; font-size: 12px; color: #ffcf8b; }
-.decklight-review .rv-reply { margin: 4px 0 0 12px; font-size: 13px; opacity: .8; white-space: pre-wrap; }
 /* Leave a comment (⇧M) — its own card, because writing and reading are
    different moments. Shares the narration chrome like every other overlay. */
 .decklight-compose .narr-card { width: min(520px, 88vw); }

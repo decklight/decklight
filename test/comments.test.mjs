@@ -105,7 +105,7 @@ test('the three ways a deck moves on, in one read', async (t) => {
   assert.equal(brandNew, -1, 'a comment was pinned to a slide nobody commented on');
 });
 
-test('replies nest, and resolved ones are counted rather than shouted', async (t) => {
+test('an old reply is not printed, and resolved ones are counted rather than shouted', async (t) => {
   const { run } = fixture(t, {
     lines: [
       on(1, 'The question.', { id: 'q1' }),
@@ -116,7 +116,10 @@ test('replies nest, and resolved ones are counted rather than shouted', async (t
   });
   const { out } = run();
   assert.match(out, /1 open comment, 1 resolved/);
-  assert.match(out, /↳ Bo/, 'a reply hangs off its parent');
+  // Comments are one-way (REVIEW): a reply an older decklight wrote is
+  // neither a comment nor a line under one.
+  assert.doesNotMatch(out, /The answer|↳/, 'a reply was printed');
+  assert.doesNotMatch(out, /2 open/, 'a reply was counted as a comment');
   assert.doesNotMatch(out, /Closed off/, 'resolved is not in the way by default');
   // …until asked for
   assert.match(run(['--all']).out, /Closed off/);

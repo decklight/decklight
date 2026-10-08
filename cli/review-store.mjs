@@ -24,9 +24,9 @@
 // and writes it is cli/review-routes.mjs (the reviewer) and cli/comments.mjs (the
 // author).
 //
-// `foldReview` — turning the log into comments-with-replies — lives in
-// src/core/review.js instead, because the BROWSER needs it too and the runtime
-// may never import from cli/. The dependency only ever points one way.
+// `foldReview` — turning the log into comments, resolved or not — lives in
+// tools/review-anchor.mjs instead, because the BROWSER needs it too and the
+// runtime may never import from cli/. The dependency only ever points one way.
 
 /** The sidecar that belongs to a deck: `talk.html` → `talk.review.jsonl`. */
 export const reviewPathFor = (deckPath) => String(deckPath).replace(/\.html?$/i, '') + '.review.jsonl';
@@ -51,8 +51,8 @@ export function parseReview(text) {
     if (!line.trim()) continue;
     let rec;
     try { rec = JSON.parse(line); } catch { skipped++; continue; }
-    // An object with no id and no `re` is not a record of anything — it cannot
-    // be replied to, resolved, or pointed at a slide.
+    // An object with no id and no `re` is not a record of anything — it is
+    // neither a comment nor an op on one.
     if (!rec || typeof rec !== 'object' || Array.isArray(rec) || (!rec.id && !rec.re)) { skipped++; continue; }
     records.push(rec);
   }

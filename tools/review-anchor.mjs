@@ -131,8 +131,8 @@ export function indexSlides(sections, { titleOf, bodyOf }) {
 }
 
 /**
- * Fold the records into what a reader wants: comments, each with its replies and
- * whether it has been resolved.
+ * Fold the records into what a reader wants: comments, each with whether it
+ * has been resolved and where it was last moved to.
  *
  * The fold is the whole reason `op:"resolve"` is a separate line — state is
  * DERIVED from the log rather than stored, so two people resolving the same
@@ -142,18 +142,19 @@ export function indexSlides(sections, { titleOf, bodyOf }) {
  */
 export function foldReview(records) {
   const byId = new Map();
-  const replies = [];
   const resolves = [];
   const anchors = [];
   for (const r of records) {
     if (r.op === 'resolve') { resolves.push(r); continue; }
     if (r.op === 'anchor') { anchors.push(r); continue; }
-    if (r.re) { replies.push(r); continue; }
+    // A record that names another comment and is no op was a reply, which an
+    // older decklight wrote and this one does not read (REVIEW: comments are
+    // one-way). Skipped, never a comment of its own: it has no slide.
+    if (r.re) continue;
     // A duplicate id is the same comment arriving twice (an import, a union
     // merge that saw both sides). First one wins; it is the same text.
-    if (!byId.has(r.id)) byId.set(r.id, { ...r, replies: [], resolved: null });
+    if (!byId.has(r.id)) byId.set(r.id, { ...r, resolved: null });
   }
-  for (const r of replies) byId.get(r.re)?.replies.push(r);
   for (const r of resolves) {
     const c = byId.get(r.re);
     // Last resolve wins, but only over another resolve — a comment resolved and

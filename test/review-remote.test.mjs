@@ -97,7 +97,7 @@ test('reviewsWaiting finds every review of THIS deck, newest first, and nothing 
   // the records ride along — the overlay renders THEM, a count was a placeholder
   assert.ok(r.reviews.find((x) => x.who === 'ana').records.some((rec) => rec.body === 'first'),
     'the comments themselves did not travel');
-  assert.equal(bo.replies, 1);
+  assert.equal(bo.replies, undefined, 'replies are not a thing a review reports');
   assert.equal(bo.branch, 'review/bo-2026-08-24');
   // the review of another deck, and the unrelated branch, are both absent
   assert.equal(r.reviews.some((x) => x.who === 'cy'), false, 'a review of another deck leaked in');

@@ -184,10 +184,6 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
       // records ARE the review, and a count was only ever a placeholder.
       records,
       comments: open.length,
-      // Raw, unlike `comments`: a reply here may answer a comment living in
-      // ANOTHER branch (each reviewer clones from main), and the fold — scoped
-      // to this one sidecar — would drop it as parentless.
-      replies: records.filter((r) => r.re && !r.op).length,
       unreadable: skipped,
       at: stamp.ok ? stamp.stdout : null,
       // The ids the overlay strikes through, and the count that decides whether

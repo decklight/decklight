@@ -229,7 +229,7 @@ export function submitReview(deckPath, {
   // The same fold `decklight comments` renders with — a raw line count would
   // double-count union-merge duplicates and call a resolved comment a comment.
   const n = foldReview(records).filter((c) => !c.resolved).length;
-  // A sidecar can hold nothing but resolves and replies — still worth pushing
+  // A sidecar can hold nothing but resolves and moves — still worth pushing
   // (the union merge wants them), but never announced as "0 comments".
   const what = n ? `${n} comment${n === 1 ? '' : 's'}` : 'updates';
   let message = `review: ${what} on ${name}`;

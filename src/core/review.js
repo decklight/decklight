@@ -189,9 +189,6 @@ export function createReview({
     row.append(el_('div', 'rv-body', c.body ?? ''));
     const note = VERDICT_NOTE[anchor.verdict];
     if (note) row.append(el_('div', 'rv-note', `⚠ ${note}`));
-    for (const r of c.replies) {
-      row.append(el_('div', 'rv-reply', `↳ ${who(r)}: ${r.body ?? ''}`));
-    }
     // An orphan, unfolded: what the slide SAID when the comment was written.
     // The objection back under the prose it was about — most orphans dissolve
     // right here, into a resolve.

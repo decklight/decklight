@@ -71,7 +71,7 @@
         // un-done — it simply stops counting as waiting.
         const reviews = [{
           branch: 'review/ana-2026-08-25', who: 'ana', when: '2026-08-25',
-          comments: 2, replies: 0, at: '2026-08-25T09:00:00Z',
+          comments: 2, at: '2026-08-25T09:00:00Z',
           doneIds: [...(window.__doneIds || [])],
           done: ['in1', 'in2'].every((x) => (window.__doneIds || new Set()).has(x)),
           waiting: ['in1', 'in2'].filter((x) => !(window.__doneIds || new Set()).has(x)).length,
@@ -377,8 +377,9 @@
             && /changed since the comment was written/.test(t));
           // DELETED: not silently re-pinned to whatever is third now
           r.orphanNotRepinned = r.rows.some((t) => /slide gone/.test(t) && /Agreed, cut this/.test(t));
-          // a reply hangs off its parent rather than standing alone
-          r.replyNested = r.rows.some((t) => /Or slide 1 is wrong/.test(t) && /This contradicts/.test(t));
+          // a reply an older decklight wrote (REVIEW: comments are one-way)
+          // is neither a row of its own nor a line under its parent
+          r.replyNotShown = !r.rows.some((t) => /Or slide 1 is wrong/.test(t));
           // ⏎ on the ORPHAN has nowhere to go — it unfolds what the slide
           // SAID at the commit the comment was written against
           const orphanIdx = rowText().findIndex((t) => /slide gone/.test(t));
@@ -431,7 +432,7 @@
           r.secondJumpWorked = !!document.querySelector('.decklight-review .narr-card');
 
           r.PASS = r.foundTheMovedSlide && r.flaggedTheEdited && r.orphanNotRepinned
-            && r.replyNested && r.jumpedToWhereItIsNow
+            && r.replyNotShown && r.jumpedToWhereItIsNow
             && r.panelSurvivedTheJump && r.secondJumpWorked && r.orphanUnfolds
             && r.unfoldedNotClosed && r.anchorArmedNotFired && r.anchorIsAnAppend
             && r.orphanRepinnedAfterAnchor;

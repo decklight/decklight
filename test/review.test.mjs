@@ -34,7 +34,7 @@ test('a malformed line is skipped and counted, never fatal', () => {
     '',                                          // blank lines are not errors
     'not json at all',
     '[1,2,3]',                                   // an array is not a record
-    '{"note":"no id, no re"}',                   // cannot be replied to or resolved
+    '{"note":"no id, no re"}',                   // neither a comment nor an op on one
     '{"id":"a3","slide":3,"body":"last"}',
   ].join('\n'));
   assert.deepEqual(records.map((r) => r.id), ['a1', 'a3']);
@@ -56,15 +56,17 @@ test('state is folded from the log, never stored', () => {
   // is two harmless lines instead of a conflict.
   const { records } = parseReview([
     '{"id":"a1","slide":1,"body":"the question"}',
-    '{"id":"a2","re":"a1","body":"a reply"}',
+    '{"id":"a2","re":"a1","body":"a reply"}',   // what an older decklight wrote as a reply
     '{"id":"a3","slide":2,"body":"unrelated"}',
     '{"op":"resolve","re":"a1","at":"2026-08-23T09:00:00Z","by":"Gilles"}',
   ].join('\n'));
   const folded = foldReview(records);
+  // Comments are one-way (REVIEW): a reply is neither a comment of its own
+  // (it has no slide) nor anything hung under one — skipped, like the line
+  // nobody can parse.
   assert.equal(folded.length, 2, 'a reply is not a top-level comment');
   const [a1, a3] = folded;
-  assert.equal(a1.replies.length, 1);
-  assert.equal(a1.replies[0].body, 'a reply');
+  assert.equal('replies' in a1, false, 'nothing hangs under a comment');
   assert.deepEqual(a1.resolved, { at: '2026-08-23T09:00:00Z', by: 'Gilles' });
   assert.equal(a3.resolved, null, 'unresolved is null, not false — nobody has said');
 });
@@ -129,10 +131,10 @@ test('replaying an import does not duplicate anchor ops — the tuple is the ide
   assert.equal(later.added, 1);
 });
 
-test('a reply or resolve pointing at nothing is dropped, not crashed on', () => {
-  // Half a thread can arrive on its own — someone forwards part of a file.
+test('an op pointing at nothing is dropped, not crashed on', () => {
+  // Half a file can arrive on its own — someone forwards part of it.
   const { records } = parseReview([
-    '{"id":"r1","re":"gone","body":"a reply to a comment I was not sent"}',
+    '{"id":"r1","re":"gone","body":"an old reply to a comment I was not sent"}',
     '{"op":"resolve","re":"also-gone"}',
     '{"id":"a1","slide":1,"body":"here"}',
   ].join('\n'));

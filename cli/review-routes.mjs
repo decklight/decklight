@@ -5,8 +5,8 @@
 // deck registers, whichever way it was opened:
 //
 //   GET  /deck/review/comments    what has been said
-//   POST /deck/review/comments    append one record: a comment, a reply (`re`),
-//                            a resolve or a re-anchor (`op`)
+//   POST /deck/review/comments    append one record: a comment, a resolve or a
+//                            re-anchor (`op`, naming the comment by `re`)
 //   POST /deck/review/submit      push what was said to a branch of its own
 //
 // What a page needs to know before it comments (`review` on /deck/ping: the
@@ -53,12 +53,9 @@ export function reviewerIdentity(cwd, exec = execFileSync) {
  */
 export function reviewRecord(input, { by, at, deck, id }) {
   const rec = { id, at, ...(by ? { by } : {}), ...(deck ? { deck } : {}) };
-  if (input.re) rec.re = String(input.re);
-  else {
-    rec.slide = Number(input.slide);
-    if (input.title) rec.title = String(input.title).slice(0, 200);
-    if (input.fp) rec.fp = String(input.fp).slice(0, 32);
-  }
+  rec.slide = Number(input.slide);
+  if (input.title) rec.title = String(input.title).slice(0, 200);
+  if (input.fp) rec.fp = String(input.fp).slice(0, 32);
   rec.body = String(input.body);
   return rec;
 }
@@ -69,13 +66,8 @@ export function commentProblem(input) {
   const body = typeof input.body === 'string' ? input.body.trim() : '';
   if (!body) return 'a comment needs something in it';
   if (body.length > 4000) return 'that comment is longer than 4000 characters';
-  if (input.re !== undefined && (typeof input.re !== 'string' || !/^[a-z0-9]{1,12}$/.test(input.re))) {
-    return 'bad reply target';
-  }
-  if (input.re === undefined) {
-    const n = Number(input.slide);
-    if (!Number.isInteger(n) || n < 1 || n > 9999) return 'a comment belongs to a slide';
-  }
+  const n = Number(input.slide);
+  if (!Number.isInteger(n) || n < 1 || n > 9999) return 'a comment belongs to a slide';
   return null;
 }
 
@@ -137,17 +129,19 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
     return { ok: true, ...(rec.id ? { id: rec.id } : {}), committed };
   };
   /**
-   * Store one record: a NEW comment (no `op`, no `re`), a reply (`re`, with a
-   * body), a resolve (`op: 'resolve', re`) or a re-anchor (`op: 'anchor', re,
-   * slide`: a comment moved to the slide somebody is looking at, the
-   * reconciliation for a slide deleted or rewritten past what fingerprint and
-   * title can find). All four are appends: this file is never rewritten.
+   * Store one record: a NEW comment (no `op`), a resolve (`op: 'resolve', re`)
+   * or a re-anchor (`op: 'anchor', re, slide`: a comment moved to the slide
+   * somebody is looking at, the reconciliation for a slide deleted or
+   * rewritten past what fingerprint and title can find). All three are
+   * appends: this file is never rewritten. There is no reply (REVIEW): a
+   * comment is one-way, and a record that names another with no `op` is
+   * refused rather than stored as one.
    */
   const post = (body) => {
     let input;
     try { input = JSON.parse(body || '{}'); } catch { return { ok: false, code: 400, error: 'bad payload' }; }
-    const { op, re, body: text, slide, title, fp } = input;
-    if (op === undefined && re === undefined) {
+    const { op, re, slide, title, fp } = input;
+    if (op === undefined) {
       const bad = commentProblem(input);
       if (bad) return { ok: false, code: 400, error: bad };
       const rec = reviewRecord(input, { by, at: new Date().toISOString(), deck: deckHead(), id: newId() });
@@ -155,31 +149,24 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
       if (r.ok) out.write(`  comment on slide ${rec.slide} → ${storeName}${r.committed ? ' (committed)' : ''}\n`);
       return r;
     }
+    if (op !== 'anchor' && op !== 'resolve') return { ok: false, code: 400, error: 'a record is a comment, a resolve or a move' };
     if (typeof re !== 'string' || !/^[a-z0-9]{1,12}$/.test(re)) return { ok: false, code: 400, error: 'bad comment id' };
     if (op === 'anchor') {
       const n = Number(slide);
       if (!Number.isInteger(n) || n < 1 || n > 9999) return { ok: false, code: 400, error: 'an anchor needs a slide' };
       if (title !== undefined && (typeof title !== 'string' || title.length > 500)) return { ok: false, code: 400, error: 'bad title' };
       if (fp !== undefined && (typeof fp !== 'string' || !/^[0-9a-f]{1,16}$/.test(fp))) return { ok: false, code: 400, error: 'bad fingerprint' };
-    } else if (op !== 'resolve' && !(typeof text === 'string' && text.trim() && text.length <= 4000)) {
-      return { ok: false, code: 400, error: 'a reply needs something in it' };
     }
     const at = new Date().toISOString();
-    // A reply is a new statement about the deck and carries which version it
-    // was made against, exactly as a comment does. A resolve or an anchor does
-    // not: it is about the comment, not about the slide.
-    const head = deckHead();
+    // A resolve or an anchor records no deck version: it is about the
+    // comment, not about the slide.
     const rec = op === 'anchor'
       ? { op: 'anchor', re, slide: Number(slide), ...(title !== undefined ? { title } : {}), ...(fp !== undefined ? { fp } : {}), at, ...(by ? { by } : {}) }
-      : op === 'resolve'
-        ? { op: 'resolve', re, at, ...(by ? { by } : {}) }
-        : { id: newId(), at, ...(by ? { by } : {}), ...(head ? { deck: head } : {}), re, body: text };
+      : { op: 'resolve', re, at, ...(by ? { by } : {}) };
     const r = append(rec, op === 'anchor'
       ? commitSubject(`review: move ${re} to slide ${rec.slide}`, 'review: re-anchor a comment')
-      : op === 'resolve'
-        ? commitSubject(`review: resolve ${re}`, 'review: resolve a comment')
-        : commitSubject(`review: reply to ${re}`, 'review: a reply'));
-    if (r.ok) out.write(`  review: ${op === 'anchor' ? `moved ${re} to slide ${rec.slide}` : op === 'resolve' ? `resolved ${re}` : `replied to ${re}`}${r.committed ? ' (committed)' : ''}\n`);
+      : commitSubject(`review: resolve ${re}`, 'review: resolve a comment'));
+    if (r.ok) out.write(`  review: ${op === 'anchor' ? `moved ${re} to slide ${rec.slide}` : `resolved ${re}`}${r.committed ? ' (committed)' : ''}\n`);
     return r;
   };
   const submit = async () => {
