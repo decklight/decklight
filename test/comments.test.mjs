@@ -163,8 +163,10 @@ test('--import commits the sidecar, and only the sidecar', async (t) => {
   writeFileSync(path.join(dir, 'in.review.jsonl'), on(1, 'from a stranger', { id: 'x1' }) + '\n');
 
   run(['--import', 'in.review.jsonl']);
-  assert.deepEqual(g('show', '--name-only', '--format=', 'HEAD').split('\n').filter(Boolean),
-    ['talk.review.jsonl'], 'the reviewer\'s import is not a deck change');
+  // …plus the union attribute the first record in this repository writes
+  // (REVIEW), and never the deck
+  assert.deepEqual(g('show', '--name-only', '--format=', 'HEAD').split('\n').filter(Boolean).sort(),
+    ['.gitattributes', 'talk.review.jsonl'], 'the reviewer\'s import is not a deck change');
   assert.match(g('status', '--porcelain'), /talk\.html/, 'and the author\'s own edit is still theirs to commit');
 });
 
