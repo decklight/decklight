@@ -172,10 +172,16 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
     // …nor does a review whose every record the local sidecar already holds:
     // that is `--import`, or a real merge, and it has plainly been dealt with.
     if (!mergeById(mine, records).added) continue;
-    // Which of ITS comments this clone has marked done. Carried per comment
-    // rather than per branch: finishing half a long review has to leave the
-    // other half on screen, which a single branch-level flag cannot express.
+    // Which of ITS comments the author has resolved: a `{op:"resolve", re}`
+    // in the author's OWN sidecar naming the reviewer's id, so the mark
+    // travels with the deck and the reviewer sees it after a pull. Folded
+    // TOGETHER — their comments, our ops — because an op alone points at
+    // nothing. Carried per comment rather than per branch: finishing half a
+    // long review has to leave the other half on screen. Marks an earlier
+    // version kept in git config are still honoured, read and never written.
+    const together = new Map(foldReview([...records, ...mine]).map((c) => [c.id, c]));
     const doneIds = doneComments(cwd, branch, { records });
+    for (const c of open) if (together.get(c.id)?.resolved) doneIds.add(c.id);
     const stamp = await run(['log', '-1', '--format=%aI', ref], { cwd });
     reviews.push({
       branch,
@@ -257,8 +263,11 @@ export function reviewLine(result, { deck = '' } = {}) {
 //     point. "Done" is not a second state beside it; it IS that record.
 //
 //   a reviewer's comments live on their branch, which is not yours to write.
-//     So the mark is kept HERE, in this clone's git config: private, never
-//     pushed, and reversible with `git config --unset`.
+//     So the SAME record, in your own sidecar, naming their id: it is folded
+//     together with their branch (above), travels with the deck, and the
+//     reviewer sees the tick after a pull. An earlier version kept this mark
+//     in this clone's git config, private; those marks are still read here
+//     and never written again.
 //
 // A review branch stops waiting when every one of its open comments is marked,
 // which is the same sentence as before — it is just counted a comment at a time
@@ -278,16 +287,17 @@ export const doneKey = (branch, id) => `decklight-review.${branch}.done-${id}`;
 export const usableId = (id) => typeof id === 'string' && /^[a-z0-9]{1,12}$/.test(id);
 
 /**
- * Which comments of this review are marked done in THIS clone.
+ * Which comments of this review an EARLIER version marked done in this clone's
+ * git config. Read, never written: the mark is a resolve record in the sidecar
+ * now (see above), and these are honoured so nobody's work is silently
+ * un-marked by an upgrade.
  *
  * One `--get-regexp` rather than a lookup per comment: a review can carry
  * dozens, and forty git invocations to draw one overlay is the kind of cost
  * that only shows up on somebody else's machine.
  *
  * A legacy WHOLE-REVIEW mark (`[decklight-review "<branch>"] done`, which is
- * what the first version of this wrote) is honoured as "all of them": the
- * feature shipped, somebody may have marked a review with it, and silently
- * un-marking their work to simplify this function would be a poor trade.
+ * what the first version of this wrote) is honoured as "all of them".
  */
 export function doneComments(cwd, branch, { run = null, exec = execFileSync, records = [] } = {}) {
   const g = run ?? ((args) => exec('git', args, { cwd, encoding: 'utf8' }).trim());
@@ -309,17 +319,6 @@ export function doneComments(cwd, branch, { run = null, exec = execFileSync, rec
   }
   if (legacyAll) for (const r of records) if (r?.id) ids.add(r.id);
   return ids;
-}
-
-/** Mark one comment done, or take the mark off. Never fatal: a mark is a convenience. */
-export function setCommentDone(cwd, branch, id, done, { run = null, exec = execFileSync } = {}) {
-  if (!usableId(id)) return false;
-  const g = run ?? ((args) => exec('git', args, { cwd, encoding: 'utf8' }).trim());
-  try {
-    if (done) g(['config', doneKey(branch, id), 'true']);
-    else g(['config', '--unset', doneKey(branch, id)]);
-    return true;
-  } catch { return false; }
 }
 
 /** git config takes a REGEX, and a branch name is full of characters one means. */

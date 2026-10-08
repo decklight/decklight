@@ -18,10 +18,11 @@ import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 
 import {
-  reviewsWaiting, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem, doneComments, doneKey, setCommentDone, usableId,
+  reviewsWaiting, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem, doneComments, doneKey, usableId,
 } from '../cli/review-remote.mjs';
 import { parseReview, mergeById, serializeRecord, reviewPathFor } from '../cli/review-store.mjs';
 import { submitReview } from '../cli/review-submit.mjs';
+import { foldReview } from '../tools/review-anchor.mjs';
 
 const gitIn = (dir) => (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
 
@@ -262,46 +263,53 @@ test('a suppressed check makes ZERO git calls', async (t) => {
 
 // ── a comment you are finished with ──────────────────────────────────────
 //
-// Doneness is per COMMENT, and where the mark lives follows who owns it: your
-// own comments already have `{op:'resolve'}` in the sidecar, which travels; a
-// reviewer's live on their branch, which is not yours to write, so the mark is
-// private git config in this clone.
+// Doneness is per COMMENT, and the mark is the same record whoever owns the
+// comment: `{op:'resolve'}` in the author's own sidecar, naming the id, which
+// travels so the reviewer sees the tick after a pull. A reviewer's branch is
+// never written; the listing folds their comments with the author's ops.
 
-test('a comment mark round-trips, and does not touch its neighbours', (t) => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'dl-done-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  execFileSync('git', ['init', '-q'], { cwd: dir });
-  const branch = 'review/ana-2026-08-25';
-
-  assert.deepEqual([...doneComments(dir, branch)], [], 'an unmarked review claimed marks');
-  assert.equal(setCommentDone(dir, branch, 'aa1', true), true);
-  assert.equal(setCommentDone(dir, branch, 'bb2', true), true);
-  assert.deepEqual([...doneComments(dir, branch)].sort(), ['aa1', 'bb2']);
-  // readable with plain git — the point of keeping it there
-  assert.equal(execFileSync('git', ['config', '--get', doneKey(branch, 'aa1')],
-    { cwd: dir, encoding: 'utf8' }).trim(), 'true');
-  // …and one comes off without taking the other with it
-  assert.equal(setCommentDone(dir, branch, 'aa1', false), true);
-  assert.deepEqual([...doneComments(dir, branch)], ['bb2']);
-  // a different review is a different subsection entirely
-  assert.deepEqual([...doneComments(dir, 'review/bo-2026-01-01')], []);
+test('a resolve in the author\'s own sidecar marks a reviewer\'s comment done, and travels', async (t) => {
+  const { dir, deck } = fixture();
+  t.after(() => rmTemp(dir));
+  const store = path.join(path.dirname(deck), 'deck.review.jsonl');
+  // ana sent a1 and a2; the author resolves a1 from their own file, then
+  // takes it back, then resolves it again — the latest wins
+  fs.appendFileSync(store, [
+    JSON.stringify({ op: 'resolve', re: 'a1', at: '2026-08-25T09:00:00Z', by: 'Gilles' }),
+    JSON.stringify({ op: 'reopen', re: 'a1', at: '2026-08-25T09:10:00Z', by: 'Gilles' }),
+    JSON.stringify({ op: 'resolve', re: 'a1', at: '2026-08-25T09:20:00Z', by: 'Gilles' }),
+  ].join('\n') + '\n');
+  const r = await reviewsWaiting(deck);
+  const ana = r.reviews.find((x) => x.who === 'ana');
+  assert.deepEqual(ana.doneIds, ['a1']);
+  assert.equal(ana.waiting, 1, 'one of two left');
+  assert.equal(ana.done, false);
+  // nothing of ana's was copied: the sidecar holds the ops and nothing else
+  assert.ok(!fs.readFileSync(store, 'utf8').includes('"first"'));
+  // and the mark is what the REVIEWER'S fold would read after a pull: her
+  // branch's records plus the author's ops fold to a resolved a1
+  const hers = fs.readFileSync(store, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const theirs = [{ id: 'a1', slide: 1, body: 'first' }, { id: 'a2', slide: 1, body: 'second' }];
+  const folded = foldReview([...theirs, ...hers]);
+  assert.ok(folded.find((c) => c.id === 'a1').resolved, 'the reviewer sees it resolved');
+  assert.equal(folded.find((c) => c.id === 'a2').resolved, null);
 });
 
-test('an id that could not be a config key is refused, never handed to git', () => {
+test('an id that could not be a config key is refused when reading legacy marks', () => {
   // Ids are minted `[a-z0-9]{1,12}`, but a comment arrives from a file somebody
-  // else wrote. A key git rejects is a silent no-op, which would read as "marked".
+  // else wrote. The shape check guards the legacy git-config read.
   assert.equal(usableId('aa1'), true);
   assert.equal(usableId('../evil'), false);
   assert.equal(usableId('has space'), false);
   assert.equal(usableId(''), false);
   assert.equal(usableId(null), false);
-  assert.equal(setCommentDone('/nowhere', 'review/x', '../evil', true), false);
 });
 
-test('the whole-review mark the first version wrote still counts', (t) => {
-  // `[decklight-review "<branch>"] done = true` shipped, briefly. Somebody may
-  // have marked a review with it, and silently un-marking their work to
-  // simplify the reader would be a poor trade.
+test('the marks an earlier version kept in git config still count, and are only read', (t) => {
+  // `[decklight-review "<branch>"] done = true` (whole review) and
+  // `done-<id>` (per comment) shipped before the mark became a resolve
+  // record. Somebody may have marked a review with them, and silently
+  // un-marking their work on upgrade would be a poor trade.
   const dir = mkdtempSync(path.join(os.tmpdir(), 'dl-legacy-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   execFileSync('git', ['init', '-q'], { cwd: dir });
@@ -311,10 +319,9 @@ test('the whole-review mark the first version wrote still counts', (t) => {
   assert.deepEqual([...doneComments(dir, branch, { records })].sort(), ['x1', 'x2']);
 });
 
-test('a repository that cannot be written costs a mark, never a crash', () => {
+test('a repository that cannot be read costs the legacy marks, never a crash', () => {
   const boom = () => { throw new Error('read-only'); };
   assert.deepEqual([...doneComments('/nowhere', 'review/x', { run: boom })], []);
-  assert.equal(setCommentDone('/nowhere', 'review/x', 'aa1', true, { run: boom }), false);
 });
 
 test('the nag counts COMMENTS left, not whole reviews', () => {

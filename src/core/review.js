@@ -561,34 +561,24 @@ export function createReview({
    *                  take back, and this is not one.
    *
    *   a reviewer's   their comments live on their branch, which is not ours to
-   *                  write. A private mark in this clone's git config instead,
-   *                  reversible the same way, and immediate for the same reason.
+   *                  write. The same record, in THIS deck's sidecar, naming
+   *                  their id: the server folds the two together, and after
+   *                  a pull the reviewer sees the tick. Immediate for the
+   *                  same reason.
    */
   async function resolve() {
     const r = rows[sel];
     if (!r) return;
     const base = editBase();
     if (base == null) return;
-    // Somebody else's comment: toggle the local mark, no arming, reversible.
-    if (r.branch) {
-      try {
-        const res = await fetch(`${base}/deck/review/done`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ branch: r.branch, id: r.id, done: !r.done }),
-        });
-        const j = await res.json();
-        if (!j?.ok) throw new Error(j?.error || 'refused');
-        toast(j.done ? 'done' : 'reopened');
-        debugLog('review', `${r.branch} ${r.id} ${j.done ? 'done' : 'reopened'}`);
-      } catch (e) { toast(`could not mark that — ${String(e.message || e)}`); }
-      render(await load());
-      return;
-    }
-    // Your own: resolve, or reopen a resolved one — each an appended record
-    // that travels, and the latest wins. No arm: a resolve can be taken back
-    // with the same key, so there is nothing a two-step would protect.
-    const op = r.resolved ? 'reopen' : 'resolve';
+    // Yours or a reviewer's: resolve, or reopen a resolved one — each an
+    // appended record in THIS deck's sidecar that travels, and the latest
+    // wins. A reviewer's comment lives on their branch, which is not ours to
+    // write, so the record names their id from here, and the server folds
+    // the two together; after a pull the reviewer sees the tick. No arm: a
+    // resolve can be taken back with the same key, so there is nothing a
+    // two-step would protect.
+    const op = (r.branch ? r.done : r.resolved) ? 'reopen' : 'resolve';
     try {
       const res = await fetch(`${base}/deck/review/comments`, {
         method: 'POST',
@@ -596,8 +586,8 @@ export function createReview({
         body: JSON.stringify({ op, re: r.id }),
       });
       if (!(await res.json())?.ok) throw new Error('refused');
-      toast(op === 'resolve' ? 'resolved' : 'reopened');
-      debugLog('review', `${r.id} ${op === 'resolve' ? 'resolved' : 'reopened'}`);
+      toast(op === 'resolve' ? (r.branch ? 'done' : 'resolved') : 'reopened');
+      debugLog('review', `${r.branch ? `${r.branch} ` : ''}${r.id} ${op === 'resolve' ? 'resolved' : 'reopened'}`);
     } catch (e) { toast(`could not ${op} that — ${String(e.message || e)}`); }
     render(await load());
   }

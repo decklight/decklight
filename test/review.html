@@ -91,19 +91,17 @@
           title: 'Cut me', text: 'Cut me doomed' }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.endsWith('/deck/review/done')) {
-        const req_ = JSON.parse(opts.body);
-        window.__doneCalls = (window.__doneCalls || 0) + 1;
-        // the server's half: ONE comment's mark is remembered, and nothing is
-        // copied into the local store — that is the whole point of the change
-        window.__doneIds = window.__doneIds || new Set();
-        if (req_.done) window.__doneIds.add(req_.id); else window.__doneIds.delete(req_.id);
-        return new Response(JSON.stringify({ ok: true, branch: req_.branch, id: req_.id, done: !!req_.done }),
-          { status: 200, headers: { 'content-type': 'application/json' } });
-      }
       if (u.endsWith('/deck/review/comments')) {
         if (opts?.method === 'POST') {
           const rec = JSON.parse(opts.body);
+          // a resolve/reopen naming an INCOMING id is the author's mark on a
+          // reviewer's comment: the server folds it with the branch and the
+          // listing says done; nothing of the reviewer's is copied here
+          if ((rec.op === 'resolve' || rec.op === 'reopen') && ['in1', 'in2'].includes(rec.re)) {
+            window.__doneCalls = (window.__doneCalls || 0) + 1;
+            window.__doneIds = window.__doneIds || new Set();
+            if (rec.op === 'resolve') window.__doneIds.add(rec.re); else window.__doneIds.delete(rec.re);
+          }
           window.__posted.push(rec);
           // the server's half: it is the one that knows who and when
           window.__store.push(JSON.stringify(
@@ -475,16 +473,18 @@
           const card2 = card;   // same live node — the jump did not replace it
           await until(() => card2.querySelector('.rv-incoming'));
           // R marks ONE comment done — not the whole review, and not a
-          // two-step: a reviewer's comment is marked in this clone's git config,
-          // which is private and one keypress from undone, so there is nothing
-          // an arm would protect.
+          // two-step: a resolve record in THIS deck's sidecar naming the
+          // reviewer's id, one keypress from reopened, so there is nothing an
+          // arm would protect; the server folds it with the branch.
           const sel_ = () => card2.querySelector('.rv-sel');
           for (let i = 0; i < 8 && !sel_()?.classList.contains('rv-inc'); i++) { press('ArrowDown'); await wait(50); }
           press('r');
           await until(() => window.__doneCalls);
           r.markedOneDone = window.__doneCalls === 1 && window.__doneIds.size === 1;
-          // NOTHING WAS COPIED — the point of dropping take-in
+          // NOTHING WAS COPIED — the point of dropping take-in; the mark is an
+          // op naming the reviewer's id, which is what travels
           r.nothingImported = !window.__store.some((l) => /Incoming: tighten this/.test(l));
+          r.markIsAResolve = window.__posted[0]?.op === 'resolve' && window.__posted[0]?.re === 'in1';
           // the OTHER comment in that review is untouched: this is per comment
           r.onlyOneMarked = !!(await until(() =>
             card2.querySelectorAll('.rv-row.rv-inc.rv-done').length === 1
@@ -505,18 +505,19 @@
           // two-step would protect.
           for (let i = 0; i < 12 && sel_()?.classList.contains('rv-inc'); i++) { press('ArrowDown'); await wait(40); }
           const localId = sel_()?.dataset.id;
+          const n0 = window.__posted.length;   // the incoming marks above were posts too
           press('r');
-          await until(() => window.__posted.length === 1);
-          r.resolvedAtOnce = window.__posted[0]?.op === 'resolve' && !card2.querySelector('.rv-arm');
-          r.resolveIsAnAppend = window.__posted[0]?.re === localId;
+          await until(() => window.__posted.length === n0 + 1);
+          r.resolvedAtOnce = window.__posted[n0]?.op === 'resolve' && !card2.querySelector('.rv-arm');
+          r.resolveIsAnAppend = window.__posted[n0]?.re === localId;
           r.stillOpen = !!document.querySelector('.decklight-review');
           // the row ticks and sorts below the open ones, and the selection
           // FOLLOWS it (by id, not position) — so R again lands on the same
           // comment and reopens it, an appended record of its own
           r.tickedAndFollowed = !!(await until(() => sel_()?.dataset.id === localId && sel_()?.querySelector('.rv-tick')));
           press('r');
-          await until(() => window.__posted.length === 2);
-          r.reopenedOwn = window.__posted[1]?.op === 'reopen' && window.__posted[1]?.re === localId;
+          await until(() => window.__posted.length === n0 + 2);
+          r.reopenedOwn = window.__posted[n0 + 1]?.op === 'reopen' && window.__posted[n0 + 1]?.re === localId;
           r.tickGone = !!(await until(() => sel_()?.dataset.id === localId && !sel_()?.querySelector('.rv-tick')));
           r.legendSaysSo = /R marks one done, again reopens it/.test(card2.querySelector('.rec-hint')?.textContent ?? '');
 
@@ -524,7 +525,7 @@
           // the one the fixture already had resolved — says how many, keeps
           // the heading's count, and D again shows them. Remembered per deck.
           press('r');
-          await until(() => window.__posted.length === 3);
+          await until(() => window.__posted.length === n0 + 3);
           await until(() => card2.querySelectorAll('.rv-row.rv-resolved').length >= 2);
           const resolvedBefore = card2.querySelectorAll('.rv-row.rv-resolved').length;
           press('d');
@@ -562,7 +563,7 @@
           r.deleteKeptTheLine = window.__store.some((l) => l.includes(`"id":"${victim}"`));
           r.deleteInTheLegend = /⌫ deletes yours/.test(card2.querySelector('.rec-hint')?.textContent ?? '');
 
-          r.PASS = r.editCanWrite && r.saysResolveIsThere && r.resolvedAtOnce
+          r.PASS = r.editCanWrite && r.saysResolveIsThere && r.resolvedAtOnce && r.markIsAResolve
             && r.resolveIsAnAppend && r.stillOpen && r.tickedAndFollowed
             && r.reopenedOwn && r.tickGone && r.legendSaysSo && r.incomingShown
             && r.hideDoneHides && r.hideDoneKeepsTheCount && r.hideDoneRemembered

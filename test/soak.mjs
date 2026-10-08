@@ -1808,44 +1808,31 @@ try {
       'the incoming records did not carry the comments');
     const sidecarBefore = existsSync(join(author2, 'reviewed.review.jsonl'))
       ? readFileSync(join(author2, 'reviewed.review.jsonl'), 'utf8') : null;
-    // ONE COMMENT AT A TIME, which is what #420 made this route: a review is
-    // finished by finishing its comments, exactly as pressing R down the list
-    // does. This step used to post the branch alone — #416's whole-branch mark
-    // — and kept passing nobody's attention because the soak is a release gate
-    // run by hand rather than a CI job, so the API moved and the gate did not.
-    const reviewBranch = inc.reviews[0].branch;
+    // ONE COMMENT AT A TIME: a review is finished by finishing its comments,
+    // exactly as pressing R down the list does. The mark is a `resolve`
+    // record in the AUTHOR'S sidecar naming the reviewer's id (REVIEW): it
+    // travels with the deck, so the reviewer sees the tick after a pull.
     const ids = (inc.reviews[0].records ?? []).map((r) => r.id);
     must(ids.length > 0 && ids.every(Boolean), `the incoming records carry no ids: ${JSON.stringify(ids)}`);
-    // RE-READ BEFORE EACH MARK, because marking one drops the server's cached
-    // listing (the marks it holds are now stale) and the route answers only
-    // for a review it has listed. That is the deck's own loop — src/core/
-    // review.js does `render(await load())` after every R — so a soak that
-    // marked in a batch was standing in for a client nobody ships.
     let done;
     for (const id of ids) {
-      await (await fetch(`${asrv.base}/deck/review/incoming`)).json();
-      done = await (await fetch(`${asrv.base}/deck/review/done`, {
+      done = await (await fetch(`${asrv.base}/deck/review/comments`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ branch: reviewBranch, id, done: true }),
+        body: JSON.stringify({ op: 'resolve', re: id }),
       })).json();
-      must(done.ok === true, `done answered ${JSON.stringify(done)} for ${id}`);
+      must(done.ok === true, `resolve answered ${JSON.stringify(done)} for ${id}`);
     }
-    // NOTHING WAS COPIED: the sidecar is byte-identical, and the reviewer's
-    // comment never became one of the author's own.
+    // NOTHING OF THE REVIEWER'S WAS COPIED: the sidecar grew by one op per
+    // mark and nothing else, and the reviewer's comment never became one of
+    // the author's own.
     const sidecarAfter = existsSync(join(author2, 'reviewed.review.jsonl'))
-      ? readFileSync(join(author2, 'reviewed.review.jsonl'), 'utf8') : null;
-    must(sidecarAfter === sidecarBefore, 'marking a review done wrote to the sidecar');
-    must(!(sidecarAfter ?? '').includes('One more before sending.'),
+      ? readFileSync(join(author2, 'reviewed.review.jsonl'), 'utf8') : '';
+    const grown = sidecarAfter.slice((sidecarBefore ?? '').length).trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    must(grown.length === ids.length && grown.every((r) => r.op === 'resolve' && ids.includes(r.re)),
+      `expected ${ids.length} resolve ops in the sidecar, got ${JSON.stringify(grown)}`);
+    must(!sidecarAfter.includes('One more before sending.'),
       "the reviewer's comment was merged into the author's own file");
-    // the mark is git config in THIS clone, readable with plain git
-    // one key per comment (cli/review-remote.mjs doneKey), not one per review
-    const mark = spawnSync('git', ['config', '--get-regexp', `^decklight-review\\.${reviewBranch}\\.done-`],
-      { cwd: author2, encoding: 'utf8' });
-    const marked = mark.stdout.trim().split('\n').filter(Boolean);
-    must(marked.length === ids.length,
-      `expected ${ids.length} marks in git config, got ${marked.length}: ${JSON.stringify(mark.stdout)}`);
-    must(marked.every((l) => l.endsWith(' true')), `a mark is not "true": ${JSON.stringify(mark.stdout)}`);
     // …and the review is still LISTED (so it can be reopened) but not waiting
     const inc2 = await (await fetch(`${asrv.base}/deck/review/incoming`)).json();
     must((inc2.reviews ?? []).length === 1 && inc2.reviews[0].done === true,
