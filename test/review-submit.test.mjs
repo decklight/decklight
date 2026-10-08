@@ -180,6 +180,19 @@ test('a second submit the same day lands on the branch already there', (t) => {
   const delta = bareGit('diff', '--name-only', first.commit, second.commit).split('\n').filter(Boolean);
   assert.deepEqual(delta, ['talks/deck.review.jsonl']);
   assert.match(bareGit('show', `${second.commit}:talks/deck.review.jsonl`), /one more/);
+
+  // A resubmit APPENDS: a sidecar that lost a line (a reset after a diverged
+  // pull) must not push the branch backwards. Drop the first comment locally,
+  // add another, submit: the branch holds all three.
+  const kept = fs.readFileSync(store, 'utf8').split('\n').filter(Boolean);
+  fs.writeFileSync(store, kept.slice(1).join('\n') + '\n'
+    + JSON.stringify({ id: 'third', at: '2026-08-24T18:00:00Z', by: 'Ana Ruiz <ana@example.com>', slide: 2, body: 'and another' }) + '\n');
+  const third = submitReview(deck, { out: sink(), now: at('2026-08-24T18:30:00Z') });
+  const onBranch = bareGit('show', `${third.commit}:talks/deck.review.jsonl`);
+  assert.match(onBranch, /one more/);
+  assert.match(onBranch, /and another/);
+  assert.equal(onBranch.split('\n').filter(Boolean).length, 3, 'what the branch held, plus what is new, nothing lost');
+  assert.equal(third.comments, 3, 'the count is what is on the branch');
 });
 
 test('--dry-run reaches commit-tree and stops: no ref anywhere', (t) => {

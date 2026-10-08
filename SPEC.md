@@ -723,6 +723,8 @@ which is what keeps `merge=union` and a replayed `--import` safe; an op's identi
 twice is one line. `movedFrom` keeps pointing at where the reviewer wrote it: that history is the comment's,
 not the anchor's.
 
+**What a reviewer submitted stays in front of her.** In no-trust mode `GET /deck/review/comments` answers with the sidecar *and* the records on her own review branches on the remote (`review/<me>-*` for this deck, `myReviews`), merged by id behind the sidecar, so a comment that is in both is one and a comment her local branch lost is still listed; the response says so (`mine: { state, branches }`). Her comments are committed on her local branch, which diverges from `main` with every one of them, and the usual way out of a diverged pull, a reset to the remote, would otherwise hide her own work from `M` while it sits safe on the remote. Behind the same switches that silence the author's inbox check, once a minute at most, and never fatal: a remote that cannot be asked leaves the sidecar alone on screen. **A resubmit appends**: the branch's current records and the sidecar's, merged by id, so a sidecar that lost a line can never push the branch backwards.
+
 **In the deck, `M`** opens one overlay whose powers depend on which mode answered: no-trust mode means the
 composer is there, on the slide you are looking at; an edit server means rows can be resolved; with neither,
 the list still reads and says where comments come from. `⌘/⌃⏎` posts and a bare `⏎` is a newline, because a

@@ -29,7 +29,7 @@ import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { gitAutocommit, commitSubject, oneline, ensureReviewAttribute } from './git.mjs';
-import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
+import { reviewPathFor, parseReview, serializeRecord, newId, mergeById } from './review-store.mjs';
 
 /** The reviewer, as git knows them: "Name <email>", either half, or ''. */
 export function reviewerIdentity(cwd, exec = execFileSync) {
@@ -86,7 +86,7 @@ export const REVIEW_BODY_MAX = 1e5;
  * is ('no-trust' | 'write'); `out` is the terminal; `onSubmitted` is told
  * when a submit went through, for the exit line.
  */
-export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mode = 'no-trust', out = process.stdout, onSubmitted = () => {}, onRecord = () => {} } = {}) {
+export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mode = 'no-trust', out = process.stdout, onSubmitted = () => {}, onRecord = () => {}, mine = null } = {}) {
   // Both may be functions: the one server changes mode mid-session, and what
   // the ping says and whether a comment commits follow the mode of the moment.
   const modeOf = typeof mode === 'function' ? mode : () => mode;
@@ -110,12 +110,19 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
 
   /** The `review` block of /deck/ping: what a page needs to know before it comments. */
   const ping = () => ({ mode: modeOf(), git: commits(), by: by || null, store: storeName });
-  const list = () => {
+  const list = async () => {
     const text = existsSync(storePath) ? readFileSync(storePath, 'utf8') : '';
     const { records, skipped } = parseReview(text);
     // `skipped` travels rather than being swallowed: a reader showing fewer
     // comments than the file holds should be able to say so.
-    return { ok: true, records, skipped };
+    if (!mine) return { ok: true, records, skipped };
+    // …and what this reviewer already submitted, as the remote holds it
+    // (REVIEW): merged by id behind the sidecar, so a comment that is in
+    // both is one, and one her local branch lost is still hers to see.
+    let remote = { state: 'none', records: [], branches: [] };
+    try { remote = await mine(); } catch { /* the sidecar alone, then */ }
+    return { ok: true, records: mergeById(records, remote.records).records, skipped,
+      mine: { state: remote.state, branches: remote.branches } };
   };
   /** Append one record, commit it when this mode commits; `{ ok, id?, committed }` or `{ ok: false, error, code }`. */
   const append = (rec, subject) => {
@@ -202,7 +209,7 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
   /** Answer the request; true when it was one of these routes. `body` is the POST text. */
   async function handle(req, res, url, body = '') {
     if (!matches(req, url)) return false;
-    if (req.method === 'GET' && url.pathname === '/deck/review/comments') { json(res, 200, list()); return true; }
+    if (req.method === 'GET' && url.pathname === '/deck/review/comments') { json(res, 200, await list()); return true; }
     if (req.method === 'POST' && url.pathname === '/deck/review/comments') {
       const r = post(body);
       json(res, r.ok ? 200 : r.code, r.ok ? r : { ok: false, error: r.error });

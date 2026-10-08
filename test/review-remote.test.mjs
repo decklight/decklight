@@ -15,10 +15,12 @@ import fs from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, stop } from './helpers.mjs';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import {
-  reviewsWaiting, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem, doneComments, doneKey, usableId,
+  reviewsWaiting, myReviews, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem, doneComments, doneKey, usableId,
 } from '../cli/review-remote.mjs';
 import { parseReview, mergeById, serializeRecord, reviewPathFor } from '../cli/review-store.mjs';
 import { submitReview } from '../cli/review-submit.mjs';
@@ -77,6 +79,53 @@ function fixture() {
 
   return { dir, bare, author, deck, other, g };
 }
+
+test('myReviews lists back what THIS reviewer submitted, and nobody else\'s', async (t) => {
+  // ana's clone after a `git reset --hard origin/main`: her sidecar is gone,
+  // her comments sit on the remote. M must still show them — hers, not bo's.
+  const { dir } = fixture();
+  t.after(() => rmTemp(dir));
+  const anaDeck = path.join(dir, 'ana', 'talks', 'deck.html');
+  fs.rmSync(path.join(dir, 'ana', 'talks', 'deck.review.jsonl'), { force: true });
+  const mine = await myReviews(anaDeck, 'ana');
+  assert.equal(mine.state, 'ok');
+  assert.deepEqual(mine.branches, ['review/ana-2026-08-20']);
+  assert.deepEqual(mine.records.map((r) => r.id).sort(), ['a1', 'a2']);
+  // bo's branch is not hers; a stranger has nothing
+  assert.deepEqual((await myReviews(anaDeck, 'bo')).records.map((r) => r.id), ['b1', 'b2']);
+  assert.equal((await myReviews(anaDeck, 'nobody')).state, 'none');
+  assert.equal((await myReviews(anaDeck, null)).state, 'none', 'no identity, no lookup');
+  // the other deck's review branch is not this deck's
+  assert.equal((await myReviews(path.join(dir, 'ana', 'talks', 'other.html'), 'ana')).state, 'none');
+});
+
+test('the no-trust server lists the reviewer\'s submitted comments beside her sidecar', async (t) => {
+  // The route merges by id: a comment that is in both is one; one her local
+  // branch lost is still hers to see, and one she just wrote is there too.
+  const { dir } = fixture();
+  t.after(() => rmTemp(dir));
+  const clone = path.join(dir, 'ana');
+  const store = path.join(clone, 'talks', 'deck.review.jsonl');
+  // keep a1 locally, lose a2 (the reset), and add a fresh local line
+  fs.writeFileSync(store, [
+    JSON.stringify({ id: 'a1', at: '2026-08-24T09:00:00Z', by: 'r', slide: 1, body: 'first' }),
+    JSON.stringify({ id: 'a9', at: '2026-08-25T09:00:00Z', by: 'r', slide: 1, body: 'local only' }),
+  ].join('\n') + '\n');
+  const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../cli/decklight.mjs');
+  const child = spawn(process.execPath, [CLI, 'talks/deck.html', '--no-trust', '--port', '0', '--no-git'],
+    { cwd: clone, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'dl-home-')) } });
+  t.after(() => stop(child));
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; }); child.stderr.on('data', (c) => { out += c; });
+  const base = await new Promise((ok, no) => {
+    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); ok(`http://127.0.0.1:${m[1]}`); } }, 25);
+    child.on('exit', () => { clearInterval(scan); no(new Error('exited early:\n' + out)); });
+    setTimeout(() => { clearInterval(scan); no(new Error('timeout:\n' + out)); }, 15000);
+  });
+  const listed = await (await fetch(`${base}/deck/review/comments`)).json();
+  assert.deepEqual(listed.records.map((r) => r.id).sort(), ['a1', 'a2', 'a9'], 'sidecar first, the remote\'s own behind it, merged by id');
+  assert.deepEqual(listed.mine, { state: 'ok', branches: ['review/ana-2026-08-20'] });
+});
 
 test('describeBranch reads the who and the when back out of the ref', () => {
   assert.deepEqual(describeBranch('review/ana-2026-08-24'), { who: 'ana', when: '2026-08-24' });
