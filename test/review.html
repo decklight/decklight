@@ -538,11 +538,37 @@
           r.showDoneShows = !!(await until(() => card2.querySelectorAll('.rv-row.rv-resolved').length === resolvedBefore
             && !/done hidden/.test(card2.textContent)));
 
+          // ⌫ deletes a comment of your own — armed then confirmed, because
+          // this append has no key that takes it back — and the row is gone
+          // from the list while the file keeps the line. Not a reviewer's.
+          for (let i = 0; i < 12 && !sel_()?.classList.contains('rv-inc'); i++) { press('ArrowDown'); await wait(40); }
+          const postedBefore = window.__posted.length;
+          press('Backspace');
+          await wait(150);
+          r.deleteRefusesTheirs = window.__posted.length === postedBefore && !card2.querySelector('.rv-arm');
+          for (let i = 0; i < 12 && sel_()?.classList.contains('rv-inc'); i++) { press('ArrowDown'); await wait(40); }
+          const victim = sel_()?.dataset.id;
+          press('Backspace');
+          r.deleteArms = !!(await until(() => /delete this comment\? ⌫ again to confirm/.test(card2.querySelector('.rv-arm')?.textContent ?? '')))
+            && window.__posted.length === postedBefore;
+          press('Escape');
+          await wait(120);
+          r.deleteDisarms = !card2.querySelector('.rv-arm') && !!document.querySelector('.decklight-review');
+          press('Backspace'); await until(() => card2.querySelector('.rv-arm'));
+          press('Backspace');
+          await until(() => window.__posted.length === postedBefore + 1);
+          r.deletePosted = window.__posted[postedBefore]?.op === 'delete' && window.__posted[postedBefore]?.re === victim;
+          r.deletedRowGone = !!(await until(() => !card2.querySelector(`.rv-row[data-id="${victim}"]`)));
+          r.deleteKeptTheLine = window.__store.some((l) => l.includes(`"id":"${victim}"`));
+          r.deleteInTheLegend = /⌫ deletes yours/.test(card2.querySelector('.rec-hint')?.textContent ?? '');
+
           r.PASS = r.editCanWrite && r.saysResolveIsThere && r.resolvedAtOnce
             && r.resolveIsAnAppend && r.stillOpen && r.tickedAndFollowed
             && r.reopenedOwn && r.tickGone && r.legendSaysSo && r.incomingShown
             && r.hideDoneHides && r.hideDoneKeepsTheCount && r.hideDoneRemembered
             && r.hideDoneInTheLegend && r.showDoneShows
+            && r.deleteRefusesTheirs && r.deleteArms && r.deleteDisarms && r.deletePosted
+            && r.deletedRowGone && r.deleteKeptTheLine && r.deleteInTheLegend
             && r.incomingSaysWhoAndHowMany && r.incomingShowsTheComments && r.noGitCommandAsked
             && r.incomingJumps && r.panelStayedAfterIncomingJump
             && r.markedOneDone && r.nothingImported && r.onlyOneMarked

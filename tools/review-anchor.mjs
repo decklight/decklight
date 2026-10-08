@@ -144,9 +144,11 @@ export function foldReview(records) {
   const byId = new Map();
   const resolves = [];   // resolve AND reopen: one history, applied in order
   const anchors = [];
+  const deletes = [];
   for (const r of records) {
     if (r.op === 'resolve' || r.op === 'reopen') { resolves.push(r); continue; }
     if (r.op === 'anchor') { anchors.push(r); continue; }
+    if (r.op === 'delete') { deletes.push(r); continue; }
     // A record that names another comment and is no op was a reply, which an
     // older decklight wrote and this one does not read (REVIEW: comments are
     // one-way). Skipped, never a comment of its own: it has no slide.
@@ -184,5 +186,11 @@ export function foldReview(records) {
     c.fp = r.fp ?? null;
     c.anchored = { at: r.at ?? null, by: r.by ?? null };
   }
+  // A delete op takes the comment out of every view — the CLI's, the panel's,
+  // the submit count's — while its line stays in the file, because the file
+  // is a log and an edit in place is what would break merge=union. Applied
+  // last, so a delete that a union merge placed above its comment still
+  // lands, and there is no undelete: the comment is its author's to withdraw.
+  for (const r of deletes) byId.delete(r.re);
   return [...byId.values()];
 }

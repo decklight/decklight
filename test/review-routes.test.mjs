@@ -95,13 +95,20 @@ test('a resolve is taken back by a reopen — a line of its own, and the file st
   assert.equal(recs[2].re, id);
   assert.equal('body' in recs[2], false, 'an op carries no prose');
 
-  // the store knows four records and no more (REVIEW: comments are one-way)
+  // a delete is one more line, and the listing (raw records) still carries
+  // the comment: the FOLD is what drops it, wherever the file is read
+  assert.equal((await post(base, { op: 'delete', re: id })).status, 200);
+  assert.deepEqual(lines().slice(1).map((r) => r.op), ['resolve', 'reopen', 'delete']);
+  const listed = await (await fetch(`${base}/deck/review/comments`)).json();
+  assert.equal(listed.records.length, 4, 'the log is handed over whole');
+
+  // the store knows five records and no more (REVIEW: comments are one-way)
   const reply = await post(base, { re: id, body: 'a reply' });
   assert.equal(reply.status, 400, 'a reply is refused, not stored');
   const other = await post(base, { op: 'nudge', re: id });
   assert.equal(other.status, 400);
-  assert.match((await other.json()).error, /a comment, a resolve, a reopen or a move/);
-  assert.equal(lines().length, 3, 'a refused op writes nothing');
+  assert.match((await other.json()).error, /a comment, a resolve, a reopen, a delete or a move/);
+  assert.equal(lines().length, 4, 'a refused op writes nothing');
 });
 
 test('no-trust mode refuses every edit route, with the review routes beside it', async (t) => {

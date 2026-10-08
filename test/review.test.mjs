@@ -96,6 +96,22 @@ test('a reopen takes a resolve back, and the latest by time wins across a union 
   assert.equal(bare[0].resolved, null);
 });
 
+test('a delete folds the comment out of every view, whatever else was said about it', () => {
+  // The line stays in the file (a log); the fold drops the comment, and a
+  // resolve or a move on a deleted comment lands on nothing. A delete that a
+  // union merge placed ABOVE its comment still lands: it is applied last.
+  const { records } = parseReview([
+    '{"op":"delete","re":"a2","at":"2026-08-23T08:00:00Z","by":"Gilles"}',
+    '{"id":"a1","slide":1,"body":"stays"}',
+    '{"id":"a2","slide":2,"body":"withdrawn"}',
+    '{"op":"resolve","re":"a2","at":"2026-08-23T09:00:00Z","by":"Gilles"}',
+    '{"op":"anchor","re":"a2","slide":3,"at":"2026-08-23T09:30:00Z"}',
+    '{"id":"a3","slide":3,"body":"also stays"}',
+    '{"op":"delete","re":"nothing","at":"2026-08-23T10:00:00Z"}',
+  ].join('\n'));
+  assert.deepEqual(foldReview(records).map((c) => c.id), ['a1', 'a3']);
+});
+
 test('a resolve that arrives BEFORE its comment still lands', () => {
   // merge=union concatenates; it does not reorder. So the file can genuinely
   // hold a resolve above the comment it refers to.

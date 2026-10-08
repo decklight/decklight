@@ -79,7 +79,7 @@ export function serializeRecord(rec) {
  */
 export function mergeById(existing, incoming) {
   // ops carry no id of their own — the tuple is their identity, so the same
-  // resolve, reopen or re-anchor arriving twice (an import replayed) stays one line
+  // resolve, reopen, delete or re-anchor arriving twice (an import replayed) stays one line
   const key = (r) => (r.op ? `${r.op}:${r.re}:${r.at ?? ''}:${r.by ?? ''}` : r.id);
   const seen = new Set(existing.map(key));
   const added = [];

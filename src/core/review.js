@@ -81,6 +81,7 @@ export function createReview({
   let sel = 0;
   let armedSubmit = false; // S pressed once — the next S pushes the review
   let armedAnchor = null;  // the comment id a second A would move to this slide
+  let armedDelete = null;  // the comment id a second ⌫ would delete
   let incomingNow = [];    // every listed review, done ones included — T's targets
   let context = null;      // {id, data} — an orphan's "what it said", unfolded
   let probed = null;       // the no-trust mode's base, '' for same-origin, null for none
@@ -207,6 +208,9 @@ export function createReview({
     if (armedAnchor === c.id) {
       row.append(el_('div', 'rv-arm',
         `move this comment to slide ${instance.state.slide} (the one on screen)? A again to confirm · Esc backs out`));
+    }
+    if (armedDelete === c.id) {
+      row.append(el_('div', 'rv-arm', 'delete this comment? ⌫ again to confirm · Esc backs out'));
     }
     const entry = { id: c.id, slide: anchor.slide, node: row, resolved: !!c.resolved, branch, done };
     row.addEventListener('click', () => { select(rows.indexOf(entry)); jump(); });
@@ -341,10 +345,10 @@ export function createReview({
 
     card.append(el_('div', 'rec-hint', state.can === 'resolve'
       ? (incomingNow.length
-        ? '⏎ jumps · R marks one done, again reopens it · D hides done · A moves here · ⇧M writes · Esc closes'
-        : '⏎ jumps (on a gone slide: shows what it said) · R marks one done, again reopens it · D hides done · A moves here · ⇧M writes · Esc closes')
+        ? '⏎ jumps · R marks one done, again reopens it · D hides done · A moves here · ⌫ deletes yours · ⇧M writes · Esc closes'
+        : '⏎ jumps (on a gone slide: shows what it said) · R marks one done, again reopens it · D hides done · A moves here · ⌫ deletes yours · ⇧M writes · Esc closes')
       : state.can === 'comment'
-        ? '⏎ jumps to the slide · ⇧M writes · S submits the review · Esc closes'
+        ? '⏎ jumps to the slide · ⇧M writes · ⌫ deletes yours · S submits the review · Esc closes'
         : '⏎ jumps to the slide · Esc closes'));
     // Last, so it is the card's foot — where the sticky pin holds it while the
     // list scrolls above.
@@ -460,7 +464,7 @@ export function createReview({
     if (!r || r.resolved) return;
     const base = editBase();
     if (base == null) return;
-    if (armedAnchor !== r.id) { armedAnchor = r.id; render(await load()); return; }
+    if (armedAnchor !== r.id) { armedAnchor = r.id; armedDelete = null; render(await load()); return; }
     armedAnchor = null;
     // Same as resolve: a comment on a review branch is not ours to move.
     if (r.branch) { toast('this comment is on a review branch — only your own comments can be moved'); return; }
@@ -476,6 +480,38 @@ export function createReview({
       toast(`moved to slide ${here}`);
       context = null;
     } catch (e) { toast(`could not move that — ${String(e.message || e)}`); }
+    render(await load());
+  }
+
+  /**
+   * ⌫ — delete the selected comment of your own, armed then confirmed: an
+   * appended `{op:"delete", re}` that folds the comment out of every view
+   * while its line stays in the file. Confirmed because, unlike a resolve,
+   * this append has no key that takes it back. A reviewer's comment is not
+   * ours to delete, as it is not ours to move.
+   */
+  async function deleteOwn() {
+    const r = rows[sel];
+    if (!r) return;
+    // Whichever server is here takes it, as a new comment goes: the reviewer's
+    // own are deleted through the no-trust server, the author's through theirs.
+    const rbase = await reviewBase();
+    const base = rbase !== null ? rbase : editBase();
+    if (base == null) return;
+    if (r.branch) { toast('this comment is on a review branch — only your own comments can be deleted'); return; }
+    if (armedDelete !== r.id) { armedDelete = r.id; armedAnchor = null; render(await load()); return; }
+    armedDelete = null;
+    try {
+      const res = await fetch(`${base}/deck/review/comments`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ op: 'delete', re: r.id }),
+      });
+      if (!(await res.json())?.ok) throw new Error('refused');
+      toast('deleted');
+      debugLog('review', `${r.id} deleted`);
+      context = null;
+    } catch (e) { toast(`could not delete that — ${String(e.message || e)}`); }
     render(await load());
   }
 
@@ -670,6 +706,7 @@ export function createReview({
     overlays.opening();
     armedSubmit = false;
     armedAnchor = null;
+    armedDelete = null;
     context = null;
     sel = 0;
     el = document.createElement('div');
@@ -701,6 +738,7 @@ export function createReview({
     el = null;
     armedSubmit = false;
     armedAnchor = null;
+    armedDelete = null;
     context = null;
     engaged = false;
     // Hand the stage its full width back and refit the slide.
@@ -742,8 +780,8 @@ export function createReview({
       if (e.key === 'Escape') {
         // Escape backs out of an arm before it closes the overlay — the same
         // two-step every other confirming surface here uses.
-        if (armedSubmit || armedAnchor) {
-          armedSubmit = false; armedAnchor = null;
+        if (armedSubmit || armedAnchor || armedDelete) {
+          armedSubmit = false; armedAnchor = null; armedDelete = null;
           load().then((s) => el && render(s));
           return true;
         }
@@ -758,6 +796,7 @@ export function createReview({
         case 'r': case 'R': resolve(); break;
         case 's': case 'S': submitAll(); break;
         case 'a': case 'A': anchorHere(); break;
+        case 'Backspace': case 'Delete': deleteOwn(); break;
         case 'd': case 'D':
           hideDone = !hideDone;
           writeJson(HIDE_KEY, hideDone);
