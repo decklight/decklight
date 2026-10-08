@@ -549,7 +549,7 @@ const TEMPLATES = `{
   ]
 }
 `;
-const PITCH = '# Pitch\n\nA skill that says pitch.\n';
+const PITCH = '# Pitch — a skill that says pitch';   // one line, so Windows checkout cannot rewrite its ending
 
 test('adding a remote marketplace keeps the clone its entries install from', () => {
   const home = tmp();
