@@ -14,7 +14,7 @@ Decklight is plain JavaScript (ESM) with no runtime dependencies.
 - `npm test`: run the test suite (`node --test`)
 - `npm run build`: bundle `src/index.js` → `dist/decklight.js`
 - `npm run verify`: build, then the render/lint harnesses (needs Chrome)
-- `npm run soak`: one end-to-end pass as a *user*, before a release (below)
+- `npm run soak`: one end-to-end pass as a *user*, on macOS in CI for every PR and before a release by hand (below)
 - `npm run test:impact`: which tests **this** change needs (below)
 
 A new CLI command is one row in `cli/commands.mjs` (which module, which

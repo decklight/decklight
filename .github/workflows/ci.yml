@@ -361,12 +361,26 @@ jobs:
           VERIFY_TIMEOUT_MS: 180000
           DECKLIGHT_CHECK_LOAD_MS: 60000
 
+      # The release gate, on a real Mac with the real Chrome: pack, install
+      # into a project whose path has a space, walk the journey (CONTRIBUTING).
+      # It writes under its own scratch DECKLIGHT_HOME and a temp dir, never
+      # this machine's config home.
+      - name: the soak (npm run soak)
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run soak 2>&1 | tee "soak-macos.log"
+        env:
+          DECKLIGHT_CHECK_LOAD_MS: 60000
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: verify-log-macos
           path: |
             verify-*.log
+            soak-*.log
             probe-*.log
           retention-days: 14
 
@@ -385,6 +399,53 @@ jobs:
           name: shots-macos
           path: .shots/
           include-hidden-files: true
+          retention-days: 14
+
+  # The release gate on every PR, on macOS: `npm run soak` packs the repo,
+  # installs the tarball into a project whose path has a space, and drives the
+  # installed bin through the journey (CONTRIBUTING). It ran by hand before a
+  # release and nowhere else, which is how a step that moved under it went
+  # unnoticed for weeks. The hosted Mac starts chrome-headless-shell (see the
+  # note under `verify-macos-hosted`), so the browser steps run; what the
+  # runner lacks (ffmpeg, a voice) the soak skips by name and says so.
+  soak-macos-hosted:
+    name: soak · macos-hosted
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20 # the floor in package.json engines — test what we promise
+          cache: npm
+
+      - run: npm ci --omit=optional
+
+      - name: install chrome-headless-shell
+        id: shell
+        shell: bash
+        run: |
+          line=$(npx -y @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$RUNNER_TEMP/browsers" | tail -1)
+          echo "path=${line#* }" >> "$GITHUB_OUTPUT"
+          echo "installed $line"
+
+      - name: the soak (npm run soak)
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run soak 2>&1 | tee "soak-macos-hosted.log"
+        env:
+          CHROME: ${{ steps.shell.outputs.path }}
+          DECKLIGHT_CHECK_LOAD_MS: 60000
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: soak-log-macos-hosted
+          path: soak-*.log
           retention-days: 14
 
   # macOS rendering on every PR, without anyone's laptop. The hosted runner
