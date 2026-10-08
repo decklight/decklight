@@ -23,7 +23,9 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { sectionBodies, sectionInner, slideText, slideHeading } from '../tools/deck-html.mjs';
 import { fingerprint, resolveAnchor, VERDICT_NOTE, foldReview } from '../tools/review-anchor.mjs';
-import { reviewPathFor, parseReview, serializeRecord, mergeById } from './review-store.mjs';
+import { reviewPathFor, parseReview, serializeRecord, mergeById, slugUser } from './review-store.mjs';
+import { reviewState } from './review-ref.mjs';
+import { reviewerIdentity } from './review-routes.mjs';
 import { reviewsWaiting } from './review-remote.mjs';
 import { findDeck } from './history.mjs';
 import { gitAvailable, inGitRepo, gitAutocommit, oneline, git, ensureReviewAttribute } from './git.mjs';
@@ -288,10 +290,14 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
   // changed since" without being able to say HOW, and "how" is usually the
   // whole question — a reviewer objecting to a sentence that is no longer
   // there has either been answered already or been misread.
+  // Every reader from here folds the ONE review state (REVIEW, review-ref.mjs):
+  // the sidecar beside the deck and this user's own local review branches.
+  const state = () => reviewState(deckPath, slugUser(reviewerIdentity(deckDir)));
   const atArg = opt('--at');
   if (atArg !== undefined) {
-    if (!existsSync(storePath)) { err.write(`decklight comments: ${name} has no comments\n`); return 1; }
-    const { records } = parseReview(read(storePath));
+    const st = state();
+    if (!st.fileExists && !st.branches.length) { err.write(`decklight comments: ${name} has no comments\n`); return 1; }
+    const { records } = st;
     const c = foldReview(records).find((x) => x.id === atArg);
     if (!c) { err.write(`decklight comments: no comment [${atArg}] on ${name}\n`); return 1; }
     if (!c.deck) {
@@ -334,14 +340,15 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
   }
 
   // ── the listing ─────────────────────────────────────────────────────────
-  if (!existsSync(storePath)) {
+  const st = state();
+  if (!st.fileExists && !st.branches.length) {
     // Not an error: no comments is the state every deck starts in, and the
     // useful answer is how somebody would leave one.
     out.write(`${name} — no comments yet\n`);
     out.write(`  a reviewer leaves them with:  decklight ${relative(cwd, deckPath) || name} --no-trust   (then M)\n`);
     return 0;
   }
-  const { records, skipped } = parseReview(read(storePath));
+  const { records, skipped } = st;
   const slides = indexDeckFile(read(deckPath));
   const all = foldReview(records);
   const wantAll = argv.includes('--all');

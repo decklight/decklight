@@ -1707,9 +1707,17 @@ try {
     srv.child.kill('SIGTERM');
     must(await waitExit(srv.child, 5000), 'review did not exit on SIGTERM');
 
+    // A review is a branch (REVIEW): in a repository the no-trust server
+    // writes nothing beside the deck and never touches the checked-out
+    // branch — each comment is a commit on review/<me>-<date>.
     const store = join(PROJECT, 'reviewed.review.jsonl');
-    must(existsSync(store), 'no review sidecar was written');
-    must(readFileSync(store, 'utf8').trim().split('\n').length === 2, 'one line per comment');
+    must(!existsSync(store), 'the no-trust server wrote the sidecar into the work tree');
+    const rrefs = git(['for-each-ref', '--format=%(refname:short)', 'refs/heads/review/']).trim().split('\n').filter(Boolean);
+    must(rrefs.length === 1 && /^review\/[a-z0-9._-]+-\d{4}-\d{2}-\d{2}$/.test(rrefs[0]),
+      `expected one local review branch, got: ${JSON.stringify(rrefs)}`);
+    must(git(['show', `${rrefs[0]}:reviewed.review.jsonl`]).trim().split('\n').length === 2, 'one line per comment on the branch');
+    must(git(['status', '--porcelain', '--', 'reviewed.html', 'reviewed.review.jsonl']).trim() === '',
+      'reviewing dirtied the work tree');
     must(!readFileSync(join(PROJECT, 'reviewed.html'), 'utf8').includes('Which numbers'),
       'a comment was written into the deck');
 
@@ -1745,6 +1753,9 @@ try {
     // because nothing walked this path from a packed tarball.
     const hub = join(SPACE, 'soakhub.git');
     spawnSync('git', ['init', '--quiet', '--bare', hub], { encoding: 'utf8' });
+    // the deck and the imported comment (the file --import wrote) go on main;
+    // the reviewer's own two are on the local review branch and ride along
+    // in the submit's union
     git(['add', 'reviewed.html', 'reviewed.review.jsonl']);
     git(['commit', '--quiet', '-m', 'soak: the reviewed deck']);
     git(['remote', 'add', 'soakhub', hub]);
