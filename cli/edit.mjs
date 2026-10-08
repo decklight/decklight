@@ -1340,8 +1340,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
    */
   function ownCommit(message) {
     const made = message === undefined
-      ? gitAutocommit(deckPath, root)
-      : gitAutocommit(deckPath, root, message);
+      ? gitAutocommit(deckPath, root, undefined, withSidecar)
+      : gitAutocommit(deckPath, root, message, withSidecar);
     if (!made) return false;
     // Whatever wrote it — the overlay, an agent, a bookend — this stretch of
     // uncommitted work is over, so the nag re-arms for the NEXT one.
@@ -1372,7 +1372,14 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // could reach, which is also what made it untestable end to end.
   const watchEveryMs = Math.min(commitEvery * 1000, WATCH_EVERY_MS);
   let dirtySince = 0;      // when this stretch of uncommitted work began
-  let dirtyLines = 0;      // how much of the deck differs from HEAD
+  let dirtyLines = 0;      // how much of the deck (and its sidecar) differs from HEAD
+  // The review sidecar rides the deck's own commits in write mode (REVIEW):
+  // K, the agent's boundary and the session's bookends stage it beside the
+  // deck when it changed, and the card counts its lines. The snapshot ref
+  // stays deck-only: it is a backup of the thing being edited.
+  const sidecarPath = reviewPathFor(deckPath);
+  const sidecarRel = sidecarPath.slice(root.length + 1).split(sep).join('/');
+  const withSidecar = { also: [sidecarPath] };
   let nagged = false;      // the episode latch: asked once, then quiet
   let nagDismissed = false;
   let lastWip = null;      // the snapshot sha, so the ping can prove it exists
@@ -1391,7 +1398,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * asking.
    */
   const measureDirty = () => {
-    const d = deckDirty(root, deckRel);
+    const d = deckDirty(root, deckRel, { also: [sidecarRel] });
     if (!d.dirty) { dirtySince = 0; dirtyLines = 0; return d; }
     if (!dirtySince) dirtySince = Date.now();
     dirtyLines = d.lines;
@@ -1488,7 +1495,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // immediately after, so there is no later for an amend to arrive in. The
     // bookend keeps its literal subject, which is true anyway.
     if (gitMode === 'timer') {
-      gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`);
+      gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`, withSidecar);
     } else {
       // Committing work you deliberately did not commit would be the cadence
       // again, wearing an exit for a hat. The snapshot is refreshed instead —
@@ -1986,7 +1993,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // A failed run or one that changed nothing commits nothing.
       if (gitOn && shouldCommit(gitMode, { kind: 'agent', ok: code === 0, changed })) {
         const subject = commitSubject(message ?? prompt, `decklight: ${cmd.name} edited ${basename(deckPath)}`);
-        if (gitAutocommit(deckPath, root, subject)) console.log(`  git: committed "${subject}"`);
+        if (gitAutocommit(deckPath, root, subject, withSidecar)) console.log(`  git: committed "${subject}"`);
       }
       // Did the edit orphan, stale, or reshape a recording? A track is
       // minutes of somebody's own voice, and a whole-deck rewrite can drop the
@@ -2137,7 +2144,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const subject = commitSubject(msg, `decklight: autosave ${basename(deckPath)}`);
     // gitAutocommit reports false for "nothing to commit", which is not an
     // error: it is the answer to pressing K twice.
-    const made = gitAutocommit(deckPath, root, subject);
+    const made = gitAutocommit(deckPath, root, subject, withSidecar);
     if (!made) return json(200, { ok: true, committed: false, ...commitState() });
     resetEpisode();
     console.log(`  git: committed ${deckRel} — "${subject}"`);
