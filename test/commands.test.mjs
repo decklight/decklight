@@ -58,8 +58,8 @@ test('the cast subcommands reach castMain with their name first, except for --he
     '--help must reach castMain bare, or it is read as a file to export');
 });
 
-test('the six unit commands share one main and pass their own name', () => {
-  for (const kind of ['template', 'importer', 'transform', 'engine', 'voice', 'agent']) {
+test('the five unit commands share one main and pass their own name', () => {
+  for (const kind of ['importer', 'transform', 'engine', 'voice', 'agent']) {
     assert.equal(COMMANDS[kind].module, './units.mjs');
     assert.deepEqual(COMMANDS[kind].args(['list'], kind), [kind, ['list']]);
   }

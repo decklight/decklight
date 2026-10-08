@@ -545,21 +545,20 @@ function gitMarketRepo(manifestText, files = {}) {
 const TEMPLATES = `{
   "name": "nord-pack",
   "entries": [
-    { "name": "pitch", "type": "template", "source": "./templates/pitch.html" }
+    { "name": "pitch", "type": "skill", "source": "./skills/pitch" }
   ]
 }
 `;
-const PITCH = '<!doctype html><html><head><title>Pitch</title></head>'
-  + '<body><div class="decklight"><section><h1>Pitch</h1></section></div></body></html>';
+const PITCH = '# Pitch\n\nA skill that says pitch.\n';
 
 test('adding a remote marketplace keeps the clone its entries install from', () => {
   const home = tmp();
-  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  const repo = gitMarketRepo(TEMPLATES, { 'skills/pitch/SKILL.md': PITCH });
   const add = run(home, 'add', repo.url);
   assert.equal(add.status, 0, add.stderr);
   assert.ok(fs.existsSync(path.join(home, 'marketplaces', 'nord-pack.json')), 'the cached manifest');
   const checkout = checkoutPath(home, 'nord-pack');
-  assert.ok(fs.existsSync(path.join(checkout, 'templates/pitch.html')), "and the entry's own files");
+  assert.ok(fs.existsSync(path.join(checkout, 'skills/pitch/SKILL.md')), "and the entry's own files");
   assert.equal(fs.existsSync(path.join(checkout, '.git')), false,
     'a checkout, not a repository — nothing ever pulls into it');
   assert.match(add.stdout, new RegExp(`cloned to ${checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
@@ -575,48 +574,48 @@ test('installing an entry from a remote marketplace reads the checkout — no se
   // private catalog listed correctly and 404'd on every install. A file:// remote
   // makes that impossible to fake — there is no host to fetch the entry from.
   const home = tmp();
-  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  const repo = gitMarketRepo(TEMPLATES, { 'skills/pitch/SKILL.md': PITCH });
   assert.equal(run(home, 'add', repo.url).status, 0);
-  const r = spawnSync('node', [CLI, 'template', 'add', 'pitch@nord-pack'],
+  const r = spawnSync('node', [CLI, 'skills', 'add', 'pitch@nord-pack'],
     { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home } });
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
-  assert.equal(fs.readFileSync(path.join(home, 'templates', 'pitch.html'), 'utf8'), PITCH);
+  assert.equal(fs.readFileSync(path.join(home, 'skills', 'pitch', 'SKILL.md'), 'utf8'), PITCH);
 });
 
 test('update re-clones: the catalog and the files move together', () => {
   const home = tmp();
-  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  const repo = gitMarketRepo(TEMPLATES, { 'skills/pitch/SKILL.md': PITCH });
   assert.equal(run(home, 'add', repo.url).status, 0);
 
   const next = PITCH.replace('Pitch', 'Pitch v2');
-  fs.writeFileSync(path.join(repo.dir, 'templates/pitch.html'), next);
+  fs.writeFileSync(path.join(repo.dir, 'skills/pitch/SKILL.md'), next);
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qam', 'v2'],
     { cwd: repo.dir, stdio: ['ignore', 'pipe', 'pipe'] });
 
   const up = run(home, 'update', 'nord-pack');
   assert.equal(up.status, 0, up.stderr);
-  assert.equal(fs.readFileSync(path.join(checkoutPath(home, 'nord-pack'), 'templates/pitch.html'), 'utf8'), next);
+  assert.equal(fs.readFileSync(path.join(checkoutPath(home, 'nord-pack'), 'skills/pitch/SKILL.md'), 'utf8'), next);
   assert.equal(loadRegistry(home).marketplaces['nord-pack'].commit, repo.commit(), 'the registry follows');
   assert.match(run(home, 'list').stdout, new RegExp(`@${repo.commit().slice(0, 7)}`));
 });
 
 test('a failed update keeps BOTH halves of what is on disk — manifest and checkout', () => {
   const home = tmp();
-  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  const repo = gitMarketRepo(TEMPLATES, { 'skills/pitch/SKILL.md': PITCH });
   assert.equal(run(home, 'add', repo.url).status, 0);
   rmTemp(repo.dir);   // the source is gone
 
   const r = run(home, 'update', 'nord-pack');
   assert.equal(r.status, 1);
   assert.match(r.stderr, /cached copy is untouched/);
-  assert.equal(fs.readFileSync(path.join(checkoutPath(home, 'nord-pack'), 'templates/pitch.html'), 'utf8'), PITCH,
+  assert.equal(fs.readFileSync(path.join(checkoutPath(home, 'nord-pack'), 'skills/pitch/SKILL.md'), 'utf8'), PITCH,
     'a clone is adopted only once it validates, so an install still works after a failed update');
   assert.match(run(home, 'list').stdout, /pitch@nord-pack/);
 });
 
 test('remove drops the checkout too — unregistering leaves nothing behind', () => {
   const home = tmp();
-  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  const repo = gitMarketRepo(TEMPLATES, { 'skills/pitch/SKILL.md': PITCH });
   run(home, 'add', repo.url);
   assert.equal(run(home, 'remove', 'nord-pack').status, 0);
   assert.equal(fs.existsSync(checkoutPath(home, 'nord-pack')), false);

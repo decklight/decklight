@@ -296,7 +296,7 @@ the host, and installing is held to it twice: no pin, no fetch; a fetched
 module off the pin, no write, both refusals named. `extension check` prints
 the digest on a pass, so the admission gate emits the very pin the catalog
 entry carries. Data kinds stay unpinned (a theme re-passes its whole contract
-at `theme add`; templates and skills execute nothing), and a hand-placed unit
+at `theme add`; skills execute nothing), and a hand-placed unit
 still runs: the pin governs what an *install* writes, `EXTENSIONS`' trust
 model still governs running it.
 
@@ -509,7 +509,7 @@ association widen that population; share-the-link covers the rest.
 ### UNITS · What is distributed
 
 **Marketplace:** import adapters (Marp, Slidev, Deckset, reveal.js, PDF),
-TTS/lipsync engine adapters, deck templates (`init --from`), specialised agent
+TTS/lipsync engine adapters, specialised agent
 skills, layout packs (CSS), export targets, build-time transforms, novelty and
 homage theme packs, voices, **design systems** (a company's tokens, art and
 slide layouts, referenced by a deck in place like a marked theme, never
@@ -520,7 +520,7 @@ line, `OPEN` 13.)
 (migration must work offline), charts and math (SPEC contracts: `data-chart`
 must mean one thing in every install), the base authoring skill.
 
-**Shipped as `UNITS#REST`:** deck templates, agent skills and import adapters,
+**Shipped as `UNITS#REST`:** agent skills and import adapters (deck templates shipped here too and went in 0.9.0, superseded by design systems),
 over one install seam (`cli/units.mjs`) with a per-kind row rather than three
 commands that each grew their own resolve-fetch-validate-write. A kind may
 declare extra required manifest fields (`importer` must declare `extensions`,
@@ -650,7 +650,7 @@ third-party unreviewed with auto-update off.
 
 ### What should be true when this is done?
 
-A decklight user can discover, install and use third-party themes, templates,
+A decklight user can discover, install and use third-party themes,
 skills, voices, importers and engines from marketplaces that anyone can host,
 without any third-party code ever executing in front of an audience. A deck
 handed to another person can be verified before it is played, and the safe way
@@ -787,7 +787,7 @@ Depends column cites tickets by mnemonic, never by position.
 | `ENGINES#TTS` | TTS engines as marketplace plugins, the proving case for the wizard | `ENGINES#WIZARD` |
 | `ENGINES#LIPSYNC` | proves the framework generalizes (binary + venv + key, all three shapes) | `ENGINES#WIZARD` |
 | `ENGINES#AGENTS` | agent-ask roster via marketplace (closes #125) | `ENGINES#WIZARD` |
-| `UNITS#REST` | templates (`init --from`), skills, importers, publish targets, voices | `MARKETPLACES#CORE` |
+| `UNITS#REST` | skills, importers, publish targets, voices (deck templates, since removed) | `MARKETPLACES#CORE` |
 | `COMMANDS#RENAME` | `dev` → `open` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
 | `NO_TRUST#REMOTE` | move speaker view + phone remote off the edit server onto `--no-trust` | `NO_TRUST` |
 | `THEME_BROWSE#SPLIT` | **landed**: `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) moved to `decklight/decklight-plugins-official`; `palette-rules` no longer grades them, `theme check` still does | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |

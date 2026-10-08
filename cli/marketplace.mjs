@@ -63,7 +63,6 @@ export const NAME_RE = /^[A-Za-z0-9_-]+$/;
 export const INSTALL_HINT = {
   theme: 'decklight theme add <name@marketplace> <deck>',
   plugin: 'decklight plugin add <name>',
-  template: 'decklight template add <name>',
   skill: 'decklight skills add <name>',
   importer: 'decklight importer add <name>',
   engine: 'decklight engine add <name>',  // ENGINE_UNITS — the wizard then configures it
@@ -612,9 +611,9 @@ export function validateManifest(raw) {
       } else if (seen.has(entry.name)) {
         err(`${p}.name`, `"${entry.name}" already used by entries[${seen.get(entry.name)}] — entry names are unique within a marketplace`);
       } else seen.set(entry.name, idx);
-      if (entry.type === undefined) err(`${p}.type`, 'missing — what kind of thing this is (theme, template, skill, importer, engine, transform, …)');
+      if (entry.type === undefined) err(`${p}.type`, 'missing — what kind of thing this is (theme, skill, importer, engine, transform, …)');
       else if (typeof entry.type !== 'string' || !/^[a-z][a-z0-9-]*$/.test(entry.type)) {
-        err(`${p}.type`, `${JSON.stringify(entry.type)} — a lowercase word (theme, template, skill, importer, engine, transform, …)`);
+        err(`${p}.type`, `${JSON.stringify(entry.type)} — a lowercase word (theme, skill, importer, engine, transform, …)`);
       } else shapeErrors(entry, p, err);
       if (REFERENCE_ONLY.has(entry.type)) {
         // Refused, not ignored. A `source` on a reference-only entry is the one

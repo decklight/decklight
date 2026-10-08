@@ -21,7 +21,6 @@ import { setupMedia } from './media.js';
 import { createEditMode } from './editmode.js';
 import { createAuthoring } from './authoring.js';
 import { createEditBar } from './editbar.js';
-import { createTemplates } from './templates.js';
 import { createSources } from './sources.js';
 import { createOnboarding, TIPS } from './onboarding.js';
 import { createOverflowWatch } from './overflow.js';
@@ -543,20 +542,6 @@ export function init(userConfig = {}) {
     editmode: () => editmode,
   });
 
-  // Deck templates, into the deck you already have (UNITS#REST). Write mode
-  // only, and it consults `editmode` the same way the theme picker does — from
-  // an open dialog, never during setup.
-  const templates = createTemplates({
-    root, overlays, toast,
-    // accessors, not values: `instance` and `editmode` are both built below,
-    // and naming either one here reads it before it exists
-    deck: () => instance,
-    editmode: () => editmode,
-    // the LIVE theme, so a preview is dressed like the deck you are looking at
-    // and not like the file on disk
-    themes: () => themes,
-  });
-
   // Design systems… (SPEC DESIGN_SYSTEMS): the registered marketplaces'
   // design systems, toggled for this deck through the edit server
   const designSystems = createDesignSystemsPicker({
@@ -996,12 +981,6 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Design systems… (dev)',
         alias: 'design system brand kit company tokens layouts slots marketplace corporate identity style guide',
         run: () => designSystems.open() },
-      editmode.available() && { label: 'Insert template slide… (dev)',
-        alias: 'template marketplace slides insert add reuse boilerplate pitch starter steal borrow',
-        run: () => templates.open('insert') },
-      editmode.available() && { label: 'Apply template to current slide… (dev)',
-        alias: 'template look layout style restyle apply reskin borrow shape backdrop',
-        run: () => templates.open('apply') },
       // the voiceover script, given ElevenLabs v4's audio tags — the agent
       // drafts, decklight checks no word or beat moved (cli/enhance.mjs)
       editmode.available() && { label: 'Enhance this slide\'s voiceover script… (dev)', group: 'Add audio tags',

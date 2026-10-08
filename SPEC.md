@@ -103,8 +103,7 @@ being moved, and it says what it points at.
   empty one.
   It is not a comment (`REVIEW`): a comment is what somebody thinks for now and
   is answered and resolved, while a source is true until the source changes,
-  so it lives in the section and travels with it through `bundle`, `publish`,
-  and being taken into another deck by a template insert.
+  so it lives in the section and travels with it through `bundle` and `publish`.
   `aside.sources` is named in the same `display: none` rule as the other two,
   which is the list of asides that are NOT the slide; a new kind renders on the
   slide until it is added there.
@@ -922,120 +921,12 @@ state: `list` reads only the cache, and a fetch failure is fast and names the
 marketplace and the reason, no spinner, no hang.
 
 **The unit library** (`UNITS#REST`) is where the installable kinds land:
-`~/.decklight/templates/`, `.../skills/`, `.../importers/`, `.../voices/`,
+`~/.decklight/skills/`, `.../importers/`, `.../voices/`,
 beside the `plugins/` that `NO_TRUST#PLUGINS` writes. One seam installs all of
-them (`decklight template|importer|voice add`, `decklight skills add`), and
-each is used by the command that needs it. **`decklight init --from <name>` scaffolds from
-an installed template**: replacing only its `<title>` and first `<h1>`, so a
-template is a deck and not a program, and a name that is not installed is met
-with the install command rather than a download: `init` is the first command
-anyone runs, and it does not reach the network.
+them (`decklight importer|voice add`, `decklight skills add`), and
+each is used by the command that needs it. A deck template, a whole deck installed to scaffold from or take slides out of, was a kind here until 0.9.0 and is gone: a design system's slide templates (`DESIGN_SYSTEMS`) are what a slide borrows now, by reference, never by copy.
 
-**A deck that already exists takes SLIDES from a template**, which is the other
-half of the same unit and the only way a template is any use once `init` has
-run. In write mode the palette's **Insert from a template…** lists what is
-installed and what a registered marketplace offers (`GET /deck/edit/template/browse`,
-cache-only, exactly like the theme browser, installing is the one step that
-touches the network, through `template add`'s own installer). Opening one lists
-its slides by heading (`GET /deck/edit/template/slides`). **The row under the cursor
-is the selection**, nothing is ticked first, and there is one verb, `⏎`.
-**Which verb is chosen in the palette, not in the panel**: *Insert template
-slide…* and *Apply template to current slide…* are two commands, because the two
-things are different enough to be asked for by name and because the answer to
-"what will `⏎` do" should not live in a keystroke you may not have pressed. The
-footer spells out what `⏎` will do and **to which slide**, since neither verb
-acts on the highlighted row alone: one lands a slide beside yours, the other
-changes yours.
-
-Inserting puts that slide **after the slide you are on**
-(`POST /deck/edit/template/insert`) as **one undo entry**: somebody else's slide is
-now your slide, and `Z` takes it back like any other edit. The route still takes
-a list, so a caller may insert several at once; the panel asks for one at a time.
-
-**The shape lands and the words do not.** A template slide is worth taking for
-its layout, and its prose is the prose of the talk it was written for; a slide
-that looks finished while saying nothing you mean is how somebody else's pricing
-ends up on a screen behind you. So visible text is replaced with placeholder
-text of the **same word count**, because a layout is only honest at roughly the
-length it was drawn for. `pre`, `code`, `script` and `style` are untouched: a
-code sample is structure, not prose, as are `⟨CLICK⟩` beats in the notes (the
-build's clock, `NARRATION`), entities, and anything with no letters in it. The
-placeholder run is **seeded from the template and slide**, so the preview shows
-the very words the insert will write: a preview right about the layout and wrong
-about the text is not a preview. Applying a look never touches words at all:
-it rewrites one opening tag.
-
-**Every preview is THIS DECK as it would be, never the template as it is**
-(`GET /deck/edit/template/preview?name=&slide=&to=&mode=insert|apply`, which runs
-exactly what the matching POST would run and returns the result instead of
-writing it: no file touched, no undo entry, because a cursor moving through a
-list must never edit the deck). Insert mode splices their section in and lands
-on it; apply mode retags the slide you are on. Both are dressed by **your**
-runtime, **your** 46 theme blocks and **your** own `<style>`, because they *are*
-your deck, and that is the point: a template carries its own theme and a slide
-taken out of one does not, so a preview in the template's theme is a picture of
-something you are not going to get. A template's design that lives in its head
-stylesheet still shows, because the rules a taken slide is shaped by are carried
-into the preview exactly as they are carried into the deck.
-
-The cost is that the cursor changes the DOCUMENT rather than the slide within
-it, so the frame reloads instead of being postMessaged. The debounce that keeps
-a held-down arrow from booting a deck per row is what makes that affordable. A hidden
-slide is listed as hidden and can still be taken, keeping the attribute.
-**The row under the cursor is rendered beside the list**: the picker's own
-anatomy, the one the theme picker, the slide finder and the history pane
-share, because a template is a deck somebody designed and its headings are
-the least of what is being chosen between. Whether a template is self-contained never comes up: nothing
-serves the template file, so a template that links a runtime it does not carry
-previews as well as one that inlines it. An **offered** template is not
-previewed at all: it is not on this machine, and looking inside it would mean
-fetching it: registering a marketplace is not fetching from one, and the theme
-picker draws this line in the same place.
-Each slide says **what it points at that this deck will not have** (
-`data-cast`, a relative `src`, background media) before it is taken rather
-than after: a `data:` image travels with the markup and `casts/demo.cast` does
-not, and the importer's rule about naming what did not cross applies one step
-earlier here. A slide **teaching** markup is not flagged for the markup it
-teaches: the bodies of `pre`, `code`, `script` and `style` are not scanned,
-since only a sample's angle brackets are escaped and its `href="…"` is literal
-text; while their OPEN TAGS are, because `<pre data-cast="…">` is a real
-terminal. **The rules that shape a taken slide come with it.** A template's design is
-half markup and half stylesheet: `.breaks` is a stack of cards in the deck it
-came from and a bare list in yours, so the insert carries the rules from the
-template's own `<style>` blocks (never its theme, never its runtime) whose
-selectors name a class or id the taken sections contain, into ONE
-`<style data-from-template="<name>">` block in the receiving deck's head. A
-second insert from the same template merges into that block rather than
-stacking beside it, and a rule already there is not written twice. `@media`
-and friends are carried with their condition intact, and the `@keyframes` a
-carried rule animates come with it. A rule whose selector names **no** class or
-id of its own is never carried: somebody else's `p { margin: 0 }` would restyle
-every paragraph in the receiving deck.
-Three things are **reported rather than resolved**, in the picker beside
-`needs` and again in the toast. A class the receiving deck **already styles**
-keeps that deck's rules and the template's are refused: carrying them would
-restyle slides the author never touched. A custom property the rule reads that
-was declared outside it, on the template's `:root`, does not travel and is
-named. And the whole of it is one undo entry: the section and the rules that
-shape it are one edit.
-**A slide you already wrote can wear a template slide's LOOK instead of being
-replaced by it.** Apply mode (`l`, then `⏎`) applies the slide under the cursor
-to the slide you are on (`POST /deck/edit/template/apply`), the same row insert mode
-would have brought in, spent differently: your words are not touched,
-and the section's opening tag is rewritten from an allowlist: `class`,
-`data-layout`, `data-transition`, `data-logo`, `data-pin` and any
-`data-background-*`. An allowlist, not an exclusion list: copying every `data-`
-attribute across would carry `data-hidden` (a fact about the other deck's
-structure), `data-id` (identity) and `data-build` (a behaviour that only makes
-sense against the content it reveals). The allowlisted attributes are replaced
-**wholesale**, so applying a look that names no `data-layout` also takes yours
-off: a slide left wearing half of each looks like neither. What was taken off
-comes back in `replaced` and is said in the toast, and the rules the new
-classes need are carried exactly as an insert carries them.
-
-The insert is otherwise a paste, never a merge: the section's markup is
-written as it stands, re-indented to the deck's own level so the diff is
-reviewable, and the deck's themes and `init` config are left alone. A marketplace skill installs
+A marketplace skill installs
 into the library and therefore sits **alongside** the authoring skill
 `decklight skills` writes into a project, never replacing it. An import adapter
 is **offered at the point of failure**: `decklight import talk.marp` names the
@@ -1148,7 +1039,7 @@ transform would cost its theme entries too, the blast-radius reasoning that
 already leaves an unknown `type` accepted. The refusal lands at the one
 moment the risk does: installing the executable entry.
 
-**What is deliberately not pinned.** Data kinds (themes, templates, skills)
+**What is deliberately not pinned.** Data kinds (themes, skills)
 install unpinned: nothing in them executes, and a theme re-passes its whole
 contract at install. A unit placed in the library by hand still runs
 (`EXTENSIONS#LOADER`'s decision, unchanged): the pin governs what an

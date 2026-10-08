@@ -1556,58 +1556,6 @@
    both sets of rules apply to the parts each one owns. */
 /* Wider than the picker's own, and a wider rail: a theme is one word and a
    slide's title is a sentence. */
-.decklight-tmpl .tp-panel { width: min(960px, 90vw); }
-/* `min-width: 0` is load-bearing, not tidying. A flex item defaults to
-   `min-width: auto`, which is its MIN-CONTENT width, and that beats the basis:
-   one `⚠ .cf-eyebrow, .cf-sep, .cf-pill, …` tag is `white-space: nowrap`, so a
-   deck that clashes on several classes pushed this rail past 700px and left the
-   preview a sliver. Reported as "the preview doesn't work" — it was rendering
-   the whole time, just squeezed to nothing. */
-.decklight-tmpl .tp-side { flex: 0 0 330px; min-width: 0; }
-/* A template's name and a slide's title are somebody else's words; the theme
-   picker capitalizes its rows because a theme name is a label, and these
-   are not. (After the capitalize rules above, so this wins.)
-   It WRAPS, unlike the history pane's: what a slide needs is a list of file
-   names, the row can only show the first few characters of it, and a path
-   truncated to `casts/demo.c…` is not something anybody can act on. */
-.decklight-tmpl .tp-caption { text-transform: none; }
-/* Shaped like the thing it shows, and centred in the leftover height, for the
-   reason the history pane spells out: `flex: 1` letterboxes a 16/9 slide into
-   a portrait sliver, and a pane pinned to the top of a taller box reads as a
-   rendering accident. */
-.decklight-tmpl .tp-preview { justify-content: center; }
-.decklight-tmpl .tp-preview iframe { flex: 0 0 auto; aspect-ratio: 16 / 9; height: auto; }
-.decklight-tmpl .tmpl-foot { flex: none; padding: 8px 12px 0; opacity: .55; font-size: 12px; }
-.decklight-tmpl .tmpl-key { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; opacity: .75; }
-/* The mode you are in. The pair reads as a choice with one of them taken —
-   brightened rather than boxed, so the row that is ON does not look like a
-   different KIND of row from the one that is off. */
-.decklight-tmpl .tmpl-key.tmpl-on { opacity: 1; }
-.decklight-tmpl .tmpl-key.tmpl-on kbd {
-  border-color: var(--accent, #7ee787);
-  color: var(--accent, #7ee787);
-}
-/* Subtler than .decklight-narr-hint's accent-filled key: that one is a call to
-   action on top of a slide, this is a legend the eye passes over. */
-.decklight-tmpl .tmpl-key kbd {
-  flex: none;
-  min-width: 2.2em;
-  padding: 1px 6px;
-  border: 1px solid rgba(255, 255, 255, .22);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, .06);
-  font: inherit;
-  text-align: center;
-}
-.decklight-tmpl .narr-tag {
-  flex: none;
-  max-width: 46%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: .5;
-  font-size: .78em;
-}
 .decklight-record .narr-card { width: min(400px, 82vw); }
 .decklight-record .rec-line, .decklight-range .rec-line, .decklight-choice .rec-line { padding: 4px 12px; opacity: .85; }
 .decklight-record .rec-hint, .decklight-range .rec-hint, .decklight-choice .rec-hint { padding: 10px 12px 2px; opacity: .5; font-size: 12px; }

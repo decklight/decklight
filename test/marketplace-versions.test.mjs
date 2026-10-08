@@ -27,8 +27,8 @@ const manifest = (entries) => JSON.stringify({ name: 'acme', entries }, null, 2)
 test('an entry may carry a semver version; a non-semver one is refused with the field named, and none is fine', () => {
   const ok = validateManifest(manifest([
     { name: 'nord', type: 'theme', source: 'themes/nord.css', version: '1.1.0' },
-    { name: 'pitch', type: 'template', source: 'pitch.html', version: '2.0.0-rc.1+build.5' },
-    { name: 'old', type: 'template', source: 'old.html' },
+    { name: 'pitch', type: 'skill', source: 'skills/pitch', version: '2.0.0-rc.1+build.5' },
+    { name: 'old', type: 'skill', source: 'skills/old' },
   ]));
   assert.equal(ok.ok, true, JSON.stringify(ok.errors));
   for (const bad of ['v1.1', '1.1', '01.0.0', '1.0', 1.1]) {
@@ -53,16 +53,16 @@ test('semver precedence: numbers numerically, a prerelease before its release, b
 test('the ledger records an install per kind and marketplace, overwrites on a re-add, and forgets on remove', (t) => {
   const home = mkdtempSync(path.join(tmpdir(), 'dl-ledger-'));
   t.after(() => rmTemp(home));
-  recordInstall({ type: 'template', name: 'pitch', marketplace: 'acme', version: '1.0.0', commit: 'abc' }, home, 0);
-  recordInstall({ type: 'template', name: 'pitch', marketplace: 'acme', version: '1.1.0', commit: 'def' }, home, 1000);
+  recordInstall({ type: 'skill', name: 'pitch', marketplace: 'acme', version: '1.0.0', commit: 'abc' }, home, 0);
+  recordInstall({ type: 'skill', name: 'pitch', marketplace: 'acme', version: '1.1.0', commit: 'def' }, home, 1000);
   const { installs } = loadLedger(home);
-  assert.deepEqual(installs['template:pitch@acme'], {
-    type: 'template', name: 'pitch', marketplace: 'acme', version: '1.1.0', commit: 'def', at: '1970-01-01T00:00:01.000Z',
+  assert.deepEqual(installs['skill:pitch@acme'], {
+    type: 'skill', name: 'pitch', marketplace: 'acme', version: '1.1.0', commit: 'def', at: '1970-01-01T00:00:01.000Z',
   });
-  assert.equal(forgetInstall({ type: 'template', name: 'pitch' }, home), 1);
+  assert.equal(forgetInstall({ type: 'skill', name: 'pitch' }, home), 1);
   assert.deepEqual(loadLedger(home).installs, {});
   assert.equal(reinstallHint('theme', 'nord@acme'), 'decklight theme add nord@acme <deck>');
-  assert.equal(reinstallHint('template', 'pitch@acme'), 'decklight template add pitch@acme');
+  assert.equal(reinstallHint('skill', 'pitch@acme'), 'decklight skills add pitch@acme');
 });
 
 test('the demo: install, the catalog bumps, update names what is newer and how to take it — and no deck is touched', (t) => {
@@ -73,10 +73,11 @@ test('the demo: install, the catalog bumps, update names what is newer and how t
   mkdirSync(path.join(repo, '.decklight'), { recursive: true });
   mkdirSync(path.join(repo, 'themes'));
   writeFileSync(path.join(repo, 'themes', 'nord.css'), AURORA);
-  writeFileSync(path.join(repo, 'pitch.html'), '<!doctype html><title>pitch</title>');
+  mkdirSync(path.join(repo, 'skills', 'pitch'), { recursive: true });
+  writeFileSync(path.join(repo, 'skills', 'pitch', 'SKILL.md'), '# pitch\n');
   const write = (nordVersion) => writeFileSync(path.join(repo, '.decklight', 'marketplace.json'), manifest([
     { name: 'nord', type: 'theme', source: 'themes/nord.css', version: nordVersion },
-    { name: 'pitch', type: 'template', source: 'pitch.html', version: '2.0.0' },
+    { name: 'pitch', type: 'skill', source: 'skills/pitch', version: '2.0.0' },
   ]));
   write('1.0.0');
   const deckPath = path.join(dir, 'talk.html');
@@ -89,12 +90,12 @@ test('the demo: install, the catalog bumps, update names what is newer and how t
   const added = cli('theme', 'add', 'nord@acme', deckPath);
   assert.equal(added.status, 0, added.stderr);
   assert.match(added.stdout, /marked nord@acme 1\.0\.0 in /);
-  const tpl = cli('template', 'add', 'pitch@acme');
+  const tpl = cli('skills', 'add', 'pitch@acme');
   assert.match(tpl.stdout, /installed pitch 2\.0\.0 from pitch@acme/);
   const deckAfterAdd = readFileSync(deckPath, 'utf8');
   assert.doesNotMatch(deckAfterAdd, /1\.0\.0/, 'the deck holds a mark, never a version');
   assert.deepEqual(Object.fromEntries(Object.entries(loadLedger(home).installs).map(([k, r]) => [k, r.version])),
-    { 'theme:nord@acme': '1.0.0', 'template:pitch@acme': '2.0.0' });
+    { 'theme:nord@acme': '1.0.0', 'skill:pitch@acme': '2.0.0' });
   assert.match(cli('marketplace', 'list').stdout, /^ {4}nord@acme {2}1\.0\.0 installed$/m);
 
   // the catalog bumps nord
@@ -116,6 +117,6 @@ test('the demo: install, the catalog bumps, update names what is newer and how t
   assert.match(cli('marketplace', 'list').stdout, /^ {4}nord@acme {2}1\.1\.0 installed$/m);
 
   // removing an installed unit forgets it
-  assert.equal(cli('template', 'remove', 'pitch').status, 0);
-  assert.equal(loadLedger(home).installs['template:pitch@acme'], undefined);
+  assert.equal(cli('skills', 'remove', 'pitch').status, 0);
+  assert.equal(loadLedger(home).installs['skill:pitch@acme'], undefined);
 });

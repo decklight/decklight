@@ -413,7 +413,7 @@ const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 /** The marketplace fixture: a real git repo, cloned over file:// like any remote. */
 function buildMarket() {
   mkdirSync(join(MARKET, '.decklight'), { recursive: true });
-  mkdirSync(join(MARKET, 'templates'), { recursive: true });
+  mkdirSync(join(MARKET, 'skills', 'soak-pitch'), { recursive: true });
   mkdirSync(join(MARKET, 'transforms'), { recursive: true });
   mkdirSync(join(MARKET, 'plugins', 'soak-timer'), { recursive: true });
   mkdirSync(join(MARKET, 'themes'), { recursive: true });
@@ -434,8 +434,8 @@ function buildMarket() {
     description: "the soak's own catalog",
     entries: [{
       name: 'soak-pitch',
-      type: 'template',
-      source: './templates/soak-pitch.html',
+      type: 'skill',
+      source: './skills/soak-pitch',
       description: 'a two-slide pitch',
     }, {
       // Node code, so it carries the digest of the module's bytes and installs
@@ -511,13 +511,10 @@ function buildMarket() {
       description: 'a speech engine that never speaks',
     }],
   }, null, 2)}\n`);
-  writeFileSync(join(MARKET, 'templates', 'soak-pitch.html'), `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Pitch</title></head>
-<body><div class="decklight">
-  <section><h1>Pitch</h1></section>
-  <section><h2>The ask</h2></section>
-</div></body></html>
-`);
+  writeFileSync(join(MARKET, 'skills', 'soak-pitch', 'SKILL.md'), '# soak-pitch
+
+A skill the soak installs and removes.
+');
   const g = (...args) => spawnSync('git', args, { cwd: MARKET, encoding: 'utf8' });
   g('init', '-q');
   g('add', '-A');
@@ -758,17 +755,17 @@ try {
     must(/registered soak-market/.test(r.all), 'the catalog was not registered');
     must(/cloned to .*marketplaces[/\\]soak-market/.test(r.all), 'no checkout was reported');
     const checkout = join(HOME, 'marketplaces', 'soak-market');
-    must(existsSync(join(checkout, 'templates', 'soak-pitch.html')), "the entry's files are not in the checkout");
+    must(existsSync(join(checkout, 'skills', 'soak-pitch', 'SKILL.md')), "the entry's files are not in the checkout");
     must(!existsSync(join(checkout, '.git')), 'the checkout kept a .git — it is a checkout, not a repository');
     must(!readdirSync(join(HOME, 'marketplaces')).some((f) => f.startsWith('.staging')),
       'a staging directory survived');
   });
 
   await step('an entry installs from that checkout', () => {
-    dl(['template', 'add', 'soak-pitch@soak-market']);
-    const installed = join(HOME, 'templates', 'soak-pitch.html');
-    must(existsSync(installed), 'the template did not land in the library');
-    must(readFileSync(installed, 'utf8') === readFileSync(join(MARKET, 'templates', 'soak-pitch.html'), 'utf8'),
+    dl(['skills', 'add', 'soak-pitch@soak-market']);
+    const installed = join(HOME, 'skills', 'soak-pitch', 'SKILL.md');
+    must(existsSync(installed), 'the skill did not land in the library');
+    must(readFileSync(installed, 'utf8') === readFileSync(join(MARKET, 'skills', 'soak-pitch', 'SKILL.md'), 'utf8'),
       'the installed bytes differ from the marketplace');
   });
 
@@ -846,7 +843,7 @@ try {
     // Every run so far has had a fresh DECKLIGHT_HOME; a real one accumulates.
     const again = dl(['marketplace', 'add', gitFileUrl(MARKET)]);
     must(/refreshed soak-market/.test(again.all), `re-adding said: ${again.stdout}`);
-    dl(['template', 'add', 'soak-pitch@soak-market']);   // re-installing a unit is the update path
+    dl(['skills', 'add', 'soak-pitch@soak-market']);   // re-installing a unit is the update path
     // And init will not quietly clobber the deck this journey has been editing.
     const clobber = dl(['init', 'Second Deck', '-o', 'deck.html'], { allowFail: true });
     must(clobber.code !== 0, 'init overwrote an existing deck');
@@ -1077,7 +1074,7 @@ try {
     // (SPEC THEME_DISTRIBUTION).
     const before = deck();
     const wrong = await postJson(editSrv.base, '/deck/edit/theme/mark', { ref: 'soak-pitch@soak-market' });
-    must(wrong.status === 400, `a template was accepted as a theme (${wrong.status})`);
+    must(wrong.status === 400, `a skill was accepted as a theme (${wrong.status})`);
     must(/not a theme/.test(wrong.body?.error ?? ''), `the refusal says: ${wrong.body?.error}`);
     must(deck() === before, 'a refused mark touched the deck');
 
@@ -1872,7 +1869,7 @@ try {
     // surface rather than the few paths this journey happens to walk. It found
     // `video` answering --help on stderr with exit 1 on its first run (#294).
     for (const cmd of ['init', 'import', 'bundle', 'upgrade', 'pdf', 'publish',
-      'theme', 'marketplace', 'plugin', 'template', 'skills', 'importer', 'transform', 'engine',
+      'theme', 'marketplace', 'plugin', 'skills', 'importer', 'transform', 'engine',
       'voice', 'agent', 'extension', 'restore', 'cast', 'record', 'comments',
       'tts', 'lipsync', 'video', 'voiceover', 'report-bug', 'associate']) {
       const r = dl([cmd, '--help']);
@@ -1884,7 +1881,6 @@ try {
       [['import', 'deck.html'], /import:/],
       [['marketplace', 'add', SPACE], /marketplace add:/],
       [['theme', 'check', 'nope.css'], /theme check:/],
-      [['template', 'add', 'ghost-unit'], /template add:/],
       [['upgrade', 'nope.html'], /upgrade:/],
     ]) {
       const r = dl(args, { allowFail: true });
@@ -2082,7 +2078,7 @@ try {
     // Only `add` was ever exercised. These are the two verbs a user reaches for
     // when something is wrong, and the library is the one place decklight
     // writes that a release could quietly break the shape of.
-    const units = [['template', 'soak-pitch'], ['transform', 'soak-transform'], ['voice', 'soak-voice'],
+    const units = [['skills', 'soak-pitch'], ['transform', 'soak-transform'], ['voice', 'soak-voice'],
       ['agent', 'soak-agent'], ['importer', 'soak-importer'], ['engine', 'soak-engine']];
     for (const [kind, name] of units) {
       const listed = dl([kind, 'list']);

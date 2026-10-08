@@ -164,10 +164,6 @@
         <p>Editing is on the moment your deck opens: double-click text to change it (<kbd>&#8984;B</kbd>, <kbd>&#8984;I</kbd>, <kbd>&#8984;E</kbd> for bold, italic, code), a code block to edit its source, drop a picture onto a slide, recolour a shape from its menu, <kbd>L</kbd> for a layout, and drag slides around from the palette. Every edit lands in the file and <kbd>Z</kbd> takes it back. One switch turns it off: <em>Lock deck</em>, for the talk itself.</p>
       </div>
       <div class="trait">
-        <h3>Take slides from another deck</h3>
-        <p><code>/</code> &rarr; Insert from a template&hellip; renders another deck&rsquo;s slides in <em>your</em> theme and takes one (or applies just its look to a slide you already wrote) with the CSS it depends on. <code>data-module</code> marks chapters, and <kbd>G</kbd> shows the outline.</p>
-      </div>
-      <div class="trait">
         <h3>Design systems</h3>
         <p>A company&rsquo;s tokens, art and slide templates, referenced from a marketplace and served into the deck, never copied: a slide names a template, fills its slots, and follows the system when it changes. <code>/</code> &rarr; Design systems&hellip; and Use slide template&hellip; The art bleeds to the screen&rsquo;s edges on any aspect ratio.</p>
       </div>
@@ -259,13 +255,6 @@
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-import" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="11" data-title="from powerpoint, and back"></div>
       </div>
-    </section>
-
-    <section class="start after-deck" aria-label="Borrow from a deck template">
-      <h2>Or borrow from a deck somebody already made</h2>
-      <p>A <strong>deck template</strong> is somebody&rsquo;s whole talk, installed from a marketplace. <code>init --from</code> starts a new deck from one, but the more common case is a deck that already exists and wants three slides out of it. In write mode, <code>/</code> &rarr; <strong>Insert from a template&hellip;</strong> lists what you have installed and what a registered catalog offers, and <strong>renders the slide beside the list</strong>, because a template is a deck somebody designed and its headings are the least of what you are choosing between.</p>
-      <p>Two modes decide what <kbd>Enter</kbd> does with the slide under the cursor. <strong>Insert</strong> takes it, landing after the slide you are on as one undo entry. <strong>Apply</strong> keeps every word of yours and takes only the <em>shape</em> (layout, backdrop, classes) and previews <em>your</em> slide wearing it before anything is written.</p>
-      <p>A slide is markup <em>and</em> the rules that shape it, so the CSS a borrowed slide depends on comes with it: <code>.breaks</code> is a stack of bordered cards in the deck it came from, not a bare list in yours. What cannot follow is said before you take it, not after: a cast or an image the slide points at and your deck has not, and a class your deck already means something else by, which keeps <em>your</em> rules rather than quietly restyling slides you never touched.</p>
     </section>
 
     <section class="start after-deck" aria-label="Describe the rest to your agent">

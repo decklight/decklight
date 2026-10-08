@@ -92,7 +92,6 @@ const RULES = [
   [/^src\/core\/annotate\.js$/, [...ENGINE, 'render'], 'ink rides the engine scale'],
   [/^src\/core\/themes\.js$/, ['render', 'contrast', 'theme-config-render'], 'theme picking, the theme a deck opens on, and the contrast gate behind it'],
   [/^src\/core\/(editmode|history|templates|authoring|colorpicker)\.js$/, ENGINE, 'the author surfaces the engine harness drives'],
-  [/^tools\/template-slides\.mjs$/, ENGINE, 'what the template picker lists and inserts'],
   [/^src\/core\/hud\.js$/, ENGINE, 'clock and progress live on the engine'],
   [/^src\/core\/finder\.js$/, [...ENGINE, 'review-render'], 'slide titles: the finder names them, review anchors by them'],
   [/^src\/terminal\//, ['player-render'], 'the cast player'],
