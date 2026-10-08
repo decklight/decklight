@@ -8,7 +8,7 @@
 //   "themeSources": { "acme-mkt": "acme/decklight-marketplace" }
 //
 // The deck records WHICH design system it uses; the package stays in its
-// marketplace. Every server — author, present, and the render server behind
+// marketplace. Every server — write mode, --no-trust, and the render server behind
 // shot/pdf/pptx/video — links it into the page from the checkouts on this
 // machine (`linkDesignSystems`) and answers its files under
 // `decklight-design-system/<marketplace>/<name>/…` (`designSystemAsset`).

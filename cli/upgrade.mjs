@@ -107,9 +107,9 @@ Options:
   --dry-run   print what would change; write nothing
   --link      the reverse of bundle: the deck becomes slides plus a JSON
               configuration block (the shape init writes). The embedded — or
-              referenced — runtime, stylesheet and shipped themes go; author,
-              present and every render add the installed ones as they serve
-              it, and the active theme is named in the block. The
+              referenced — runtime, stylesheet and shipped themes go; the
+              server in either mode and every render add the installed ones
+              as they serve it, and the active theme is named in the block. The
               Decklight.init(…) argument becomes the block when it is plain
               data; a call whose argument is code stays, as the JS API's
               escape hatch. Everything the author wrote survives

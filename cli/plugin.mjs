@@ -491,10 +491,10 @@ const USAGE = `usage: decklight plugin <add|list|check|remove> …
 
   slots: ${SLOTS.join(', ')}
   needs: ${NEEDS.join(', ')} — "notes" must be declared, and is named in
-         plugin list and at present startup so you know who is reading them
+         plugin list and at every --no-trust start so you know who is reading them
 
-  present loads the library; bundle never does. With nothing installed,
-  present behaves exactly as it does with this command absent.
+  --no-trust loads the library; write mode and bundle never do. With nothing
+  installed, --no-trust behaves exactly as it does with this command absent.
   DECKLIGHT_HOME overrides ~/.decklight/.`;
 
 /** Read a plugin's two files from a resolved source (a URL or a local dir). */

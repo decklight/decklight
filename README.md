@@ -152,6 +152,10 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   opens, and asked about: trust its source and it opens in write mode, decline
   and it plays without trust under a CSP with that code stripped. `--no-trust`
   forces the safe mode; `publish` signs what it ships.
+- **Design systems.** A company's tokens, art and slide templates, referenced
+  by a deck from a marketplace and served into it, never copied: a slide names
+  a template, fills its slots, and follows the system when it changes. `/` →
+  *Design systems…* and *Use slide template…* in write mode.
 - **Extensible without shipping code to the audience.** Themes, skills,
   speech engines and presenter plugins install from any git repo. Nothing
   executable travels inside a deck.
@@ -196,7 +200,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `import talk.pptx` | convert PowerPoint, Keynote or Google Slides (`--theme template` keeps its palette, `--shapes strict` draws only snapped diagrams) |
 | `theme check\|add` | validate a theme against the token contract, or install one |
 | `marketplace add owner/repo` | register a catalog; it is cloned with your git credentials, then read from disk |
-| `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide layouts, served from the marketplace on this machine (`list`, `layouts`, and `check`, the gate a catalog runs) |
+| `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide templates, served from the marketplace on this machine (`list`, `templates`, and `check`, the gate a catalog runs) |
 | `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `check`, the gate a catalog runs) |
 | `marketplace list` / `update <name>` | what each catalog offers, and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it) |
 | `plugin add <name>` | presenter chrome for your machine only; no-trust mode loads it, `bundle` never does |
@@ -224,7 +228,8 @@ the CLI only.
 | `T` | theme picker, `⌃T` generate a theme |
 | `⎵` | play / pause the voice once one is chosen; otherwise it advances |
 | `V` | everything about the voice: tracks, live voice, character, record, captions, speed |
-| `M` | review comments (`⏎` jumps to the slide, `R` marks one done), `⇧M` writes one |
+| `M` | review comments: `⏎` jumps to the slide, `R` marks one done and again reopens it, `D` hides the done ones, `⌫` deletes one of yours; `⇧M` writes one |
+| `K` | commit what you changed, with a message; `L` cycles the slide's layout; `⌘⏎` / `Ctrl+Enter` fullscreen |
 | `H` | the deck's history, every version previewed live, `⏎` restores one |
 | `I` | the sources behind this slide |
 | `/` | command palette, `G` find a slide |
