@@ -68,10 +68,19 @@ export const NAG_AFTER_LINES = 40;
  * and no numstat can say how much.
  */
 export function deckDirty(cwd, deckRel, { run = boundedGit, also = [] } = {}) {
-  const rels = [deckRel, ...also.filter(Boolean)];
+  let rels = [deckRel, ...also.filter(Boolean)];
   let out;
   try { out = run(['diff', '--numstat', 'HEAD', '--', ...rels], cwd); }
-  catch { return { dirty: true, lines: 0, firstCommit: true }; }
+  catch {
+    // Either there is no HEAD yet, or one of the EXTRA paths is one git will
+    // not take (outside the repository, a form it does not recognise). The
+    // deck alone tells the two apart: a deck git can diff has a HEAD.
+    if (rels.length > 1) {
+      rels = [deckRel];
+      try { out = run(['diff', '--numstat', 'HEAD', '--', deckRel], cwd); }
+      catch { return { dirty: true, lines: 0, firstCommit: true }; }
+    } else return { dirty: true, lines: 0, firstCommit: true };
+  }
   let lines = 0;
   const files = [];
   for (const line of (out ?? '').split('\n').filter(Boolean)) {

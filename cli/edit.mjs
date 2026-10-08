@@ -1382,9 +1382,19 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const sidecarPath = reviewPathFor(deckPath);
   const sidecarRel = sidecarPath.slice(root.length + 1).split(sep).join('/');
   let pendingAttr = null;  // a .gitattributes decklight just wrote, until a commit carries it
-  const relOf = (p) => relative(root, p).split(sep).join('/');
+  // The attribute's path RELATIVE TO ROOT, asked of git rather than computed
+  // from two absolute paths: `--show-toplevel` answers in forward slashes and
+  // the long form of a path, and `root` may be the short form of the same
+  // directory (a Windows temp dir), so `relative()` between them walks out of
+  // the repository and every git call that takes the result refuses.
+  const attrRel = () => {
+    try {
+      const prefix = execFileSync('git', ['rev-parse', '--show-prefix'], { cwd: root, encoding: 'utf8' }).trim();
+      return '../'.repeat(prefix.split('/').filter(Boolean).length) + '.gitattributes';
+    } catch { return null; }
+  };
   const alsoNow = () => ({ also: [sidecarPath, ...(pendingAttr ? [pendingAttr] : [])] });
-  const alsoRels = () => [sidecarRel, ...(pendingAttr ? [relOf(pendingAttr)] : [])];
+  const alsoRels = () => [sidecarRel, ...(pendingAttr ? [attrRel()] : [])].filter(Boolean);
   let nagged = false;      // the episode latch: asked once, then quiet
   let nagDismissed = false;
   let lastWip = null;      // the snapshot sha, so the ping can prove it exists
