@@ -1591,7 +1591,21 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // record in this repository had to write (REVIEW, merge=union): the
     // deck's next commit carries it, beside the sidecar.
     onRecord: (_rec, { wrote } = {}) => { incomingCache = null; if (wrote) pendingAttr = wrote; },
+    // No-trust mode lists back what this reviewer already submitted, from
+    // the remote's review/<me>-* branches (REVIEW), behind the same switches
+    // that silence the author's inbox check, and at most once a minute: M is
+    // a keypress, not a fetch storm.
+    mine: noTrust && reviewRepo && !reviewCheckSuppressed({ args, ci: false }) ? async () => {
+      if (!mineCache || Date.now() - mineCache.at > 60_000) {
+        const { myReviews } = await import('./review-remote.mjs');
+        const { reviewerIdentity } = await import('./review-routes.mjs');
+        const { slugUser } = await import('./review-submit.mjs');
+        mineCache = { at: Date.now(), r: await myReviews(deckPath, slugUser(reviewerIdentity(dirname(deckPath)))) };
+      }
+      return mineCache.r;
+    } : null,
   });
+  let mineCache = null;
   // The deck's channel (deck-routes.mjs): the probe and the stream, in both
   // modes. What the probe carries beyond the mode is `extras`, computed on
   // every ping like everything else on it: the toast is threshold-driven,

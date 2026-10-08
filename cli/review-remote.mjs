@@ -84,26 +84,14 @@ export function describeBranch(branch) {
 }
 
 /**
- * The reviews waiting on `remote` for this deck.
- *
- * Two network calls no matter how many reviews there are — one `ls-remote` to
- * see whether any exist at all, one `fetch` to bring them in — and then every
- * count is a local read. A per-branch fetch would be the obvious shape and
- * would put a talk's worth of round trips behind an editor's startup.
- *
- * Returns `{ state, reviews, reason }`. `state` is one of:
- *   `ok`          — the list is authoritative, and may be empty
- *   `none`        — the remote has no review branches
- *   `no-repo` / `untracked` / `no-remote` — the feature does not apply here
- *   `offline` / `no-credential` / `timeout` / `error` — COULD NOT ASK
- *
- * The last group is the reason this returns a state rather than an array: a
- * failed check must never render as "no reviews waiting".
+ * The review branches the remote holds, fetched, and the path the deck's
+ * sidecar has inside the repository — the prelude `reviewsWaiting` (the
+ * author's inbox) and `myReviews` (a reviewer's own, listed back to her)
+ * share. `state` is 'ok' with `branches` to read, 'none' when the remote
+ * has no review branch, or one of reviewsWaiting's reasons it could not ask.
  */
-export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit } = {}) {
-  const full = resolve(deckPath);
-  const cwd = dirname(full);
-  const no = (state, reason = null) => ({ state, reviews: [], reason });
+async function remoteReviewBranches(full, cwd, { remote, run }) {
+  const no = (state, reason = null) => ({ state, reason, branches: [], inRepo: null });
   const badRemote = remoteNameProblem(remote);
   if (badRemote) return no('error', `the remote name ${JSON.stringify(remote)} ${badRemote}`);
 
@@ -125,7 +113,7 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
     .map((l) => l.split('\t')[1])
     .filter((r) => typeof r === 'string' && r.startsWith('refs/heads/review/'))
     .map((r) => r.slice('refs/heads/'.length));
-  if (!branches.length) return { state: 'none', reviews: [], reason: null };
+  if (!branches.length) return { state: 'none', reason: null, branches: [], inRepo: null };
 
   const fetched = await run(['fetch', '--quiet', remote, refspecFor(remote)], { cwd });
   if (!fetched.ok) return no(classifyFailure(fetched), fetched.stderr || null);
@@ -137,6 +125,33 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
   const prefix = await run(['rev-parse', '--show-prefix'], { cwd });
   const storeName = basename(full).replace(/\.html?$/i, '') + '.review.jsonl';
   const inRepo = `${prefix.ok ? prefix.stdout : ''}${storeName}`;
+  return { state: 'ok', reason: null, branches, inRepo };
+}
+
+/**
+ * The reviews waiting on `remote` for this deck.
+ *
+ * Two network calls no matter how many reviews there are — one `ls-remote` to
+ * see whether any exist at all, one `fetch` to bring them in — and then every
+ * count is a local read. A per-branch fetch would be the obvious shape and
+ * would put a talk's worth of round trips behind an editor's startup.
+ *
+ * Returns `{ state, reviews, reason }`. `state` is one of:
+ *   `ok`          — the list is authoritative, and may be empty
+ *   `none`        — the remote has no review branches
+ *   `no-repo` / `untracked` / `no-remote` — the feature does not apply here
+ *   `offline` / `no-credential` / `timeout` / `error` — COULD NOT ASK
+ *
+ * The last group is the reason this returns a state rather than an array: a
+ * failed check must never render as "no reviews waiting".
+ */
+export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit } = {}) {
+  const full = resolve(deckPath);
+  const cwd = dirname(full);
+  const no = (state, reason = null) => ({ state, reviews: [], reason });
+  const rb = await remoteReviewBranches(full, cwd, { remote, run });
+  if (rb.state !== 'ok') return { state: rb.state, reviews: [], reason: rb.reason };
+  const { branches, inRepo } = rb;
 
   // "Waiting" used to mean "holds records your sidecar does not", because the
   // overlay MERGED a review into that sidecar and the by-id merge was the
@@ -222,6 +237,35 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
   // where every review is done is a session with nothing waiting, and must say
   // so rather than nagging about work already finished.
   return { state: reviews.some((r) => !r.done) ? 'ok' : 'none', reviews, reason: null };
+}
+
+/**
+ * What THIS reviewer submitted, read back from the remote: the records on
+ * every `review/<me>-*` branch of this deck, merged by id. `M` lists them
+ * beside the sidecar in no-trust mode (REVIEW), so what she sent stays in
+ * front of her whatever her local branch holds — a `git reset --hard
+ * origin/main` after a diverged pull, which git itself suggests, would
+ * otherwise hide her own comments from the overlay while they sit safe on
+ * the remote. `who` is the slug the branch name carries (review-submit's
+ * `slugUser`). Never fatal: a remote that cannot be asked is a `state`, and
+ * the sidecar alone is still listed.
+ */
+export async function myReviews(deckPath, who, { remote = 'origin', run = runGit } = {}) {
+  const full = resolve(deckPath);
+  const cwd = dirname(full);
+  if (!who) return { state: 'none', records: [], branches: [], reason: null };
+  const rb = await remoteReviewBranches(full, cwd, { remote, run });
+  if (rb.state !== 'ok') return { state: rb.state, records: [], branches: [], reason: rb.reason };
+  let records = [];
+  const branches = [];
+  for (const branch of rb.branches) {
+    if (describeBranch(branch).who !== who) continue;
+    const blob = await run(['show', `refs/remotes/${remote}/${branch}:${rb.inRepo}`], { cwd });
+    if (!blob.ok) continue;   // a review of another deck in the same repository
+    branches.push(branch);
+    records = mergeById(records, parseReview(blob.stdout).records).records;
+  }
+  return { state: branches.length ? 'ok' : 'none', records, branches, reason: null };
 }
 
 /**

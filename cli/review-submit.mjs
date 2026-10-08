@@ -42,7 +42,7 @@ import { makeFail } from './util.mjs';
 import { noPromptEnv, oneline, ownerRepo } from './git.mjs';
 import { refProblem } from './marketplace.mjs';
 import { putBlob, remoteHead } from './git-tree.mjs';
-import { reviewPathFor, parseReview } from './review-store.mjs';
+import { reviewPathFor, parseReview, mergeById, serializeRecord } from './review-store.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
 import { reviewerIdentity } from './review-routes.mjs';
 import { ghReady } from './init.mjs';
@@ -215,7 +215,6 @@ export function submitReview(deckPath, {
       + `\n  push the deck's branch first, or pass --remote if the deck lives on another remote`);
   }
 
-  const blob = git(['hash-object', '-w', '--stdin'], bytes);
   // `--show-prefix` (where cwd sits under the root), NOT `relative(--show-toplevel, …)`.
   // On macOS the toplevel comes back as /private/var/… while the deck path is
   // /var/… — the same directory through a symlink — and `relative` of those two
@@ -224,11 +223,28 @@ export function submitReview(deckPath, {
   // flattened out of it, which is a silently corrupt push.
   const prefix = git(['rev-parse', '--show-prefix']);
   const inRepo = [...prefix.split('/').filter(Boolean), basename(storePath)];
+  // A resubmit APPENDS to the branch: what the branch already holds and what
+  // the sidecar holds, merged by id, so a sidecar that lost a line (a reset
+  // after a diverged pull) can never push the branch backwards. The file is
+  // a log; a submit only ever adds to it.
+  let sending = records;
+  let payload = bytes;
+  if (resubmit) {
+    let theirs = '';
+    try { theirs = exec('git', ['show', `${parent}:${inRepo.join('/')}`], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch { theirs = ''; }
+    const merged = mergeById(parseReview(theirs).records, records);
+    if (merged.records.length !== records.length || theirs) {
+      sending = merged.records;
+      payload = sending.map(serializeRecord).join('\n') + '\n';
+    }
+  }
+  const blob = git(['hash-object', '-w', '--stdin'], payload);
   const tree = putBlob(git, parent, inRepo, blob);
 
   // The same fold `decklight comments` renders with — a raw line count would
   // double-count union-merge duplicates and call a resolved comment a comment.
-  const n = foldReview(records).filter((c) => !c.resolved).length;
+  const n = foldReview(sending).filter((c) => !c.resolved).length;
   // A sidecar can hold nothing but resolves and moves — still worth pushing
   // (the union merge wants them), but never announced as "0 comments".
   const what = n ? `${n} comment${n === 1 ? '' : 's'}` : 'updates';
