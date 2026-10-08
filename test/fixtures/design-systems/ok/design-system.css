@@ -14,8 +14,8 @@
   --heading-weight: 600;
 }
 
-/* the divider's art is the layout's top-level element, marked data-ds-bleed
-   in layouts.html, so it fills the screen past a 16:9 stage (SPEC
+/* the divider's art is the template's top-level element, marked data-ds-bleed
+   in templates.html, so it fills the screen past a 16:9 stage (SPEC
    DESIGN_SYSTEMS, bleed); its page and text stay the theme's */
 .decklight .acme-divider {
   position: absolute; inset: 0; box-sizing: border-box;

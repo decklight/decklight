@@ -95,7 +95,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/slide/layout',
     'POST /deck/edit/slide/notes',
     'POST /deck/edit/slide/sources',
-    'POST /deck/edit/slide/system-layout',
+    'POST /deck/edit/slide/template',
     'POST /deck/edit/timings',
   ], 'a route that leaves this list has left the edit server too');
 });

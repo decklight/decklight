@@ -152,7 +152,7 @@ export function fallbackValue(token, rgb) {
 const SVG_SHAPES = 'rect, circle, ellipse, polygon, path';
 /** Nodes the ENGINE put in the page (builds.js's arrowheads): in the DOM, not in the file. */
 const INJECTED = '.draw-head';
-/** …and what a design-system layout brought (SPEC DESIGN_SYSTEMS) — never on a path into the file. */
+/** …and what a slide template brought (SPEC DESIGN_SYSTEMS) — never on a path into the file. */
 const INJECTED_ON_PATH = '.draw-head, [data-ds-injected]';
 
 /**

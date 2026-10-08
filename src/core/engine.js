@@ -35,8 +35,8 @@ import { createDebugLog } from './debuglog.js';
 import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
-import { createDesignSystemsPicker, createSystemLayoutPicker, createLookOffer } from './design-systems.js';
-import { setupSystemLayouts, isSystemLayout, pageDesignSystems } from './design-system.js';
+import { createDesignSystemsPicker, createSlideTemplatePicker, createLookOffer } from './design-systems.js';
+import { setupSlideTemplates, isTemplateRef, pageDesignSystems } from './design-system.js';
 import { createFonts } from './fonts.js';
 import { createBleed } from './bleed.js';
 import { readPref, writePref } from './prefs.js';
@@ -175,9 +175,9 @@ function autoPinY(sec, config) {
 /** The pin Y a section resolves to under its data-layout, or null for none. */
 function pinYFor(sec, config) {
   const layout = sec.getAttribute('data-layout');
-  // a design-system layout owns the slide's geometry (SPEC DESIGN_SYSTEMS):
+  // a slide template owns the slide's geometry (SPEC DESIGN_SYSTEMS):
   // no pin, not even the auto one an unknown value used to fall into
-  if (isSystemLayout(layout)) return null;
+  if (sec.hasAttribute('data-template')) return null;
   if (layout === 'pinned') {
     const n = parseFloat(sec.getAttribute('data-pin'));
     return isFinite(n) ? n : (deckPinY(config) ?? PIN_DEFAULT_Y);
@@ -261,7 +261,7 @@ function setupSplit(sections, slideNumber = (i) => i + 1) {
     sec.querySelectorAll(':scope > .split-columns, :scope > .split-footer')
       .forEach((el) => el.classList.remove('split-columns', 'split-footer'));
     const layoutName = sec.getAttribute('data-layout') || '';
-    if (!/^split/.test(layoutName) || isSystemLayout(layoutName)) {
+    if (!/^split/.test(layoutName) || sec.hasAttribute('data-template')) {
       sec.removeAttribute('data-split-conflict');
       return;
     }
@@ -565,7 +565,7 @@ export function init(userConfig = {}) {
     debugLog: (...a) => debugLog(...a),
   });
   overlays.register({ isOpen: designSystems.isOpen, close: designSystems.close, keydown: designSystems.keydown });
-  // Use design-system layout…: this slide into a layout, to another, out of
+  // Use slide template…: this slide into a layout, to another, out of
   // one, or a new slide in one — written by the edit server
   // The look a design system was drawn for (SPEC DESIGN_SYSTEMS): offered
   // after an add, previewed live on the slide — the theme and the font
@@ -607,13 +607,13 @@ export function init(userConfig = {}) {
     }
     return null;
   }
-  const systemLayouts = createSystemLayoutPicker({
+  const slideTemplates = createSlideTemplatePicker({
     root, toast, deck: () => instance,
     base: () => (editmode?.available() ? editmode.base() : null),
     lookHint, offerLook: (o) => lookOffer.show(o),
     debugLog: (...a) => debugLog(...a),
   });
-  overlays.register({ isOpen: systemLayouts.isOpen, close: systemLayouts.close, keydown: systemLayouts.keydown });
+  overlays.register({ isOpen: slideTemplates.isOpen, close: slideTemplates.close, keydown: slideTemplates.keydown });
 
   // ----- slide finder: / opens find-a-slide with live preview ---------------
   // Same panel anatomy and lazy-preview mechanism as the theme picker: the
@@ -990,9 +990,9 @@ export function init(userConfig = {}) {
       // ⏎ do" lived in a keystroke you may not have pressed. The two things are
       // different enough to be asked for by name: one adds a slide, the other
       // rewrites one you wrote.
-      editmode.available() && { label: 'Use design-system layout… (dev)',
-        alias: 'design system layout slots convert switch insert slide divider section structure',
-        run: () => systemLayouts.open() },
+      editmode.available() && { label: 'Use slide template… (dev)',
+        alias: 'slide template slots convert switch insert slide divider section structure',
+        run: () => slideTemplates.open() },
       editmode.available() && { label: 'Design systems… (dev)',
         alias: 'design system brand kit company tokens layouts slots marketplace corporate identity style guide',
         run: () => designSystems.open() },
@@ -1463,9 +1463,9 @@ export function init(userConfig = {}) {
     sync() {
       this._sections = [...stage.querySelectorAll(':scope > section')];
       this._sections.forEach((s, i) => s.setAttribute('data-slide-index', String(i + 1)));
-      // FIRST: a slide naming a design-system layout gets its structure before
+      // FIRST: a slide naming a slide template gets its structure before
       // any pass below measures, pins, splits or scans it (SPEC DESIGN_SYSTEMS)
-      setupSystemLayouts(this._sections, { warn: (m) => { console.warn(`decklight: ${m}`); debugLog('design-system', m); } });
+      setupSlideTemplates(this._sections, { warn: (m) => { console.warn(`decklight: ${m}`); debugLog('design-system', m); } });
       applyConcepts(stage, config.concepts); // idempotent; covers dynamic slides
       setupHeroLogos(this._sections);        // idempotent; before pin measurement
       setupMedia(this._sections, { printMode }); // backgrounds first — .slide-bg must not read as content

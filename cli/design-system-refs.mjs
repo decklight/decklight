@@ -22,8 +22,8 @@
 //     tighter than the deck root — plain segments, the asset allowlist, real
 //     paths inside the package, fixed MIME, nosniff, a script-free SVG policy,
 //     and one indistinguishable 404 for every refusal;
-//   - the page also carries the package's meta (palette, layouts and slots)
-//     and its layouts, inline in a <template>, so the engine expands them
+//   - the page also carries the package's meta (palette, templates and slots)
+//     and its templates, inline in a <template>, so the engine expands them
 //     synchronously, identically for a served deck and a bundled one;
 //   - an https `source` has no cache to land in (the theme cache holds one
 //     file; a package is many), so it resolves as missing.
@@ -115,7 +115,7 @@ export function packageVerdict(dir) {
   if (hit && hit.sig === sig) return hit.value;
   const r = checkDir(dir);
   const value = r.ok
-    ? { ok: true, summary: r.summary, manifest: r.manifest, layoutsHtml: r.layoutsHtml }
+    ? { ok: true, summary: r.summary, manifest: r.manifest, templatesHtml: r.templatesHtml }
     : { ok: false, why: `it no longer passes the design-system check — ${r.problems[0].file}${r.problems[0].line ? ` line ${r.problems[0].line}` : ''}: ${r.problems[0].msg} (decklight design-system check)` };
   verdicts.set(dir, { sig, value });
   return value;
@@ -131,7 +131,7 @@ export function designSystemMeta(verdict) {
     recommendedThemes: Array.isArray(m.recommendedThemes) ? m.recommendedThemes.filter((t) => typeof t === 'string') : [],
     // …and the fonts (SPEC FONTS) — the font picker lists them first
     recommendedFonts: Array.isArray(m.recommendedFonts) ? m.recommendedFonts.filter((t) => typeof t === 'string') : [],
-    layouts: (verdict.summary?.layouts ?? []).map(({ id, title, slots }) => ({ id, title, slots })),
+    templates: (verdict.summary?.templates ?? []).map(({ id, title, slots }) => ({ id, title, slots })),
   };
 }
 
@@ -147,7 +147,7 @@ const scriptJson = (value) => JSON.stringify(value).replace(/</g, '\\u003c');
  * the theme links and before `</head>`:
  *   <link rel="stylesheet" href="decklight-design-system/…/design-system.css" data-design-system="<name>">
  *   <script type="application/json" data-design-system-meta="<name>">{…}</script>
- *   <template data-design-system-layouts="<name>">…layouts.html…</template>
+ *   <template data-design-system-templates="<name>">…templates.html…</template>
  * Nothing when the page already carries `<style data-design-system="<name>">`
  * (a bundle's own copy). An unresolvable reference, or a package that no
  * longer passes the check, becomes `<meta name="decklight-design-system-missing">`
@@ -170,7 +170,7 @@ export function linkDesignSystems(html, home = configHome(), { log = null } = {}
       const name = escapeHtml(ref.name);
       tags.push(`<link rel="stylesheet" href="${designSystemHref(r.local, r.name, verdict.manifest.styles)}" data-design-system="${name}">`);
       tags.push(`<script type="application/json" data-design-system-meta="${name}">${scriptJson(designSystemMeta(verdict))}</script>`);
-      tags.push(`<template data-design-system-layouts="${name}">\n${verdict.layoutsHtml.trim()}\n</template>`);
+      tags.push(`<template data-design-system-templates="${name}">\n${verdict.templatesHtml.trim()}\n</template>`);
     } else {
       tags.push(`<meta name="decklight-design-system-missing" content="${escapeHtml(`${ref.ref} — ${r.missing}`)}">`);
       log?.(`design system ${ref.ref}: ${r.missing}`);
@@ -234,9 +234,9 @@ export function inlineDesignSystemCss(css, dir, stylesPath) {
  * What a bundle carries for one resolved, still-valid design system: the
  * stylesheet INLINE (`<style data-design-system data-design-system-version>`
  * — the block every server's `linkDesignSystems` sees and links no second
- * copy of), then the meta `<script>` and the layouts `<template>` exactly as
+ * copy of), then the meta `<script>` and the templates `<template>` exactly as
  * the servers inject them, so the runtime finds them by the same selectors.
- * Returns `{ tags, assets, bytes, external, layouts }`.
+ * Returns `{ tags, assets, bytes, external, templates }`.
  */
 export function bundleDesignSystem(r, verdict) {
   const m = verdict.manifest;
@@ -247,10 +247,10 @@ export function bundleDesignSystem(r, verdict) {
     tags: [
       `<style data-design-system="${name}" data-design-system-version="${escapeHtml(String(m.version ?? ''))}">\n${safe}\n</style>`,
       `<script type="application/json" data-design-system-meta="${name}">${scriptJson(designSystemMeta(verdict))}</script>`,
-      `<template data-design-system-layouts="${name}">\n${verdict.layoutsHtml.trim()}\n</template>`,
+      `<template data-design-system-templates="${name}">\n${verdict.templatesHtml.trim()}\n</template>`,
     ],
     assets: inlined.assets, bytes: inlined.bytes, external: inlined.external,
-    layouts: verdict.summary?.layouts?.length ?? 0,
+    templates: verdict.summary?.templates?.length ?? 0,
   };
 }
 
@@ -320,7 +320,7 @@ export function setDesignSystem(html, ref, on, { source = null } = {}) {
   const has = current.some((r) => r.ref === parsed.ref);
   if (on) {
     if (has) return { html, changed: false };
-    // a slide names a design system by its name (data-layout="acme/…"), so
+    // a slide names a design system by its name (data-template="acme/…"), so
     // two of the same name from different catalogs would be ambiguous
     const clash = current.find((r) => r.name === parsed.name);
     if (clash) throw new MarketplaceError(`the deck already uses ${clash.ref} — two design systems called "${parsed.name}" cannot both be referenced`);

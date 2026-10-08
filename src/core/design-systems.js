@@ -14,7 +14,7 @@
 
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
-import { pageDesignSystems, setupSystemLayouts, isSystemLayout } from './design-system.js';
+import { pageDesignSystems, setupSlideTemplates, isTemplateRef } from './design-system.js';
 
 /**
  * `base()` is the edit server's URL, or null when there is none — and `''`
@@ -107,13 +107,13 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
       debugLog('design-system', `${j.used ? 'referenced' : 'dropped'} ${j.ref}`);
       // the server links it in; the reload the write causes brings it back applied
       // Referencing changes nothing on screen by itself — a design system styles
-      // only the slides that name its layouts — so the toast says what to do next.
+      // only the slides that name its templates — so the toast says what to do next.
       const came = (j.pulled ?? []).filter((x) => x.status === 'add');
       const withIt = came.length ? ` — with ${came.map((x) => `${x.kind} ${x.family ?? x.ref}`).join(', ')}` : '';
       const lost = (j.pulled ?? []).filter((x) => x.status === 'skip');
       toast(!j.changed ? `${j.ref}: nothing to change`
         : j.used ? `● this deck now uses ${j.ref}${withIt}${lost.length ? ` · ⚠ not added: ${lost.map((x) => `${x.rec} (${x.why})`).join('; ')}` : ''}`
-          + ' — its layouts are in / → Use design-system layout… · Z takes it back'
+          + ' — its templates are in / → Use slide template… · Z takes it back'
           : `○ dropped ${j.ref} — Z takes it back`, j.used && j.changed ? 7000 : 3200);
       // the look it was drawn for is OFFERED after the reload this write brings
       // — by then the page has the theme and font it would switch to
@@ -189,7 +189,7 @@ export function createLookOffer({ root, base, toast, preview, restore, keep, deb
     if (!el) return;
     restore(was);
     shut();
-    toast(`kept the current look — Use design-system layout… offers ${offer.title || offer.ref}'s again`, 3600);
+    toast(`kept the current look — Use slide template… offers ${offer.title || offer.ref}'s again`, 3600);
   }
   async function accept() {
     if (!el || busy) return;
@@ -222,31 +222,31 @@ export function createLookOffer({ root, base, toast, preview, restore, keep, deb
   return { show, resume, keydown, close: decline, isOpen: () => !!el };
 }
 
-// ── Use design-system layout… ───────────────────────────────────────────────
-// Put this slide into one of the deck's design-system layouts, move it to
+// ── Use slide template… ───────────────────────────────────────────────
+// Put this slide into one of the deck's slide templates, move it to
 // another, take it out, or insert a new slide in one (SPEC DESIGN_SYSTEMS).
-// The layouts listed are the ones the PAGE carries (the meta block the server
-// injected); the write goes to the edit server, which reads the layout from
-// the package on disk, never from here — POST /deck/edit/slide/system-layout, one
+// The templates listed are the ones the PAGE carries (the meta block the server
+// injected); the write goes to the edit server, which reads the template from
+// the package on disk, never from here — POST /deck/edit/slide/template, one
 // undo entry, and a sentence saying what went where.
 
 
-export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = () => null, offerLook = () => {}, debugLog = () => {} }) {
-  let el = null, rows = [], sel = 0, view = 'layouts', chosen = null, busy = false;
+export function createSlideTemplatePicker({ root, base, toast, deck, lookHint = () => null, offerLook = () => {}, debugLog = () => {} }) {
+  let el = null, rows = [], sel = 0, view = 'templates', chosen = null, busy = false;
   const card = () => el?.querySelector('.narr-card');
 
-  /** The deck's design systems and their layouts, as the page has them. */
+  /** The deck's design systems and their templates, as the page has them. */
   function listed() {
     const out = [];
     for (const meta of document.querySelectorAll('script[type="application/json"][data-design-system-meta]')) {
       let m;
       try { m = JSON.parse(meta.textContent); } catch { continue; }
-      for (const l of m.layouts ?? []) out.push({ system: m.name, title: m.title, ref: `${m.name}/${l.id}`, layout: l });
+      for (const l of m.templates ?? []) out.push({ system: m.name, title: m.title, ref: `${m.name}/${l.id}`, template: l });
     }
     return out;
   }
 
-  /** A scaled slide in the layout, its slots showing their defaults — what choosing it would look like. */
+  /** A scaled slide in the template, its slots showing their defaults — what choosing it would look like. */
   function preview(ref) {
     const box = card()?.querySelector('.dsl-preview');
     if (!box) return;
@@ -254,9 +254,9 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
     if (!ref) return;
     const sec = document.createElement('section');
     sec.className = 'dsl-preview-slide';
-    sec.setAttribute('data-layout', ref);
+    sec.setAttribute('data-template', ref);
     box.appendChild(sec);
-    setupSystemLayouts([sec], { systems: pageDesignSystems() });
+    setupSlideTemplates([sec], { systems: pageDesignSystems() });
     // a slot with no default content would preview as nothing: name it, faintly
     for (const slot of sec.querySelectorAll('[data-slot]')) {
       if (!slot.textContent.trim() && !slot.children.length) {
@@ -270,12 +270,12 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
     const c = card();
     if (!c) return;
     const slide = deck().state.slide;
-    const current = deck()._sections[slide - 1]?.getAttribute('data-layout') ?? '';
+    const current = deck()._sections[slide - 1]?.getAttribute('data-template') ?? '';
     rows = [];
     let html = '';
-    if (view === 'layouts') {
+    if (view === 'templates') {
       const all = listed();
-      html += `<div class="narr-head">use a design-system layout — slide ${slide}${isSystemLayout(current) ? ` is ${escapeHtml(current)}` : ''}</div>`;
+      html += `<div class="narr-head">use a slide template — slide ${slide}${isTemplateRef(current) ? ` is ${escapeHtml(current)}` : ''}</div>`;
       html += '<div class="dsl-split"><div class="dsl-list">';
       // a design system the deck uses, whose look was declined: one line to offer it again
       const hint = lookHint();
@@ -284,7 +284,7 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
         html += `<div class="narr-row dsl-row dsl-look" data-i="${rows.length - 1}"><span class="narr-row-label">✦ Not in ${escapeHtml(hint.title || hint.ref)}'s look — apply?`
           + ` <span class="narr-flavor">${escapeHtml([hint.themeChanges && `theme ${hint.theme}`, hint.fontChanges && `font ${hint.fontLabel ?? hint.font}`].filter(Boolean).join(' · '))}</span></span></div>`;
       }
-      if (isSystemLayout(current)) {
+      if (isTemplateRef(current)) {
         rows.push({ remove: true });
         html += `<div class="narr-row dsl-row" data-i="${rows.length - 1}"><span class="narr-row-label">↩ Take slide ${slide} out of ${escapeHtml(current)} <span class="narr-flavor">back to a plain slide</span></span></div>`;
       }
@@ -293,7 +293,7 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
         if (l.system !== group) { group = l.system; html += `<div class="narr-group">${escapeHtml(l.title ?? l.system)}</div>`; }
         const i = rows.length;
         rows.push(l);
-        const slots = l.layout.slots.map((s) => `${s.name}${s.required ? '*' : ''}`).join(' · ');
+        const slots = l.template.slots.map((s) => `${s.name}${s.required ? '*' : ''}`).join(' · ');
         html += `<div class="narr-row dsl-row${l.ref === current ? ' narr-cur' : ''}" data-i="${i}"><span class="narr-row-label">${escapeHtml(l.ref)}`
           + ` <span class="narr-flavor">${escapeHtml(slots)}</span></span></div>`;
       }
@@ -301,7 +301,7 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
       html += '</div><div class="dsl-preview" aria-hidden="true"></div></div>';
       html += '<div class="rec-hint">↑/↓ · ⏎ chooses · Esc closes</div>';
     } else {
-      const switching = isSystemLayout(current);
+      const switching = isTemplateRef(current);
       rows = [{ act: 'apply' }, { act: 'insert' }];
       html += `<div class="narr-head">${escapeHtml(chosen.ref)}</div>`
         + `<div class="narr-row dsl-row" data-i="0"><span class="narr-row-label">${switching ? 'Switch' : 'Put'} slide ${slide} ${switching ? 'to' : 'in'} it`
@@ -321,14 +321,14 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
   function select(i) {
     sel = i;
     selectInList([...(card()?.querySelectorAll('.dsl-row') ?? [])], i, 'narr-sel');
-    if (view === 'layouts') preview(rows[i]?.ref ?? null);
+    if (view === 'templates') preview(rows[i]?.ref ?? null);
   }
 
   async function send(body, what) {
     if (busy) return;
     busy = true;
     try {
-      const r = await fetch(`${base()}/deck/edit/slide/system-layout`, {
+      const r = await fetch(`${base()}/deck/edit/slide/template`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
       });
       const j = await r.json().catch(() => ({}));
@@ -347,27 +347,27 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
     const slide = deck().state.slide;
     const row = rows[sel];
     if (!row) return;
-    if (view === 'layouts') {
+    if (view === 'templates') {
       if (row.look) { close(); return offerLook(row.look); }
-      if (row.remove) return send({ slide, layout: null }, 'could not take the slide out');
+      if (row.remove) return send({ slide, template: null }, 'could not take the slide out');
       chosen = row;
       view = 'actions';
       sel = 0;
       return render();
     }
-    if (row.act === 'insert') return send({ slide, layout: chosen.ref, insert: true }, 'could not insert the slide');
-    return send({ slide, layout: chosen.ref }, 'could not lay the slide out');
+    if (row.act === 'insert') return send({ slide, template: chosen.ref, insert: true }, 'could not insert the slide');
+    return send({ slide, template: chosen.ref }, 'could not lay the slide out');
   }
 
   function open() {
     if (el) return;
-    if (base() === null) { toast('design-system layouts are chosen in write mode — decklight <deck.html>', 3200); return; }
+    if (base() === null) { toast('slide templates are chosen in write mode — decklight <deck.html>', 3200); return; }
     el = document.createElement('div');
-    el.className = 'decklight-narr decklight-record decklight-ds-layouts';
-    el.innerHTML = '<div class="narr-card" role="listbox" aria-label="Use design-system layout"></div>';
+    el.className = 'decklight-narr decklight-record decklight-ds-templates';
+    el.innerHTML = '<div class="narr-card" role="listbox" aria-label="Use slide template"></div>';
     closeOnBackdrop(el, close);
     root.appendChild(el);
-    view = 'layouts';
+    view = 'templates';
     sel = 0;
     render();
   }
@@ -376,7 +376,7 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
 
   function keydown(e) {
     if (e.key === 'Escape') {
-      if (view === 'actions') { view = 'layouts'; sel = 0; render(); } else close();
+      if (view === 'actions') { view = 'templates'; sel = 0; render(); } else close();
       return true;
     }
     if (e.key === 'ArrowDown') { select(Math.min(rows.length - 1, sel + 1)); return true; }

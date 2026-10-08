@@ -7,7 +7,7 @@
 //   decklight design-system check <dir>
 //   decklight design-system add|remove <name@marketplace> <deck.html>
 //   decklight design-system list [<deck.html>]
-//   decklight design-system layouts <name@marketplace>
+//   decklight design-system templates <name@marketplace>
 //
 // `check` is the admission gate a catalog's own CI runs, in the mould of
 // `decklight extension check` and `decklight theme check`: a valid package
@@ -27,7 +27,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { checkPackage, DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS } from '../tools/design-system-format.mjs';
 
-const USAGE = `usage: decklight design-system <add|remove|list|layouts|check> …
+const USAGE = `usage: decklight design-system <add|remove|list|templates|check> …
 
   decklight design-system add <name@marketplace> <deck.html> [--no-recommended] [--apply|--no-apply]
     reference a design system from a deck — after the package passes check;
@@ -51,23 +51,23 @@ const USAGE = `usage: decklight design-system <add|remove|list|layouts|check> �
     with no deck, every design system the registered marketplaces offer —
     from the cache alone, works on a plane
 
-  decklight design-system layouts <name@marketplace>
-    the package's layouts and their slots — the names a slide writes
+  decklight design-system templates <name@marketplace>
+    the package's templates and their slots — the names a slide writes
 
   decklight design-system check <dir>
     the marketplace admission gate for a design-system package — its manifest,
-    stylesheet, layouts and assets, held to the format's rules (SPEC
+    stylesheet, templates and assets, held to the format's rules (SPEC
     DESIGN_SYSTEMS). Prints what the package holds and exits 0, or names the
     file, the line and the rule for every problem and exits 1.
     EXAMPLE: decklight design-system check systems/acme
 
   A design system is a directory:
     design-system.json   apiVersion (${DESIGN_SYSTEM_API_VERSION}), name, version (semver), title,
-                         styles ("design-system.css"), layouts ("layouts.html")
+                         styles ("design-system.css"), templates ("templates.html")
                          + description, tokenPrefix (default "--<name>-"),
                            palette [{ group, label, token }], recommendedThemes
-    design-system.css    prefixed tokens and per-layout rules; url()s relative to it
-    layouts.html         inert <template data-layout="…"> blocks, with data-slot containers
+    design-system.css    prefixed tokens and per-template rules; url()s relative to it
+    templates.html         inert <template data-template="…"> blocks, with data-slot containers
     assets/…             ${ASSET_EXTENSIONS.join(' · ')}
 
   A deck references a design system rather than copying it; every server
@@ -118,9 +118,9 @@ export function checkDir(dir) {
   }
   r.ok = r.problems.length === 0;
   // what a server needs from a passing package, read once here: the parsed
-  // manifest, and the layouts text it inlines into the page
+  // manifest, and the templates text it inlines into the page
   try { r.manifest = JSON.parse(manifest); } catch { r.manifest = null; }
-  r.layoutsHtml = typeof r.manifest?.layouts === 'string' ? files.get(r.manifest.layouts)?.text ?? null : null;
+  r.templatesHtml = typeof r.manifest?.templates === 'string' ? files.get(r.manifest.templates)?.text ?? null : null;
   return r;
 }
 
@@ -139,13 +139,13 @@ export function reportLines(dir, r) {
     out.push(`  design-system.json   ${s.title}${s.palette ? ` — palette of ${s.palette}` : ''}`
       + `${s.recommendedThemes?.length ? ` · recommends ${s.recommendedThemes.join(', ')}` : ''}`);
     out.push(`  stylesheet           ${s.tokens.length} token${s.tokens.length === 1 ? '' : 's'} (${s.prefix}…)`);
-    const layouts = s.layouts ?? [];
-    out.push(`  layouts              ${layouts.length} layout${layouts.length === 1 ? '' : 's'}${layouts.length ? ':' : ''}`);
-    for (const l of layouts) {
+    const templates = s.templates ?? [];
+    out.push(`  templates            ${templates.length} template${templates.length === 1 ? '' : 's'}${templates.length ? ':' : ''}`);
+    for (const l of templates) {
       const slots = l.slots.map((x) => `${x.name}${x.required ? '*' : ''}${x.default ? '†' : ''}`).join(', ');
       out.push(`                         ${l.id} (${slots || 'no slots'})`);
     }
-    if (layouts.some((l) => l.slots.length)) out.push('                         * required · † takes unslotted content');
+    if (templates.some((l) => l.slots.length)) out.push('                         * required · † takes unslotted content');
     const assets = s.assets ?? [];
     const byExt = {};
     for (const a of assets) byExt[a.ext] = (byExt[a.ext] ?? 0) + 1;
@@ -275,7 +275,7 @@ async function addMain(args, on) {
         console.log(`${look.title} was drawn for ${phrase} — add --apply to switch, or: decklight design-system apply ${deckRef} ${deck}`);
       }
     }
-    // a recommendation that could not come is a warning, never a failure: the layouts work without it
+    // a recommendation that could not come is a warning, never a failure: the templates work without it
     return 0;
   } catch (e) {
     if (e instanceof MarketplaceError) { console.error(`decklight design-system ${cmd}: ${e.message}`); return 1; }
@@ -314,25 +314,25 @@ async function listMain(args) {
   return 0;
 }
 
-async function layoutsMain(args) {
+async function templatesMain(args) {
   const [ref] = args.filter((a) => !a.startsWith('-'));
-  if (!ref) { console.error(`decklight design-system layouts: needs a design system (name@marketplace)\n\n${USAGE}`); return 1; }
+  if (!ref) { console.error(`decklight design-system templates: needs a design system (name@marketplace)\n\n${USAGE}`); return 1; }
   const { resolveEntry, MarketplaceError } = await import('./marketplace.mjs');
   const { resolveDesignSystemRef, packageVerdict } = await import('./design-system-refs.mjs');
   let qualified = ref;
-  try { qualified = resolveEntry(ref, await catalogs()).qualified; } catch (e) { if (!(e instanceof MarketplaceError)) throw e; console.error(`decklight design-system layouts: ${e.message}`); return 1; }
+  try { qualified = resolveEntry(ref, await catalogs()).qualified; } catch (e) { if (!(e instanceof MarketplaceError)) throw e; console.error(`decklight design-system templates: ${e.message}`); return 1; }
   const r = resolveDesignSystemRef(qualified);
-  if (!r.dir) { console.error(`decklight design-system layouts: ${r.ref} — ${r.missing}`); return 1; }
+  if (!r.dir) { console.error(`decklight design-system templates: ${r.ref} — ${r.missing}`); return 1; }
   const v = packageVerdict(r.dir);
-  if (!v.ok) { console.error(`decklight design-system layouts: ${r.ref} — ${v.why}`); return 1; }
-  console.log(`${r.ref} — ${v.manifest.title} ${v.manifest.version}: ${v.summary.layouts.length} layout${v.summary.layouts.length === 1 ? '' : 's'}`);
-  for (const l of v.summary.layouts) {
+  if (!v.ok) { console.error(`decklight design-system templates: ${r.ref} — ${v.why}`); return 1; }
+  console.log(`${r.ref} — ${v.manifest.title} ${v.manifest.version}: ${v.summary.templates.length} template${v.summary.templates.length === 1 ? '' : 's'}`);
+  for (const l of v.summary.templates) {
     console.log(`  ${v.manifest.name}/${l.id}${l.title && l.title !== l.id ? ` — ${l.title}` : ''}`);
     for (const slot of l.slots) {
       console.log(`    ${slot.name}${slot.required ? ' (required)' : ''}${slot.default ? ' (takes unslotted content)' : ''}${slot.hint ? `  — ${slot.hint}` : ''}`);
     }
   }
-  console.log(`\n  a slide: <section data-layout="${v.manifest.name}/<layout>"> with children carrying data-slot="<slot>"`);
+  console.log(`\n  a slide: <section data-template="${v.manifest.name}/<template>"> with children carrying data-slot="<slot>"`);
   return 0;
 }
 
@@ -388,9 +388,9 @@ export async function designSystemMain(args = []) {
   if (sub === 'add') return addMain(rest, true);
   if (sub === 'remove') return addMain(rest, false);
   if (sub === 'list') return listMain(rest);
-  if (sub === 'layouts') return layoutsMain(rest);
+  if (sub === 'templates') return templatesMain(rest);
   if (sub === 'apply') return applyMain(rest);
-  console.error(`decklight design-system: unknown subcommand "${sub}" — add, remove, apply, list, layouts, check\n\n${USAGE}`);
+  console.error(`decklight design-system: unknown subcommand "${sub}" — add, remove, apply, list, templates, check\n\n${USAGE}`);
   return 1;
 }
 

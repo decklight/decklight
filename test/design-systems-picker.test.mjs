@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDesignSystemsPicker, createSystemLayoutPicker } from '../src/core/design-systems.js';
+import { createDesignSystemsPicker, createSlideTemplatePicker } from '../src/core/design-systems.js';
 
 /**
  * Open a picker against a base; report whether it refused or started building
@@ -31,7 +31,7 @@ async function opens(create, base) {
   } finally { globalThis.document = saved; }
 }
 
-for (const [name, create] of [['Design systems…', createDesignSystemsPicker], ['Use design-system layout…', createSystemLayoutPicker]]) {
+for (const [name, create] of [['Design systems…', createDesignSystemsPicker], ['Use slide template…', createSlideTemplatePicker]]) {
   test(`${name} opens on a same-origin edit server (base '') and refuses only with no server (null)`, async () => {
     const same = await opens(create, '');
     assert.equal(same.opened, true, `refused with: ${same.said.join(' · ')}`);

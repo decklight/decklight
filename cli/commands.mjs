@@ -314,7 +314,7 @@ Commands:
   design-system  a company's tokens, art and slide layouts, referenced by a deck and served from
            the marketplace on this machine — add/remove/list/layouts, and check, the admission gate
            EXAMPLE: decklight design-system add acme@acme-mkt talk.html
-           EXAMPLE: decklight design-system layouts acme@acme-mkt   (the slots a slide fills)
+           EXAMPLE: decklight design-system templates acme@acme-mkt   (the slots a slide fills)
            EXAMPLE: decklight design-system check systems/acme   (a catalog's CI gate)
   font     a typeface's files and licence, referenced by a deck so its faces travel with it —
            served from the marketplace on this machine, carried by bundle; add/remove/list, check

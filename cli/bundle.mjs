@@ -862,7 +862,7 @@ process.stdout.write(`  runtime  decklight ${PKG.version} — ${runtimeFrom}\n`)
 if (systems.length || systemsLeftOut.length) {
   const parts = systems.map(({ name, version, marketplace, block }) => {
     const assets = block.assets ? `, ${block.assets} asset${block.assets === 1 ? '' : 's'} (${(block.bytes / 1024).toFixed(1)} KB)` : '';
-    return `${name} ${version} (from ${marketplace}) — stylesheet${assets}, ${block.layouts} layout${block.layouts === 1 ? '' : 's'}`;
+    return `${name} ${version} (from ${marketplace}) — stylesheet${assets}, ${block.templates} template${block.templates === 1 ? '' : 's'}`;
   });
   for (const x of systemsLeftOut) parts.push(`${x.ref} — not carried`);
   process.stdout.write(`  designs  ${parts.join(' · ')}\n`);

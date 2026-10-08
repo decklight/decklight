@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rmTemp } from './helpers.mjs';
 import {
-  checkPackage, parseLayouts, layoutProblems, svgProblems, readManifest, DESIGN_SYSTEM_API_VERSION, ASSET_WARN_BYTES,
+  checkPackage, parseTemplates, layoutProblems, svgProblems, readManifest, DESIGN_SYSTEM_API_VERSION, ASSET_WARN_BYTES,
 } from '../tools/design-system-format.mjs';
 import { readPackage, checkDir } from '../cli/design-system.mjs';
 import { validateManifest, INSTALL_HINT } from '../cli/marketplace.mjs';
@@ -49,14 +49,14 @@ test('the passing package is admitted, and says what it holds', () => {
   assert.equal(r.summary.name, 'acme');
   assert.equal(r.summary.version, '1.2.0');
   assert.deepEqual(r.summary.tokens.sort(), ['--acme-blue', '--acme-coral', '--acme-divider-pad', '--acme-ink']);
-  assert.deepEqual(r.summary.layouts.map((l) => l.id), ['section-divider', 'statement']);
+  assert.deepEqual(r.summary.templates.map((l) => l.id), ['section-divider', 'statement']);
   assert.deepEqual(r.summary.exceptions.map((e) => e.token), ['--heading-weight'], 'a declared exception is reported, not refused');
   assert.deepEqual(r.summary.assets.map((a) => a.path).sort(), ['assets/divider.svg', 'assets/fonts/acme-sans.woff2']);
 });
 
-test('layouts as data: ids, titles and slots — required, hinted, and the one that takes unslotted content', () => {
-  const html = fs.readFileSync(path.join(FIX, 'ok', 'layouts.html'), 'utf8');
-  const [divider, statement] = parseLayouts(html);
+test('templates as data: ids, titles and slots — required, hinted, and the one that takes unslotted content', () => {
+  const html = fs.readFileSync(path.join(FIX, 'ok', 'templates.html'), 'utf8');
+  const [divider, statement] = parseTemplates(html);
   assert.equal(divider.id, 'section-divider');
   assert.equal(divider.title, 'Section divider');
   assert.deepEqual(divider.slots.map((s) => [s.name, s.hint, s.required, s.default]), [
@@ -69,7 +69,7 @@ test('layouts as data: ids, titles and slots — required, hinted, and the one t
 // ── the named failing fixtures (the demo) ──────────────────────────────────
 
 for (const [dir, file, line, rule] of [
-  ['script-in-layout', 'layouts.html', 8, 'layout-forbidden-tag'],
+  ['script-in-template', 'templates.html', 8, 'template-forbidden-tag'],
   ['unprefixed-token', 'design-system.css', 12, 'unprefixed-token'],
   ['dotdot-url', 'design-system.css', 18, 'css-url-dotdot'],
   ['svg-onload', 'assets/divider.svg', 1, 'svg-handler'],
@@ -145,35 +145,35 @@ test('css: a custom tokenPrefix is the one held to', () => {
   assert.match(r.problems[0].msg, /tokenPrefix --ax-/);
 });
 
-// ── the layouts ────────────────────────────────────────────────────────────
+// ── the templates ────────────────────────────────────────────────────────────
 
-test('layouts: inert structure only — every way to run something is refused, with its line', () => {
+test('templates: inert structure only — every way to run something is refused, with its line', () => {
   for (const [to, rule] of [
-    ['<div data-slot="subtitle" data-slot-hint="p" onclick="go()"></div>', 'layout-forbidden-attr'],
-    ['<iframe></iframe><div data-slot="subtitle" data-slot-hint="p"></div>', 'layout-forbidden-tag'],
-    ['<a href="&#106;avascript:go()">x</a><div data-slot="subtitle" data-slot-hint="p"></div>', 'layout-javascript-url'],
-    ['<style>.x{}</style><div data-slot="subtitle" data-slot-hint="p"></div>', 'layout-forbidden-tag'],
-    ['<object data="#x"></object><div data-slot="subtitle" data-slot-hint="p"></div>', 'layout-forbidden-tag'],
-    ['<img src="assets/divider.svg"><div data-slot="subtitle" data-slot-hint="p"></div>', 'layout-reference'],
+    ['<div data-slot="subtitle" data-slot-hint="p" onclick="go()"></div>', 'template-forbidden-attr'],
+    ['<iframe></iframe><div data-slot="subtitle" data-slot-hint="p"></div>', 'template-forbidden-tag'],
+    ['<a href="&#106;avascript:go()">x</a><div data-slot="subtitle" data-slot-hint="p"></div>', 'template-javascript-url'],
+    ['<style>.x{}</style><div data-slot="subtitle" data-slot-hint="p"></div>', 'template-forbidden-tag'],
+    ['<object data="#x"></object><div data-slot="subtitle" data-slot-hint="p"></div>', 'template-forbidden-tag'],
+    ['<img src="assets/divider.svg"><div data-slot="subtitle" data-slot-hint="p"></div>', 'template-reference'],
   ]) {
-    const p = only(checkPackage(edit(okPkg(), 'layouts.html', '<div data-slot="subtitle" data-slot-hint="p"></div>', to)), rule);
-    assert.equal(p.file, 'layouts.html');
+    const p = only(checkPackage(edit(okPkg(), 'templates.html', '<div data-slot="subtitle" data-slot-hint="p"></div>', to)), rule);
+    assert.equal(p.file, 'templates.html');
     assert.equal(p.line, 6);
   }
-  const srcdoc = layoutProblems('<template data-layout="x"><div srcdoc="y"></div></template>');
-  assert.deepEqual(srcdoc.map((p) => p.rule), ['layout-forbidden-attr']);
+  const srcdoc = layoutProblems('<template data-template="x"><div srcdoc="y"></div></template>');
+  assert.deepEqual(srcdoc.map((p) => p.rule), ['template-forbidden-attr']);
 });
 
-test('layouts: everything inside a <template data-layout>, ids unique and plain, slots unique, one default', () => {
+test('templates: everything inside a <template data-template>, ids unique and plain, slots unique, one default', () => {
   for (const [from, to, rule] of [
-    ['<!-- Acme Brand layouts', '<p>stray</p>\n<!-- Acme Brand layouts', 'layout-outside-template'],
-    ['<!-- Acme Brand layouts', '</template>\n<!-- Acme Brand layouts', 'layout-outside-template'],
-    ['data-layout="statement"', 'data-layout="section-divider"', 'layout-duplicate'],
-    ['data-layout="statement"', 'data-layout="Statement Slide"', 'layout-id'],
+    ['<!-- Acme Brand templates', '<p>stray</p>\n<!-- Acme Brand templates', 'template-outside-block'],
+    ['<!-- Acme Brand templates', '</template>\n<!-- Acme Brand templates', 'template-outside-block'],
+    ['data-template="statement"', 'data-template="section-divider"', 'template-duplicate'],
+    ['data-template="statement"', 'data-template="Statement Slide"', 'template-id'],
     ['<div data-slot="subtitle" data-slot-hint="p"></div>', '<div data-slot="kicker"></div>', 'slot-repeated'],
     ['<div data-slot="subtitle" data-slot-hint="p"></div>', '<div data-slot="subtitle" data-slot-default></div>', 'slot-default-twice'],
     ['<div data-slot="subtitle" data-slot-hint="p"></div>', '<div data-slot="Sub Title"></div>', 'slot-name'],
-  ]) only(checkPackage(edit(okPkg(), 'layouts.html', from, to)), rule);
+  ]) only(checkPackage(edit(okPkg(), 'templates.html', from, to)), rule);
 });
 
 // ── assets ─────────────────────────────────────────────────────────────────
@@ -189,24 +189,24 @@ test('svg: no script, no handlers, nothing outside the file — #fragments stay 
 test('a stylesheet that paints the slide itself — page, text, type — is warned about, not refused; art and theme tokens are not', () => {
   assert.deepEqual(checkPackage(okPkg()).warnings, [], 'the fixture leaves the page to the theme');
   const painted = checkPackage(edit(okPkg(), 'design-system.css', '.decklight .acme-statement',
-    `.decklight-stage > section[data-layout^="acme/"] { padding: 0; background: #fff; color: var(--acme-ink); font-family: "Trebuchet MS", sans-serif }
+    `.decklight-stage > section[data-template^="acme/"] { padding: 0; background: #fff; color: var(--acme-ink); font-family: "Trebuchet MS", sans-serif }
 .decklight section.acme { background: url(assets/divider.svg) no-repeat; color: var(--fg); font-family: var(--font-body) }
 .decklight .acme-card { background: #fff; color: #222 }
 .decklight .acme-statement`));
   assert.equal(painted.ok, true, 'a warning, never a refusal');
   assert.deepEqual(painted.warnings.map((w) => [w.rule, w.msg.split(' — ')[0]]), [
-    ['paints-the-page', '.decklight-stage > section[data-layout^="acme/"] sets background: #fff'],
-    ['paints-the-page', '.decklight-stage > section[data-layout^="acme/"] sets color: var(--acme-ink)'],
-    ['paints-the-page', '.decklight-stage > section[data-layout^="acme/"] sets font-family: "Trebuchet MS", sans-serif'],
+    ['paints-the-page', '.decklight-stage > section[data-template^="acme/"] sets background: #fff'],
+    ['paints-the-page', '.decklight-stage > section[data-template^="acme/"] sets color: var(--acme-ink)'],
+    ['paints-the-page', '.decklight-stage > section[data-template^="acme/"] sets font-family: "Trebuchet MS", sans-serif'],
   ], 'background art, theme tokens and elements inside the slide are not the page');
   assert.match(painted.warnings[0].msg, /ship a theme beside the design system and name it in recommendedThemes/);
   assert.ok(painted.warnings.every((w) => w.file === 'design-system.css' && Number.isInteger(w.line)));
 });
 
-test('data-ds-bleed marks the layout\'s top-level element, once — the element whose art fills the screen', () => {
-  assert.deepEqual(layoutProblems('<template data-layout="a"><div data-ds-bleed><p data-slot="t"></p><img src="#x"></div></template>'), []);
-  assert.deepEqual(layoutProblems('<template data-layout="a"><div><p data-ds-bleed></p></div></template>').map((p) => p.rule), ['bleed-placement']);
-  assert.deepEqual(layoutProblems('<template data-layout="a"><div data-ds-bleed></div><div data-ds-bleed></div></template>').map((p) => p.rule), ['bleed-twice']);
+test('data-ds-bleed marks the template\'s top-level element, once — the element whose art fills the screen', () => {
+  assert.deepEqual(layoutProblems('<template data-template="a"><div data-ds-bleed><p data-slot="t"></p><img src="#x"></div></template>'), []);
+  assert.deepEqual(layoutProblems('<template data-template="a"><div><p data-ds-bleed></p></div></template>').map((p) => p.rule), ['bleed-placement']);
+  assert.deepEqual(layoutProblems('<template data-template="a"><div data-ds-bleed></div><div data-ds-bleed></div></template>').map((p) => p.rule), ['bleed-twice']);
 });
 
 test('assets: the allowlisted kinds only; an oversized one is a warning, not a refusal; papers and dotfiles are not assets', () => {

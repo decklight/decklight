@@ -3,7 +3,7 @@
 
 // A bundle carries the deck's design systems (SPEC DESIGN_SYSTEMS, #625): the
 // stylesheet with every relative url() inlined, byte for byte otherwise; the
-// meta and layouts exactly as the servers inject them, ahead of the runtime;
+// meta and templates exactly as the servers inject them, ahead of the runtime;
 // one copy however many modules use it; and a refusal — or, asked for, a
 // plain fallback — when this machine cannot read one.
 
@@ -41,7 +41,7 @@ function home(t, { second = null } = {}) {
   return { dir, home: h, pkg };
 }
 
-const deck = (systems, body = '<section data-layout="acme/section-divider"><h2 data-slot="title">Hi</h2></section>') =>
+const deck = (systems, body = '<section data-template="acme/section-divider"><h2 data-slot="title">Hi</h2></section>') =>
   '<!doctype html><html><head><title>T</title>\n'
   + `<script type="application/json" data-decklight-config>${JSON.stringify({ decklight: '0.9.0', theme: 'aurora', ...(systems ? { designSystems: systems } : {}) })}</script>\n`
   + `</head><body><div class="decklight">${body}</div></body></html>\n`;
@@ -89,7 +89,7 @@ test('bundle carries a design system: its blocks before the runtime, no link lef
   writeFileSync(path.join(dir, 'talk.html'), deck(['acme@acme-mkt']));
   const r = bundle(h, dir, 'talk.html');
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^ {2}designs {2}acme 1\.2\.0 \(from acme-mkt\) — stylesheet, 2 assets \(0\.3 KB\), 2 layouts$/m);
+  assert.match(r.stdout, /^ {2}designs {2}acme 1\.2\.0 \(from acme-mkt\) — stylesheet, 2 assets \(0\.3 KB\), 2 templates$/m);
   const out = readFileSync(path.join(dir, 'talk-standalone.html'), 'utf8');
   assert.match(out, /<style data-design-system="acme" data-design-system-version="1\.2\.0">\n\/\* Acme Brand/);
   assert.match(out, /url\("data:font\/woff2;base64,/);
@@ -97,11 +97,11 @@ test('bundle carries a design system: its blocks before the runtime, no link lef
   assert.doesNotMatch(out, /decklight-design-system\//);
   assert.doesNotMatch(out, /url\(assets\//, 'no relative url() from the design system');
   const meta = out.indexOf('data-design-system-meta="acme"');
-  const layouts = out.indexOf('<template data-design-system-layouts="acme">');
+  const templates = out.indexOf('<template data-design-system-templates="acme">');
   const runtime = out.indexOf('<script data-decklight-runtime="js">');
-  assert.ok(meta > 0 && layouts > meta && runtime > layouts, 'meta and layouts are in the document before the engine runs');
+  assert.ok(meta > 0 && templates > meta && runtime > templates, 'meta and templates are in the document before the engine runs');
   assert.ok(out.indexOf('<style data-design-system=') > out.indexOf('<style data-theme="aurora"'), 'after the themes, as the servers link it');
-  assert.match(out, /<template data-design-system-layouts="acme">\n<!-- Acme Brand layouts[^\n]*\n<template data-layout="section-divider"/);
+  assert.match(out, /<template data-design-system-templates="acme">\n<!-- Acme Brand templates[^\n]*\n<template data-template="section-divider"/);
   assert.equal(linkDesignSystems(out, h), out, 'served again, the carried copy is the only one');
 });
 
