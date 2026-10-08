@@ -107,7 +107,7 @@
           window.__posted.push(rec);
           // the server's half: it is the one that knows who and when
           window.__store.push(JSON.stringify(
-            rec.op === 'resolve' ? { ...rec, at: 'now', by: 'Me <me@x>' }
+            rec.op ? { ...rec, at: `t${window.__posted.length}`, by: 'Me <me@x>' }
               : { id: `n${window.__posted.length}`, at: 'now', by: 'Me <me@x>', ...rec }));
           return new Response(JSON.stringify({ ok: true, id: 'n1' }),
             { status: 200, headers: { 'content-type': 'application/json' } });
@@ -442,7 +442,7 @@
 
         if (mode === 'write') {
           // An author: the panel writes for them too (a note to self, as ⇧M
-          // always could), and R resolves — armed, then confirmed.
+          // always could), and R resolves at once, R again reopens.
           press('m');
           const card = await until(() => document.querySelector('.decklight-review .narr-card'));
           await until(() => card.querySelectorAll('.rv-row').length >= 2);
@@ -497,32 +497,32 @@
           r.reopened = window.__doneIds.size === 0
             && !!(await until(() => !card2.querySelector('.rv-row.rv-inc.rv-done')));
 
-          // The resolve two-step, on a LOCAL row: an incoming comment lives on
-          // somebody else's branch and nothing copies it here, so it is
-          // read-only — resolving it would answer a question this file never
-          // asked. Walk to a row that is not .rv-inc.
+          // Resolve on a LOCAL row: an incoming comment lives on somebody
+          // else's branch and nothing copies it here, so it is read-only —
+          // resolving it would answer a question this file never asked. Walk
+          // to a row that is not .rv-inc. R fires at once: no arm, because a
+          // resolve is one keypress from reopened, so there is nothing a
+          // two-step would protect.
           for (let i = 0; i < 12 && sel_()?.classList.contains('rv-inc'); i++) { press('ArrowDown'); await wait(40); }
+          const localId = sel_()?.dataset.id;
           press('r');
-          r.armedNotFired = !!(await until(() => card2.querySelector('.rv-arm')));
-          r.nothingPostedYet = window.__posted.length === 0;
-          // Escape backs out of the arm WITHOUT closing — the house two-step
-          press('Escape');
-          await wait(120);
-          r.escapeDisarmedNotClosed = !card2.querySelector('.rv-arm')
-            && !!document.querySelector('.decklight-review');
-
+          await until(() => window.__posted.length === 1);
+          r.resolvedAtOnce = window.__posted[0]?.op === 'resolve' && !card2.querySelector('.rv-arm');
+          r.resolveIsAnAppend = window.__posted[0]?.re === localId;
+          r.stillOpen = !!document.querySelector('.decklight-review');
+          // the row ticks and sorts below the open ones, and the selection
+          // FOLLOWS it (by id, not position) — so R again lands on the same
+          // comment and reopens it, an appended record of its own
+          r.tickedAndFollowed = !!(await until(() => sel_()?.dataset.id === localId && sel_()?.querySelector('.rv-tick')));
           press('r');
-          await until(() => document.querySelector('.decklight-review .rv-arm'));
-          // ⏎ is what the arm text promises — it must CONFIRM, not jump away
-          press('Enter');
-          await until(() => window.__posted.length);
-          r.resolvedOnSecond = window.__posted[0]?.op === 'resolve';
-          r.enterDidNotCloseOrJump = !!document.querySelector('.decklight-review');
-          r.resolveIsAnAppend = !!window.__posted[0]?.re;
+          await until(() => window.__posted.length === 2);
+          r.reopenedOwn = window.__posted[1]?.op === 'reopen' && window.__posted[1]?.re === localId;
+          r.tickGone = !!(await until(() => sel_()?.dataset.id === localId && !sel_()?.querySelector('.rv-tick')));
+          r.legendSaysSo = /R marks one done, again reopens it/.test(card2.querySelector('.rec-hint')?.textContent ?? '');
 
-          r.PASS = r.editCanWrite && r.saysResolveIsThere && r.armedNotFired
-            && r.nothingPostedYet && r.escapeDisarmedNotClosed && r.resolvedOnSecond
-            && r.enterDidNotCloseOrJump && r.resolveIsAnAppend && r.incomingShown
+          r.PASS = r.editCanWrite && r.saysResolveIsThere && r.resolvedAtOnce
+            && r.resolveIsAnAppend && r.stillOpen && r.tickedAndFollowed
+            && r.reopenedOwn && r.tickGone && r.legendSaysSo && r.incomingShown
             && r.incomingSaysWhoAndHowMany && r.incomingShowsTheComments && r.noGitCommandAsked
             && r.incomingJumps && r.panelStayedAfterIncomingJump
             && r.markedOneDone && r.nothingImported && r.onlyOneMarked

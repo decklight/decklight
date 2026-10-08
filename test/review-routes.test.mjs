@@ -80,6 +80,30 @@ for (const mode of ['no-trust', 'write']) {
   });
 }
 
+test('a resolve is taken back by a reopen — a line of its own, and the file stays a log', async (t) => {
+  const { base, dir } = await open(t, 'write');
+  const { id } = await (await post(base, { slide: 1, title: 'Alpha', body: 'Tighten.' })).json();
+  const store = path.join(dir, 'talk.review.jsonl');
+  const lines = () => readFileSync(store, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+
+  assert.equal((await post(base, { op: 'resolve', re: id })).status, 200);
+  assert.equal((await post(base, { op: 'reopen', re: id })).status, 200);
+  const recs = lines();
+  assert.equal(recs.length, 3, 'two appends, nothing rewritten');
+  assert.deepEqual(recs.slice(1).map((r) => r.op), ['resolve', 'reopen']);
+  assert.ok(recs[2].at > recs[1].at || recs[2].at === recs[1].at, 'stamped, so the fold can order them');
+  assert.equal(recs[2].re, id);
+  assert.equal('body' in recs[2], false, 'an op carries no prose');
+
+  // the store knows four records and no more (REVIEW: comments are one-way)
+  const reply = await post(base, { re: id, body: 'a reply' });
+  assert.equal(reply.status, 400, 'a reply is refused, not stored');
+  const other = await post(base, { op: 'nudge', re: id });
+  assert.equal(other.status, 400);
+  assert.match((await other.json()).error, /a comment, a resolve, a reopen or a move/);
+  assert.equal(lines().length, 3, 'a refused op writes nothing');
+});
+
 test('no-trust mode refuses every edit route, with the review routes beside it', async (t) => {
   const { base } = await open(t, 'no-trust');
   const edit = await fetch(`${base}/deck/edit/slide/notes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });

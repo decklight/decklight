@@ -142,10 +142,10 @@ export function indexSlides(sections, { titleOf, bodyOf }) {
  */
 export function foldReview(records) {
   const byId = new Map();
-  const resolves = [];
+  const resolves = [];   // resolve AND reopen: one history, applied in order
   const anchors = [];
   for (const r of records) {
-    if (r.op === 'resolve') { resolves.push(r); continue; }
+    if (r.op === 'resolve' || r.op === 'reopen') { resolves.push(r); continue; }
     if (r.op === 'anchor') { anchors.push(r); continue; }
     // A record that names another comment and is no op was a reply, which an
     // older decklight wrote and this one does not read (REVIEW: comments are
@@ -155,11 +155,18 @@ export function foldReview(records) {
     // merge that saw both sides). First one wins; it is the same text.
     if (!byId.has(r.id)) byId.set(r.id, { ...r, resolved: null });
   }
-  for (const r of resolves) {
+  // Resolve and reopen are one history per comment and the LATEST wins: by
+  // `at` where both sides stamped one (a union merge keeps each side's order
+  // and nothing else, so file order alone would let a stale resolve from one
+  // clone outrank a later reopen from another), by file order otherwise. A
+  // comment resolved and then resolved again by somebody else is still
+  // resolved; reopened after, it is open.
+  const stamped = resolves.map((r, i) => ({ r, i })).sort((a, b) =>
+    String(a.r.at ?? '').localeCompare(String(b.r.at ?? '')) || a.i - b.i);
+  for (const { r } of stamped) {
     const c = byId.get(r.re);
-    // Last resolve wins, but only over another resolve — a comment resolved and
-    // then resolved again by somebody else is still resolved.
-    if (c) c.resolved = { at: r.at ?? null, by: r.by ?? null };
+    if (!c) continue;
+    c.resolved = r.op === 'resolve' ? { at: r.at ?? null, by: r.by ?? null } : null;
   }
   // An anchor op MOVES a comment: the author, standing where the content
   // lives now, re-pins a comment whose slide was deleted or rewritten past

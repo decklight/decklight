@@ -5,8 +5,8 @@
 // deck registers, whichever way it was opened:
 //
 //   GET  /deck/review/comments    what has been said
-//   POST /deck/review/comments    append one record: a comment, a resolve or a
-//                            re-anchor (`op`, naming the comment by `re`)
+//   POST /deck/review/comments    append one record: a comment, a resolve, a
+//                            reopen or a re-anchor (`op`, naming the comment by `re`)
 //   POST /deck/review/submit      push what was said to a branch of its own
 //
 // What a page needs to know before it comments (`review` on /deck/ping: the
@@ -129,13 +129,14 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
     return { ok: true, ...(rec.id ? { id: rec.id } : {}), committed };
   };
   /**
-   * Store one record: a NEW comment (no `op`), a resolve (`op: 'resolve', re`)
-   * or a re-anchor (`op: 'anchor', re, slide`: a comment moved to the slide
-   * somebody is looking at, the reconciliation for a slide deleted or
-   * rewritten past what fingerprint and title can find). All three are
-   * appends: this file is never rewritten. There is no reply (REVIEW): a
-   * comment is one-way, and a record that names another with no `op` is
-   * refused rather than stored as one.
+   * Store one record: a NEW comment (no `op`), a resolve (`op: 'resolve', re`),
+   * a reopen (`op: 'reopen', re`: the resolve taken back, as a line of its own
+   * so the file stays a log) or a re-anchor (`op: 'anchor', re, slide`: a
+   * comment moved to the slide somebody is looking at, the reconciliation for
+   * a slide deleted or rewritten past what fingerprint and title can find).
+   * All four are appends: this file is never rewritten. There is no reply
+   * (REVIEW): a comment is one-way, and a record that names another with no
+   * `op` is refused rather than stored as one.
    */
   const post = (body) => {
     let input;
@@ -149,7 +150,7 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
       if (r.ok) out.write(`  comment on slide ${rec.slide} → ${storeName}${r.committed ? ' (committed)' : ''}\n`);
       return r;
     }
-    if (op !== 'anchor' && op !== 'resolve') return { ok: false, code: 400, error: 'a record is a comment, a resolve or a move' };
+    if (op !== 'anchor' && op !== 'resolve' && op !== 'reopen') return { ok: false, code: 400, error: 'a record is a comment, a resolve, a reopen or a move' };
     if (typeof re !== 'string' || !/^[a-z0-9]{1,12}$/.test(re)) return { ok: false, code: 400, error: 'bad comment id' };
     if (op === 'anchor') {
       const n = Number(slide);
@@ -158,15 +159,15 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
       if (fp !== undefined && (typeof fp !== 'string' || !/^[0-9a-f]{1,16}$/.test(fp))) return { ok: false, code: 400, error: 'bad fingerprint' };
     }
     const at = new Date().toISOString();
-    // A resolve or an anchor records no deck version: it is about the
-    // comment, not about the slide.
+    // An op records no deck version: it is about the comment, not about the
+    // slide.
     const rec = op === 'anchor'
       ? { op: 'anchor', re, slide: Number(slide), ...(title !== undefined ? { title } : {}), ...(fp !== undefined ? { fp } : {}), at, ...(by ? { by } : {}) }
-      : { op: 'resolve', re, at, ...(by ? { by } : {}) };
+      : { op, re, at, ...(by ? { by } : {}) };
     const r = append(rec, op === 'anchor'
       ? commitSubject(`review: move ${re} to slide ${rec.slide}`, 'review: re-anchor a comment')
-      : commitSubject(`review: resolve ${re}`, 'review: resolve a comment'));
-    if (r.ok) out.write(`  review: ${op === 'anchor' ? `moved ${re} to slide ${rec.slide}` : `resolved ${re}`}${r.committed ? ' (committed)' : ''}\n`);
+      : commitSubject(`review: ${op} ${re}`, `review: ${op} a comment`));
+    if (r.ok) out.write(`  review: ${op === 'anchor' ? `moved ${re} to slide ${rec.slide}` : op === 'resolve' ? `resolved ${re}` : `reopened ${re}`}${r.committed ? ' (committed)' : ''}\n`);
     return r;
   };
   const submit = async () => {

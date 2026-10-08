@@ -71,6 +71,31 @@ test('state is folded from the log, never stored', () => {
   assert.equal(a3.resolved, null, 'unresolved is null, not false — nobody has said');
 });
 
+test('a reopen takes a resolve back, and the latest by time wins across a union merge', () => {
+  // Resolve and reopen are one history per comment. A union merge keeps each
+  // side's order and nothing else, so the stamp decides where both have one:
+  // here the reopen sits ABOVE the resolve in the file but was written later.
+  const { records } = parseReview([
+    '{"id":"a1","slide":1,"body":"the question"}',
+    '{"op":"reopen","re":"a1","at":"2026-08-23T10:00:00Z","by":"Gilles"}',
+    '{"op":"resolve","re":"a1","at":"2026-08-23T09:00:00Z","by":"Gilles"}',
+    '{"id":"a2","slide":2,"body":"another"}',
+    '{"op":"resolve","re":"a2","at":"2026-08-23T09:00:00Z","by":"Gilles"}',
+    '{"op":"reopen","re":"a2","at":"2026-08-23T09:30:00Z","by":"Gilles"}',
+    '{"op":"resolve","re":"a2","at":"2026-08-23T11:00:00Z","by":"Ana"}',
+  ].join('\n'));
+  const [a1, a2] = foldReview(records);
+  assert.equal(a1.resolved, null, 'the later reopen wins over the earlier resolve, whatever the file order');
+  assert.deepEqual(a2.resolved, { at: '2026-08-23T11:00:00Z', by: 'Ana' }, 'resolved again after the reopen');
+  // without stamps, file order is the history
+  const bare = foldReview(parseReview([
+    '{"id":"b1","slide":1,"body":"x"}',
+    '{"op":"resolve","re":"b1"}',
+    '{"op":"reopen","re":"b1"}',
+  ].join('\n')).records);
+  assert.equal(bare[0].resolved, null);
+});
+
 test('a resolve that arrives BEFORE its comment still lands', () => {
   // merge=union concatenates; it does not reorder. So the file can genuinely
   // hold a resolve above the comment it refers to.

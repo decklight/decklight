@@ -79,7 +79,6 @@ export function createReview({
   let el = null;
   let rows = [];
   let sel = 0;
-  let armed = null;        // the comment id a second R would resolve
   let armedSubmit = false; // S pressed once — the next S pushes the review
   let armedAnchor = null;  // the comment id a second A would move to this slide
   let incomingNow = [];    // every listed review, done ones included — T's targets
@@ -175,6 +174,7 @@ export function createReview({
     // un-done, and so its comments stay readable after the fact.
     const row = el_('div', `rv-row${c.resolved ? ' rv-resolved' : ''}${branch ? ' rv-inc' : ''}${done ? ' rv-done' : ''}`);
     row.setAttribute('role', 'option');
+    row.dataset.id = c.id;
     const head = el_('div', 'rv-head');
     head.append(el_('span', 'rv-slide', anchor.slide ? `slide ${anchor.slide}` : 'slide gone'));
     head.append(el_('span', 'rv-who', who(c)));
@@ -197,9 +197,6 @@ export function createReview({
       row.append(el_('div', 'rv-then', d.known
         ? `what it said — slide ${d.slide}${d.title ? ` · ${d.title}` : ''}${d.deck ? ` · @${d.deck}` : ''}:\n${d.text || '(nothing)'}`
         : `cannot show what it said — ${d.why}`));
-    }
-    if (armed === c.id) {
-      row.append(el_('div', 'rv-arm', 'resolve this comment? ⏎ again to confirm · Esc to back out'));
     }
     if (armedAnchor === c.id) {
       row.append(el_('div', 'rv-arm',
@@ -332,8 +329,8 @@ export function createReview({
 
     card.append(el_('div', 'rec-hint', state.can === 'resolve'
       ? (incomingNow.length
-        ? '⏎ jumps · R marks one done (again reopens a reviewer\'s) · A moves here · ⇧M writes · Esc closes'
-        : '⏎ jumps (on a gone slide: shows what it said) · R marks one done · A moves here · ⇧M writes · Esc closes')
+        ? '⏎ jumps · R marks one done, again reopens it · A moves here · ⇧M writes · Esc closes'
+        : '⏎ jumps (on a gone slide: shows what it said) · R marks one done, again reopens it · A moves here · ⇧M writes · Esc closes')
       : state.can === 'comment'
         ? '⏎ jumps to the slide · ⇧M writes · S submits the review · Esc closes'
         : '⏎ jumps to the slide · Esc closes'));
@@ -451,7 +448,7 @@ export function createReview({
     if (!r || r.resolved) return;
     const base = editBase();
     if (base == null) return;
-    if (armedAnchor !== r.id) { armedAnchor = r.id; armed = null; render(await load()); return; }
+    if (armedAnchor !== r.id) { armedAnchor = r.id; render(await load()); return; }
     armedAnchor = null;
     // Same as resolve: a comment on a review branch is not ours to move.
     if (r.branch) { toast('this comment is on a review branch — only your own comments can be moved'); return; }
@@ -507,16 +504,17 @@ export function createReview({
    * R — one comment, finished with. What that MEANS depends on whose it is,
    * and the difference is ownership rather than taste:
    *
-   *   yours          an append-only `resolve` record in the deck's own sidecar.
-   *                  It travels, so the reviewer can see you dealt with their
-   *                  point. Irreversible-ish (the log only grows), so it keeps
-   *                  the house two-step: armed, then confirmed.
+   *   yours          an append-only `resolve` record in the deck's own sidecar,
+   *                  and R again an append-only `reopen`. Both travel, so the
+   *                  reviewer can see you dealt with their point, or took that
+   *                  back; the latest wins in the fold. The log only grows,
+   *                  but a resolve is one keypress from reopened, so it fires
+   *                  immediately: an arm protects you from a write you cannot
+   *                  take back, and this is not one.
    *
    *   a reviewer's   their comments live on their branch, which is not ours to
-   *                  write. A private mark in this clone's git config instead —
-   *                  and because it is private and one keypress from undone, it
-   *                  fires immediately. An arm protects you from a write you
-   *                  cannot take back; this is not one.
+   *                  write. A private mark in this clone's git config instead,
+   *                  reversible the same way, and immediate for the same reason.
    */
   async function resolve() {
     const r = rows[sel];
@@ -539,18 +537,20 @@ export function createReview({
       render(await load());
       return;
     }
-    if (r.resolved) return;
-    if (armed !== r.id) { armed = r.id; render(await load()); return; }
-    armed = null;
+    // Your own: resolve, or reopen a resolved one — each an appended record
+    // that travels, and the latest wins. No arm: a resolve can be taken back
+    // with the same key, so there is nothing a two-step would protect.
+    const op = r.resolved ? 'reopen' : 'resolve';
     try {
       const res = await fetch(`${base}/deck/review/comments`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ op: 'resolve', re: r.id }),
+        body: JSON.stringify({ op, re: r.id }),
       });
       if (!(await res.json())?.ok) throw new Error('refused');
-      toast('resolved');
-    } catch (e) { toast(`could not resolve that — ${String(e.message || e)}`); }
+      toast(op === 'resolve' ? 'resolved' : 'reopened');
+      debugLog('review', `${r.id} ${op === 'resolve' ? 'resolved' : 'reopened'}`);
+    } catch (e) { toast(`could not ${op} that — ${String(e.message || e)}`); }
     render(await load());
   }
 
@@ -656,7 +656,6 @@ export function createReview({
   async function open() {
     if (el) return close();
     overlays.opening();
-    armed = null;
     armedSubmit = false;
     armedAnchor = null;
     context = null;
@@ -688,7 +687,6 @@ export function createReview({
   function close() {
     el?.remove();
     el = null;
-    armed = null;
     armedSubmit = false;
     armedAnchor = null;
     context = null;
@@ -732,8 +730,8 @@ export function createReview({
       if (e.key === 'Escape') {
         // Escape backs out of an arm before it closes the overlay — the same
         // two-step every other confirming surface here uses.
-        if (armed || armedSubmit || armedAnchor) {
-          armed = null; armedSubmit = false; armedAnchor = null;
+        if (armedSubmit || armedAnchor) {
+          armedSubmit = false; armedAnchor = null;
           load().then((s) => el && render(s));
           return true;
         }
@@ -744,10 +742,7 @@ export function createReview({
       switch (e.key) {
         case 'ArrowDown': select(sel + 1); break;
         case 'ArrowUp': select(sel - 1); break;
-        // Armed on the row you are on, ⏎ CONFIRMS — the promise the arm text
-        // makes, and the same key restore's two-step confirms with. Anywhere
-        // else it jumps, which is what the hint says it does.
-        case 'Enter': (armed && rows[sel]?.id === armed) ? resolve() : jump(); break;
+        case 'Enter': jump(); break;
         case 'r': case 'R': resolve(); break;
         case 's': case 'S': submitAll(); break;
         case 'a': case 'A': anchorHere(); break;
