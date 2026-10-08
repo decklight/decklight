@@ -25,8 +25,7 @@ import { execFileSync } from 'node:child_process';
 import {
   MAX_DIFF, MAX_SLIDES_NAMED, amendSubject, amendable, changeDiff, changedSlides,
   deckOutline, deckTitle, describeCommit, messagePrompt, messagesLine, parseHunks,
-  subjectFrom,
-} from '../cli/commit-message.mjs';
+  subjectFrom, reviewSubject, describeWorking } from '../cli/commit-message.mjs';
 import { AGENTS, agentAsk } from '../cli/agents.mjs';
 
 // ── reading the agent's answer ───────────────────────────────────────────
@@ -285,6 +284,41 @@ const fakeAgent = (answer) => async () => answer;
 // with no agent CLI installed, describeCommit gives up before the fake runner
 // is reached — which is exactly how this file passed locally and failed on CI.
 const anyAgent = () => ({ bin: 'fake-agent', args: [], name: 'fake', label: 'Fake' });
+
+test('a change that is only review records gets a subject from the records, no agent asked', async () => {
+  // REVIEW: the sidecar rides the deck's commits, and "resolve 1 comment" is
+  // a fact read off the diff, not a thing an agent should make up — so the
+  // subject comes without one, and an agent that IS there is not asked.
+  assert.equal(reviewSubject('+{"id":"a1","slide":2,"body":"Tighten."}'), 'review: a comment on slide 2');
+  assert.equal(reviewSubject('+{"op":"resolve","re":"a1"}'), 'review: resolve 1 comment');
+  assert.equal(reviewSubject('+{"op":"resolve","re":"a1"}\n+{"op":"resolve","re":"a2"}'), 'review: resolve 2 comments');
+  assert.equal(reviewSubject('+{"op":"reopen","re":"a1"}\n+{"op":"delete","re":"a2"}'), 'review: 2 changes to comments');
+  assert.equal(reviewSubject('+{"id":"a1","slide":2,"body":"x"}\n+{"id":"a2","slide":3,"body":"y"}'), 'review: 2 comments');
+  assert.equal(reviewSubject('+{"id":"a1","slide":2,"body":"x"}\n+{"op":"anchor","re":"a1","slide":3}'), 'review: 1 comment, 1 change');
+  assert.equal(reviewSubject('-{"id":"a1"}\n+++ b/x\n'), null, 'nothing added, nothing to say');
+  assert.equal(reviewSubject('+not json'), null);
+
+  let asked = 0;
+  const run = (args) => {
+    if (args[0] === 'diff' && args.includes('deck.html')) return '';
+    if (args[0] === 'diff') return '+++ b/deck.review.jsonl\n@@ -0,0 +1 @@\n+{"op":"resolve","re":"yc9lhw","at":"t","by":"G"}';
+    return '';
+  };
+  const out = await describeWorking({
+    cwd: '/nowhere', deckPath: '/nowhere/deck.html', deckRel: 'deck.html', template: 'decklight: autosave deck.html',
+    also: ['deck.review.jsonl'], run,
+    resolve: () => { asked++; return anyAgent(); }, exec: fakeAgent('the agent was asked'),
+  });
+  assert.equal(out, 'review: resolve 1 comment');
+  assert.equal(asked, 0, 'the agent was consulted for a review-only change');
+  // the deck changed too: the agent describes the deck, as before
+  const both = await describeWorking({
+    cwd: '/nowhere', deckPath: '/nowhere/deck.html', deckRel: 'deck.html', template: 'decklight: autosave deck.html',
+    also: ['deck.review.jsonl'], run: (args) => (args[0] === 'diff' ? '+++ b/deck.html\n+<h1>x</h1>' : ''),
+    resolve: anyAgent, exec: fakeAgent('tighten the opening'), read: () => '',
+  });
+  assert.equal(both, 'tighten the opening');
+});
 
 test('a subject the agent wrote replaces the template', async () => {
   const r = repo();

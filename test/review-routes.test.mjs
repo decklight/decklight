@@ -26,8 +26,10 @@ async function open(t, mode, { git: withGit = false } = {}) {
   if (withGit) {
     // a repository somebody else made: the deck committed, no .gitattributes
     execFileSync('git', ['init', '-q'], { cwd: dir });
-    execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@x', 'add', 'talk.html'], { cwd: dir });
-    execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@x', 'commit', '-q', '-m', 'deck'], { cwd: dir });
+    execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir });
+    execFileSync('git', ['config', 'user.email', 't@x'], { cwd: dir });
+    execFileSync('git', ['add', 'talk.html'], { cwd: dir });
+    execFileSync('git', ['commit', '-q', '-m', 'deck'], { cwd: dir });
   }
   const home = mkdtempSync(path.join(tmpdir(), 'decklight-review-routes-home-'));
   const args = ['talk.html', '--port', '0', ...(withGit ? [] : ['--no-git']), ...(mode === 'no-trust' ? ['--no-trust'] : ['--no-open', '--no-tts', '--no-lipsync'])];
@@ -86,22 +88,34 @@ for (const mode of ['no-trust', 'write']) {
   });
 }
 
-test('the first comment in a repository writes the union attribute, committed beside it', async (t) => {
-  // The reviewer's clone of a repo that never heard of decklight: their
-  // first comment must leave the repository able to merge the sidecar, or
-  // their first pull after the author's resolve loses the comment.
+test('in no-trust mode a review is a branch: each record a commit on review/<me>-<date>, the work tree untouched', async (t) => {
+  // REVIEW: the reviewer's records never touch her checked-out branch or the
+  // tracked sidecar, so a pull never diverges and a reset never loses one.
   const { base, dir } = await open(t, 'no-trust', { git: true });
-  assert.equal(existsSync(path.join(dir, '.gitattributes')), false, 'the fixture has none');
+  const g = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
+  const head = g('rev-parse', 'HEAD');
+  const ping = await (await fetch(`${base}/deck/ping`)).json();
+  assert.match(ping.review.branch, /^review\/t-\d{4}-\d{2}-\d{2}$/, 'the probe names the branch (the slug is the email local part)');
   const r = await (await post(base, { slide: 1, title: 'Alpha', body: 'First.' })).json();
   assert.equal(r.committed, true);
-  assert.match(readFileSync(path.join(dir, '.gitattributes'), 'utf8'), /^\*\.review\.jsonl merge=union$/m);
-  const shown = execFileSync('git', ['show', '--stat', '--format=', 'HEAD'], { cwd: dir, encoding: 'utf8' });
-  assert.match(shown, /\.gitattributes/, 'the attribute travels in the same commit as the comment');
-  assert.match(shown, /talk\.review\.jsonl/);
-  assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).trim(), '', 'nothing left behind');
-  // the second record has nothing to add
-  await post(base, { slide: 2, title: 'Beta', body: 'Second.' });
-  assert.doesNotMatch(execFileSync('git', ['show', '--stat', '--format=', 'HEAD'], { cwd: dir, encoding: 'utf8' }), /gitattributes/);
+  assert.equal(r.branch, ping.review.branch);
+  assert.equal(existsSync(path.join(dir, 'talk.review.jsonl')), false, 'nothing written beside the deck');
+  assert.equal(g('status', '--porcelain'), '', 'the work tree is untouched');
+  assert.equal(g('rev-parse', 'HEAD'), head, 'the checked-out branch did not move');
+  assert.equal(g('rev-parse', `${r.branch}^`), head, 'the review branch is parented on HEAD (no upstream here)');
+  assert.match(g('show', `${r.branch}:talk.review.jsonl`), /"body":"First\."/);
+  // a second record is a second commit on the same branch, and a delete a third
+  const r2 = await (await post(base, { slide: 2, title: 'Beta', body: 'Second.' })).json();
+  assert.equal(r2.branch, r.branch);
+  assert.equal((await post(base, { op: 'delete', re: r.id })).status, 200);
+  assert.equal(g('rev-list', '--count', `${head}..${r.branch}`), '3');
+  const onBranch = g('show', `${r.branch}:talk.review.jsonl`).trim().split('\n');
+  assert.equal(onBranch.length, 3, 'one line per record, appended');
+  // …and the listing reads it back: the deleted one folded out by the page,
+  // both records handed over raw
+  const listed = await (await fetch(`${base}/deck/review/comments`)).json();
+  assert.deepEqual(listed.records.map((x) => x.id ?? x.op), [r.id, r2.id, 'delete']);
+  assert.equal(g('status', '--porcelain'), '', 'still untouched');
 });
 
 test('a resolve is taken back by a reopen — a line of its own, and the file stays a log', async (t) => {

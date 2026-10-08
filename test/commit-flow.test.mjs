@@ -95,6 +95,7 @@ test('the review sidecar counts with the deck — a resolve the author pressed R
   let d = deckDirty(dir, rel, { also: [side] });
   assert.equal(d.dirty, true, 'an untracked sidecar is uncommitted work');
   assert.equal(d.untracked, true);
+  assert.deepEqual(d.files, [side], 'and the card can say which file');
   assert.deepEqual(deckDirty(dir, rel), { dirty: false, lines: 0 }, 'without `also` the deck alone is clean');
   g('add', side); g('commit', '-q', '-m', 'review');
   assert.deepEqual(deckDirty(dir, rel, { also: [side] }), { dirty: false, lines: 0 });
@@ -102,6 +103,22 @@ test('the review sidecar counts with the deck — a resolve the author pressed R
   d = deckDirty(dir, rel, { also: [side] });
   assert.equal(d.dirty, true);
   assert.equal(d.lines, 1, 'the appended line is counted');
+  assert.deepEqual(d.files, [side]);
+  fs.appendFileSync(path.join(dir, rel), '<section><h2>More</h2></section>\n');
+  assert.deepEqual(deckDirty(dir, rel, { also: [side] }).files, [rel, side], 'both, deck first');
+});
+
+test('an extra path git refuses does not turn a committed deck into a first commit', (t) => {
+  // The sidecar list may carry a path in a form git will not take (a Windows
+  // temp dir's short form walked out of the repository): the deck's own
+  // answer still stands, rather than "nothing committed yet".
+  const { dir, rel, abs } = repo(t);
+  assert.deepEqual(deckDirty(dir, rel, { also: ['../../outside/.gitattributes'] }), { dirty: false, lines: 0 });
+  fs.writeFileSync(abs, '<section><h1>Two</h1></section>\n<section><h2>New</h2></section>\n');
+  const d = deckDirty(dir, rel, { also: ['../../outside/.gitattributes'] });
+  assert.equal(d.dirty, true);
+  assert.equal(d.firstCommit, undefined, 'a diff that failed on the extra path is not a missing HEAD');
+  assert.deepEqual(d.files, [rel]);
 });
 
 test('a deck git has never seen is the most uncommitted a file can be', (t) => {

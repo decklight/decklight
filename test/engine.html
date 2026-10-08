@@ -142,7 +142,7 @@
       if (HARNESS_MODE === 'commit') {
         if (u.includes('/deck/ping')) {
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
-            commit: { dirty: true, lines: 7, sinceMs: 0, nag: false, canWrite: true, messages: false } });
+            commit: { dirty: true, lines: 7, files: ['deck.html', 'deck.review.jsonl'], sinceMs: 0, nag: false, canWrite: true, messages: false } });
         }
         // The agent's draft, held for a second so the wait can be watched.
         if (u.includes('/deck/edit/commit/subject')) {
@@ -150,7 +150,7 @@
           return json({ ok: true, subject: 'split the crowded video slides' });
         }
         if (u.includes('/deck/edit/commit') && (init?.method ?? 'GET') === 'GET') {
-          return json({ ok: true, dirty: true, lines: 7, sinceMs: 0, nag: false,
+          return json({ ok: true, dirty: true, lines: 7, files: ['deck.html', 'deck.review.jsonl'], sinceMs: 0, nag: false,
             canWrite: true, messages: window.__commitMessages === true, deck: 'engine.html',
             describer: window.__describer === undefined ? { name: 'claude', label: 'Claude Code' } : window.__describer,
             subjectsOff: window.__subjectsOff === true });
@@ -3700,6 +3700,9 @@
         press('k');
         await settle();
         r.bareKopens = !!document.querySelector(`${O} .narr-card`);
+        // the window names WHICH files changed: the sidecar rides the deck's
+        // commits (REVIEW), and a resolve is a line in it, not in the deck
+        r.cardNamesTheFiles = /7 lines in deck\.html and deck\.review\.jsonl/.test(document.querySelector(`${O} .cm-what`)?.textContent ?? '');
         r.bareKtoggles = (press('k'), await settle(), !document.querySelector(O));
 
         // ⌘K — the alias, from closed
@@ -3806,7 +3809,7 @@
         escapeUntilClosed(O);
         window.__commitMessages = false;
 
-        r.PASS = r.bareKopens && r.bareKtoggles && r.metaKopens && r.metaKclosesFromTheBox
+        r.PASS = r.bareKopens && r.bareKtoggles && r.metaKopens && r.metaKclosesFromTheBox && r.cardNamesTheFiles
           && r.ctrlKopens && r.cmdEnterCommits && r.closesAfterCommitting
           && r.defaultOffersIt && r.tooltipNamesTheAgent && r.nothingSentOnOpen && r.draftsOnOpenWhenAsked
           && r.noAgentSaysSo && r.noAgentExplains && r.offSaysOff && r.offExplains && r.offAsksNothing

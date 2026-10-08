@@ -42,52 +42,18 @@ import { makeFail } from './util.mjs';
 import { noPromptEnv, oneline, ownerRepo } from './git.mjs';
 import { refProblem } from './marketplace.mjs';
 import { putBlob, remoteHead } from './git-tree.mjs';
-import { reviewPathFor, parseReview, mergeById, serializeRecord } from './review-store.mjs';
+import { reviewPathFor, parseReview, mergeById, serializeRecord, slugUser, branchName } from './review-store.mjs';
+import { reviewState } from './review-ref.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
 import { reviewerIdentity } from './review-routes.mjs';
 import { ghReady } from './init.mjs';
 
 const fail = makeFail('review submit');
 
-/**
- * A branch-safe rendering of who is speaking.
- *
- * The email's local part first — it is nearly always `[a-z0-9._-]` already and
- * it is the half that identifies a person rather than describing them. The
- * display name is the fallback and needs the most work: "Ana Ruiz" has a space,
- * which git refuses in a ref.
- *
- * Lossy on purpose, and the loss is covered: the FULL identity rides in the
- * commit's `Signed-off-by`, so the branch name never has to be the only record
- * of who wrote a review.
- */
-export function slugUser(identity) {
-  const s = String(identity ?? '');
-  const email = /<([^>]*)>/.exec(s)?.[1] ?? (s.includes('@') ? s : '');
-  const from = email ? email.split('@')[0] : s;
-  const slug = from.toLowerCase().normalize('NFKD')
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^[-._]+|[-._]+$/g, '')
-    .replace(/-{2,}/g, '-')
-    .slice(0, 32);
-  // Never empty: a machine with no git identity still gets to submit, and
-  // "reviewer" is a true statement about whoever that is.
-  return slug || 'reviewer';
-}
-
-/**
- * `review/<user>-<YYYY-MM-DD>`.
- *
- * The date is an ISO 8601 calendar date and NOT a full timestamp, because git
- * refuses a `:` in a ref name and an ISO time is full of them. One branch per
- * reviewer per day is also the more useful shape: a second submit the same day
- * lands on the same branch, so a morning's reviewing is one branch and one pull
- * request rather than one per time you pressed the button.
- */
-export function branchName(identity, when = new Date()) {
-  const day = when.toISOString().slice(0, 10);
-  return `review/${slugUser(identity)}-${day}`;
-}
+// `slugUser` and `branchName` live in review-store.mjs now (the review ref
+// writer needs them too, and it must not import this module back); re-exported
+// so every existing import keeps answering.
+export { slugUser, branchName } from './review-store.mjs';
 
 // The GitHub-remote parser moved to cli/git.mjs — `pagesUrl` shares it now.
 // Re-exported so this module keeps answering for the thing `--pr` needs.
@@ -134,21 +100,25 @@ export function submitReview(deckPath, {
 
   if (!existsSync(deckPath)) fail(`no such deck: ${deckPath}`);
   const storePath = reviewPathFor(resolve(deckPath));
-  if (!existsSync(storePath)) {
-    fail(`no comments to submit — ${basename(storePath)} does not exist yet`
-      + `\n  leave some first:  decklight ${name} --no-trust   (then M)`);
-  }
-  const bytes = readFileSync(storePath, 'utf8');
-  const { records } = parseReview(bytes);
-  if (!records.length) fail(`${basename(storePath)} has no comments in it`);
-
   try { exec('git', ['rev-parse', '--git-dir'], { cwd, stdio: 'ignore' }); }
   catch { fail(`${cwd} is not inside a git repository — there is nowhere to push to`); }
+  // What is sent is the deck's review state as every reader sees it (REVIEW,
+  // review-ref.mjs): the sidecar beside the deck and this reviewer's local
+  // review branches, merged by id. A review left in no-trust mode lives on
+  // those branches and the file may not exist at all.
+  const who = reviewerIdentity(cwd, exec);
+  const state = reviewState(resolve(deckPath), slugUser(who), { exec });
+  if (!state.fileExists && !state.branches.length) {
+    fail(`no comments to submit — nothing in ${basename(storePath)} or on a review branch yet`
+      + `\n  leave some first:  decklight ${name} --no-trust   (then M)`);
+  }
+  const { records } = state;
+  if (!records.length) fail(`${basename(storePath)} has no comments in it`);
+  const bytes = records.map(serializeRecord).join('\n') + '\n';
   let remoteUrl;
   try { remoteUrl = exec('git', ['remote', 'get-url', remote], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
   catch { fail(`no remote "${remote}" in this repository (git remote add ${remote} <url>)`); }
 
-  const who = reviewerIdentity(cwd, exec);
   const branch = branchName(who, now());
   // The house rule: refuse a bad ref rather than repair it. `refProblem` is an
   // allowlist that already covers every character git forbids plus a leading
@@ -272,6 +242,10 @@ export function submitReview(deckPath, {
   }
 
   git(['push', '--quiet', remote, `${commit}:refs/heads/${branch}`]);
+  // The local review branch follows what the remote now has: the next
+  // record appends to it, and nothing is pushed twice.
+  try { exec('git', ['update-ref', '-m', `review: submitted to ${remote}`, `refs/heads/${branch}`, commit], { cwd, stdio: 'ignore' }); }
+  catch { /* a local ref is a convenience; the push is what counts */ }
   out.write(`pushed ${what} on ${name} → ${remote} ${branch}\n`);
 
   let prUrl = null;

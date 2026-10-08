@@ -175,7 +175,12 @@ export function createEditMode({
     what.className = 'cm-what';
     const n = Number(state.lines) || 0;
     const mins = Math.floor((Number(state.sinceMs) || 0) / 60000);
-    what.textContent = `${n ? `${n} line${n === 1 ? '' : 's'}` : 'changes'} in ${state.deck || 'the deck'}`
+    // WHICH files: the sidecar rides the deck's commits (REVIEW), and a
+    // resolve the author pressed R for is "1 line in talk.review.jsonl",
+    // not a line in a deck that did not change
+    const files = Array.isArray(state.files) && state.files.length ? state.files : [state.deck || 'the deck'];
+    const where = files.length === 1 ? files[0] : `${files.slice(0, -1).join(', ')} and ${files[files.length - 1]}`;
+    what.textContent = `${n ? `${n} line${n === 1 ? '' : 's'}` : 'changes'} in ${where}`
       + (mins >= 1 ? `, ${mins >= 60 ? `${Math.floor(mins / 60)}h` : `${mins}m`} old` : '');
     const input = document.createElement('textarea');
     input.className = 'narr-input cm-input';

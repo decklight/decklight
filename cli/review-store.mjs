@@ -105,3 +105,43 @@ export function mergeById(existing, incoming) {
 export function newId(rand = () => Math.random()) {
   return Math.floor(rand() * 0xffffffff).toString(36).padStart(6, '0').slice(-6);
 }
+
+/**
+ * A branch-safe rendering of who is speaking.
+ *
+ * The email's local part first — it is nearly always `[a-z0-9._-]` already and
+ * it is the half that identifies a person rather than describing them. The
+ * display name is the fallback and needs the most work: "Ana Ruiz" has a space,
+ * which git refuses in a ref.
+ *
+ * Lossy on purpose, and the loss is covered: the FULL identity rides in the
+ * commit's `Signed-off-by`, so the branch name never has to be the only record
+ * of who wrote a review.
+ */
+export function slugUser(identity) {
+  const s = String(identity ?? '');
+  const email = /<([^>]*)>/.exec(s)?.[1] ?? (s.includes('@') ? s : '');
+  const from = email ? email.split('@')[0] : s;
+  const slug = from.toLowerCase().normalize('NFKD')
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^[-._]+|[-._]+$/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 32);
+  // Never empty: a machine with no git identity still gets to submit, and
+  // "reviewer" is a true statement about whoever that is.
+  return slug || 'reviewer';
+}
+
+/**
+ * `review/<user>-<YYYY-MM-DD>`.
+ *
+ * The date is an ISO 8601 calendar date and NOT a full timestamp, because git
+ * refuses a `:` in a ref name and an ISO time is full of them. One branch per
+ * reviewer per day is also the more useful shape: a second submit the same day
+ * lands on the same branch, so a morning's reviewing is one branch and one pull
+ * request rather than one per time you pressed the button.
+ */
+export function branchName(identity, when = new Date()) {
+  const day = when.toISOString().slice(0, 10);
+  return `review/${slugUser(identity)}-${day}`;
+}

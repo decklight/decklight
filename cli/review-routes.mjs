@@ -25,11 +25,12 @@
 // an append to `<deck>.review.jsonl`, never a rewrite, which is what lets two
 // reviewers' files merge and keeps the deck byte for byte as it was.
 
-import { existsSync, readFileSync, appendFileSync } from 'node:fs';
+import { appendFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { gitAutocommit, commitSubject, oneline, ensureReviewAttribute } from './git.mjs';
-import { reviewPathFor, parseReview, serializeRecord, newId, mergeById } from './review-store.mjs';
+import { commitSubject, oneline, ensureReviewAttribute } from './git.mjs';
+import { reviewPathFor, parseReview, serializeRecord, newId, mergeById, slugUser } from './review-store.mjs';
+import { appendToReviewRef, reviewState, reviewRef } from './review-ref.mjs';
 
 /** The reviewer, as git knows them: "Name <email>", either half, or ''. */
 export function reviewerIdentity(cwd, exec = execFileSync) {
@@ -96,6 +97,9 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
   const storePath = reviewPathFor(deckPath);
   const storeName = basename(storePath);
   const by = inRepo ? reviewerIdentity(deckDir) : '';
+  // The slug the review branches carry (REVIEW: a review is a branch). Every
+  // reader here folds the sidecar with the branches this slug names.
+  const who = inRepo ? slugUser(by) : '';
   // WHICH VERSION OF THE DECK a comment is about: provenance, not bookkeeping,
   // so it is gated on being in a repository and not on committing.
   const deckHead = () => {
@@ -109,12 +113,14 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
   };
 
   /** The `review` block of /deck/ping: what a page needs to know before it comments. */
-  const ping = () => ({ mode: modeOf(), git: commits(), by: by || null, store: storeName });
+  const ping = () => ({ mode: modeOf(), git: commits(), by: by || null, store: storeName,
+    ...(commits() ? { branch: reviewRef(who).slice('refs/heads/'.length) } : {}) });
   const list = async () => {
-    const text = existsSync(storePath) ? readFileSync(storePath, 'utf8') : '';
-    const { records, skipped } = parseReview(text);
-    // `skipped` travels rather than being swallowed: a reader showing fewer
-    // comments than the file holds should be able to say so.
+    // ONE reader (review-ref.mjs `reviewState`): the sidecar beside the deck
+    // and this reviewer's local review branches, merged by id. `skipped`
+    // travels rather than being swallowed: a reader showing fewer comments
+    // than the file holds should be able to say so.
+    const { records, skipped } = reviewState(deckPath, commits() ? who : '');
     if (!mine) return { ok: true, records, skipped };
     // …and what this reviewer already submitted, as the remote holds it
     // (REVIEW): merged by id behind the sidecar, so a comment that is in
@@ -124,23 +130,44 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
     return { ok: true, records: mergeById(records, remote.records).records, skipped,
       mine: { state: remote.state, branches: remote.branches } };
   };
-  /** Append one record, commit it when this mode commits; `{ ok, id?, committed }` or `{ ok: false, error, code }`. */
+  /**
+   * Store one record. Where it goes is the mode's (REVIEW):
+   *
+   *   no-trust, in a repository, git not off — a commit of its own on this
+   *     reviewer's LOCAL review branch (`review/<me>-<date>`), never the
+   *     sidecar in the work tree and never the checked-out branch, so her
+   *     pull never diverges and a reset never loses a comment. `committed`
+   *     says so and `branch` names it.
+   *
+   *   otherwise — appended to the sidecar beside the deck: write mode (the
+   *     author's own file, which K commits with the deck), no repository (the
+   *     file IS the deliverable, for --import), or --no-git (asked for).
+   *
+   * `{ ok, id?, committed, branch? }` or `{ ok: false, error, code }`.
+   */
   const append = (rec, subject) => {
-    try {
-      // Append, never rewrite — that is what makes `merge=union` work and a
-      // second reviewer harmless.
-      appendFileSync(storePath, `${serializeRecord(rec)}\n`);
-    } catch (e) { return { ok: false, code: 500, error: oneline(e) }; }
-    // …and `merge=union` works only when the repository says so: the first
-    // record in a repository writes the attribute, committed beside it here
-    // (no-trust mode) or by the deck's next commit (write mode, onRecord).
-    const attr = inRepo ? ensureReviewAttribute(deckDir) : null;
+    const line = `${serializeRecord(rec)}\n`;
     // The reviewer's own prose reaching a command line, so it goes through
     // the sanitizer every other untrusted subject does: one line, capped,
     // never leading `-`.
-    const committed = commits() ? gitAutocommit(storePath, deckDir, subject, { also: attr ? [attr] : [] }) : false;
-    onRecord(rec, { wrote: committed ? null : attr });
-    return { ok: true, ...(rec.id ? { id: rec.id } : {}), committed };
+    if (commits()) {
+      try {
+        const r = appendToReviewRef(deckPath, line, subject, { who });
+        onRecord(rec, {});
+        return { ok: true, ...(rec.id ? { id: rec.id } : {}), committed: true, branch: r.branch };
+      } catch (e) { return { ok: false, code: 500, error: oneline(e) }; }
+    }
+    try {
+      // Append, never rewrite — that is what makes `merge=union` work and a
+      // second reviewer harmless.
+      appendFileSync(storePath, line);
+    } catch (e) { return { ok: false, code: 500, error: oneline(e) }; }
+    // …and `merge=union` works only when the repository says so: the first
+    // record in a repository writes the attribute, carried by the deck's
+    // next commit (write mode, onRecord).
+    const attr = inRepo ? ensureReviewAttribute(deckDir) : null;
+    onRecord(rec, { wrote: attr });
+    return { ok: true, ...(rec.id ? { id: rec.id } : {}), committed: false };
   };
   /**
    * Store one record: a NEW comment (no `op`), a resolve (`op: 'resolve', re`),
@@ -163,7 +190,7 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
       if (bad) return { ok: false, code: 400, error: bad };
       const rec = reviewRecord(input, { by, at: new Date().toISOString(), deck: deckHead(), id: newId() });
       const r = append(rec, commitSubject(`review: ${rec.body}`, `review: a comment on ${name}`));
-      if (r.ok) out.write(`  comment on slide ${rec.slide} → ${storeName}${r.committed ? ' (committed)' : ''}\n`);
+      if (r.ok) out.write(`  comment on slide ${rec.slide} → ${r.committed ? `${r.branch} (a commit on your review branch)` : storeName}\n`);
       return r;
     }
     if (!['anchor', 'resolve', 'reopen', 'delete'].includes(op)) return { ok: false, code: 400, error: 'a record is a comment, a resolve, a reopen, a delete or a move' };
@@ -183,7 +210,7 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
     const r = append(rec, op === 'anchor'
       ? commitSubject(`review: move ${re} to slide ${rec.slide}`, 'review: re-anchor a comment')
       : commitSubject(`review: ${op} ${re}`, `review: ${op} a comment`));
-    if (r.ok) out.write(`  review: ${op === 'anchor' ? `moved ${re} to slide ${rec.slide}` : op === 'resolve' ? `resolved ${re}` : op === 'reopen' ? `reopened ${re}` : `deleted ${re}`}${r.committed ? ' (committed)' : ''}\n`);
+    if (r.ok) out.write(`  review: ${op === 'anchor' ? `moved ${re} to slide ${rec.slide}` : op === 'resolve' ? `resolved ${re}` : op === 'reopen' ? `reopened ${re}` : `deleted ${re}`}${r.committed ? ` → ${r.branch}` : ''}\n`);
     return r;
   };
   const submit = async () => {
