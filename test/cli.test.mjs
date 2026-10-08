@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { resolveTitle, planGit, planSkill, initRepo, epilogue, openCommand, openDeck } from '../cli/init.mjs';
 import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
+import { ensureReviewAttribute, REVIEW_ATTRIBUTE } from '../cli/git.mjs';
 import { deckAt, deckHistory, restoreDeck } from '../cli/restore.mjs';
 import * as restoreMod from '../cli/restore.mjs';
 import { packSkill } from '../cli/skills.mjs';
@@ -686,6 +687,31 @@ test('createRepo seeds a fresh repository with the starter .gitignore', () => {
   rmTemp(dir);
 });
 
+test('a repository decklight makes or touches declares the union merge for review sidecars', () => {
+  // REVIEW: the append-only store is a merge strategy only while git knows to
+  // concatenate. Seeded by createRepo, written on first touch anywhere else,
+  // appended to an existing .gitattributes and never twice.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitattr-'));
+  createRepo(dir);
+  assert.equal(fs.readFileSync(path.join(dir, '.gitattributes'), 'utf8'), `${REVIEW_ATTRIBUTE}\n`);
+  assert.equal(ensureReviewAttribute(dir), null, 'already there: nothing to write');
+  rmTemp(dir);
+
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitattr-'));
+  assert.equal(ensureReviewAttribute(plain), null, 'no repository, nothing written');
+  assert.equal(fs.existsSync(path.join(plain, '.gitattributes')), false);
+  execFileSync('git', ['init', '-q'], { cwd: plain });
+  fs.writeFileSync(path.join(plain, '.gitattributes'), '*.png binary');   // no trailing newline
+  fs.mkdirSync(path.join(plain, 'talks'));
+  assert.equal(path.basename(ensureReviewAttribute(path.join(plain, 'talks')) ?? ''), '.gitattributes',
+    'written at the repository root, from a subdirectory');
+  assert.equal(fs.readFileSync(path.join(plain, '.gitattributes'), 'utf8'), `*.png binary\n${REVIEW_ATTRIBUTE}\n`);
+  assert.equal(ensureReviewAttribute(plain), null, 'idempotent');
+  assert.equal(execFileSync('git', ['check-attr', 'merge', 'talks/deck.review.jsonl'], { cwd: plain, encoding: 'utf8' }).trim(),
+    'talks/deck.review.jsonl: merge: union', 'git reads it');
+  rmTemp(plain);
+});
+
 test('the starter entries really ignore the artifacts — git add -A stays clean', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitignore-'));
   createRepo(dir);
@@ -699,8 +725,8 @@ test('the starter entries really ignore the artifacts — git add -A stays clean
   execFileSync('git', ['add', '-A'], { cwd: dir });
   const staged = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: dir, encoding: 'utf8' })
     .trim().split('\n').sort();
-  assert.deepEqual(staged, ['.gitignore', 'deck.html'],
-    'a hasty git add -A picks up the deck and the ignore file, none of the artifacts');
+  assert.deepEqual(staged, ['.gitattributes', '.gitignore', 'deck.html'],
+    'a hasty git add -A picks up the deck, the ignore file and the union attribute, none of the artifacts');
   rmTemp(dir);
 });
 

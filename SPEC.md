@@ -618,7 +618,12 @@ and are **anchored to slides by content**, not by number.
 **The store** is `<deck>.review.jsonl` beside the deck: one JSON object per line, **append-only, never
 rewritten**. That is the merge strategy rather than a tidiness rule: `.gitattributes` declares
 `*.review.jsonl merge=union`, so two reviewers commenting at once produce two sets of added lines and no
-conflict, and it holds only while nothing ever edits a line. Resolving a comment, reopening it, deleting it and moving one are
+conflict, and it holds only while nothing ever edits a line. **decklight writes that line itself**
+(`ensureReviewAttribute`): a repository it creates starts with it, and the first record it appends in any other
+repository, in either mode or by `--import`, adds it to the repository's `.gitattributes` and carries it in the
+same commit as the record (no-trust mode) or in the deck's next one (write mode). Nobody has to know the line
+exists, and the alternative is the reviewer's first `git pull --rebase` after the author's resolve meeting a
+plain add/add conflict on the sidecar, which resolved the usual way loses their comment. Resolving a comment, reopening it, deleting it and moving one are
 records of their own (`{op:"resolve", re}`, `{op:"reopen", re}`, `{op:"delete", re}` and `{op:"anchor", re, …}`), so state is **folded from the log** rather than stored:
 two people resolving the same comment is two harmless lines, and a resolve that `merge=union` placed above the
 comment it refers to still lands. JSONL rather than JSON because an appended line is a one-line diff: a

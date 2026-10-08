@@ -1340,9 +1340,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
    */
   function ownCommit(message) {
     const made = message === undefined
-      ? gitAutocommit(deckPath, root, undefined, withSidecar)
-      : gitAutocommit(deckPath, root, message, withSidecar);
+      ? gitAutocommit(deckPath, root, undefined, alsoNow())
+      : gitAutocommit(deckPath, root, message, alsoNow());
     if (!made) return false;
+    pendingAttr = null;
     // Whatever wrote it — the overlay, an agent, a bookend — this stretch of
     // uncommitted work is over, so the nag re-arms for the NEXT one.
     resetEpisode();
@@ -1379,7 +1380,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // stays deck-only: it is a backup of the thing being edited.
   const sidecarPath = reviewPathFor(deckPath);
   const sidecarRel = sidecarPath.slice(root.length + 1).split(sep).join('/');
-  const withSidecar = { also: [sidecarPath] };
+  let pendingAttr = null;  // a .gitattributes decklight just wrote, until a commit carries it
+  const relOf = (p) => relative(root, p).split(sep).join('/');
+  const alsoNow = () => ({ also: [sidecarPath, ...(pendingAttr ? [pendingAttr] : [])] });
+  const alsoRels = () => [sidecarRel, ...(pendingAttr ? [relOf(pendingAttr)] : [])];
   let nagged = false;      // the episode latch: asked once, then quiet
   let nagDismissed = false;
   let lastWip = null;      // the snapshot sha, so the ping can prove it exists
@@ -1398,7 +1402,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * asking.
    */
   const measureDirty = () => {
-    const d = deckDirty(root, deckRel, { also: [sidecarRel] });
+    const d = deckDirty(root, deckRel, { also: alsoRels() });
     if (!d.dirty) { dirtySince = 0; dirtyLines = 0; return d; }
     if (!dirtySince) dirtySince = Date.now();
     dirtyLines = d.lines;
@@ -1495,7 +1499,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // immediately after, so there is no later for an amend to arrive in. The
     // bookend keeps its literal subject, which is true anyway.
     if (gitMode === 'timer') {
-      gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`, withSidecar);
+      if (gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`, alsoNow())) pendingAttr = null;
     } else {
       // Committing work you deliberately did not commit would be the cadence
       // again, wearing an exit for a hat. The snapshot is refreshed instead —
@@ -1583,8 +1587,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
     mode: noTrust ? 'no-trust' : 'write',
     // A record just landed in the sidecar — a resolve naming a reviewer's
     // comment changes what the incoming listing says is done, so the cached
-    // listing must not outlive it.
-    onRecord: () => { incomingCache = null; },
+    // listing must not outlive it. `wrote` is the .gitattributes the first
+    // record in this repository had to write (REVIEW, merge=union): the
+    // deck's next commit carries it, beside the sidecar.
+    onRecord: (_rec, { wrote } = {}) => { incomingCache = null; if (wrote) pendingAttr = wrote; },
   });
   // The deck's channel (deck-routes.mjs): the probe and the stream, in both
   // modes. What the probe carries beyond the mode is `extras`, computed on
@@ -1993,7 +1999,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // A failed run or one that changed nothing commits nothing.
       if (gitOn && shouldCommit(gitMode, { kind: 'agent', ok: code === 0, changed })) {
         const subject = commitSubject(message ?? prompt, `decklight: ${cmd.name} edited ${basename(deckPath)}`);
-        if (gitAutocommit(deckPath, root, subject, withSidecar)) console.log(`  git: committed "${subject}"`);
+        if (gitAutocommit(deckPath, root, subject, alsoNow())) { pendingAttr = null; console.log(`  git: committed "${subject}"`); }
       }
       // Did the edit orphan, stale, or reshape a recording? A track is
       // minutes of somebody's own voice, and a whole-deck rewrite can drop the
@@ -2144,8 +2150,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const subject = commitSubject(msg, `decklight: autosave ${basename(deckPath)}`);
     // gitAutocommit reports false for "nothing to commit", which is not an
     // error: it is the answer to pressing K twice.
-    const made = gitAutocommit(deckPath, root, subject, withSidecar);
+    const made = gitAutocommit(deckPath, root, subject, alsoNow());
     if (!made) return json(200, { ok: true, committed: false, ...commitState() });
+    pendingAttr = null;
     resetEpisode();
     console.log(`  git: committed ${deckRel} — "${subject}"`);
     return json(200, {

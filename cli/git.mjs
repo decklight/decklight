@@ -7,7 +7,7 @@
 // between them (init learned `auto-detect`, edit never did). One home now.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 
 /**
@@ -65,10 +65,39 @@ voiceover/
  */
 export function createRepo(dir) {
   git(['init'], dir);
+  ensureReviewAttribute(dir);
   const ignorePath = resolve(dir, '.gitignore');
   if (existsSync(ignorePath)) return false;
   writeFileSync(ignorePath, STARTER_GITIGNORE);
   return true;
+}
+
+/** The line that makes two sidecars merge by concatenation (REVIEW). */
+export const REVIEW_ATTRIBUTE = '*.review.jsonl merge=union';
+
+/**
+ * Make sure the repository around `dir` declares the union merge for review
+ * sidecars. The append-only store is a merge strategy only while git knows
+ * to concatenate: without this line a reviewer's first `git pull --rebase`
+ * after the author commits a resolve meets a plain add/add conflict on the
+ * sidecar and, resolved the usual way, loses their comment. Written the
+ * first time decklight touches a sidecar in a repository, and seeded by
+ * createRepo, so no one has to know the line exists. Appends to an existing
+ * `.gitattributes`, never rewrites one. Returns the file's path when it
+ * wrote (for the caller to commit beside the record), null when the line was
+ * there already, there is no repository, or the file could not be written.
+ */
+export function ensureReviewAttribute(dir) {
+  let top;
+  try { top = git(['rev-parse', '--show-toplevel'], dir); } catch { return null; }
+  const file = resolve(top, '.gitattributes');
+  let text = '';
+  try { text = existsSync(file) ? readFileSync(file, 'utf8') : ''; } catch { return null; }
+  if (/^[ \t]*\*\.review\.jsonl[ \t]+(?:\S+[ \t]+)*merge=union\b/m.test(text)) return null;
+  try {
+    writeFileSync(file, (text && !text.endsWith('\n') ? `${text}\n` : text) + `${REVIEW_ATTRIBUTE}\n`);
+  } catch { return null; }
+  return file;
 }
 
 /** Commit the deck if it changed. Returns true when a commit was made. */

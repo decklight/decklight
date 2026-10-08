@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -20,11 +20,17 @@ const CLI = path.resolve(here, '../cli/decklight.mjs');
 const DECK = '<!doctype html><html><body><div class="decklight"><section><h2>Alpha</h2></section><section><h2>Beta</h2></section></div><script>Decklight.init()</script></body></html>\n';
 
 /** The one command, one way or the other, on an ephemeral port. */
-async function open(t, mode) {
+async function open(t, mode, { git: withGit = false } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-review-routes-'));
   writeFileSync(path.join(dir, 'talk.html'), DECK);
+  if (withGit) {
+    // a repository somebody else made: the deck committed, no .gitattributes
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@x', 'add', 'talk.html'], { cwd: dir });
+    execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@x', 'commit', '-q', '-m', 'deck'], { cwd: dir });
+  }
   const home = mkdtempSync(path.join(tmpdir(), 'decklight-review-routes-home-'));
-  const args = ['talk.html', '--port', '0', '--no-git', ...(mode === 'no-trust' ? ['--no-trust'] : ['--no-open', '--no-tts', '--no-lipsync'])];
+  const args = ['talk.html', '--port', '0', ...(withGit ? [] : ['--no-git']), ...(mode === 'no-trust' ? ['--no-trust'] : ['--no-open', '--no-tts', '--no-lipsync'])];
   const child = spawn(process.execPath, [CLI, ...args], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';
@@ -79,6 +85,24 @@ for (const mode of ['no-trust', 'write']) {
     assert.equal(readFileSync(store, 'utf8').trim().split('\n').length, 1, 'a refused comment writes nothing');
   });
 }
+
+test('the first comment in a repository writes the union attribute, committed beside it', async (t) => {
+  // The reviewer's clone of a repo that never heard of decklight: their
+  // first comment must leave the repository able to merge the sidecar, or
+  // their first pull after the author's resolve loses the comment.
+  const { base, dir } = await open(t, 'no-trust', { git: true });
+  assert.equal(existsSync(path.join(dir, '.gitattributes')), false, 'the fixture has none');
+  const r = await (await post(base, { slide: 1, title: 'Alpha', body: 'First.' })).json();
+  assert.equal(r.committed, true);
+  assert.match(readFileSync(path.join(dir, '.gitattributes'), 'utf8'), /^\*\.review\.jsonl merge=union$/m);
+  const shown = execFileSync('git', ['show', '--stat', '--format=', 'HEAD'], { cwd: dir, encoding: 'utf8' });
+  assert.match(shown, /\.gitattributes/, 'the attribute travels in the same commit as the comment');
+  assert.match(shown, /talk\.review\.jsonl/);
+  assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).trim(), '', 'nothing left behind');
+  // the second record has nothing to add
+  await post(base, { slide: 2, title: 'Beta', body: 'Second.' });
+  assert.doesNotMatch(execFileSync('git', ['show', '--stat', '--format=', 'HEAD'], { cwd: dir, encoding: 'utf8' }), /gitattributes/);
+});
 
 test('a resolve is taken back by a reopen — a line of its own, and the file stays a log', async (t) => {
   const { base, dir } = await open(t, 'write');

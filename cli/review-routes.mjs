@@ -28,7 +28,7 @@
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { gitAutocommit, commitSubject, oneline } from './git.mjs';
+import { gitAutocommit, commitSubject, oneline, ensureReviewAttribute } from './git.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
 
 /** The reviewer, as git knows them: "Name <email>", either half, or ''. */
@@ -124,11 +124,15 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
       // second reviewer harmless.
       appendFileSync(storePath, `${serializeRecord(rec)}\n`);
     } catch (e) { return { ok: false, code: 500, error: oneline(e) }; }
+    // …and `merge=union` works only when the repository says so: the first
+    // record in a repository writes the attribute, committed beside it here
+    // (no-trust mode) or by the deck's next commit (write mode, onRecord).
+    const attr = inRepo ? ensureReviewAttribute(deckDir) : null;
     // The reviewer's own prose reaching a command line, so it goes through
     // the sanitizer every other untrusted subject does: one line, capped,
     // never leading `-`.
-    const committed = commits() ? gitAutocommit(storePath, deckDir, subject) : false;
-    onRecord(rec);
+    const committed = commits() ? gitAutocommit(storePath, deckDir, subject, { also: attr ? [attr] : [] }) : false;
+    onRecord(rec, { wrote: committed ? null : attr });
     return { ok: true, ...(rec.id ? { id: rec.id } : {}), committed };
   };
   /**

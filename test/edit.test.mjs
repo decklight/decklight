@@ -1314,7 +1314,12 @@ test('an agent can mark its own commit boundary, and cannot when git is off', as
   assert.equal(state.dirty, true, 'a sidecar-only change is uncommitted work the card must offer');
   const res2 = await post(on.base, '/deck/edit/commit', { message: "resolve ana's point" });
   assert.equal((await res2.json()).committed, true);
-  assert.match(git(['show', '--stat', '--format=', 'HEAD'], repo), /deck\.review\.jsonl/);
+  const shown = git(['show', '--stat', '--format=', 'HEAD'], repo);
+  assert.match(shown, /deck\.review\.jsonl/);
+  // …and the union attribute the first record had to write (REVIEW), in the
+  // same commit, so the reviewer's clone can merge the sidecar after a pull
+  assert.match(shown, /\.gitattributes/);
+  assert.match(git(['check-attr', 'merge', 'deck.review.jsonl'], repo), /merge: union/);
   assert.equal(git(['status', '--porcelain'], repo), '', 'nothing left behind');
 });
 

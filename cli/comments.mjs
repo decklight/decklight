@@ -26,7 +26,7 @@ import { fingerprint, resolveAnchor, VERDICT_NOTE, foldReview } from '../tools/r
 import { reviewPathFor, parseReview, serializeRecord, mergeById } from './review-store.mjs';
 import { reviewsWaiting } from './review-remote.mjs';
 import { findDeck } from './history.mjs';
-import { gitAvailable, inGitRepo, gitAutocommit, oneline, git } from './git.mjs';
+import { gitAvailable, inGitRepo, gitAutocommit, oneline, git, ensureReviewAttribute } from './git.mjs';
 import { deckAt } from './restore.mjs';
 
 const SUBMIT_USAGE = `usage: decklight comments submit <deck.html> [--pr] [--remote origin] [--dry-run]
@@ -273,7 +273,8 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
     out.write(`${basename(from)} → ${storeName}: ${added} new`
       + `${incoming.records.length - added ? `, ${incoming.records.length - added} already here` : ''}\n`);
     if (gitAvailable(deckDir) && inGitRepo(deckDir)) {
-      const ok = gitAutocommit(storePath, deckDir, `review: import ${added} comment(s) on ${name}`);
+      const attr = ensureReviewAttribute(deckDir);
+      const ok = gitAutocommit(storePath, deckDir, `review: import ${added} comment(s) on ${name}`, { also: attr ? [attr] : [] });
       out.write(ok ? '  committed\n' : '  not committed — nothing changed on disk\n');
     }
     out.write(`  read them with:  decklight comments ${relative(cwd, deckPath) || name}\n`);
