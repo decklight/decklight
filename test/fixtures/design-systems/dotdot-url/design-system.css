@@ -14,7 +14,7 @@
   --heading-weight: 600;
 }
 
-.decklight section[data-layout="acme/section-divider"] {
+.decklight section[data-template="acme/section-divider"] {
   background: var(--acme-ink) url(../../secrets/divider.svg) no-repeat right bottom / 40%;
   color: #fff;
 }

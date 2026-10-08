@@ -1,49 +1,49 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Referenced layouts (SPEC DESIGN_SYSTEMS): a slide names a design system's
-// layout and supplies only content, one element per named slot —
+// Referenced templates (SPEC DESIGN_SYSTEMS): a slide names a design system's
+// template and supplies only content, one element per named slot —
 //
-//   <section data-layout="acme/section-divider">
+//   <section data-template="acme/section-divider">
 //     <p data-slot="kicker">Module 01</p>
 //     <h2 data-slot="title">Flink on Confluent Cloud</h2>
 //   </section>
 //
 // — and the structure comes from the design system at render time. The
 // engine expands the slide IN THE DOM, during sync(), never in the file: when
-// the design system changes, every slide naming one of its layouts re-lays-out
+// the design system changes, every slide naming one of its templates re-lays-out
 // on the next load, and the deck's diff shows nothing.
 //
-// The grammar is the existing `data-layout`, reused: a value with a `/` is
-// `<design system>/<layout>`; the built-in ring (auto, centered, pinned, top,
+// The grammar is `data-template`, apart from the built-in `data-layout`: its value is
+// `<design system>/<template>`; the built-in ring (auto, centered, pinned, top,
 // split, split-flip) has no slash, so the two can never collide.
 //
 // The design systems themselves arrive in the page from the server (#622):
 // a `<script type="application/json" data-design-system-meta="<name>">` with
-// the version, and `<template data-design-system-layouts="<name>">` holding
-// the package's `<template data-layout>` blocks — or, in a bundle, the same
-// two blocks copied in. The layout markup was checked when the package was
+// the version, and `<template data-design-system-templates="<name>">` holding
+// the package's `<template data-template>` blocks — or, in a bundle, the same
+// two blocks copied in. The template markup was checked when the package was
 // admitted and again when it was served; it is checked a THIRD time here, on
 // the clone, because this is the copy that becomes live DOM.
 
-import { NAME_RE, isSystemLayout, parseSystemLayout } from '../../tools/design-system-format.mjs';
+import { NAME_RE, isTemplateRef, parseTemplateRef } from '../../tools/design-system-format.mjs';
 
-export { isSystemLayout, parseSystemLayout };
+export { isTemplateRef, parseTemplateRef };
 
 /** Direct children that stay where they are: what the slide carries, not what it shows. */
 const KEEP = 'aside.notes, aside.sources, aside.rehearse, script, style, .slide-bg';
 
-/** Tags a layout clone may never contain, whatever its checks said — the last line. */
+/** Tags a template clone may never contain, whatever its checks said — the last line. */
 const FORBIDDEN = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'FOREIGNOBJECT', 'LINK', 'META', 'BASE', 'FRAME', 'FRAMESET']);
 const REF_ATTRS = new Set(['src', 'srcset', 'href', 'xlink:href', 'poster', 'action', 'formaction', 'data', 'background', 'srcdoc']);
 
 /**
- * Scrub a cloned layout of anything that could run or load: forbidden
+ * Scrub a cloned template of anything that could run or load: forbidden
  * elements removed, `on*` handlers, `srcdoc` and every outside reference
  * dropped. Returns how many things it had to take out — 0 for a package that
  * passed its checks, which is the only kind that should ever reach here.
  */
-export function scrubLayout(fragment) {
+export function scrubTemplate(fragment) {
   let removed = 0;
   for (const el of [...fragment.querySelectorAll('*')]) {
     if (FORBIDDEN.has(el.tagName.toUpperCase())) { el.remove(); removed++; continue; }
@@ -57,7 +57,7 @@ export function scrubLayout(fragment) {
 
 /**
  * The design systems the page carries, by name, in the order the deck uses
- * them: `{ name, version, title, palette, recommendedThemes, recommendedFonts, layouts: Map<id, HTMLTemplateElement> }`. Read from the meta block and the layouts template
+ * them: `{ name, version, title, palette, recommendedThemes, recommendedFonts, templates: Map<id, HTMLTemplateElement> }`. Read from the meta block and the templates template
  * the server injected (or a bundle copied in). A system whose meta is
  * unreadable is left out, and its slides fall back to plain content.
  */
@@ -67,18 +67,18 @@ export function pageDesignSystems(doc = document) {
     const name = meta.getAttribute('data-design-system-meta');
     let info;
     try { info = JSON.parse(meta.textContent); } catch { continue; }
-    const holder = doc.querySelector(`template[data-design-system-layouts="${CSS.escape(name)}"]`);
-    const layouts = new Map();
-    for (const t of holder?.content.querySelectorAll('template[data-layout]') ?? []) {
-      const id = t.getAttribute('data-layout');
-      if (NAME_RE.test(id) && !layouts.has(id)) layouts.set(id, t);
+    const holder = doc.querySelector(`template[data-design-system-templates="${CSS.escape(name)}"]`);
+    const templates = new Map();
+    for (const t of holder?.content.querySelectorAll('template[data-template]') ?? []) {
+      const id = t.getAttribute('data-template');
+      if (NAME_RE.test(id) && !templates.has(id)) templates.set(id, t);
     }
     out.set(name, {
       name, version: info?.version ?? '', title: info?.title ?? name,
       palette: Array.isArray(info?.palette) ? info.palette : [],
       recommendedThemes: Array.isArray(info?.recommendedThemes) ? info.recommendedThemes.filter((t) => typeof t === 'string') : [],
       recommendedFonts: Array.isArray(info?.recommendedFonts) ? info.recommendedFonts.filter((t) => typeof t === 'string') : [],
-      layouts,
+      templates,
     });
   }
   return out;
@@ -96,7 +96,7 @@ export const fileIndexOf = (el) => fileIndex.get(el);
  * The element a click inside a slide addresses, for editing (SPEC
  * DESIGN_SYSTEMS): the section's direct child it is in — or, on an expanded
  * design-system slide, the AUTHORED element, wherever expansion put it. The
- * layout's own decoration addresses nothing (null): it is not in the file.
+ * template's own decoration addresses nothing (null): it is not in the file.
  */
 export function authoredTop(sec, target) {
   for (let el = target; el && el !== sec; el = el.parentElement) {
@@ -119,30 +119,30 @@ function stillExpanded(sec, key) {
 }
 
 /**
- * Expand every slide whose `data-layout` names a design-system layout, in
+ * Expand every slide whose `data-template` names a slide template, in
  * place. `systems` is the resolver seam — `pageDesignSystems()` in the page,
  * a fixture in a test. Idempotent: a slide already expanded from the same
- * layout at the same version, whose authored content has not changed, is
+ * template at the same version, whose authored content has not changed, is
  * left alone. Returns the slides it could not expand, as `{ sec, reason }`.
  */
-export function setupSystemLayouts(sections, { systems = pageDesignSystems(), warn = () => {} } = {}) {
+export function setupSlideTemplates(sections, { systems = pageDesignSystems(), warn = () => {} } = {}) {
   const missing = [];
   for (const sec of sections) {
-    const value = sec.getAttribute('data-layout');
-    if (!isSystemLayout(value)) continue;
-    const ref = parseSystemLayout(value);
+    const value = sec.getAttribute('data-template');
+    if (!isTemplateRef(value)) continue;
+    const ref = parseTemplateRef(value);
     const sys = ref ? systems.get(ref.system) : null;
-    const tpl = sys?.layouts.get(ref.layout);
+    const tpl = sys?.templates.get(ref.template);
     if (!tpl) {
       // the content renders plainly where it was written — nothing is lost
-      const reason = !ref ? `"${value}" is not a design-system layout (name/layout)`
+      const reason = !ref ? `"${value}" is not a slide template (name/template)`
         : !sys ? `design system "${ref.system}" is not available on this page`
-          : `${ref.system} has no layout "${ref.layout}"`;
+          : `${ref.system} has no template "${ref.template}"`;
       sec.setAttribute('data-ds-missing', reason);
       missing.push({ sec, reason });
       continue;
     }
-    const key = `${ref.layout}@${sys.version}`;
+    const key = `${ref.template}@${sys.version}`;
     if (stillExpanded(sec, key)) continue;
     sec.removeAttribute('data-ds-missing');
 
@@ -166,9 +166,9 @@ export function setupSystemLayouts(sections, { systems = pageDesignSystems(), wa
     }
 
     const clone = tpl.content.cloneNode(true);
-    const scrubbed = scrubLayout(clone);
-    if (scrubbed) warn(`slide layout ${value}: ${scrubbed} unsafe thing(s) removed from the layout — the package should not have passed its check`);
-    // The layout's own nodes are decoration the author never wrote: marked so
+    const scrubbed = scrubTemplate(clone);
+    if (scrubbed) warn(`slide template ${value}: ${scrubbed} unsafe thing(s) removed from the template — the package should not have passed its check`);
+    // The template's own nodes are decoration the author never wrote: marked so
     // editing (#624) can tell them from content. Slot containers too — they
     // hold content, but are not it.
     for (const node of [...clone.children, ...clone.querySelectorAll('*')]) node.setAttribute('data-ds-injected', '');
@@ -198,9 +198,9 @@ export function setupSystemLayouts(sections, { systems = pageDesignSystems(), wa
       .filter((c) => !filled.has(c) && !c.textContent.trim() && !c.children.length).map((c) => c.getAttribute('data-slot'));
     if (empty.length) {
       sec.setAttribute('data-ds-required-empty', empty.join(' '));
-      warn(`slide layout ${value}: required slot${empty.length === 1 ? '' : 's'} ${empty.join(', ')} left empty`);
+      warn(`slide template ${value}: required slot${empty.length === 1 ? '' : 's'} ${empty.join(', ')} left empty`);
     } else sec.removeAttribute('data-ds-required-empty');
-    // the layout goes where the content was: after a background, before the asides
+    // the template goes where the content was: after a background, before the asides
     const firstKept = [...sec.children].find((el) => el.matches('aside, script, style'));
     sec.insertBefore(clone, firstKept ?? null);
     sec.setAttribute('data-ds-expanded', key);

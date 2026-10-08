@@ -441,9 +441,9 @@
       if (HARNESS_MODE === 'dsedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
-        if (u.includes('/deck/edit/slide/system-layout')) {
+        if (u.includes('/deck/edit/slide/template')) {
           const body = JSON.parse(init?.body ?? '{}');
-          return json({ ok: true, changed: true, mode: 'switch', said: `now ${body.layout} — content stays by slot name`, undo: 1, redo: 0 });
+          return json({ ok: true, changed: true, mode: 'switch', said: `now ${body.template} — content stays by slot name`, undo: 1, redo: 0 });
         }
       }
       if (HARNESS_MODE === 'contextmenu') {
@@ -596,9 +596,9 @@
     if (HARNESS_MODE === 'dslayouts' || HARNESS_MODE === 'dsedit') {
       document.head.insertAdjacentHTML('beforeend', `
         <link rel="stylesheet" href="fixtures/design-systems/ok/design-system.css" data-design-system="acme">
-        <script type="application/json" data-design-system-meta="acme">{"name":"acme","version":"1.2.0","title":"Acme Brand","palette":[],"layouts":[{"id":"section-divider","title":"Section divider","slots":[{"name":"kicker","hint":"p","required":false,"default":false},{"name":"title","hint":"h1,h2","required":true,"default":false},{"name":"subtitle","hint":"p","required":false,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"statement","title":"Statement","slots":[{"name":"title","hint":"","required":true,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"quote","title":"quote","slots":[{"name":"quote","hint":"","required":false,"default":false}]}]}<\/script>
-        <template data-design-system-layouts="acme">
-          <template data-layout="section-divider" data-title="Section divider">
+        <script type="application/json" data-design-system-meta="acme">{"name":"acme","version":"1.2.0","title":"Acme Brand","palette":[],"templates":[{"id":"section-divider","title":"Section divider","slots":[{"name":"kicker","hint":"p","required":false,"default":false},{"name":"title","hint":"h1,h2","required":true,"default":false},{"name":"subtitle","hint":"p","required":false,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"statement","title":"Statement","slots":[{"name":"title","hint":"","required":true,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"quote","title":"quote","slots":[{"name":"quote","hint":"","required":false,"default":false}]}]}<\/script>
+        <template data-design-system-templates="acme">
+          <template data-template="section-divider" data-title="Section divider">
             <div class="acme-divider" data-ds-bleed>
               <div data-slot="kicker" data-slot-hint="p">Module 01</div>
               <div data-slot="title" data-slot-hint="h1,h2" data-slot-required></div>
@@ -606,25 +606,25 @@
               <div data-slot="body" data-slot-default></div>
             </div>
           </template>
-          <template data-layout="statement" data-title="Statement">
+          <template data-template="statement" data-title="Statement">
             <div class="acme-statement"><div data-slot="title" data-slot-required></div><div data-slot="body" data-slot-default></div></div>
           </template>
-          <template data-layout="quote"><figure class="acme-quote"><blockquote data-slot="quote"></blockquote></figure></template>
-          <template data-layout="booby"><div class="acme-booby"><img src="https://evil.invalid/x.png" onerror="window.__ran = true" alt=""><div data-slot="title"></div></div></template>
+          <template data-template="quote"><figure class="acme-quote"><blockquote data-slot="quote"></blockquote></figure></template>
+          <template data-template="booby"><div class="acme-booby"><img src="https://evil.invalid/x.png" onerror="window.__ran = true" alt=""><div data-slot="title"></div></div></template>
         </template>`);
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
-        <section class="ds-filled" data-layout="acme/section-divider">
+        <section class="ds-filled" data-template="acme/section-divider">
           <p data-slot="kicker">Module 07</p>
           <h2 data-slot="title">Flink on Confluent Cloud</h2>
           <p data-slot="subtitle">Managed runtime doesn't manage correctness.</p>
           <aside class="notes">The divider, every slot filled.</aside>
         </section>
-        <section class="ds-defaults" data-layout="acme/section-divider"><h2 data-slot="title">Only a title</h2></section>
-        <section class="ds-unslotted" data-layout="acme/quote"><blockquote data-slot="quote">Said once.</blockquote><p class="loose">Nobody put me in a slot.</p></section>
-        <section class="ds-builds" data-layout="acme/statement"><h2 data-slot="title">Steps</h2><ul data-slot="body" data-build><li>one</li><li>two</li></ul></section>
-        <section class="ds-nolayout" data-layout="acme/nope"><h2>Plain, still here</h2></section>
-        <section class="ds-nosystem" data-layout="other/x"><h2>Also plain</h2></section>
-        <section class="ds-booby" data-layout="acme/booby"><h2 data-slot="title">Booby-trapped layout</h2></section>`);
+        <section class="ds-defaults" data-template="acme/section-divider"><h2 data-slot="title">Only a title</h2></section>
+        <section class="ds-unslotted" data-template="acme/quote"><blockquote data-slot="quote">Said once.</blockquote><p class="loose">Nobody put me in a slot.</p></section>
+        <section class="ds-builds" data-template="acme/statement"><h2 data-slot="title">Steps</h2><ul data-slot="body" data-build><li>one</li><li>two</li></ul></section>
+        <section class="ds-nolayout" data-template="acme/nope"><h2>Plain, still here</h2></section>
+        <section class="ds-nosystem" data-template="other/x"><h2>Also plain</h2></section>
+        <section class="ds-booby" data-template="acme/booby"><h2 data-slot="title">Booby-trapped layout</h2></section>`);
     }
     if (HARNESS_MODE === 'codeedit') {
       document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
@@ -637,19 +637,19 @@
     // and the humanist stack — and wears neither
     if (HARNESS_MODE === 'dslook') {
       try { localStorage.removeItem('decklight-font:' + location.pathname); localStorage.removeItem('decklight-theme:' + location.pathname); sessionStorage.clear(); } catch {}
-      document.head.insertAdjacentHTML('beforeend', `<script type="application/json" data-design-system-meta="acme">${JSON.stringify({ name: 'acme', title: 'Acme', layouts: [], palette: [], recommendedThemes: ['paper'], recommendedFonts: ['humanist'] })}<\/script>`);
+      document.head.insertAdjacentHTML('beforeend', `<script type="application/json" data-design-system-meta="acme">${JSON.stringify({ name: 'acme', title: 'Acme', templates: [], palette: [], recommendedThemes: ['paper'], recommendedFonts: ['humanist'] })}<\/script>`);
     }
     // Bleed (#643): a background-image slide, a plain one, and a design-system
     // layout whose root is marked data-ds-bleed — first in the deck
     if (HARNESS_MODE === 'bleed' || HARNESS_MODE === 'bleedoff') {
       document.head.insertAdjacentHTML('beforeend', `
         <style>.decklight .bl-art { background: #00ff00 linear-gradient(90deg, #ff00ff 0 10%, transparent 10%); position: absolute; inset: 0; }</style>
-        <script type="application/json" data-design-system-meta="bl">${JSON.stringify({ name: 'bl', version: '1.0.0', title: 'Bleed', layouts: [], palette: [] })}<\/script>
-        <template data-design-system-layouts="bl"><template data-layout="cover"><div class="bl-art" data-ds-bleed><div data-slot="title" data-slot-default></div></div></template></template>`);
+        <script type="application/json" data-design-system-meta="bl">${JSON.stringify({ name: 'bl', version: '1.0.0', title: 'Bleed', templates: [], palette: [] })}<\/script>
+        <template data-design-system-templates="bl"><template data-template="cover"><div class="bl-art" data-ds-bleed><div data-slot="title" data-slot-default></div></div></template></template>`);
       document.querySelector('.decklight').insertAdjacentHTML('afterbegin', `
         <section data-background-image="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='16' height='9' fill='red'/%3E%3C/svg%3E"><h2>Art</h2></section>
         <section><h2>Plain</h2></section>
-        <section data-layout="bl/cover"><h2 data-slot="title">Layout art</h2></section>`);
+        <section data-template="bl/cover"><h2 data-slot="title">Layout art</h2></section>`);
     }
     // a save's reload left this behind: where the author was in the notes card
     if (HARNESS_MODE === 'notesreopen' || HARNESS_MODE === 'notesreopenstale') {
@@ -665,7 +665,7 @@
         document.head.insertAdjacentHTML('beforeend', `
           <style data-font="sample" data-font-version="1.0.0">@font-face { font-family: 'Decklight Sample'; src: url("data:font/woff2;base64,d09GMg==") format("woff2"); font-display: swap; }</style>
           <script type="application/json" data-font-meta="sample">${JSON.stringify({ name: 'sample', title: 'Decklight Sample', family: 'Decklight Sample', fallback: 'system-ui, sans-serif', stack: "'Decklight Sample', system-ui, sans-serif", role: 'body' })}<\/script>
-          <script type="application/json" data-design-system-meta="acme">${JSON.stringify({ name: 'acme', title: 'Acme', layouts: [], palette: [], recommendedFonts: ['humanist', 'sample@type-mkt', 'not-here'] })}<\/script>`);
+          <script type="application/json" data-design-system-meta="acme">${JSON.stringify({ name: 'acme', title: 'Acme', templates: [], palette: [], recommendedFonts: ['humanist', 'sample@type-mkt', 'not-here'] })}<\/script>`);
       }
     }
     if (HARNESS_MODE.startsWith('chapters') || HARNESS_MODE === 'enhance') {
@@ -1052,8 +1052,8 @@
         r.offerKeptForTheReload = /"theme":"paper"/.test(sessionStorage.getItem('decklight-look-offer:' + location.pathname) ?? '');
         const themeBefore = Decklight.instance?.currentTheme?.() ?? document.querySelector('.decklight').dataset.theme;
         const fontBefore = body();
-        await fromPalette('Use design-system layout');
-        const hint = document.querySelector('.decklight-ds-layouts .dsl-look');
+        await fromPalette('Use slide template');
+        const hint = document.querySelector('.decklight-ds-templates .dsl-look');
         r.layoutPickerHints = /Not in Acme's look — apply\?/.test(hint?.textContent ?? '') && /theme paper · font humanist/.test(hint?.textContent ?? '');
         hint?.click();
         await settle();
@@ -1069,8 +1069,8 @@
         r.escThemeBack = [...document.querySelectorAll('link[rel="stylesheet"]')].some((n) => /themes\/aurora\.css/.test(n.href));
         r.escNoApply = !CALLS.post.some((c) => c.u.includes('/deck/edit/design-system/apply'));
         r.escKeeps = r.escDialogGone && r.escFontBack && r.escThemeBack && r.escNoApply;
-        await fromPalette('Use design-system layout');
-        document.querySelector('.decklight-ds-layouts .dsl-look')?.click();
+        await fromPalette('Use slide template');
+        document.querySelector('.decklight-ds-templates .dsl-look')?.click();
         await settle();
         press('Enter');
         await settle(); await settle();
@@ -1649,10 +1649,14 @@
         press('/');
         for (const ch of 'template') press(ch);
         // two rows now, one per verb — the mode is chosen by name, not by a key
+        // (and a third, Use slide template…, is the design system's: typing
+        // the verb picks the right one)
         const palRows = [...document.querySelectorAll('.decklight-palette .pal-row')]
           .map((n) => n.textContent);
         r.rowIsThere = palRows.some((t) => /Insert template slide/.test(t));
         r.applyRowIsThere = palRows.some((t) => /Apply template to current slide/.test(t));
+        for (let i = 0; i < 9; i++) press('Backspace');
+        for (const ch of 'insert template') press(ch);
         press('Enter');
         await settle();
         r.opens = !!document.querySelector(P);
@@ -3408,18 +3412,18 @@
         if (document.querySelector(M)) press('Escape');
         press('e');
         await settle();
-        // the palette's "Use design-system layout…": the deck's layouts, a live preview, one write
+        // the palette's "Use slide template…": the deck's layouts, a live preview, one write
         const Q = '.decklight-palette', PROW = '.pal-row';
         press('/');
-        for (const ch of 'design-system layout') press(ch);
+        for (const ch of 'slide template') press(ch);
         await settle();
-        const found = [...document.querySelectorAll(`${Q} ${PROW}`)].find((x) => /Use design-system layout…/.test(x.textContent));
+        const found = [...document.querySelectorAll(`${Q} ${PROW}`)].find((x) => /Use slide template…/.test(x.textContent));
         r.paletteRow = !!found;
         const prow = [...document.querySelectorAll(`${Q} ${PROW}`)];
         for (let i = 0; found && i < prow.indexOf(found); i++) press('ArrowDown');
         press('Enter');
         await settle();
-        const picker = document.querySelector('.decklight-ds-layouts');
+        const picker = document.querySelector('.decklight-ds-templates');
         const labels = [...(picker?.querySelectorAll('.dsl-row') ?? [])].map((x) => x.textContent);
         r.offersRemove = /Take slide \d+ out of acme\/section-divider/.test(labels[0] ?? '');
         r.listsLayouts = labels.some((t) => /^acme\/statement/.test(t)) && labels.some((t) => /^acme\/quote/.test(t));
@@ -3432,8 +3436,8 @@
         r.actions = /Switch slide \d+ to it/.test(picker?.textContent ?? '') && /Insert a new slide in it after slide/.test(picker?.textContent ?? '');
         press('Enter');                              // switch
         await settle(); await settle();
-        const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/system-layout')).pop()?.body;
-        r.posted = sent?.slide === n && sent?.layout === 'acme/statement' && !sent?.insert;
+        const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/template')).pop()?.body;
+        r.posted = sent?.slide === n && sent?.template === 'acme/statement' && !sent?.insert;
         r.said = [...document.querySelectorAll('.decklight-toast')].some((x) => /now acme\/statement — content stays by slot name — Z takes it back/.test(x.textContent));
         r.PASS = r.titleIsAnElement && r.fileIndex && r.decorationIsNothing && r.paletteRow && r.offersRemove && r.listsLayouts
           && r.livePreview && r.actions && r.posted && r.said;
@@ -3474,7 +3478,7 @@
         deck.next();
         await settle();
         r.buildsStep = deck.state.slide === idx + 1 && deck.state.step === 1;
-        r.missingLayout = /acme has no layout "nope"/.test(sec('ds-nolayout').getAttribute('data-ds-missing') ?? '')
+        r.missingLayout = /acme has no template "nope"/.test(sec('ds-nolayout').getAttribute('data-ds-missing') ?? '')
           && sec('ds-nolayout').querySelector(':scope > h2') !== null;
         r.missingSystem = /design system "other" is not available/.test(sec('ds-nosystem').getAttribute('data-ds-missing') ?? '');
         const booby = sec('ds-booby');
@@ -3528,7 +3532,7 @@
         await settle(); await settle();
         const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/design-system/mark')).pop()?.body;
         r.toggled = sent?.ref === 'acme@acme-mkt' && sent?.used === true;
-        r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — its layouts are in \/ → Use design-system layout… · Z takes it back/.test(n.textContent));
+        r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — its templates are in \/ → Use slide template… · Z takes it back/.test(n.textContent));
         r.closed = !document.querySelector('.decklight-design-systems');
         r.PASS = r.paletteRow && r.listed && r.grouped && r.unusableSaidWhy && r.staleNamed && r.toggled && r.said && r.closed;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);

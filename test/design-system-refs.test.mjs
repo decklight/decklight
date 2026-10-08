@@ -100,7 +100,7 @@ test('the catalog listing: every design system on offer, the ones this machine c
 
 // ── injection ─────────────────────────────────────────────────────────────
 
-test('every server injects the stylesheet (always on), the meta and the layouts — after the themes, once', (t) => {
+test('every server injects the stylesheet (always on), the meta and the templates — after the themes, once', (t) => {
   const { home: h } = home(t);
   const html = deck({ decklight: '0.9.0', theme: 'aurora', designSystems: ['acme@acme-mkt'] });
   const out = linkDesignSystems(html, h);
@@ -110,10 +110,10 @@ test('every server injects the stylesheet (always on), the meta and the layouts 
   const meta = JSON.parse(out.match(/<script type="application\/json" data-design-system-meta="acme">([\s\S]*?)<\/script>/)[1]);
   assert.deepEqual({ name: meta.name, version: meta.version, title: meta.title }, { name: 'acme', version: '1.2.0', title: 'Acme Brand' });
   assert.deepEqual(meta.palette.map((p) => p.token), ['--acme-blue', '--acme-coral', '--acme-ink']);
-  assert.deepEqual(meta.layouts.map((l) => l.id), ['section-divider', 'statement']);
+  assert.deepEqual(meta.templates.map((l) => l.id), ['section-divider', 'statement']);
   assert.deepEqual(meta.recommendedThemes, ['aurora'], 'the themes it was drawn for — the theme picker lists them first');
-  assert.deepEqual(meta.layouts[0].slots.find((s) => s.name === 'title'), { name: 'title', hint: 'h1,h2', required: true, default: false });
-  assert.match(out, /<template data-design-system-layouts="acme">\s*<!-- Acme Brand layouts[\s\S]*<template data-layout="statement"[\s\S]*<\/template>\s*<\/template>/);
+  assert.deepEqual(meta.templates[0].slots.find((s) => s.name === 'title'), { name: 'title', hint: 'h1,h2', required: true, default: false });
+  assert.match(out, /<template data-design-system-templates="acme">\s*<!-- Acme Brand templates[\s\S]*<template data-template="statement"[\s\S]*<\/template>\s*<\/template>/);
   assert.ok(out.indexOf('data-design-system="acme"') < out.indexOf('</head>'), 'in the head');
   assert.equal(linkDesignSystems(out, h), out, 'idempotent: a page that has it is left alone');
 });
@@ -137,10 +137,10 @@ test('a package changed after it was added is re-checked where it is used — an
   const { home: h, pkg } = home(t);
   const html = deck({ decklight: '0.9.0', designSystems: ['acme@acme-mkt'] });
   assert.match(linkDesignSystems(html, h), /<link[^>]*data-design-system="acme"/);
-  appendFileSync(path.join(pkg, 'layouts.html'), '\n<template data-layout="evil"><img src="x" onerror="alert(1)"></template>\n');
+  appendFileSync(path.join(pkg, 'templates.html'), '\n<template data-template="evil"><img src="x" onerror="alert(1)"></template>\n');
   const out = linkDesignSystems(html, h);
-  assert.doesNotMatch(out, /onerror/, 'the unsafe layout never reaches the page');
-  assert.match(out, /decklight-design-system-missing" content="acme@acme-mkt — it no longer passes the design-system check — layouts\.html line \d+/);
+  assert.doesNotMatch(out, /onerror/, 'the unsafe template never reaches the page');
+  assert.match(out, /decklight-design-system-missing" content="acme@acme-mkt — it no longer passes the design-system check — templates\.html line \d+/);
   assert.equal(designSystemAsset('decklight-design-system/acme-mkt/acme/assets/divider.svg', h), null, 'and none of its files are served');
 });
 
@@ -178,7 +178,7 @@ test('the package\'s files: plain segments, allowlisted, inside the package — 
   assert.deepEqual(svg.headers, { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'" });
   assert.equal(at('assets/fonts/acme-sans.woff2').type, 'font/woff2');
   assert.deepEqual(at('assets/fonts/acme-sans.woff2').headers, { 'x-content-type-options': 'nosniff' });
-  for (const refused of ['layouts.html', 'design-system.json', 'README.md', 'assets/x.js', 'assets/../design-system.css',
+  for (const refused of ['templates.html', 'design-system.json', 'README.md', 'assets/x.js', 'assets/../design-system.css',
     '.git/config', 'assets/.hidden.svg', 'assets/missing.svg', 'other.css', 'assets/a b.svg']) {
     assert.equal(at(refused), null, refused);
   }
@@ -211,7 +211,7 @@ test('served: the namespace is terminal — every refusal is the same 404 a miss
   assert.equal(svg.status, 200);
   assert.equal(svg.headers.get('content-security-policy'), "default-src 'none'; style-src 'unsafe-inline'");
   assert.equal(svg.headers.get('x-content-type-options'), 'nosniff');
-  for (const p of ['acme/evil.js', 'acme/.git/config', 'acme/layouts.html', 'acme/%2e%2e/%2e%2e/deck.html', 'nope/design-system.css']) {
+  for (const p of ['acme/evil.js', 'acme/.git/config', 'acme/templates.html', 'acme/%2e%2e/%2e%2e/deck.html', 'nope/design-system.css']) {
     const r = await fetch(`${base}/decklight-design-system/acme-mkt/${p}`);
     assert.equal(r.status, 404, p);
     assert.equal(await r.text(), 'not found', `${p}: indistinguishable`);
@@ -222,7 +222,7 @@ test('served: the namespace is terminal — every refusal is the same 404 a miss
 
 const cli = (h, ...args) => spawnSync(process.execPath, [CLI, 'design-system', ...args], { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: h } });
 
-test('design-system add: the check first, then one edit and a ledger record; remove drops it; list and layouts say what there is', (t) => {
+test('design-system add: the check first, then one edit and a ledger record; remove drops it; list and templates say what there is', (t) => {
   const { dir, home: h, repo } = home(t);
   asRemote(h, repo);
   const deckPath = path.join(dir, 'talk.html');
@@ -237,8 +237,8 @@ test('design-system add: the check first, then one edit and a ledger record; rem
   assert.equal(ledger.version, '1.2.0');
   assert.match(cli(h, 'list', deckPath).stdout, /^acme@acme-mkt {2}1\.2\.0 {2}— Acme$/m);
   assert.match(cli(h, 'list').stdout, /^acme@acme-mkt {2}1\.2\.0 — Acme Brand$/m);
-  const layouts = cli(h, 'layouts', 'acme@acme-mkt');
-  assert.match(layouts.stdout, /acme\/section-divider — Section divider\n {4}kicker {2}— p\n {4}title \(required\) {2}— h1,h2/);
+  const templates = cli(h, 'templates', 'acme@acme-mkt');
+  assert.match(templates.stdout, /acme\/section-divider — Section divider\n {4}kicker {2}— p\n {4}title \(required\) {2}— h1,h2/);
   const remove = cli(h, 'remove', 'acme@acme-mkt', deckPath);
   assert.equal(remove.status, 0, remove.stderr);
   const after = config(readFileSync(deckPath, 'utf8'));

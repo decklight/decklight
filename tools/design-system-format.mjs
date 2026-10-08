@@ -4,24 +4,24 @@
 // The design-system package format, and the rules it is held to (SPEC
 // DESIGN_SYSTEMS). A design system is what a company publishes once so every
 // deck built on it inherits tokens beyond the theme contract, background art,
-// and slide layouts with slots — by reference, the way a marked theme is.
+// and slide templates with slots — by reference, the way a marked theme is.
 //
 //   <name>/
-//     design-system.json   apiVersion, name, version, title, styles, layouts
+//     design-system.json   apiVersion, name, version, title, styles, templates
 //                          (+ description, tokenPrefix, palette, recommendedThemes)
-//     design-system.css    prefixed tokens, component and per-layout rules;
+//     design-system.css    prefixed tokens, component and per-template rules;
 //                          url()s relative to this file
-//     layouts.html         inert <template data-layout="…"> blocks with data-slot containers
+//     templates.html         inert <template data-template="…"> blocks with data-slot containers
 //     assets/…             svg · png · jpg · jpeg · webp · woff2 · woff
 //
 // PURE: every function here takes texts and a file list, never a path to read,
 // and imports nothing from Node. `decklight design-system check` (the
 // admission gate a catalog's CI runs) is a thin main over it, and the same
 // rules run again where a package is served and where the engine clones a
-// layout — one module, so the three can never disagree about what is safe.
+// template — one module, so the three can never disagree about what is safe.
 //
-// THE THREAT this exists for: layout HTML and SVG from a third-party catalog
-// end up inside a page whose policy allows inline script. So layouts are
+// THE THREAT this exists for: template HTML and SVG from a third-party catalog
+// end up inside a page whose policy allows inline script. So templates are
 // inert markup and nothing else, SVGs carry no script, handlers or outside
 // references, and the CSS reaches nothing outside its own package.
 
@@ -42,16 +42,16 @@ export const ASSET_EXTENSIONS = ['svg', 'png', 'jpg', 'jpeg', 'webp', 'woff2', '
 /** Past this, an asset is a warning — a deck that ships it pays for it on every load. */
 export const ASSET_WARN_BYTES = 2 * 1024 * 1024;
 
-/** A package's, a layout's and a slot's name: what a slide writes, so it stays plain. */
+/** A package's, a template's and a slot's name: what a slide writes, so it stays plain. */
 export const NAME_RE = /^[a-z][a-z0-9-]*$/;
 
-/** Is this `data-layout` value a design-system layout (`name/layout`)? The built-in ring never has a slash. */
-export const isSystemLayout = (value) => typeof value === 'string' && value.includes('/');
+/** Is this `data-template` value a slide template (`name/template`)? The built-in ring never has a slash. */
+export const isTemplateRef = (value) => typeof value === 'string' && value.includes('/');
 
-/** `acme/section-divider` → `{ system, layout }`, or null for anything else. */
-export function parseSystemLayout(value) {
+/** `acme/section-divider` → `{ system, template }`, or null for anything else. */
+export function parseTemplateRef(value) {
   const m = /^([^/\s]+)\/([^/\s]+)$/.exec(String(value ?? ''));
-  return m && NAME_RE.test(m[1]) && NAME_RE.test(m[2]) ? { system: m[1], layout: m[2] } : null;
+  return m && NAME_RE.test(m[1]) && NAME_RE.test(m[2]) ? { system: m[1], template: m[2] } : null;
 }
 
 /**
@@ -128,11 +128,11 @@ export function readManifest(raw) {
   else if (m.apiVersion > DESIGN_SYSTEM_API_VERSION) {
     at('api-too-new', 'apiVersion', `apiVersion ${m.apiVersion} needs a newer decklight — this one reads design systems up to ${DESIGN_SYSTEM_API_VERSION}`);
   }
-  if (typeof m.name !== 'string' || !NAME_RE.test(m.name)) at('manifest-field', 'name', `name ${JSON.stringify(m.name)} — a lowercase word: letters, digits and -, starting with a letter (a slide writes it: data-layout="<name>/<layout>")`);
+  if (typeof m.name !== 'string' || !NAME_RE.test(m.name)) at('manifest-field', 'name', `name ${JSON.stringify(m.name)} — a lowercase word: letters, digits and -, starting with a letter (a slide writes it: data-template="<name>/<template>")`);
   if (typeof m.version !== 'string' || !SEMVER_RE.test(m.version)) at('manifest-field', 'version', `version ${JSON.stringify(m.version)} — a semver version, major.minor.patch (e.g. "1.2.0"), no leading v`);
   if (typeof m.title !== 'string' || !m.title.trim()) at('manifest-field', 'title', 'title must be the design system\'s human name, e.g. "Acme Brand"');
-  for (const key of ['styles', 'layouts']) {
-    if (typeof m[key] !== 'string') at('manifest-field', key, `${key} must name the package's ${key === 'styles' ? 'stylesheet ("design-system.css")' : 'layouts file ("layouts.html")'}`);
+  for (const key of ['styles', 'templates']) {
+    if (typeof m[key] !== 'string') at('manifest-field', key, `${key} must name the package's ${key === 'styles' ? 'stylesheet ("design-system.css")' : 'templates file ("templates.html")'}`);
     else {
       const why = packagePathProblem(m[key]);
       if (why) at('file-outside', key, `${key} "${m[key]}" ${why}`);
@@ -271,11 +271,11 @@ export function pageRules(css) {
   return out;
 }
 
-// ── the layouts ────────────────────────────────────────────────────────────
+// ── the templates ────────────────────────────────────────────────────────────
 
-/** Tags a layout may never contain: anything that runs, loads, or frames. */
+/** Tags a template may never contain: anything that runs, loads, or frames. */
 const FORBIDDEN_TAGS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'foreignobject', 'link', 'meta', 'base', 'frame', 'frameset', 'template-in-template']);
-/** Attributes that point somewhere — a layout carries structure; its art lives in the CSS. */
+/** Attributes that point somewhere — a template carries structure; its art lives in the CSS. */
 const REF_ATTRS = new Set(['src', 'srcset', 'href', 'xlink:href', 'poster', 'action', 'formaction', 'data', 'background']);
 
 /** Numeric and the common named entities decoded, controls and whitespace stripped — what a browser sees in a URL. */
@@ -292,35 +292,35 @@ function attrsOf(src) {
 }
 
 /**
- * `layouts.html` as data: `[{ id, title, slots: [{ name, hint, required,
+ * `templates.html` as data: `[{ id, title, slots: [{ name, hint, required,
  * default }], line }]`, in file order. The structure a slide fills, read
- * without a DOM — what the deck's meta block, `design-system layouts` and
+ * without a DOM — what the deck's meta block, `slide templates` and
  * `check` all print.
  */
-export function parseLayouts(html) {
-  return walkLayouts(html).layouts;
+export function parseTemplates(html) {
+  return walkTemplates(html).templates;
 }
 
-/** The tokenizer every layout question goes through — tags, comments and text, with lines. */
-function walkLayouts(html) {
+/** The tokenizer every template question goes through — tags, comments and text, with lines. */
+function walkTemplates(html) {
   const text = String(html ?? '');
-  const layouts = [];
+  const templates = [];
   const problems = [];
   const push = (line, rule, msg) => problems.push({ line, rule, msg });
   let current = null;
   let depth = 0;
-  // element nesting inside the current layout — where data-ds-bleed may sit
+  // element nesting inside the current template — where data-ds-bleed may sit
   let el = 0;
   const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
   // one finding per stray run outside the templates, not one per tag and text in it
   let strayed = false;
-  const stray = (line, msg) => { if (!strayed) { strayed = true; push(line, 'layout-outside-template', msg); } };
+  const stray = (line, msg) => { if (!strayed) { strayed = true; push(line, 'template-outside-block', msg); } };
   const TAG = /<!--[\s\S]*?-->|<(\/?)([A-Za-z][\w:-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
   let last = 0;
   for (const m of text.matchAll(TAG)) {
     const between = text.slice(last, m.index);
     last = m.index + m[0].length;
-    if (!current && between.trim()) stray(lineAt(text, m.index - between.length + between.search(/\S/)), 'text outside a <template data-layout> block — everything in layouts.html sits inside one');
+    if (!current && between.trim()) stray(lineAt(text, m.index - between.length + between.search(/\S/)), 'text outside a <template data-template> block — everything in templates.html sits inside one');
     if (m[0].startsWith('<!--')) continue;
     const closing = m[1] === '/';
     const tag = m[2].toLowerCase();
@@ -328,19 +328,19 @@ function walkLayouts(html) {
     const selfClosing = /\/\s*$/.test(m[3]);
     if (tag === 'template') {
       if (closing) {
-        if (current && depth === 0) { layouts.push(current); current = null; }
+        if (current && depth === 0) { templates.push(current); current = null; }
         else if (current) depth--;
         // A </template> with nothing open is not harmless: wherever these
-        // layouts are inlined into a page's own <template>, it would close
+        // templates are inlined into a page's own <template>, it would close
         // that one early and let what follows out as live markup.
-        else push(line, 'layout-outside-template', '</template> with no <template data-layout> open — it would close whatever template the layouts are carried in');
+        else push(line, 'template-outside-block', '</template> with no <template data-template> open — it would close whatever template the templates are carried in');
         continue;
       }
-      if (current) { push(line, 'layout-forbidden-tag', '<template> inside a layout — one level of templates, one per layout'); depth++; continue; }
+      if (current) { push(line, 'template-forbidden-tag', '<template> inside a template — one level of templates, one per template'); depth++; continue; }
       const attrs = attrsOf(m[3]);
-      const id = attrs.find((a) => a.name === 'data-layout')?.value;
-      if (id === undefined) { push(line, 'layout-outside-template', '<template> without data-layout — every template is a layout, named by data-layout'); }
-      else if (!NAME_RE.test(id)) push(line, 'layout-id', `data-layout="${id}" — a lowercase word: letters, digits and -, starting with a letter`);
+      const id = attrs.find((a) => a.name === 'data-template')?.value;
+      if (id === undefined) { push(line, 'template-outside-block', '<template> without data-template — every template is a template, named by data-template'); }
+      else if (!NAME_RE.test(id)) push(line, 'template-id', `data-template="${id}" — a lowercase word: letters, digits and -, starting with a letter`);
       current = { id: id ?? '', title: attrs.find((a) => a.name === 'data-title')?.value || id || '', slots: [], line, bleed: false };
       depth = 0;
       el = 0;
@@ -349,24 +349,24 @@ function walkLayouts(html) {
     }
     if (!current) {
       // the opening tag is the finding; its closing tag is the same one
-      if (!closing) stray(line, `<${tag}> outside a <template data-layout> block — everything in layouts.html sits inside one`);
+      if (!closing) stray(line, `<${tag}> outside a <template data-template> block — everything in templates.html sits inside one`);
       continue;
     }
     if (closing) { el = Math.max(0, el - 1); continue; }
-    if (FORBIDDEN_TAGS.has(tag)) push(line, 'layout-forbidden-tag', `<${tag}> is refused in a layout — a layout is inert structure: no script, style, frames or embedded documents`);
+    if (FORBIDDEN_TAGS.has(tag)) push(line, 'template-forbidden-tag', `<${tag}> is refused in a template — a template is inert structure: no script, style, frames or embedded documents`);
     for (const a of attrsOf(m[3].replace(/\/\s*$/, ''))) {
-      if (/^on/.test(a.name)) push(line, 'layout-forbidden-attr', `${a.name}= on <${tag}> is refused — a layout runs nothing`);
-      else if (a.name === 'srcdoc') push(line, 'layout-forbidden-attr', `srcdoc on <${tag}> is refused — a layout embeds no document`);
-      else if (/^javascript:/i.test(urlSeen(a.value))) push(line, 'layout-javascript-url', `${a.name}="${a.value}" on <${tag}> is a javascript: URL — refused`);
+      if (/^on/.test(a.name)) push(line, 'template-forbidden-attr', `${a.name}= on <${tag}> is refused — a template runs nothing`);
+      else if (a.name === 'srcdoc') push(line, 'template-forbidden-attr', `srcdoc on <${tag}> is refused — a template embeds no document`);
+      else if (/^javascript:/i.test(urlSeen(a.value))) push(line, 'template-javascript-url', `${a.name}="${a.value}" on <${tag}> is a javascript: URL — refused`);
       else if (REF_ATTRS.has(a.name) && a.value && !a.value.startsWith('#')) {
-        push(line, 'layout-reference', `${a.name}="${a.value}" on <${tag}> — a layout carries structure only; put art in design-system.css (url(assets/…)), where it resolves inside the package`);
+        push(line, 'template-reference', `${a.name}="${a.value}" on <${tag}> — a template carries structure only; put art in design-system.css (url(assets/…)), where it resolves inside the package`);
       }
     }
     const attrs = attrsOf(m[3]);
     const slot = attrs.find((a) => a.name === 'data-slot');
     if (slot) {
       if (!NAME_RE.test(slot.value)) push(line, 'slot-name', `data-slot="${slot.value}" in ${current.id} — a lowercase word: letters, digits and -, starting with a letter (a slide writes it)`);
-      else if (current.slots.some((s) => s.name === slot.value)) push(line, 'slot-repeated', `slot "${slot.value}" appears twice in ${current.id} — a slot name is one place in a layout`);
+      else if (current.slots.some((s) => s.name === slot.value)) push(line, 'slot-repeated', `slot "${slot.value}" appears twice in ${current.id} — a slot name is one place in a template`);
       const isDefault = attrs.some((a) => a.name === 'data-slot-default');
       if (isDefault && current.slots.some((s) => s.default)) push(line, 'slot-default-twice', `${current.id} has more than one data-slot-default — unslotted content can land in one place only`);
       current.slots.push({
@@ -377,9 +377,9 @@ function walkLayouts(html) {
       });
     }
     // data-ds-bleed: the element whose background art fills the screen, not
-    // just the stage (SPEC DESIGN_SYSTEMS) — the layout's own root, and one
+    // just the stage (SPEC DESIGN_SYSTEMS) — the template's own root, and one
     if (attrs.some((a) => a.name === 'data-ds-bleed')) {
-      if (el !== 0) push(line, 'bleed-placement', `data-ds-bleed on <${tag}> in ${current.id} — it marks the layout's top-level element, whose background is the slide's art`);
+      if (el !== 0) push(line, 'bleed-placement', `data-ds-bleed on <${tag}> in ${current.id} — it marks the template's top-level element, whose background is the slide's art`);
       else if (current.bleed) push(line, 'bleed-twice', `${current.id} marks data-ds-bleed twice — one element's art bleeds`);
       current.bleed = true;
     }
@@ -387,20 +387,20 @@ function walkLayouts(html) {
     el++;
   }
   const tail = text.slice(last);
-  if (current) push(current.line, 'layout-outside-template', `<template data-layout="${current.id}"> is never closed`);
-  else if (tail.trim()) stray(lineAt(text, last + tail.search(/\S/)), 'text outside a <template data-layout> block — everything in layouts.html sits inside one');
+  if (current) push(current.line, 'template-outside-block', `<template data-template="${current.id}"> is never closed`);
+  else if (tail.trim()) stray(lineAt(text, last + tail.search(/\S/)), 'text outside a <template data-template> block — everything in templates.html sits inside one');
   const seen = new Map();
-  for (const l of layouts) {
+  for (const l of templates) {
     if (!l.id) continue;
-    if (seen.has(l.id)) push(l.line, 'layout-duplicate', `data-layout="${l.id}" is defined twice (lines ${seen.get(l.id)} and ${l.line}) — a layout id names one layout`);
+    if (seen.has(l.id)) push(l.line, 'template-duplicate', `data-template="${l.id}" is defined twice (lines ${seen.get(l.id)} and ${l.line}) — a template id names one template`);
     else seen.set(l.id, l.line);
   }
-  return { layouts, problems };
+  return { templates, problems };
 }
 
-/** Everything wrong with a layouts file, each `{ line, rule, msg }`. */
+/** Everything wrong with a templates file, each `{ line, rule, msg }`. */
 export function layoutProblems(html) {
-  return walkLayouts(html).problems;
+  return walkTemplates(html).problems;
 }
 
 // ── SVG assets ─────────────────────────────────────────────────────────────
@@ -421,14 +421,14 @@ export function svgProblems(svg) {
 
 // ── the package ────────────────────────────────────────────────────────────
 
-/** Files a package may hold that are neither its manifest, CSS, layouts nor assets. */
+/** Files a package may hold that are neither its manifest, CSS, templates nor assets. */
 const isPapers = (p) => /^(readme|license|licence|changelog|notice)(\.(md|txt))?$/i.test(p);
 
 /**
  * Check a whole package. `pkg` is plain data:
  *   { manifest: <design-system.json text>,
  *     files: Map<relative path, { size, text? }> }  — every file in the package
- *     (the CSS, layouts and every .svg must carry `text`).
+ *     (the CSS, templates and every .svg must carry `text`).
  * Returns `{ ok, problems, warnings, summary }`. `problems` refuse the
  * package; `warnings` do not. Each is `{ file, line?, rule, msg }`.
  */
@@ -448,7 +448,7 @@ export function checkPackage(pkg) {
     || (typeof manifest.name === 'string' && NAME_RE.test(manifest.name));
   const prefix = prefixKnown ? tokenPrefixOf(manifest) : null;
   const stylesPath = typeof manifest.styles === 'string' && !packagePathProblem(manifest.styles) ? manifest.styles : null;
-  const layoutsPath = typeof manifest.layouts === 'string' && !packagePathProblem(manifest.layouts) ? manifest.layouts : null;
+  const layoutsPath = typeof manifest.templates === 'string' && !packagePathProblem(manifest.templates) ? manifest.templates : null;
 
   let tokens = [];
   let stylesRead = false;
@@ -469,11 +469,11 @@ export function checkPackage(pkg) {
 
   if (layoutsPath) {
     const f = files.get(layoutsPath);
-    if (!f) problems.push({ file: 'design-system.json', line: keyLine(pkg.manifest, 'layouts'), rule: 'file-missing', msg: `layouts names ${layoutsPath}, which is not in the package` });
+    if (!f) problems.push({ file: 'design-system.json', line: keyLine(pkg.manifest, 'templates'), rule: 'file-missing', msg: `templates names ${layoutsPath}, which is not in the package` });
     else {
-      const { layouts, problems: lp } = walkLayouts(f.text ?? '');
+      const { templates, problems: lp } = walkTemplates(f.text ?? '');
       problems.push(...lp.map((p) => ({ file: layoutsPath, ...p })));
-      summary.layouts = layouts.map(({ id, title, slots }) => ({ id, title, slots }));
+      summary.templates = templates.map(({ id, title, slots }) => ({ id, title, slots }));
     }
   }
 
@@ -487,11 +487,11 @@ export function checkPackage(pkg) {
 
   const assets = [];
   for (const [path, f] of files) {
-    // the stylesheet and layouts the manifest names — or, when it names them
+    // the stylesheet and templates the manifest names — or, when it names them
     // wrongly, the conventional files; either way not assets, and already said
     if (path === 'design-system.json' || path === stylesPath || path === layoutsPath) continue;
     if (((!stylesPath || !files.has(stylesPath)) && path === 'design-system.css')
-      || ((!layoutsPath || !files.has(layoutsPath)) && path === 'layouts.html')) continue;
+      || ((!layoutsPath || !files.has(layoutsPath)) && path === 'templates.html')) continue;
     if (path.split('/').some((seg) => seg.startsWith('.'))) continue;   // never served — dotfiles are not the package
     if (!path.includes('/') && isPapers(path)) continue;
     const e = ext(path);

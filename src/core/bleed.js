@@ -19,7 +19,7 @@
  *     -video / -poster): its image with its own size and position, now
  *     resolved against the viewport (cover, centred), or a muted clone of its
  *     video playing in step;
- *   - a design-system layout's art — the element its template marks
+ *   - a slide template's art — the element its template marks
  *     `data-ds-bleed`: its computed background (colour, image, size,
  *     position, repeat), resolved against the viewport.
  *
@@ -32,7 +32,7 @@
 
 const BG_PROPS = ['backgroundColor', 'backgroundImage', 'backgroundSize', 'backgroundPosition', 'backgroundRepeat'];
 
-/** The art a section would bleed, or null: its background media, else its design-system layout's marked element. */
+/** The art a section would bleed, or null: its background media, else its slide template's marked element. */
 export function bleedSource(sec) {
   const media = sec?.querySelector(':scope > .slide-bg');
   if (media) return { kind: 'media', el: media };

@@ -1644,13 +1644,13 @@
 }
 /* Design systems… (DESIGN_SYSTEMS): the marketplaces' design systems, ● used / ○ not */
 .decklight-design-systems .narr-card { width: min(520px, 90vw); }
-.decklight-ds-layouts .narr-card { width: min(860px, 94vw); }
-.decklight-ds-layouts .dsl-split { display: flex; gap: 14px; align-items: flex-start; }
-.decklight-ds-layouts .dsl-list { flex: 1 1 auto; min-width: 0; max-height: 52vh; overflow: auto; }
+.decklight-ds-templates .narr-card { width: min(860px, 94vw); }
+.decklight-ds-templates .dsl-split { display: flex; gap: 14px; align-items: flex-start; }
+.decklight-ds-templates .dsl-list { flex: 1 1 auto; min-width: 0; max-height: 52vh; overflow: auto; }
 /* the preview: a real slide in the layout, its slots at their defaults, scaled down */
-.decklight-ds-layouts .dsl-placeholder { opacity: .45; font-size: 48px; border: 3px dashed currentColor; padding: 12px 20px; margin: 10px 0; border-radius: 10px; }
-.decklight-ds-layouts .dsl-preview { flex: 0 0 320px; height: 180px; overflow: hidden; border-radius: 8px; position: relative; background: var(--bg, #111); }
-.decklight-ds-layouts .dsl-preview-slide { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform: scale(.25); transform-origin: 0 0;
+.decklight-ds-templates .dsl-placeholder { opacity: .45; font-size: 48px; border: 3px dashed currentColor; padding: 12px 20px; margin: 10px 0; border-radius: 10px; }
+.decklight-ds-templates .dsl-preview { flex: 0 0 320px; height: 180px; overflow: hidden; border-radius: 8px; position: relative; background: var(--bg, #111); }
+.decklight-ds-templates .dsl-preview-slide { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform: scale(.25); transform-origin: 0 0;
   box-sizing: border-box; padding: 60px 80px; display: flex; flex-direction: column; justify-content: center; color: var(--fg, #eee); background: var(--bg, #111); }
 /* film yourself (V → Character): the camera in the medallion's own shape */
 .decklight-film .narr-card { width: min(420px, 90vw); }
@@ -2673,7 +2673,7 @@
 /* ---------- a design system's look, offered (SPEC DESIGN_SYSTEMS) — the slide behind is the preview ---------- */
 .decklight-narr.decklight-look-offer { background: rgba(0, 0, 0, .12); backdrop-filter: none; align-items: flex-end; padding-bottom: 6vh; }
 .decklight-look-offer .narr-card { width: min(520px, 90vw); }
-.decklight-ds-layouts .dsl-look .narr-row-label { color: #f5d77a; }
+.decklight-ds-templates .dsl-look .narr-row-label { color: #f5d77a; }
 
 /* ---------- bleed (SPEC DECK_ANATOMY) — the current slide's background art, at screen size ----------
    A layer behind the stage, covering the viewport, so a 16:9 slide's art

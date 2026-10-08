@@ -5,7 +5,7 @@
   "title": "Acme Brand",
   "description": "An invented design system \u2014 the fixture every design-system test starts from.",
   "styles": "design-system.css",
-  "layouts": "layouts.html",
+  "templates": "templates.html",
   "palette": [
     {
       "group": "Brand",

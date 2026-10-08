@@ -47,7 +47,7 @@ import {
   sectionInner, slideHeading, splitOpenTag,
 } from '../tools/deck-html.mjs';
 import { CLICK_MARK } from '../tools/sentences.mjs';
-import { isSystemLayout, parseSystemLayout } from '../tools/design-system-format.mjs';
+import { isTemplateRef, parseTemplateRef } from '../tools/design-system-format.mjs';
 import { auditDeck } from './audit.mjs';
 import { designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
 import { markedSources } from './theme-refs.mjs';
@@ -364,7 +364,7 @@ export function clickSegments(notesHtml) {
 
 /**
  * The deck's design systems as `check` needs them (SPEC DESIGN_SYSTEMS):
- * name → `{ ref, layouts: Map<id, slots> }`, or `{ ref, missing }` when this
+ * name → `{ ref, templates: Map<id, slots> }`, or `{ ref, missing }` when this
  * machine cannot read one. From the checkouts and the cache only — never a
  * fetch — and through the same check every server makes, so a package that
  * no longer passes it is as unreadable here as it is on stage. The default
@@ -378,7 +378,7 @@ export function deckDesignSystems(html) {
     const verdict = r.dir ? packageVerdict(r.dir) : null;
     const missing = r.missing ?? (verdict.ok ? null : verdict.why);
     out.set(ref.name, missing ? { ref: ref.ref, missing }
-      : { ref: ref.ref, layouts: new Map((verdict.summary?.layouts ?? []).map((l) => [l.id, l.slots])) });
+      : { ref: ref.ref, templates: new Map((verdict.summary?.templates ?? []).map((l) => [l.id, l.slots])) });
   }
   return out;
 }
@@ -386,7 +386,7 @@ export function deckDesignSystems(html) {
 const slotList = (slots) => `${slots.map((s) => `${s.name}${s.required ? '*' : ''}`).join(', ')}${slots.some((s) => s.required) ? '; * = required' : ''}`;
 
 /**
- * A slide that names a design-system layout, against what the design system
+ * A slide that names a slide template, against what the design system
  * defines. Every mistake here renders — the engine shows the content plainly
  * or in the unslotted box rather than losing it — so each is a warning that
  * names what was written and what the design system offers instead.
@@ -394,9 +394,9 @@ const slotList = (slots) => `${slots.map((s) => `${s.name}${s.required ? '*' : '
 function designSystemFindings(value, tree, systems, configured, push) {
   // the slots the engine reads: the slide's direct children, as written
   const slotted = tree.children.map((n) => readAttrs(n.attrs)['data-slot']).filter((v) => v !== undefined);
-  const ref = parseSystemLayout(value);
+  const ref = parseTemplateRef(value);
   const sys = ref ? systems.get(ref.system) : null;
-  const slots = sys?.layouts?.get(ref.layout) ?? null;
+  const slots = sys?.templates?.get(ref.template) ?? null;
   // a slot filled twice is decidable from the file alone — except the layout's
   // default slot, which is MEANT to take everything else
   const fallback = slots?.find((s) => s.default)?.name;
@@ -408,25 +408,25 @@ function designSystemFindings(value, tree, systems, configured, push) {
     seen.add(name);
   }
   if (!ref) {
-    push('ds-unknown-layout', `data-layout="${value}" is not a design-system layout — it is written <design system>/<layout>`);
+    push('ds-unknown-template', `data-template="${value}" is not a slide template — it is written <design system>/<template>`);
     return;
   }
   if (!sys) {
-    push('ds-unknown-system', `data-layout="${value}" — the deck uses no design system called "${ref.system}"`
+    push('ds-unknown-system', `data-template="${value}" — the deck uses no design system called "${ref.system}"`
       + ` (it uses: ${configured.length ? configured.join(', ') : 'none'}); decklight design-system add ${ref.system}@<marketplace> <deck> references one`);
     return;
   }
   if (sys.missing) return;   // said once, in the head; nothing here can be known
   if (!slots) {
-    push('ds-unknown-layout', `data-layout="${value}" — ${sys.ref} has no layout "${ref.layout}" (its layouts: ${[...sys.layouts.keys()].join(', ') || 'none'})`);
+    push('ds-unknown-template', `data-template="${value}" — ${sys.ref} has no template "${ref.template}" (its templates: ${[...sys.templates.keys()].join(', ') || 'none'})`);
     return;
   }
   const names = new Set(slots.map((s) => s.name));
   for (const name of new Set(slotted)) {
-    if (!names.has(name)) push('ds-unknown-slot', `data-slot="${name}" — the ${ref.layout} layout has no such slot (its slots: ${slotList(slots)})`);
+    if (!names.has(name)) push('ds-unknown-slot', `data-slot="${name}" — the ${ref.template} template has no such slot (its slots: ${slotList(slots)})`);
   }
   for (const s of slots) {
-    if (s.required && !seen.has(s.name)) push('ds-required-empty', `the ${ref.layout} layout needs its "${s.name}" slot filled — no element here carries data-slot="${s.name}" (its slots: ${slotList(slots)})`);
+    if (s.required && !seen.has(s.name)) push('ds-required-empty', `the ${ref.template} template needs its "${s.name}" slot filled — no element here carries data-slot="${s.name}" (its slots: ${slotList(slots)})`);
   }
 }
 
@@ -451,7 +451,7 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
   for (const [, sys] of systems) {
     if (sys.missing) {
       out.push(finding('warn', 'ds-unresolved', null, 'head',
-        `design system ${sys.ref} cannot be read on this machine — ${sys.missing}; its slides' layouts and slots go unchecked`));
+        `design system ${sys.ref} cannot be read on this machine — ${sys.missing}; its slides' templates and slots go unchecked`));
     }
   }
   // `sectionInner`, never the raw body: a body begins mid-open-tag, so a slide
@@ -487,8 +487,12 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
     }
 
     const tree = parseTree(inner);
-    if (isSystemLayout(attrs['data-layout'])) {
-      designSystemFindings(attrs['data-layout'], tree, systems, configured.map((r) => r.ref),
+    // a slashed data-layout was how a slide named a template before 0.9.0
+    if (isTemplateRef(attrs['data-layout'])) {
+      push('ds-layout-attr', `data-layout="${attrs['data-layout']}" — a slide template is named by data-template now: write data-template="${attrs['data-layout']}" (data-layout is for the built-in layouts, L)`);
+    }
+    if (attrs['data-template']) {
+      designSystemFindings(attrs['data-template'], tree, systems, configured.map((r) => r.ref),
         (rule, message) => out.push(finding('warn', rule, slide, head, message)));
     }
     const segments = clickSegments(NOTES_ASIDE.exec(inner)?.[1]);
