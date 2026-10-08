@@ -295,6 +295,25 @@ test('a resolve in the author\'s own sidecar marks a reviewer\'s comment done, a
   assert.equal(folded.find((c) => c.id === 'a2').resolved, null);
 });
 
+test('a legacy git-config mark yields to the sidecar once the sidecar speaks about that comment', async (t) => {
+  // Marked done on an earlier build (git config), then R on the new one:
+  // the reopen is appended and must WIN, or the comment stays pinned done and
+  // the resolve that travels can never be written.
+  const { dir, deck } = fixture();
+  t.after(() => rmTemp(dir));
+  const branch = 'review/ana-2026-08-20';
+  execFileSync('git', ['config', `decklight-review.${branch}.done-a1`, 'true'], { cwd: path.dirname(deck) });
+  execFileSync('git', ['config', `decklight-review.${branch}.done-a2`, 'true'], { cwd: path.dirname(deck) });
+  const store = path.join(path.dirname(deck), 'deck.review.jsonl');
+  fs.appendFileSync(store, JSON.stringify({ op: 'reopen', re: 'a1', at: '2026-08-25T09:00:00Z', by: 'Gilles' }) + '\n');
+  let ana = (await reviewsWaiting(deck)).reviews.find((x) => x.who === 'ana');
+  assert.deepEqual(ana.doneIds, ['a2'], 'the reopened one is open again; the untouched legacy mark still counts');
+  fs.appendFileSync(store, JSON.stringify({ op: 'resolve', re: 'a1', at: '2026-08-25T09:05:00Z', by: 'Gilles' }) + '\n');
+  ana = (await reviewsWaiting(deck)).reviews.find((x) => x.who === 'ana');
+  assert.deepEqual([...ana.doneIds].sort(), ['a1', 'a2']);
+  assert.equal(ana.done, true);
+});
+
 test('an id that could not be a config key is refused when reading legacy marks', () => {
   // Ids are minted `[a-z0-9]{1,12}`, but a comment arrives from a file somebody
   // else wrote. The shape check guards the legacy git-config read.

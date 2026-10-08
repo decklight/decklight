@@ -178,9 +178,14 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
     // TOGETHER — their comments, our ops — because an op alone points at
     // nothing. Carried per comment rather than per branch: finishing half a
     // long review has to leave the other half on screen. Marks an earlier
-    // version kept in git config are still honoured, read and never written.
+    // version kept in git config are still honoured, read and never written —
+    // until the sidecar speaks about that comment: once a resolve or a reopen
+    // names it, the record is the truth, or a legacy mark would pin a comment
+    // done that R had just reopened, and R could never write the resolve
+    // that travels.
     const together = new Map(foldReview([...records, ...mine]).map((c) => [c.id, c]));
-    const doneIds = doneComments(cwd, branch, { records });
+    const spoken = new Set(mine.filter((r) => (r.op === 'resolve' || r.op === 'reopen') && r.re).map((r) => r.re));
+    const doneIds = new Set([...doneComments(cwd, branch, { records })].filter((id) => !spoken.has(id)));
     for (const c of open) if (together.get(c.id)?.resolved) doneIds.add(c.id);
     const stamp = await run(['log', '-1', '--format=%aI', ref], { cwd });
     reviews.push({
