@@ -1196,6 +1196,9 @@ export function init(userConfig = {}) {
       // have to retype is a number that arrives with a typo in it
       { label: 'Decklight version', value: RUNTIME_VERSION || 'unknown — not a built bundle',
         ...(RUNTIME_VERSION ? { hint: '⏎ copies', run: () => copyText(RUNTIME_VERSION) } : {}) },
+      // a knob, not a fact: ⏎ switches it and says which it is now
+      ...(printMode ? [] : [{ label: 'Display', value: displayFill ? 'fill screen' : deckRatio(),
+        hint: '⏎ switches', run: () => setDisplay(!displayFill) }]),
     ];
   }
   /**
@@ -1337,6 +1340,57 @@ export function init(userConfig = {}) {
   }
   stage.style.width = config.width + 'px';
   stage.style.height = config.height + 'px';
+
+  // ----- display ratio (Settings) — SPEC PRESENTING --------------------------
+  // The deck's own ratio (16:9 by default) letterboxes on any other screen.
+  // "Fill screen" instead GROWS the stage to the screen's shape: the deck's
+  // height on a wider screen, its width on a taller one, so the slides lay out
+  // into the extra room and nothing that fits at 16:9 is squeezed. A browser's
+  // choice per deck, like a dock: how this screen shows it, never the file —
+  // print, PDF and every export keep the deck's ratio.
+  const DISPLAY_KEY = 'decklight-display:' + location.pathname;
+  let displayFill = !printMode && readPref(DISPLAY_KEY) === 'fill';
+  // past these a fill is no longer a slide: an ultrawide or a phone held upright
+  // letterboxes again rather than stretching the deck into a ribbon
+  const FILL_ASPECT = [1, 2.4];
+  let remeasureTimer = null;
+  /** Size the stage for the space it gets; true when it changed. */
+  function sizeStage(availW, availH) {
+    let w = config.width, h = config.height;
+    if (displayFill && availW > 0 && availH > 0) {
+      const aspect = Math.min(FILL_ASPECT[1], Math.max(FILL_ASPECT[0], availW / availH));
+      if (aspect > w / h) w = Math.round(h * aspect);
+      else h = Math.round(w / aspect);
+    }
+    if (stage.style.width === w + 'px' && stage.style.height === h + 'px') return false;
+    stage.style.width = w + 'px';
+    stage.style.height = h + 'px';
+    return true;
+  }
+  /** A new stage size re-wraps the text: pinned titles and the overflow
+   *  guardrail measure again, once the resize has stopped. */
+  function remeasureSoon() {
+    clearTimeout(remeasureTimer);
+    remeasureTimer = setTimeout(() => {
+      if (!instance?._sections) return;
+      setupPinnedTitles(instance._sections, config);
+      checkOverflow(instance._sections[instance.state.slide - 1], instance.state.slide);
+    }, 150);
+  }
+  /** `16:9` for the deck's own ratio — what the setting switches back to. */
+  function deckRatio() {
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    const g = gcd(config.width, config.height) || 1;
+    return `${config.width / g}:${config.height / g}`;
+  }
+  function setDisplay(fill) {
+    displayFill = !!fill;
+    writePref(DISPLAY_KEY, displayFill ? 'fill' : null);
+    root.toggleAttribute('data-display-fill', displayFill);
+    instance._reflow?.();
+    toast(displayFill ? 'display: fills the screen' : `display: ${deckRatio()}`, 2200);
+  }
+  root.toggleAttribute('data-display-fill', displayFill);
 
   // brand logo: chrome on the root (unscaled), so it must attach AFTER the
   // stage swallowed the deck's original children
@@ -2376,8 +2430,10 @@ export function init(userConfig = {}) {
   function rescale() {
     const box = root.getBoundingClientRect();
     const dl = dockPx('--dock-left'), dr = dockPx('--dock-right'), db = dockPx('--dock-bottom');
-    const s = Math.min((box.width - dl - dr) / config.width,
-                       (box.height - db) / config.height) || 1;
+    const availW = box.width - dl - dr, availH = box.height - db;
+    if (sizeStage(availW, availH)) remeasureSoon();
+    const s = Math.min(availW / parseFloat(stage.style.width),
+                       availH / parseFloat(stage.style.height)) || 1;
     instance._scale = s;
     // Published for the chrome that sits OUTSIDE the scaled stage: captions are
     // sized in px on the root, so in a preview iframe they stayed full-size over
