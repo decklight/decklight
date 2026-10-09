@@ -619,6 +619,16 @@ test('element colours: a shape and its label in one edit, by path, and only ever
   assert.match(html, /<text x="5" y="10" style="fill: #ffb319">hi<\/text>/);
   assert.match(html, /viewBox="0 0 100 50"><!-- a note -->/, 'nothing else in the element moved');
 
+  // the border is the same shape's stroke, with its width beside it (#717) — one edit for the pair
+  const stroke = { path: [0, 0], tag: 'rect', prop: 'stroke' };
+  r = await (await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...stroke, value: 'var(--d-stroke)' }, { ...stroke, prop: 'stroke-width', value: '3' }] })).json();
+  assert.equal(r.changed, true);
+  assert.match(readFileSync(deck, 'utf8'), /<rect width="40" height="20" style="fill: var\(--accent\); stroke: var\(--d-stroke\); stroke-width: 3"\/>/, 'the stroke replaced, the width added, the fill kept');
+  for (const bad of ['3;x', 'calc(1px)', '-1', '300', 'url(x)']) {
+    assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...stroke, prop: 'stroke-width', value: bad }] })).status, 400, `width ${bad}`);
+  }
+  assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...stroke, prop: 'border-width', value: '2px' }] })).status, 200, 'a box takes px');
+
   // null takes it back off, and an emptied style attribute goes with it
   r = await (await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...text, value: null }] })).json();
   assert.equal(r.changed, true);

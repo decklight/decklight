@@ -216,8 +216,10 @@ export function colorTargets(top, clicked) {
         : [...svg.querySelectorAll('text')].filter((t) => inside(shape, t));
     } else if (label) labels = [label];
     const fill = shape ? [target(shape, 'fill')].filter(Boolean) : [];
+    // the border is the same shape's stroke (#717): a third side, never the fill
+    const stroke = shape ? [target(shape, 'stroke')].filter(Boolean) : [];
     const text = labels.map((t) => target(t, 'fill')).filter(Boolean);
-    return fill.length || text.length ? { fill, text, what: shape ? shape.tagName.toLowerCase() : 'text' } : null;
+    return fill.length || text.length ? { fill, stroke, text, what: shape ? shape.tagName.toLowerCase() : 'text' } : null;
   }
   // an HTML box: climb out of inline runs and out of a highlighted <pre>, whose
   // spans are the highlighter's and not the file's
@@ -225,8 +227,9 @@ export function colorTargets(top, clicked) {
   while (el !== top && top.contains(el) && getComputedStyle(el).display.startsWith('inline')) el = el.parentElement;
   if (!top.contains(el)) el = top;
   const fill = [target(el, 'background-color')].filter(Boolean);
+  const stroke = [target(el, 'border-color')].filter(Boolean);
   const text = [target(el, 'color')].filter(Boolean);
-  return fill.length ? { fill, text, what: el.tagName.toLowerCase() } : null;
+  return fill.length ? { fill, stroke, text, what: el.tagName.toLowerCase() } : null;
 }
 
 // ----- the card -------------------------------------------------------------
@@ -266,11 +269,18 @@ const h = (tag, cls, text) => {
  * `{ el, close, apply, isOpen }`.
  */
 export function openColorPicker({ root, dock, targets, systems = [], onApply, onClose }) {
-  const all = [...targets.fill, ...targets.text];
-  const before = new Map(all.map((t) => [t, [t.el.style.getPropertyValue(t.prop), t.el.style.getPropertyPriority(t.prop)]]));
+  const SIDES = ['fill', 'stroke', 'text'];
+  targets.stroke ??= [];
+  const all = [...targets.fill, ...targets.stroke, ...targets.text];
+  const saved = (el, prop) => [el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)];
+  const before = new Map(all.map((t) => [t, saved(t.el, t.prop)]));
+  // the stroke's width travels with its colour (#717): `stroke-width` on a
+  // shape, `border-width` on a box — one more declaration, same element
+  const widthProp = (t) => (t.prop === 'stroke' ? 'stroke-width' : 'border-width');
+  const widthBefore = new Map(targets.stroke.map((t) => [t, saved(t.el, widthProp(t))]));
   // undefined: untouched · null: reset · string: the value to write
-  const picks = { fill: undefined, text: undefined };
-  let side = targets.fill.length ? 'fill' : 'text';
+  const picks = { fill: undefined, stroke: undefined, text: undefined, width: undefined };
+  let side = targets.fill.length ? 'fill' : targets.stroke.length ? 'stroke' : 'text';
   let tab = 'theme';
   let model = 'rgb';
   let rgb = { r: 128, g: 128, b: 128 };
@@ -289,9 +299,17 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
   el.appendChild(card);
 
   const authored = (s) => targets[s][0]?.el.style.getPropertyValue(targets[s][0].prop).trim() ?? '';
+  const computedName = (prop) => ({ 'background-color': 'backgroundColor', 'border-color': 'borderColor' }[prop] ?? prop);
   const current = (s) => {
     const t = targets[s][0];
-    return t ? resolveColor(getComputedStyle(t.el)[t.prop === 'background-color' ? 'backgroundColor' : t.prop]) : null;
+    return t ? resolveColor(getComputedStyle(t.el)[computedName(t.prop)]) : null;
+  };
+  /** The stroke's width as the shape has it now: a pick, else the computed value, in px. */
+  const currentWidth = () => {
+    if (picks.width !== undefined && picks.width !== null) return picks.width;
+    const t = targets.stroke[0];
+    const n = t ? parseFloat(getComputedStyle(t.el)[computedName(widthProp(t)) === 'border-width' ? 'borderWidth' : 'strokeWidth']) : NaN;
+    return Number.isFinite(n) ? String(n) : '1';
   };
   function preview(s, value) {
     for (const t of targets[s]) {
@@ -299,8 +317,14 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
       else t.el.style.setProperty(t.prop, value);
     }
   }
+  function previewWidth(value) {
+    for (const t of targets.stroke) {
+      if (value === null) { const [v, p] = widthBefore.get(t); v ? t.el.style.setProperty(widthProp(t), v, p) : t.el.style.removeProperty(widthProp(t)); }
+      else t.el.style.setProperty(widthProp(t), value);
+    }
+  }
   function pick(value) { picks[side] = value; preview(side, value); render(); }
-  function restore() { for (const s of ['fill', 'text']) preview(s, null); }
+  function restore() { for (const s of SIDES) preview(s, null); previewWidth(null); }
   function syncFromTarget() { const c = current(side); if (c) { rgb = c; hsb = rgbToHsb(c); } }
 
   function segmented(cls, label, options, value, onPick) {
@@ -403,14 +427,38 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     body.appendChild(row);
   }
 
+  /** The Stroke side's width row: a slider and a number, in px, previewed as it moves (#717). */
+  function renderWidth(body) {
+    const row = h('label', 'cp-chan cp-widthrow');
+    row.appendChild(h('span', 'cp-chan-name', 'Width'));
+    const range = h('input', 'cp-range cp-width'); range.type = 'range';
+    const num = h('input', 'cp-num cp-width'); num.type = 'number';
+    for (const i of [range, num]) { i.min = '0'; i.max = '24'; i.step = '0.5'; i.value = currentWidth(); i.dataset.chan = 'w'; }
+    range.setAttribute('aria-label', 'Stroke width');
+    num.setAttribute('aria-label', 'Stroke width value');
+    const set = (v) => {
+      const n = clamp(Math.round(Number(v) * 2) / 2 || 0, 0, 24);
+      picks.width = String(n);
+      previewWidth(picks.width);
+      range.value = num.value = picks.width;
+      card.querySelector('.cp-apply').disabled = false;
+    };
+    range.addEventListener('input', () => set(range.value));
+    num.addEventListener('change', () => set(num.value));
+    row.append(range, num);
+    body.appendChild(row);
+  }
+
   function render() {
     const focus = document.activeElement?.dataset?.chan && card.contains(document.activeElement)
       ? [document.activeElement.className, document.activeElement.dataset.chan] : null;
     main.textContent = '';
     main.appendChild(segmented('cp-side', 'What to color', [
       { id: 'fill', label: 'Fill', disabled: !targets.fill.length, title: targets.fill.length ? 'the shape’s background' : 'nothing here has a background to color' },
+      { id: 'stroke', label: 'Stroke', disabled: !targets.stroke.length, title: targets.stroke.length ? 'the shape’s border, and how wide it is' : 'nothing here has a border' },
       { id: 'text', label: 'Text', disabled: !targets.text.length, title: targets.text.length ? 'the text on it' : 'this shape carries no text' },
     ], side, (id) => { side = id; if (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var(')) syncFromTarget(); else setRgb(hexToRgb(picks[side])); render(); }));
+    if (side === 'stroke') renderWidth(main);
     main.appendChild(segmented('cp-tabs', 'Color source', [{ id: 'theme', label: 'Theme' }, { id: 'custom', label: 'Custom' }], tab, (id) => {
       tab = id;
       // Custom opens on the colour the target HAS — a token pick included — so the sliders start from what you see
@@ -424,11 +472,15 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     const foot = h('div', 'cp-foot');
     const reset = h('button', 'cp-btn cp-reset', 'Reset'); reset.type = 'button';
     reset.title = 'take the picked color off — back to what the theme or the markup gives it';
-    reset.addEventListener('click', () => { picks[side] = null; for (const t of targets[side]) t.el.style.removeProperty(t.prop); render(); });
+    reset.addEventListener('click', () => {
+      picks[side] = null; for (const t of targets[side]) t.el.style.removeProperty(t.prop);
+      if (side === 'stroke') { picks.width = null; for (const t of targets.stroke) t.el.style.removeProperty(widthProp(t)); }
+      render();
+    });
     const cancel = h('button', 'cp-btn', 'Cancel'); cancel.type = 'button';
     cancel.addEventListener('click', close);
     const ok = h('button', 'cp-btn cp-apply', 'Apply'); ok.type = 'button';
-    ok.disabled = picks.fill === undefined && picks.text === undefined;
+    ok.disabled = SIDES.every((s) => picks[s] === undefined) && picks.width === undefined;
     ok.addEventListener('click', apply);
     foot.append(reset, h('span', 'cp-spacer'), cancel, ok);
     main.appendChild(foot);
@@ -452,9 +504,12 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
   function apply() {
     if (!open) return;
     const edits = [];
-    for (const s of ['fill', 'text']) {
+    for (const s of SIDES) {
       if (picks[s] === undefined) continue;
       for (const t of targets[s]) edits.push({ path: t.path, tag: t.tag, prop: t.prop, value: picks[s] });
+    }
+    if (picks.width !== undefined) {
+      for (const t of targets.stroke) edits.push({ path: t.path, tag: t.tag, prop: widthProp(t), value: picks.width === null ? null : `${picks.width}${t.prop === 'stroke' ? '' : 'px'}` });
     }
     // the preview STAYS: the save reloads the deck, and a slide that flashed
     // back to its old colours in between would read as a failed save

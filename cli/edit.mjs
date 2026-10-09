@@ -442,7 +442,11 @@ export function removeSlideElement(html, slide, index) {
  * attribute, and a style attribute is markup.
  */
 const STYLE_VALUE = /^(?:var\(--[a-z][a-z0-9-]{0,40}(?:,\s?#[0-9a-f]{3,8})?\)|#[0-9a-f]{3,8})$/i;
-const STYLE_PROPS = new Set(['fill', 'color', 'background-color']);
+const STYLE_PROPS = new Set(['fill', 'color', 'background-color', 'stroke', 'border-color']);
+// a stroke's width (#717): a number in px, unitless on a shape the way SVG
+// reads it, `px` on a box the way CSS does — never anything that is not one
+const WIDTH_PROPS = new Set(['stroke-width', 'border-width']);
+const WIDTH_VALUE = /^(?:\d{1,2}(?:\.\d{1,2})?)(?:px)?$/;
 
 /** The page and the file disagree about what is where: a 409, not a bad request. */
 const stale = (message) => Object.assign(new Error(message), { code: 'STALE' });
@@ -477,8 +481,9 @@ export function setElementStyles(html, slide, index, edits) {
   // each edit re-walks from the top: the one before it changed the offsets
   for (const e of edits) {
     if (!Array.isArray(e?.path) || e.path.length > 16 || e.path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
-    if (!STYLE_PROPS.has(e.prop)) throw new Error(`not a colour property: ${e.prop}`);
-    if (e.value !== null && (typeof e.value !== 'string' || !STYLE_VALUE.test(e.value))) throw new Error(`not a colour this server writes: ${String(e.value).slice(0, 40)}`);
+    if (!STYLE_PROPS.has(e.prop) && !WIDTH_PROPS.has(e.prop)) throw new Error(`not a colour property: ${e.prop}`);
+    const okValue = WIDTH_PROPS.has(e.prop) ? WIDTH_VALUE : STYLE_VALUE;
+    if (e.value !== null && (typeof e.value !== 'string' || !okValue.test(e.value))) throw new Error(`not a ${WIDTH_PROPS.has(e.prop) ? 'width' : 'colour'} this server writes: ${String(e.value).slice(0, 40)}`);
     let start = 0; let end = el.length;
     for (const n of e.path) {
       const kids = elementChildRanges(el.slice(start, end));
