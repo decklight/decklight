@@ -878,20 +878,23 @@ try {
     // The policy is a banner ROW now, not a sentence of its own — shorter,
     // because the banner puts it beside every other fact about this session
     // rather than in a paragraph competing with the url.
-    must(/commits on your word/.test(editSrv.log()),
+    must(/commits on K/.test(editSrv.log()),
       'the edit server did not announce the commit policy it was given');
     must(/decklight\/wip/.test(editSrv.log()),
       'the edit server did not say where the work is snapshotted');
-    // The banner is ONE block: the title first, a row per service, and the
-    // deck's URL LAST with the keys under it (#423). Three processes used to
-    // print in whatever order they woke, and the URL you wanted landed under
-    // the bridge's. The rows are asserted by name above; what this pins is
-    // the shape — a title, and nothing between the url and its keys.
+    // The banner is ONE block: a row per service, a ✓ on what is installed
+    // and on, and the deck's URL LAST with Ctrl-C under it (#423). Three
+    // processes used to print in whatever order they woke, and the URL you
+    // wanted landed under the bridge's. The rows are asserted by name above;
+    // what this pins is the shape — no title (the url names the deck; the
+    // title is a DECKLIGHT_DEBUG line), a ticked git row, and nothing
+    // between the url and its one key.
     const lines = editSrv.log().split('\n');
-    must(lines.some((l) => /^decklight · deck\.html$/.test(l)), 'the banner does not open with the deck\'s name');
+    must(!lines.some((l) => /^decklight · deck\.html$/.test(l)), 'the deck\'s name heads the banner outside DECKLIGHT_DEBUG');
+    must(lines.some((l) => /^\s+✓ git\s/.test(l)), 'the git row does not carry its tick');
     const at = lines.findIndex((l) => DECK_URL_RE.test(l));
     must(/^\s+▸ /.test(lines[at]), `the url line is not the arrow line: ${JSON.stringify(lines[at])}`);
-    must(/L layouts · Z undo/.test(lines[at + 1] ?? ''), `the keys do not sit under the url: ${JSON.stringify(lines[at + 1])}`);
+    must(/^\s+Ctrl-C stops$/.test(lines[at + 1] ?? ''), `Ctrl-C does not sit alone under the url: ${JSON.stringify(lines[at + 1])}`);
   });
 
   await step('a slide is added by writing the file', async () => {

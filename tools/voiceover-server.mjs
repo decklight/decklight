@@ -557,8 +557,11 @@ export async function ttsMain(args) {
     // ending in the DECK's url, and a bridge url above it is the wrong thing
     // to click. Standalone, the bridge is the whole program and says so.
     if (process.env.DECKLIGHT_BANNER) {
-      console.log(readyLine({ key: 'voice', text: `${engine.name} · ${engine.model}${price} — on :${bound}` }));
-      if (engine.caveat) console.log(readyLine({ key: 'voice', text: engine.caveat }));
+      // the row is what is on and where; the price and the caveat are for
+      // the standalone line below, or a DECKLIGHT_DEBUG run
+      console.log(readyLine({ key: 'voice', text: `${engine.name} · ${engine.model} · :${bound}`, mark: 'ok' }));
+      if (process.env.DECKLIGHT_DEBUG && engine.cost) console.log(`cost: ${engine.cost}`);
+      if (process.env.DECKLIGHT_DEBUG && engine.caveat) console.log(engine.caveat);
     } else {
       console.log(`decklight tts bridge on http://127.0.0.1:${bound} — ${engine.name} · ${engine.model}${price} — Ctrl-C stops`);
       // Stated here, once, where the presenter is still choosing — not

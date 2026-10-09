@@ -50,6 +50,14 @@ import { readyLine } from '../cli/banner.mjs';
 
 const run = promisify(execFile);
 
+/**
+ * Whether the bridge's own housekeeping lines are printed: its cache, how a
+ * portrait was prepared. Always when it runs on its own; under the banner of
+ * `decklight <deck>` only with DECKLIGHT_DEBUG, since they are not a fact a
+ * presenter acts on.
+ */
+const chatty = () => !process.env.DECKLIGHT_BANNER || !!process.env.DECKLIGHT_DEBUG;
+
 /** The largest film the deck may send — ten seconds of 1080p is well under it. */
 const FILM_MAX = 200 * 1024 * 1024;
 
@@ -302,7 +310,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
           if (!ffmpegOk || !wav2lipDir) return { file: null, loop: still, box: null };
           const t0 = Date.now();
           const c = await prepareClip(python, { dir: wav2lipDir, clip: still, cacheDir });
-          console.log(`  portrait ${name}: filmed · ${c.seconds.toFixed(1)}s, played there and back · face in ${c.faces} frames · `
+          if (chatty()) console.log(`  portrait ${name}: filmed · ${c.seconds.toFixed(1)}s, played there and back · face in ${c.faces} frames · `
             + (c.steady ? 'head steady — only the mouth is redrawn'
               : 'head moves — the whole face is redrawn (softer); film with the head still for a sharper one')
             + ` · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
@@ -531,13 +539,14 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   server.listen(asked, '127.0.0.1', () => {
     const what = [visemeOk && 'visemes (rhubarb)', ...videoEngines.map((e) => `video (${e})`)].filter(Boolean).join(' · ')
       || 'no portrait yet — film one from the deck (V → Character)';
-    if (process.env.DECKLIGHT_BANNER) console.log(readyLine({ key: 'lips', text: `${what} — on :${port}` }));
+    const ready = visemeOk || videoEngines.length > 0;
+    if (process.env.DECKLIGHT_BANNER) console.log(readyLine({ key: 'lips', text: `${what} · :${port}`, ...(ready ? { mark: 'ok' } : {}) }));
     else console.log(`decklight lipsync bridge on http://127.0.0.1:${port} — ${what} — Ctrl-C stops`);
-    if (veo) {
+    if (chatty() && veo) {
       console.log(`veo: ${veo.model} · ${veo.seconds}s — each portrait is animated ONCE (billed), `
         + 'then wav2lip re-syncs that clip locally for every sentence');
     }
-    console.log(`cache: ${cacheDir}`);
+    if (chatty()) console.log(`cache: ${cacheDir}`);
     // A filmed portrait takes a minute to prepare (a face found in every
     // second of it): start now, not on the first sentence of the talk.
     if (videoEngines.length) {

@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DECK_URL_RE, READY, ROW_ORDER, nextFlushDelay, parseReady, readyLine, renderBanner } from '../cli/banner.mjs';
+import { DECK_URL_RE, READY, ROW_ORDER, bannerRow, nextFlushDelay, parseReady, readyLine, renderBanner } from '../cli/banner.mjs';
 
 const URL = 'http://127.0.0.1:8788/talk.html';
 const base = { deck: 'talk.html', url: URL, keys: 'E edit · Ctrl-C stops' };
@@ -43,6 +43,33 @@ test('the URL is the only thing coloured, and only when a terminal asked', () =>
   // the row text itself stays plain: colouring everything colours nothing
   const row = lit.find((l) => l.includes('say'));
   assert.equal(/\x1b\[(1|36)m/.test(row.slice(row.indexOf('say'))), false, 'row text competes with the URL');
+});
+
+test('an installed row wears a green tick, a row to fix a yellow !, a plain fact neither', () => {
+  const rows = [
+    { key: 'voice', text: 'say · Voice 1 · :8787', mark: 'ok' },
+    { key: 'skill', text: 'AGENTS.md (v0.8.1) is older than this install', mark: 'warn' },
+    { key: 'reviews', text: 'none waiting' },
+  ];
+  const plain = renderBanner({ ...base, rows });
+  assert.equal(plain.find((l) => l.includes('say')), '  \u2713 voice    say · Voice 1 · :8787');
+  assert.equal(plain.find((l) => l.includes('AGENTS')), '  ! skill    AGENTS.md (v0.8.1) is older than this install');
+  assert.equal(plain.find((l) => l.includes('none waiting')), '    reviews  none waiting');
+  const lit = renderBanner({ ...base, rows, color: true });
+  assert.match(lit.find((l) => l.includes('say')), /\x1b\[32m\u2713\x1b\[0m/, 'the tick is not green');
+  assert.match(lit.find((l) => l.includes('AGENTS')), /\x1b\[33m!\x1b\[0m/, 'the ! is not yellow');
+  // a fact that lands after the banner is printed in the same shape
+  assert.equal(bannerRow({ key: 'lips', text: 'video (wav2lip) · :8789', mark: 'ok' }), '  \u2713 lips  video (wav2lip) · :8789');
+});
+
+test('the deck\'s name heads the banner only when it is given — open gives it under DECKLIGHT_DEBUG', () => {
+  const rows = [{ key: 'voice', text: 'say', mark: 'ok' }];
+  const quiet = renderBanner({ ...base, deck: undefined, rows });
+  assert.equal(quiet.some((l) => l.includes('talk.html') && !l.includes(URL)), false, 'a header with no deck given');
+  assert.match(quiet[0], /voice/, 'the rows are the first thing printed');
+  const debug = renderBanner({ ...base, rows });
+  assert.equal(debug[0], 'decklight · talk.html');
+  assert.equal(debug[1], '');
 });
 
 // ── order is the banner's, not the processes' ───────────────────────────────
