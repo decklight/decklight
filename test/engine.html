@@ -142,7 +142,8 @@
       if (HARNESS_MODE === 'commit') {
         if (u.includes('/deck/ping')) {
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
-            commit: { dirty: true, lines: 7, files: ['deck.html', 'deck.review.jsonl'], sinceMs: 0, nag: false, canWrite: true, messages: false } });
+            commit: { dirty: true, lines: 7, files: ['deck.html', 'deck.review.jsonl'], sinceMs: 0, nag: false, canWrite: true, messages: false,
+              slides: { changed: 2, added: 1, removed: 0 } } });
         }
         // The agent's proposal, held for a second so the wait can be watched:
         // one commit, or (window.__plan = 'several') three, the last of them
@@ -3570,6 +3571,12 @@
         // and every GUI client mean by "send this".
         const O = '.decklight-commit';
         await settle();                       // let /deck/ping resolve
+        // the chip leads with the slides, each count in its colour, a zero left out
+        const chip = document.querySelector('.decklight-commit-chip');
+        const chipSl = [...(chip?.querySelectorAll('.cc-sl') ?? [])];
+        r.chipCountsSlides = chipSl.map((x) => x.textContent).join('|') === '2 changed|1 added'
+          && /^⌥ 2 changed 1 added · 7 lines since the last commit — K commits$/.test(chip?.textContent ?? '');
+        r.chipSlidesInColour = chipSl.length === 2 && getComputedStyle(chipSl[0]).color !== getComputedStyle(chipSl[1]).color;
         press('k');
         await settle();
         r.bareKopens = !!document.querySelector(`${O} .narr-card`);
@@ -3776,7 +3783,7 @@
           && r.commitAllSendsThePlan && r.staysToPush && r.pushSaysWhatIsAhead
           && r.tagSendsTheName && r.tagShowsOnHead && r.tagLeftTheWindowOpen && r.pushSaysItIsPushing && r.pushLands
           && r.cleanStillOpens && r.cleanSaysNothingToCommit && r.blockedPushSaysWhy && r.blockedPushAsksNothing
-          && r.slidesCounted && r.slidesEachInItsColour && r.slidesZeroDimmed;
+          && r.slidesCounted && r.slidesEachInItsColour && r.slidesZeroDimmed && r.chipCountsSlides && r.chipSlidesInColour;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

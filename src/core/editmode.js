@@ -19,7 +19,7 @@
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { colorTargets, openColorPicker, conceptOf } from './colorpicker.js';
 import { rangeLabel } from './ranges.js';
-import { agentChipText, boundedFetch, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
+import { agentChipText, boundedFetch, commitChipParts, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { readPref, writePref } from './prefs.js';
@@ -125,7 +125,17 @@ export function createEditMode({
       });
       root.appendChild(commitChip);
     }
-    commitChip.textContent = `⌥ ${text}`;
+    // the slide counts first, each in its colour, then the sentence
+    const parts = commitChipParts(commitNow);
+    commitChip.textContent = '⌥ ';
+    for (const s of parts.slides) {
+      const c = document.createElement('span');
+      c.className = `cc-sl cc-sl-${s.kind}`;
+      c.textContent = s.text;
+      commitChip.append(c, ' ');
+    }
+    commitChip.append(parts.slides.length ? `· ${parts.text}` : parts.text);
+    commitChip.setAttribute('aria-label', text);
     commitChip.dataset.tone = commitChipTone(commitNow);
     commitChip.title = 'what has changed since the last commit — click or K to commit it; the work is snapshotted either way';
   }

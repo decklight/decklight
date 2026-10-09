@@ -1412,6 +1412,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const watchEveryMs = Math.min(commitEvery * 1000, WATCH_EVERY_MS);
   let dirtySince = 0;      // when this stretch of uncommitted work began
   let dirtyLines = 0;      // how much of the deck (and its sidecar) differs from HEAD
+  let dirtySlides = null;  // { changed, added, removed } against HEAD, or null
   let dirtyFiles = [];     // which of them, by name beside the deck
   // The review sidecar rides the deck's own commits in write mode (REVIEW):
   // K, the agent's boundary and the session's bookends stage it beside the
@@ -1438,7 +1439,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   let lastWip = null;      // the snapshot sha, so the ping can prove it exists
   /** A commit happened: this stretch of uncommitted work is over. */
   const resetEpisode = () => {
-    dirtySince = 0; dirtyLines = 0; dirtyFiles = []; nagged = false; nagDismissed = false;
+    dirtySince = 0; dirtyLines = 0; dirtyFiles = []; dirtySlides = null; nagged = false; nagDismissed = false;
   };
   /**
    * Re-read what is uncommitted, right now.
@@ -1452,10 +1453,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
    */
   const measureDirty = () => {
     const d = deckDirty(root, deckRel, { also: alsoRels() });
-    if (!d.dirty) { dirtySince = 0; dirtyLines = 0; dirtyFiles = []; return d; }
+    if (!d.dirty) { dirtySince = 0; dirtyLines = 0; dirtyFiles = []; dirtySlides = null; return d; }
     if (!dirtySince) dirtySince = Date.now();
     dirtyLines = d.lines;
     dirtyFiles = (d.files ?? []).map((f) => basename(f));
+    // in slides too, for the chip and the window: a deck's reader thinks in
+    // slides. A change that is only the sidecar touches none.
+    dirtySlides = slidesSinceHead(root, deckRel);
     return d;
   };
   /** What the deck knows about uncommitted work — ping and SSE both send this. */
@@ -1463,6 +1467,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     dirty: dirtySince > 0,
     lines: dirtyLines,
     files: dirtyFiles,
+    slides: dirtySlides,
     sinceMs: dirtySince ? Date.now() - dirtySince : 0,
     nag: nagged && !nagDismissed,
     wip: lastWip,
@@ -2222,11 +2227,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // moment and a stale count is a lie about what you are agreeing to.
   function commitStatusRoute({ json }) {
     if (gitOn) measureDirty();     // the answer must be about NOW, not the last tick
-    const state = commitState();
-    // the slides changed, added and removed since HEAD, which the window
-    // shows beside the line count: a deck's reader thinks in slides
-    const slides = gitOn && state.dirty ? slidesSinceHead(root, deckRel) : null;
-    return json(200, { ok: true, ...state, deck: deckRel, slides, ...(gitOn ? whereItStands() : {}) });
+    return json(200, { ok: true, ...commitState(), deck: deckRel, ...(gitOn ? whereItStands() : {}) });
   }
 
   // What the window's tag and push rows read: the tags on HEAD, and where the

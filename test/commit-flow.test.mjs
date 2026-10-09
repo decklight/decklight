@@ -223,6 +223,17 @@ test('the chip states the case quietly, and asks only when the server decided to
   assert.equal(commitChipText(null), null);
 });
 
+test('the chip leads with the slides changed, added and removed, leaving out a zero', async () => {
+  const { commitChipText, commitChipParts } = await import('../src/core/devmode.js');
+  const st = { dirty: true, nag: false, canWrite: true, lines: 10, sinceMs: 0, slides: { changed: 1, added: 2, removed: 0 } };
+  assert.equal(commitChipText(st), '1 changed 2 added · 10 lines since the last commit — K commits');
+  assert.deepEqual(commitChipParts(st).slides.map((s) => s.kind), ['changed', 'added'], 'the removed zero is left out');
+  // a change that is only review records touches no slide: the sentence alone
+  assert.equal(commitChipText({ ...st, slides: { changed: 0, added: 0, removed: 0 } }), '10 lines since the last commit — K commits');
+  assert.equal(commitChipText({ ...st, slides: null }), '10 lines since the last commit — K commits');
+  assert.equal(commitChipParts({ ...st, dirty: false }), null);
+});
+
 test('the chip ages the work in minutes and hours, never seconds', async () => {
   const { commitChipText } = await import('../src/core/devmode.js');
   const at = (sinceMs) => commitChipText({ dirty: true, nag: true, canWrite: true, lines: 3, sinceMs });
