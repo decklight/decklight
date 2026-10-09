@@ -144,21 +144,50 @@
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
             commit: { dirty: true, lines: 7, files: ['deck.html', 'deck.review.jsonl'], sinceMs: 0, nag: false, canWrite: true, messages: false } });
         }
-        // The agent's draft, held for a second so the wait can be watched.
-        if (u.includes('/deck/edit/commit/subject')) {
+        // The agent's proposal, held for a second so the wait can be watched:
+        // one commit, or (window.__plan = 'several') three, the last of them
+        // the review sidecar's.
+        if (u.includes('/deck/edit/commit/plan')) {
+          window.__planAsks = (window.__planAsks ?? 0) + 1;
+          if (window.__plan === 'several') {
+            return json({ ok: true, base: 'b1',
+              units: [{ id: 1, where: 'slide 3', slides: [3] }, { id: 2, where: 'slide 4', slides: [4] }, { id: 3, where: 'slides 3-4', slides: [3, 4] }, { id: 4, where: 'deck.review.jsonl', slides: [] }],
+              commits: [{ subject: 'shorten the agent slide', units: [1] }, { subject: 'recolour the tools box', units: [2, 3] },
+                { subject: 'review: resolve 1 comment', units: [4] }] });
+          }
           await new Promise((ok) => setTimeout(ok, 1500));
-          return json({ ok: true, subject: 'split the crowded video slides' });
+          return json({ ok: true, base: 'b0', units: [{ id: 1, where: 'slide 3' }], commits: [{ subject: 'split the crowded video slides', units: [1] }] });
+        }
+        const after = () => ({ undo: 0, redo: 0, dirty: false, lines: 0, sinceMs: 0, nag: false, canWrite: true,
+          tags: window.__tags ?? [], push: window.__push ?? null });
+        if (u.includes('/deck/edit/commit/split')) {
+          window.__split = JSON.parse(init?.body ?? '{}');
+          const subjects = window.__split.commits.map((c) => c.message);
+          return json({ ok: true, committed: true, count: subjects.length, subjects, subject: subjects.at(-1), ...after() });
+        }
+        if (u.includes('/deck/edit/commit/tag')) {
+          window.__tagged = JSON.parse(init?.body ?? '{}').name;
+          window.__tags = [window.__tagged];
+          return json({ ok: true, tag: window.__tagged, tags: window.__tags, push: window.__push ?? null });
+        }
+        if (u.includes('/deck/edit/commit/push')) {
+          window.__pushes = (window.__pushes ?? 0) + 1;
+          await new Promise((ok) => setTimeout(ok, 400));
+          window.__push = { ...window.__push, state: 'ok', ahead: 0, behind: 0, upstream: `${window.__push.remote}/${window.__push.branch}`, blocked: null };
+          return json({ ok: true, pushed: true, remote: window.__push.remote, branch: window.__push.branch, tags: window.__tags ?? [], push: window.__push });
+        }
+        if (u.includes('/deck/edit/commit/subject')) {
+          return json({ ok: true, subject: 'the first commit' });
         }
         if (u.includes('/deck/edit/commit') && (init?.method ?? 'GET') === 'GET') {
-          return json({ ok: true, dirty: true, lines: 7, files: ['deck.html', 'deck.review.jsonl'], sinceMs: 0, nag: false,
+          return json({ ok: true, dirty: window.__clean !== true, lines: 7, files: ['deck.html', 'deck.review.jsonl'], sinceMs: 0, nag: false,
             canWrite: true, messages: window.__commitMessages === true, deck: 'engine.html',
             describer: window.__describer === undefined ? { name: 'claude', label: 'Claude Code' } : window.__describer,
-            subjectsOff: window.__subjectsOff === true });
+            subjectsOff: window.__subjectsOff === true, tags: window.__tags ?? [], push: window.__push ?? null });
         }
         if (u.includes('/deck/edit/commit')) {
           window.__committed = JSON.parse(init?.body ?? '{}').message;
-          return json({ ok: true, committed: true, subject: window.__committed,
-            undo: 0, redo: 0, dirty: false, lines: 0, sinceMs: 0, nag: false, canWrite: true });
+          return json({ ok: true, committed: true, subject: window.__committed, ...after() });
         }
       }
       // The hand-over rows (PRESENTING) are write-mode only, so this mode
@@ -3575,7 +3604,7 @@
         r.cmdEnterCommits = window.__committed === 'tighten the closing slide';
         r.closesAfterCommitting = !document.querySelector(O);
 
-        const subjectAsks = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/commit/subject')).length;
+        const subjectAsks = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/commit/plan')).length;
         const hintNow = () => document.querySelector('.decklight-commit .rec-hint')?.textContent ?? '';
         // BY DEFAULT the button is there and asks only when pressed; before it
         // is pressed, its tooltip says where the changes go — the agent
@@ -3583,7 +3612,7 @@
         press('k');
         await settle();
         const dflt = document.querySelector('.cm-write');
-        r.defaultOffersIt = dflt?.textContent === 'write one for me';
+        r.defaultOffersIt = dflt?.textContent === 'write them for me';
         r.tooltipNamesTheAgent = /Sends the deck's uncommitted changes to claude \(Claude Code\), the agent installed on this machine, which may pass them to its provider\./
           .test(dflt?.getAttribute('title') ?? '');
         r.nothingSentOnOpen = subjectAsks() === 0;
@@ -3594,7 +3623,7 @@
         press('k');
         await settle();
         const none = document.querySelector('.cm-write');
-        r.noAgentSaysSo = /write one for me — no agent/.test(none?.textContent ?? '');
+        r.noAgentSaysSo = /write them for me — no agent/.test(none?.textContent ?? '');
         none?.click();
         await settle();
         r.noAgentExplains = /no agent is installed on this machine/.test(hintNow()) && /decklight doctor/.test(hintNow());
@@ -3604,7 +3633,7 @@
         press('k');
         await settle();
         const off = document.querySelector('.cm-write');
-        r.offSaysOff = /write one for me — off/.test(off?.textContent ?? '');
+        r.offSaysOff = /write them for me — off/.test(off?.textContent ?? '');
         off?.click();
         await settle();
         r.offExplains = /started with --no-commit-messages/.test(hintNow());
@@ -3636,7 +3665,7 @@
         r.asciiOnly = /^[\x20-\x7e]+$/.test(a + b);
         await new Promise((ok) => setTimeout(ok, 1000));
         r.subjectLands = box2.value === 'split the crowded video slides';
-        r.stopsThinking = write.textContent === 'write another' && box2.placeholder === idle
+        r.stopsThinking = write.textContent === 'write them again' && box2.placeholder === idle
           && !write.classList.contains('cm-thinking');
         const later = write.textContent;
         await new Promise((ok) => setTimeout(ok, 300));
@@ -3651,12 +3680,94 @@
         r.draftsOnOpenWhenAsked = subjectAsks() === asksBefore + 1;
         escapeUntilClosed(O);
         window.__commitMessages = false;
+        await new Promise((ok) => setTimeout(ok, 1600));   // let that draft finish before the next window
+
+        // Several commits proposed: a row each, the subject editable, where it
+        // lands beside it, and one button that commits them all — with the
+        // units each took and the plan's base, so the server can refuse a plan
+        // made on other work.
+        window.__plan = 'several';
+        press('k');
+        await settle();
+        document.querySelector('.cm-write').click();
+        await settle(); await settle();
+        const rows = [...document.querySelectorAll('.cm-plan-row')];
+        r.planShowsEachCommit = rows.length === 3
+          && rows.map((x) => x.querySelector('input').value).join('|') === 'shorten the agent slide|recolour the tools box|review: resolve 1 comment';
+        r.planSaysWhere = rows[1]?.querySelector('.cm-plan-where')?.textContent === 'slides 3-4'
+          && rows[2]?.querySelector('.cm-plan-where')?.textContent === 'deck.review.jsonl';
+        r.planHidesTheBox = document.querySelector('.cm-input').closest('[hidden]') !== null || document.querySelector('.cm-input').hidden;
+        r.commitAllCounts = document.querySelector('.cm-go')?.textContent === 'Commit all 3';
+        // "one commit" sets the proposal aside and offers its first subject
+        document.querySelector('.cm-single').click();
+        await settle();
+        r.oneCommitSetsItAside = !document.querySelector('.cm-plan-row') && document.querySelector('.cm-input').value === 'shorten the agent slide'
+          && document.querySelector('.cm-go')?.textContent === 'Commit';
+        document.querySelector('.cm-input').value = '';
+        document.querySelector('.cm-write').click();
+        await settle(); await settle();
+        const second = document.querySelectorAll('.cm-plan-subject')[1];
+        second.value = 'repaint the tools concept';
+        second.dispatchEvent(new Event('input', { bubbles: true }));
+        // with a remote to push to, the window stays after the commit: commit
+        // then push is one visit
+        window.__push = { state: 'ok', remote: 'origin', branch: 'main', upstream: 'origin/main', ahead: 3, behind: 0, blocked: null };
+        second.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const sent = window.__split;
+        r.commitAllSendsThePlan = sent?.base === 'b1' && sent.commits.length === 3
+          && sent.commits[1].message === 'repaint the tools concept'
+          && JSON.stringify(sent.commits.map((c) => c.units)) === '[[1],[2,3],[4]]';
+        r.staysToPush = !!document.querySelector(`${O} .narr-card`) && /committed 3/.test(document.querySelector('.cm-what')?.textContent ?? '');
+        r.pushSaysWhatIsAhead = document.querySelector('.cm-push-what')?.textContent === '↑3 commits not on origin/main';
+        window.__plan = undefined;
+
+        // Tag: the name, Enter, and the window says it is on HEAD
+        const tagBox = document.querySelector('.cm-tag');
+        tagBox.value = 'v1.0';
+        tagBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        r.tagSendsTheName = window.__tagged === 'v1.0';
+        r.tagShowsOnHead = /on it: v1\.0/.test(document.querySelector('.cm-tags')?.textContent ?? '');
+        r.tagLeftTheWindowOpen = !!document.querySelector(`${O} .narr-card`);
+
+        // Push: says it is pushing while it does, then that it is up to date
+        document.querySelector('.cm-push-go').click();
+        await new Promise((ok) => setTimeout(ok, 150));
+        r.pushSaysItIsPushing = /^pushing /.test(document.querySelector('.cm-push-go')?.textContent ?? '');
+        await new Promise((ok) => setTimeout(ok, 500));
+        r.pushLands = window.__pushes === 1 && document.querySelector('.cm-push-what')?.textContent === 'up to date with origin/main'
+          && document.querySelector('.cm-push-go')?.textContent === 'Push';
+        escapeUntilClosed(O);
+
+        // Nothing to commit: the window still opens, for the tag and the push,
+        // and says there is nothing to commit instead of offering a box
+        window.__clean = true;
+        window.__push = { state: 'no-remote', remote: null, branch: 'main', upstream: null, ahead: 4, behind: null,
+          blocked: 'no remote to push to — git remote add origin <url>' };
+        press('k');
+        await settle();
+        r.cleanStillOpens = !!document.querySelector(`${O} .narr-card`);
+        r.cleanSaysNothingToCommit = /nothing to commit/.test(document.querySelector('.cm-what')?.textContent ?? '')
+          && document.querySelector('.cm-input').hidden;
+        // a push that cannot go says why, and asks the server nothing
+        r.blockedPushSaysWhy = document.querySelector('.cm-push-what')?.textContent === 'no remote to push to — git remote add origin <url>'
+          && document.querySelector('.cm-push-go').classList.contains('cm-off');
+        document.querySelector('.cm-push-go').click();
+        await settle();
+        r.blockedPushAsksNothing = window.__pushes === 1;
+        escapeUntilClosed(O);
+        window.__clean = false; window.__push = undefined; window.__tags = undefined;
 
         r.PASS = r.bareKopens && r.bareKtoggles && r.metaKopens && r.metaKclosesFromTheBox && r.cardNamesTheFiles
           && r.ctrlKopens && r.cmdEnterCommits && r.closesAfterCommitting
           && r.defaultOffersIt && r.tooltipNamesTheAgent && r.nothingSentOnOpen && r.draftsOnOpenWhenAsked
           && r.noAgentSaysSo && r.noAgentExplains && r.offSaysOff && r.offExplains && r.offAsksNothing
-          && r.saysItIsThinking && r.itMoves && r.asciiOnly && r.subjectLands && r.stopsThinking && r.staysStopped;
+          && r.saysItIsThinking && r.itMoves && r.asciiOnly && r.subjectLands && r.stopsThinking && r.staysStopped
+          && r.planShowsEachCommit && r.planSaysWhere && r.planHidesTheBox && r.commitAllCounts && r.oneCommitSetsItAside
+          && r.commitAllSendsThePlan && r.staysToPush && r.pushSaysWhatIsAhead
+          && r.tagSendsTheName && r.tagShowsOnHead && r.tagLeftTheWindowOpen && r.pushSaysItIsPushing && r.pushLands
+          && r.cleanStillOpens && r.cleanSaysNothingToCommit && r.blockedPushSaysWhy && r.blockedPushAsksNothing;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

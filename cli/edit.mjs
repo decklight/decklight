@@ -86,6 +86,7 @@ import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools
 import { runMain, CommandError } from './util.mjs';
 import { PKG, AGENTS_MARKER, skillVersionOf } from './skill-content.mjs';
 import { selfCommand } from './pkg.mjs';
+import { commitPlan, headTags, planWorking, pushBlocked, pushBranch, tagHead, unitSummary } from './commit-split.mjs';
 import { semverCompare } from '../tools/semver.mjs';
 
 // The flags that take a value, so the deck can be found past them. `--git-mode`
@@ -1334,7 +1335,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const commitEvery = Math.max(5, Number(opt('--commit-every', 300)) || 300);
   // Commit subjects written by an agent, from the deck's diff. Two levels:
   //
-  //  - ON CLICK, by default: the commit window's "write one for me" asks the
+  //  - ON CLICK, by default: the commit window's "write them for me" asks the
   //    agent installed on this machine when — and only when — it is pressed,
   //    and its tooltip names the agent and says the changes go to it (and may
   //    go on to its provider). Nothing leaves without that click.
@@ -1467,7 +1468,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     wip: lastWip,
     canWrite: gitOn && gitMode !== 'off',
     messages: wantMessages,
-    // who "write one for me" would ask — null when the session turned subjects
+    // who "write them for me" would ask — null when the session turned subjects
     // off, or no agent is installed; `subjectsOff` says which
     describer: describer(),
     subjectsOff,
@@ -2221,7 +2222,21 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // moment and a stale count is a lie about what you are agreeing to.
   function commitStatusRoute({ json }) {
     if (gitOn) measureDirty();     // the answer must be about NOW, not the last tick
-    return json(200, { ok: true, ...commitState(), deck: deckRel });
+    return json(200, { ok: true, ...commitState(), deck: deckRel, ...(gitOn ? whereItStands() : {}) });
+  }
+
+  // What the window's tag and push rows read: the tags on HEAD, and where the
+  // branch stands against its remote — a LOCAL read (remoteState never
+  // fetches), so "1 commit not pushed" is as of the last push or pull.
+  function whereItStands() {
+    const s = remoteState(root);
+    return {
+      tags: headTags(root),
+      push: {
+        state: s.state, remote: s.remote, branch: s.branch, upstream: s.upstream,
+        ahead: s.state === 'ok' ? s.ahead : s.unpushed, behind: s.behind, blocked: pushBlocked(s),
+      },
+    };
   }
 
   // The commit the author asked for. The subject is THEIRS — typed, or an
@@ -2269,6 +2284,80 @@ export async function editMain(args, { onListen = null, client } = {}) {
       return json(409, { ok: false, error: 'no agent is installed on this machine to write one — decklight doctor lists the ones it can use' });
     }
     return json(200, { ok: true, subject: null });
+  }
+
+  // "write them for me": the uncommitted work cut into the commits an agent
+  // proposes (cli/commit-split.mjs). The plan carries `base`, the fingerprint
+  // of the work it was made on, which the split route checks before it
+  // commits anything. Asked only on the click, like the one-line subject.
+  async function commitPlanRoute({ json }) {
+    if (!gitOn) return json(409, { ok: false, error: 'this session is not committing — open the deck with --git' });
+    if (subjectsOff) {
+      return json(403, { ok: false, error: 'commit subjects are off in this session — it was started with --no-commit-messages' });
+    }
+    const { work, commits } = await planWorking({
+      cwd: root, deckPath, deckRel, also: alsoRels(), agent: agentPref,
+    });
+    if (!work) return json(409, { ok: false, code: 'FIRST', error: 'the first commit is one commit — write its message' });
+    if (!commits) return json(200, { ok: true, base: work.base, units: [], commits: [] });
+    if (!describer() && work.units.some((u) => u.file === deckRel)) {
+      return json(409, { ok: false, error: 'no agent is installed on this machine to write them — decklight doctor lists the ones it can use' });
+    }
+    return json(200, { ok: true, base: work.base, units: work.units.map(unitSummary), commits });
+  }
+
+  // The proposed commits, as the author left them: each subject theirs now,
+  // so each goes through commitSubject like any message. All of them land or
+  // none does (commitPlan moves the branch once).
+  function commitSplitRoute({ body, json }) {
+    if (!gitOn) return json(409, { ok: false, error: 'this session is not committing — open the deck with --git' });
+    let req = {};
+    try { req = JSON.parse(body || '{}'); } catch { return json(400, { ok: false, error: 'bad request' }); }
+    const commits = Array.isArray(req.commits) ? req.commits : [];
+    if (!commits.length || commits.some((c) => !String(c?.message ?? '').trim())) {
+      return json(400, { ok: false, error: 'every commit needs a message' });
+    }
+    const made = commitPlan({
+      cwd: root, deckRel, also: alsoRels(), base: String(req.base ?? ''), commits,
+      template: `decklight: autosave ${basename(deckPath)}`,
+    });
+    if (!made.ok) return json(made.code === 'STALE' ? 409 : 500, { ok: false, code: made.code, error: made.error });
+    pendingAttr = null;
+    resetEpisode();
+    for (const s of made.subjects) console.log(`  git: committed ${deckRel} — "${s}"`);
+    return json(200, {
+      ok: true, committed: true, count: made.subjects.length, subjects: made.subjects, subject: made.subjects.at(-1),
+      ...history.counts(), ...commitState(), ...whereItStands(),
+    });
+  }
+
+  // An annotated tag on HEAD, named by the author.
+  function commitTagRoute({ body, json }) {
+    if (!gitOn) return json(409, { ok: false, error: 'this session is not committing — open the deck with --git' });
+    let name = '';
+    try { name = String(JSON.parse(body || '{}').name ?? ''); } catch { /* below */ }
+    const made = tagHead(root, name);
+    if (!made.ok) return json(made.code === 'GIT' ? 500 : 409, { ok: false, code: made.code, error: made.error });
+    console.log(`  git: tagged ${made.sha.slice(0, 7)} ${made.tag}`);
+    return json(200, { ok: true, tag: made.tag, ...whereItStands() });
+  }
+
+  // The push, on the author's click and only then: the branch and the
+  // annotated tags on it. One at a time; a minute at most; no prompt can
+  // hang it (pushBranch). The SSE `commit` event tells every page the
+  // count went to zero.
+  let pushing = false;
+  async function commitPushRoute({ json }) {
+    if (!gitOn) return json(409, { ok: false, error: 'this session is not committing — open the deck with --git' });
+    if (pushing) return json(409, { ok: false, code: 'BUSY', error: 'a push is already on its way' });
+    pushing = true;
+    try {
+      const done = await pushBranch(root, { state: remoteState(root) });
+      if (!done.ok) return json(done.code === 'BLOCKED' ? 409 : 502, { ok: false, code: done.code, error: done.error });
+      console.log(`  git: pushed ${done.branch} to ${done.remote}`);
+      broadcast('commit', commitState());
+      return json(200, { ok: true, pushed: true, remote: done.remote, branch: done.branch, ...whereItStands() });
+    } finally { pushing = false; }
   }
 
   function commitDismissRoute({ json }) {
@@ -3389,6 +3478,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'POST /deck/edit/commit': commitRoute,
     'POST /deck/edit/commit/subject': commitSubjectRoute,
     'POST /deck/edit/commit/dismiss': commitDismissRoute,
+    'POST /deck/edit/commit/plan': commitPlanRoute,
+    'POST /deck/edit/commit/split': commitSplitRoute,
+    'POST /deck/edit/commit/tag': commitTagRoute,
+    'POST /deck/edit/commit/push': commitPushRoute,
     'GET /deck/edit/history': historyRoute,
     'GET /deck/edit/history/at': deckAtRoute,
     'POST /deck/edit/restore': restoreRoute,

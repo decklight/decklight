@@ -1219,6 +1219,23 @@
 .decklight-commit .rec-hint.cm-why { opacity: .9; }
 .decklight-commit .cm-cmd { white-space: nowrap; font-family: var(--font-mono, ui-monospace, monospace); font-size: .95em; }
 .decklight-commit .cm-write.cm-thinking { font-family: var(--font-mono, ui-monospace, monospace); }
+.decklight-commit [hidden] { display: none !important; }
+.decklight-commit .cm-single { background: rgba(255, 255, 255, .08); }
+.decklight-commit .cm-single:hover { background: rgba(255, 255, 255, .16); }
+/* several commits proposed: one row each, the subject editable, where it lands beside it */
+.decklight-commit .cm-plan { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 8px; }
+.decklight-commit .cm-plan-row { display: flex; align-items: center; gap: 8px; }
+.decklight-commit .cm-plan-n { width: 1.4em; text-align: right; font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; }
+.decklight-commit .cm-plan-subject { flex: 1; min-width: 0; margin: 0; }
+.decklight-commit .cm-plan-where { flex: 0 0 auto; max-width: 34%; font-size: 12px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* what happens to the work once committed: tag it, push it */
+.decklight-commit .cm-tagrow, .decklight-commit .cm-pushrow { align-items: center; border-top: 1px solid rgba(255, 255, 255, .08); padding-top: 8px; margin-top: 4px; }
+.decklight-commit .cm-tag { flex: 1; min-width: 0; margin: 0; }
+.decklight-commit .cm-row .cm-tag-go, .decklight-commit .cm-row .cm-push-go { flex: 0 0 96px; background: rgba(255, 255, 255, .08); }
+.decklight-commit .cm-row .cm-tag-go:hover, .decklight-commit .cm-row .cm-push-go:hover { background: rgba(255, 255, 255, .16); }
+.decklight-commit .cm-push-go.cm-off { opacity: .45; }
+.decklight-commit .cm-tags { font-size: 12px; opacity: .6; white-space: nowrap; }
+.decklight-commit .cm-push-what { flex: 1; font-size: 12px; opacity: .75; }
 
 .decklight-agent-chip {
   position: absolute;
