@@ -33,8 +33,9 @@ import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 import { zipSync } from './zip.mjs';
 import {
-  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc, reportBugSkillMd,
+  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc, reportBugSkillMd, skillVersionOf,
 } from './skill-content.mjs';
+import { semverCompare } from '../tools/semver.mjs';
 
 // The reference doc, relative to whatever dir carries it. Skills keep their
 // own copy next to SKILL.md; AGENTS.md agents keep one under .decklight/.
@@ -131,15 +132,37 @@ export function display(file) {
   return file;
 }
 
-/** Write a file, refusing to clobber an existing one without --force. */
-function writeIfAbsent(file, content, force) {
+/**
+ * Is the skill text on disk older than the one this build would write?
+ * A file with no stamp predates the stamp (0.9.0) and counts as older.
+ */
+function staleSkill(file, content) {
+  const mine = skillVersionOf(content);
+  if (!mine) return false;
+  let theirs = null;
+  try { theirs = skillVersionOf(fs.readFileSync(file, 'utf8')); } catch { return false; }
+  return theirs === null || (semverCompare(theirs, mine) ?? -1) < 0;
+}
+
+/**
+ * Write a file. An existing one is refreshed when it is OLDER than this build
+ * (the files are derived content, and an agent reading an old contract is
+ * the failure this exists to prevent) or when `refresh` says its sibling was;
+ * one that is already this version is left alone (null) without --force, and
+ * the command fails only when NOTHING needed writing — a current install
+ * asked for again, which is what --force is for.
+ */
+function writeIfAbsent(file, content, force, { refresh = null } = {}) {
   if (fs.existsSync(file) && !force) {
-    fail(`${display(file)} already exists — pass --force to overwrite`);
+    const stale = refresh ?? staleSkill(file, content);
+    if (!stale) return null;
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);
   return file;
 }
+/** `display` of a write, or nothing for a file left alone. */
+const wrote = (file) => (file ? display(file) : null);
 
 /** Add/refresh the marked Decklight block in the AGENTS.md under `dir`. */
 function mergeAgentsMd(dir, refHref) {
@@ -162,8 +185,11 @@ function mergeAgentsMd(dir, refHref) {
 
 /** Write Claude's self-contained skill (SKILL.md + reference) into skillDir. */
 function installClaudeSkill(skillDir, force, written) {
-  written.push(display(writeIfAbsent(path.join(skillDir, 'SKILL.md'), claudeSkillMd(SKILL_REF), force)));
-  written.push(display(writeIfAbsent(path.join(skillDir, SKILL_REF), referenceDoc(), force)));
+  const skill = path.join(skillDir, 'SKILL.md');
+  // the reference carries no stamp of its own: it follows the SKILL.md beside it
+  const refresh = fs.existsSync(skill) ? staleSkill(skill, claudeSkillMd(SKILL_REF)) : null;
+  written.push(wrote(writeIfAbsent(skill, claudeSkillMd(SKILL_REF), force)));
+  written.push(wrote(writeIfAbsent(path.join(skillDir, SKILL_REF), referenceDoc(), force, { refresh })));
 }
 
 /**
@@ -173,7 +199,7 @@ function installClaudeSkill(skillDir, force, written) {
  */
 function installReportBugSkill(skillsRoot, force, written) {
   const dir = path.join(skillsRoot, 'decklight-report-bug');
-  written.push(display(writeIfAbsent(path.join(dir, 'SKILL.md'), reportBugSkillMd(), force)));
+  written.push(wrote(writeIfAbsent(path.join(dir, 'SKILL.md'), reportBugSkillMd(), force)));
 }
 
 // --- project scope: one repo, one shared AGENTS.md for every agent ----------
@@ -195,10 +221,10 @@ function installProject(targets, dir, force) {
     // one reference copy: Claude's skill dir when Claude is also a target,
     // else a standalone .decklight/ copy the AGENTS.md agents point at.
     const refHref = wantsClaude ? CLAUDE_REF : SHARED_REF;
-    if (!wantsClaude) written.push(display(writeIfAbsent(path.join(root, SHARED_REF), referenceDoc(), force)));
+    if (!wantsClaude) written.push(wrote(writeIfAbsent(path.join(root, SHARED_REF), referenceDoc(), force)));
     written.push(mergeAgentsMd(root, refHref));
   }
-  return written;
+  return written.filter(Boolean);
 }
 
 // --- global scope: each agent self-contained in its own config home ---------
@@ -212,11 +238,11 @@ function installGlobal(targets, env, force) {
       installClaudeSkill(path.join(home, 'skills', 'decklight'), force, written);
       installReportBugSkill(path.join(home, 'skills'), force, written);
     } else {
-      written.push(display(writeIfAbsent(path.join(home, SHARED_REF), referenceDoc(), force)));
+      written.push(wrote(writeIfAbsent(path.join(home, SHARED_REF), referenceDoc(), force)));
       written.push(mergeAgentsMd(home, SHARED_REF));
     }
   }
-  return written;
+  return written.filter(Boolean);
 }
 
 /**
@@ -327,6 +353,11 @@ export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath
   const targets = Object.keys(TARGETS).filter((k) => selected.includes(k));
 
   const written = global ? installGlobal(targets, env, force) : installProject(targets, dir ?? '.', force);
+  // Every file was already this version: nothing to do, said as a refusal so a
+  // script that expected a write learns it did not happen — --force rewrites.
+  if (!written.some((w) => !/^refreshed the Decklight section/.test(w) || force)) {
+    fail(`the Decklight skill is already this version (${PKG.version}) — pass --force to overwrite`);
+  }
 
   const where = global ? 'globally' : `in ${display(path.resolve(dir ?? '.'))}`;
   process.stdout.write(

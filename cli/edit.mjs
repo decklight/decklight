@@ -87,6 +87,8 @@ const startup = (key, text, human) => {
 };
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
 import { runMain, CommandError } from './util.mjs';
+import { PKG, AGENTS_MARKER, skillVersionOf } from './skill-content.mjs';
+import { semverCompare } from '../tools/semver.mjs';
 
 // The flags that take a value, so the deck can be found past them. `--git-mode`
 // was missing, so `edit.mjs --git-mode agent deck.html` refused a deck called
@@ -1571,6 +1573,28 @@ export async function editMain(args, { onListen = null, client } = {}) {
       startup('runtime',
         `${basename(deckPath)} ${what} — it may not wire up to this server; decklight upgrade ${deckRel}`,
         `  runtime: ${basename(deckPath)} ${what} — the deck may not wire up to this server; run decklight upgrade ${deckRel}`);
+    }
+  }
+  // The project's skill, if any, against this install (the same question the
+  // runtime row asks of the deck): an agent that reads a skill written by an
+  // older decklight reads an old contract — commands that went, routes that
+  // moved — and the only place that can be noticed is here, since the agent
+  // itself has no way to know. `decklight skills` refreshes it.
+  if (!noTrust) {
+    const older = [];
+    for (const rel of ['.claude/skills/decklight/SKILL.md', 'AGENTS.md']) {
+      const file = resolve(root, rel);
+      if (!existsSync(file)) continue;
+      let text = '';
+      try { text = readFileSync(file, 'utf8'); } catch { continue; }
+      if (rel === 'AGENTS.md' && !text.includes(AGENTS_MARKER)) continue;
+      const v = skillVersionOf(text);
+      if (v === null || (semverCompare(v, PKG.version) ?? -1) < 0) older.push(`${rel} (${v ? `v${v}` : 'before 0.9.0'})`);
+    }
+    if (older.length) {
+      startup('skill',
+        `${older.join(', ')} is older than this install (${PKG.version}) — an agent reads an old contract; decklight skills`,
+        `  skill: ${older.join(', ')} — older than this install (${PKG.version}): an agent reads an old contract; run decklight skills`);
     }
   }
   // Said out loud, every session it is on: this is the switch that starts

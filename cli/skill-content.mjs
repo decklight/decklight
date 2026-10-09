@@ -40,11 +40,24 @@ export function referenceDoc() {
  * progressive-disclosure body that points at `referenceHref` (a path
  * relative to the SKILL.md) for the full contract.
  */
+/**
+ * The version a skill was written by, as a comment the file carries — read
+ * back by `decklight skills` (a skill older than this build is refreshed
+ * without --force) and by write mode's startup (which names one that is
+ * older than the install, since an agent reading it reads an old contract).
+ */
+export const SKILL_STAMP = (version = PKG.version) => `<!-- decklight skill ${version} -->`;
+export function skillVersionOf(text) {
+  const m = /<!-- decklight skill (\d+\.\d+\.\d+[^\s]*) -->/.exec(String(text ?? ''));
+  return m ? m[1] : null;
+}
+
 export function claudeSkillMd(referenceHref = 'reference.md') {
   return `---
 name: decklight
 description: Author and edit Decklight presentations — single-file HTML decks with Keynote-style builds, theme-aware SVG diagrams, 46 built-in themes, truthful terminal recordings, and live TTS narration. Use whenever creating or editing a Decklight deck (a .html file with a <div class="decklight"> of <section> slides) in this project.
 ---
+${SKILL_STAMP()}
 
 Decklight decks are one HTML file of slides: no build step, no bundler. A deck
 is \`<div class="decklight">\` containing \`<section>\` slides, plus one JSON
@@ -249,6 +262,7 @@ export const AGENTS_MARKER = '<!-- decklight:skill -->';
  */
 export function agentsSection(referenceHref = '.claude/skills/decklight/reference.md') {
   return `${AGENTS_MARKER}
+${SKILL_STAMP()}
 ## Decklight decks
 
 This project contains a Decklight presentation (a single-file HTML deck —
@@ -297,6 +311,7 @@ export function reportBugSkillMd() {
 name: decklight-report-bug
 description: File a Decklight bug report — gather version and environment facts, ask what broke and how to reproduce it, optionally attach a headless screenshot, and open the issue only after the user approves the full text. Use when the user hits a Decklight bug or asks to report one.
 ---
+${SKILL_STAMP()}
 
 Help the user file a bug report against Decklight that a triager can act on
 without a round trip. Work in this order.
