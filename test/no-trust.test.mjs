@@ -308,6 +308,8 @@ test('no-trust mode refuses the whole write family by name — before a route ru
   const family = [
     ['POST', '/deck/edit/slide/notes', '{"slide":1,"text":"pwned"}'],
     ['POST', '/deck/edit/slide/layout', '{}'], ['POST', '/deck/edit/undo', ''], ['POST', '/deck/edit/commit', '{}'],
+    ['POST', '/deck/edit/commit/plan', ''], ['POST', '/deck/edit/commit/split', '{}'],
+    ['POST', '/deck/edit/commit/tag', '{"name":"v1"}'], ['POST', '/deck/edit/commit/push', ''],
     ['POST', '/deck/edit/shutdown', ''], ['POST', '/deck/edit/restore', '{}'],
     ['POST', '/deck/edit/agent', '{"prompt":"x"}'], ['POST', '/deck/edit/export', '{"kind":"pdf"}'],
     ['POST', '/deck/edit/wizard', '{}'], ['POST', '/deck/edit/theme/mark', '{}'],

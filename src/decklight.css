@@ -1199,6 +1199,12 @@
 .decklight-commit-chip[data-tone="quiet"]:hover { opacity: 1; }
 .decklight-commit-chip:hover { background: rgba(0, 0, 0, .85); }
 .decklight-commit-chip:focus-visible { outline: 2px solid var(--accent, #6af); outline-offset: 2px; }
+/* the slides since the last commit, in the commit window's colours */
+.decklight-commit-chip .cc-sl { font-weight: 700; }
+.decklight-commit-chip .cc-sl::before { content: '\25CF'; margin-right: 3px; }
+.decklight-commit-chip .cc-sl-changed { color: #f2c46d; }
+.decklight-commit-chip .cc-sl-added { color: #7cd6a3; }
+.decklight-commit-chip .cc-sl-removed { color: #f08a7e; }
 
 /* The commit window. Shares the narration card chrome like every other
    overlay; only the composer's own rows are new. */
@@ -1219,6 +1225,32 @@
 .decklight-commit .rec-hint.cm-why { opacity: .9; }
 .decklight-commit .cm-cmd { white-space: nowrap; font-family: var(--font-mono, ui-monospace, monospace); font-size: .95em; }
 .decklight-commit .cm-write.cm-thinking { font-family: var(--font-mono, ui-monospace, monospace); }
+.decklight-commit [hidden] { display: none !important; }
+/* the slides since the last commit, each count in its colour */
+.decklight-commit .cm-slides { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 0 12px 10px; font-size: 12px; }
+.decklight-commit .cm-sl-head { opacity: .6; }
+.decklight-commit .cm-sl { font-weight: 600; font-variant-numeric: tabular-nums; }
+.decklight-commit .cm-sl::before { content: '\25CF'; margin-right: 4px; }
+.decklight-commit .cm-sl-changed { color: #f2c46d; }
+.decklight-commit .cm-sl-added { color: #7cd6a3; }
+.decklight-commit .cm-sl-removed { color: #f08a7e; }
+.decklight-commit .cm-sl-zero { opacity: .35; font-weight: 400; }
+.decklight-commit .cm-single { background: rgba(255, 255, 255, .08); }
+.decklight-commit .cm-single:hover { background: rgba(255, 255, 255, .16); }
+/* several commits proposed: one row each, the subject editable, where it lands beside it */
+.decklight-commit .cm-plan { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 8px; }
+.decklight-commit .cm-plan-row { display: flex; align-items: center; gap: 8px; }
+.decklight-commit .cm-plan-n { width: 1.4em; text-align: right; font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; }
+.decklight-commit .cm-plan-subject { flex: 1; min-width: 0; margin: 0; }
+.decklight-commit .cm-plan-where { flex: 0 0 auto; max-width: 34%; font-size: 12px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* what happens to the work once committed: tag it, push it */
+.decklight-commit .cm-tagrow, .decklight-commit .cm-pushrow { align-items: center; border-top: 1px solid rgba(255, 255, 255, .08); padding-top: 8px; margin-top: 4px; }
+.decklight-commit .cm-tag { flex: 1; min-width: 0; margin: 0; }
+.decklight-commit .cm-row .cm-tag-go, .decklight-commit .cm-row .cm-push-go { flex: 0 0 96px; background: rgba(255, 255, 255, .08); }
+.decklight-commit .cm-row .cm-tag-go:hover, .decklight-commit .cm-row .cm-push-go:hover { background: rgba(255, 255, 255, .16); }
+.decklight-commit .cm-push-go.cm-off { opacity: .45; }
+.decklight-commit .cm-tags { font-size: 12px; opacity: .6; white-space: nowrap; }
+.decklight-commit .cm-push-what { flex: 1; font-size: 12px; opacity: .75; }
 
 .decklight-agent-chip {
   position: absolute;

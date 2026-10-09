@@ -150,6 +150,29 @@ export function pushToastText(remote, { shown = false, threshold = 10 } = {}) {
  * people turn off.
  */
 export function commitChipText(state) {
+  const parts = commitChipParts(state);
+  if (!parts) return null;
+  return parts.slides.length ? `${parts.slides.map((s) => s.text).join(' ')} · ${parts.text}` : parts.text;
+}
+
+/**
+ * The chip in its parts, or null: `slides` are the non-zero slide counts
+ * since the last commit (`{ kind, n, text }`, changed, added, removed, each
+ * painted in its colour ahead of the sentence), `text` the sentence. A zero
+ * is left out: the chip is a corner, and the window has room for all three.
+ */
+export function commitChipParts(state) {
+  const text = commitChipSentence(state);
+  if (text === null) return null;
+  const sl = state.slides ?? {};
+  const slides = ['changed', 'added', 'removed']
+    .map((kind) => ({ kind, n: Number(sl[kind]) || 0 }))
+    .filter((s) => s.n > 0)
+    .map((s) => ({ ...s, text: `${s.n} ${s.kind}` }));
+  return { slides, text };
+}
+
+function commitChipSentence(state) {
   if (!state || !state.dirty || !state.canWrite) return null;
   const n = Number(state.lines) || 0;
   const what = n ? `${n} line${n === 1 ? '' : 's'}` : 'changes';

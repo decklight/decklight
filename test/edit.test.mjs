@@ -1390,6 +1390,66 @@ test('an agent can mark its own commit boundary, and cannot when git is off', as
   assert.equal(git(['status', '--porcelain'], repo), '', 'nothing left behind');
 });
 
+test('the commit window cuts the work into the commits an agent proposes, tags HEAD and pushes both', async (t) => {
+  const repo = tmp(t);
+  writeFileSync(path.join(repo, 'deck.html'), DECK);
+  git(['init', '-q', '-b', 'main', '.'], repo);
+  git(['config', 'user.email', 't@example.com'], repo);
+  git(['config', 'user.name', 'Test'], repo);
+  git(['add', '-A'], repo);
+  git(['commit', '-q', '-m', 'the deck'], repo);
+  const hub = tmp(t);
+  git(['init', '-q', '--bare', '-b', 'main', '.'], hub);
+  git(['remote', 'add', 'origin', hub], repo);
+  const bin = path.join(tmp(t), 'bin');
+  mkdirSync(bin);
+  // a fake `claude -p <prompt>`: two commits, one per slide
+  writeFakeBin(bin, 'claude', "console.log('Here you go:\\n1 | rename the first slide\\n2 | rename the second slide');");
+  const { base } = await startEdit(t, repo, { env: { PATH: `${bin}${path.delimiter}${process.env.PATH}` }, extraArgs: ['--git'] });
+
+  const before = await (await fetch(base + '/deck/edit/commit')).json();
+  assert.equal(before.push.state, 'no-upstream');
+  assert.equal(before.push.blocked, null, 'a branch not pushed yet can be');
+
+  writeFileSync(path.join(repo, 'deck.html'), DECK.replace('Alpha', 'First').replace('Beta', 'Second'));
+  const counted = await (await fetch(base + '/deck/edit/commit')).json();
+  assert.deepEqual(counted.slides, { changed: 2, added: 0, removed: 0 }, 'the window counts the work in slides');
+  const plan = await (await post(base, '/deck/edit/commit/plan', {})).json();
+  assert.equal(plan.ok, true, plan.error);
+  assert.deepEqual(plan.commits, [{ subject: 'rename the first slide', units: [1] }, { subject: 'rename the second slide', units: [2] }]);
+  assert.deepEqual(plan.units.map((u) => u.where), ['slide 1', 'slide 2']);
+
+  const split = await (await post(base, '/deck/edit/commit/split', {
+    base: plan.base, commits: plan.commits.map((c) => ({ message: c.subject, units: c.units })),
+  })).json();
+  assert.equal(split.ok, true, split.error);
+  assert.equal(split.count, 2);
+  assert.equal(split.dirty, false);
+  assert.deepEqual(git(['log', '--format=%s', '-3'], repo).split('\n'), ['rename the second slide', 'rename the first slide', 'the deck']);
+  assert.equal(split.push.ahead, 3);
+
+  const tagged = await (await post(base, '/deck/edit/commit/tag', { name: 'v1.0' })).json();
+  assert.equal(tagged.ok, true, tagged.error);
+  assert.deepEqual(tagged.tags, ['v1.0']);
+  assert.equal((await post(base, '/deck/edit/commit/tag', { name: 'v1.0' })).status, 409, 'a tag that exists');
+  assert.equal((await post(base, '/deck/edit/commit/tag', { name: '-f' })).status, 409, 'a name that is an option');
+
+  const pushed = await (await post(base, '/deck/edit/commit/push', {})).json();
+  assert.equal(pushed.ok, true, pushed.error);
+  assert.equal(git(['rev-parse', 'main'], hub), git(['rev-parse', 'HEAD'], repo));
+  assert.equal(git(['cat-file', '-t', 'refs/tags/v1.0'], hub), 'tag');
+  assert.deepEqual({ state: pushed.push.state, ahead: pushed.push.ahead }, { state: 'ok', ahead: 0 });
+
+  // a plan made on other work is refused, and nothing lands
+  writeFileSync(path.join(repo, 'deck.html'), DECK.replace('Alpha', 'Third'));
+  const stalePlan = await (await post(base, '/deck/edit/commit/plan', {})).json();
+  writeFileSync(path.join(repo, 'deck.html'), DECK.replace('Alpha', 'Fourth'));
+  const stale = await post(base, '/deck/edit/commit/split', { base: stalePlan.base, commits: [{ message: 'x', units: [1] }] });
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json()).code, 'STALE');
+  assert.equal(git(['log', '-1', '--format=%s'], repo), 'rename the second slide');
+});
+
 // ── the restore overlay's server side (#129) ───────────────────────────────
 
 const gitRepoWithDeck = (t) => {

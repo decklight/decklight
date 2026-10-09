@@ -19,7 +19,7 @@
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { colorTargets, openColorPicker, conceptOf } from './colorpicker.js';
 import { rangeLabel } from './ranges.js';
-import { agentChipText, boundedFetch, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
+import { agentChipText, boundedFetch, commitChipParts, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { readPref, writePref } from './prefs.js';
@@ -125,7 +125,17 @@ export function createEditMode({
       });
       root.appendChild(commitChip);
     }
-    commitChip.textContent = `⌥ ${text}`;
+    // the slide counts first, each in its colour, then the sentence
+    const parts = commitChipParts(commitNow);
+    commitChip.textContent = '⌥ ';
+    for (const s of parts.slides) {
+      const c = document.createElement('span');
+      c.className = `cc-sl cc-sl-${s.kind}`;
+      c.textContent = s.text;
+      commitChip.append(c, ' ');
+    }
+    commitChip.append(parts.slides.length ? `· ${parts.text}` : parts.text);
+    commitChip.setAttribute('aria-label', text);
     commitChip.dataset.tone = commitChipTone(commitNow);
     commitChip.title = 'what has changed since the last commit — click or K to commit it; the work is snapshotted either way';
   }
@@ -160,7 +170,6 @@ export function createEditMode({
     if (!editAvailable) { toast(cannot('committing'), 3200); return; }
     const state = (await refreshCommit()) ?? commitNow;
     if (!state?.canWrite) { toast('this session is not committing — open the deck with --git', 3000); return; }
-    if (!state.dirty) { toast('nothing to commit — the deck matches its last commit', 2400); return; }
     overlays.opening();
     commitEl = document.createElement('div');
     commitEl.className = 'decklight-narr decklight-commit';
@@ -168,31 +177,40 @@ export function createEditMode({
     closeOnBackdrop(commitEl, closeCommit);
     root.appendChild(commitEl);
     const card = commitEl.querySelector('.narr-card');
+    const el = (tag, cls, text) => {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    };
+    const button = (cls, text) => {
+      const b = el('div', `narr-row narr-sel ${cls}`, text);
+      b.setAttribute('role', 'button');
+      b.tabIndex = 0;
+      b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); b.click(); } });
+      return b;
+    };
+    // a typing surface: the deck must not advance under it, but ⌘K still
+    // reaches the deck so the shortcut that opened the window closes it
+    const typing = (box, onSubmit) => box.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSubmit(); }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) return;
+      e.stopPropagation();
+    });
 
-    const head = document.createElement('div');
-    head.className = 'narr-head';
-    head.textContent = 'commit';
-    const what = document.createElement('div');
-    what.className = 'cm-what';
-    const n = Number(state.lines) || 0;
-    const mins = Math.floor((Number(state.sinceMs) || 0) / 60000);
-    // WHICH files: the sidecar rides the deck's commits (REVIEW), and a
-    // resolve the author pressed R for is "1 line in talk.review.jsonl",
-    // not a line in a deck that did not change
-    const files = Array.isArray(state.files) && state.files.length ? state.files : [state.deck || 'the deck'];
-    const where = files.length === 1 ? files[0] : `${files.slice(0, -1).join(', ')} and ${files[files.length - 1]}`;
-    what.textContent = `${n ? `${n} line${n === 1 ? '' : 's'}` : 'changes'} in ${where}`
-      + (mins >= 1 ? `, ${mins >= 60 ? `${Math.floor(mins / 60)}h` : `${mins}m`} old` : '');
-    const input = document.createElement('textarea');
-    input.className = 'narr-input cm-input';
+    const head = el('div', 'narr-head', 'commit');
+    const what = el('div', 'cm-what');
+    // the same work in slides, each count in its colour (painted below)
+    const slidesEl = el('div', 'cm-slides');
+    slidesEl.hidden = true;
+    const input = el('textarea', 'narr-input cm-input');
     input.rows = 3;
     input.placeholder = 'what changed, in one line…';
-    const row = document.createElement('div');
-    row.className = 'cm-row';
-    const write = document.createElement('div');
-    write.className = 'narr-row narr-sel cm-write';
-    write.setAttribute('role', 'button');
-    write.tabIndex = 0;
+    // The agent's proposal when it is several commits: one row each, the
+    // subject editable, where it lands beside it. Hidden until there is one.
+    const planEl = el('div', 'cm-plan');
+    planEl.hidden = true;
+    const row = el('div', 'cm-row');
     // Asked of the agent installed on this machine, and only when pressed —
     // so the button says, before it is pressed, where the changes will go. The
     // agent is named because it is a real program with a real provider behind
@@ -201,24 +219,85 @@ export function createEditMode({
     // rather than offering what the server can only refuse, and the reason
     // (which does not fit on a button) goes on the hint line when pressed.
     const who = state.describer;
-    write.textContent = who ? 'write one for me'
-      : state.subjectsOff ? 'write one for me — off' : 'write one for me — no agent';
+    const write = button('cm-write', who ? 'write them for me'
+      : state.subjectsOff ? 'write them for me — off' : 'write them for me — no agent');
     if (!who) write.classList.add('cm-off');
     if (who) {
       write.title = `Sends the deck's uncommitted changes to ${who.name} (${who.label}), the agent installed`
-        + ' on this machine, which may pass them to its provider.';
+        + ' on this machine, which may pass them to its provider. It proposes one commit, or several when the changes are separate ideas.';
     }
-    const go = document.createElement('div');
-    go.className = 'narr-row narr-sel cm-go';
-    go.setAttribute('role', 'button');
-    go.tabIndex = 0;
-    go.textContent = 'Commit';
-    row.append(write, go);
-    const hint = document.createElement('div');
-    hint.className = 'rec-hint';
-    hint.textContent = '⌘⏎ commits · Esc closes — the work is snapshotted either way';
-    card.append(head, what, input, row, hint);
-    setTimeout(() => input.focus(), 0);
+    const single = button('cm-single', 'one commit');
+    single.hidden = true;
+    const go = button('cm-go', 'Commit');
+    row.append(write, single, go);
+
+    // Tag and push: what happens to the work once it is committed. Both read
+    // the status route's `tags` and `push`, and both work with nothing to
+    // commit — tagging what is there, pushing what is not on the remote yet.
+    const tagRow = el('div', 'cm-row cm-tagrow');
+    const tagInput = el('input', 'narr-input cm-tag');
+    tagInput.type = 'text';
+    tagInput.placeholder = 'tag the last commit, e.g. v1.0';
+    tagInput.setAttribute('aria-label', 'Tag name');
+    const tagGo = button('cm-tag-go', 'Tag');
+    const tagsNow = el('span', 'cm-tags');
+    tagRow.append(tagInput, tagGo, tagsNow);
+    const pushRow = el('div', 'cm-row cm-pushrow');
+    const pushWhat = el('span', 'cm-push-what');
+    const pushGo = button('cm-push-go', 'Push');
+    pushRow.append(pushWhat, pushGo);
+
+    const hint = el('div', 'rec-hint', '⌘⏎ commits · Esc closes — the work is snapshotted either way');
+    card.append(head, what, slidesEl, input, planEl, row, tagRow, pushRow, hint);
+
+    let now = state;
+    const paintWhat = () => {
+      const dirty = !!now.dirty;
+      input.hidden = !dirty;
+      row.hidden = !dirty;
+      slidesEl.hidden = true;
+      if (!dirty) { planEl.hidden = true; what.textContent = 'nothing to commit — the deck matches its last commit'; return; }
+      const n = Number(now.lines) || 0;
+      const mins = Math.floor((Number(now.sinceMs) || 0) / 60000);
+      // WHICH files: the sidecar rides the deck's commits (REVIEW), and a
+      // resolve the author pressed R for is "1 line in talk.review.jsonl",
+      // not a line in a deck that did not change
+      const files = Array.isArray(now.files) && now.files.length ? now.files : [now.deck || 'the deck'];
+      const where = files.length === 1 ? files[0] : `${files.slice(0, -1).join(', ')} and ${files[files.length - 1]}`;
+      what.textContent = `${n ? `${n} line${n === 1 ? '' : 's'}` : 'changes'} in ${where}`
+        + (mins >= 1 ? `, ${mins >= 60 ? `${Math.floor(mins / 60)}h` : `${mins}m`} old` : '');
+      // and in slides, each count in its colour: changed, added, removed —
+      // all three, a zero dimmed, so the line reads the same way every time
+      const sl = now.slides;
+      if (sl && (sl.changed || sl.added || sl.removed)) {
+        const total = sl.changed + sl.added + sl.removed;
+        slidesEl.textContent = '';
+        slidesEl.append(el('span', 'cm-sl-head', `${total === 1 ? '1 slide' : `${total} slides`}`));
+        for (const k of ['changed', 'added', 'removed']) {
+          const c = el('span', `cm-sl cm-sl-${k}`, `${sl[k]} ${k}`);
+          if (!sl[k]) c.classList.add('cm-sl-zero');
+          slidesEl.append(c);
+        }
+        slidesEl.hidden = false;
+      }
+    };
+    const paintTagsAndPush = () => {
+      const tags = Array.isArray(now.tags) ? now.tags : [];
+      tagsNow.textContent = tags.length ? `on it: ${tags.join(', ')}` : '';
+      tagsNow.hidden = !tags.length;
+      const p = now.push;
+      pushGo.classList.toggle('cm-off', !p || !!p.blocked);
+      if (!p) { pushWhat.textContent = 'push: git cannot say where this branch stands'; return; }
+      if (p.blocked) { pushWhat.textContent = p.blocked; return; }
+      const n = Number(p.ahead) || 0;
+      const commits = `${n} commit${n === 1 ? '' : 's'}`;
+      pushWhat.textContent = p.state === 'no-upstream'
+        ? `${p.branch} is not on ${p.remote} yet${n ? ` · ↑${commits}` : ''}`
+        : n ? `↑${commits} not on ${p.upstream}` : `up to date with ${p.upstream}`;
+    };
+    paintWhat();
+    paintTagsAndPush();
+    setTimeout(() => (now.dirty ? input : tagInput).focus(), 0);
 
     // The agent's draft. Never overwrites what you have already typed: it is a
     // proposal, and a proposal that eats your sentence is not one. While it is
@@ -226,6 +305,7 @@ export function createEditMode({
     // button with it — moving, so a slow agent never reads as a stuck window.
     const placeholder = input.placeholder;
     const HINT = hint.textContent;
+    const say = (text) => { hint.textContent = text; hint.classList.add('cm-why'); };
     // the commands in it are set as unbreakable runs: a flag split at its
     // hyphen across two lines is a command nobody can copy
     const explainWhyNot = () => {
@@ -238,6 +318,48 @@ export function createEditMode({
       }
       hint.classList.add('cm-why');
     };
+    let plan = null;   // { base, commits: [{ subject, units }], units } while several are proposed
+    // where a commit lands: its units' slides as one run ("slides 5-6"),
+    // and any file that is not a slide (the sidecar) by its name
+    const unitsWhere = (ids) => {
+      const byId = new Map((plan?.units ?? []).map((u) => [u.id, u]));
+      const units = ids.map((id) => byId.get(id)).filter(Boolean);
+      const slides = [...new Set(units.flatMap((u) => u.slides ?? []))].sort((a, b) => a - b);
+      const other = [...new Set(units.filter((u) => !u.slides?.length).map((u) => u.where).filter(Boolean))];
+      const run = slides.every((n, i) => i === 0 || n === slides[i - 1] + 1);
+      const said = !slides.length ? [] : slides.length === 1 ? [`slide ${slides[0]}`]
+        : [run ? `slides ${slides[0]}-${slides[slides.length - 1]}` : `slides ${slides.join(', ')}`];
+      return [...said, ...other].join(' · ');
+    };
+    const showPlan = (p) => {
+      plan = p;
+      planEl.textContent = '';
+      planEl.hidden = !p;
+      input.hidden = !!p;
+      single.hidden = !p;
+      if (!p) { go.textContent = 'Commit'; return; }
+      p.commits.forEach((c, i) => {
+        const line = el('div', 'cm-plan-row');
+        const box = el('input', 'narr-input cm-plan-subject');
+        box.type = 'text';
+        box.value = c.subject;
+        box.placeholder = 'what this commit changed…';
+        box.setAttribute('aria-label', `Commit ${i + 1} of ${p.commits.length}`);
+        box.addEventListener('input', () => { c.subject = box.value; });
+        typing(box, () => commit());
+        line.append(el('span', 'cm-plan-n', String(i + 1)), box, el('span', 'cm-plan-where', unitsWhere(c.units)));
+        planEl.append(line);
+      });
+      go.textContent = `Commit all ${p.commits.length}`;
+      setTimeout(() => planEl.querySelector('input')?.focus(), 0);
+    };
+    // "one commit": the proposal set aside, its first subject offered in the box
+    single.addEventListener('click', () => {
+      const first = plan?.commits?.[0]?.subject ?? '';
+      showPlan(null);
+      if (first && !input.value.trim()) input.value = first;
+      input.focus();
+    });
     const ask = async () => {
       if (!who) { explainWhyNot(); return; }
       if (commitAsking) return;
@@ -250,19 +372,32 @@ export function createEditMode({
         input.placeholder = text;
       });
       try {
-        const r = await fetch(editBase + '/deck/edit/commit/subject', { method: 'POST' });
-        const j = await r.json();
+        let r = await fetch(editBase + '/deck/edit/commit/plan', { method: 'POST' });
+        let j = await r.json();
+        // a first commit cannot be cut against nothing: it is one subject
+        if (j?.code === 'FIRST') {
+          r = await fetch(editBase + '/deck/edit/commit/subject', { method: 'POST' });
+          j = await r.json();
+          if (j?.ok) j = { ok: true, commits: j.subject ? [{ subject: j.subject, units: [] }] : [] };
+        }
         if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
         if (!commitEl) return;
-        if (j.subject && !input.value.trim()) input.value = j.subject;
-        write.textContent = j.subject ? 'write another' : 'nothing to say about it';
+        const commits = Array.isArray(j.commits) ? j.commits : [];
+        if (commits.length > 1) {
+          showPlan({ base: j.base, units: j.units ?? [], commits: commits.map((c) => ({ subject: String(c.subject ?? ''), units: c.units ?? [] })) });
+          write.textContent = 'write them again';
+        } else {
+          showPlan(null);
+          const subject = commits[0]?.subject;
+          if (subject && !input.value.trim()) input.value = subject;
+          write.textContent = subject ? 'write them again' : 'nothing to say about it';
+        }
       } catch (e) {
         // the whole sentence, where there is room for it — a reason cut at forty
         // characters on a button is a reason nobody can act on
         if (commitEl) {
           write.textContent = "couldn't write one";
-          hint.textContent = String(e.message || e);
-          hint.classList.add('cm-why');
+          say(String(e.message || e));
         }
       } finally {
         stop();
@@ -272,47 +407,122 @@ export function createEditMode({
       }
     };
     write.addEventListener('click', ask);
-    if (state.messages && who) ask();   // drafted on open only with --commit-messages
+    if (state.messages && who && state.dirty) ask();   // drafted on open only with --commit-messages
 
+    // After a commit the window stays when there is somewhere to push it —
+    // commit, then push, is one visit — and closes when there is not.
+    const landed = (j, text) => {
+      commitNow = { ...j, nag: false };
+      paintCommitChip();
+      toast(text, 2600);
+      if (!j.push || j.push.blocked) { closeCommit(); return; }
+      now = { ...now, ...j, dirty: false };
+      showPlan(null);
+      input.value = '';
+      paintWhat();
+      what.textContent = text;
+      paintTagsAndPush();
+      setTimeout(() => pushGo.focus(), 0);
+    };
     const commit = async () => {
+      if (!now.dirty) return;
+      const several = plan;
       const message = input.value.trim();
-      if (!message) { input.focus(); return; }
+      if (several ? several.commits.some((c) => !c.subject.trim()) : !message) {
+        (several ? [...planEl.querySelectorAll('input')].find((b) => !b.value.trim()) : input)?.focus();
+        return;
+      }
       go.textContent = 'committing…';
       try {
-        const r = await fetch(editBase + '/deck/edit/commit', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ message }),
-        });
+        const r = several
+          ? await fetch(editBase + '/deck/edit/commit/split', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ base: several.base, commits: several.commits.map((c) => ({ message: c.subject.trim(), units: c.units })) }),
+          })
+          : await fetch(editBase + '/deck/edit/commit', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ message }),
+          });
         const j = await r.json();
-        if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-        closeCommit();
-        commitNow = j.committed ? { ...j, nag: false } : commitNow;
-        paintCommitChip();
-        toast(j.committed ? `committed — "${j.subject}"` : 'nothing to commit', 2600);
-        debugLog('git', j.committed ? `commit: ${j.subject}` : 'commit: nothing to do');
+        if (!j?.ok) {
+          // the work moved while the agent was thinking: its plan is for other work
+          if (j?.code === 'STALE') { showPlan(null); write.textContent = 'write them again'; }
+          throw new Error(j?.error || `HTTP ${r.status}`);
+        }
+        if (!j.committed) { closeCommit(); toast('nothing to commit', 2600); return; }
+        debugLog('git', several ? `commit: ${j.count} commits` : `commit: ${j.subject}`);
+        landed(j, several ? `committed ${j.count} — "${j.subjects[0]}" and ${j.count - 1} more` : `committed — "${j.subject}"`);
       } catch (e) {
-        go.textContent = `couldn't commit — ${String(e.message || e).slice(0, 40)}`;
+        go.textContent = several ? `Commit all ${several.commits.length}` : 'Commit';
+        say(`couldn't commit — ${String(e.message || e)}`);
       }
     };
     go.addEventListener('click', commit);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
-      // ⌘K reaches the deck even from in here, so the shortcut that opened this
-      // window also closes it. Everything else is stopped: the box is a typing
-      // surface and the deck must not advance under it — but a modifier combo
-      // is not typing, and swallowing the one key the header advertises would
-      // make the alias a one-way door.
+    typing(input, commit);
+
+    const tag = async () => {
+      const name = tagInput.value.trim();
+      if (!name) { tagInput.focus(); return; }
+      tagGo.textContent = 'tagging…';
+      try {
+        const r = await fetch(editBase + '/deck/edit/commit/tag', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }),
+        });
+        const j = await r.json();
+        if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        now = { ...now, tags: j.tags, push: j.push };
+        tagInput.value = '';
+        paintTagsAndPush();
+        toast(`tagged ${j.tag} — Push sends it with the branch`, 2600);
+        debugLog('git', `tag: ${j.tag}`);
+      } catch (e) {
+        say(`couldn't tag — ${String(e.message || e)}`);
+      } finally { tagGo.textContent = 'Tag'; }
+    };
+    tagGo.addEventListener('click', tag);
+    tagInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); tag(); return; }
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) return;
       e.stopPropagation();
     });
+
+    let pushingNow = false;
+    const push = async () => {
+      if (pushingNow) return;
+      if (!now.push || now.push.blocked) { if (now.push?.blocked) say(now.push.blocked); return; }
+      pushingNow = true;
+      const stop = thinking((text) => { pushGo.textContent = text; }, { label: 'pushing' });
+      try {
+        const r = await fetch(editBase + '/deck/edit/commit/push', { method: 'POST' });
+        const j = await r.json();
+        if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        now = { ...now, tags: j.tags, push: j.push };
+        paintTagsAndPush();
+        toast(`pushed ${j.branch} to ${j.remote}`, 2600);
+        debugLog('git', `push: ${j.branch} → ${j.remote}`);
+      } catch (e) {
+        say(`couldn't push — ${String(e.message || e)}`);
+      } finally {
+        stop();
+        pushGo.textContent = 'Push';
+        pushingNow = false;
+      }
+    };
+    pushGo.addEventListener('click', push);
+
     overlaysCommit ??= overlays.register({
       isOpen: () => !!commitEl,
       close: closeCommit,
       keydown(e) {
         if (e.key === 'Escape') { closeCommit(); return true; }
         if (/^(input|textarea)$/i.test(e.target?.tagName ?? '')) return false;
-        if (e.key === 'Enter') { commitEl?.querySelector('.cm-go')?.click(); return true; }
+        if (e.key === 'Enter') {
+          const b = commitEl?.querySelector('.cm-go');
+          if (b && !b.closest('[hidden]')) b.click();
+          return true;
+        }
         if (e.key === 'k' || e.key === 'K') { closeCommit(); return true; }
         return false;
       },

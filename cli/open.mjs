@@ -86,7 +86,7 @@ const USAGE = `usage: decklight <deck.html | git url> [--no-trust] [--port 8788]
   --commit-messages an agent writes EVERY commit subject instead of the generic
                     "autosave" — reads each commit's diff and amends the subject
                     afterwards — and K drafts one as it opens. Without it, K's
-                    "write one for me" asks only when you press it
+                    "write them for me" asks only when you press it
   --no-commit-messages  no agent-written subjects at all this session. Either
                     way the deck's changes go to the agent installed on this
                     machine, which may pass them to its provider

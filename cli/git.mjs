@@ -233,6 +233,11 @@ export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${ba
 // switches that each say why, and nowhere near a SIGINT handler — the shape
 // update-check.mjs established. SPEC REVIEW states the contract; anything
 // else that wants to fetch unasked argues there, not here.
+//
+// A PUSH IS ONLY EVER ASKED FOR. The two that run from a request handler run
+// on a click that says so: the reviewer's Submit (cli/review-submit.mjs) and
+// the commit window's Push (cli/commit-split.mjs `pushBranch`). Neither runs
+// on a timer, on startup, or on the way out, and both use noPromptEnv.
 
 /**
  * `owner/repo` from a GitHub remote URL, or null for anything else.
