@@ -731,11 +731,8 @@ export function createReview({
     armedDelete = null;
     context = null;
     engaged = false;
-    // Hand the stage its full width back and refit the slide.
-    root.style.removeProperty('--dock-left');
-    root.style.removeProperty('--dock-right');
-    root.style.removeProperty('--dock-bottom');
-    instance._reflow?.();
+    // Hand the stage back this panel's gutter (and only this panel's) and refit.
+    dock.release();
     if (onResize) window.removeEventListener('resize', onResize), onResize = null;
     if (onSurface) {
       document.removeEventListener('pointerdown', onSurface, true);

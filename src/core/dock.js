@@ -23,6 +23,29 @@ import { readJson, writeJson } from './prefs.js';
 
 const GLYPH = { float: '❏', left: '◧', right: '◨', bottom: '⬓' };
 const MODES = ['float', 'left', 'right', 'bottom'];
+const SIDES = ['left', 'right', 'bottom'];
+
+// Every docked panel on a root CLAIMS its side, and the root's gutter on each
+// side is the widest claim there. Each panel used to write all three --dock-*
+// vars itself: docking the inspector right zeroed the agent's left gutter, and
+// closing either one let go of the other's, leaving a panel over the slide.
+const claims = new WeakMap();   // root → Map(panel token → { side, px })
+
+function applyGutters(root) {
+  const mine = claims.get(root);
+  for (const side of SIDES) {
+    let px = 0;
+    for (const c of mine?.values() ?? []) if (c.side === side) px = Math.max(px, c.px);
+    root.style.setProperty('--dock-' + side, px + 'px');
+  }
+}
+
+function claim(root, token, side, px) {
+  if (!claims.has(root)) claims.set(root, new Map());
+  if (side) claims.get(root).set(token, { side, px });
+  else claims.get(root).delete(token);
+  applyGutters(root);
+}
 
 /**
  * `key` names the deck AND the panel, so two dockable panels remember their
@@ -42,6 +65,7 @@ export function createDock({ root, reflow, key, getEl, closeLabel = 'close', def
     if (s?.mode) { dock.mode = s.mode; dock.x = s.x ?? null; dock.y = s.y ?? null; }
   }
   const persist = () => writeJson(key, dock);
+  const token = {};   // this panel's claim on the root's gutters
 
   // The gutter a docked panel reserves, in px — the same figure drives the
   // panel's own width/height (CSS var) and the stage's inset (root var), so the
@@ -57,9 +81,8 @@ export function createDock({ root, reflow, key, getEl, closeLabel = 'close', def
     if (!el) return;
     el.dataset.dock = dock.mode;
     const g = gutter();
-    root.style.setProperty('--dock-left', dock.mode === 'left' ? g.w + 'px' : '0px');
-    root.style.setProperty('--dock-right', dock.mode === 'right' ? g.w + 'px' : '0px');
-    root.style.setProperty('--dock-bottom', dock.mode === 'bottom' ? g.h + 'px' : '0px');
+    const side = SIDES.includes(dock.mode) ? dock.mode : null;
+    claim(root, token, side, dock.mode === 'bottom' ? g.h : g.w);
     el.style.setProperty('--dock-size', dock.mode === 'bottom' ? g.h + 'px' : g.w + 'px');
     // Float positions the card with INLINE left/top, and an inline style beats
     // the stylesheet: leaving them set pinned a docked panel to wherever it last
@@ -159,11 +182,12 @@ export function createDock({ root, reflow, key, getEl, closeLabel = 'close', def
     head.addEventListener('pointerdown', startDrag);
   }
 
-  /** Let go of the stage when the panel closes, or it reflows around nothing. */
+  /**
+   * Let go of the stage when the panel closes, or it reflows around nothing —
+   * only THIS panel's gutter: another panel docked elsewhere keeps its own.
+   */
   function release() {
-    root.style.setProperty('--dock-left', '0px');
-    root.style.setProperty('--dock-right', '0px');
-    root.style.setProperty('--dock-bottom', '0px');
+    claim(root, token, null);
     reflow?.();
   }
 
