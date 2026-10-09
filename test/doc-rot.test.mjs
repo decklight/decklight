@@ -183,7 +183,9 @@ test('no doc or deck still tells anyone to run a command that was removed', () =
       // reason — a surviving `rec` would quietly mean the opposite of what a
       // reader assumes. A doc that still teaches either is a doc a reader will
       // copy into a command that exits 1.
-      for (const gone of ['edit', 'rec']) {
+      // `author`, `present` and `template` went in 0.9.0: one server with two
+      // modes (PRESENTING), and design systems in place of deck templates
+      for (const gone of ['edit', 'rec', 'author', 'present', 'template']) {
         const re = new RegExp(`(decklight|npx decklight|decklight@latest)\\s+${gone}\\b`);
         if (re.test(line) && !/refuses|folded|removed|renamed|alias|was\s+/.test(line)) {
           hits.push(`${rel}:${i + 1} (${gone})`);
@@ -192,6 +194,37 @@ test('no doc or deck still tells anyone to run a command that was removed', () =
     });
   }
   assert.deepEqual(hits, [], 'a shipped file invokes a command that was removed and now refuses');
+});
+
+test('no printed string or doc still describes the two modes by the commands that went', () => {
+  // 0.9.0 folded `decklight author` and `decklight present` into one server
+  // with two modes, write mode and --no-trust (PRESENTING). The commands had
+  // refusal stubs for a while; the WORDS lingered where no stub could reach:
+  // `plugin --help` said "present loads the library", `upgrade --help` said
+  // "author, present and every render", and a reader of either would look
+  // for a command that no longer exists. These are the strings the release
+  // pass found by hand; pinned so they cannot come back.
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const files = ['README.md', 'SPEC.md', 'MARKETPLACE.md', 'CONTRIBUTING.md', 'site/index.html',
+    ...fs.readdirSync(path.join(root, 'cli')).filter((f) => f.endsWith('.mjs')).map((f) => `cli/${f}`)];
+  const stale = [
+    /\bpresent (loads|behaves|startup|mode)\b/,
+    /\bauthor, present\b/,
+    /\bpresent and every render\b/,
+    /\bauthor mode\b/,
+    /\bread-only mode\b/,
+  ];
+  const hits = [];
+  for (const rel of files) {
+    const text = fs.readFileSync(path.join(root, rel), 'utf8');
+    text.split('\n').forEach((line, i) => {
+      // history is allowed to name what went: a ticket struck through, a
+      // sentence that says it was renamed
+      if (/~~|was\s+(renamed|removed|folded|called)|used to|no longer|before 0\.9/.test(line)) return;
+      for (const re of stale) if (re.test(line)) hits.push(`${rel}:${i + 1} (${re.source})`);
+    });
+  }
+  assert.deepEqual(hits, [], 'a mode is described by a command that went in 0.9.0');
 });
 
 test('restoring stays two steps — no path writes the deck without arming first', () => {
