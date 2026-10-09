@@ -1947,7 +1947,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   });
 
   function runAgent(prompt, name, message, slide) {
-    const cmd = agentCommand(name || agentPref, prompt, deckRel);
+    const cmd = agentCommand(name || agentPref, prompt, deckRel, { slide });
     if (!cmd) return null;
     const ask = {
       id: ++askSeq, agent: cmd.name, label: cmd.label, prompt,
