@@ -106,10 +106,7 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   reports what an author or an agent would otherwise only see by looking:
   clipped slides, missing images, notes whose [click] count disagrees with
   the builds.
-- **Take slides from another deck.** `/` → *Insert from a template…* lists the
-  decks you have installed, renders each slide in *your* theme, and takes one
-  (or applies just its look to a slide you already wrote) with the CSS it
-  depends on. `data-module` marks chapters, and `G` shows the outline.
+- **Chapters.** `data-module` marks chapters, and `G` shows the outline.
 - **Builds.** `data-build` on a container makes each child a step. The layout
   never jumps.
 - **Diagrams.** Inline SVG written with `var(--d-*)` tokens recolours with every
@@ -155,7 +152,7 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   opens, and asked about: trust its source and it opens in write mode, decline
   and it plays without trust under a CSP with that code stripped. `--no-trust`
   forces the safe mode; `publish` signs what it ships.
-- **Extensible without shipping code to the audience.** Themes, templates,
+- **Extensible without shipping code to the audience.** Themes, skills,
   speech engines and presenter plugins install from any git repo. Nothing
   executable travels inside a deck.
 
@@ -168,7 +165,7 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Writing | |
 |---|---|
-| `init ["Title"]` | scaffold a deck and the agent skill, then open it in write mode (`--no-open` keeps the browser closed, `--from <template>`) |
+| `init ["Title"]` | scaffold a deck and the agent skill, then open it in write mode (`--no-open` keeps the browser closed) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob; a skill older than this build is refreshed, and write mode names one at startup |
 | `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser editing is on: double-click text to edit it (`⌘B`, `⌘I`, `⌘E` for bold, italic and code while you do), drop a picture onto a slide, `L` for a layout, `S` for notes, `O` to rearrange slides; `Lock deck` in the palette turns changes off until you unlock |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
@@ -203,7 +200,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `check`, the gate a catalog runs) |
 | `marketplace list` / `update <name>` | what each catalog offers, and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it) |
 | `plugin add <name>` | presenter chrome for your machine only; no-trust mode loads it, `bundle` never does |
-| `template\|importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library |
+| `importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library |
 | `extension check t.mjs` | the marketplace admission gate for a transform |
 
 | Odds and ends | |

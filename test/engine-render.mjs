@@ -30,7 +30,7 @@ export const MODES = [
   'narration', 'nonarration', 'panel',
   'restore', 'historycaptions', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'publish',
-  'template', 'templatelook', 'sources', 'sourcesedit',
+  'sources', 'sourcesedit',
   'decktheme', 'palettegroups', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'notesauto', 'notesautofail', 'lockmode', 'notrustmode', 'editingtour', 'editingtourwelcome',
   'linedraw', 'nestedfills', 'dslayouts', 'dsedit',
 ];

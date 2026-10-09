@@ -7,11 +7,11 @@
  *
  * `MARKETPLACES#CORE` registers catalogs and resolves a name to an entry;
  * `THEME_BROWSE#UI` and `NO_TRUST#PLUGINS` each installed one kind of thing on
- * top of it. This is the rest — deck templates, agent skills, import adapters
- * — and it is deliberately ONE implementation with a type table rather than
- * three commands that each grew their own copy of resolve-fetch-validate-write.
- * `decklight template add` and `decklight importer add` are the same function
- * with a different row.
+ * top of it. This is the rest — agent skills, import adapters, engines, agents,
+ * voices — and it is deliberately ONE implementation with a type table rather
+ * than a command per kind that each grew its own copy of
+ * resolve-fetch-validate-write. `decklight skills add` and `decklight importer
+ * add` are the same function with a different row.
  *
  * THE INVARIANT THAT OUTRANKS CONVENIENCE (SPEC MARKETPLACE_REGISTRY):
  * registering is not fetching. Everything here reads the catalog CACHE; the
@@ -20,8 +20,8 @@
  * cannot reach the network at all, so a deck on a plane behaves exactly like a
  * deck at a desk.
  *
- * WHAT IS DELIBERATELY NOT HERE: running an installed unit. A template is
- * HTML and a skill is Markdown, so both are just files. An import adapter and
+ * WHAT IS DELIBERATELY NOT HERE: running an installed unit. A skill is
+ * Markdown, so it is just files. An import adapter and
  * a build-time transform are both **Node code**, and executing either is one
  * shared capability rather than two copies of resolve-fetch-validate-load —
  * `cli/loader.mjs` (`EXTENSIONS#LOADER`) is that shared loader. `bundle
@@ -50,14 +50,6 @@ export class UnitError extends Error {}
  * the adapter for a `.marp` file **offline**, from the cache alone.
  */
 export const UNIT_TYPES = {
-  template: {
-    dir: 'templates',
-    single: 'html',
-    label: 'deck template',
-    use: 'decklight init --from <name>',
-    example: 'startup-pitch',
-    required: [],
-  },
   skill: {
     dir: 'skills',
     files: ['SKILL.md'],
@@ -74,8 +66,8 @@ export const UNIT_TYPES = {
   // the code — so an entry installs only against the `sha256` its catalog
   // admitted: refused before any read without one, refused before any write on
   // a mismatch (SPEC UNIT_PINNING). Data kinds stay unpinned: a theme
-  // re-passes its whole contract at `theme add`, and nothing in a template or
-  // skill executes.
+  // re-passes its whole contract at `theme add`, and nothing in a skill
+  // executes.
   importer: {
     dir: 'importers',
     files: ['importer.mjs'],
@@ -157,7 +149,7 @@ const typeOf = (type) => {
   return t;
 };
 
-/** Where a type's units live: `~/.decklight/templates/`, `…/skills/`, … */
+/** Where a type's units live: `~/.decklight/skills/`, `…/importers/`, … */
 export const unitDir = (type, home = configHome()) => join(home, typeOf(type).dir);
 
 /** Where ONE unit lives — a file for a single-file type, a directory otherwise. */
@@ -213,7 +205,7 @@ export function catalogEntries(home = configHome()) {
   return out;
 }
 
-/** Catalog entries of one type, cache-only — "what templates could I install?" */
+/** Catalog entries of one type, cache-only — "what skills could I install?" */
 export const catalogEntriesOfType = (type, home = configHome()) =>
   catalogEntries(home).filter((e) => e.type === type);
 

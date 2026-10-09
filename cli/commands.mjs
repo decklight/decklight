@@ -46,7 +46,6 @@ export const COMMANDS = {
   plugin: { module: './plugin.mjs', main: 'pluginMain' },
   // Six rows of the same table (MARKETPLACE.md UNITS#REST): one implementation,
   // told which kind of unit it is handling.
-  template: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
   importer: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
   transform: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
   engine: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
@@ -193,7 +192,7 @@ export const SYNONYMS = {
   convert: 'import', pptx2html: 'import',
   env: 'doctor', diagnose: 'doctor', lint: 'check', verify: 'check', validate: 'check',
   update: 'upgrade', undo: 'restore', log: 'history',
-  themes: 'theme', plugins: 'plugin', templates: 'template', voices: 'voice', engines: 'engine',
+  themes: 'theme', plugins: 'plugin', voices: 'voice', engines: 'engine',
 };
 
 /** Levenshtein distance, for the typo half of did-you-mean. */
@@ -297,8 +296,6 @@ Commands:
   plugin   install presenter chrome into YOUR library — no-trust mode loads it, bundle never does
            EXAMPLE: decklight plugin add timer      (then: decklight talk.html --no-trust)
            EXAMPLE: decklight plugin list           (says which ones read your speaker notes)
-  template install deck templates from a marketplace — scaffold with: decklight init --from <name>
-           EXAMPLE: decklight template add startup-pitch
   importer install an import adapter for a format decklight cannot read itself — decklight
            import runs it the moment it is installed for the extension in hand
            EXAMPLE: decklight importer add marp-import   (then: decklight import talk.marp)

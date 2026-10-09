@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The unit library — templates, agent skills and import adapters
+// The unit library — agent skills, import adapters and the other kinds
 // (MARKETPLACE.md UNITS#REST), all three over one install seam in cli/units.mjs.
 //
 // Two properties get most of the attention here, because they are the ones a
@@ -31,15 +31,11 @@ import {
   installedVoices,
 } from '../cli/units.mjs';
 import { validateManifest, KNOWN_TYPES, INSTALL_HINT } from '../cli/marketplace.mjs';
-import { templateDeck, titleTemplate } from '../cli/init.mjs';
 import { adapterOffer } from '../cli/import.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 
-
-const TEMPLATE_HTML = `<!doctype html><html><head><title>Pitch</title></head>
-<body><div class="decklight"><section><h1>Pitch</h1></section></div></body></html>`;
 
 /** The pin a code-carrying entry carries (SPEC UNIT_PINNING). */
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
@@ -57,7 +53,6 @@ const MARP_IMPORTER_MJS =
   + '}\n';
 
 const ENTRIES = [
-  { name: 'startup-pitch', type: 'template', source: 'templates/startup-pitch.html', description: 'a 10-slide pitch' },
   { name: 'note-taking', type: 'skill', source: 'skills/note-taking' },
   { name: 'marp-import', type: 'importer', source: 'importers/marp', extensions: ['.marp', '.md'], apiVersion: 1, sha256: sha256(MARP_IMPORTER_MJS) },
 ];
@@ -69,8 +64,6 @@ function market({ entries = ENTRIES, home = tmp('units-home') } = {}) {
   writeFileSync(path.join(root, '.decklight/marketplace.json'),
     JSON.stringify({ name: 'cat', entries }, null, 2));
 
-  mkdirSync(path.join(root, 'templates'), { recursive: true });
-  writeFileSync(path.join(root, 'templates/startup-pitch.html'), TEMPLATE_HTML);
   mkdirSync(path.join(root, 'skills/note-taking'), { recursive: true });
   writeFileSync(path.join(root, 'skills/note-taking/SKILL.md'), '# Note taking\n');
   writeFileSync(path.join(root, 'skills/note-taking/reference.md'), 'reference\n');
@@ -222,8 +215,8 @@ test('installed voices are offered only on the engine they name', () => {
 test('voice add refuses a catalog entry of another kind, like every other unit', async () => {
   const m = market();
   try {
-    await assert.rejects(() => installUnit('voice', 'startup-pitch', m.home, { fetchImpl: noNetwork }),
-      (e) => e instanceof UnitError && /is a template, not a voice/.test(e.message));
+    await assert.rejects(() => installUnit('voice', 'note-taking', m.home, { fetchImpl: noNetwork }),
+      (e) => e instanceof UnitError && /is a skill, not a voice/.test(e.message));
   } finally { m.cleanup(); }
 });
 
@@ -240,11 +233,11 @@ test('every installable type has an install hint, and every hint a real command'
 test('marketplace list groups entries by kind and names how to install each', () => {
   const m = market();
   const { out } = run(['marketplace', 'list'], m.home);
-  assert.match(out, /template {2}—/, 'kinds are headings');
-  assert.match(out, /decklight template add <name>/);
+  assert.match(out, /skill {2}—/, 'kinds are headings');
+  assert.match(out, /decklight skills add <name>/);
   assert.match(out, /decklight importer add <name>/);
   // The entry sits under its kind, not in a flat list.
-  assert.match(out, /template.*\n\s+startup-pitch@cat/);
+  assert.match(out, /skill.*\n\s+note-taking@cat/);
   m.cleanup();
 });
 
@@ -259,29 +252,29 @@ test('marketplace list marks a kind this decklight cannot install', () => {
 
 test('each type lands in its own directory, single-file or not', async () => {
   const m = market();
-  await installUnit('template', 'startup-pitch', m.home);
+  await installUnit('importer', 'marp-import', m.home);
   await installUnit('skill', 'note-taking', m.home);
 
-  assert.equal(unitPath('template', 'startup-pitch', m.home), path.join(m.home, 'templates/startup-pitch.html'));
+  assert.equal(unitPath('importer', 'marp-import', m.home), path.join(m.home, 'importers/marp-import'));
   assert.equal(unitPath('skill', 'note-taking', m.home), path.join(m.home, 'skills/note-taking'));
-  assert.equal(readFileSync(unitPath('template', 'startup-pitch', m.home), 'utf8'), TEMPLATE_HTML);
+  assert.equal(readFileSync(path.join(unitPath('importer', 'marp-import', m.home), 'importer.mjs'), 'utf8'), MARP_IMPORTER_MJS);
   assert.ok(existsSync(path.join(m.home, 'skills/note-taking/SKILL.md')));
   assert.ok(existsSync(path.join(m.home, 'skills/note-taking/reference.md')), 'an optional file is taken when present');
 
-  assert.deepEqual(listUnits('template', m.home).map((u) => u.name), ['startup-pitch']);
-  assert.deepEqual(listUnits('importer', m.home), [], 'an absent directory is empty, not an error');
+  assert.deepEqual(listUnits('importer', m.home).map((u) => u.name), ['marp-import']);
+  assert.deepEqual(listUnits('engine', m.home), [], 'an absent directory is empty, not an error');
   m.cleanup();
 });
 
 test('installing the wrong kind is refused, and names the right command', async () => {
   const m = market();
-  await assert.rejects(() => installUnit('template', 'marp-import', m.home), (e) => {
+  await assert.rejects(() => installUnit('skill', 'marp-import', m.home), (e) => {
     assert.ok(e instanceof UnitError);
-    assert.match(e.message, /is a importer, not a template/);
+    assert.match(e.message, /is a importer, not a skill/);
     assert.match(e.message, /decklight importer add marp-import/);
     return true;
   });
-  assert.equal(listUnits('template', m.home).length, 0, 'nothing was written');
+  assert.equal(listUnits('skill', m.home).length, 0, 'nothing was written');
   m.cleanup();
 });
 
@@ -297,16 +290,16 @@ test('a failed fetch writes nothing at all', async () => {
 
 test('remove takes a unit away, and refuses one that is not there', async () => {
   const m = market();
-  await installUnit('template', 'startup-pitch', m.home);
-  removeUnit('template', 'startup-pitch', m.home);
-  assert.equal(findUnit('template', 'startup-pitch', m.home), null);
-  assert.throws(() => removeUnit('template', 'startup-pitch', m.home), /no template "startup-pitch" installed/);
+  await installUnit('skill', 'note-taking', m.home);
+  removeUnit('skill', 'note-taking', m.home);
+  assert.equal(findUnit('skill', 'note-taking', m.home), null);
+  assert.throws(() => removeUnit('skill', 'note-taking', m.home), /no skill "note-taking" installed/);
   m.cleanup();
 });
 
 test('installing needs a FETCHED catalog, and says registering is not that', async () => {
   const home = tmp('units-bare');
-  await assert.rejects(() => installUnit('template', 'anything', home), (e) => {
+  await assert.rejects(() => installUnit('skill', 'anything', home), (e) => {
     assert.match(e.message, /registering is not fetching/);
     return true;
   });
@@ -321,10 +314,10 @@ test('catalog lookups read the cache and never fetch', () => {
   globalThis.fetch = noNetwork;
   try {
     assert.equal(catalogEntries(m.home).length, ENTRIES.length);
-    assert.deepEqual(catalogEntriesOfType('template', m.home).map((e) => e.qualified), ['startup-pitch@cat']);
+    assert.deepEqual(catalogEntriesOfType('skill', m.home).map((e) => e.qualified), ['note-taking@cat']);
     assert.equal(adapterFor('.marp', m.home).name, 'marp-import');
-    assert.equal(findUnit('template', 'startup-pitch', m.home), null);
-    assert.deepEqual(listUnits('skill', m.home), []);
+    assert.equal(findUnit('skill', 'note-taking', m.home), null);
+    assert.deepEqual(listUnits('importer', m.home), []);
   } finally { globalThis.fetch = saved; }
   m.cleanup();
 });
@@ -336,108 +329,6 @@ test('adapterFor matches on extension, case and dot insensitively', () => {
   }
   assert.equal(adapterFor('.pptx', m.home), null, 'a format decklight reads itself has no adapter');
   assert.equal(adapterFor('', m.home), null);
-  m.cleanup();
-});
-
-// ── templates on the init path ─────────────────────────────────────────────
-
-const lookTemplate = (name, home) => templateDeck(name, {
-  home,
-  listInstalled: (n, h) => findUnit('template', n, h),
-  offered: (h) => catalogEntriesOfType('template', h),
-});
-
-test('templateDeck returns the refusal rather than ending the process', () => {
-  const m = market();
-  const offeredOnly = lookTemplate('startup-pitch', m.home);
-  assert.equal(offeredOnly.ok, false);
-  assert.match(offeredOnly.message, /decklight template add startup-pitch@cat/);
-  assert.match(offeredOnly.message, /init does not\n {2}reach the network/);
-
-  const nowhere = lookTemplate('no-such-thing', m.home);
-  assert.equal(nowhere.ok, false);
-  assert.match(nowhere.message, /no registered marketplace offers one/);
-  assert.match(nowhere.message, /available: startup-pitch@cat/, 'it names what there IS');
-  m.cleanup();
-});
-
-test('templateDeck reads an installed template', async () => {
-  const m = market();
-  await installUnit('template', 'startup-pitch', m.home);
-  const got = lookTemplate('startup-pitch', m.home);
-  assert.equal(got.ok, true);
-  assert.equal(got.html, TEMPLATE_HTML);
-  m.cleanup();
-});
-
-test('titleTemplate replaces the title and first h1, and nothing else', () => {
-  const out = titleTemplate(TEMPLATE_HTML, 'Acme Seed Round');
-  assert.match(out, /<title>Acme Seed Round<\/title>/);
-  assert.match(out, /<h1>Acme Seed Round<\/h1>/);
-  assert.match(out, /class="decklight"/, 'the template is otherwise untouched');
-});
-
-test('titleTemplate escapes, and survives a title full of $ patterns', () => {
-  // A string replacement would expand $& into the matched text. The & is then
-  // HTML-escaped like any other, which is why this reads $&amp; and not $&.
-  // Expansion would have spliced "<title>Pitch</title>" back in where $& is.
-  const dollars = titleTemplate(TEMPLATE_HTML, '$& $1 $`');
-  assert.match(dollars, /<title>\$&amp; \$1 \$`<\/title>/);
-  assert.doesNotMatch(dollars, /Pitch/);
-  assert.match(titleTemplate(TEMPLATE_HTML, '<script>x</script>'), /<title>&lt;script&gt;/);
-});
-
-test('titleTemplate leaves a template with no h1 alone', () => {
-  const noH1 = '<!doctype html><title>Kept</title><body><section><h2>Only</h2></section>';
-  const out = titleTemplate(noH1, 'New');
-  assert.match(out, /<title>New<\/title>/);
-  assert.match(out, /<h2>Only<\/h2>/);
-});
-
-test('init --from scaffolds the installed template, end to end', async () => {
-  const m = market();
-  const work = tmp('units-work');
-  await installUnit('template', 'startup-pitch', m.home);
-
-  const { code, out } = run(['init', 'Acme Seed Round', '--from', 'startup-pitch', '--no-skill', '--no-git'], m.home, work);
-  assert.equal(code, 0, out);
-  const deck = readFileSync(path.join(work, 'deck.html'), 'utf8');
-  assert.match(deck, /<h1>Acme Seed Round<\/h1>/);
-  assert.match(deck, /from template startup-pitch/.test(out) ? /.*/ : /never/, 'the note says where it came from');
-  rmTemp(work);
-  m.cleanup();
-});
-
-test('init --from names the install command when the template is only offered', () => {
-  const m = market();
-  const work = tmp('units-work2');
-  const { code, out } = run(['init', 'X', '--from', 'startup-pitch', '--no-skill', '--no-git'], m.home, work);
-  assert.equal(code, 1);
-  assert.match(out, /decklight template add startup-pitch@cat/);
-  assert.ok(!existsSync(path.join(work, 'deck.html')), 'nothing was scaffolded');
-  rmTemp(work);
-  m.cleanup();
-});
-
-test('init --from and --themes are mutually exclusive', () => {
-  const m = market();
-  const work = tmp('units-work3');
-  const { code, out } = run(['init', 'X', '--from', 'p', '--themes', 'aurora', '--no-skill', '--no-git'], m.home, work);
-  assert.equal(code, 1);
-  assert.match(out, /mutually exclusive/);
-  rmTemp(work);
-  m.cleanup();
-});
-
-test('init without --from is exactly what it was', () => {
-  const m = market();
-  const work = tmp('units-work4');
-  const { code } = run(['init', 'Plain', '--no-skill', '--no-git'], m.home, work);
-  assert.equal(code, 0);
-  const deck = readFileSync(path.join(work, 'deck.html'), 'utf8');
-  assert.match(deck, /data-decklight-config/, 'the starter deck is still slides plus a configuration block');
-  assert.match(deck, /<h1>Plain<\/h1>/);
-  rmTemp(work);
   m.cleanup();
 });
 
@@ -620,19 +511,6 @@ test('skills still installs for a named agent, and add/list/remove do not shadow
 
 // ── the shared command ─────────────────────────────────────────────────────
 
-test('template list shows installed and offered separately', async () => {
-  const m = market();
-  let { out } = run(['template', 'list'], m.home);
-  assert.match(out, /available \(decklight template add <name>\)/);
-  assert.match(out, /startup-pitch@cat/);
-
-  await installUnit('template', 'startup-pitch', m.home);
-  ({ out } = run(['template', 'list'], m.home));
-  assert.match(out, /^startup-pitch/m, 'installed units lead');
-  assert.doesNotMatch(out, /available/, 'nothing left to offer');
-  m.cleanup();
-});
-
 test('every unit command shares one help shape', () => {
   for (const type of Object.keys(UNIT_TYPES)) {
     const { out } = run([type === 'skill' ? 'skills' : type, '--help'], tmp('units-help'));
@@ -644,10 +522,10 @@ test('every unit command shares one help shape', () => {
 
 test('unknown subcommands and missing names are refused, not crashed', () => {
   const home = tmp('units-bad');
-  assert.equal(run(['template', 'frobnicate'], home).code, 1);
-  assert.equal(run(['template', 'add'], home).code, 1);
+  assert.equal(run(['importer', 'frobnicate'], home).code, 1);
+  assert.equal(run(['importer', 'add'], home).code, 1);
   assert.equal(run(['importer', 'remove'], home).code, 1);
-  assert.match(run(['template', 'frobnicate'], home).out, /unknown subcommand/);
+  assert.match(run(['importer', 'frobnicate'], home).out, /unknown subcommand/);
   rmTemp(home);
 });
 
