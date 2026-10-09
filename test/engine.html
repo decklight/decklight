@@ -2726,6 +2726,26 @@
         r.agentEscapeCloses = !document.querySelector(A);
         r.agentReleasesTheStage = gutter() === '0px';
 
+        // ── two at once ── each panel claims its own side: docking the notes
+        // right keeps the agent's left gutter, and closing the notes hands back
+        // only the right — the agent stays beside the slide, not over it
+        const side = (s) => parseFloat(document.querySelector('.decklight').style.getPropertyValue('--dock-' + s)) || 0;
+        press('a'); await settle();
+        document.querySelector(`${A} .dk-btn[data-mode="left"]`)?.click();
+        await settle();
+        press('e');
+        await openNotes();
+        r.pairBothGutters = !!document.querySelector(A) && !!document.querySelector(N)
+          && side('left') > 100 && side('right') > 100;
+        document.querySelector(`${N} .dk-close`)?.click();
+        await settle();
+        press('e');
+        r.pairClosingOneKeepsTheOther = !document.querySelector(N) && !!document.querySelector(A)
+          && side('left') > 100 && side('right') === 0;
+        document.querySelector(`${A} .dk-close`)?.click();
+        await settle();
+        r.pairAllReleased = side('left') === 0 && side('right') === 0 && side('bottom') === 0;
+
         try {
           localStorage.removeItem('decklight-notes-dock:' + location.pathname);
           localStorage.removeItem('decklight-agent-dock:' + location.pathname);
