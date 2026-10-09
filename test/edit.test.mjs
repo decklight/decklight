@@ -264,8 +264,14 @@ test('agentCommand builds each agent\'s headless one-shot invocation', () => {
   assert.match(claude.args[1], /deck\.html/, 'the prompt names the file');
   assert.match(claude.args[1], /center slide 2/, 'the prompt carries the instruction');
   assert.deepEqual(claude.args.slice(2),
-    ['--permission-mode', 'acceptEdits', '--output-format', 'stream-json', '--verbose'],
-    'acceptEdits plus the stream that narrates the run');
+    ['--permission-mode', 'acceptEdits', '--allowedTools', 'Bash(npx decklight:*)', 'Bash(decklight:*)', '--output-format', 'stream-json', '--verbose'],
+    'acceptEdits, decklight\'s own CLI in the shell, and the stream that narrates the run');
+  // "this slide" means the one on screen: the prompt names it, and says the
+  // commit is decklight's — an agent started by A never calls the route
+  const here = agentCommand('claude', 'add a basic svg on this slide', 'deck.html', { hasBin: () => true, slide: 2 });
+  assert.match(here.args[1], /The presenter is on slide 2, the second top-level <section>/);
+  assert.match(here.args[1], /do not call the commit route/);
+  assert.doesNotMatch(claude.args[1], /The presenter is on slide/, 'no slide, no sentence');
 
   const codex = agentCommand('codex', 'x', 'deck.html', { hasBin: () => true });
   assert.deepEqual(codex.args.slice(0, 2), ['exec', '--full-auto']);

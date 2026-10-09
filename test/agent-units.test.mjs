@@ -333,8 +333,8 @@ test('the Windows spawn is node + the script + the agent\'s own argv, in that or
     assert.equal(cmd.args[1], '-p', "the agent's own flags follow, unchanged");
     assert.match(cmd.args[2], /centre slide 2/);
     assert.deepEqual(cmd.args.slice(3),
-      ['--permission-mode', 'acceptEdits', '--output-format', 'stream-json', '--verbose'],
-      'acceptEdits plus the stream that narrates the run');
+      ['--permission-mode', 'acceptEdits', '--allowedTools', 'Bash(npx decklight:*)', 'Bash(decklight:*)', '--output-format', 'stream-json', '--verbose'],
+      'acceptEdits, decklight\'s own CLI in the shell, and the stream that narrates the run');
     assert.equal(cmd.name, 'claude');
   } finally { rmTemp(home); }
 });

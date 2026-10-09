@@ -34,7 +34,13 @@ export const AGENTS = [
     // (which requires --verbose) narrates the run as it happens — each tool
     // call is a line — so the deck's chip can say WHAT the agent is doing
     // instead of only how long it has been doing it.
+    // --allowedTools: acceptEdits covers the file, not the shell, and the
+    // skill asks the agent to render the deck (`npx decklight pdf …`) to
+    // check nothing overflows before it is done. Only decklight's own CLI
+    // is allowed; everything else still needs a permission it has no TTY
+    // to ask for, which is the point.
     args: (prompt) => ['-p', prompt, '--permission-mode', 'acceptEdits',
+      '--allowedTools', 'Bash(npx decklight:*)', 'Bash(decklight:*)',
       '--output-format', 'stream-json', '--verbose'],
     stream: 'claude-json',
     // no --permission-mode: an ASK is read-only by construction, and a
@@ -339,7 +345,10 @@ export function agentAsk(name, prompt, { env = process.env, hasBin = canRun, hom
   };
 }
 
-export function agentCommand(name, instruction, deck, { env = process.env, hasBin = canRun, home, spec = spawnSpec } = {}) {
+/** 1 → first, 2 → second … for a sentence an agent reads. */
+const ordinal = (n) => (n === 1 ? 'first' : n === 2 ? 'second' : n === 3 ? 'third' : `${n}th`);
+
+export function agentCommand(name, instruction, deck, { env = process.env, hasBin = canRun, home, spec = spawnSpec, slide = null } = {}) {
   const roster = detectAgents({ env, hasBin, home });
   // Precedence, matching how every other saved choice resolves (PRESENTING):
   // an explicit name > the remembered preference > the first detected agent.
@@ -357,6 +366,17 @@ export function agentCommand(name, instruction, deck, { env = process.env, hasBi
     'Preserve the deck\'s existing narration config (the `narration` key of ' +
     'Decklight.init, which points at recorded audio) and any `data-narration-*` ' +
     'attributes on sections, unless the change is explicitly about them. ' +
+    // WHERE the presenter is: "this slide" in an ask means the slide on
+    // screen, and an agent that cannot resolve it asks which one — a round
+    // trip for a word the page already knew.
+    (Number.isInteger(slide) && slide > 0
+      ? `The presenter is on slide ${slide}, the ${ordinal(slide)} top-level <section> of the file: "this slide" means that one. `
+      : '') +
+    // The commit is decklight's: the server that started this agent commits
+    // its edit under its own summary when it finishes (PRESENTING, agent
+    // mode). The skill tells an agent that opened the deck on its own to call
+    // the commit route; one started by A must not, or the edit lands twice.
+    'decklight started you and will commit your edit itself when you finish, under your summary: do not call the commit route. ' +
     `Apply this change, editing the file in place: ${instruction}`;
   // The spawn spec, not the bare name: on Windows an npm-installed agent is a
   // batch shim, and `prefix` is the script node has to be handed for the
