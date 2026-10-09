@@ -230,6 +230,8 @@ function assetReferences(tree) {
 
 const SVG_SKIP = new Set(['defs', 'title', 'desc', 'style', 'metadata']);
 const CONTAINER_TAGS = new Set(['ul', 'ol', 'table', 'tbody', 'dl', 'svg']);
+/** The SVG shapes a concept recolours (src/core/svg.js's SHAPES). */
+const SHAPE_TAGS = new Set(['rect', 'circle', 'ellipse', 'polygon', 'polyline', 'path']);
 
 /** src/core/builds.js `eligibleChildren`, over the file instead of the DOM. */
 function eligibleChildren(node) {
@@ -491,6 +493,15 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
     // a slashed data-layout was how a slide named a template before 0.9.0
     if (isTemplateRef(attrs['data-layout'])) {
       push('ds-layout-attr', `data-layout="${attrs['data-layout']}" — a slide template is named by data-template now: write data-template="${attrs['data-layout']}" (data-layout is for the built-in layouts, L)`);
+    }
+    // a concept shape with its own fill (SVG_DIAGRAMS, #718): the concept
+    // repaints the fill on every load, so the hand-set one is never seen
+    for (const node of descendants(tree)) {
+      if (!SHAPE_TAGS.has(node.tag)) continue;
+      const a = readAttrs(node.attrs);
+      if (!a['data-concept']) continue;
+      const own = a.fill && a.fill !== 'none' ? `fill="${a.fill}"` : /(?:^|;)\s*fill\s*:\s*(?!none\b)[^;]+/i.test(a.style ?? '') ? 'a fill in its style' : null;
+      if (own) push('concept-fill', `<${node.tag} data-concept="${a['data-concept']}"> also carries ${own} — the concept colours it, and the fill is painted over; pin the concept's slot (Concept colors…) or take the concept off (Colors… → Detach from concept)`);
     }
     if (attrs['data-template']) {
       designSystemFindings(attrs['data-template'], tree, systems, configured.map((r) => r.ref),

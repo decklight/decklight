@@ -505,6 +505,38 @@ export function setElementStyles(html, slide, index, edits) {
   return parts.join('');
 }
 
+/**
+ * Set or remove ONE attribute on an element below slide N's child `index`,
+ * addressed the way setElementStyles addresses one (`path` below the
+ * element, `tag` as the page saw it). What this server writes this way is a
+ * closed set — `data-concept` (SVG_DIAGRAMS, #718) — with a value that is a
+ * name and nothing else; null takes the attribute off.
+ */
+const ATTR_NAMES = new Set(['data-concept']);
+const ATTR_VALUE = /^[a-z][a-z0-9-]{0,40}$/i;
+export function setElementAttr(html, slide, index, { path, tag, name, value }) {
+  if (!Array.isArray(path) || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
+  if (!ATTR_NAMES.has(name)) throw new Error(`not an attribute this server writes: ${name}`);
+  if (value !== null && (typeof value !== 'string' || !ATTR_VALUE.test(value))) throw new Error(`not a name: ${String(value).slice(0, 40)}`);
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  let el = seg.slice(r.start, r.end);
+  let start = 0; let end = el.length;
+  for (const n of path) {
+    const kid = elementChildRanges(el.slice(start, end))[n];
+    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
+    end = start + kid.end; start += kid.start;
+  }
+  const node = el.slice(start, end);
+  const found = /^<([a-zA-Z][\w:-]*)/.exec(node)?.[1]?.toLowerCase();
+  if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.') || 'the element'}, the file has <${found}> — reload and try again`);
+  const { attrs, close, rest } = splitOpenTag(node);
+  const re = new RegExp(`\\s${name}(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+))?`, 'i');
+  const head = value === null ? attrs.replace(re, '') : (re.test(attrs) ? attrs.replace(re, () => ` ${name}="${value}"`) : `${attrs} ${name}="${value}"`);
+  el = el.slice(0, start) + head + close + rest + el.slice(end);
+  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
+  return parts.join('');
+}
+
 /** Replace slide N's element at raw child index `index` with `outerHtml` verbatim. */
 export function setSlideElementHtml(html, slide, index, outerHtml) {
   const { parts, idx, seg, r } = locateElement(html, slide, index);

@@ -39,13 +39,13 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden,
   upsertNarrationTrack,
-  locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles,
-} from './edit.mjs';
+  locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
 import { markedSources } from './theme-refs.mjs';
 import { parseTemplateRef } from '../tools/design-system-format.mjs';
+import { setDeckConcepts } from './runtime-link.mjs';
 // The whole-slide and image transforms are NOT in edit.mjs with the rest: they
 // are string surgery on a deck's sections, which is what tools/deck-html.mjs
 // is, and nothing about them wants the server.
@@ -312,6 +312,42 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     return json(200, { ok: true, changed, ...history.counts() });
   }
 
+  /**
+   * `POST /deck/edit/element/concept` — `{ slide, index, path, tag, concept }`:
+   * the shape's `data-concept` (SVG_DIAGRAMS, #718), set from the right-click
+   * menu or taken off by the colour card's "Detach from concept". The engine
+   * recolours on the reload this write brings.
+   */
+  function elementConceptRoute({ body, json }) {
+    const { slide, index, path = [], tag = null, concept } = JSON.parse(body);
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !(concept === null || typeof concept === 'string')) throw new Error('bad payload');
+    let changed;
+    try { changed = applyEdit((html) => setElementAttr(html, slide, index, { path, tag, name: 'data-concept', value: concept })); }
+    catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed) console.log(`  element concept saved: slide ${slide} #${index} → ${concept ?? '(detached)'}`);
+    return json(200, { ok: true, changed, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/concepts` — `{ concepts, quiet?, from? }`: the deck's
+   * concept map, `{ name: slot | colour }`, written the way the deck carries
+   * its configuration (`setDeckConcepts`). Quiet and in place like a theme
+   * pick: the page that chose already shows it, every other page is sent a
+   * `concepts` event and recolours without a reload.
+   */
+  function conceptsRoute({ body, json }) {
+    const { concepts, quiet: inPlace, from } = JSON.parse(body || '{}');
+    if (!concepts || typeof concepts !== 'object' || Array.isArray(concepts)) throw new Error('bad payload');
+    let unwritable = false;
+    const changed = applyEdit((html) => { const next = setDeckConcepts(html, concepts); if (next === null) unwritable = true; return next ?? html; });
+    if (unwritable) return json(409, { ok: false, error: 'the deck carries its configuration in a way this server cannot write — a configuration block, or a Decklight.init call that is data' });
+    if (changed) {
+      console.log(`  concepts saved: ${Object.entries(concepts).map(([k, v]) => `${k}=${v}`).join(', ') || '(none)'}`);
+      if (inPlace === true) { quiet(readDeck()); broadcast('concepts', { concepts, from: typeof from === 'string' ? from.slice(0, 64) : null }); }
+    }
+    return json(200, { ok: true, changed, inPlace: changed && inPlace === true, ...history.counts() });
+  }
+
   // ── whole slides: the slide bar's new · duplicate · delete · reorder ──────
 
   const SLIDE_OPS = new Set(['new', 'duplicate', 'delete', 'up', 'down', 'move']);
@@ -553,6 +589,8 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/content', elementContentRoute);
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
   routes.set('POST /deck/edit/element/style', elementStyleRoute);
+  routes.set('POST /deck/edit/element/concept', elementConceptRoute);
+  routes.set('POST /deck/edit/concepts', conceptsRoute);
   routes.set('POST /deck/edit/slide', slideRoute);
   routes.set('POST /deck/edit/asset', assetRoute);
   routes.set('POST /deck/edit/element/image', imageRoute);

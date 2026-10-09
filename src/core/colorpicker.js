@@ -170,6 +170,30 @@ export function pathFrom(top, el) {
   return path;
 }
 
+/**
+ * The concept a right-click lands on (SPEC SVG_DIAGRAMS, #718): the shape
+ * under `clicked`, or the group it sits in, carrying `data-concept`. Returns
+ * `{ name, el, path, tag }` for the HOLDER of the attribute — the element a
+ * detach takes it off — or, with no concept, the shape itself with `name`
+ * null, which is where a new concept would go. Null off a diagram.
+ */
+export function conceptOf(top, clicked) {
+  const svg = clicked.closest?.('svg');
+  if (!svg || !top.contains(svg) || clicked === svg) return null;
+  let shape = clicked.closest(SVG_SHAPES);
+  if (!shape) {
+    const label = clicked.closest('text');
+    const group = label?.parentElement;
+    shape = group && group !== svg ? [...group.children].find((c) => c.matches(SVG_SHAPES)) ?? null : null;
+  }
+  if (!shape || shape.closest(INJECTED + ', defs')) return null;
+  const holder = shape.closest('[data-concept]');
+  const el = holder && svg.contains(holder) && holder !== svg ? holder : shape;
+  const path = pathFrom(top, el);
+  if (!path) return null;
+  return { name: el.getAttribute('data-concept') || null, el, path, tag: el.tagName.toLowerCase() };
+}
+
 function inside(outer, inner) {
   const o = outer.getBoundingClientRect(); const i = inner.getBoundingClientRect();
   const cx = i.left + i.width / 2; const cy = i.top + i.height / 2;
@@ -219,7 +243,9 @@ export function colorTargets(top, clicked) {
     // the border is the same shape's stroke (#717): a third side, never the fill
     const stroke = shape ? [target(shape, 'stroke')].filter(Boolean) : [];
     const text = labels.map((t) => target(t, 'fill')).filter(Boolean);
-    return fill.length || text.length ? { fill, stroke, text, what: shape ? shape.tagName.toLowerCase() : 'text' } : null;
+    // a shape the deck colours by concept (#718): the Fill side says so instead of offering a pick that would not take
+    const concept = shape ? conceptOf(top, shape) : null;
+    return fill.length || text.length ? { fill, stroke, text, what: shape ? shape.tagName.toLowerCase() : 'text', concept: concept?.name ? concept : null } : null;
   }
   // an HTML box: climb out of inline runs and out of a highlighted <pre>, whose
   // spans are the highlighter's and not the file's
@@ -268,7 +294,7 @@ const h = (tag, cls, text) => {
  * (`pageDesignSystems()`), whose palettes follow the theme's. Returns
  * `{ el, close, apply, isOpen }`.
  */
-export function openColorPicker({ root, dock, targets, systems = [], onApply, onClose }) {
+export function openColorPicker({ root, dock, targets, systems = [], onApply, onClose, onDetach }) {
   const SIDES = ['fill', 'stroke', 'text'];
   targets.stroke ??= [];
   const all = [...targets.fill, ...targets.stroke, ...targets.text];
@@ -449,6 +475,16 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     body.appendChild(row);
   }
 
+  function renderConcept(body) {
+    const note = h('div', 'cp-notice');
+    note.append(h('span', 'cp-notice-text', `this shape is the “${targets.concept.name}” concept — the deck colours it, and a fill picked here would be painted over on the next load. Pin the concept's slot in / → Concept colors…, or`));
+    const btn = h('button', 'cp-btn cp-detach', 'Detach from concept'); btn.type = 'button';
+    btn.title = `take data-concept="${targets.concept.name}" off this ${targets.concept.tag}, then colour it by hand`;
+    btn.addEventListener('click', () => { shut(); onDetach?.(targets.concept); });
+    note.appendChild(btn);
+    body.appendChild(note);
+  }
+
   function render() {
     const focus = document.activeElement?.dataset?.chan && card.contains(document.activeElement)
       ? [document.activeElement.className, document.activeElement.dataset.chan] : null;
@@ -467,7 +503,10 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     }));
     const body = h('div', 'cp-body');
     body.dataset.tab = tab;
-    (tab === 'theme' ? renderTheme : renderCustom)(body);
+    // the Fill of a concept shape is the deck's (SPEC SVG_DIAGRAMS): the
+    // concept repaints it on every load, so a fill picked here would be
+    // lost; the side says so and offers the one thing that would take
+    if (side === 'fill' && targets.concept) renderConcept(body); else (tab === 'theme' ? renderTheme : renderCustom)(body);
     main.appendChild(body);
     const foot = h('div', 'cp-foot');
     const reset = h('button', 'cp-btn cp-reset', 'Reset'); reset.type = 'button';
