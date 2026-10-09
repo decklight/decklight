@@ -487,6 +487,7 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
     }
 
     const tree = parseTree(inner);
+    const push = (rule, message) => out.push(finding('warn', rule, slide, head, message));
     // a slashed data-layout was how a slide named a template before 0.9.0
     if (isTemplateRef(attrs['data-layout'])) {
       push('ds-layout-attr', `data-layout="${attrs['data-layout']}" — a slide template is named by data-template now: write data-template="${attrs['data-layout']}" (data-layout is for the built-in layouts, L)`);
