@@ -23,7 +23,7 @@ being moved, and it says what it points at.
 | `REVIEW` | reviewer comments on a deck, anchored to slides and carried by git |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
 | `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `UNIT_VERSIONS` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines: registered, not fetched; the unit library; voices as references; agents as descriptors, and the remembered preference; the speech-engine factory contract and installing one; what an engine needs from the machine before a key is worth asking for; compat for code-carrying units; the digest pin they install against; what you installed, and what the catalog has newer; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
-| `DESIGN_SYSTEMS` | a company's tokens, art and slide layouts, published once and referenced by every deck built on it |
+| `DESIGN_SYSTEMS` | a company's tokens, art and slide templates, published once and referenced by every deck built on it |
 | `FONTS` | a typeface's files and licence, from a marketplace, referenced by a deck so its faces travel with it |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
@@ -1644,9 +1644,9 @@ decklight/
                  NON_GOALS), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY; entry versions and
                  the install ledger, UNIT_VERSIONS), enhance.mjs (the notes rewritten by your agent: audio tags, or
                  written for the ear — checked before a byte is written), design-system.mjs (the design-system
-                 admission gate, and add/remove/list/layouts, DESIGN_SYSTEMS) + design-system-refs.mjs (a deck's
+                 admission gate, and add/remove/list/templates, DESIGN_SYSTEMS) + design-system-refs.mjs (a deck's
                  design systems: resolution, injection, and serving the package) + design-system-edit.mjs
-                 (a slide put into, switched, taken out of or inserted in a layout; the slot guard) +
+                 (a slide put into, switched, taken out of or inserted in a slide template; the slot guard) +
                  design-system-deps.mjs (its recommended themes and fonts, brought along; its look, offered), font.mjs
                  (the font admission gate, and add/remove/list, FONTS) + font-refs.mjs (a deck's fonts:
                  resolution, @font-face injection, serving the faces, and the bundle's copy), units.mjs

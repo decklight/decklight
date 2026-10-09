@@ -399,7 +399,7 @@ function walkTemplates(html) {
 }
 
 /** Everything wrong with a templates file, each `{ line, rule, msg }`. */
-export function layoutProblems(html) {
+export function templateProblems(html) {
   return walkTemplates(html).problems;
 }
 
@@ -448,7 +448,7 @@ export function checkPackage(pkg) {
     || (typeof manifest.name === 'string' && NAME_RE.test(manifest.name));
   const prefix = prefixKnown ? tokenPrefixOf(manifest) : null;
   const stylesPath = typeof manifest.styles === 'string' && !packagePathProblem(manifest.styles) ? manifest.styles : null;
-  const layoutsPath = typeof manifest.templates === 'string' && !packagePathProblem(manifest.templates) ? manifest.templates : null;
+  const templatesPath = typeof manifest.templates === 'string' && !packagePathProblem(manifest.templates) ? manifest.templates : null;
 
   let tokens = [];
   let stylesRead = false;
@@ -467,12 +467,12 @@ export function checkPackage(pkg) {
   summary.tokens = [...new Set(tokens.filter((t) => prefix && t.name.startsWith(prefix)).map((t) => t.name))];
   summary.prefix = prefix;
 
-  if (layoutsPath) {
-    const f = files.get(layoutsPath);
-    if (!f) problems.push({ file: 'design-system.json', line: keyLine(pkg.manifest, 'templates'), rule: 'file-missing', msg: `templates names ${layoutsPath}, which is not in the package` });
+  if (templatesPath) {
+    const f = files.get(templatesPath);
+    if (!f) problems.push({ file: 'design-system.json', line: keyLine(pkg.manifest, 'templates'), rule: 'file-missing', msg: `templates names ${templatesPath}, which is not in the package` });
     else {
       const { templates, problems: lp } = walkTemplates(f.text ?? '');
-      problems.push(...lp.map((p) => ({ file: layoutsPath, ...p })));
+      problems.push(...lp.map((p) => ({ file: templatesPath, ...p })));
       summary.templates = templates.map(({ id, title, slots }) => ({ id, title, slots }));
     }
   }
@@ -489,9 +489,9 @@ export function checkPackage(pkg) {
   for (const [path, f] of files) {
     // the stylesheet and templates the manifest names — or, when it names them
     // wrongly, the conventional files; either way not assets, and already said
-    if (path === 'design-system.json' || path === stylesPath || path === layoutsPath) continue;
+    if (path === 'design-system.json' || path === stylesPath || path === templatesPath) continue;
     if (((!stylesPath || !files.has(stylesPath)) && path === 'design-system.css')
-      || ((!layoutsPath || !files.has(layoutsPath)) && path === 'templates.html')) continue;
+      || ((!templatesPath || !files.has(templatesPath)) && path === 'templates.html')) continue;
     if (path.split('/').some((seg) => seg.startsWith('.'))) continue;   // never served — dotfiles are not the package
     if (!path.includes('/') && isPapers(path)) continue;
     const e = ext(path);
