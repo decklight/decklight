@@ -35,6 +35,7 @@ import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { createDesignSystemsPicker, createSlideTemplatePicker, createLookOffer } from './design-systems.js';
+import { createConceptsEditor, conceptsOn } from './concepts.js';
 import { setupSlideTemplates, isTemplateRef, pageDesignSystems } from './design-system.js';
 import { createFonts } from './fonts.js';
 import { createBleed } from './bleed.js';
@@ -550,6 +551,17 @@ export function init(userConfig = {}) {
     debugLog: (...a) => debugLog(...a),
   });
   overlays.register({ isOpen: designSystems.isOpen, close: designSystems.close, keydown: designSystems.keydown });
+  // Concept colors… (SPEC SVG_DIAGRAMS, #718): every concept the deck's
+  // diagrams name, pinned to a slot through the edit server, repainted live
+  const conceptsEditor = createConceptsEditor({
+    root, toast, stage: () => stage,
+    base: () => (editmode?.available() ? editmode.base() : null),
+    concepts: () => config.concepts ?? {},
+    apply: (map) => { config.concepts = map; applyConcepts(stage, config.concepts); },
+    pageId: () => editmode?.pageId?.() ?? '',
+    debugLog: (...a) => debugLog(...a),
+  });
+  overlays.register({ isOpen: conceptsEditor.isOpen, close: conceptsEditor.close, keydown: conceptsEditor.keydown });
   // Use slide template…: this slide into a layout, to another, out of
   // one, or a new slide in one — written by the edit server
   // The look a design system was drawn for (SPEC DESIGN_SYSTEMS): offered
@@ -981,6 +993,9 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Design systems… (dev)',
         alias: 'design system brand kit company tokens layouts slots marketplace corporate identity style guide',
         run: () => designSystems.open() },
+      editmode.available() && { label: 'Concept colors… (dev)',
+        alias: 'concept colours colors semantic diagram fill slot pin data-concept recurring same colour everywhere',
+        run: () => conceptsEditor.open() },
       // the voiceover script, given ElevenLabs v4's audio tags — the agent
       // drafts, decklight checks no word or beat moved (cli/enhance.mjs)
       editmode.available() && { label: 'Enhance this slide\'s voiceover script… (dev)', group: 'Add audio tags',
@@ -1385,6 +1400,14 @@ export function init(userConfig = {}) {
   }
   // the deck's theme, picked on another page of this deck (editmode.js relays the event)
   root.addEventListener('decklight:theme', (e) => { const name = e.detail?.theme; if (typeof name === 'string') themes.applyTheme(name, true); });
+  // the deck's concept colours pinned on another page (editmode.js relays the event): repaint, no reload
+  root.addEventListener('decklight:concepts', (e) => {
+    const map = e.detail?.concepts;
+    if (!map || typeof map !== 'object') return;
+    config.concepts = map;
+    applyConcepts(stage, config.concepts);
+    conceptsEditor.refresh();
+  });
   // a layout picked on another page of this deck (editmode.js relays the event)
   root.addEventListener('decklight:layout', (e) => {
     const { slide, layout: name } = e.detail ?? {};
@@ -2569,6 +2592,8 @@ export function init(userConfig = {}) {
     renderTheme: () => themes.renderTheme(),
     // what a preview frame looks like — the history's included — the same
     previewQuery: () => themes.previewQuery(),
+    // the names the menu's Concept ▸ offers: the deck's, as its diagrams and its configuration know them (#718)
+    knownConcepts: () => conceptsOn(stage, config.concepts ?? {}).map((c) => c.name),
   });
   // an add left a look to offer, before the reload it caused (SPEC
   // DESIGN_SYSTEMS): offered once the page knows it is authoring

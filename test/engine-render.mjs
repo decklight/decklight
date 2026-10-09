@@ -32,7 +32,7 @@ export const MODES = [
   'exportpptx', 'exportfail', 'exportvideo', 'publish',
   'sources', 'sourcesedit',
   'decktheme', 'palettegroups', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'notesauto', 'notesautofail', 'lockmode', 'notrustmode', 'editingtour', 'editingtourwelcome',
-  'linedraw', 'nestedfills', 'dslayouts', 'dsedit',
+  'linedraw', 'nestedfills', 'dslayouts', 'dsedit', 'concepts',
 ];
 
 // A typo in a mode name would otherwise run NOTHING and exit 0, which is the

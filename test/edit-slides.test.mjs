@@ -84,6 +84,8 @@ test('every slide-mutation route the server dispatches is registered here', () =
   assert.deepEqual([...routes.keys()].sort(), [
     'GET /deck/edit/element/source',
     'POST /deck/edit/asset',
+    'POST /deck/edit/concepts',
+    'POST /deck/edit/element/concept',
     'POST /deck/edit/element/content',
     'POST /deck/edit/element/effect',
     'POST /deck/edit/element/image',
@@ -169,6 +171,53 @@ test('POST /deck/edit/slide/layout with quiet saves in place: a quiet write, a l
   assert.deepEqual([loud.body.changed, loud.body.inPlace], [true, false]);
   assert.equal(quiet.length, 1, 'not a quiet write');
   assert.equal(sent.length, 1, 'and no event — the reload carries it');
+});
+
+const CONCEPT_DECK = `<!doctype html>
+<html><head>
+<script type="application/json" data-decklight-config>
+{
+  "decklight": "0.9.0"
+}
+</script>
+</head><body>
+  <div class="decklight">
+    <section>
+      <h2>Diagram</h2>
+      <svg viewBox="0 0 100 100"><g><rect data-concept="agent" x="1" y="1" width="9" height="9"/><text x="2" y="8">A</text></g></svg>
+    </section>
+  </div>
+</body></html>
+`;
+
+test('POST /deck/edit/element/concept sets a shape\'s data-concept, takes it off, and refuses a path that lands elsewhere', async (t) => {
+  const { routes, readDeck, history } = harness(t, CONCEPT_DECK);
+  const off = await call(routes, 'POST /deck/edit/element/concept', { body: { slide: 1, index: 1, path: [0, 0], tag: 'rect', concept: null } });
+  assert.deepEqual([off.code, off.body.ok, off.body.changed, off.body.undo], [200, true, true, 1]);
+  assert.match(readDeck(), /<rect x="1" y="1" width="9" height="9"\/>/);
+  const on = await call(routes, 'POST /deck/edit/element/concept', { body: { slide: 1, index: 1, path: [0, 0], tag: 'rect', concept: 'tools' } });
+  assert.deepEqual([on.body.changed, on.body.undo], [true, 2]);
+  assert.match(readDeck(), /<rect x="1" y="1" width="9" height="9" data-concept="tools"\/>/);
+  const stale = await call(routes, 'POST /deck/edit/element/concept', { body: { slide: 1, index: 1, path: [0, 0], tag: 'circle', concept: 'x' } });
+  assert.equal(stale.code, 409);
+  assert.match(stale.body.error, /reload/);
+  assert.equal(history.counts().undo, 2, 'a refusal records nothing');
+});
+
+test('POST /deck/edit/concepts writes the deck\'s map in place: quiet, and every other page sent a concepts event', async (t) => {
+  const quiet = [];
+  const sent = [];
+  const { routes, readDeck } = harness(t, CONCEPT_DECK, { quiet: (html) => quiet.push(html), broadcast: (e, d) => sent.push([e, d]) });
+  const r = await call(routes, 'POST /deck/edit/concepts', { body: { concepts: { agent: 3 }, quiet: true, from: 'page-1' } });
+  assert.deepEqual([r.code, r.body.changed, r.body.inPlace], [200, true, true]);
+  assert.match(readDeck(), /"decklight": "0.9.0",\n  "concepts": \{ "agent": 3 \}\n\}/);
+  assert.deepEqual(quiet, [readDeck()], 'the bytes written are the quiet ones: the watcher skips their reload');
+  assert.deepEqual(sent, [['concepts', { concepts: { agent: 3 }, from: 'page-1' }]]);
+  const same = await call(routes, 'POST /deck/edit/concepts', { body: { concepts: { agent: 3 }, quiet: true } });
+  assert.deepEqual([same.body.changed, same.body.inPlace], [false, false], 'nothing written, nothing sent');
+  assert.equal(sent.length, 1);
+  const bad = await call(routes, 'POST /deck/edit/concepts', { body: { concepts: { agent: 9 } } });
+  assert.equal(bad.code, 409, 'a slot the runtime does not read is refused, not written');
 });
 
 test('POST /deck/edit/slide/notes keeps the paragraphs: a blank line is a new <p>, never merged away', async (t) => {

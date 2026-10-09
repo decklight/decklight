@@ -42,6 +42,25 @@ test('a <section> that never closes is an error, named on its own slide', () => 
   assert.match(found[0].message, /never closed/);
 });
 
+test('a concept shape that also sets its own fill is a warning: the concept paints over it (SVG_DIAGRAMS)', () => {
+  const html = deck(`  <section><h2>Boxes</h2>
+    <svg viewBox="0 0 10 10">
+      <rect data-concept="agent" fill="#f00" width="2" height="2"/>
+      <rect data-concept="agent" style="stroke: #000; fill: var(--d-fill-2)" width="2" height="2"/>
+      <circle data-concept="wire" fill="none" r="1"/>
+      <g data-concept="tools"><rect width="1" height="1"/></g>
+      <rect data-concept="plain" width="2" height="2"/>
+    </svg>
+  </section>`);
+  const found = only(staticFindings(html, everything), 'concept-fill');
+  assert.equal(found.length, 2, 'the two shapes with a fill of their own; fill="none" is the outline rule, a bare shape is fine');
+  assert.equal(found[0].level, 'warn');
+  assert.equal(found[0].slide, 1);
+  assert.match(found[0].message, /fill="#f00"/);
+  assert.match(found[1].message, /a fill in its style/);
+  assert.match(found[0].message, /Detach from concept/);
+});
+
 test('a local asset that is not on disk is an error; one that is, is silent', () => {
   const html = deck(`  <section data-background-image="bg/hero.jpg">
     <h2>Pictures</h2>

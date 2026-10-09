@@ -409,6 +409,17 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // Concept colours (SVG_DIAGRAMS, #718): the two writes answer, and
+      // one of them fails on demand so the page's repaint is seen to go back
+      if (HARNESS_MODE === 'concepts') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/concept')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/concepts')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          if (b.concepts?.agent === 6) return json({ ok: false, error: 'the deck carries its configuration in a way this server cannot write' }, 409);
+          return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+        }
+      }
       // Editing a design-system slide (SPEC DESIGN_SYSTEMS): an edit server
       // that answers the element routes and the layout picker's write
       if (HARNESS_MODE === 'dsedit') {
@@ -548,6 +559,17 @@
         <blockquote class="cp-quote">A quoted <strong>block</strong> of text.</blockquote>
       </section>`);
     }
+    // a diagram naming a concept on a shape and on a group (SVG_DIAGRAMS, #718)
+    if (HARNESS_MODE === 'concepts') {
+      for (const [k, v] of Object.entries({ '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-3': '#223355', '--d-fill-4': '#2a4466', '--d-fill-5': '#335577', '--d-fill-6': '#446688', '--accent': '#5ee6c0' })) document.querySelector('.decklight').style.setProperty(k, v);
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Concepts</h2>
+        <svg viewBox="0 0 800 200" width="800" aria-label="two concept boxes">
+          <g class="cc-group" data-concept="agent"><rect class="cc-agent" x="40" y="40" width="220" height="120"/><text class="cc-agent-text" x="150" y="108">Agent</text></g>
+          <rect class="cc-plain" x="300" y="40" width="220" height="120" fill="var(--d-fill-2)"/>
+          <g><rect class="cc-tools" data-concept="tools" x="560" y="40" width="200" height="120"/><text x="660" y="108">Tools</text></g>
+        </svg>
+      </section>`);
+    }
     // …and a design system's palette after the theme's (SPEC DESIGN_SYSTEMS):
     // its meta as a server injects it, and its tokens, one of them undefined
     if (HARNESS_MODE === 'dscolors') {
@@ -659,7 +681,9 @@
             // a deck that marks two shipped themes, opened with NO server —
             // a reader's page, where the marks must still show (markedread)
             : HARNESS_MODE === 'markedread' ? { markedThemes: ['midnight', 'ember'] }
-              : {});
+              // one concept pinned by the deck, the other left to its name (concepts)
+              : HARNESS_MODE === 'concepts' ? { concepts: { tools: 4 } }
+                : {});
 
     const ovSelected = () => [...document.querySelectorAll('.decklight-overview-grid .ov-cell')].findIndex((c) => c.classList.contains('ov-selected'));
     const press = (k, opts = {}) => document.body.dispatchEvent(
@@ -3938,6 +3962,119 @@
           && r.hsbPreviews && r.hexTyped && r.postsBoth && r.pathIsTheFiles && r.closesOnApply
           && r.labelFindsItsBox && r.resetPostsNull && r.htmlBlock
           && r.strokeSide && r.widthRowOnStroke && r.strokePreviews && r.widthPreviews && r.strokePosted && r.escapeRestoresWidth;
+      }
+
+      if (mode === 'concepts') {
+        // Concept colours (SVG_DIAGRAMS, #718): what is pinned — the menu's
+        // Concept ▸ names a shape's concept and takes it off, by the FILE's
+        // path to the element that carries it; the colour card's Fill side
+        // says a concept shape is the deck's and offers the detach; the
+        // palette's Concept colors… lists every concept with its slot, a
+        // digit pins one and the deck repaints at once, before the server
+        // answers, and goes back when it refuses; and a pin made on another
+        // page arrives as an event and repaints without a reload.
+        const M = '.decklight-ctxmenu', ROW = '.cm-row', E = '.decklight-concepts', C = '.decklight-colorpicker';
+        const q = (s) => document.querySelector(s);
+        const rows = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.textContent);
+        const rowNamed = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.textContent === label);
+        const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+        await settle();
+        deck.goto(5);
+        await settle();
+        press('e');
+        const agent = q('.cc-agent'); const plain = q('.cc-plain'); const tools = q('.cc-tools');
+        r.paintedOnLoad = agent.style.fill === 'var(--d-fill-' + ((() => { let h = 5381; for (const c of 'agent') h = ((h * 33) ^ c.charCodeAt(0)) >>> 0; return 1 + (h % 6); })()) + ')'
+          && tools.style.fill === 'var(--d-fill-4)' && plain.style.fill === 'var(--d-fill-2)';   // the plain one keeps its own token (the nesting pass writes it back as style)
+
+        // the menu: a concept shape offers Concept ▸, with its own name marked and the deck's others listed
+        rightClick(q('.cc-agent-text'));
+        await settle();
+        r.menuOffersConcept = rows().includes('Concept ▸') && rows().includes('Colors…');
+        rowNamed('Concept ▸').click();
+        r.submenu = rows().includes('● agent') && rows().includes('○ tools') && rows().includes('New concept…') && rows().includes('none (detach)');
+        rowNamed('none (detach)').click();
+        await settle();
+        const detach = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/concept')).pop()?.body;
+        // the holder is the GROUP, not the rect the label sits on: path [0] below the svg, tag g
+        r.detachPostsTheHolder = detach?.slide === 5 && detach.index === 1 && detach.concept === null && detach.tag === 'g' && JSON.stringify(detach.path) === '[0]';
+        // a plain shape offers Concept ▸ too: the deck's names, none marked, and a typed new one
+        rightClick(plain);
+        await settle();
+        rowNamed('Concept ▸').click();
+        r.plainSubmenu = rows().includes('○ agent') && rows().includes('○ tools') && !rows().includes('none (detach)');
+        rowNamed('New concept…').click();
+        const input = q(`${M} .cm-input input`);
+        r.inputRow = !!input && document.activeElement === input;
+        input.value = 'data';
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle();
+        const named = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/concept')).pop()?.body;
+        r.newNamePostsTheShape = named?.concept === 'data' && named.tag === 'rect' && JSON.stringify(named.path) === '[1]' && !q(M);
+
+        // Colors… on a concept shape: the Fill side is a notice and a detach, Stroke and Text still pick
+        rightClick(tools);
+        await settle();
+        rowNamed('Colors…').click();
+        await settle();
+        r.fillIsANotice = !!q(`${C} .cp-notice`) && /“tools” concept/.test(q(`${C} .cp-notice`).textContent) && !q(`${C} .cp-swatch`);
+        q(`${C} .cp-side [data-id="stroke"]`).click();
+        r.strokeStillPicks = !!q(`${C} .cp-swatch`) && !q(`${C} .cp-notice`);
+        q(`${C} .cp-side [data-id="fill"]`).click();
+        q(`${C} .cp-detach`).click();
+        await settle();
+        const viaCard = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/concept')).pop()?.body;
+        r.cardDetaches = viaCard?.concept === null && viaCard.tag === 'rect' && JSON.stringify(viaCard.path) === '[2,0]' && !q(C);
+        // a plain shape's card is the palette it always was
+        rightClick(plain);
+        await settle();
+        rowNamed('Colors…').click();
+        await settle();
+        r.plainCardUnchanged = !!q(`${C} .cp-swatch`) && !q(`${C} .cp-notice`);
+        press('Escape');
+
+        // the palette's Concept colors…: every concept, its slot, its shape count
+        press('/');
+        for (const ch of 'concept') press(ch);
+        await settle();
+        const palRows = [...document.querySelectorAll('.decklight-palette .pal-row')];
+        const found = palRows.find((n) => /Concept colors…/.test(n.textContent));
+        r.paletteRow = !!found;
+        for (let i = 0; found && i < palRows.indexOf(found); i++) press('ArrowDown');
+        press('Enter');
+        await settle();
+        const listRows = () => [...document.querySelectorAll(`${E} .cc-row`)];
+        r.listsEveryConcept = listRows().map((x) => x.dataset.name).join(',') === 'agent,tools'
+          && /1 shape · fill \d by its name/.test(listRows()[0].textContent) && /1 shape · pinned to fill 4/.test(listRows()[1].textContent)
+          && listRows()[1].querySelector('.cc-slot[data-slot="4"][aria-pressed="true"]') !== null;
+        // a digit pins the selected concept: the deck repaints at once, and the write is quiet with this page named
+        press('3');
+        r.repaintsAtOnce = agent.style.fill === 'var(--d-fill-3)';
+        await settle();
+        const pinned = CALLS.post.filter((c) => c.u.includes('/deck/edit/concepts')).pop()?.body;
+        r.pinPostsTheMap = JSON.stringify(pinned?.concepts) === JSON.stringify({ tools: 4, agent: 3 }) && pinned.quiet === true && typeof pinned.from === 'string' && pinned.from.length > 0;
+        r.listFollows = /pinned to fill 3/.test(listRows()[0].textContent) && q(E) !== null;
+        // the server refuses: the repaint goes back, the list with it
+        press('6');
+        r.refusedRepaintsFirst = agent.style.fill === 'var(--d-fill-6)';
+        await settle(); await settle();
+        r.refusedGoesBack = agent.style.fill === 'var(--d-fill-3)' && /pinned to fill 3/.test(listRows()[0].textContent);
+        // 0 takes the pin off: back to the name's own slot
+        press('ArrowDown'); press('0');
+        await settle();
+        const unpinned = CALLS.post.filter((c) => c.u.includes('/deck/edit/concepts')).pop()?.body;
+        r.zeroUnpins = JSON.stringify(unpinned?.concepts) === JSON.stringify({ agent: 3 }) && /by its name/.test(listRows()[1].textContent);
+        press('Escape');
+        r.escapeCloses = !q(E);
+
+        // a pin made on ANOTHER page: the event repaints here, no reload
+        window.__es.emit('concepts', { concepts: { agent: 5, tools: 2 }, from: 'another-page' });
+        await settle();
+        r.eventRepaints = agent.style.fill === 'var(--d-fill-5)' && tools.style.fill === 'var(--d-fill-2)' && CALLS.post.filter((c) => c.u.includes('/deck/edit/concepts')).length === 3;
+
+        r.PASS = r.paintedOnLoad && r.menuOffersConcept && r.submenu && r.detachPostsTheHolder && r.plainSubmenu && r.inputRow
+          && r.newNamePostsTheShape && r.fillIsANotice && r.strokeStillPicks && r.cardDetaches && r.plainCardUnchanged
+          && r.paletteRow && r.listsEveryConcept && r.repaintsAtOnce && r.pinPostsTheMap && r.listFollows
+          && r.refusedRepaintsFirst && r.refusedGoesBack && r.zeroUnpins && r.escapeCloses && r.eventRepaints;
       }
 
       if (mode === 'dscolors') {

@@ -17,7 +17,7 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
-import { colorTargets, openColorPicker } from './colorpicker.js';
+import { colorTargets, openColorPicker, conceptOf } from './colorpicker.js';
 import { rangeLabel } from './ranges.js';
 import { agentChipText, boundedFetch, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
@@ -34,6 +34,7 @@ import { hljs } from '../code/code.js';
 export function createEditMode({
   root, config, params, printMode, toast, progress, debugLog, overlays, instance,
   notesSegs, notesDraft = (sl) => notesSegs(sl).join('\n\n⟨CLICK⟩\n\n'), renderTheme = () => ({}), previewQuery = () => '?embedded',
+  knownConcepts = () => [],
 }) {
   // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
   // Served by the edit server: the deck subscribes to /deck/events and
@@ -412,6 +413,13 @@ export function createEditMode({
             try {
               const d = JSON.parse(ev.data);
               if (d.from !== PAGE_ID) root.dispatchEvent(new CustomEvent('decklight:layout', { detail: { slide: d.slide, layout: d.layout } }));
+            } catch { /* malformed: the next reload settles it */ }
+          });
+          // the deck's concept colours, pinned on another page: repaint here, no reload (#718)
+          es.addEventListener('concepts', (ev) => {
+            try {
+              const d = JSON.parse(ev.data);
+              if (d.from !== PAGE_ID && d.concepts && typeof d.concepts === 'object') root.dispatchEvent(new CustomEvent('decklight:concepts', { detail: { concepts: d.concepts } }));
             } catch { /* malformed: the next reload settles it */ }
           });
           es.addEventListener('notes', (ev) => {
@@ -1390,6 +1398,15 @@ export function createEditMode({
       // the element) — distinct from "remove effect", which strips data-build.
       rows.push({ label: 'none (instant)', run: () => commitEffect('none') });
       rows.push({ label: 'remove effect', run: () => commitEffect(null) });
+    } else if (menuView === 'concept') {
+      // Concept ▸ (SPEC SVG_DIAGRAMS, #718): the shape's data-concept — one of
+      // the names the deck already uses, a new one, or none
+      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      const here = conceptOf(menuTarget.top, menuTarget.clicked);
+      const names = [...new Set([...knownConcepts(), ...(here?.name ? [here.name] : [])])];
+      for (const name of names) rows.push({ label: `${here?.name === name ? '● ' : '○ '}${name}`, run: () => commitConcept(here?.name === name ? null : name) });
+      rows.push({ label: 'New concept…', input: true, run: () => askConceptName() });
+      if (here?.name) rows.push({ label: 'none (detach)', run: () => commitConcept(null) });
     } else if (menuView === 'slide') {
       // opened from the bar's Slide ▾ there is nothing to go back to
       if (!menuTarget.fromBar) rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
@@ -1406,6 +1423,7 @@ export function createEditMode({
       rows.push({ label: 'Remove element', run: () => commitRemove() });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
       rows.push({ label: 'Colors…', run: openColors });
+      if (conceptOf(menuTarget.top, menuTarget.clicked)) rows.push({ label: 'Concept ▸', run: () => { menuView = 'concept'; renderElementMenu(); } });
       rows.push({ label: 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     }
@@ -1520,6 +1538,51 @@ export function createEditMode({
     }
   }
 
+  // "Concept ▸" — the shape's data-concept (SPEC SVG_DIAGRAMS, #718): set on
+  // the shape, or taken off the element that carries it (a group's, when the
+  // shape has it from its group). One POST, one undo entry; the reload the
+  // write brings repaints the shape in its concept's slot.
+  async function commitConcept(name) {
+    const { slide, index, top, clicked } = menuTarget;
+    const here = conceptOf(top, clicked);
+    closeElementMenu();
+    if (!here) { toast('nothing here to name — right-click a shape in a diagram', 2600); return; }
+    if (name !== null && !/^[a-z][a-z0-9-]{0,40}$/i.test(name)) { toast('a concept is a name: letters, digits and dashes, starting with a letter', 3200); return; }
+    await postConcept({ slide, index, path: here.path, tag: here.tag, concept: name }, name);
+  }
+  async function postConcept({ slide, index, path, tag, concept }, name) {
+    try {
+      const res = await writeFetch(editBase + '/deck/edit/element/concept', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ slide, index, path, tag, concept }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || res.status);
+      toast(!j.changed ? 'concept unchanged' : name === null ? 'detached from its concept — reloading · Z takes it back' : `now the “${name}” concept — reloading · Z takes it back`);
+    } catch (e) {
+      toast(`concept not saved: ${String(e.message || e).slice(0, 90)}`, 3400);
+    }
+  }
+  /** "New concept…": a name typed into the menu itself; ⏎ sets it, Esc goes back. */
+  function askConceptName() {
+    const list = menuEl?.querySelector('.cm-list');
+    if (!list) return;
+    list.textContent = '';
+    const row = document.createElement('div');
+    row.className = 'cm-row cm-input';
+    const input = document.createElement('input');
+    input.type = 'text'; input.placeholder = 'concept name — agent, tools, data…'; input.setAttribute('aria-label', 'New concept name');
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); const v = input.value.trim(); if (v) commitConcept(v); }
+      else if (e.key === 'Escape') { e.preventDefault(); menuView = 'concept'; renderElementMenu(); }
+    });
+    row.appendChild(input);
+    list.appendChild(row);
+    menuRows = [];
+    input.focus();
+  }
+
   // "Colors…" — the background of the shape under the click and the text on
   // it (colorpicker.js). The card takes the menu's place at the same point;
   // what it saves is one POST and one undo entry for the pair.
@@ -1543,6 +1606,8 @@ export function createEditMode({
       // the deck's design systems' palettes follow the theme's (SPEC DESIGN_SYSTEMS)
       systems: [...pageDesignSystems().values()],
       onClose: () => { colorCard = null; },
+      // the Fill side's one way out of a concept (#718): the attribute comes off, the shape is then yours to colour
+      onDetach: (c) => postConcept({ slide, index, path: c.path, tag: c.tag, concept: null }, null),
       onApply: async (edits) => {
         try {
           const res = await writeFetch(editBase + '/deck/edit/element/style', {

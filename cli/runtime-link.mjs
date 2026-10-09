@@ -195,6 +195,114 @@ export function withConfigTheme(html, name) {
 }
 
 /**
+ * Where a top-level `key` sits in an object literal — JSON, or a JS literal
+ * with bare keys and single quotes — as `{ keyStart, valueEnd, open, close }`
+ * (`open`/`close` the outer braces); `keyStart`/`valueEnd` null when the key
+ * is absent. Null when `text` holds no object. Strings are skipped whole, so
+ * a brace inside one never counts.
+ */
+function keySpan(text, key) {
+  const open = text.indexOf('{');
+  if (open === -1) return null;
+  let depth = 0; let i = open; let keyStart = null; let valueEnd = null; let pendingKey = null; let close = -1;
+  const skipString = (q) => { for (i++; i < text.length && text[i] !== q; i++) if (text[i] === '\\') i++; };
+  // the value ends where its last character does, not where the comma or brace sits
+  const trimmedEnd = (at) => { let e = at; while (e > 0 && /\s/.test(text[e - 1])) e--; return e; };
+  for (; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === '`') {
+      const from = i; skipString(c);
+      if (depth === 1 && pendingKey === null) pendingKey = { name: text.slice(from + 1, i), start: from };
+      continue;
+    }
+    if (c === '{' || c === '[') { depth++; continue; }
+    if (c === '}' || c === ']') {
+      depth--;
+      if (depth === 0) { close = i; if (keyStart !== null && valueEnd === null) valueEnd = trimmedEnd(i); break; }
+      continue;
+    }
+    if (depth !== 1) continue;
+    if (/[A-Za-z_$]/.test(c) && pendingKey === null) {
+      const m = /^[A-Za-z_$][\w$]*/.exec(text.slice(i));
+      pendingKey = { name: m[0], start: i }; i += m[0].length - 1; continue;
+    }
+    if (c === ':' && pendingKey) {
+      if (pendingKey.name === key) keyStart = pendingKey.start;
+      pendingKey = { name: null, start: -1, value: true };
+      continue;
+    }
+    if (c === ',') {
+      if (keyStart !== null && valueEnd === null) valueEnd = trimmedEnd(i);
+      pendingKey = null;
+    }
+  }
+  if (close === -1) return null;
+  return { open, close, keyStart, valueEnd };
+}
+
+/** `text` with top-level `key` set to `valueText` (or removed, null), spliced in place: nothing else moves. */
+function withObjectKey(text, key, valueText) {
+  const span = keySpan(text, key);
+  if (!span) return null;
+  const { open, close, keyStart, valueEnd } = span;
+  if (keyStart !== null) {
+    if (valueText !== null) return text.slice(0, keyStart) + `"${key}": ${valueText}` + text.slice(valueEnd);
+    // off: the key, its value, and the comma that joined it to a neighbour
+    let a = keyStart; let b = valueEnd;
+    const after = /^\s*,\s*/.exec(text.slice(b));
+    if (after) b += after[0].length;
+    else { const before = /,\s*$/.exec(text.slice(open + 1, a)); if (before) a = open + 1 + before.index; }
+    return text.slice(0, a) + text.slice(b);
+  }
+  if (valueText === null) return text;
+  const inner = text.slice(open + 1, close);
+  const empty = /^\s*$/.test(inner);
+  const indent = /\n([ \t]*)\S/.exec(inner)?.[1] ?? (empty ? '  ' : ' ');
+  const lastLine = /\n([ \t]*)$/.exec(inner)?.[1] ?? '';
+  const nl = inner.includes('\n');
+  const sep = empty ? (nl ? '' : ' ') : (nl ? `,\n${indent}` : ', ');
+  const body = inner.replace(/\s+$/, '');
+  return text.slice(0, open + 1) + (empty && nl ? `\n${indent}` : '') + body + sep + `"${key}": ${valueText}` + (nl ? `\n${lastLine}` : (empty ? ' ' : ' ')) + text.slice(close);
+}
+
+/**
+ * The deck's concept colours (SVG_DIAGRAMS, #718), written the way the deck
+ * carries its configuration: the configuration block's `concepts` key for a
+ * deck that is data, or the `concepts` key of a plain-data `Decklight.init`
+ * literal for a bundle. `concepts` is `{ name: slot (1-6) | css colour }`;
+ * an empty map takes the key off. The key is spliced in place and nothing
+ * else in the block moves. Null when the deck carries its configuration in
+ * neither way (an init call that is code is the author's, not this server's),
+ * or when a name or a value is not one the runtime reads.
+ */
+export function setDeckConcepts(html, concepts) {
+  const clean = {};
+  for (const [name, v] of Object.entries(concepts ?? {})) {
+    if (!/^[a-z][a-z0-9-]{0,40}$/i.test(name)) return null;
+    if (typeof v === 'number' ? !(Number.isInteger(v) && v >= 1 && v <= 6) : (typeof v !== 'string' || !/^(?:var\(--[a-z][a-z0-9-]{0,40}\)|#[0-9a-f]{3,8})$/i.test(v))) return null;
+    clean[name] = v;
+  }
+  const valueText = Object.keys(clean).length ? '{ ' + Object.entries(clean).map(([k, v]) => `"${k}": ${JSON.stringify(v)}`).join(', ') + ' }' : null;
+  const block = configBlock(html);
+  if (block) {
+    if (!block.config) return null;
+    const inner = withObjectKey(block.inner, 'concepts', valueText);
+    if (inner === null) return null;
+    return html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd);
+  }
+  const boot = bootCall(html);
+  if (!boot) return null;
+  const lit = parseLiteral(boot.arg);
+  if (!lit || typeof lit !== 'object' || Array.isArray(lit)) return null;
+  const call = html.slice(boot.start, boot.end);
+  const argStart = call.indexOf(boot.arg);
+  if (argStart === -1) return null;
+  const arg = withObjectKey(boot.arg, 'concepts', valueText);
+  if (arg === null) return null;
+  return html.slice(0, boot.start) + call.slice(0, argStart) + arg + call.slice(argStart + boot.arg.length) + html.slice(boot.end);
+}
+
+/**
  * The deck's theme, written the way this deck carries it (PRESENTING): the
  * configuration block's `theme` for a deck that is data; for a bundle, the
  * active one among its embedded `<style data-theme>` blocks (`media="all"`
