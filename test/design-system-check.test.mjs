@@ -115,3 +115,15 @@ test('decklight check: one warning per mistake, exit 0 — and the fixed deck re
   assert.equal(fixed.status, 0, fixed.stderr);
   assert.deepEqual(JSON.parse(fixed.stdout).filter((f) => f.rule.startsWith('ds-')), []);
 });
+
+test('a slashed data-layout (the pre-0.9.0 spelling) is a warning naming data-template, on its slide', () => {
+  const html = `<!doctype html><html><body><div class="decklight">
+<section data-layout="acme/section-divider"><h2>Old spelling</h2></section>
+</div></body></html>`;
+  const found = staticFindings(html, { designSystems: () => new Map() }).filter((f) => f.rule === 'ds-layout-attr');
+  assert.equal(found.length, 1, 'one slide, one warning');
+  assert.equal(found[0].level, 'warn');
+  assert.equal(found[0].slide, 1);
+  assert.equal(found[0].title, 'Old spelling');
+  assert.match(found[0].message, /data-template="acme\/section-divider"/);
+});
