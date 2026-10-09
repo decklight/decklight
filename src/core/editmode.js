@@ -190,6 +190,9 @@ export function createEditMode({
 
     const head = el('div', 'narr-head', 'commit');
     const what = el('div', 'cm-what');
+    // the same work in slides, each count in its colour (painted below)
+    const slidesEl = el('div', 'cm-slides');
+    slidesEl.hidden = true;
     const input = el('textarea', 'narr-input cm-input');
     input.rows = 3;
     input.placeholder = 'what changed, in one line…';
@@ -235,13 +238,14 @@ export function createEditMode({
     pushRow.append(pushWhat, pushGo);
 
     const hint = el('div', 'rec-hint', '⌘⏎ commits · Esc closes — the work is snapshotted either way');
-    card.append(head, what, input, planEl, row, tagRow, pushRow, hint);
+    card.append(head, what, slidesEl, input, planEl, row, tagRow, pushRow, hint);
 
     let now = state;
     const paintWhat = () => {
       const dirty = !!now.dirty;
       input.hidden = !dirty;
       row.hidden = !dirty;
+      slidesEl.hidden = true;
       if (!dirty) { planEl.hidden = true; what.textContent = 'nothing to commit — the deck matches its last commit'; return; }
       const n = Number(now.lines) || 0;
       const mins = Math.floor((Number(now.sinceMs) || 0) / 60000);
@@ -252,6 +256,20 @@ export function createEditMode({
       const where = files.length === 1 ? files[0] : `${files.slice(0, -1).join(', ')} and ${files[files.length - 1]}`;
       what.textContent = `${n ? `${n} line${n === 1 ? '' : 's'}` : 'changes'} in ${where}`
         + (mins >= 1 ? `, ${mins >= 60 ? `${Math.floor(mins / 60)}h` : `${mins}m`} old` : '');
+      // and in slides, each count in its colour: changed, added, removed —
+      // all three, a zero dimmed, so the line reads the same way every time
+      const sl = now.slides;
+      if (sl && (sl.changed || sl.added || sl.removed)) {
+        const total = sl.changed + sl.added + sl.removed;
+        slidesEl.textContent = '';
+        slidesEl.append(el('span', 'cm-sl-head', `${total === 1 ? '1 slide' : `${total} slides`}`));
+        for (const k of ['changed', 'added', 'removed']) {
+          const c = el('span', `cm-sl cm-sl-${k}`, `${sl[k]} ${k}`);
+          if (!sl[k]) c.classList.add('cm-sl-zero');
+          slidesEl.append(c);
+        }
+        slidesEl.hidden = false;
+      }
     };
     const paintTagsAndPush = () => {
       const tags = Array.isArray(now.tags) ? now.tags : [];

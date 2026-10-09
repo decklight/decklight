@@ -86,7 +86,7 @@ import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools
 import { runMain, CommandError } from './util.mjs';
 import { PKG, AGENTS_MARKER, skillVersionOf } from './skill-content.mjs';
 import { selfCommand } from './pkg.mjs';
-import { commitPlan, headTags, planWorking, pushBlocked, pushBranch, tagHead, unitSummary } from './commit-split.mjs';
+import { commitPlan, headTags, planWorking, pushBlocked, pushBranch, slidesSinceHead, tagHead, unitSummary } from './commit-split.mjs';
 import { semverCompare } from '../tools/semver.mjs';
 
 // The flags that take a value, so the deck can be found past them. `--git-mode`
@@ -2222,7 +2222,11 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // moment and a stale count is a lie about what you are agreeing to.
   function commitStatusRoute({ json }) {
     if (gitOn) measureDirty();     // the answer must be about NOW, not the last tick
-    return json(200, { ok: true, ...commitState(), deck: deckRel, ...(gitOn ? whereItStands() : {}) });
+    const state = commitState();
+    // the slides changed, added and removed since HEAD, which the window
+    // shows beside the line count: a deck's reader thinks in slides
+    const slides = gitOn && state.dirty ? slidesSinceHead(root, deckRel) : null;
+    return json(200, { ok: true, ...state, deck: deckRel, slides, ...(gitOn ? whereItStands() : {}) });
   }
 
   // What the window's tag and push rows read: the tags on HEAD, and where the

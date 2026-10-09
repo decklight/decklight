@@ -1220,6 +1220,15 @@
 .decklight-commit .cm-cmd { white-space: nowrap; font-family: var(--font-mono, ui-monospace, monospace); font-size: .95em; }
 .decklight-commit .cm-write.cm-thinking { font-family: var(--font-mono, ui-monospace, monospace); }
 .decklight-commit [hidden] { display: none !important; }
+/* the slides since the last commit, each count in its colour */
+.decklight-commit .cm-slides { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 0 12px 10px; font-size: 12px; }
+.decklight-commit .cm-sl-head { opacity: .6; }
+.decklight-commit .cm-sl { font-weight: 600; font-variant-numeric: tabular-nums; }
+.decklight-commit .cm-sl::before { content: '\25CF'; margin-right: 4px; }
+.decklight-commit .cm-sl-changed { color: #f2c46d; }
+.decklight-commit .cm-sl-added { color: #7cd6a3; }
+.decklight-commit .cm-sl-removed { color: #f08a7e; }
+.decklight-commit .cm-sl-zero { opacity: .35; font-weight: 400; }
 .decklight-commit .cm-single { background: rgba(255, 255, 255, .08); }
 .decklight-commit .cm-single:hover { background: rgba(255, 255, 255, .16); }
 /* several commits proposed: one row each, the subject editable, where it lands beside it */

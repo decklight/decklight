@@ -294,6 +294,90 @@ export async function planWorking({
 /** A unit as the window shows it: no hunk bodies, which can be large. */
 export const unitSummary = (u) => ({ id: u.id, file: u.file, where: u.where, lines: u.lines, slides: u.slides });
 
+/** Each top-level slide's source, whitespace at line ends ignored. Pure. */
+const slideSources = (html) => {
+  const lines = String(html ?? '').split('\n');
+  return deckOutline(html).map((sl) => lines.slice(sl.from - 1, sl.to).map((l) => l.trim()).join('\n'));
+};
+
+/**
+ * Whether two slides are one slide edited rather than one out and another in.
+ * Pure. The same heading says so; otherwise half their lines in common does
+ * (two slides share little more than their <section> tags).
+ */
+export function sameSlide(a, b) {
+  const heading = (src) => {
+    const m = /<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i.exec(src);
+    return m ? m[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().toLowerCase() : '';
+  };
+  const ha = heading(a);
+  if (ha && ha === heading(b)) return true;
+  const la = new Set(a.split('\n').filter(Boolean));
+  const lb = new Set(b.split('\n').filter(Boolean));
+  let shared = 0;
+  for (const l of la) if (lb.has(l)) shared++;
+  const union = la.size + lb.size - shared;
+  return union > 0 && shared / union >= 0.5;
+}
+
+/**
+ * How many slides the work changed, added and removed against HEAD. Pure.
+ *
+ * Slides are matched the way a diff matches lines: the longest run of
+ * identical slides in order is kept. Between two kept slides, an old and a
+ * new one that are the same slide edited (sameSlide) pair up as CHANGED, in
+ * order; what is left of the old is REMOVED and of the new ADDED. So an edit
+ * is one changed, a slide replaced by a different one is one removed and one
+ * added, a slide moved is one removed and one added, and a deck whose slides
+ * are all edited is all changed, never all replaced.
+ */
+export function slideChanges(before, after) {
+  const a = slideSources(before);
+  const b = slideSources(after);
+  // LCS over whole slides; decks are tens of slides, so n×m is nothing
+  const n = a.length, m = b.length;
+  const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
+    L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  }
+  let changed = 0, added = 0, removed = 0;
+  let gapOld = [], gapNew = [];
+  const close = () => {
+    let x = 0, y = 0;
+    while (x < gapOld.length && y < gapNew.length) {
+      if (sameSlide(gapOld[x], gapNew[y])) { changed++; x++; y++; }
+      // the old one is edited further on: this new one was put in
+      else if (gapNew.slice(y + 1).some((s) => sameSlide(gapOld[x], s))) { added++; y++; }
+      else { removed++; x++; }
+    }
+    removed += gapOld.length - x;
+    added += gapNew.length - y;
+    gapOld = []; gapNew = [];
+  };
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { close(); i++; j++; }
+    else if (L[i + 1][j] >= L[i][j + 1]) gapOld.push(a[i++]);
+    else gapNew.push(b[j++]);
+  }
+  while (i < n) gapOld.push(a[i++]);
+  while (j < m) gapNew.push(b[j++]);
+  close();
+  return { changed, added, removed };
+}
+
+/**
+ * The deck's slides against HEAD, `{ changed, added, removed }`; with no HEAD
+ * every slide is added. Null when the deck cannot be read.
+ */
+export function slidesSinceHead(cwd, deckRel) {
+  let work;
+  try { work = readFileSync(resolvePath(cwd, deckRel), 'utf8'); } catch { return null; }
+  let before = '';
+  try { before = raw(['show', `HEAD:./${deckRel}`], cwd); } catch { before = ''; }
+  return slideChanges(before, work);
+}
+
 /** A commit-tree that falls back to a stand-in identity, like gitAutocommit. */
 function commitTree(cwd, tree, parent, message, env) {
   const args = ['commit-tree', tree, '-p', parent, '-m', message];

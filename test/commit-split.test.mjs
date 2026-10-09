@@ -14,7 +14,7 @@ import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 import {
   applyHunks, commitPlan, headTags, normalizePlan, parsePlan, parseZeroHunks, planPrompt, planWorking,
-  pushBlocked, pushBranch, pushError, tagHead, whereLabel, workingUnits,
+  pushBlocked, pushBranch, pushError, slideChanges, tagHead, whereLabel, workingUnits,
 } from '../cli/commit-split.mjs';
 import { remoteState } from '../cli/git.mjs';
 
@@ -54,6 +54,32 @@ test('a unit is named by the slides it touches', () => {
   assert.equal(whereLabel([3]), 'slide 3');
   assert.equal(whereLabel([3, 4]), 'slides 3-4');
   assert.equal(whereLabel([2, 5]), 'slides 2, 5');
+});
+
+test('slides changed, added and removed are counted the way a diff counts lines', () => {
+  const base = deck(['one', 'two', 'three', 'four']);
+  assert.deepEqual(slideChanges(base, base), { changed: 0, added: 0, removed: 0 });
+  assert.deepEqual(slideChanges(base, deck(['one', 'TWO', 'three', 'four'])), { changed: 1, added: 0, removed: 0 }, 'an edit');
+  assert.deepEqual(slideChanges(base, deck(['one', 'two', 'three', 'four', 'five'])), { changed: 0, added: 1, removed: 0 }, 'one more at the end');
+  assert.deepEqual(slideChanges(base, deck(['one', 'three', 'four'])).removed + slideChanges(base, deck(['one', 'three', 'four'])).changed, 3,
+    'slide numbers are in the headings here, so later slides read as edited too');
+  // headings without numbers, so a removal is only a removal
+  const plain = (bodies) => `<div class="decklight">\n${bodies.map((b) => `<section>\n<p>${b}</p>\n</section>\n`).join('')}</div>\n`;
+  const p4 = plain(['one', 'two', 'three', 'four']);
+  assert.deepEqual(slideChanges(p4, plain(['one', 'three', 'four'])), { changed: 0, added: 0, removed: 1 }, 'one taken out');
+  assert.deepEqual(slideChanges(p4, plain(['one', 'new', 'two', 'three', 'four'])), { changed: 0, added: 1, removed: 0 }, 'one put in');
+  assert.deepEqual(slideChanges(p4, plain(['ONE', 'two', 'four', 'five', 'six'])), { changed: 1, added: 2, removed: 1 }, 'one edited, one taken out, two put in at the end');
+  assert.deepEqual(slideChanges(p4, plain(['one', 'TWO', 'NEW', 'three', 'four'])), { changed: 1, added: 1, removed: 0 }, 'an edit and an insertion in the same gap');
+  assert.deepEqual(slideChanges(p4, plain(['two', 'three', 'four', 'one'])), { changed: 0, added: 1, removed: 1 }, 'a move is out here and in there');
+  assert.deepEqual(slideChanges(p4, plain(['A', 'B', 'C', 'D'])), { changed: 4, added: 0, removed: 0 }, 'every slide edited is all changed, not all replaced');
+  assert.deepEqual(slideChanges(p4, p4.replace('<p>two</p>', '  <p>two</p>   ')), { changed: 0, added: 0, removed: 0 }, 'indentation is not a change');
+  // a slide replaced by a different one, in the same place, is not an edit
+  const titled = (slides) => `<div class="decklight">\n${slides.map(([h, p]) => `<section>\n<h2>${h}</h2>\n<p>${p}</p>\n<p>more</p>\n</section>\n`).join('')}</div>\n`;
+  const t3 = titled([['Intro', 'a'], ['Build', 'b'], ['Code', 'c']]);
+  assert.deepEqual(slideChanges(t3, titled([['Intro', 'a'], ['Three steps', 'b'], ['Thank you', 'bye']])), { changed: 1, added: 1, removed: 1 },
+    'the build slide retitled is an edit; the code slide swapped for a thank-you is one out and one in');
+  assert.deepEqual(slideChanges(t3, titled([['Intro', 'a'], ['Agenda', 'x'], ['Build', 'B'], ['Code', 'c']])), { changed: 1, added: 1, removed: 0 },
+    'a slide put in before an edited one: the new one is added, the edit still an edit');
 });
 
 // ── the plan ────────────────────────────────────────────────────────────────

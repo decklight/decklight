@@ -183,7 +183,8 @@
           return json({ ok: true, dirty: window.__clean !== true, lines: 7, files: ['deck.html', 'deck.review.jsonl'], sinceMs: 0, nag: false,
             canWrite: true, messages: window.__commitMessages === true, deck: 'engine.html',
             describer: window.__describer === undefined ? { name: 'claude', label: 'Claude Code' } : window.__describer,
-            subjectsOff: window.__subjectsOff === true, tags: window.__tags ?? [], push: window.__push ?? null });
+            subjectsOff: window.__subjectsOff === true, tags: window.__tags ?? [], push: window.__push ?? null,
+            slides: window.__clean === true ? null : { changed: 2, added: 1, removed: 0 } });
         }
         if (u.includes('/deck/edit/commit')) {
           window.__committed = JSON.parse(init?.body ?? '{}').message;
@@ -3575,6 +3576,13 @@
         // the window names WHICH files changed: the sidecar rides the deck's
         // commits (REVIEW), and a resolve is a line in it, not in the deck
         r.cardNamesTheFiles = /7 lines in deck\.html and deck\.review\.jsonl/.test(document.querySelector(`${O} .cm-what`)?.textContent ?? '');
+        // …and in slides: changed, added, removed, each in its own colour, a zero dimmed
+        const sl = document.querySelector(`${O} .cm-slides`);
+        r.slidesCounted = !!sl && !sl.hidden && sl.textContent === '3 slides2 changed1 added0 removed';
+        const colour = (k) => getComputedStyle(document.querySelector(`${O} .cm-sl-${k}`)).color;
+        r.slidesEachInItsColour = new Set([colour('changed'), colour('added'), colour('removed')]).size === 3;
+        r.slidesZeroDimmed = document.querySelector(`${O} .cm-sl-removed`)?.classList.contains('cm-sl-zero')
+          && !document.querySelector(`${O} .cm-sl-added`)?.classList.contains('cm-sl-zero');
         r.bareKtoggles = (press('k'), await settle(), !document.querySelector(O));
 
         // ⌘K — the alias, from closed
@@ -3749,7 +3757,7 @@
         await settle();
         r.cleanStillOpens = !!document.querySelector(`${O} .narr-card`);
         r.cleanSaysNothingToCommit = /nothing to commit/.test(document.querySelector('.cm-what')?.textContent ?? '')
-          && document.querySelector('.cm-input').hidden;
+          && document.querySelector('.cm-input').hidden && document.querySelector('.cm-slides').hidden;
         // a push that cannot go says why, and asks the server nothing
         r.blockedPushSaysWhy = document.querySelector('.cm-push-what')?.textContent === 'no remote to push to — git remote add origin <url>'
           && document.querySelector('.cm-push-go').classList.contains('cm-off');
@@ -3767,7 +3775,8 @@
           && r.planShowsEachCommit && r.planSaysWhere && r.planHidesTheBox && r.commitAllCounts && r.oneCommitSetsItAside
           && r.commitAllSendsThePlan && r.staysToPush && r.pushSaysWhatIsAhead
           && r.tagSendsTheName && r.tagShowsOnHead && r.tagLeftTheWindowOpen && r.pushSaysItIsPushing && r.pushLands
-          && r.cleanStillOpens && r.cleanSaysNothingToCommit && r.blockedPushSaysWhy && r.blockedPushAsksNothing;
+          && r.cleanStillOpens && r.cleanSaysNothingToCommit && r.blockedPushSaysWhy && r.blockedPushAsksNothing
+          && r.slidesCounted && r.slidesEachInItsColour && r.slidesZeroDimmed;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

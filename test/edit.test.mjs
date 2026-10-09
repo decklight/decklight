@@ -1412,6 +1412,8 @@ test('the commit window cuts the work into the commits an agent proposes, tags H
   assert.equal(before.push.blocked, null, 'a branch not pushed yet can be');
 
   writeFileSync(path.join(repo, 'deck.html'), DECK.replace('Alpha', 'First').replace('Beta', 'Second'));
+  const counted = await (await fetch(base + '/deck/edit/commit')).json();
+  assert.deepEqual(counted.slides, { changed: 2, added: 0, removed: 0 }, 'the window counts the work in slides');
   const plan = await (await post(base, '/deck/edit/commit/plan', {})).json();
   assert.equal(plan.ok, true, plan.error);
   assert.deepEqual(plan.commits, [{ subject: 'rename the first slide', units: [1] }, { subject: 'rename the second slide', units: [2] }]);
