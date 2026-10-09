@@ -80,7 +80,7 @@ const ENGINE_GROUPS = {
   narration: ['narration', 'nonarration', 'panel'],
   navigation: ['overviewedit', 'overviewplain', 'restore', 'historycaptions', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],
   handover: ['exportpptx', 'exportfail', 'exportvideo', 'publish'],
-  sources: ['sources', 'sourcesedit'],
+  sources: ['inspector', 'sourcesedit'],
   authoring: ['lockmode', 'notrustmode', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesauto', 'notesautofail', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'concepts', 'typingdock', 'editingtour', 'editingtourwelcome'],
   builds: ['linedraw', 'nestedfills', 'dstemplates', 'dsedit'],
 };

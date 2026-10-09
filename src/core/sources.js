@@ -18,17 +18,18 @@
  * this in HTML, so nothing here invents a syntax to be learned or a parser to
  * go wrong.
  *
- * It is hidden on the slide and reachable with `I`, which is the whole
- * difference from notes: notes are for the person talking, and where to read
- * more is for the person listening. It travels in the section, so it survives
- * bundling, publishing, and being taken into somebody else's deck.
+ * It is hidden on the slide and READ in the inspector (`I`, inspector.js),
+ * which is the whole difference from notes: notes are for the person talking,
+ * and where to read more is for the person listening. It travels in the
+ * section, so it survives bundling, publishing, and being taken into somebody
+ * else's deck. This file keeps the reading of the aside and the editor that
+ * writes it back; the inspector's `e` opens the editor.
  */
 
-import { selectInList } from './overlay.js';
 import { createDock } from './dock.js';
 
 /** The facts and links a section carries, or null when it carries none. */
-function sourcesOf(section) {
+export function sourcesOf(section) {
   const aside = section?.querySelector?.(':scope > aside.sources');
   if (!aside) return null;
   const facts = [];
@@ -49,17 +50,16 @@ function sourcesOf(section) {
 
 export function createSources({ root, overlays, reflow, sectionAt, slideOf, editmode, toast }) {
   // Beside the slide, not over it — the review panel's placement, shared
-  // (dock.js). Docked, this is a reference open next to the talk: you keep
-  // navigating and it follows the slide.
+  // (dock.js). Its own placement, apart from the inspector's: the editor is
+  // opened from it, and wants room for a URL.
   const dock = createDock({
     root,
     reflow: () => reflow?.(),
     key: 'decklight-sources-dock:' + location.pathname,
     getEl: () => el,
-    closeLabel: 'close (I)',
+    closeLabel: 'close (esc)',
   });
   let el = null;
-  let sel = 0;
   // The editor is a DRAFT, not the slide: nothing is written until ⏎, so
   // wandering into it and pressing esc leaves the deck exactly as it was.
   let draft = null;
@@ -72,7 +72,6 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
   const close = () => {
     el?.remove();
     el = null;
-    sel = 0;
     draft = null;
     if (onResize) { window.removeEventListener('resize', onResize); onResize = null; }
     dock.release();   // or the stage keeps reflowing around a gutter nothing sits in
@@ -101,69 +100,6 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
     head.append(dock.controls(close));
     dock.wireHeader(head);
     return head;
-  }
-
-  /** Whichever view is current — the editor while there is a draft. */
-  const paint = () => (editing() ? renderEdit() : renderRead());
-
-  function renderRead() {
-    const data = read();
-    const at = slideOf();
-    renderShell();
-    const card = el.querySelector('.narr-card');
-    if (!data) {
-      // A docked panel stays open across a jump, so a slide with nothing to
-      // show is a thing to SAY. Closing instead would make the panel flicker
-      // in and out as you walked the deck.
-      card.textContent = '';
-      card.append(header(`sources — slide ${at}`));
-      const none = document.createElement('div');
-      none.className = 'narr-row narr-blocked';
-      none.textContent = canEdit()
-        ? 'nothing here yet — e adds some'
-        : 'this slide does not say where it got that';
-      card.append(none);
-      return;
-    }
-    card.textContent = '';
-
-    card.append(header(`sources — slide ${at}`));
-
-    if (data.facts.length) {
-      const dl = document.createElement('dl');
-      dl.className = 'src-facts';
-      for (const [k, v] of data.facts) {
-        dl.append(Object.assign(document.createElement('dt'), { textContent: k }));
-        dl.append(Object.assign(document.createElement('dd'), { textContent: v }));
-      }
-      card.append(dl);
-    }
-
-    data.links.forEach((link, i) => {
-      // an <a>, not a div with a click handler: a link people may want to open
-      // in a new tab, copy, or middle-click is a link
-      const row = document.createElement('a');
-      row.className = 'narr-row' + (i === sel ? ' narr-sel' : '');
-      row.href = link.href;
-      row.target = '_blank';
-      row.rel = 'noopener noreferrer';
-      const label = document.createElement('span');
-      label.className = 'narr-row-label';
-      label.textContent = link.title;
-      row.append(label);
-      if (link.note) row.append(Object.assign(document.createElement('span'), {
-        className: 'narr-tag', textContent: link.note,
-      }));
-      row.append(Object.assign(document.createElement('span'), { className: 'src-go', textContent: '↗' }));
-      card.append(row);
-    });
-
-    const foot = document.createElement('div');
-    foot.className = 'narr-head';
-    foot.textContent = (data.links.length ? '⏎ opens it in a new tab · ' : '')
-      + (canEdit() ? 'e edits · ' : '') + 'esc closes';
-    card.append(foot);
-    if (data.links.length) selectInList([...card.querySelectorAll('.narr-row')], sel, 'narr-sel');
   }
 
   // ----- the editor ----------------------------------------------------------
@@ -278,64 +214,20 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
   }
 
   function open() {
-    // Nothing to show and somewhere to write it: open the editor rather than
-    // saying no. "This slide has no sources" is only useful to somebody who
-    // cannot do anything about it.
-    if (!read()) {
-      if (!canEdit()) { toast(`slide ${slideOf()} does not say where it got that`, 2600); return; }
-      overlays.opening();
-      startEditing();
-      return;
-    }
     overlays.opening();
-    sel = 0;
-    draft = null;
-    renderRead();
+    startEditing();
   }
 
   function keydown(e) {
-    // While editing, the card owns the keyboard: `modal` below stops the deck
+    // The card owns the keyboard while it is up: `modal` below stops the deck
     // acting on the letters being typed, and everything but ⏎ and esc is
     // returned UNHANDLED so the input that has focus receives it.
-    if (editing()) {
-      if (e.key === 'Escape') { close(); return true; }
-      if (e.key === 'Enter') { save(); return true; }
-      return false;
-    }
-    const data = read();
-    const n = data?.links.length ?? 0;
     if (e.key === 'Escape') { close(); return true; }
-    if ((e.key === 'e' || e.key === 'E') && canEdit()) { startEditing(); return true; }
-    if (n) {
-      if (e.key === 'ArrowDown') { sel = (sel + 1) % n; paint(); return true; }
-      if (e.key === 'ArrowUp') { sel = (sel - 1 + n) % n; paint(); return true; }
-      if (e.key === 'Enter') {
-        const link = data.links[sel];
-        if (link) window.open(link.href, '_blank', 'noopener,noreferrer');
-        return true;
-      }
-    }
-    // Everything else falls through UNHANDLED, and the panel stays. It used to
-    // close on any stray key, which was right while it was a modal card over
-    // the slide; docked it is a reference open beside the talk, and `→` should
-    // advance the deck with the panel still there, following along.
+    if (e.key === 'Enter') { save(); return true; }
     return false;
   }
 
-  /**
-   * The slide moved under an open panel.
-   *
-   * Called from the engine's per-navigation chrome update. Only while READING:
-   * a draft belongs to the slide it was started on, and re-rendering the editor
-   * mid-edit would throw away what had been typed.
-   */
-  function onSlide() {
-    if (!el || editing()) return;
-    renderRead();
-  }
-
-  // Modal only while editing: a reader may arrow through slides with the card
-  // up, but a letter typed into a field must not also reach the deck.
+  // Modal: a letter typed into a field must not also reach the deck.
   overlays.register({ isOpen, close, keydown, modal: () => editing() });
-  return { open, close, isOpen, onSlide, has: () => !!read(), canEdit };
+  return { edit: open, close, isOpen, has: () => !!read(), canEdit };
 }

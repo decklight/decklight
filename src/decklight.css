@@ -2524,6 +2524,44 @@
 .decklight-sources .src-facts dt { opacity: .5; }
 .decklight-sources .src-facts dd { margin: 0; }
 
+/* The inspector (I, PRESENTING): all about the slide, or the selection. A
+   two-column table of facts, each marked the way the terminal banner marks
+   its rows: a green tick when fine, a yellow ! when it wants a look. */
+.decklight-inspector .narr-card { width: min(440px, 88vw); }
+.decklight-inspector .ins-head { display: flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-size: 12px; opacity: 1; }
+.decklight-inspector .ins-title { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; opacity: .8; }
+.decklight-inspector .ins-sep { opacity: .4; }
+.decklight-inspector .ins-crumb {
+  font: inherit; color: inherit; background: none; border: 0; padding: 1px 4px; border-radius: 4px; cursor: pointer; opacity: .7;
+}
+.decklight-inspector .ins-crumb:hover { background: rgba(255, 255, 255, .1); opacity: 1; }
+.decklight-inspector .ins-crumb.ins-on { opacity: 1; font-weight: 600; }
+.decklight-inspector .ins-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 14px;
+  margin: 6px 12px 8px;
+  font-size: .9em;
+}
+.decklight-inspector .ins-rows dt { opacity: .5; }
+.decklight-inspector .ins-rows dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.decklight-inspector .ins-ok,
+.decklight-inspector .ins-warn { display: inline-block; width: 1.1em; font-weight: 700; }
+.decklight-inspector .ins-ok { color: #7cd6a3; }
+.decklight-inspector .ins-warn { color: #f2c46d; }
+.decklight-inspector .ins-extra { display: block; opacity: .5; font-size: .88em; }
+.decklight-inspector .ins-none { margin: 2px 12px 8px; opacity: .5; font-size: .9em; }
+.decklight-inspector .ins-link { text-decoration: none; color: inherit; }
+.decklight-inspector .src-go { flex: none; opacity: .45; font-size: .85em; }
+.decklight-inspector .ins-link .narr-tag {
+  flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .5; font-size: .78em;
+}
+.decklight-inspector .ins-foot { opacity: .45; }
+/* a breadcrumb hovered: which node it names, on the slide. SVG shapes draw no
+   outline, so they glow instead. */
+.decklight .dl-inspect-hover { outline: 2px dashed var(--accent); outline-offset: 3px; }
+.decklight svg .dl-inspect-hover { filter: drop-shadow(0 0 4px var(--accent)); }
+
 /* The sources editor. A draft, so it looks like a form and not like the card
    it was reading a moment ago. */
 .decklight-sources .src-edit-row { display: flex; align-items: center; gap: 6px; padding: 3px 12px; }
