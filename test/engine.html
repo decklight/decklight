@@ -4093,11 +4093,36 @@
         r.htmlBlock = html?.body.index === 2 && html.body.edits.length === 1 && html.body.edits[0].tag === 'blockquote'
           && html.body.edits[0].prop === 'background-color' && JSON.stringify(html.body.edits[0].path) === '[]';
 
+        // the Stroke side (#717): the shape's border, a theme token like any pick,
+        // with a width row that previews as it moves; both land in the one save
+        const fillBeforeStroke = box.style.fill;   // whatever the earlier steps left on it: a stroke pick must not touch it
+        openOn(box);
+        r.strokeSide = !q('.cp-side [data-id="stroke"]').disabled;
+        q('.cp-side [data-id="stroke"]').click();
+        r.widthRowOnStroke = !!q('.cp-width') && !q('.cp-side [data-id="fill"][aria-selected="true"]');
+        q('.cp-swatch[data-token="--accent"]').click();
+        r.strokePreviews = box.style.stroke === 'var(--accent)' && box.style.fill === fillBeforeStroke;
+        type(q('.cp-num.cp-width'), '3');
+        r.widthPreviews = box.style.strokeWidth === '3';
+        q('.cp-apply').click();
+        await settle();
+        const strokePost = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style')).pop();
+        r.strokePosted = strokePost?.body.edits.length === 2
+          && strokePost.body.edits.some((e) => e.prop === 'stroke' && e.value === 'var(--accent)' && e.tag === 'rect')
+          && strokePost.body.edits.some((e) => e.prop === 'stroke-width' && e.value === '3');
+        // Escape on the Stroke side puts the width back too
+        openOn(box);
+        q('.cp-side [data-id="stroke"]').click();
+        type(q('.cp-num.cp-width'), '9');
+        press('Escape');
+        r.escapeRestoresWidth = box.style.strokeWidth === '3';
+
         r.PASS = r.opens && r.docks && r.themeTabFirst && r.primaryAndSecondaryNamed && r.fillsNumbered
           && r.undefinedTokensLeftOut && r.currentMarked && r.applyWaitsForAPick && r.previewsToken
           && r.escapeRestores && r.customHasRgb && r.customStartsFromTheTarget && r.customHasHsb
           && r.hsbPreviews && r.hexTyped && r.postsBoth && r.pathIsTheFiles && r.closesOnApply
-          && r.labelFindsItsBox && r.resetPostsNull && r.htmlBlock;
+          && r.labelFindsItsBox && r.resetPostsNull && r.htmlBlock
+          && r.strokeSide && r.widthRowOnStroke && r.strokePreviews && r.widthPreviews && r.strokePosted && r.escapeRestoresWidth;
       }
 
       if (mode === 'dscolors') {

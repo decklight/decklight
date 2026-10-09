@@ -1553,7 +1553,7 @@ export function createEditMode({
           if (!res.ok) throw new Error(j.error || res.status);
           toast(j.changed ? 'colors saved — reloading · Z takes them back' : 'colors unchanged');
         } catch (e) {
-          for (const t of [...targets.fill, ...targets.text]) t.el.style.removeProperty(t.prop);
+          for (const t of [...targets.fill, ...(targets.stroke ?? []), ...targets.text]) { t.el.style.removeProperty(t.prop); if (t.prop === 'stroke') t.el.style.removeProperty('stroke-width'); if (t.prop === 'border-color') t.el.style.removeProperty('border-width'); }
           toast(`colors not saved: ${String(e.message || e).slice(0, 90)}`, 3400);
         }
       },
