@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSync, existsSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -463,7 +463,8 @@ test('the command to type is npx decklight in a project that installed it, plain
   writeFileSync(path.join(pkg, 'package.json'), '{}');
   const project = tmp(t);
   mkdirSync(path.join(project, 'node_modules'), { recursive: true });
-  execFileSync('ln', ['-s', pkg, path.join(project, 'node_modules', 'decklight')]);
+  // a junction on Windows: it needs no admin, and `ln -s` there copies the folder
+  symlinkSync(pkg, path.join(project, 'node_modules', 'decklight'), process.platform === 'win32' ? 'junction' : 'dir');
   mkdirSync(path.join(project, 'talks', 'q3'), { recursive: true });
   assert.equal(selfCommand(project, pkg), 'npx decklight', 'the project itself');
   assert.equal(selfCommand(path.join(project, 'talks', 'q3'), pkg), 'npx decklight', 'a folder inside it');
