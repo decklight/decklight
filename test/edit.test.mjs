@@ -25,6 +25,8 @@ import {
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
 import { zipEntries } from '../tools/zip.mjs';
+import { parseReady } from '../cli/banner.mjs';
+import { selfCommand } from '../cli/pkg.mjs';
 import { resolveGitMode, shouldCommit, commitSubject } from '../cli/git.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -439,6 +441,34 @@ test('a project skill older than this install is named at startup, with the refr
   await new Promise((r) => setTimeout(r, 300));
   assert.match(log(), /skill: \.claude\/skills\/decklight\/SKILL\.md \(v0\.8\.1\), AGENTS\.md \(before 0\.9\.0\) — older than this install/, 'both are named, with what they are');
   assert.match(log(), /run decklight skills/, 'and the fix');
+});
+
+test('under the banner the stale skill is one short row: the file, its version, and the command to type', async (t) => {
+  // Found by hand: the row ended "an agent reads an old contract; decklight
+  // skills", and the command read as part of the remark.
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  mkdirSync(path.join(dir, '.claude', 'skills', 'decklight'), { recursive: true });
+  writeFileSync(path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md'), '---\nname: decklight\n---\n<!-- decklight skill 0.1.0 -->\nold');
+  const { log } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_BANNER: '1' } });
+  await new Promise((r) => setTimeout(r, 300));
+  const fact = log().split('\n').map(parseReady).find((f) => f?.key === 'skill');
+  assert.ok(fact, 'no skill row');
+  assert.equal(fact.mark, 'warn');
+  assert.match(fact.text, /^SKILL\.md v0\.1\.0, older than \d+\.\d+\.\d+ · run: (npx )?decklight skills$/);
+});
+
+test('the command to type is npx decklight in a project that installed it, plain decklight otherwise', (t) => {
+  const pkg = tmp(t);
+  writeFileSync(path.join(pkg, 'package.json'), '{}');
+  const project = tmp(t);
+  mkdirSync(path.join(project, 'node_modules'), { recursive: true });
+  execFileSync('ln', ['-s', pkg, path.join(project, 'node_modules', 'decklight')]);
+  mkdirSync(path.join(project, 'talks', 'q3'), { recursive: true });
+  assert.equal(selfCommand(project, pkg), 'npx decklight', 'the project itself');
+  assert.equal(selfCommand(path.join(project, 'talks', 'q3'), pkg), 'npx decklight', 'a folder inside it');
+  assert.equal(selfCommand(tmp(t), pkg), 'decklight', 'anywhere else: global or linked, so on PATH');
+  assert.equal(selfCommand(project, tmp(t)), 'decklight', 'a project whose decklight is another install');
 });
 
 test('a deck that embeds a runtime older than this install is named at startup, with the upgrade to run', async (t) => {

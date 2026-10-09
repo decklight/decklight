@@ -48,12 +48,12 @@ test('the URL is the only thing coloured, and only when a terminal asked', () =>
 test('an installed row wears a green tick, a row to fix a yellow !, a plain fact neither', () => {
   const rows = [
     { key: 'voice', text: 'say · Voice 1 · :8787', mark: 'ok' },
-    { key: 'skill', text: 'AGENTS.md (v0.8.1) is older than this install', mark: 'warn' },
+    { key: 'skill', text: 'AGENTS.md v0.8.1, older than 0.9.0 · run: npx decklight skills', mark: 'warn' },
     { key: 'reviews', text: 'none waiting' },
   ];
   const plain = renderBanner({ ...base, rows });
   assert.equal(plain.find((l) => l.includes('say')), '  \u2713 voice    say · Voice 1 · :8787');
-  assert.equal(plain.find((l) => l.includes('AGENTS')), '  ! skill    AGENTS.md (v0.8.1) is older than this install');
+  assert.equal(plain.find((l) => l.includes('AGENTS')), '  ! skill    AGENTS.md v0.8.1, older than 0.9.0 · run: npx decklight skills');
   assert.equal(plain.find((l) => l.includes('none waiting')), '    reviews  none waiting');
   const lit = renderBanner({ ...base, rows, color: true });
   assert.match(lit.find((l) => l.includes('say')), /\x1b\[32m\u2713\x1b\[0m/, 'the tick is not green');

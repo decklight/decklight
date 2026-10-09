@@ -41,6 +41,23 @@ export const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 /** package.json, parsed once. `PKG.version` is the version every command prints. */
 export const PKG = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
 
+/**
+ * How to type decklight here, for a line that tells someone to run it.
+ * `npx decklight` when this install is the project's own (a node_modules on
+ * the way up from `cwd` resolves to it), plain `decklight` otherwise: a
+ * global install or a link puts the bin on PATH, a project install does not,
+ * and a bare `decklight skills` in a project reads as a remark rather than a
+ * command, because typing it says "command not found".
+ */
+export function selfCommand(cwd = process.cwd(), root = PKG_ROOT) {
+  let mine;
+  try { mine = fs.realpathSync(root); } catch { return 'decklight'; }
+  for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
+    try { if (fs.realpathSync(path.join(dir, 'node_modules', 'decklight')) === mine) return 'npx decklight'; } catch { /* not here */ }
+    if (path.dirname(dir) === dir) return 'decklight';
+  }
+}
+
 /** The shipped theme set — the graded and compat themes that stay in core. */
 export const THEMES_DIR = path.join(PKG_ROOT, 'themes');
 
