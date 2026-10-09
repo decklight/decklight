@@ -1409,6 +1409,49 @@
           && r.escapeCloses && r.apiOpens && r.apiCloses;
       }
 
+      // PRESENTING: the display ratio. The deck's own 16:9 letterboxes; "fill
+      // screen" grows the stage to the screen's shape so there are no bars —
+      // keeping the deck's width on a taller screen (this headless window is
+      // 4:3-ish), so nothing that fit is squeezed. Per browser, per deck.
+      if (mode === 'display') {
+        const Q = '.decklight-settings';
+        const stage = document.querySelector('.decklight-stage');
+        const rootEl = document.querySelector('.decklight');
+        const size = () => [parseFloat(stage.style.width), parseFloat(stage.style.height)];
+        const near = (a, b, tol) => Math.abs(a - b) <= tol;
+        const toastSaid = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        const KEY = 'decklight-display:' + location.pathname;
+        await settle();
+        r.startsAtTheDeckRatio = size().join('x') === '1280x720' && !rootEl.hasAttribute('data-display-fill');
+        const row = () => deck.settings.rows().find((x) => x.label === 'Display');
+        r.rowSaysTheRatio = row()?.value === '16:9' && /⏎ switches/.test(row()?.hint ?? '');
+        r.versionStaysFirst = deck.settings.rows()[0]?.label === 'Decklight version';
+        deck.settings.open();
+        press('ArrowDown');
+        press('Enter');
+        await settle(); await settle();
+        const box = rootEl.getBoundingClientRect();
+        const [w, h] = size();
+        r.fillSize = `${w}x${h}`;
+        r.fillKeepsTheWidth = w === 1280 && h > 720;
+        r.fillMatchesTheScreen = near(w / h, Math.max(1, box.width / box.height), 0.01);
+        const shown = stage.getBoundingClientRect();
+        r.noBars = near(shown.width, box.width, 2) && near(shown.height, box.height, 2);
+        r.slideFollowsTheStage = near(document.querySelector('.decklight-stage > section.active').offsetHeight, h, 1);
+        r.saysItFills = /display: fills the screen/.test(toastSaid());
+        r.remembered = localStorage.getItem(KEY) === 'fill' && rootEl.hasAttribute('data-display-fill');
+        r.rowSaysFill = row()?.value === 'fill screen';
+        r.closesAfter = !document.querySelector(Q);
+        deck.settings.open();
+        press('ArrowDown');
+        press('Enter');
+        await settle(); await settle();
+        r.backToTheDeckRatio = size().join('x') === '1280x720' && localStorage.getItem(KEY) === null
+          && /display: 16:9/.test(toastSaid());
+        try { localStorage.removeItem(KEY); } catch {}
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || k === 'fillSize' || v === true);
+      }
+
       // PRESENTING: exporting to PowerPoint from inside the deck. The deck
       // cannot run Chrome, so the row asks the edit server — what this
       // asserts is the round trip: the row exists when a server does, it POSTs
