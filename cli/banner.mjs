@@ -59,12 +59,31 @@ export function parseReady(line) {
  */
 export const ROW_ORDER = ['voice', 'lips', 'skipped', 'git', 'agents', 'reviews'];
 
-const ESC = { dim: '\x1b[2m', bold: '\x1b[1m', cyan: '\x1b[36m', under: '\x1b[4m', reset: '\x1b[0m' };
+const ESC = { dim: '\x1b[2m', bold: '\x1b[1m', cyan: '\x1b[36m', green: '\x1b[32m', yellow: '\x1b[33m', under: '\x1b[4m', reset: '\x1b[0m' };
 
 /**
- * The banner, as lines. `rows` is `[{ key, text }]` in any order; a key not in
- * ROW_ORDER keeps its arrival position after the known ones, so a service added
- * later still appears without anyone having to remember to edit that list.
+ * The mark in front of a row: ✓ for something installed and on, ! for
+ * something to fix, nothing for a plain fact. A fact says which with `mark`.
+ */
+export function rowMark(mark, color = false) {
+  const c = (s, k) => (color ? ESC[k] + s + ESC.reset : s);
+  if (mark === 'ok') return c('\u2713', 'green');
+  if (mark === 'warn') return c('!', 'yellow');
+  return ' ';
+}
+
+/** One row, as `renderBanner` prints it and as a late fact is printed after it. */
+export function bannerRow({ key, text, mark }, { width = key.length, color = false } = {}) {
+  const k = color ? ESC.dim + key.padEnd(width) + ESC.reset : key.padEnd(width);
+  return `  ${rowMark(mark, color)} ${k}  ${text}`;
+}
+
+/**
+ * The banner, as lines. `rows` is `[{ key, text, mark }]` in any order; a key
+ * not in ROW_ORDER keeps its arrival position after the known ones, so a
+ * service added later still appears without anyone having to remember to edit
+ * that list. `deck` is a header line, given only when debugging: the version
+ * line above the banner and the URL below it already name what is running.
  */
 export function renderBanner({ deck, url, keys, rows = [], color = false } = {}) {
   const c = (s, ...codes) => (color ? codes.map((k) => ESC[k]).join('') + s + ESC.reset : s);
@@ -74,11 +93,11 @@ export function renderBanner({ deck, url, keys, rows = [], color = false } = {})
     .map((r, i) => ({ ...r, i }))
     .sort((a, b) => rank(a.key) - rank(b.key) || a.i - b.i);
 
-  const out = [`decklight${deck ? ` ${c('·', 'dim')} ${deck}` : ''}`];
+  const out = deck ? [`decklight ${c('·', 'dim')} ${deck}`] : [];
   if (shown.length) {
-    out.push('');
-    const w = Math.max(...shown.map((r) => r.key.length));
-    for (const r of shown) out.push(`  ${c(r.key.padEnd(w), 'dim')}  ${r.text}`);
+    if (out.length) out.push('');
+    const width = Math.max(...shown.map((r) => r.key.length));
+    for (const r of shown) out.push(bannerRow(r, { width, color }));
   }
   // The URL last, and the only coloured thing here, because a person scanning
   // this is looking for exactly one thing and it is this.

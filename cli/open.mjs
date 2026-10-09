@@ -44,7 +44,7 @@ import { openUrl } from './open-browser.mjs';
 import { loadLipsyncConfig, SETUP_HINT } from '../tools/lipsync-config.mjs';
 import { isPortOpen, resolvePortConflict, identifyBridge, identifyStranger, canBind } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
-import { nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
+import { bannerRow, nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
 import { auditDeck, formatLabel } from './audit.mjs';
 import { scriptHash, isTrusted, remember } from './trust.mjs';
 import { resolve as resolvePath } from 'node:path';
@@ -572,8 +572,6 @@ export async function openMain(args) {
     waiting: new Set(run.map((svc) => svc.tag)),
   };
 
-  const bannerRow = (key, text) => `  ${tty ? `${DIM}${key}${RESET}` : key}  ${text}`;
-
   /**
    * A line from `open` itself. Held while the banner is still being assembled,
    * so nothing — an error included — can land above the URL; printed straight
@@ -601,8 +599,10 @@ export async function openMain(args) {
     for (const l of banner.held) process.stdout.write(`${l}\n`);
     banner.held.length = 0;
     if (banner.url) {
-      const rows = [...banner.rows].map(([key, text]) => ({ key, text }));
-      for (const l of renderBanner({ deck, url: banner.url, keys: banner.keys, rows, color: tty })) {
+      const rows = [...banner.rows].map(([key, row]) => ({ key, ...row }));
+      // the deck's name on a line of its own is for debugging: the url says it
+      const header = process.env.DECKLIGHT_DEBUG ? deck : undefined;
+      for (const l of renderBanner({ deck: header, url: banner.url, keys: banner.keys, rows, color: tty })) {
         process.stdout.write(`${l}\n`);
       }
       // after the banner, so the URL is on screen before the browser takes the
@@ -637,14 +637,17 @@ export async function openMain(args) {
     if (banner.done) {
       // Arrived after the banner went out — still worth saying, in the shape
       // it would have had, rather than swallowed for being late.
-      process.stdout.write(`${bannerRow(fact.key, fact.text)}\n`);
+      process.stdout.write(`${bannerRow(fact, { color: tty })}\n`);
       return;
     }
-    // Two facts can share a key — `git` is both "commits on your word" and
-    // "claude writes the subjects", reported by different parts of the child.
+    // Two facts can share a key — `git` is both "snapshots on decklight/wip" and
+    // "subjects by claude", reported by different parts of the child.
     // They join into one row rather than the later one erasing the earlier.
+    // A warning in either makes the joined row a warning.
     const had = banner.rows.get(fact.key);
-    banner.rows.set(fact.key, had && had !== fact.text ? `${had} · ${fact.text}` : fact.text);
+    const text = had && had.text !== fact.text ? `${had.text} · ${fact.text}` : fact.text;
+    const mark = had?.mark === 'warn' || fact.mark === 'warn' ? 'warn' : (fact.mark ?? had?.mark);
+    banner.rows.set(fact.key, { text, mark });
     settle(tag);
   }
   // Even if no child ever reports, the URL must still appear.
@@ -711,10 +714,10 @@ export async function openMain(args) {
   // author's own facts join the children's rather than printing above them.
   // `Ctrl-C stops everything` is gone: the banner's key line already says it,
   // and saying it twice was most of why this block read as a wall.
-  if (skip.length) banner.rows.set('skipped', skip.map((s) => `${s.name} — ${s.why}`).join(' · '));
+  if (skip.length) banner.rows.set('skipped', { text: skip.map((s) => `${s.name} — ${s.why}`).join(' · ') });
   // Only when there are none — otherwise the edit child names them, and its
   // row (which knows which is preferred and which is installed) wins.
-  if (!agents.length) banner.rows.set('agents', 'none — install claude, codex, or bob to ask one from the deck (A)');
+  if (!agents.length) banner.rows.set('agents', { text: 'none on PATH (claude, codex, bob)' });
 
   function shutdown(code = 0) {
     if (shuttingDown) return;

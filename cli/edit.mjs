@@ -75,10 +75,11 @@ import { readyLine } from './banner.mjs';
  * prints, so it cannot land above the URL. Run standalone — `decklight edit` —
  * it prints the line it always printed, which is why every call passes both:
  * the SHORT text a banner row wants, and the full sentence a bare terminal
- * needs because it has no banner to sit under.
+ * needs because it has no banner to sit under. `mark` is the banner's: 'ok'
+ * for something installed and on (a green tick), 'warn' for something to fix.
  */
-const startup = (key, text, human) => {
-  if (process.env.DECKLIGHT_BANNER) console.log(readyLine({ key, text }));
+const startup = (key, text, human, mark) => {
+  if (process.env.DECKLIGHT_BANNER) console.log(readyLine({ key, text, ...(mark ? { mark } : {}) }));
   else console.log(human);
 };
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
@@ -1513,11 +1514,12 @@ export async function editMain(args, { onListen = null, client } = {}) {
       }, gitMode === 'timer' ? commitEvery * 1000 : watchEveryMs).unref();
       startup('git',
         gitMode === 'timer'
-          ? `auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`
-          : 'commits on your word · snapshot on decklight/wip',
+          ? `auto-commit every ${commitEvery}s`
+          : 'snapshots on decklight/wip · commits on K',
         gitMode === 'timer'
           ? `  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`
-          : wipLine(deckRel));
+          : wipLine(deckRel),
+        'ok');
     }
   }
   if (!noTrust) startGit();
@@ -1581,7 +1583,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   if (agents.length && !noTrust) {
     const mark = (a) => a.name + (a.name === agentPref ? ' (preferred)' : '') + (a.installed ? ' (installed)' : '');
     startup('agents', agents.map(mark).join(', '),
-      `  agents: ${agents.map(mark).join(', ')} — “Ask agent” (A) is live`);
+      `  agents: ${agents.map(mark).join(', ')} — “Ask agent” (A) is live`, 'ok');
   }
   // A remembered agent that is not on this machine is said ONCE, at startup,
   // rather than discovered at the moment someone presses A mid-talk.
@@ -1605,7 +1607,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
         : `embeds a runtime that is not this install's build${rt.installedVersion ? ` of ${rt.installedVersion}` : ''}`;
       startup('runtime',
         `${basename(deckPath)} ${what} — it may not wire up to this server; decklight upgrade ${deckRel}`,
-        `  runtime: ${basename(deckPath)} ${what} — the deck may not wire up to this server; run decklight upgrade ${deckRel}`);
+        `  runtime: ${basename(deckPath)} ${what} — the deck may not wire up to this server; run decklight upgrade ${deckRel}`, 'warn');
     }
   }
   // The project's skill, if any, against this install (the same question the
@@ -1627,7 +1629,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (older.length) {
       startup('skill',
         `${older.join(', ')} is older than this install (${PKG.version}) — an agent reads an old contract; decklight skills`,
-        `  skill: ${older.join(', ')} — older than this install (${PKG.version}): an agent reads an old contract; run decklight skills`);
+        `  skill: ${older.join(', ')} — older than this install (${PKG.version}): an agent reads an old contract; run decklight skills`, 'warn');
     }
   }
   // Said out loud, every session it is on: this is the switch that starts
@@ -1637,8 +1639,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   if (gitOn && wantMessages) {
     const who = agents.find((a) => a.name === agentPref) ?? agents[0];
     startup('git',
-      who?.name ? `${who.name} writes the subjects` : '--commit-messages needs an agent on PATH',
-      `  ${messagesLine(who?.name ?? null)}`);
+      who?.name ? `subjects by ${who.name}` : '--commit-messages needs an agent on PATH',
+      `  ${messagesLine(who?.name ?? null)}`, who?.name ? 'ok' : 'warn');
   }
 
   // ── live reload: watch the deck, broadcast SSE (debounced — editors fire
@@ -3667,7 +3669,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // banner has to be the one that actually answers.
     console.log(readyLine({
       url: `http://127.0.0.1:${actual}${deckUrl}`,
-      keys: 'L layouts · Z undo · A agent · Ctrl-C stops',
+      keys: 'Ctrl-C stops',
     }));
   } else console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — editing on, L layouts, Z undo, A agent. Ctrl-C stops`);
   if (token) {
