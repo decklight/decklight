@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rmTemp } from './helpers.mjs';
 import {
-  checkPackage, parseTemplates, layoutProblems, svgProblems, readManifest, DESIGN_SYSTEM_API_VERSION, ASSET_WARN_BYTES,
+  checkPackage, parseTemplates, templateProblems, svgProblems, readManifest, DESIGN_SYSTEM_API_VERSION, ASSET_WARN_BYTES,
 } from '../tools/design-system-format.mjs';
 import { readPackage, checkDir } from '../cli/design-system.mjs';
 import { validateManifest, INSTALL_HINT } from '../cli/marketplace.mjs';
@@ -63,7 +63,7 @@ test('templates as data: ids, titles and slots — required, hinted, and the one
     ['kicker', 'p', false, false], ['title', 'h1,h2', true, false], ['subtitle', 'p', false, false], ['body', '', false, true],
   ]);
   assert.deepEqual(statement.slots.map((s) => s.name), ['title', 'body']);
-  assert.deepEqual(layoutProblems(html), []);
+  assert.deepEqual(templateProblems(html), []);
 });
 
 // ── the named failing fixtures (the demo) ──────────────────────────────────
@@ -160,7 +160,7 @@ test('templates: inert structure only — every way to run something is refused,
     assert.equal(p.file, 'templates.html');
     assert.equal(p.line, 6);
   }
-  const srcdoc = layoutProblems('<template data-template="x"><div srcdoc="y"></div></template>');
+  const srcdoc = templateProblems('<template data-template="x"><div srcdoc="y"></div></template>');
   assert.deepEqual(srcdoc.map((p) => p.rule), ['template-forbidden-attr']);
 });
 
@@ -204,9 +204,9 @@ test('a stylesheet that paints the slide itself — page, text, type — is warn
 });
 
 test('data-ds-bleed marks the template\'s top-level element, once — the element whose art fills the screen', () => {
-  assert.deepEqual(layoutProblems('<template data-template="a"><div data-ds-bleed><p data-slot="t"></p><img src="#x"></div></template>'), []);
-  assert.deepEqual(layoutProblems('<template data-template="a"><div><p data-ds-bleed></p></div></template>').map((p) => p.rule), ['bleed-placement']);
-  assert.deepEqual(layoutProblems('<template data-template="a"><div data-ds-bleed></div><div data-ds-bleed></div></template>').map((p) => p.rule), ['bleed-twice']);
+  assert.deepEqual(templateProblems('<template data-template="a"><div data-ds-bleed><p data-slot="t"></p><img src="#x"></div></template>'), []);
+  assert.deepEqual(templateProblems('<template data-template="a"><div><p data-ds-bleed></p></div></template>').map((p) => p.rule), ['bleed-placement']);
+  assert.deepEqual(templateProblems('<template data-template="a"><div data-ds-bleed></div><div data-ds-bleed></div></template>').map((p) => p.rule), ['bleed-twice']);
 });
 
 test('assets: the allowlisted kinds only; an oversized one is a warning, not a refusal; papers and dotfiles are not assets', () => {
@@ -286,4 +286,42 @@ test('a catalog takes design-system entries: apiVersion required, a relative dir
   const missing = validateManifest(catalog({ apiVersion: 1 }));
   assert.equal(missing.errors.length, 1, 'a missing source is said once');
   assert.equal(INSTALL_HINT['design-system'], 'decklight design-system add <name@marketplace> <deck>');
+});
+
+// ── "layout" is L's word (#711, #725) ───────────────────────────────────────
+
+test('nothing about design systems says "layout": the code, and SPEC DESIGN_SYSTEMS', () => {
+  // #711 renamed a design system's arrangements to slide templates, so
+  // "layout" means only the built-in ones L cycles. A few references outlived
+  // the rename (#725); this keeps new ones out. Allowed: the note in
+  // src/core/design-system.js on the built-in `data-layout`, and the
+  // ds-layout-attr rule, which exists to name the old spelling.
+  const root = path.join(here, '..');
+  const files = [
+    ...fs.readdirSync(path.join(root, 'cli')).filter((f) => /^design-system.*\.mjs$/.test(f)).map((f) => `cli/${f}`),
+    ...fs.readdirSync(path.join(root, 'src/core')).filter((f) => /^design-system.*\.js$/.test(f)).map((f) => `src/core/${f}`),
+    'tools/design-system-format.mjs',
+  ];
+  assert.ok(files.length >= 4, `the globs found too little: ${files}`);
+  const allowed = (file, line) => line.includes('ds-layout-attr')
+    || (file === 'src/core/design-system.js' && line.includes('the built-in `data-layout`'));
+  const word = /\blayouts?\b/i;   // grep -w -i 'layouts?': a hyphen is a boundary
+  const found = [];
+  for (const file of files) {
+    fs.readFileSync(path.join(root, file), 'utf8').split('\n').forEach((line, i) => {
+      if (word.test(line) && !allowed(file, line)) found.push(`${file}:${i + 1}: ${line.trim()}`);
+    });
+  }
+  const spec = fs.readFileSync(path.join(root, 'SPEC.md'), 'utf8').split('\n');
+  const from = spec.findIndex((l) => /^## DESIGN_SYSTEMS\b/.test(l));
+  assert.ok(from > 0, 'SPEC has no DESIGN_SYSTEMS section');
+  const to = spec.findIndex((l, i) => i > from && /^## /.test(l));
+  spec.slice(from, to === -1 ? undefined : to).forEach((line, i) => {
+    if (word.test(line) && !allowed('SPEC.md', line)) found.push(`SPEC.md:${from + i + 1}: ${line.trim().slice(0, 120)}`);
+  });
+  // the section table and the code map name design systems outside the section
+  for (const [i, line] of spec.entries()) {
+    if (/`DESIGN_SYSTEMS`|design-system(-edit)?\.mjs/.test(line) && /slide layouts|list\/layouts|in a layout\b/i.test(line)) found.push(`SPEC.md:${i + 1}: ${line.trim().slice(0, 120)}`);
+  }
+  assert.deepEqual(found, [], `"layout" for a design system's templates:\n${found.join('\n')}`);
 });

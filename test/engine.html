@@ -588,7 +588,7 @@
     // Referenced layouts (SPEC DESIGN_SYSTEMS): the page carries a design
     // system as a server would inject it — the fixture package's stylesheet,
     // its meta and its layouts inline — and one slide per case.
-    if (HARNESS_MODE === 'dslayouts' || HARNESS_MODE === 'dsedit') {
+    if (HARNESS_MODE === 'dstemplates' || HARNESS_MODE === 'dsedit') {
       document.head.insertAdjacentHTML('beforeend', `
         <link rel="stylesheet" href="fixtures/design-systems/ok/design-system.css" data-design-system="acme">
         <script type="application/json" data-design-system-meta="acme">{"name":"acme","version":"1.2.0","title":"Acme Brand","palette":[],"templates":[{"id":"section-divider","title":"Section divider","slots":[{"name":"kicker","hint":"p","required":false,"default":false},{"name":"title","hint":"h1,h2","required":true,"default":false},{"name":"subtitle","hint":"p","required":false,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"statement","title":"Statement","slots":[{"name":"title","hint":"","required":true,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"quote","title":"quote","slots":[{"name":"quote","hint":"","required":false,"default":false}]}]}<\/script>
@@ -3284,7 +3284,7 @@
         return;
       }
 
-      if (mode === 'dslayouts') {
+      if (mode === 'dstemplates') {
         await settle();
         const q = (sel) => document.querySelector(sel);
         const sec = (c) => q(`section.${c}`);
