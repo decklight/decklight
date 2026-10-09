@@ -2743,6 +2743,43 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * MB" before anybody chooses. `audio` is null for a deck with no recorded
    * audio on this disk.
    */
+  /**
+   * Where slide N lives in the file, for the inspector (`I`, PRESENTING): the
+   * slide's lines, each authored top-level child's lines by the same raw index
+   * the element routes use, and what `decklight check` would say about it.
+   * Read-only, and only the static half of the check: the render half needs a
+   * browser and takes seconds, and the panel asks on every slide change.
+   */
+  async function inspectRoute({ url, json }) {
+    const { sectionRanges, staticFindings } = await import('./check.mjs');
+    const html = readDeck();
+    const ranges = sectionRanges(html);
+    const slide = Number(url.searchParams.get('slide'));
+    if (!Number.isInteger(slide) || slide < 1 || slide > ranges.length) {
+      return json(400, { ok: false, error: `no slide ${url.searchParams.get('slide') ?? ''} — the deck has ${ranges.length}`.trim() });
+    }
+    // 1-based line of an offset: the newlines before it, plus one
+    const breaks = [];
+    for (let i = html.indexOf('\n'); i !== -1; i = html.indexOf('\n', i + 1)) breaks.push(i);
+    const lineAt = (at) => {
+      let lo = 0, hi = breaks.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (breaks[mid] < at) lo = mid + 1; else hi = mid; }
+      return lo + 1;
+    };
+    const span = (start, end) => [lineAt(start), lineAt(Math.max(start, end - 1))];
+    const range = ranges[slide - 1];
+    const { parts, idx } = locateSlide(html, slide);
+    const segAt = parts.slice(0, idx).join('').length;
+    let blocks = [];
+    try {
+      blocks = sectionChildRanges(parts[idx]).map((r) => ({ tag: r.tag, lines: span(segAt + r.start, segAt + r.end) }));
+    } catch { /* a malformed section still has its own lines */ }
+    const findings = staticFindings(html, { dir: dirname(deckPath) })
+      .filter((f) => f.slide === slide)
+      .map(({ level, rule, message }) => ({ level, rule, message }));
+    return json(200, { ok: true, file: basename(deckPath), lines: span(range.start, range.end), blocks, findings });
+  }
+
   async function exportEstimateRoute({ url, json }) {
     const kind = url.searchParams.get('kind');
     if (kind !== 'bundle') return json(400, { ok: false, error: `no estimate for ${kind ?? 'that'} — only a bundle has one` });
@@ -3515,6 +3552,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
     'POST /deck/edit/export': exportRoute,
     'GET /deck/edit/export/estimate': exportEstimateRoute,
+    'GET /deck/edit/inspect': inspectRoute,
     'GET /deck/edit/publish/plan': publishPlanRoute,
     'POST /deck/edit/publish': publishRoute,
 

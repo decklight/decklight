@@ -135,7 +135,7 @@ export function createReview({
     return probed === false ? null : probed;
   }
 
-  async function load() {
+  async function load({ incoming = true } = {}) {
     const base = await reviewBase();
     const from = `${base !== null ? base : (editBase() ?? '')}/deck/review/comments`;
     if (base === null && editBase() == null) return { records: [], skipped: 0, can: 'none' };
@@ -147,7 +147,7 @@ export function createReview({
       // The author also hears what reviews are WAITING on the remote — rows
       // the server reads on demand, behind this very keypress, and remembers
       // for a minute. A reviewer's overlay has no edit server and skips it.
-      if (state.can === 'resolve') {
+      if (state.can === 'resolve' && incoming) {
         try {
           const ir = await fetch(`${editBase() ?? ''}/deck/review/incoming`);
           const ij = await ir.json();
@@ -812,5 +812,22 @@ export function createReview({
     /** ⇧M — say something about the slide on screen. */
     compose: openCompose,
     submit: async () => { if (!el) await open(); armedSubmit = true; if (el) render(await load()); },
+    /**
+     * `{ open, resolved }` for slide `here`, or null where there is nowhere to
+     * read comments from — the inspector's comments row (PRESENTING). This
+     * deck's own comments only: what waits on the remote is the panel's to
+     * show, and asking for it on every slide change would ask the remote too.
+     */
+    countFor: async (here) => {
+      const said = await load({ incoming: false });
+      if (said.can === 'none') return null;
+      const slides = slidesNow();
+      let open = 0, resolved = 0;
+      for (const c of foldReview(said.records ?? [])) {
+        if (resolveAnchor(c, slides).slide !== here) continue;
+        if (c.resolved) resolved++; else open++;
+      }
+      return { open, resolved };
+    },
   };
 }

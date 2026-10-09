@@ -2571,3 +2571,27 @@ test('/deck/edit/export refuses a narration recorded from other notes, names the
   assert.match(log(), /--allow-stale: rendering slide 2 with the older narration/);
   assert.equal((await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/samantha', allowStale: 'yes' })).status, 400, 'a flag, not a string');
 });
+
+// ── the inspector's file facts (I, PRESENTING) ────────────────────────────
+
+test('the inspector hears where a slide and its blocks live, and what check says about it', async (t) => {
+  const dir = tmp(t);
+  const deck = DECK.replace('<ul><li>one</li></ul>', '<ul><li>one</li></ul>\n      <img src="gone.png" alt="">');
+  writeFileSync(path.join(dir, 'deck.html'), deck);
+  const { base } = await startEdit(t, dir);
+  const j = await (await fetch(base + '/deck/edit/inspect?slide=1')).json();
+  assert.equal(j.ok, true, j.error);
+  assert.equal(j.file, 'deck.html');
+  assert.deepEqual(j.lines, [4, 8], 'the section, open tag to close tag');
+  assert.deepEqual(j.blocks.map((b) => b.tag), ['h2', 'ul', 'img'], 'by the raw index the element routes use');
+  assert.deepEqual(j.blocks.map((b) => b.lines), [[5, 5], [6, 6], [7, 7]]);
+  assert.ok(j.findings.some((f) => /gone\.png/.test(f.message)), 'a missing asset is said on its slide');
+  const two = await (await fetch(base + '/deck/edit/inspect?slide=2')).json();
+  assert.deepEqual(two.lines, [9, 11]);
+  assert.deepEqual(two.findings, [], "slide 1's asset is not slide 2's");
+  for (const bad of ['0', '3', 'x', '']) {
+    const r = await fetch(base + '/deck/edit/inspect?slide=' + bad);
+    assert.equal(r.status, 400, `slide=${bad}`);
+    assert.match((await r.json()).error, /the deck has 2/);
+  }
+});

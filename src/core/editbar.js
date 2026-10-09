@@ -243,8 +243,12 @@ export function createEditBar({
     handle.style.left = `${r.right - base.left - 4}px`;
     handle.style.top = `${r.top - base.top - 10}px`;
   }
+  // Who hears a selection change: the inspector (PRESENTING), which shows the
+  // selected element and goes back to the slide when nothing is selected.
+  const selectListeners = new Set();
+  const announce = () => { for (const fn of selectListeners) fn(selected); };
   function select(target) {
-    deselect();
+    deselect({ quiet: true });
     selected = target;
     target.top.classList.add('dl-selected');
     handle = document.createElement('button');
@@ -260,12 +264,15 @@ export function createEditBar({
     root.appendChild(handle);
     placeHandle();
     debugLog('edit', `selected slide ${target.slide} element #${target.index}`);
+    announce();
   }
-  function deselect() {
+  function deselect({ quiet = false } = {}) {
+    const had = !!selected;
     selected?.top.classList.remove('dl-selected');
     selected = null;
     handle?.remove();
     handle = null;
+    if (had && !quiet) announce();
   }
   function hover(top) {
     if (hovered === top) return;
@@ -325,6 +332,8 @@ export function createEditBar({
 
   return {
     sync, keydown, refresh, selected: () => selected, isOpen: () => !!bar,
+    /** `fn(target | null)` on every selection change; returns the unsubscribe. */
+    onSelect: (fn) => { selectListeners.add(fn); return () => selectListeners.delete(fn); },
     /** Hidden by the person (not by fullscreen, not by the lock): what the palette row flips. */
     hidden: () => hiddenByUser,
     toggleHidden: () => setHidden(!hiddenByUser),

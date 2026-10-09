@@ -329,6 +329,16 @@
         }
       }
       // `editbar` is the same server, driven from the bar and the selection
+      if (HARNESS_MODE === 'inspector') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/review/comments')) return json({ ok: true, records: [] });
+        if (u.includes('/deck/edit/inspect')) {
+          const n = Number(new URL(u, location.href).searchParams.get('slide'));
+          return json({ ok: true, file: 'engine.html', lines: [20 + n, 21 + n],
+            blocks: [{ tag: 'h2', lines: [20 + n, 20 + n] }, { tag: 'svg', lines: [30, 31] }, { tag: 'p', lines: [32, 32] }],
+            findings: n === 1 ? [{ level: 'warn', rule: 'asset-missing', message: 'gone.png is not there' }] : [] });
+        }
+      }
       if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'emphasis' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
@@ -536,6 +546,20 @@
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>
         <ul data-build><li>first</li><li>second</li></ul>
         <aside class="notes"><p>Intro [whispers] here.</p><p>[click]</p><p>First item. [pause] Held.</p><p>[click]</p><p>Second.</p></aside>`;
+    }
+    // the inspector (I): a slide that clips, and one with shapes to select —
+    // an SVG node, grey text on white just under AA, an image with no alt
+    if (HARNESS_MODE === 'inspector') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Tall</h2>
+        <ul>${Array.from({ length: 40 }, (_, i) => `<li>line ${i + 1}</li>`).join('')}</ul></section>
+        <section><h2>Shapes</h2>
+        <svg viewBox="0 0 400 100" width="400" class="ins-svg"><g class="node"><rect x="10" y="10" width="120" height="60" fill="#224"/><text x="30" y="45" fill="#fff" font-size="24">API</text></g></svg>
+        <p class="ins-grey" style="font-size:16px;color:#777;background:#fff">quiet grey</p>
+        <img class="ins-img" alt="" width="40" height="40" src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'/%3E">
+        </section>`);
+      document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>
+        <ul data-build><li>first</li><li>second</li></ul>
+        <aside class="notes"><p>Intro.</p><p>[click]</p><p>First item.</p><p>[click]</p><p>Second.</p></aside>`;
     }
     if (HARNESS_MODE === 'linedraw') {
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Five</h2>
@@ -1714,87 +1738,102 @@
       // UNITS#REST: taking somebody else's slides. What matters is that the
       // panel is a CHOICE — the slides are ticked, not swallowed whole — and
       // that a slide needing a file this deck has not says so BEFORE it lands.
-      if (mode === 'sources') {
-        const P = '.decklight-sources';
-        r.hiddenOnTheSlide = getComputedStyle(
-          document.querySelector('aside.sources')).display === 'none';
+      // The inspector (I, PRESENTING): all about the slide, or the element
+      // selected on it, docked beside the slide and following it.
+      if (mode === 'inspector') {
+        const P = '.decklight-inspector';
+        await settle(); await settle();       // /deck/ping: editAvailable
+        r.sourcesHiddenOnTheSlide = getComputedStyle(document.querySelector('aside.sources')).display === 'none';
+        const facts = () => Object.fromEntries([...document.querySelectorAll(`${P} .ins-rows:first-of-type dd[data-key]`)]
+          .map((dd) => [dd.dataset.key, dd]));
+        const val = (k) => facts()[k]?.querySelector('.ins-value')?.textContent ?? '';
+        const marked = (k, m) => !!facts()[k]?.querySelector(m === 'ok' ? '.ins-ok' : '.ins-warn');
+        const title = () => document.querySelector(`${P} .ins-title`)?.textContent ?? '';
+        const gutter = (side) => parseFloat(document.querySelector('.decklight').style.getPropertyValue('--dock-' + side)) || 0;
 
         deck.goto(1, 0);
         await settle();
         press('i');
-        await settle();
-        r.quietWhenThereIsNone = !document.querySelector(P)
-          && [...document.querySelectorAll('.decklight-toast')]
-            .some((n) => /slide 1 does not say where it got that/.test(n.textContent));
-
-        deck.goto(2, 0);
-        await settle();
-        press('i');
-        await settle();
+        await settle(); await settle();
         r.opens = !!document.querySelector(P);
-        const facts = [...document.querySelectorAll(`${P} .src-facts dt`)].map((n) => n.textContent);
-        r.showsNamedFacts = facts.join(',') === 'owner,reviewed';
-        const rows = [...document.querySelectorAll(`${P} .narr-row`)];
-        r.showsLinks = rows.length === 2
-          && /KIP-98/.test(rows[0].textContent)
-          && /the original proposal/.test(rows[0].textContent);
-        // real links, so they can be opened in a new tab, copied, middle-clicked
-        r.rowsAreLinks = rows.every((n) => n.tagName === 'A' && n.target === '_blank'
-          && /noopener/.test(n.rel));
-        r.hrefKept = rows[0].getAttribute('href') === 'https://example.invalid/kip-98';
-        r.firstIsSelected = rows[0].classList.contains('narr-sel');
-        press('ArrowDown');
-        r.downMoves = [...document.querySelectorAll(`${P} .narr-row`)][1]
-          .classList.contains('narr-sel');
-        press('Escape');
-        r.escapeCloses = !document.querySelector(P);
+        r.docksRightByDefault = document.querySelector(P)?.dataset.dock === 'right' && gutter('right') > 100;
+        r.titleNamesTheSlide = /slide 1 \/ 6 · One/.test(title());
+        r.slideRows = ['layout', 'builds', 'notes', 'time', 'fit'].every((k) => k in facts());
+        r.fitsIsTicked = val('fit') === 'fits' && marked('fit', 'ok');
+        r.fileFromTheServer = val('file') === 'engine.html · lines 21–22';
+        r.checkFindingIsMarked = [...document.querySelectorAll(`${P} dd[data-key="check"]`)]
+          .some((dd) => /gone\.png/.test(dd.textContent) && dd.querySelector('.ins-warn'));
+        r.commentsCounted = val('comments') === 'none';
+        r.noSourcesSaid = document.querySelector(`${P} .ins-none`)?.textContent === 'none';
 
-        // docked, it is a reference open beside the talk (dock.js, as M docks)
-        press('i');
-        await settle();
-        document.querySelector(`${P} .dk-btn[data-mode="right"]`).click();
-        await settle();
-        r.docksRight = document.querySelector(P).dataset.dock === 'right';
-        r.reservesAGutter = parseFloat(getComputedStyle(document.querySelector('.decklight'))
-          .getPropertyValue('--dock-right')) > 0;
-        // and the deck stays navigable, the panel following the slide rather
-        // than showing the one you left
+        // it follows the slide, and the deck keeps its keys
         press('ArrowRight');
-        await settle();
-        r.deckStillNavigable = deck.state.slide === 3;
-        r.panelSurvivedTheJump = !!document.querySelector(P);
-        r.followsTheSlide = /sources — slide 3/.test(
-          document.querySelector(`${P} .src-heading`).textContent);
-        r.saysWhenThereIsNothing = /does not say where it got that|nothing here yet/
-          .test(document.querySelector(`${P} .narr-blocked`)?.textContent ?? '');
-        deck.goto(2, 0);
-        await settle();
-        r.backOnTwoItReads = !!document.querySelector(`${P} .narr-row[href]`);
-        document.querySelector(`${P} .dk-btn[data-mode="float"]`).click();
-        press('Escape');
-        r.gutterReleased = parseFloat(getComputedStyle(document.querySelector('.decklight'))
-          .getPropertyValue('--dock-right')) === 0;
+        await settle(); await settle();
+        r.deckStillNavigable = deck.state.slide === 2 && !!document.querySelector(P);
+        r.followsTheSlide = /slide 2 \/ 6 · Two/.test(title());
+        r.readsTheSources = [...document.querySelectorAll(`${P} .src-facts dt`)].map((n) => n.textContent).join(',') === 'owner,reviewed';
+        const links = [...document.querySelectorAll(`${P} .ins-link`)];
+        r.linksAreLinks = links.length === 2 && links.every((a) => a.tagName === 'A' && a.target === '_blank' && /noopener/.test(a.rel))
+          && links[0].getAttribute('href') === 'https://example.invalid/kip-98' && /the original proposal/.test(links[0].textContent);
 
-        // the palette offers it only where there is something to offer
-        press('/');
-        for (const ch of 'sources') press(ch);
-        r.paletteRowOnASlideWithSources = [...document.querySelectorAll('.decklight-palette .pal-row')]
-          .some((n) => /Sources for this slide/.test(n.textContent));
-        press('Escape');
-        deck.goto(1, 0);
+        // builds and notes: slide 3 has two steps and two ⟨CLICK⟩s
+        deck.goto(3, 1);
         await settle();
-        press('/');
-        for (const ch of 'sources') press(ch);
-        r.noPaletteRowWithout = ![...document.querySelectorAll('.decklight-palette .pal-row')]
-          .some((n) => /Sources for this slide/.test(n.textContent));
-        press('Escape');
+        r.buildsCounted = val('builds') === '2 steps · on 1';
 
-        r.PASS = r.hiddenOnTheSlide && r.quietWhenThereIsNone && r.opens && r.showsNamedFacts
-          && r.showsLinks && r.rowsAreLinks && r.hrefKept && r.firstIsSelected && r.downMoves
-          && r.escapeCloses && r.paletteRowOnASlideWithSources && r.noPaletteRowWithout
-          && r.docksRight && r.reservesAGutter && r.deckStillNavigable && r.panelSurvivedTheJump
-          && r.followsTheSlide && r.saysWhenThereIsNothing && r.backOnTwoItReads
-          && r.gutterReleased;
+        // a slide that clips says by how much
+        deck.goto(5, 0);
+        await settle(); await settle(); await settle();
+        r.clipIsMarked = /^clips/.test(val('fit')) && marked('fit', 'warn');
+
+        // ── a selection ── the panel turns to the element, with a breadcrumb
+        deck.goto(6, 0);
+        await settle();
+        const sec = document.querySelector('.decklight-stage > section.active');
+        const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        click(sec.querySelector('.ins-svg text'));
+        await settle();
+        const crumbs = () => [...document.querySelectorAll(`${P} .ins-crumb`)].map((n) => n.textContent);
+        r.crumbs = crumbs().join(' › ');
+        r.breadcrumbToTheClickedNode = r.crumbs === 'svg.ins-svg › g.node › "API"';
+        r.elementRows = val('element') === 'text' && /^x -?\d+ y -?\d+ · \d+×\d+$/.test(val('box'));
+        r.svgTextContrast = /:1$/.test(val('contrast')) && marked('contrast', 'ok');
+        r.fileOfTheBlock = val('file') === 'engine.html · lines 30–31';
+        // a crumb inspects the node it names
+        [...document.querySelectorAll(`${P} .ins-crumb`)][0].click();
+        await settle();
+        r.crumbMovesTheFocus = /^svg\.ins-svg · \d+ nodes$/.test(val('element')) && val('viewBox') === '0 0 400 100';
+        // grey text just under AA is said, and the figure is cut, not rounded up
+        click(sec.querySelector('.ins-grey'));
+        await settle();
+        r.contrast = val('contrast');
+        r.lowContrastIsMarked = val('contrast') === '4.4:1' && marked('contrast', 'warn');
+        click(sec.querySelector('.ins-img'));
+        await settle();
+        r.missingAltIsMarked = val('alt') === 'missing' && marked('alt', 'warn') && /^inline · /.test(val('image'));
+
+        // Copy hands over the facts as text
+        let copied = null;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { copied = t; } } });
+        document.querySelector(`${P} .ins-copy`).click();
+        await settle();
+        r.copiesTheFacts = /^slide 6, img\.ins-img/.test(copied ?? '') && /alt: ! missing/.test(copied ?? '');
+
+        // Esc lets go of the selection first, then closes
+        press('Escape');
+        await settle();
+        r.escapeBackToTheSlide = !!document.querySelector(P) && /slide 6 \/ 6 · Shapes/.test(title());
+        press('Escape');
+        await settle();
+        r.escapeCloses = !document.querySelector(P) && gutter('right') === 0;
+
+        // the palette names it, and I opens it again
+        press('/');
+        for (const ch of 'inspector') press(ch);
+        r.paletteRow = /Inspector/.test(document.querySelector('.decklight-palette .pal-row')?.textContent ?? '');
+        press('Escape');
+        try { localStorage.removeItem('decklight-inspector-dock:' + location.pathname); } catch {}
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || k === 'crumbs' || k === 'contrast' || v === true);
       }
 
       // Writing sources back (SLIDE_SOURCES). The editor is a DRAFT: nothing
@@ -1803,12 +1842,17 @@
         const P = '.decklight-sources';
         await settle();                       // /deck/ping: editAvailable
 
-        // a slide with none: I opens the editor rather than saying no, because
-        // "this slide has no sources" helps nobody who could add some
+        // a slide with none: the inspector (I) says so, and its e opens the
+        // editor, because "this slide has no sources" helps nobody who could
+        // add some
         deck.goto(1, 0);
         await settle();
         press('i');
         await settle();
+        r.inspectorOffersEditing = /e edits sources/.test(document.querySelector('.decklight-inspector .ins-foot')?.textContent ?? '');
+        press('e');
+        await settle();
+        r.inspectorMakesWay = !document.querySelector('.decklight-inspector');
         r.opensEmptyForAuthoring = !!document.querySelector(`${P} .src-edit-row`);
         r.startsWithOneLinkRow = document.querySelectorAll(`${P} .src-edit-row`).length === 1;
         press('Escape');
@@ -1819,7 +1863,7 @@
         await settle();
         press('i');
         await settle();
-        r.readsFirst = !!document.querySelector(`${P} .narr-row[href]`);
+        r.readsFirst = !!document.querySelector('.decklight-inspector .ins-link[href]');
         press('e');
         await settle();
         const fields = () => [...document.querySelectorAll(`${P} .src-field`)].map((n) => n.value);
@@ -1847,7 +1891,7 @@
         const said = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
         r.saysItSaved = said.some((t) => /sources saved on slide 2/.test(t) && /Z takes it back/.test(t));
 
-        r.PASS = r.opensEmptyForAuthoring && r.startsWithOneLinkRow && r.escapeWroteNothing
+        r.PASS = r.inspectorOffersEditing && r.inspectorMakesWay && r.opensEmptyForAuthoring && r.startsWithOneLinkRow && r.escapeWroteNothing
           && r.readsFirst && r.editSeedsFromTheSlide && r.typingDoesNotReachTheDeck
           && r.enterSaves && r.sentTheEditedFact && r.closesOnSave && r.saysItSaved;
       }

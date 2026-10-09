@@ -22,6 +22,7 @@ import { createEditMode } from './editmode.js';
 import { createAuthoring } from './authoring.js';
 import { createEditBar } from './editbar.js';
 import { createSources } from './sources.js';
+import { createInspector } from './inspector.js';
 import { createOnboarding, TIPS } from './onboarding.js';
 import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
@@ -542,6 +543,11 @@ export function init(userConfig = {}) {
     sectionAt: (idx) => instance._sections[idx - 1],
     editmode: () => editmode,
   });
+  // The inspector (I): built once the selection exists (after the editbar,
+  // far below) and registered last among the overlays, so a docked inspector
+  // never takes keys from a picker opened over it. Declared here because the
+  // chrome update that keeps it on the right slide can run before then.
+  let inspector = null;
 
   // Design systems… (SPEC DESIGN_SYSTEMS): the registered marketplaces'
   // design systems, toggled for this deck through the edit server
@@ -976,10 +982,13 @@ export function init(userConfig = {}) {
       // In write mode the row is always there, because opening it on a slide
       // with none is how you ADD them; a reader only sees it where there is
       // something to read.
-      (sources.has() || sources.canEdit()) && {
-        label: sources.has() ? 'Sources for this slide… (I)' : 'Add sources to this slide… (I)',
-        alias: 'sources references links reading provenance where citation info information cite',
-        run: () => sources.open() },
+      { label: 'Inspector', hint: 'I',
+        alias: 'inspect info information properties details facts sources references links provenance citation contrast box font',
+        run: () => inspector?.open() },
+      sources.canEdit() && {
+        label: sources.has() ? 'Edit sources on this slide…' : 'Add sources to this slide…',
+        alias: 'sources references links reading provenance where citation cite',
+        run: () => sources.edit() },
       // Somebody else's slides, into this deck (UNITS#REST). Write mode only:
       // it writes the deck on disk, and a template comes from a marketplace.
       // Two rows, not one row with a mode in it. The panel used to open in
@@ -1699,9 +1708,9 @@ export function init(userConfig = {}) {
     },
 
     _updateChrome() {
-      // a docked sources panel is a reference open beside the talk, so it
-      // follows the slide rather than showing the one you left (SLIDE_SOURCES)
-      sources.onSlide?.();
+      // a docked inspector is a reference open beside the talk, so it follows
+      // the slide (and the build step) rather than showing the one you left
+      inspector?.onSlide();
       if (progressBar) {
         const rec = this._records[this.state.slide - 1];
         const stepsTotal = rec ? rec.groups.length : 0;
@@ -2127,7 +2136,7 @@ export function init(userConfig = {}) {
       <tr><td>S</td><td>this slide's speaker notes — editable in write mode, read-only elsewhere</td></tr>
       <tr><td>⌥⏎ / Alt+Enter</td><td>speaker view — a second window with notes, next slide, timer (again: rehearse mode)</td></tr>
       <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
-      <tr><td>I</td><td>information — where this slide got what it says: named facts, and links to read</td></tr>
+      <tr><td>I</td><td>inspector — all about this slide, or the element selected on it: layout, builds, notes, fit, contrast, sources</td></tr>
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
@@ -2378,7 +2387,7 @@ export function init(userConfig = {}) {
       case 'r': case 'R': editmode.history.open(); break;
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': narration.openPicker(); break;   // everything about the voice
-      case 'i': case 'I': sources.open(); break;           // (I)nformation: where this slide got that
+      case 'i': case 'I': inspector?.open(); break;        // (I)nspector: all about this slide, or the selection
       // S — this slide's speaker notes, in the notes editor (write mode); the
       // speaker view, a second window for presenting, is ⌥⏎ above
       case 's': case 'S': toggleEditor(); break;
@@ -2759,6 +2768,12 @@ export function init(userConfig = {}) {
     root, instance, editmode, authoring, toast, debugLog,
     toggleEditor, cycleLayout, deckHistory,
     enabled: () => !printMode && !params.has('embedded') && !captureMode,
+  });
+  inspector = createInspector({
+    root, overlays, toast, copyText,
+    instance: () => instance, stage: () => stage,
+    editmode: () => editmode, editbar: () => editbar,
+    review: () => review, narration: () => narration, sources: () => sources,
   });
 
   // `hasTracks`, not `track`: narration is OFF until somebody picks, so a deck
