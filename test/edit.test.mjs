@@ -420,6 +420,21 @@ const post = (base, ep, body) => fetch(base + ep, {
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
+test('a project skill older than this install is named at startup, with the refresh to run', async (t) => {
+  // The agent that reads .claude/skills/decklight reads whatever decklight
+  // wrote it — and one written before 0.9.0 teaches `decklight author` and
+  // routes that moved. The agent cannot know; the server can.
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  mkdirSync(path.join(dir, '.claude', 'skills', 'decklight'), { recursive: true });
+  writeFileSync(path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md'), '---\nname: decklight\n---\n<!-- decklight skill 0.8.1 -->\nold');
+  writeFileSync(path.join(dir, 'AGENTS.md'), '# notes\n\n<!-- decklight:skill -->\n## Decklight decks\nold\n<!-- decklight:skill -->\n');
+  const { log } = await startEdit(t, dir, { env: { PATH: dir } });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.match(log(), /skill: \.claude\/skills\/decklight\/SKILL\.md \(v0\.8\.1\), AGENTS\.md \(before 0\.9\.0\) — older than this install/, 'both are named, with what they are');
+  assert.match(log(), /run decklight skills/, 'and the fix');
+});
+
 test('a deck that embeds a runtime older than this install is named at startup, with the upgrade to run', async (t) => {
   // Found by hand on the 0.9.0 pass: a September runtime inside the deck
   // probed /edit/ping, got a 404 from a server that only has /deck/ping, and

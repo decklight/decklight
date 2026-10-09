@@ -799,14 +799,31 @@ test('skills --all installs every supported agent', () => {
   rmTemp(dir);
 });
 
-test('skills refuses an existing skill file without --force, overwrites with it', () => {
+test('skills refreshes a skill older than this build without --force, refuses a current one, overwrites with it', () => {
+  // The files are derived content stamped with the version that wrote them.
+  // One from an older decklight (or from before the stamp) teaches an agent
+  // commands that went and routes that moved, so a re-run refreshes it; one
+  // that is already this version is left alone unless --force says so.
   const dir = mkdir();
   execFileSync('node', [CLI, 'skills', 'claude', '--dir', dir], { encoding: 'utf8' });
   const skillFile = path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md');
+  const refFile = path.join(dir, '.claude', 'skills', 'decklight', 'reference.md');
+  assert.match(fs.readFileSync(skillFile, 'utf8'), /<!-- decklight skill \d+\.\d+\.\d+/, 'stamped');
+  // current: refused
+  const same = spawnSync('node', [CLI, 'skills', 'claude', '--dir', dir], { encoding: 'utf8' });
+  assert.equal(same.status, 1);
+  assert.match(same.stderr, /already this version.*--force/);
+  // older (an earlier stamp): refreshed, the reference with it
+  fs.writeFileSync(skillFile, '---\nname: decklight\n---\n<!-- decklight skill 0.8.1 -->\nold');
+  fs.writeFileSync(refFile, 'old reference');
+  assert.equal(spawnSync('node', [CLI, 'skills', 'claude', '--dir', dir], { encoding: 'utf8' }).status, 0);
+  assert.doesNotMatch(fs.readFileSync(skillFile, 'utf8'), /0\.8\.1/);
+  assert.notEqual(fs.readFileSync(refFile, 'utf8'), 'old reference', 'the reference follows the SKILL.md beside it');
+  // before the stamp existed: refreshed too
   fs.writeFileSync(skillFile, 'stale');
-  const r = spawnSync('node', [CLI, 'skills', 'claude', '--dir', dir], { encoding: 'utf8' });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /already exists.*--force/);
+  assert.equal(spawnSync('node', [CLI, 'skills', 'claude', '--dir', dir], { encoding: 'utf8' }).status, 0);
+  assert.match(fs.readFileSync(skillFile, 'utf8'), /^---\nname: decklight\n/);
+  // --force always writes
   execFileSync('node', [CLI, 'skills', 'claude', '--dir', dir, '--force'], { encoding: 'utf8' });
   assert.match(fs.readFileSync(skillFile, 'utf8'), /^---\nname: decklight\n/);
   rmTemp(dir);
