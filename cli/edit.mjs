@@ -85,6 +85,7 @@ const startup = (key, text, human, mark) => {
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
 import { runMain, CommandError } from './util.mjs';
 import { PKG, AGENTS_MARKER, skillVersionOf } from './skill-content.mjs';
+import { selfCommand } from './pkg.mjs';
 import { semverCompare } from '../tools/semver.mjs';
 
 // The flags that take a value, so the deck can be found past them. `--git-mode`
@@ -1606,7 +1607,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
         ? `embeds runtime ${rt.version}; this install is ${rt.installedVersion}`
         : `embeds a runtime that is not this install's build${rt.installedVersion ? ` of ${rt.installedVersion}` : ''}`;
       startup('runtime',
-        `${basename(deckPath)} ${what} — it may not wire up to this server; decklight upgrade ${deckRel}`,
+        `${basename(deckPath)} ${what} · run: ${selfCommand()} upgrade ${deckRel}`,
         `  runtime: ${basename(deckPath)} ${what} — the deck may not wire up to this server; run decklight upgrade ${deckRel}`, 'warn');
     }
   }
@@ -1624,12 +1625,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
       try { text = readFileSync(file, 'utf8'); } catch { continue; }
       if (rel === 'AGENTS.md' && !text.includes(AGENTS_MARKER)) continue;
       const v = skillVersionOf(text);
-      if (v === null || (semverCompare(v, PKG.version) ?? -1) < 0) older.push(`${rel} (${v ? `v${v}` : 'before 0.9.0'})`);
+      if (v === null || (semverCompare(v, PKG.version) ?? -1) < 0) older.push({ rel, v });
     }
     if (older.length) {
       startup('skill',
-        `${older.join(', ')} is older than this install (${PKG.version}) — an agent reads an old contract; decklight skills`,
-        `  skill: ${older.join(', ')} — older than this install (${PKG.version}): an agent reads an old contract; run decklight skills`, 'warn');
+        // the row is the fact and the command to type, nothing else
+        `${older.map((o) => `${basename(o.rel)} ${o.v ? `v${o.v}` : 'before 0.9.0'}`).join(', ')}, older than ${PKG.version} · run: ${selfCommand()} skills`,
+        `  skill: ${older.map((o) => `${o.rel} (${o.v ? `v${o.v}` : 'before 0.9.0'})`).join(', ')} — older than this install (${PKG.version}): an agent reads an old contract; run ${selfCommand()} skills`, 'warn');
     }
   }
   // Said out loud, every session it is on: this is the switch that starts
