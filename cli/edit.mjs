@@ -448,6 +448,20 @@ const STYLE_PROPS = new Set(['fill', 'color', 'background-color', 'stroke', 'bor
 // reads it, `px` on a box the way CSS does — never anything that is not one
 const WIDTH_PROPS = new Set(['stroke-width', 'border-width']);
 const WIDTH_VALUE = /^(?:\d{1,2}(?:\.\d{1,2})?)(?:px)?$/;
+// the colour card's Type side: the size in px (deck units: the stage is
+// scaled, not the text), a weight in hundreds, one of the theme's three font
+// roles by reference (never a family name, so the type follows `T` and a
+// deck's marked fonts), and where a line sits. Each a closed shape.
+const TYPE_VALUES = {
+  'font-size': /^(?:[1-9]\d{0,2}(?:\.\d)?)px$/,
+  'font-weight': /^[1-9]00$/,
+  'font-family': /^var\(--font-(?:heading|body|mono)\)$/,
+  'font-style': /^(?:normal|italic)$/,
+  'text-anchor': /^(?:start|middle|end)$/,
+  'text-align': /^(?:left|center|right)$/,
+};
+const kindOf = (prop) => (STYLE_PROPS.has(prop) ? 'colour' : WIDTH_PROPS.has(prop) ? 'width' : Object.hasOwn(TYPE_VALUES, prop) ? prop.replace('-', ' ') : null);
+const valueShape = (prop) => (STYLE_PROPS.has(prop) ? STYLE_VALUE : WIDTH_PROPS.has(prop) ? WIDTH_VALUE : TYPE_VALUES[prop]);
 
 /** The page and the file disagree about what is where: a 409, not a bad request. */
 const stale = (message) => Object.assign(new Error(message), { code: 'STALE' });
@@ -482,9 +496,9 @@ export function setElementStyles(html, slide, index, edits) {
   // each edit re-walks from the top: the one before it changed the offsets
   for (const e of edits) {
     if (!Array.isArray(e?.path) || e.path.length > 16 || e.path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
-    if (!STYLE_PROPS.has(e.prop) && !WIDTH_PROPS.has(e.prop)) throw new Error(`not a colour property: ${e.prop}`);
-    const okValue = WIDTH_PROPS.has(e.prop) ? WIDTH_VALUE : STYLE_VALUE;
-    if (e.value !== null && (typeof e.value !== 'string' || !okValue.test(e.value))) throw new Error(`not a ${WIDTH_PROPS.has(e.prop) ? 'width' : 'colour'} this server writes: ${String(e.value).slice(0, 40)}`);
+    const kind = kindOf(e.prop);
+    if (!kind) throw new Error(`not a property this server writes: ${String(e.prop).slice(0, 40)}`);
+    if (e.value !== null && (typeof e.value !== 'string' || !valueShape(e.prop).test(e.value))) throw new Error(`not a ${kind} this server writes: ${String(e.value).slice(0, 40)}`);
     let start = 0; let end = el.length;
     for (const n of e.path) {
       const kids = elementChildRanges(el.slice(start, end));

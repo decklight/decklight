@@ -294,7 +294,7 @@ const h = (tag, cls, text) => {
  * (`pageDesignSystems()`), whose palettes follow the theme's. Returns
  * `{ el, close, apply, isOpen }`.
  */
-export function openColorPicker({ root, dock, targets, systems = [], onApply, onClose, onDetach }) {
+export function openColorPicker({ root, dock, targets, systems = [], onApply, onClose, onDetach, side: startSide = null }) {
   const SIDES = ['fill', 'stroke', 'text'];
   targets.stroke ??= [];
   const all = [...targets.fill, ...targets.stroke, ...targets.text];
@@ -306,7 +306,16 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
   const widthBefore = new Map(targets.stroke.map((t) => [t, saved(t.el, widthProp(t))]));
   // undefined: untouched · null: reset · string: the value to write
   const picks = { fill: undefined, stroke: undefined, text: undefined, width: undefined };
-  let side = targets.fill.length ? 'fill' : targets.stroke.length ? 'stroke' : 'text';
+  // the Type side (PRESENTING): the text targets' size, weight, font role,
+  // italic and alignment, prop → the same undefined / null / value as picks
+  const typePicks = {};
+  const isSvg = (t) => t.el instanceof SVGElement;
+  const alignProp = (t) => (isSvg(t) ? 'text-anchor' : 'text-align');
+  const TYPE_PROPS = ['font-size', 'font-weight', 'font-family', 'font-style', 'align'];
+  const propFor = (t, p) => (p === 'align' ? alignProp(t) : p);
+  const typeBefore = new Map(targets.text.map((t) => [t, new Map(TYPE_PROPS.map((p) => [p, saved(t.el, propFor(t, p))]))]));
+  let side = startSide === 'type' && targets.text.length ? 'type'
+    : targets.fill.length ? 'fill' : targets.stroke.length ? 'stroke' : 'text';
   let tab = 'theme';
   let model = 'rgb';
   let rgb = { r: 128, g: 128, b: 128 };
@@ -319,7 +328,7 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
   // the header is built once: it is the drag handle, and a handle that is
   // re-created on every pick drops the drag that is holding it
   const head = h('div', 'narr-head');
-  head.append(h('span', 'cp-title', `colors — ${targets.what} · ⏎ applies`));
+  head.append(h('span', 'cp-title', `colors & type — ${targets.what} · ⏎ applies`));
   const main = h('div', 'cp-main');
   card.append(head, main);
   el.appendChild(card);
@@ -327,7 +336,7 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
   const authored = (s) => targets[s][0]?.el.style.getPropertyValue(targets[s][0].prop).trim() ?? '';
   const computedName = (prop) => ({ 'background-color': 'backgroundColor', 'border-color': 'borderColor' }[prop] ?? prop);
   const current = (s) => {
-    const t = targets[s][0];
+    const t = targets[s]?.[0];   // the Type side has no colour of its own
     return t ? resolveColor(getComputedStyle(t.el)[computedName(t.prop)]) : null;
   };
   /** The stroke's width as the shape has it now: a pick, else the computed value, in px. */
@@ -350,7 +359,14 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     }
   }
   function pick(value) { picks[side] = value; preview(side, value); render(); }
-  function restore() { for (const s of SIDES) preview(s, null); previewWidth(null); }
+  function previewType(p, value) {
+    for (const t of targets.text) {
+      const prop = propFor(t, p);
+      if (value === null) { const [v, pr] = typeBefore.get(t).get(p); v ? t.el.style.setProperty(prop, v, pr) : t.el.style.removeProperty(prop); }
+      else t.el.style.setProperty(prop, value);
+    }
+  }
+  function restore() { for (const s of SIDES) preview(s, null); previewWidth(null); for (const p of TYPE_PROPS) previewType(p, null); }
   function syncFromTarget() { const c = current(side); if (c) { rgb = c; hsb = rgbToHsb(c); } }
 
   function segmented(cls, label, options, value, onPick) {
@@ -475,6 +491,64 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     body.appendChild(row);
   }
 
+  /**
+   * The Type side: a size in px, a weight, one of the theme's three font
+   * roles by reference (the type then follows `T` and a deck's marked fonts,
+   * never a family name pinned in the markup), italic, and where the line
+   * sits: `text-anchor` on a diagram label, `text-align` on a block. Every
+   * change previews at once; Apply saves them with the colours.
+   */
+  function renderType(body) {
+    const t = targets.text[0];
+    const cs = getComputedStyle(t.el);
+    const typePick = (p, value) => { typePicks[p] = value; previewType(p, value); render(); };
+    const row = (name, ...kids) => { const r = h('div', 'cp-chan cp-typerow'); r.append(h('span', 'cp-chan-name', name), ...kids); body.appendChild(r); };
+
+    const sizeNow = String(Math.round(parseFloat(typePicks['font-size'] ?? cs.fontSize) || 16));
+    const range = h('input', 'cp-range cp-size'); range.type = 'range';
+    const num = h('input', 'cp-num cp-size'); num.type = 'number';
+    for (const i of [range, num]) { i.min = '8'; i.max = '160'; i.step = '1'; i.value = sizeNow; i.dataset.chan = 'size'; }
+    range.setAttribute('aria-label', 'Text size');
+    num.setAttribute('aria-label', 'Text size value');
+    const setSize = (v) => {
+      const n = clamp(Math.round(Number(v)) || 16, 8, 160);
+      typePicks['font-size'] = `${n}px`;
+      previewType('font-size', typePicks['font-size']);
+      range.value = num.value = String(n);
+      card.querySelector('.cp-apply').disabled = false;
+    };
+    // dragging repaints the slide but not the card: a re-render mid-drag would drop the thumb
+    range.addEventListener('input', () => setSize(range.value));
+    num.addEventListener('change', () => setSize(num.value));
+    row('Size', range, num);
+
+    const weightNow = String(typePicks['font-weight'] ?? (Math.round((Number(cs.fontWeight) || 400) / 100) * 100));
+    row('Weight', segmented('cp-weight', 'Weight', [
+      { id: '400', label: 'Regular', title: '400' }, { id: '500', label: 'Medium', title: '500' }, { id: '600', label: 'Semi', title: 'semibold · 600' },
+      { id: '700', label: 'Bold', title: '700' }, { id: '800', label: 'Heavy', title: '800' },
+    ], weightNow, (id) => typePick('font-weight', id)));
+
+    // the role the text is set in: the one picked, else the one its family is
+    const style = getComputedStyle(root);
+    const norm = (f) => String(f).replace(/["']/g, '').replace(/\s*,\s*/g, ',').trim().toLowerCase();
+    const roleNow = (typePicks['font-family'] ?? t.el.style.getPropertyValue('font-family')).match(/--font-(heading|body|mono)/)?.[1]
+      ?? ['heading', 'body', 'mono'].find((r) => style.getPropertyValue(`--font-${r}`).trim() && norm(style.getPropertyValue(`--font-${r}`)) === norm(cs.fontFamily));
+    row('Font', segmented('cp-family', 'Font', ['heading', 'body', 'mono'].map((r) => ({
+      id: r, label: r[0].toUpperCase() + r.slice(1), title: `the theme's ${r} font · var(--font-${r})`,
+      disabled: !style.getPropertyValue(`--font-${r}`).trim(),
+    })), roleNow, (id) => typePick('font-family', `var(--font-${id})`)));
+
+    const italic = (typePicks['font-style'] ?? cs.fontStyle) === 'italic';
+    const it = h('button', 'cp-btn cp-italic', 'Italic'); it.type = 'button';
+    it.setAttribute('aria-pressed', String(italic));
+    it.addEventListener('click', () => typePick('font-style', italic ? 'normal' : 'italic'));
+    const anchors = isSvg(t)
+      ? [{ id: 'start', label: 'Start' }, { id: 'middle', label: 'Middle' }, { id: 'end', label: 'End' }]
+      : [{ id: 'left', label: 'Left' }, { id: 'center', label: 'Center' }, { id: 'right', label: 'Right' }];
+    const alignNow = typePicks.align ?? (isSvg(t) ? cs.textAnchor : ({ start: 'left', end: 'right', justify: 'left' }[cs.textAlign] ?? cs.textAlign));
+    row('Align', segmented('cp-align', 'Align', anchors, alignNow, (id) => typePick('align', id)), it);
+  }
+
   function renderConcept(body) {
     const note = h('div', 'cp-notice');
     note.append(h('span', 'cp-notice-text', `this shape is the “${targets.concept.name}” concept — the deck colours it, and a fill picked here would be painted over on the next load. Pin the concept's slot in / → Concept colors…, or`));
@@ -493,25 +567,38 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
       { id: 'fill', label: 'Fill', disabled: !targets.fill.length, title: targets.fill.length ? 'the shape’s background' : 'nothing here has a background to color' },
       { id: 'stroke', label: 'Stroke', disabled: !targets.stroke.length, title: targets.stroke.length ? 'the shape’s border, and how wide it is' : 'nothing here has a border' },
       { id: 'text', label: 'Text', disabled: !targets.text.length, title: targets.text.length ? 'the text on it' : 'this shape carries no text' },
-    ], side, (id) => { side = id; if (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var(')) syncFromTarget(); else setRgb(hexToRgb(picks[side])); render(); }));
+      { id: 'type', label: 'Type', disabled: !targets.text.length, title: targets.text.length ? 'the text’s size, weight, font and alignment' : 'this shape carries no text' },
+    ], side, (id) => { side = id; if (side === 'type') { render(); return; } if (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var(')) syncFromTarget(); else setRgb(hexToRgb(picks[side])); render(); }));
     if (side === 'stroke') renderWidth(main);
-    main.appendChild(segmented('cp-tabs', 'Color source', [{ id: 'theme', label: 'Theme' }, { id: 'custom', label: 'Custom' }], tab, (id) => {
+    if (side === 'type') {
+      const body = h('div', 'cp-body cp-type');
+      renderType(body);
+      main.appendChild(body);
+    } else main.appendChild(segmented('cp-tabs', 'Color source', [{ id: 'theme', label: 'Theme' }, { id: 'custom', label: 'Custom' }], tab, (id) => {
       tab = id;
       // Custom opens on the colour the target HAS — a token pick included — so the sliders start from what you see
       if (tab === 'custom' && (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var('))) syncFromTarget();
       render();
     }));
-    const body = h('div', 'cp-body');
-    body.dataset.tab = tab;
-    // the Fill of a concept shape is the deck's (SPEC SVG_DIAGRAMS): the
-    // concept repaints it on every load, so a fill picked here would be
-    // lost; the side says so and offers the one thing that would take
-    if (side === 'fill' && targets.concept) renderConcept(body); else (tab === 'theme' ? renderTheme : renderCustom)(body);
-    main.appendChild(body);
+    if (side !== 'type') {
+      const body = h('div', 'cp-body');
+      body.dataset.tab = tab;
+      // the Fill of a concept shape is the deck's (SPEC SVG_DIAGRAMS): the
+      // concept repaints it on every load, so a fill picked here would be
+      // lost; the side says so and offers the one thing that would take
+      if (side === 'fill' && targets.concept) renderConcept(body); else (tab === 'theme' ? renderTheme : renderCustom)(body);
+      main.appendChild(body);
+    }
     const foot = h('div', 'cp-foot');
     const reset = h('button', 'cp-btn cp-reset', 'Reset'); reset.type = 'button';
     reset.title = 'take the picked color off — back to what the theme or the markup gives it';
+    if (side === 'type') reset.title = 'take the picked type off — back to what the theme or the markup gives it';
     reset.addEventListener('click', () => {
+      if (side === 'type') {
+        for (const p of TYPE_PROPS) { typePicks[p] = null; for (const t of targets.text) t.el.style.removeProperty(propFor(t, p)); }
+        render();
+        return;
+      }
       picks[side] = null; for (const t of targets[side]) t.el.style.removeProperty(t.prop);
       if (side === 'stroke') { picks.width = null; for (const t of targets.stroke) t.el.style.removeProperty(widthProp(t)); }
       render();
@@ -519,7 +606,7 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     const cancel = h('button', 'cp-btn', 'Cancel'); cancel.type = 'button';
     cancel.addEventListener('click', close);
     const ok = h('button', 'cp-btn cp-apply', 'Apply'); ok.type = 'button';
-    ok.disabled = SIDES.every((s) => picks[s] === undefined) && picks.width === undefined;
+    ok.disabled = SIDES.every((s) => picks[s] === undefined) && picks.width === undefined && TYPE_PROPS.every((p) => typePicks[p] === undefined);
     ok.addEventListener('click', apply);
     foot.append(reset, h('span', 'cp-spacer'), cancel, ok);
     main.appendChild(foot);
@@ -549,6 +636,10 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     }
     if (picks.width !== undefined) {
       for (const t of targets.stroke) edits.push({ path: t.path, tag: t.tag, prop: widthProp(t), value: picks.width === null ? null : `${picks.width}${t.prop === 'stroke' ? '' : 'px'}` });
+    }
+    for (const p of TYPE_PROPS) {
+      if (typePicks[p] === undefined) continue;
+      for (const t of targets.text) edits.push({ path: t.path, tag: t.tag, prop: propFor(t, p), value: typePicks[p] });
     }
     // the preview STAYS: the save reloads the deck, and a slide that flashed
     // back to its old colours in between would read as a failed save
