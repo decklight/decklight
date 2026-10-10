@@ -1642,7 +1642,8 @@ export function createEditMode({
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
       rows.push({ label: 'Remove element', run: () => commitRemove() });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
-      rows.push({ label: 'Colors…', run: openColors });
+      rows.push({ label: 'Colors…', run: () => openColors() });
+      rows.push({ label: 'Type…', run: () => openColors('type') });
       if (conceptOf(menuTarget.top, menuTarget.clicked)) rows.push({ label: 'Concept ▸', run: () => { menuView = 'concept'; renderElementMenu(); } });
       rows.push({ label: 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
@@ -1814,15 +1815,16 @@ export function createEditMode({
     getEl: () => colorCard?.el ?? null,
     closeLabel: 'close (esc)',
   });
-  function openColors() {
+  function openColors(side = null) {
     const { slide, index, top, clicked } = menuTarget;
     closeElementMenu();
     colorCard?.close();   // a second shape: the first one's preview goes back before this one's starts
     const targets = colorTargets(top, clicked);
-    if (!targets) { toast('nothing here to color — right-click a shape, its label, or a block', 2600); return; }
+    if (!targets) { toast(`nothing here to ${side === 'type' ? 'set the type of' : 'color'} — right-click a shape, its label, or a block`, 2600); return; }
+    if (side === 'type' && !targets.text.length) { toast('this shape carries no text — right-click its label, or a block', 2600); return; }
     overlays.opening();
     colorCard = openColorPicker({
-      root, dock: colorDock, targets,
+      root, dock: colorDock, targets, side,
       // the deck's design systems' palettes follow the theme's (SPEC DESIGN_SYSTEMS)
       systems: [...pageDesignSystems().values()],
       onClose: () => { colorCard = null; },
@@ -1836,9 +1838,11 @@ export function createEditMode({
           });
           const j = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(j.error || res.status);
-          toast(j.changed ? 'colors saved — reloading · Z takes them back' : 'colors unchanged');
+          const what = edits.every((e) => /^(font-|text-)/.test(e.prop)) ? 'type' : edits.some((e) => /^(font-|text-)/.test(e.prop)) ? 'colors and type' : 'colors';
+          toast(j.changed ? `${what} saved — reloading · Z takes ${what === 'type' ? 'it' : 'them'} back` : `${what} unchanged`);
         } catch (e) {
           for (const t of [...targets.fill, ...(targets.stroke ?? []), ...targets.text]) { t.el.style.removeProperty(t.prop); if (t.prop === 'stroke') t.el.style.removeProperty('stroke-width'); if (t.prop === 'border-color') t.el.style.removeProperty('border-width'); }
+          for (const e of edits) targets.text.find((t) => t.path.join() === e.path.join())?.el.style.removeProperty(e.prop);
           toast(`colors not saved: ${String(e.message || e).slice(0, 90)}`, 3400);
         }
       },

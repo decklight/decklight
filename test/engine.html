@@ -647,7 +647,9 @@
     // the palette's tokens are given inline (a secondary that IS one).
     if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
       const tokens = { '--accent': '#5ee6c0', '--accent-contrast': '#04261c', '--link': '#8ecbff', '--fg': '#eef0ff', '--bg': '#0d1b3d',
-        '--d-text': '#f2ece4', '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-3': '#223355' };
+        '--d-text': '#f2ece4', '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-3': '#223355',
+        // two of the three font roles: the Type side offers what the theme defines
+        '--font-heading': 'Georgia, serif', '--font-body': 'system-ui, sans-serif' };
       for (const [k, v] of Object.entries(tokens)) document.querySelector('.decklight').style.setProperty(k, v);
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Colours</h2>
         <svg viewBox="0 0 800 200" width="800" aria-label="one labelled box">
@@ -4513,12 +4515,60 @@
         press('Escape');
         r.escapeRestoresWidth = box.style.strokeWidth === '3';
 
+        // the Type side (PRESENTING): the menu's Type… opens the card on it;
+        // size, weight, a font ROLE by reference, italic and alignment preview
+        // and land in the one save; Esc puts them back; a block aligns by text-align
+        const openType = (el) => {
+          rightClick(el);
+          [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === 'Type…')?.click();
+        };
+        openType(label);
+        r.typeOpensOnTypeSide = q('.cp-side [aria-selected="true"]')?.dataset.id === 'type' && !q('.cp-tabs')
+          && [...document.querySelectorAll(`${C} .cp-typerow .cp-chan-name`)].map((n) => n.textContent).join('|') === 'Size|Weight|Font|Align';
+        type(q('.cp-num.cp-size'), '40');
+        q('.cp-weight [data-id="700"]').click();
+        q('.cp-family [data-id="heading"]').click();
+        q('.cp-align [data-id="middle"]').click();
+        q('.cp-italic').click();
+        r.typePreviews = label.style.fontSize === '40px' && label.style.fontWeight === '700' && label.style.fontFamily === 'var(--font-heading)'
+          && label.style.textAnchor === 'middle' && label.style.fontStyle === 'italic';
+        r.typeRowsShowThePicks = q('.cp-num.cp-size').value === '40' && q('.cp-weight [data-id="700"]').getAttribute('aria-selected') === 'true'
+          && q('.cp-family [data-id="heading"]').getAttribute('aria-selected') === 'true' && q('.cp-italic').getAttribute('aria-pressed') === 'true';
+        r.onlyTheThemesRoles = q('.cp-family [data-id="mono"]').disabled && !q('.cp-family [data-id="body"]').disabled;
+        q('.cp-apply').click();
+        await settle();
+        const typePost = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style')).pop()?.body.edits ?? [];
+        const sentType = Object.fromEntries(typePost.map((e) => [e.prop, e.value]));
+        r.typePosted = typePost.length === 5 && typePost.every((e) => e.tag === 'text' && JSON.stringify(e.path) === JSON.stringify(typePost[0].path))
+          && sentType['font-size'] === '40px' && sentType['font-weight'] === '700' && sentType['font-family'] === 'var(--font-heading)'
+          && sentType['text-anchor'] === 'middle' && sentType['font-style'] === 'italic';
+        openType(label);
+        type(q('.cp-num.cp-size'), '80');
+        r.typeSideStartsFromTheText = q('.cp-family [data-id="heading"]').getAttribute('aria-selected') === 'true';
+        press('Escape');
+        r.escapeRestoresType = label.style.fontSize === '40px';
+        openType(label);
+        q('.cp-reset').click();
+        q('.cp-apply').click();
+        await settle();
+        const resetType = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style')).pop()?.body.edits ?? [];
+        r.typeResetPostsNull = resetType.length === 5 && resetType.every((e) => e.value === null) && !label.style.fontSize;
+        openType(document.querySelector('.cp-quote'));
+        r.blockAlignsByTextAlign = [...document.querySelectorAll(`${C} .cp-align .cp-seg-btn`)].map((b) => b.textContent).join('|') === 'Left|Center|Right';
+        q('.cp-align [data-id="center"]').click();
+        q('.cp-apply').click();
+        await settle();
+        const blockType = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style')).pop()?.body.edits ?? [];
+        r.blockTypePosted = blockType.length === 1 && blockType[0].prop === 'text-align' && blockType[0].value === 'center' && blockType[0].tag === 'blockquote';
+
         r.PASS = r.opens && r.docks && r.themeTabFirst && r.primaryAndSecondaryNamed && r.fillsNumbered
           && r.undefinedTokensLeftOut && r.currentMarked && r.applyWaitsForAPick && r.previewsToken
           && r.escapeRestores && r.customHasRgb && r.customStartsFromTheTarget && r.customHasHsb
           && r.hsbPreviews && r.hexTyped && r.postsBoth && r.pathIsTheFiles && r.closesOnApply
           && r.labelFindsItsBox && r.resetPostsNull && r.htmlBlock
-          && r.strokeSide && r.widthRowOnStroke && r.strokePreviews && r.widthPreviews && r.strokePosted && r.escapeRestoresWidth;
+          && r.strokeSide && r.widthRowOnStroke && r.strokePreviews && r.widthPreviews && r.strokePosted && r.escapeRestoresWidth
+          && r.typeOpensOnTypeSide && r.typePreviews && r.typeRowsShowThePicks && r.onlyTheThemesRoles && r.typePosted
+          && r.typeSideStartsFromTheText && r.escapeRestoresType && r.typeResetPostsNull && r.blockAlignsByTextAlign && r.blockTypePosted;
       }
 
       if (mode === 'concepts') {
@@ -4701,7 +4751,7 @@
         rightClick(h1);
         r.opensOnElement = !!document.querySelector(M);
         r.fullMenuRows = JSON.stringify(rowsText())
-          === JSON.stringify(['Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Add text effect ▸', 'Slide ▸']);
+          === JSON.stringify(['Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Add text effect ▸', 'Slide ▸']);
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;
         press('ArrowDown');

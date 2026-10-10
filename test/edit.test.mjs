@@ -654,7 +654,7 @@ test('element edit mode: source, content, effect, and remove all land on the und
   assert.equal((await post(base, '/deck/edit/element/remove', { slide: 1, index: 99 })).status, 400);
 });
 
-test('element colours: a shape and its label in one edit, by path, and only ever a colour', async (t) => {
+test('element colours: a shape and its label in one edit, by path, and only ever a colour, a width or a type setting', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const SVG = '<svg viewBox="0 0 100 50"><!-- a note --><g><rect width="40" height="20" style="fill: var(--d-fill-1); stroke: red"/><text x="5" y="10">hi</text></g><circle r="3"/></svg>';
@@ -680,6 +680,21 @@ test('element colours: a shape and its label in one edit, by path, and only ever
     assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...stroke, prop: 'stroke-width', value: bad }] })).status, 400, `width ${bad}`);
   }
   assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...stroke, prop: 'border-width', value: '2px' }] })).status, 200, 'a box takes px');
+
+  // the Type side: size, weight, a font ROLE by reference, italic, where the line sits — one edit
+  const type = (prop, value) => ({ path: [0, 1], tag: 'text', prop, value });
+  r = await (await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [
+    type('font-size', '18px'), type('font-weight', '700'), type('font-family', 'var(--font-heading)'), type('font-style', 'italic'), type('text-anchor', 'middle'),
+  ] })).json();
+  assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 4 });
+  assert.match(readFileSync(deck, 'utf8'), /<text x="5" y="10" style="fill: #ffb319; font-size: 18px; font-weight: 700; font-family: var\(--font-heading\); font-style: italic; text-anchor: middle">hi<\/text>/);
+  for (const [prop, bad] of [['font-size', '18'], ['font-size', '0px'], ['font-size', '1em'], ['font-size', '2000px'], ['font-weight', 'bold'], ['font-weight', '750'],
+    ['font-family', 'Comic Sans'], ['font-family', 'var(--font-x)'], ['font-family', 'var(--font-body), serif'], ['font-style', 'oblique'],
+    ['text-anchor', 'center'], ['text-align', 'justify'], ['constructor', 'x'], ['font-variant', 'small-caps']]) {
+    assert.equal((await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [type(prop, bad)] })).status, 400, `${prop} ${bad}`);
+  }
+  r = await (await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: ['font-size', 'font-weight', 'font-family', 'font-style', 'text-anchor'].map((p) => type(p, null)) })).json();
+  assert.match(readFileSync(deck, 'utf8'), /<text x="5" y="10" style="fill: #ffb319">hi<\/text>/, 'and every one of them comes back off');
 
   // null takes it back off, and an emptied style attribute goes with it
   r = await (await post(base, '/deck/edit/element/style', { slide: 1, index: 1, edits: [{ ...text, value: null }] })).json();

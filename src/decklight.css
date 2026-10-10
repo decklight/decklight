@@ -2372,6 +2372,12 @@
 }
 .decklight-colorpicker .cp-hex { flex: 1; width: auto; }
 .decklight-colorpicker .cp-hexrow { margin-top: 4px; }
+/* the Type side: a label column wide enough for its words, the controls beside it */
+.decklight-colorpicker .cp-typerow .cp-chan-name { flex: none; width: 46px; }
+.decklight-colorpicker .cp-typerow .cp-seg { flex: 1; min-width: 0; flex-wrap: wrap; }
+.decklight-colorpicker .cp-typerow .cp-seg-btn { padding: 4px 6px; }
+.decklight-colorpicker .cp-italic[aria-pressed="true"] { background: rgba(255, 255, 255, .16); color: #fff; font-style: italic; }
+.decklight-colorpicker[data-dock="bottom"] .cp-body.cp-type { max-width: 520px; }
 .decklight-colorpicker .cp-foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .12); }
 .decklight-colorpicker .cp-spacer { flex: 1; }
 .decklight-colorpicker .cp-btn {
