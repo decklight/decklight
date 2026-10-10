@@ -17,7 +17,8 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
-import { colorTargets, openColorPicker, conceptOf } from './colorpicker.js';
+import { conceptOf, pathFrom } from './colorpicker.js';
+import { pickNode } from './pick.js';
 import { rangeLabel } from './ranges.js';
 import { agentChipText, boundedFetch, commitChipParts, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
@@ -627,6 +628,11 @@ export function createEditMode({
               const d = JSON.parse(ev.data);
               if (d.from !== PAGE_ID && typeof d.theme === 'string') root.dispatchEvent(new CustomEvent('decklight:theme', { detail: { theme: d.theme } }));
             } catch { /* malformed: the next reload settles it */ }
+          });
+          // colours or type picked in another page's inspector, written in
+          // place there: this page has the old ones, and reloads for the new
+          es.addEventListener('styles', (ev) => {
+            try { if (JSON.parse(ev.data).from !== PAGE_ID) location.reload(); } catch { /* malformed: the next reload settles it */ }
           });
           // a layout picked on another page: put it on the slide here, no reload
           es.addEventListener('layout', (ev) => {
@@ -1582,7 +1588,9 @@ export function createEditMode({
       return null;
     }
     const child = topLevelChild(sec, node);
-    return { sec, slide, index: child ? authoredIndex(sec, child) : null, top: child, clicked: node };
+    // `node` is what the click means inside the block: the deepest drawn node
+    // in a diagram (pick.js), the block itself anywhere else
+    return { sec, slide, index: child ? authoredIndex(sec, child) : null, top: child, clicked: node, node: child ? pickNode(child, node) : null };
   }
 
   /** The direct child of `sec` that contains `target`, or null for the bare background (target IS sec). */
@@ -1639,11 +1647,14 @@ export function createEditMode({
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     } else {
+      const nested = menuTarget.node && menuTarget.node !== menuTarget.top;
+      if (inspectHook) rows.push({ label: 'Inspect', run: () => openInspect() });
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
-      rows.push({ label: 'Remove element', run: () => commitRemove() });
+      rows.push({ label: nested ? `Remove this ${menuTarget.node.tagName.toLowerCase()}` : 'Remove element', run: () => commitRemove() });
+      if (nested) rows.push({ label: `Remove the whole ${menuTarget.top.tagName.toLowerCase()}`, run: () => commitRemove(menuTarget, { whole: true }) });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
-      rows.push({ label: 'Colors…', run: () => openColors() });
-      rows.push({ label: 'Type…', run: () => openColors('type') });
+      rows.push({ label: 'Colors…', run: () => openInspect('colors') });
+      rows.push({ label: 'Type…', run: () => openInspect('type') });
       if (conceptOf(menuTarget.top, menuTarget.clicked)) rows.push({ label: 'Concept ▸', run: () => { menuView = 'concept'; renderElementMenu(); } });
       rows.push({ label: 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
@@ -1726,14 +1737,18 @@ export function createEditMode({
     }
   }
 
-  async function commitRemove(target = menuTarget) {
+  async function commitRemove(target = menuTarget, { whole = false } = {}) {
     const { slide, index } = target;
     closeElementMenu();
     if (index === null) { toast('nothing selected to remove', 2000); return; }
+    // a node picked inside a diagram goes alone, by the file's path to it
+    const node = whole ? null : target.node && target.node !== target.top ? target.node : null;
+    const path = node ? pathFrom(target.top, node) : null;
+    if (node && !path) { toast('that node is the engine’s, not the file’s — nothing to remove', 2600); return; }
     try {
       const res = await writeFetch(editBase + '/deck/edit/element/remove', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ slide, index }),
+        body: JSON.stringify(path ? { slide, index, path, tag: node.tagName.toLowerCase() } : { slide, index }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || res.status);
@@ -1804,49 +1819,30 @@ export function createEditMode({
     input.focus();
   }
 
-  // "Colors…" — the background of the shape under the click and the text on
-  // it (colorpicker.js). The card takes the menu's place at the same point;
-  // what it saves is one POST and one undo entry for the pair.
-  let colorCard = null;
-  const colorDock = createDock({
-    root,
-    reflow: () => instance._reflow?.(),
-    key: 'decklight-colors-dock:' + location.pathname,
-    getEl: () => colorCard?.el ?? null,
-    closeLabel: 'close (esc)',
-  });
-  function openColors(side = null) {
-    const { slide, index, top, clicked } = menuTarget;
+  // "Inspect", "Colors…" and "Type…" (PRESENTING): one panel, the inspector,
+  // whose Colors and Type tabs are the colour card's editors. The engine owns
+  // the inspector and hands this module the door to it.
+  let inspectHook = null;
+  function openInspect(tab = 'info') {
+    const target = menuTarget;
     closeElementMenu();
-    colorCard?.close();   // a second shape: the first one's preview goes back before this one's starts
-    const targets = colorTargets(top, clicked);
-    if (!targets) { toast(`nothing here to ${side === 'type' ? 'set the type of' : 'color'} — right-click a shape, its label, or a block`, 2600); return; }
-    if (side === 'type' && !targets.text.length) { toast('this shape carries no text — right-click its label, or a block', 2600); return; }
-    overlays.opening();
-    colorCard = openColorPicker({
-      root, dock: colorDock, targets, side,
-      // the deck's design systems' palettes follow the theme's (SPEC DESIGN_SYSTEMS)
-      systems: [...pageDesignSystems().values()],
-      onClose: () => { colorCard = null; },
-      // the Fill side's one way out of a concept (#718): the attribute comes off, the shape is then yours to colour
-      onDetach: (c) => postConcept({ slide, index, path: c.path, tag: c.tag, concept: null }, null),
-      onApply: async (edits) => {
-        try {
-          const res = await writeFetch(editBase + '/deck/edit/element/style', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ slide, index, edits }),
-          });
-          const j = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(j.error || res.status);
-          const what = edits.every((e) => /^(font-|text-)/.test(e.prop)) ? 'type' : edits.some((e) => /^(font-|text-)/.test(e.prop)) ? 'colors and type' : 'colors';
-          toast(j.changed ? `${what} saved — reloading · Z takes ${what === 'type' ? 'it' : 'them'} back` : `${what} unchanged`);
-        } catch (e) {
-          for (const t of [...targets.fill, ...(targets.stroke ?? []), ...targets.text]) { t.el.style.removeProperty(t.prop); if (t.prop === 'stroke') t.el.style.removeProperty('stroke-width'); if (t.prop === 'border-color') t.el.style.removeProperty('border-width'); }
-          for (const e of edits) targets.text.find((t) => t.path.join() === e.path.join())?.el.style.removeProperty(e.prop);
-          toast(`colors not saved: ${String(e.message || e).slice(0, 90)}`, 3400);
-        }
-      },
+    inspectHook?.(target, tab);
+  }
+
+  /**
+   * A colour or type pick from the inspector, saved IN PLACE: the page already
+   * shows it, so the write is quiet and nothing reloads (the panel stays
+   * open); every other page of the deck is told, and reloads. One POST and one
+   * undo entry per pick.
+   */
+  async function saveStyles({ slide, index, edits }) {
+    const res = await writeFetch(editBase + '/deck/edit/element/style', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ slide, index, edits, quiet: true, from: PAGE_ID }),
     });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || res.status);
+    return j;
   }
 
   // "Edit content (HTML)" — the element's raw outerHTML, read fresh from the
@@ -1999,19 +1995,6 @@ export function createEditMode({
         case 'Escape': closeElementMenu(); break;
         default: return false;
       }
-      return true;
-    },
-  });
-  overlays.register({
-    isOpen: () => !!colorCard,
-    close: () => colorCard?.close(),
-    // floating it is over the slide and owns the keyboard; docked it sits
-    // beside it and the deck's keys work (the card stops its own — colorpicker.js)
-    modal: () => colorDock.isFloat(),
-    keydown(e) {
-      if (e.key === 'Escape') colorCard.close();
-      else if (e.key === 'Enter' && colorDock.isFloat()) colorCard.apply();
-      else return false;
       return true;
     },
   });
@@ -3019,6 +3002,12 @@ export function createEditMode({
     openElementMenuAt: (x, y, target, view = 'main', opts = {}) => { if (!elementEditOn) return; overlays.opening(); openElementMenu(x, y, target, view, opts); },
     /** Remove the element a target names: ⌫ on a selection. */
     removeElement: (target) => commitRemove(target),
+    /** The engine's door to the inspector: `fn(target, tab)` for the menu's Inspect, Colors… and Type…. */
+    setInspect: (fn) => { inspectHook = fn; },
+    /** A pick from the inspector's Colors or Type tab, written in place. */
+    saveStyles: (body) => { const p = saveStyles(body); trackWrite(p); return p; },
+    /** Take a shape's concept off (the Colors tab's notice), then reload. */
+    detachConcept: (t) => postConcept({ ...t, concept: null }, null),
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
     slideOp,
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside write mode. */

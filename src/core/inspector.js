@@ -11,11 +11,15 @@
  * were scattered across a debug line, a second window and a terminal, so the
  * question "what is going on with THIS slide" had no one place to be asked.
  *
- * It reports and never edits: editing stays with the selection (editbar.js)
- * and its editors, and the one write this panel leads to (`e`, the sources
- * editor) is a door to the editor that already owns it. Each row is a fact,
- * with a green ✓ when it is fine and a yellow ! when it wants a look, the way
- * the terminal banner marks its rows: short, no commentary.
+ * Its Info tab reports and never edits. Each row is a fact, with a green ✓
+ * when it is fine and a yellow ! when it wants a look, the way the terminal
+ * banner marks its rows: short, no commentary. With an element selected in
+ * write mode, the Colors and Type tabs are where it is restyled
+ * (colorpicker.js), each pick saved in place as it is made.
+ *
+ * The picker (the arrow-in-a-box button, DevTools' "select an element")
+ * lights whatever is under the pointer, a diagram's shapes one by one
+ * (pick.js), and a click makes it the element inspected.
  *
  * Docked, it is a reference open beside the slide. It follows the slide and
  * the selection, and arrow keys keep driving the deck.
@@ -27,6 +31,9 @@ import { stepLabels } from './builds.js';
 import { notesSegments } from './speaker.js';
 import { slideTitle } from './finder.js';
 import { sourcesOf } from './sources.js';
+import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
+import { colorTargets, createColorEditor } from './colorpicker.js';
+import { pickNode, createSpotlight } from './pick.js';
 import {
   parseColor, contrastRatio, aaFloor, hex, tokenFor, stageBox, shareOf,
   fontLine, clock, effectiveBackground,
@@ -62,8 +69,12 @@ export function createInspector({
   // which a breadcrumb can move from the selected block to a node inside it
   let target = null;
   let focus = null;
-  let hovered = null;
   let subscribed = false;
+  // Info, Colors or Type; the editor the last two share, for the node it was made for
+  let tab = 'info';
+  let editor = null;
+  let picking = false;
+  const spot = createSpotlight(root);
   // what the server and the review said about a slide, kept until the slide
   // changes: the selection re-renders on every click and must not re-ask
   let fileFacts = { slide: 0, data: null };
@@ -77,6 +88,8 @@ export function createInspector({
 
   function close() {
     unhover();
+    stopPicking();
+    editor = null;
     el?.remove();
     el = null;
     if (onResize) { window.removeEventListener('resize', onResize); onResize = null; }
@@ -85,22 +98,31 @@ export function createInspector({
     dock.release();
   }
 
-  function open() {
-    if (el) { close(); return; }
-    overlays.opening();
+  const focusOf = (t) => (t ? (t.node && t.top.contains(t.node) ? t.node : t.top) : null);
+
+  /** `I` toggles it; the menu's Inspect, Colors… and Type… open it on a tab (`{ tab }`). */
+  function open({ tab: want = null } = {}) {
+    if (el && !want) { close(); return; }
     if (!subscribed && editbar()?.onSelect) {
       subscribed = true;
       editbar().onSelect((t) => {
         target = t;
-        focus = t ? (t.clicked && t.top.contains(t.clicked) ? t.clicked : t.top) : null;
+        focus = focusOf(t);
         if (el) render();
       });
     }
+    if (want) tab = want;
+    if (el) { target = editbar()?.selected?.() ?? target; focus = focusOf(target); render(); return; }
+    overlays.opening();
     target = editbar()?.selected?.() ?? null;
-    focus = target ? (target.clicked ?? target.top) : null;
+    focus = focusOf(target);
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-dockable decklight-inspector';
     el.innerHTML = '<div class="narr-card"></div>';
+    // a click in the panel is the panel's: a pick re-renders the button it
+    // landed on away, and a click arriving at the slide from a detached node
+    // reads as a click on nothing, which lets go of the selection (editbar.js)
+    el.addEventListener('click', (e) => e.stopPropagation());
     root.appendChild(el);
     dock.reserveGutter();
     onResize = () => {
@@ -206,6 +228,13 @@ export function createInspector({
     rows.push(row('box', `x ${box.x} y ${box.y} · ${box.w}×${box.h}`, null, `${shareOf(box, sw, sh)}% of the slide`));
 
     const cs = getComputedStyle(node);
+    // a drawn shape's own paint: its fill and its stroke, by token where one holds it
+    if (node instanceof SVGElement && !/^(svg|g|text|tspan)$/i.test(node.tagName)) {
+      const paint = (v) => { const c = parseColor(v); return c && c[3] > 0 ? colourName(v, c) : 'none'; };
+      rows.push(row('fill', paint(cs.fill)));
+      const w = parseFloat(cs.strokeWidth);
+      rows.push(row('stroke', paint(cs.stroke), null, paint(cs.stroke) !== 'none' && w ? `${+w.toFixed(2)} wide` : null));
+    }
     const text = (node.textContent ?? '').trim();
     if (text) {
       const svg = node instanceof SVGElement;
@@ -304,7 +333,7 @@ export function createInspector({
   /** From the selected block down to the node clicked in it. */
   function crumbs() {
     const chain = [];
-    const deepest = target.clicked && target.top.contains(target.clicked) ? target.clicked : target.top;
+    const deepest = target.node && target.top.contains(target.node) ? target.node : target.top;
     for (let n = deepest; n; n = n.parentElement) {
       chain.unshift(n);
       if (n === target.top) break;
@@ -320,10 +349,7 @@ export function createInspector({
     return describe(n).split(' · ')[0];
   }
 
-  function unhover() {
-    hovered?.classList.remove('dl-inspect-hover');
-    hovered = null;
-  }
+  function unhover() { if (!picking) spot.hide(); }
 
   function header(card) {
     const head = document.createElement('div');
@@ -342,16 +368,26 @@ export function createInspector({
         b.type = 'button';
         b.className = 'ins-crumb' + (node === focus ? ' ins-on' : '');
         b.textContent = crumbLabel(node);
-        b.addEventListener('mouseenter', () => { unhover(); hovered = node; node.classList.add('dl-inspect-hover'); });
+        b.addEventListener('mouseenter', () => spot.show(node, { dim: false }));
         b.addEventListener('mouseleave', unhover);
         // stopped here: the render below detaches this button, and a click that
         // reached the slide from a detached node would read as a click on
-        // nothing, which lets go of the selection (editbar.js)
-        b.addEventListener('click', (e) => { e.stopPropagation(); focus = node; render(); });
+        // nothing, which lets go of the selection (editbar.js). A crumb is the
+        // element inspected from then on: the selection moves to it.
+        b.addEventListener('click', (e) => { e.stopPropagation(); unhover(); inspectNode(node); });
         title.append(b);
       }
     }
     head.append(title);
+    const pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'dk-btn ins-pick' + (picking ? ' ins-on' : '');
+    pick.title = 'select an element on the slide to inspect it';
+    pick.setAttribute('aria-label', 'select an element to inspect');
+    pick.setAttribute('aria-pressed', String(picking));
+    pick.innerHTML = PICK_ICON;
+    pick.addEventListener('click', (e) => { e.stopPropagation(); if (picking) stopPicking(); else startPicking(); });
+    head.append(pick);
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.className = 'dk-btn ins-copy';
@@ -365,13 +401,137 @@ export function createInspector({
     card.append(head);
   }
 
+  // ----- the Colors and Type tabs ---------------------------------------------
+
+  /** Can the element shown be restyled here: write mode, editing on, and something to colour? */
+  const styleTargets = () => (target && editmode()?.available?.() && editmode()?.elementEditOn?.() ? colorTargets(target.top, focus) : null);
+
+  function tabsBar() {
+    const can = !!styleTargets();
+    const bar = document.createElement('div');
+    bar.className = 'ins-tabs';
+    bar.setAttribute('role', 'tablist');
+    for (const [id, label] of [['info', 'Info'], ['colors', 'Colors'], ['type', 'Type']]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ins-tab';
+      b.dataset.tab = id;
+      b.textContent = label;
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', String(tab === id));
+      if (id !== 'info' && !can) { b.disabled = true; b.title = editmode()?.available?.() ? 'nothing here to restyle' : 'restyling is write mode’s'; }
+      b.addEventListener('click', (e) => { e.stopPropagation(); tab = id; render(); });
+      bar.append(b);
+    }
+    return bar;
+  }
+
+  /** The editor for the node shown, made once per node and kept across repaints. */
+  function editorPane() {
+    if (!editor || editor.node !== focus) {
+      const targets = styleTargets();
+      if (!targets) {
+        tab = 'info';
+        return Object.assign(document.createElement('div'), { className: 'ins-none', textContent: 'nothing here to restyle' });
+      }
+      const { slide, index } = target;
+      const ed = createColorEditor({
+        root, targets, side: tab === 'type' ? 'type' : 'fill',
+        // the deck's design systems' palettes follow the theme's (SPEC DESIGN_SYSTEMS)
+        systems: [...pageDesignSystems().values()],
+        save: (edits) => editmode().saveStyles({ slide, index, edits }),
+        onError: (m) => toast(`not saved: ${m.slice(0, 90)}`, 3400),
+        onDetach: (c) => editmode().detachConcept({ slide, index, path: c.path, tag: c.tag }),
+        onEscape: () => keydown({ key: 'Escape' }),
+      });
+      editor = { ...ed, node: focus };
+    }
+    editor.setSide(tab === 'type' ? 'type' : 'colors');
+    // the inspector's own placement, so a bottom dock lays the editor out in columns
+    editor.el.dataset.dock = el.dataset.dock ?? '';
+    return editor.el;
+  }
+
+  /** Make `node` the element inspected: the selection moves to it where there is one, the panel follows. */
+  function inspectNode(node) {
+    if (editbar()?.selectNode?.(node, { exact: true })) return;
+    // no selection to move (no write mode): the panel inspects it on its own
+    const sec = node.closest('section');
+    const top = sec ? authoredTop(sec, node) : null;
+    if (!top) return;
+    target = { sec, slide: inst()._sections.indexOf(sec) + 1, index: authoredIndex(sec, top), top, clicked: node, node };
+    focus = node;
+    render();
+  }
+
+  // ----- the picker -----------------------------------------------------------
+  // DevTools' "select an element": while it is on, whatever is under the
+  // pointer is lit, and a click inspects it and turns the picker off. The
+  // click is the picker's alone, captured before the deck, the selection or a
+  // build can hear it; Esc turns it off.
+
+  const onSlideNow = (node) => {
+    const sec = node?.closest?.('section');
+    return sec && sec === sectionAt(slideNo()) && !node.closest('.decklight-narr, .decklight-ctxmenu, .decklight-palette, .decklight-editbar, .dl-handle') ? sec : null;
+  };
+  /** What the picker means under the pointer: a diagram's drawn node, else the element itself, inside an authored block. */
+  function pickedAt(node) {
+    const sec = onSlideNow(node);
+    const top = sec ? authoredTop(sec, node) : null;
+    if (!top) return null;
+    const svgPick = pickNode(top, node);
+    return svgPick !== top ? svgPick : node;
+  }
+  function onPickMove(e) {
+    const node = pickedAt(e.target);
+    if (node) spot.show(node, { dim: true }); else spot.hide();
+  }
+  function onPickClick(e) {
+    if (el?.contains(e.target)) return;   // the panel's own buttons, the picker's included
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    if (e.type !== 'click') return;
+    const node = pickedAt(e.target);
+    stopPicking();
+    if (node) { if (tab !== 'info' && !styleTargets()) tab = 'info'; inspectNode(node); }
+  }
+  const PICK_EVENTS = ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu'];
+  function startPicking() {
+    picking = true;
+    root.classList.add('dl-picking');
+    document.addEventListener('mousemove', onPickMove, true);
+    for (const t of PICK_EVENTS) window.addEventListener(t, onPickClick, true);
+    render();
+  }
+  function stopPicking() {
+    if (!picking) return;
+    picking = false;
+    root.classList.remove('dl-picking');
+    document.removeEventListener('mousemove', onPickMove, true);
+    for (const t of PICK_EVENTS) window.removeEventListener(t, onPickClick, true);
+    spot.hide();
+    if (el) render();
+  }
+
   function render() {
     if (!el) return;
     const n = slideNo();
     if (target && (!focus || !focus.isConnected || target.slide !== n)) { target = null; focus = null; }
+    if (editor && editor.node !== focus) editor = null;
     const card = el.querySelector('.narr-card');
     card.textContent = '';
     header(card);
+    if (!target) tab = 'info';
+    if (target) card.append(tabsBar());
+    if (target && tab !== 'info') {
+      card.append(editorPane());
+      const hint = document.createElement('div');
+      hint.className = 'narr-head ins-foot';
+      hint.textContent = 'esc lets go of it';
+      card.append(hint);
+      return;
+    }
     const rows = target ? elementRows() : slideRows();
     const grid = document.createElement('dl');
     grid.className = 'ins-rows';
@@ -471,6 +631,7 @@ export function createInspector({
   }
 
   function keydown(e) {
+    if (picking && e.key === 'Escape') { stopPicking(); return true; }
     if (e.key === 'Escape') {
       // a selection lets go first, which brings the panel back to the slide;
       // with nothing selected Esc closes
@@ -488,5 +649,10 @@ export function createInspector({
   }
 
   overlays.register({ isOpen, close, keydown, modal: false });
+
+  // the picker's icon: DevTools' own, a dashed box with an arrow into its corner
+  const PICK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">'
+    + '<path d="M6.5 13.5h-4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v4" stroke-dasharray="2 1.6"/>'
+    + '<path d="M8 8l6.5 2.4-2.8 1.1 2.3 2.3-.9.9-2.3-2.3-1.1 2.8z" fill="currentColor" stroke-linejoin="round"/></svg>';
   return { open, close, isOpen, onSlide, text: () => lastText };
 }

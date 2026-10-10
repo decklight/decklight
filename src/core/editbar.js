@@ -28,6 +28,7 @@
 
 import { authoredTop } from './design-system.js';
 import { editableTarget, svgTextTarget, CODE_EDITABLE } from './authoring.js';
+import { pickNode, isDrawn, createSpotlight, createFrame } from './pick.js';
 
 const BUTTONS = [
   { id: 'text', label: 'Text', key: '⏎', title: 'select some text and press Enter, or double-click it' },
@@ -47,6 +48,10 @@ export function createEditBar({
   let bar = null, handle = null, fileInput = null;
   let selected = null;   // the element target (editmode.elementTargetOf) under the outline
   let hovered = null;    // the top-level element under the pointer
+  // inside a diagram the selection is a node, not the block (pick.js): framed
+  // by a box (SVG takes no outline), and a shape under the pointer glows
+  const spot = createSpotlight(root);
+  const frame = createFrame(root);
 
   // Editing on is one thing; the bar on screen is another. The bar can be
   // hidden by the person (a palette row, remembered per deck) and hides
@@ -236,9 +241,12 @@ export function createEditBar({
     if (code && target.sec.contains(code)) return code;
     return svgTextTarget(target.clicked, target.sec) ?? editableTarget(target.clicked, target.sec) ?? editableTarget(target.top, target.sec);
   }
+  /** What the selection outlines: the node picked inside a diagram, else the block. */
+  const shown = (t) => t.node ?? t.top;
   function placeHandle() {
+    frame.place();
     if (!selected || !handle) return;
-    const r = selected.top.getBoundingClientRect();
+    const r = shown(selected).getBoundingClientRect();
     const base = root.getBoundingClientRect();
     handle.style.left = `${r.right - base.left - 4}px`;
     handle.style.top = `${r.top - base.top - 10}px`;
@@ -249,8 +257,10 @@ export function createEditBar({
   const announce = () => { for (const fn of selectListeners) fn(selected); };
   function select(target) {
     deselect({ quiet: true });
+    target.node ??= pickNode(target.top, target.clicked);
     selected = target;
-    target.top.classList.add('dl-selected');
+    if (target.node === target.top) target.top.classList.add('dl-selected');
+    else frame.on(target.node);
     handle = document.createElement('button');
     handle.type = 'button';
     handle.className = 'dl-handle';
@@ -263,13 +273,33 @@ export function createEditBar({
     });
     root.appendChild(handle);
     placeHandle();
-    debugLog('edit', `selected slide ${target.slide} element #${target.index}`);
+    follow();
+    debugLog('edit', `selected slide ${target.slide} element #${target.index}${target.node !== target.top ? ` › <${target.node.tagName.toLowerCase()}>` : ''}`);
     announce();
   }
+  // The stage moves under a selection without telling anyone: a panel docking
+  // beside it reflows it, a build slides a group in. While something is
+  // selected the frame and the handle follow it, every frame its box moved.
+  let following = 0;
+  let lastBox = '';
+  function follow() {
+    cancelAnimationFrame(following);
+    const tick = () => {
+      if (!selected) return;
+      const r = shown(selected).getBoundingClientRect();
+      const box = `${r.left},${r.top},${r.width},${r.height}`;
+      if (box !== lastBox) { lastBox = box; placeHandle(); }
+      following = requestAnimationFrame(tick);
+    };
+    following = requestAnimationFrame(tick);
+  }
   function deselect({ quiet = false } = {}) {
+    cancelAnimationFrame(following);
+    lastBox = '';
     const had = !!selected;
     selected?.top.classList.remove('dl-selected');
     selected = null;
+    frame.off();
     handle?.remove();
     handle = null;
     if (had && !quiet) announce();
@@ -284,18 +314,25 @@ export function createEditBar({
   root.addEventListener('click', (e) => {
     if (!on() || authoring.editing() || inOverlay(e.target)) return;
     const target = editmode.elementTargetOf(e.target);
-    if (target?.top) { if (selected?.top !== target.top) select(target); }
+    if (target?.top) { if (selected?.node !== pickNode(target.top, target.clicked)) select(target); }
     else deselect();
   });
   root.addEventListener('mousemove', (e) => {
-    if (!on() || inOverlay(e.target)) { hover(null); return; }
+    // the inspector's picker lights what is under the pointer itself (inspector.js)
+    if (!on() || inOverlay(e.target) || root.classList.contains('dl-picking')) { hover(null); spot.hide(); return; }
     const sec = e.target.closest?.('section');
-    hover(sec ? authoredTop(sec, e.target) : null);
+    const top = sec ? authoredTop(sec, e.target) : null;
+    // a shape in a diagram glows and the stage around it dims; a block keeps its dashed outline
+    const node = top ? pickNode(top, e.target) : null;
+    if (node && isDrawn(node)) { hover(null); spot.show(node, { dim: true }); }
+    else { spot.hide(); hover(top); }
   });
-  root.addEventListener('mouseleave', () => hover(null));
+  root.addEventListener('mouseleave', () => { hover(null); spot.hide(); });
   window.addEventListener('resize', placeHandle);
-  // a new slide is a new selection: nothing on it was chosen yet
-  instance.on('slide', () => { deselect(); refresh(); });
+  // a new slide is a new selection: nothing on it was chosen yet; a build
+  // step can move what is selected
+  instance.on('slide', () => { deselect(); refresh(); spot.hide(); });
+  instance.on('build', placeHandle);
 
   /**
    * The keys a selection answers, before the deck's own: ⏎ edits (text) or
@@ -308,7 +345,7 @@ export function createEditBar({
       const el = textTarget(selected);
       if (el) { authoring.editInline(el); deselect(); }
       else {
-        const r = selected.top.getBoundingClientRect();
+        const r = shown(selected).getBoundingClientRect();
         editmode.openElementMenuAt(r.left + 12, r.top + 12, selected);
       }
       return true;
@@ -332,6 +369,14 @@ export function createEditBar({
 
   return {
     sync, keydown, refresh, selected: () => selected, isOpen: () => !!bar,
+    /** Select the element `node` is in, or `node` itself inside a diagram (the inspector's picker and breadcrumb). */
+    selectNode(node, { exact = false } = {}) {
+      const target = editmode.elementTargetOf(node);
+      if (!target?.top) return false;
+      if (exact && target.top.contains(node)) target.node = node;
+      select(target);
+      return true;
+    },
     /** Let go of the selection — the inspector's Esc, which steps back to the slide. */
     deselect: () => deselect(),
     /** `fn(target | null)` on every selection change; returns the unsubscribe. */

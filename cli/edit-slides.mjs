@@ -39,7 +39,7 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden,
   upsertNarrationTrack,
-  locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText } from './edit.mjs';
+  locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
@@ -264,11 +264,16 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   // The three that WRITE an element. Same door as layout and notes: a pure
   // (html, slide, index, …) → html transform, through applyEdit, onto the ONE
   // undo/redo stack.
+  // `path` (a node inside the element, the selection inside a diagram) removes
+  // that node alone; without it the whole element goes
   function elementRemoveRoute({ body, json }) {
-    const { slide, index } = JSON.parse(body);
+    const { slide, index, path = null, tag = null } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
-    const changed = applyEdit((html) => removeSlideElement(html, slide, index));
-    if (changed) console.log(`  element removed: slide ${slide} #${index}`);
+    let changed;
+    try {
+      changed = applyEdit((html) => (path ? removeNestedElement(html, slide, index, { path, tag }) : removeSlideElement(html, slide, index)));
+    } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed) console.log(`  element removed: slide ${slide} #${index}${path ? ` › ${path.join('.')}` : ''}`);
     return json(200, { ok: true, changed, ...history.counts() });
   }
 
@@ -303,11 +308,18 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * its text together, so `Z` takes the pair back in one press.
    */
   function elementStyleRoute({ body, json }) {
-    const { slide, index, edits } = JSON.parse(body);
+    const { slide, index, edits, quiet: inPlace, from } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
     let changed;
     try { changed = applyEdit((html) => setElementStyles(html, slide, index, edits)); }
     catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    // Asked for IN PLACE (the inspector's Colors and Type tabs), the write is
+    // quiet: the page that picked already shows it, and a reload would close
+    // the panel it was picked in. Every other page is told, and reloads.
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('styles', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
     if (changed) console.log(`  element colours saved: slide ${slide} #${index} → ${edits.map((e) => `${e.prop} ${e.value}`).join(', ')}`);
     return json(200, { ok: true, changed, ...history.counts() });
   }

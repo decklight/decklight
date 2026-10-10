@@ -216,6 +216,32 @@ test('POST /deck/edit/element/text changes a diagram label\'s words, one undo en
   assert.equal(history.counts().undo, 1, 'a refusal records nothing');
 });
 
+test('POST /deck/edit/element/remove with a path takes one node out of a diagram, its line with it, and refuses a stale one', async (t) => {
+  const deck = CONCEPT_DECK.replace('<g><rect data-concept="agent" x="1" y="1" width="9" height="9"/><text x="2" y="8">A</text></g>',
+    '<g>\n        <rect data-concept="agent" x="1" y="1" width="9" height="9"/>\n        <text x="2" y="8">A</text>\n      </g>');
+  const { routes, readDeck, history } = harness(t, deck);
+  const stale = await call(routes, 'POST /deck/edit/element/remove', { body: { slide: 1, index: 1, path: [0, 0], tag: 'text' } });
+  assert.equal(stale.code, 409);
+  assert.equal(history.counts().undo, 0, 'a refusal records nothing');
+  const ok = await call(routes, 'POST /deck/edit/element/remove', { body: { slide: 1, index: 1, path: [0, 0], tag: 'rect' } });
+  assert.deepEqual([ok.code, ok.body.changed, ok.body.undo], [200, true, 1]);
+  assert.match(readDeck(), /<g>\n {8}<text x="2" y="8">A<\/text>\n {6}<\/g>/, 'the rect and its line are gone, the label and the group stay');
+  assert.match(readDeck(), /<svg viewBox="0 0 100 100">/);
+});
+
+test('POST /deck/edit/element/style asked in place is quiet: no reload here, every other page told', async (t) => {
+  const quiet = [];
+  const sent = [];
+  const { routes, readDeck } = harness(t, CONCEPT_DECK, { quiet: (html) => quiet.push(html), broadcast: (e, d) => sent.push([e, d]) });
+  const edit = { path: [0, 1], tag: 'text', prop: 'font-size', value: '20px' };
+  const r = await call(routes, 'POST /deck/edit/element/style', { body: { slide: 1, index: 1, edits: [edit], quiet: true, from: 'page-a' } });
+  assert.equal(r.body.changed, true);
+  assert.deepEqual(quiet, [readDeck()], 'the write the watcher is told to skip is the file as written');
+  assert.deepEqual(sent, [['styles', { slide: 1, index: 1, from: 'page-a' }]]);
+  await call(routes, 'POST /deck/edit/element/style', { body: { slide: 1, index: 1, edits: [{ ...edit, value: '22px' }] } });
+  assert.equal(quiet.length, 1, 'not asked in place: the ordinary reload');
+});
+
 test('POST /deck/edit/concepts writes the deck\'s map in place: quiet, and every other page sent a concepts event', async (t) => {
   const quiet = [];
   const sent = [];

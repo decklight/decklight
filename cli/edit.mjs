@@ -434,6 +434,33 @@ export function removeSlideElement(html, slide, index) {
 }
 
 /**
+ * Remove ONE element inside slide N's element `index` (PRESENTING, a shape
+ * selected inside a diagram): the node at `path`, addressed and checked the
+ * way setElementStyles addresses one. `[]` is refused, since that is the
+ * whole element and removeSlideElement's job. A node alone on its line takes
+ * the line with it, so the file is left without a blank one.
+ */
+export function removeNestedElement(html, slide, index, { path, tag }) {
+  if (!Array.isArray(path) || !path.length || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  const el = seg.slice(r.start, r.end);
+  let start = 0; let end = el.length;
+  for (const n of path) {
+    const kid = elementChildRanges(el.slice(start, end))[n];
+    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
+    end = start + kid.end; start += kid.start;
+  }
+  const found = /^<([a-zA-Z][\w:-]*)/.exec(el.slice(start, end))?.[1]?.toLowerCase();
+  if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.')}, the file has <${found}> — reload and try again`);
+  const lineStart = el.lastIndexOf('\n', start - 1) + 1;
+  const nl = el.indexOf('\n', end);
+  const lineEnd = nl < 0 ? el.length : nl;
+  if (/^[ \t]*$/.test(el.slice(lineStart, start)) && /^[ \t]*$/.test(el.slice(end, lineEnd)) && nl >= 0) { start = lineStart; end = nl + 1; }
+  parts[idx] = seg.slice(0, r.start) + el.slice(0, start) + el.slice(end) + seg.slice(r.end);
+  return parts.join('');
+}
+
+/**
  * The colours a page may ask this server to write (PRESENTING, element edit
  * mode): a theme token by reference — `var(--d-fill-3)`, so the deck stays
  * theme-aware — a design system's token with ONE hex fallback,

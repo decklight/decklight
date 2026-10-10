@@ -2140,7 +2140,7 @@ export function init(userConfig = {}) {
       <tr><td>S</td><td>this slide's speaker notes — editable in write mode, read-only elsewhere</td></tr>
       <tr><td>⌥⏎ / Alt+Enter</td><td>speaker view — a second window with notes, next slide, timer (again: rehearse mode)</td></tr>
       <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
-      <tr><td>I</td><td>inspector — all about this slide, or the element selected on it: layout, builds, notes, fit, contrast, sources</td></tr>
+      <tr><td>I</td><td>inspector — all about this slide, or the element selected on it: layout, builds, notes, fit, contrast, sources; its colours and type; ⬚ picks an element</td></tr>
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
@@ -2786,6 +2786,13 @@ export function init(userConfig = {}) {
     instance: () => instance, stage: () => stage,
     editmode: () => editmode, editbar: () => editbar,
     review: () => review, narration: () => narration, sources: () => sources,
+  });
+  // the element menu's Inspect, Colors… and Type… (PRESENTING): select what
+  // the menu was opened on, then show it in the inspector on that tab
+  instance._selection = () => editbar.selected();   // what is selected, for the render harnesses
+  editmode.setInspect((t, tab) => {
+    if (t?.node) editbar.selectNode(t.node, { exact: true });
+    inspector.open({ tab });
   });
 
   // `hasTracks`, not `track`: narration is OFF until somebody picks, so a deck
