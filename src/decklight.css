@@ -2630,6 +2630,15 @@
   border-radius: 2px;
   cursor: text;
 }
+/* a diagram label being typed (SVG text takes no contenteditable): a box laid
+   over the hidden label, in its font and ink, the shape under it showing */
+.decklight .dl-label-edit {
+  position: fixed; z-index: 40; box-sizing: border-box; margin: 0; padding: 2px 4px;
+  min-width: 2em; border: 0; border-radius: 3px;
+  background: transparent; color: var(--d-text, var(--fg));
+  outline: 2px solid var(--accent); outline-offset: 1px;
+  caret-color: currentColor;
+}
 .decklight.dl-dropping > .decklight-stage { outline: 3px dashed var(--accent); outline-offset: -3px; }
 .decklight.dl-dropping > .decklight-stage::after {
   content: 'drop to add the picture to this slide';

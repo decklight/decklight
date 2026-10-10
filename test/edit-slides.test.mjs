@@ -91,6 +91,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/element/image',
     'POST /deck/edit/element/remove',
     'POST /deck/edit/element/style',
+    'POST /deck/edit/element/text',
     'POST /deck/edit/narration',
     'POST /deck/edit/slide',
     'POST /deck/edit/slide/hidden',
@@ -202,6 +203,17 @@ test('POST /deck/edit/element/concept sets a shape\'s data-concept, takes it off
   assert.equal(stale.code, 409);
   assert.match(stale.body.error, /reload/);
   assert.equal(history.counts().undo, 2, 'a refusal records nothing');
+});
+
+test('POST /deck/edit/element/text changes a diagram label\'s words, one undo entry, and refuses a label the file no longer says', async (t) => {
+  const { routes, readDeck, history } = harness(t, CONCEPT_DECK);
+  const ok = await call(routes, 'POST /deck/edit/element/text', { body: { slide: 1, index: 1, path: [0, 1], tag: 'text', was: 'A', text: 'Agent' } });
+  assert.deepEqual([ok.code, ok.body.ok, ok.body.changed, ok.body.undo], [200, true, true, 1]);
+  assert.match(readDeck(), /<rect data-concept="agent" x="1" y="1" width="9" height="9"\/><text x="2" y="8">Agent<\/text>/);
+  const stale = await call(routes, 'POST /deck/edit/element/text', { body: { slide: 1, index: 1, path: [0, 1], tag: 'text', was: 'A', text: 'B' } });
+  assert.equal(stale.code, 409);
+  assert.match(stale.body.error, /reload/);
+  assert.equal(history.counts().undo, 1, 'a refusal records nothing');
 });
 
 test('POST /deck/edit/concepts writes the deck\'s map in place: quiet, and every other page sent a concepts event', async (t) => {

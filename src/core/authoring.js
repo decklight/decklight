@@ -21,6 +21,7 @@
 
 import { authoredTop, authoredIndex } from './design-system.js';
 import { boundedFetch } from './devmode.js';
+import { pathFrom } from './colorpicker.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -51,6 +52,19 @@ export function childPath(top, node) {
     cur = parent;
   }
   return cur === top ? path : null;
+}
+
+/**
+ * The diagram label under a double-click (SVG_DIAGRAMS), or null: a `<text>`
+ * or `<tspan>` in an authored `<svg>` on slide `sec`. A chart draws its own
+ * labels from data, and a terminal or an aside is not a diagram, so neither
+ * offers one.
+ */
+export function svgTextTarget(target, sec) {
+  const el = target?.closest?.('tspan, text');
+  if (!el || !sec?.contains?.(el) || !el.closest('svg')) return null;
+  if (el.closest('[data-chart], .terminal, aside, .draw-head, [data-ds-injected]')) return null;
+  return el;
 }
 
 /** The node `path` names under `top`, or null when the source has no such child. */
@@ -115,6 +129,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const cur = editing;
     if (!cur) return;
     if (cur.code) return saveCode(cur);
+    if (cur.svg) return saveLabel(cur);
     editing = null;
     placePill();
     cur.el.removeAttribute('contenteditable');
@@ -155,6 +170,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!cur) return;
     editing = null;
     placePill();
+    if (cur.svg) { endLabel(cur); return; }
     if (cur.code) {
       cur.el.removeAttribute('contenteditable');
       cur.el.classList.remove('dl-editing');
@@ -192,7 +208,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   }
   function toggleEmphasis(tag) {
     const cur = editing;
-    if (!cur || cur.code) return false;
+    if (!cur || cur.code || cur.svg) return false;
     const range = selectionIn(cur.el);
     if (!range) { toast('select some text first', 1600); return false; }
     const sel = window.getSelection();
@@ -227,7 +243,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   /** The pill above the selection: there while something is selected in the element being edited, gone otherwise. */
   function placePill() {
     const cur = editing;
-    const range = cur && !cur.code ? selectionIn(cur.el) : null;
+    const range = cur && !cur.code && !cur.svg ? selectionIn(cur.el) : null;
     if (!range) { pill?.remove(); pill = null; return; }
     if (!pill) {
       pill = document.createElement('div');
@@ -333,6 +349,91 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     }
   }
 
+  // ── double-click a diagram label (SVG_DIAGRAMS) ───────────────────────────
+  // SVG text takes no contenteditable, so the words are typed into a box laid
+  // over the label in its own font, size and colour, and the label hides
+  // until the box goes. The save names the one node by its path in the file
+  // and sends the words alone: the diagram's markup is never re-serialised,
+  // so `viewBox`, self-closing shapes and the file's own layout all survive.
+  let measure = null;
+  function placeLabel(cur, { again = false } = {}) {
+    const { input, el } = cur;
+    if (again || !cur.at) {
+      const cs = getComputedStyle(el);
+      const m = el.getScreenCTM?.();
+      const px = (parseFloat(cs.fontSize) || 16) * (m ? Math.hypot(m.a, m.b) : 1);
+      const r = el.getBoundingClientRect();
+      const anchor = cs.textAnchor === 'middle' ? 'middle' : cs.textAnchor === 'end' ? 'end' : 'start';
+      const x = anchor === 'middle' ? r.left + r.width / 2 : anchor === 'end' ? r.right : r.left;
+      cur.at = { px, anchor, x, y: r.top + r.height / 2, font: `${cs.fontStyle} ${cs.fontWeight} ${px}px ${cs.fontFamily}` };
+      Object.assign(input.style, {
+        font: cur.at.font, lineHeight: '1.25', textAlign: anchor === 'middle' ? 'center' : anchor === 'end' ? 'right' : 'left',
+        color: /^rgb/.test(cs.fill) ? cs.fill : '', height: `${px * 1.25 + 6}px`,
+      });
+    }
+    const { px, anchor, x, y, font } = cur.at;
+    measure ??= document.createElement('canvas').getContext('2d');
+    measure.font = font;
+    const w = Math.ceil(measure.measureText(input.value || ' ').width + px * 0.6 + 8);
+    input.style.width = `${w}px`;
+    input.style.left = `${anchor === 'middle' ? x - w / 2 : anchor === 'end' ? x - w + 4 : x - 4}px`;
+    input.style.top = `${y - (px * 1.25 + 6) / 2}px`;
+  }
+  window.addEventListener('resize', () => { if (editing?.svg) placeLabel(editing, { again: true }); });
+
+  async function beginLabel(el, { sec, slide }) {
+    if (editing) await saveInline();
+    if (el.firstElementChild) { toast('this label is several lines: double-click the one to change', 2600); return; }
+    const top = topLevelChild(sec, el);
+    if (!top) return;
+    const index = authoredIndex(sec, top);
+    const path = pathFrom(top, el);
+    if (path === null) return;
+    window.getSelection()?.removeAllRanges();
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'dl-label-edit';
+    input.value = el.textContent.replace(/\s+/g, ' ').trim();
+    input.setAttribute('aria-label', 'diagram label');
+    const cur = { svg: true, el, input, was: el.textContent, vis: el.style.visibility, slide, index, path, tag: el.tagName.toLowerCase() };
+    editing = cur;
+    root.appendChild(input);
+    placeLabel(cur);
+    el.style.visibility = 'hidden';
+    input.addEventListener('input', () => placeLabel(cur));
+    // keys typed here are the label's: ⏎ saves, Esc gives up, the deck hears none
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); saveInline(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
+    });
+    input.addEventListener('blur', () => { if (editing === cur) saveInline(); });
+    input.focus();
+    input.select();
+    debugLog('info', `editing slide ${slide} element #${index}'s diagram label at ${path.join('.')}`);
+  }
+
+  function endLabel(cur) {
+    cur.input.remove();
+    cur.el.style.visibility = cur.vis;
+  }
+
+  async function saveLabel(cur) {
+    editing = null;
+    const text = cur.input.value.replace(/\s+/g, ' ').trim();
+    endLabel(cur);
+    if (text === cur.was.replace(/\s+/g, ' ').trim()) return; // nothing changed: nothing written
+    if (!text) { toast('kept the label: an empty one could not be clicked again (remove the shape instead)', 3200); return; }
+    cur.el.textContent = text;
+    try {
+      await post('/deck/edit/element/text', { slide: cur.slide, index: cur.index, path: cur.path, tag: cur.tag, was: cur.was, text });
+      toast('saved — reloading', 1400);
+    } catch (e) {
+      cur.el.textContent = cur.was;
+      toast(`could not save the label: ${String(e.message || e).slice(0, 80)}`, 3000);
+    }
+  }
+
   function beginInline(el, { sec, slide }) {
     if (editing) saveInline();
     const top = topLevelChild(sec, el);
@@ -366,6 +467,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       beginCode(code, where);
       return;
     }
+    const label = svgTextTarget(e.target, where.sec);
+    if (label) { e.preventDefault(); beginLabel(label, where); return; }
     const el = editableTarget(e.target, where.sec);
     if (!el) return;
     e.preventDefault();
@@ -454,6 +557,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       if (!where || where.sec.hasAttribute('data-markdown-removed')) return false;
       const code = el.closest?.(CODE_EDITABLE);
       if (code && where.sec.contains(code) && !code.closest('.terminal, aside, [data-chart]')) { beginCode(code, where); return true; }
+      const label = svgTextTarget(el, where.sec);
+      if (label) { beginLabel(label, where); return true; }
       const text = editableTarget(el, where.sec);
       if (!text) return false;
       beginInline(text, where);

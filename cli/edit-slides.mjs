@@ -39,7 +39,7 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden,
   upsertNarrationTrack,
-  locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr } from './edit.mjs';
+  locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
@@ -309,6 +309,22 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     try { changed = applyEdit((html) => setElementStyles(html, slide, index, edits)); }
     catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
     if (changed) console.log(`  element colours saved: slide ${slide} #${index} → ${edits.map((e) => `${e.prop} ${e.value}`).join(', ')}`);
+    return json(200, { ok: true, changed, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/element/text` — `{ slide, index, path, tag, was, text }`:
+   * a diagram label edited in place (SVG_DIAGRAMS). The words between one
+   * `<text>`/`<tspan>`'s tags change and nothing else in the diagram does; a
+   * label the file no longer says is a 409.
+   */
+  function elementTextRoute({ body, json }) {
+    const { slide, index, path = [], tag = null, was, text } = JSON.parse(body);
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
+    let changed;
+    try { changed = applyEdit((html) => setElementText(html, slide, index, { path, tag, was, text })); }
+    catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed) console.log(`  diagram label saved: slide ${slide} #${index} → ${JSON.stringify(text).slice(0, 60)}`);
     return json(200, { ok: true, changed, ...history.counts() });
   }
 
@@ -590,6 +606,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
   routes.set('POST /deck/edit/element/style', elementStyleRoute);
   routes.set('POST /deck/edit/element/concept', elementConceptRoute);
+  routes.set('POST /deck/edit/element/text', elementTextRoute);
   routes.set('POST /deck/edit/concepts', conceptsRoute);
   routes.set('POST /deck/edit/slide', slideRoute);
   routes.set('POST /deck/edit/asset', assetRoute);

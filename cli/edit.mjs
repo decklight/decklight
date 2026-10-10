@@ -540,6 +540,58 @@ export function setElementAttr(html, slide, index, { path, tag, name, value }) {
   return parts.join('');
 }
 
+/** The text a run of markup reads as: the entities a label is likely to carry, decoded. */
+const decodeText = (s) => String(s).replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (m, e) => {
+  const k = e.toLowerCase();
+  if (k[0] === '#') return String.fromCodePoint(k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10));
+  return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }[k];
+});
+const sameWords = (a, b) => String(a).replace(/\s+/g, ' ').trim() === String(b).replace(/\s+/g, ' ').trim();
+
+/**
+ * Replace the words of ONE diagram label (SVG_DIAGRAMS): the `<text>` or
+ * `<tspan>` at `path` below slide N's element `index`, addressed the way
+ * setElementStyles addresses a shape. Only what is between its tags changes,
+ * and only when that is words: a `<text>` holding `<tspan>` lines is refused,
+ * since each line is its own label. `was` is what the page showed there, and
+ * a file that says something else is stale (a 409), not overwritten. The
+ * whitespace the file has around the words is kept, and `<`, `>` and `&` are
+ * escaped on the way in, so the markup around the label survives byte for
+ * byte. One line, because SVG text does not wrap.
+ */
+const LABEL_TAGS = new Set(['text', 'tspan']);
+export function setElementText(html, slide, index, { path, tag, was, text }) {
+  if (!Array.isArray(path) || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
+  if (typeof text !== 'string' || text.length > 400 || /[\u0000-\u001f\u007f]/.test(text)) throw new Error('a label is one line of at most 400 characters');
+  if (typeof was !== 'string') throw new Error('bad payload');
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  let el = seg.slice(r.start, r.end);
+  let start = 0; let end = el.length;
+  for (const n of path) {
+    const kid = elementChildRanges(el.slice(start, end))[n];
+    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
+    end = start + kid.end; start += kid.start;
+  }
+  const node = el.slice(start, end);
+  const found = /^<([a-zA-Z][\w:-]*)/.exec(node)?.[1]?.toLowerCase();
+  if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.') || 'the element'}, the file has <${found}> — reload and try again`);
+  if (!LABEL_TAGS.has(found)) throw new Error(`not a diagram label: <${found}>`);
+  const { attrs, close, rest } = splitOpenTag(node);
+  const closeAt = rest.toLowerCase().lastIndexOf(`</${found}`);
+  if (close.endsWith('/>') || closeAt < 0) throw new Error(`<${found}> has no words to edit`);
+  const inner = rest.slice(0, closeAt);
+  if (/<(?!!--)/.test(inner)) throw new Error(`this <${found}> holds other elements — edit one line at a time`);
+  if (!sameWords(decodeText(inner.replace(/<!--[\s\S]*?-->/g, '')), was)) {
+    throw stale(`slide ${slide} #${index}: the file's label is not the one the page showed — reload and try again`);
+  }
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const lead = /^\s*/.exec(inner)[0]; const trail = /\s*$/.exec(inner)[0];
+  const words = inner.trim() ? lead + escaped + trail : escaped;
+  el = el.slice(0, start) + attrs + close + words + rest.slice(closeAt) + el.slice(end);
+  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
+  return parts.join('');
+}
+
 /** Replace slide N's element at raw child index `index` with `outerHtml` verbatim. */
 export function setSlideElementHtml(html, slide, index, outerHtml) {
   const { parts, idx, seg, r } = locateElement(html, slide, index);
