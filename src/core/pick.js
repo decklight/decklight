@@ -12,9 +12,10 @@
  * one block. Nodes the engine or a template added are never picked: they are
  * not in the file.
  *
- * The spotlight is the feedback for it: a faint glow on the node under the
- * pointer and the rest of the stage dimmed a little, drawn by one box that
- * lets pointer events through, so it never takes the click it is about.
+ * The spotlight is the feedback for it: a dashed line in the theme's accent
+ * around the node under the pointer, a faint glow on the node, and the rest
+ * of the stage dimmed a little, drawn by one box that lets pointer events
+ * through, so it never takes the click it is about.
  */
 
 const DRAWN = 'rect, circle, ellipse, polygon, polyline, path, line, text, image, use, foreignObject';
@@ -51,8 +52,8 @@ export function createSpotlight(root) {
     if (lit !== node) {
       lit?.classList.remove('dl-glow');
       lit = node;
-      // an SVG node glows by its own outline (a drop-shadow follows the shape);
-      // a block glows by the box drawn around it
+      // an SVG node glows by its own outline (a drop-shadow follows the shape)
+      // inside the dashed box; a block glows by the box drawn around it
       if (isDrawn(node)) node.classList.add('dl-glow');
     }
     box ??= Object.assign(document.createElement('div'), { className: 'dl-spot' });

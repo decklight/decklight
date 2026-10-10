@@ -322,7 +322,7 @@ export function createEditBar({
     if (!on() || inOverlay(e.target) || root.classList.contains('dl-picking')) { hover(null); spot.hide(); return; }
     const sec = e.target.closest?.('section');
     const top = sec ? authoredTop(sec, e.target) : null;
-    // a shape in a diagram glows and the stage around it dims; a block keeps its dashed outline
+    // a shape in a diagram gets a dashed accent box and a glow, and the stage around it dims; a block keeps its own dashed outline
     const node = top ? pickNode(top, e.target) : null;
     if (node && isDrawn(node)) { hover(null); spot.show(node, { dim: true }); }
     else { spot.hide(); hover(top); }
