@@ -99,10 +99,15 @@ itself (`<script src="decklight/dist/decklight.js">` and a
 
 - **Editing in the browser.** In write mode, double-click any text (or a
   code block, edited as plain source) to change it, drop a picture onto a
-  slide to add it, recolour a shape from the element menu, and add, duplicate,
-  move or delete slides from the palette or the right-click menu. The notes
-  editor and the agent ask dock beside the slide, wherever you left them.
-  Every edit lands in the file and `Z` takes it back. `decklight check`
+  slide to add it, and add, duplicate, move or delete slides from the palette
+  or the right-click menu. Inside a diagram, a click selects one shape, wire
+  or label: `I` opens the inspector on it, with a Colors tab and a Type tab
+  (size, weight, the theme's font role, italic, alignment) that save as you
+  pick, and a picker that hovers shapes the way DevTools does, each boxed in
+  the theme's accent; a double-click retypes a label in place and `⌫` removes
+  just that shape. The notes editor, the inspector and the agent ask dock
+  beside the slide, wherever you left them. Every edit lands in the file and
+  `Z` takes it back. `decklight check`
   reports what an author or an agent would otherwise only see by looking:
   clipped slides, missing images, notes whose [click] count disagrees with
   the builds.
@@ -110,7 +115,8 @@ itself (`<script src="decklight/dist/decklight.js">` and a
 - **Builds.** `data-build` on a container makes each child a step. The layout
   never jumps.
 - **Diagrams.** Inline SVG written with `var(--d-*)` tokens recolours with every
-  theme and can draw itself in.
+  theme and can draw itself in, an arrowhead riding the tip and a dashed line
+  drawing dashed from its first frame.
 - **Motion.** Slide transitions, Magic Move between slides, looping element
   effects. All of it respects reduced-motion.
 - **Themes.** 46 themes in 2 packs, every one behind WCAG contrast gates. `T`
@@ -231,7 +237,7 @@ the CLI only.
 | `M` | review comments: `⏎` jumps to the slide, `R` marks one done and again reopens it, `D` hides the done ones, `⌫` deletes one of yours; `⇧M` writes one |
 | `K` | commit what you changed, with a message; `L` cycles the slide's layout; `⌘⏎` / `Ctrl+Enter` fullscreen |
 | `H` | the deck's history, every version previewed live, `⏎` restores one |
-| `I` | the sources behind this slide |
+| `I` | the inspector: everything about this slide, or the selected shape's colours and type; its sources |
 | `/` | command palette, `G` find a slide |
 | `?` | every key |
 
