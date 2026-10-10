@@ -858,12 +858,16 @@
    to be READ, so print, the overview, no-anim and reduced motion turn the
    loop instant by zeroing it exactly as they zero the stroke's own */
 .decklight .draw-head { transition: opacity calc(var(--build-duration) * 2.2) ease; pointer-events: none; }
+/* the reveal inside the mask a dashed stroke draws through (#737): moved by
+   the same frame loop, its duration read the same way */
+.decklight .draw-mask-stroke { transition: opacity calc(var(--build-duration) * 2.2) ease; }
 
 /* instant application (slide entry, deep links, back-nav restore) */
 .decklight.decklight-no-anim .build-step,
 .decklight.decklight-no-anim .build-step .draw-stroke,
 .decklight.decklight-no-anim .build-step .draw-fade,
-.decklight.decklight-no-anim .draw-head {
+.decklight.decklight-no-anim .draw-head,
+.decklight.decklight-no-anim .draw-mask-stroke {
   transition: none !important;
   animation: none !important;
 }
@@ -1466,6 +1470,9 @@
 .decklight-overview .draw-stroke { stroke-dashoffset: 0 !important; }
 .decklight-overview .draw-fade { opacity: 1 !important; }
 .decklight-overview .draw-head { visibility: visible !important; transition: none !important; }
+/* a dashed stroke shows whole: the thumbnail is a clone, so its mask's id
+   names the live slide's mid-draw mask, not its own */
+.decklight-overview [data-draw-masked] { mask: none !important; }
 
 /* narration picker (N) */
 .decklight-narr {
@@ -2439,6 +2446,7 @@
 .decklight.decklight-print .draw-stroke { stroke-dashoffset: 0 !important; }
 .decklight.decklight-print .draw-fade { opacity: 1 !important; }
 .decklight.decklight-print .draw-head { visibility: visible !important; transition: none !important; }
+.decklight.decklight-print [data-draw-masked] { mask: none !important; }
 
 /* ---------- print variants: ?print=handout | notes (SPEC PRESENTING) ---------------
    Portrait pages, 816×1056 (US letter at 96dpi — the engine injects the
@@ -2517,7 +2525,7 @@
 @media (prefers-reduced-motion: reduce) {
   .decklight section.entering, .decklight section.leaving,
   .decklight .build-step, .decklight [data-animate],
-  .decklight .draw-stroke, .decklight .draw-fade, .decklight .draw-head, .decklight .aa-fresh {
+  .decklight .draw-stroke, .decklight .draw-fade, .decklight .draw-head, .decklight .draw-mask-stroke, .decklight .aa-fresh {
     animation: none !important;
     transition: none !important;
   }

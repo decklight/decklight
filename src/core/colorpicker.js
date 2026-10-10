@@ -151,9 +151,9 @@ export function fallbackValue(token, rgb) {
 
 const SVG_SHAPES = 'rect, circle, ellipse, polygon, path';
 /** Nodes the ENGINE put in the page (builds.js's arrowheads): in the DOM, not in the file. */
-const INJECTED = '.draw-head';
+const INJECTED = '.draw-head, .draw-mask';
 /** …and what a slide template brought (SPEC DESIGN_SYSTEMS) — never on a path into the file. */
-const INJECTED_ON_PATH = '.draw-head, [data-ds-injected]';
+const INJECTED_ON_PATH = '.draw-head, .draw-mask, [data-ds-injected]';
 
 /**
  * The child-index path from `top` down to `el`, counted the way the file

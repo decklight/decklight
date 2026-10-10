@@ -147,6 +147,18 @@ COMPARISON_SLIDES has the markup. The engine marks the mixed state
 same \`decklight pdf\` run above names such slides — one render check catches
 both.
 
+**A diagram line that draws is one stroke, with everything on it.** A
+\`data-build="draw"\` container draws its strokes in; an arrowhead is a
+\`<marker>\` on the stroke's \`marker-end\` (it rides the tip), a dashed line is
+\`stroke-dasharray\` on the stroke (it draws dashed, start to finish), and a
+line in stages is \`data-draw-stops\`. A separate arrowhead shape, or dashes set
+from a stylesheet class, do not draw as one: the head stands at the end before
+the line arrives, the dashes snap in when it ends. Group a line with the box it
+points at when they should arrive together; keep it a direct child when the
+line is its own beat. The engine adds \`.draw-head\` and \`.draw-mask\` nodes
+beside a drawing stroke in the browser: they are not in the file, so never
+copy them from the rendered DOM into the deck. SVG_DIAGRAMS has the rules.
+
 **On a deck that uses a design system, fill its templates' slots — never
 recreate a template's structure by hand.** A design system (DESIGN_SYSTEMS) is a
 company's look as a package: the deck lists it under \`designSystems\` in its

@@ -157,7 +157,7 @@ const containsCentre = (outer, inner) => {
 export function applyNesting(scope) {
   scope.querySelectorAll('svg').forEach((svg) => {
     if (svg.classList.contains('chart-svg')) return; // a chart's series are slots, never panels
-    const shapes = [...svg.querySelectorAll(SHAPES)].filter((el) => !el.closest('[data-nest="off"]'));
+    const shapes = [...svg.querySelectorAll(SHAPES)].filter((el) => !el.closest('[data-nest="off"], mask'));
     // what each shape resolves to, in paint order — a container's own depth
     // is known by the time its children are looked at
     const resolved = new Map(); // el → { slot, depth }

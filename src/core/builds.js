@@ -8,7 +8,7 @@
 import { computeGroups, orderItem } from '../../tools/build-groups.mjs';
 
 const CONTAINER_TAGS = new Set(['UL', 'OL', 'TABLE', 'TBODY', 'DL', 'SVG']);
-const SVG_SKIP = new Set(['defs', 'title', 'desc', 'style', 'metadata']);
+const SVG_SKIP = new Set(['defs', 'title', 'desc', 'style', 'metadata', 'mask', 'clippath']);
 
 // element → provider registration ({count, apply, label}), shared across instances.
 const providerRegistry = new Map();
@@ -23,6 +23,9 @@ function eligibleChildren(el) {
     if (SVG_SKIP.has(tag)) return false;
     if (tag === 'aside' && c.classList.contains('notes')) return false;
     if (c.hasAttribute('data-build-stay')) return false;
+    // the engine's own nodes (a riding head, a dashed stroke's mask) are
+    // not steps: a rescan must find the same steps the first scan did
+    if (c.classList.contains('draw-head') || c.classList.contains('draw-mask')) return false;
     return true;
   });
 }
@@ -68,7 +71,9 @@ const STROKED = 'path, line, polyline, polygon, circle, ellipse, rect';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function prepareDraw(el) {
-  const shapes = el.matches?.(STROKED) ? [el] : [...el.querySelectorAll(STROKED)];
+  // the engine's own shapes (a head's copy of a marker, a mask's copy of a
+  // dashed stroke) are not strokes to draw: a rescan would mask the mask
+  const shapes = (el.matches?.(STROKED) ? [el] : [...el.querySelectorAll(STROKED)]).filter((s) => !s.closest('.draw-head, .draw-mask'));
   let anyStroke = false;
   for (const s of shapes) {
     if (prepareStroke(s)) anyStroke = true;
@@ -80,11 +85,12 @@ function prepareDraw(el) {
 }
 
 /**
- * One stroke, made drawable: its length measured, its authored dasharray
- * remembered, its arrowheads turned into heads that ride the tip (below) or,
- * where that is not possible, stashed until the draw completes. Idempotent —
- * `sync()` rescans a slide, and a stroke prepared twice would grow a second
- * head. Returns whether the shape has a stroke to draw at all.
+ * One stroke, made drawable: its length measured, a dashed stroke given the
+ * mask it draws through (below), its arrowheads turned into heads that ride
+ * the tip (below) or, where that is not possible, stashed until the draw
+ * completes. Idempotent — `sync()` rescans a slide, and a stroke prepared
+ * twice would grow a second head. Returns whether the shape has a stroke to
+ * draw at all.
  */
 function prepareStroke(s) {
   if (s.classList.contains('draw-stroke')) return true;
@@ -93,10 +99,12 @@ function prepareStroke(s) {
   let len = 0;
   try { len = s.getTotalLength(); } catch { return false; }
   if (!len) return false;
-  // The draw CSS overrides stroke-dasharray with the path length; remember an
-  // authored dasharray so it can be restored once the draw completes.
+  // The draw CSS overrides stroke-dasharray with the path length. A dashed
+  // stroke keeps its dashes and draws through a mask instead (#737); any other
+  // authored value is remembered and restored once the draw completes.
   const orig = s.getAttribute('stroke-dasharray') || s.style.strokeDasharray;
-  if (orig) s.dataset.drawOrig = orig;
+  if (isDashed(orig)) buildMask(s, len, orig);
+  else if (orig) s.dataset.drawOrig = orig;
   s.classList.add('draw-stroke');
   s.style.setProperty('--draw-len', String(Math.ceil(len)));
   s._drawLen = len; // exact — the frame loop measures against it, the CSS rounds up
@@ -114,14 +122,89 @@ function prepareStroke(s) {
   const endHead = ridable(s) && buildHead(s, 'marker-end', 'end');
   const startHead = ridable(s) && buildHead(s, 'marker-start', 'start');
   const ridden = endHead || startHead;
-  if (ridden) {
+  if (ridden || s._drawMask) {
     // this stroke is drawn by the frame loop, not by the CSS transition: the
-    // two would drift apart, and the head must sit on the tip every frame
+    // two would drift apart, and the head must sit on the tip every frame; a
+    // masked stroke's reveal lives outside the step's CSS, so it is the
+    // loop's too
     s.style.transition = 'none';
-    s.style.strokeDasharray = String(len);
+    drawnBy(s).style.strokeDasharray = String(len);
+    s._drawHeads ??= {};
     setDrawn(s, 0, len);
   }
   return true;
+}
+
+// ── the mask a dashed stroke draws through (#737) ─────────────────────────
+
+/** An authored `stroke-dasharray` that dashes: not empty, `none`, or all zeros. */
+export const isDashed = (v) => !!v && !/^(?:none|[0\s,.]+)$/i.test(String(v).trim());
+
+/** The element whose dash offset draws `s`: its mask's reveal, or itself. */
+const drawnBy = (s) => s._drawMask ?? s;
+
+/** What a copy of a shape's geometry carries: the shape, nothing it is painted with. */
+const GEOMETRY = ['d', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'width', 'height', 'points', 'pathLength'];
+let masks = 0;
+
+/**
+ * A dashed stroke cannot be drawn by its own dash offset: the draw would
+ * spend `stroke-dasharray` on one dash as long as the path, and the authored
+ * dashes could only come back when it ends — a solid line that snaps to its
+ * dashes. So the stroke keeps its dashes, untouched, and is REVEALED through
+ * a `<mask>` holding a white copy of its geometry: a square-capped stroke a
+ * little wider than its own, drawn by the dash offset the way a solid stroke
+ * is. The copy is the one `setDrawn` and `driveDraw` move, and is what the
+ * draw duration is read off (`drawDuration`), so print, the overview and
+ * instant application zero it as they zero a head's. Mask content is in the
+ * stroke's own user space, transform included, so the copy carries only the
+ * geometry. The region is one box far larger than any diagram: the default
+ * (the stroke's bounding box) is empty for a straight line, and a measured
+ * box is empty too while the slide is not displayed, which is when a scan
+ * runs. A filled dashed shape keeps its fill: the mask paints the inside
+ * white and blacks out the band the dashes cover, so the inner half of each
+ * dash hides until drawn exactly as the outer half. The mask follows the
+ * stroke as a sibling marked `.draw-mask`: not a step on a rescan, not in
+ * the file for editing.
+ */
+function buildMask(s, len, dashes) {
+  const sw = parseFloat(getComputedStyle(s).strokeWidth) || 1;
+  const wide = sw + 2;
+  const mask = document.createElementNS(SVG_NS, 'mask');
+  mask.setAttribute('id', `dl-draw-mask-${++masks}`);
+  mask.setAttribute('class', 'draw-mask');
+  mask.setAttribute('maskUnits', 'userSpaceOnUse');
+  mask.setAttribute('maskContentUnits', 'userSpaceOnUse');
+  for (const [a, v] of Object.entries({ x: -1e5, y: -1e5, width: 2e5, height: 2e5 })) mask.setAttribute(a, String(v));
+  const copy = (fill) => {
+    const c = document.createElementNS(SVG_NS, s.tagName.toLowerCase());
+    for (const a of GEOMETRY) if (s.hasAttribute(a)) c.setAttribute(a, s.getAttribute(a));
+    c.setAttribute('fill', fill);
+    return c;
+  };
+  const band = (c, paint) => {
+    c.setAttribute('stroke', paint);
+    c.setAttribute('stroke-width', String(wide));
+    c.setAttribute('stroke-linecap', 'square');
+    return c;
+  };
+  const fill = getComputedStyle(s).fill;
+  if (fill && fill !== 'none') {
+    mask.appendChild(copy('white'));
+    mask.appendChild(band(copy('none'), 'black'));
+  }
+  const reveal = band(copy('none'), 'white');
+  reveal.setAttribute('class', 'draw-mask-stroke');
+  reveal.style.strokeDasharray = String(len);
+  reveal.style.strokeDashoffset = String(len);
+  mask.appendChild(reveal);
+  s.after(mask);
+  s.setAttribute('mask', `url(#${mask.id})`);
+  s.setAttribute('data-draw-masked', '');
+  // the dashes stay on, inline, where the draw CSS cannot reach them
+  s.style.strokeDasharray = dashes;
+  s.style.strokeDashoffset = '0';
+  s._drawMask = reveal;
 }
 
 const MARKER_ATTRS = [
@@ -273,7 +356,7 @@ function placeHead(s, head, d, len) {
  * show it.
  */
 function setDrawn(s, d, len) {
-  s.style.strokeDashoffset = String(Math.max(0, len - d));
+  drawnBy(s).style.strokeDashoffset = String(Math.max(0, len - d));
   s._drawnLen = d;
   const heads = s._drawHeads ?? {};
   const shown = d > 0;
@@ -317,7 +400,7 @@ const STOPS_SPEED = 300;
  * flicker. An explicit speed is the author's, exactly.
  */
 function drawDuration(s, dist) {
-  const probe = s._drawHeads?.end?.el ?? s._drawHeads?.start?.el ?? s;
+  const probe = s._drawHeads?.end?.el ?? s._drawHeads?.start?.el ?? s._drawMask ?? s;
   const base = parseFloat(getComputedStyle(probe).transitionDuration) * 1000 || 0;
   if (!base) return 0;
   const speed = parseFloat(s.getAttribute('data-draw-speed'));
@@ -345,7 +428,7 @@ function driveDraw(s, target, len, onDone) {
     const f = Math.min(1, (now - t0) / dur);
     const d = from + (target - from) * ease(f);
     if (f < 1) {
-      s.style.strokeDashoffset = String(Math.max(0, len - d));
+      drawnBy(s).style.strokeDashoffset = String(Math.max(0, len - d));
       s._drawnLen = d;
       for (const [which, h] of Object.entries(s._drawHeads ?? {})) { placeHead(s, h, which === 'end' ? d : 0, len); revealHead(h, d, which); }
       s._drawAnim = nextFrame(tick);
@@ -421,8 +504,9 @@ function syncStroke(s, state) {
     s.style.removeProperty('stroke-dashoffset');
     setMarkers(s, false);
   } else {
-    // current: let the CSS dash-offset animation run (a dashed stroke draws
-    // as a solid line, then snaps to its authored dashes on completion).
+    // current: let the CSS dash-offset animation run (a stroke whose authored
+    // dasharray does not dash gets it back on completion; a dashed one never
+    // comes here, it draws through its mask).
     s.style.removeProperty('stroke-dasharray');
     s.style.removeProperty('stroke-dashoffset');
     setMarkers(s, false);
@@ -469,7 +553,7 @@ function drawStopsProvider(s) {
   if (!s._drawHeads) {
     // no marker to ride, but the stages are still the frame loop's to draw
     s.style.transition = 'none';
-    s.style.strokeDasharray = String(len);
+    drawnBy(s).style.strokeDasharray = String(len);
     s._drawHeads = {};
     setDrawn(s, 0, len);
   }
