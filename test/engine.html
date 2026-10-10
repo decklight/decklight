@@ -117,6 +117,27 @@
       const u = String(url);
       if (init?.method === 'POST') CALLS.post.push({ u, body: JSON.parse(init.body ?? '{}') });
       else CALLS.get.push(u);
+      // every panel, one Esc each (escapeall): enough of each route for its
+      // panel to open; anything else is a plain ok
+      if (HARNESS_MODE === 'escapeall') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
+        if (u.includes('/deck/edit/history/changes')) return json({ ok: true, parent: null, stops: [], changed: 0, added: 0, removed: 0 });
+        if (u.includes('/deck/edit/history/at')) return new Response('<!doctype html><p>old</p>', { headers: { 'content-type': 'text/html' } });
+        if (u.includes('/deck/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
+        if (u.includes('/deck/edit/commit') && (init?.method ?? 'GET') === 'GET') {
+          return json({ ok: true, dirty: true, lines: 7, files: ['deck.html'], sinceMs: 0, nag: false, canWrite: true, messages: false,
+            deck: 'engine.html', describer: null, subjectsOff: true, tags: [], push: null, slides: { changed: 1, added: 0, removed: 0 } });
+        }
+        if (u.includes('/deck/edit/design-system/browse')) return json({ ok: true, systems: [
+          { name: 'acme', marketplace: 'acme-mkt', qualified: 'acme@acme-mkt', group: 'Acme', version: '1.2.0', description: 'Acme Brand', used: false }] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+        if (u.includes('/deck/review/comments')) return json({ ok: true, records: [] });
+        if (u.includes('/deck/edit/inspect')) return json({ ok: true, file: 'engine.html', lines: [1, 2], blocks: [], findings: [] });
+        if (u.includes('/deck/edit/narration/tracks')) return json({ ok: true, tracks: [] });
+        if (u.includes('/deck/edit/export/estimate')) return json({ ok: true, bytes: 1000 });
+        if (u.includes('/deck/edit/theme/browse')) return json({ ok: true, themes: [] });
+        return json({ ok: true });
+      }
       if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historycaptions' || HARNESS_MODE === 'historychanges') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/history/changes')) {
@@ -4038,6 +4059,115 @@
         escapeUntilClosed(O);
         try { localStorage.removeItem(KEY); } catch {}
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+      }
+
+      // Every panel closes on ONE Esc, pressed where the focus is (PRESENTING).
+      // The other modes press keys on <body>; a person presses them wherever
+      // the panel put the caret, which is usually a text box the deck's own
+      // key handler never hears. So this opens each panel through its door,
+      // presses Esc once on document.activeElement, and checks it went.
+      if (mode === 'escapeall') {
+        await settle(); await settle();       // /deck/ping: write mode
+        const top = () => [...document.querySelector('.decklight').children, ...document.body.children]
+          .filter((n) => n.nodeType === 1 && !n.classList.contains('decklight-stage') && !n.classList.contains('decklight-toast')
+            && !n.matches('script, style, link, #results, .decklight-editbar, .decklight-touch-controls, .decklight-controls, .decklight-commit-chip, .decklight-progress, .dl-handle')
+            && getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden' && n.offsetWidth > 0 && !n.hidden);
+        const typeIn = async (text) => { for (const ch of text) press(ch); await settle(); };
+        const paletteRun = async (text) => { press('/'); await settle(); await typeIn(text); press('Enter'); await settle(); await settle(); };
+        const ctx = async (label, on = () => document.querySelector('.decklight-stage > section.active h1, .decklight-stage > section.active h2')) => {
+          on().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+          await settle();
+          if (label) { [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent.startsWith(label))?.click(); await settle(); await settle(); }
+        };
+        const PANELS = [
+          ['palette', () => press('/')],
+          ['settings', () => deck.settings.open()],
+          ['help', () => press('?')],
+          ['overview', () => press('o')],
+          ['notes', () => press('s')],
+          ['narration', () => press('v')],
+          ['inspector', () => press('i')],
+          ['debuglog', () => press('d')],
+          ['commit', () => press('k')],
+          ['history', () => press('h')],
+          ['comments', () => press('m')],
+          ['compose', () => press('M', { shiftKey: true })],
+          ['themepicker', () => press('t')],
+          ['finder', () => press('g')],
+          ['agent', () => press('a')],
+          ['fonts', () => paletteRun('font…')],
+          ['designsystems', () => paletteRun('design systems')],
+          ['concepts', () => paletteRun('concept colors')],
+          ['sourceseditor', () => paletteRun('add sources')],
+          ['welcome', () => paletteRun('welcome to decklight')],
+          ['tour', () => paletteRun('editing tour')],
+          ['elementmenu', () => ctx(null)],
+          ['colors', () => ctx('Colors')],
+          ['contenteditor', () => ctx('Edit content')],
+        ];
+        r.missed = [];
+        r.unopened = [];
+        for (const [name, open] of PANELS) {
+          deck.goto(1, 0);
+          await settle();
+          const before = new Set(top());
+          await open();
+          await settle(); await settle();
+          const opened = top().filter((n) => !before.has(n));
+          if (!opened.length) { r.unopened.push(name); continue; }
+          // counted while the panel is up: closed, its boxes have no size
+          const boxes = (els) => els.flatMap((n) => [...n.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea, select')])
+            .filter((b) => b.offsetWidth > 0 && !b.disabled);
+          const count = boxes(opened).length;
+          const at = document.activeElement && document.activeElement !== document.body ? document.activeElement : document.body;
+          const where = at === document.body ? 'body' : at.tagName.toLowerCase();
+          at.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          await settle(); await settle();
+          const left = opened.filter((n) => n.isConnected && top().includes(n));
+          if (left.length) r.missed.push(`${name} (Esc in ${where}: ${left.map((n) => n.className).join(', ')})`);
+          // whatever is still up goes before the next door, so one panel's
+          // failure is not the next one's
+          const clear = async () => { for (let k = 0; k < 6 && top().some((n) => !before.has(n)); k++) press('Escape'); await settle(); };
+          await clear();
+          // …and from EVERY box in it, not only the one the caret starts in:
+          // reopen, put the caret in box i, Esc
+          for (let i = 0; i < count; i++) {
+            deck.goto(1, 0);
+            await settle();
+            const pre = new Set(top());
+            await open();
+            await settle(); await settle();
+            const again = top().filter((n) => !pre.has(n));
+            const box = boxes(again)[i];
+            if (!box) continue;
+            box.focus();
+            box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+            await settle(); await settle();
+            if (again.some((n) => n.isConnected && top().includes(n))) {
+              r.missed.push(`${name} (Esc in ${box.tagName.toLowerCase()}.${box.className.split(' ').join('.')})`);
+            }
+            for (let k = 0; k < 6 && top().some((n) => !pre.has(n)); k++) press('Escape');
+            await settle();
+          }
+          r[`boxes_${name}_${count}`] = true;
+        }
+        // closing the comments panel from its box keeps what was typed there
+        press('m'); await settle(); await settle();
+        const rv = document.querySelector('.rv-input');
+        if (rv) {
+          rv.focus(); rv.value = 'half a thought';
+          rv.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          await settle();
+          press('m'); await settle(); await settle();
+          r.commentDraftSurvivesEsc = document.querySelector('.rv-input')?.value === 'half a thought';
+          press('Escape'); await settle();
+        } else r.commentDraftSurvivesEsc = false;
+        for (const m of r.missed) r[`ESC_MISSED_${m.replace(/\s+/g, '_')}`] = false;
+        for (const u of r.unopened) r[`NEVER_OPENED_${u}`] = false;
+        r.PASS = !r.missed.length && !r.unopened.length && r.commentDraftSurvivesEsc;
+        delete r.missed; delete r.unopened;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
       }
 
       if (mode === 'historycaptions') {

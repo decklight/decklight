@@ -78,7 +78,7 @@ const ENGINE_GROUPS = {
   themes: ['decktheme', 'themepicker', 'markedread', 'dsrecommended', 'fonts', 'fontslegacy', 'fontswrite', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard'],
   palette: ['palette', 'palettegroups', 'paletteplain', 'settings', 'display', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'designsystems', 'skeys', 'skeys&nosrv'],
   narration: ['narration', 'nonarration', 'panel'],
-  navigation: ['overviewedit', 'overviewplain', 'restore', 'historycaptions', 'historychanges', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],
+  navigation: ['overviewedit', 'overviewplain', 'restore', 'historycaptions', 'historychanges', 'escapeall', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],
   handover: ['exportpptx', 'exportfail', 'exportvideo', 'publish'],
   sources: ['inspector', 'sourcesedit'],
   authoring: ['lockmode', 'notrustmode', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesauto', 'notesautofail', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'concepts', 'typingdock', 'editingtour', 'editingtourwelcome'],

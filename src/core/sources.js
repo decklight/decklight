@@ -110,6 +110,12 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
     input.value = value ?? '';
     input.placeholder = placeholder;
     input.addEventListener('input', () => onInput(input.value));
+    // Esc leaves the deck as it was, from a field too: the deck's key handler
+    // (and so the card's own keydown) never hears a key typed into a field
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); close(); }
+      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); save(); }
+    });
     return input;
   };
 

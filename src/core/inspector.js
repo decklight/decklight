@@ -472,9 +472,9 @@ export function createInspector({
 
   function keydown(e) {
     if (e.key === 'Escape') {
-      // a selection lets go first (editbar's Esc, below the overlays), which
-      // brings the panel back to the slide; with nothing selected Esc closes
-      if (target) return false;
+      // a selection lets go first, which brings the panel back to the slide;
+      // with nothing selected Esc closes
+      if (target) { editbar()?.deselect?.(); return true; }
       close();
       return true;
     }

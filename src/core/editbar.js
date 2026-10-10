@@ -332,6 +332,8 @@ export function createEditBar({
 
   return {
     sync, keydown, refresh, selected: () => selected, isOpen: () => !!bar,
+    /** Let go of the selection — the inspector's Esc, which steps back to the slide. */
+    deselect: () => deselect(),
     /** `fn(target | null)` on every selection change; returns the unsubscribe. */
     onSelect: (fn) => { selectListeners.add(fn); return () => selectListeners.delete(fn); },
     /** Hidden by the person (not by fullscreen, not by the lock): what the palette row flips. */
