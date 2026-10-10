@@ -213,6 +213,22 @@ test('push sends the branch with -u the first time, and the annotated tag on it'
   assert.doesNotMatch(again.args, /-u/);
 });
 
+test('with tags off, push sends the branch and leaves the tag on this machine', async (t) => {
+  const dir = repo(t);
+  const hub = mkdtempSync(path.join(tmpdir(), 'dl-hub-'));
+  t.after(() => rmTemp(hub));
+  g(hub, 'init', '-q', '--bare', '-b', 'main');
+  g(dir, 'remote', 'add', 'origin', hub);
+  tagHead(dir, 'v1');
+  const done = await pushBranch(dir, { tags: false });
+  assert.equal(done.ok, true, done.error);
+  assert.equal(done.pushedTags, false);
+  assert.doesNotMatch(done.args, /--follow-tags/);
+  assert.match(done.args, /-u origin main/, 'still sets the upstream the first time');
+  assert.equal(g(hub, 'rev-parse', 'main'), g(dir, 'rev-parse', 'HEAD'), 'the branch went');
+  assert.equal(g(hub, 'tag', '--list'), '', 'the tag did not');
+});
+
 test('a push the remote rejects says to pull first; one that cannot go says why', () => {
   const s = { remote: 'origin', url: 'x' };
   assert.match(pushError({ stderr: ' ! [rejected]        main -> main (fetch first)' }, s), /pull them first/);

@@ -1208,6 +1208,10 @@ export function init(userConfig = {}) {
       // a knob, not a fact: ⏎ switches it and says which it is now
       ...(printMode ? [] : [{ label: 'Display', value: displayFill ? 'fill screen' : deckRatio(),
         hint: '⏎ switches', run: () => setDisplay(!displayFill) }]),
+      // write mode only: Push lives in the commit window, which only an edit
+      // server has
+      ...(editmode?.available() ? [{ label: 'Push tags', value: editmode.pushTags() ? 'with the branch' : 'off',
+        hint: '⏎ switches', run: () => editmode.setPushTags(!editmode.pushTags()) }] : []),
     ];
   }
   /**

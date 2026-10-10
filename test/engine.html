@@ -173,9 +173,10 @@
         }
         if (u.includes('/deck/edit/commit/push')) {
           window.__pushes = (window.__pushes ?? 0) + 1;
+          window.__pushBody = JSON.parse(init?.body ?? '{}');
           await new Promise((ok) => setTimeout(ok, 400));
           window.__push = { ...window.__push, state: 'ok', ahead: 0, behind: 0, upstream: `${window.__push.remote}/${window.__push.branch}`, blocked: null };
-          return json({ ok: true, pushed: true, remote: window.__push.remote, branch: window.__push.branch, tags: window.__tags ?? [], push: window.__push });
+          return json({ ok: true, pushed: true, remote: window.__push.remote, branch: window.__push.branch, pushedTags: window.__pushBody.tags !== false, tags: window.__tags ?? [], push: window.__push });
         }
         if (u.includes('/deck/edit/commit/subject')) {
           return json({ ok: true, subject: 'the first commit' });
@@ -3860,7 +3861,28 @@
         await new Promise((ok) => setTimeout(ok, 500));
         r.pushLands = window.__pushes === 1 && document.querySelector('.cm-push-what')?.textContent === 'up to date with origin/main'
           && document.querySelector('.cm-push-go')?.textContent === 'Push';
+        r.pushSendsTheTags = window.__pushBody?.tags === true;
         escapeUntilClosed(O);
+
+        // Settings… → Push tags off: the window says the tag is not going, and
+        // Push asks for the branch alone
+        const pushTagsRow = () => deck.settings.rows().find((x) => x.label === 'Push tags');
+        r.pushTagsRowInWriteMode = pushTagsRow()?.value === 'with the branch';
+        pushTagsRow()?.run();
+        await settle();
+        r.pushTagsTurnsOff = pushTagsRow()?.value === 'off'
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /tags stay on this machine/.test(n.textContent));
+        window.__push = { ...window.__push, ahead: 1 };
+        press('k');
+        await settle();
+        r.tagSaysNotPushed = /on it: v1\.0 · not pushed/.test(document.querySelector('.cm-tags')?.textContent ?? '');
+        document.querySelector('.cm-push-go').click();
+        await new Promise((ok) => setTimeout(ok, 650));
+        r.pushLeavesTheTags = window.__pushes === 2 && window.__pushBody?.tags === false
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /pushed main to origin · tags kept here/.test(n.textContent));
+        escapeUntilClosed(O);
+        pushTagsRow()?.run();
+        r.pushTagsBackOn = pushTagsRow()?.value === 'with the branch';
 
         // Nothing to commit: the window still opens, for the tag and the push,
         // and says there is nothing to commit instead of offering a box
@@ -3877,7 +3899,7 @@
           && document.querySelector('.cm-push-go').classList.contains('cm-off');
         document.querySelector('.cm-push-go').click();
         await settle();
-        r.blockedPushAsksNothing = window.__pushes === 1;
+        r.blockedPushAsksNothing = window.__pushes === 2;
         escapeUntilClosed(O);
         window.__clean = false; window.__push = undefined; window.__tags = undefined;
 
@@ -3889,6 +3911,7 @@
           && r.planShowsEachCommit && r.planSaysWhere && r.planHidesTheBox && r.commitAllCounts && r.oneCommitSetsItAside
           && r.commitAllSendsThePlan && r.staysToPush && r.pushSaysWhatIsAhead
           && r.tagSendsTheName && r.tagShowsOnHead && r.tagLeftTheWindowOpen && r.pushSaysItIsPushing && r.pushLands
+          && r.pushSendsTheTags && r.pushTagsRowInWriteMode && r.pushTagsTurnsOff && r.tagSaysNotPushed && r.pushLeavesTheTags && r.pushTagsBackOn
           && r.cleanStillOpens && r.cleanSaysNothingToCommit && r.blockedPushSaysWhy && r.blockedPushAsksNothing
           && r.slidesCounted && r.slidesEachInItsColour && r.slidesZeroDimmed && r.chipCountsSlides && r.chipSlidesInColour;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
