@@ -14,7 +14,7 @@ import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 import {
   applyHunks, commitPlan, headTags, normalizePlan, parsePlan, parseZeroHunks, planPrompt, planWorking,
-  pushBlocked, pushBranch, pushError, slideChanges, tagHead, whereLabel, workingUnits,
+  pushBlocked, pushBranch, pushError, slideChanges, slideDiff, tagHead, whereLabel, workingUnits,
 } from '../cli/commit-split.mjs';
 import { remoteState } from '../cli/git.mjs';
 
@@ -80,6 +80,26 @@ test('slides changed, added and removed are counted the way a diff counts lines'
     'the build slide retitled is an edit; the code slide swapped for a thank-you is one out and one in');
   assert.deepEqual(slideChanges(t3, titled([['Intro', 'a'], ['Agenda', 'x'], ['Build', 'B'], ['Code', 'c']])), { changed: 1, added: 1, removed: 0 },
     'a slide put in before an edited one: the new one is added, the edit still an edit');
+});
+
+test('the diff names each slide it touched, in reading order, numbered in the version that has it', () => {
+  const plain = (bodies) => `<div class="decklight">\n${bodies.map((b) => `<section>\n<p>${b}</p>\n</section>\n`).join('')}</div>\n`;
+  const p4 = plain(['one', 'two', 'three', 'four']);
+  assert.deepEqual(slideDiff(p4, p4).stops, []);
+  assert.deepEqual(slideDiff(p4, plain(['ONE', 'two', 'four', 'five', 'six'])).stops, [
+    { kind: 'changed', slide: 1, was: 1 },
+    { kind: 'removed', was: 3 },
+    { kind: 'added', slide: 4 },
+    { kind: 'added', slide: 5 },
+  ]);
+  const titled = (slides) => `<div class="decklight">\n${slides.map(([h, p]) => `<section>\n<h2>${h}</h2>\n<p>${p}</p>\n<p>more</p>\n</section>\n`).join('')}</div>\n`;
+  const t3 = titled([['Intro', 'a'], ['Build', 'b'], ['Code', 'c']]);
+  assert.deepEqual(slideDiff(t3, titled([['Intro', 'a'], ['Agenda', 'x'], ['Build', 'B'], ['Code', 'c']])).stops,
+    [{ kind: 'added', slide: 2 }, { kind: 'changed', slide: 3, was: 2 }]);
+  // the first version of a deck: everything in it was added
+  assert.deepEqual(slideDiff('', plain(['one', 'two'])), {
+    changed: 0, added: 2, removed: 0, stops: [{ kind: 'added', slide: 1 }, { kind: 'added', slide: 2 }],
+  });
 });
 
 // ── the plan ────────────────────────────────────────────────────────────────

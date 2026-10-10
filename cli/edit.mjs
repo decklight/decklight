@@ -86,7 +86,7 @@ import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools
 import { runMain, CommandError } from './util.mjs';
 import { PKG, AGENTS_MARKER, skillVersionOf } from './skill-content.mjs';
 import { selfCommand } from './pkg.mjs';
-import { commitPlan, headTags, planWorking, pushBlocked, pushBranch, slidesSinceHead, tagHead, unitSummary } from './commit-split.mjs';
+import { commitPlan, headTags, planWorking, pushBlocked, pushBranch, slideDiff, slidesSinceHead, tagHead, unitSummary } from './commit-split.mjs';
 import { semverCompare } from '../tools/semver.mjs';
 
 // The flags that take a value, so the deck can be found past them. `--git-mode`
@@ -930,7 +930,7 @@ export function createHistory(limit = 200) {
 // The plumbing lives in git.mjs now; imported for editMain's use below and
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
-import { inGitRepo, gitAvailable, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
+import { git, inGitRepo, gitAvailable, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
 import {
   describeCommit, describeWorking, messagesLine,
 } from './commit-message.mjs';
@@ -2421,6 +2421,34 @@ export async function editMain(args, { onListen = null, client } = {}) {
    */
   const asServed = (html) => linkFonts(linkDesignSystems(linkAddedThemes(linkRuntime(withBaseHref(html)))));
 
+  /**
+   * Which slides a version changed, added and removed against the one before
+   * it, in reading order: what the History overlay's "changes" view walks
+   * (PRESENTING). `parent` is the version a removed slide is shown from; the
+   * deck's first version has none, and everything in it was added. A hash is
+   * all this takes, because a ref is handed to `git show` and an option-shaped
+   * one would be read as an option.
+   */
+  const historyChanges = new Map();   // full hash → answer; a commit never changes
+  function historyChangesRoute({ url, json }) {
+    if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
+    const ref = url.searchParams.get('ref') ?? '';
+    if (!/^[0-9a-f]{4,64}$/i.test(ref)) return json(400, { ok: false, error: 'a version is named by its hash' });
+    try {
+      const full = git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], root);
+      if (historyChanges.has(full)) return json(200, historyChanges.get(full));
+      const after = deckAt(deckPath, full, root);
+      let parent = null, before = '';
+      try {
+        parent = git(['rev-parse', '--short', `${full}^`], root);
+        before = deckAt(deckPath, parent, root);
+      } catch { /* the first commit, or one the deck was not in yet */ }
+      const answer = { ok: true, ref: full.slice(0, 7), parent, ...slideDiff(before, after) };
+      historyChanges.set(full, answer);
+      return json(200, answer);
+    } catch { return json(404, { ok: false, error: 'no such revision of this deck' }); }
+  }
+
   function deckAtRoute({ res, url, json, CORS }) {
     if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
     try {
@@ -3532,6 +3560,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'POST /deck/edit/commit/push': commitPushRoute,
     'GET /deck/edit/history': historyRoute,
     'GET /deck/edit/history/at': deckAtRoute,
+    'GET /deck/edit/history/changes': historyChangesRoute,
     'POST /deck/edit/restore': restoreRoute,
 
     // the owner's half of a review (REVIEW): registered here alone, beside

@@ -653,6 +653,26 @@
   opacity: 0.6;
 }
 
+/* All slides / changes (D): the same toggle shape as CC, with words, because
+   which of the two you are walking is the thing to know at a glance. The
+   stop's kind beside the position, in the commit window's three colours. */
+.decklight-history .hs-only {
+  width: auto;
+  padding: 0 8px;
+  margin-left: 0.6em;
+  font-size: 11px;
+  line-height: 1;
+  opacity: .6;
+  white-space: nowrap;
+}
+.decklight-history .hs-only[aria-pressed="true"] { opacity: 1; background: rgba(128, 128, 128, .22); }
+.decklight-history .hs-only + .hs-cc { margin-left: 0.35em; }
+.decklight-history .hs-kind { font-size: 0.82em; white-space: nowrap; }
+.decklight-history .hs-kind[hidden] { display: none; }
+.decklight-history .hs-k-changed { color: #f2c46d; }
+.decklight-history .hs-k-added { color: #7cd6a3; }
+.decklight-history .hs-k-removed { color: #f08a7e; }
+
 /* The confirmation. It sits under the list rather than over it, because the
    row it is asking about must stay visible while you answer. */
 .decklight-history .hs-confirm {

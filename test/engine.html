@@ -117,8 +117,19 @@
       const u = String(url);
       if (init?.method === 'POST') CALLS.post.push({ u, body: JSON.parse(init.body ?? '{}') });
       else CALLS.get.push(u);
-      if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historycaptions') {
+      if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historycaptions' || HARNESS_MODE === 'historychanges') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/history/changes')) {
+          const ref = new URL(u, location.href).searchParams.get('ref');
+          window.__changesAsked = [...(window.__changesAsked ?? []), ref];
+          const stops = {
+            aaaaaaa: [{ kind: 'changed', slide: 2, was: 2 }, { kind: 'removed', was: 3 }, { kind: 'added', slide: 4 }],
+            bbbbbbb: [],
+          }[ref] ?? [{ kind: 'added', slide: 1 }];
+          return json({ ok: true, ref, parent: ref === 'aaaaaaa' ? 'bbbbbbb' : ref === 'bbbbbbb' ? 'ccccccc' : null, stops,
+            changed: stops.filter((x) => x.kind === 'changed').length, added: stops.filter((x) => x.kind === 'added').length,
+            removed: stops.filter((x) => x.kind === 'removed').length });
+        }
         if (u.includes('/deck/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
         if (u.includes('/deck/edit/restore')) return json({ ok: true, changed: true, short: 'aaaaaaa', undo: 1, redo: 0 });
       }
@@ -3928,7 +3939,8 @@
         await settle();                       // let /deck/edit/history resolve
         r.opens = !!document.querySelector(O);
         const frameSrc = document.querySelector(`${O} iframe`)?.getAttribute('src') ?? '';
-        r.previewInTheThemeOnScreen = /\/deck\/edit\/history\/at\?ref=[^&]+&embedded&theme=ember(?:&|$)/.test(frameSrc);
+        r.previewInTheThemeOnScreen = /\/deck\/edit\/history\/at\?ref=[^&]+&embedded&theme=ember(?:&|#|$)/.test(frameSrc)
+          && /#\/1$/.test(frameSrc);   // the slide rides the URL
         const a = selectedIndex(O, ROW, SEL);
         r.listsEveryCommit = a.count === 3;
         r.hasSelection = a.i === 0;           // newest first, newest selected
@@ -3975,6 +3987,57 @@
           && r.downMoves && r.wrapsAround && r.escapeCloses && r.reopens
           && r.backdropCloses && r.paletteUp && r.restoreUp && r.paletteGone
           && r.hasApi && r.apiLists && r.apiCloses;
+      }
+
+      // History: "all slides" or only the slides a version changed, added or
+      // removed (D). A removed slide is shown from the version before it.
+      if (mode === 'historychanges') {
+        const O = '.decklight-history', KEY = 'decklight-history-changes';
+        const only = () => document.querySelector(`${O} .hs-only`);
+        const pos = () => document.querySelector(`${O} .hs-pos`)?.textContent ?? '';
+        const kind = () => document.querySelector(`${O} .hs-kind`);
+        const frameRef = () => new URL(document.querySelector(`${O} iframe`)?.src || 'about:blank', location.href).searchParams.get('ref');
+        try { localStorage.removeItem(KEY); } catch {}
+        await settle();
+        press('h');
+        await settle(); await settle();
+        r.opens = !!document.querySelector(O);
+        r.allByDefault = only()?.getAttribute('aria-pressed') === 'false' && only()?.textContent === 'all slides'
+          && kind()?.hidden === true && !(window.__changesAsked?.length);
+        press('d');
+        await settle(); await settle();
+        r.dTurnsItOn = only()?.getAttribute('aria-pressed') === 'true' && only()?.textContent === 'changes'
+          && localStorage.getItem(KEY) === '1';
+        r.asksForTheRow = window.__changesAsked?.includes('aaaaaaa');
+        r.firstStop = pos() === '1 / 3' && kind()?.textContent === 'slide 2 changed' && kind()?.classList.contains('hs-k-changed')
+          && frameRef() === 'aaaaaaa';
+        press('ArrowRight');
+        await settle(); await settle();
+        r.removedShownFromTheParent = pos() === '2 / 3' && kind()?.textContent === 'slide 3 removed'
+          && kind()?.classList.contains('hs-k-removed') && frameRef() === 'bbbbbbb'
+          // and AT the slide it was: a new document opens where the URL says,
+          // not on slide 1 waiting to be told
+          && new URL(document.querySelector(`${O} iframe`).src).hash === '#/3';
+        press('End');
+        await settle(); await settle();
+        r.endIsTheLastChange = pos() === '3 / 3' && kind()?.textContent === 'slide 4 added' && frameRef() === 'aaaaaaa'
+          && document.querySelector(`${O} .hs-btn[data-go="next"]`)?.disabled === true;
+        // a version that touched no slide says so
+        press('ArrowDown');
+        await settle(); await settle();
+        r.noSlideChanged = pos() === 'no slide changed' && kind()?.hidden === true
+          && document.querySelector(`${O} .hs-btn[data-go="prev"]`)?.disabled === true;
+        press('ArrowUp');
+        await settle(); await settle();
+        r.backOnTheFirstStop = pos() === '1 / 3' && window.__changesAsked.filter((x) => x === 'aaaaaaa').length === 1;
+        // and back to every slide
+        only()?.click();
+        await settle(); await settle();
+        r.backToAll = only()?.textContent === 'all slides' && kind()?.hidden === true && /^1( \/ \d+)?$/.test(pos())
+          && localStorage.getItem(KEY) === '0';
+        escapeUntilClosed(O);
+        try { localStorage.removeItem(KEY); } catch {}
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
       if (mode === 'historycaptions') {
