@@ -2330,6 +2330,10 @@ export function init(userConfig = {}) {
     if (top) {
       // never offered to an overlay as a `z` — a filter would type it
       if (!undoChord && top.keydown(e)) { e.preventDefault(); return; }
+      // Esc closes whatever is up, whether or not its keydown thought to say
+      // so: a panel that cannot be closed from the keyboard is a trap, and
+      // this is the one place every panel's keys pass through
+      if (e.key === 'Escape') { top.close(); e.preventDefault(); return; }
       // A modal overlay swallows even the keys it did not want — that is what
       // stops `o` opening the overview behind an open dialog. A NON-modal one
       // lets the rest fall through to the deck, so you can arrow through slides
@@ -2417,6 +2421,10 @@ export function init(userConfig = {}) {
       case 'Escape':
         if (cancelCyclePending()) break;
         if (overviewEl) toggleOverview();
+        // the two panels that are not overlays (they take no keys of their
+        // own) still close on Esc, like every other panel
+        else if (helpEl) toggleHelp();
+        else if (debugEl) toggleDebug();
         break;
       default: return;
     }

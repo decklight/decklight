@@ -62,7 +62,7 @@ const run = (mode, extra = '') => resultsFrom(
     + ` · deck still navigable=${r.arrowNavigatedDeck}`
     + ` · writes from the panel: box follows the slide=${r.boxFollowsTheSlide} ⇧M into it=${r.shiftMFocusesTheBox}`
     + ` typing keeps the slide=${r.typingDoesNotMoveTheDeck} posted on the slide on screen=${r.postedOnTheSlideOnScreen}`
-    + ` listed=${r.listedFromThePanel} box kept=${r.boxEmptiedAndKept} Esc keeps the draft=${r.escLeavesTheBox && r.draftKept}`
+    + ` listed=${r.listedFromThePanel} box kept=${r.boxEmptiedAndKept} Esc closes and keeps the draft=${r.escClosesThePanel && r.draftKept}`
     + ` · gutter released on close=${r.gutterReleased}`
     + ` · placement remembered=${r.persisted && r.restoredPlacement}`
     + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));

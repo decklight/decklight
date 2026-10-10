@@ -400,10 +400,11 @@ export function createReview({
       };
       send.addEventListener('click', post);
       input.addEventListener('keydown', (e) => {
-        // ⌘/⌃⏎ posts, as in the ⇧M card; a bare ⏎ is a newline. Esc leaves the
-        // box (the draft stays) and a second Esc closes the panel.
+        // ⌘/⌃⏎ posts, as in the ⇧M card; a bare ⏎ is a newline. Esc closes the
+        // panel from here, like every panel: the draft is this same node,
+        // kept across closes, so it is there when M opens it again.
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); }
-        else if (e.key === 'Escape') { e.preventDefault(); input.blur(); }
+        else if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); close(); }
         e.stopPropagation();         // the deck must not advance while somebody types
       });
       box.append(on, input, send);
@@ -668,6 +669,9 @@ export function createReview({
       // ⌘/⌃⏎ posts, which is what every composer in every tool does; a bare ⏎
       // is a newline, because a comment is prose and often more than a line.
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); }
+      // the hint says Esc closes, and it has to from here: the deck's key
+      // handler never hears a key typed into this box
+      if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); closeCompose(); }
       e.stopPropagation();         // the deck must not advance while somebody types
     });
     card.append(input, send);

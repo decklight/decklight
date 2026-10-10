@@ -310,14 +310,18 @@
           r.listedFromThePanel = !!(await until(() => [...card.querySelectorAll('.rv-body')]
             .some((n) => n.textContent === 'Docked, and still writing.')));
           r.boxEmptiedAndKept = box.isConnected && box.value === '';
-          // Esc leaves the box without closing the panel or losing the draft
+          // Esc closes the panel from the box, as from anywhere (PRESENTING),
+          // and the draft is kept: the box is the same node across closes
           box.value = 'half a thought';
           box.focus();
           box.setSelectionRange(4, 4);
-          press('Escape', box);                 // Esc leaves the box, keeps the draft
+          press('Escape', box);
           await wait(30);
-          r.escLeavesTheBox = document.activeElement !== box && !!document.querySelector('.decklight-review');
-          r.draftKept = box.value === 'half a thought';
+          r.escClosesThePanel = !document.querySelector('.decklight-review');
+          press('m');
+          await wait(40);
+          r.draftKept = !!document.querySelector('.decklight-review')
+            && document.querySelector('.decklight-review .rv-input')?.value === 'half a thought';
           box.value = '';
           document.querySelector('.decklight-stage section')
             .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
@@ -338,7 +342,7 @@
             && r.cardFillsGutter && r.cardFullHeight && r.slideClearOfPanel
             && r.persisted && r.arrowNavigatedDeck && r.boxFollowsTheSlide && r.shiftMFocusesTheBox
             && r.typingDoesNotMoveTheDeck && r.postedOnTheSlideOnScreen && r.listedFromThePanel
-            && r.boxEmptiedAndKept && r.escLeavesTheBox && r.draftKept
+            && r.boxEmptiedAndKept && r.escClosesThePanel && r.draftKept
             && r.gutterReleased && r.restoredPlacement;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
