@@ -1497,6 +1497,29 @@ test('/deck/edit/history carries what each version was and what it changed', asy
   assert.ok(first.add > 0);
 });
 
+test('/deck/edit/history/changes names the slides a version changed, added and removed', async (t) => {
+  const dir = gitRepoWithDeck(t);
+  // a third version: slide 2 out, a new one in at the end
+  writeFileSync(path.join(dir, 'deck.html'), DECK.replace('Alpha', 'Second').replace(/<section data-layout="centered">[\s\S]*?<\/section>/, '<section>\n      <h2>Gamma</h2>\n    </section>'));
+  git(['commit', '-qam', 'third version'], dir);
+  const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
+  const { entries } = await (await fetch(base + '/deck/edit/history')).json();
+  const at = async (e) => (await fetch(`${base}/deck/edit/history/changes?ref=${e.hash}`)).json();
+
+  const third = await at(entries[0]);
+  assert.equal(third.ok, true, third.error);
+  assert.equal(third.parent, entries[1].hash, 'removed slides are shown from the version before');
+  assert.deepEqual(third.stops, [{ kind: 'removed', was: 2 }, { kind: 'added', slide: 2 }]);
+  const second = await at(entries[1]);
+  assert.deepEqual(second.stops, [{ kind: 'changed', slide: 1, was: 1 }]);
+  const first = await at(entries[2]);
+  assert.equal(first.parent, null, 'the first version has nothing before it');
+  assert.deepEqual(first.stops.map((x) => x.kind), ['added', 'added']);
+
+  assert.equal((await fetch(base + '/deck/edit/history/changes?ref=--output=x')).status, 400, 'an option is not a hash');
+  assert.equal((await fetch(base + '/deck/edit/history/changes?ref=deadbeef')).status, 404);
+});
+
 test('/deck/edit/history/at previews a version — with a base href so its assets resolve', async (t) => {
   const dir = gitRepoWithDeck(t);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });

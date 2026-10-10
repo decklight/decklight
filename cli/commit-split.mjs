@@ -332,6 +332,19 @@ export function sameSlide(a, b) {
  * are all edited is all changed, never all replaced.
  */
 export function slideChanges(before, after) {
+  const { changed, added, removed } = slideDiff(before, after);
+  return { changed, added, removed };
+}
+
+/**
+ * slideChanges, slide by slide: the counts, and `stops`, every slide the
+ * change touched in the order a reader meets them. `{ kind: 'changed', slide,
+ * was }` and `{ kind: 'added', slide }` number slides in `after`;
+ * `{ kind: 'removed', was }` numbers one in `before`, which is the only
+ * version that still has it. The History overlay walks these (PRESENTING).
+ * Pure; 1-based like `state.slide`.
+ */
+export function slideDiff(before, after) {
   const a = slideSources(before);
   const b = slideSources(after);
   // LCS over whole slides; decks are tens of slides, so n×m is nothing
@@ -340,30 +353,34 @@ export function slideChanges(before, after) {
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
     L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
   }
-  let changed = 0, added = 0, removed = 0;
+  const stops = [];
+  // gaps hold INDEXES, so each stop can say which slide it is
   let gapOld = [], gapNew = [];
   const close = () => {
     let x = 0, y = 0;
     while (x < gapOld.length && y < gapNew.length) {
-      if (sameSlide(gapOld[x], gapNew[y])) { changed++; x++; y++; }
+      if (sameSlide(a[gapOld[x]], b[gapNew[y]])) {
+        stops.push({ kind: 'changed', slide: gapNew[y] + 1, was: gapOld[x] + 1 }); x++; y++;
       // the old one is edited further on: this new one was put in
-      else if (gapNew.slice(y + 1).some((s) => sameSlide(gapOld[x], s))) { added++; y++; }
-      else { removed++; x++; }
+      } else if (gapNew.slice(y + 1).some((k) => sameSlide(a[gapOld[x]], b[k]))) {
+        stops.push({ kind: 'added', slide: gapNew[y] + 1 }); y++;
+      } else { stops.push({ kind: 'removed', was: gapOld[x] + 1 }); x++; }
     }
-    removed += gapOld.length - x;
-    added += gapNew.length - y;
+    for (; x < gapOld.length; x++) stops.push({ kind: 'removed', was: gapOld[x] + 1 });
+    for (; y < gapNew.length; y++) stops.push({ kind: 'added', slide: gapNew[y] + 1 });
     gapOld = []; gapNew = [];
   };
   let i = 0, j = 0;
   while (i < n && j < m) {
     if (a[i] === b[j]) { close(); i++; j++; }
-    else if (L[i + 1][j] >= L[i][j + 1]) gapOld.push(a[i++]);
-    else gapNew.push(b[j++]);
+    else if (L[i + 1][j] >= L[i][j + 1]) gapOld.push(i++);
+    else gapNew.push(j++);
   }
-  while (i < n) gapOld.push(a[i++]);
-  while (j < m) gapNew.push(b[j++]);
+  while (i < n) gapOld.push(i++);
+  while (j < m) gapNew.push(j++);
   close();
-  return { changed, added, removed };
+  const count = (k) => stops.filter((s) => s.kind === k).length;
+  return { changed: count('changed'), added: count('added'), removed: count('removed'), stops };
 }
 
 /**

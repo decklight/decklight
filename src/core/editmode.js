@@ -2031,11 +2031,16 @@ export function createEditMode({
   // one the slide finder uses), so once the frame is up we only ever message it.
   let previewSlide = 1;
   let previewDoc = null; // the commit the preview frame is showing, by hash
+  let previewEntry = null; // the ROW the preview belongs to (a removed slide shows its parent)
   const preview = createPreview({
     docOf: (t) => t.doc,
     // in the theme on screen: an old version opens on ITS configured theme,
     // and the history is for seeing what changed, not the theme it had then
-    srcFor: (t) => `${editBase}/deck/edit/history/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}`,
+    // the slide rides the URL (`#/N`, the deck's deep link): a new document
+    // used to open on slide 1 and only then hear where to go, which never
+    // mattered while every version opened on slide 1 — but a slide the
+    // version REMOVED is shown from the one before it, at its old number
+    srcFor: (t) => `${editBase}/deck/edit/history/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}#/${t.slide || 1}`,
     messageFor: (t) => ({ __decklightPreview: { goto: [t.slide, 0] } }),
   });
   // Armed, not fired. `⏎` on a row used to restore it on the spot, and a CLICK
@@ -2064,6 +2069,60 @@ export function createEditMode({
     applyHistoryCaptions();
   }
 
+  // "All slides" or "changes" (D): the transport walks every slide of the
+  // version, or only the ones it changed, added or removed against the one
+  // before it — the slides a version is ABOUT. A removed slide exists only in
+  // the version before, so it is shown from there. Per browser, like the
+  // captions: it is how you read history, not a fact about a deck.
+  const HISTORY_CHANGES_KEY = 'decklight-history-changes';
+  const historyChangesOn = () => readPref(HISTORY_CHANGES_KEY) === '1';
+  const changesOf = new Map();   // hash → the server's answer, or the promise of it
+  let stopAt = 0;
+  async function loadChanges(entry) {
+    if (!changesOf.has(entry.hash)) {
+      changesOf.set(entry.hash, fetch(`${editBase}/deck/edit/history/changes?ref=${encodeURIComponent(entry.hash)}`)
+        .then((r) => r.json()).then((j) => (j?.ok ? j : null)).catch(() => null)
+        .then((j) => { changesOf.set(entry.hash, j); return j; }));
+    }
+    return changesOf.get(entry.hash);
+  }
+  /** The selected version's changes, when they are here and the view wants them. */
+  function currentChanges() {
+    const entry = restoreRows[restoreSel];
+    const c = entry && changesOf.get(entry.hash);
+    return historyChangesOn() && c && !(c instanceof Promise) ? c : null;
+  }
+  function applyHistoryChanges() {
+    const b = restoreEl?.querySelector('.hs-only');
+    if (!b) return;
+    const on = historyChangesOn();
+    b.setAttribute('aria-pressed', String(on));
+    b.textContent = on ? 'changes' : 'all slides';
+    b.title = on ? 'showing only the slides this version changed, added or removed — D shows all of them'
+      : 'showing every slide — D shows only the ones this version changed, added or removed';
+  }
+  function toggleHistoryChanges() {
+    writePref(HISTORY_CHANGES_KEY, historyChangesOn() ? '0' : '1');
+    applyHistoryChanges();
+    const frame = restoreEl?.querySelector('iframe');
+    if (frame) { stopAt = 0; previewSlide = 1; restorePreview(frame, restoreRows[restoreSel], { force: true }); }
+  }
+  /** Show stop `i` of the selected version's changes. */
+  function showStop(i) {
+    const c = currentChanges();
+    const frame = restoreEl?.querySelector('iframe');
+    if (!c || !frame) return;
+    const entry = restoreRows[restoreSel];
+    stopAt = Math.max(0, Math.min(i, c.stops.length - 1));
+    const stop = c.stops[stopAt];
+    // a slide this version removed is only in the one before it
+    const doc = stop?.kind === 'removed' && c.parent ? c.parent : entry.hash;
+    previewSlide = stop ? (stop.kind === 'removed' ? stop.was : stop.slide) : 1;
+    previewDoc = doc;
+    preview.show(frame, { doc, slide: previewSlide });
+    renderNav();
+  }
+
   // Stroke icons in the shape of the transport controls everyone already
   // knows. Constant markup, so innerHTML is the same call the touch chrome
   // makes for its own icons — nothing here comes from the deck or from git.
@@ -2085,6 +2144,7 @@ export function createEditMode({
   const previewTotal = () => Number(restoreRows[restoreSel]?.slides) || 0;
 
   function previewGoto(n) {
+    if (currentChanges()) return showStop(n - 1);
     const total = previewTotal();
     previewSlide = Math.max(1, total ? Math.min(n, total) : n);
     const frame = restoreEl?.querySelector('iframe');
@@ -2094,6 +2154,24 @@ export function createEditMode({
   function renderNav() {
     const nav = restoreEl?.querySelector('.hs-nav');
     if (!nav) return;
+    const kind = nav.querySelector('.hs-kind');
+    const c = currentChanges();
+    if (c) {
+      const n = c.stops.length;
+      const stop = c.stops[stopAt];
+      nav.querySelector('.hs-pos').textContent = n ? `${stopAt + 1} / ${n}` : 'no slide changed';
+      kind.hidden = !stop;
+      kind.className = `hs-kind${stop ? ` hs-k-${stop.kind}` : ''}`;
+      kind.textContent = !stop ? '' : stop.kind === 'removed' ? `slide ${stop.was} removed`
+        : `slide ${stop.slide} ${stop.kind}`;
+      for (const b of nav.querySelectorAll('.hs-btn[data-go]')) {
+        const at = b.dataset.go;
+        b.disabled = !n || (stopAt <= 0 && (at === 'first' || at === 'prev'))
+          || (stopAt >= n - 1 && (at === 'next' || at === 'last'));
+      }
+      return;
+    }
+    kind.hidden = true;
     const total = previewTotal();
     // With no slide count for this row (past the stat depth) the buttons still
     // work — they just cannot know where the end is, so none of them is greyed
@@ -2106,14 +2184,31 @@ export function createEditMode({
     }
   }
   function navTo(where) {
+    const c = currentChanges();
+    if (c) {
+      if (where === 'first') return showStop(0);
+      if (where === 'prev') return showStop(stopAt - 1);
+      if (where === 'next') return showStop(stopAt + 1);
+      return showStop(c.stops.length - 1);
+    }
     if (where === 'first') return previewGoto(1);
     if (where === 'prev') return previewGoto(previewSlide - 1);
     if (where === 'next') return previewGoto(previewSlide + 1);
     return previewGoto(previewTotal() || previewSlide + 1);
   }
 
-  function restorePreview(frame, entry) {
+  async function restorePreview(frame, entry, { force = false } = {}) {
     if (!entry) return;
+    if (historyChangesOn()) {
+      const fresh = force || entry.hash !== previewEntry;
+      previewEntry = entry.hash;
+      const c = await loadChanges(entry);
+      // the row moved on while the answer was on its way
+      if (restoreRows[restoreSel] !== entry || !restoreEl) return;
+      if (c) return showStop(fresh ? 0 : stopAt);
+      // no answer (git could not say): fall back to every slide, quietly
+    }
+    previewEntry = entry.hash;
     // a row re-selected is a message, not a reload — the same short-circuit the
     // finder and the pickers have always had
     if (entry.hash !== previewDoc) previewSlide = 1;
@@ -2182,6 +2277,8 @@ export function createEditMode({
           ['first', 'prev'].map((k) => navBtn(k)).join('') +
           '<span class="hs-pos" aria-live="polite"></span>' +
           ['next', 'last'].map((k) => navBtn(k)).join('') +
+          '<span class="hs-kind" hidden></span>' +
+          '<button type="button" class="hs-btn hs-only" aria-label="only the slides this version changed (D)"></button>' +
           '<button type="button" class="hs-btn hs-cc" aria-label="captions (C)">CC</button>' +
         '</div>' +
         '<div class="tp-caption"></div></div></div>';
@@ -2202,6 +2299,8 @@ export function createEditMode({
     }
     restoreEl.querySelector('.hs-cc').addEventListener('click', toggleHistoryCaptions);
     applyHistoryCaptions();
+    restoreEl.querySelector('.hs-only').addEventListener('click', toggleHistoryChanges);
+    applyHistoryChanges();
     // Built as nodes, not innerHTML: a commit subject is somebody else's text
     // and may contain anything — textContent escapes it by construction.
     const list = restoreEl.querySelector('.tp-list');
@@ -2294,6 +2393,7 @@ export function createEditMode({
     restoreEl = null;
     restoreArmed = false;
     previewDoc = null;
+    previewEntry = null;
   }
 
   /**
@@ -2395,6 +2495,7 @@ export function createEditMode({
         case 'End': navTo('last'); break;
         // the deck's own captions key, meaning the same thing one layer up
         case 'c': case 'C': toggleHistoryCaptions(); break;
+        case 'd': case 'D': toggleHistoryChanges(); break;
         // Two steps, and the first one is not a write: ⏎ asks, ⏎ again does it.
         case 'Enter': restoreArmed ? commitRestore() : armRestore(); break;
         // Esc backs out of the question before it backs out of the overlay —
