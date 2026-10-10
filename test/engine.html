@@ -4551,6 +4551,10 @@
 
         fire(box, 'mousemove');
         r.shapeGlows = box.classList.contains('dl-glow') && !!document.querySelector('.dl-spot.dl-spot-dim') && !svg.classList.contains('dl-hover');
+        // the box is a dashed line in the theme's accent (this page's --accent is #5ee6c0), hugging the shape
+        const spot = document.querySelector('.dl-spot'); const sc = getComputedStyle(spot); const sb = spot.getBoundingClientRect(); const bb = box.getBoundingClientRect();
+        r.dashedAccentBox = sc.outlineStyle === 'dashed' && sc.outlineColor === 'rgb(94, 230, 192)' && !spot.classList.contains('dl-spot-block')
+          && Math.abs(sb.left - bb.left + 3) < 1 && Math.abs(sb.width - bb.width - 6) < 1;
         fire(document.querySelector('.decklight-stage > section.active h2'), 'mousemove');
         r.blockKeepsItsOutline = !document.querySelector('.dl-spot') && !box.classList.contains('dl-glow')
           && document.querySelector('.decklight-stage > section.active h2').classList.contains('dl-hover');
@@ -4606,7 +4610,7 @@
         const rm = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/remove')).pop()?.body;
         r.backspaceRemovesTheNode = rm?.slide === 5 && rm.index === 1 && JSON.stringify(rm.path) === '[1,0]' && rm.tag === 'rect';
 
-        r.PASS = r.shapeGlows && r.blockKeepsItsOutline && r.clickSelectsTheShape && r.frameOnTheShape && r.labelSelectsItsText
+        r.PASS = r.shapeGlows && r.dashedAccentBox && r.blockKeepsItsOutline && r.clickSelectsTheShape && r.frameOnTheShape && r.labelSelectsItsText
           && r.canvasSelectsTheSvg && r.menuInspectsAndRemovesTheNode && r.inspectShowsTheNode && r.infoHasItsPaint
           && r.crumbMovesTheSelection && r.pickerOn && r.pickerLights && r.pickInspectsIt && r.pickReachesNothingElse
           && r.escTurnsThePickerOff && r.backspaceRemovesTheNode;

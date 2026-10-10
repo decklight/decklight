@@ -2606,15 +2606,17 @@
 .decklight-inspector .cp-embedded { padding: 0 12px 4px; }
 .decklight-colorpicker .cp-saved { font-size: 11px; opacity: .5; }
 
-/* the picker and the hover inside a diagram (pick.js): a faint glow on the
-   node under the pointer, the stage around it dimmed a little; the box lets
-   every pointer event through, so it never takes the click it is about */
+/* the picker and the hover inside a diagram (pick.js): a dashed line in the
+   theme's accent around the node under the pointer, a faint glow on the node,
+   the stage around it dimmed a little; the box lets every pointer event
+   through, so it never takes the click it is about */
 .decklight .dl-spot {
   position: fixed; z-index: 30; pointer-events: none; border-radius: 6px;
+  outline: 1.5px dashed var(--accent); outline-offset: 1px;
   transition: left .08s, top .08s, width .08s, height .08s;
 }
 .decklight .dl-spot.dl-spot-dim { box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .16); }
-.decklight .dl-spot.dl-spot-block { outline: 1.5px solid color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 0 14px 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.decklight .dl-spot.dl-spot-block { outline: 1.5px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 0; box-shadow: 0 0 14px 2px color-mix(in srgb, var(--accent) 45%, transparent); }
 .decklight .dl-spot.dl-spot-block.dl-spot-dim { box-shadow: 0 0 14px 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 0 100vmax rgba(0, 0, 0, .16); }
 .decklight svg .dl-glow { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 90%, transparent)) drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 50%, transparent)); }
 .decklight.dl-picking, .decklight.dl-picking .decklight-stage * { cursor: crosshair !important; }
