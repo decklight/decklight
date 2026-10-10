@@ -1410,6 +1410,21 @@ test('the always-loaded skill tells agents to render and check for clipped slide
   assert.match(agents, /overflows/);
 });
 
+test('the skill tells agents how a diagram line that draws is written', () => {
+  // SVG_DIAGRAMS: the head on the stroke, the dashes on the stroke, the
+  // engine's own nodes never copied back into the file
+  const md = claudeSkillMd();
+  assert.match(md, /data-build="draw"/);
+  assert.match(md, /marker-end/);
+  assert.match(md, /stroke-dasharray/);
+  assert.match(md, /draws dashed, start to finish/);
+  assert.match(md, /data-draw-stops/);
+  assert.match(md, /\.draw-head/);
+  assert.match(md, /\.draw-mask/);
+  assert.match(md, /never\s*\n?copy them from the rendered DOM/);
+  assert.match(referenceDoc(), /Lines that draw/, 'and the reference carries the rules themselves');
+});
+
 test('the skill names the comparison recipe and its one trap', () => {
   // The recipe's ABSENCE is what produced the deck that shipped broken: with no
   // canonical markup for the most common structured slide, the author hand-rolled

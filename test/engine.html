@@ -625,6 +625,20 @@
       </svg>
     </section>`);
     }
+    // A dashed stroke draws dashed (#737): a dashed curve with a head, a dashed
+    // line in stages, a solid line, a dashed filled box, and a line after it
+    if (HARNESS_MODE === 'dasheddraw') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Dashed</h2>
+      <svg viewBox="0 0 800 300" width="800" data-build="draw">
+        <defs><marker id="dd-arr" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" fill="currentColor"/></marker></defs>
+        <g><path class="dd-curve" d="M 40 60 C 200 0, 500 0, 760 60" fill="none" stroke="#36c" stroke-width="4" stroke-dasharray="8,6" marker-end="url(#dd-arr)"/></g>
+        <line class="dd-stops" x1="20" y1="120" x2="767" y2="120" stroke="#c33" stroke-width="3" style="stroke-dasharray: 4 4" data-draw-stops="300 767"/>
+        <line class="dd-solid" x1="20" y1="160" x2="400" y2="160" stroke="#888" stroke-width="3"/>
+        <rect class="dd-box" x="20" y="200" width="200" height="60" fill="#224" stroke="#fff" stroke-width="2" stroke-dasharray="5 3"/>
+        <line class="dd-after" x1="300" y1="230" x2="700" y2="230" stroke="#888" stroke-width="3"/>
+      </svg>
+    </section>`);
+    }
     // Nested fills (#541): two panels of different slots, each holding boxes
     // authored with the same slot — only for the mode that looks at it
     if (HARNESS_MODE === 'nestedfills') {
@@ -2017,10 +2031,13 @@
         const typeIn = (v) => { box().value = v; box().dispatchEvent(new Event('input', { bubbles: true })); };
         const key = (k) => box().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
         const label = document.querySelector('.le-text');
-        // the engine's own node, before the group: never on the file's path
+        // the engine's own nodes, before the group: never on the file's path
         const head = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         head.setAttribute('class', 'draw-head');
         document.querySelector('.le-line').after(head);
+        const mask = document.createElementNS('http://www.w3.org/2000/svg', 'mask');
+        mask.setAttribute('class', 'draw-mask');
+        head.after(mask);
 
         dbl(label);
         await settle();
@@ -3289,6 +3306,96 @@
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
+      if (mode === 'dasheddraw') {
+        // BUILD_ENTRANCES / SVG_DIAGRAMS (#737): a dashed stroke draws dashed.
+        // The stroke keeps its authored dasharray on every sampled frame; what
+        // moves is the reveal inside the mask the engine made for it. Measured
+        // the way linedraw measures: every wait is for the draw to FINISH.
+        const stroke = (cls) => document.querySelector(`.${cls}`);
+        const maskOf = (s) => { const m = /url\(#([^)]+)\)/.exec(s.getAttribute('mask') ?? ''); return m ? document.getElementById(m[1]) : null; };
+        const reveal = (s) => maskOf(s)?.querySelector('.draw-mask-stroke') ?? null;
+        const drawn = (s) => s.getTotalLength() - parseFloat(getComputedStyle(reveal(s)).strokeDashoffset);
+        const dashes = (s) => getComputedStyle(s).strokeDasharray;
+        const endHead = (s) => { let h = null; for (let n = s.nextElementSibling; n && (n.classList.contains('draw-head') || n.classList.contains('draw-mask')); n = n.nextElementSibling) if (n.classList.contains('draw-head')) h = n; return h; };
+        const gap = (s) => {
+          const tip = s.getPointAtLength(Math.max(0, drawn(s)));
+          const t = new DOMPoint(tip.x, tip.y).matrixTransform(s.getScreenCTM());
+          const h = new DOMPoint(0, 0).matrixTransform(endHead(s).getScreenCTM());
+          return Math.hypot(h.x - t.x, h.y - t.y);
+        };
+        const drawing = (s) => !!s._drawAnim;
+        const finished = (s) => until(() => !drawing(s), 200);
+        // sample while a draw runs: the dashes on, the reveal between its ends
+        const ride = async (s, authored) => {
+          let n = 0; let dashed = true; let mid = 0; let worst = 0; const t0 = performance.now();
+          for (let i = 0; i < 200 && drawing(s); i++) {
+            await new Promise((f) => setTimeout(f, 30));
+            if (!drawing(s)) break;
+            n++;
+            if (dashes(s) !== authored) dashed = false;
+            const d = drawn(s); if (d > 1 && d < s.getTotalLength() - 1) mid++;
+            if (endHead(s)) worst = Math.max(worst, gap(s));
+          }
+          await finished(s);
+          return { n, dashed, mid, worst, ms: performance.now() - t0 };
+        };
+        const curve = stroke('dd-curve'); const stops = stroke('dd-stops'); const solid = stroke('dd-solid'); const box = stroke('dd-box'); const after = stroke('dd-after');
+        deck.goto(5, 0); await settle();
+        const CURVE = dashes(curve); const STOPS = dashes(stops); const BOX = dashes(box);
+        r.instant = parseFloat(getComputedStyle(reveal(curve)).transitionDuration) === 0;
+        const rode = (x) => r.instant || (x.n >= 3 && x.dashed && x.mid >= 2);
+        // the shape of it: a mask per dashed stroke, with its own id, the
+        // reveal inside; the dashes authored as an attribute or inline alike
+        r.masked = [curve, stops, box].every((s) => maskOf(s)?.matches('mask.draw-mask') && !!reveal(s) && s.hasAttribute('data-draw-masked'));
+        r.ownIds = new Set([curve, stops, box].map((s) => maskOf(s)?.id)).size === 3;
+        r.dashesAuthored = /8px, 6px/.test(CURVE) && /4px, 4px/.test(STOPS) && /5px, 3px/.test(BOX);
+        r.solidUntouched = !solid.hasAttribute('mask') && !after.hasAttribute('mask') && !document.querySelector('.dd-solid + .draw-mask') && !document.querySelector('.dd-after + .draw-mask') && !solid.hasAttribute('data-draw-masked');
+        // the region is not the stroke's box (empty for a line, and for anything
+        // measured before the slide is shown): one box that holds any diagram
+        r.lineHasRegion = parseFloat(maskOf(stops).getAttribute('height')) > 1000 && parseFloat(maskOf(stops).getAttribute('y')) < -1000;
+        // a filled dashed box: the fill shows through, the dash band is erased until drawn
+        r.boxKeepsFill = maskOf(box).children.length === 3 && maskOf(box).children[0].getAttribute('fill') === 'white' && maskOf(box).children[1].getAttribute('stroke') === 'black';
+        // the head rides the tip, built from the marker the stroke no longer carries
+        r.headBuilt = !!endHead(curve) && !curve.hasAttribute('marker-end');
+        // six steps: the curve's group, two stops, the solid line, the box, the line after; the mask is none of them
+        deck.goto(5, 99); r.steps = deck.state.step === 6; deck.goto(5, 0); await finished(curve); await finished(stops);
+        r.pendingHidden = Math.round(drawn(curve)) === 0 && Math.round(drawn(stops)) === 0 && dashes(curve) === CURVE;
+        // the curve: dashed on every sampled frame, the head on the tip
+        deck.next(); const c1 = await ride(curve, CURVE);
+        r.drawsDashed = rode(c1);
+        r.headRides = r.instant || c1.worst < 1;
+        r.curveDone = Math.round(drawn(curve)) === Math.round(curve.getTotalLength()) && dashes(curve) === CURVE && reveal(curve).style.strokeDashoffset === '0';
+        // the stages: dashed in each, stopping where told
+        deck.next(); const s1 = await ride(stops, STOPS);
+        r.stageDashed = rode(s1) && Math.round(drawn(stops)) === 300;
+        deck.next(); await finished(stops); r.stage2 = Math.round(drawn(stops)) === Math.round(stops.getTotalLength()) && dashes(stops) === STOPS;
+        deck.next(); await finished(solid); deck.next(); const b1 = await ride(box, BOX);
+        r.boxDashed = rode(b1) && getComputedStyle(box).fill === 'rgb(34, 34, 68)';
+        // reversed: the box and the curve retract dashed
+        deck.prev(); const b2 = await ride(box, BOX);
+        r.retractsDashed = rode(b2) && Math.round(drawn(box)) === 0;
+        deck.goto(5, 1); await finished(curve); deck.prev(); const c2 = await ride(curve, CURVE);
+        r.curveRetracts = rode(c2) && Math.round(drawn(curve)) === 0 && dashes(curve) === CURVE;
+        // a deep link lands drawn, instantly, dashed
+        deck.goto(1, 0); await settle(); deck.goto(5, 3); await settle();
+        r.deepLink = !drawing(curve) && !drawing(stops) && Math.round(drawn(curve)) === Math.round(curve.getTotalLength()) && Math.round(drawn(stops)) === Math.round(stops.getTotalLength()) && dashes(curve) === CURVE;
+        // a rescan adds no second mask and no step
+        const before = document.querySelectorAll('.draw-mask').length;
+        deck.sync(); await settle();
+        r.rescanIdempotent = document.querySelectorAll('.draw-mask').length === before && before === 3 && deck._records[4].groups.length === 6;
+        // the overview's clone shows the dashed stroke whole: its mask (an id the live slide also holds) is off
+        press('o'); await settle();
+        const ov = document.querySelector('.ov-clone .dd-curve');
+        r.overviewWhole = !!ov && ov.getAttribute('mask') === curve.getAttribute('mask') && getComputedStyle(ov).mask === 'none';
+        press('Escape'); await settle();
+        r.maskBackOnStage = /url\(/.test(getComputedStyle(curve).mask);
+        r.samples = `${c1.n}/${s1.n}/${b1.n}/${b2.n}/${c2.n}`;
+        r.PASS = r.masked && r.ownIds && r.dashesAuthored && r.solidUntouched && r.lineHasRegion && r.boxKeepsFill && r.headBuilt
+          && r.steps && r.pendingHidden && r.drawsDashed && r.headRides && r.curveDone && r.stageDashed && r.stage2 && r.boxDashed
+          && r.retractsDashed && r.curveRetracts && r.deepLink && r.rescanIdempotent && r.overviewWhole && r.maskBackOnStage;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
       if (mode === 'hidden') {
         // DECK_ANATOMY HIDDEN_SLIDES: slide 2 keeps its number and is stepped
         // over; a deep link onto it lands beside it; the overview still shows
@@ -4528,11 +4635,14 @@
         deck.goto(5);
         await settle();
         const box = document.querySelector('.cp-box'); const label = document.querySelector('.cp-text');
-        // what builds.js does to a drawn stroke: a node of the engine's, before
-        // the group, that the file has never heard of
+        // what builds.js does to a drawn stroke: nodes of the engine's, before
+        // the group, that the file has never heard of (a head, a dashed stroke's mask)
         const head = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         head.setAttribute('class', 'draw-head');
         document.querySelector('.cp-line').after(head);
+        const mask = document.createElementNS('http://www.w3.org/2000/svg', 'mask');
+        mask.setAttribute('class', 'draw-mask');
+        head.after(mask);
 
         openOn(box);
         r.opensTheInspector = !!q('.ins-tabs') && q('.ins-tab[aria-selected="true"]')?.dataset.tab === 'colors' && !document.querySelector('.decklight-ctxmenu');

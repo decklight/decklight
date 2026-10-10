@@ -74,3 +74,18 @@ test('parseDrawStops: path lengths, fractions, percentages — clamped to the st
   assert.deepEqual(parseDrawStops('347 x', 800), [], 'a value that is not a number voids the list');
   assert.deepEqual(parseDrawStops('-1 5', 800), [], 'and so does a negative one');
 });
+
+// ── a dashed stroke draws dashed (#737) ───────────────────────────────────
+import { isDashed } from '../src/core/builds.js';
+
+test('isDashed: what an authored stroke-dasharray must say to draw through a mask', () => {
+  assert.equal(isDashed('6,4'), true);
+  assert.equal(isDashed('4 4'), true);
+  assert.equal(isDashed(' 8px, 6px '), true);
+  assert.equal(isDashed('none'), false, 'none is the solid default');
+  assert.equal(isDashed('0'), false, 'a zero dash is solid');
+  assert.equal(isDashed('0, 0'), false);
+  assert.equal(isDashed(''), false);
+  assert.equal(isDashed(null), false);
+  assert.equal(isDashed(undefined), false);
+});

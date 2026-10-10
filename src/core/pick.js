@@ -18,7 +18,7 @@
  */
 
 const DRAWN = 'rect, circle, ellipse, polygon, polyline, path, line, text, image, use, foreignObject';
-const NOT_THE_FILES = 'defs, marker, .draw-head, [data-ds-injected]';
+const NOT_THE_FILES = 'defs, marker, mask, .draw-head, .draw-mask, [data-ds-injected]';
 
 /** The node a click on `clicked` selects inside the top-level block `top`. */
 export function pickNode(top, clicked) {
