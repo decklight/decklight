@@ -7,15 +7,21 @@ carrying the same notes in prose.
 
 ## 0.9.0
 
-A hundred and thirty-five commits since 0.8.1, and the release has a shape: a
-deck is now something you **edit with the mouse**, **take slides into**,
-**import real PowerPoint drawings into**, **export as video**, and **narrate in
-a voice you can pace and direct — with a face, yours if you like**. The runtime
-it plays with is a link, not a copy — and so is a theme from a marketplace.
+Two hundred and thirty-nine commits since 0.8.1, and the release has a shape:
+**the deck is the command** (`decklight talk.html`, one server, write mode by
+default and `--no-trust` for a deck you did not write), and a deck is something
+you **edit with the mouse**, down to one shape, wire or label inside a diagram,
+**dress in a design system** with its templates, themes and fonts, **take slides
+into**, **import real PowerPoint drawings into**, **export as video**, and
+**narrate in a voice you can pace and direct, with a face, yours if you like**.
+The runtime it plays with is a link, not a copy, and so is a theme, a design
+system or a typeface from a marketplace. The command words this section opens
+with, `author`, `present` and `review`, were retired before the tag: the
+section *One command, one server* below says what replaced them.
 
 ### Edit the deck in front of you (SPEC `DECK_ANATOMY`)
 
-`decklight author` grew an editor you drive with the mouse: pick an element,
+`decklight author` (now `decklight <deck>`) grew an editor you drive with the mouse: pick an element,
 change it, and the file on disk changes with it (#488). Double-click a code
 block to edit it as plain source (#494). `Colors…` in the element menu recolors
 a shape and the text on it — the theme's named palette by reference, or a
@@ -35,7 +41,8 @@ came with that pass (#485, #486). Hand `author` a git URL and it clones the
 repository and opens the deck inside the clone (#514) — and the URL is a
 command by itself, the way a `.html` file is: `decklight <repository url>`
 (#583), finding a deck that is data (#584), and `present` and `review` open
-the same one clone rather than making a second (#585).
+the same one clone rather than making a second (#585); all three words were
+since folded into `decklight <deck>` (below).
 
 Undo is `⌘Z` on a Mac and `Ctrl+Z` elsewhere, beside `Z`, and `⇧` redoes
 (#579). The commit window shows it is thinking while it drafts a subject
@@ -47,8 +54,8 @@ this session's asks — the slide each came from, and what the agent said
 the deck again rather than a black box (#576), and each version in the theme
 on screen (#589).
 
-**`S` opens this slide's notes in the notes editor** — read-only under
-`present` and `review` — and the speaker view moved to **`⌥⏎` / `Alt+Enter`**,
+**`S` opens this slide's notes in the notes editor** — read-only without
+trust — and the speaker view moved to **`⌥⏎` / `Alt+Enter`**,
 PowerPoint's presenter-view chord (#601, #602).
 
 ### A deck is data, and the runtime is a link (SPEC `DECK_ANATOMY`)
@@ -174,7 +181,7 @@ turns the voice off rather than staying "on" in silence (#611).
 ### A face for the voice (SPEC `PRESENTING`)
 
 **Neural video you set up once and see**: `decklight lipsync … --save`
-remembers a Wav2Lip setup that `author` then starts on its own, the face is
+remembers a Wav2Lip setup that the server then starts on its own, the face is
 sharp in the round overlay, and the medallion is never black (#607). The lips
 follow what is **heard** — the audio output delay taken off, drift nudged by
 rate within 15 ms (#608). A portrait can be **a short video of you**, looped
@@ -233,8 +240,10 @@ drawn length instead of popping onto the origin (#533), a staged stroke takes
 a second — where a flat duration read as a swoosh (#528). A filled shape inside
 a filled shape takes its panel's nested tone, and the theme gate checks fill on
 fill (#542). An arrowhead is sized in strokes, so the shipped marker no longer
-dwarfs its line (#499). Charts gained **scatter**, the one whose x is a
-measurement rather than a category (#462).
+dwarfs its line (#499). A dashed stroke draws dashed from its first frame to
+its last, revealed through a mask the engine makes for it, where it drew solid
+and snapped to its dashes at the end (#738). Charts gained **scatter**, the one
+whose x is a measurement rather than a category (#462).
 
 ### Hand-over: every file the deck can become (SPEC `PRESENTING`)
 
@@ -242,6 +251,130 @@ Export to PowerPoint from inside the deck (#455), and the file you hand over
 holds the talk, not the backup slides (#456). Every file the deck can hand over
 now comes from one door in the palette, and it says where the file went (#459).
 Publish the deck from inside it — asked first, then done (#461).
+
+### One command, one server (SPEC `PRESENTING`, `DECK_ANATOMY`)
+
+The deck is the command: `decklight <deck | url>` opens it, and `author`,
+`present` and `review` are retired (#670, #675). Behind it is **one server**
+with two modes rather than two servers (#681): `/deck/*` is the deck's channel
+in both (#676), the review family, the voice bridge under `/tts/` and every
+route are named for what they do (#677, #678, #679), a slide's properties live
+under `/edit/slide/*` and the recorder's under `/edit/narration/*` (#679), and
+the server owns `/deck/` while every other path is a file beside the deck
+(#680). The mode is the run's: no switch in the palette and no chip (#685),
+after a spell where the session switched from the palette and the lock was
+read-only mode (#682). `--read-only` was the other way in (#667), then became
+**`--no-trust`**, named for what it does to the deck (#688): a deck that runs
+code of its own asks whether its source is trusted, and remembers the answer
+until its script changes (#687). One probe serves every deck, and the server
+holds the editing lock (#669); the review routes are the one server's in both
+modes (#668); a deck that embeds an older runtime is named at startup with the
+upgrade to run (#683); a door pressed while the reloaded page is still asking
+its server waits instead of refusing (#696). The banner is a row per thing
+that is on, with a ✓ when it is installed, and a stale skill or runtime row
+ends in the command to type (#723, #724); a skill older than the install is
+named at startup and refreshed without `--force` (#719). `create-decklight`
+runs `decklight@latest` and says why it exists in today's npm (#638, #649).
+
+### Editing is on, and the bar names every door (SPEC `PRESENTING`)
+
+Editing is on from the moment a deck opens in write mode, the lock is the one
+switch, and `E` is retired (#686), after `E` first opened a bar that names
+every door and a click selected an element (#660). A door that cannot write
+says why: locked, without trust, or no server (#690). The bar has a grip, is
+dragged anywhere and remembered per deck, double-click puts it back (#692),
+hides and shows from the palette, and fullscreen hides it on its own (#693,
+#694); `⌘⏎` / `Ctrl+Enter` is fullscreen, the present chord (#695). The commit
+chip states what changed since the last commit the whole time and asks only
+when the server decides to (#665), takes the top right with the clock under it
+(#691), and hides in fullscreen too (#694); the commit window's *write them for
+me* proposes several commits when the work is several ideas, and the window
+tags HEAD and pushes (#727), with a settings row deciding whether Push sends
+the tags (#731). `⌘B`, `⌘I` and `⌘E` emphasise a selection in place, and a pill
+offers the same (#689). A layout pick is written in place with no reload per
+keypress (#697), a theme pick in write mode is the deck's, written to the file
+and followed by every page (#698), and a theme the deck marks is tagged ● and
+comes first whoever opens it (#699). The overview rearranges the deck: drag a
+slide to a new place, and each cell carries new, duplicate and delete (#661).
+A double-click outside editing says the key rather than changing anything
+(#673), the first write-mode load gets an editing tour of the four gestures
+(#666), and with no query the palette lists the deck's doors, folded into
+groups (#664). Esc closes every panel with one press, from wherever the focus
+is, text boxes included (#733), and each docked panel claims only its own side
+(#728).
+
+The notes are a **drawer** that saves itself, docked along the bottom and
+written when you leave the box, the slide or the card (#663); a save updates
+every page in place instead of reloading (#655), the card stays open across a
+save with the caret where it was and an unsaved mark while the box differs from
+the file (#651), `⌘⏎` saves it wherever the focus is, a save with nothing to
+write says so, and `$1` in notes no longer corrupts the file (#650).
+
+### A diagram's shapes, one by one (SPEC `SVG_DIAGRAMS`, `PRESENTING`)
+
+Inside a diagram, a click selects the deepest shape, wire or label under the
+pointer, not the whole drawing, and the element menu offers **Inspect**, the
+one shape's removal, or the whole diagram's (#736). The shape under the pointer
+glows and the stage around it dims, and since #739 it is boxed by a dashed line
+in the theme's accent, the yellow of Eclipse. `I` opens the **inspector**, one
+panel that says everything about the slide or the element selected on it and
+docks like the others (#730); on a shape it carries a **Colors** tab and a
+**Type** tab, saved as you pick with `Z` taking each back, and a picker that
+hovers shapes the way DevTools does (#736). The colour card had grown a
+**Stroke** side, the shape's border with its width beside it (#720), and a
+**Type** side: size, weight, the theme's font role, italic and alignment
+(#735). A label is edited in place, a double-click and a box laid over it in
+its own type (#734). A diagram's **concept colours** are edited in write mode,
+pinned from the palette, named from the menu, deck-wide at once (#722).
+
+### Design systems: a company's look as a package (SPEC `DESIGN_SYSTEMS`)
+
+A design system is a marketplace kind with a package format and an admission
+gate, `decklight design-system check`, and a catalog kind to list them (#628).
+A deck references one and every server serves it from the checkout, never the
+network (#629); a slide names one of its **slide templates** and fills its
+slots, and the engine expands the template in the DOM, never in the file
+(#630, #711). A template slide edits like any other, the authored element at
+its file index with its slot kept, and a picker puts a slide into a template,
+switches, takes it out or inserts one (#631). A bundle carries its design
+systems, the stylesheet with every `url()` inlined and the meta and templates
+before the runtime, so a bundled deck expands offline (#632). The colour picker
+offers a design system's palette after the theme's, and a pick keeps its colour
+with a `var()` fallback (#633). `check` names every misused template and slot
+before the talk, and the skill teaches agents to fill slots rather than copy a
+template (#634). A stylesheet styles a slot box as
+`[data-ds-injected][data-slot]`, so a rule meant for the box never lands on the
+author's element (#635); the pickers open on a deck served by its author server
+(#636); a catalog never fetched is said plainly (#637); a stylesheet that
+paints the page, text or type is warned about, since the page is the theme's
+(#639). Adding a design system brings its recommended themes and fonts and
+offers its look, with `--no-recommended`, `--apply` and `design-system apply`
+(#645); the theme picker lists what a design system recommends first, a ★
+Recommended pack and a star wherever they appear (#640); a recommended theme or
+font already in the deck is recorded at the catalog's version (#654). The
+deck-template kind is gone, a design system's slide templates are what a slide
+borrows now, and the word "layout" stays with `L` (#712, #711, #726). The Acme
+divider's art bleeds (#710), as background art does on every deck: a 16:9 deck
+on a 16:10 or 4:3 screen no longer shows bands where its background stops
+(#647).
+
+### Fonts travel with the deck (SPEC `FONTS`)
+
+A typeface is a marketplace kind: referenced by a deck so its faces travel with
+it and its bundle, offline, previewed live in *Font…*, and recommended by a
+design system (#641).
+
+### Review: a branch, and a tick that travels (SPEC `REVIEW`)
+
+A review is a **branch**: a reviewer's records are commits on
+`review/<me>-<date>`, never on her checkout (#708), and what she submitted stays
+in front of her, `M` reads her own review branches back (#707). Comments are
+one-way, the reply record is gone (#700); a reviewer's comment is resolved by a
+record that travels, so she sees the tick (#704); `R` on a resolved comment of
+your own reopens it (#701), `D` hides the comments marked done and shows them
+again (#702), `⌫` deletes a comment of your own (#703), `K` commits the sidecar
+with the deck (#705, #709), and the union attribute is written by decklight,
+not assumed (#706).
 
 ### Smaller things
 
@@ -253,13 +386,23 @@ clicks a slide takes rather than its raw build steps (#531). The messages panel
 names its key as a keycap (#510). `bundle --all` produces a multi-module deck,
 which is what it was always called in the docs (#504). A new deck passes its own `check`:
 the scaffold narrates every build — a `[click]` beat before the first point
-and one per point — and the warning says what the count should be (#620).
+and one per point — and the warning says what the count should be (#620). The
+history's caption under the version preview is off by default, `C` or the CC
+button shows it (#644), and `D` walks only the slides a version changed, added
+or removed, a removed one shown from the version before (#732). A Display row
+in the settings switches the deck between its own 16:9 and filling the screen
+(#729). The agent ask names the slide on screen and lets the agent run
+decklight's own CLI (#716). `bundle` puts the narration audio in the file only
+when asked, as recorded, AAC or Opus, chosen with the size the file comes out
+at (#657), and a deck whose configuration block names its tracks gets its
+lip-sync sidecars and voice manifest inlined too (#658). `check`'s old slashed
+`data-layout` warning no longer throws (#721).
 
 ### Verification
 
-`engine-render` and `narration-render` run as one harness per concern — seven
+`engine-render` and `narration-render` run as one harness per concern — eight
 and five — so a failure names the concern rather than a file (#481). `verify`
-is **33 harnesses**. Five narration modes that had been written into no group
+is **32 harnesses**. Five narration modes that had been written into no group
 were running nowhere; they are wired in, and a unit test now fails the moment a
 mode is written into no group (#567). The release gate itself had not passed
 since decks became data: `npm run soak` stopped at step 4 of 55, so the 51
@@ -270,7 +413,14 @@ is green end to end again (#567). `narration-render:record`'s occasional
 twice ran on a budget for none, and now has one for two takes (#574). The soak runs the three commands 0.8.0
 shipped and nothing exercised (#457), `extension check` stops timing the
 browser's startup in its kill budget (#470), and the build's dead terminal
-fallback is gone — a warning there is now a failure (#469).
+fallback is gone — a warning there is now a failure (#469). Later in the
+release the soak learnt seven journeys from the by-hand sheet, run against the
+installed bin (#674), and runs on macOS, hosted for every PR and self-hosted on
+dispatch (#713); the recording harness waits for its take as long as the
+budget allows instead of failing the slow sixth of runs (#659), the
+`bundledaudio` mode checks the carried blob without awaiting a read (#662), and
+the `--remote` log line is waited for rather than read the instant the URL
+appears (#684).
 
 ### Documentation
 
@@ -281,9 +431,17 @@ a data deck, the notes markers, video and sources, then ElevenLabs v4, notes
 written for the ear, the talking head and the narration keys (`P` speaks, `V`
 is the panel). The features deck gained a chapter on pacing the voice —
 `[pause]`, `[click]` and every spelling of them, in notes you can hear (#569).
-Author mode commits when you press `K`, and the README, `init`, the agent
-skill, `author`'s own git question and `doctor` stopped promising every edit
-auto-committed (#578, #581).
+Write mode commits when you press `K`, and the README, `init`, the agent
+skill, the server's own git question and `doctor` stopped promising every edit
+auto-committed (#578, #581). The 0.9.0 sweep brought every mode by its name and
+the keys of the week into the README, SPEC and the guides (#714), the site
+caught up with the release (#715), the quick start is `npx decklight@latest
+init` with `npm create decklight` beside it (#648), the deck-is-the-command
+pass rewrote the README's command table, the site, SPEC, `MARKETPLACE.md` and
+the demo, and the soak drives it (#671, #672), and the README, the site, SPEC
+and the guides no longer use em dashes in their prose (#652). The last pass
+before the tag says what a diagram's shapes can do now, and how a line draws
+(#740).
 
 ## 0.8.1
 
