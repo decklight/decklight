@@ -112,6 +112,7 @@
       sentTo: 'answers go to its own bridge on this machine (127.0.0.1:8787/validate), then ~/.decklight/credentials.json (0600)',
     };
     const CALLS = { get: [], post: [] };
+    let FAIL_NEXT_STYLE = false;   // the colours mode: the next style save is refused
     const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url, init) => {
       const u = String(url);
@@ -489,9 +490,16 @@
           return json({ ok: true, changed: true, undo: 1, redo: 0 });
         }
       }
+      if (HARNESS_MODE === 'inspectpick') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/deck/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/style')) {
+          if (FAIL_NEXT_STYLE) { FAIL_NEXT_STYLE = false; return json({ ok: false, error: 'the page found <rect> at 1.0, the file has <circle> — reload and try again' }, 409); }
+          return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        }
       }
       // Concept colours (SVG_DIAGRAMS, #718): the two writes answer, and
       // one of them fails on demand so the page's repaint is seen to go back
@@ -645,7 +653,7 @@
     // The colour picker: a diagram box with its label, a loose label, and an
     // HTML block — only for the mode that looks at it. No theme loads here, so
     // the palette's tokens are given inline (a secondary that IS one).
-    if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
+    if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors' || HARNESS_MODE === 'inspectpick') {
       const tokens = { '--accent': '#5ee6c0', '--accent-contrast': '#04261c', '--link': '#8ecbff', '--fg': '#eef0ff', '--bg': '#0d1b3d',
         '--d-text': '#f2ece4', '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-3': '#223355',
         // two of the three font roles: the Type side offers what the theme defines
@@ -4216,6 +4224,7 @@
         ];
         r.missed = [];
         r.unopened = [];
+        const SELECTS = new Set(['colors']);
         for (const [name, open] of PANELS) {
           deck.goto(1, 0);
           await settle();
@@ -4232,6 +4241,13 @@
           const where = at === document.body ? 'body' : at.tagName.toLowerCase();
           at.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
           await settle(); await settle();
+          // the one panel that takes two: the inspector opened ON a selection
+          // (Colors…) lets go of it first and closes on the next (PRESENTING)
+          if (SELECTS.has(name)) {
+            r[`${name}_firstEscLetsGo`] = !document.querySelector('.dl-frame, .dl-selected') && !document.querySelector('.decklight-inspector .ins-tabs');
+            (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+            await settle(); await settle();
+          }
           const left = opened.filter((n) => n.isConnected && top().includes(n));
           if (left.length) r.missed.push(`${name} (Esc in ${where}: ${left.map((n) => n.className).join(', ')})`);
           // whatever is still up goes before the next door, so one panel's
@@ -4252,6 +4268,7 @@
             box.focus();
             box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
             await settle(); await settle();
+            if (SELECTS.has(name)) { (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await settle(); await settle(); }
             if (again.some((n) => n.isConnected && top().includes(n))) {
               r.missed.push(`${name} (Esc in ${box.tagName.toLowerCase()}.${box.className.split(' ').join('.')})`);
             }
@@ -4404,20 +4421,109 @@
           && r.refusesWithoutProvenance;
       }
 
+      if (mode === 'inspectpick') {
+        // PRESENTING, selection inside a diagram and the inspector's picker:
+        // a click selects the deepest drawn node (a label's line its <text>,
+        // the canvas the <svg>), framed, with the ⋯ handle on it; a shape under
+        // the pointer glows and the stage dims; ⋯ → Inspect shows it, a crumb
+        // moves the selection; the picker lights what is under the pointer and
+        // a click inspects it without reaching the deck; ⌫ removes the node alone.
+        const I = '.decklight-inspector';
+        const q = (s) => document.querySelector(`${I} ${s}`);
+        const fire = (el, type, opts = {}) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, ...opts }));
+        const sel = () => deck._selection?.();
+        const root = () => document.querySelector('.decklight');
+        await settle();
+        deck.goto(5);
+        await settle();
+        const box = document.querySelector('.cp-box'); const label = document.querySelector('.cp-text');
+        const svg = box.closest('svg'); const group = box.parentElement;
+        const head = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        head.setAttribute('class', 'draw-head');
+        document.querySelector('.cp-line').after(head);
+
+        fire(box, 'mousemove');
+        r.shapeGlows = box.classList.contains('dl-glow') && !!document.querySelector('.dl-spot.dl-spot-dim') && !svg.classList.contains('dl-hover');
+        fire(document.querySelector('.decklight-stage > section.active h2'), 'mousemove');
+        r.blockKeepsItsOutline = !document.querySelector('.dl-spot') && !box.classList.contains('dl-glow')
+          && document.querySelector('.decklight-stage > section.active h2').classList.contains('dl-hover');
+
+        fire(box, 'click');
+        await settle();
+        const frame = document.querySelector('.dl-frame');
+        r.clickSelectsTheShape = sel()?.node === box && sel()?.top === svg && !!frame && !svg.classList.contains('dl-selected') && !!document.querySelector('.dl-handle');
+        const fr = frame?.getBoundingClientRect(), br = box.getBoundingClientRect();
+        r.frameOnTheShape = !!fr && Math.abs(fr.left - (br.left - 4)) < 1.5 && Math.abs(fr.width - (br.width + 8)) < 1.5;
+        fire(label, 'click');
+        r.labelSelectsItsText = sel()?.node === label;
+        fire(svg, 'click');
+        r.canvasSelectsTheSvg = sel()?.node === svg && svg.classList.contains('dl-selected') && !document.querySelector('.dl-frame');
+
+        fire(box, 'click');
+        fire(document.querySelector('.dl-handle'), 'click', { clientX: 300, clientY: 300 });
+        await settle();
+        const rows = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
+        r.menuInspectsAndRemovesTheNode = rows[0] === 'Inspect' && rows.includes('Remove this rect') && rows.includes('Remove the whole svg');
+        [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === 'Inspect').click();
+        await settle();
+        const crumbs = () => [...document.querySelectorAll(`${I} .ins-crumb`)].map((b) => b.textContent);
+        r.inspectShowsTheNode = q('.ins-tab[aria-selected="true"]')?.dataset.tab === 'info' && crumbs().join(' › ') === 'svg › g.cp-group-a › rect.cp-box'
+          && q('.ins-crumb.ins-on')?.textContent === 'rect.cp-box';
+        const keys = [...document.querySelectorAll(`${I} .ins-rows dt`)].map((n) => n.textContent);
+        r.infoHasItsPaint = keys.includes('fill') && keys.includes('stroke')
+          && /var\(--d-fill-1\)/.test(document.querySelector(`${I} dd[data-key="fill"]`)?.textContent ?? '');
+        // a crumb is the element inspected from then on: the selection follows it
+        [...document.querySelectorAll(`${I} .ins-crumb`)].find((b) => b.textContent === 'g.cp-group-a').click();
+        await settle();
+        r.crumbMovesTheSelection = sel()?.node === group && q('.ins-crumb.ins-on')?.textContent === 'g.cp-group-a';
+
+        // the picker: DevTools' select-an-element
+        const slideBefore = deck.state.slide;
+        q('.ins-pick').click();
+        r.pickerOn = root().classList.contains('dl-picking') && q('.ins-pick')?.getAttribute('aria-pressed') === 'true';
+        fire(label, 'mousemove');
+        r.pickerLights = label.classList.contains('dl-glow') && !!document.querySelector('.dl-spot.dl-spot-dim');
+        fire(label, 'pointerdown'); fire(label, 'mousedown'); fire(label, 'mouseup'); fire(label, 'click');
+        await settle();
+        r.pickInspectsIt = sel()?.node === label && q('.ins-crumb.ins-on')?.textContent?.includes('Producer') && !root().classList.contains('dl-picking')
+          && !document.querySelector('.dl-spot');
+        r.pickReachesNothingElse = deck.state.slide === slideBefore && !document.querySelector('.dl-label-edit');
+        q('.ins-pick').click();
+        press('Escape');
+        r.escTurnsThePickerOff = !root().classList.contains('dl-picking') && !!document.querySelector(I) && sel()?.node === label;
+
+        // ⌫ on a node inside a diagram removes that node alone, by the file's path
+        fire(box, 'click');
+        press('Backspace');
+        await settle();
+        const rm = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/remove')).pop()?.body;
+        r.backspaceRemovesTheNode = rm?.slide === 5 && rm.index === 1 && JSON.stringify(rm.path) === '[1,0]' && rm.tag === 'rect';
+
+        r.PASS = r.shapeGlows && r.blockKeepsItsOutline && r.clickSelectsTheShape && r.frameOnTheShape && r.labelSelectsItsText
+          && r.canvasSelectsTheSvg && r.menuInspectsAndRemovesTheNode && r.inspectShowsTheNode && r.infoHasItsPaint
+          && r.crumbMovesTheSelection && r.pickerOn && r.pickerLights && r.pickInspectsIt && r.pickReachesNothingElse
+          && r.escTurnsThePickerOff && r.backspaceRemovesTheNode;
+      }
+
       if (mode === 'colors') {
-        // PRESENTING, element edit mode → Colors…: the background of the shape
-        // under the click and the text on it. What is pinned: the palette is
-        // the theme's, by name and BY REFERENCE; a custom colour is a separate
-        // tab with RGB and HSB; every pick previews and only Apply saves; the
-        // path the save names is the FILE's, not the DOM's; and the card docks.
-        const C = '.decklight-colorpicker';
+        // PRESENTING, the inspector's Colors and Type tabs: the menu's Colors…
+        // and Type… open the inspector on them, on the node the right-click
+        // landed on. What is pinned: the palette is the theme's, by name and
+        // BY REFERENCE; a custom colour is a separate tab with RGB and HSB;
+        // every pick previews AND is saved at once, in place (quiet, with the
+        // page's id), one POST a pick; the path is the FILE's, not the DOM's;
+        // a refused save puts the slide back; Type sets size, weight, a font
+        // role, italic and alignment.
+        const C = '.decklight-inspector';
         const q = (s) => document.querySelector(`${C} ${s}`);
         const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
-        const openOn = (el) => {
+        const openOn = (el, row = 'Colors…') => {
           rightClick(el);
-          [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === 'Colors…')?.click();
+          [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === row)?.click();
         };
         const type = (input, v) => { input.value = v; input.dispatchEvent(new Event('change', { bubbles: true })); };
+        const styles = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'));
+        const last = () => styles().at(-1)?.body;
         await settle();
         deck.goto(5);
         await settle();
@@ -4427,148 +4533,107 @@
         const head = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         head.setAttribute('class', 'draw-head');
         document.querySelector('.cp-line').after(head);
-        press('e');
 
         openOn(box);
-        r.opens = !!q('.narr-card') && !document.querySelector('.decklight-ctxmenu');
-        r.docks = document.querySelector(C).classList.contains('decklight-dockable') && document.querySelectorAll(`${C} .dk-btn[data-mode]`).length === 4;
+        r.opensTheInspector = !!q('.ins-tabs') && q('.ins-tab[aria-selected="true"]')?.dataset.tab === 'colors' && !document.querySelector('.decklight-ctxmenu');
+        r.onTheShape = q('.ins-crumb.ins-on')?.textContent === 'rect.cp-box' && document.querySelector('.dl-frame') !== null;
         r.themeTabFirst = q('.cp-tabs [aria-selected="true"]')?.dataset.id === 'theme' && !q('.cp-range');
         const labels = [...document.querySelectorAll(`${C} .cp-swatch`)].map((b) => b.getAttribute('aria-label'));
         r.primaryAndSecondaryNamed = labels[0] === 'Primary (--accent)' && labels[1] === 'Secondary (--link)';
         r.fillsNumbered = labels.includes('Fill 1 (--d-fill-1)') && labels.includes('Fill 3 (--d-fill-3)');
         r.undefinedTokensLeftOut = !labels.some((l) => l.includes('--muted'));   // this page never defined it
         r.currentMarked = q('.cp-swatch[aria-pressed="true"]')?.dataset.token === '--d-fill-1';
-        r.applyWaitsForAPick = q('.cp-apply').disabled;
+        r.noApplyButton = !q('.cp-apply') && /saved as you pick/.test(q('.cp-foot')?.textContent ?? '');
 
-        // a theme pick is the TOKEN, previewed at once, and keeps the other declarations
+        // a theme pick is the TOKEN, shown at once and saved at once, in place
         q('.cp-swatch[data-token="--accent"]').click();
-        r.previewsToken = box.style.fill === 'var(--accent)' && box.style.stroke !== '';
-        // Escape takes the preview back and posts nothing
-        press('Escape');
-        r.escapeRestores = !document.querySelector(C) && box.style.fill === 'var(--d-fill-1)'
-          && !CALLS.post.some((c) => c.u.includes('/deck/edit/element/style'));
+        await settle();
+        r.pickShowsAndSaves = box.style.fill === 'var(--accent)' && box.style.stroke !== '' && styles().length === 1
+          && last().slide === 5 && last().index === 1 && last().quiet === true && typeof last().from === 'string'
+          && last().edits.length === 1 && last().edits[0].prop === 'fill' && last().edits[0].value === 'var(--accent)' && last().edits[0].tag === 'rect';
+        // the engine's .draw-head sits before the group in the DOM: the path is still the file's [1, 0]
+        r.pathIsTheFiles = JSON.stringify(last().edits[0].path) === '[1,0]';
+        r.stillOpenAndSelected = !!q('.ins-tabs') && document.querySelector('.dl-frame') !== null;
+        // the keys a control acts on stay in the editor; Z and the arrows go on to the deck
+        const heard = [];
+        const ear = (e) => heard.push(e.key);
+        document.addEventListener('keydown', ear);
+        for (const k of ['z', 'ArrowRight', ' ']) q('.cp-swatch').dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+        document.removeEventListener('keydown', ear);
+        r.zReachesTheDeck = heard.includes('z') && heard.includes('ArrowRight') && !heard.includes(' ');
+        deck.goto(5); await settle();
 
-        // fill from the palette, text from the Custom tab, one save for the pair
-        openOn(box);
-        q('.cp-swatch[data-token="--accent"]').click();
+        // the text, from the Custom tab: a typed value is one save
         q('.cp-side [data-id="text"]').click();
         q('.cp-tabs [data-id="custom"]').click();
         r.customHasRgb = ['r', 'g', 'b'].every((k) => q(`.cp-num[data-chan="${k}"]`));
         r.customStartsFromTheTarget = q('.cp-hex').value === '#f2ece4';
         q('.cp-model [data-id="hsb"]').click();
         r.customHasHsb = ['h', 's', 'v'].every((k) => q(`.cp-num[data-chan="${k}"]`)) && !q('.cp-num[data-chan="r"]');
-        type(q('.cp-num[data-chan="h"]'), '40'); type(q('.cp-num[data-chan="s"]'), '90'); type(q('.cp-num[data-chan="v"]'), '100');
-        r.hsbPreviews = q('.cp-hex').value === '#ffb319' && getComputedStyle(label).fill === 'rgb(255, 179, 25)';
-        type(q('.cp-hex'), '0a0b0c');   // pasted without its #
-        r.hexTyped = q('.cp-hex').value === '#0a0b0c' && label.style.fill !== '';
-        q('.cp-apply').click();
+        type(q('.cp-hex'), 'ffb319');   // pasted without its #
         await settle();
-        const post = CALLS.post.find((c) => c.u.includes('/deck/edit/element/style'));
-        const edits = post?.body.edits ?? [];
-        r.postsBoth = post?.body.slide === 5 && post?.body.index === 1 && edits.length === 2
-          && edits[0].prop === 'fill' && edits[0].value === 'var(--accent)' && edits[0].tag === 'rect'
-          && edits[1].prop === 'fill' && edits[1].value === '#0a0b0c' && edits[1].tag === 'text';
-        // the engine's .draw-head sits before the group in the DOM: the path is still the file's [1, 0]
-        r.pathIsTheFiles = JSON.stringify(edits[0]?.path) === '[1,0]' && JSON.stringify(edits[1]?.path) === '[1,1]';
-        r.closesOnApply = !document.querySelector(C);
+        r.hexSaved = getComputedStyle(label).fill === 'rgb(255, 179, 25)' && last().edits[0].tag === 'text'
+          && last().edits[0].value === '#ffb319' && JSON.stringify(last().edits[0].path) === '[1,1]';
 
-        // right-clicking the LABEL means the same pair
-        openOn(label);
-        r.labelFindsItsBox = !q('.cp-side [data-id="fill"]').disabled && !q('.cp-side [data-id="text"]').disabled;
-        // Reset takes the colour off, and that is what is saved
-        q('.cp-reset').click();
-        q('.cp-apply').click();
-        await settle();
-        const reset = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'))[1];
-        r.resetPostsNull = reset?.body.edits.length === 1 && reset.body.edits[0].value === null;
-
-        // an HTML block, from the inline run inside it: background-color and color, on the block
-        openOn(document.querySelector('.cp-quote strong'));
+        // a save the server refuses puts the slide back to what was last saved
+        FAIL_NEXT_STYLE = true;
+        q('.cp-tabs [data-id="theme"]').click();
         q('.cp-swatch[data-token="--d-fill-2"]').click();
-        q('.cp-apply').click();
-        await settle();
-        const html = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'))[2];
-        r.htmlBlock = html?.body.index === 2 && html.body.edits.length === 1 && html.body.edits[0].tag === 'blockquote'
-          && html.body.edits[0].prop === 'background-color' && JSON.stringify(html.body.edits[0].path) === '[]';
+        await settle(); await settle();
+        r.refusedGoesBack = getComputedStyle(label).fill === 'rgb(255, 179, 25)';
 
-        // the Stroke side (#717): the shape's border, a theme token like any pick,
-        // with a width row that previews as it moves; both land in the one save
-        const fillBeforeStroke = box.style.fill;   // whatever the earlier steps left on it: a stroke pick must not touch it
-        openOn(box);
-        r.strokeSide = !q('.cp-side [data-id="stroke"]').disabled;
+        // the Stroke side (#717): a token, and a width that previews as it moves and saves on release
         q('.cp-side [data-id="stroke"]').click();
-        r.widthRowOnStroke = !!q('.cp-width') && !q('.cp-side [data-id="fill"][aria-selected="true"]');
+        r.widthRowOnStroke = !!q('.cp-width');
         q('.cp-swatch[data-token="--accent"]').click();
-        r.strokePreviews = box.style.stroke === 'var(--accent)' && box.style.fill === fillBeforeStroke;
-        type(q('.cp-num.cp-width'), '3');
-        r.widthPreviews = box.style.strokeWidth === '3';
-        q('.cp-apply').click();
         await settle();
-        const strokePost = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style')).pop();
-        r.strokePosted = strokePost?.body.edits.length === 2
-          && strokePost.body.edits.some((e) => e.prop === 'stroke' && e.value === 'var(--accent)' && e.tag === 'rect')
-          && strokePost.body.edits.some((e) => e.prop === 'stroke-width' && e.value === '3');
-        // Escape on the Stroke side puts the width back too
-        openOn(box);
-        q('.cp-side [data-id="stroke"]').click();
-        type(q('.cp-num.cp-width'), '9');
-        press('Escape');
-        r.escapeRestoresWidth = box.style.strokeWidth === '3';
+        r.strokeSaved = box.style.stroke === 'var(--accent)' && last().edits[0].prop === 'stroke';
+        const range = q('.cp-range.cp-width');
+        range.value = '4'; range.dispatchEvent(new Event('input', { bubbles: true }));
+        r.widthPreviewsWithoutSaving = box.style.strokeWidth === '4' && last().edits[0].prop === 'stroke';
+        range.dispatchEvent(new Event('change', { bubbles: true }));
+        await settle();
+        r.widthSavedOnRelease = last().edits.length === 1 && last().edits[0].prop === 'stroke-width' && last().edits[0].value === '4';
+        q('.cp-reset').click();
+        await settle();
+        r.resetSavesNull = last().edits.length === 2 && last().edits.every((e) => e.value === null) && !box.style.stroke;
 
-        // the Type side (PRESENTING): the menu's Type… opens the card on it;
-        // size, weight, a font ROLE by reference, italic and alignment preview
-        // and land in the one save; Esc puts them back; a block aligns by text-align
-        const openType = (el) => {
-          rightClick(el);
-          [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === 'Type…')?.click();
-        };
-        openType(label);
-        r.typeOpensOnTypeSide = q('.cp-side [aria-selected="true"]')?.dataset.id === 'type' && !q('.cp-tabs')
-          && [...document.querySelectorAll(`${C} .cp-typerow .cp-chan-name`)].map((n) => n.textContent).join('|') === 'Size|Weight|Font|Align';
+        // the Type tab: on the label the shape carries
+        q('.ins-tab[data-tab="type"]').click();
+        r.typeTab = [...document.querySelectorAll(`${C} .cp-typerow .cp-chan-name`)].map((n) => n.textContent).join('|') === 'Size|Weight|Font|Align';
         type(q('.cp-num.cp-size'), '40');
+        await settle();
+        r.sizeSaved = label.style.fontSize === '40px' && last().edits[0].prop === 'font-size' && last().edits[0].value === '40px' && last().edits[0].tag === 'text';
         q('.cp-weight [data-id="700"]').click();
         q('.cp-family [data-id="heading"]').click();
         q('.cp-align [data-id="middle"]').click();
         q('.cp-italic').click();
-        r.typePreviews = label.style.fontSize === '40px' && label.style.fontWeight === '700' && label.style.fontFamily === 'var(--font-heading)'
-          && label.style.textAnchor === 'middle' && label.style.fontStyle === 'italic';
-        r.typeRowsShowThePicks = q('.cp-num.cp-size').value === '40' && q('.cp-weight [data-id="700"]').getAttribute('aria-selected') === 'true'
-          && q('.cp-family [data-id="heading"]').getAttribute('aria-selected') === 'true' && q('.cp-italic').getAttribute('aria-pressed') === 'true';
+        await settle();
+        const typeSaves = styles().slice(-4).map((c) => `${c.body.edits[0].prop}=${c.body.edits[0].value}`);
+        r.typeSavesEachPick = label.style.fontWeight === '700' && label.style.fontFamily === 'var(--font-heading)' && label.style.textAnchor === 'middle'
+          && label.style.fontStyle === 'italic' && typeSaves.join(' ') === 'font-weight=700 font-family=var(--font-heading) text-anchor=middle font-style=italic';
         r.onlyTheThemesRoles = q('.cp-family [data-id="mono"]').disabled && !q('.cp-family [data-id="body"]').disabled;
-        q('.cp-apply').click();
-        await settle();
-        const typePost = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style')).pop()?.body.edits ?? [];
-        const sentType = Object.fromEntries(typePost.map((e) => [e.prop, e.value]));
-        r.typePosted = typePost.length === 5 && typePost.every((e) => e.tag === 'text' && JSON.stringify(e.path) === JSON.stringify(typePost[0].path))
-          && sentType['font-size'] === '40px' && sentType['font-weight'] === '700' && sentType['font-family'] === 'var(--font-heading)'
-          && sentType['text-anchor'] === 'middle' && sentType['font-style'] === 'italic';
-        openType(label);
-        type(q('.cp-num.cp-size'), '80');
-        r.typeSideStartsFromTheText = q('.cp-family [data-id="heading"]').getAttribute('aria-selected') === 'true';
+        q('.ins-tab[data-tab="colors"]').click();
+        r.colorsComesBackToItsSide = q('.cp-side [aria-selected="true"]')?.dataset.id === 'stroke';
         press('Escape');
-        r.escapeRestoresType = label.style.fontSize === '40px';
-        openType(label);
-        q('.cp-reset').click();
-        q('.cp-apply').click();
-        await settle();
-        const resetType = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style')).pop()?.body.edits ?? [];
-        r.typeResetPostsNull = resetType.length === 5 && resetType.every((e) => e.value === null) && !label.style.fontSize;
-        openType(document.querySelector('.cp-quote'));
+        r.escLetsGo = !document.querySelector('.dl-frame') && q('.ins-tab') === null;
+        press('Escape');
+
+        // Type… on an HTML block, from the inline run inside it: text-align, on the block
+        openOn(document.querySelector('.cp-quote strong'), 'Type…');
+        r.typeOpensOnType = q('.ins-tab[aria-selected="true"]')?.dataset.tab === 'type';
         r.blockAlignsByTextAlign = [...document.querySelectorAll(`${C} .cp-align .cp-seg-btn`)].map((b) => b.textContent).join('|') === 'Left|Center|Right';
         q('.cp-align [data-id="center"]').click();
-        q('.cp-apply').click();
         await settle();
-        const blockType = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style')).pop()?.body.edits ?? [];
-        r.blockTypePosted = blockType.length === 1 && blockType[0].prop === 'text-align' && blockType[0].value === 'center' && blockType[0].tag === 'blockquote';
+        r.blockSaved = last().index === 2 && last().edits[0].tag === 'blockquote' && last().edits[0].prop === 'text-align' && JSON.stringify(last().edits[0].path) === '[]';
+        press('Escape'); press('Escape');
 
-        r.PASS = r.opens && r.docks && r.themeTabFirst && r.primaryAndSecondaryNamed && r.fillsNumbered
-          && r.undefinedTokensLeftOut && r.currentMarked && r.applyWaitsForAPick && r.previewsToken
-          && r.escapeRestores && r.customHasRgb && r.customStartsFromTheTarget && r.customHasHsb
-          && r.hsbPreviews && r.hexTyped && r.postsBoth && r.pathIsTheFiles && r.closesOnApply
-          && r.labelFindsItsBox && r.resetPostsNull && r.htmlBlock
-          && r.strokeSide && r.widthRowOnStroke && r.strokePreviews && r.widthPreviews && r.strokePosted && r.escapeRestoresWidth
-          && r.typeOpensOnTypeSide && r.typePreviews && r.typeRowsShowThePicks && r.onlyTheThemesRoles && r.typePosted
-          && r.typeSideStartsFromTheText && r.escapeRestoresType && r.typeResetPostsNull && r.blockAlignsByTextAlign && r.blockTypePosted;
+        r.PASS = r.opensTheInspector && r.onTheShape && r.themeTabFirst && r.primaryAndSecondaryNamed && r.fillsNumbered
+          && r.undefinedTokensLeftOut && r.currentMarked && r.noApplyButton && r.pickShowsAndSaves && r.pathIsTheFiles
+          && r.stillOpenAndSelected && r.zReachesTheDeck && r.customHasRgb && r.customStartsFromTheTarget && r.customHasHsb && r.hexSaved
+          && r.refusedGoesBack && r.widthRowOnStroke && r.strokeSaved && r.widthPreviewsWithoutSaving && r.widthSavedOnRelease
+          && r.resetSavesNull && r.typeTab && r.sizeSaved && r.typeSavesEachPick && r.onlyTheThemesRoles
+          && r.colorsComesBackToItsSide && r.escLetsGo && r.typeOpensOnType && r.blockAlignsByTextAlign && r.blockSaved;
       }
 
       if (mode === 'concepts') {
@@ -4630,7 +4695,7 @@
         q(`${C} .cp-detach`).click();
         await settle();
         const viaCard = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/concept')).pop()?.body;
-        r.cardDetaches = viaCard?.concept === null && viaCard.tag === 'rect' && JSON.stringify(viaCard.path) === '[2,0]' && !q(C);
+        r.cardDetaches = viaCard?.concept === null && viaCard.tag === 'rect' && JSON.stringify(viaCard.path) === '[2,0]';
         // a plain shape's card is the palette it always was
         rightClick(plain);
         await settle();
@@ -4685,11 +4750,11 @@
       }
 
       if (mode === 'dscolors') {
-        // A design system's palette on the Theme tab (SPEC DESIGN_SYSTEMS):
+        // A design system's palette on the Colors tab's Theme palette (SPEC DESIGN_SYSTEMS):
         // after the theme's groups, under its own names; a pick writes the
         // token WITH its hex now as the fallback; re-opened, the swatch is
         // marked by the token, even when the fallback has gone stale.
-        const C = '.decklight-colorpicker';
+        const C = '.decklight-inspector';
         const q = (s) => document.querySelector(`${C} ${s}`);
         const openOn = (el) => {
           el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
@@ -4699,7 +4764,6 @@
         deck.goto(5);
         await settle();
         const box = document.querySelector('.cp-box');
-        press('e');
         openOn(box);
         const groups = [...document.querySelectorAll(`${C} .cp-group`)].map((g) => g.textContent);
         r.groupsAfterTheTheme = JSON.stringify(groups.slice(-2)) === JSON.stringify(['Acme · Brand', 'Acme · Surfaces'])
@@ -4709,7 +4773,6 @@
         r.undefinedLeftOut = !labels.some((l) => l.includes('--acme-gone'));
         q('.cp-swatch[data-token="--acme-blue"]').click();
         r.previews = box.style.fill === 'var(--acme-blue, #0056f9)' && getComputedStyle(box).fill === 'rgb(0, 86, 249)';
-        q('.cp-apply').click();
         await settle();
         const post = CALLS.post.find((c) => c.u.includes('/deck/edit/element/style'));
         r.writesTheFallback = post?.body.edits[0]?.value === 'var(--acme-blue, #0056f9)';
@@ -4723,7 +4786,6 @@
         // a theme pick is still the plain token
         openOn(box);
         q('.cp-swatch[data-token="--accent"]').click();
-        q('.cp-apply').click();
         await settle();
         r.themePickPlain = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'))[1]?.body.edits[0]?.value === 'var(--accent)';
         r.PASS = r.groupsAfterTheTheme && r.itsOwnNames && r.undefinedLeftOut && r.previews && r.writesTheFallback
@@ -4751,7 +4813,7 @@
         rightClick(h1);
         r.opensOnElement = !!document.querySelector(M);
         r.fullMenuRows = JSON.stringify(rowsText())
-          === JSON.stringify(['Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Add text effect ▸', 'Slide ▸']);
+          === JSON.stringify(['Inspect', 'Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Add text effect ▸', 'Slide ▸']);
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;
         press('ArrowDown');

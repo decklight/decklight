@@ -283,55 +283,48 @@ const h = (tag, cls, text) => {
 };
 
 /**
- * Open the card inside `root`. `targets` is colorTargets()'s result; `dock` is
- * the caller's createDock() (dock.js) — the card is a panel BESIDE the slide
- * like every other editing surface, floating or docked to an edge, because
- * the thing being coloured has to stay in view while you colour it.
- * `onApply(edits)` gets the `{ path, tag, prop, value }` list to save — `value`
- * null takes the picker's colour back off — and the card is closed by then.
- * Every pick PREVIEWS on the slide at once; anything but Apply puts the
- * slide back exactly as it was. `systems` is the deck's design-system metas
- * (`pageDesignSystems()`), whose palettes follow the theme's. Returns
- * `{ el, close, apply, isOpen }`.
+ * The colour and type editor (PRESENTING), mounted in the inspector's Colors
+ * and Type tabs. `targets` is colorTargets()'s result; `side` is where it
+ * opens: 'fill', 'stroke' or 'text' (the Colors tab, with the switch between
+ * them) or 'type' (the Type tab, which has no switch). Every pick previews on
+ * the slide and is SAVED at once through `save(edits)`, a promise for the
+ * `{ path, tag, prop, value }` list (`value` null takes it back off): the
+ * write is in place, so nothing reloads, and each pick is one undo entry. A
+ * save that fails puts the slide back to what was last saved and calls
+ * `onError(message)`. Saves are made one after another, in the order picked.
+ * `systems` is the deck's design-system metas (`pageDesignSystems()`), whose
+ * palettes follow the theme's. Returns `{ el, setSide, side, settled }`.
  */
-export function openColorPicker({ root, dock, targets, systems = [], onApply, onClose, onDetach, side: startSide = null }) {
-  const SIDES = ['fill', 'stroke', 'text'];
+export function createColorEditor({ root, targets, systems = [], side: startSide = 'fill', save, onDetach, onError = () => {}, onEscape = () => {} }) {
   targets.stroke ??= [];
-  const all = [...targets.fill, ...targets.stroke, ...targets.text];
   const saved = (el, prop) => [el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)];
-  const before = new Map(all.map((t) => [t, saved(t.el, t.prop)]));
   // the stroke's width travels with its colour (#717): `stroke-width` on a
   // shape, `border-width` on a box — one more declaration, same element
   const widthProp = (t) => (t.prop === 'stroke' ? 'stroke-width' : 'border-width');
-  const widthBefore = new Map(targets.stroke.map((t) => [t, saved(t.el, widthProp(t))]));
-  // undefined: untouched · null: reset · string: the value to write
-  const picks = { fill: undefined, stroke: undefined, text: undefined, width: undefined };
-  // the Type side (PRESENTING): the text targets' size, weight, font role,
-  // italic and alignment, prop → the same undefined / null / value as picks
-  const typePicks = {};
+  // the Type side: the text targets' size, weight, font role, italic and alignment
   const isSvg = (t) => t.el instanceof SVGElement;
   const alignProp = (t) => (isSvg(t) ? 'text-anchor' : 'text-align');
   const TYPE_PROPS = ['font-size', 'font-weight', 'font-family', 'font-style', 'align'];
   const propFor = (t, p) => (p === 'align' ? alignProp(t) : p);
-  const typeBefore = new Map(targets.text.map((t) => [t, new Map(TYPE_PROPS.map((p) => [p, saved(t.el, propFor(t, p))]))]));
-  let side = startSide === 'type' && targets.text.length ? 'type'
-    : targets.fill.length ? 'fill' : targets.stroke.length ? 'stroke' : 'text';
+  // what was last written, per element and property: a failed save goes back to it
+  const written = new Map();
+  const key = (t, prop) => `${targets.text.includes(t) ? 'x' : 's'}${[...targets.fill, ...targets.stroke, ...targets.text].indexOf(t)}|${prop}`;
+  const remember = (t, prop) => { const k = key(t, prop); if (!written.has(k)) written.set(k, saved(t.el, prop)); };
+  // the picks shown as chosen on the card: undefined untouched, null reset, a value
+  const picks = { fill: undefined, stroke: undefined, text: undefined, width: undefined };
+  const typePicks = {};
+  const firstSide = targets.fill.length ? 'fill' : targets.stroke.length ? 'stroke' : 'text';
+  let side = startSide === 'type' ? 'type' : (targets[startSide]?.length ? startSide : firstSide);
+  let colourSide = side === 'type' ? firstSide : side;   // where the Colors tab comes back to
   let tab = 'theme';
   let model = 'rgb';
   let rgb = { r: 128, g: 128, b: 128 };
   let hsb = rgbToHsb(rgb);   // kept beside rgb: a grey has no hue to read back, and the H slider must not snap to 0
+  let queue = Promise.resolve();
 
-  const el = h('div', 'decklight-narr decklight-dockable decklight-colorpicker');
-  const card = h('div', 'narr-card cp-card');
-  card.setAttribute('role', 'dialog');
-  card.setAttribute('aria-label', 'Colors');
-  // the header is built once: it is the drag handle, and a handle that is
-  // re-created on every pick drops the drag that is holding it
-  const head = h('div', 'narr-head');
-  head.append(h('span', 'cp-title', `colors & type — ${targets.what} · ⏎ applies`));
+  const el = h('div', 'decklight-colorpicker cp-embedded');
   const main = h('div', 'cp-main');
-  card.append(head, main);
-  el.appendChild(card);
+  el.appendChild(main);
 
   const authored = (s) => targets[s][0]?.el.style.getPropertyValue(targets[s][0].prop).trim() ?? '';
   const computedName = (prop) => ({ 'background-color': 'backgroundColor', 'border-color': 'borderColor' }[prop] ?? prop);
@@ -346,27 +339,41 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     const n = t ? parseFloat(getComputedStyle(t.el)[computedName(widthProp(t)) === 'border-width' ? 'borderWidth' : 'strokeWidth']) : NaN;
     return Number.isFinite(n) ? String(n) : '1';
   };
-  function preview(s, value) {
-    for (const t of targets[s]) {
-      if (value === null) { const [v, p] = before.get(t); v ? t.el.style.setProperty(t.prop, v, p) : t.el.style.removeProperty(t.prop); }
-      else t.el.style.setProperty(t.prop, value);
+  /** Show `value` for `prop` on each of `list` (null: take it off). */
+  function paint(list, prop, value) {
+    for (const t of list) {
+      const pr = prop ?? t.prop;
+      remember(t, pr);
+      if (value === null) t.el.style.removeProperty(pr); else t.el.style.setProperty(pr, value);
     }
   }
-  function previewWidth(value) {
-    for (const t of targets.stroke) {
-      if (value === null) { const [v, p] = widthBefore.get(t); v ? t.el.style.setProperty(widthProp(t), v, p) : t.el.style.removeProperty(widthProp(t)); }
-      else t.el.style.setProperty(widthProp(t), value);
-    }
+  /**
+   * Write `changes` (`[{ t, prop, value }]`), after any write still going: the
+   * slide already shows them. A refusal puts back what was last written.
+   */
+  function commit(changes) {
+    if (!changes.length) return queue;
+    const edits = changes.map((c) => ({ path: c.t.path, tag: c.t.tag, prop: c.prop, value: c.value }));
+    queue = queue.then(() => save(edits)).then(() => {
+      for (const c of changes) written.set(key(c.t, c.prop), saved(c.t.el, c.prop));
+    }, (e) => {
+      for (const c of changes) {
+        const [v, pr] = written.get(key(c.t, c.prop)) ?? ['', ''];
+        if (v) c.t.el.style.setProperty(c.prop, v, pr); else c.t.el.style.removeProperty(c.prop);
+      }
+      onError(String(e?.message || e));
+      render();
+    });
+    return queue;
   }
-  function pick(value) { picks[side] = value; preview(side, value); render(); }
-  function previewType(p, value) {
-    for (const t of targets.text) {
-      const prop = propFor(t, p);
-      if (value === null) { const [v, pr] = typeBefore.get(t).get(p); v ? t.el.style.setProperty(prop, v, pr) : t.el.style.removeProperty(prop); }
-      else t.el.style.setProperty(prop, value);
-    }
+  const sideChanges = (s, value) => targets[s].map((t) => ({ t, prop: t.prop, value }));
+  const widthValue = (t, w) => (w === null ? null : `${w}${t.prop === 'stroke' ? '' : 'px'}`);
+  function pick(value) {
+    picks[side] = value;
+    paint(targets[side], null, value);
+    render();
+    commit(sideChanges(side, value));
   }
-  function restore() { for (const s of SIDES) preview(s, null); previewWidth(null); for (const p of TYPE_PROPS) previewType(p, null); }
   function syncFromTarget() { const c = current(side); if (c) { rgb = c; hsb = rgbToHsb(c); } }
 
   function segmented(cls, label, options, value, onPick) {
@@ -417,9 +424,9 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
 
   // a grey reads back as hue 0: keep the hue the sliders were on
   function setRgb(c) { rgb = c; const back = rgbToHsb(c); hsb = back.s ? back : { ...back, h: hsb.h }; }
-  function move(key, n) {
-    if (model === 'rgb') setRgb({ ...rgb, [key]: n });
-    else { hsb = { ...hsb, [key]: n }; rgb = hsbToRgb(hsb.h, hsb.s, hsb.v); }
+  function move(k, n) {
+    if (model === 'rgb') setRgb({ ...rgb, [k]: n });
+    else { hsb = { ...hsb, [k]: n }; rgb = hsbToRgb(hsb.h, hsb.s, hsb.v); }
   }
 
   function renderCustom(body) {
@@ -428,29 +435,25 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
       ? [['R', 'r', 255], ['G', 'g', 255], ['B', 'b', 255]]
       : [['H', 'h', 360], ['S', 's', 100], ['B', 'v', 100]];
     const src = model === 'rgb' ? rgb : hsb;
-    const set = (key, n) => {
-      move(key, n);
-      pick(rgbToHex(rgb));
-    };
-    for (const [name, key, max] of chans) {
+    for (const [name, k, max] of chans) {
       const row = h('label', 'cp-chan');
       row.appendChild(h('span', 'cp-chan-name', name));
       const range = h('input', 'cp-range'); range.type = 'range';
       const num = h('input', 'cp-num'); num.type = 'number';
-      for (const i of [range, num]) { i.min = '0'; i.max = String(max); i.step = '1'; i.value = String(src[key]); i.dataset.chan = key; }
+      for (const i of [range, num]) { i.min = '0'; i.max = String(max); i.step = '1'; i.value = String(src[k]); i.dataset.chan = k; }
       range.setAttribute('aria-label', name);
       num.setAttribute('aria-label', `${name} value`);
-      // dragging repaints the slide but not the card: a re-render mid-drag would drop the thumb
+      // dragging repaints the slide but not the card, and saves on release:
+      // a re-render mid-drag would drop the thumb, a save per pixel would flood the undo stack
       range.addEventListener('input', () => {
         num.value = range.value;
-        const n = Number(range.value);
-        move(key, n);
-        picks[side] = rgbToHex(rgb); preview(side, picks[side]);
-        card.querySelector('.cp-hex').value = picks[side];
-        card.querySelector('.cp-now').style.background = picks[side];
+        move(k, Number(range.value));
+        picks[side] = rgbToHex(rgb); paint(targets[side], null, picks[side]);
+        el.querySelector('.cp-hex').value = picks[side];
+        el.querySelector('.cp-now').style.background = picks[side];
       });
-      range.addEventListener('change', render);
-      num.addEventListener('change', () => set(key, clamp(Math.round(Number(num.value) || 0), 0, max)));
+      range.addEventListener('change', () => pick(rgbToHex(rgb)));
+      num.addEventListener('change', () => { move(k, clamp(Math.round(Number(num.value) || 0), 0, max)); pick(rgbToHex(rgb)); });
       row.append(range, num);
       body.appendChild(row);
     }
@@ -469,7 +472,7 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     body.appendChild(row);
   }
 
-  /** The Stroke side's width row: a slider and a number, in px, previewed as it moves (#717). */
+  /** The Stroke side's width row: a slider and a number, in px, previewed as it moves and saved on release (#717). */
   function renderWidth(body) {
     const row = h('label', 'cp-chan cp-widthrow');
     row.appendChild(h('span', 'cp-chan-name', 'Width'));
@@ -478,15 +481,15 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     for (const i of [range, num]) { i.min = '0'; i.max = '24'; i.step = '0.5'; i.value = currentWidth(); i.dataset.chan = 'w'; }
     range.setAttribute('aria-label', 'Stroke width');
     num.setAttribute('aria-label', 'Stroke width value');
-    const set = (v) => {
-      const n = clamp(Math.round(Number(v) * 2) / 2 || 0, 0, 24);
-      picks.width = String(n);
-      previewWidth(picks.width);
+    const show = (v) => {
+      picks.width = String(clamp(Math.round(Number(v) * 2) / 2 || 0, 0, 24));
+      for (const t of targets.stroke) paint([t], widthProp(t), widthValue(t, picks.width));
       range.value = num.value = picks.width;
-      card.querySelector('.cp-apply').disabled = false;
     };
-    range.addEventListener('input', () => set(range.value));
-    num.addEventListener('change', () => set(num.value));
+    const keep = (v) => { show(v); commit(targets.stroke.map((t) => ({ t, prop: widthProp(t), value: widthValue(t, picks.width) }))); };
+    range.addEventListener('input', () => show(range.value));
+    range.addEventListener('change', () => keep(range.value));
+    num.addEventListener('change', () => keep(num.value));
     row.append(range, num);
     body.appendChild(row);
   }
@@ -495,13 +498,15 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
    * The Type side: a size in px, a weight, one of the theme's three font
    * roles by reference (the type then follows `T` and a deck's marked fonts,
    * never a family name pinned in the markup), italic, and where the line
-   * sits: `text-anchor` on a diagram label, `text-align` on a block. Every
-   * change previews at once; Apply saves them with the colours.
+   * sits: `text-anchor` on a diagram label, `text-align` on a block.
    */
   function renderType(body) {
     const t = targets.text[0];
+    if (!t) { body.appendChild(h('div', 'cp-notice', 'nothing here carries text: pick a label, or a block of text')); return; }
     const cs = getComputedStyle(t.el);
-    const typePick = (p, value) => { typePicks[p] = value; previewType(p, value); render(); };
+    const typeChanges = (p, value) => targets.text.map((x) => ({ t: x, prop: propFor(x, p), value }));
+    const showType = (p, value) => { typePicks[p] = value; for (const x of targets.text) paint([x], propFor(x, p), value); };
+    const typePick = (p, value) => { showType(p, value); render(); commit(typeChanges(p, value)); };
     const row = (name, ...kids) => { const r = h('div', 'cp-chan cp-typerow'); r.append(h('span', 'cp-chan-name', name), ...kids); body.appendChild(r); };
 
     const sizeNow = String(Math.round(parseFloat(typePicks['font-size'] ?? cs.fontSize) || 16));
@@ -510,16 +515,11 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     for (const i of [range, num]) { i.min = '8'; i.max = '160'; i.step = '1'; i.value = sizeNow; i.dataset.chan = 'size'; }
     range.setAttribute('aria-label', 'Text size');
     num.setAttribute('aria-label', 'Text size value');
-    const setSize = (v) => {
-      const n = clamp(Math.round(Number(v)) || 16, 8, 160);
-      typePicks['font-size'] = `${n}px`;
-      previewType('font-size', typePicks['font-size']);
-      range.value = num.value = String(n);
-      card.querySelector('.cp-apply').disabled = false;
-    };
-    // dragging repaints the slide but not the card: a re-render mid-drag would drop the thumb
-    range.addEventListener('input', () => setSize(range.value));
-    num.addEventListener('change', () => setSize(num.value));
+    const showSize = (v) => { const n = clamp(Math.round(Number(v)) || 16, 8, 160); showType('font-size', `${n}px`); range.value = num.value = String(n); };
+    const keepSize = (v) => { showSize(v); commit(typeChanges('font-size', typePicks['font-size'])); };
+    range.addEventListener('input', () => showSize(range.value));
+    range.addEventListener('change', () => keepSize(range.value));
+    num.addEventListener('change', () => keepSize(num.value));
     row('Size', range, num);
 
     const weightNow = String(typePicks['font-weight'] ?? (Math.round((Number(cs.fontWeight) || 400) / 100) * 100));
@@ -554,33 +554,32 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     note.append(h('span', 'cp-notice-text', `this shape is the “${targets.concept.name}” concept — the deck colours it, and a fill picked here would be painted over on the next load. Pin the concept's slot in / → Concept colors…, or`));
     const btn = h('button', 'cp-btn cp-detach', 'Detach from concept'); btn.type = 'button';
     btn.title = `take data-concept="${targets.concept.name}" off this ${targets.concept.tag}, then colour it by hand`;
-    btn.addEventListener('click', () => { shut(); onDetach?.(targets.concept); });
+    btn.addEventListener('click', () => onDetach?.(targets.concept));
     note.appendChild(btn);
     body.appendChild(note);
   }
 
   function render() {
-    const focus = document.activeElement?.dataset?.chan && card.contains(document.activeElement)
+    const focus = document.activeElement?.dataset?.chan && el.contains(document.activeElement)
       ? [document.activeElement.className, document.activeElement.dataset.chan] : null;
     main.textContent = '';
-    main.appendChild(segmented('cp-side', 'What to color', [
-      { id: 'fill', label: 'Fill', disabled: !targets.fill.length, title: targets.fill.length ? 'the shape’s background' : 'nothing here has a background to color' },
-      { id: 'stroke', label: 'Stroke', disabled: !targets.stroke.length, title: targets.stroke.length ? 'the shape’s border, and how wide it is' : 'nothing here has a border' },
-      { id: 'text', label: 'Text', disabled: !targets.text.length, title: targets.text.length ? 'the text on it' : 'this shape carries no text' },
-      { id: 'type', label: 'Type', disabled: !targets.text.length, title: targets.text.length ? 'the text’s size, weight, font and alignment' : 'this shape carries no text' },
-    ], side, (id) => { side = id; if (side === 'type') { render(); return; } if (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var(')) syncFromTarget(); else setRgb(hexToRgb(picks[side])); render(); }));
-    if (side === 'stroke') renderWidth(main);
     if (side === 'type') {
       const body = h('div', 'cp-body cp-type');
       renderType(body);
       main.appendChild(body);
-    } else main.appendChild(segmented('cp-tabs', 'Color source', [{ id: 'theme', label: 'Theme' }, { id: 'custom', label: 'Custom' }], tab, (id) => {
-      tab = id;
-      // Custom opens on the colour the target HAS — a token pick included — so the sliders start from what you see
-      if (tab === 'custom' && (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var('))) syncFromTarget();
-      render();
-    }));
-    if (side !== 'type') {
+    } else {
+      main.appendChild(segmented('cp-side', 'What to color', [
+        { id: 'fill', label: 'Fill', disabled: !targets.fill.length, title: targets.fill.length ? 'the shape’s background' : 'nothing here has a background to color' },
+        { id: 'stroke', label: 'Stroke', disabled: !targets.stroke.length, title: targets.stroke.length ? 'the shape’s border, and how wide it is' : 'nothing here has a border' },
+        { id: 'text', label: 'Text', disabled: !targets.text.length, title: targets.text.length ? 'the text on it' : 'this shape carries no text' },
+      ], side, (id) => { side = colourSide = id; if (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var(')) syncFromTarget(); else setRgb(hexToRgb(picks[side])); render(); }));
+      if (side === 'stroke') renderWidth(main);
+      main.appendChild(segmented('cp-tabs', 'Color source', [{ id: 'theme', label: 'Theme' }, { id: 'custom', label: 'Custom' }], tab, (id) => {
+        tab = id;
+        // Custom opens on the colour the target HAS — a token pick included — so the sliders start from what you see
+        if (tab === 'custom' && (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var('))) syncFromTarget();
+        render();
+      }));
       const body = h('div', 'cp-body');
       body.dataset.tab = tab;
       // the Fill of a concept shape is the deck's (SPEC SVG_DIAGRAMS): the
@@ -591,82 +590,54 @@ export function openColorPicker({ root, dock, targets, systems = [], onApply, on
     }
     const foot = h('div', 'cp-foot');
     const reset = h('button', 'cp-btn cp-reset', 'Reset'); reset.type = 'button';
-    reset.title = 'take the picked color off — back to what the theme or the markup gives it';
-    if (side === 'type') reset.title = 'take the picked type off — back to what the theme or the markup gives it';
+    reset.title = side === 'type' ? 'take the type set here off — back to what the theme or the markup gives it'
+      : 'take the colour set here off — back to what the theme or the markup gives it';
     reset.addEventListener('click', () => {
+      const changes = [];
       if (side === 'type') {
-        for (const p of TYPE_PROPS) { typePicks[p] = null; for (const t of targets.text) t.el.style.removeProperty(propFor(t, p)); }
-        render();
-        return;
+        for (const p of TYPE_PROPS) { typePicks[p] = null; for (const t of targets.text) { paint([t], propFor(t, p), null); changes.push({ t, prop: propFor(t, p), value: null }); } }
+      } else {
+        picks[side] = null; paint(targets[side], null, null); changes.push(...sideChanges(side, null));
+        if (side === 'stroke') { picks.width = null; for (const t of targets.stroke) { paint([t], widthProp(t), null); changes.push({ t, prop: widthProp(t), value: null }); } }
       }
-      picks[side] = null; for (const t of targets[side]) t.el.style.removeProperty(t.prop);
-      if (side === 'stroke') { picks.width = null; for (const t of targets.stroke) t.el.style.removeProperty(widthProp(t)); }
       render();
+      commit(changes);
     });
-    const cancel = h('button', 'cp-btn', 'Cancel'); cancel.type = 'button';
-    cancel.addEventListener('click', close);
-    const ok = h('button', 'cp-btn cp-apply', 'Apply'); ok.type = 'button';
-    ok.disabled = SIDES.every((s) => picks[s] === undefined) && picks.width === undefined && TYPE_PROPS.every((p) => typePicks[p] === undefined);
-    ok.addEventListener('click', apply);
-    foot.append(reset, h('span', 'cp-spacer'), cancel, ok);
+    foot.append(reset, h('span', 'cp-spacer'), h('span', 'cp-saved', 'saved as you pick · Z takes it back'));
     main.appendChild(foot);
-    if (focus) card.querySelector(`.${focus[0].split(' ')[0]}[data-chan="${focus[1]}"]`)?.focus();
+    if (focus) el.querySelector(`.${focus[0].split(' ')[0]}[data-chan="${focus[1]}"]`)?.focus();
   }
 
-  let open = true;
-  const onResize = () => dock.reserveGutter();
-  function shut() {
-    open = false;
-    window.removeEventListener('resize', onResize);
-    el.remove();
-    dock.release();   // or the stage keeps reflowing around a gutter nothing sits in
-    onClose?.();
-  }
-  function close() {
-    if (!open) return;
-    restore();
-    shut();
-  }
-  function apply() {
-    if (!open) return;
-    const edits = [];
-    for (const s of SIDES) {
-      if (picks[s] === undefined) continue;
-      for (const t of targets[s]) edits.push({ path: t.path, tag: t.tag, prop: t.prop, value: picks[s] });
-    }
-    if (picks.width !== undefined) {
-      for (const t of targets.stroke) edits.push({ path: t.path, tag: t.tag, prop: widthProp(t), value: picks.width === null ? null : `${picks.width}${t.prop === 'stroke' ? '' : 'px'}` });
-    }
-    for (const p of TYPE_PROPS) {
-      if (typePicks[p] === undefined) continue;
-      for (const t of targets.text) edits.push({ path: t.path, tag: t.tag, prop: propFor(t, p), value: typePicks[p] });
-    }
-    // the preview STAYS: the save reloads the deck, and a slide that flashed
-    // back to its old colours in between would read as a failed save
-    shut();
-    if (edits.length) onApply(edits);
-  }
-
-  // A key pressed INSIDE the card is the card's and stops here: docked, the
-  // panel is not modal, and Space on a swatch must not also advance the deck.
-  // (The deck never sees keys typed in an input anyway — so Enter and Escape
-  // have to be answered here for the fields to have them at all.)
-  card.addEventListener('keydown', (e) => {
-    e.stopPropagation();
-    if (e.key === 'Escape') { e.preventDefault(); close(); }
-    else if (e.key === 'Enter' && !/^button$/i.test(e.target.tagName)) {
+  // The keys a control acts on stay here: Space or Enter on a swatch must not
+  // also advance the deck, and a field's keys are its own. Everything else
+  // goes on to the deck, the panel being a reference beside it: `Z` undoes
+  // the pick just saved, the arrows walk the slides. The deck never hears
+  // keys typed in a field, so a field's Enter (keep what is typed) and Esc
+  // (the panel's) are answered here.
+  el.addEventListener('keydown', (e) => {
+    const field = /^(input|textarea|select)$/i.test(e.target.tagName);
+    if (field || e.key === ' ' || e.key === 'Enter' || e.key === 'Escape') e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); onEscape(); }
+    else if (e.key === 'Enter' && /^input$/i.test(e.target.tagName)) {
       e.preventDefault();
-      e.target.dispatchEvent(new Event('change'));   // a number still being typed counts
-      apply();
+      e.target.dispatchEvent(new Event('change'));
     }
   });
 
-  head.append(dock.controls(close, 'close (esc)'));
-  dock.wireHeader(head);
   syncFromTarget();
-  root.appendChild(el);
   render();
-  dock.reserveGutter();
-  window.addEventListener('resize', onResize);
-  return { el, close, apply, isOpen: () => open };
+  return {
+    el,
+    side: () => side,
+    /** Switch to 'type', or back to 'colors' (the colour side last shown), keeping what was picked. */
+    setSide(s) {
+      const next = s === 'type' ? 'type' : s === 'colors' ? colourSide : (targets[s]?.length ? s : firstSide);
+      if (next === side) return;
+      side = next;
+      syncFromTarget();
+      render();
+    },
+    /** Every save asked for so far, landed (or refused). */
+    settled: () => queue,
+  };
 }

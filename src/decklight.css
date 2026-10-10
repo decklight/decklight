@@ -2375,7 +2375,7 @@
 /* the Type side: a label column wide enough for its words, the controls beside it */
 .decklight-colorpicker .cp-typerow .cp-chan-name { flex: none; width: 46px; }
 .decklight-colorpicker .cp-typerow .cp-seg { flex: 1; min-width: 0; flex-wrap: wrap; }
-.decklight-colorpicker .cp-typerow .cp-seg-btn { padding: 4px 6px; }
+.decklight-colorpicker .cp-typerow .cp-seg-btn { padding: 4px 3px; }
 .decklight-colorpicker .cp-italic[aria-pressed="true"] { background: rgba(255, 255, 255, .16); color: #fff; font-style: italic; }
 .decklight-colorpicker[data-dock="bottom"] .cp-body.cp-type { max-width: 520px; }
 .decklight-colorpicker .cp-foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .12); }
@@ -2585,8 +2585,33 @@
 .decklight-inspector .ins-foot { opacity: .45; }
 /* a breadcrumb hovered: which node it names, on the slide. SVG shapes draw no
    outline, so they glow instead. */
-.decklight .dl-inspect-hover { outline: 2px dashed var(--accent); outline-offset: 3px; }
-.decklight svg .dl-inspect-hover { filter: drop-shadow(0 0 4px var(--accent)); }
+.decklight-inspector .ins-tabs { display: flex; gap: 2px; margin: 2px 12px 8px; padding: 2px; border-radius: 8px; background: rgba(255, 255, 255, .07); }
+.decklight-inspector .ins-tab {
+  flex: 1; padding: 4px 10px; border: 0; border-radius: 6px; background: none;
+  color: #b9bec8; font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.decklight-inspector .ins-tab[aria-selected="true"] { background: rgba(255, 255, 255, .16); color: #fff; }
+.decklight-inspector .ins-tab:disabled { opacity: .35; cursor: default; }
+.decklight-inspector .ins-pick { display: inline-grid; place-items: center; }
+.decklight-inspector .ins-pick.ins-on { background: rgba(158, 203, 255, .22); color: #9ecbff; }
+/* the colour card's editor, hosted in the Colors and Type tabs: no card of its own */
+.decklight-inspector .cp-embedded { padding: 0 12px 4px; }
+.decklight-colorpicker .cp-saved { font-size: 11px; opacity: .5; }
+
+/* the picker and the hover inside a diagram (pick.js): a faint glow on the
+   node under the pointer, the stage around it dimmed a little; the box lets
+   every pointer event through, so it never takes the click it is about */
+.decklight .dl-spot {
+  position: fixed; z-index: 30; pointer-events: none; border-radius: 6px;
+  transition: left .08s, top .08s, width .08s, height .08s;
+}
+.decklight .dl-spot.dl-spot-dim { box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .16); }
+.decklight .dl-spot.dl-spot-block { outline: 1.5px solid color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 0 14px 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.decklight .dl-spot.dl-spot-block.dl-spot-dim { box-shadow: 0 0 14px 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 0 100vmax rgba(0, 0, 0, .16); }
+.decklight svg .dl-glow { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 90%, transparent)) drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 50%, transparent)); }
+.decklight.dl-picking, .decklight.dl-picking .decklight-stage * { cursor: crosshair !important; }
+/* a node selected inside a diagram: SVG takes no outline, so a frame is drawn over it */
+.decklight .dl-frame { position: fixed; z-index: 29; pointer-events: none; outline: 2px solid var(--accent); border-radius: 4px; }
 
 /* The sources editor. A draft, so it looks like a form and not like the card
    it was reading a moment ago. */
