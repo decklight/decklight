@@ -479,6 +479,16 @@
         }
         if (u.includes('/deck/edit/font/mark')) return json({ ok: true, ref: 'inter@type-mkt', used: true, changed: true, undo: 1, redo: 0 });
       }
+      // Diagram labels typed in place (SVG_DIAGRAMS): the label route answers,
+      // and refuses one word so the page is seen to put the label back
+      if (HARNESS_MODE === 'labeledit') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/text')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          if (b.text === 'refused') return json({ ok: false, error: 'the file\'s label is not the one the page showed — reload and try again' }, 409);
+          return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        }
+      }
       if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -645,6 +655,17 @@
           <g class="cp-group-a"><rect class="cp-box" x="40" y="40" width="220" height="120" style="fill: var(--d-fill-1); stroke: #fff"/><text class="cp-text" x="150" y="108" style="fill: var(--d-text)">Producer</text></g>
         </svg>
         <blockquote class="cp-quote">A quoted <strong>block</strong> of text.</blockquote>
+      </section>`);
+    }
+    // diagram labels to type into (SVG_DIAGRAMS): a box and its label, a
+    // label of two lines, and a stroke a draw build puts its head after
+    if (HARNESS_MODE === 'labeledit') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Labels</h2>
+        <svg viewBox="0 0 800 300" width="800" aria-label="a labelled box">
+          <line class="le-line" x1="0" y1="10" x2="100" y2="10" stroke="#888"/>
+          <g><rect class="le-box" x="40" y="40" width="300" height="120" fill="#223355"/><text class="le-text" x="190" y="108" text-anchor="middle" font-size="32" fill="#f2ece4">Producer</text></g>
+          <text class="le-lines" x="500" y="80" font-size="24" fill="#f2ece4"><tspan class="le-one" x="500">Line one</tspan><tspan class="le-two" x="500" dy="30">Line two</tspan></text>
+        </svg>
       </section>`);
     }
     // a diagram naming a concept on a shape and on a group (SVG_DIAGRAMS, #718)
@@ -1968,6 +1989,92 @@
         r.pillGoneAfterSave = !pill() && !h1.isContentEditable;
         r.PASS = r.noPillWithoutSelection && r.pillOnSelection && r.chordWrapsStrong && r.pillSaysOn && r.chordAgainUnwraps
           && r.chordWrapsEm && r.pillWrapsCode && r.stillEditing && r.savedWithTheTags && r.pillGoneAfterSave;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'labeledit') {
+        // SVG_DIAGRAMS: a double-click on a diagram label lays a box over it
+        // in the label's font and ink; ⏎ or leaving it sends the words alone,
+        // addressed by the FILE's path; Esc and an unchanged box write nothing;
+        // one line of two is its own label; a refused save puts it back.
+        await settle();
+        deck.goto(deck._sections.length);
+        await settle();
+        const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const box = () => document.querySelector('.dl-label-edit');
+        const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/text'));
+        const typeIn = (v) => { box().value = v; box().dispatchEvent(new Event('input', { bubbles: true })); };
+        const key = (k) => box().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+        const label = document.querySelector('.le-text');
+        // the engine's own node, before the group: never on the file's path
+        const head = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        head.setAttribute('class', 'draw-head');
+        document.querySelector('.le-line').after(head);
+
+        dbl(label);
+        await settle();
+        const lr = label.getBoundingClientRect();
+        const br = box()?.getBoundingClientRect();
+        const onScreen = 32 * label.getScreenCTM().a;
+        r.boxOverTheLabel = !!br && document.activeElement === box() && box().value === 'Producer'
+          && Math.abs((br.left + br.width / 2) - (lr.left + lr.width / 2)) < 3
+          && Math.abs((br.top + br.height / 2) - (lr.top + lr.height / 2)) < 4;
+        r.inTheLabelsType = !!br && Math.abs(parseFloat(box().style.fontSize) - onScreen) < 0.5
+          && getComputedStyle(box()).color === 'rgb(242, 236, 228)';
+        r.labelHiddenUnderIt = getComputedStyle(label).visibility === 'hidden';
+        const w0 = br?.width ?? 0;
+        typeIn('Producer & consumer');
+        r.boxGrowsAroundTheMiddle = box().getBoundingClientRect().width > w0
+          && Math.abs((box().getBoundingClientRect().left + box().getBoundingClientRect().width / 2) - (lr.left + lr.width / 2)) < 3;
+        press('ArrowRight');
+        r.deckKeysStandAside = deck.state.slide === deck._sections.length;
+        key('Enter');
+        await settle(); await settle();
+        const sent = writes()[0]?.body;
+        r.enterSendsTheWords = !!sent && sent.slide === deck._sections.length && sent.index === 1
+          && JSON.stringify(sent.path) === '[1,1]' && sent.tag === 'text' && sent.was === 'Producer' && sent.text === 'Producer & consumer';
+        r.labelShowsItAndTheBoxGoes = !box() && label.textContent === 'Producer & consumer' && getComputedStyle(label).visibility === 'visible';
+
+        dbl(label);
+        typeIn('junk');
+        key('Escape');
+        await settle();
+        r.escapeWritesNothing = !box() && writes().length === 1 && label.textContent === 'Producer & consumer';
+        dbl(label);
+        key('Enter');
+        await settle();
+        r.unchangedWritesNothing = !box() && writes().length === 1;
+
+        // one line of two is its own label; the pair is not
+        dbl(document.querySelector('.le-lines'));
+        await settle();
+        r.twoLinesAskForOne = !box();
+        dbl(document.querySelector('.le-two'));
+        typeIn('Line 2');
+        box().blur();
+        await settle(); await settle();
+        const line = writes()[1]?.body;
+        r.leavingSavesTheLine = !!line && JSON.stringify(line.path) === '[2,1]' && line.tag === 'tspan' && line.was === 'Line two' && line.text === 'Line 2'
+          && document.querySelector('.le-one').textContent === 'Line one';
+
+        dbl(label);
+        typeIn('refused');
+        key('Enter');
+        await settle(); await settle();
+        r.refusedPutsItBack = writes().length === 3 && label.textContent === 'Producer & consumer' && !box();
+
+        // the bar's way in: click selects, ⏎ edits the label clicked
+        label.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+        press('Enter');
+        await settle();
+        r.selectThenEnterEdits = !!box() && box().value === 'Producer & consumer';
+        if (box()) key('Escape');
+
+        r.PASS = r.boxOverTheLabel && r.inTheLabelsType && r.labelHiddenUnderIt && r.boxGrowsAroundTheMiddle && r.deckKeysStandAside
+          && r.enterSendsTheWords && r.labelShowsItAndTheBoxGoes && r.escapeWritesNothing && r.unchangedWritesNothing
+          && r.twoLinesAskForOne && r.leavingSavesTheLine && r.refusedPutsItBack && r.selectThenEnterEdits;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

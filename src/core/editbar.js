@@ -27,7 +27,7 @@
 // key or the gesture already used, so each one lands on the same undo stack.
 
 import { authoredTop } from './design-system.js';
-import { editableTarget, CODE_EDITABLE } from './authoring.js';
+import { editableTarget, svgTextTarget, CODE_EDITABLE } from './authoring.js';
 
 const BUTTONS = [
   { id: 'text', label: 'Text', key: '⏎', title: 'select some text and press Enter, or double-click it' },
@@ -234,7 +234,7 @@ export function createEditBar({
   function textTarget(target) {
     const code = target.clicked?.closest?.(CODE_EDITABLE);
     if (code && target.sec.contains(code)) return code;
-    return editableTarget(target.clicked, target.sec) ?? editableTarget(target.top, target.sec);
+    return svgTextTarget(target.clicked, target.sec) ?? editableTarget(target.clicked, target.sec) ?? editableTarget(target.top, target.sec);
   }
   function placeHandle() {
     if (!selected || !handle) return;
