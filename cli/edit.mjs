@@ -2352,16 +2352,22 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // hang it (pushBranch). The SSE `commit` event tells every page the
   // count went to zero.
   let pushing = false;
-  async function commitPushRoute({ json }) {
+  async function commitPushRoute({ body, json }) {
     if (!gitOn) return json(409, { ok: false, error: 'this session is not committing — open the deck with --git' });
     if (pushing) return json(409, { ok: false, code: 'BUSY', error: 'a push is already on its way' });
+    // tags go with the branch unless the page says not to (Settings… → Push
+    // tags): an absent or unreadable body is the default, which sends them
+    let tags = true;
+    try { tags = JSON.parse(body || '{}').tags !== false; } catch { /* the default */ }
     pushing = true;
     try {
-      const done = await pushBranch(root, { state: remoteState(root) });
+      const done = await pushBranch(root, { state: remoteState(root), tags });
       if (!done.ok) return json(done.code === 'BLOCKED' ? 409 : 502, { ok: false, code: done.code, error: done.error });
-      console.log(`  git: pushed ${done.branch} to ${done.remote}`);
+      console.log(`  git: pushed ${done.branch} to ${done.remote}${tags ? '' : ' (tags kept here)'}`);
       broadcast('commit', commitState());
-      return json(200, { ok: true, pushed: true, remote: done.remote, branch: done.branch, ...whereItStands() });
+      // `pushedTags`, not `tags`: whereItStands() already answers `tags`, the
+      // names on HEAD, and the window paints both
+      return json(200, { ok: true, pushed: true, remote: done.remote, branch: done.branch, pushedTags: tags, ...whereItStands() });
     } finally { pushing = false; }
   }
 

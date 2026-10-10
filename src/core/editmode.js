@@ -283,7 +283,9 @@ export function createEditMode({
     };
     const paintTagsAndPush = () => {
       const tags = Array.isArray(now.tags) ? now.tags : [];
-      tagsNow.textContent = tags.length ? `on it: ${tags.join(', ')}` : '';
+      // with Push tags off (Settings…) a tag made here is not going anywhere
+      // on Push, and the window says so rather than letting it look sent
+      tagsNow.textContent = tags.length ? `on it: ${tags.join(', ')}${pushTagsOn() ? '' : ' · not pushed'}` : '';
       tagsNow.hidden = !tags.length;
       const p = now.push;
       pushGo.classList.toggle('cm-off', !p || !!p.blocked);
@@ -495,12 +497,15 @@ export function createEditMode({
       pushingNow = true;
       const stop = thinking((text) => { pushGo.textContent = text; }, { label: 'pushing' });
       try {
-        const r = await fetch(editBase + '/deck/edit/commit/push', { method: 'POST' });
+        const r = await fetch(editBase + '/deck/edit/commit/push', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ tags: pushTagsOn() }),
+        });
         const j = await r.json();
         if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
         now = { ...now, tags: j.tags, push: j.push };
         paintTagsAndPush();
-        toast(`pushed ${j.branch} to ${j.remote}`, 2600);
+        toast(`pushed ${j.branch} to ${j.remote}${j.pushedTags === false ? ' · tags kept here' : ''}`, 2600);
         debugLog('git', `push: ${j.branch} → ${j.remote}`);
       } catch (e) {
         say(`couldn't push — ${String(e.message || e)}`);
@@ -2049,6 +2054,15 @@ export function createEditMode({
   // to read, noise when it is not, and it sits right under the slide you are
   // trying to judge, so it is off until asked for. Per BROWSER, not per deck:
   // it is how you like this overlay, not a fact about any one deck.
+  // Push tags (Settings…): whether the commit window's Push sends the
+  // annotated tags with the branch. On unless turned off, per deck, because a
+  // tag is often a release name for one repo and a scratch mark in another.
+  const PUSH_TAGS_KEY = 'decklight-push-tags:' + location.pathname;
+  const pushTagsOn = () => readPref(PUSH_TAGS_KEY) !== 'off';
+  function setPushTags(on) {
+    writePref(PUSH_TAGS_KEY, on ? null : 'off');
+    toast(on ? 'push: the branch and its tags' : 'push: the branch only — tags stay on this machine', 2600);
+  }
   const HISTORY_CAPTIONS_KEY = 'decklight-history-captions';
   const historyCaptionsOn = () => readPref(HISTORY_CAPTIONS_KEY) === '1';
   function applyHistoryCaptions() {
@@ -2877,6 +2891,9 @@ export function createEditMode({
 
   return {
     deckHistory,
+    /** Settings… → Push tags: does Push send the annotated tags with the branch. */
+    pushTags: pushTagsOn,
+    setPushTags,
     /** Hold undo/redo until this write lands — the gestures in authoring.js post outside this module. */
     trackWrite,
     toggleEditor,

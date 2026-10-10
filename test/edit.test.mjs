@@ -1439,6 +1439,16 @@ test('the commit window cuts the work into the commits an agent proposes, tags H
   assert.equal(git(['rev-parse', 'main'], hub), git(['rev-parse', 'HEAD'], repo));
   assert.equal(git(['cat-file', '-t', 'refs/tags/v1.0'], hub), 'tag');
   assert.deepEqual({ state: pushed.push.state, ahead: pushed.push.ahead }, { state: 'ok', ahead: 0 });
+  assert.equal(pushed.pushedTags, true, 'tags go by default');
+
+  // Settings… → Push tags off: the page asks for the branch alone, and a tag
+  // made since stays here
+  assert.equal((await post(base, '/deck/edit/commit/tag', { name: 'v1.1' })).status, 200);
+  const branchOnly = await (await post(base, '/deck/edit/commit/push', { tags: false })).json();
+  assert.equal(branchOnly.ok, true, branchOnly.error);
+  assert.equal(branchOnly.pushedTags, false);
+  assert.deepEqual(branchOnly.tags, ['v1.0', 'v1.1'], 'the tags on HEAD, as ever');
+  assert.equal(git(['tag', '--list', 'v1.1'], hub), '', 'v1.1 did not leave this machine');
 
   // a plan made on other work is refused, and nothing lands
   writeFileSync(path.join(repo, 'deck.html'), DECK.replace('Alpha', 'Third'));

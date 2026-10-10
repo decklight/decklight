@@ -505,21 +505,25 @@ export function pushBlocked(s) {
 }
 
 /**
- * Push the branch, and the annotated tags on what it pushes (--follow-tags),
+ * Push the branch, and (unless `tags` is false) the annotated tags on what it
+ * pushes (--follow-tags),
  * on a click and only then (git.mjs: never a push you did not ask for). No
  * prompt can hang it (noPromptEnv) and a minute is the bound. Resolves to
  * `{ ok, pushed, remote, branch }` or `{ ok: false, code, error }`; never rejects.
  */
-export function pushBranch(cwd, { state = remoteState(cwd), timeoutMs = PUSH_TIMEOUT_MS, exec = execFile } = {}) {
+export function pushBranch(cwd, { state = remoteState(cwd), tags = true, timeoutMs = PUSH_TIMEOUT_MS, exec = execFile } = {}) {
   const blocked = pushBlocked(state);
   if (blocked) return Promise.resolve({ ok: false, code: 'BLOCKED', error: blocked });
+  // `tags: false` is the setting that keeps tags on this machine (Settings…,
+  // PRESENTING): the branch goes, the tags wait for a push you make yourself
+  const follow = tags ? ['--follow-tags'] : [];
   const args = state.state === 'no-upstream'
-    ? ['push', '--follow-tags', '-u', state.remote, state.branch]
-    : ['push', '--follow-tags'];
+    ? ['push', ...follow, '-u', state.remote, state.branch]
+    : ['push', ...follow];
   return new Promise((resolve) => {
     exec('git', args, { cwd, env: noPromptEnv(), timeout: timeoutMs, encoding: 'utf8' }, (err, _out, stderr) => {
       if (err) { err.stderr = err.stderr || stderr; resolve({ ok: false, code: 'REMOTE', error: pushError(err, state) }); return; }
-      resolve({ ok: true, pushed: true, remote: state.remote, branch: state.branch, args: args.join(' ') });
+      resolve({ ok: true, pushed: true, remote: state.remote, branch: state.branch, pushedTags: !!tags, args: args.join(' ') });
     });
   });
 }
