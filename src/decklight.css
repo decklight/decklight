@@ -1092,6 +1092,9 @@
 }
 /* the commit chip has the corner: the clock steps down under it */
 .decklight.has-commit-chip .decklight-clock { top: 60px; }
+/* the slide number (editmode.js) is above both: they step down under it */
+.decklight.has-slide-num .decklight-clock { top: 76px; }
+.decklight.has-slide-num.has-commit-chip .decklight-clock { top: 94px; }
 .decklight-clock .clk-elapsed { color: var(--accent, #6af); }
 /* The element content editor's highlighted layers (write mode). A textarea
    cannot render markup, so the colour is a <pre> BEHIND a textarea whose own
@@ -1220,6 +1223,20 @@
 }
 /* a statement until the server asks: quieter, so it reads as status, not a nag */
 .decklight-commit-chip[data-tone="quiet"] { opacity: .62; border-color: rgba(255, 255, 255, .1); }
+/* the slide you are on, while editing is on (editmode.js): the top right
+   corner, in the theme's accent on the theme's own background, so it reads
+   on every theme; the commit chip steps down under it */
+.decklight-slide-num {
+  position: absolute; right: 16px; top: 14px; z-index: 42;
+  color: var(--accent, #6af);
+  background: color-mix(in srgb, var(--bg, #000) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #6af) 50%, transparent);
+  font: 700 14px/1 var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  padding: 7px 12px; border-radius: 999px;
+  pointer-events: none; user-select: none;
+}
+.decklight.has-slide-num .decklight-commit-chip { top: 48px; }
 .decklight-commit-chip[data-tone="quiet"]:hover { opacity: 1; }
 .decklight-commit-chip:hover { background: rgba(0, 0, 0, .85); }
 .decklight-commit-chip:focus-visible { outline: 2px solid var(--accent, #6af); outline-offset: 2px; }

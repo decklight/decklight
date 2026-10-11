@@ -2735,6 +2735,14 @@
         const bar = () => document.querySelector('.decklight-editbar');
         const locks = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/lock')).map((c) => c.body.locked);
         r.startsEditing = !!bar() && !chip();
+        // the slide number, top right, in the accent, while editing is on; it follows the slide
+        const num = () => document.querySelector('.decklight-slide-num');
+        const corner = () => { const b = num()?.getBoundingClientRect(); return !!b && b.top < 40 && window.innerWidth - b.right < 40; };
+        r.slideNumberShown = num()?.textContent === `1 / ${deck.state.totalSlides}` && corner()
+          && getComputedStyle(num()).color !== 'rgb(255, 255, 255)' && document.querySelector('.decklight').classList.contains('has-slide-num');
+        deck.goto(2); await settle();
+        r.slideNumberFollows = num()?.textContent === `2 / ${deck.state.totalSlides}`;
+        deck.goto(1); await settle();
         press('/');
         for (const ch of 'lock deck') press(ch);
         r.paletteOffersTheLock = rows().some((t) => /^Lock deck/.test(t));
@@ -2747,6 +2755,7 @@
         h1?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
         await settle();
         r.editingOffWhileLocked = !bar() && !h1?.isContentEditable;
+        r.slideNumberGoesWithTheLock = !num() && !document.querySelector('.decklight').classList.contains('has-slide-num');
         // a door that writes says why, and it is the lock, not "run decklight"
         press('l');
         await settle();
@@ -2769,7 +2778,9 @@
         chip()?.click();
         await settle(); await settle();
         r.chipUnlocks = locks().at(-1) === false && !chip() && !!bar();
-        r.PASS = r.startsEditing && r.paletteOffersTheLock && r.lockIsPosted && r.chipSaysSo && r.editingOffWhileLocked && r.doorsSayLocked
+        r.slideNumberBackWithEditing = num()?.textContent === `1 / ${deck.state.totalSlides}`;
+        r.PASS = r.slideNumberShown && r.slideNumberFollows && r.slideNumberGoesWithTheLock && r.slideNumberBackWithEditing
+          && r.startsEditing && r.paletteOffersTheLock && r.lockIsPosted && r.chipSaysSo && r.editingOffWhileLocked && r.doorsSayLocked
           && r.writeRowsGone && r.channelUnlocks && r.barLocks && r.chipUnlocks;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

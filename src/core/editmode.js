@@ -106,7 +106,25 @@ export function createEditMode({
   // commit (what changed, and the key), louder once the server asks.
   let commitNow = null;   // last {dirty, lines, sinceMs, nag, canWrite, messages}
   let commitChip = null;
-  document.addEventListener('fullscreenchange', () => paintCommitChip());
+  document.addEventListener('fullscreenchange', () => { paintCommitChip(); paintSlideNum(); });
+  // The slide you are on, top right, while editing is on (PRESENTING): the
+  // number an author needs the whole time the file is theirs to change, in
+  // the theme's accent, above the commit chip. It goes with the lock and
+  // with fullscreen, which is a rehearsal.
+  let slideNum = null;
+  function paintSlideNum() {
+    const show = editAvailable && !printMode && !document.fullscreenElement;
+    root.classList.toggle('has-slide-num', show);
+    if (!show) { slideNum?.remove(); slideNum = null; return; }
+    if (!slideNum) {
+      slideNum = document.createElement('div');
+      slideNum.className = 'decklight-slide-num';
+      slideNum.setAttribute('aria-hidden', 'true');
+      root.appendChild(slideNum);
+    }
+    slideNum.textContent = `${instance.state.slide} / ${instance.state.totalSlides}`;
+  }
+  instance.on('slide', paintSlideNum);
   function paintCommitChip() {
     const text = commitChipText(commitNow);
     // fullscreen is a rehearsal: nothing about git belongs on that screen
@@ -1568,6 +1586,7 @@ export function createEditMode({
    */
   function syncEditing() {
     const want = editAvailable;
+    paintSlideNum();   // the capability's badge, on or off with it
     if (want === elementEditOn) return;
     elementEditOn = want;
     if (!want) closeElementMenu();
