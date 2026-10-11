@@ -49,6 +49,27 @@
   background-image: var(--bg-accent, none);
   pointer-events: none;
 }
+
+/* Fullscreen letterbox (SPEC PRESENTING, Display): in fullscreen the screen
+   is the presenter's, so the bands the deck's ratio leaves above and below
+   (or beside) the slide are black, like a projector's, and the slide itself
+   carries the theme's canvas and accent. Out of fullscreen the bands keep
+   the theme's colour. A slide that bleeds its art (Bleed) still fills the
+   screen: the stage goes transparent so the art behind it shows through. */
+.decklight:fullscreen { background: #000; }
+.decklight:fullscreen::before { content: none; }
+.decklight:fullscreen > .decklight-stage {
+  background: var(--bg, #111);
+}
+.decklight:fullscreen > .decklight-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--bg-accent, none);
+  pointer-events: none;
+}
+.decklight:fullscreen > .decklight-stage:has(> section[data-bled]) { background: transparent; }
+.decklight:fullscreen > .decklight-stage:has(> section[data-bled])::before { content: none; }
 .decklight-stage { z-index: 1; }
 
 .decklight-stage {
