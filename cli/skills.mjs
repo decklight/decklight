@@ -245,6 +245,63 @@ function installGlobal(targets, env, force) {
   return written.filter(Boolean);
 }
 
+// --- what is on this machine, against this build ------------------------------
+
+/**
+ * The skill files older than this install, where `decklight <deck>` looks
+ * before it serves (PRESENTING): the project's, under `dir` (Claude's
+ * `.claude/skills/decklight/SKILL.md`, and an AGENTS.md carrying the marked
+ * section), and every agent's global home, whether or not that agent is on
+ * PATH today: a file that was installed is a file something reads. A stamp
+ * older than this build, or missing (before 0.9.0), is stale. Each entry is
+ * `{ scope: 'project' | 'global', target, file, version }`.
+ */
+export function staleSkills({ dir = '.', env = process.env } = {}) {
+  const out = [];
+  const look = (scope, target, file, kind) => {
+    if (!fs.existsSync(file)) return;
+    let text = '';
+    try { text = fs.readFileSync(file, 'utf8'); } catch { return; }
+    if (kind === 'agents' && !text.includes(AGENTS_MARKER)) return;
+    const version = skillVersionOf(text);
+    if (version === null || (semverCompare(version, PKG.version) ?? -1) < 0) out.push({ scope, target, file, version });
+  };
+  const root = path.resolve(dir);
+  look('project', 'claude', path.join(root, '.claude', 'skills', 'decklight', 'SKILL.md'), 'skill');
+  look('project', 'agents', path.join(root, 'AGENTS.md'), 'agents');
+  for (const [key, t] of Object.entries(TARGETS)) {
+    const home = t.home(env);
+    if (t.kind === 'skill') look('global', key, path.join(home, 'skills', 'decklight', 'SKILL.md'), 'skill');
+    else look('global', key, path.join(home, 'AGENTS.md'), 'agents');
+  }
+  return out;
+}
+
+/**
+ * Bring the files `staleSkills` named up to this build, and nothing else: a
+ * project whose AGENTS.md is stale gets its section refreshed, not a Claude
+ * skill it never had. The same writers as `decklight skills`, so a refresh
+ * from the prompt and one from the command cannot differ. Returns the lines
+ * the command would print, one per file written.
+ */
+export function refreshSkills(stale, { dir = '.', env = process.env } = {}) {
+  const written = [];
+  const root = path.resolve(dir);
+  const project = stale.filter((s) => s.scope === 'project');
+  if (project.some((s) => s.target === 'claude')) {
+    installClaudeSkill(path.join(root, '.claude', 'skills', 'decklight'), false, written);
+    installReportBugSkill(path.join(root, '.claude', 'skills'), false, written);
+  }
+  if (project.some((s) => s.target === 'agents')) {
+    const hasClaude = fs.existsSync(path.join(root, CLAUDE_REF));
+    if (!hasClaude) written.push(wrote(writeIfAbsent(path.join(root, SHARED_REF), referenceDoc(), false)));
+    written.push(mergeAgentsMd(root, hasClaude ? CLAUDE_REF : SHARED_REF));
+  }
+  const globals = [...new Set(stale.filter((s) => s.scope === 'global').map((s) => s.target))];
+  if (globals.length) written.push(...installGlobal(Object.keys(TARGETS).filter((k) => globals.includes(k)), env, false));
+  return written.filter(Boolean);
+}
+
 /**
  * The global install as one delegable step — what init's skill-scope question
  * runs on a `g`: the same "detected on PATH" notice and summary lines

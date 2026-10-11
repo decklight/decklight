@@ -24,7 +24,7 @@
 // its own (each bridge is probed via /ping).
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { onPath, detectAgents } from './agents.mjs';
@@ -47,6 +47,10 @@ import { leashEnv } from './supervise.mjs';
 import { bannerRow, nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
 import { auditDeck, formatLabel } from './audit.mjs';
 import { scriptHash, isTrusted, remember } from './trust.mjs';
+import { staleSkills, refreshSkills, display as displayPath } from './skills.mjs';
+import { configHome } from './marketplace.mjs';
+import { PKG } from './skill-content.mjs';
+import { selfCommand } from './pkg.mjs';
 import { resolve as resolvePath } from 'node:path';
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
@@ -453,6 +457,11 @@ export async function openMain(args) {
     return typeof out === 'number' ? out : 0;
   }
 
+  // A skill older than this install, on this machine: offer to bring it up
+  // to date, here, where the banner would otherwise only name it. Write mode
+  // only, like the banner's row, and only on a terminal.
+  if (process.stdin.isTTY && process.stdout.isTTY) await offerSkillRefresh();
+
   // No repo, no flag: offer one. A repo is where the regular autocommits go —
   // the durable record behind the player's fast undo/redo loop. Only a TTY
   // can be asked; headless runs stay git-less until --git says otherwise.
@@ -749,6 +758,54 @@ if (isMain(import.meta.url)) {
  * forward. A decklight bridge already on its port is left alone — the bridge
  * reuses it itself. Mutates `plan`; returns one line per move, to print.
  */
+/**
+ * The skill, offered up to date at startup (PRESENTING).
+ *
+ * The banner names a project skill older than this install and says to run
+ * `decklight skills`; an agent reading it reads an old contract. A row that
+ * only names the fix is a fix nobody runs, and the moment you are already
+ * at the terminal is the moment to make it one key: the stale files are
+ * listed, project and global alike (`staleSkills`), and ⏎ refreshes them
+ * with the same writers as the command. **No is remembered for this
+ * version** (`skill-prompt-declined` in the config home): the question
+ * comes back when decklight does, never at the next start.
+ *
+ * `ask` answers the question (a terminal by default); `log` prints. Nothing
+ * is asked, and nothing printed, when every skill is current or none is
+ * installed.
+ */
+export async function offerSkillRefresh({
+  dir = process.cwd(), env = process.env,
+  ask = null, log = console.log,
+} = {}) {
+  const stale = staleSkills({ dir, env });
+  if (!stale.length) return { stale, refreshed: false };
+  const declinedAt = resolvePath(configHome(env), 'skill-prompt-declined');
+  let declined = '';
+  try { declined = readFileSync(declinedAt, 'utf8').trim(); } catch { /* never declined */ }
+  if (declined === PKG.version) return { stale, refreshed: false, declined: true };
+  const named = stale.map((s) => `${displayPath(s.file)} ${s.version ? `v${s.version}` : 'before 0.9.0'}`).join(', ');
+  log(`  skill: ${named} — older than this install (${PKG.version}): an agent reads an old contract`);
+  let answer = '';
+  if (ask) answer = await ask('  update it now? [Y/n] ');
+  else {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try { answer = await rl.question('  update it now? [Y/n] '); } finally { rl.close(); }
+  }
+  if (/^n/i.test(String(answer).trim())) {
+    try {
+      mkdirSync(configHome(env), { recursive: true });
+      writeFileSync(declinedAt, PKG.version + '\n');
+    } catch { /* not remembered: asked again next start */ }
+    log(`  kept as it is — ${selfCommand()} skills refreshes it; not asked again for ${PKG.version}`);
+    return { stale, refreshed: false };
+  }
+  const written = refreshSkills(stale, { dir, env });
+  log(`  installed the Decklight skill (v${PKG.version})`);
+  for (const w of written) log(`    ${w}`);
+  return { stale, refreshed: true, written };
+}
+
 export async function moveBridgesOffStrangers(plan, {
   isOpen = isPortOpen, isBridge = identifyBridge, bindable = canBind, stranger = identifyStranger,
 } = {}) {
