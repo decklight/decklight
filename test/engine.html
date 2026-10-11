@@ -507,7 +507,7 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
-      if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
+      if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors' || HARNESS_MODE === 'copystyle') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/style')) {
           if (FAIL_NEXT_STYLE) { FAIL_NEXT_STYLE = false; return json({ ok: false, error: 'the page found <rect> at 1.0, the file has <circle> — reload and try again' }, 409); }
@@ -680,7 +680,7 @@
     // The colour picker: a diagram box with its label, a loose label, and an
     // HTML block — only for the mode that looks at it. No theme loads here, so
     // the palette's tokens are given inline (a secondary that IS one).
-    if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors' || HARNESS_MODE === 'inspectpick') {
+    if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors' || HARNESS_MODE === 'inspectpick' || HARNESS_MODE === 'copystyle') {
       const tokens = { '--accent': '#5ee6c0', '--accent-contrast': '#04261c', '--link': '#8ecbff', '--fg': '#eef0ff', '--bg': '#0d1b3d',
         '--d-text': '#f2ece4', '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-3': '#223355',
         // two of the three font roles: the Type side offers what the theme defines
@@ -693,6 +693,14 @@
         </svg>
         <blockquote class="cp-quote">A quoted <strong>block</strong> of text.</blockquote>
       </section>`);
+      // copystyle: shapes to paste onto, one of them in a concept
+      if (HARNESS_MODE === 'copystyle') {
+        document.querySelector('.cp-group-a').insertAdjacentHTML('afterend', `
+          <g class="cs-a"><rect class="cs-plain" x="300" y="40" width="120" height="60"/><text class="cs-plain-text" x="360" y="75" style="font-weight: 400">Plain</text></g>
+          <g class="cs-b"><rect class="cs-agent" data-concept="agent" x="440" y="40" width="120" height="60"/><text x="500" y="75">Agent</text></g>
+          <g class="cs-c"><rect class="cs-plain2" x="580" y="40" width="120" height="60"/><text x="640" y="75">Other</text></g>`);
+        document.querySelector('.cp-text').style.setProperty('font-weight', '700');
+      }
     }
     // diagram labels to type into (SVG_DIAGRAMS): a box and its label, a
     // label of two lines, and a stroke a draw build puts its head after
@@ -4870,6 +4878,108 @@
           && r.escTurnsThePickerOff && r.backspaceRemovesTheNode;
       }
 
+      if (mode === 'copystyle') {
+        // Copy style / Paste style (style-clip.js, PRESENTING): the menu's
+        // rows and ⌥⌘C / ⌥⌘V on a selection. A paste is the Colors and Type
+        // tabs' own write, in place, one POST: tokens copied by reference, a
+        // concept pasted as the concept (and a plain style taking a shape out
+        // of one), a diagram box onto a CSS box by role, and a refusal put back.
+        const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+        const row = (label) => rows().find((x) => x.firstChild?.textContent === label);
+        const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const chord = (c) => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: c === 'KeyC' ? 'ç' : '√', code: c, metaKey: true, altKey: true, bubbles: true, cancelable: true }));
+        const styles = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'));
+        const last = () => styles().at(-1)?.body;
+        const edit = (b, prop, tag) => b?.edits?.find((e) => e.prop === prop && (!tag || e.tag === tag));
+        const toastSays = (re) => [...document.querySelectorAll('.decklight-toast')].some((n) => re.test(n.textContent));
+        try { localStorage.removeItem('decklight-style-clip'); } catch { /* ignore */ }
+        await settle();
+        deck.goto(5);
+        await settle();
+        const box = document.querySelector('.cp-box'), plain = document.querySelector('.cs-plain');
+        const agent = document.querySelector('.cs-agent'), plain2 = document.querySelector('.cs-plain2');
+        const quote = document.querySelector('.cp-quote');
+
+        rightClick(box);
+        // the chord as this machine spells it: ⌥⌘C on a Mac, Ctrl+Alt+C elsewhere (headless may say either)
+        r.menuCopies = !!row('Copy style') && /^(⌥⌘C|Ctrl\+Alt\+C)$/.test(row('Copy style').querySelector('.cm-key')?.textContent ?? '');
+        r.noPasteYet = !row('Paste style');
+        row('Copy style')?.click();
+        r.copiedSaid = toastSays(/^style copied: box · fill 1 · (⌥⌘V|Ctrl\+Alt\+V) pastes/);
+        r.copyWritesNothing = styles().length === 0;
+        r.remembered = /var\(--d-fill-1\)/.test(localStorage.getItem('decklight-style-clip') ?? '');
+
+        rightClick(plain);
+        r.menuPastes = !!row('Paste style');
+        row('Paste style')?.click();
+        await settle();
+        let b = last();
+        r.onePost = styles().length === 1 && b?.quiet === true && typeof b?.from === 'string' && b?.slide === 5;
+        r.fillByReference = edit(b, 'fill', 'rect')?.value === 'var(--d-fill-1)' && plain.style.fill === 'var(--d-fill-1)';
+        r.strokeToo = edit(b, 'stroke', 'rect')?.value === '#ffffff';   // the markup's #fff, as the browser hands it back
+        r.labelInkAndWeight = edit(b, 'fill', 'text')?.value === 'var(--d-text)' && edit(b, 'font-weight', 'text')?.value === '700';
+        r.pathIsTheFiles = JSON.stringify(edit(b, 'fill', 'rect')?.path) === '[2,0]';   // the line, the box's group, then this one
+        r.noConcept = b?.concept === null;
+        r.pastedSaid = toastSays(/style pasted · Z takes it back/);
+        // the same paste again: nothing to write
+        rightClick(plain);
+        row('Paste style')?.click();
+        await settle();
+        r.samePasteWritesNothing = styles().length === 1 && toastSays(/already that style/);
+
+        // the chords, on a selection: a concept shape's style is its concept
+        click(agent);
+        chord('KeyC');
+        r.chordCopies = toastSays(/style copied: box · “agent”/);
+        click(plain2);
+        chord('KeyV');
+        await settle();
+        b = last();
+        r.conceptPasted = b?.concept?.value === 'agent' && b?.concept?.tag === 'rect' && !edit(b, 'fill', 'rect')
+          && plain2.getAttribute('data-concept') === 'agent';
+        r.conceptRepainted = !!plain2.style.fill;
+        // a plain style onto the concept shape takes it out of its concept, in the same write
+        click(box);
+        chord('KeyC');
+        click(agent);
+        chord('KeyV');
+        await settle();
+        b = last();
+        r.detachesInSameWrite = b?.concept?.value === null && edit(b, 'fill', 'rect')?.value === 'var(--d-fill-1)'
+          && !agent.hasAttribute('data-concept');
+        // by role onto a CSS box: fill → background, stroke → border, ink → color
+        click(quote);
+        chord('KeyV');
+        await settle();
+        b = last();
+        r.ontoACssBox = edit(b, 'background-color')?.value === 'var(--d-fill-1)' && edit(b, 'border-color')?.value === '#ffffff'
+          && edit(b, 'color')?.value === 'var(--d-text)' && edit(b, 'font-weight')?.value === '700' && !edit(b, 'font-size');
+        // a refused paste puts the slide back
+        const before = plain2.getAttribute('style');
+        FAIL_NEXT_STYLE = true;
+        click(box); chord('KeyC');
+        click(plain2); chord('KeyV');
+        await settle(); await settle();
+        r.refusalPutsBack = plain2.getAttribute('data-concept') === 'agent' && plain2.getAttribute('style') === before && toastSays(/style not pasted/);
+        // nothing selected: told how
+        document.querySelector('.decklight-stage > section.active h2')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        press('Escape');
+        chord('KeyV');
+        r.noSelectionSaysHow = toastSays(/select a shape first/);
+        // the palette names both, on a selection
+        click(box);
+        press('/');
+        const pal = [...document.querySelectorAll('.decklight-palette .pal-row')].map((x) => x.textContent);
+        r.paletteRows = pal.some((t) => /Copy style/.test(t)) && pal.some((t) => /Paste style/.test(t));
+        escapeUntilClosed('.decklight-palette');
+        try { localStorage.removeItem('decklight-style-clip'); } catch { /* ignore */ }
+        r.PASS = r.menuCopies && r.noPasteYet && r.copiedSaid && r.copyWritesNothing && r.remembered && r.menuPastes && r.onePost
+          && r.fillByReference && r.strokeToo && r.labelInkAndWeight && r.pathIsTheFiles && r.noConcept && r.pastedSaid && r.samePasteWritesNothing
+          && r.chordCopies && r.conceptPasted && r.conceptRepainted && r.detachesInSameWrite && r.ontoACssBox && r.refusalPutsBack
+          && r.noSelectionSaysHow && r.paletteRows;
+      }
+
       if (mode === 'colors') {
         // PRESENTING, the inspector's Colors and Type tabs: the menu's Colors…
         // and Type… open the inspector on them, on the node the right-click
@@ -5281,7 +5391,8 @@
         const M = '.decklight-ctxmenu', ROW = '.cm-row', SEL = 'cm-selected';
         const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu',
           { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
-        const rowsText = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.textContent);
+        // the label, not the chord a row may carry beside it (Copy style ⌥⌘C)
+        const rowsText = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.firstChild?.textContent ?? '');
         const clickRow = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.textContent === label)?.click();
         await settle();                        // let /deck/ping resolve
 
@@ -5295,7 +5406,7 @@
         rightClick(h1);
         r.opensOnElement = !!document.querySelector(M);
         r.fullMenuRows = JSON.stringify(rowsText())
-          === JSON.stringify(['Inspect', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Add text effect ▸', 'Slide ▸']);
+          === JSON.stringify(['Inspect', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Copy style', 'Add text effect ▸', 'Slide ▸']);
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;
         press('ArrowDown');

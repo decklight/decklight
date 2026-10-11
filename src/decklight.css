@@ -2356,6 +2356,15 @@
   white-space: nowrap;
 }
 .decklight-ctxmenu .cm-row.cm-selected { background: rgba(255, 255, 255, .14); }
+/* a row's chord (Copy style ⌥⌘C), right-aligned and quiet, the way a menu bar says it */
+.decklight-ctxmenu .cm-key {
+  float: right;
+  margin-left: 24px;
+  color: #8b909a;
+  font-size: 12px;
+  line-height: 19.6px; /* the row's 14px × 1.4, so the chord sits on the label's line */
+  font-variant-numeric: tabular-nums;
+}
 .decklight-ctxmenu .cm-row.cm-back {
   color: #b9bec8;
   border-bottom: 1px solid rgba(255, 255, 255, .12);

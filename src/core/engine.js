@@ -29,6 +29,7 @@ import { createPlaylist } from './playlist.js';
 import { createRangePicker } from './ranges.js';
 import { createChoiceCard } from './choice.js';
 import { createConceptTools } from './concept-tools.js';
+import { createStyleClip } from './style-clip.js';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES } from '../../tools/video-options.mjs';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
@@ -1014,6 +1015,13 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Concept colors…',
         alias: 'concept colours colors semantic diagram fill slot pin data-concept recurring same colour everywhere colour by meaning color by meaning legend idea shapes boxes attach group',
         run: () => conceptsEditor.open() },
+      // the format painter, on whatever is selected while editing (style-clip.js)
+      editmode.available() && editmode.elementEditOn() && editbar.selected() && { label: 'Copy style', hint: styleClip.keys.copy,
+        alias: 'format painter copy formatting colours colors fill border font look match',
+        run: () => styleClip.copy(editbar.selected()) },
+      editmode.available() && editmode.elementEditOn() && editbar.selected() && styleClip.has() && { label: 'Paste style', hint: styleClip.keys.paste,
+        alias: 'format painter paste formatting apply colours colors fill border font look match same as',
+        run: () => styleClip.paste(editbar.selected()) },
       // the voiceover script, given ElevenLabs v4's audio tags — the agent
       // drafts, decklight checks no word or beat moved (cli/enhance.mjs)
       editmode.available() && { label: 'Enhance this slide\'s voiceover script… (dev)', group: 'Add audio tags',
@@ -2208,6 +2216,7 @@ export function init(userConfig = {}) {
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
       <tr><td>L / ⇧L</td><td>slide layout — writes the file (write mode)</td></tr>
+      <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a selected shape's style: colours, border, type (write mode)</td></tr>
       <tr><td>Z / ⇧Z · ${UNDO_CHORD} / ${IS_MAC ? '⌘⇧Z' : 'Ctrl+⇧Z'}</td><td>undo / redo deck edits (write mode)</td></tr>
       <tr><td>A</td><td>ask an AI agent to edit the deck (write mode)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
@@ -2367,7 +2376,11 @@ export function init(userConfig = {}) {
     // ⌥⏎ / Alt+Enter — the speaker view: PowerPoint's presenter-view chord,
     // one that reads the same on every OS without reaching for an F-key.
     const speakerChord = e.altKey && !e.metaKey && !e.ctrlKey && e.key === 'Enter';
-    if (!undoChord && !speakerChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
+    // ⌥⌘C / ⌥⌘V (Ctrl+Alt elsewhere) — copy and paste a style, Keynote's and
+    // PowerPoint's chords. By code, not key: ⌥ turns the C into a ç.
+    const styleChord = e.altKey && (e.metaKey || e.ctrlKey) && !e.shiftKey && (e.code === 'KeyC' || e.code === 'KeyV')
+      && editmode.elementEditOn() ? e.code : null;
+    if (!undoChord && !speakerChord && !styleChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
     // An overlay that is up owns the keyboard — whether or not it wants this
     // particular key. Registration order (see `overlays.register` calls) is the
     // priority order the long if-chain here used to encode.
@@ -2389,6 +2402,14 @@ export function init(userConfig = {}) {
       if (modal !== false) return;
     }
     if (speakerChord) { speakerView(); e.preventDefault(); return; }
+    if (styleChord) {
+      const sel = editbar.selected();
+      if (!sel) toast(`select a shape first, then ${styleChord === 'KeyC' ? `${styleClip.keys.copy} copies` : `${styleClip.keys.paste} pastes`} its style`, 2600);
+      else if (styleChord === 'KeyC') styleClip?.copy(sel);
+      else styleClip?.paste(sel).then((ok) => { if (ok) editbar.refresh?.(); });
+      e.preventDefault();
+      return;
+    }
     if (undoChord) {
       deckHistory(e.shiftKey ? 'redo' : 'undo');
       e.preventDefault();   // ⌘Z / Ctrl+Z has no page default worth keeping here
@@ -2725,6 +2746,13 @@ export function init(userConfig = {}) {
     debugLog: (...a) => debugLog(...a),
   });
   editmode.setConceptTools(conceptTools);
+  // copy style / paste style (style-clip.js): the menu's rows and ⌥⌘C / ⌥⌘V on a selection
+  const styleClip = createStyleClip({
+    save: (body) => editmode.saveStyles(body), toast,
+    repaint: () => { applyConcepts(stage, config.concepts ?? {}); conceptsEditor.refresh(); inspector?.refresh?.(); },
+    debugLog: (...a) => debugLog(...a),
+  });
+  editmode.setStyleClip(styleClip);
   instance._concepts = { tools: conceptTools, editor: conceptsEditor };
   // an add left a look to offer, before the reload it caused (SPEC
   // DESIGN_SYSTEMS): offered once the page knows it is authoring

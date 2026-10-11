@@ -263,7 +263,7 @@ export function colorTargets(top, clicked) {
 
 let probe = null;
 /** Any CSS colour the browser understands → `{r,g,b}`; null for none/transparent/garbage. */
-function resolveColor(css) {
+export function resolveColor(css) {
   if (!css || css === 'none' || css === 'transparent') return null;
   try {
     probe ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });

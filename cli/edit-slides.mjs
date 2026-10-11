@@ -309,16 +309,26 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   /**
-   * `POST /deck/edit/element/style` — `{ slide, index, edits }`: the colour picker's
-   * save (element edit mode → Colors…). One applyEdit for a shape's fill and
-   * its text together, so `Z` takes the pair back in one press.
+   * `POST /deck/edit/element/style` — `{ slide, index, edits, concept? }`: the
+   * colour picker's save (element edit mode → Colors…). One applyEdit for a
+   * shape's fill and its text together, so `Z` takes the pair back in one
+   * press. A pasted style (Paste style) can carry the shape's concept too,
+   * `concept: { path, tag, value }` (value null takes it off), written in the
+   * same edit: a style that is a concept is that concept, not its colour.
    */
   function elementStyleRoute({ body, json }) {
-    const { slide, index, edits, quiet: inPlace, from } = JSON.parse(body);
+    const { slide, index, edits = [], concept = null, quiet: inPlace, from } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
+    if (concept !== null && (typeof concept !== 'object' || !(concept.value === null || typeof concept.value === 'string'))) throw new Error('bad payload');
+    if (!concept && (!Array.isArray(edits) || !edits.length)) throw new Error('bad edits');
     let changed;
-    try { changed = applyEdit((html) => setElementStyles(html, slide, index, edits)); }
-    catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    try {
+      changed = applyEdit((html) => {
+        const styled = Array.isArray(edits) && edits.length ? setElementStyles(html, slide, index, edits) : html;
+        return concept ? setElementAttr(styled, slide, index,
+          { path: concept.path ?? [], tag: concept.tag ?? null, name: 'data-concept', value: concept.value }) : styled;
+      });
+    } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
     // Asked for IN PLACE (the inspector's Colors and Type tabs), the write is
     // quiet: the page that picked already shows it, and a reload would close
     // the panel it was picked in. Every other page is told, and reloads.
@@ -326,7 +336,10 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       quiet(readDeck());
       broadcast('styles', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
     }
-    if (changed) console.log(`  element colours saved: slide ${slide} #${index} → ${edits.map((e) => `${e.prop} ${e.value}`).join(', ')}`);
+    if (changed) {
+      const said = [...(edits ?? []).map((e) => `${e.prop} ${e.value}`), ...(concept ? [`concept ${concept.value ?? '(detached)'}`] : [])];
+      console.log(`  element colours saved: slide ${slide} #${index} → ${said.join(', ')}`);
+    }
     return json(200, { ok: true, changed, ...history.counts() });
   }
 

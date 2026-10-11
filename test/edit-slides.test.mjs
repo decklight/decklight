@@ -277,6 +277,29 @@ test('POST /deck/edit/element/style asked in place is quiet: no reload here, eve
   assert.equal(quiet.length, 1, 'not asked in place: the ordinary reload');
 });
 
+test('POST /deck/edit/element/style: a pasted style carries its concept, in the same edit (one undo)', async (t) => {
+  const { routes, readDeck, history } = harness(t, CONCEPT_DECK);
+  const r = await call(routes, 'POST /deck/edit/element/style', { body: { slide: 1, index: 1,
+    edits: [{ path: [0, 1], tag: 'text', prop: 'font-weight', value: '700' }],
+    concept: { path: [0, 0], tag: 'rect', value: 'tools' } } });
+  assert.deepEqual([r.code, r.body.changed, r.body.undo], [200, true, 1], 'the style and the concept are ONE undo entry');
+  assert.match(readDeck(), /<rect data-concept="tools" x="1"/);
+  assert.match(readDeck(), /<text x="2" y="8" style="font-weight: 700">A<\/text>/);
+  // the concept alone (a paste whose colours already match), and taken off
+  const off = await call(routes, 'POST /deck/edit/element/style', { body: { slide: 1, index: 1, edits: [], concept: { path: [0, 0], tag: 'rect', value: null } } });
+  assert.equal(off.body.changed, true);
+  assert.match(readDeck(), /<rect x="1" y="1"/);
+  assert.equal(history.counts().undo, 2);
+  // a concept where the file has another tag is stale, and nothing is written
+  const before = readDeck();
+  const stale = await call(routes, 'POST /deck/edit/element/style', { body: { slide: 1, index: 1,
+    edits: [{ path: [0, 1], tag: 'text', prop: 'font-weight', value: '400' }], concept: { path: [0, 1], tag: 'rect', value: 'x' } } });
+  assert.equal(stale.code, 409);
+  assert.equal(readDeck(), before, 'the style edit before the stale concept is not written either');
+  // neither edits nor a concept is nothing to do
+  await assert.rejects(call(routes, 'POST /deck/edit/element/style', { body: { slide: 1, index: 1, edits: [] } }), /bad edits/);
+});
+
 test('POST /deck/edit/element/content asked in place is quiet: the page keeps what it typed, every other page told', async (t) => {
   const quiet = [];
   const sent = [];

@@ -1768,6 +1768,12 @@ export function createEditMode({
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
       rows.push({ label: 'Colors…', run: () => openInspect('colors') });
       rows.push({ label: 'Type…', run: () => openInspect('type') });
+      // the format painter: this shape's look onto another (style-clip.js)
+      if (styleClip) {
+        const target = menuTarget;
+        rows.push({ label: 'Copy style', key: styleClip.keys.copy, run: () => { closeElementMenu(); styleClip.copy(target); } });
+        if (styleClip.has()) rows.push({ label: 'Paste style', key: styleClip.keys.paste, run: () => { closeElementMenu(); styleClip.paste(target); } });
+      }
       if (conceptOf(menuTarget.top, menuTarget.clicked)) rows.push({ label: 'Concept ▸', run: () => { menuView = 'concept'; renderElementMenu(); } });
       rows.push({ label: 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
@@ -1778,6 +1784,7 @@ export function createEditMode({
       row.className = 'cm-row' + (r.back ? ' cm-back' : '');
       row.setAttribute('role', 'option');
       row.textContent = r.label;
+      if (r.key) row.append(Object.assign(document.createElement('span'), { className: 'cm-key', textContent: r.key }));
       row.addEventListener('mouseenter', () => selectElementRow(i, false));
       row.addEventListener('click', r.run);
       list.appendChild(row);
@@ -1903,6 +1910,7 @@ export function createEditMode({
     await postConcept({ slide, index, path: here.path, tag: here.tag, concept: name }, name);
   }
   let conceptTools = null;
+  let styleClip = null;   // copy style / paste style (style-clip.js), handed in by the engine
   /**
    * Where a shape's concept lives in the FILE: `{ slide, index, path, tag,
    * name, el }` for the element that carries (or would carry) its
@@ -1986,10 +1994,10 @@ export function createEditMode({
    * open); every other page of the deck is told, and reloads. One POST and one
    * undo entry per pick.
    */
-  async function saveStyles({ slide, index, edits }) {
+  async function saveStyles({ slide, index, edits, concept = null }) {
     const res = await writeFetch(editBase + '/deck/edit/element/style', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ slide, index, edits, quiet: true, from: PAGE_ID }),
+      body: JSON.stringify({ slide, index, edits, concept, quiet: true, from: PAGE_ID }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j.error || res.status);
@@ -3167,6 +3175,8 @@ export function createEditMode({
     writeConcepts,
     /** The engine's concept tools (concept-tools.js): the menu's Concept ▸ writes through them. */
     setConceptTools: (t) => { conceptTools = t; },
+    /** The engine's style clipboard (style-clip.js): the menu's Copy style and Paste style rows. */
+    setStyleClip: (c) => { styleClip = c; },
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
     slideOp,
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside write mode. */
