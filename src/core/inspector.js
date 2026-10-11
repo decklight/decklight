@@ -148,6 +148,15 @@ export function createInspector({
     const sec = sectionAt(n);
     const rows = [];
     if (!sec) return rows;
+    // the title first: it is how the slide is named everywhere else (the
+    // finder, the overview, a comment), and what a copy of these facts needs
+    // to say which slide they are about. Taken from the heading when there is
+    // one, ! when there is none, since every list of slides then shows this
+    // one by its opening words or its number.
+    const heading = sec.querySelector('h1, h2, h3');
+    rows.push(heading
+      ? row('title', slideTitle(sec, n - 1, ''), null, heading.tagName.toLowerCase())
+      : row('title', slideTitle(sec, n - 1, ''), 'warn', 'no heading'));
     const ds = sec.getAttribute('data-template');
     rows.push(row('layout', [sec.getAttribute('data-layout') || 'auto', ds].filter(Boolean).join(' · ')));
 
