@@ -2592,7 +2592,9 @@ export function init(userConfig = {}) {
   const resetZoom = () => { if (zoom.k !== 1) applyZoom(1); };
   // The percentage, top right, for as long as the slide is not at fit: a
   // zoomed slide looks like a slide, and the one thing that tells you why
-  // the edges are missing is this. Under the slide number while editing.
+  // the edges are missing is this. On the slide number's row, to its left,
+  // while editing is on (under it sat on the commit chip); measured from
+  // the badge's own width, since "1 / 9" and "12 / 120" are not the same.
   // A click on it fits, like 0.
   let zoomChip = null;
   function paintZoomChip() {
@@ -2606,7 +2608,11 @@ export function init(userConfig = {}) {
       root.appendChild(zoomChip);
     }
     zoomChip.textContent = `${Math.round(zoom.k * 100)}%`;
+    const badge = root.querySelector('.decklight-slide-num');
+    zoomChip.style.right = badge ? `${16 + badge.offsetWidth + 8}px` : '';
   }
+  // the badge comes and goes with editing and the lock: the chip follows it
+  new MutationObserver(() => { if (zoomChip) paintZoomChip(); }).observe(root, { childList: true });
   /** The deck's zoom as the harness and the debug line read it: factor and pan. */
   instance.zoom = () => ({ k: zoom.k, x: zoom.x, y: zoom.y });
   instance.setZoom = (k, opts) => applyZoom(k, opts);

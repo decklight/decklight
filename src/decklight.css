@@ -1250,19 +1250,20 @@
 /* a statement until the server asks: quieter, so it reads as status, not a nag */
 .decklight-commit-chip[data-tone="quiet"] { opacity: .62; border-color: rgba(255, 255, 255, .1); }
 /* the zoom (PRESENTING, pinch zoom): top right while the slide is not at fit,
-   under the slide number when that is up; a click fits, like 0 */
+   on the slide number's row and to its left when that is up (engine.js sets
+   `right` from the badge's width); the badge's own geometry, so the two
+   pills sit level; a click fits, like 0 */
 .decklight-zoom {
   position: absolute; right: 16px; top: 14px; z-index: 42;
   color: var(--muted, #aaa);
   background: color-mix(in srgb, var(--bg, #000) 82%, transparent);
   border: 1px solid color-mix(in srgb, var(--muted, #aaa) 45%, transparent);
-  font: 600 13px/1 var(--font-mono, monospace);
+  font: 700 14px/1 var(--font-mono, monospace);
   font-variant-numeric: tabular-nums;
-  padding: 6px 10px; border-radius: 999px;
+  padding: 7px 12px; border-radius: 999px;
   cursor: pointer; user-select: none;
 }
 .decklight-zoom:hover { color: var(--fg, #eee); }
-.decklight.has-slide-num .decklight-zoom { top: 48px; }
 /* the slide you are on, while editing is on (editmode.js): the top right
    corner, in the theme's accent on the theme's own background, so it reads
    on every theme; the commit chip steps down under it */
