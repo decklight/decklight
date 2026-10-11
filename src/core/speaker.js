@@ -238,15 +238,18 @@ export function openSpeakerView(instance) {
     // S here, or the same ⌥⏎ that opened this window: speak ⇄ rehearse
     if (e.key === 's' || e.key === 'S' || (e.altKey && e.key === 'Enter')) { window.__decklightSpeakerToggle(); e.preventDefault(); }
   });
-  let last = { slide: -1, nextHash: '' };
+  let last = { slide: -1, step: -1, nextHash: '' };
   function render(st) {
     plan = st.timings || [];
     if (st.slide !== last.slide) arrive(st.slide);
     lastSt = st;
     $('#pos').textContent = 'slide ' + st.slide + ' / ' + st.totalSlides + ' · step ' + st.step + ' / ' + st.totalSteps;
-    if (st.slide !== last.slide) $('#cur').src = st.url + '#/' + st.slide + '/999';
+    // CURRENT is what the audience sees: the slide at the step the deck is on,
+    // not the slide fully built. Only the fragment changes, so the pane steps
+    // through its builds in place instead of reloading.
+    if (st.slide !== last.slide || st.step !== last.step) $('#cur').src = st.url + '#/' + st.slide + '/' + st.step;
     if (st.nextHash !== last.nextHash) $('#nxt').src = st.url + '#' + st.nextHash;
-    last = { slide: st.slide, nextHash: st.nextHash };
+    last = { slide: st.slide, step: st.step, nextHash: st.nextHash };
     const segs = (mode === 'rehearse' && st.rehearseSegments) ? st.rehearseSegments : st.notesSegments;
     // Splitting on ⟨CLICK⟩ can cut through a paragraph, leaving fragments
     // with dangling open tags that would swallow the following segments —
