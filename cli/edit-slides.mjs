@@ -367,6 +367,38 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   /**
+   * `POST /deck/edit/element/concepts` — `{ items: [{ slide, index, path, tag }],
+   * concept, quiet?, from? }`: many shapes into one concept (or out of theirs,
+   * `concept: null`) in ONE applyEdit, so `Z` takes the whole batch back in
+   * one press: the look-alikes offered after an attach, a pick-mode click, a
+   * Check deck… suggestion accepted. Asked for in place (`quiet`), the page
+   * that asked already shows it; every other page is sent `styles` and
+   * reloads. Every item is checked before any is written: one the file no
+   * longer has is a 409 and nothing changes.
+   */
+  function elementConceptsRoute({ body, json }) {
+    const { items, concept, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Array.isArray(items) || !items.length || items.length > 500 || !(concept === null || typeof concept === 'string')
+        || items.some((t) => !t || !Number.isInteger(t.slide) || t.slide < 1 || !Number.isInteger(t.index) || t.index < 0)) {
+      throw new Error('bad payload');
+    }
+    let changed;
+    try {
+      changed = applyEdit((html) => items.reduce((out, t) => setElementAttr(out, t.slide, t.index,
+        { path: t.path ?? [], tag: t.tag ?? null, name: 'data-concept', value: concept }), html));
+    } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed) {
+      const slides = [...new Set(items.map((t) => t.slide))].sort((a, b) => a - b);
+      console.log(`  element concepts saved: ${items.length} shape${items.length === 1 ? '' : 's'} on slide${slides.length === 1 ? '' : 's'} ${slides.join(', ')} → ${concept ?? '(detached)'}`);
+      if (inPlace === true) {
+        quiet(readDeck());
+        broadcast('styles', { slide: slides[0], index: items[0].index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+      }
+    }
+    return json(200, { ok: true, changed, count: items.length, inPlace: changed && inPlace === true, ...history.counts() });
+  }
+
+  /**
    * `POST /deck/edit/concepts` — `{ concepts, quiet?, from? }`: the deck's
    * concept map, `{ name: slot | colour }`, written the way the deck carries
    * its configuration (`setDeckConcepts`). Quiet and in place like a theme
@@ -628,6 +660,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
   routes.set('POST /deck/edit/element/style', elementStyleRoute);
   routes.set('POST /deck/edit/element/concept', elementConceptRoute);
+  routes.set('POST /deck/edit/element/concepts', elementConceptsRoute);
   routes.set('POST /deck/edit/element/text', elementTextRoute);
   routes.set('POST /deck/edit/concepts', conceptsRoute);
   routes.set('POST /deck/edit/slide', slideRoute);

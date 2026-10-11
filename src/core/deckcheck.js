@@ -36,7 +36,7 @@ const finding = (level, rule, slide, title, message) => ({ level, rule, slide, t
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-export function createDeckCheck({ root, overlays, instance, goto, measureOverflow, slideTitle }) {
+export function createDeckCheck({ root, overlays, instance, goto, measureOverflow, slideTitle, suggestions = () => [], accept = () => null }) {
   let el = null, sel = 0, rows = [];
 
   /** Every finding the open deck can answer for, slide order, errors first within a slide. */
@@ -72,7 +72,17 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
         add('warn', 'clicks-vs-builds', `${plural(clicks, '⟨CLICK⟩', '⟨CLICK⟩s')} in the notes for ${plural(steps, 'build step')}: narration and builds drift apart`);
       }
     });
-    const rank = { error: 0, warn: 1 };
+    // labels that recur in different colours (SVG_DIAGRAMS): a hint, not a
+    // fault, listed on the first slide that has one; ⏎ makes it the concept
+    for (const s of suggestions()) {
+      const sec = sections[s.slides[0] - 1];
+      out.push({
+        ...finding('hint', 'concept-suggestion', s.slides[0], sec ? slideTitle(sec, s.slides[0] - 1) : '',
+          `“${s.label}” is on ${s.slides.length === 1 ? `slide ${s.slides[0]}` : `slides ${s.slides.slice(0, -1).join(', ')} and ${s.slides.at(-1)}`} in ${s.colours} colours: make it the “${s.name}” concept`),
+        suggestion: s,
+      });
+    }
+    const rank = { error: 0, warn: 1, hint: 2 };
     return out.map((f, i) => [f, i])
       .sort((a, b) => a[0].slide - b[0].slide || rank[a[0].level] - rank[b[0].level] || a[1] - b[1])
       .map(([f]) => f);
@@ -95,15 +105,17 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
     const found = check();
     const slides = instance()?._sections?.length ?? 0;
     const errors = found.filter((f) => f.level === 'error').length;
+    const issues = found.filter((f) => f.level !== 'hint');
+    const hints = found.length - issues.length;
     const head = document.createElement('div');
     head.className = 'narr-head';
-    head.textContent = found.length
-      ? `check · ${plural(found.length, 'issue')} on ${plural(new Set(found.map((f) => f.slide)).size, 'slide')}`
+    head.textContent = (issues.length
+      ? `check · ${plural(issues.length, 'issue')} on ${plural(new Set(issues.map((f) => f.slide)).size, 'slide')}`
         + (errors ? ` · ${plural(errors, 'error')}` : '')
-      : 'check';
+      : 'check') + (hints ? ` · ${plural(hints, 'suggestion')}` : '');
     card.appendChild(head);
     rows = found;
-    if (!found.length) {
+    if (!issues.length) {
       const ok = document.createElement('div');
       ok.className = 'narr-row narr-fact dc-clean';
       ok.textContent = `no issues: ${plural(slides, 'slide')} checked`;
@@ -115,7 +127,7 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
       row.dataset.rule = f.rule;
       const mark = document.createElement('span');
       mark.className = 'dc-mark';
-      mark.textContent = f.level === 'error' ? '✗' : '!';
+      mark.textContent = f.level === 'error' ? '✗' : f.level === 'hint' ? '+' : '!';
       const where = document.createElement('span');
       where.className = 'dc-where';
       where.textContent = `${f.slide}`;
@@ -127,7 +139,7 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
       name.textContent = f.title;
       const msg = document.createElement('span');
       msg.className = 'dc-msg';
-      msg.textContent = f.message;
+      msg.textContent = f.message + (f.suggestion && accept() ? ' · ⏎ makes it' : '');
       text.append(name, msg);
       row.append(mark, where, text);
       row.addEventListener('mouseenter', () => select(i));
@@ -149,7 +161,10 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
   function run(i) {
     const f = rows[i];
     close();
-    if (f) goto(f.slide);
+    if (!f) return;
+    goto(f.slide);
+    const take = f.suggestion && accept();
+    if (take) take(f.suggestion);
   }
   function close() {
     el?.remove();

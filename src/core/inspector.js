@@ -31,6 +31,7 @@ import { stepLabels } from './builds.js';
 import { notesSegments } from './speaker.js';
 import { slideDensity } from './density.js';
 import { slideTitle } from './finder.js';
+import { conceptNameOf } from './concepts.js';
 import { sourcesOf } from './sources.js';
 import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
 import { colorTargets, createColorEditor } from './colorpicker.js';
@@ -53,6 +54,7 @@ const LAST = /^--(ansi|hl|tm|term)-/;
 export function createInspector({
   root, overlays, toast, copyText,
   instance, stage, editmode, editbar, review, narration, sources,
+  concepts = () => null,
 }) {
   const dock = createDock({
     root,
@@ -247,6 +249,11 @@ export function createInspector({
     if (node instanceof SVGElement && !/^(svg|g|text|tspan)$/i.test(node.tagName)) {
       const paint = (v) => { const c = parseColor(v); return c && c[3] > 0 ? colourName(v, c) : 'none'; };
       rows.push(row('fill', paint(cs.fill)));
+      // the concept that colours it (SVG_DIAGRAMS), or how to give it one
+      if (node.closest('svg') && /^(rect|circle|ellipse|polygon|path)$/i.test(node.tagName)) {
+        const name = conceptNameOf(node);
+        rows.push(row('concept', name ?? 'none', null, name ? 'its colour is the concept’s, on every slide' : 'Colors tab → Concept gives it one'));
+      }
       const w = parseFloat(cs.strokeWidth);
       rows.push(row('stroke', paint(cs.stroke), null, paint(cs.stroke) !== 'none' && w ? `${+w.toFixed(2)} wide` : null));
     }
@@ -456,7 +463,12 @@ export function createInspector({
         systems: [...pageDesignSystems().values()],
         save: (edits) => editmode().saveStyles({ slide, index, edits }),
         onError: (m) => toast(`not saved: ${m.slice(0, 90)}`, 3400),
-        onDetach: (c) => editmode().detachConcept({ slide, index, path: c.path, tag: c.tag }),
+        onDetach: (c) => editmode().detachConcept({ slide, index, path: c.path, tag: c.tag, el: c.el }),
+        // the Concept row: the deck's concepts as chips, set in place (SVG_DIAGRAMS)
+        concepts: editmode()?.available?.() && concepts() ? {
+          names: () => concepts().names(),
+          set: (name) => concepts().set(targets.conceptAt.el, name),
+        } : null,
         onEscape: () => keydown({ key: 'Escape' }),
       });
       editor = { ...ed, node: focus };
@@ -669,5 +681,7 @@ export function createInspector({
   const PICK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">'
     + '<path d="M6.5 13.5h-4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v4" stroke-dasharray="2 1.6"/>'
     + '<path d="M8 8l6.5 2.4-2.8 1.1 2.3 2.3-.9.9-2.3-2.3-1.1 2.8z" fill="currentColor" stroke-linejoin="round"/></svg>';
-  return { open, close, isOpen, onSlide, text: () => lastText };
+  /** Something the panel shows changed under it (a concept attached): paint it again, the editor rebuilt. */
+  function refresh() { if (!el) return; editor = null; render(); }
+  return { open, close, isOpen, onSlide, refresh, text: () => lastText };
 }

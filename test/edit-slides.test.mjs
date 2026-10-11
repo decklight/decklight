@@ -86,6 +86,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/asset',
     'POST /deck/edit/concepts',
     'POST /deck/edit/element/concept',
+    'POST /deck/edit/element/concepts',
     'POST /deck/edit/element/content',
     'POST /deck/edit/element/effect',
     'POST /deck/edit/element/image',
@@ -203,6 +204,40 @@ test('POST /deck/edit/element/concept sets a shape\'s data-concept, takes it off
   assert.equal(stale.code, 409);
   assert.match(stale.body.error, /reload/);
   assert.equal(history.counts().undo, 2, 'a refusal records nothing');
+});
+
+const TWO_DIAGRAMS = `<!doctype html>
+<html><head><title>t</title></head><body>
+  <div class="decklight">
+    <section>
+      <h2>One</h2>
+      <svg viewBox="0 0 100 100"><rect x="1" y="1" width="9" height="9"/><text x="2" y="8">Agent</text></svg>
+    </section>
+    <section>
+      <h2>Two</h2>
+      <svg viewBox="0 0 100 100"><g><rect x="1" y="1" width="9" height="9"/><text x="2" y="8">Agent</text></g></svg>
+    </section>
+  </div>
+</body></html>
+`;
+
+test('POST /deck/edit/element/concepts puts shapes on several slides into one concept in ONE undo entry, and a stale one refuses the whole batch', async (t) => {
+  const { routes, readDeck, history } = harness(t, TWO_DIAGRAMS);
+  const items = [{ slide: 1, index: 1, path: [0], tag: 'rect' }, { slide: 2, index: 1, path: [0, 0], tag: 'rect' }];
+  const on = await call(routes, 'POST /deck/edit/element/concepts', { body: { items, concept: 'agent' } });
+  assert.deepEqual([on.code, on.body.ok, on.body.changed, on.body.count, on.body.undo], [200, true, true, 2, 1], 'one write, one undo entry');
+  assert.equal(readDeck().match(/<rect x="1" y="1" width="9" height="9" data-concept="agent"\/>/g)?.length, 2);
+  const off = await call(routes, 'POST /deck/edit/element/concepts', { body: { items, concept: null } });
+  assert.deepEqual([off.body.changed, off.body.undo], [true, 2]);
+  assert.doesNotMatch(readDeck(), /data-concept/);
+  // the second item names a circle the file does not have: nothing is written
+  const before = readDeck();
+  const stale = await call(routes, 'POST /deck/edit/element/concepts', { body: { items: [items[0], { ...items[1], tag: 'circle' }], concept: 'agent' } });
+  assert.equal(stale.code, 409);
+  assert.equal(readDeck(), before, 'the first item was not written either');
+  assert.equal(history.counts().undo, 2, 'a refusal records nothing');
+  // a payload with no items is a refusal, not a no-op
+  await assert.rejects(call(routes, 'POST /deck/edit/element/concepts', { body: { items: [], concept: 'agent' } }));
 });
 
 test('POST /deck/edit/element/text changes a diagram label\'s words, one undo entry, and refuses a label the file no longer says', async (t) => {

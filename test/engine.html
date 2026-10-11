@@ -516,9 +516,9 @@
       }
       // Concept colours (SVG_DIAGRAMS, #718): the two writes answer, and
       // one of them fails on demand so the page's repaint is seen to go back
-      if (HARNESS_MODE === 'concepts') {
+      if (HARNESS_MODE === 'concepts' || HARNESS_MODE === 'conceptsfind') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/deck/edit/element/concept')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/concept')) return json({ ok: true, changed: true, count: JSON.parse(init?.body ?? '{}').items?.length ?? 1, inPlace: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/concepts')) {
           const b = JSON.parse(init?.body ?? '{}');
           if (b.concepts?.agent === 6) return json({ ok: false, error: 'the deck carries its configuration in a way this server cannot write' }, 409);
@@ -704,6 +704,22 @@
           <text class="le-lines" x="500" y="80" font-size="24" fill="#f2ece4"><tspan class="le-one" x="500">Line one</tspan><tspan class="le-two" x="500" dy="30">Line two</tspan></text>
         </svg>
       </section>`);
+    }
+    // three diagrams, no concept yet: "Agent" twice in two colours, its label in
+    // a group on one slide and beside it on another; "Other" twice in two colours
+    if (HARNESS_MODE === 'conceptsfind') {
+      for (const [k, v] of Object.entries({ '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-3': '#223355', '--d-fill-4': '#2a4466', '--d-fill-5': '#335577', '--d-fill-6': '#446688', '--accent': '#5ee6c0' })) document.querySelector('.decklight').style.setProperty(k, v);
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
+        <section><h2>Ask</h2><svg viewBox="0 0 800 200" width="800">
+          <g><rect class="fa1" x="40" y="40" width="220" height="120" style="fill: var(--d-fill-1)"/><text class="fa1-text" x="150" y="108">Agent</text></g>
+          <g><rect class="ft1" x="300" y="40" width="220" height="120" style="fill: var(--d-fill-2)"/><text x="410" y="108">Tools</text></g>
+          <rect class="fo1" x="560" y="40" width="200" height="120" style="fill: var(--d-fill-4)"/><text x="660" y="108">Other</text>
+        </svg></section>
+        <section><h2>Answer</h2><svg viewBox="0 0 800 200" width="800">
+          <rect class="fa2" x="40" y="40" width="220" height="120" style="fill: var(--d-fill-3)"/><text x="150" y="108">agent</text>
+          <rect class="fo2" x="560" y="40" width="200" height="120" style="fill: var(--d-fill-5)"/><text x="660" y="108">Other</text>
+        </svg></section>
+        <section><h2>No diagram</h2><p>Words.</p></section>`);
     }
     // a diagram naming a concept on a shape and on a group (SVG_DIAGRAMS, #718)
     if (HARNESS_MODE === 'concepts') {
@@ -5002,6 +5018,8 @@
         const rows = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.textContent);
         const rowNamed = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.textContent === label);
         const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+        // the menu and the card write in place now, one batch for any number of shapes
+        const lastConceptWrite = () => { const b = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/concept')).pop()?.body; return b?.items ? { ...b.items[0], concept: b.concept, n: b.items.length, quiet: b.quiet } : b; };
         await settle();
         deck.goto(5);
         await settle();
@@ -5018,9 +5036,11 @@
         r.submenu = rows().includes('● agent') && rows().includes('○ tools') && rows().includes('New concept…') && rows().includes('none (detach)');
         rowNamed('none (detach)').click();
         await settle();
-        const detach = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/concept')).pop()?.body;
+        const detach = lastConceptWrite();
         // the holder is the GROUP, not the rect the label sits on: path [0] below the svg, tag g
         r.detachPostsTheHolder = detach?.slide === 5 && detach.index === 1 && detach.concept === null && detach.tag === 'g' && JSON.stringify(detach.path) === '[0]';
+        r.detachIsInPlace = !q('.cc-group').hasAttribute('data-concept');
+        q('.cc-group').setAttribute('data-concept', 'agent');   // back, for the menus below
         // a plain shape offers Concept ▸ too: the deck's names, none marked, and a typed new one
         rightClick(plain);
         await settle();
@@ -5032,7 +5052,7 @@
         input.value = 'data';
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
         await settle();
-        const named = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/concept')).pop()?.body;
+        const named = lastConceptWrite();
         r.newNamePostsTheShape = named?.concept === 'data' && named.tag === 'rect' && JSON.stringify(named.path) === '[1]' && !q(M);
 
         // Colors… on a concept shape: the Fill side is a notice and a detach, Stroke and Text still pick
@@ -5046,8 +5066,10 @@
         q(`${C} .cp-side [data-id="fill"]`).click();
         q(`${C} .cp-detach`).click();
         await settle();
-        const viaCard = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/concept')).pop()?.body;
-        r.cardDetaches = viaCard?.concept === null && viaCard.tag === 'rect' && JSON.stringify(viaCard.path) === '[2,0]';
+        const viaCard = lastConceptWrite();
+        r.cardDetaches = viaCard?.concept === null && viaCard.tag === 'rect' && JSON.stringify(viaCard.path) === '[2,0]' && viaCard.quiet === true;
+        // in place: the three writes above changed this page's diagram; put it back for the list below
+        q('.cc-group').setAttribute('data-concept', 'agent'); tools.setAttribute('data-concept', 'tools'); plain.removeAttribute('data-concept');
         // a plain shape's card is the palette it always was
         rightClick(plain);
         await settle();
@@ -5066,9 +5088,9 @@
         for (let i = 0; found && i < palRows.indexOf(found); i++) press('ArrowDown');
         press('Enter');
         await settle();
-        const listRows = () => [...document.querySelectorAll(`${E} .cc-row`)];
+        const listRows = () => [...document.querySelectorAll(`${E} .cc-row:not(.cc-new)`)];
         r.listsEveryConcept = listRows().map((x) => x.dataset.name).join(',') === 'agent,tools'
-          && /1 shape · fill \d by its name/.test(listRows()[0].textContent) && /1 shape · pinned to fill 4/.test(listRows()[1].textContent)
+          && /1 shape · slide 5 · fill \d by its name/.test(listRows()[0].textContent) && /1 shape · slide 5 · pinned to fill 4/.test(listRows()[1].textContent)
           && listRows()[1].querySelector('.cc-slot[data-slot="4"][aria-pressed="true"]') !== null;
         // a digit pins the selected concept: the deck repaints at once, and the write is quiet with this page named
         press('3');
@@ -5095,10 +5117,118 @@
         await settle();
         r.eventRepaints = agent.style.fill === 'var(--d-fill-5)' && tools.style.fill === 'var(--d-fill-2)' && CALLS.post.filter((c) => c.u.includes('/deck/edit/concepts')).length === 3;
 
-        r.PASS = r.paintedOnLoad && r.menuOffersConcept && r.submenu && r.detachPostsTheHolder && r.plainSubmenu && r.inputRow
+        r.PASS = r.paintedOnLoad && r.menuOffersConcept && r.submenu && r.detachPostsTheHolder && r.detachIsInPlace && r.plainSubmenu && r.inputRow
           && r.newNamePostsTheShape && r.fillIsANotice && r.strokeStillPicks && r.cardDetaches && r.plainCardUnchanged
           && r.paletteRow && r.listsEveryConcept && r.repaintsAtOnce && r.pinPostsTheMap && r.listFollows
           && r.refusedRepaintsFirst && r.refusedGoesBack && r.zeroUnpins && r.escapeCloses && r.eventRepaints;
+      }
+
+      if (mode === 'conceptsfind') {
+        // Concepts, easy to find and to attach (SVG_DIAGRAMS): the Colors tab's
+        // Concept row, the look-alikes offered after one, the list's slides and
+        // its boxes, ←/→ to the slides it is on, pick mode, New concept…, and
+        // Check deck… suggesting a label that recurs in two colours.
+        const q = (s) => document.querySelector(s);
+        const C = '.decklight-colorpicker', E = '.decklight-concepts', K = '.decklight-choice';
+        const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/concepts')).map((c) => c.body);
+        const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+        const menuRow = (label) => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === label);
+        await settle();
+        deck.goto(5);
+        await settle();
+        press('e');
+        // 1 · the Colors tab offers a concept on a plain shape: no names yet, so + new
+        rightClick(q('.fa1'));
+        await settle();
+        menuRow('Colors…').click();
+        await settle();
+        r.colorsTabHasConceptRow = !!q(`${C} .cp-concept-row`) && !!q(`${C} .cp-concept-row .cp-new`) && !q(`${C} .cp-concept-row .cp-on`);
+        q(`${C} .cp-new`).click();
+        const nameBox = q(`${C} .cp-concept-name`);
+        r.newIsATextBox = !!nameBox && document.activeElement === nameBox;
+        nameBox.value = 'agent';
+        nameBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const first = writes()[0];
+        r.attachWritesInPlace = first?.concept === 'agent' && first.items.length === 1 && first.items[0].slide === 5 && first.items[0].tag === 'rect' && first.quiet === true
+          && q('.fa1').getAttribute('data-concept') === 'agent' && /var\(--d-fill-\d\)/.test(q('.fa1').style.fill);
+        // 2 · the look-alike on slide 6 is offered: same words, other case, label beside the box
+        r.lookAlikeOffered = !!q(K) && /the other “Agent” boxes/.test(q(`${K} .narr-head`)?.textContent ?? '')
+          && /1 other shape on slide 6 says “Agent” too/.test(q(K).textContent);
+        q(`${K} .narr-row`).click();
+        await settle(); await settle();
+        const second = writes()[1];
+        r.lookAlikeAttached = second?.concept === 'agent' && second.items.length === 1 && second.items[0].slide === 6 && q('.fa2').getAttribute('data-concept') === 'agent';
+        // the Colors tab follows: agent pressed, none offered
+        r.chipPressed = q(`${C} .cp-concept-row .cp-on`)?.textContent === 'agent' && [...document.querySelectorAll(`${C} .cp-concept-chip`)].some((b) => b.textContent === 'none');
+        // the Info tab names it
+        q('.decklight-inspector .ins-tab[data-tab="info"]')?.click();
+        await settle();
+        r.infoNamesTheConcept = q('.decklight-inspector dd[data-key="concept"] .ins-value')?.textContent === 'agent';
+        escapeUntilClosed('.decklight-inspector');
+
+        // the palette row, found by what people call it
+        press('/');
+        for (const ch of 'colour by meaning') press(ch);
+        r.paletteFindsIt = /^Concept colors…/.test(q('.decklight-palette .pal-row')?.textContent ?? '');
+        press('Enter');
+        await settle();
+        // 4 · where it lives: its slides on the row, its shapes here boxed, → to the next slide it is on
+        const row = () => q(`${E} .cc-row[data-name="agent"]`);
+        r.rowNamesItsSlides = /2 shapes · slides 5, 6/.test(row()?.textContent ?? '');
+        r.boxesItsShapesHere = document.querySelectorAll('.dl-concept-outline').length === 1;
+        press('ArrowRight');
+        await new Promise((ok) => setTimeout(ok, 550));
+        r.arrowVisitsTheNextSlide = deck.state.slide === 6 && !!q(E) && document.querySelectorAll('.dl-concept-outline').length === 1;
+        press('ArrowRight');
+        await new Promise((ok) => setTimeout(ok, 550));
+        r.arrowWrapsAround = deck.state.slide === 5;
+
+        // 3 · pick mode: ⏎ on the row, a click puts a shape in, a second takes it out
+        press('Enter');
+        await settle();
+        r.pickModeBar = q(E)?.classList.contains('cc-picking') && /picking shapes for agent/.test(q(`${E} .cc-pickbar`)?.textContent ?? '');
+        q('.ft1').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        r.clickPutsItIn = writes()[2]?.concept === 'agent' && q('.ft1').getAttribute('data-concept') === 'agent' && /3 shapes/.test(q(`${E} .cc-pickbar`)?.textContent ?? '');
+        q('.ft1').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        r.secondClickTakesItOut = writes()[3]?.concept === null && !q('.ft1').hasAttribute('data-concept');
+        press('Escape');
+        await settle();
+        r.escBackToTheList = !!q(`${E} .cc-row`) && !q(E).classList.contains('cc-picking');
+        // New concept…: N, a name, ⏎, and straight into picking it
+        press('n');
+        await settle();
+        const newBox = q(`${E} .cc-new-name`);
+        r.newConceptRow = !!newBox;
+        newBox.value = 'tools';
+        newBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle();
+        r.newConceptPicks = /picking shapes for tools/.test(q(`${E} .cc-pickbar`)?.textContent ?? '');
+        press('Escape'); press('Escape');
+        await settle();
+        r.escapeCloses = !q(E);
+
+        // 5 · Check deck… suggests "Other": two slides, two colours, no concept
+        press('/');
+        for (const ch of 'check deck') press(ch);
+        press('Enter');
+        await settle();
+        const hint = [...document.querySelectorAll('.decklight-deckcheck .dc-row')].find((x) => x.dataset.rule === 'concept-suggestion');
+        r.suggestsTheRecurringLabel = !!hint && hint.classList.contains('dc-hint')
+          && /“Other” is on slides 5 and 6 in 2 colours: make it the “other” concept · ⏎ makes it/.test(hint.textContent)
+          && /1 suggestion$/.test(q('.decklight-deckcheck .narr-head')?.textContent ?? '');
+        r.agentNoLongerSuggested = ![...document.querySelectorAll('.decklight-deckcheck .dc-row')].some((x) => /“Agent”/.test(x.textContent));
+        hint.click();
+        await settle(); await settle();
+        const accepted = writes().at(-1);
+        r.acceptingAttachesThemAll = accepted?.concept === 'other' && accepted.items.length === 2
+          && q('.fo1').getAttribute('data-concept') === 'other' && q('.fo2').getAttribute('data-concept') === 'other' && !q(K);
+
+        r.PASS = Object.values(r).every((v) => v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
       }
 
       if (mode === 'dscolors') {

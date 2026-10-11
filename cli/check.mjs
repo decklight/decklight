@@ -584,6 +584,22 @@ export function renderFindings(domHtml, { slides = 0 } = {}) {
       + `${tags.length} on the page`));
   }
 
+  // Labels that recur across slides in different colours (SVG_DIAGRAMS): the
+  // runtime stamps them on the root as it lays the print view out
+  // (concepts.js markConceptHints). A HINT: advice that never fails the run.
+  const hints = /data-concept-hints="([^"]*)"/.exec(dom)?.[1];
+  for (const entry of hints ? hints.replace(/&amp;/g, '&').split('|') : []) {
+    const [rawLabel, slideList, name, colours] = entry.split('~');
+    let label = rawLabel;
+    try { label = decodeURIComponent(rawLabel); } catch { /* shown as it came */ }
+    const at = String(slideList ?? '').split(',').map(Number).filter((n) => n > 0);
+    if (!label || !name || !at.length) continue;
+    const said = at.length === 1 ? `slide ${at[0]}` : `slides ${at.slice(0, -1).join(', ')} and ${at.at(-1)}`;
+    out.push(finding('hint', 'concept-suggestion', null, 'head',
+      `"${label}" is on ${said} in ${colours} colours — one idea, one colour: data-concept="${name}" on those shapes `
+      + '(or Concept colors… in the deck), SPEC SVG_DIAGRAMS'));
+  }
+
   tags.forEach((m, i) => {
     const slide = i + 1;    // print never re-orders: position IS the slide number
     const head = slideHeading(sectionInner(bodies[i] ?? ''), i);
@@ -629,7 +645,8 @@ export function formatFindings(findings, { color = false, slides = 0 } = {}) {
   const RED = '\x1b[31m', YELLOW = '\x1b[33m', BOLD = '\x1b[1m', DIM = '\x1b[2m', RESET = '\x1b[0m';
   const paint = (s, c) => (color ? `${c}${s}${RESET}` : s);
   const errors = findings.filter((f) => f.level === 'error').length;
-  const warnings = findings.length - errors;
+  const hints = findings.filter((f) => f.level === 'hint').length;
+  const warnings = findings.length - errors - hints;
   if (!findings.length) return [`no findings — ${slides} slide${slides === 1 ? '' : 's'} checked`];
 
   const groups = new Map();
@@ -650,11 +667,12 @@ export function formatFindings(findings, { color = false, slides = 0 } = {}) {
       ? paint('head', BOLD)
       : paint(`slide ${slide}`, BOLD) + (named ? `  ${paint(`"${title}"`, DIM)}` : ''));
     for (const f of list) {
-      lines.push(`  ${f.level === 'error' ? paint('error', RED) : paint('warn ', YELLOW)}  ${f.message}`);
+      lines.push(`  ${f.level === 'error' ? paint('error', RED) : f.level === 'hint' ? paint('hint ', DIM) : paint('warn ', YELLOW)}  ${f.message}`);
     }
     lines.push('');
   }
-  lines.push(`${errors} error${errors === 1 ? '' : 's'}, ${warnings} warning${warnings === 1 ? '' : 's'}`);
+  lines.push(`${errors} error${errors === 1 ? '' : 's'}, ${warnings} warning${warnings === 1 ? '' : 's'}`
+    + (hints ? `, ${hints} hint${hints === 1 ? '' : 's'}` : ''));
   return lines;
 }
 
@@ -673,13 +691,15 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
                       paragraphs per column; a warning, and data-dense-ok on a
                       section says it is meant), split layouts fighting their
                       own flexbox, and a deck whose runtime never mounted
+    hints             the same words on boxes on several slides in different
+                      colours: one idea, worth one concept (SVG_DIAGRAMS)
 
   --no-render    the file half only — no Chrome, no render (a machine without
                  Chrome skips that half by itself, and says so)
   --json         the findings as a JSON array: level, rule, slide, title, message
   --wait <ms>    render budget for heavy decks  [8000]
 
-  exit 1 if anything is an error, 0 otherwise — warnings never fail the run`;
+  exit 1 if anything is an error, 0 otherwise — warnings and hints never fail the run`;
 
 export async function checkMain(args = []) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return 0; }

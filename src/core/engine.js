@@ -28,6 +28,7 @@ import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
 import { createRangePicker } from './ranges.js';
 import { createChoiceCard } from './choice.js';
+import { createConceptTools } from './concept-tools.js';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES } from '../../tools/video-options.mjs';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
@@ -36,7 +37,7 @@ import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { createDesignSystemsPicker, createSlideTemplatePicker, createLookOffer } from './design-systems.js';
-import { createConceptsEditor, conceptsOn } from './concepts.js';
+import { createConceptsEditor, conceptsOn, conceptSuggestions, markConceptHints } from './concepts.js';
 import { setupSlideTemplates, isTemplateRef, pageDesignSystems } from './design-system.js';
 import { createFonts } from './fonts.js';
 import { createBleed } from './bleed.js';
@@ -561,6 +562,7 @@ export function init(userConfig = {}) {
   overlays.register({ isOpen: designSystems.isOpen, close: designSystems.close, keydown: designSystems.keydown });
   // Concept colors… (SPEC SVG_DIAGRAMS, #718): every concept the deck's
   // diagrams name, pinned to a slot through the edit server, repainted live
+  let conceptTools = null;   // made once editmode is (createConceptTools, below)
   const conceptsEditor = createConceptsEditor({
     root, toast, stage: () => stage,
     base: () => (editmode?.available() ? editmode.base() : null),
@@ -568,8 +570,13 @@ export function init(userConfig = {}) {
     apply: (map) => { config.concepts = map; applyConcepts(stage, config.concepts); },
     pageId: () => editmode?.pageId?.() ?? '',
     debugLog: (...a) => debugLog(...a),
+    // pick mode attaches through the concept tools; ←/→ visit the slides a concept is on
+    tools: () => conceptTools,
+    slide: () => instance?.state.slide ?? 1,
+    goto: (n) => instance.goto(n, 0),
   });
-  overlays.register({ isOpen: conceptsEditor.isOpen, close: conceptsEditor.close, keydown: conceptsEditor.keydown });
+  // modal except in pick mode, where the arrows go on to the deck to walk the slides
+  overlays.register({ isOpen: conceptsEditor.isOpen, close: conceptsEditor.close, keydown: conceptsEditor.keydown, modal: conceptsEditor.modal });
   // Use slide template…: this slide into a layout, to another, out of
   // one, or a new slide in one — written by the edit server
   // The look a design system was drawn for (SPEC DESIGN_SYSTEMS): offered
@@ -1004,8 +1011,8 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Design systems… (dev)',
         alias: 'design system brand kit company tokens layouts slots marketplace corporate identity style guide',
         run: () => designSystems.open() },
-      editmode.available() && { label: 'Concept colors… (dev)',
-        alias: 'concept colours colors semantic diagram fill slot pin data-concept recurring same colour everywhere',
+      editmode.available() && { label: 'Concept colors…',
+        alias: 'concept colours colors semantic diagram fill slot pin data-concept recurring same colour everywhere colour by meaning color by meaning legend idea shapes boxes attach group',
         run: () => conceptsEditor.open() },
       // the voiceover script, given ElevenLabs v4's audio tags — the agent
       // drafts, decklight checks no word or beat moved (cli/enhance.mjs)
@@ -1579,6 +1586,7 @@ export function init(userConfig = {}) {
       setupPinnedTitles(this._sections, config);
       setupSplit(this._sections);            // after pins — .subtitle is marked there
       markDensity(this._sections);           // after split — it counts per column (SLIDE_DENSITY)
+      if (printMode) markConceptHints(root, stage);   // for decklight check: labels that recur in two colours
       this._records = this._sections.map((s) => scanSlide(s));
       this.state.totalSlides = this._sections.length;
       this.state.slide = Math.min(this.state.slide, this.state.totalSlides || 1);
@@ -2709,6 +2717,15 @@ export function init(userConfig = {}) {
     // the names the menu's Concept ▸ offers: the deck's, as its diagrams and its configuration know them (#718)
     knownConcepts: () => conceptsOn(stage, config.concepts ?? {}).map((c) => c.name),
   });
+  // Putting shapes into a concept, from anywhere (SVG_DIAGRAMS): one write for
+  // any number of shapes, in place, and the look-alikes offered after one
+  conceptTools = createConceptTools({
+    stage: () => stage, editmode: () => editmode, choiceCard, toast,
+    repaint: () => { applyConcepts(stage, config.concepts ?? {}); conceptsEditor.refresh(); inspector?.refresh?.(); },
+    debugLog: (...a) => debugLog(...a),
+  });
+  editmode.setConceptTools(conceptTools);
+  instance._concepts = { tools: conceptTools, editor: conceptsEditor };
   // an add left a look to offer, before the reload it caused (SPEC
   // DESIGN_SYSTEMS): offered once the page knows it is authoring
   editmode.settled().then(() => { if (editmode.available()) lookOffer.resume(); });
@@ -2820,6 +2837,14 @@ export function init(userConfig = {}) {
   });
   inspector = createInspector({
     root, overlays, toast, copyText,
+    // the Colors tab's Concept row: the deck's concepts, and an attach in place
+    concepts: () => (conceptTools ? {
+      names: () => conceptsOn(stage, config.concepts ?? {}).map((c) => c.name),
+      set: (el, name) => {
+        if (name !== null && !/^[a-z][a-z0-9-]{0,40}$/i.test(name)) { toast('a concept is a name: letters, digits and dashes, starting with a letter', 3200); return null; }
+        return conceptTools.attach([el], name);
+      },
+    } : null),
     instance: () => instance, stage: () => stage,
     editmode: () => editmode, editbar: () => editbar,
     review: () => review, narration: () => narration, sources: () => sources,
@@ -2839,6 +2864,9 @@ export function init(userConfig = {}) {
     goto: (n) => instance.goto(n, 0),
     measureOverflow,
     slideTitle: (sec, i) => slideTitle(sec, i, slideBody(sec)),
+    // labels that recur in different colours: worth a concept, and ⏎ makes it one in write mode
+    suggestions: () => conceptSuggestions(stage),
+    accept: () => (editmode?.available() && conceptTools ? (s) => conceptTools.accept(s) : null),
   });
   instance.check = () => deckCheck.check();
   instance._deckCheck = deckCheck;

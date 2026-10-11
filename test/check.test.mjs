@@ -305,6 +305,22 @@ test('a slide the runtime marked crowded is a warning that says why and points a
   assert.match(found[0].message, /data-dense-ok/);
 });
 
+test('a label the runtime saw on several slides in different colours is a hint, never a failure', () => {
+  const dom = '<div class="decklight" data-concept-hints="Rate%20limiter~2,5,7~rate-limiter~3|Agent~1,2~agent~2">'
+    + '<section><h2>A</h2></section><section><h2>B</h2></section></div>';
+  const found = renderFindings(dom, { slides: 2 });
+  assert.deepEqual(found.map((f) => [f.level, f.rule, f.slide]), [['hint', 'concept-suggestion', null], ['hint', 'concept-suggestion', null]]);
+  assert.match(found[0].message, /^"Rate limiter" is on slides 2, 5 and 7 in 3 colours/);
+  assert.match(found[0].message, /data-concept="rate-limiter"/);
+  assert.match(found[1].message, /^"Agent" is on slides 1 and 2 in 2 colours/);
+  // a hint is counted on its own, after the errors and warnings
+  const lines = formatFindings(found, { slides: 2 });
+  assert.ok(lines.some((l) => /^ {2}hint {3}"Agent"/.test(l)));
+  assert.equal(lines.at(-1), '0 errors, 0 warnings, 2 hints');
+  // and with none, the summary reads as it always has
+  assert.equal(formatFindings([{ level: 'warn', rule: 'dense', slide: 1, title: 'x', message: 'm' }]).at(-1), '0 errors, 1 warning');
+});
+
 test('fewer sections on the page than in the file means the runtime never mounted', () => {
   const found = renderFindings('<section><h2>A</h2></section>', { slides: 4 });
   assert.equal(found.length, 1);

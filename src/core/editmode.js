@@ -1897,7 +1897,45 @@ export function createEditMode({
     closeElementMenu();
     if (!here) { toast('nothing here to name — right-click a shape in a diagram', 2600); return; }
     if (name !== null && !/^[a-z][a-z0-9-]{0,40}$/i.test(name)) { toast('a concept is a name: letters, digits and dashes, starting with a letter', 3200); return; }
+    // the engine's concept tools write it in place and offer the look-alikes;
+    // without them (a harness), the old one-shape write and its reload
+    if (conceptTools) { await conceptTools.attach([here.el], name); return; }
     await postConcept({ slide, index, path: here.path, tag: here.tag, concept: name }, name);
+  }
+  let conceptTools = null;
+  /**
+   * Where a shape's concept lives in the FILE: `{ slide, index, path, tag,
+   * name, el }` for the element that carries (or would carry) its
+   * `data-concept`, the group's when the shape has it from its group. Null off
+   * a diagram, or on a slide with no per-element mapping.
+   */
+  function conceptTarget(shape) {
+    const t = elementTargetOf(shape);
+    if (!t?.top || t.index === null) return null;
+    // a shape (or its label) resolves to whatever holds its concept; the holder itself (a group) is its own answer
+    const path = shape.hasAttribute?.('data-concept') ? pathFrom(t.top, shape) : null;
+    const here = path ? { name: shape.getAttribute('data-concept'), el: shape, path, tag: shape.tagName.toLowerCase() } : conceptOf(t.top, shape);
+    return here ? { slide: t.slide, index: t.index, path: here.path, tag: here.tag, name: here.name, el: here.el } : null;
+  }
+  /**
+   * `data-concept` on many elements, in place and in ONE write (`Z` takes the
+   * batch back): `targets` from conceptTarget, `concept` a name or null. The
+   * page that asked already shows it (the caller repaints); every other page
+   * reloads. Resolves to the number written, or throws with the server's word.
+   */
+  async function writeConcepts(targets, concept) {
+    const items = targets.map(({ slide, index, path, tag }) => ({ slide, index, path, tag }));
+    const p = (async () => {
+      const res = await writeFetch(editBase + '/deck/edit/element/concepts', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ items, concept, quiet: true, from: PAGE_ID }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) throw new Error(j.error || `the edit server answered ${res.status}`);
+      return j;
+    })();
+    trackWrite(p);
+    return p;
   }
   async function postConcept({ slide, index, path, tag, concept }, name) {
     try {
@@ -3122,8 +3160,13 @@ export function createEditMode({
     setInspect: (fn) => { inspectHook = fn; },
     /** A pick from the inspector's Colors or Type tab, written in place. */
     saveStyles: (body) => { const p = saveStyles(body); trackWrite(p); return p; },
-    /** Take a shape's concept off (the Colors tab's notice), then reload. */
-    detachConcept: (t) => postConcept({ ...t, concept: null }, null),
+    /** Take a shape's concept off (the Colors tab's notice): in place through the concept tools, else with a reload. */
+    detachConcept: (t) => (conceptTools && t.el ? conceptTools.attach([t.el], null) : postConcept({ ...t, concept: null }, null)),
+    /** Where a shape's concept lives in the file (`conceptTarget`), and the in-place batch write (`writeConcepts`). */
+    conceptTarget,
+    writeConcepts,
+    /** The engine's concept tools (concept-tools.js): the menu's Concept ▸ writes through them. */
+    setConceptTools: (t) => { conceptTools = t; },
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
     slideOp,
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside write mode. */

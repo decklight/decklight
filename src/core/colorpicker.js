@@ -245,7 +245,8 @@ export function colorTargets(top, clicked) {
     const text = labels.map((t) => target(t, 'fill')).filter(Boolean);
     // a shape the deck colours by concept (#718): the Fill side says so instead of offering a pick that would not take
     const concept = shape ? conceptOf(top, shape) : null;
-    return fill.length || text.length ? { fill, stroke, text, what: shape ? shape.tagName.toLowerCase() : 'text', concept: concept?.name ? concept : null } : null;
+    // `conceptAt` is where a concept would go on this shape, named or not: the Colors tab's Concept row
+    return fill.length || text.length ? { fill, stroke, text, what: shape ? shape.tagName.toLowerCase() : 'text', concept: concept?.name ? concept : null, conceptAt: concept } : null;
   }
   // an HTML box: climb out of inline runs and out of a highlighted <pre>, whose
   // spans are the highlighter's and not the file's
@@ -295,7 +296,7 @@ const h = (tag, cls, text) => {
  * `systems` is the deck's design-system metas (`pageDesignSystems()`), whose
  * palettes follow the theme's. Returns `{ el, setSide, side, settled }`.
  */
-export function createColorEditor({ root, targets, systems = [], side: startSide = 'fill', save, onDetach, onError = () => {}, onEscape = () => {} }) {
+export function createColorEditor({ root, targets, systems = [], side: startSide = 'fill', save, onDetach, concepts = null, onError = () => {}, onEscape = () => {} }) {
   targets.stroke ??= [];
   const saved = (el, prop) => [el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)];
   // the stroke's width travels with its colour (#717): `stroke-width` on a
@@ -549,6 +550,50 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     row('Align', segmented('cp-align', 'Align', anchors, alignNow, (id) => typePick('align', id)), it);
   }
 
+  /**
+   * The Concept row (SVG_DIAGRAMS): on any shape in a diagram, the deck's
+   * concepts as chips, the shape's own pressed, `+ new` to name one, `none`
+   * to take it off. Where people colour a shape is where they look for "make
+   * this the same colour as the others", so the concept is offered here and
+   * not only behind a right-click. `concepts` is `{ names(), set(name) }`;
+   * without it (no write mode) the row is not drawn.
+   */
+  function renderConceptRow(into) {
+    if (!concepts || !targets.conceptAt) return;
+    const now = targets.conceptAt.name;
+    const line = h('div', 'cp-concept-row');
+    line.append(h('span', 'cp-label', 'Concept'));
+    const chips = h('div', 'cp-concepts');
+    const chip = (label, value, pressed, title) => {
+      const b = h('button', 'cp-btn cp-concept-chip' + (pressed ? ' cp-on' : ''), label); b.type = 'button';
+      b.setAttribute('aria-pressed', String(pressed));
+      b.title = title;
+      b.addEventListener('click', () => concepts.set(value));
+      return b;
+    };
+    for (const name of concepts.names()) {
+      chips.append(chip(name, name === now ? null : name, name === now,
+        name === now ? `this shape is “${name}”: click to take it off` : `make this shape the “${name}” concept: one colour for the idea, on every slide`));
+    }
+    const add = h('button', 'cp-btn cp-concept-chip cp-new', '+ new'); add.type = 'button';
+    add.title = 'name a new concept and put this shape in it';
+    add.addEventListener('click', () => {
+      const box = h('input', 'cp-hex cp-concept-name'); box.type = 'text'; box.placeholder = 'agent, tools…'; box.spellcheck = false;
+      box.setAttribute('aria-label', 'New concept name');
+      box.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); const v = box.value.trim(); if (v) concepts.set(v); }
+        else if (e.key === 'Escape') { e.preventDefault(); render(); }
+      });
+      add.replaceWith(box);
+      box.focus();
+    });
+    chips.append(add);
+    if (now) chips.append(chip('none', null, false, `take “${now}” off this shape, then colour it by hand`));
+    line.append(chips);
+    into.appendChild(line);
+  }
+
   function renderConcept(body) {
     const note = h('div', 'cp-notice');
     note.append(h('span', 'cp-notice-text', `this shape is the “${targets.concept.name}” concept — the deck colours it, and a fill picked here would be painted over on the next load. Pin the concept's slot in / → Concept colors…, or`));
@@ -574,6 +619,7 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
         { id: 'text', label: 'Text', disabled: !targets.text.length, title: targets.text.length ? 'the text on it' : 'this shape carries no text' },
       ], side, (id) => { side = colourSide = id; if (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var(')) syncFromTarget(); else setRgb(hexToRgb(picks[side])); render(); }));
       if (side === 'stroke') renderWidth(main);
+      if (side === 'fill') renderConceptRow(main);
       main.appendChild(segmented('cp-tabs', 'Color source', [{ id: 'theme', label: 'Theme' }, { id: 'custom', label: 'Custom' }], tab, (id) => {
         tab = id;
         // Custom opens on the colour the target HAS — a token pick included — so the sliders start from what you see
