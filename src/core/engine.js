@@ -41,6 +41,8 @@ import { setupSlideTemplates, isTemplateRef, pageDesignSystems } from './design-
 import { createFonts } from './fonts.js';
 import { createBleed } from './bleed.js';
 import { readPref, writePref } from './prefs.js';
+import { markDensity } from './density.js';
+import { createDeckCheck } from './deckcheck.js';
 
 /**
  * ⌘Z on a Mac, Ctrl+Z everywhere else — and ⇧ with it for redo: the undo
@@ -1071,6 +1073,8 @@ export function init(userConfig = {}) {
       // so does `version`, which is what somebody is usually after in here.
       { label: 'Settings…', alias: 'config configuration preferences options about version build release which version',
         run: openSettings },
+      { label: 'Check deck…', alias: 'lint check issues problems errors warnings crowded dense density overflow clipped validate verify report health',
+        run: () => deckCheck.open() },
       { label: 'Keyboard help', hint: '?', run: toggleHelp },
       { label: 'Welcome to Decklight', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
       editmode.available() && { label: 'Editing tour (dev)', alias: 'onboarding intro getting started first run tour how do I edit write mode gestures', run: onboarding.showEditingTour },
@@ -1574,6 +1578,7 @@ export function init(userConfig = {}) {
       setupMedia(this._sections, { printMode }); // backgrounds first — .slide-bg must not read as content
       setupPinnedTitles(this._sections, config);
       setupSplit(this._sections);            // after pins — .subtitle is marked there
+      markDensity(this._sections);           // after split — it counts per column (SLIDE_DENSITY)
       this._records = this._sections.map((s) => scanSlide(s));
       this.state.totalSlides = this._sections.length;
       this.state.slide = Math.min(this.state.slide, this.state.totalSlides || 1);
@@ -2819,6 +2824,25 @@ export function init(userConfig = {}) {
     editmode: () => editmode, editbar: () => editbar,
     review: () => review, narration: () => narration, sources: () => sources,
   });
+  // Check deck… (palette, SPEC PRESENTING): the open deck's own lint, slide by
+  // slide. An inactive slide is display:none, so overflow is measured under
+  // the same momentary .pin-measure the pinned titles use.
+  function measureOverflow(sec, n) {
+    const hidden = getComputedStyle(sec).display === 'none';
+    if (hidden) sec.classList.add('pin-measure');
+    checkOverflow(sec, n);
+    if (hidden) sec.classList.remove('pin-measure');
+    return sec.hasAttribute('data-overflow');
+  }
+  const deckCheck = createDeckCheck({
+    root, overlays, instance: () => instance,
+    goto: (n) => instance.goto(n, 0),
+    measureOverflow,
+    slideTitle: (sec, i) => slideTitle(sec, i, slideBody(sec)),
+  });
+  instance.check = () => deckCheck.check();
+  instance._deckCheck = deckCheck;
+
   // the element menu's Inspect, Colors… and Type… (PRESENTING): select what
   // the menu was opened on, then show it in the inspector on that tab
   instance._selection = () => editbar.selected();   // what is selected, for the render harnesses

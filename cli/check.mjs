@@ -598,6 +598,13 @@ export function renderFindings(domHtml, { slides = 0 } = {}) {
           ? `content is clipped (${Math.round(by)} px over)`
           : 'content is clipped — it does not fit the slide, and the audience never sees the rest'));
     }
+    // crowded past SLIDE_DENSITY: the runtime counts it as it lays the deck
+    // out (src/core/density.js) and marks the section, like data-overflow
+    if (attrs['data-dense']) {
+      out.push(finding('warn', 'dense', slide, head,
+        `crowded: ${attrs['data-dense']} (~3–4 bullets or ~2 short paragraphs per column, SPEC SLIDE_DENSITY)`
+        + ' — split the slide rather than shrink it, or mark it data-dense-ok if it is meant'));
+    }
     if ('data-split-conflict' in attrs) {
       out.push(finding('warn', 'split-conflict', slide, head,
         'data-layout="split" is fighting this slide\'s own column flexbox — two layout systems, '
@@ -661,9 +668,11 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
                       (removed in 0.3.0) · [click] segments that do not line up
                       with the slide's build steps · script blocks and inline
                       handlers --no-trust --strict would strip
-    from a render     slides the overflow guardrail measured as clipped, split
-                      layouts fighting their own flexbox, and a deck whose
-                      runtime never mounted at all
+    from a render     slides the overflow guardrail measured as clipped, slides
+                      crowded past SLIDE_DENSITY (~3–4 bullets or ~2 short
+                      paragraphs per column; a warning, and data-dense-ok on a
+                      section says it is meant), split layouts fighting their
+                      own flexbox, and a deck whose runtime never mounted
 
   --no-render    the file half only — no Chrome, no render (a machine without
                  Chrome skips that half by itself, and says so)

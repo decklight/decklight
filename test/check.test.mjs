@@ -293,6 +293,18 @@ test('a clipped slide in the dumped DOM is an error, by slide number', () => {
   assert.deepEqual(renderFindings('<section><h2>Clean</h2></section>', { slides: 1 }), []);
 });
 
+test('a slide the runtime marked crowded is a warning that says why and points at SLIDE_DENSITY', () => {
+  const found = renderFindings('<section><h2>Fine</h2></section>'
+    + '<section data-dense="7 bullets · type shrunk to 0.85em"><h2>Busy</h2></section>', { slides: 2 });
+  assert.deepEqual(rules(found), ['dense']);
+  assert.equal(found[0].slide, 2);
+  assert.equal(found[0].level, 'warn', 'crowded is advice: it never fails the run');
+  assert.equal(found[0].title, 'Busy');
+  assert.match(found[0].message, /^crowded: 7 bullets · type shrunk to 0\.85em/);
+  assert.match(found[0].message, /SLIDE_DENSITY/);
+  assert.match(found[0].message, /data-dense-ok/);
+});
+
 test('fewer sections on the page than in the file means the runtime never mounted', () => {
   const found = renderFindings('<section><h2>A</h2></section>', { slides: 4 });
   assert.equal(found.length, 1);

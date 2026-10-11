@@ -135,7 +135,9 @@ or move the detail into the notes. Run it after each batch of slides rather
 than once at the end — and note that overflow is the *late* failure. A slide
 that fits can still be too crowded to present from; prefer ~3–4 bullets or ~2
 short paragraphs per column, and one idea per slide, over anything that merely
-fits (SLIDE_DENSITY).
+fits (SLIDE_DENSITY). \`npx decklight@latest check deck.html\` names those
+too: a slide past that budget is reported \`crowded\` with the count that
+tipped it (a warning, never a failed run); split it rather than shrink it.
 
 **For a comparison slide, use \`data-layout="split"\` — and do not also write
 your own column flexbox.** Two sibling blocks become the columns, a third

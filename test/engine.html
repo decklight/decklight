@@ -809,6 +809,18 @@
           <script type="application/json" data-design-system-meta="acme">${JSON.stringify({ name: 'acme', title: 'Acme', templates: [], palette: [], recommendedFonts: ['humanist', 'sample@type-mkt', 'not-here'] })}<\/script>`);
       }
     }
+    // Check deck… (deckcheck): one slide per thing the open deck can find,
+    // after the four clean ones, plus a crowded slide that says it is meant
+    if (HARNESS_MODE === 'deckcheck') {
+      const li = (n) => Array.from({ length: n }, (_, i) => `<li>point ${i + 1}</li>`).join('');
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
+        <section><h2>Seven points</h2><ul>${li(7)}</ul></section>
+        <section data-layout="split"><h2>Pros and cons</h2><div><h3>Pros</h3><ul>${li(3)}</ul></div><div><h3>Cons</h3><ul>${li(6)}</ul></div></section>
+        <section style="font-size:0.85em"><h2>Squeezed</h2><p>Short.</p></section>
+        <section data-dense-ok><h2>Reference</h2><ul>${li(6)}</ul></section>
+        <section><h2>Two clicks, no builds</h2><p>Nothing builds here.</p><aside class="notes"><p>One</p><p>[click]</p><p>Two</p><p>[click]</p><p>Three</p></aside></section>
+        <section><h2>Broken image</h2><img src="no-such-image.png" alt=""></section>`);
+    }
     if (HARNESS_MODE.startsWith('chapters') || HARNESS_MODE === 'enhance') {
       const secs = document.querySelectorAll('.decklight > section');
       secs[1].setAttribute('data-module', 'Foundations');
@@ -2305,6 +2317,72 @@
           r.PASS = r.reopened && r.caretRestored && r.recordUsedUp && r.cleanHasNoMark && r.unsavedMark && r.savingMark
             && r.saveRecordsWhere && r.writtenClearsTheMark && r.noOpClears && r.escForgets;
         }
+      }
+
+      if (mode === 'deckcheck') {
+        // SLIDE_DENSITY, measured: the runtime marks a crowded slide the way it
+        // marks a clipped one, so decklight check reads it off the print view
+        const secs = deck._sections;
+        await until(() => secs[9].querySelector('img').complete);
+        r.cleanSlidesUnmarked = secs.slice(0, 4).every((x) => !x.hasAttribute('data-dense'));
+        r.bulletsMarked = secs[4].getAttribute('data-dense') === '7 bullets';
+        r.splitCountsPerColumn = secs[5].getAttribute('data-dense') === '6 bullets in one column';
+        r.shrunkTypeMarked = secs[6].getAttribute('data-dense') === 'type shrunk to 0.85em';
+        r.denseOkOptsOut = !secs[7].hasAttribute('data-dense');
+
+        // the same findings, as a list a headless probe can read
+        const found = deck.check();
+        const at = (n) => found.filter((f) => f.slide === n).map((f) => f.rule).join(',');
+        r.checkFindsEach = at(5) === 'dense' && at(6) === 'dense' && at(7) === 'dense' && at(8) === ''
+          && at(9) === 'clicks-vs-builds' && at(10) === 'missing-media' && [1, 2, 3, 4].every((n) => at(n) === '');
+        r.clicksSaysTheCounts = /2 ⟨CLICK⟩s in the notes for 0 build steps/.test(found.find((f) => f.slide === 9)?.message ?? '');
+        r.missingNamesTheFile = /no-such-image\.png/.test(found.find((f) => f.slide === 10)?.message ?? '');
+        r.levels = found.find((f) => f.rule === 'missing-media')?.level === 'error' && found.find((f) => f.rule === 'dense')?.level === 'warn';
+
+        // the palette row, first for its own words
+        press('/');
+        for (const ch of 'check deck') press(ch);
+        r.paletteFindsIt = /Check deck…/.test(document.querySelector('.decklight-palette .pal-row')?.textContent ?? '');
+        press('Enter');
+        await settle();
+        const Q = '.decklight-deckcheck';
+        const rows = [...document.querySelectorAll(`${Q} .dc-row`)];
+        r.panelOpens = !!document.querySelector(Q);
+        r.panelRowPerFinding = rows.length === found.length;
+        r.panelHeadCounts = document.querySelector(`${Q} .narr-head`)?.textContent === 'check · 5 issues on 5 slides · 1 error';
+        r.rowSaysSlideAndTitle = rows[0]?.querySelector('.dc-where')?.textContent === '5'
+          && rows[0]?.querySelector('.dc-title')?.textContent === 'Seven points'
+          && /^crowded: 7 bullets/.test(rows[0]?.querySelector('.dc-msg')?.textContent ?? '');
+        r.errorMarked = rows.at(-1)?.classList.contains('dc-error') && rows.at(-1)?.querySelector('.dc-mark')?.textContent === '✗';
+        r.footSaysTheFileHalf = /decklight check/.test(document.querySelector(`${Q} .dc-foot`)?.textContent ?? '');
+        // ↓ ↓ ⏎ goes to the third finding's slide and closes
+        press('ArrowDown'); press('ArrowDown'); press('Enter');
+        await settle();
+        r.enterGoesToTheSlide = !document.querySelector(Q) && deck.state.slide === 7;
+        // the Inspector's Info tab says it for the slide on screen
+        press('i');
+        await settle();
+        const dd = document.querySelector('.decklight-inspector dd[data-key="density"]');
+        r.inspectorSaysCrowded = dd?.querySelector('.ins-value')?.textContent === 'crowded'
+          && dd?.querySelector('.ins-extra')?.textContent === 'type shrunk to 0.85em' && !!dd?.querySelector('.ins-warn');
+        escapeUntilClosed('.decklight-inspector');
+
+        // a deck with nothing wrong says so
+        for (const x of secs.slice(4)) x.setAttribute('data-dense-ok', '');
+        secs[8].querySelector('aside').remove();
+        secs[9].remove();
+        deck.sync();
+        press('/');
+        for (const ch of 'check deck') press(ch);
+        press('Enter');
+        await settle();
+        r.cleanSaysSo = document.querySelector(`${Q} .dc-clean`)?.textContent === 'no issues: 9 slides checked'
+          && document.querySelector(`${Q} .narr-head`)?.textContent === 'check';
+        r.escCloses = escapeUntilClosed(Q);
+
+        r.PASS = Object.values(r).every((v) => v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
       }
 
       if (mode === 'notesauto' || mode === 'notesautofail') {

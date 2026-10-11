@@ -1612,6 +1612,20 @@
 /* what ⏎ does on a row, kept to the right and quieter than the value */
 .decklight-settings .narr-hint { margin-left: auto; padding-left: 12px; }
 .decklight-settings .narr-row { display: flex; align-items: baseline; }
+/* Check deck… (src/core/deckcheck.js): a row per finding, the mark and the
+   slide number in fixed columns so a long list scans down its left edge, the
+   slide's title over what is wrong with it */
+.decklight-deckcheck .narr-card { width: min(560px, 90vw); }
+.decklight-deckcheck .dc-row { align-items: flex-start; }
+.decklight-deckcheck .dc-mark { flex: 0 0 1em; font-weight: 700; text-align: center; }
+.decklight-deckcheck .dc-error .dc-mark { color: #ff7b72; }
+.decklight-deckcheck .dc-warn .dc-mark { color: #e3b341; }
+.decklight-deckcheck .dc-where { flex: 0 0 2.2em; text-align: right; font-variant-numeric: tabular-nums; opacity: .55; }
+.decklight-deckcheck .dc-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.decklight-deckcheck .dc-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-deckcheck .dc-msg { opacity: .75; font-size: .92em; }
+.decklight-deckcheck .dc-clean { opacity: .8; }
+.decklight-deckcheck .dc-foot { margin-top: 8px; padding: 8px 12px 2px; border-top: 1px solid rgba(255, 255, 255, .12); font-size: 12px; opacity: .5; }
 /* An engine this machine cannot use is SHOWN, dimmed, with the terminal command
    that would fix it — hiding it would answer "where did ElevenLabs go?" with
    silence. The fix wraps onto its own line (the row is a flex box) because it

@@ -109,8 +109,9 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   beside the slide, wherever you left them. Every edit lands in the file and
   `Z` takes it back. `decklight check`
   reports what an author or an agent would otherwise only see by looking:
-  clipped slides, missing images, notes whose [click] count disagrees with
-  the builds.
+  clipped slides, crowded ones, missing images, notes whose [click] count
+  disagrees with the builds. In the deck, the palette's Check deck… lists the
+  same, slide by slide.
 - **Chapters.** `data-module` marks chapters, and `G` shows the outline.
 - **Builds.** `data-build` on a container makes each child a step. The layout
   never jumps.

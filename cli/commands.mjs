@@ -109,7 +109,7 @@ export const START_COMMANDS = ['init', 'check', 'import', 'bundle', 'publish', '
 /** One line each, written to fit a terminal — GLOBAL_HELP's paragraphs wrap. */
 const SHORT = {
   init: 'start a deck here, plus the skill that teaches an AI agent to write it',
-  check: 'lint one deck headlessly: what is clipped, missing or out of step, one exit code',
+  check: 'lint one deck headlessly: what is clipped, crowded, missing or out of step, one exit code',
   import: 'bring a PowerPoint, Keynote or Google Slides deck across',
   bundle: 'one self-contained HTML file to hand over',
   publish: 'bundle and push to GitHub Pages, Netlify, Vercel or a folder',
@@ -357,8 +357,9 @@ Commands:
            and, for each thing missing, which commands it unlocks and the line that installs it
            EXAMPLE: decklight doctor
   check    lint ONE deck headlessly and say, per slide, what you would otherwise only find by
-           looking — clipped content, an asset that is not on disk, [click] beats that do not
-           line up with the builds; exit 1 on an error (an agent after every edit, you before a talk)
+           looking — clipped content, a crowded slide, an asset that is not on disk, [click] beats
+           that do not line up with the builds; exit 1 on an error (an agent after every edit,
+           you before a talk); in the deck, the palette's Check deck… lists the same
            EXAMPLE: decklight check deck.html   (--json for an agent, --no-render without Chrome)
   help     show this help, or a command's help: decklight help bundle
   version  print the installed version (also --version / -v)
