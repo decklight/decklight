@@ -28,7 +28,7 @@ export const MODES = [
   'themepicker', 'markedread', 'dsrecommended', 'fonts', 'fontslegacy', 'fontswrite', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard',
   'palette', 'settings', 'display', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'designsystems', 'skeys', 'skeys&nosrv',
   'narration', 'nonarration', 'panel',
-  'restore', 'historycaptions', 'historychanges', 'escapeall', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
+  'restore', 'historydetails', 'historychanges', 'escapeall', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'publish',
   'inspector', 'sourcesedit',
   'decktheme', 'palettegroups', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'lockmode', 'notrustmode', 'editingtour', 'editingtourwelcome',

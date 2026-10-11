@@ -2122,19 +2122,26 @@ export function createEditMode({
     writePref(PUSH_TAGS_KEY, on ? null : 'off');
     toast(on ? 'push: the branch and its tags' : 'push: the branch only — tags stay on this machine', 2600);
   }
-  const HISTORY_CAPTIONS_KEY = 'decklight-history-captions';
-  const historyCaptionsOn = () => readPref(HISTORY_CAPTIONS_KEY) === '1';
-  function applyHistoryCaptions() {
+  // The details line under the preview — hash · age · subject · counts — is
+  // the selected row said again in a sentence: off until asked for, since it
+  // repeats a row you can read, right under the slide you are judging. Per
+  // BROWSER, not per deck. It used to be "captions", a CC button on C: the
+  // mark everyone reads as CLOSED captions, which the preview has none of (a
+  // preview is embedded, and embedded shows no captions), so the button
+  // looked broken to anyone who pressed it for the voice's words.
+  const HISTORY_DETAILS_KEY = 'decklight-history-details';
+  const historyDetailsOn = () => readPref(HISTORY_DETAILS_KEY) === '1';
+  function applyHistoryDetails() {
     if (!restoreEl) return;
-    const on = historyCaptionsOn();
+    const on = historyDetailsOn();
     restoreEl.querySelector('.tp-caption').hidden = !on;
-    const b = restoreEl.querySelector('.hs-cc');
+    const b = restoreEl.querySelector('.hs-details');
     b.setAttribute('aria-pressed', String(on));
-    b.title = `${on ? 'hide' : 'show'} captions (C)`;
+    b.title = `${on ? 'hide' : 'show'} the selected version in a sentence — hash, age, subject, slide and line counts (I)`;
   }
-  function toggleHistoryCaptions() {
-    writePref(HISTORY_CAPTIONS_KEY, historyCaptionsOn() ? '0' : '1');
-    applyHistoryCaptions();
+  function toggleHistoryDetails() {
+    writePref(HISTORY_DETAILS_KEY, historyDetailsOn() ? '0' : '1');
+    applyHistoryDetails();
   }
 
   // "All slides" or "changes" (D): the transport walks every slide of the
@@ -2347,7 +2354,7 @@ export function createEditMode({
           ['next', 'last'].map((k) => navBtn(k)).join('') +
           '<span class="hs-kind" hidden></span>' +
           '<button type="button" class="hs-btn hs-only" aria-label="only the slides this version changed (D)"></button>' +
-          '<button type="button" class="hs-btn hs-cc" aria-label="captions (C)">CC</button>' +
+          '<button type="button" class="hs-btn hs-details" aria-label="version details (I)">details</button>' +
         '</div>' +
         '<div class="tp-caption"></div></div></div>';
     // textContent for both: a branch name is arbitrary text, and the title is
@@ -2356,7 +2363,7 @@ export function createEditMode({
     // rail's min-content width — the long version of this string is literally
     // what collapsed the preview to 57px. The keys it drops are all on screen:
     // the transport draws ←→, and ⏎/Esc are in the confirmation card.
-    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ browse · ←→ preview · ⏎ restore · C\u00a0captions';
+    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ browse · ←→ preview · ⏎ restore · I\u00a0details';
     const remoteEl = restoreEl.querySelector('.hs-remote');
     // The server sends the sentence ready-made — cli/git.mjs spawns git and the
     // runtime cannot import it, so the words live in one place on that side.
@@ -2365,8 +2372,8 @@ export function createEditMode({
     for (const b of restoreEl.querySelectorAll('.hs-btn[data-go]')) {
       b.addEventListener('click', () => navTo(b.dataset.go));
     }
-    restoreEl.querySelector('.hs-cc').addEventListener('click', toggleHistoryCaptions);
-    applyHistoryCaptions();
+    restoreEl.querySelector('.hs-details').addEventListener('click', toggleHistoryDetails);
+    applyHistoryDetails();
     restoreEl.querySelector('.hs-only').addEventListener('click', toggleHistoryChanges);
     applyHistoryChanges();
     // Built as nodes, not innerHTML: a commit subject is somebody else's text
@@ -2561,8 +2568,9 @@ export function createEditMode({
         case 'ArrowRight': navTo('next'); break;
         case 'Home': navTo('first'); break;
         case 'End': navTo('last'); break;
-        // the deck's own captions key, meaning the same thing one layer up
-        case 'c': case 'C': toggleHistoryCaptions(); break;
+        // I, as in information — not C, the deck's closed captions, which
+        // promised the voice's words under a preview that has none
+        case 'i': case 'I': toggleHistoryDetails(); break;
         case 'd': case 'D': toggleHistoryChanges(); break;
         // Two steps, and the first one is not a write: ⏎ asks, ⏎ again does it.
         case 'Enter': restoreArmed ? commitRestore() : armRestore(); break;

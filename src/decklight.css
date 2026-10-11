@@ -628,10 +628,10 @@
 }
 .decklight-history .hs-btn:hover:not(:disabled) { background: rgba(128, 128, 128, .18); }
 .decklight-history .hs-btn:disabled { opacity: 0.3; cursor: default; }
-/* The captions toggle closes the transport row: a text glyph rather than an
-   icon, because CC is the mark everyone already reads as "captions". Lit when
-   on, the way a pressed toggle looks everywhere else. */
-.decklight-history .hs-cc {
+/* The details toggle closes the transport row: a word rather than an icon
+   (it was "CC", which everyone reads as closed captions — and the preview
+   has none). Lit when on, the way a pressed toggle looks everywhere else. */
+.decklight-history .hs-details {
   width: auto;
   padding: 0 6px;
   margin-left: 0.6em;
@@ -641,7 +641,7 @@
   letter-spacing: .04em;
   opacity: .6;
 }
-.decklight-history .hs-cc[aria-pressed="true"] {
+.decklight-history .hs-details[aria-pressed="true"] {
   opacity: 1;
   background: rgba(128, 128, 128, .22);
 }
@@ -666,7 +666,7 @@
   white-space: nowrap;
 }
 .decklight-history .hs-only[aria-pressed="true"] { opacity: 1; background: rgba(128, 128, 128, .22); }
-.decklight-history .hs-only + .hs-cc { margin-left: 0.35em; }
+.decklight-history .hs-only + .hs-details { margin-left: 0.35em; }
 .decklight-history .hs-kind { font-size: 0.82em; white-space: nowrap; }
 .decklight-history .hs-kind[hidden] { display: none; }
 .decklight-history .hs-k-changed { color: #f2c46d; }

@@ -55,7 +55,7 @@
     // The exports are told the theme on screen (#547), so they run on a deck
     // that HAS one — linked, the way a data-only deck is served.
     if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'restore' || HARNESS_MODE === 'dslook'
-        || HARNESS_MODE === 'historycaptions' || HARNESS_MODE === 'decktheme') {
+        || HARNESS_MODE === 'historydetails' || HARNESS_MODE === 'decktheme') {
       document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="../themes/aurora.css">');
     }
     if (HARNESS_MODE === 'added') {
@@ -139,7 +139,7 @@
         if (u.includes('/deck/edit/theme/browse')) return json({ ok: true, themes: [] });
         return json({ ok: true });
       }
-      if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historycaptions' || HARNESS_MODE === 'historychanges') {
+      if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historydetails' || HARNESS_MODE === 'historychanges') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/history/changes')) {
           const ref = new URL(u, location.href).searchParams.get('ref');
@@ -4489,13 +4489,14 @@
         return;
       }
 
-      if (mode === 'historycaptions') {
-        // The caption under the history preview is off until asked for, C or
-        // the CC button turns it on, and the choice outlives the overlay.
-        const O = '.decklight-history', KEY = 'decklight-history-captions';
+      if (mode === 'historydetails') {
+        // The details line under the history preview is off until asked for,
+        // I or the details button turns it on, and the choice outlives the
+        // overlay. Not C and not CC: those promise closed captions.
+        const O = '.decklight-history', KEY = 'decklight-history-details';
         const caption = () => document.querySelector(`${O} .tp-caption`);
         const shown = () => !!caption() && !caption().hidden && caption().offsetHeight > 0;
-        const cc = () => document.querySelector(`${O} .hs-cc`);
+        const cc = () => document.querySelector(`${O} .hs-details`);
         try { localStorage.removeItem(KEY); } catch { /* no storage: the default is the test */ }
         await settle();                       // let /deck/ping resolve
         press('h');
@@ -4504,12 +4505,15 @@
         r.hiddenByDefault = !!caption() && !shown();
         r.stillWritten = /aaaaaaa/.test(caption()?.textContent ?? '');
         r.buttonSaysOff = cc()?.getAttribute('aria-pressed') === 'false';
-        r.hintNamesKey = /C\scaptions/.test(document.querySelector(`${O} .tp-filter`)?.textContent ?? '');
+        r.hintNamesKey = /I\sdetails/.test(document.querySelector(`${O} .tp-filter`)?.textContent ?? '');
+        r.buttonSaysDetails = cc()?.textContent === 'details' && !document.querySelector(`${O} .hs-cc`);
         press('c');
+        r.cIsNotIt = !shown() && !!document.querySelector(O);   // C means closed captions, which this is not
+        press('i');
         r.keyShows = shown();
         r.buttonSaysOn = cc()?.getAttribute('aria-pressed') === 'true';
         r.keyStaysInOverlay = !!document.querySelector(O);
-        press('c');
+        press('i');
         r.keyHides = !shown();
         cc()?.click();
         r.buttonShows = shown();
@@ -4525,7 +4529,7 @@
         await settle();
         r.reopensHidden = !!document.querySelector(O) && !shown();
         escapeUntilClosed(O);
-        r.PASS = r.opens && r.hiddenByDefault && r.stillWritten && r.buttonSaysOff && r.hintNamesKey
+        r.PASS = r.opens && r.hiddenByDefault && r.stillWritten && r.buttonSaysOff && r.hintNamesKey && r.buttonSaysDetails && r.cIsNotIt
           && r.keyShows && r.buttonSaysOn && r.keyStaysInOverlay && r.keyHides && r.buttonShows
           && r.persisted && r.escapeCloses && r.reopensShown && r.buttonHides && r.reopensHidden;
       }
