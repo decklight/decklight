@@ -2503,6 +2503,22 @@
         wheel({ deltaY: -60, ctrlKey: true });
         r.overviewTakesNoPinch = deck.zoom().k === 1;
         press('Escape'); await settle();
+        // a panel beside the slide (the notes card) is no reason not to zoom
+        // the slide — and a pinch over the panel itself zooms nothing, while
+        // still never zooming the page
+        press('s'); await settle();
+        const card = document.querySelector('.decklight-editor');
+        r.notesCardOpen = !!card;
+        const overCard = card.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -60, ctrlKey: true, clientX: 10, clientY: 10 }));
+        r.overThePanelZoomsNothing = overCard === false && deck.zoom().k === 1;
+        const cardBox = card.getBoundingClientRect();
+        document.querySelector('.decklight-stage > section.active').dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -60, ctrlKey: true, clientX: innerWidth / 2, clientY: innerHeight / 3 }));
+        r.besideThePanelStillZooms = deck.zoom().k > 1.4;
+        const cardAfter = card.getBoundingClientRect();
+        r.thePanelKeptItsSize = Math.abs(cardBox.width - cardAfter.width) < 1 && Math.abs(cardBox.height - cardAfter.height) < 1 && Math.abs(cardBox.top - cardAfter.top) < 1;
+        press('0');
+        press('Escape'); await settle();
+        r.notesCardClosed = !document.querySelector('.decklight-editor');
         // two fingers on a touch screen
         const touch = (id, x, y) => new Touch({ identifier: id, target: root, clientX: x, clientY: y });
         const tev = (type, touches) => root.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches, changedTouches: touches, targetTouches: touches }));
@@ -2518,7 +2534,8 @@
         press('0');
         r.PASS = r.startsAtFit && r.pinchIsTaken && r.pinchZoomsTheStage && r.aboutThePointer && r.thePanelDidNotMove && r.theChromeScaleIsTheFit
           && r.wheelPansWhileZoomed && r.zoomIsCapped && r.pinchOutIsFit && r.zeroResets && r.escapeResets && r.slideChangeResets
-          && r.wheelAtFitIsLeftAlone && r.overviewTakesNoPinch && r.twoFingersZoom && r.twoFingersPan && r.liftingIsNotASwipe;
+          && r.wheelAtFitIsLeftAlone && r.overviewTakesNoPinch && r.notesCardOpen && r.overThePanelZoomsNothing && r.besideThePanelStillZooms && r.thePanelKeptItsSize
+          && r.notesCardClosed && r.twoFingersZoom && r.twoFingersPan && r.liftingIsNotASwipe;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

@@ -2593,16 +2593,21 @@ export function init(userConfig = {}) {
   instance.zoom = () => ({ k: zoom.k, x: zoom.x, y: zoom.y });
   instance.setZoom = (k, opts) => applyZoom(k, opts);
   if (!printMode && !params.has('embedded')) {
+    // Over the slide, or the letterbox around it — not over a panel beside
+    // it (the notes card, the inspector), nor a picker or the overview, which
+    // cover the stage with their own element: the gesture there belongs to
+    // whatever is under the fingers. A docked panel being open is no reason
+    // not to zoom the slide next to it.
+    const onStage = (t) => !overviewEl && (t === root || stage.contains(t));
     root.addEventListener('wheel', (e) => {
-      // not while an overlay has the stage (the overview, a picker): the
-      // gesture belongs to whatever is open, and a zoomed grid helps nobody
-      if (overlays.active()) return;
       if (e.ctrlKey) {
-        // a pinch on a trackpad; deltaY is small and signed, so a smooth
-        // exponential step per event tracks the fingers
+        // a pinch on a trackpad: never the page's zoom, wherever it lands…
         e.preventDefault();
+        if (!onStage(e.target)) return;
+        // …and the slide's over the slide; deltaY is small and signed, so a
+        // smooth exponential step per event tracks the fingers
         applyZoom(zoom.k * Math.exp(-e.deltaY * 0.01), { at: { x: e.clientX, y: e.clientY } });
-      } else if (zoom.k !== 1) {
+      } else if (zoom.k !== 1 && onStage(e.target)) {
         e.preventDefault();
         applyZoom(zoom.k, { dx: -e.deltaX, dy: -e.deltaY });
       }
@@ -2613,7 +2618,7 @@ export function init(userConfig = {}) {
     const span = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
     const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
     root.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2 && !overlays.active()) pinch = { d: span(e.touches), k: zoom.k, m: mid(e.touches) };
+      if (e.touches.length === 2 && onStage(e.target)) pinch = { d: span(e.touches), k: zoom.k, m: mid(e.touches) };
     }, { passive: true });
     root.addEventListener('touchmove', (e) => {
       if (!pinch || e.touches.length !== 2) return;
