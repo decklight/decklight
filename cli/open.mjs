@@ -42,7 +42,7 @@ import { deckFromUrl } from './clone-deck.mjs';
 import { runMain } from './util.mjs';
 import { openUrl } from './open-browser.mjs';
 import { loadLipsyncConfig, SETUP_HINT } from '../tools/lipsync-config.mjs';
-import { isPortOpen, resolvePortConflict, identifyBridge, identifyStranger, canBind } from './port-conflict.mjs';
+import { isPortOpen, resolvePortConflict, describePortOutcome, identifyBridge, identifyStranger, canBind } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
 import { bannerRow, nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
 import { auditDeck, formatLabel } from './audit.mjs';
@@ -530,6 +530,7 @@ export async function openMain(args) {
   // child below is spawned with its stdin piped (not a terminal) and could
   // never ask on its own.
   const editSvc = plan.run.find((s) => s.name === 'edit');
+  let portRow = null;   // the edit port was taken: a banner row says by whom and where this one went
   if (editSvc) {
     const portIdx = editSvc.args.indexOf('--port');
     const editPort = Number(editSvc.args[portIdx + 1]);
@@ -537,13 +538,25 @@ export async function openMain(args) {
       const askTty = process.stdin.isTTY && process.stdout.isTTY;
       let rl;
       const ask = askTty ? (q) => (rl ??= createInterface({ input: process.stdin, output: process.stdout })).question(q) : undefined;
-      const freshPort = await resolvePortConflict(editPort, { ask, log: console.log });
+      // How it ended is a banner row (`! port  8788 has another decklight
+      // editing "deck.html" — this one is on 8790`), in the banner's own
+      // shape and place, rather than two loose lines above it. The question
+      // itself still prints live, since it is asked live.
+      const freshPort = await resolvePortConflict(editPort, {
+        ask, log: console.log,
+        outcome: (o) => { portRow = { text: describePortOutcome(o), mark: 'warn' }; },
+      });
       rl?.close();
       editSvc.args[portIdx + 1] = String(freshPort);
       editSvc.url = `http://127.0.0.1:${freshPort}/${deck}`;
     }
   }
-  for (const line of await moveBridgesOffStrangers(plan)) console.log(`  ${line}`);
+  // A bridge moved off a stranger's port: a row on the bridge's own line
+  // (joined with what the bridge then reports from the port it took).
+  const movedRows = (await moveBridgesOffStrangers(plan)).map((line) => {
+    const m = /^(voice|lip-sync): (.*)$/.exec(line);
+    return m ? { key: m[1] === 'voice' ? 'voice' : 'lips', text: m[2] } : { key: 'port', text: line };
+  });
   const { run, skip, agents } = plan;
 
   const tty = process.stdout.isTTY;
@@ -580,6 +593,8 @@ export async function openMain(args) {
     // window worth having — so the banner waits on NAMES, not on a clock.
     waiting: new Set(run.map((svc) => svc.tag)),
   };
+  if (portRow) banner.rows.set('port', portRow);
+  for (const r of movedRows) banner.rows.set(r.key, { text: r.text, mark: 'warn' });
 
   /**
    * A line from `open` itself. Held while the banner is still being assembled,
@@ -714,7 +729,15 @@ export async function openMain(args) {
         flushBanner();
         shutdown(code ?? 1);
       } else {
-        say(`${paint(svc.tag)} exited (${code}) — carrying on without it; the deck degrades on its own`);
+        // A bridge that stood aside because its port already has one exits 0
+        // on purpose, and its row says so (✓ voice  the say voice bridge is
+        // already on :8787 — using it): nothing to add. Anything else is a
+        // red row in the banner's own shape, not a loose line above it.
+        if (!(code === 0 && banner.rows.has(svc.tag))) {
+          const row = { text: `exited (${code}) — carrying on without it; the deck degrades on its own`, mark: 'fail' };
+          if (banner.done) process.stderr.write(`${bannerRow({ key: svc.tag, ...row }, { color: tty })}\n`);
+          else banner.rows.set(svc.tag, row);
+        }
         settle(svc.tag);   // settle() does the delete and the "is anyone left" itself
       }
     });

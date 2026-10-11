@@ -39,7 +39,7 @@
 
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline/promises';
-import { canBind, resolvePortConflict } from '../cli/port-conflict.mjs';
+import { canBind, resolvePortConflict, describePortOutcome } from '../cli/port-conflict.mjs';
 import { execFile } from 'node:child_process';
 import { cacheHome, clipKey, createTtsCache, extFor } from './tts-cache.mjs';
 
@@ -537,6 +537,12 @@ export async function ttsMain(args) {
       kind: 'bridge',
       ask: process.stdin.isTTY && process.stdout.isTTY ? askLine : undefined,
       log: console.log,
+      // Under `open`, how it ended is this bridge's row on the banner: ✓ when
+      // one is already there and serves the deck, ✗ when the port is somebody
+      // else's and the bridge may not move. Standalone, the lines as before.
+      outcome: process.env.DECKLIGHT_BANNER
+        ? (o) => console.log(readyLine({ key: 'voice', text: describePortOutcome({ ...o, kind: 'bridge' }), mark: o.ending === 'reuse' ? 'ok' : 'fail' }))
+        : null,
     })
     : port;
   // null is "stand down" — either a bridge is already serving this port, or

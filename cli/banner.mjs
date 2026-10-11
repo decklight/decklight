@@ -57,18 +57,20 @@ export function parseReady(line) {
  * `reviews` is last because it is the only row that is a THING TO DO rather
  * than a thing that is merely true, so it sits closest to the URL.
  */
-export const ROW_ORDER = ['voice', 'lips', 'skipped', 'git', 'agents', 'reviews'];
+export const ROW_ORDER = ['port', 'voice', 'lips', 'skipped', 'git', 'agents', 'reviews'];
 
-const ESC = { dim: '\x1b[2m', bold: '\x1b[1m', cyan: '\x1b[36m', green: '\x1b[32m', yellow: '\x1b[33m', under: '\x1b[4m', reset: '\x1b[0m' };
+const ESC = { dim: '\x1b[2m', bold: '\x1b[1m', cyan: '\x1b[36m', green: '\x1b[32m', yellow: '\x1b[33m', red: '\x1b[31m', under: '\x1b[4m', reset: '\x1b[0m' };
 
 /**
  * The mark in front of a row: ✓ for something installed and on, ! for
- * something to fix, nothing for a plain fact. A fact says which with `mark`.
+ * something to fix, ✗ for something that failed and is not running, nothing
+ * for a plain fact. A fact says which with `mark`.
  */
 export function rowMark(mark, color = false) {
   const c = (s, k) => (color ? ESC[k] + s + ESC.reset : s);
   if (mark === 'ok') return c('\u2713', 'green');
   if (mark === 'warn') return c('!', 'yellow');
+  if (mark === 'fail') return c('\u2717', 'red');
   return ' ';
 }
 

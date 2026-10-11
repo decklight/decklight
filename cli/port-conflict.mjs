@@ -193,9 +193,34 @@ export function planPortConflict({ tty = false, identified = null, stranger = nu
  * planPortConflict). `kind: 'edit'` never returns null, so the two existing
  * callers are unaffected.
  */
+/**
+ * The sentence a caller prints for how a conflict ended, when it prints one
+ * itself (`outcome` below) rather than taking this file's lines. Pure, so the
+ * banner row and the standalone line are tested as words, not by binding ports.
+ */
+export function describePortOutcome({ ending, port, next = null, identified = null, stranger = null, kind = 'edit' }) {
+  const holder = identified
+    ? (identified.bridge ? identified.name : `another decklight editing "${identified.name}"`)
+    : stranger ? `${stranger.command} (pid ${stranger.pid})` : null;
+  if (ending === 'moved') {
+    return `${port} ${holder ? (identified ? `has ${holder}` : `is held by ${holder}`) : 'was taken'} — this one is on ${next}`;
+  }
+  if (ending === 'reuse') return `${identified?.name ?? 'a decklight bridge'} is already on :${port} — using it`;
+  // refuse: a bridge that may not move, on a port somebody else holds
+  const sides = kind === 'bridge'
+    ? '; free it, or move both sides (--port N and narration.liveUrl in the deck, or --tts-port N alone in write mode)'
+    : '';
+  return `port ${port} is held by ${holder ?? 'another program'} — not a decklight bridge${sides}`;
+}
+
 export async function resolvePortConflict(port, {
   host = '127.0.0.1', ask, log = () => {}, kind = 'edit', stranger = identifyStranger,
   identify = null,
+  // How it ENDED, for a caller that says so in its own shape — a banner row
+  // under `open` — instead of this file's lines: called with { ending:
+  // 'moved' | 'reuse' | 'refuse', port, next, identified, stranger }. The
+  // questions above it still print through `log`, since they are asked live.
+  outcome = null,
 } = {}) {
   // Ours, whichever kind: an edit server answers /deck/ping, a bridge answers
   // /ping. Asking only the first reported every bridge as a stranger.
@@ -273,7 +298,8 @@ export async function resolvePortConflict(port, {
   // deck never calls, so the useful move is to stand aside and say so: null
   // means "do not listen", and the one on `port` serves the deck as before.
   if (ending === 'reuse') {
-    log(`  port ${port} already has ${identified.name} on it — using that one rather than starting a second`);
+    if (outcome) outcome({ ending, port, identified });
+    else log(`  port ${port} already has ${identified.name} on it — using that one rather than starting a second`);
     return null;
   }
 
@@ -281,6 +307,7 @@ export async function resolvePortConflict(port, {
   // it and both ways out, then decline: `open` reports the bridge as gone and
   // the deck degrades honestly, which beats a live voice that fails silently.
   if (ending === 'refuse') {
+    if (outcome) { outcome({ ending, port, stranger: other, named }); return null; }
     if (!named) {
       log(other
         ? `  port ${port} is held by ${other.command} (pid ${other.pid}) — not a decklight bridge`
@@ -293,10 +320,11 @@ export async function resolvePortConflict(port, {
     return null;
   }
 
+  const next = await nextFreePort(port + 1, host);
+  if (outcome) { outcome({ ending: 'moved', port, next, identified, stranger: other }); return next; }
   log(identified
     ? `  port ${port} is already in use — ${identified.bridge ? identified.name : `decklight is editing "${identified.name}"`} there; using a different port`
     : `  port ${port} is already in use; using a different port`);
-  const next = await nextFreePort(port + 1, host);
   log(`  → using port ${next}`);
   return next;
 }

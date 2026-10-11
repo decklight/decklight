@@ -15,7 +15,7 @@ import path from 'node:path';
 import { rmTemp, tmp as scratch, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
-import { isPortOpen, identifyEditServer, nextFreePort, planPortConflict, resolvePortConflict, canBind } from '../cli/port-conflict.mjs';
+import { isPortOpen, identifyEditServer, nextFreePort, planPortConflict, resolvePortConflict, canBind, describePortOutcome } from '../cli/port-conflict.mjs';
 import { DECK_URL_RE } from '../cli/banner.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -179,6 +179,34 @@ test('no TTY to ask: the port silently bumps, and A is left running', async (t) 
   assert.equal((await identifyEditServer(a.port))?.name, 'deck.html', 'A was never asked to shut down');
 });
 
+test('with an `outcome`, how it ended is the caller\'s to say: the two moving lines are not logged', async (t) => {
+  const a = await startEdit(t);
+  const logs = [];
+  const ended = [];
+  const next = await resolvePortConflict(a.port, { log: (s) => logs.push(s), outcome: (o) => ended.push(o) });
+  assert.ok(next > a.port);
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].ending, 'moved');
+  assert.equal(ended[0].port, a.port);
+  assert.equal(ended[0].next, next);
+  assert.equal(ended[0].identified?.name, 'deck.html');
+  assert.doesNotMatch(logs.join('\n'), /using a different port|→ using port/, 'the lines the caller replaces were printed anyway');
+  assert.equal(describePortOutcome(ended[0]), `${a.port} has another decklight editing "deck.html" — this one is on ${next}`);
+});
+
+test('the outcome in words: moved, reused, refused', () => {
+  assert.equal(describePortOutcome({ ending: 'moved', port: 8788, next: 8790, identified: { name: 'deck.html' } }),
+    '8788 has another decklight editing "deck.html" — this one is on 8790');
+  assert.equal(describePortOutcome({ ending: 'moved', port: 8788, next: 8790, stranger: { command: 'node', pid: 42 } }),
+    '8788 is held by node (pid 42) — this one is on 8790');
+  assert.equal(describePortOutcome({ ending: 'moved', port: 8788, next: 8790 }), '8788 was taken — this one is on 8790');
+  assert.equal(describePortOutcome({ ending: 'reuse', port: 8787, identified: { bridge: true, name: 'the say voice bridge' } }),
+    'the say voice bridge is already on :8787 — using it');
+  assert.equal(describePortOutcome({ ending: 'refuse', port: 8787, stranger: { command: 'python3', pid: 7 }, kind: 'bridge' }),
+    'port 8787 is held by python3 (pid 7) — not a decklight bridge; free it, or move both sides (--port N and narration.liveUrl in the deck, or --tts-port N alone in write mode)');
+  assert.equal(describePortOutcome({ ending: 'refuse', port: 8787, kind: 'bridge' }).startsWith('port 8787 is held by another program'), true);
+});
+
 test('a TTY that answers "different port": still bumps, A stays up', async (t) => {
   const a = await startEdit(t);
   const next = await resolvePortConflict(a.port, { ask: async () => 'd' });
@@ -325,8 +353,10 @@ test('`decklight <deck>` bumps the edit port on conflict instead of crashing', a
   dev.stdout.on('data', (c) => { out += c; });
   dev.stderr.on('data', (c) => { out += c; });
 
-  await waitFor(() => out, /already in use/);
+  // how it ended is a row on the banner, above the url, not loose lines
+  const [, moved] = await waitFor(() => out, /! port\s+\d+ has another decklight editing "deck\.html" — this one is on (\d+)/);
   const [, bumped] = await waitFor(() => out, DECK_URL_RE);
   assert.notEqual(Number(bumped), a.port);
+  assert.equal(moved, bumped, 'the row names a port other than the one the url has');
   assert.equal(dev.exitCode, null, 'the edit server never gave up');
 });

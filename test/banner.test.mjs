@@ -62,6 +62,21 @@ test('an installed row wears a green tick, a row to fix a yellow !, a plain fact
   assert.equal(bannerRow({ key: 'lips', text: 'video (wav2lip) · :8789', mark: 'ok' }), '  \u2713 lips  video (wav2lip) · :8789');
 });
 
+test('a service that failed and is not running wears a red ✗, and the port row comes first', () => {
+  const rows = [
+    { key: 'git', text: 'snapshots on decklight/wip', mark: 'ok' },
+    { key: 'voice', text: 'exited (1) — carrying on without it; the deck degrades on its own', mark: 'fail' },
+    { key: 'port', text: '8788 has another decklight editing "deck.html" — this one is on 8790', mark: 'warn' },
+  ];
+  const plain = renderBanner({ ...base, rows });
+  const body = plain.filter((l) => l.startsWith('  ') && !l.includes('▸'));
+  assert.equal(body[0], '  ! port   8788 has another decklight editing "deck.html" — this one is on 8790', 'the port row is not first');
+  assert.equal(body[1], '  \u2717 voice  exited (1) — carrying on without it; the deck degrades on its own');
+  const lit = renderBanner({ ...base, rows, color: true });
+  assert.match(lit.find((l) => l.includes('exited')), /\x1b\[31m\u2717\x1b\[0m/, 'the cross is not red');
+  assert.equal(ROW_ORDER[0], 'port');
+});
+
 test('the deck\'s name heads the banner only when it is given — open gives it under DECKLIGHT_DEBUG', () => {
   const rows = [{ key: 'voice', text: 'say', mark: 'ok' }];
   const quiet = renderBanner({ ...base, deck: undefined, rows });
