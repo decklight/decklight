@@ -343,7 +343,18 @@ export function createEditMode({
       }
       hint.classList.add('cm-why');
     };
-    let plan = null;   // { base, commits: [{ subject, units }], units } while several are proposed
+    let plan = null;   // { base, commits: [{ subject, units, take }], units } while several are proposed
+    // the button says how many of the proposed commits a press makes: all of
+    // them, some of them (an unticked one stays uncommitted), or none
+    const planLabel = (p) => {
+      const n = p.commits.length;
+      const k = p.commits.filter((c) => c.take).length;
+      return k === n ? (n === 1 ? 'Commit' : `Commit all ${n}`) : k ? `Commit ${k} of ${n}` : 'Commit';
+    };
+    const paintGo = () => {
+      go.textContent = plan ? planLabel(plan) : 'Commit';
+      go.disabled = !!plan && !plan.commits.some((c) => c.take);
+    };
     // where a commit lands: its units' slides as one run ("slides 5-6"),
     // and any file that is not a slide (the sidecar) by its name
     const unitsWhere = (ids) => {
@@ -362,9 +373,23 @@ export function createEditMode({
       planEl.hidden = !p;
       input.hidden = !!p;
       single.hidden = !p;
-      if (!p) { go.textContent = 'Commit'; return; }
+      if (!p) { paintGo(); return; }
       p.commits.forEach((c, i) => {
         const line = el('div', 'cm-plan-row');
+        // ticked: this one is made now; unticked: it stays uncommitted, and
+        // the window offers it again once the others have landed
+        if (c.take === undefined) c.take = true;
+        const pick = el('input', 'cm-plan-take');
+        pick.type = 'checkbox';
+        pick.checked = c.take;
+        pick.title = 'commit this one now — untick it to leave it uncommitted';
+        pick.setAttribute('aria-label', `Include commit ${i + 1}`);
+        pick.addEventListener('change', () => {
+          c.take = pick.checked;
+          line.classList.toggle('cm-plan-off', !c.take);
+          paintGo();
+        });
+        line.classList.toggle('cm-plan-off', !c.take);
         const box = el('input', 'narr-input cm-plan-subject');
         box.type = 'text';
         box.value = c.subject;
@@ -372,10 +397,10 @@ export function createEditMode({
         box.setAttribute('aria-label', `Commit ${i + 1} of ${p.commits.length}`);
         box.addEventListener('input', () => { c.subject = box.value; });
         typing(box, () => commit());
-        line.append(el('span', 'cm-plan-n', String(i + 1)), box, el('span', 'cm-plan-where', unitsWhere(c.units)));
+        line.append(pick, el('span', 'cm-plan-n', String(i + 1)), box, el('span', 'cm-plan-where', unitsWhere(c.units)));
         planEl.append(line);
       });
-      go.textContent = `Commit all ${p.commits.length}`;
+      paintGo();
       setTimeout(() => planEl.querySelector('input')?.focus(), 0);
     };
     // "one commit": the proposal set aside, its first subject offered in the box
@@ -436,25 +461,31 @@ export function createEditMode({
 
     // After a commit the window stays when there is somewhere to push it —
     // commit, then push, is one visit — and closes when there is not.
+    // A commit that left work out (unticked rows) keeps the window too, with
+    // those rows offered again, re-cut against the new HEAD by the server.
     const landed = (j, text) => {
       commitNow = { ...j, nag: false };
       paintCommitChip();
       toast(text, 2600);
-      if (!j.push || j.push.blocked) { closeCommit(); return; }
-      now = { ...now, ...j, dirty: false };
-      showPlan(null);
+      const more = !!j.dirty;
+      if (!more && (!j.push || j.push.blocked)) { closeCommit(); return; }
+      now = { ...now, ...j, dirty: more };
       input.value = '';
       paintWhat();
-      what.textContent = text;
+      showPlan(j.left ? { base: j.left.base, units: j.left.units ?? [], commits: j.left.commits.map((c) => ({ subject: String(c.subject ?? ''), units: c.units ?? [] })) } : null);
+      if (more && !j.left) write.textContent = 'write them again';
+      what.textContent = more ? `${text} · the rest is still uncommitted` : text;
       paintTagsAndPush();
-      setTimeout(() => pushGo.focus(), 0);
+      setTimeout(() => (more ? (planEl.querySelector('.cm-plan-subject') ?? input) : pushGo).focus(), 0);
     };
     const commit = async () => {
       if (!now.dirty) return;
       const several = plan;
       const message = input.value.trim();
-      if (several ? several.commits.some((c) => !c.subject.trim()) : !message) {
-        (several ? [...planEl.querySelectorAll('input')].find((b) => !b.value.trim()) : input)?.focus();
+      const taking = several ? several.commits.filter((c) => c.take) : [];
+      if (several && !taking.length) return;
+      if (several ? taking.some((c) => !c.subject.trim()) : !message) {
+        (several ? [...planEl.querySelectorAll('.cm-plan-row:not(.cm-plan-off) .cm-plan-subject')].find((b) => !b.value.trim()) : input)?.focus();
         return;
       }
       go.textContent = 'committing…';
@@ -463,7 +494,7 @@ export function createEditMode({
           ? await fetch(editBase + '/deck/edit/commit/split', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ base: several.base, commits: several.commits.map((c) => ({ message: c.subject.trim(), units: c.units })) }),
+            body: JSON.stringify({ base: several.base, commits: several.commits.map((c) => ({ message: c.subject.trim(), units: c.units, skip: !c.take })) }),
           })
           : await fetch(editBase + '/deck/edit/commit', {
             method: 'POST',
@@ -478,9 +509,9 @@ export function createEditMode({
         }
         if (!j.committed) { closeCommit(); toast('nothing to commit', 2600); return; }
         debugLog('git', several ? `commit: ${j.count} commits` : `commit: ${j.subject}`);
-        landed(j, several ? `committed ${j.count} — "${j.subjects[0]}" and ${j.count - 1} more` : `committed — "${j.subject}"`);
+        landed(j, several && j.count > 1 ? `committed ${j.count} — "${j.subjects[0]}" and ${j.count - 1} more` : `committed — "${j.subject}"`);
       } catch (e) {
-        go.textContent = several ? `Commit all ${several.commits.length}` : 'Commit';
+        paintGo();
         say(`couldn't commit — ${String(e.message || e)}`);
       }
     };

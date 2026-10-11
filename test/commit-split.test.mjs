@@ -198,6 +198,79 @@ test('what else the author staged stays staged, and out of these commits', async
   assert.equal(g(dir, 'status', '--porcelain'), 'A  notes.txt');
 });
 
+test('an unticked commit stays uncommitted: the others land without it, and it comes back re-cut against the new HEAD', (t) => {
+  const dir = repo(t);
+  const work = deck(['ONE', 'two', 'THREE', 'FOUR']);
+  writeFileSync(path.join(dir, 'deck.html'), work);
+  const w = workingUnits({ cwd: dir, deckRel: 'deck.html' });
+  assert.equal(w.units.length, 3);
+  const before = g(dir, 'rev-parse', 'HEAD');
+  const made = commitPlan({
+    cwd: dir, deckRel: 'deck.html', base: w.base, template: 't',
+    commits: [
+      { message: 'shout the first point', units: [1] },
+      { message: 'shout the third point', units: [2], skip: true },
+      { message: 'shout the last point', units: [3] },
+    ],
+  });
+  assert.equal(made.ok, true, made.error);
+  assert.deepEqual(made.subjects, ['shout the first point', 'shout the last point']);
+  assert.equal(g(dir, 'rev-parse', 'HEAD~2'), before);
+  const head = g(dir, 'show', 'HEAD:deck.html');
+  assert.match(head, /ONE/); assert.match(head, /FOUR/);
+  assert.doesNotMatch(head, /THREE/, 'the unticked change went into a commit');
+  assert.equal(readFileSync(path.join(dir, 'deck.html'), 'utf8'), work, 'the working file is untouched');
+  assert.equal(g(dir, 'status', '--porcelain'), 'M deck.html', 'the rest is uncommitted, and nothing is staged');
+
+  // what was left out comes back as a plan for the new HEAD, subject and all
+  assert.ok(made.left, 'the remainder was not handed back');
+  assert.deepEqual(made.left.commits, [{ subject: 'shout the third point', units: [1] }]);
+  assert.deepEqual(made.left.units.map((u) => u.where), ['slide 3']);
+  const rest = commitPlan({
+    cwd: dir, deckRel: 'deck.html', base: made.left.base, template: 't',
+    commits: made.left.commits.map((c) => ({ message: c.subject, units: c.units })),
+  });
+  assert.equal(rest.ok, true, rest.error);
+  assert.equal(rest.left, null);
+  assert.equal(g(dir, 'show', 'HEAD:deck.html') + '\n', work);
+  assert.equal(g(dir, 'status', '--porcelain'), '');
+});
+
+test('nothing ticked commits nothing; a unit the plan forgot stays with its unticked neighbour', (t) => {
+  const dir = repo(t);
+  writeFileSync(path.join(dir, 'deck.html'), deck(['ONE', 'two', 'THREE', 'FOUR']));
+  const w = workingUnits({ cwd: dir, deckRel: 'deck.html' });
+  const head = g(dir, 'rev-parse', 'HEAD');
+  const none = commitPlan({ cwd: dir, deckRel: 'deck.html', base: w.base, template: 't',
+    commits: [{ message: 'a', units: [1, 2], skip: true }, { message: 'b', units: [3], skip: true }] });
+  assert.equal(none.code, 'EMPTY');
+  assert.equal(g(dir, 'rev-parse', 'HEAD'), head);
+
+  // unit 2 is in no commit: it joins unit 1's, which is unticked, so it stays out too
+  const made = commitPlan({ cwd: dir, deckRel: 'deck.html', base: w.base, template: 't',
+    commits: [{ message: 'a', units: [1], skip: true }, { message: 'b', units: [3] }] });
+  assert.equal(made.ok, true, made.error);
+  const now = g(dir, 'show', 'HEAD:deck.html');
+  assert.match(now, /FOUR/);
+  assert.doesNotMatch(now, /ONE|THREE/, 'a forgotten unit slipped into the ticked commit');
+  assert.deepEqual(made.left.commits, [{ subject: 'a', units: [1, 2] }]);
+});
+
+test('an unticked review sidecar stays uncommitted while the deck lands', (t) => {
+  const dir = repo(t);
+  writeFileSync(path.join(dir, 'deck.html'), deck(['ONE', 'two', 'three', 'four']));
+  writeFileSync(path.join(dir, 'deck.review.jsonl'), `${JSON.stringify({ op: 'resolve', target: 'c1', ts: 1 })}\n`);
+  const w = workingUnits({ cwd: dir, deckRel: 'deck.html', also: ['deck.review.jsonl'] });
+  assert.equal(w.units.length, 2);
+  const made = commitPlan({ cwd: dir, deckRel: 'deck.html', also: ['deck.review.jsonl'], base: w.base, template: 't',
+    commits: [{ message: 'shout', units: [1] }, { message: 'review: resolve 1 comment', units: [2], skip: true }] });
+  assert.equal(made.ok, true, made.error);
+  assert.deepEqual(made.files, ['deck.html']);
+  assert.equal(g(dir, 'show', '--name-only', '--format=', 'HEAD'), 'deck.html');
+  assert.equal(g(dir, 'status', '--porcelain'), '?? deck.review.jsonl');
+  assert.deepEqual(made.left.commits, [{ subject: 'review: resolve 1 comment', units: [1] }]);
+});
+
 // ── tag ─────────────────────────────────────────────────────────────────────
 
 test('a tag is annotated, on HEAD, and a bad or taken name is refused in words', (t) => {

@@ -1475,6 +1475,51 @@ test('the commit window cuts the work into the commits an agent proposes, tags H
   assert.equal(git(['log', '-1', '--format=%s'], repo), 'rename the second slide');
 });
 
+test('the commit window makes only the ticked commits: the rest stays uncommitted and comes back to be made later', async (t) => {
+  const repo = tmp(t);
+  writeFileSync(path.join(repo, 'deck.html'), DECK);
+  git(['init', '-q', '-b', 'main', '.'], repo);
+  git(['config', 'user.email', 't@example.com'], repo);
+  git(['config', 'user.name', 'Test'], repo);
+  git(['add', '-A'], repo);
+  git(['commit', '-q', '-m', 'the deck'], repo);
+  const bin = path.join(tmp(t), 'bin');
+  mkdirSync(bin);
+  writeFakeBin(bin, 'claude', "console.log('1 | rename the first slide\\n2 | rename the second slide');");
+  const { base } = await startEdit(t, repo, { env: { PATH: `${bin}${path.delimiter}${process.env.PATH}` }, extraArgs: ['--git'] });
+
+  const work = DECK.replace('Alpha', 'First').replace('Beta', 'Second');
+  writeFileSync(path.join(repo, 'deck.html'), work);
+  const plan = await (await post(base, '/deck/edit/commit/plan', {})).json();
+  assert.equal(plan.ok, true, plan.error);
+  assert.equal(plan.commits.length, 2);
+
+  const none = await post(base, '/deck/edit/commit/split', {
+    base: plan.base, commits: plan.commits.map((c) => ({ message: c.subject, units: c.units, skip: true })),
+  });
+  assert.equal(none.status, 400, 'nothing ticked is nothing to commit');
+  assert.equal(git(['log', '-1', '--format=%s'], repo), 'the deck');
+
+  // the second unticked, its subject emptied: no message is asked of it
+  const split = await (await post(base, '/deck/edit/commit/split', {
+    base: plan.base, commits: [{ message: plan.commits[0].subject, units: plan.commits[0].units }, { message: '', units: plan.commits[1].units, skip: true }],
+  })).json();
+  assert.equal(split.ok, true, split.error);
+  assert.equal(split.count, 1);
+  assert.equal(split.dirty, true, 'what was left out is uncommitted work');
+  assert.deepEqual(git(['log', '--format=%s', '-2'], repo).split('\n'), ['rename the first slide', 'the deck']);
+  assert.equal(readFileSync(path.join(repo, 'deck.html'), 'utf8'), work, 'the working file is untouched');
+  assert.deepEqual(split.left.commits, [{ subject: '', units: [1] }]);
+  assert.deepEqual(split.left.units.map((u) => u.where), ['slide 2']);
+
+  const rest = await (await post(base, '/deck/edit/commit/split', {
+    base: split.left.base, commits: [{ message: 'rename the second slide', units: split.left.commits[0].units }],
+  })).json();
+  assert.equal(rest.ok, true, rest.error);
+  assert.equal(rest.dirty, false);
+  assert.equal(git(['status', '--porcelain'], repo), '');
+});
+
 // ── the restore overlay's server side (#129) ───────────────────────────────
 
 const gitRepoWithDeck = (t) => {

@@ -1281,6 +1281,11 @@
 /* several commits proposed: one row each, the subject editable, where it lands beside it */
 .decklight-commit .cm-plan { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 8px; }
 .decklight-commit .cm-plan-row { display: flex; align-items: center; gap: 8px; }
+.decklight-commit .cm-plan-take { flex: 0 0 auto; margin: 0; accent-color: var(--accent, #7aa2ff); cursor: pointer; }
+/* an unticked commit stays uncommitted: its row steps back, still editable */
+.decklight-commit .cm-plan-off .cm-plan-n,
+.decklight-commit .cm-plan-off .cm-plan-subject,
+.decklight-commit .cm-plan-off .cm-plan-where { opacity: .4; }
 .decklight-commit .cm-plan-n { width: 1.4em; text-align: right; font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; }
 .decklight-commit .cm-plan-subject { flex: 1; min-width: 0; margin: 0; }
 .decklight-commit .cm-plan-where { flex: 0 0 auto; max-width: 34%; font-size: 12px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1290,6 +1295,8 @@
 .decklight-commit .cm-row .cm-tag-go, .decklight-commit .cm-row .cm-push-go { flex: 0 0 96px; background: rgba(255, 255, 255, .08); }
 .decklight-commit .cm-row .cm-tag-go:hover, .decklight-commit .cm-row .cm-push-go:hover { background: rgba(255, 255, 255, .16); }
 .decklight-commit .cm-push-go.cm-off { opacity: .45; }
+/* nothing ticked: the button has nothing to make */
+.decklight-commit .cm-go:disabled { opacity: .45; cursor: default; }
 .decklight-commit .cm-tags { font-size: 12px; opacity: .6; white-space: nowrap; }
 .decklight-commit .cm-push-what { flex: 1; font-size: 12px; opacity: .75; }
 

@@ -196,8 +196,17 @@
           tags: window.__tags ?? [], push: window.__push ?? null });
         if (u.includes('/deck/edit/commit/split')) {
           window.__split = JSON.parse(init?.body ?? '{}');
-          const subjects = window.__split.commits.map((c) => c.message);
-          return json({ ok: true, committed: true, count: subjects.length, subjects, subject: subjects.at(-1), ...after() });
+          window.__splits = (window.__splits ?? 0) + 1;
+          const taken = window.__split.commits.filter((c) => !c.skip);
+          const left = window.__split.commits.filter((c) => c.skip);
+          const subjects = taken.map((c) => c.message);
+          // what was unticked comes back re-cut against the new HEAD, renumbered
+          const more = left.length ? {
+            dirty: true, lines: 4,
+            left: { base: 'b2', units: left.map((c, i) => ({ id: i + 1, where: 'slide 4', slides: [4] })),
+              commits: left.map((c, i) => ({ subject: c.message, units: [i + 1] })) },
+          } : { left: null };
+          return json({ ok: true, committed: true, count: subjects.length, subjects, subject: subjects.at(-1), ...after(), ...more });
         }
         if (u.includes('/deck/edit/commit/tag')) {
           window.__tagged = JSON.parse(init?.body ?? '{}').name;
@@ -4186,7 +4195,17 @@
         await settle(); await settle();
         const rows = [...document.querySelectorAll('.cm-plan-row')];
         r.planShowsEachCommit = rows.length === 3
-          && rows.map((x) => x.querySelector('input').value).join('|') === 'shorten the agent slide|recolour the tools box|review: resolve 1 comment';
+          && rows.map((x) => x.querySelector('.cm-plan-subject').value).join('|') === 'shorten the agent slide|recolour the tools box|review: resolve 1 comment';
+        // each row is ticked to start with: Commit all means all
+        r.planRowsTicked = rows.every((x) => x.querySelector('.cm-plan-take')?.checked === true);
+        // unticking one says how many a press makes; unticking all makes none
+        const tick = (row, on) => { const b = row.querySelector('.cm-plan-take'); b.checked = on; b.dispatchEvent(new Event('change', { bubbles: true })); };
+        tick(rows[1], false);
+        r.untickCounts = document.querySelector('.cm-go')?.textContent === 'Commit 2 of 3' && rows[1].classList.contains('cm-plan-off');
+        tick(rows[0], false); tick(rows[2], false);
+        r.noneTickedCommitsNothing = document.querySelector('.cm-go')?.disabled === true;
+        tick(rows[0], true); tick(rows[1], true); tick(rows[2], true);
+        r.retickedIsAll = document.querySelector('.cm-go')?.textContent === 'Commit all 3' && document.querySelector('.cm-go')?.disabled === false;
         r.planSaysWhere = rows[1]?.querySelector('.cm-plan-where')?.textContent === 'slides 3-4'
           && rows[2]?.querySelector('.cm-plan-where')?.textContent === 'deck.review.jsonl';
         r.planHidesTheBox = document.querySelector('.cm-input').closest('[hidden]') !== null || document.querySelector('.cm-input').hidden;
@@ -4197,6 +4216,33 @@
         r.oneCommitSetsItAside = !document.querySelector('.cm-plan-row') && document.querySelector('.cm-input').value === 'shorten the agent slide'
           && document.querySelector('.cm-go')?.textContent === 'Commit';
         document.querySelector('.cm-input').value = '';
+        document.querySelector('.cm-write').click();
+        await settle(); await settle();
+
+        // Commit two of three: the unticked one is sent as skipped, nothing is
+        // asked of its empty subject, and it comes back as the window's one row
+        {
+          const prows = [...document.querySelectorAll('.cm-plan-row')];
+          const b = prows[1].querySelector('.cm-plan-take'); b.checked = false; b.dispatchEvent(new Event('change', { bubbles: true }));
+          const s2 = prows[1].querySelector('.cm-plan-subject');
+          s2.value = ''; s2.dispatchEvent(new Event('input', { bubbles: true }));
+          const before = window.__splits ?? 0;
+          document.querySelector('.cm-go').click();
+          await settle(); await settle();
+          const sentPart = window.__split;
+          r.partialSendsSkips = window.__splits === before + 1
+            && JSON.stringify(sentPart.commits.map((c) => !!c.skip)) === '[false,true,false]';
+          const after = [...document.querySelectorAll('.cm-plan-row')];
+          r.partialKeepsTheRest = !!document.querySelector(`${O} .narr-card`) && after.length === 1
+            && after[0].querySelector('.cm-plan-take').checked
+            && document.querySelector('.cm-go')?.textContent === 'Commit'
+            && /the rest is still uncommitted/.test(document.querySelector('.cm-what')?.textContent ?? '');
+          // its subject is empty: Commit asks for one instead of sending
+          const n = window.__splits;
+          document.querySelector('.cm-go').click();
+          await settle();
+          r.partialRestNeedsASubject = window.__splits === n && document.activeElement === after[0].querySelector('.cm-plan-subject');
+        }
         document.querySelector('.cm-write').click();
         await settle(); await settle();
         const second = document.querySelectorAll('.cm-plan-subject')[1];

@@ -2405,14 +2405,18 @@ export async function editMain(args, { onListen = null, client } = {}) {
   }
 
   // The proposed commits, as the author left them: each subject theirs now,
-  // so each goes through commitSubject like any message. All of them land or
-  // none does (commitPlan moves the branch once).
+  // so each goes through commitSubject like any message. All the ticked ones
+  // land or none does (commitPlan moves the branch once); an unticked one
+  // (`skip`) stays uncommitted, and `left` hands it back re-cut against the
+  // new HEAD so the window can offer it again.
   function commitSplitRoute({ body, json }) {
     if (!gitOn) return json(409, { ok: false, error: 'this session is not committing — open the deck with --git' });
     let req = {};
     try { req = JSON.parse(body || '{}'); } catch { return json(400, { ok: false, error: 'bad request' }); }
     const commits = Array.isArray(req.commits) ? req.commits : [];
-    if (!commits.length || commits.some((c) => !String(c?.message ?? '').trim())) {
+    const taking = commits.filter((c) => !c?.skip);
+    if (!taking.length) return json(400, { ok: false, code: 'EMPTY', error: 'no commit is ticked' });
+    if (taking.some((c) => !String(c?.message ?? '').trim())) {
       return json(400, { ok: false, error: 'every commit needs a message' });
     }
     const made = commitPlan({
@@ -2420,11 +2424,14 @@ export async function editMain(args, { onListen = null, client } = {}) {
       template: `decklight: autosave ${basename(deckPath)}`,
     });
     if (!made.ok) return json(made.code === 'STALE' ? 409 : 500, { ok: false, code: made.code, error: made.error });
-    pendingAttr = null;
+    // the .gitattributes rides the sidecar's commit: still pending if that was left out
+    if (!pendingAttr || made.files.includes(attrRel())) pendingAttr = null;
     resetEpisode();
+    measureDirty();   // what was left out is uncommitted work, starting now
     for (const s of made.subjects) console.log(`  git: committed ${deckRel} — "${s}"`);
     return json(200, {
       ok: true, committed: true, count: made.subjects.length, subjects: made.subjects, subject: made.subjects.at(-1),
+      left: made.left,
       ...history.counts(), ...commitState(), ...whereItStands(),
     });
   }

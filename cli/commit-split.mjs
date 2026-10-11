@@ -395,6 +395,49 @@ export function slidesSinceHead(cwd, deckRel) {
   return slideChanges(before, work);
 }
 
+/**
+ * The commits the author left out, re-cut against the HEAD that now holds the
+ * others: `{ base, units, commits: [{ subject, units }] }` with the new unit
+ * ids, or null when they cannot be matched (the window then offers to write
+ * them again). A -U0 hunk carries its own lines, so a hunk left out reads the
+ * same against the new HEAD, only at other line numbers: it is found by its
+ * text, in order. A file that went whole is matched by its name.
+ */
+export function leftAfter({ cwd, deckRel, also = [], before, skipped }) {
+  const after = workingUnits({ cwd, deckRel, also });
+  if (!after) return null;
+  const byId = new Map(before.map((u) => [u.id, u]));
+  const body = (h) => h.text.slice(1).join('\n');
+  // every left-out hunk (or whole file), in order, with the commit it is in
+  const want = [];
+  skipped.forEach((g, k) => {
+    for (const id of g.units) {
+      const u = byId.get(id);
+      if (!u) continue;
+      if (u.whole) want.push({ k, file: u.file, whole: true });
+      else for (const h of u.hunks) want.push({ k, file: u.file, body: body(h) });
+    }
+  });
+  const commits = skipped.map((g) => ({ subject: g.subject, units: [] }));
+  const used = new Set();
+  for (const u of after.units) {
+    let k = -1;
+    const pieces = u.whole ? [{ whole: true }] : u.hunks.map((h) => ({ body: body(h) }));
+    for (const piece of pieces) {
+      const i = want.findIndex((w, j) => !used.has(j) && w.file === u.file
+        && (piece.whole ? w.whole : !w.whole && w.body === piece.body));
+      if (i < 0) return null;
+      used.add(i);
+      if (k < 0) k = want[i].k;
+    }
+    if (k < 0) return null;
+    commits[k].units.push(u.id);
+  }
+  if (used.size !== want.length) return null;
+  const kept = commits.filter((c) => c.units.length);
+  return kept.length ? { base: after.base, units: after.units.map(unitSummary), commits: kept } : null;
+}
+
 /** A commit-tree that falls back to a stand-in identity, like gitAutocommit. */
 function commitTree(cwd, tree, parent, message, env) {
   const args = ['commit-tree', tree, '-p', parent, '-m', message];
@@ -405,10 +448,18 @@ function commitTree(cwd, tree, parent, message, env) {
 }
 
 /**
- * Make the plan's commits on top of HEAD. `commits` is `[{ message, units }]`;
- * `work` is what `workingUnits` returned when the plan was made. Resolves to
- * `{ ok: true, shas, subjects }`, or `{ ok: false, code, error }` with code
- * STALE when the work or HEAD moved since.
+ * Make the plan's commits on top of HEAD. `commits` is `[{ message, units,
+ * skip }]`; `work` is what `workingUnits` returned when the plan was made.
+ * Resolves to `{ ok: true, shas, subjects, files, left }`, or `{ ok: false,
+ * code, error }` with code STALE when the work or HEAD moved since.
+ *
+ * A commit marked `skip` is left out: its units stay uncommitted in the
+ * working file, and the ones taken are applied to HEAD's text without them.
+ * The plan is normalised with the skipped commits still in it, so a unit
+ * the plan forgot joins its neighbour whether or not that one is taken, and
+ * never slips into a commit the author ticked. `left` is what remains,
+ * re-cut against the new HEAD (see leftAfter), or null when nothing was
+ * skipped or it could not be matched.
  */
 export function commitPlan({ cwd, deckRel, also = [], base, commits, template }) {
   const now = workingUnits({ cwd, deckRel, also });
@@ -416,10 +467,12 @@ export function commitPlan({ cwd, deckRel, also = [], base, commits, template })
     return { ok: false, code: 'STALE', error: 'the deck changed since these commits were proposed — write them again' };
   }
   const byId = new Map(now.units.map((u) => [u.id, u]));
-  const plan = normalizePlan(
-    (commits ?? []).map((c) => ({ subject: String(c?.message ?? ''), units: (c?.units ?? []).map(Number) })),
-    now.units,
-  );
+  const asked = (commits ?? []).map((c) => ({ subject: String(c?.message ?? ''), units: (c?.units ?? []).map(Number), skip: !!c?.skip }));
+  // normalised whole, so every unit has the owner it would have if all were taken
+  const owned = normalizePlan(asked.map(({ subject, units }) => ({ subject, units })), now.units);
+  const skipOf = (g) => asked.find((a) => a.units.some((id) => g.units.includes(id)))?.skip ?? false;
+  const plan = owned.filter((g) => !skipOf(g));
+  const skipped = owned.filter((g) => skipOf(g));
   if (!plan.length) return { ok: false, code: 'EMPTY', error: 'nothing to commit' };
   const subjects = plan.map((g) => commitSubject(g.subject.trim() || template, template));
 
@@ -449,7 +502,9 @@ export function commitPlan({ cwd, deckRel, also = [], base, commits, template })
     // the author's index now agrees with the new HEAD for these files, and
     // keeps everything else it had
     try { run(['reset', '-q', 'HEAD', '--', ...Object.keys(now.files)], cwd); } catch { /* status shows it; nothing is lost */ }
-    return { ok: true, shas, subjects };
+    const files = Object.keys(now.files).filter((rel) => now.units.some((u) => u.file === rel && taken.has(u.id)));
+    const left = skipped.length ? leftAfter({ cwd, deckRel, also, before: now.units, skipped }) : null;
+    return { ok: true, shas, subjects, files, left };
   } catch (e) {
     return { ok: false, code: 'GIT', error: oneline(e) };
   } finally {
