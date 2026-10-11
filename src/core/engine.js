@@ -2587,8 +2587,26 @@ export function init(userConfig = {}) {
     }
     root.classList.toggle('is-zoomed', zoom.k !== 1);
     rescale();
+    paintZoomChip();
   }
   const resetZoom = () => { if (zoom.k !== 1) applyZoom(1); };
+  // The percentage, top right, for as long as the slide is not at fit: a
+  // zoomed slide looks like a slide, and the one thing that tells you why
+  // the edges are missing is this. Under the slide number while editing.
+  // A click on it fits, like 0.
+  let zoomChip = null;
+  function paintZoomChip() {
+    if (zoom.k === 1) { zoomChip?.remove(); zoomChip = null; return; }
+    if (!zoomChip) {
+      zoomChip = document.createElement('button');
+      zoomChip.type = 'button';
+      zoomChip.className = 'decklight-zoom';
+      zoomChip.title = 'zoomed — click, 0 or Esc fits the slide again';
+      zoomChip.addEventListener('click', resetZoom);
+      root.appendChild(zoomChip);
+    }
+    zoomChip.textContent = `${Math.round(zoom.k * 100)}%`;
+  }
   /** The deck's zoom as the harness and the debug line read it: factor and pan. */
   instance.zoom = () => ({ k: zoom.k, x: zoom.x, y: zoom.y });
   instance.setZoom = (k, opts) => applyZoom(k, opts);

@@ -2472,6 +2472,8 @@
         const pinchIn = wheel({ deltaY: -60, ctrlKey: true });   // fingers apart
         r.pinchIsTaken = pinchIn === false;                       // preventDefault: the page does not zoom
         r.pinchZoomsTheStage = deck.zoom().k > 1.4 && Math.abs(scaleOf() - fit * deck.zoom().k) < 1e-4;   // the style serialises five decimals
+        const chip = () => document.querySelector('.decklight-zoom');
+        r.chipSaysThePercentage = chip()?.textContent === `${Math.round(deck.zoom().k * 100)}%` && chip().textContent !== '100%';
         r.aboutThePointer = deck.zoom().x < 0 && deck.zoom().y < 0;   // the content right-below the centre stays put, so the stage moves up-left
         const after = panel();
         r.thePanelDidNotMove = after.width === before.width && after.height === before.height && after.top === before.top;
@@ -2481,9 +2483,15 @@
         const pan = wheel({ deltaX: 30, deltaY: 0 });
         r.wheelPansWhileZoomed = pan === false && deck.zoom().x === x0 - 30;
         r.zoomIsCapped = (deck.setZoom(99), deck.zoom().k === 4);
+        r.chipFollows = chip()?.textContent === '400%';
         // pinching back below 1 is fit, and the pan goes with it
         for (let i = 0; i < 40; i++) wheel({ deltaY: 80, ctrlKey: true });
         r.pinchOutIsFit = deck.zoom().k === 1 && deck.zoom().x === 0 && deck.zoom().y === 0 && Math.abs(scaleOf() - fit) < 1e-4;
+        r.chipGoesAtFit = !chip();
+        // a click on the chip fits too
+        wheel({ deltaY: -60, ctrlKey: true });
+        chip()?.click();
+        r.chipClickFits = deck.zoom().k === 1 && !chip();
         // 0 resets, and is a plain key again at fit
         wheel({ deltaY: -60, ctrlKey: true });
         press('0');
@@ -2533,6 +2541,7 @@
         r.liftingIsNotASwipe = deck.state.slide === slideBefore;
         press('0');
         r.PASS = r.startsAtFit && r.pinchIsTaken && r.pinchZoomsTheStage && r.aboutThePointer && r.thePanelDidNotMove && r.theChromeScaleIsTheFit
+          && r.chipSaysThePercentage && r.chipFollows && r.chipGoesAtFit && r.chipClickFits
           && r.wheelPansWhileZoomed && r.zoomIsCapped && r.pinchOutIsFit && r.zeroResets && r.escapeResets && r.slideChangeResets
           && r.wheelAtFitIsLeftAlone && r.overviewTakesNoPinch && r.notesCardOpen && r.overThePanelZoomsNothing && r.besideThePanelStillZooms && r.thePanelKeptItsSize
           && r.notesCardClosed && r.twoFingersZoom && r.twoFingersPan && r.liftingIsNotASwipe;
