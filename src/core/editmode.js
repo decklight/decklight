@@ -1206,6 +1206,23 @@ export function createEditMode({
   // not. The save records where the author was; the reload reopens the card
   // there (#646). Esc or × — closing on purpose — never leaves the record.
   const NOTES_OPEN_KEY = 'decklight-notes-open:' + location.pathname;
+  // The quiet time after which the open card writes itself (PRESENTING): a
+  // preference of the person typing, so per browser and not per deck. 0 is
+  // off, and the card then saves on leaving only, as it did before.
+  const NOTES_QUIET_KEY = 'decklight-notes-quiet';
+  const NOTES_QUIET_STEPS = [250, 500, 1000, 2000, 0];
+  const NOTES_QUIET_DEFAULT = 500;
+  const notesQuiet = () => {
+    const v = Number(readPref(NOTES_QUIET_KEY));
+    return readPref(NOTES_QUIET_KEY) !== null && NOTES_QUIET_STEPS.includes(v) ? v : NOTES_QUIET_DEFAULT;
+  };
+  const notesQuietLabel = (ms = notesQuiet()) => (ms ? `${ms} ms after typing stops` : 'on leaving only');
+  function cycleNotesQuiet() {
+    const next = NOTES_QUIET_STEPS[(NOTES_QUIET_STEPS.indexOf(notesQuiet()) + 1) % NOTES_QUIET_STEPS.length];
+    writePref(NOTES_QUIET_KEY, next === NOTES_QUIET_DEFAULT ? null : String(next));
+    toast(`notes autosave: ${notesQuietLabel(next)}`, 2200);
+    return next;
+  }
   const forgetNotesOpen = () => { try { sessionStorage.removeItem(NOTES_OPEN_KEY); } catch { /* no storage */ } };
   let unmountEditor = null;
   let notesFollow = null;   // re-points a clean notes card at the slide on screen
@@ -1265,7 +1282,9 @@ export function createEditMode({
     ta.readOnly = notesRO;
     if (notesRO) ta.classList.add('edit-notes-readonly');
     let syncChanged = () => {};   // the reset / before-after buttons, once they exist (not read-only)
-    let saving = false;           // a save in flight: the mark says "saving…" 
+    let saving = false;           // a save in flight: the mark says "saving…"
+    let autosaving = false;       // …and it is the quiet time's own: "autosaving…"
+    let justSaved = 0;            // an autosave that landed: the mark says so for a moment, in place of a toast
     let drafted = false;          // the box holds an agent's draft, to be read before it is written
     if (!notesRO) notesDirty = () => ta.value !== loaded;
     if (!notesRO) notesDrafted = () => drafted;
@@ -1294,8 +1313,9 @@ export function createEditMode({
       loaded = fresh;
       syncChanged();
     };
-    const save = async () => {
+    const save = async ({ auto = false } = {}) => {
       saving = true;
+      autosaving = auto;
       syncChanged();
       try { sessionStorage.setItem(NOTES_OPEN_KEY, JSON.stringify({ slide: sl, caret: ta.selectionStart, scroll: ta.scrollTop, t: Date.now() })); } catch { /* no storage: the card closes, as before */ }
       try {
@@ -1317,15 +1337,20 @@ export function createEditMode({
           toast('nothing to save — the notes already match the file', 2600);
           return;
         }
-        debugLog('edit', `notes saved — slide ${sl}`);
+        debugLog('edit', `notes ${auto ? 'auto' : ''}saved — slide ${sl}`);
         // written, and IN PLACE: no reload is coming (the server sends every
         // page the new notes instead), so the card simply stays as it is
         saving = false;
         drafted = false;
         loaded = ta.value;
         if (j.inPlace) forgetNotesOpen();
+        // an autosave says so by the mark, not a toast: one every pause in
+        // the typing would be a toast every sentence
+        if (auto && j.inPlace) {
+          clearTimeout(justSaved);
+          justSaved = setTimeout(() => { justSaved = 0; syncChanged(); }, 1600);
+        } else toast(j.inPlace ? 'notes saved' : 'notes saved — reloading', 1800);
         syncChanged();
-        toast(j.inPlace ? 'notes saved' : 'notes saved — reloading', 1800);
       } catch (e) {
         // long enough to read: the save did NOT happen, and the box still holds the text
         forgetNotesOpen();
@@ -1357,15 +1382,27 @@ export function createEditMode({
     const onPress = (e) => { if (!el.contains(e.target)) leaving(); };
     root.addEventListener('pointerdown', onPress, true);
     window.addEventListener('blur', leaving);
-    const unmountLeaving = () => { root.removeEventListener('pointerdown', onPress, true); window.removeEventListener('blur', leaving); };
+    // …and so does a pause in the typing: once the box has been quiet for
+    // the settings' quiet time (500 ms unless changed; Settings → Notes
+    // autosave), it is written, and the mark says "autosaving…" while it
+    // goes. There is no save button: a card that writes itself when you
+    // stop typing has nothing for one to do that ⌘⏎ does not. An agent's
+    // draft is never written this way either, for the reason above.
+    let quietTimer = 0;
+    const armAutosave = () => {
+      clearTimeout(quietTimer);
+      const ms = notesQuiet();
+      if (!ms) return;
+      quietTimer = setTimeout(() => { if (!saving && !drafted && ta.value !== loaded) save({ auto: true }); }, ms);
+    };
+    const unmountLeaving = () => {
+      clearTimeout(quietTimer);
+      clearTimeout(justSaved);
+      root.removeEventListener('pointerdown', onPress, true);
+      window.removeEventListener('blur', leaving);
+    };
     const actions = document.createElement('div');
     actions.className = 'tr-actions';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'narr-prev-btn';
-    btn.textContent = '💾 save now';
-    btn.addEventListener('click', save);
-    actions.appendChild(btn);
     // ↺ reset and ⇄ before / after: both against the notes AS LAST SAVED
     // (`loaded` — the page reloads after every save, so the deck's own notes
     // are the file's). Reset drops every change in the box, typed or drafted
@@ -1411,11 +1448,12 @@ export function createEditMode({
     // ● unsaved beside the heading while the box differs from the file —
     // at full strength, the heading itself dimmed — and saving… in flight
     const mark = Object.assign(document.createElement('span'), { className: 'notes-dirty-mark',
-      title: 'saved when you leave the box, move to another slide, or close the card — ⌘⏎ saves now' });
+      title: 'written on its own once you stop typing (Settings → Notes autosave), when you leave the box, move to another slide, or close the card — ⌘⏎ saves now' });
     title.after(mark);
     syncChanged = () => {
       const changed = ta.value !== loaded;
-      mark.textContent = saving ? 'saving…' : changed ? '● unsaved' : '';
+      mark.textContent = saving ? (autosaving ? 'autosaving…' : 'saving…') : changed ? '● unsaved' : justSaved ? 'saved' : '';
+      mark.classList.toggle('notes-saved-mark', !saving && !changed && !!justSaved);
       mark.hidden = !mark.textContent;
       resetBtn.disabled = !changed;
       diffBtn.disabled = !changed && diffEl.hidden;
@@ -1435,7 +1473,7 @@ export function createEditMode({
       else if (e.key === 'Escape') { showDiff(false); e.preventDefault(); }
       e.stopPropagation();
     });
-    ta.addEventListener('input', () => { drafted = false; syncChanged(); });   // typed into, the draft is the author's own
+    ta.addEventListener('input', () => { drafted = false; syncChanged(); armAutosave(); });   // typed into, the draft is the author's own
     actions.append(resetBtn, diffBtn);
     showDiff(false);
     syncChanged();
@@ -2992,6 +3030,9 @@ export function createEditMode({
     /** Settings… → Push tags: does Push send the annotated tags with the branch. */
     pushTags: pushTagsOn,
     setPushTags,
+    notesQuiet,
+    notesQuietLabel,
+    cycleNotesQuiet,
     /** Hold undo/redo until this write lands — the gestures in authoring.js post outside this module. */
     trackWrite,
     toggleEditor,

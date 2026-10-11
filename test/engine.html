@@ -421,7 +421,11 @@
       // notes saved IN PLACE: no reload; every page is sent the new notes
       if (HARNESS_MODE === 'notesinplace' || HARNESS_MODE === 'notesauto') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/deck/edit/slide/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/slide/notes')) {
+          // slowed when the mode asks, so the "autosaving…" mark can be seen
+          if (window.__slowNotes) await new Promise((ok) => setTimeout(ok, window.__slowNotes));
+          return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+        }
       }
       // a save that fails: the drawer must keep what was typed rather than close on it
       if (HARNESS_MODE === 'notesautofail') {
@@ -2297,6 +2301,9 @@
         // closes the card — and kept open, still unsaved, when a save fails.
         await settle();   // the ping: authoring
         try { localStorage.removeItem('decklight-notes-dock:' + location.pathname); } catch { /* fine */ }
+        // the leaving saves first, with the quiet time off, so nothing writes
+        // itself between a keystroke and the step that looks
+        try { localStorage.setItem('decklight-notes-quiet', '0'); } catch { /* fine */ }
         deck.goto(2, 0); await settle();
         press('s'); await settle();
         const card = () => document.querySelector('.decklight-editor');
@@ -2341,8 +2348,52 @@
         press('Escape');
         await settle(); await settle();
         r.closingSaves = posts().length === 4 && posts()[3].slide === 3 && posts()[3].text === 'Written on three.' && !card();
+        // The quiet time: typing stops, and after it the card writes itself,
+        // the mark saying "autosaving…" on the way and "saved" after, with
+        // no toast and no button to press.
+        try { localStorage.setItem('decklight-notes-quiet', '250'); } catch { /* fine */ }
+        press('s'); await settle();
+        r.noSaveButton = !!card() && ![...card().querySelectorAll('button')].some((b) => /save now/i.test(b.textContent));
+        const toasts = () => document.querySelectorAll('.decklight-toast').length;
+        const toastsBefore = toasts();
+        box().focus(); type('Typed, then a pause.');
+        await new Promise((ok) => setTimeout(ok, 120));
+        r.notYetAfterAKeystroke = posts().length === 4 && /● unsaved/.test(mark().textContent);
+        type('Typed, then a pause. More.');   // the quiet time starts again
+        await new Promise((ok) => setTimeout(ok, 180));
+        r.typingAgainHoldsIt = posts().length === 4;
+        await new Promise((ok) => setTimeout(ok, 200));
+        r.quietWritesIt = posts().length === 5 && posts()[4].text === 'Typed, then a pause. More.' && posts()[4].slide === 3;
+        await settle();
+        r.markSaysSaved = mark().textContent === 'saved' && !mark().hidden && mark().classList.contains('notes-saved-mark');
+        r.noToastForIt = toasts() === toastsBefore;
+        // the mark's "autosaving…" on the way: a slow save shows it
+        window.__slowNotes = 300;
+        type('Slowly.');
+        await new Promise((ok) => setTimeout(ok, 350));
+        r.marksAutosaving = mark().textContent === 'autosaving…';
+        await new Promise((ok) => setTimeout(ok, 400));
+        window.__slowNotes = 0;
+        r.slowOneLands = posts().length === 6 && mark().textContent === 'saved';
+        // the quiet time is a setting, cycled in place, and off is the card as it was
+        const quietRow = () => deck.settings.rows().find((x) => x.label === 'Notes autosave');
+        r.settingNamesIt = quietRow()?.value === '250 ms after typing stops' && /⏎ cycles/.test(quietRow()?.hint ?? '');
+        quietRow().run(); r.cyclesTo500 = quietRow()?.value === '500 ms after typing stops' && localStorage.getItem('decklight-notes-quiet') === null;
+        quietRow().run(); quietRow().run();
+        r.cyclesTo2000 = quietRow()?.value === '2000 ms after typing stops' && localStorage.getItem('decklight-notes-quiet') === '2000';
+        quietRow().run();
+        r.cyclesToOff = quietRow()?.value === 'on leaving only' && localStorage.getItem('decklight-notes-quiet') === '0';
+        type('Off: nothing writes itself.');
+        await new Promise((ok) => setTimeout(ok, 450));
+        r.offWaitsForLeaving = posts().length === 6 && /● unsaved/.test(mark().textContent);
+        quietRow().run(); r.cyclesRoundTo250 = quietRow()?.value === '250 ms after typing stops';
+        press('Escape'); await settle(); await settle();
+        try { localStorage.removeItem('decklight-notes-quiet'); } catch { /* fine */ }
         r.PASS = r.opensAsADrawerAtTheBottom && r.headingSaysItSavesItself && r.cardButtonsDoNotSave && r.leavingTheBoxSaves
-          && r.leavingTheWindowSaves && r.movingOnSavesThenFollows && r.closingSaves;
+          && r.leavingTheWindowSaves && r.movingOnSavesThenFollows && r.closingSaves
+          && r.noSaveButton && r.notYetAfterAKeystroke && r.typingAgainHoldsIt && r.quietWritesIt && r.markSaysSaved && r.noToastForIt
+          && r.marksAutosaving && r.slowOneLands && r.settingNamesIt && r.cyclesTo500 && r.cyclesTo2000 && r.cyclesToOff
+          && r.offWaitsForLeaving && r.cyclesRoundTo250;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

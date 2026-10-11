@@ -1215,6 +1215,10 @@ export function init(userConfig = {}) {
       // server has
       ...(editmode?.available() ? [{ label: 'Push tags', value: editmode.pushTags() ? 'with the branch' : 'off',
         hint: '⏎ switches', stays: true, run: () => editmode.setPushTags(!editmode.pushTags()) }] : []),
+      // write mode only: the notes card writes itself this long after the
+      // typing stops; ⏎ walks the steps, off last
+      ...(editmode?.available() ? [{ label: 'Notes autosave', value: editmode.notesQuietLabel(),
+        hint: '⏎ cycles', stays: true, run: () => editmode.cycleNotesQuiet() }] : []),
     ];
   }
   /**
