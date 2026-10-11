@@ -1,0 +1,20 @@
+/* Acme Brand, with a scale palette (SPEC BRAND_PALETTE): the swatches are
+   tokens the server defines from the manifest (--acme-blue-700 …); this file
+   only reads them. */
+
+@font-face {
+  font-family: "Acme Sans";
+  src: url(assets/fonts/acme-sans.woff2) format("woff2");
+}
+
+.decklight {
+  --acme-divider-pad: 6vh;
+}
+
+.decklight .acme-divider {
+  position: absolute; inset: 0; box-sizing: border-box;
+  background: url(assets/divider.svg) no-repeat right bottom / 40%;
+  padding: var(--acme-divider-pad); font-family: "Acme Sans", var(--font-heading);
+}
+.decklight .acme-divider [data-ds-injected][data-slot="kicker"] { color: var(--acme-orange-500); letter-spacing: .08em; }
+.decklight .acme-statement { border-left: .4em solid var(--acme-blue-600); padding-left: 1em; }

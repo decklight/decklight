@@ -34,7 +34,7 @@ import { slideTitle } from './finder.js';
 import { conceptNameOf } from './concepts.js';
 import { sourcesOf } from './sources.js';
 import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
-import { colorTargets, createColorEditor } from './colorpicker.js';
+import { colorTargets, createColorEditor, brandRoles } from './colorpicker.js';
 import { pickNode, createSpotlight } from './pick.js';
 import {
   parseColor, contrastRatio, aaFloor, hex, tokenFor, stageBox, shareOf,
@@ -55,6 +55,7 @@ export function createInspector({
   root, overlays, toast, copyText,
   instance, stage, editmode, editbar, review, narration, sources,
   concepts = () => null,
+  brand = () => null,
 }) {
   const dock = createDock({
     root,
@@ -461,6 +462,8 @@ export function createInspector({
         root, targets, side: tab === 'type' ? 'type' : 'fill',
         // the deck's design systems' palettes follow the theme's (SPEC DESIGN_SYSTEMS)
         systems: [...pageDesignSystems().values()],
+        // a deck held to its brand (SPEC BRAND_PALETTE): no Custom, and the swatches name their roles
+        brand: (() => { const b = brand(); return b ? { locked: b.locked, roles: brandRoles([...pageDesignSystems().values()], b.theme) } : null; })(),
         save: (edits) => editmode().saveStyles({ slide, index, edits }),
         onError: (m) => toast(`not saved: ${m.slice(0, 90)}`, 3400),
         onDetach: (c) => editmode().detachConcept({ slide, index, path: c.path, tag: c.tag, el: c.el }),

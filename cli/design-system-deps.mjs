@@ -120,7 +120,9 @@ export function planRecommended(html, ds, home = configHome()) {
       family: verdict.manifest.family, status: same || fonts.some((f) => f.name === r.name) ? 'already' : 'add', same,
     });
   }
-  return { items, title: ds.manifest?.title || ds.manifest?.name || '' };
+  // a design system that ships its own themes (SPEC BRAND_PALETTE) is worn in the first of them
+  const own = Array.isArray(ds.manifest?.themes) ? ds.manifest.themes.find((t) => t && typeof t.name === 'string')?.name ?? null : null;
+  return { items, title: ds.manifest?.title || ds.manifest?.name || '', brandTheme: own };
 }
 
 /** The deck with every addable recommendation written — the caller writes it with the design system, as one edit. */
@@ -170,7 +172,8 @@ export function plannedInstalls(plan, home = configHome()) {
 export function lookOf(html, plan) {
   const config = configBlock(html)?.config ?? {};
   const usable = (it) => it.status === 'add' || it.status === 'already' || it.status === 'stack';
-  const theme = plan.items.find((it) => it.kind === 'theme' && usable(it))?.name ?? null;
+  // its own theme first: it comes with the design system, nothing to mark
+  const theme = plan.brandTheme ?? plan.items.find((it) => it.kind === 'theme' && usable(it))?.name ?? null;
   const font = plan.items.find((it) => it.kind === 'font' && usable(it))?.name ?? null;
   const themeChanges = !!theme && config.theme !== theme;
   const fontChanges = !!font && config[FONT_DEFAULT_KEY] !== font;

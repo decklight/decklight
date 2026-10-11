@@ -30,6 +30,7 @@ import { createRangePicker } from './ranges.js';
 import { createChoiceCard } from './choice.js';
 import { createConceptTools } from './concept-tools.js';
 import { createStyleClip } from './style-clip.js';
+import { brandSnapper } from './colorpicker.js';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES } from '../../tools/video-options.mjs';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
@@ -920,7 +921,7 @@ export function init(userConfig = {}) {
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: themes.openPicker },
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
-      { label: 'Generate a theme', hint: '⌃T', run: rollTheme },
+      !themes.brandLocked() && { label: 'Generate a theme', hint: '⌃T', run: rollTheme },
       themes.hasGenerated() && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
       // Contextual, like the save row above: marketplace themes are listed only
       // while authoring, so without an edit server the row is absent rather
@@ -2877,6 +2878,8 @@ export function init(userConfig = {}) {
   const styleClip = createStyleClip({
     save: (body) => editmode.saveStyles(body), toast,
     repaint: () => { applyConcepts(stage, config.concepts ?? {}); conceptsEditor.refresh(); inspector?.refresh?.(); },
+    // a deck held to its brand takes no literal colour: the nearest swatch instead (SPEC BRAND_PALETTE)
+    snap: () => (themes.brandLocked() ? brandSnapper([...pageDesignSystems().values()]) : null),
     debugLog: (...a) => debugLog(...a),
   });
   editmode.setStyleClip(styleClip);
@@ -3004,6 +3007,8 @@ export function init(userConfig = {}) {
     instance: () => instance, stage: () => stage,
     editmode: () => editmode, editbar: () => editbar,
     review: () => review, narration: () => narration, sources: () => sources,
+    // the deck's brand (SPEC BRAND_PALETTE): held to it or not, and the theme on screen
+    brand: () => ({ locked: themes.brandLocked(), theme: themes.currentTheme() }),
   });
   // Check deck… (palette, SPEC PRESENTING): the open deck's own lint, slide by
   // slide. An inactive slide is display:none, so overflow is measured under

@@ -29,7 +29,9 @@
  * classifier is left assuming a deck must load an engine to be a deck.
  */
 
-import { PKG } from './pkg.mjs';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { PKG, THEMES_DIR } from './pkg.mjs';
 
 export const DEFAULT_THEME = 'aurora';
 export const CONFIG_ATTR = 'data-decklight-config';
@@ -145,7 +147,13 @@ export function baseTheme(html) {
   const marked = deckConfig(html)?.markedThemes;
   // marketplace references only: a marked SHIPPED theme is a file in themes/
   const names = Array.isArray(marked) ? marked.filter((r) => String(r).includes('@')).map((r) => String(r).split('@')[0]) : [];
-  return names.includes(t) ? DEFAULT_THEME : t;
+  if (names.includes(t)) return DEFAULT_THEME;
+  // a design system's own theme (SPEC BRAND_PALETTE) is a block the server
+  // adds with the design system, not a file in themes/: the page opens on the
+  // default and the runtime applies the configured one, as for a marked theme
+  const usesSystems = Array.isArray(deckConfig(html)?.designSystems) && deckConfig(html).designSystems.length > 0;
+  if (usesSystems && t && !existsSync(path.join(THEMES_DIR, `${t}.css`))) return DEFAULT_THEME;
+  return t;
 }
 
 /**
@@ -300,6 +308,20 @@ export function setDeckConcepts(html, concepts) {
   const arg = withObjectKey(boot.arg, 'concepts', valueText);
   if (arg === null) return null;
   return html.slice(0, boot.start) + call.slice(0, argStart) + arg + call.slice(argStart + boot.arg.length) + html.slice(boot.end);
+}
+
+/**
+ * Whether the theme picker holds the deck to its design systems' own themes
+ * (SPEC BRAND_PALETTE): on unless the configuration says `"brandThemesOnly":
+ * false`, so `only` true takes the key off and false writes it. Written in a
+ * deck that is data only, the configuration block; null otherwise.
+ */
+export function setDeckBrandThemesOnly(html, only) {
+  const block = configBlock(html);
+  if (!block?.config) return null;
+  const inner = withObjectKey(block.inner, 'brandThemesOnly', only ? null : 'false');
+  if (inner === null) return null;
+  return html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd);
 }
 
 /**

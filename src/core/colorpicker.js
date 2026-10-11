@@ -24,6 +24,8 @@
  * unit tests; the card is the only part that needs a document.
  */
 
+import { toOklab } from '../../tools/color.mjs';
+
 // ----- colour maths (pure) --------------------------------------------------
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
@@ -92,6 +94,60 @@ export const PALETTE = [
   ] },
 ];
 
+/**
+ * Which swatch fills which of the theme's roles, for the brand theme on
+ * screen (SPEC BRAND_PALETTE): `Map(ref → [role label…])`, `blue-700 →
+ * ['Primary', 'Fill 1']`, read off the theme's own refs in the design-system
+ * meta. Empty when the theme on screen is not a brand theme.
+ */
+export function brandRoles(systems, themeName) {
+  const label = new Map(PALETTE.flatMap((g) => g.items.map((it) => [it.token, it.label])));
+  const roles = new Map();
+  for (const sys of systems ?? []) {
+    const theme = (sys?.themes ?? []).find((t) => t.name === themeName);
+    for (const [token, ref] of Object.entries(theme?.refs ?? {})) {
+      const name = label.get(token);
+      if (!name) continue;
+      for (const one of String(ref).split(' → ')) {
+        const key = one.replace(/\/\d+$/, '');
+        if (!roles.has(key)) roles.set(key, []);
+        if (!roles.get(key).includes(name)) roles.get(key).push(name);
+      }
+    }
+  }
+  return roles;
+}
+
+/**
+ * The palette swatch nearest a literal colour (SPEC BRAND_PALETTE), measured
+ * in OKLab, as the value a pick writes: `{ ref, value: 'var(--acme-blue-700,
+ * #2a5bd7)' }`. Null when the deck's design systems have no palette of
+ * scales, or the colour does not parse. What Paste style puts on a deck held
+ * to its brand instead of the literal it copied.
+ */
+export function brandSnapper(systems) {
+  const swatches = [];
+  for (const sys of systems ?? []) {
+    if (!sys?.scales) continue;
+    for (const p of sys.palette ?? []) {
+      const c = hexToRgb(p?.hex);
+      if (c && TOKEN.test(String(p.token))) swatches.push({ ref: p.ref ?? p.token, token: p.token, hex: p.hex, lab: toOklab([c.r, c.g, c.b]) });
+    }
+  }
+  if (!swatches.length) return null;
+  return (value) => {
+    const c = resolveColor(value);
+    if (!c) return null;
+    const lab = toOklab([c.r, c.g, c.b]);
+    let best = null; let d = Infinity;
+    for (const s of swatches) {
+      const e = Math.hypot(lab[0] - s.lab[0], lab[1] - s.lab[1], lab[2] - s.lab[2]);
+      if (e < d) { d = e; best = s; }
+    }
+    return { ref: best.ref, value: `var(${best.token}, ${best.hex})` };
+  };
+}
+
 /** PALETTE against a token reader: undefined tokens dropped, a secondary equal to its primary dropped. */
 export function themePalette(read) {
   const norm = (v) => String(v ?? '').trim().toLowerCase();
@@ -114,10 +170,25 @@ const TOKEN = /^--[a-z][a-z0-9-]{0,40}$/i;
  * `systems` is the page's design-system metas: `[{ name, title, palette:
  * [{ group, label, token }] }]`.
  */
-export function systemPalette(systems, read) {
+export function systemPalette(systems, read, { roles = null } = {}) {
   const norm = (v) => String(v ?? '').trim().toLowerCase();
   const out = [];
   for (const sys of systems ?? []) {
+    // a palette of scales (SPEC BRAND_PALETTE): one row per colour, its weights
+    // in order, each swatch saying which of the theme's roles it fills
+    if (sys?.scales) {
+      const title = String(sys.title || sys.name || 'Design system');
+      const rows = new Map();
+      for (const p of Array.isArray(sys.palette) ? sys.palette : []) {
+        if (!p || !TOKEN.test(String(p.token))) continue;
+        const value = norm(read(p.token)) || norm(p.hex);
+        if (!value) continue;
+        if (!rows.has(p.group)) rows.set(p.group, []);
+        rows.get(p.group).push({ label: p.label, short: p.short, token: p.token, value, derived: !!p.derived, roles: roles?.get(p.ref) ?? [] });
+      }
+      for (const [g, items] of rows) out.push({ group: `${title} · ${g}`, system: sys.name, fallback: true, compact: true, scale: true, items });
+      continue;
+    }
     const entries = (Array.isArray(sys?.palette) ? sys.palette : [])
       .filter((p) => p && typeof p.label === 'string' && TOKEN.test(String(p.token)));
     const title = String(sys.title || sys.name || 'Design system');
@@ -296,7 +367,7 @@ const h = (tag, cls, text) => {
  * `systems` is the deck's design-system metas (`pageDesignSystems()`), whose
  * palettes follow the theme's. Returns `{ el, setSide, side, settled }`.
  */
-export function createColorEditor({ root, targets, systems = [], side: startSide = 'fill', save, onDetach, concepts = null, onError = () => {}, onEscape = () => {} }) {
+export function createColorEditor({ root, targets, systems = [], side: startSide = 'fill', save, onDetach, concepts = null, brand = null, onError = () => {}, onEscape = () => {} }) {
   targets.stroke ??= [];
   const saved = (el, prop) => [el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)];
   // the stroke's width travels with its colour (#717): `stroke-width` on a
@@ -401,15 +472,17 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     const read = (t) => style.getPropertyValue(t);
     // marked by the token, never by a design-system pick's fallback, which can go stale
     const chosenToken = tokenOf(chosen);
-    for (const g of [...themePalette(read), ...systemPalette(systems, read)]) {
-      const box = h('div', 'cp-groupbox');
+    for (const g of [...themePalette(read), ...systemPalette(systems, read, { roles: brand?.roles ?? null })]) {
+      const box = h('div', g.scale ? 'cp-groupbox cp-scalebox' : 'cp-groupbox');
       box.appendChild(h('div', 'cp-group', g.group));
-      const grid = h('div', g.compact ? 'cp-swatches cp-compact' : 'cp-swatches');
+      const grid = h('div', g.scale ? 'cp-swatches cp-compact cp-scale' : g.compact ? 'cp-swatches cp-compact' : 'cp-swatches');
       for (const it of g.items) {
         const b = h('button', 'cp-swatch');
         b.type = 'button';
         b.dataset.token = it.token;
-        b.title = `${it.label} · ${it.token} · ${it.value}`;
+        if (it.roles?.length) { b.classList.add('cp-has-role'); b.dataset.roles = it.roles.join(', '); }
+        if (it.derived) b.classList.add('cp-derived');
+        b.title = `${it.label} · ${it.token} · ${it.value}${it.roles?.length ? ` · the theme's ${it.roles.join(', ')}` : ''}${it.derived ? ' · derived (not in the brand\'s palette as written)' : ''}`;
         b.setAttribute('aria-label', `${it.label} (${it.token})`);
         b.setAttribute('aria-pressed', String(chosenToken === it.token));
         const chip = h('span', 'cp-chip');
@@ -620,7 +693,9 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
       ], side, (id) => { side = colourSide = id; if (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var(')) syncFromTarget(); else setRgb(hexToRgb(picks[side])); render(); }));
       if (side === 'stroke') renderWidth(main);
       if (side === 'fill') renderConceptRow(main);
-      main.appendChild(segmented('cp-tabs', 'Color source', [{ id: 'theme', label: 'Theme' }, { id: 'custom', label: 'Custom' }], tab, (id) => {
+      // held to the brand (SPEC BRAND_PALETTE), a literal colour is exactly what leaves it: no Custom
+      if (brand?.locked && tab === 'custom') tab = 'theme';
+      if (!brand?.locked) main.appendChild(segmented('cp-tabs', 'Color source', [{ id: 'theme', label: 'Theme' }, { id: 'custom', label: 'Custom' }], tab, (id) => {
         tab = id;
         // Custom opens on the colour the target HAS — a token pick included — so the sliders start from what you see
         if (tab === 'custom' && (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var('))) syncFromTarget();

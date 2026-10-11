@@ -112,10 +112,20 @@ export function copyStyle(target) {
  * page is left changed: each "would taking it off look the same?" is tried
  * and put back.
  */
-export function pasteChanges(clip, target) {
+export function pasteChanges(clip, target, { snap = null } = {}) {
   const tg = target?.top && colorTargets(target.top, target.clicked ?? target.node ?? target.top);
   if (!clip || !tg) return null;
   const changes = [];
+  // a deck held to its brand (SPEC BRAND_PALETTE) takes no literal colour: one
+  // is put on the palette swatch nearest it, and the paste says which
+  const snapped = [];
+  const onBrand = (v) => {
+    if (!snap || !v || v.startsWith('var(')) return v;
+    const s = snap(v);
+    if (!s) return v;
+    snapped.push(s.ref);
+    return s.value;
+  };
   const set = (t, prop, value) => {
     const own = authored(t.el, prop);
     if (own === (value ?? '')) return;
@@ -127,7 +137,7 @@ export function pasteChanges(clip, target) {
   /** Make `t` show `src`: its token, else nothing of its own if that already looks right, else the hex. */
   const colour = (t, src) => {
     if (!t || !src) return;
-    if (src.token) { set(t, t.prop, src.token); return; }
+    if (src.token) { set(t, t.prop, onBrand(src.token)); return; }
     const own = authored(t.el, t.prop);
     const inline = t.el.style.getPropertyValue(t.prop);
     const priority = t.el.style.getPropertyPriority(t.prop);
@@ -136,7 +146,7 @@ export function pasteChanges(clip, target) {
     if (inline) t.el.style.setProperty(t.prop, inline, priority);
     if (!src.rgb) { if (own && !bare) set(t, t.prop, null); return; }
     if (same(bare, src.rgb)) { if (own) set(t, t.prop, null); return; }
-    if (!same(resolveColor(computed(t.el, t.prop)), src.rgb)) set(t, t.prop, rgbToHex(src.rgb));
+    if (!same(resolveColor(computed(t.el, t.prop)), src.rgb)) set(t, t.prop, onBrand(rgbToHex(src.rgb)));
   };
   const shape = tg.fill[0];
   const kind = isSvg(shape ?? tg.text[0]) ? 'svg' : 'html';
@@ -177,7 +187,7 @@ export function pasteChanges(clip, target) {
       set(t, svgText ? 'text-anchor' : 'text-align', (svgText ? TO_ANCHOR : TO_ALIGN)[clip.type.align]);
     }
   }
-  return { changes, concept };
+  return { changes, concept, snapped: [...new Set(snapped)] };
 }
 
 /** A clip said in a few words, for the toast: `box · “agent”`, `box · fill 3`, `blockquote · #2a6f97`. */
@@ -198,7 +208,7 @@ export function describeClip(clip) {
  * in-place style write (editmode.saveStyles); `repaint()` puts the deck's
  * concept colours back on after a paste moved a concept.
  */
-export function createStyleClip({ save, toast, repaint = () => {}, debugLog = () => {} }) {
+export function createStyleClip({ save, toast, repaint = () => {}, snap = () => null, debugLog = () => {} }) {
   let clip = readJson(KEY, null);
   const has = () => !!clip;
 
@@ -214,7 +224,7 @@ export function createStyleClip({ save, toast, repaint = () => {}, debugLog = ()
 
   async function paste(target) {
     if (!clip) { toast(`no style copied yet: ${STYLE_KEYS.copy} on a shape copies its style`, 2600); return false; }
-    const plan = pasteChanges(clip, target);
+    const plan = pasteChanges(clip, target, { snap: snap() });
     if (!plan) { toast('nothing here takes a style', 2200); return false; }
     const { changes, concept } = plan;
     if (!changes.length && !concept) { toast('already that style', 2000); return false; }
@@ -248,7 +258,7 @@ export function createStyleClip({ save, toast, repaint = () => {}, debugLog = ()
     }
     if (concept) repaint();
     debugLog('edit', `style pasted on slide ${target.slide} #${target.index}: ${changes.length} declaration${changes.length === 1 ? '' : 's'}${concept ? `, concept ${concept.value ?? '(detached)'}` : ''}`);
-    toast(`style pasted · Z takes it back`, 2200);
+    toast(plan.snapped.length ? `style pasted, on the brand's palette: ${plan.snapped.join(', ')} · Z takes it back` : 'style pasted · Z takes it back', plan.snapped.length ? 3200 : 2200);
     return true;
   }
 

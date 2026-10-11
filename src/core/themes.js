@@ -75,6 +75,21 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       themeSource.set(st.dataset.theme, { pack: `mkt:${mkt}`, label: st.dataset.themeSource || mkt });
     }
   }
+  // A design system's own themes (SPEC BRAND_PALETTE): blocks the server adds
+  // with the design system, drawn from its palette alone. While the deck has
+  // any, the picker holds it to them — a deck built on the brand stays on it —
+  // unless its configuration says `"brandThemesOnly": false`.
+  const brandOf = new Map();   // theme name → { system, title }
+  for (const st of addedStyles) {
+    const system = st.dataset.designSystemTheme;
+    if (!system || !st.dataset.theme) continue;
+    const title = st.dataset.themeSource || system;
+    brandOf.set(st.dataset.theme, { system, title });
+    themeSource.set(st.dataset.theme, { pack: `ds:${system}`, label: title });
+  }
+  let brandOnly = config.brandThemesOnly !== false;
+  const brandLocked = () => brandOf.size > 0 && brandOnly;
+  const brandTitles = () => [...new Set([...brandOf.values()].map((b) => b.title))].join(' and ');
   // While authoring: the themes every registered marketplace offers that this
   // page does not carry, by name → { name, marketplace, title, qualified,
   // description, remote }. Listed and applicable, never marked until asked.
@@ -199,7 +214,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const em = editmode?.();
     if (!em?.available?.()) return;
     const shipped = !addedThemes.has(name) && !offered.has(name) && !customThemes[name] && !(genTheme && name === genTheme.name);
-    if (!shipped && !marked.has(name)) return;
+    // a brand theme travels with the design system the deck references
+    if (!shipped && !marked.has(name) && !brandOf.has(name)) return;
     try {
       const r = await fetch(editBase() + '/deck/edit/theme', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -311,6 +327,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     // one row per name: a marketplace theme the author has applied but not
     // marked is BOTH linked on the page and offered by its marketplace
     list = [...new Set([...list, ...extras])];
+    // held to the brand: nothing else to pick, cycle to, or be recommended
+    if (brandLocked()) return list.filter((n) => brandOf.has(n));
     if (PACKS) {
       // cycling and the picker walk pack by pack: order by pack, then by the
       // pack's own order; customs/generated keep their relative order at the end
@@ -350,6 +368,11 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     // from disk) has no other way to tell them from the forty beside them
     const mine = markedIn(list);
     if (mine.length) out.push([MARKED, mine]);
+    // the brand's own themes before anyone's recommendation
+    for (const pack of new Set([...brandOf.values()].map((b) => `ds:${b.system}`))) {
+      const names = list.filter((n) => packOf(n) === pack);
+      if (names.length) out.push([pack, names]);
+    }
     const rec = recommendation(list);
     if (rec.names.length) out.push([RECOMMENDED, rec.names]);
     for (const p of PACKS.order) {
@@ -359,7 +382,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     // Marketplace packs are discovered from the deck rather than declared, so
     // they are listed before the fallbacks: a theme that knows where it came
     // from should not sit under a heading that means "we do not know".
-    for (const pack of new Set([...themeSource.values()].map((v) => v.pack))) {
+    for (const pack of new Set([...themeSource.values()].map((v) => v.pack).filter((p) => !p.startsWith('ds:')))) {
       const names = list.filter((n) => packOf(n) === pack);
       if (names.length) out.push([pack, names]);
     }
@@ -387,6 +410,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     return cand.name;
   }
   function rollTheme() {
+    if (brandLocked()) { toast(`this deck keeps to ${brandTitles()}'s themes — a generated theme is not on its palette`, 3200); return null; }
     return adoptGenerated(generateTheme());
   }
   function saveGeneratedTheme(inputName) {
@@ -433,7 +457,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   }
   function cycleTheme(dir) {
     const list = themeList();
-    if (!hasThemes || list.length < 2) return;
+    // a deck held to its brand cycles among the brand's own blocks, stock links or not
+    if ((!hasThemes && !brandLocked()) || list.length < 2) return;
     if (cyclePending) {
       const p = cyclePending;
       clearTimeout(p.timer);
@@ -530,7 +555,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     if (requested && from && !addedThemes.has(requested)) adoptAdded({ name: requested, marketplace: from });
     if (requested && applyTheme(requested, true)) return;
     const saved = readPref(themeKey);
-    if (saved && applyTheme(saved, true)) return;
+    // a theme this browser chose before the deck kept to its brand is not one it may open on
+    if (saved && !(brandLocked() && !brandOf.has(saved)) && applyTheme(saved, true)) return;
     const configured = config.theme;
     if (configured && (inlineThemes || addedThemes.has(configured))) applyTheme(configured, true, { persist: false });
   }
@@ -560,11 +586,14 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   const PACK_ROW = '\u0001pack:';
   const BACK_ROW = '\u0001back';
   const ALL_ROW = '\u0001all';
+  // the brand lock's two switches (SPEC BRAND_PALETTE), while authoring
+  const UNLOCK_ROW = '\u0001unlock';
+  const LOCK_ROW = '\u0001lock';
   /** Any row that is not a theme this deck can already apply. */
   const nonTheme = (n) => n.charCodeAt(0) < 32;
   let pickerEl = null, pickerSel = 0, pickerDebounce, pickerEntries = [], pickerCandidate = null, pickerFilter = '';
   let pickerView = 'packs';
-  const homeView = () => (PACKS ? 'packs' : 'all');
+  const homeView = () => (PACKS && !brandLocked() ? 'packs' : 'all');
 
   // ── marketplace themes, and marking (MARKETPLACE.md THEME_BROWSE#UI) ──
   // While AUTHORING, the overlay lists every theme of every registered
@@ -721,13 +750,16 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const recommended = new Set(recommendation(list).names);
     if (pickerFilter) {
       pickerEntries = list.filter((n) => n.includes(pickerFilter));
+    } else if (brandLocked()) {
+      // the brand's themes and nothing else: no packs to walk, nothing to generate
+      pickerEntries = [...list, ...(authoring() ? [UNLOCK_ROW] : [])];
     } else if (!PACKS || pickerView === 'all') {
       // flattened, the deck's marked themes come first, then the recommended
       const first = [...new Set([...markedIn(list), ...recommendation(list).names])];
       const flat = [...first, ...list.filter((n) => !first.includes(n))];
       pickerEntries = PACKS ? [GEN_ROW, BACK_ROW, ...flat] : [GEN_ROW, ...flat];
     } else if (pickerView === 'packs') {
-      pickerEntries = [GEN_ROW, ...packEntries(list).map(([p]) => PACK_ROW + p), ALL_ROW];
+      pickerEntries = [GEN_ROW, ...packEntries(list).map(([p]) => PACK_ROW + p), ALL_ROW, ...(brandOf.size && authoring() ? [LOCK_ROW] : [])];
     } else {
       const p = pickerView.slice(5);
       pickerEntries = [BACK_ROW, ...(packEntries(list).find(([q]) => q === p)?.[1] ?? [])];
@@ -752,6 +784,9 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         row.className = 'tp-row tp-all';
         row.textContent = '✳ all themes';
         tag(row, String(list.length));
+      } else if (name === UNLOCK_ROW || name === LOCK_ROW) {
+        row.className = 'tp-row tp-brandlock';
+        row.textContent = name === UNLOCK_ROW ? '◇ Show every theme…' : `◆ Only ${brandTitles()}'s themes`;
       } else if (name.startsWith(PACK_ROW)) {
         const p = name.slice(PACK_ROW.length);
         const names = packEntries(list).find(([q]) => q === p)?.[1] ?? [];
@@ -793,7 +828,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     }
     // The honesty line, authoring only: a list short of a marketplace must
     // never look the same as a marketplace with nothing in it.
-    const note = !authoring() || !catalogs ? null
+    // held to the brand, no marketplace's theme is offered, so none is missing
+    const note = !authoring() || !catalogs || brandLocked() ? null
       : catalogs.loading ? 'reading the marketplaces…'
       : catalogs.error ? catalogs.error
       : catalogs.stale?.length ? `not listed: ${catalogs.stale.join(', ')} — decklight marketplace update`
@@ -816,7 +852,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     if (curIdx >= 0) return curIdx;
     const packIdx = pickerEntries.indexOf(PACK_ROW + packOf(cur));
     if (packIdx >= 0) return packIdx;
-    return Math.min(1, pickerEntries.length - 1);
+    return brandLocked() ? 0 : Math.min(1, pickerEntries.length - 1);
   }
   function setPickerView(view, immediate = false) {
     pickerView = view;
@@ -872,6 +908,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const caption = name === GEN_ROW ? (pickerCandidate ? `✨ ${pickerCandidate.name}` : 'generate new')
       : name === BACK_ROW ? (homeView() === 'packs' ? 'back to packs' : 'back to the theme list')
       : name === ALL_ROW ? `all ${list.length} themes, flattened`
+      : name === UNLOCK_ROW ? `this deck keeps to ${brandTitles()}'s themes — ⏎ lists every theme, for a room the brand does not suit (writes brandThemesOnly: false)`
+      : name === LOCK_ROW ? `⏎ keeps this deck to ${brandTitles()}'s themes again`
       : name === PACK_ROW + MARKED
         ? `marked by the deck — the themes its bundle carries`
       : name === PACK_ROW + RECOMMENDED
@@ -940,6 +978,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     }
     if (name === BACK_ROW) { setPickerView(homeView()); return; }
     if (name === ALL_ROW) { setPickerView('all'); return; }
+    if (name === UNLOCK_ROW || name === LOCK_ROW) { setBrandOnly(name === LOCK_ROW); return; }
     if (name.startsWith(PACK_ROW)) { setPickerView('pack:' + name.slice(PACK_ROW.length), true); return; }
     // the one row that cannot be shown until it is marked: its bytes live at a
     // URL, and marking is the explicit act that reads them
@@ -949,6 +988,26 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     }
     applyTheme(name, false, { deck: true });
     closeThemePicker();
+  }
+  /** The brand lock, flipped from the picker and written to the deck (POST /deck/edit/brand-themes). */
+  async function setBrandOnly(only) {
+    const em = editmode?.();
+    if (!em?.available?.()) return;
+    try {
+      const r = await fetch(editBase() + '/deck/edit/brand-themes', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ only, quiet: true, from: em.pageId?.() ?? null }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+    } catch (e) {
+      toast(`not changed — ${String(e.message || e).slice(0, 100)}`, 4000);
+      return;
+    }
+    brandOnly = only;
+    toast(only ? `keeping to ${brandTitles()}'s themes · Z takes it back` : 'every theme listed · Z takes it back', 2600);
+    if (pickerEl) setPickerView(homeView(), true);
+    else pickerView = homeView();
   }
   function closeThemePicker() {
     clearTimeout(pickerDebounce);
@@ -987,6 +1046,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   return {
     applyTheme,
     currentTheme,
+    /** Is the deck held to its design systems' own themes (SPEC BRAND_PALETTE)? */
+    brandLocked,
     /**
      * The theme on screen, as an export should ask for it (#547): `{ theme }`
      * when a fresh load of this deck can show it — one of its own blocks, an

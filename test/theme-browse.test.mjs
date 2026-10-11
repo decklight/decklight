@@ -415,15 +415,16 @@ test('the player reaches the edit server for this and nowhere else', () => {
   // origin plus a literal path. Nothing a catalog supplied can become a URL
   // here, which is what keeps a manifest's `source` the server's to resolve.
   const fetches = [...code.matchAll(/fetch\(([^\n]*)/g)].map((m) => m[1].trim());
-  // listing, marking, and the deck's own theme (PRESENTING): three requests, all to the edit server by path
-  assert.equal(fetches.length, 3, 'listing, marking and the deck\'s theme, and no fourth request');
+  // listing, marking, the deck's own theme (PRESENTING) and its brand lock
+  // (BRAND_PALETTE): four requests, all to the edit server by path
+  assert.equal(fetches.length, 4, 'listing, marking, the deck\'s theme and its brand lock, and no fifth request');
   for (const arg of fetches) {
     assert.match(arg, /^editBase\(\) \+ '\/deck\/edit\//, `built from a literal path: ${arg}`);
   }
 
   const routes = [...code.matchAll(/'(\/deck\/edit\/[^']+)'/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(routes)].sort(), ['/deck/edit/theme', '/deck/edit/theme/browse', '/deck/edit/theme/mark'],
-    'and it uses exactly the routes the listing and the deck\'s theme are made of');
+  assert.deepEqual([...new Set(routes)].sort(), ['/deck/edit/brand-themes', '/deck/edit/theme', '/deck/edit/theme/browse', '/deck/edit/theme/mark'],
+    'and it uses exactly the routes the listing, the deck\'s theme and its brand lock are made of');
 
   // A theme it looks at is linked by a RELATIVE path built from two names —
   // the same one the server writes for a marked theme — and both names are

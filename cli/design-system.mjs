@@ -26,6 +26,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSyn
 import { join, relative, resolve, sep } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { checkPackage, DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS } from '../tools/design-system-format.mjs';
+import { THEMES_DIR } from './pkg.mjs';
 
 const USAGE = `usage: decklight design-system <add|remove|list|templates|check> …
 
@@ -65,7 +66,10 @@ const USAGE = `usage: decklight design-system <add|remove|list|templates|check> 
     design-system.json   apiVersion (${DESIGN_SYSTEM_API_VERSION}), name, version (semver), title,
                          styles ("design-system.css"), templates ("templates.html")
                          + description, tokenPrefix (default "--<name>-"),
-                           palette [{ group, label, token }], recommendedThemes
+                           palette [{ group, label, token }] or { colors: { <name>:
+                           { label, weights: { "100": "#hex" … "1000" } } } } with
+                           themes [{ name, title, mode, tokens }] (SPEC BRAND_PALETTE),
+                           recommendedThemes
     design-system.css    prefixed tokens and per-template rules; url()s relative to it
     templates.html         inert <template data-template="…"> blocks, with data-slot containers
     assets/…             ${ASSET_EXTENSIONS.join(' · ')}
@@ -112,7 +116,18 @@ export function checkDir(dir) {
   if (manifest === null) {
     return { ok: false, problems: [{ file: 'design-system.json', rule: 'file-missing', msg: 'no design-system.json at the package root — this is not a design system' }], warnings: [], summary: {} };
   }
-  const r = checkPackage({ manifest, files });
+  // the themes decklight ships: a brand theme may not take one's name, and a
+  // recommended one is held to the palette (SPEC BRAND_PALETTE)
+  let shippedThemes = [];
+  try { shippedThemes = readdirSync(THEMES_DIR).filter((f) => f.endsWith('.css')).map((f) => f.slice(0, -4)); } catch { /* no themes dir: nothing to compare against */ }
+  const recommendedThemeCss = {};
+  try {
+    for (const t of JSON.parse(manifest).recommendedThemes ?? []) {
+      const name = String(t).split('@')[0];
+      if (shippedThemes.includes(name)) recommendedThemeCss[name] = readFileSync(join(THEMES_DIR, `${name}.css`), 'utf8');
+    }
+  } catch { /* an unparseable manifest is the check's to report */ }
+  const r = checkPackage({ manifest, files, shippedThemes, recommendedThemeCss });
   for (const rel of escapes) {
     r.problems.push({ file: rel, rule: 'file-outside', msg: 'a symlink that resolves outside the package — a design system reaches only its own files' });
   }
@@ -146,6 +161,9 @@ export function reportLines(dir, r) {
       out.push(`                         ${l.id} (${slots || 'no slots'})`);
     }
     if (templates.some((l) => l.slots.length)) out.push('                         * required · † takes unslotted content');
+    for (const t of s.brand?.themes ?? []) {
+      out.push(`  theme                ${t.name} (${t.mode}) — ${t.stated.length} token${t.stated.length === 1 ? '' : 's'} stated, ${t.chosen.length} chosen from the palette`);
+    }
     const assets = s.assets ?? [];
     const byExt = {};
     for (const a of assets) byExt[a.ext] = (byExt[a.ext] ?? 0) + 1;
@@ -156,6 +174,8 @@ export function reportLines(dir, r) {
   // theme's rule-exception: is — so they stay reviewable
   for (const e of r.summary?.exceptions ?? []) out.push(`  ds-exception ${e.token}: ${e.reason}`);
   for (const w of r.warnings ?? []) out.push(`  ⚠ ${where(w)}: ${w.msg}`);
+  // what the engine made up or stood in for, said so a brand reviewer sees it
+  for (const n of r.summary?.notes ?? []) out.push(`  · ${n.msg}  [${n.rule}]`);
   return out;
 }
 

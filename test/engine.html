@@ -58,6 +58,17 @@
         || HARNESS_MODE === 'historydetails' || HARNESS_MODE === 'decktheme') {
       document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="../themes/aurora.css">');
     }
+    // brandthemes (SPEC BRAND_PALETTE): what a server adds for a design system
+    // with a palette of scales and two brand themes — three colours of the
+    // brand fixture (test/fixtures/design-systems/brand), its themes expanded
+    if (HARNESS_MODE === 'brandthemes') {
+      const BRAND = {"meta":{"name":"acme","version":"2.0.0","title":"Acme Brand","palette":[{"group":"Slate","label":"Slate 100","short":"100","token":"--acme-slate-100","hex":"#ecf6ff","ref":"slate-100"},{"group":"Slate","label":"Slate 200","short":"200","token":"--acme-slate-200","hex":"#dce6f2","ref":"slate-200"},{"group":"Slate","label":"Slate 300","short":"300","token":"--acme-slate-300","hex":"#c5cfdb","ref":"slate-300"},{"group":"Slate","label":"Slate 400","short":"400","token":"--acme-slate-400","hex":"#a9b2be","ref":"slate-400"},{"group":"Slate","label":"Slate 500","short":"500","token":"--acme-slate-500","hex":"#8a939f","ref":"slate-500"},{"group":"Slate","label":"Slate 600","short":"600","token":"--acme-slate-600","hex":"#707883","ref":"slate-600"},{"group":"Slate","label":"Slate 700","short":"700","token":"--acme-slate-700","hex":"#565e69","ref":"slate-700"},{"group":"Slate","label":"Slate 800","short":"800","token":"--acme-slate-800","hex":"#3e4650","ref":"slate-800"},{"group":"Slate","label":"Slate 900","short":"900","token":"--acme-slate-900","hex":"#272e38","ref":"slate-900"},{"group":"Slate","label":"Slate 1000","short":"1000","token":"--acme-slate-1000","hex":"#121921","ref":"slate-1000"},{"group":"Orange","label":"Orange 100","short":"100","token":"--acme-orange-100","hex":"#fff2e9","ref":"orange-100"},{"group":"Orange","label":"Orange 200","short":"200","token":"--acme-orange-200","hex":"#ffdcc8","ref":"orange-200"},{"group":"Orange","label":"Orange 300","short":"300","token":"--acme-orange-300","hex":"#ffbd99","ref":"orange-300"},{"group":"Orange","label":"Orange 400","short":"400","token":"--acme-orange-400","hex":"#f39762","ref":"orange-400"},{"group":"Orange","label":"Orange 500","short":"500","token":"--acme-orange-500","hex":"#dd6f23","ref":"orange-500"},{"group":"Orange","label":"Orange 600","short":"600","token":"--acme-orange-600","hex":"#c25000","ref":"orange-600"},{"group":"Orange","label":"Orange 700","short":"700","token":"--acme-orange-700","hex":"#9c3b00","ref":"orange-700"},{"group":"Orange","label":"Orange 800","short":"800","token":"--acme-orange-800","hex":"#752b00","ref":"orange-800"},{"group":"Orange","label":"Orange 900","short":"900","token":"--acme-orange-900","hex":"#4f1c00","ref":"orange-900"},{"group":"Orange","label":"Orange 1000","short":"1000","token":"--acme-orange-1000","hex":"#2d0e00","ref":"orange-1000"},{"group":"Green","label":"Green 100","short":"100","token":"--acme-green-100","hex":"#edf9ef","ref":"green-100"},{"group":"Green","label":"Green 200","short":"200","token":"--acme-green-200","hex":"#d0eed5","ref":"green-200"},{"group":"Green","label":"Green 300","short":"300","token":"--acme-green-300","hex":"#a8ddb2","ref":"green-300"},{"group":"Green","label":"Green 400","short":"400","token":"--acme-green-400","hex":"#78c689","ref":"green-400"},{"group":"Green","label":"Green 500","short":"500","token":"--acme-green-500","hex":"#43aa61","ref":"green-500"},{"group":"Green","label":"Green 600","short":"600","token":"--acme-green-600","hex":"#0e8f42","ref":"green-600"},{"group":"Green","label":"Green 700","short":"700","token":"--acme-green-700","hex":"#007230","ref":"green-700"},{"group":"Green","label":"Green 800","short":"800","token":"--acme-green-800","hex":"#005423","ref":"green-800"},{"group":"Green","label":"Green 900","short":"900","token":"--acme-green-900","hex":"#023816","ref":"green-900"},{"group":"Green","label":"Green 1000","short":"1000","token":"--acme-green-1000","hex":"#021f0a","ref":"green-1000"}],"scales":true,"themes":[{"name":"acme-dark","title":"Acme Dark","mode":"dark","refs":{"--accent":"orange-500","--bg":"slate-1000","--fg":"slate-200","--heading-color":"slate-100","--muted":"slate-500","--bg-accent":"slate-900","--block-bg":"slate-900","--block-border":"slate-800","--accent-contrast":"slate-1000","--link":"orange-500","--code-bg":"slate-900","--code-fg":"slate-200","--hl-punct":"slate-400","--hl-comment":"slate-600","--hl-keyword":"orange-400","--hl-string":"green-400","--hl-number":"orange-400","--hl-function":"green-400","--hl-type":"green-400","--d-text":"slate-100","--d-fill-1":"orange-800","--d-fill-2":"green-800","--d-fill-3":"orange-900","--d-fill-4":"orange-700","--d-fill-5":"orange-600","--d-fill-6":"green-900","--d-fill-1-in":"orange-700","--d-fill-2-in":"green-700","--d-fill-3-in":"orange-800","--d-fill-4-in":"orange-600","--d-fill-5-in":"orange-500","--d-fill-6-in":"green-800","--d-muted":"slate-300","--d-accent":"orange-300","--d-stroke":"slate-600","--term-bg":"slate-900","--term-fg":"slate-200","--term-prompt":"orange-500","--term-cursor":"orange-500","--term-selection":"orange-500/30","--ansi-black":"slate-500","--ansi-bright-black":"slate-400","--ansi-white":"slate-100","--ansi-bright-white":"slate-100","--ansi-red":"orange-500","--ansi-bright-red":"orange-400","--ansi-green":"green-500","--ansi-bright-green":"green-400","--ansi-yellow":"orange-500","--ansi-bright-yellow":"orange-400","--ansi-blue":"green-500","--ansi-bright-blue":"green-400","--ansi-magenta":"orange-500","--ansi-bright-magenta":"orange-400","--ansi-cyan":"green-500","--ansi-bright-cyan":"green-400"}},{"name":"acme-light","title":"Acme Light","mode":"light","refs":{"--accent":"green-700","--bg":"slate-100","--fg":"slate-900","--heading-color":"slate-1000","--muted":"slate-600","--bg-accent":"slate-200","--block-bg":"slate-200","--block-border":"slate-300","--accent-contrast":"slate-100","--link":"green-700","--code-bg":"slate-200","--code-fg":"slate-900","--hl-punct":"slate-700","--hl-comment":"slate-600","--hl-keyword":"orange-700","--hl-string":"green-700","--hl-number":"orange-700","--hl-function":"green-700","--hl-type":"green-700","--d-text":"slate-1000","--d-fill-1":"green-200","--d-fill-2":"orange-200","--d-fill-3":"green-300","--d-fill-4":"green-400","--d-fill-5":"orange-300","--d-fill-6":"orange-400","--d-fill-1-in":"green-300","--d-fill-2-in":"orange-300","--d-fill-3-in":"green-400","--d-fill-4-in":"green-500","--d-fill-5-in":"orange-400","--d-fill-6-in":"orange-500","--d-muted":"slate-700","--d-accent":"green-800","--d-stroke":"slate-600","--term-bg":"slate-200","--term-fg":"slate-900","--term-prompt":"green-700","--term-cursor":"green-700","--term-selection":"green-600/30","--ansi-black":"slate-600","--ansi-bright-black":"slate-700","--ansi-white":"slate-1000","--ansi-bright-white":"slate-1000","--ansi-red":"orange-600","--ansi-bright-red":"orange-700","--ansi-green":"green-600","--ansi-bright-green":"green-700","--ansi-yellow":"orange-600","--ansi-bright-yellow":"orange-700","--ansi-blue":"green-600","--ansi-bright-blue":"green-700","--ansi-magenta":"orange-600","--ansi-bright-magenta":"orange-700","--ansi-cyan":"green-600","--ansi-bright-cyan":"green-700"}}],"recommendedThemes":[],"recommendedFonts":[],"templates":[]},"palCss":".decklight{--acme-slate-100:#ecf6ff;--acme-slate-200:#dce6f2;--acme-slate-300:#c5cfdb;--acme-slate-400:#a9b2be;--acme-slate-500:#8a939f;--acme-slate-600:#707883;--acme-slate-700:#565e69;--acme-slate-800:#3e4650;--acme-slate-900:#272e38;--acme-slate-1000:#121921;--acme-orange-100:#fff2e9;--acme-orange-200:#ffdcc8;--acme-orange-300:#ffbd99;--acme-orange-400:#f39762;--acme-orange-500:#dd6f23;--acme-orange-600:#c25000;--acme-orange-700:#9c3b00;--acme-orange-800:#752b00;--acme-orange-900:#4f1c00;--acme-orange-1000:#2d0e00;--acme-green-100:#edf9ef;--acme-green-200:#d0eed5;--acme-green-300:#a8ddb2;--acme-green-400:#78c689;--acme-green-500:#43aa61;--acme-green-600:#0e8f42;--acme-green-700:#007230;--acme-green-800:#005423;--acme-green-900:#023816;--acme-green-1000:#021f0a}","dark":".decklight { --accent: var(--acme-orange-500, #dd6f23); --bg: var(--acme-slate-1000, #121921); --fg: var(--acme-slate-200, #dce6f2); --heading-color: var(--acme-slate-100, #ecf6ff); --muted: var(--acme-slate-500, #8a939f); --bg-accent: var(--acme-slate-900, #272e38); --block-bg: var(--acme-slate-900, #272e38); --block-border: var(--acme-slate-800, #3e4650); --shadow: 0 8px 24px rgba(18, 25, 33, 0.5); --accent-contrast: var(--acme-slate-1000, #121921); --link: var(--acme-orange-500, #dd6f23); --code-bg: var(--acme-slate-900, #272e38); --code-fg: var(--acme-slate-200, #dce6f2); --hl-punct: var(--acme-slate-400, #a9b2be); --hl-comment: var(--acme-slate-600, #707883); --hl-keyword: var(--acme-orange-400, #f39762); --hl-string: var(--acme-green-400, #78c689); --hl-number: var(--acme-orange-400, #f39762); --hl-function: var(--acme-green-400, #78c689); --hl-type: var(--acme-green-400, #78c689); --d-text: var(--acme-slate-100, #ecf6ff); --d-fill-1: var(--acme-orange-800, #752b00); --d-fill-2: var(--acme-green-800, #005423); --d-fill-3: var(--acme-orange-900, #4f1c00); --d-fill-4: var(--acme-orange-700, #9c3b00); --d-fill-5: var(--acme-orange-600, #c25000); --d-fill-6: var(--acme-green-900, #023816); --d-fill-1-in: var(--acme-orange-700, #9c3b00); --d-fill-2-in: var(--acme-green-700, #007230); --d-fill-3-in: var(--acme-orange-800, #752b00); --d-fill-4-in: var(--acme-orange-600, #c25000); --d-fill-5-in: var(--acme-orange-500, #dd6f23); --d-fill-6-in: var(--acme-green-800, #005423); --d-muted: var(--acme-slate-300, #c5cfdb); --d-accent: var(--acme-orange-300, #ffbd99); --d-stroke: var(--acme-slate-600, #707883); --term-bg: var(--acme-slate-900, #272e38); --term-fg: var(--acme-slate-200, #dce6f2); --term-prompt: var(--acme-orange-500, #dd6f23); --term-cursor: var(--acme-orange-500, #dd6f23); --term-selection: color-mix(in srgb, var(--acme-orange-500, #dd6f23) 30%, transparent); --ansi-black: var(--acme-slate-500, #8a939f); --ansi-bright-black: var(--acme-slate-400, #a9b2be); --ansi-white: var(--acme-slate-100, #ecf6ff); --ansi-bright-white: var(--acme-slate-100, #ecf6ff); --ansi-red: var(--acme-orange-500, #dd6f23); --ansi-bright-red: var(--acme-orange-400, #f39762); --ansi-green: var(--acme-green-500, #43aa61); --ansi-bright-green: var(--acme-green-400, #78c689); --ansi-yellow: var(--acme-orange-500, #dd6f23); --ansi-bright-yellow: var(--acme-orange-400, #f39762); --ansi-blue: var(--acme-green-500, #43aa61); --ansi-bright-blue: var(--acme-green-400, #78c689); --ansi-magenta: var(--acme-orange-500, #dd6f23); --ansi-bright-magenta: var(--acme-orange-400, #f39762); --ansi-cyan: var(--acme-green-500, #43aa61); --ansi-bright-cyan: var(--acme-green-400, #78c689); --font-body: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; --font-heading: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; --font-mono: \"SF Mono\", SFMono-Regular, ui-monospace, \"Cascadia Code\", Menlo, Consolas, monospace; --heading-weight: 700; --block-radius: 10px; } ","light":".decklight { --accent: var(--acme-green-700, #007230); --bg: var(--acme-slate-100, #ecf6ff); --fg: var(--acme-slate-900, #272e38); --heading-color: var(--acme-slate-1000, #121921); --muted: var(--acme-slate-600, #707883); --bg-accent: var(--acme-slate-200, #dce6f2); --block-bg: var(--acme-slate-200, #dce6f2); --block-border: var(--acme-slate-300, #c5cfdb); --shadow: 0 8px 24px rgba(18, 25, 33, 0.18); --accent-contrast: var(--acme-slate-100, #ecf6ff); --link: var(--acme-green-700, #007230); --code-bg: var(--acme-slate-200, #dce6f2); --code-fg: var(--acme-slate-900, #272e38); --hl-punct: var(--acme-slate-700, #565e69); --hl-comment: var(--acme-slate-600, #707883); --hl-keyword: var(--acme-orange-700, #9c3b00); --hl-string: var(--acme-green-700, #007230); --hl-number: var(--acme-orange-700, #9c3b00); --hl-function: var(--acme-green-700, #007230); --hl-type: var(--acme-green-700, #007230); --d-text: var(--acme-slate-1000, #121921); --d-fill-1: var(--acme-green-200, #d0eed5); --d-fill-2: var(--acme-orange-200, #ffdcc8); --d-fill-3: var(--acme-green-300, #a8ddb2); --d-fill-4: var(--acme-green-400, #78c689); --d-fill-5: var(--acme-orange-300, #ffbd99); --d-fill-6: var(--acme-orange-400, #f39762); --d-fill-1-in: var(--acme-green-300, #a8ddb2); --d-fill-2-in: var(--acme-orange-300, #ffbd99); --d-fill-3-in: var(--acme-green-400, #78c689); --d-fill-4-in: var(--acme-green-500, #43aa61); --d-fill-5-in: var(--acme-orange-400, #f39762); --d-fill-6-in: var(--acme-orange-500, #dd6f23); --d-muted: var(--acme-slate-700, #565e69); --d-accent: var(--acme-green-800, #005423); --d-stroke: var(--acme-slate-600, #707883); --term-bg: var(--acme-slate-200, #dce6f2); --term-fg: var(--acme-slate-900, #272e38); --term-prompt: var(--acme-green-700, #007230); --term-cursor: var(--acme-green-700, #007230); --term-selection: color-mix(in srgb, var(--acme-green-600, #0e8f42) 30%, transparent); --ansi-black: var(--acme-slate-600, #707883); --ansi-bright-black: var(--acme-slate-700, #565e69); --ansi-white: var(--acme-slate-1000, #121921); --ansi-bright-white: var(--acme-slate-1000, #121921); --ansi-red: var(--acme-orange-600, #c25000); --ansi-bright-red: var(--acme-orange-700, #9c3b00); --ansi-green: var(--acme-green-600, #0e8f42); --ansi-bright-green: var(--acme-green-700, #007230); --ansi-yellow: var(--acme-orange-600, #c25000); --ansi-bright-yellow: var(--acme-orange-700, #9c3b00); --ansi-blue: var(--acme-green-600, #0e8f42); --ansi-bright-blue: var(--acme-green-700, #007230); --ansi-magenta: var(--acme-orange-600, #c25000); --ansi-bright-magenta: var(--acme-orange-700, #9c3b00); --ansi-cyan: var(--acme-green-600, #0e8f42); --ansi-bright-cyan: var(--acme-green-700, #007230); --font-body: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; --font-heading: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; --font-mono: \"SF Mono\", SFMono-Regular, ui-monospace, \"Cascadia Code\", Menlo, Consolas, monospace; --heading-weight: 700; --block-radius: 10px; } "};
+      document.head.insertAdjacentHTML('beforeend',
+        `<style data-design-system-palette="acme">${BRAND.palCss}</style>`
+        + `<style data-theme="acme-dark" data-theme-added data-design-system-theme="acme" data-theme-source="Acme Brand" media="not all">${BRAND.dark}</style>`
+        + `<style data-theme="acme-light" data-theme-added data-design-system-theme="acme" data-theme-source="Acme Brand" media="not all">${BRAND.light}</style>`
+        + `<script type="application/json" data-design-system-meta="acme">${JSON.stringify(BRAND.meta).replace(/</g, '\\u003c')}<\/script>`);
+    }
     if (HARNESS_MODE === 'added') {
       document.head.insertAdjacentHTML('beforeend',
         '<link rel="stylesheet" href="../themes/aurora.css">'
@@ -508,6 +519,11 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      if (HARNESS_MODE === 'brandthemes') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/theme/browse')) return json({ ok: true, themes: [] });
+        if (u.includes('/deck/edit/')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors' || HARNESS_MODE === 'copystyle') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/style')) {
@@ -688,6 +704,14 @@
     // The colour picker: a diagram box with its label, a loose label, and an
     // HTML block — only for the mode that looks at it. No theme loads here, so
     // the palette's tokens are given inline (a secondary that IS one).
+    if (HARNESS_MODE === 'brandthemes') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Brand</h2>
+        <svg viewBox="0 0 800 200" width="800" aria-label="two boxes">
+          <g><rect class="bt-off" x="40" y="40" width="200" height="100" style="fill: #3a7d44"/><text x="140" y="95">Off</text></g>
+          <g><rect class="bt-plain" x="300" y="40" width="200" height="100" style="fill: var(--d-fill-2)"/><text x="400" y="95">Plain</text></g>
+        </svg>
+      </section>`);
+    }
     if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors' || HARNESS_MODE === 'inspectpick' || HARNESS_MODE === 'copystyle') {
       const tokens = { '--accent': '#5ee6c0', '--accent-contrast': '#04261c', '--link': '#8ecbff', '--fg': '#eef0ff', '--bg': '#0d1b3d',
         '--d-text': '#f2ece4', '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-3': '#223355',
@@ -5099,6 +5123,75 @@
           && r.canvasSelectsTheSvg && r.menuInspectsAndRemovesTheNode && r.inspectShowsTheNode && r.infoHasItsPaint
           && r.crumbMovesTheSelection && r.pickerOn && r.pickerLights && r.pickInspectsIt && r.pickReachesNothingElse
           && r.escTurnsThePickerOff && r.backspaceRemovesTheNode;
+      }
+
+      if (mode === 'brandthemes') {
+        // A design system's palette is the brand, and its themes are drawn
+        // from it (SPEC BRAND_PALETTE): the picker holds the deck to them,
+        // nothing generates a theme off it, Colors… offers no literal colour
+        // and shows the palette by scale, and Paste style puts a copied
+        // literal on the nearest swatch.
+        const P = '.decklight-theme-picker';
+        const rowsText = () => [...document.querySelectorAll(`${P} .tp-row`)].map((x) => x.firstChild?.textContent ?? x.textContent);
+        const posts = (route) => CALLS.post.filter((c) => c.u.includes(route));
+        const toastSays = (re) => [...document.querySelectorAll('.decklight-toast')].some((n) => re.test(n.textContent));
+        const cs = () => getComputedStyle(document.querySelector('.decklight'));
+        try { localStorage.removeItem('decklight-style-clip'); } catch { /* ignore */ }
+        await settle();
+        press('t');
+        await settle();
+        r.pickerHeldToTheBrand = JSON.stringify(rowsText()) === JSON.stringify(['acme-dark', 'acme-light', '◇ Show every theme…']);
+        r.noGenerateRow = !document.querySelector(`${P} .tp-gen`);
+        // ⏎ on acme-dark applies it, its colours from the palette
+        press('Enter');
+        await settle();
+        r.brandThemeApplies = cs().getPropertyValue('--accent').trim().length > 0 && /var\(--acme-orange-500/.test(document.querySelector('style[data-theme="acme-dark"]').textContent)
+          && document.querySelector('style[data-theme="acme-dark"]').media !== 'not all';
+        r.pickWrittenToTheDeck = posts('/deck/edit/theme').some((c) => c.body.theme === 'acme-dark');
+        // the cycle keys stay on the brand
+        press('.');
+        await settle();
+        r.cycleStaysOnBrand = document.querySelector('style[data-theme="acme-light"]').media !== 'not all';
+        press(',');
+        // ⌃T: no generated theme on a deck held to its brand
+        press('t', { ctrlKey: true });
+        r.generateRefused = toastSays(/keeps to Acme Brand's themes/) && !document.querySelector('style[data-theme^="gen-"]');
+        // the lock's switch: every theme listed, written to the deck; and back
+        press('t'); await settle();
+        const unlock = [...document.querySelectorAll(`${P} .tp-row`)].find((x) => /Show every theme/.test(x.textContent));
+        unlock?.click();
+        await settle();
+        r.unlockWritten = posts('/deck/edit/brand-themes').at(-1)?.body.only === false;
+        r.unlockListsEveryTheme = rowsText().some((t) => /Default|Classics|all themes/i.test(t)) && rowsText().some((t) => /Only Acme Brand's themes/.test(t));
+        [...document.querySelectorAll(`${P} .tp-row`)].find((x) => /Only Acme Brand/.test(x.textContent))?.click();
+        await settle();
+        r.lockWritten = posts('/deck/edit/brand-themes').at(-1)?.body.only === true && rowsText().includes('acme-dark') && !rowsText().some((t) => /all themes/i.test(t));
+        escapeUntilClosed(P);
+
+        // Colors…: no Custom, the palette by scale, the theme's roles marked
+        deck.goto(5);
+        await settle();
+        const off = document.querySelector('.bt-off'), plain = document.querySelector('.bt-plain');
+        off.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+        [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.firstChild?.textContent === 'Colors…')?.click();
+        await settle();
+        const C = '.decklight-colorpicker';
+        r.noCustomTab = !!document.querySelector(C) && !document.querySelector(`${C} .cp-tabs`);
+        r.paletteByScale = document.querySelectorAll(`${C} .cp-swatches.cp-scale`).length === 3
+          && document.querySelectorAll(`${C} .cp-scale .cp-swatch`).length === 30;
+        r.rolesMarked = /Primary/.test(document.querySelector(`${C} .cp-swatch[data-token="--acme-orange-500"]`)?.dataset.roles ?? '');
+        escapeUntilClosed('.decklight-inspector');
+
+        // Paste style: the copied literal green lands on the nearest swatch
+        const chord = (c) => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: c === 'KeyC' ? 'ç' : '√', code: c, metaKey: true, altKey: true, bubbles: true, cancelable: true }));
+        off.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        chord('KeyC');
+        plain.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        chord('KeyV');
+        await settle();
+        const fill = posts('/deck/edit/element/style').at(-1)?.body.edits?.find((e) => e.prop === 'fill');
+        r.pasteSnapsToTheBrand = /^var\(--acme-green-\d+, #[0-9a-f]{6}\)$/.test(fill?.value ?? '') && toastSays(/on the brand's palette: green-\d+/);
+        r.PASS = Object.values(r).every((v) => v === true);
       }
 
       if (mode === 'copystyle') {

@@ -97,7 +97,7 @@ const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts
   '--host', '--root', '--branch', '--into', '--upstream-every'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
-import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime, setDeckTheme } from './runtime-link.mjs';
+import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime, setDeckTheme, setDeckBrandThemesOnly } from './runtime-link.mjs';
 import { linkAddedThemes } from './theme-refs.mjs';
 import { linkDesignSystems } from './design-system-refs.mjs';
 import { linkFonts } from './font-refs.mjs';
@@ -1026,6 +1026,7 @@ const WRITE_LABELS = {
   '/deck/edit/redo': 'redo (⇧Z)',
   '/deck/edit/restore': 'restored from git',
   '/deck/edit/theme': 'theme picked',
+  '/deck/edit/brand-themes': 'brand themes set',
   '/deck/edit/theme/add': 'theme added',
   '/deck/edit/theme/mark': 'theme marked',
   '/deck/edit/font/mark': 'font marked',
@@ -2368,6 +2369,27 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (inPlace === true) {
         quietWrite = readDeck();
         broadcast('theme', { theme, from: typeof from === 'string' ? from.slice(0, 64) : null });
+      }
+    }
+    return json(200, { ok: true, changed, inPlace: changed && inPlace === true, ...history.counts() });
+  }
+  /**
+   * `POST /deck/edit/brand-themes` `{ only, quiet?, from? }`: whether the
+   * picker holds this deck to its design systems' own themes (SPEC
+   * BRAND_PALETTE) — the picker's *Show every theme* and *Only <brand>'s
+   * themes* rows. Quiet and in place like a theme pick; every other page reloads.
+   */
+  function brandThemesRoute({ body, json }) {
+    const { only, quiet: inPlace, from } = JSON.parse(body || '{}');
+    if (typeof only !== 'boolean') return json(400, { ok: false, error: 'only is true or false' });
+    let unwritable = false;
+    const changed = applyEdit((html) => { const next = setDeckBrandThemesOnly(html, only); if (next === null) unwritable = true; return next ?? html; });
+    if (unwritable) return json(409, { ok: false, error: 'this deck carries no configuration block to record it in — decklight upgrade --link <deck.html> gives it one' });
+    if (changed) {
+      console.log(`  brand themes only: ${only}`);
+      if (inPlace === true) {
+        quietWrite = readDeck();
+        broadcast('styles', { slide: 1, index: 0, from: typeof from === 'string' ? from.slice(0, 64) : null });
       }
     }
     return json(200, { ok: true, changed, inPlace: changed && inPlace === true, ...history.counts() });
@@ -3746,6 +3768,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'GET /deck/review/at': reviewAtRoute,
 
     'POST /deck/edit/theme': themeRoute,
+    'POST /deck/edit/brand-themes': brandThemesRoute,
     'GET /deck/edit/theme/browse': themeBrowseRoute,
     'POST /deck/edit/theme/add': themeAddRoute,
     'POST /deck/edit/theme/mark': themeMarkRoute,

@@ -446,6 +446,8 @@
 .decklight-theme-picker .tp-row.tp-marked,
 .decklight-theme-picker .tp-row.tp-unmarked { text-transform: none; }
 .decklight-theme-picker .tp-row.tp-unmarked { color: #b9bec8; }
+/* the brand lock's switch (SPEC BRAND_PALETTE) is a sentence, not a theme name */
+.decklight-theme-picker .tp-row.tp-brandlock { text-transform: none; color: #b9bec8; }
 .decklight-theme-picker .tp-row {
   padding: 7px 12px;
   border-radius: 8px;
@@ -2474,6 +2476,18 @@
 }
 .decklight-colorpicker .cp-compact .cp-chip { width: 28px; height: 22px; }
 .decklight-colorpicker .cp-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a brand palette (SPEC BRAND_PALETTE): one tight row per colour, 100 to 1000;
+   a swatch the theme on screen uses carries a dot (its title names the role),
+   and a weight the engine derived is drawn dashed */
+.decklight-colorpicker .cp-scalebox .cp-group { margin: 5px 2px 2px; }
+.decklight-colorpicker .cp-swatches.cp-scale { grid-template-columns: repeat(10, 1fr); gap: 1px; }
+.decklight-colorpicker .cp-scale .cp-swatch { position: relative; padding: 2px 0 3px; font-size: 9.5px; }
+.decklight-colorpicker .cp-scale .cp-chip { width: 100%; max-width: 24px; height: 18px; border-radius: 4px; }
+.decklight-colorpicker .cp-scale .cp-swatch.cp-derived .cp-chip { box-shadow: none; outline: 1px dashed rgba(255, 255, 255, .55); outline-offset: -1px; }
+.decklight-colorpicker .cp-scale .cp-swatch.cp-has-role::after {
+  content: ''; position: absolute; top: 4px; right: 50%; transform: translateX(10px);
+  width: 5px; height: 5px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6);
+}
 .decklight-colorpicker .cp-chan { display: flex; align-items: center; gap: 8px; padding: 3px 2px; font-size: 12.5px; }
 .decklight-colorpicker .cp-chan-name { width: 24px; color: #b9bec8; }
 .decklight-colorpicker .cp-range { flex: 1; min-width: 0; accent-color: #9ecbff; }

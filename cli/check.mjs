@@ -51,6 +51,8 @@ import { isTemplateRef, parseTemplateRef } from '../tools/design-system-format.m
 import { auditDeck } from './audit.mjs';
 import { designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
 import { markedSources } from './theme-refs.mjs';
+import { parseColor, toOklab } from '../tools/color.mjs';
+import { ON_PALETTE_DISTANCE } from '../tools/brand-palette.mjs';
 import { printUrl } from './pdf.mjs';
 import { runMain } from './util.mjs';
 
@@ -379,10 +381,48 @@ export function deckDesignSystems(html) {
     const r = resolveDesignSystemRef(ref, undefined, { source: sources[ref.marketplace] ?? null });
     const verdict = r.dir ? packageVerdict(r.dir) : null;
     const missing = r.missing ?? (verdict.ok ? null : verdict.why);
+    const brand = verdict?.summary?.brand;
     out.set(ref.name, missing ? { ref: ref.ref, missing }
-      : { ref: ref.ref, templates: new Map((verdict.summary?.templates ?? []).map((l) => [l.id, l.slots])) });
+      : {
+        ref: ref.ref, templates: new Map((verdict.summary?.templates ?? []).map((l) => [l.id, l.slots])),
+        // a palette of scales and its own themes (SPEC BRAND_PALETTE): what off-palette-literal holds slides to
+        ...(brand ? { palette: brand.palette.map((e) => ({ ref: e.ref, hex: e.hex })), themes: brand.themes.length } : {}),
+      });
   }
   return out;
+}
+
+// ── the brand's palette (SPEC BRAND_PALETTE) ─────────────────────────────────
+
+/** Colour literals a slide's markup writes: in a fill/stroke/color attribute or a style. */
+const LITERAL = /#[0-9a-f]{6}\b|#[0-9a-f]{3}\b|rgba?\([^)]*\)/gi;
+const COLOUR_ATTRS = ['fill', 'stroke', 'color', 'bgcolor', 'stop-color'];
+const COLOUR_DECL = /(?:^|;)\s*(?:color|background(?:-color)?|fill|stroke|border(?:-(?:top|right|bottom|left))?(?:-color)?|outline(?:-color)?|stop-color)\s*:\s*([^;]+)/gi;
+
+/** `{ swatches: [{ ref, lab }] }` when the deck is held to a brand palette — its own themes, not unlocked — else null. */
+function brandHold(src, systems) {
+  const config = (() => { try { return JSON.parse(/<script[^>]*data-decklight-config[^>]*>([\s\S]*?)<\/script>/i.exec(src)?.[1] ?? 'null'); } catch { return null; } })();
+  if (config?.brandThemesOnly === false) return null;
+  const swatches = [];
+  let themes = 0;
+  for (const sys of systems.values()) {
+    themes += sys.themes ?? 0;
+    for (const e of sys.palette ?? []) swatches.push({ ref: e.ref, lab: toOklab(parseColor(e.hex)) });
+  }
+  return themes && swatches.length ? { swatches } : null;
+}
+
+/** The palette swatch nearest a literal, and how far (OKLab). */
+function nearestOf(hold, literal) {
+  const c = parseColor(literal);
+  if (!c) return null;
+  const lab = toOklab(c.slice(0, 3));
+  let best = null;
+  for (const s of hold.swatches) {
+    const d = Math.hypot(lab[0] - s.lab[0], lab[1] - s.lab[1], lab[2] - s.lab[2]);
+    if (!best || d < best.d) best = { ref: s.ref, d };
+  }
+  return best;
 }
 
 const slotList = (slots) => `${slots.map((s) => `${s.name}${s.required ? '*' : ''}`).join(', ')}${slots.some((s) => s.required) ? '; * = required' : ''}`;
@@ -450,6 +490,7 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
   // read is said once, its slides' layouts and slots skipped, not guessed.
   const configured = designSystemRefs(src);
   const systems = configured.length ? designSystems(src) : new Map();
+  const hold = brandHold(src, systems);
   for (const [, sys] of systems) {
     if (sys.missing) {
       out.push(finding('warn', 'ds-unresolved', null, 'head',
@@ -502,6 +543,24 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       if (!a['data-concept']) continue;
       const own = a.fill && a.fill !== 'none' ? `fill="${a.fill}"` : /(?:^|;)\s*fill\s*:\s*(?!none\b)[^;]+/i.test(a.style ?? '') ? 'a fill in its style' : null;
       if (own) push('concept-fill', `<${node.tag} data-concept="${a['data-concept']}"> also carries ${own} — the concept colours it, and the fill is painted over; pin the concept's slot (Concept colors…) or take the concept off (Colors… → Detach from concept)`);
+    }
+    // a deck held to its brand: every colour its slides write by hand is a palette colour
+    if (hold) {
+      const off = [];
+      for (const node of descendants(tree)) {
+        const a = readAttrs(node.attrs);
+        const values = [...COLOUR_ATTRS.map((k) => a[k]).filter(Boolean), ...[...(a.style ?? '').matchAll(COLOUR_DECL)].map((m) => m[1])];
+        for (const v of values) {
+          for (const lit of String(v).match(LITERAL) ?? []) {
+            const n = nearestOf(hold, lit);
+            if (n && n.d > ON_PALETTE_DISTANCE && !off.some((o) => o.lit === lit)) off.push({ lit, near: n.ref });
+          }
+        }
+      }
+      if (off.length) {
+        push('off-palette-literal', `${off.slice(0, 3).map((o) => `${o.lit} (nearest ${o.near})`).join(', ')}${off.length > 3 ? ` and ${off.length - 3} more` : ''}`
+          + ` ${off.length === 1 ? 'is' : 'are'} not in the brand's palette — this deck keeps to it: pick a swatch in Colors…, or set "brandThemesOnly": false`);
+      }
     }
     if (attrs['data-template']) {
       designSystemFindings(attrs['data-template'], tree, systems, configured.map((r) => r.ref),

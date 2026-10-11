@@ -46,7 +46,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, scriptSafe, runMain } from './util.mjs';
 import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
-import { configBlock, firstExecutableScript, hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
+import { configBlock, configTheme, firstExecutableScript, hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
 import { addedThemeStyle, markedRefs, markedShipped, markedSources, resolveThemeRef, stillValid } from './theme-refs.mjs';
 import { bundleDesignSystem, designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
 import { bundleFont, fontRefs, fontVerdict, resolveFontRef } from './font-refs.mjs';
@@ -535,8 +535,11 @@ const fontsLeftOut = [];   // { ref, why }
   for (const x of fontsLeftOut) notices.push(`font ${x.ref} not carried — ${x.why}; the theme's own font stack shows instead`);
 }
 if (openOn !== null && !/^[\w-]+$/.test(openOn)) fail(`--theme ${JSON.stringify(openOn)} is not a theme name`);
-if (openOn && !ownTheme && !markedNames.includes(openOn) && !themeNames.includes(openOn)) themeNames.push(openOn);
-themeNames = themeNames.filter((n) => !markedNames.includes(n));
+// a design system's own themes (SPEC BRAND_PALETTE) come in its blocks, like a marked theme's
+const brandNames = systems.flatMap((s) => s.block.brandThemes ?? []);
+const carried = (n) => markedNames.includes(n) || brandNames.includes(n);
+if (openOn && !ownTheme && !carried(openOn) && !themeNames.includes(openOn)) themeNames.push(openOn);
+themeNames = themeNames.filter((n) => !carried(n));
 // A marked SHIPPED theme travels too: embedded beside the one the file opens
 // on, whatever --themes chose, because marking it is how the author said so.
 const markedShippedNames = markedShipped(sourceHtml).filter((n) => !themeNames.includes(n));
@@ -585,7 +588,7 @@ if (openOn) {
       ? block.inner.replace(/"theme"\s*:\s*"[^"]*"/, `"theme": ${JSON.stringify(openOn)}`)
       : block.inner.replace('{', `{ "theme": ${JSON.stringify(openOn)},`);
     html = html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd);
-  } else if (markedNames.includes(openOn)) {
+  } else if (carried(openOn)) {
     fail(`--theme ${openOn}: the deck has no configuration block to open it from`);
   }
 }
@@ -840,7 +843,8 @@ process.stdout.write(`  runtime  decklight ${PKG.version} — ${runtimeFrom}\n`)
 // is there — marked, or asked for with --themes — and where one came from when
 // it was not this install (a themes/ folder beside the deck, a marketplace).
 {
-  const opening = openOn ?? (ownTheme ? themeNames[0] : activeTheme);
+  // a brand theme opens on top of the base, which is then the one embedded as active
+  const opening = (openOn && !brandNames.includes(openOn) ? openOn : null) ?? (ownTheme ? themeNames[0] : activeTheme);
   const tagged = (n, ...why) => {
     const bits = [...why, ownThemeFiles.has(n) ? 'own file' : null].filter(Boolean);
     return bits.length ? `${n} (${bits.join(', ')})` : n;
@@ -856,6 +860,13 @@ process.stdout.write(`  runtime  decklight ${PKG.version} — ${runtimeFrom}\n`)
     byMarket.set(m, [...(byMarket.get(m) ?? []), r.name]);
   }
   for (const [m, names] of byMarket) parts.push(`${names.join(', ')} (marked, from ${m})`);
+  // the design systems' own themes, and the one it opens on when that is one of them
+  const opensBrand = [openOn, configTheme(html)].find((n) => n && brandNames.includes(n));
+  if (opensBrand) parts[0] = tagged(opening, 'under it');
+  for (const s of systems) {
+    const names = s.block.brandThemes ?? [];
+    if (names.length) parts.push(`${names.map((n) => (n === opensBrand ? `${n} (opens on)` : n)).join(', ')} (${s.name}'s own)`);
+  }
   process.stdout.write(`  themes   ${parts.join(' · ')}\n`);
 }
 // The design systems: name, version, the catalog it came from, what went in.

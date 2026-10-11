@@ -26,6 +26,7 @@
 // references, and the CSS reaches nothing outside its own package.
 
 import { SEMVER_RE } from './semver.mjs';
+import { readScales, expandThemes, paletteEntries, offPaletteTokens, WEIGHTS } from './brand-palette.mjs';
 
 /**
  * The design-system package contract's own version (SPEC DESIGN_SYSTEMS) —
@@ -34,7 +35,10 @@ import { SEMVER_RE } from './semver.mjs';
  * reorganisation. A package declares the lowest version it needs; this
  * decklight reads anything at or below it.
  */
-export const DESIGN_SYSTEM_API_VERSION = 1;
+export const DESIGN_SYSTEM_API_VERSION = 2;
+
+/** The format version a scale palette and brand themes need (SPEC BRAND_PALETTE). */
+export const BRAND_API_VERSION = 2;
 
 /** What an asset may be. SVG is the executable one, and gets the deep scan. */
 export const ASSET_EXTENSIONS = ['svg', 'png', 'jpg', 'jpeg', 'webp', 'woff2', 'woff'];
@@ -143,7 +147,11 @@ export function readManifest(raw) {
     at('manifest-field', 'tokenPrefix', `tokenPrefix ${JSON.stringify(m.tokenPrefix)} — a custom-property prefix ending in -, e.g. "--acme-"`);
   }
   if (m.palette !== undefined) {
-    if (!Array.isArray(m.palette)) at('manifest-field', 'palette', 'palette must be an array of { group, label, token }');
+    const scales = m.palette && typeof m.palette === 'object' && !Array.isArray(m.palette);
+    if (scales) {
+      // a palette of scales (SPEC BRAND_PALETTE): shaped by readScales in checkPackage
+      if (Number.isInteger(m.apiVersion) && m.apiVersion < BRAND_API_VERSION) at('manifest-field', 'palette', `a palette of scales needs apiVersion ${BRAND_API_VERSION} — an older decklight reads palette as a list and would refuse it`);
+    } else if (!Array.isArray(m.palette)) at('manifest-field', 'palette', 'palette must be { colors: { <name>: { label, weights } } } (a palette of scales) or an array of { group, label, token }');
     else {
       m.palette.forEach((p, i) => {
         if (!p || typeof p.label !== 'string' || typeof p.token !== 'string' || !/^--[A-Za-z0-9_-]+$/.test(p.token)
@@ -153,6 +161,11 @@ export function readManifest(raw) {
       });
     }
   }
+  if (m.themes !== undefined) {
+    if (!Array.isArray(m.themes)) at('manifest-field', 'themes', 'themes must be an array of { name, title, mode, tokens }');
+    else if (!(m.palette && typeof m.palette === 'object' && !Array.isArray(m.palette))) at('manifest-field', 'themes', 'themes are drawn from a palette of scales — palette must be { colors: { … } } (SPEC BRAND_PALETTE)');
+    else if (Number.isInteger(m.apiVersion) && m.apiVersion < BRAND_API_VERSION) at('manifest-field', 'themes', `themes need apiVersion ${BRAND_API_VERSION}`);
+  }
   if (m.recommendedThemes !== undefined && (!Array.isArray(m.recommendedThemes) || !m.recommendedThemes.every((t) => typeof t === 'string'))) {
     at('manifest-field', 'recommendedThemes', 'recommendedThemes must be an array of theme names');
   }
@@ -160,6 +173,13 @@ export function readManifest(raw) {
     at('manifest-field', 'recommendedFonts', 'recommendedFonts must be an array of font names — a font package (name or name@marketplace) or a font-picker stack');
   }
   return { manifest: m, problems };
+}
+
+/** A theme file's custom properties, `{ '--name': value }` — for holding a recommended theme to the palette. */
+function parseThemeTokens(css) {
+  const out = {};
+  for (const m of String(css ?? '').replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)) out[m[1].toLowerCase()] = m[2].trim();
+  return out;
 }
 
 /** The token prefix a manifest holds its CSS to. */
@@ -485,6 +505,45 @@ export function checkPackage(pkg) {
     }
   });
 
+  // ── a palette of scales, and the themes drawn from it (SPEC BRAND_PALETTE)
+  const notes = [];
+  const scaled = manifest.palette && typeof manifest.palette === 'object' && !Array.isArray(manifest.palette);
+  if (scaled && prefix && !mp.some((p) => p.rule === 'api-too-new')) {
+    const read = readScales(manifest.palette);
+    const atKey = (key) => (p) => ({ file: 'design-system.json', line: keyLine(pkg.manifest, key), ...p });
+    problems.push(...read.problems.map(atKey('palette')));
+    notes.push(...read.notes.map(atKey('palette')));
+    if (!read.problems.length) {
+      // the manifest is the one source of a swatch: the stylesheet reads it, never redefines it
+      const swatch = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(${Object.keys(read.scales).join('|')})-(${WEIGHTS.join('|')})$`);
+      for (const t of tokens) {
+        if (swatch.test(t.name)) problems.push({ file: stylesPath, line: t.line, rule: 'palette-redefined', msg: `${t.name} is a swatch of the palette — the server defines it from design-system.json; read it with var(), never redefine it here` });
+      }
+      const shipped = new Set(pkg.shippedThemes ?? []);
+      const ex = expandThemes(read, Array.isArray(manifest.themes) ? manifest.themes : [], prefix);
+      problems.push(...ex.problems.map(atKey('themes')));
+      notes.push(...ex.notes.map(atKey('themes')));
+      for (const t of ex.themes) {
+        if (shipped.has(t.name)) problems.push({ file: 'design-system.json', line: keyLine(pkg.manifest, 'themes'), rule: 'theme-name', msg: `themes: "${t.name}" is a theme decklight ships — a brand theme takes a name of its own` });
+      }
+      // a recommended theme from outside, held to the palette it is recommended for
+      for (const [name, css] of Object.entries(pkg.recommendedThemeCss ?? {})) {
+        const off = offPaletteTokens(read.scales, parseThemeTokens(css));
+        if (off.length) {
+          warnings.push({ file: 'design-system.json', line: keyLine(pkg.manifest, 'recommendedThemes'), rule: 'recommended-off-palette',
+            msg: `recommends ${name}, whose ${off.slice(0, 4).map((o) => `${o.token} ${o.value} (nearest ${o.nearest})`).join(', ')}${off.length > 4 ? ` and ${off.length - 4} more` : ''} ${off.length === 1 ? 'is' : 'are'} not in the palette` });
+        }
+      }
+      summary.brand = {
+        neutral: read.neutral,
+        palette: paletteEntries(read.scales, prefix),
+        scales: Object.values(read.scales).map((sc) => ({ name: sc.name, label: sc.label, role: sc.role, derived: sc.derived })),
+        themes: ex.themes.map((t) => ({ name: t.name, title: t.title ?? t.name, mode: t.mode, css: t.css, refs: t.refs, stated: t.stated, chosen: t.chosen })),
+      };
+    }
+  }
+  summary.notes = notes;
+
   const assets = [];
   for (const [path, f] of files) {
     // the stylesheet and templates the manifest names — or, when it names them
@@ -506,7 +565,8 @@ export function checkPackage(pkg) {
     if (e === 'svg') problems.push(...svgProblems(f.text ?? '').map((p) => ({ file: path, ...p })));
   }
   summary.assets = assets;
-  summary.palette = Array.isArray(manifest.palette) ? manifest.palette.length : 0;
+  summary.palette = Array.isArray(manifest.palette) ? manifest.palette.length
+    : summary.brand ? `${summary.brand.scales.length} colours, ${summary.brand.palette.length} swatches${summary.brand.palette.some((e) => e.derived) ? ` (${summary.brand.palette.filter((e) => e.derived).length} derived)` : ''}` : 0;
   summary.recommendedThemes = manifest.recommendedThemes ?? [];
   summary.recommendedFonts = manifest.recommendedFonts ?? [];
   return { ok: problems.length === 0, problems, warnings, summary };

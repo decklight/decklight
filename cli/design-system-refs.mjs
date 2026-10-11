@@ -124,9 +124,12 @@ export function packageVerdict(dir) {
 /** What the page is told about a package: the facts the engine and the palette read. */
 export function designSystemMeta(verdict) {
   const m = verdict.manifest ?? {};
+  const brand = verdict.summary?.brand ?? null;
   return {
     name: m.name, version: m.version, title: m.title,
-    palette: Array.isArray(m.palette) ? m.palette : [],
+    // a palette of scales (SPEC BRAND_PALETTE) is told as one entry per swatch, a colour's ten in a row
+    palette: brand ? brand.palette : Array.isArray(m.palette) ? m.palette : [],
+    ...(brand ? { scales: true, themes: brand.themes.map(({ name, title, mode, refs }) => ({ name, title, mode, refs })) } : {}),
     // the themes it is made to sit on — the theme picker lists them first
     recommendedThemes: Array.isArray(m.recommendedThemes) ? m.recommendedThemes.filter((t) => typeof t === 'string') : [],
     // …and the fonts (SPEC FONTS) — the font picker lists them first
@@ -140,6 +143,28 @@ export const designSystemHref = (marketplace, name, path) => `decklight-design-s
 
 /** JSON safe inside a <script> — the manifest is somebody else's file. */
 const scriptJson = (value) => JSON.stringify(value).replace(/</g, '\\u003c');
+
+/**
+ * A design system's palette of scales and its brand themes, as the page gets
+ * them (SPEC BRAND_PALETTE) — the same tags from every server and from
+ * `bundle`: the swatches as tokens, defined from the manifest, and each theme
+ * as an added theme (`<style data-theme data-theme-added media="not all">`,
+ * the shape a bundle's marked theme has), tagged with the design system it
+ * belongs to so the picker can hold a deck to its brand. Nothing for a
+ * package without a scale palette.
+ */
+export function brandTags(name, verdict) {
+  const brand = verdict.summary?.brand;
+  if (!brand) return [];
+  const sys = escapeHtml(name);
+  const title = escapeHtml(String(verdict.manifest?.title ?? name));
+  const lines = brand.palette.map((e) => `  ${e.token}: ${e.hex};`).join('\n');
+  const safe = (css) => css.replace(/<\/(style)/gi, '<\\/$1');
+  return [
+    `<style data-design-system-palette="${sys}">\n.decklight {\n${lines}\n}\n</style>`,
+    ...brand.themes.map((t) => `<style data-theme="${escapeHtml(t.name)}" data-theme-added data-design-system-theme="${sys}" data-theme-source="${title}" media="not all">\n${safe(t.css)}</style>`),
+  ];
+}
 
 /**
  * A deck's design systems, linked into the page on its way out — what every
@@ -171,6 +196,7 @@ export function linkDesignSystems(html, home = configHome(), { log = null } = {}
       tags.push(`<link rel="stylesheet" href="${designSystemHref(r.local, r.name, verdict.manifest.styles)}" data-design-system="${name}">`);
       tags.push(`<script type="application/json" data-design-system-meta="${name}">${scriptJson(designSystemMeta(verdict))}</script>`);
       tags.push(`<template data-design-system-templates="${name}">\n${verdict.templatesHtml.trim()}\n</template>`);
+      tags.push(...brandTags(ref.name, verdict));
     } else {
       tags.push(`<meta name="decklight-design-system-missing" content="${escapeHtml(`${ref.ref} — ${r.missing}`)}">`);
       log?.(`design system ${ref.ref}: ${r.missing}`);
@@ -248,9 +274,12 @@ export function bundleDesignSystem(r, verdict) {
       `<style data-design-system="${name}" data-design-system-version="${escapeHtml(String(m.version ?? ''))}">\n${safe}\n</style>`,
       `<script type="application/json" data-design-system-meta="${name}">${scriptJson(designSystemMeta(verdict))}</script>`,
       `<template data-design-system-templates="${name}">\n${verdict.templatesHtml.trim()}\n</template>`,
+      ...brandTags(r.name, verdict),
     ],
     assets: inlined.assets, bytes: inlined.bytes, external: inlined.external,
     templates: verdict.summary?.templates?.length ?? 0,
+    // its own themes (SPEC BRAND_PALETTE): carried in `tags`, never looked up in themes/
+    brandThemes: (verdict.summary?.brand?.themes ?? []).map((t) => t.name),
   };
 }
 
