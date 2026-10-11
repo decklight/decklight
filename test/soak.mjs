@@ -1053,9 +1053,10 @@ try {
       DECK_URL_RE);
     must(second.port !== editSrv.port, 'the second session bound a port that was already taken');
     const log = second.log();
-    must(new RegExp(`port ${editSrv.port} is already in use — decklight is editing "deck\\.html" there; using a different port`).test(log),
+    // one banner row (#752): who has the port, and where this one went
+    must(new RegExp(`port\\s+${editSrv.port} has another decklight editing "deck\\.html"`).test(log),
       `the second session did not name who has the port: ${log}`);
-    must(new RegExp(`→ using port ${second.port}`).test(log), 'the port it moved to is not the one announced');
+    must(new RegExp(`— this one is on ${second.port}\\b`).test(log), 'the port it moved to is not the one announced');
     for (const srv of [editSrv, second]) {
       const ping = await (await get(srv.base, '/deck/ping')).json();
       must(ping.ok === true && ping.name === 'deck.html', `a session stopped answering: ${JSON.stringify(ping)}`);
