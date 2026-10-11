@@ -5234,7 +5234,7 @@
         await settle();
         r.menuOffersConcept = rows().includes('Concept ▸') && rows().includes('Colors…');
         rowNamed('Concept ▸').click();
-        r.submenu = rows().includes('● agent') && rows().includes('○ tools') && rows().includes('New concept…') && rows().includes('none (detach)');
+        r.submenu = rows().includes('● agent') && rows().includes('○ tools') && rows().includes('New concept…') && rows().includes('none (detach)') && rows().includes('Edit concepts…');
         rowNamed('none (detach)').click();
         await settle();
         const detach = lastConceptWrite();
@@ -5242,6 +5242,18 @@
         r.detachPostsTheHolder = detach?.slide === 5 && detach.index === 1 && detach.concept === null && detach.tag === 'g' && JSON.stringify(detach.path) === '[0]';
         r.detachIsInPlace = !q('.cc-group').hasAttribute('data-concept');
         q('.cc-group').setAttribute('data-concept', 'agent');   // back, for the menus below
+        // Edit concepts… at the foot of the submenu: the concept list, opened on this shape's concept
+        rightClick(q('.cc-tools'));
+        await settle();
+        rowNamed('Concept ▸').click();
+        r.editRowLast = rows().at(-1) === 'Edit concepts…';
+        rowNamed('Edit concepts…').click();
+        await settle();
+        r.editOpensTheList = !!q('.decklight-concepts') && !q(M)
+          && q('.decklight-concepts .cc-row.narr-sel')?.dataset.name === 'tools';
+        press('Escape');
+        await settle();
+        r.editListCloses = !q('.decklight-concepts');
         // a plain shape offers Concept ▸ too: the deck's names, none marked, and a typed new one
         rightClick(plain);
         await settle();
@@ -5318,7 +5330,8 @@
         await settle();
         r.eventRepaints = agent.style.fill === 'var(--d-fill-5)' && tools.style.fill === 'var(--d-fill-2)' && CALLS.post.filter((c) => c.u.includes('/deck/edit/concepts')).length === 3;
 
-        r.PASS = r.paintedOnLoad && r.menuOffersConcept && r.submenu && r.detachPostsTheHolder && r.detachIsInPlace && r.plainSubmenu && r.inputRow
+        r.PASS = r.paintedOnLoad && r.menuOffersConcept && r.submenu && r.detachPostsTheHolder && r.detachIsInPlace
+          && r.editRowLast && r.editOpensTheList && r.editListCloses && r.plainSubmenu && r.inputRow
           && r.newNamePostsTheShape && r.fillIsANotice && r.strokeStillPicks && r.cardDetaches && r.plainCardUnchanged
           && r.paletteRow && r.listsEveryConcept && r.repaintsAtOnce && r.pinPostsTheMap && r.listFollows
           && r.refusedRepaintsFirst && r.refusedGoesBack && r.zeroUnpins && r.escapeCloses && r.eventRepaints;

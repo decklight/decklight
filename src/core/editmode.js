@@ -1746,6 +1746,8 @@ export function createEditMode({
       for (const name of names) rows.push({ label: `${here?.name === name ? '● ' : '○ '}${name}`, run: () => commitConcept(here?.name === name ? null : name) });
       rows.push({ label: 'New concept…', input: true, run: () => askConceptName() });
       if (here?.name) rows.push({ label: 'none (detach)', run: () => commitConcept(null) });
+      // the whole list, from where the question came up: colours, pins, which slides use each (Concept colors…)
+      if (editConcepts) rows.push({ label: 'Edit concepts…', run: () => { closeElementMenu(); editConcepts(here?.name ?? null); } });
     } else if (menuView === 'slide') {
       // opened from the bar's Slide ▾ there is nothing to go back to
       if (!menuTarget.fromBar) rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
@@ -1912,6 +1914,7 @@ export function createEditMode({
   }
   let conceptTools = null;
   let styleClip = null;   // copy style / paste style (style-clip.js), handed in by the engine
+  let editConcepts = null;   // the engine's door to Concept colors… (`fn(name)`), for the Concept ▸ submenu
   /**
    * Where a shape's concept lives in the FILE: `{ slide, index, path, tag,
    * name, el }` for the element that carries (or would carry) its
@@ -3215,6 +3218,8 @@ export function createEditMode({
     setConceptTools: (t) => { conceptTools = t; },
     /** The engine's style clipboard (style-clip.js): the menu's Copy style and Paste style rows. */
     setStyleClip: (c) => { styleClip = c; },
+    /** The door to the concept list (Concept colors…), opened on a concept: the submenu's Edit concepts…. */
+    setEditConcepts: (fn) => { editConcepts = fn; },
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
     slideOp,
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside write mode. */

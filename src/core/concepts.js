@@ -411,8 +411,9 @@ export function createConceptsEditor({
     if (i >= 0) select(i);
   }
 
-  function open() {
-    if (el) return;
+  /** Open the list; `select` puts the cursor on that concept's row (the menu's Edit concepts…). */
+  function open({ select: name = null } = {}) {
+    if (el) { if (name) selectNamed(name); return; }
     if (base() === null) { toast('concept colors are set in write mode — decklight <deck.html>', 3200); return; }
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-record decklight-concepts';
@@ -422,6 +423,11 @@ export function createConceptsEditor({
     sel = 0;
     naming = false;
     render();
+    if (name) selectNamed(name);
+  }
+  function selectNamed(name) {
+    const i = rows.findIndex((r) => r.name === name);
+    if (i >= 0) select(i);
   }
 
   function close() {

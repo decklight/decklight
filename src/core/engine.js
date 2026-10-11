@@ -2755,6 +2755,7 @@ export function init(userConfig = {}) {
     debugLog: (...a) => debugLog(...a),
   });
   editmode.setStyleClip(styleClip);
+  editmode.setEditConcepts((name) => conceptsEditor.open({ select: name }));
   instance._concepts = { tools: conceptTools, editor: conceptsEditor };
   // an add left a look to offer, before the reload it caused (SPEC
   // DESIGN_SYSTEMS): offered once the page knows it is authoring
