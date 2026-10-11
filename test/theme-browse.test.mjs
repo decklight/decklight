@@ -177,7 +177,7 @@ async function reloadWithin(base, ms, during) {
   await new Promise((ok) => setTimeout(ok, ms));
   ctrl.abort();
   await reading;
-  return /^data: reload$/m.test(seen);
+  return /^data: {"reload"/m.test(seen);
 }
 
 test('a mark from the open picker updates it in place — the page is not reloaded under it', async (t) => {

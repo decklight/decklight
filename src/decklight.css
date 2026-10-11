@@ -2099,6 +2099,8 @@
 .decklight-debug .dbg-theme .dbg-k { color: #b7a3ff; }
 .decklight-debug .dbg-narr .dbg-k { color: #8fd6a8; }
 .decklight-debug .dbg-tts .dbg-k { color: #7fb8ff; }
+.decklight-debug .dbg-prev { opacity: .5; }
+.decklight-debug .dbg-reload .dbg-k, .decklight-debug .dbg-reload .dbg-m { color: #ffd27f; }
 
 /* closed captions (C) — the current notes segment, youtube-style */
 .decklight-captions {

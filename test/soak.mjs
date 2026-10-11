@@ -915,7 +915,7 @@ try {
           const { value, done } = await reader.read();
           if (done) return false;
           buf += dec.decode(value, { stream: true });
-          if (/^data: reload$/m.test(buf)) { ctrl.abort(); return true; }
+          if (/^data: {"reload"/m.test(buf)) { ctrl.abort(); return true; }
         }
       } catch { return false; }
     })();

@@ -64,6 +64,7 @@ import { resolve, relative, dirname, sep, basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { agentAsk, agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, claudeActivity } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 import { readyLine } from './banner.mjs';
@@ -996,6 +997,62 @@ export function setSlideElementBuild(html, slide, index, effect) {
  * land on the opposite stack, so nothing is silently lost) and return what
  * to write, or null when the stack is empty.
  */
+/**
+ * What a write route did, in the words the page's debug log shows beside a
+ * reload (PRESENTING, debug log). The reload message names it, so a page that
+ * comes back can say WHY it went — "notes saved · this tab" rather than a
+ * bare reload, which is the one thing a log wiped by the reload cannot say.
+ */
+const WRITE_LABELS = {
+  '/deck/edit/slide/notes': 'notes saved',
+  '/deck/edit/slide/sources': 'sources saved',
+  '/deck/edit/timings': 'rehearsal timings saved',
+  '/deck/edit/slide/layout': 'layout picked',
+  '/deck/edit/slide/template': 'template switched',
+  '/deck/edit/slide/hidden': 'slide hidden or shown',
+  '/deck/edit/slide': 'slides rearranged',
+  '/deck/edit/narration': 'narration track saved',
+  '/deck/edit/narration/record': 'narration recorded',
+  '/deck/edit/element/remove': 'element removed',
+  '/deck/edit/element/content': 'element content saved',
+  '/deck/edit/element/effect': 'build effect set',
+  '/deck/edit/element/style': 'colours saved',
+  '/deck/edit/element/concept': 'concept set',
+  '/deck/edit/element/text': 'text saved',
+  '/deck/edit/element/image': 'image placed',
+  '/deck/edit/concepts': 'concept colours saved',
+  '/deck/edit/asset': 'asset added',
+  '/deck/edit/undo': 'undo (Z)',
+  '/deck/edit/redo': 'redo (⇧Z)',
+  '/deck/edit/restore': 'restored from git',
+  '/deck/edit/theme': 'theme picked',
+  '/deck/edit/theme/add': 'theme added',
+  '/deck/edit/theme/mark': 'theme marked',
+  '/deck/edit/font/mark': 'font marked',
+  '/deck/edit/design-system/apply': 'design system applied',
+  '/deck/edit/design-system/mark': 'design system marked',
+  '/deck/edit/enhance': 'script enhanced',
+  '/deck/edit/wizard': 'engine set up',
+  '/deck/upstream/pull': 'git pull',
+};
+export function whatWrote(pathname) {
+  return WRITE_LABELS[pathname] ?? `${String(pathname ?? '').replace(/^\/deck\/(edit\/)?/, '').replace(/\//g, ' ') || 'the deck'} written`;
+}
+
+/**
+ * The reason a reload carries. A write of the server's own within the last
+ * moments is that write; the file changing while an agent runs is the
+ * agent's; anything else changed on disk by a hand this server never saw —
+ * an editor, git, a tool. The page shows it as the first line after the
+ * reload, with "this tab" or "another tab" when the write said which page.
+ */
+export const RELOAD_WRITE_WINDOW_MS = 2000;
+export function describeReload({ write = null, agent = null, now = Date.now() } = {}) {
+  if (write && now - write.at <= RELOAD_WRITE_WINDOW_MS) return { reload: write.what, from: write.from ?? null };
+  if (agent) return { reload: `${agent.agent}'s edit`, from: null };
+  return { reload: 'changed on disk — an editor, git, or a tool outside this server', from: null };
+}
+
 export function createHistory(limit = 200) {
   const past = [];
   const future = [];
@@ -1401,11 +1458,25 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * their own answer — passes the finished html and that same read as
    * `before`, which is the same single read spelled the other way round.
    */
+  // Which route is writing, for the reload's reason: set around every
+  // handler (below), read by `writeDeck` — async-safe, so two requests in
+  // flight each name their own.
+  const writing = new AsyncLocalStorage();
+  let lastWrite = null;   // { at, what, from } — the server's latest write of the deck, for the watcher
+  const noteWrite = (what, from = null) => { lastWrite = { at: Date.now(), what, from }; };
+  /** The one write of the deck file: atomic, and remembered for the reload it causes. */
+  const writeDeck = (next) => {
+    writeFileAtomic(deckPath, next);
+    const ctx = writing.getStore();
+    let from = null;
+    if (ctx?.body) { try { const f = JSON.parse(ctx.body).from; if (typeof f === 'string') from = f.slice(0, 64); } catch { /* not json, or no page named */ } }
+    noteWrite(whatWrote(ctx?.route), from);
+  };
   const applyEdit = (change, before = readDeck()) => {
     const next = typeof change === 'function' ? change(before) : change;
     if (next === before) return false;
     history.record(before);
-    writeFileAtomic(deckPath, next);
+    writeDeck(next);
     return true;
   };
 
@@ -1921,6 +1992,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
     console.log(`  upstream: fast-forwarded ${from} → ${to}`);
     console.log('  the deck file changed — re-read and re-audited; the label below replaces the one above');
+    noteWrite(whatWrote('/deck/upstream/pull'));
     printLabel();
     if (audited.strict) {
       console.log(wasStrict && !(findings.unaccounted > 0 || findings.handlers > 0)
@@ -2099,10 +2171,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (quiet !== null) {
         let now = null;
         try { now = readFileSync(deckPath, 'utf8'); } catch { /* gone — reload says so */ }
-        if (now === quiet) { console.log('  changed → updated in place, no reload'); return; }
+        if (now === quiet) { lastWrite = null; console.log('  changed → updated in place, no reload'); return; }
       }
-      clients.raw('data: reload\n\n');
-      console.log(`  changed → reload × ${clients.size}`);
+      // The message names what wrote the file (`describeReload`): the page
+      // stashes it with its debug log and says it first thing after the
+      // reload. An older page reloads on any message, as it always did.
+      const why = describeReload({ write: lastWrite, agent: agentJob });
+      lastWrite = null;
+      clients.raw(`data: ${JSON.stringify(why)}\n\n`);
+      console.log(`  changed → reload × ${clients.size} — ${why.reload}${why.from ? ` (page ${why.from})` : ''}`);
     }, 150);
   });
 
@@ -2309,7 +2386,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const cur = readDeck();
     const content = history[dir](cur);
     if (content === null) return json(409, { ok: false, error: `nothing to ${dir}`, ...history.counts() });
-    writeFileAtomic(deckPath, content);
+    writeDeck(content);
     console.log(`  ${dir} → ${JSON.stringify(history.counts())}`);
     return json(200, { ok: true, ...history.counts() });
   }
@@ -2732,7 +2809,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // open. Everyone else — the export card's "mark and carry on", which
       // resumes across the reload — gets the reload.
       if (req.quiet === true) quietWrite = out.html;
-      writeFileAtomic(deckPath, out.html);
+      writeDeck(out.html);
       console.log(`  theme: ${on ? 'marked' : 'unmarked'} ${deckRef}`);
     }
     return json(200, { ok: true, ref: deckRef, marked: on, changed: out.changed, ...history.counts() });
@@ -2822,7 +2899,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (changed) {
       history.record(before);   // Z takes it back like any other edit
       if (req.quiet === true) quietWrite = html;
-      writeFileAtomic(deckPath, html);
+      writeDeck(html);
       console.log(`  design system: ${on ? 'referenced' : 'dropped'} ${deckRef}`);
     }
     const pulled = plan && req.recommended !== false ? plan.items.map(({ kind, rec, ref: r2, status, why, cmd, family }) => ({ kind, rec, ref: r2, status, why, cmd, family })) : [];
@@ -2860,7 +2937,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
     if (html !== before) {
       history.record(before);
-      writeFileAtomic(deckPath, html);
+      writeDeck(html);
       console.log(`  design system: applied ${look.title}'s look — ${look.phrase || 'already worn'}`);
     }
     return json(200, { ok: true, ref: hit.ref, changed: html !== before, look, ...history.counts() });
@@ -2996,7 +3073,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (out.changed) {
       history.record(before);
       if (req.quiet === true) quietWrite = out.html;
-      writeFileAtomic(deckPath, out.html);
+      writeDeck(out.html);
       console.log(`  font: ${on ? 'referenced' : 'dropped'} ${deckRef}${on && req.use === true ? ' (the deck\'s default)' : ''}`);
     }
     return json(200, { ok: true, ref: deckRef, used: on, changed: out.changed, ...history.counts() });
@@ -3860,14 +3937,16 @@ export async function editMain(args, { onListen = null, client } = {}) {
       const prefixed = routes.has(key) ? null
         : PREFIX_ROUTES.find((r) => r.method === req.method && url.pathname.startsWith(r.prefix));
       const handler = routes.get(key) ?? prefixed?.handler;
-      if (handler && (BEFORE_BODY.has(key) || prefixed?.beforeBody)) return await handler({ req, res, url, json, CORS });
+      if (handler && (BEFORE_BODY.has(key) || prefixed?.beforeBody)) {
+        return await writing.run({ route: url.pathname, body: '' }, () => handler({ req, res, url, json, CORS }));
+      }
       // Read for every POST, matched or not — an oversized body is refused
       // whatever it was aimed at, exactly as the chain refused it.
       let body = '';
       if (req.method === 'POST') {
         for await (const chunk of req) { body += chunk; if (body.length > 1e6) throw new Error('too large'); }
       }
-      if (handler) return await handler({ req, res, url, body, json, CORS });
+      if (handler) return await writing.run({ route: url.pathname, body }, () => handler({ req, res, url, body, json, CORS }));
       // ── the deck and the files beside it ──────────────────────────────
       // No-trust mode answers the deck's own path from the audited bytes
       // (servePayload above). For a container that also means the URL a

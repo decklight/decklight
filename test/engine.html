@@ -824,6 +824,14 @@
         <section><h2>Plain</h2></section>
         <section data-template="bl/cover"><h2 data-slot="title">Layout art</h2></section>`);
     }
+    // the page before the reload left its debug log and the reason it was told
+    if (HARNESS_MODE === 'debugreload') {
+      try {
+        sessionStorage.setItem('decklight-debug:' + location.pathname, JSON.stringify({
+          t: Date.now(), reason: 'notes saved · another tab',
+          entries: [{ t: '0.412', kind: 'ready', msg: 'deck up' }, { t: '3.001', kind: 'edit', msg: 'notes card open' }] }));
+      } catch {}
+    }
     // a save's reload left this behind: where the author was in the notes card
     if (HARNESS_MODE === 'notesreopen' || HARNESS_MODE === 'notesreopenstale') {
       try {
@@ -2413,6 +2421,35 @@
         r.escCloses = escapeUntilClosed(Q);
 
         r.PASS = Object.values(r).every((v) => v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'debugreload') {
+        // The debug log across a reload (PRESENTING): the page before left
+        // its rows and the reason; D shows them dimmed, the reason first.
+        await settle();
+        press('d'); await settle();
+        const panel = () => document.querySelector('.decklight-debug');
+        const rows = () => [...panel()?.querySelectorAll('.dbg-row') ?? []];
+        const text = (el) => el.querySelector('.dbg-m').textContent;
+        r.panelOpens = !!panel();
+        r.theRowsBeforeComeFirstDimmed = rows().length >= 3 && rows()[0].classList.contains('dbg-prev') && rows()[1].classList.contains('dbg-prev')
+          && text(rows()[0]) === 'deck up' && text(rows()[1]) === 'notes card open';
+        r.theirTimesAreTheirs = rows()[0].querySelector('.dbg-t').textContent === '0.412';
+        r.theReasonComesNext = rows()[2].classList.contains('dbg-reload') && !rows()[2].classList.contains('dbg-prev')
+          && text(rows()[2]) === '↻ reloaded — notes saved · another tab';
+        r.thisPageStartsAtZero = rows()[2].querySelector('.dbg-t').textContent === '0.000';
+        r.thenThisPagesOwn = rows().slice(3).every((row) => !row.classList.contains('dbg-prev')) && rows().some((row) => row.classList.contains('dbg-ready'));
+        r.stashTaken = sessionStorage.getItem('decklight-debug:' + location.pathname) === null;
+        // the way out: told nothing (⌘R, a navigation), the stash still goes, reason-less
+        window.dispatchEvent(new Event('pagehide'));
+        let stash = null;
+        try { stash = JSON.parse(sessionStorage.getItem('decklight-debug:' + location.pathname)); } catch {}
+        r.leavingStashesTheLog = !!stash && stash.reason === null && Array.isArray(stash.entries) && stash.entries.length === rows().length
+          && stash.entries[2].msg === '↻ reloaded — notes saved · another tab';
+        r.PASS = r.panelOpens && r.theRowsBeforeComeFirstDimmed && r.theirTimesAreTheirs && r.theReasonComesNext && r.thisPageStartsAtZero
+          && r.thenThisPagesOwn && r.stashTaken && r.leavingStashesTheLog;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

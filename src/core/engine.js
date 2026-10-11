@@ -33,7 +33,7 @@ import { createStyleClip } from './style-clip.js';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES } from '../../tools/video-options.mjs';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
-import { createDebugLog } from './debuglog.js';
+import { createDebugLog, stashDebug, unstashDebug } from './debuglog.js';
 import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
@@ -390,9 +390,21 @@ export function init(userConfig = {}) {
   // is already in the past. Built this early because theme restoration logs
   // during init, before there is any chrome to log into. D pops the window,
   // which then attaches itself as the buffer's sink.
-  const debug = createDebugLog();
+  // A reload keeps the log: the page before stashed its buffer and the
+  // reason it was told (debuglog.js), and this one starts from it, the
+  // reason first — "↻ reloaded — notes saved · this tab" (PRESENTING).
+  let stashed = null;
+  try { stashed = unstashDebug(sessionStorage, location.pathname); } catch { /* no storage: a fresh log */ }
+  const debug = createDebugLog({ seed: stashed?.entries ?? [] });
   let debugEl = null;
   const debugLog = (kind, msg) => debug.log(kind, msg);
+  if (stashed) debugLog('reload', `↻ reloaded — ${stashed.reason ?? 'by the browser (⌘R, or a navigation)'}`);
+  // …and this page stashes on its way out: told why (the server's reload
+  // message, through editmode) or not (⌘R, a navigation).
+  let reloadReason = null;
+  const stashDebugLog = () => { try { stashDebug(sessionStorage, location.pathname, debug.entries, reloadReason); } catch { /* no storage: the next page starts fresh */ } };
+  const debugReload = (why) => { reloadReason = why; stashDebugLog(); };
+  window.addEventListener('pagehide', stashDebugLog);
 
   const root = document.querySelector('.decklight');
   if (!root) throw new Error('Decklight: no .decklight element found');
@@ -2105,7 +2117,7 @@ export function init(userConfig = {}) {
   }
   function appendDebugRow(e) {
     const row = document.createElement('div');
-    row.className = 'dbg-row dbg-' + e.kind;
+    row.className = 'dbg-row dbg-' + e.kind + (e.prev ? ' dbg-prev' : '');
     for (const [cls, text] of [['dbg-t', e.t], ['dbg-k', e.kind], ['dbg-m', e.msg]]) {
       const span = document.createElement('span');
       span.className = cls;
@@ -2729,7 +2741,7 @@ export function init(userConfig = {}) {
   // the deck. Built here, last, because it wants the instance and narration's
   // notes segmentation; it registers its own three overlays.
   const editmode = createEditMode({
-    root, config, params, printMode, toast, progress: progressToast, debugLog, overlays, instance,
+    root, config, params, printMode, toast, progress: progressToast, debugLog, debugReload, overlays, instance,
     notesSegs, notesDraft: notesDraftOf,
     // what an export renders in — the theme on screen, not the deck's default (#547)
     renderTheme: () => themes.renderTheme(),

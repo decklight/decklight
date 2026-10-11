@@ -17,6 +17,7 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { reloadLine } from './debuglog.js';
 import { conceptOf, pathFrom } from './colorpicker.js';
 import { pickNode } from './pick.js';
 import { rangeLabel } from './ranges.js';
@@ -33,7 +34,7 @@ import { hljs } from '../code/code.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
-  root, config, params, printMode, toast, progress, debugLog, overlays, instance,
+  root, config, params, printMode, toast, progress, debugLog, debugReload = () => {}, overlays, instance,
   notesSegs, notesDraft = (sl) => notesSegs(sl).join('\n\n⟨CLICK⟩\n\n'), renderTheme = () => ({}), previewQuery = () => '?embedded',
   knownConcepts = () => [],
   captionsOn = () => false, toggleCaptions = null,
@@ -661,7 +662,8 @@ export function createEditMode({
           reopenAgentAsk();   // a docked agent card open before the reload is open after it
           reopenNotes();      // …and the notes card a save reloaded, where the author was
           const es = new EventSource(base + '/deck/events');
-          es.onmessage = () => location.reload();
+          // the server says what wrote the file; the debug log keeps it across the reload
+          es.onmessage = (ev) => { debugReload(reloadLine(ev.data, PAGE_ID)); location.reload(); };
           // the lock turned, in this tab or another: every page follows
           es.addEventListener('lock', (ev) => {
             try { setLocked(JSON.parse(ev.data).locked === true); } catch { /* malformed */ }
@@ -899,12 +901,12 @@ export function createEditMode({
       button('update the deck', async () => {
         actions.textContent = 'pulling…';
         const out = await postUpstream('/deck/upstream/pull');
-        if (out.reload) return location.reload();
+        if (out.reload) { debugReload('git pull'); return location.reload(); }
         // A pull that DEGRADED the label does not reload itself: swapping the
         // bytes executes nothing, so the choice to show them can wait for a
         // second, informed click.
         await renderUpstream({ ...out, commits: [], message: out.message });
-        if (out.state === 'pulled') button('show it anyway', () => location.reload());
+        if (out.state === 'pulled') button('show it anyway', () => { debugReload('git pull — shown anyway'); location.reload(); });
       });
     } else if (status.pull && !status.pull.offered && status.state === 'behind') {
       actions.appendChild(upstreamRow(`update control off — ${status.pull.reason}`, 'hs-remote'));

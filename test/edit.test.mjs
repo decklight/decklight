@@ -555,7 +555,7 @@ test('POST /deck/edit/theme writes the deck\'s theme in place: quiet, a theme ev
   assert.match(readFileSync(deck, 'utf8'), /"theme":\s*"paper"/, 'the configuration block says so');
   await new Promise((res) => setTimeout(res, 300));
   assert.ok(events.join('').includes('event: theme') && events.join('').includes('"theme":"paper"'), 'every open page is told');
-  assert.ok(!events.join('').includes('data: reload'), 'and not reloaded');
+  assert.ok(!events.join('').includes('data: {"reload"'), 'and not reloaded');
   assert.match(log(), /theme saved: paper/);
   const same = await (await post(base, '/deck/edit/theme', { theme: 'paper', quiet: true })).json();
   assert.deepEqual([same.changed, same.inPlace], [false, false], 'already the theme: nothing written, nothing sent');
@@ -746,12 +746,12 @@ test('a notes save is announced as `notes`, never a reload; any other change to 
   assert.deepEqual([r.changed, r.inPlace], [true, true]);
   await new Promise((ok) => setTimeout(ok, 700));   // past the watcher's debounce
   assert.match(stream, /event: notes\ndata: \{"slide":1,"aside":"<p>Said in place\.<\/p>","from":"p1"\}/);
-  assert.doesNotMatch(stream, /data: reload/, 'the page already shows what it saved');
+  assert.doesNotMatch(stream, /data: {"reload"/, 'the page already shows what it saved');
   assert.match(readFileSync(deck, 'utf8'), /<p>Said in place\.<\/p>/);
   // an edit from anywhere else is not quiet: it reloads as it always has
   writeFileSync(deck, readFileSync(deck, 'utf8').replace('</body>', '<!-- edited elsewhere -->\n</body>'));
   await new Promise((ok) => setTimeout(ok, 700));
-  assert.match(stream, /data: reload/);
+  assert.match(stream, /data: {"reload"/);
 });
 
 test('--git auto-commits on a cadence; undo/redo never consume the commits', async (t) => {
@@ -2541,7 +2541,7 @@ test('a server-side edit lands whole, leaves no staging file, and reloads exactl
     for (;;) {
       const { done, value } = await reader.read().catch(() => ({ done: true }));
       if (done) return;
-      reloads += (dec.decode(value, { stream: true }).match(/data: reload/g) ?? []).length;
+      reloads += (dec.decode(value, { stream: true }).match(/data: {"reload"/g) ?? []).length;
     }
   })();
   t.after(() => reader.cancel().catch(() => { /* already closed */ }));

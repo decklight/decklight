@@ -46,6 +46,7 @@ test('a rename-replace does not kill live reload', async (t) => {
 
   // listen to the reload stream the deck itself listens to
   let reloads = 0;
+  let stream = '';   // every reload message names what wrote the file (PRESENTING, debug log)
   const res = await fetch(`${base}/deck/events`);
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -53,7 +54,9 @@ test('a rename-replace does not kill live reload', async (t) => {
     for (;;) {
       const { done, value } = await reader.read().catch(() => ({ done: true }));
       if (done) return;
-      reloads += (dec.decode(value, { stream: true }).match(/data: reload/g) ?? []).length;
+      const chunk = dec.decode(value, { stream: true });
+      stream += chunk;
+      reloads += (chunk.match(/data: {"reload"/g) ?? []).length;
     }
   })();
   t.after(() => reader.cancel().catch(() => { /* stream already closed */ }));
@@ -78,4 +81,20 @@ test('a rename-replace does not kill live reload', async (t) => {
   fs.writeFileSync(deck, fs.readFileSync(deck, 'utf8').replace('Two', 'Three'));
   const after = await settle(reloads + 1, 8000);
   assert.ok(after >= 3, `the watcher went deaf after the rename (${after} reloads for 3 writes)`);
+
+  // 4 · the reason: a write from outside is "changed on disk"; the server's
+  // own write names its route and the page that asked
+  const reasons = () => [...stream.matchAll(/^data: (\{"reload".*)$/gm)].map((m) => JSON.parse(m[1]));
+  assert.ok(reasons().length >= 3);
+  assert.deepEqual(reasons()[0], { reload: 'changed on disk — an editor, git, or a tool outside this server', from: null });
+  // (a layout pick without `quiet`: a notes save is updated in place and reloads nobody)
+  const saved = await fetch(`${base}/deck/edit/slide/layout`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ slide: 1, layout: 'centered', from: 'page-a1' }),
+  });
+  assert.equal(saved.status, 200, await saved.text());
+  const n = reasons().length;
+  const stop4 = Date.now() + 8000;
+  while (reasons().length <= n && Date.now() < stop4) await new Promise((ok) => setTimeout(ok, 50));
+  assert.deepEqual(reasons().at(-1), { reload: 'layout picked', from: 'page-a1' }, 'the server\'s own write names itself and its page');
 });

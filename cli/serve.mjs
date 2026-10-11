@@ -350,7 +350,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
 /**
  * One SSE fan-out. add() takes a response over (headers, greeting comment,
  * cleanup on close) and returns it; broadcast() sends a named event to every
- * subscriber; raw() sends bytes as-is (the deck's unnamed `data: reload`
+ * subscriber; raw() sends bytes as-is (the deck's unnamed `data: {"reload": …}`
  * message predates named events and stays byte-identical).
  */
 export function sseChannel() {
