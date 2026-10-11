@@ -1296,6 +1296,11 @@ export function createEditMode({
     // and the paragraphs as the author laid them out, a blank line apart
     const notesText = () => writtenMarks(notesDraft(sl));
     let loaded = ta.value = notesText();
+    // …and as the card opened on this slide: what ↺ reset goes back to. Not
+    // the last save — the card writes itself whenever the typing stops, so
+    // the box IS the last save most of the time, and a reset against it
+    // would have nothing to drop.
+    let opened = loaded;
     ta.spellcheck = false;
     ta.readOnly = notesRO;
     if (notesRO) ta.classList.add('edit-notes-readonly');
@@ -1318,7 +1323,7 @@ export function createEditMode({
         return;
       }
       sl = instance.state.slide;
-      loaded = ta.value = notesText();
+      opened = loaded = ta.value = notesText();
       title.textContent = heading();
       syncChanged();
     };
@@ -1327,7 +1332,7 @@ export function createEditMode({
     notesRefresh = (slide) => {
       if (slide !== sl || saving) return;
       const fresh = notesText();
-      if (ta.value === loaded) ta.value = fresh;
+      if (ta.value === loaded) opened = ta.value = fresh;   // followed: the new starting point
       loaded = fresh;
       syncChanged();
     };
@@ -1336,11 +1341,15 @@ export function createEditMode({
       autosaving = auto;
       syncChanged();
       try { sessionStorage.setItem(NOTES_OPEN_KEY, JSON.stringify({ slide: sl, caret: ta.selectionStart, scroll: ta.scrollTop, t: Date.now() })); } catch { /* no storage: the card closes, as before */ }
+      // what goes is what the box held when the save left: typed into (or
+      // reset) meanwhile, the box differs from the file once it lands, and
+      // the quiet time writes it again
+      const text = ta.value;
       try {
         const res = await writeFetch(editBase + '/deck/edit/slide/notes', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ slide: sl, text: ta.value, from: PAGE_ID }),
+          body: JSON.stringify({ slide: sl, text, from: PAGE_ID }),
         });
         if (!res.ok) throw new Error(await res.text());
         const j = await res.json().catch(() => ({}));
@@ -1350,8 +1359,9 @@ export function createEditMode({
           forgetNotesOpen();   // no reload is coming
           saving = false;
           drafted = false;
-          loaded = ta.value;
+          loaded = text;
           syncChanged();
+          if (ta.value !== loaded) armAutosave();
           toast('nothing to save — the notes already match the file', 2600);
           return;
         }
@@ -1360,7 +1370,7 @@ export function createEditMode({
         // page the new notes instead), so the card simply stays as it is
         saving = false;
         drafted = false;
-        loaded = ta.value;
+        loaded = text;
         if (j.inPlace) forgetNotesOpen();
         // an autosave says so by the mark, not a toast: one every pause in
         // the typing would be a toast every sentence
@@ -1369,6 +1379,7 @@ export function createEditMode({
           justSaved = setTimeout(() => { justSaved = 0; syncChanged(); }, 1600);
         } else toast(j.inPlace ? 'notes saved' : 'notes saved — reloading', 1800);
         syncChanged();
+        if (ta.value !== loaded) armAutosave();
       } catch (e) {
         // long enough to read: the save did NOT happen, and the box still holds the text
         forgetNotesOpen();
@@ -1421,11 +1432,12 @@ export function createEditMode({
     };
     const actions = document.createElement('div');
     actions.className = 'tr-actions';
-    // ↺ reset and ⇄ before / after: both against the notes AS LAST SAVED
-    // (`loaded` — the page reloads after every save, so the deck's own notes
-    // are the file's). Reset drops every change in the box, typed or drafted
-    // by the agent; before/after shows them, word by word, before ⌘⏎ writes
-    // them. Neither does anything while the box says what the file says.
+    // ↺ reset: back to the notes as the card opened on this slide (`opened`),
+    // every change made since dropped — typed, written by the quiet time or
+    // drafted by the agent — and written back when the file has moved on.
+    // ⇄ before / after: against the notes AS LAST SAVED (`loaded`), what ⌘⏎
+    // would write, word by word. Neither does anything while the box says
+    // what the file said when the card opened.
     const diffEl = document.createElement('div');
     diffEl.className = 'notes-diff';
     diffEl.hidden = true;
@@ -1434,7 +1446,7 @@ export function createEditMode({
     resetBtn.type = 'button';
     resetBtn.className = 'narr-prev-btn notes-reset';
     resetBtn.textContent = '↺ reset';
-    resetBtn.title = 'back to the notes as last saved — drops every change in this box, typed or drafted';
+    resetBtn.title = 'back to the notes as the card opened on this slide — drops every change made since, typed, autosaved or drafted, and writes them back';
     const diffBtn = document.createElement('button');
     diffBtn.type = 'button';
     diffBtn.className = 'narr-prev-btn notes-compare';
@@ -1473,17 +1485,22 @@ export function createEditMode({
       mark.textContent = saving ? (autosaving ? 'autosaving…' : 'saving…') : changed ? '● unsaved' : justSaved ? 'saved' : '';
       mark.classList.toggle('notes-saved-mark', !saving && !changed && !!justSaved);
       mark.hidden = !mark.textContent;
-      resetBtn.disabled = !changed;
+      resetBtn.disabled = !changed && ta.value === opened;
       diffBtn.disabled = !changed && diffEl.hidden;
       if (!changed && !diffEl.hidden) showDiff(false);
     };
     resetBtn.addEventListener('click', () => {
-      ta.value = loaded;
+      clearTimeout(quietTimer);
+      ta.value = opened;
       drafted = false;
       diffBtn.classList.remove('notes-fresh');
       showDiff(false);
       syncChanged();
-      toast('back to the notes as last saved', 2200);
+      // the file has moved on (the quiet time wrote the typing): put it back
+      // too, the quiet way — the mark says it; a save in flight lands first,
+      // and the box differing from what it wrote is written again after it
+      if (ta.value !== loaded && !saving) save({ auto: true });
+      toast('back to the notes as the card opened on this slide', 2200);
     });
     diffBtn.addEventListener('click', () => { diffBtn.classList.remove('notes-fresh'); showDiff(diffEl.hidden); });
     diffEl.addEventListener('keydown', (e) => {

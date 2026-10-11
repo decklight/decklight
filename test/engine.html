@@ -2353,6 +2353,7 @@
         // no toast and no button to press.
         try { localStorage.setItem('decklight-notes-quiet', '250'); } catch { /* fine */ }
         press('s'); await settle();
+        const opened3 = box().value;   // what ↺ reset goes back to, however often the quiet time writes
         r.noSaveButton = !!card() && ![...card().querySelectorAll('button')].some((b) => /save now/i.test(b.textContent));
         const toasts = () => document.querySelectorAll('.decklight-toast').length;
         const toastsBefore = toasts();
@@ -2375,6 +2376,27 @@
         await new Promise((ok) => setTimeout(ok, 400));
         window.__slowNotes = 0;
         r.slowOneLands = posts().length === 6 && mark().textContent === 'saved';
+        // ↺ reset goes back to the notes as the card opened on this slide —
+        // not to the last save, which is the box itself once the quiet time
+        // has written it — and writes them back, the quiet way
+        const resetBtn = () => document.querySelector('.decklight-editor .notes-reset');
+        r.resetLiveAfterAutosave = !resetBtn().disabled && box().value === 'Slowly.';
+        resetBtn().click(); await settle();
+        r.resetGoesBackToTheOpening = box().value === opened3 && posts().length === 7 && posts()[6].text === opened3;
+        await settle();
+        r.resetIsWrittenBack = mark().textContent === 'saved' && resetBtn().disabled;
+        // pressed while a save is in flight: that save lands with what it
+        // sent, the box differs from it, and the quiet time writes the reset
+        window.__slowNotes = 300;
+        type('Reset mid-save.');
+        await new Promise((ok) => setTimeout(ok, 350));   // 250 quiet, then 100 into the slow save
+        r.midSaveIsInFlight = posts().length === 8 && mark().textContent === 'autosaving…' && !resetBtn().disabled;
+        resetBtn().click();
+        window.__slowNotes = 0;
+        r.midSaveResetsTheBox = box().value === opened3;
+        await new Promise((ok) => setTimeout(ok, 600));   // 200 to land, 250 quiet, and some
+        r.midSaveWritesTheResetAfter = posts().length === 9 && posts()[7].text === 'Reset mid-save.' && posts()[8].text === opened3
+          && mark().textContent === 'saved' && resetBtn().disabled;
         // the quiet time is a setting, cycled in place, and off is the card as it was
         const quietRow = () => deck.settings.rows().find((x) => x.label === 'Notes autosave');
         r.settingNamesIt = quietRow()?.value === '250 ms after typing stops' && /⏎ cycles/.test(quietRow()?.hint ?? '');
@@ -2385,14 +2407,17 @@
         r.cyclesToOff = quietRow()?.value === 'on leaving only' && localStorage.getItem('decklight-notes-quiet') === '0';
         type('Off: nothing writes itself.');
         await new Promise((ok) => setTimeout(ok, 450));
-        r.offWaitsForLeaving = posts().length === 6 && /● unsaved/.test(mark().textContent);
+        r.offWaitsForLeaving = posts().length === 9 && /● unsaved/.test(mark().textContent);
         quietRow().run(); r.cyclesRoundTo250 = quietRow()?.value === '250 ms after typing stops';
         press('Escape'); await settle(); await settle();
         try { localStorage.removeItem('decklight-notes-quiet'); } catch { /* fine */ }
         r.PASS = r.opensAsADrawerAtTheBottom && r.headingSaysItSavesItself && r.cardButtonsDoNotSave && r.leavingTheBoxSaves
           && r.leavingTheWindowSaves && r.movingOnSavesThenFollows && r.closingSaves
           && r.noSaveButton && r.notYetAfterAKeystroke && r.typingAgainHoldsIt && r.quietWritesIt && r.markSaysSaved && r.noToastForIt
-          && r.marksAutosaving && r.slowOneLands && r.settingNamesIt && r.cyclesTo500 && r.cyclesTo2000 && r.cyclesToOff
+          && r.marksAutosaving && r.slowOneLands
+          && r.resetLiveAfterAutosave && r.resetGoesBackToTheOpening && r.resetIsWrittenBack
+          && r.midSaveIsInFlight && r.midSaveResetsTheBox && r.midSaveWritesTheResetAfter
+          && r.settingNamesIt && r.cyclesTo500 && r.cyclesTo2000 && r.cyclesToOff
           && r.offWaitsForLeaving && r.cyclesRoundTo250;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
