@@ -5041,7 +5041,7 @@
         rightClick(h1);
         r.opensOnElement = !!document.querySelector(M);
         r.fullMenuRows = JSON.stringify(rowsText())
-          === JSON.stringify(['Inspect', 'Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Add text effect ▸', 'Slide ▸']);
+          === JSON.stringify(['Inspect', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Add text effect ▸', 'Slide ▸']);
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;
         press('ArrowDown');
@@ -5050,7 +5050,8 @@
 
         // right-click the SECTION ITSELF (no descendant under the cursor) →
         // background only gets "Edit speaker notes", which is where notes
-        // editing lives now that E means something else
+        // editing lives now that E means something else — and the ONLY place
+        // the menu offers them: an element's menu is about the element
         rightClick(sections[0]);
         r.opensOnBackground = !!document.querySelector(M);
         // the background has no element to act on, so the slide itself is what is offered

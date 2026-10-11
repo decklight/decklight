@@ -1727,8 +1727,11 @@ export function createEditMode({
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     } else {
       const nested = menuTarget.node && menuTarget.node !== menuTarget.top;
+      // No notes row here: the notes are the slide's, not the element's, and
+      // the background right-click, S, the bar's Notes and the palette all
+      // open them. On an element the row only pushed what the click was about
+      // (remove, content, colours, type) one line further down.
       if (inspectHook) rows.push({ label: 'Inspect', run: () => openInspect() });
-      rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
       rows.push({ label: nested ? `Remove this ${menuTarget.node.tagName.toLowerCase()}` : 'Remove element', run: () => commitRemove() });
       if (nested) rows.push({ label: `Remove the whole ${menuTarget.top.tagName.toLowerCase()}`, run: () => commitRemove(menuTarget, { whole: true }) });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
