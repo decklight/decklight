@@ -1205,13 +1205,16 @@ export function init(userConfig = {}) {
       // have to retype is a number that arrives with a typo in it
       { label: 'Decklight version', value: RUNTIME_VERSION || 'unknown — not a built bundle',
         ...(RUNTIME_VERSION ? { hint: '⏎ copies', run: () => copyText(RUNTIME_VERSION) } : {}) },
-      // a knob, not a fact: ⏎ switches it and says which it is now
+      // a knob, not a fact: ⏎ switches it and says which it is now. A knob
+      // `stays`: the panel is redrawn around it rather than closed, so the
+      // row reads the new value and a second ⏎ switches back — closing on
+      // every press made a two-way switch cost three keys a turn.
       ...(printMode ? [] : [{ label: 'Display', value: displayFill ? 'fill screen' : deckRatio(),
-        hint: '⏎ switches', run: () => setDisplay(!displayFill) }]),
+        hint: '⏎ switches', stays: true, run: () => setDisplay(!displayFill) }]),
       // write mode only: Push lives in the commit window, which only an edit
       // server has
       ...(editmode?.available() ? [{ label: 'Push tags', value: editmode.pushTags() ? 'with the branch' : 'off',
-        hint: '⏎ switches', run: () => editmode.setPushTags(!editmode.pushTags()) }] : []),
+        hint: '⏎ switches', stays: true, run: () => editmode.setPushTags(!editmode.pushTags()) }] : []),
     ];
   }
   /**
@@ -1244,7 +1247,24 @@ export function init(userConfig = {}) {
     setEl = document.createElement('div');
     setEl.className = 'decklight-narr decklight-settings';
     setEl.innerHTML = '<div class="narr-card" role="listbox" aria-label="Settings"></div>';
+    closeOnBackdrop(setEl, closeSettings);
+    root.appendChild(setEl);
+    paintSettings(0);
+  }
+  /** ⏎ or a click on row `i`: a knob switches and the panel is painted again
+   *  around it, the same row selected; anything else (the copy) is done once
+   *  the row has run, and the panel goes. A fact has nothing to run, so ⏎ on
+   *  one is an acknowledgement: it closes, rather than sitting there looking
+   *  broken. */
+  function runSetRow(i) {
+    const r = setRows[i];
+    r?.run?.();
+    if (r?.run && r.stays) paintSettings(i);
+    else closeSettings();
+  }
+  function paintSettings(sel) {
     const card = setEl.querySelector('.narr-card');
+    card.replaceChildren();
     const head = document.createElement('div');
     head.className = 'narr-head';
     head.textContent = 'settings';
@@ -1270,12 +1290,10 @@ export function init(userConfig = {}) {
         el.appendChild(hint);
       }
       el.addEventListener('mouseenter', () => selectSetRow(i));
-      if (r.run) el.addEventListener('click', () => { r.run(); closeSettings(); });
+      if (r.run) el.addEventListener('click', () => runSetRow(i));
       card.appendChild(el);
     });
-    closeOnBackdrop(setEl, closeSettings);
-    root.appendChild(setEl);
-    selectSetRow(0);
+    selectSetRow(Math.min(sel, setRows.length - 1));
   }
   function selectSetRow(i) {
     setSel = selectInList(setEl.querySelectorAll('.narr-row'), i, 'narr-sel');
@@ -2217,9 +2235,7 @@ export function init(userConfig = {}) {
     transient: true,
     keydown: (e) => typeaheadKeydown(e, {
       onMove: (d) => selectSetRow(setSel + d),
-      // A fact row has nothing to run, so ⏎ on one is an acknowledgement:
-      // it closes, rather than sitting there looking broken.
-      onCommit: () => { setRows[setSel]?.run?.(); closeSettings(); },
+      onCommit: () => runSetRow(setSel),
       onClose: closeSettings,
     }),
   });

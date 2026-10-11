@@ -1543,13 +1543,27 @@
         r.saysItFills = /display: fills the screen/.test(toastSaid());
         r.remembered = localStorage.getItem(KEY) === 'fill' && rootEl.hasAttribute('data-display-fill');
         r.rowSaysFill = row()?.value === 'fill screen';
-        r.closesAfter = !document.querySelector(Q);
-        deck.settings.open();
-        press('ArrowDown');
+        // A knob switches in place: the panel is still open, on the same
+        // row, and the row on screen reads the new value, so ⏎ again
+        // switches back without reopening anything.
+        const openRow = () => [...document.querySelectorAll(`${Q} .narr-row`)].find((n) => /Display/.test(n.textContent));
+        r.staysOpen = !!document.querySelector(Q);
+        r.sameRowSelected = openRow()?.classList.contains('narr-sel') === true;
+        r.openRowReadsFill = /fill screen/.test(openRow()?.textContent ?? '');
         press('Enter');
         await settle(); await settle();
         r.backToTheDeckRatio = size().join('x') === '1280x720' && localStorage.getItem(KEY) === null
           && /display: 16:9/.test(toastSaid());
+        r.openRowReadsTheRatio = /16:9/.test(openRow()?.textContent ?? '') && !!document.querySelector(Q);
+        // a click on the knob row does the same as ⏎
+        openRow().click();
+        await settle(); await settle();
+        r.clickSwitchesInPlace = /fill screen/.test(openRow()?.textContent ?? '') && rootEl.hasAttribute('data-display-fill');
+        openRow().click();
+        await settle(); await settle();
+        r.clickSwitchesBack = !rootEl.hasAttribute('data-display-fill') && !!document.querySelector(Q);
+        press('Escape');
+        r.escapeCloses = !document.querySelector(Q);
         try { localStorage.removeItem(KEY); } catch {}
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || k === 'fillSize' || v === true);
       }
