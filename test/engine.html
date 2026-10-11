@@ -139,7 +139,8 @@
         if (u.includes('/deck/edit/theme/browse')) return json({ ok: true, themes: [] });
         return json({ ok: true });
       }
-      if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historydetails' || HARNESS_MODE === 'historychanges') {
+      if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historydetails' || HARNESS_MODE === 'historychanges'
+        || HARNESS_MODE === 'historycaptions') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/history/changes')) {
           const ref = new URL(u, location.href).searchParams.get('ref');
@@ -605,6 +606,13 @@
     // because createPlaylist reads them once at setup
     // Line Draw (#522): one more slide, only for the mode that looks at it —
     // every other mode counts on four
+    // historycaptions, and the preview frame it opens (captionchild): notes on
+    // the first two slides, for a caption bar to have something to say
+    if (HARNESS_MODE === 'historycaptions' || HARNESS_MODE === 'captionchild') {
+      const s = document.querySelectorAll('.decklight > section');
+      s[0].insertAdjacentHTML('beforeend', '<aside class="notes"><p>Welcome to the first slide.</p></aside>');
+      s[1].insertAdjacentHTML('beforeend', '<aside class="notes"><p>The second slide speaks.</p></aside>');
+    }
     // skeys: a slide with two builds and notes in three beats, for S to open
     if (HARNESS_MODE === 'skeys') {
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>
@@ -4657,10 +4665,88 @@
         return;
       }
 
+      if (mode === 'captionchild') {
+        // The history's preview frame, run for historycaptions: it answers a
+        // probe with whether its caption bar is up and what it says.
+        const probe = () => {
+          const c = document.querySelector('.decklight-captions');
+          window.parent.postMessage({ captionProbe: { shown: !!c && c.classList.contains('show'), text: c?.textContent ?? '' } }, '*');
+        };
+        window.addEventListener('message', (e) => { if (e.data?.probeCaptions) setTimeout(probe, 30); });
+        await settle();
+        probe();
+        return;
+      }
+
+      if (mode === 'historycaptions') {
+        // C and CC in the history are the deck's closed captions, and the
+        // preview shows them: the version's own notes for the slide on screen.
+        // The frame is told by its URL (&captions) when it loads and by a
+        // message when C flips them; a finder thumbnail still shows none.
+        const O = '.decklight-history', KEY = 'decklight-captions:' + location.pathname;
+        const cc = () => document.querySelector(`${O} .hs-cc`);
+        const src = () => document.querySelector(`${O} iframe`)?.getAttribute('src') ?? '';
+        try { localStorage.removeItem(KEY); } catch { /* no storage: the default is the test */ }
+        await settle();                       // let /deck/ping resolve
+        press('h');
+        await settle();                       // let /deck/edit/history resolve
+        await until(() => src());
+        r.opens = !!document.querySelector(O);
+        r.ccButton = cc()?.textContent === 'CC' && cc()?.getAttribute('aria-pressed') === 'false';
+        r.hintNamesC = /C\scaptions/.test(document.querySelector(`${O} .tp-filter`)?.textContent ?? '');
+        r.srcWithout = !!src() && !/&captions/.test(src());
+        press('c');
+        r.cTurnsDeckCaptionsOn = localStorage.getItem(KEY) === '1' && !!document.querySelector('.decklight-captions');
+        r.buttonOn = cc()?.getAttribute('aria-pressed') === 'true';
+        r.staysOpen = !!document.querySelector(O);
+        press('ArrowDown');
+        await until(() => /&captions#/.test(src()));
+        r.nextVersionAsks = /&captions#/.test(src());
+        cc()?.click();
+        r.buttonTurnsOff = localStorage.getItem(KEY) === '0' && cc()?.getAttribute('aria-pressed') === 'false';
+        press('ArrowUp');
+        await until(() => src() && !/&captions/.test(src()));
+        r.offAsksNot = !/&captions/.test(src());
+        escapeUntilClosed(O);
+
+        // the frame's side: the URL turns the bar on, a message flips it
+        const answers = [];
+        window.addEventListener('message', (e) => { if (e.data?.captionProbe) answers.push({ from: e.source, ...e.data.captionProbe }); });
+        const kid = (q) => {
+          const f = document.createElement('iframe');
+          f.style.cssText = 'width:640px;height:360px';
+          f.src = `engine.html?mode=captionchild&embedded${q}`;
+          document.body.appendChild(f);
+          return f;
+        };
+        const said = (f) => answers.filter((a) => a.from === f.contentWindow).at(-1);
+        const ask = async (f, msg) => {
+          const n = answers.length;
+          if (msg) f.contentWindow.postMessage({ __decklightPreview: msg }, '*');
+          f.contentWindow.postMessage({ probeCaptions: true }, '*');
+          await until(() => answers.length > n && said(f));
+          return said(f);
+        };
+        const on = kid('&captions'), off = kid('');
+        await until(() => said(on) && said(off), 80);
+        r.frameShowsNotes = said(on)?.shown === true && /first slide/.test(said(on)?.text ?? '');
+        r.thumbnailShowsNone = said(off)?.shown === false;
+        r.messageHides = (await ask(on, { captions: false }))?.shown === false;
+        const back = await ask(on, { captions: true });
+        r.messageShows = back?.shown === true && /first slide/.test(back?.text ?? '');
+        const moved = await ask(on, { goto: [2, 0] });
+        r.followsTheSlide = /second slide speaks/.test(moved?.text ?? '');
+        on.remove(); off.remove();
+        try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+        r.PASS = r.opens && r.ccButton && r.hintNamesC && r.srcWithout && r.cTurnsDeckCaptionsOn && r.buttonOn && r.staysOpen
+          && r.nextVersionAsks && r.buttonTurnsOff && r.offAsksNot && r.frameShowsNotes && r.thumbnailShowsNone
+          && r.messageHides && r.messageShows && r.followsTheSlide;
+      }
+
       if (mode === 'historydetails') {
         // The details line under the history preview is off until asked for,
         // I or the details button turns it on, and the choice outlives the
-        // overlay. Not C and not CC: those promise closed captions.
+        // overlay. Not C and not CC: those are the closed captions (historycaptions).
         const O = '.decklight-history', KEY = 'decklight-history-details';
         const caption = () => document.querySelector(`${O} .tp-caption`);
         const shown = () => !!caption() && !caption().hidden && caption().offsetHeight > 0;
@@ -4674,9 +4760,10 @@
         r.stillWritten = /aaaaaaa/.test(caption()?.textContent ?? '');
         r.buttonSaysOff = cc()?.getAttribute('aria-pressed') === 'false';
         r.hintNamesKey = /I\sdetails/.test(document.querySelector(`${O} .tp-filter`)?.textContent ?? '');
-        r.buttonSaysDetails = cc()?.textContent === 'details' && !document.querySelector(`${O} .hs-cc`);
+        r.buttonSaysDetails = cc()?.textContent === 'details';
         press('c');
         r.cIsNotIt = !shown() && !!document.querySelector(O);   // C means closed captions, which this is not
+        press('c');                           // …and back off, so the rest of the mode is about details
         press('i');
         r.keyShows = shown();
         r.buttonSaysOn = cc()?.getAttribute('aria-pressed') === 'true';

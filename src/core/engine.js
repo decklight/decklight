@@ -2714,6 +2714,8 @@ export function init(userConfig = {}) {
     renderTheme: () => themes.renderTheme(),
     // what a preview frame looks like — the history's included — the same
     previewQuery: () => themes.previewQuery(),
+    // the deck's captions, which the history's preview follows (C there flips them)
+    captionsOn: () => narration.status().captionsOn, toggleCaptions,
     // the names the menu's Concept ▸ offers: the deck's, as its diagrams and its configuration know them (#718)
     knownConcepts: () => conceptsOn(stage, config.concepts ?? {}).map((c) => c.name),
   });

@@ -36,6 +36,7 @@ export function createEditMode({
   root, config, params, printMode, toast, progress, debugLog, overlays, instance,
   notesSegs, notesDraft = (sl) => notesSegs(sl).join('\n\n⟨CLICK⟩\n\n'), renderTheme = () => ({}), previewQuery = () => '?embedded',
   knownConcepts = () => [],
+  captionsOn = () => false, toggleCaptions = null,
 }) {
   // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
   // Served by the edit server: the deck subscribes to /deck/events and
@@ -2188,7 +2189,8 @@ export function createEditMode({
     // used to open on slide 1 and only then hear where to go, which never
     // mattered while every version opened on slide 1 — but a slide the
     // version REMOVED is shown from the one before it, at its old number
-    srcFor: (t) => `${editBase}/deck/edit/history/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}#/${t.slide || 1}`,
+    srcFor: (t) => `${editBase}/deck/edit/history/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}`
+      + `${captionsOn() ? '&captions' : ''}#/${t.slide || 1}`,
     messageFor: (t) => ({ __decklightPreview: { goto: [t.slide, 0] } }),
   });
   // Armed, not fired. `⏎` on a row used to restore it on the spot, and a CLICK
@@ -2215,9 +2217,10 @@ export function createEditMode({
   // the selected row said again in a sentence: off until asked for, since it
   // repeats a row you can read, right under the slide you are judging. Per
   // BROWSER, not per deck. It used to be "captions", a CC button on C: the
-  // mark everyone reads as CLOSED captions, which the preview has none of (a
-  // preview is embedded, and embedded shows no captions), so the button
-  // looked broken to anyone who pressed it for the voice's words.
+  // mark everyone reads as CLOSED captions, which the preview had none of (a
+  // preview was embedded, and embedded showed no captions), so the button
+  // looked broken to anyone who pressed it for the voice's words. C and CC
+  // are the real captions now (applyHistoryCaptions, below).
   const HISTORY_DETAILS_KEY = 'decklight-history-details';
   const historyDetailsOn = () => readPref(HISTORY_DETAILS_KEY) === '1';
   function applyHistoryDetails() {
@@ -2227,6 +2230,29 @@ export function createEditMode({
     const b = restoreEl.querySelector('.hs-details');
     b.setAttribute('aria-pressed', String(on));
     b.title = `${on ? 'hide' : 'show'} the selected version in a sentence — hash, age, subject, slide and line counts (I)`;
+  }
+  // Closed captions, for real this time: the version's own notes for the slide
+  // on screen, in the preview's caption bar. Not a setting of the history's:
+  // the deck's captions (C), which the preview follows, so C here flips the
+  // same switch C flips everywhere else, and an author reading the notes
+  // under the live deck reads them under every version too.
+  function applyHistoryCaptions() {
+    if (!restoreEl) return;
+    const b = restoreEl.querySelector('.hs-cc');
+    if (!b) return;
+    const on = captionsOn();
+    b.setAttribute('aria-pressed', String(on));
+    b.title = on ? 'captions: this version\'s notes under the slide (C hides them)' : 'captions: show this version\'s notes under the slide (C)';
+  }
+  function toggleHistoryCaptions() {
+    if (!toggleCaptions) return;
+    toggleCaptions();
+    applyHistoryCaptions();
+    const frame = restoreEl?.querySelector('iframe');
+    const say = () => frame?.contentWindow?.postMessage({ __decklightPreview: { captions: captionsOn() } }, '*');
+    say();
+    // a frame still loading was asked for its src before the flip: tell it again once it is up
+    frame?.addEventListener('load', say, { once: true });
   }
   function toggleHistoryDetails() {
     writePref(HISTORY_DETAILS_KEY, historyDetailsOn() ? '0' : '1');
@@ -2443,6 +2469,7 @@ export function createEditMode({
           ['next', 'last'].map((k) => navBtn(k)).join('') +
           '<span class="hs-kind" hidden></span>' +
           '<button type="button" class="hs-btn hs-only" aria-label="only the slides this version changed (D)"></button>' +
+          (toggleCaptions ? '<button type="button" class="hs-btn hs-cc" aria-label="captions (C)">CC</button>' : '') +
           '<button type="button" class="hs-btn hs-details" aria-label="version details (I)">details</button>' +
         '</div>' +
         '<div class="tp-caption"></div></div></div>';
@@ -2452,7 +2479,7 @@ export function createEditMode({
     // rail's min-content width — the long version of this string is literally
     // what collapsed the preview to 57px. The keys it drops are all on screen:
     // the transport draws ←→, and ⏎/Esc are in the confirmation card.
-    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ browse · ←→ preview · ⏎ restore · I\u00a0details';
+    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ browse · ←→ preview · ⏎ restore · C\u00a0captions · I\u00a0details';
     const remoteEl = restoreEl.querySelector('.hs-remote');
     // The server sends the sentence ready-made — cli/git.mjs spawns git and the
     // runtime cannot import it, so the words live in one place on that side.
@@ -2463,6 +2490,8 @@ export function createEditMode({
     }
     restoreEl.querySelector('.hs-details').addEventListener('click', toggleHistoryDetails);
     applyHistoryDetails();
+    restoreEl.querySelector('.hs-cc')?.addEventListener('click', toggleHistoryCaptions);
+    applyHistoryCaptions();
     restoreEl.querySelector('.hs-only').addEventListener('click', toggleHistoryChanges);
     applyHistoryChanges();
     // Built as nodes, not innerHTML: a commit subject is somebody else's text
@@ -2657,9 +2686,10 @@ export function createEditMode({
         case 'ArrowRight': navTo('next'); break;
         case 'Home': navTo('first'); break;
         case 'End': navTo('last'); break;
-        // I, as in information — not C, the deck's closed captions, which
-        // promised the voice's words under a preview that has none
+        // I, as in information; C is the deck's closed captions, which the
+        // preview now shows: the version's own notes under its slide
         case 'i': case 'I': toggleHistoryDetails(); break;
+        case 'c': case 'C': toggleHistoryCaptions(); break;
         case 'd': case 'D': toggleHistoryChanges(); break;
         // Two steps, and the first one is not a write: ⏎ asks, ⏎ again does it.
         case 'Enter': restoreArmed ? commitRestore() : armRestore(); break;

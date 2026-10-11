@@ -1807,9 +1807,14 @@ export function createNarration({
   // (`hintApplies`), even though it reads the same per-deck setting as the
   // deck behind it (#490). The setting itself is the parent's: a preview
   // neither reads it as on nor writes it.
+  //
+  // Except where the parent says so. The history's preview is not a thumbnail
+  // but a version you are reading, and its notes are part of what changed: a
+  // parent that shows captions passes `&captions` (and a `captions` message
+  // when C flips them), and the bar carries THAT version's words.
   const embeddedPreview = !!params?.has('embedded');
   let captionsOn = false;
-  captionsOn = !embeddedPreview && readPref(captionsKey) === '1';
+  captionsOn = embeddedPreview ? !!params.has('captions') : readPref(captionsKey) === '1';
   let captionEl = null;
   function setCaption(text) {
     if (!captionEl) return;
@@ -1845,6 +1850,15 @@ export function createNarration({
   instance.on('slide', updateCaption);
   instance.on('build', updateCaption);
   if (captionsOn && !printMode) showCaptions();
+  if (embeddedPreview && typeof window !== 'undefined') {
+    window.addEventListener('message', (e) => {
+      const m = e.data && e.data.__decklightPreview;
+      if (!m || e.source !== window.parent || typeof m.captions !== 'boolean' || m.captions === captionsOn) return;
+      captionsOn = m.captions;
+      if (captionsOn) showCaptions();
+      else { captionEl?.remove(); captionEl = null; }
+    });
+  }
 
   // ── the voice-over hint — SPEC PRESENTING ────────────────────────────────────────
   // A deck with a recorded track tells you so, once. Until now the only
