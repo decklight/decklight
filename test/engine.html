@@ -2454,6 +2454,75 @@
         return;
       }
 
+      if (mode === 'pinch') {
+        // Pinch zoom (PRESENTING): a ctrl-wheel (a trackpad pinch) or two
+        // fingers zoom the STAGE about the pointer; the chrome outside it
+        // keeps its size; a plain wheel pans while zoomed; 0, Esc and a
+        // slide change snap back to fit; the overview takes no pinch.
+        await settle();
+        press('d'); await settle();   // a panel to measure: the debug log
+        const panel = () => document.querySelector('.decklight-debug').getBoundingClientRect();
+        const before = panel();
+        const stage = document.querySelector('.decklight-stage');
+        const fit = deck._scale;
+        const scaleOf = () => parseFloat(/scale\(([\d.]+)\)/.exec(stage.style.transform)?.[1] ?? '1');
+        const wheel = (opts) => root.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: innerWidth / 2 + 200, clientY: innerHeight / 2 + 100, ...opts }));
+        const root = document.querySelector('.decklight');
+        r.startsAtFit = deck.zoom().k === 1 && Math.abs(scaleOf() - fit) < 1e-4;
+        const pinchIn = wheel({ deltaY: -60, ctrlKey: true });   // fingers apart
+        r.pinchIsTaken = pinchIn === false;                       // preventDefault: the page does not zoom
+        r.pinchZoomsTheStage = deck.zoom().k > 1.4 && Math.abs(scaleOf() - fit * deck.zoom().k) < 1e-4;   // the style serialises five decimals
+        r.aboutThePointer = deck.zoom().x < 0 && deck.zoom().y < 0;   // the content right-below the centre stays put, so the stage moves up-left
+        const after = panel();
+        r.thePanelDidNotMove = after.width === before.width && after.height === before.height && after.top === before.top;
+        r.theChromeScaleIsTheFit = parseFloat(getComputedStyle(root).getPropertyValue('--stage-scale')) === fit;
+        // a plain wheel pans while zoomed, and is taken
+        const { x: x0 } = deck.zoom();
+        const pan = wheel({ deltaX: 30, deltaY: 0 });
+        r.wheelPansWhileZoomed = pan === false && deck.zoom().x === x0 - 30;
+        r.zoomIsCapped = (deck.setZoom(99), deck.zoom().k === 4);
+        // pinching back below 1 is fit, and the pan goes with it
+        for (let i = 0; i < 40; i++) wheel({ deltaY: 80, ctrlKey: true });
+        r.pinchOutIsFit = deck.zoom().k === 1 && deck.zoom().x === 0 && deck.zoom().y === 0 && Math.abs(scaleOf() - fit) < 1e-4;
+        // 0 resets, and is a plain key again at fit
+        wheel({ deltaY: -60, ctrlKey: true });
+        press('0');
+        r.zeroResets = deck.zoom().k === 1;
+        // Esc resets before it closes anything
+        wheel({ deltaY: -60, ctrlKey: true });
+        press('Escape');
+        r.escapeResets = deck.zoom().k === 1 && !!document.querySelector('.decklight-debug');
+        // a slide change snaps to fit
+        wheel({ deltaY: -60, ctrlKey: true });
+        deck.next(); await settle();
+        r.slideChangeResets = deck.zoom().k === 1;
+        // a plain wheel at fit is not taken
+        r.wheelAtFitIsLeftAlone = wheel({ deltaY: 30 }) === true;
+        // the overview takes no pinch
+        press('o'); await settle();
+        wheel({ deltaY: -60, ctrlKey: true });
+        r.overviewTakesNoPinch = deck.zoom().k === 1;
+        press('Escape'); await settle();
+        // two fingers on a touch screen
+        const touch = (id, x, y) => new Touch({ identifier: id, target: root, clientX: x, clientY: y });
+        const tev = (type, touches) => root.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches, changedTouches: touches, targetTouches: touches }));
+        const cx = innerWidth / 2, cy = innerHeight / 2;
+        tev('touchstart', [touch(1, cx - 50, cy), touch(2, cx + 50, cy)]);
+        tev('touchmove', [touch(1, cx - 100, cy), touch(2, cx + 100, cy)]);
+        r.twoFingersZoom = Math.abs(deck.zoom().k - 2) < 1e-6;
+        tev('touchmove', [touch(1, cx - 100 + 20, cy), touch(2, cx + 100 + 20, cy)]);
+        r.twoFingersPan = deck.zoom().x === 20 && Math.abs(deck.zoom().k - 2) < 1e-6;
+        const slideBefore = deck.state.slide;
+        tev('touchend', [touch(1, cx - 80, cy)]);   // one finger lifts: not a swipe
+        r.liftingIsNotASwipe = deck.state.slide === slideBefore;
+        press('0');
+        r.PASS = r.startsAtFit && r.pinchIsTaken && r.pinchZoomsTheStage && r.aboutThePointer && r.thePanelDidNotMove && r.theChromeScaleIsTheFit
+          && r.wheelPansWhileZoomed && r.zoomIsCapped && r.pinchOutIsFit && r.zeroResets && r.escapeResets && r.slideChangeResets
+          && r.wheelAtFitIsLeftAlone && r.overviewTakesNoPinch && r.twoFingersZoom && r.twoFingersPan && r.liftingIsNotASwipe;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'notesauto' || mode === 'notesautofail') {
         // The notes are a drawer that saves itself: open along the bottom,
         // written when the author leaves the box, moves to another slide or
