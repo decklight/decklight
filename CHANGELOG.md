@@ -7,7 +7,7 @@ carrying the same notes in prose.
 
 ## 0.9.0
 
-Two hundred and thirty-nine commits since 0.8.1, and the release has a shape:
+Two hundred and forty-one commits since 0.8.1, and the release has a shape:
 **the deck is the command** (`decklight talk.html`, one server, write mode by
 default and `--no-trust` for a deck you did not write), and a deck is something
 you **edit with the mouse**, down to one shape, wire or label inside a diagram,
@@ -301,7 +301,11 @@ A double-click outside editing says the key rather than changing anything
 (#666), and with no query the palette lists the deck's doors, folded into
 groups (#664). Esc closes every panel with one press, from wherever the focus
 is, text boxes included (#733), and each docked panel claims only its own side
-(#728).
+(#728). A text, code or label save is **written in place**: the page that
+typed it keeps what it typed, a code block is rendered again from its new
+source, the slide is rescanned and laid out again, and nothing reloads; every
+other page of the deck reloads for the new words, and `Z` takes it back with
+the ordinary reload (#742).
 
 The notes are a **drawer** that saves itself, docked along the bottom and
 written when you leave the box, the slide or the card (#663); a save updates
