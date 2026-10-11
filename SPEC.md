@@ -23,7 +23,7 @@ being moved, and it says what it points at.
 | `REVIEW` | reviewer comments on a deck, anchored to slides and carried by git |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
 | `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `UNIT_VERSIONS` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines: registered, not fetched; the unit library; voices as references; agents as descriptors, and the remembered preference; the speech-engine factory contract and installing one; what an engine needs from the machine before a key is worth asking for; compat for code-carrying units; the digest pin they install against; what you installed, and what the catalog has newer; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
-| `DESIGN_SYSTEMS` | a company's tokens, art and slide templates, published once and referenced by every deck built on it |
+| `DESIGN_SYSTEMS` · `BRAND_PALETTE` | a company's tokens, art and slide templates, published once and referenced by every deck built on it; its palette, and the themes drawn from it |
 | `FONTS` | a typeface's files and licence, from a marketplace, referenced by a deck so its faces travel with it |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
@@ -1601,6 +1601,68 @@ and, when the current slide uses one, **take it out**: the attribute goes, `data
 **Slot names are the design system's contract.** A slide addresses a template only by its template id and slot names, so renaming either is a breaking change for the design system's author; a version that keeps them re-lays-out every slide that uses the template on the next load, by design, with the deck file untouched.
 
 **In a catalog** a design-system entry carries a required positive-integer `apiVersion` (shape only, like a transform's) and a `source` that is a **directory in the marketplace's own repo**: a URL, an absolute path or one with `..` is refused with why (v1 has no https source: the theme cache holds single files, a package is many). `marketplace list` groups the kind like any other. Nothing is ever installed into `~/.decklight/` (`cli/units.mjs` `UNIT_TYPES` has no row): a deck references a package in place, from the checkout; the kind's hint is `decklight design-system add <name@marketplace> <deck>`.
+
+### BRAND_PALETTE · A design system's palette, and the themes drawn from it
+
+> **Status: proposed for 0.10.** Nothing below is implemented yet. It replaces the advisory relationship between a design system and its `recommendedThemes` (DESIGN_SYSTEMS) with a strict one, and it changes the package format, so `DESIGN_SYSTEM_API_VERSION` becomes 2 for a package that uses it.
+
+**The palette is the brand; a theme is one way of wearing it.** Today a design system's `palette` is a side list of swatches and its `recommendedThemes` are somebody's theme files, advice only, with nothing saying the two agree: a recommended theme can paint the page in a colour the brand never approved. Under this section the relationship is the other way round. The **palette belongs to the design system**, and the design system **ships its own themes**, each of which may use **only colours from that palette**. A brand can then have a dark theme and a light theme (or a high-contrast one for a projector) and every one of them is on brand by construction, because an off-palette colour cannot be written down at all.
+
+**The palette is a set of scales.** A company palette is a dozen or so named colours, each in weights from 100 to 1000, and that is the shape the manifest takes:
+
+```json
+"palette": {
+  "colors": {
+    "blue":    { "label": "Blue",    "weights": { "100": "#e7efff", "200": "#c6d8ff", "…": "…", "1000": "#020b2b" } },
+    "orange":  { "label": "Orange",  "weights": { "100": "#fff1e6", "…": "…", "1000": "#2e1200" } },
+    "slate":   { "label": "Slate",   "weights": { "100": "#f4f6f9", "…": "…", "1000": "#0b0e14" }, "role": "neutral" }
+  }
+}
+```
+
+- A colour's key is its **name** (`[a-z][a-z0-9-]*`), the `label` is what a person reads. A weight is a multiple of 100 from 100 to 1000, its value a hex colour. The two together name one swatch, **`blue-700`**, and that name is how everything else refers to it.
+- Every swatch becomes a token, **`--<tokenPrefix><color>-<weight>`** (`--acme-blue-700`), defined by the server in a small stylesheet it generates from the manifest and serves with the design system's own (`<style data-design-system-palette="acme">`; a bundle inlines it). The manifest is the one source: `design-system.css` reads these tokens and does not redefine them (`check` refuses a redefinition, `palette-redefined`).
+- **Weights run one way.** Within a scale, OKLab lightness strictly decreases as the weight grows (100 lightest, 1000 darkest), and every scale runs the same way; a scale out of order is refused (`palette-order`), naming the two weights.
+- The older form, `palette: [{ group, label, token }]`, still reads as before (API version 1). It has no scales, so it cannot carry themes; a package that wants themes moves to scales.
+
+**Neutrals and derived colours are added only where the palette lacks them.** The engine never widens a palette that is already wide:
+
+- **Neutrals.** A scale marked `"role": "neutral"` is the palette's neutral scale. Unmarked, a scale whose every swatch has OKLCH chroma below 0.03 is taken as one, and `check` says which it took. When the palette has **no** neutral scale, and only then, one is derived: ten weights at the lightness of the palette's own scales (the mean of each weight's lightness across the scales), tinted with a trace of the first colour's hue (chroma 0.012, the THEMING `R6` rule), named `neutral`. `check` reports it as derived (`palette-derived-neutral`, info). Pure white and pure black are never added implicitly: a brand that wants them puts them in its neutral scale.
+- **Derived weights.** A scale with all ten weights derives nothing. A scale with gaps has each missing weight interpolated in OKLab between the nearest weights it does define, and extrapolated toward the lightness of the palette's other scales at the ends; a scale needs at least **three** weights for that, and fewer is refused (`palette-too-narrow`). Every derived swatch is listed by `check` (info), so a brand reviewer sees exactly which colours the engine made up, and they are marked as derived wherever a swatch is shown.
+- **Alpha.** A theme slot may take a swatch at an opacity, `blue-700/40` (40%): the same colour, so still on brand. This is what a shadow, a selection or a dimmed block uses instead of a new colour.
+
+**A theme is a map from the theme contract to swatches.** The design system declares its themes in the manifest, never as CSS:
+
+```json
+"themes": [
+  { "name": "acme-dark",  "title": "Acme Dark",  "mode": "dark",
+    "tokens": { "--bg": "blue-1000", "--fg": "slate-100", "--accent": "orange-500", "--d-fill-1": "blue-800" } },
+  { "name": "acme-light", "title": "Acme Light", "mode": "light",
+    "tokens": { "--bg": "slate-100", "--fg": "blue-1000", "--accent": "blue-600" } }
+]
+```
+
+- Every **colour** token of the contract (THEMING: canvas, accent, blocks, code, diagram, terminal) takes a swatch name, a swatch at an alpha, or for `--bg` only a gradient between swatches (`{ "gradient": ["blue-1000", "blue-900"], "angle": 160 }`). Nothing else is accepted for a colour token: no hex, no `var()`, no colour function. A value that names no swatch is refused (`theme-off-palette`), naming the token and the value.
+- **What a theme leaves out is chosen for it, from the palette.** A theme needs some 56 tokens and a brand states a handful; the rest are picked from the palette by the theme generator's own role rules (THEMING `R1`–`R8`, `src/core/themegen.js`) with one difference: it chooses **among swatches**, never mixing a new colour. `mode` decides which end of the scales the canvas comes from. The six diagram fills take six distinct colours at the weight that carries `--d-text`; each nested tone (`--d-fill-N-in`) is the **next weight of the same colour** toward the ink, so a box nested in a panel stays on brand; the syntax highlight and the ANSI terminal colours each take the colour whose hue is nearest the role's anchor (`R8`: terminal red stays red), at the weight that clears the code or terminal background. Only when the palette has no colour within reach of an anchor (a brand with no green) is a derived colour used for it, and `check` names it (`theme-derived-role`, info).
+- **Non-colour tokens** (`--font-*`, `--heading-weight`, `--block-radius`, the shadow's geometry, `--build-duration`, `--dim-opacity`) take literal values as a theme file would. The fonts default to the design system's `recommendedFonts` (FONTS).
+- **Every theme passes the shipped themes' gates.** The expanded theme runs through `tools/theme-check.mjs`, the same contract and WCAG gates every theme answers (THEMING); one that fails is **refused** (`theme-contrast`), naming the pair that fails, the ratio and the floor. Gates are checked after the generator has filled the gaps, so a refusal is about a choice the brand made explicitly, and the message names it.
+- A theme's `name` follows the theme naming rules and may not be a shipped theme's name. Its `title` is what the picker shows.
+
+**How the themes reach a deck.** A deck that references the design system has its themes; nothing else is marked. Every server that links the design system (DESIGN_SYSTEMS) also links each of its themes as an added theme, expanded to a theme CSS file by the server (`<link rel="stylesheet" href="decklight-design-system/<marketplace>/<name>/theme/<theme>.css" data-theme="<theme>" data-theme-added data-design-system-theme="<name>" media="not all">`), every swatch written as its token with the hex as fallback (`var(--acme-blue-1000, #020b2b)`), so a theme still renders in its colours if the design system's stylesheet is missing. `bundle` inlines them as it inlines marked themes (THEME_DISTRIBUTION). The deck's configuration may open on one (`"theme": "acme-dark"`).
+
+**The picker.** With a design system that ships themes, the theme picker (`T`) shows **only the brand's themes**, under its title, and `,` / `.` cycle among them: the point is that a deck built on the brand stays on it. The deck can open the full list again with `"brandThemesOnly": false` in its configuration (or the picker's *Show every theme* row while authoring, which writes it), for a deck that has to be shown somewhere a brand theme does not suit. A deck on two design systems that both ship themes lists both brands' themes.
+
+**Colours while editing.** Under a brand theme the Colors tab (PRESENTING, Editing) shows the palette as what it is, a grid of scales (one row per colour, one column per weight, derived swatches marked), with the theme's roles labelled on the swatches they use (*Background* on `blue-1000`, *Primary* on `orange-500`). A pick writes the swatch's token with its hex fallback, as a design-system swatch is written today. The **Theme** group of named roles (Primary, Text, Background…) stays: a role is how a box follows the theme from dark to light, and a swatch is how it stays the same colour in both. Custom (RGB, HSB, hex) is hidden under a brand theme unless `brandThemesOnly` is false, since a literal colour is exactly what leaves the brand.
+
+**`recommendedThemes`** keeps its meaning (DESIGN_SYSTEMS) for a theme from outside the design system. When the design system has a scale palette, `check` warns for every recommended theme whose colours are not all within OKLab distance 0.02 of a swatch (`recommended-off-palette`, ⚠), naming the tokens that miss. A design system that ships its own themes usually needs none.
+
+**`check` gains these rules**, all in `tools/design-system-format.mjs` beside the others: `palette-shape`, `palette-order`, `palette-too-narrow`, `palette-redefined` (✘), `palette-derived-neutral` and `palette-derived-weight` (info), `theme-off-palette`, `theme-contrast`, `theme-name` (✘), `theme-derived-role` (info), `recommended-off-palette` (⚠). The summary line counts the palette (`12 colours · 120 swatches · 0 derived`) and each theme (`acme-dark: 9 tokens stated, 47 chosen`).
+
+**Open questions for review.**
+
+1. **Lock by default.** `T` shows only the brand's themes unless the deck says otherwise. The alternative is to list them first (★, as `recommendedThemes` does today) and keep every theme reachable.
+2. **Custom colours under a brand theme.** Hidden here; the alternative is to keep them and have `decklight check` warn about every off-palette literal in the deck.
+3. **Where the token names come from.** Here the manifest is the one source and the server writes the tokens; the alternative keeps the tokens in `design-system.css` and has the manifest name them, as the array palette does, at the cost of two places that must agree.
 
 ## FONTS · Fonts: a typeface's files, by reference
 
