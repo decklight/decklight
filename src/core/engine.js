@@ -1483,6 +1483,18 @@ export function init(userConfig = {}) {
     applyLayout(sec, name);
     relayoutSlide(sec, slide);
   });
+  // text, code or a label saved in place on this page (authoring.js): the
+  // page already shows it; a code block is rendered again from its new
+  // source, and the slide is rescanned and laid out again, as a reload would
+  // have done. Another page's save reloads this one (editmode.js).
+  root.addEventListener('decklight:content', (e) => {
+    const { slide, el, code } = e.detail ?? {};
+    const sec = instance._sections?.[slide - 1];
+    if (!sec) return;
+    if (code && el?.isConnected) initCode(el, registerBuildProvider);
+    instance._rescanFor(el?.isConnected ? el : sec);
+    relayoutSlide(sec, slide);
+  });
   const layout = createLayoutCycler({
     slideOf: () => instance.state.slide,
     sectionAt: (idx) => instance._sections[idx - 1],

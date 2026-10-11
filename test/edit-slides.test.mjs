@@ -242,6 +242,36 @@ test('POST /deck/edit/element/style asked in place is quiet: no reload here, eve
   assert.equal(quiet.length, 1, 'not asked in place: the ordinary reload');
 });
 
+test('POST /deck/edit/element/content asked in place is quiet: the page keeps what it typed, every other page told', async (t) => {
+  const quiet = [];
+  const sent = [];
+  const { routes, readDeck } = harness(t, DECK, { quiet: (html) => quiet.push(html), broadcast: (e, d) => sent.push([e, d]) });
+  const r = await call(routes, 'POST /deck/edit/element/content', { body: { slide: 1, index: 0, html: '<h2>Alpha, typed</h2>', quiet: true, from: 'page-a' } });
+  assert.equal(r.body.changed, true);
+  assert.match(readDeck(), /<h2>Alpha, typed<\/h2>/);
+  assert.deepEqual(quiet, [readDeck()], 'the write the watcher is told to skip is the file as written');
+  assert.deepEqual(sent, [['content', { slide: 1, index: 0, from: 'page-a' }]]);
+  const same = await call(routes, 'POST /deck/edit/element/content', { body: { slide: 1, index: 0, html: '<h2>Alpha, typed</h2>', quiet: true, from: 'page-a' } });
+  assert.equal(same.body.changed, false);
+  assert.equal(sent.length, 1, 'nothing written, nothing sent');
+  await call(routes, 'POST /deck/edit/element/content', { body: { slide: 1, index: 0, html: '<h2>Alpha, again</h2>' } });
+  assert.equal(quiet.length, 1, 'not asked in place: the ordinary reload');
+});
+
+test('POST /deck/edit/element/text asked in place is quiet: the label shows its words, every other page told', async (t) => {
+  const quiet = [];
+  const sent = [];
+  const { routes, readDeck } = harness(t, CONCEPT_DECK, { quiet: (html) => quiet.push(html), broadcast: (e, d) => sent.push([e, d]) });
+  const r = await call(routes, 'POST /deck/edit/element/text', { body: { slide: 1, index: 1, path: [0, 1], tag: 'text', was: 'A', text: 'Agent', quiet: true, from: 'page-b' } });
+  assert.equal(r.body.changed, true);
+  assert.match(readDeck(), /<text x="2" y="8">Agent<\/text>/);
+  assert.deepEqual(quiet, [readDeck()]);
+  assert.deepEqual(sent, [['content', { slide: 1, index: 1, from: 'page-b' }]]);
+  const stale = await call(routes, 'POST /deck/edit/element/text', { body: { slide: 1, index: 1, path: [0, 1], tag: 'text', was: 'A', text: 'Tools', quiet: true, from: 'page-b' } });
+  assert.equal(stale.code, 409, 'a label the file no longer says is refused, and nothing is sent');
+  assert.equal(sent.length, 1);
+});
+
 test('POST /deck/edit/concepts writes the deck\'s map in place: quiet, and every other page sent a concepts event', async (t) => {
   const quiet = [];
   const sent = [];

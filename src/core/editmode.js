@@ -634,6 +634,11 @@ export function createEditMode({
           es.addEventListener('styles', (ev) => {
             try { if (JSON.parse(ev.data).from !== PAGE_ID) location.reload(); } catch { /* malformed: the next reload settles it */ }
           });
+          // text, code or a label saved in place on another page: this page
+          // has the old words, and reloads for the new
+          es.addEventListener('content', (ev) => {
+            try { if (JSON.parse(ev.data).from !== PAGE_ID) location.reload(); } catch { /* malformed: the next reload settles it */ }
+          });
           // a layout picked on another page: put it on the slide here, no reload
           es.addEventListener('layout', (ev) => {
             try {

@@ -113,6 +113,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!res.ok) throw new Error(j.error || String(res.status));
     return j;
   };
+  // A save is written IN PLACE (PRESENTING): this page already shows what it
+  // typed, so it asks the server for a quiet write (no reload here) and tells
+  // the engine what changed, so the slide is rescanned and laid out again as
+  // a reload would have; every other page of the deck is sent the event.
+  const inPlace = () => ({ quiet: true, from: editmode.pageId?.() ?? null });
+  const announce = (slide, index, el, code = false) => root.dispatchEvent(new CustomEvent('decklight:content', { detail: { slide, index, el, code } }));
   const sectionOf = (node) => {
     const sec = node?.closest?.('section');
     const slide = sec ? instance._sections.indexOf(sec) + 1 : 0;
@@ -148,8 +154,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       const node = nodeAtPath(top, cur.path);
       if (!node) throw new Error('the source has no element where the click landed');
       node.innerHTML = inner;
-      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
-      toast('saved — reloading', 1400);
+      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML, ...inPlace() });
+      toast('saved', 1200);
+      announce(cur.slide, cur.index, cur.el);
     } catch (e) {
       cur.el.innerHTML = cur.original;
       toast(`could not save the text: ${String(e.message || e).slice(0, 80)}`, 3000);
@@ -341,8 +348,15 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       // `<`, `>` and `&` on the way out — the attributes are never touched
       const raw = node.textContent;
       node.textContent = (raw.startsWith('\n') ? '\n' : '') + text + raw.match(/\s*$/)[0];
-      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
-      toast('saved — reloading', 1400);
+      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML, ...inPlace() });
+      toast('saved', 1200);
+      // the block is re-rendered from its new source, highlighted and lined
+      // as the first render did it: the plain text the author typed into
+      // the block is the file's, never what stays on screen
+      const fresh = node.closest('pre') ?? node;
+      const shown = el.closest('pre') ?? el;
+      shown.replaceWith(fresh);
+      announce(cur.slide, cur.index, fresh, true);
     } catch (e) {
       putBack(cur);
       toast(`could not save the code: ${String(e.message || e).slice(0, 80)}`, 3000);
@@ -426,8 +440,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!text) { toast('kept the label: an empty one could not be clicked again (remove the shape instead)', 3200); return; }
     cur.el.textContent = text;
     try {
-      await post('/deck/edit/element/text', { slide: cur.slide, index: cur.index, path: cur.path, tag: cur.tag, was: cur.was, text });
-      toast('saved — reloading', 1400);
+      await post('/deck/edit/element/text', { slide: cur.slide, index: cur.index, path: cur.path, tag: cur.tag, was: cur.was, text, ...inPlace() });
+      toast('saved', 1200);
+      announce(cur.slide, cur.index, cur.el);
     } catch (e) {
       cur.el.textContent = cur.was;
       toast(`could not save the label: ${String(e.message || e).slice(0, 80)}`, 3000);

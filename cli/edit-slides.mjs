@@ -263,7 +263,9 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
 
   // The three that WRITE an element. Same door as layout and notes: a pure
   // (html, slide, index, …) → html transform, through applyEdit, onto the ONE
-  // undo/redo stack.
+  // undo/redo stack. A content or label save asked `quiet` is written in
+  // place: the page that saved already shows it, so the watcher skips its
+  // reload and every other page is sent a `content` event instead.
   // `path` (a node inside the element, the selection inside a diagram) removes
   // that node alone; without it the whole element goes
   function elementRemoveRoute({ body, json }) {
@@ -278,7 +280,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   function elementContentRoute({ body, json }) {
-    const { slide, index, html } = JSON.parse(body);
+    const { slide, index, html, quiet: inPlace = false, from = null } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || typeof html !== 'string') {
       throw new Error('bad payload');
     }
@@ -288,6 +290,10 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     if (dropped) return json(409, { ok: false, error: dropped });
     const changed = applyEdit((deck) => setSlideElementHtml(deck, slide, index, html));
     if (changed) console.log(`  element content saved: slide ${slide} #${index}`);
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
     return json(200, { ok: true, changed, ...history.counts() });
   }
 
@@ -331,12 +337,16 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * label the file no longer says is a 409.
    */
   function elementTextRoute({ body, json }) {
-    const { slide, index, path = [], tag = null, was, text } = JSON.parse(body);
+    const { slide, index, path = [], tag = null, was, text, quiet: inPlace = false, from = null } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
     let changed;
     try { changed = applyEdit((html) => setElementText(html, slide, index, { path, tag, was, text })); }
     catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
     if (changed) console.log(`  diagram label saved: slide ${slide} #${index} → ${JSON.stringify(text).slice(0, 60)}`);
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
     return json(200, { ok: true, changed, ...history.counts() });
   }
 

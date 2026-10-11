@@ -2011,8 +2011,11 @@
         const saved = CALLS.post.find((c) => c.u.includes('/deck/edit/element/content'));
         r.savedWithTheTags = !!saved && saved.body.html === '<h1><em><code>One</code></em></h1>';
         r.pillGoneAfterSave = !pill() && !h1.isContentEditable;
+        // saved in place: a quiet write from this page, the words stay as typed, no "reloading"
+        r.savedInPlace = saved?.body.quiet === true && typeof saved?.body.from === 'string' && h1.isConnected
+          && h1.innerHTML === '<em><code>One</code></em>' && ![...document.querySelectorAll('.decklight-toast')].some((n) => /reloading/.test(n.textContent));
         r.PASS = r.noPillWithoutSelection && r.pillOnSelection && r.chordWrapsStrong && r.pillSaysOn && r.chordAgainUnwraps
-          && r.chordWrapsEm && r.pillWrapsCode && r.stillEditing && r.savedWithTheTags && r.pillGoneAfterSave;
+          && r.chordWrapsEm && r.pillWrapsCode && r.stillEditing && r.savedWithTheTags && r.pillGoneAfterSave && r.savedInPlace;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -2060,8 +2063,10 @@
         await settle(); await settle();
         const sent = writes()[0]?.body;
         r.enterSendsTheWords = !!sent && sent.slide === deck._sections.length && sent.index === 1
-          && JSON.stringify(sent.path) === '[1,1]' && sent.tag === 'text' && sent.was === 'Producer' && sent.text === 'Producer & consumer';
-        r.labelShowsItAndTheBoxGoes = !box() && label.textContent === 'Producer & consumer' && getComputedStyle(label).visibility === 'visible';
+          && JSON.stringify(sent.path) === '[1,1]' && sent.tag === 'text' && sent.was === 'Producer' && sent.text === 'Producer & consumer'
+          && sent.quiet === true && typeof sent.from === 'string';   // in place: a quiet write from this page
+        r.labelShowsItAndTheBoxGoes = !box() && label.textContent === 'Producer & consumer' && getComputedStyle(label).visibility === 'visible'
+          && ![...document.querySelectorAll('.decklight-toast')].some((n) => /reloading/.test(n.textContent));
 
         dbl(label);
         typeIn('junk');
@@ -2123,9 +2128,9 @@
         await settle();
         await settle();
         const saved = CALLS.post.find((c) => c.u.includes('/deck/edit/element/content'));
-        r.enterSaves = !!saved && saved.body.slide === 1 && saved.body.index === 0;
+        r.enterSaves = !!saved && saved.body.slide === 1 && saved.body.index === 0 && saved.body.quiet === true && typeof saved.body.from === 'string';
         r.savedIntoTheSource = !!saved && saved.body.html === '<h1>One, edited</h1>';
-        r.editableReleased = !h1.isContentEditable && !h1.classList.contains('dl-editing');
+        r.editableReleased = !h1.isContentEditable && !h1.classList.contains('dl-editing') && h1.isConnected && h1.textContent === 'One, edited';
         // Escape gives the edit up, and writes nothing
         dbl(h1);
         h1.textContent = 'junk';
@@ -3047,9 +3052,14 @@
         r.savesIntoTheSource = !!saved && saved.body.slide === 3 && saved.body.index === 1;
         r.keepsTheBlockExactly = saved?.body.html
           === '<pre data-lines="1|2"><code class="language-js">\nconst a = 10;\nif (a &lt; b) go();\n</code></pre>';
+        // saved in place: the block is rendered again from its new source, highlighted and lined, no reload
+        const shown = document.querySelector('.decklight-stage > section.active pre > code');
+        r.renderedAgainInPlace = saved?.body.quiet === true && typeof saved?.body.from === 'string'
+          && !!shown && shown !== code && !!shown.querySelector('.code-line') && shown.textContent.includes('const a = 10;')
+          && shown.closest('pre').getAttribute('data-lines') === '1|2' && !shown.isContentEditable;
         r.PASS = r.renderedHighlighted && r.becomesEditable && r.showsTheSourceText && r.keysStayInTheCode
           && r.enterIsNotASave && r.escapePutsTheLinesBack && r.escapeWroteNothing
-          && r.savesIntoTheSource && r.keepsTheBlockExactly;
+          && r.savesIntoTheSource && r.keepsTheBlockExactly && r.renderedAgainInPlace;
       }
 
       // G surfaces a multi-module deck's chapters as rows of their own (#479).
