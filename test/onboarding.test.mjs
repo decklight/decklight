@@ -10,7 +10,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createOnboarding, TIPS } from '../src/core/onboarding.js';
+import { createOnboarding } from '../src/core/onboarding.js';
 
 /** A localStorage that behaves, and one that throws like `file://` does. */
 function memoryStorage(initial = {}) {
@@ -57,11 +57,11 @@ function harness({ storage = memoryStorage(), search = '', print = false } = {})
 const FIRST_RUN = { slide: 1, step: 0 };
 const isCard = (n) => n.className === 'decklight-welcome';
 
-test('a first run spends itself on the welcome card, and never also on a tip', () => {
+test('a first run spends itself on the welcome card, and nothing else', () => {
   const { onboarding, mounted, toasts } = harness();
   onboarding.start(FIRST_RUN);
   assert.equal(mounted.filter(isCard).length, 1);
-  assert.deepEqual(toasts, [], 'a card that just explained / must not be followed by a tip about /');
+  assert.deepEqual(toasts, [], 'the card is the whole of it');
 });
 
 test('once the card is dismissed it never auto-shows again — in any deck', () => {
@@ -75,50 +75,21 @@ test('once the card is dismissed it never auto-shows again — in any deck', () 
   const second = harness({ storage });
   second.onboarding.start(FIRST_RUN);
   assert.equal(second.mounted.filter(isCard).length, 0);
-  assert.equal(second.toasts.length, 1, 'the load teaches something — just a tip now');
 });
 
-test('every load after the welcome gets ONE tip, in order, each at most once ever', () => {
+test('after the welcome a load teaches nothing: the tip rotation is gone', () => {
+  // Twelve one-line tips used to follow the welcome, one per load. The
+  // palette answers "how do I…" for whoever types the word, and ? lists every
+  // key; a tip a load taught what both already say.
   const storage = memoryStorage({ 'decklight-onboarded': '1' });
-  const seen = [];
-  for (let i = 0; i < TIPS.length; i++) {
-    const { onboarding, toasts } = harness({ storage });
+  for (let i = 0; i < 3; i++) {
+    const { onboarding, toasts, mounted } = harness({ storage });
     onboarding.start(FIRST_RUN);
-    assert.equal(toasts.length, 1, `load ${i + 1} showed ${toasts.length} tips`);
-    seen.push(toasts[0]);
+    assert.deepEqual(toasts, [], `load ${i + 1} taught something`);
+    assert.equal(mounted.length, 0);
   }
-  assert.equal(new Set(seen).size, TIPS.length, 'a tip repeated across loads');
-  assert.match(seen[0], /press \/ for the command palette/, 'the rotation starts with the most basic');
-  assert.deepEqual(seen.map((t) => t.replace('tip · ', '')), TIPS.map((t) => t.text));
-});
-
-test('once every tip has been read the deck goes quiet — no "no more tips"', () => {
-  const storage = memoryStorage({
-    'decklight-onboarded': '1',
-    'decklight-tips-seen': JSON.stringify(TIPS.map((t) => t.id)),
-  });
-  const { onboarding, toasts } = harness({ storage });
-  onboarding.start(FIRST_RUN);
-  assert.deepEqual(toasts, []);
-  assert.equal(onboarding.showTip(), null, 'and asking directly is silent too');
-});
-
-test('tips off persists and is respected on the next load; reset starts the rotation over', () => {
-  const storage = memoryStorage({ 'decklight-onboarded': '1' });
-  const off = harness({ storage });
-  off.onboarding.setTips(false);
-  assert.equal(storage.getItem('decklight-tips-off'), '1');
-
-  const next = harness({ storage });
-  next.onboarding.start(FIRST_RUN);
-  assert.deepEqual(next.toasts, [], 'disabled, even though every tip is still unread');
-
-  next.onboarding.setTips(true);
-  next.onboarding.showTip();
-  next.onboarding.resetTips();
-  const after = harness({ storage });
-  after.onboarding.start(FIRST_RUN);
-  assert.match(after.toasts[0], /press \/ for the command palette/);
+  const { onboarding } = harness({ storage });
+  for (const gone of ['showTip', 'setTips', 'resetTips', 'status']) assert.equal(onboarding[gone], undefined, `${gone} is back`);
 });
 
 test('nothing teaches over a talk: print, embedded, and a deep link past slide 1', () => {
@@ -131,7 +102,7 @@ test('nothing teaches over a talk: print, embedded, and a deep link past slide 1
     const { onboarding, mounted, toasts } = harness(opts);
     onboarding.start(target);
     assert.equal(mounted.filter(isCard).length, 0, `${what}: welcome card shown`);
-    assert.deepEqual(toasts, [], `${what}: tip shown`);
+    assert.deepEqual(toasts, [], `${what}: something was taught`);
   }
 });
 
@@ -141,22 +112,7 @@ test('the deck still plays where localStorage throws — it just forgets', () =>
   assert.equal(mounted.filter(isCard).length, 1);
   onboarding.dismissWelcome();                 // the write throws, and is swallowed
   assert.equal(mounted.filter(isCard).length, 0);
-  onboarding.showTip();
-  assert.equal(toasts.length, 1, 'a tip still shows; it is simply offered again next time');
-});
-
-test('a truncated or hand-edited seen-list starts the rotation over rather than throwing', () => {
-  for (const junk of ['[', '{"id":', 'null', '"palette"', '17']) {
-    const storage = memoryStorage({ 'decklight-onboarded': '1', 'decklight-tips-seen': junk });
-    const { onboarding, toasts } = harness({ storage });
-    onboarding.start(FIRST_RUN);
-    assert.match(toasts[0], /press \/ for the command palette/, `junk ${junk}`);
-  }
-});
-
-test('tip ids are unique and stable — an id IS the persisted seen-token', () => {
-  assert.equal(new Set(TIPS.map((t) => t.id)).size, TIPS.length);
-  for (const t of TIPS) assert.match(t.id, /^[a-z]+$/);
+  assert.deepEqual(toasts, []);
 });
 
 test('the advance hooks are armed on every playing load, so no card outlives the first move', () => {

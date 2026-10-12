@@ -1,62 +1,40 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Teaching the product, on the two occasions a deck can afford it: the very
-// first one, and every quiet one after.
+// Teaching the product, twice and no more: the first deck a browser opens,
+// and the first time it opens one in write mode.
 //
 // A newcomer opens a deck and sees a slide. The three things they cannot guess
 // are the three things that make Decklight — the deck is one HTML file an agent
 // can author, `/` is the way into everything, and write mode turns the player
 // into an editor. So the FIRST load a browser ever gives us gets a card that
-// says exactly that (WELCOME), and every load after it gets at most one line
-// through the message facility (TIPS) until the deck has taught its shortcuts
-// and then goes quiet forever.
+// says exactly that (WELCOME), and the first write-mode load gets the editing
+// tour. Nothing else: a rotation of twelve one-line tips used to follow, one
+// per load, with three palette rows to turn it off, on and back to the start.
+// The palette already answers "how do I…" for anyone who types the word, and
+// `?` lists every key; a tip a load was teaching what both of those say.
 //
-// The two never share a load. A welcome that has just explained `/` should not
-// be followed by a toast explaining `/`, and a load that shows the card is by
-// definition the load with the most to read already on screen.
+// Both flags are GLOBAL (`decklight-onboarded`, `decklight-onboarded-tour`),
+// not path-scoped like theme/font/clock. Those remember what a DECK should
+// look like; these remember what a PERSON has already been told, and being
+// told twice by a second deck is the whole thing they exist to prevent.
 //
-// Both flags are GLOBAL — `decklight-onboarded`, `decklight-tips*` — not
-// path-scoped like theme/font/clock. Those remember what a DECK should look
-// like; these remember what a PERSON has already been told, and being told
-// twice by a second deck is the whole thing they exist to prevent. Same
-// reasoning as `decklight-custom-themes`.
-//
-// Nothing here may ever appear over a live audience: no card and no tip in
-// `?print`, `?embedded` or `?capture`, none when the URL deep-links past the first build of
-// the first slide (a link into the middle of a talk is not a first run), and
-// the first advance — key, click, swipe, chevron or a programmatic next() —
-// retires the card for good.
+// Nothing here may ever appear over a live audience: no card in `?print`,
+// `?embedded` or `?capture`, none when the URL deep-links past the first build
+// of the first slide (a link into the middle of a talk is not a first run),
+// and the first advance — key, click, swipe, chevron or a programmatic next()
+// — retires the card for good.
 
 import { closeOnBackdrop } from './overlay.js';
 import { readPref, writePref } from './prefs.js';
-import { UNDO_CHORD } from './undo-chord.js';
+import { IS_MAC, UNDO_CHORD } from './undo-chord.js';
 
-/**
- * The tips, most basic first. Order IS the curriculum: a reader who opens ten
- * decks gets `/` before `T`, and the palette makes every later tip findable
- * without being told. Each id is the persisted seen-token, so ids are permanent
- * — renaming one re-teaches a tip somebody already read.
- */
-export const TIPS = [
-  { id: 'palette', text: 'press / for the command palette — every command, type to filter' },
-  { id: 'help', text: 'press ? for the keyboard shortcuts' },
-  { id: 'goto', text: 'press G to jump to any slide by name' },
-  { id: 'theme', text: 'press T to browse themes — the deck restyles live' },
-  { id: 'overview', text: 'press O for the slide overview grid' },
-  { id: 'speaker', text: 'press ⌥⏎ (Alt+Enter) for the speaker view — notes, next slide and a timer; S shows this slide\'s notes (editable when authoring)' },
-  { id: 'narrate', text: 'press V to have the deck narrate itself from its speaker notes' },
-  { id: 'messages', text: 'press ` (left of 1) for the message log — every message the deck has shown' },
-  { id: 'fullscreen', text: 'press F for fullscreen, B to black out the screen mid-talk' },
-  { id: 'write', text: 'decklight <deck.html> turns this player into an editor — A asks an AI agent, and editing is on' },
-  { id: 'inline', text: 'in write mode, double-click any text to edit it in place; drop a picture onto a slide to add it' },
-  { id: 'editbar', text: 'in write mode a bar names every editing door, and a click selects an element; Lock deck in the palette turns changes off' },
-];
+// ⌃T reaches the page only on a Mac: elsewhere the browser owns Ctrl+T (a new
+// tab), so the card does not teach a key that opens a tab instead.
+const GENERATE = IS_MAC;
 
 const SEEN_KEY = 'decklight-onboarded';   // the welcome card, once per browser
 const TOUR_SEEN_KEY = 'decklight-onboarded-tour';   // the editing tour, once per browser
-const TIPS_SEEN_KEY = 'decklight-tips-seen';
-const TIPS_OFF_KEY = 'decklight-tips-off';
 
 // Storage is advisory here, never load-bearing: `file://` and private mode both
 // throw, and a deck that cannot remember what it has taught must still play.
@@ -64,7 +42,7 @@ const read = (key) => readPref(key);
 const write = (key, value) => { writePref(key, value); };
 
 /**
- * Wire the first-run welcome and the tip rotation to a deck.
+ * Wire the first-run welcome and the editing tour to a deck.
  *
  * `start()` is the one entry point the engine calls, after `ready` — by then
  * the deck knows where the hash sent it, which is what decides whether this
@@ -102,7 +80,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
       <table>
         <tr><td>/</td><td><b>Command palette</b> — every command, type to filter. Start here.</td></tr>
         <tr><td>?</td><td>All keyboard shortcuts.</td></tr>
-        <tr><td>T · ⌃T</td><td>Browse themes with a live preview; <b>⌃T</b> generates a brand-new one.</td></tr>
+        <tr><td>${GENERATE ? 'T · ⌃T' : 'T'}</td><td>Browse themes with a live preview${GENERATE ? '; <b>⌃T</b> generates a brand-new one' : ''}.</td></tr>
         <tr><td>⌥⏎ · V</td><td>Speaker view with notes &amp; timer (<b>S</b> edits the notes); <b>V</b> narrates the deck aloud.</td></tr>
         <tr><td>A · ${UNDO_CHORD}</td><td><b>Write mode</b> (<code>decklight &lt;deck.html&gt;</code>): live-reload editing — ask an AI agent to change the deck, edit any element, undo.</td></tr>
       </table>
@@ -190,44 +168,8 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     keydown: () => (dismissWelcome(), true),
   });
 
-  // ----- the tips ----------------------------------------------------------
-  function tipsEnabled() { return read(TIPS_OFF_KEY) !== '1'; }
-
-  function seenTips() {
-    try {
-      const raw = JSON.parse(read(TIPS_SEEN_KEY) || '[]');
-      return new Set(Array.isArray(raw) ? raw : []);
-    } catch { return new Set(); }   // hand-edited or truncated: start over
-  }
-
-  /** The next tip this browser has not read, or null once they are all read. */
-  function nextTip() {
-    const seen = seenTips();
-    return TIPS.find((t) => !seen.has(t.id)) || null;
-  }
-
-  function showTip() {
-    const tip = nextTip();
-    if (!tip) return null;   // every tip read: silence, not a "no more tips"
-    const seen = seenTips();
-    seen.add(tip.id);
-    write(TIPS_SEEN_KEY, JSON.stringify([...seen]));
-    toast(`tip · ${tip.text}`, 5200);   // longer than a status toast: this one is read, not glanced at
-    return tip.id;
-  }
-
-  function setTips(on) {
-    write(TIPS_OFF_KEY, on ? '0' : '1');
-    toast(on ? 'tips on — one per deck you open' : 'tips off');
-  }
-
-  function resetTips() {
-    write(TIPS_SEEN_KEY, '[]');
-    toast(`tips reset — all ${TIPS.length} will show again, one per deck`);
-  }
-
   /**
-   * The load's one teaching moment, spent on whichever of the two is due.
+   * The first-run welcome, when it is due.
    *
    * `target` is where the hash actually sent the deck: anything past the first
    * build of the first slide is somebody presenting from a link, and a card
@@ -243,8 +185,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     deck().on('slide', dismissCards);
     deck().on('build', dismissCards);
     if (target.slide !== 1 || target.step !== 0) return;
-    if (read(SEEN_KEY) !== '1') { showWelcome(); return; }
-    if (tipsEnabled()) showTip();
+    if (read(SEEN_KEY) !== '1') showWelcome();
   }
 
   return {
@@ -254,10 +195,5 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     dismissWelcome,
     showEditingTour,
     dismissEditingTour,
-    showTip,
-    setTips,
-    resetTips,
-    /** Palette labels ask what is currently on, and what is left to teach. */
-    status: () => ({ tipsOn: tipsEnabled(), tipsLeft: nextTip() ? TIPS.length - seenTips().size : 0 }),
   };
 }

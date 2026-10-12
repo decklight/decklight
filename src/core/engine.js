@@ -23,7 +23,7 @@ import { createAuthoring } from './authoring.js';
 import { createEditBar } from './editbar.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
-import { createOnboarding, TIPS } from './onboarding.js';
+import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
 import { createRangePicker } from './ranges.js';
@@ -373,7 +373,7 @@ export function init(userConfig = {}) {
   // `?capture` — a render, not a live session (#548). `decklight video`, the
   // pptx export and a plain `shot` load each frame as a one-shot headless
   // Chrome, and everything that exists to talk to a person in the room —
-  // toasts, the voice-over hint, the welcome card and tips, the chevrons —
+  // toasts, the voice-over hint, the welcome card, the chevrons —
   // would otherwise be photographed into the artifact. Not `?embedded`: that
   // is the picker previews' mode and brings their postMessage and pref rules
   // with it; not `?print`: that reveals every build and changes the layout.
@@ -1097,10 +1097,6 @@ export function init(userConfig = {}) {
       { label: 'Debug log', cat: 'Help', alias: 'console events state', run: toggleDebug },
       { label: 'Welcome to Decklight', cat: 'Help', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
       write({ label: 'Editing tour', cat: 'Help', alias: 'onboarding intro getting started first run tour how do I edit write mode gestures', run: onboarding.showEditingTour }),
-      { label: `Tips ${onboarding.status().tipsOn ? 'off' : 'on'}`, cat: 'Help', alias: 'hints teach shortcuts learn stop showing quiet', run: () => onboarding.setTips(!onboarding.status().tipsOn) },
-      // with every tip unread there is nothing to reset
-      onboarding.status().tipsLeft < TIPS.length
-        && { label: 'Reset tips', cat: 'Help', alias: 'hints again start over show all unsee replay', run: onboarding.resetTips },
       // ── Preferences ─────────────────────────────────────────────────────
       // `config` and `version` find it too; `version` is what somebody is
       // usually after in here.
@@ -2741,12 +2737,6 @@ export function init(userConfig = {}) {
     close: closeSettings,
     rows: settingsRows,                                     // [{ label, value?, run? }]
   };
-  instance.tips = {                                         // the rotation the palette drives
-    show: onboarding.showTip,
-    reset: onboarding.resetTips,
-    set: onboarding.setTips,
-    status: onboarding.status,
-  };
 
   // ── narration (narration.js) ─────────────────────────────────────────────
   // The deck's voice and everything that hangs off it: recorded and live
@@ -2789,7 +2779,7 @@ export function init(userConfig = {}) {
   const openNarrPicker = narration.openPicker;
   instance.toggleNarration = toggleNarration;               // programmatic start/stop
   // The voice, for API callers and the render harnesses — a curated surface
-  // like `instance.tips` and `instance.restore`, not the whole module.
+  // like `instance.settings` and `instance.restore`, not the whole module.
   instance.narration = {
     playPause: () => narration.playPause(),
     openPicker: (view) => narration.openPicker(view),
@@ -3118,7 +3108,7 @@ export function init(userConfig = {}) {
   root.__decklight = instance;
   activeInstance = instance;
   instance._emit('ready', { slides: instance.state.totalSlides });
-  // Last, and after `ready`: the welcome card and the tips are the only chrome
+  // Last, and after `ready`: the welcome card is the only chrome
   // that reads where the hash SENT the deck, and a load that landed on slide 12
   // is a talk in progress, not a first run.
   onboarding.start(target);

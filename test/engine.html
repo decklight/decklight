@@ -614,13 +614,12 @@
 
     // This harness drives overlays and keys, not onboarding: mark the welcome
     // seen so the card never intercepts the first keystroke below (SPEC
-    // PRESENTING), and tips off so no toast lands in the middle of a dump.
+    // PRESENTING).
     try {
       localStorage.setItem('decklight-onboarded', '1');
       // …and the editing tour, which would otherwise take every write-mode
       // mode's first key; the two tour modes clear it again
       localStorage.setItem('decklight-onboarded-tour', '1');
-      localStorage.setItem('decklight-tips-off', '1');
       // agentlog: the agent card docked right, as the author left it
       if (mode === 'agentlog') localStorage.setItem('decklight-agent-dock:' + location.pathname, JSON.stringify({ mode: 'right' }));
       sessionStorage.clear();
@@ -1506,10 +1505,8 @@
         // Escape clears the query first, then closes
         r.escapeCloses = escapeUntilClosed(Q);
 
-        // Onboarding's settings surface is palette rows, not an overlay of its
-        // own (SPEC PRESENTING): the welcome reopens from here, and tips are
-        // turned off from here. "Reset tips" is contextual — this harness has
-        // read no tip, so there is nothing to reset back to.
+        // Onboarding's one palette row is the welcome, reopened from here; the
+        // tip rotation and its Tips on/off and Reset tips rows are gone.
         press('/');
         const labels = (q) => {
           for (const ch of q) press(ch);
@@ -1535,9 +1532,7 @@
         // file there is nothing behind any of them.
         r.paletteNoExportRowWithoutServer = !labels('export').some((t) => /Export (to|a) (PowerPoint|PDF)/.test(t))
           && !labels('bundle').some((t) => /Bundle into one file/.test(t));
-        const tipRows = labels('tips');
-        r.paletteTogglesTips = tipRows.some((t) => /Tips on/.test(t));
-        r.paletteHidesEmptyReset = !tipRows.some((t) => /Reset tips/.test(t));
+        r.paletteHasNoTipRows = !labels('tips').some((t) => /Tips on|Tips off|Reset tips/.test(t));
         // SETTINGS is reachable by the word people actually type. "config" is
         // not in the label, so this is really asserting the alias carries it —
         // the row would still LOOK right in a screenshot with the alias gone.
@@ -1548,7 +1543,7 @@
 
         r.PASS = r.opens && r.hasRows && r.hasSelection && r.downMoves
           && r.typingFilters && r.escapeCloses
-          && r.paletteReopensWelcome && r.paletteTogglesTips && r.paletteHidesEmptyReset
+          && r.paletteReopensWelcome && r.paletteHasNoTipRows
           && r.palettePrintsNotes && r.palettePrintsHandout && r.paletteRehearses
           && r.paletteNoHiddenRowWhenNoneHidden && r.paletteNoHideRowWithoutServer
           && r.paletteNoExportRowWithoutServer
