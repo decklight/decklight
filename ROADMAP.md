@@ -34,14 +34,14 @@ can wait for 1.0.
 - [x] **Delete the git-mode follow-up question.** (#773) `agent` is already the default
       (`cli/git.mjs` `resolveGitMode`), so the question at `cli/open.mjs:480`
       changes nothing.
-- [ ] **Move the piper download and the TTS setup questions out of startup.**
-      Ask at the first `V` press in the deck, which is the lazy design
-      `cli/wizard.mjs` already describes in its header. Startup then asks only
-      the trust question. Not cheap: with no engine configured the bridge is
-      not started, and the deck's `V` panel then only says "no voice bridge is
-      answering" (`src/core/narration.js:2443`). This needs the bridge to start
-      with no engine and list what each one needs, plus an in-deck setup for a
-      key, a project or the piper model. A feature PR of its own.
+- [x] **Move the piper download and the TTS setup questions out of startup:
+      revised.** (#794) Startup asks only the trust question. **Revised:** no
+      in-deck setup flow. The deck never collects a key or a project, by the
+      bridge's own rule, so the banner and the `V` panel name `decklight setup
+      voice`, which with flags saves directly. `setup face` saves the cache
+      directory, rhubarb and Veo (Veo only with `--veo`). `decklight <deck>`
+      refuses the 22 voice, lip-sync and Veo flags that now live in settings,
+      and keeps `--tts-engine`, `--no-tts` and `--no-lipsync`.
 - [x] **Take the TTS, lip-sync and Veo pass-through flags off the help.** (#773)
       `decklight <deck> --help` is 27 lines instead of 70; `--help --all`
       keeps the full list. The flags are still accepted, because the saved
@@ -108,10 +108,8 @@ can wait for 1.0.
       Inspector, Sources, Comments, Agent and the HTML editor share one slot
       and one placement per deck (`decklight-panel-dock:`); opening one closes
       the other, and every header carries tabs to the rest (`src/core/dock.js`).
-      Still open: whether a docked panel takes the keyboard depends on the
-      panel (the comments are modal only while you work in them, the notes
-      while you type). Unifying that is the next step, and needs a decision on
-      what `←`/`→` mean while a panel has focus.
+      **Keyboard (#793):** while a docked panel has the keyboard, `←` and `→`
+      move the deck; text fields keep them for the caret.
 - [x] **The inspector is the only styling surface: revised.** (#791) The
       Copy style and Paste style rows stay: with every action at the root
       (section 2) they are actions, and the palette is where actions live.
@@ -150,12 +148,10 @@ can wait for 1.0.
       **Revised:** `library add`, not a bare `add`, because `theme add`,
       `font add` and `design-system add` put a reference into a deck and a
       top-level `add` installing into the library would read as the same act.
-- [ ] **One grammar for what a deck references.** Still open. `theme add`,
-      `font add` and `design-system add` each take a different shape, theme
-      lacks `list`, and the three reference modules are one pattern written
-      three times (`cli/theme-refs.mjs`, `cli/font-refs.mjs`,
-      `cli/design-system-refs.mjs`). A reference-kind table like `UNIT_TYPES`
-      collapses them. A refactor across serve, edit and bundle, so its own PR.
+- [x] **One grammar for what a deck references.** (#795) `cli/deck-refs.mjs`
+      lists theme, design system and font once (`REFERENCE_KINDS`); serve and
+      edit link and resolve through it. `theme` has `add|remove|list|gate`
+      like `font` and `design-system`, with `theme list` new.
 - [x] **`tts` and `lipsync` become internals.** (#788) `decklight setup
       voice` runs the guided engine setup and stops; `setup face` remembers a
       talking head. `tts` and `lipsync` still run (write mode spawns them, a
@@ -173,9 +169,11 @@ can wait for 1.0.
       still has no command.
 - [x] **One documented shape for `narration.files`.** (#780) One track is
       `files: '<dir>', ext, segments`; several are a list of the same fields.
-- [ ] **CLI commands as thin clients of shared modules.** Still open: split
-      `cli/edit.mjs` (about 4,100 lines, 81 routes) along the groups already
-      used for `edit-slides.mjs`: git, review, hand-over, look.
+- [x] **CLI commands as thin clients of shared modules.** (#796)
+      `cli/edit.mjs` loses its look, hand-over and git routes to
+      `edit-look.mjs`, `edit-handover.mjs` and `edit-git.mjs`, registered the
+      way `edit-slides.mjs` is; it goes from about 4,200 lines to 3,200. The
+      review routes were already in `review-routes.mjs`.
 
 ## 5. Vocabulary
 
@@ -224,12 +222,6 @@ can wait for 1.0.
 
 ## What is left
 
-From the sections above, still open:
-
-- **Section 1:** the voice setup questions move from startup into the deck's
-  `V` panel (an in-deck setup flow), and the voice, lip-sync and Veo flags
-  can be removed once their settings are savable.
-- **Section 3:** the keyboard rule for docked panels (needs a decision on
-  what `←`/`→` mean while a panel has focus).
-- **Section 4:** one grammar for deck references, and splitting the edit
-  server.
+Every section is done. Two items were reviewed and deliberately left as they
+are: overlay letters inside a focused panel (section 2) and the three slide
+pickers (section 3).
