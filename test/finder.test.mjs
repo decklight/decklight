@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 import { buildIndex, rankMatches } from '../src/core/finder.js';
 import { createDebugLog, DEBUG_KEEP } from '../src/core/debuglog.js';
-import { paletteRows } from '../src/core/palette.js';
+import { paletteRows, commandTitle, matchRank } from '../src/core/palette.js';
 
 // A section with the three things the index reads: children, their text, and
 // a heading. `aside` (speaker notes), script and style are excluded by the
@@ -188,4 +188,57 @@ test('a prefix match suppresses the search fallback', () => {
 
 test('a number never also offers a search', () => {
   assert.ok(!rowsFor('27').some((r) => r.search), 'the intent is unambiguous');
+});
+
+// ── categories: every command at the root, named the way VS Code names them ──
+
+const catCmds = [
+  { label: 'Find slide…', cat: 'Go to' },
+  { label: 'Export to PDF…', cat: 'Share', alias: 'pdf file' },
+  { label: 'Theme…', cat: 'Look', alias: 'colours' },
+  { label: 'Live voice…', cat: 'Voice', alias: 'tts engine' },
+  { label: 'Print handout (three per page, new tab)', cat: 'Share', alias: 'pdf print handout' },
+  { label: 'Export a PDF handout…', cat: 'Share', alias: 'pdf handout' },
+  { label: 'Character…', cat: 'Voice' },
+];
+const catRows = (query) => paletteRows({ commands: catCmds, query, categories: ['Go to', 'Look', 'Voice', 'Share'] });
+
+test('a command is shown as its category, then its name', () => {
+  assert.equal(commandTitle(catCmds[1]), 'Share: Export to PDF…');
+  assert.equal(commandTitle({ label: 'Go to slide 3 / 9' }), 'Go to slide 3 / 9', 'the synthetic rows have no category');
+});
+
+test('with nothing typed, every command is at the root, category by category, in written order within each', () => {
+  assert.deepEqual(catRows('').map(commandTitle), [
+    'Go to: Find slide…', 'Look: Theme…', 'Voice: Live voice…', 'Voice: Character…',
+    'Share: Export to PDF…', 'Share: Print handout (three per page, new tab)', 'Share: Export a PDF handout…',
+  ]);
+});
+
+test('typing the category narrows to it, with or without its colon', () => {
+  assert.deepEqual(catRows('voice').map((c) => c.label), ['Live voice…', 'Character…']);
+  assert.deepEqual(catRows('voice:').map((c) => c.label), ['Live voice…', 'Character…']);
+});
+
+test('every word typed must match, in any order', () => {
+  assert.deepEqual(catRows('handout pdf').map((c) => c.label).sort(),
+    ['Export a PDF handout…', 'Print handout (three per page, new tab)']);
+  assert.deepEqual(catRows('voice live').map((c) => c.label), ['Live voice…']);
+  assert.deepEqual(catRows('voice pdf').map((c) => c.label).filter((l) => !/Search/.test(l)), []);
+});
+
+test('the best match leads: a name or title that starts with what was typed, then title words, then aliases', () => {
+  // "pdf" is in three aliases, but only one title starts with it in its name
+  assert.equal(matchRank(catCmds[1], 'export'), 3, 'the name starts with it');
+  assert.equal(matchRank(catCmds[1], 'share: export'), 3, 'the title starts with it');
+  assert.equal(matchRank(catCmds[5], 'pdf handout'), 2, 'every word in the title');
+  assert.equal(matchRank(catCmds[2], 'colours'), 1, 'only the alias has it');
+  assert.equal(matchRank(catCmds[2], 'voice'), 0);
+  assert.equal(catRows('theme')[0].label, 'Theme…');
+  assert.equal(catRows('pdf handout')[0].label, 'Export a PDF handout…', 'title words outrank an alias match');
+});
+
+test('a category prefix counts as a prefix match, so it never offers a slide search', () => {
+  const rows = paletteRows({ commands: catCmds, query: 'share', categories: [], makeSearchRow: (t) => ({ label: `Search slides for “${t}”`, search: true }) });
+  assert.ok(!rows.some((r) => r.search));
 });

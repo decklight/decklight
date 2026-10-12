@@ -406,7 +406,7 @@
             findings: n === 1 ? [{ level: 'warn', rule: 'asset-missing', message: 'gone.png is not there' }] : [] });
         }
       }
-      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'emphasis' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
+      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'emphasis' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettecategories' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -929,6 +929,14 @@
       return { count: rows.length, i: rows.findIndex((r) => r.classList.contains(selCls)) };
     };
 
+    // A palette row's name without its category prefix (`Voice: Live voice…`
+    // reads `Live voice…`), so a check can anchor on the name it means.
+    const palName = (n) => {
+      const cat = n.querySelector('.pal-cat')?.textContent ?? '';
+      return n.textContent.slice(cat.length);
+    };
+    const palNames = () => [...document.querySelectorAll('.decklight-palette .pal-row')].map(palName);
+
     // Escape backs out one level at a time (a filter, a drill-in view), so
     // "does Escape ultimately close it?" means pressing it until gone.
     const escapeUntilClosed = (sel) => {
@@ -1268,7 +1276,7 @@
         const fromPalette = async (label) => {
           press('/');
           for (const ch of label.toLowerCase().slice(0, 12)) press(ch);
-          [...document.querySelectorAll('.decklight-palette .pal-row')].find((n) => n.textContent.startsWith(label))?.click();
+          [...document.querySelectorAll('.decklight-palette .pal-row')].find((n) => palName(n).startsWith(label))?.click();
           await settle();
         };
         const body = () => getComputedStyle(document.querySelector('.decklight')).getPropertyValue('--font-body');
@@ -1358,7 +1366,7 @@
         const openPicker = async () => {
           press('/');
           for (const ch of 'font') press(ch);
-          const row = [...document.querySelectorAll('.decklight-palette .pal-row')].find((n) => /^Font…/.test(n.textContent));
+          const row = [...document.querySelectorAll('.decklight-palette .pal-row')].find((n) => /^Font…/.test(palName(n)));
           row?.click();
           await settle();
         };
@@ -1412,54 +1420,64 @@
         }
       }
 
-      if (mode === 'palettegroups' || mode === 'paletteplain') {
-        // The palette's shape (palette.js): with no query the list is the
-        // deck's doors, the hand-over rows and the like folded into one row
-        // per group, the write-mode rows under one header and no "(dev)"
-        // anywhere; typing searches every command flat, in one step.
+      if (mode === 'palettecategories' || mode === 'paletteplain') {
+        // The palette's shape (palette.js): every command at the root, each
+        // named by its category the way VS Code's palette reads (`Share:
+        // Export to PDF…`), listed by category with nothing typed. No group
+        // to drill into, no "(dev)", and a write-mode row says so with a tag.
         await settle();   // the ping, when there is one
         const Q = '.decklight-palette', ROW = '.pal-row';
-        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
-        const heads = () => [...document.querySelectorAll(`${Q} .pal-head`)].map((n) => n.textContent);
+        const titles = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+        const cats = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.querySelector('.pal-cat')?.textContent ?? '');
         press('/');
-        const top = rows();
-        r.noDevSuffix = !top.some((t) => /\(dev\)/.test(t)) && !heads().some((t) => /\(dev\)/.test(t));
+        const top = titles();
+        r.noDevSuffix = !top.some((t) => /\(dev\)/.test(t));
+        r.noGroupRows = !document.querySelector(`${Q} .pal-head, ${Q} .pal-back`) && !top.some((t) => /▸$/.test(t));
+        // every command carries its category, and the empty list runs category by category
+        const seen = cats();
+        r.everyRowHasACategory = seen.length > 20 && seen.every((c) => /^[A-Z][A-Za-z ]+: $/.test(c));
+        const order = [...new Set(seen)];
+        r.categoriesAreContiguous = order.length === seen.filter((c, i) => c !== seen[i - 1]).length;
+        r.goToComesFirst = seen[0] === 'Go to: ';
+        r.printAtTheRoot = top.some((t) => /^Share: Print handout/.test(t));
         if (mode === 'paletteplain') {
-          // the rows that need the edit server are not offered without one;
-          // the few write-mode rows that explain themselves without it still
-          // sit under their header
-          r.noWriteSectionWithoutAServer = !top.some((t) => /^Export & share…|^Slide…|^Write for the ear…|^Add audio tags…/.test(t));
-          r.printFolds = top.some((t) => /^Print…/.test(t)) && !top.some((t) => /Print handout/.test(t));
+          // without an edit server, nothing that needs one is offered, and
+          // nothing at all is tagged write
+          r.noWriteRowsWithoutAServer = !top.some((t) => /^Share: Export|^Slide: (Duplicate|Delete)|^Git: |^Edit: Undo|^Slide: Cycle slide layout/.test(t))
+            && !document.querySelector(`${Q} .pal-tag`);
           press('Escape');
-          r.PASS = r.noDevSuffix && r.noWriteSectionWithoutAServer && r.printFolds;
+          r.PASS = r.noDevSuffix && r.noGroupRows && r.everyRowHasACategory && r.categoriesAreContiguous
+            && r.goToComesFirst && r.printAtTheRoot && r.noWriteRowsWithoutAServer;
           sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
           return;
         }
-        r.groupsFold = ['Export & share…', 'Slide…', 'Print…', 'Write for the ear…', 'Add audio tags…'].every((g) => top.some((t) => t.startsWith(g)))
-          && !top.some((t) => /Export to PDF…|Export a PDF handout…|Delete this slide|Print handout/.test(t));
-        r.writeRowsUnderOneHeader = heads().join('|') === 'write mode'
-          && top.indexOf(top.find((t) => /^Lock deck/.test(t))) > top.indexOf(top.find((t) => /^Theme…/.test(t)));
-        // into a group, and back
-        const exportRow = [...document.querySelectorAll(`${Q} ${ROW}`)].find((n) => /^Export & share…/.test(n.textContent));
-        exportRow.click();
-        await settle();
-        const inGroup = rows();
-        r.groupOpensItsRows = !!document.querySelector(Q) && inGroup[0] === '← back⌫'
-          && ['Export to PowerPoint…', 'Export to PDF…', 'Export a PDF handout…', 'Export a video…', 'Bundle into one file…', 'Publish this deck…'].every((l) => inGroup.some((t) => t.startsWith(l)))
-          && !inGroup.some((t) => /^Theme…/.test(t));
-        r.groupSaysWhereYouAre = /Export & share › /.test(document.querySelector(`${Q} .pal-input`)?.textContent ?? '');
-        press('Backspace');
-        r.backspaceLeavesTheGroup = rows().some((t) => /^Export & share…/.test(t)) && !!document.querySelector(Q);
-        // typing searches every command flat, in one step, with the tag
-        for (const ch of 'handout') press(ch);
-        const found = rows();
-        r.typingSearchesFlat = found.some((t) => /^Export a PDF handout…/.test(t)) && found.some((t) => /^Print handout/.test(t)) && !heads().length;
-        r.foundRowsTagged = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Export a PDF handout…/.test(n.textContent) && n.querySelector('.pal-tag')?.textContent === 'write');
-        for (const ch of 'handout') press('Backspace');
-        r.emptyQueryIsTheTopAgain = rows().some((t) => /^Export & share…/.test(t));
+        // write mode: the hand-over rows are at the root, tagged
+        r.exportAtTheRoot = ['Export to PowerPoint…', 'Export to PDF…', 'Export a PDF handout…', 'Export a video…', 'Bundle into one file…', 'Publish this deck…']
+          .every((l) => top.some((t) => t.startsWith(`Share: ${l}`)));
+        r.writeRowsTagged = [...document.querySelectorAll(`${Q} ${ROW}`)]
+          .filter((n) => /^Share: Export|^Slide: Delete|^Git: History/.test(n.textContent))
+          .every((n) => n.querySelector('.pal-tag')?.textContent === 'write');
+        r.presenterRowsUntagged = [...document.querySelectorAll(`${Q} ${ROW}`)]
+          .filter((n) => /^Look: Theme…|^Go to: Find slide…/.test(n.textContent))
+          .every((n) => !n.querySelector('.pal-tag'));
+        // typing the category narrows to it; the colon is optional
+        for (const ch of 'share') press(ch);
+        r.categoryNarrows = titles().length > 5 && titles().every((t) => /^Share: /.test(t) || /share/i.test(t));
+        for (const ch of 'share') press('Backspace');
+        // every word typed has to match, in any order
+        for (const ch of 'pdf handout') press(ch);
+        const found = titles();
+        r.wordsInAnyOrder = found.some((t) => /^Share: Export a PDF handout…/.test(t)) && found.some((t) => /^Share: Print handout/.test(t))
+          && !found.some((t) => /^Share: Export to PDF…/.test(t));
+        for (const ch of 'pdf handout') press('Backspace');
+        // the best match leads: a name that starts with what was typed
+        for (const ch of 'theme') press(ch);
+        r.bestMatchFirst = /^Look: Theme…/.test(titles()[0] ?? '');
         press('Escape');
-        r.PASS = r.noDevSuffix && r.groupsFold && r.writeRowsUnderOneHeader && r.groupOpensItsRows && r.groupSaysWhereYouAre
-          && r.backspaceLeavesTheGroup && r.typingSearchesFlat && r.foundRowsTagged && r.emptyQueryIsTheTopAgain;
+        press('Escape');
+        r.PASS = r.noDevSuffix && r.noGroupRows && r.everyRowHasACategory && r.categoriesAreContiguous && r.goToComesFirst
+          && r.printAtTheRoot && r.exportAtTheRoot && r.writeRowsTagged && r.presenterRowsUntagged
+          && r.categoryNarrows && r.wordsInAnyOrder && r.bestMatchFirst;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -2982,7 +3000,7 @@
         // the palette calls it what it is
         press('/');
         for (const ch of 'lock deck') press(ch);
-        r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(n.textContent));
+        r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(palName(n)));
         press('Escape');
         r.PASS = r.earlyLWaitsThenLands && r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
           && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordAsksFullscreen && r.clickSelects
@@ -3123,7 +3141,7 @@
         // author affordance away while it is on.
         await settle();   // the ping: write mode, unlocked
         const Q = '.decklight-palette', ROW = '.pal-row';
-        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map(palName);
         const chip = () => document.querySelector('.decklight-lock-chip');
         const bar = () => document.querySelector('.decklight-editbar');
         const locks = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/lock')).map((c) => c.body.locked);
@@ -3157,7 +3175,7 @@
         // the author rows are gone from the palette, the unlock row is there
         press('/');
         const locked = rows();
-        r.writeRowsGone = !locked.some((t) => /^Export & share…|^Slide…/.test(t)) && locked.some((t) => /^Unlock deck/.test(t));
+        r.writeRowsGone = !locked.some((t) => /^Export |^Delete this slide|^Undo deck edit/.test(t)) && locked.some((t) => /^Unlock deck/.test(t));
         press('Escape');
         // another tab turned it off: the channel says so, the chip goes, the bar is back
         window.__es.emit('lock', { locked: false });
@@ -3223,7 +3241,7 @@
         // the run's — and E says what it needs.
         await settle(); await settle();
         const Q = '.decklight-palette', ROW = '.pal-row';
-        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map(palName);
         r.notAvailable = deck.editmode?.available?.() !== true;
         r.noChip = !document.querySelector('.decklight-lock-chip');
         // nothing edits: no bar, and a double-click changes nothing
@@ -3233,7 +3251,7 @@
         r.nothingEdits = !document.querySelector('.decklight-editbar') && !h1?.isContentEditable;
         press('/');
         const top = rows();
-        r.noModeRow = !top.some((t) => /^Write mode|^No-trust mode|^Lock editing|^Export & share…/.test(t));
+        r.noModeRow = !top.some((t) => /^Write mode|^No-trust mode|^Lock editing|^Export /.test(t));
         press('Escape');
         r.presentedChannelWired = CALLS.get.some((u) => u.includes('/deck/events')) || !!window.__es;
         r.PASS = r.notAvailable && r.noChip && r.nothingEdits && r.noModeRow;
@@ -5692,7 +5710,7 @@
         // the palette row, found by what people call it
         press('/');
         for (const ch of 'colour by meaning') press(ch);
-        r.paletteFindsIt = /^Concept colors…/.test(q('.decklight-palette .pal-row')?.textContent ?? '');
+        r.paletteFindsIt = /^Concept colors…/.test(q('.decklight-palette .pal-row') ? palName(q('.decklight-palette .pal-row')) : '');
         press('Enter');
         await settle();
         // 4 · where it lives: its slides on the row, its shapes here boxed, → to the next slide it is on

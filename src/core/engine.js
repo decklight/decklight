@@ -870,7 +870,6 @@ export function init(userConfig = {}) {
   // (theme, font, narration, module, slide finder). Text that matches no
   // command falls back to a "search slides for …" row.
   let palEl = null, palSel = 0, palQuery = '', palRows = [], palCommands = [];
-  let palGroup = null;   // the group whose rows the palette shows, with no query
   // ── HIDDEN_SLIDES from the palette ──────────────────────────────────────
   const hasHiddenSlides = () => (instance._sections ?? []).some((s) => s.hasAttribute('data-hidden'));
   const currentHidden = () => !!instance._sections?.[instance.state.slide - 1]?.hasAttribute('data-hidden');
@@ -910,214 +909,203 @@ export function init(userConfig = {}) {
     return (instance.__speakerWin = openSpeakerView(instance));
   }
 
+  /**
+   * The order categories are listed in when nothing is typed: where a
+   * presenter goes first, then the slide in hand, then everything else. Every
+   * command names one (`cat`) and the palette shows it as a prefix, the way
+   * VS Code's command palette reads: `Voice: Live voice…`, `Share: Export to
+   * PDF…`. All of them sit at the root; typing the category narrows to it.
+   */
+  const PALETTE_CATEGORIES = ['Go to', 'Slide', 'Edit', 'Look', 'Voice', 'Present', 'Review', 'Git', 'Share', 'Help', 'Preferences'];
+
   function paletteCommands() {
     const has = (fn) => typeof fn === 'function';
+    // ONE rule for write mode: a row that changes the file, or needs the edit
+    // server to run, exists only while the deck can be written, and carries
+    // the write tag. Before, some such rows were tagged "(dev)" without being
+    // gated, so they showed in a read-only deck, and some were gated without
+    // the tag, so they sat among the presenter's rows untagged.
+    const write = (row) => editmode.available() && { ...row, write: true };
     const all = [
-      { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
-      { label: 'Comments…', hint: 'M', alias: 'feedback remarks reviewer notes critique review read', run: () => review.open() },
-      { label: 'Leave a comment…', hint: '⇧M', alias: 'comment note remark feedback add write say', run: () => review.compose() },
-      { label: 'Submit review…', alias: 'send review push comments submit feedback', run: () => review.submit() },
-      // Not "version": that word is what somebody types to find out WHICH
-      // decklight this is (Settings…), and it landed here first. An earlier
-      // state of the deck is reached by the words below.
-      { label: 'History… (dev)', hint: 'H', alias: 'restore previous earlier rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() },
-      { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
-      { label: 'Theme…', hint: 'T', run: themes.openPicker },
-      { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
-      !themes.brandLocked() && { label: 'Generate a theme', hint: '⌃T', run: rollTheme },
-      themes.hasGenerated() && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
-      // Contextual, like the save row above: marketplace themes are listed only
-      // while authoring, so without an edit server the row is absent rather
-      // than a promise the deck cannot keep (THEME_BROWSE#UI).
-      editmode.available() && { label: 'Marketplace themes…', alias: 'browse marketplace install add mark third-party catalog', run: themes.browse },
-      // Contextual for the same reason as Browse: each engine a registered
-      // marketplace declares a wizard for gets its own row (ENGINES#WIZARD).
-      // Without an edit server the list is empty — there is nowhere to post
-      // a credential, so no row makes a promise the deck cannot keep.
-      ...editmode.wizards().map((w) => ({
-        label: `Configure ${w.title}… (dev)`,
-        alias: 'engine wizard setup api key credential token marketplace',
-        run: () => editmode.wizard(w.qualified),
-      })),
-      { label: 'Font…', hint: '[ · ]', run: openFontPicker },
-      { label: 'Cycle slide layout (dev)', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
-      // The slide as a whole. Write mode only, like every row that writes the
-      // file — and absent rather than greyed out when there is no server.
-      editmode.available() && { label: 'New slide after this one (dev)', group: 'Slide', alias: 'add slide insert blank create page', run: () => editmode.slideOp('new') },
-      editmode.available() && { label: 'Duplicate this slide (dev)', group: 'Slide', alias: 'copy slide clone', run: () => editmode.slideOp('duplicate') },
-      editmode.available() && { label: 'Move slide up (dev)', group: 'Slide', alias: 'reorder earlier before swap', run: () => editmode.slideOp('up') },
-      editmode.available() && { label: 'Move slide down (dev)', group: 'Slide', alias: 'reorder later after swap', run: () => editmode.slideOp('down') },
-      editmode.available() && { label: 'Delete this slide (dev)', group: 'Slide', alias: 'remove slide drop', run: () => editmode.slideOp('delete') },
-      { label: 'Undo deck edit (dev)', hint: `Z · ${UNDO_CHORD}`, alias: 'revert back history', run: () => deckHistory('undo') },
-      { label: 'Redo deck edit (dev)', hint: '⇧Z', alias: 'forward history repeat', run: () => deckHistory('redo') },
-      { label: 'Ask agent… (dev)', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk },
-      { label: 'Messages', hint: '`', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
-      // One verb, one panel. These used to be V (on/off), N (the picker), P
-      // (pause) and two ⇧ shortcuts, with nothing in the naming saying which
-      // was which — and one of the shortcuts was not in the keyboard help.
-      { label: `Narration ${narration.status().paused ? 'resume' : narration.status().narrating ? 'pause' : 'play'}`,
-        hint: '⎵', alias: 'play pause resume voice narration speak start stop', run: () => narration.playPause() },
-      // 'settings' used to be an alias here, from before there was a settings
-      // panel. Typing the word for a thing that exists should reach THAT thing:
-      // it opened the narration picker instead, one row above the real one.
-      { label: 'Narration…', hint: 'V', alias: 'voice audio track picker', run: () => openNarrPicker('tracks') },
-      { label: 'Live voice…', hint: 'V', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
-      { label: 'Character…', hint: 'V', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
-      { label: 'Record this deck…', hint: 'V', alias: 'record narrate microphone mic voice wav offline batch teleprompter',
-        run: () => openNarrPicker('record') },
-      { label: `Character solo ${character.solo ? 'off' : 'on'}`, alias: 'centre center stage narrator only fullscreen avatar', run: () => narration.applySolo(!character.solo) },
-      // Named as a PAIR, differing only where it matters: "offline" described
-      // how the old one was made, not what you got, and read as the opposite
-      // of nothing once a second recorder existed.
-      { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
-      { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
-      { label: editmode.available() ? 'Edit speaker notes…' : 'Speaker notes (read-only)…', hint: 'S', alias: 'edit mode notes write script read right-click background', run: toggleEditor },
-      { label: 'Speaker view — second window', hint: '⌥⏎', alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
-      { label: 'Overview', hint: 'O', run: toggleOverview },
-      { label: 'Blackout', hint: 'B', run: toggleBlackout },
-      { label: `Pen ${hud.annotator?.tool === 'pen' ? 'off' : 'on'} — draw on the slide`, hint: 'W', alias: 'ink annotate draw scribble marker highlight', run: () => toggleInk('pen') },
-      { label: `Laser pointer ${hud.annotator?.tool === 'laser' ? 'off' : 'on'}`, hint: '⇧W', alias: 'ink dot glow point at', run: () => toggleInk('laser') },
-      { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
-      { label: `Captions ${narration.status().captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
-      // The clock lost K to the commit window and lives HERE now — searchable
-      // by every word somebody would look for it under, with no key to forget.
-      { label: `Clock ${hud.status().clockOn ? 'off' : 'on'}`, alias: 'time elapsed timer talk wall watch clock', run: toggleClock },
-      { label: 'Commit…', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() },
-      { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
-      { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
-      // the bar, hidden or shown (PRESENTING): editing stays on either way
-      editmode.available() && { label: editbar.hidden() ? 'Show the bar (dev)' : 'Hide the bar (dev)',
-        alias: 'editing bar toolbar hide show toggle chrome buttons', run: () => editbar.toggleHidden() },
-      // the lock (PRESENTING): changes off to avoid one by mistake, and back on
-      editmode.served() && !editmode.noTrust() && { label: editmode.locked() ? 'Unlock deck (dev)' : 'Lock deck — nothing changes the file until you unlock it (dev)',
-        alias: 'lock unlock read only readonly protect freeze avoid changes by mistake editing off', run: () => editmode.toggleLock() },
-      { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
-      { label: 'Print view (all slides, new tab)', group: 'Print', hint: '', run: () => window.open(location.pathname + '?print') },
-      // The two print variants the runtime already had (PRINTING) — reachable
-      // from here, not only from `decklight pdf --notes/--handout`.
-      { label: 'Print with notes (one slide per page, new tab)', group: 'Print', alias: 'pdf print speaker notes script handout pages', run: () => window.open(location.pathname + '?print=notes') },
-      { label: 'Print handout (three per page, new tab)', group: 'Print', alias: 'pdf print handout thumbnails audience note-taking lines', run: () => window.open(location.pathname + '?print=handout') },
-      // ── the hand-over rows (PRESENTING) ─────────────────────────────
-      // The print rows above open a print VIEW in a tab: the same pages, and
-      // not a file anybody can be sent. These write the file, by asking the
-      // edit server to run the command — hence (dev), and hence contextual:
-      // without a server there is nothing to run it, and a row that cannot
-      // keep its promise is worse than no row.
-      // Only when this slide has any — a row that opens an empty panel is a
-      // row that taught you nothing, and the key still says so if you press it.
-      // In write mode the row is always there, because opening it on a slide
-      // with none is how you ADD them; a reader only sees it where there is
-      // something to read.
-      { label: 'Inspector', hint: 'I',
+      // ── Go to ───────────────────────────────────────────────────────────
+      { label: 'Find slide…', cat: 'Go to', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
+      { label: 'Go to slide…', cat: 'Go to', hint: '#', alias: 'goto jump number', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
+      { label: 'Overview', cat: 'Go to', hint: 'O', alias: 'grid thumbnails all slides rearrange', run: toggleOverview },
+      { label: 'First slide', cat: 'Go to', hint: 'Home', run: () => instance.goto(1, 0) },
+      { label: 'Last slide', cat: 'Go to', hint: 'End', run: () => instance.goto(instance.state.totalSlides, 0) },
+      // ── Slide: the one on screen ────────────────────────────────────────
+      { label: editmode.available() ? 'Edit speaker notes…' : 'Speaker notes (read-only)…', cat: 'Slide', hint: 'S', alias: 'edit mode notes write script read right-click background', run: toggleEditor },
+      { label: 'Inspector', cat: 'Slide', hint: 'I',
         alias: 'inspect info information properties details facts sources references links provenance citation contrast box font',
         run: () => inspector?.open() },
       sources.canEdit() && {
-        label: sources.has() ? 'Edit sources on this slide…' : 'Add sources to this slide…',
+        label: sources.has() ? 'Edit sources on this slide…' : 'Add sources to this slide…', cat: 'Slide', write: true,
         alias: 'sources references links reading provenance where citation cite',
         run: () => sources.edit() },
-      // Somebody else's slides, into this deck (UNITS#REST). Write mode only:
-      // it writes the deck on disk, and a template comes from a marketplace.
-      // Two rows, not one row with a mode in it. The panel used to open in
-      // "insert" and let `i`/`l` switch — which meant the answer to "what will
-      // ⏎ do" lived in a keystroke you may not have pressed. The two things are
-      // different enough to be asked for by name: one adds a slide, the other
-      // rewrites one you wrote.
-      editmode.available() && { label: 'Use slide template… (dev)',
-        alias: 'slide template slots convert switch insert slide divider section structure',
-        run: () => slideTemplates.open() },
-      editmode.available() && { label: 'Design systems… (dev)',
-        alias: 'design system brand kit company tokens layouts slots marketplace corporate identity style guide',
-        run: () => designSystems.open() },
-      editmode.available() && { label: 'Concept colors…',
-        alias: 'concept colours colors semantic diagram fill slot pin data-concept recurring same colour everywhere colour by meaning color by meaning legend idea shapes boxes attach group',
-        run: () => conceptsEditor.open() },
+      write({ label: 'New slide after this one', cat: 'Slide', alias: 'add slide insert blank create page', run: () => editmode.slideOp('new') }),
+      write({ label: 'Duplicate this slide', cat: 'Slide', alias: 'copy slide clone', run: () => editmode.slideOp('duplicate') }),
+      write({ label: 'Move slide up', cat: 'Slide', alias: 'reorder earlier before swap', run: () => editmode.slideOp('up') }),
+      write({ label: 'Move slide down', cat: 'Slide', alias: 'reorder later after swap', run: () => editmode.slideOp('down') }),
+      write({ label: 'Delete this slide', cat: 'Slide', alias: 'remove slide drop', run: () => editmode.slideOp('delete') }),
+      write({ label: `${currentHidden() ? 'Unhide' : 'Hide'} this slide`, cat: 'Slide', alias: 'hidden hide skip cut backup keep out of the talk unhide show', run: () => setHidden(instance.state.slide, !currentHidden()) }),
+      write({ label: 'Cycle slide layout', cat: 'Slide', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) }),
+      // Two rows, not one row with a mode in it: one adds a slide, the other
+      // rewrites one you wrote, and ⏎ should not depend on a keystroke you
+      // may not have pressed.
+      write({ label: 'Use slide template…', cat: 'Slide',
+        alias: 'slide template slots convert switch insert slide divider section structure design system',
+        run: () => slideTemplates.open() }),
+      // ── Edit ────────────────────────────────────────────────────────────
+      write({ label: 'Undo deck edit', cat: 'Edit', hint: `Z · ${UNDO_CHORD}`, alias: 'revert back history', run: () => deckHistory('undo') }),
+      write({ label: 'Redo deck edit', cat: 'Edit', hint: '⇧Z', alias: 'forward history repeat', run: () => deckHistory('redo') }),
+      write({ label: 'Ask agent…', cat: 'Edit', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk }),
       // the format painter, on whatever is selected while editing (style-clip.js)
-      editmode.available() && editmode.elementEditOn() && editbar.selected() && { label: 'Copy style', hint: styleClip.keys.copy,
+      editmode.elementEditOn() && editbar.selected() && write({ label: 'Copy style', cat: 'Edit', hint: styleClip.keys.copy,
         alias: 'format painter copy formatting colours colors fill border font look match',
-        run: () => styleClip.copy(editbar.selected()) },
-      editmode.available() && editmode.elementEditOn() && editbar.selected() && styleClip.has() && { label: 'Paste style', hint: styleClip.keys.paste,
+        run: () => styleClip.copy(editbar.selected()) }),
+      editmode.elementEditOn() && editbar.selected() && styleClip.has() && write({ label: 'Paste style', cat: 'Edit', hint: styleClip.keys.paste,
         alias: 'format painter paste formatting apply colours colors fill border font look match same as',
-        run: () => styleClip.paste(editbar.selected()) },
-      // the voiceover script, given ElevenLabs v4's audio tags — the agent
+        run: () => styleClip.paste(editbar.selected()) }),
+      write({ label: 'Concept colors…', cat: 'Edit',
+        alias: 'concept colours colors semantic diagram fill slot pin data-concept recurring same colour everywhere colour by meaning color by meaning legend idea shapes boxes attach group',
+        run: () => conceptsEditor.open() }),
+      write({ label: editbar.hidden() ? 'Show the bar' : 'Hide the bar', cat: 'Edit',
+        alias: 'editing bar toolbar hide show toggle chrome buttons', run: () => editbar.toggleHidden() }),
+      // The lock is the one write row that stays while the deck is locked:
+      // it is how you unlock it. So it asks served/no-trust, not available().
+      editmode.served() && !editmode.noTrust() && { label: editmode.locked() ? 'Unlock deck' : 'Lock deck — nothing changes the file until you unlock it', cat: 'Edit', write: true,
+        alias: 'lock unlock read only readonly protect freeze avoid changes by mistake editing off', run: () => editmode.toggleLock() },
+      // ── Look ────────────────────────────────────────────────────────────
+      { label: 'Theme…', cat: 'Look', hint: 'T', alias: 'colours colors palette', run: themes.openPicker },
+      { label: 'Cycle theme', cat: 'Look', hint: ', · .', run: () => cycleTheme(1) },
+      !themes.brandLocked() && { label: 'Generate a theme', cat: 'Look', hint: '⌃T', run: rollTheme },
+      themes.hasGenerated() && { label: 'Save the generated theme…', cat: 'Look', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
+      // marketplace themes are listed only while authoring (THEME_BROWSE#UI)
+      write({ label: 'Marketplace themes…', cat: 'Look', alias: 'browse marketplace install add mark third-party catalog', run: themes.browse }),
+      { label: 'Font…', cat: 'Look', hint: '[ · ]', run: openFontPicker },
+      write({ label: 'Design systems…', cat: 'Look',
+        alias: 'design system brand kit company tokens layouts slots marketplace corporate identity style guide',
+        run: () => designSystems.open() }),
+      // ── Voice ───────────────────────────────────────────────────────────
+      // ⎵ is the verb and V the panel. The rows below the panel row open it
+      // on one of its views, so they are found by what they are called; only
+      // the panel row carries V, since V opens the panel, not those views.
+      { label: `Narration ${narration.status().paused ? 'resume' : narration.status().narrating ? 'pause' : 'play'}`, cat: 'Voice',
+        hint: '⎵', alias: 'play pause resume voice narration speak start stop', run: () => narration.playPause() },
+      { label: 'Narration…', cat: 'Voice', hint: 'V', alias: 'voice audio track picker panel', run: () => openNarrPicker('tracks') },
+      { label: 'Live voice…', cat: 'Voice', alias: 'tts synthesize tone gemini elevenlabs engine', run: () => openNarrPicker('voices') },
+      { label: 'Character…', cat: 'Voice', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
+      { label: `Character solo ${character.solo ? 'off' : 'on'}`, cat: 'Voice', alias: 'centre center stage narrator only fullscreen avatar', run: () => narration.applySolo(!character.solo) },
+      { label: 'Record this deck…', cat: 'Voice', alias: 'record narrate microphone mic voice wav offline batch teleprompter',
+        run: () => openNarrPicker('record') },
+      { label: `Captions ${narration.status().captionsOn ? 'off' : 'on'}`, cat: 'Voice', hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
+      { label: 'Voice faster', cat: 'Voice', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
+      { label: 'Voice slower', cat: 'Voice', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
+      // each engine a registered marketplace declares a wizard for (ENGINES#WIZARD)
+      ...editmode.wizards().map((w) => write({
+        label: `Configure ${w.title}…`, cat: 'Voice',
+        alias: 'engine wizard setup api key credential token marketplace',
+        run: () => editmode.wizard(w.qualified),
+      })),
+      // the voiceover script, given ElevenLabs v4's audio tags: the agent
       // drafts, decklight checks no word or beat moved (cli/enhance.mjs)
-      editmode.available() && { label: 'Enhance this slide\'s voiceover script… (dev)', group: 'Add audio tags',
+      write({ label: 'Enhance this slide\'s voiceover script…', cat: 'Voice',
         alias: 'enhance elevenlabs v4 audio tags expressive emotion notes narration voice script improve direction',
-        run: () => editmode.enhanceScript('slide') },
-      editmode.available() && { label: 'Enhance this module\'s voiceover script… (dev)', group: 'Add audio tags',
+        run: () => editmode.enhanceScript('slide') }),
+      write({ label: 'Enhance this module\'s voiceover script…', cat: 'Voice',
         alias: 'enhance module chapter section elevenlabs v4 audio tags expressive emotion notes narration voice script',
-        run: () => editmode.enhanceScript('module') },
-      editmode.available() && { label: 'Enhance every slide\'s voiceover script… (dev)', group: 'Add audio tags',
+        run: () => editmode.enhanceScript('module') }),
+      write({ label: 'Enhance every slide\'s voiceover script…', cat: 'Voice',
         alias: 'enhance all slides whole deck elevenlabs v4 audio tags expressive emotion notes narration voice script',
-        run: () => editmode.enhanceScript('all') },
+        run: () => editmode.enhanceScript('all') }),
       // …and written for the ear: terse notes as sentences a person would say
-      editmode.available() && { label: 'Write this slide\'s notes for the ear… (dev)', group: 'Write for the ear',
+      write({ label: 'Write this slide\'s notes for the ear…', cat: 'Voice',
         alias: 'spoken conversational natural sentences rewrite notes voiceover script say aloud human speakable ear',
-        run: () => editmode.enhanceScript('slide', { kind: 'spoken' }) },
-      editmode.available() && { label: 'Write this module\'s notes for the ear… (dev)', group: 'Write for the ear',
+        run: () => editmode.enhanceScript('slide', { kind: 'spoken' }) }),
+      write({ label: 'Write this module\'s notes for the ear…', cat: 'Voice',
         alias: 'spoken conversational natural sentences rewrite module chapter notes voiceover script say aloud human speakable ear',
-        run: () => editmode.enhanceScript('module', { kind: 'spoken' }) },
-      editmode.available() && { label: 'Write every slide\'s notes for the ear… (dev)', group: 'Write for the ear',
+        run: () => editmode.enhanceScript('module', { kind: 'spoken' }) }),
+      write({ label: 'Write every slide\'s notes for the ear…', cat: 'Voice',
         alias: 'spoken conversational natural sentences rewrite all slides whole deck notes voiceover script say aloud human speakable ear',
-        run: () => editmode.enhanceScript('all', { kind: 'spoken' }) },
-      editmode.available() && { label: 'Export to PowerPoint… (dev)', group: 'Export & share',
-        alias: 'pptx powerpoint keynote google slides export file office send share hand over',
-        run: () => editmode.exportDeck('pptx') },
-      editmode.available() && { label: 'Export to PDF… (dev)', group: 'Export & share',
-        alias: 'pdf export file save send share hand over slides acrobat',
-        run: () => editmode.exportDeck('pdf') },
-      editmode.available() && { label: 'Export a PDF with notes… (dev)', group: 'Export & share',
-        alias: 'pdf notes script speaker one slide per page export file send rehearse',
-        run: () => editmode.exportDeck('pdf-notes') },
-      editmode.available() && { label: 'Export a PDF handout… (dev)', group: 'Export & share',
-        alias: 'pdf handout three per page audience note-taking export file send print',
-        run: () => editmode.exportDeck('pdf-handout') },
-      // The file most often sent: the deck and everything it needs in one
-      // HTML file that opens from disk. It carries every marked theme and opens
-      // on the one on screen — asking first when that one is not marked.
-      editmode.available() && { label: 'Bundle into one file… (dev)', group: 'Export & share',
-        alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound compressed small aac opus',
-        run: () => openBundle() },
-      // Minutes rather than seconds, and usually of PART of the deck — the
-      // chapter you just re-recorded — so it asks which slides before it starts.
-      editmode.available() && { label: 'Export a video… (dev)', group: 'Export & share',
-        alias: 'video mp4 movie film render narrated voiceover export range chapter share upload youtube',
-        run: () => openVideoExport() },
-      // The last one is a URL rather than a file, so it asks first: one press
-      // shows where it would go, the next one sends it.
-      editmode.available() && { label: 'Publish this deck… (dev)', group: 'Export & share',
-        alias: 'publish share url link web site pages gh-pages github deploy send hand over',
-        run: () => editmode.publishDeck() },
-      // HIDDEN_SLIDES — contextual: a deck with nothing hidden has nothing to
-      // show, and a row that reloads the deck for no visible change reads as
-      // broken. Write mode adds the verb that makes a slide hidden at all.
-      (showHidden || hasHiddenSlides()) && { label: `Hidden slides ${showHidden ? 'skip' : 'show'}`,
-        alias: 'all cut backup skipped unhide reveal present hidden ⊘', run: toggleShowHidden },
-      editmode.available() && { label: `${currentHidden() ? 'Unhide' : 'Hide'} this slide (dev)`,
-        alias: 'hidden hide skip cut backup keep out of the talk unhide show', run: () => setHidden(instance.state.slide, !currentHidden()) },
-      // REHEARSAL_TIMINGS — the recorder lives in the speaker view; this opens
+        run: () => editmode.enhanceScript('all', { kind: 'spoken' }) }),
+      // ── Present ─────────────────────────────────────────────────────────
+      { label: 'Speaker view — second window', cat: 'Present', hint: '⌥⏎', alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
+      { label: 'Fullscreen', cat: 'Present', hint: 'F', run: () => toggleFullscreen() },
+      { label: 'Blackout', cat: 'Present', hint: 'B', run: toggleBlackout },
+      { label: `Pen ${hud.annotator?.tool === 'pen' ? 'off' : 'on'} — draw on the slide`, cat: 'Present', hint: 'W', alias: 'ink annotate draw scribble marker highlight', run: () => toggleInk('pen') },
+      { label: `Laser pointer ${hud.annotator?.tool === 'laser' ? 'off' : 'on'}`, cat: 'Present', hint: '⇧W', alias: 'ink dot glow point at', run: () => toggleInk('laser') },
+      // The clock lost K to the commit window and lives here, with no key.
+      { label: `Clock ${hud.status().clockOn ? 'off' : 'on'}`, cat: 'Present', alias: 'time elapsed timer talk wall watch clock', run: toggleClock },
+      { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, cat: 'Present', hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
+      // REHEARSAL_TIMINGS: the recorder lives in the speaker view; this opens
       // it (if it is not already) and starts the clock in one step.
-      { label: 'Rehearse timings… (speaker view)', alias: 'rehearsal timing time each slide record pace plan stopwatch',
+      { label: 'Rehearse timings… (speaker view)', cat: 'Present', alias: 'rehearsal timing time each slide record pace plan stopwatch',
         run: () => { const w = speakerWindow(); w?.__decklightSpeakerRec?.(true); } },
-      { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
-      { label: 'Last slide', hint: 'End', run: () => instance.goto(instance.state.totalSlides, 0) },
-      // Named for the word people reach for first; `config` finds it too, and
-      // so does `version`, which is what somebody is usually after in here.
-      { label: 'Settings…', alias: 'config configuration preferences options about version build release which version',
-        run: openSettings },
-      // the agent reads the deck, read-only, and Check deck… lists what it found (cli/agent-review.mjs)
-      editmode.available() && { label: 'Review deck with agent… (dev)',
-        alias: 'review improve critique feedback agent ai suggestions sources figures numbers voiceover notes titles diagram table better',
-        run: () => { reviewOpenWanted = true; editmode.reviewDeck(); } },
-      { label: 'Check deck…', alias: 'lint check issues problems errors warnings crowded dense density overflow clipped validate verify report health',
+      // HIDDEN_SLIDES: contextual, since a deck with nothing hidden has nothing to show
+      (showHidden || hasHiddenSlides()) && { label: `Hidden slides ${showHidden ? 'skip' : 'show'}`, cat: 'Present',
+        alias: 'all cut backup skipped unhide reveal present hidden ⊘', run: toggleShowHidden },
+      { label: 'Transcript…', cat: 'Present', alias: 'notes script export text markdown spoken', run: toggleTranscript },
+      // ── Review ──────────────────────────────────────────────────────────
+      { label: 'Comments…', cat: 'Review', hint: 'M', alias: 'feedback remarks reviewer notes critique review read', run: () => review.open() },
+      { label: 'Leave a comment…', cat: 'Review', hint: '⇧M', alias: 'comment note remark feedback add write say', run: () => review.compose() },
+      { label: 'Submit review…', cat: 'Review', alias: 'send review push comments submit feedback', run: () => review.submit() },
+      { label: 'Check deck…', cat: 'Review', alias: 'lint check issues problems errors warnings crowded dense density overflow clipped validate verify report health',
         run: () => deckCheck.open() },
-      { label: 'Keyboard help', hint: '?', run: toggleHelp },
-      { label: 'Welcome to Decklight', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
-      editmode.available() && { label: 'Editing tour (dev)', alias: 'onboarding intro getting started first run tour how do I edit write mode gestures', run: onboarding.showEditingTour },
-      { label: `Tips ${onboarding.status().tipsOn ? 'off' : 'on'}`, alias: 'hints teach shortcuts learn stop showing quiet', run: () => onboarding.setTips(!onboarding.status().tipsOn) },
-      // Contextual: with every tip read there is nothing to reset to, and a row
-      // that does nothing visible is a row that reads as broken.
+      // the agent reads the deck, read-only, and Check deck… lists what it found (cli/agent-review.mjs)
+      write({ label: 'Review deck with agent…', cat: 'Review',
+        alias: 'review improve critique feedback agent ai suggestions sources figures numbers voiceover notes titles diagram table better',
+        run: () => { reviewOpenWanted = true; editmode.reviewDeck(); } }),
+      // ── Git ─────────────────────────────────────────────────────────────
+      // Not "version": that word is what somebody types to find out WHICH
+      // decklight this is (Settings), and it landed here first.
+      write({ label: 'History…', cat: 'Git', hint: 'H', alias: 'restore previous earlier rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() }),
+      write({ label: 'Commit…', cat: 'Git', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() }),
+      // ── Share ───────────────────────────────────────────────────────────
+      // The print rows open a print VIEW in a tab: the same pages, not a file
+      // anybody can be sent. The export rows write the file, by asking the
+      // edit server to run the command, hence write mode only.
+      write({ label: 'Export to PowerPoint…', cat: 'Share',
+        alias: 'pptx powerpoint keynote google slides export file office send share hand over',
+        run: () => editmode.exportDeck('pptx') }),
+      write({ label: 'Export to PDF…', cat: 'Share',
+        alias: 'pdf export file save send share hand over slides acrobat',
+        run: () => editmode.exportDeck('pdf') }),
+      write({ label: 'Export a PDF with notes…', cat: 'Share',
+        alias: 'pdf notes script speaker one slide per page export file send rehearse',
+        run: () => editmode.exportDeck('pdf-notes') }),
+      write({ label: 'Export a PDF handout…', cat: 'Share',
+        alias: 'pdf handout three per page audience note-taking export file send print',
+        run: () => editmode.exportDeck('pdf-handout') }),
+      // the file most often sent: the deck and everything it needs, in one HTML file
+      write({ label: 'Bundle into one file…', cat: 'Share',
+        alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound compressed small aac opus',
+        run: () => openBundle() }),
+      // minutes rather than seconds, and usually of PART of the deck, so it asks which slides first
+      write({ label: 'Export a video…', cat: 'Share',
+        alias: 'video mp4 movie film render narrated voiceover export range chapter share upload youtube',
+        run: () => openVideoExport() }),
+      // a URL rather than a file, so it asks first: one press shows where it would go
+      write({ label: 'Publish this deck…', cat: 'Share',
+        alias: 'publish share url link web site pages gh-pages github deploy send hand over',
+        run: () => editmode.publishDeck() }),
+      { label: 'Print view (all slides, new tab)', cat: 'Share', alias: 'print pdf pages', run: () => window.open(location.pathname + '?print') },
+      { label: 'Print with notes (one slide per page, new tab)', cat: 'Share', alias: 'pdf print speaker notes script handout pages', run: () => window.open(location.pathname + '?print=notes') },
+      { label: 'Print handout (three per page, new tab)', cat: 'Share', alias: 'pdf print handout thumbnails audience note-taking lines', run: () => window.open(location.pathname + '?print=handout') },
+      // ── Help ────────────────────────────────────────────────────────────
+      { label: 'Keyboard help', cat: 'Help', hint: '?', alias: 'keys keyboard shortcuts', run: toggleHelp },
+      { label: 'Messages', cat: 'Help', hint: '`', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
+      { label: 'Debug log', cat: 'Help', hint: 'D', alias: 'console events state', run: toggleDebug },
+      { label: 'Welcome to Decklight', cat: 'Help', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
+      write({ label: 'Editing tour', cat: 'Help', alias: 'onboarding intro getting started first run tour how do I edit write mode gestures', run: onboarding.showEditingTour }),
+      { label: `Tips ${onboarding.status().tipsOn ? 'off' : 'on'}`, cat: 'Help', alias: 'hints teach shortcuts learn stop showing quiet', run: () => onboarding.setTips(!onboarding.status().tipsOn) },
+      // with every tip unread there is nothing to reset
       onboarding.status().tipsLeft < TIPS.length
-        && { label: 'Reset tips', alias: 'hints again start over show all unsee replay', run: onboarding.resetTips },
+        && { label: 'Reset tips', cat: 'Help', alias: 'hints again start over show all unsee replay', run: onboarding.resetTips },
+      // ── Preferences ─────────────────────────────────────────────────────
+      // `config` and `version` find it too; `version` is what somebody is
+      // usually after in here.
+      { label: 'Settings…', cat: 'Preferences', alias: 'config configuration preferences options about version build release which version',
+        run: openSettings },
     ].filter(Boolean).filter((c) => has(c.run));
     return all;
   }
@@ -1130,7 +1118,7 @@ export function init(userConfig = {}) {
     const rows = paletteRows({
       commands: palCommands,
       query: palQuery,
-      group: palGroup,
+      categories: PALETTE_CATEGORIES,
       totalSlides: instance.state.totalSlides,
       makeGotoRow: (n, total) => ({
         label: `Go to slide ${n} / ${total}`, hint: '⏎', run: () => instance.goto(n, 0),
@@ -1140,34 +1128,29 @@ export function init(userConfig = {}) {
         run: () => { openSlideFinder(); setFinderQuery(text); },
       }),
     });
-    // a group row opens its group and a back row leaves it; neither closes
-    // the palette, and the headers are not rows at all
-    palRows = rows.filter((c) => !c.header).map((c) => (c.groupRow
-      ? { ...c, keepOpen: true, run: () => { palGroup = c.groupRow; renderPalette(); } }
-      : c.back ? { ...c, keepOpen: true, run: () => { palGroup = null; renderPalette(); } } : c));
+    palRows = rows;
     const bar = document.createElement('div');
     bar.className = 'pal-input' + (palQuery ? ' tp-active' : '');
-    bar.textContent = palQuery || (palGroup ? `${palGroup} › type a command…` : 'type a command…');
+    bar.textContent = palQuery || 'type a command…';
     card.appendChild(bar);
     let i = 0;
     for (const c of rows) {
-      if (c.header) {
-        const head = document.createElement('div');
-        head.className = 'pal-head';
-        head.textContent = c.header;
-        card.appendChild(head);
-        continue;
-      }
       const at = i++;
       const el = document.createElement('div');
-      el.className = 'narr-row pal-row' + (c.groupRow ? ' pal-group' : '') + (c.back ? ' pal-back' : '');
+      el.className = 'narr-row pal-row';
       const label = document.createElement('span');
-      label.textContent = c.label;
+      // the category as a dimmer prefix, so the eye runs down the names
+      if (c.cat) {
+        const cat = document.createElement('span');
+        cat.className = 'pal-cat';
+        cat.textContent = `${c.cat}: `;
+        label.appendChild(cat);
+      }
+      label.appendChild(document.createTextNode(c.label));
       el.appendChild(label);
       const right = document.createElement('span');
       right.className = 'pal-right';
-      // the write-mode tag, only where the rows are not already under their header
-      if (c.dev && (palQuery || palGroup)) {
+      if (c.write) {
         const tag = document.createElement('span');
         tag.className = 'pal-tag';
         tag.textContent = 'write';
@@ -1206,7 +1189,6 @@ export function init(userConfig = {}) {
     if (palEl) return closePalette();
     overlays.opening();
     palQuery = '';
-    palGroup = null;
     // built once per open, not once per keystroke: the list consults a dozen
     // modules for their state and scans the deck for hidden slides, and none
     // of that changes while the palette is up
@@ -2270,7 +2252,7 @@ export function init(userConfig = {}) {
       onCommit: commitPalRow,
       onType: (ch) => { palQuery += ch; renderPalette(); },
       // ⌫ on an empty query leaves the group, the way the back row does
-      onBackspace: () => { if (!palQuery && palGroup) palGroup = null; else palQuery = palQuery.slice(0, -1); renderPalette(); },
+      onBackspace: () => { palQuery = palQuery.slice(0, -1); renderPalette(); },
       onClear: () => { palQuery = ''; renderPalette(); },
       onClose: closePalette,
     }),

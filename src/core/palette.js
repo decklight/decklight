@@ -15,68 +15,69 @@
 //      going; the row jumps there and is put FIRST, because a deck with a
 //      slide titled "27 things" would otherwise bury it under text matches.
 //      Out-of-range clamps rather than refusing: past the end means the end.
-//   2. A COMMAND — matched against the label and its aliases, so "cc" finds
-//      Captions and "rollback" finds Restore. A presenter reaches for the word
-//      they think in, not the word the menu happens to use.
+//   2. A COMMAND — matched against its category, its name and its aliases,
+//      every word typed, in any order: "cc" finds Captions, "voice live" finds
+//      `Voice: Live voice…`, "rollback" finds History. A presenter reaches for
+//      the word they think in, not the word the menu happens to use.
 //   3. ANYTHING ELSE — offered as a slide search. Only when nothing matched by
 //      PREFIX, though: typing "the" should not turn a palette that is already
-//      showing "Theme…" into a search box.
+//      showing `Look: Theme…` into a search box.
+
+/**
+ * The title a row is shown and matched under: its category, then its name,
+ * the way VS Code's command palette reads (`Voice: Live voice…`). A row with
+ * no category (the synthetic goto and search rows) is its name alone.
+ */
+export const commandTitle = (c) => (c.cat ? `${c.cat}: ${c.label}` : c.label);
+
+/** Lower-cased words, with the category's colon dropped so "voice: live" matches. */
+const words = (text) => String(text).toLowerCase().replace(/:/g, ' ').split(/\s+/).filter(Boolean);
+
+/**
+ * How well `c` matches the query, or 0 when it does not: every typed word has
+ * to appear in the title or the aliases. 3 when the title or the bare name
+ * starts with the query, 2 when every word is in the title, 1 when an alias
+ * was needed.
+ */
+export function matchRank(c, q) {
+  const terms = words(q);
+  if (!terms.length) return 1;
+  const title = commandTitle(c).toLowerCase();
+  const hay = `${title} ${String(c.alias ?? '').toLowerCase()}`;
+  if (!terms.every((t) => hay.includes(t))) return 0;
+  const typed = String(q).trim().toLowerCase();
+  if (title.startsWith(typed) || String(c.label).toLowerCase().startsWith(typed)) return 3;
+  return terms.every((t) => title.includes(t)) ? 2 : 1;
+}
 
 /**
  * The rows to render for `query`.
  *
+ * Every command sits at the root. With no query they are listed by category,
+ * in the order `categories` gives, and in the order they were written within
+ * each. A query keeps the commands that match every word, best match first,
+ * so "theme" puts `Look: Theme…` above a row that only mentions themes in an
+ * alias. Write-mode rows carry `write`, which the palette shows as a tag.
+ *
  * `makeGotoRow(n)` and `makeSearchRow(text)` build the two synthetic rows, so
  * this file never needs to know how to move a deck or open the finder.
  */
-/**
- * A command's label, with the `(dev)` suffix that marked write-mode rows
- * turned into a flag: the suffix was jargon on thirty rows, and a tag says
- * the same thing once.
- */
-export function normalizeCommand(c) {
-  const m = /^(.*?)\s*\(dev\)$/.exec(c.label ?? '');
-  return m ? { ...c, label: m[1], dev: true } : c;
-}
+export function paletteRows({ commands, query = '', categories = [], totalSlides = 0, makeGotoRow, makeSearchRow }) {
+  const q = String(query).trim();
+  const order = (c) => { const i = categories.indexOf(c.cat); return i === -1 ? categories.length : i; };
+  let rows = commands
+    .map((c, i) => ({ c, i, rank: matchRank(c, q) }))
+    .filter((r) => r.rank > 0)
+    .sort((a, b) => (q ? b.rank - a.rank : 0) || order(a.c) - order(b.c) || a.i - b.i)
+    .map((r) => r.c);
 
-/**
- * A ROW can be a header (`{ header }`, not selectable), a group row
- * (`{ groupRow }`, which opens its group), a back row, or a command.
- *
- * With no query the list is the deck's doors, not its every command: rows
- * that name a `group` fold into one row per group (`Export & share…`), and
- * the write-mode rows sit together under one header. Typing searches every
- * command flat, groups included, so "handout" still finds the PDF handout in
- * one step; `group` shows that group's rows under a back row.
- */
-export function paletteRows({ commands: given, query = '', group = null, totalSlides = 0, makeGotoRow, makeSearchRow }) {
-  const commands = given.map(normalizeCommand);
-  const q = String(query).toLowerCase();
-  if (!q && group) {
-    return [{ label: '← back', back: true, hint: '⌫' }, ...commands.filter((c) => c.group === group)];
-  }
-  let rows;
-  if (q) rows = commands.filter((c) => (c.label + ' ' + (c.alias ?? '') + ' ' + (c.group ?? '')).toLowerCase().includes(q));
-  else {
-    const seen = new Set();
-    const top = [];
-    for (const c of commands) {
-      if (!c.group) { top.push(c); continue; }
-      if (seen.has(c.group)) continue;
-      seen.add(c.group);
-      top.push({ label: `${c.group}…`, groupRow: c.group, hint: '▸', dev: c.dev });
-    }
-    const plain = top.filter((c) => !c.dev);
-    const dev = top.filter((c) => c.dev);
-    rows = dev.length ? [...plain, { header: 'write mode' }, ...dev] : plain;
-  }
-
-  const g = String(query).trim().match(/^(?:goto\s*)?(\d+)$/i);
+  const g = q.match(/^(?:goto\s*)?(\d+)$/i);
   if (g && makeGotoRow) {
     const n = Math.max(1, Math.min(parseInt(g[1], 10), totalSlides));
-    rows.unshift(makeGotoRow(n, totalSlides));
+    rows = [makeGotoRow(n, totalSlides), ...rows];
   }
 
-  if (q && !g && makeSearchRow && !rows.some((c) => !c.header && c.label.toLowerCase().startsWith(q))) {
+  if (q && !g && makeSearchRow && !rows.some((c) => matchRank(c, q) === 3)) {
     rows.push(makeSearchRow(query));
   }
   return rows;
