@@ -2,9 +2,9 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// decklight record — capture the deck's narration in YOUR voice.
+// decklight narrate --mic — capture the deck's narration in YOUR voice.
 //
-//   decklight record <deck.html> [--port 8788] [--dir voiceover] [--no-open]
+//   decklight narrate --mic <deck.html> [--port 8788] [--dir voiceover] [--no-open]
 //
 // WHY THIS IS A COMMAND AND NOT JUST A KEY. The recorder itself lives in the
 // deck (V → Record this deck… → With your voice…): it has to, because the notes, the builds and the microphone are
@@ -30,7 +30,7 @@ import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
-const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceover] [--slides a-b] [--no-open]
+const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voiceover] [--slides a-b] [--no-open]
   serves the deck over http://127.0.0.1 and opens it with the voice recorder up
 
   the deck reads you its notes one [click] beat at a time; → ends a beat, which
@@ -48,7 +48,7 @@ const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceove
   writes <dir>/slide-NN.wav (the whole slide) and <dir>/slide-NN-KK.wav (one
   per beat); play them back with:
       narration: { files: '<dir>', ext: 'wav', segments: true }
-  (the same one-track form decklight voiceover prints; several tracks are a
+  (the same one-track form decklight narrate prints; several tracks are a
   list of the same fields, each with a label)
 
   a microphone needs a secure context, which is why this serves the deck rather
@@ -120,14 +120,14 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   const dir = opt('--dir');
   const slides = opt('--slides');
   for (const bad of [dirProblem(dir), slidesProblem(slides)]) {
-    if (bad) { process.stderr.write(`decklight record: ${bad}\n`); return 2; }
+    if (bad) { process.stderr.write(`decklight narrate --mic: ${bad}\n`); return 2; }
   }
 
   const deck = firstPositional(args, ['--dir', '--slides', '--port']);
   // Before the server, not after: this used to serve the YAML file, print a
   // URL and open a browser on it, with no error anywhere.
-  const mixedUp = wrongRecorder('record', deck);
-  if (mixedUp) { process.stderr.write(`decklight record: ${mixedUp}\n`); return 2; }
+  const mixedUp = wrongRecorder('narrate', deck);
+  if (mixedUp) { process.stderr.write(`decklight narrate --mic: ${mixedUp}\n`); return 2; }
   let started;
   // `--no-git`, always: recording is not editing, and a take that happens to
   // coincide with the autocommit cadence has no business creating a commit.
@@ -142,7 +142,7 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   if (!started) return process.exitCode ?? 1;
 
   const url = recordUrl(started.port, started.deckUrl, dir, slides);
-  out.write(`decklight record on ${url}\n`);
+  out.write(`decklight narrate --mic on ${url}\n`);
   out.write('  V → Record this deck… → With your voice… opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
   out.write(`  files land in ${dir ?? "the deck's narration folder"}, next to the deck.`
     + `${slides ? ` Only slide${/-/.test(slides) ? 's' : ''} ${slides}.` : ''} Ctrl-C when you are done.\n`);

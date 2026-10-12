@@ -154,12 +154,12 @@ facts, per slide, in its \`sources\` asides.
 
 **CLI** (\`npx decklight@latest <command>\`, no install needed):
 - \`decklight deck.html\` — the whole authoring loop: serve with live reload; editing is on in the browser — text, pictures, layouts and speaker notes are written back into the file
-- \`decklight cast script.term.yaml\` — record a truthful terminal cast in a real PTY, for \`<div class="terminal">\` (this records a TERMINAL; \`decklight record\` records the author's voice)
+- \`decklight cast script.term.yaml\` — record a truthful terminal cast in a real PTY, for \`<div class="terminal">\` (this records a TERMINAL; \`decklight narrate --mic\` records the author's voice)
 - \`decklight bundle deck.html --themes all\` — flatten into one self-contained file to hand off or publish
 - \`decklight pdf deck.html\` — render every slide to a PDF, and report the ones that overflow
 - \`decklight pptx deck.html\` — a PowerPoint file for whoever asks for one: every slide a picture, the notes real notes (lossy on purpose)
 - \`decklight tts\` — live voice bridge so the deck can narrate itself on the fly
-- \`decklight record deck.html\` — record the narration in the author's OWN voice: the deck shows one \`[click]\` beat at a time and \`→\` ends it, writing \`slide-NN-KK.wav\` per beat so the recording paces the builds (play it back with \`narration: { files: 'voiceover', ext: 'wav', segments: true }\`)
+- \`decklight narrate --mic deck.html\` — record the narration in the author's OWN voice: the deck shows one \`[click]\` beat at a time and \`→\` ends it, writing \`slide-NN-KK.wav\` per beat so the recording paces the builds (play it back with \`narration: { files: 'voiceover', ext: 'wav', segments: true }\`)
 - \`decklight deck.html --no-trust\` (M to comment) / \`decklight comments deck.html\` — reviewer comments on slides, stored append-only in \`<deck>.review.jsonl\` and carried by git; a comment records the slide's title and a fingerprint of its text, so it finds its slide again after the deck moves and says so when the slide changed or is gone; \`decklight comments submit deck.html\` pushes the review to a \`review/<you>-<date>\` branch (one file, never the reviewer's own commits; \`--pr\` opens the pull request), and the author hears about waiting reviews at startup in write mode, in the M overlay, and via \`decklight comments deck.html --incoming\`
 - \`decklight skills\` — regenerate this skill after upgrading Decklight
 

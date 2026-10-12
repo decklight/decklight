@@ -5,7 +5,7 @@
 //
 // Warming 184 say previews took ~6 minutes of background synthesis — and
 // again on every bridge restart, because the response cache lived in the
-// process. Worse on a paid engine: the live bridge and `decklight voiceover`
+// process. Worse on a paid engine: the live bridge and `decklight narrate`
 // are separate processes, so previewing a deck in the browser and then batch-
 // recording it billed ElevenLabs twice for identical words.
 //
@@ -213,7 +213,7 @@ const engineLike = ({ name, model, stylable = false, mime = 'audio/wav' }) =>
 
 test('the bridge and the recorder hash one sentence to one name', () => {
   // THE FEATURE: the deck previews a sentence through the bridge, then
-  // `decklight voiceover` records the deck. Different processes, different
+  // `decklight narrate` records the deck. Different processes, different
   // argument shapes, one key — or ElevenLabs is billed twice for it.
   const eleven = engineLike({ name: 'elevenlabs', model: 'eleven_multilingual_v2' });
   const text = 'Decklight decks are one HTML file.';
@@ -317,7 +317,7 @@ test('voiceover reuses the bridge\'s clip, and re-synthesizes under --no-cache',
 
   const record = (out, extra = []) => {
     const r = spawnSync(process.execPath, [
-      CLI, 'voiceover', deck, '--engine', 'say', '--voice', 'Samantha',
+      CLI, 'narrate', deck, '--engine', 'say', '--voice', 'Samantha',
       '--keep-wav', '-o', out, ...extra,
     ], { env: { ...process.env, ...env }, encoding: 'utf8' });
     assert.equal(r.status, 0, `voiceover failed:\n${r.stdout}\n${r.stderr}`);
@@ -352,7 +352,7 @@ test('a folder recorded before the key gained `model` is not re-synthesized', as
   const out = path.join(home, 'voiceover');
   const run = () => {
     const r = spawnSync(process.execPath, [
-      CLI, 'voiceover', deck, '--engine', 'say', '--voice', 'Samantha', '-o', out,
+      CLI, 'narrate', deck, '--engine', 'say', '--voice', 'Samantha', '-o', out,
     ], { env: { ...process.env, ...env }, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stdout + r.stderr);
     return r.stdout;

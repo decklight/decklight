@@ -134,7 +134,7 @@ test('no shipped file still names a key that was retired', () => {
   // keymap test keeps the HELP TABLE honest, but a retired key survives just
   // as well in a --help string, an error a tool prints, or a comment the next
   // person reads as fact — thirteen of them did, one of them in the line
-  // `decklight record` prints to every user. A key that no longer exists is a
+  // `decklight narrate --mic` prints to every user. A key that no longer exists is a
   // command that exits 1, spelled differently.
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const shipped = [];
@@ -177,7 +177,7 @@ test('no doc or deck still tells anyone to run a command that was removed', () =
     text.split('\n').forEach((line, i) => {
       // the README names it once, to say it is gone — that mention is the fix,
       // not the rot, so only an INVOCATION counts
-      // `decklight rec` joined it: renamed to `cast` because `decklight record`
+      // `decklight rec` joined it: renamed to `cast` because `decklight narrate --mic`
       // (the author's voice) made a three-letter abbreviation of "record" mean
       // the other recorder, and dropped rather than aliased for exactly that
       // reason — a surviving `rec` would quietly mean the opposite of what a

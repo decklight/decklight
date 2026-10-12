@@ -3,7 +3,7 @@
 
 // A slide range, picked — for the things that work on PART of a deck: the video
 // export, and the two recorders. Both used to reach a range only from the
-// command line (`decklight video --slides`, `decklight record --slides`), which
+// command line (`decklight video --slides`, `decklight narrate --mic --slides`), which
 // is exactly where somebody fixing slide 7 of a forty-slide talk is not.
 //
 // The spelling is the commands' own: '5-9', or '7' for one slide, and null for

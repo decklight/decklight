@@ -457,7 +457,7 @@ async function refresh(targets, { allowFail }) {
 // --------------------------------------------------------------------- main
 
 const HELP = `decklight cast — record terminal casts for Decklight decks
-  (recording your VOICE narrating a deck is a different command: decklight record)
+  (recording your VOICE narrating a deck is a different command: decklight narrate --mic)
 
 Usage:
   decklight cast <script.term.yaml> [-o out.cast.json] [--allow-fail] [--quiet]

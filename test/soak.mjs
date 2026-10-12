@@ -1877,7 +1877,7 @@ try {
       must(r.stdout.length > 40, `${cmd} --help printed almost nothing to stdout`);
     }
     for (const [args, want] of [
-      [['voiceover'], /decklight voiceover: name the deck/],
+      [['voiceover'], /decklight narrate: name the deck/],
       [['nope.html', '--no-trust'], /decklight: deck not found/],
       [['import', 'deck.html'], /import:/],
       [['marketplace', 'add', SPACE], /marketplace add:/],

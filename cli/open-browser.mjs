@@ -37,7 +37,7 @@ export async function openDeck(deckPath, opts = {}) {
 
 /**
  * The same launcher, for a URL that is not a file — the edit server's, or
- * `decklight record`'s, which serves the deck over http://127.0.0.1 precisely
+ * `decklight narrate --mic`'s, which serves the deck over http://127.0.0.1 precisely
  * because a browser will not open a microphone for a `file://` page.
  */
 export async function openUrl(url, {

@@ -2241,7 +2241,7 @@ test('/deck/edit/export voices the range with the live voice first, into a folde
   assert.equal(r.voiced, 'voices/en-us-ryan-high', 'the deck is told where the voice went');
   const voices = path.join(dir, 'voices', 'en-us-ryan-high');
   const manifest = JSON.parse(readFileSync(path.join(voices, 'manifest.json'), 'utf8'));
-  assert.equal(manifest.engine, 'piper', 'the shape `decklight voiceover -o` writes');
+  assert.equal(manifest.engine, 'piper', 'the shape `decklight narrate -o` writes');
   assert.equal(manifest.slides[0], null, 'slide 1 is outside the range and was not voiced');
   assert.equal(manifest.slides[1]?.file, 'slide-02.m4a');
   assert.ok(existsSync(path.join(voices, 'slide-02.m4a')));

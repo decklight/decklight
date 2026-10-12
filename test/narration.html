@@ -602,7 +602,7 @@
         }
 
         if (mode === 'micwarn') {
-          // ⇧R on a deck opened by `decklight record`, with no server
+          // ⇧R on a deck opened by `decklight narrate --mic`, with no server
           // answering. That parameter means a server WAS started, so finding
           // none means something else holds the port for another deck — and
           // after eight beats is the wrong time to learn where the files went.
@@ -1172,7 +1172,7 @@
             r.noOfferWithoutAServer = !card?.querySelector('.rec-use');
             // …and it says WHY it chose the download folder. "Saved to your
             // downloads" is where, and where is not something you can act on.
-            r.saidWhyNotTheDeck = /decklight record/.test(text);
+            r.saidWhyNotTheDeck = /decklight narrate --mic/.test(text);
             r.PASS = r.dialogOpens && r.finished && r.wentToDisk
               && r.everySlideHasNotes && r.saidWhere && r.noOfferWithoutAServer
               && r.saidWhyNotTheDeck;

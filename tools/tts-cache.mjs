@@ -15,7 +15,7 @@
  * a new name, and yesterday's clip is unreachable rather than wrong.
  *
  * What that buys is the thing the memory cache never could: the live bridge
- * and `decklight voiceover` are SEPARATE PROCESSES, so a deck previewed
+ * and `decklight narrate` are SEPARATE PROCESSES, so a deck previewed
  * sentence by sentence in the browser and then batch-recorded paid ElevenLabs
  * twice for identical text. They now meet here, because the key is derived
  * from what was said and how — not from who is asking.
@@ -86,7 +86,7 @@ export function cacheKey({ engine, model, format, voice, style, text } = {}) {
  *
  * `cacheKey` above takes loose fields, which is what makes it testable; this
  * takes the engine object and derives them, which is what makes the live
- * bridge and `decklight voiceover` agree. They used to assemble the fields
+ * bridge and `decklight narrate` agree. They used to assemble the fields
  * separately, and separately is how a cache that spans two processes quietly
  * stops hitting: one of them starts sending a field the other does not, every
  * lookup misses, and nothing fails — you just pay twice again.

@@ -56,12 +56,9 @@ export const COMMANDS = {
   // routeForPath, never typed as a word, and listed nowhere (`hidden`): the
   // deck is the command.
   open: { module: './open.mjs', main: 'openMain', hidden: true },
-  record: { module: './record.mjs', main: 'recordMain' },
-  // tools/voiceover.mjs arg-parses and exits at LOAD (it cannot be imported —
-  // deck-html.mjs's note), so it is spawned, exactly as `video --voiceover`
-  // already spawns it. stdio inherited: its per-slide progress and cost lines
-  // are the whole point of running it in a terminal.
-  voiceover: { spawn: '../tools/voiceover.mjs' },
+  // the deck's narration into a folder, by an engine or by you (--mic): one
+  // command for what `voiceover` and `record` did (cli/narrate.mjs)
+  narrate: { module: './narrate.mjs', main: 'narrateMain' },
   enhance: { module: './enhance.mjs', main: 'enhanceMain' },
   comments: { module: './comments.mjs', main: 'commentsMain' },
   associate: { module: './associate.mjs', main: 'associateMain' },
@@ -185,6 +182,7 @@ export const SYNONYMS = {
   themes: 'theme', plugins: 'library', voices: 'library', engines: 'library',
   plugin: 'library', importer: 'library', transform: 'library', engine: 'library',
   voice: 'library', agent: 'library', extension: 'library', install: 'library',
+  record: 'narrate', voiceover: 'narrate', narration: 'narrate', mic: 'narrate',
 };
 
 /** Levenshtein distance, for the typo half of did-you-mean. */
@@ -253,7 +251,7 @@ Commands:
            EXAMPLE: decklight skills --global        (install into each agent's config home, every project)
            EXAMPLE: decklight skills claude --pack   (zip it to upload in your claude.ai skill settings)
   cast     record a truthful terminal cast by running a YAML command script in a real PTY
-           (this records a TERMINAL — decklight record records your VOICE)
+           (this records a TERMINAL — decklight narrate --mic records your VOICE)
            EXAMPLE: decklight cast deck.term.yaml -o deck.cast.json
            EXAMPLE: decklight cast refresh casts/   (re-run each cast's script; rewrite the ones that drifted)
            EXAMPLE: decklight cast export demo.cast.json && agg demo.cast demo.gif   (asciicast v2)
@@ -307,13 +305,12 @@ Commands:
            EXAMPLE: decklight video deck.html -o deck.mp4   (add --voiceover to synthesize first)
            EXAMPLE: decklight video deck.html --slides 5-9 --voiceover   (just those slides, voiced)
            EXAMPLE: decklight video deck.html --format webm --quality high --subtitles file
-  record   capture the deck's narration in YOUR voice — the deck reads you its notes
-           one [click] beat at a time, and → ends a beat AND reveals the next build
-           (this records YOU — decklight cast records a terminal)
-           EXAMPLE: decklight record talk.html   (serves it: a microphone needs 127.0.0.1)
-  voiceover batch-synthesize the deck's narration into a folder with a live engine
-           (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's V → Record this deck…
-           EXAMPLE: decklight voiceover talk.html -o voices/chirp --engine chirp --voice Achernar
+  narrate  the deck's narration into a folder beside it, one file per slide and per [click]
+           beat: an engine reads the notes, or you do into the microphone (--mic), and
+           → ends a beat AND reveals the next build (decklight cast records a terminal)
+           EXAMPLE: decklight narrate talk.html --engine chirp --voice Achernar
+           EXAMPLE: decklight narrate talk.html --mic   (serves it: a microphone needs 127.0.0.1)
+           EXAMPLE: decklight narrate talk.html --slides 7   (just that slide, either way)
   enhance  add ElevenLabs v4 audio tags ([thoughtful], [sighs]) to the voiceover script, with the
            prompt ElevenLabs publishes for it — your agent drafts, decklight checks no word changed
            EXAMPLE: decklight enhance talk.html --slides 3   (or --all; --dry-run to only look)

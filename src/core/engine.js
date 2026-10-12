@@ -2822,7 +2822,7 @@ export function init(userConfig = {}) {
     openPicker: (view) => narration.openPicker(view),
     status: () => narration.status(),
   };
-  // `decklight record deck.html` opens the deck HERE — the whole point of that
+  // `decklight narrate --mic deck.html` opens the deck HERE — the whole point of that
   // command being that a microphone needs a secure context and file:// is not
   // one. Deferred a beat so the first slide has landed and the welcome card (a
   // first run is exactly when someone tries this) has had its say; skipped

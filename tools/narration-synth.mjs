@@ -4,7 +4,7 @@
 /**
  * The machine-narration core: a deck's notes in, a track's audio and manifest
  * entries out (#555). Every path that synthesizes a track calls THIS —
- * `decklight voiceover`, the export that voices a range before rendering it,
+ * `decklight narrate`, the export that voices a range before rendering it,
  * and whatever refreshes one stale slide later — so a track produced by one of
  * them can be refreshed by another without its format, voice or manifest
  * drifting.
@@ -38,7 +38,7 @@ import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 /** The formats a track can be in — what a manifest's `file` names end with. */
 export const TRACK_FORMATS = ['wav', 'm4a', 'mp3'];
 
-/** A fresh track's format, as `decklight voiceover` has always written it. */
+/** A fresh track's format, as `decklight narrate` has always written it. */
 export const DEFAULT_FORMAT = 'm4a';
 
 /** The manifest header's own keys — everything else in a header is carried. */
@@ -328,7 +328,7 @@ export async function synthesizeSlides({
   for (let i = 0; i < slides.length; i++) {
     const n = String(i + 1).padStart(2, '0');
     // Outside the range the track's own entry stands, segments and all: a
-    // ranged run is a surgical redo, the promise `decklight record --slides`
+    // ranged run is a surgical redo, the promise `decklight narrate --mic --slides`
     // makes, and the video rendered from this folder still finds the rest.
     if (i + 1 < span.from || i + 1 > span.to) { entries.push(prev?.slides?.[i] ?? null); continue; }
     // no words — or nothing but ⟨PAUSE⟩ and audio tags: direction with nothing to direct
@@ -405,7 +405,7 @@ export async function synthesizeSlides({
   return { manifest: manifestOf(entries), skipped, cost };
 }
 
-/** The plan line `decklight voiceover` prints — the edit server reads its `· N to voice`. */
+/** The plan line `decklight narrate` prints — the edit server reads its `· N to voice`. */
 export function planLine(name, html, range, ranged) {
   const texts = slideNotes(html).map((r) => (r ? cleanNotes(r) : ''));
   const span = range ?? { from: 1, to: texts.length };

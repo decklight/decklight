@@ -181,7 +181,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob; a skill older than this build is refreshed, and write mode names one at startup |
 | `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser editing is on: double-click text to edit it (`⌘B`, `⌘I`, `⌘E` for bold, italic and code while you do), drop a picture onto a slide, the bar's Layout for a layout, `S` for notes, `O` to rearrange slides; `Lock deck` in the palette turns changes off until you unlock |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
-| `record deck.html` | record the narration in your own voice, one [click] beat at a time |
+| `narrate deck.html` | the narration into a folder beside the deck: an engine reads the notes, or you do with `--mic`, one [click] beat at a time (`--slides 7` for one slide) |
 | `cast script.term.yaml` | record a terminal session in a real PTY (`cast refresh` re-runs, `cast export` writes asciicast) |
 
 | Sharing | |
@@ -192,7 +192,6 @@ Every item above has a SPEC section behind it. The index at the top of
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
 | `pptx deck.html` | a PowerPoint file, every slide a picture, notes as notes |
 | `video deck.html` | a narrated video: mp4, mov or webm, with subtitles in it or beside it (`--format`, `--quality`, `--subtitles`; `--slides 5-9` for part of it, `--voiceover` synthesizes first; also **Export a video…** in the deck's palette, which can voice it with the live voice first) |
-| `voiceover deck.html` | batch-synthesize the narration into a folder |
 | `enhance deck.html --slides 3` | add ElevenLabs v4 audio tags to the notes with the prompt ElevenLabs publishes: your agent drafts, decklight checks no word changed (`--all`, `--dry-run`) |
 | `enhance deck.html --spoken --slides 3` | write terse notes for the ear, as sentences a person would say: your agent rewrites, decklight checks every `[click]` and `[pause]` survived |
 

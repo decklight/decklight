@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// A narration track's manifest, shared by `decklight voiceover`, the deck's
+// A narration track's manifest, shared by `decklight narrate`, the deck's
 // own recorder (#535) and `decklight video`'s freshness check (#536): one
 // definition of the per-slide hash, one extraction of the notes it covers.
 

@@ -35,7 +35,7 @@
 // 127.0.0.1 only. Responses are cached in memory AND on disk (tools/tts-cache.mjs)
 // by (engine, model, format, voice, style, text), so stepping back through
 // slides replays instantly, a restarted bridge replays for free, and
-// `decklight voiceover` reuses whatever this bridge already said.
+// `decklight narrate` reuses whatever this bridge already said.
 
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline/promises';
@@ -133,7 +133,7 @@ export async function ttsMain(args) {
 
   cache   every synthesis is kept in ${cacheHome()} under a key made of
           (engine, model, format, voice, style, text), so a restarted bridge
-          replays for free and 'decklight voiceover' reuses what you already
+          replays for free and 'decklight narrate' reuses what you already
           previewed instead of paying for it twice. Oldest clips are dropped
           past 400 MB. --no-cache re-synthesizes everything, for a fresh take.
 
@@ -442,7 +442,7 @@ export async function ttsMain(args) {
         const text = forEngine(engine, said);
         if (!text?.trim()) { res.writeHead(400, CORS); return res.end('no text'); }
         const voice = refIds.get(picked) ?? picked;
-        // The key is the SAME function `decklight voiceover` hashes with, and
+        // The key is the SAME function `decklight narrate` hashes with, and
         // that is the point: a sentence previewed here and then batch-recorded
         // is one synthesis, not two identical bills (SPEC `NARRATION`).
         const ext = extFor(engine.synth.mimeType ?? 'audio/wav');

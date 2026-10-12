@@ -6,7 +6,7 @@
  *
  * #431 found a `say` with 0.31s of CPU after eight minutes, blocked in macOS's
  * speech server, and an execFileSync above it with no timeout — so
- * `decklight voiceover` waited with it, silently. That was one call of forty-
+ * `decklight narrate` waited with it, silently. That was one call of forty-
  * three. The others are the same shape with different daemons behind them:
  * gcloud waiting on a login that expired, gh waiting on the network, ffmpeg
  * spinning on a file that is not what its extension says, Chrome waiting on

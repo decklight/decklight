@@ -140,7 +140,7 @@ test('an empty roster does not lock the engine out of speaking', async (t) => {
 test('a wedged synthesizer is killed and named, not waited on forever', async (t) => {
   // THE BUG: macOS's speechsynthesisd can deadlock under concurrent `say`
   // calls, and the child then sits with no CPU and no output. execFileSync had
-  // no timeout, so `decklight voiceover` hung indefinitely with no message —
+  // no timeout, so `decklight narrate` hung indefinitely with no message —
   // and so did the unit suite, for eight minutes, before anyone looked.
   //
   // A fake `say` on PATH that sleeps stands in for the wedge; the timeout is

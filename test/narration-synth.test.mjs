@@ -283,7 +283,7 @@ function piperWorld(t) {
   writeFileSync(path.join(models, 'en_US-ryan-high.onnx.json'), '{}');
   // no ffmpeg on this PATH: a wav track must not need one
   const env = { ...process.env, PATH: [bin, path.dirname(process.execPath)].join(path.delimiter), XDG_CACHE_HOME: path.join(dir, 'cache') };
-  const voiceover = (...args) => spawnSync(process.execPath, [CLI, 'voiceover', ...args, '--data-dir', models],
+  const voiceover = (...args) => spawnSync(process.execPath, [CLI, 'narrate', ...args, '--data-dir', models],
     { encoding: 'utf8', env });
   return { dir, bin, models, env, voiceover };
 }

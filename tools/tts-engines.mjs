@@ -345,7 +345,7 @@ function createPiper({ voice = PIPER_DEFAULT_VOICE, dataDir }) {
  * seconds — so this is not a budget, it is a tripwire. The failure it exists
  * for: macOS's speech server (speechsynthesisd) can deadlock under concurrent
  * `say` calls, and the child then sits forever with no CPU and no output.
- * Unbounded, that hung `decklight voiceover` indefinitely with no message,
+ * Unbounded, that hung `decklight narrate` indefinitely with no message,
  * and hung the unit suite for eight minutes before anyone looked.
  */
 export const NATIVE_TIMEOUT_MS = 60_000;

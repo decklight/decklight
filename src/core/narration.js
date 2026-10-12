@@ -2300,7 +2300,7 @@ export function createNarration({
       head.textContent = 'record this deck — writes wav files beside it';
       // Which slides, first: both recorders below walk this range, so it is
       // chosen before either is. Redoing one chapter used to mean quitting to
-      // a terminal for `decklight record --slides`.
+      // a terminal for `decklight narrate --mic --slides`.
       if (rangePicker) {
         narrRows.push({
           text: `📑 Slides — ${rangeLabel(recRange)}`,
@@ -2956,13 +2956,13 @@ export function createNarration({
   // it, and a loop only acts while its own run is still current — a cancel
   // followed by an immediate re-record can't resurrect the old loop.
   let recEl = null, recView = 'confirm', recRun = 0, recTarget = null;
-  // The range both recorders walk: `?slides=a-b` when `decklight record --slides`
+  // The range both recorders walk: `?slides=a-b` when `decklight narrate --mic --slides`
   // opened the deck, and whatever V → Record this deck… → Slides picks after that.
   let recRange = /^\d+(?:-\d+)?$/.test(params?.get?.('slides') ?? '') ? params.get('slides') : null;
   /**
    * The slides a recorder walks: every one that has something to say, narrowed
    * by the range picked in V → Record this deck… → Slides, which starts as
-   * `?slides=a-b` when `decklight record --slides` asked for one.
+   * `?slides=a-b` when `decklight narrate --mic --slides` asked for one.
    *
    * The range exists because recording starts at slide 1 and there is no way
    * to skip: fluff slide 30 of a 40-slide deck and you would read 29 slides of
@@ -3249,7 +3249,7 @@ export function createNarration({
     && !/^[a-z][a-z0-9+.-]*:/i.test(d) && !/^[/\\]/.test(d) && !d.split(/[/\\]/).includes('..')
     ? d : null);
   function recordDir({ configOnly = false } = {}) {
-    // `decklight record --dir NAME` opens the deck with ?dir=NAME, which wins:
+    // `decklight narrate --mic --dir NAME` opens the deck with ?dir=NAME, which wins:
     // it is the one thing the person recording asked for out loud. Validated
     // here as well as in the command, because a URL is typed by hand too — and
     // the server refuses the same three shapes a third time, which is where it
@@ -3413,15 +3413,15 @@ export function createNarration({
    */
   function noServerReason() {
     if (params?.has?.('record')) {
-      return 'no edit server answered, though <code>decklight record</code> started one'
+      return 'no edit server answered, though <code>decklight narrate --mic</code> started one'
         + ' — something else is holding the port for another deck. Stop it and record again;'
         + ' press D for the log.';
     }
     if (location.protocol === 'file:') {
       return 'this deck was opened from a file, so nothing may write beside it.'
-        + ' <code>decklight record deck.html</code> serves it and writes them for you.';
+        + ' <code>decklight narrate --mic deck.html</code> serves it and writes them for you.';
     }
-    return 'no edit server owns this deck file — <code>decklight record deck.html</code>'
+    return 'no edit server owns this deck file — <code>decklight narrate --mic deck.html</code>'
       + ' writes them next to the deck instead.';
   }
 
@@ -3578,7 +3578,7 @@ export function createNarration({
     // record` exists to put the same file on http://127.0.0.1, which is one.
     if (location.protocol === 'file:') {
       return 'a browser will not open a microphone for a page loaded from a file.'
-        + ' Serve the deck instead — <code>decklight record ' + escapeHtml(deckFileName()) + '</code>'
+        + ' Serve the deck instead — <code>decklight narrate --mic ' + escapeHtml(deckFileName()) + '</code>'
         + ' — and this works: 127.0.0.1 is a secure context, file:// is not.';
     }
     return 'this browser exposes no microphone (getUserMedia needs a secure context —'

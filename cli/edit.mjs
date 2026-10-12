@@ -3501,7 +3501,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   }
 
   /**
-   * `decklight video` (and `decklight voiceover` before it, when the export
+   * `decklight video` (and `decklight narrate` before it, when the export
    * voices its slides), run as CHILDREN rather than through their `main`s like
    * the other exports: both end in `process.exit` on every refusal, and each
    * would take this session down or freeze it. A child keeps that where it
@@ -3540,7 +3540,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
   /**
    * argv for voicing an export: the live voice the deck is speaking with, as
-   * `decklight voiceover` spells it. The deck sends what only it knows — the
+   * `decklight narrate` spells it. The deck sends what only it knows — the
    * engine and model the bridge answered with, the voice and tone picked in V —
    * and the rest comes from where the bridge itself reads it (the environment,
    * then ~/.config/decklight/tts.json for the same engine), so a sentence
@@ -4051,7 +4051,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
   const actual = await listenTakingOverIfNeeded(server, port, host);
   actualPort = actual;
-  // `decklight record` runs this same server in-process and needs to know
+  // `decklight narrate --mic` runs this same server in-process and needs to know
   // WHICH port it ended up on (a taken --port moves to the next free one) and
   // to print its own banner instead of the authoring one.
   if (onListen) onListen({ port: actual, deckUrl, server });

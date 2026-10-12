@@ -61,10 +61,10 @@ import { synthesizeSlides, readTrack, trackFormat, planLine, TRACK_FORMATS, DEFA
 
 const args = process.argv.slice(2);
 
-const HELP = `decklight voiceover — batch-synthesize a deck's narration into a folder
+const HELP = `decklight narrate — batch-synthesize a deck's narration into a folder
 
 Usage:
-  decklight voiceover <deck.html> [-o <dir>] [--engine piper|chirp|gemini|elevenlabs]
+  decklight narrate <deck.html> [-o <dir>] [--engine piper|chirp|gemini|elevenlabs]
                       [--voice <name>] [--format m4a|wav|mp3] [--reuse-text] [--keep-wav]
                       [--slides a-b] [--no-cache]
 
@@ -73,7 +73,7 @@ notes and writes one slide-NN file per slide (plus a file per [click] beat)
 and a manifest.json into <dir>, so a deck can point at it with
   narration: { files: '<dir>', segments: true }              (m4a, the default)
   narration: { files: '<dir>', ext: 'wav', segments: true }  (--format wav)
-— the same one-track form decklight record and the deck's recorder print.
+— the same one-track form decklight narrate --mic and the deck's recorder print.
 Several tracks to pick between are a list of the same fields, each labelled:
   narration: { files: [{ label: 'Anna', dir: 'voices/anna', segments: true }, …] }
 
@@ -121,20 +121,20 @@ for (let i = 0; i < args.length; i++) {
   if (VALUE_OPTIONS.has(a)) { i++; continue; }
   if (SWITCHES.has(a)) continue;
   if (a.startsWith('-')) {
-    console.error(`decklight voiceover: unknown option ${a} — see decklight voiceover --help`);
+    console.error(`decklight narrate: unknown option ${a} — see decklight narrate --help`);
     process.exit(1);
   }
   deckPath ??= a;
 }
-if (!deckPath) { console.error('decklight voiceover: name the deck to voice\n\n' + HELP); process.exit(1); }
+if (!deckPath) { console.error('decklight narrate: name the deck to voice\n\n' + HELP); process.exit(1); }
 const { opt } = argReader(args);
 // before the engine and encoder probes: a mistyped deck or a range past its end
 // is not a missing ffmpeg
-if (!existsSync(deckPath)) { console.error(`decklight voiceover: no deck at ${deckPath}`); process.exit(1); }
+if (!existsSync(deckPath)) { console.error(`decklight narrate: no deck at ${deckPath}`); process.exit(1); }
 const html = readFileSync(deckPath, 'utf8');
 let range;
 try { range = parseSlideRange(opt('--slides'), sectionBodies(html).length); } catch (e) {
-  console.error(`decklight voiceover: ${e.message}`);
+  console.error(`decklight narrate: ${e.message}`);
   process.exit(1);
 }
 const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
@@ -157,7 +157,7 @@ const style = opt('--style', track?.style ??
 const model = opt('--tts-model', track?.model != null && (engine === 'elevenlabs' || engine === 'gemini') ? track.model : undefined);
 const format = opt('--format', trackFormat(prev) ?? DEFAULT_FORMAT);
 if (!TRACK_FORMATS.includes(format)) {
-  console.error(`decklight voiceover: --format is ${TRACK_FORMATS.join(', ')}, not ${format}`);
+  console.error(`decklight narrate: --format is ${TRACK_FORMATS.join(', ')}, not ${format}`);
   process.exit(1);
 }
 const dataDir = resolve(opt('--data-dir', join(homedir(), '.local', 'share', 'piper')));
@@ -194,7 +194,7 @@ try {
   console.log(`done → ${outDir}${skipped ? ` (${skipped} unchanged, skipped)` : ''}`
     + (cost ? ` · estimated cost ~$${cost.toFixed(4)}` : ''));
 } catch (e) {
-  console.error(`decklight voiceover: ${e.message}`);
+  console.error(`decklight narrate: ${e.message}`);
   process.exitCode = 1;
 } finally {
   // piper is held resident (§ createPiper) — without this the tool prints

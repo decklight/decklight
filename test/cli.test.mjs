@@ -31,7 +31,7 @@ const CLI = path.resolve(here, '../cli/decklight.mjs');
 
 test('global help lists all subcommands with runnable examples', () => {
   const out = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  for (const sub of ['init', 'skills', 'cast', 'record', 'bundle', 'upgrade', 'publish', 'marketplace', 'video']) {
+  for (const sub of ['init', 'skills', 'cast', 'narrate', 'bundle', 'upgrade', 'publish', 'marketplace', 'video']) {
     assert.match(out, new RegExp(`^  ${sub} `, 'm'), `missing subcommand: ${sub}`);
   }
   assert.equal((out.match(/EXAMPLE:/g) || []).length >= 5, true, 'one example per subcommand');
@@ -45,7 +45,7 @@ test('help <sub> shows the subcommand help', () => {
 });
 
 test('`rec` is gone — no alias, no stub, and the two recorders name each other', () => {
-  // `rec` was renamed to `cast` because `decklight record` (the author's voice)
+  // `rec` was renamed to `cast` because `decklight narrate --mic` (the author's voice)
   // made a three-letter abbreviation of "record" mean the other recorder. It
   // was dropped outright rather than aliased or stubbed: an alias would have
   // kept a name that quietly means the opposite of what its reader assumes,
@@ -60,50 +60,53 @@ test('`rec` is gone — no alias, no stub, and the two recorders name each other
   // Each recorder says what the OTHER one records. This is the whole
   // disambiguation now, so it is the thing worth pinning: the names alone
   // cannot carry it, and nothing else says it.
-  assert.match(help, /^ {2}cast .*\n.*decklight record records your VOICE/m);
-  assert.match(help, /^ {2}record .*\n(?:.*\n)*?.*decklight cast records a terminal/m);
+  assert.match(help, /^ {2}cast .*\n.*decklight narrate --mic records your VOICE/m);
+  assert.match(help, /^ {2}narrate .*\n(?:.*\n)*?.*decklight cast records a terminal/m);
 });
 
-test('voiceover is a first-class command: routed, documented, and helps to stdout', () => {
-  // the gap a user hit — reaching for `decklight voiceover` and finding only
+test('narrate is a first-class command: routed, documented, and helps to stdout', () => {
+  // the gap a user hit — reaching for `decklight narrate` and finding only
   // `node tools/voiceover.mjs`. It spawns the standalone script (which cannot
   // be imported), so the test is that dispatch, help, and refusal all work.
   const help = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  assert.match(help, /^ {2}voiceover .*batch-synthesize/m, 'the command is listed');
+  assert.match(help, /^ {2}narrate .*narration into a folder/m, 'the command is listed');
 
-  const vh = spawnSync('node', [CLI, 'voiceover', '--help'], { encoding: 'utf8' });
-  assert.equal(vh.status, 0, '--help exits 0');
-  assert.match(vh.stdout, /decklight voiceover — batch-synthesize/, 'help goes to STDOUT');
-  assert.ok(vh.stdout.length > 40);
+  const nh = spawnSync('node', [CLI, 'narrate', '--help'], { encoding: 'utf8' });
+  assert.equal(nh.status, 0, '--help exits 0');
+  assert.match(nh.stdout, /usage: decklight narrate <deck\.html> \[--mic\]/, 'help goes to STDOUT');
+  // the engine side's every flag, one level down
+  const vh = spawnSync('node', [CLI, 'narrate', '--help', '--engine'], { encoding: 'utf8' });
+  assert.equal(vh.status, 0);
+  assert.match(vh.stdout, /decklight narrate — batch-synthesize/);
 
-  // no deck named → a NAMED refusal, not a stack (the #278 convention)
-  const bad = spawnSync('node', [CLI, 'voiceover'], { encoding: 'utf8' });
+  // nothing named → the usage, and a failing exit
+  const bad = spawnSync('node', [CLI, 'narrate'], { encoding: 'utf8' });
   assert.equal(bad.status, 1);
-  assert.match(bad.stderr, /decklight voiceover: name the deck/);
+  assert.match(bad.stdout, /usage: decklight narrate/);
 
   // an option voiceover does not take is refused by name, not ignored — the
   // notes rewrite and its two flags are gone, and a run that silently dropped
   // a flag would go ahead doing something other than what was asked
   for (const flag of [['--no-llm'], ['--model', 'qwen3:30b-a3b']]) {
-    const r = spawnSync('node', [CLI, 'voiceover', 'deck.html', ...flag], { encoding: 'utf8' });
+    const r = spawnSync('node', [CLI, 'narrate', 'deck.html', ...flag], { encoding: 'utf8' });
     assert.equal(r.status, 1, `${flag[0]} is refused`);
-    assert.match(r.stderr, new RegExp(`decklight voiceover: unknown option ${flag[0]}`));
+    assert.match(r.stderr, new RegExp(`decklight narrate: unknown option ${flag[0]}`));
   }
   // and every option it DOES take still parses: with the deck missing, the
   // failure names the deck, never an option — and a value option's value is
   // not mistaken for the deck (`-o out deck.html` used to read `out`)
-  const known = spawnSync('node', [CLI, 'voiceover', '-o', 'out', '--engine', 'say', '--voice', 'V',
+  const known = spawnSync('node', [CLI, 'narrate', '-o', 'out', '--engine', 'say', '--voice', 'V',
     '--style', 's', '--data-dir', 'd', '--project', 'p', '--location', 'l', '--lang', 'en-US',
     '--tts-model', 'm', '--tts-format', 'pcm', '--slides', '2', '--reuse-text', '--keep-wav', '--no-cache',
     'missing-deck.html'], { encoding: 'utf8' });
   assert.doesNotMatch(known.stderr, /unknown option/);
-  assert.match(known.stderr, /decklight voiceover: no deck at missing-deck\.html/);
+  assert.match(known.stderr, /decklight narrate: no deck at missing-deck\.html/);
   // a range past the deck's end is refused before any engine or encoder is
   // probed — it is a typo, not a reason to install ffmpeg
-  const past = spawnSync('node', [CLI, 'voiceover', path.resolve(here, '../demo/intro.html'), '--slides', '9999'],
+  const past = spawnSync('node', [CLI, 'narrate', path.resolve(here, '../demo/intro.html'), '--slides', '9999'],
     { encoding: 'utf8' });
   assert.equal(past.status, 1);
-  assert.match(past.stderr, /decklight voiceover: --slides 9999 is outside this deck/);
+  assert.match(past.stderr, /decklight narrate: --slides 9999 is outside this deck/);
 });
 
 test('unknown subcommand exits 1 with the global help', () => {
@@ -1766,7 +1769,7 @@ test('init --remote refuses a flag dressed as a URL', () => {
   } finally { rmTemp(proj); }
 });
 
-// ── decklight record — the command whose whole job is the origin ──────────
+// ── decklight narrate --mic — the command whose whole job is the origin ──────────
 // A browser will not open a microphone for a file:// page: getUserMedia needs
 // a secure context and a local file is not one, however many times you click
 // Allow. http://127.0.0.1 is one. That is the command.
@@ -1776,44 +1779,44 @@ test('handing a recorder the OTHER one\'s file is refused, naming both', async (
   // The silent one: `record` used to start a server, print a URL and open a
   // browser on a YAML file — no error anywhere, just a page that would never
   // be a deck.
-  const a = wrongRecorder('record', 'demo.term.yaml');
+  const a = wrongRecorder('narrate', 'demo.term.yaml');
   assert.match(a, /demo\.term\.yaml is a terminal script, not a deck/);
   assert.match(a, /did you mean: {2}decklight cast demo\.term\.yaml/);
   // …and the loud-but-useless one: a deck came back as `script has no steps`,
   // which is true of every HTML file and names nothing.
   const b = wrongRecorder('cast', 'talk.html');
   assert.match(b, /talk\.html is a deck, not a terminal script/);
-  assert.match(b, /did you mean: {2}decklight record talk\.html/);
+  assert.match(b, /did you mean: {2}decklight narrate talk\.html --mic/);
   // both are named either way round, because either could have been meant
   for (const msg of [a, b]) {
     assert.match(msg, /decklight cast {4}records a TERMINAL/);
-    assert.match(msg, /decklight record {2}records YOU/);
+    assert.match(msg, /decklight narrate --mic {2}records YOU/);
   }
 
   // the right file for the right command says nothing at all
-  assert.equal(wrongRecorder('record', 'talk.html'), null);
-  assert.equal(wrongRecorder('record', 'deck.decklight'), null);
+  assert.equal(wrongRecorder('narrate', 'talk.html'), null);
+  assert.equal(wrongRecorder('narrate', 'deck.decklight'), null);
   assert.equal(wrongRecorder('cast', 'demo.term.yaml'), null);
   assert.equal(wrongRecorder('cast', 'demo.yml'), null);
   // …and neither does an extension neither command claims. An unusual name is
   // not evidence of a mistake, and refusing one would break a deck somebody
   // called talk.htm5.
-  assert.equal(wrongRecorder('record', 'talk.htm5'), null);
+  assert.equal(wrongRecorder('narrate', 'talk.htm5'), null);
   assert.equal(wrongRecorder('cast', 'script'), null);
-  assert.equal(wrongRecorder('record', undefined), null);
+  assert.equal(wrongRecorder('narrate', undefined), null);
 });
 
-test('record refuses the other recorder\'s file before it serves anything', async (t) => {
+test('narrate --mic refuses the other recorder\'s file before it serves anything', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-mixup-'));
   t.after(() => rmTemp(dir));
   fs.writeFileSync(path.join(dir, 'demo.term.yaml'), 'steps:\n  - cmd: echo hi\n');
   // spawned so a server started by mistake would be visible as a hang; it
   // must exit at once instead, and bind nothing
-  const r = spawnSync(process.execPath, [CLI, 'record', 'demo.term.yaml', '--no-open'],
+  const r = spawnSync(process.execPath, [CLI, 'narrate', 'demo.term.yaml', '--mic', '--no-open'],
     { cwd: dir, env: childEnv(), encoding: 'utf8', timeout: 20000 });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /is a terminal script, not a deck/);
-  assert.doesNotMatch(r.stdout, /decklight record on http/, 'it served the file anyway');
+  assert.doesNotMatch(r.stdout, /decklight narrate --mic on http/, 'it served the file anyway');
 });
 
 test('record refuses a --dir it could not write into, before serving anything', async () => {
@@ -1931,7 +1934,7 @@ test('a flag value before the deck is never mistaken for the deck', async () => 
   assert.match(r.stderr + r.stdout, /no such deck: no-such-deck\.html/);
 });
 
-test('record serves the deck and prints the URL the browser is sent to', async (t) => {
+test('narrate --mic serves the deck and prints the URL the browser is sent to', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-record-'));
   t.after(() => rmTemp(dir));
   fs.writeFileSync(path.join(dir, 'talk.html'),
@@ -1941,7 +1944,7 @@ test('record serves the deck and prints the URL the browser is sent to', async (
   // it holds a file watcher and a live-reload stream for as long as you are
   // recording — so in-process it would keep the test runner alive forever.
   // --port 0 lets the OS pick, which is what makes it safe to run anywhere.
-  const child = spawn(process.execPath, [CLI, 'record', 'talk.html', '--port', '0', '--dir', 'takes', '--no-open'],
+  const child = spawn(process.execPath, [CLI, 'narrate', 'talk.html', '--mic', '--port', '0', '--dir', 'takes', '--no-open'],
     { cwd: dir, env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => stop(child));
   let out = '';
@@ -1952,7 +1955,7 @@ test('record serves the deck and prints the URL the browser is sent to', async (
       // BOTH lines, not just the first: the URL and the recorder hint are separate
       // writes, and resolving on the URL alone then asserting the hint is a
       // race the test loses on a slow runner — Windows CI lost it for real.
-      const m = out.match(/decklight record on (\S+)/);
+      const m = out.match(/decklight narrate --mic on (\S+)/);
       if (m && /With your voice… opens the recorder/.test(out)) { clearInterval(scan); resolve(m[1]); }
     }, 25);
     child.on('exit', () => { clearInterval(scan); reject(new Error('record exited early:\n' + out)); });

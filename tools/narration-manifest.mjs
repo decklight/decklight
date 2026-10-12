@@ -3,7 +3,7 @@
 
 /**
  * A narration track's manifest.json — what the synthesis core writes
- * (tools/narration-synth.mjs, behind `decklight voiceover`) and
+ * (tools/narration-synth.mjs, behind `decklight narrate`) and
  * the deck's own synthesized recorder now writes too (#535), so the two are
  * interchangeable to everything that reads one: `decklight video`, the export
  * dialog, the narration picker.

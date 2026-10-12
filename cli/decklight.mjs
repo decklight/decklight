@@ -143,6 +143,8 @@ if (!command) {
     const { libraryForm } = await import('./library.mjs');
     process.stderr.write(`  did you mean:  decklight ${libraryForm(cmd, rest).join(' ')}\n`);
   }
+  // `record` was the microphone half of what `narrate` does now
+  else if (meant === 'narrate' && cmd === 'record') process.stderr.write(`  did you mean:  decklight ${['narrate', ...rest, '--mic'].join(' ')}\n`);
   else if (meant) process.stderr.write(`  did you mean:  decklight ${[meant, ...rest].join(' ')}\n`);
   process.stderr.write('\n');
   process.stdout.write(shortHelp());

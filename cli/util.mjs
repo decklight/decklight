@@ -93,7 +93,7 @@ export async function runMain(cmd, fn) {
  * differ by two letters and both mean "record".
  *
  * Getting it wrong used to be silent in the direction that mattered.
- * `decklight record demo.term.yaml` started a server, printed a URL and opened
+ * `decklight narrate --mic demo.term.yaml` started a server, printed a URL and opened
  * a browser on a YAML file: no error anywhere, just a page that would never be
  * a deck. (The other way at least failed, if unhelpfully — `script has no
  * steps`, said of a perfectly good deck.)
@@ -106,7 +106,7 @@ export function wrongRecorder(cmd, file) {
   const name = String(file ?? '');
   const isScript = /\.ya?ml$/i.test(name);
   const isDeck = /\.(html?|decklight)$/i.test(name);
-  const wrong = (cmd === 'record' && isScript) || (cmd === 'cast' && isDeck);
+  const wrong = (cmd === 'narrate' && isScript) || (cmd === 'cast' && isDeck);
   if (!wrong) return null;
   const what = isScript ? 'a terminal script, not a deck' : 'a deck, not a terminal script';
   // Both are named, because the whole reason this is worth refusing is that
@@ -114,8 +114,8 @@ export function wrongRecorder(cmd, file) {
   // typed, repaired, so it can be copied rather than reconstructed.
   return `${name} is ${what}.\n`
     + '  decklight cast    records a TERMINAL — a YAML command script, replayed in the deck\n'
-    + "  decklight record  records YOU — your voice narrating a deck's notes\n\n"
-    + `  did you mean:  decklight ${isScript ? 'cast' : 'record'} ${name}`;
+    + "  decklight narrate --mic  records YOU — your voice narrating a deck's notes\n\n"
+    + `  did you mean:  decklight ${isScript ? 'cast' : 'narrate'} ${name}${isScript ? '' : ' --mic'}`;
 }
 
 export const scriptSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\u0021--');
