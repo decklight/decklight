@@ -13,7 +13,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { resolveTitle, planGit, planSkill, initRepo, epilogue, openCommand, openDeck } from '../cli/init.mjs';
+import { resolveTitle, planGit, planSkill, initRepo, epilogue, openCommand, openDeck, handoffArgs } from '../cli/init.mjs';
 import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
 import { ensureReviewAttribute, REVIEW_ATTRIBUTE } from '../cli/git.mjs';
 import { deckAt, deckHistory, restoreDeck } from '../cli/restore.mjs';
@@ -454,6 +454,18 @@ test('planGit: the --git/--no-git/TTY/repo decision table', () => {
   // no repo, no flag: a TTY is asked, headless gets the one-line hint
   assert.deepEqual(planGit({ args: [], tty: true }), { action: 'ask' });
   assert.deepEqual(planGit({ args: [] }), { action: 'hint' });
+});
+
+test('handoffArgs: a no to init\'s git question reaches the deck it opens, so it is not asked twice', () => {
+  // asked, and declined: the opened deck must not ask again
+  assert.deepEqual(handoffArgs({ rel: 'deck.html', gitPlan: 'ask', gitAction: 'skip' }), ['deck.html', '--no-git', '--open']);
+  // asked, and accepted: the repository exists, nothing to forward
+  assert.deepEqual(handoffArgs({ rel: 'deck.html', gitPlan: 'ask', gitAction: 'create' }), ['deck.html', '--open']);
+  // --no-git typed to init holds for the session it opens, even inside a repo
+  assert.deepEqual(handoffArgs({ rel: 'deck.html', argv: ['--no-git'], gitPlan: 'skip', gitAction: 'skip' }), ['deck.html', '--no-git', '--open']);
+  // already in a repo, nothing asked: nothing forwarded
+  assert.deepEqual(handoffArgs({ rel: 'deck.html', gitPlan: 'skip', gitAction: 'skip' }), ['deck.html', '--open']);
+  assert.deepEqual(handoffArgs({ rel: 'deck.html', gitPlan: 'ask', gitAction: 'skip', noOpen: true }), ['deck.html', '--no-git']);
 });
 
 test('initRepo: goes through the createRepo seam, reports each failure in one line, never throws', () => {

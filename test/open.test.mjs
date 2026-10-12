@@ -15,7 +15,8 @@ import path from 'node:path';
 import { rmTemp, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
-import { planServices, inGitRepo, voiceSetupOffer, moveBridgesOffStrangers } from '../cli/open.mjs';
+import { planServices, inGitRepo, voiceSetupOffer, moveBridgesOffStrangers, noAgentRow } from '../cli/open.mjs';
+import { AGENTS } from '../cli/agents.mjs';
 import { LEASH, onLeash, leashEnv, exitWhenOrphaned } from '../cli/supervise.mjs';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { DECK_URL_RE } from '../cli/banner.mjs';
@@ -525,4 +526,11 @@ test('a voice bridge that moved onto the lip-sync port is not the lip-sync bridg
   });
   assert.equal(plan.run[1].args.at(-1), '8790');
   assert.match(lines[0], /lip-sync: port 8789 is held by the say voice bridge — not this bridge — so the bridge takes 8790/);
+});
+
+test('the no-agent banner row counts the roster rather than naming a stale three', () => {
+  const row = noAgentRow();
+  assert.match(row, new RegExp(`${AGENTS.length} known`));
+  assert.match(row, /decklight doctor/);
+  assert.match(noAgentRow([{ name: 'a' }, { name: 'b' }]), /^none on PATH \(a, b, … 2 known\)/);
 });

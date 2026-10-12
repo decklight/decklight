@@ -27,7 +27,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
-import { onPath, detectAgents } from './agents.mjs';
+import { onPath, detectAgents, AGENTS } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import {
   ENGINES as TTS_ENGINES, PIPER_DEFAULT_VOICE, piperModelDir, engineStatus,
@@ -324,6 +324,10 @@ export function planServices({
  * hand is on the wheel, and the skip line already names the fix).
  */
 /** The voice is skipped only for want of a model, and we know how to fetch it. */
+/** The banner's agents row when none is installed: what A would run, and where the list is. */
+export const noAgentRow = (roster = AGENTS) =>
+  `none on PATH (${roster.slice(0, 3).map((a) => a.name).join(', ')}, … ${roster.length} known) · decklight doctor says how to install one`;
+
 export const voiceModelOffer = (plan) => {
   const s = plan.skip.find((x) => x.name === 'voice');
   return s?.download ? s : null;
@@ -749,7 +753,9 @@ export async function openMain(args) {
   if (skip.length) banner.rows.set('skipped', { text: skip.map((s) => `${s.name} — ${s.why}`).join(' · ') });
   // Only when there are none — otherwise the edit child names them, and its
   // row (which knows which is preferred and which is installed) wins.
-  if (!agents.length) banner.rows.set('agents', { text: 'none on PATH (claude, codex, bob)' });
+  // The roster, not three names typed here: the row used to name claude, codex
+  // and bob after the roster had grown to ten.
+  if (!agents.length) banner.rows.set('agents', { text: noAgentRow() });
 
   function shutdown(code = 0) {
     if (shuttingDown) return;

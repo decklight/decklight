@@ -89,6 +89,22 @@ test('the deck\'s name heads the banner only when it is given — open gives it 
 
 // ── order is the banner's, not the processes' ───────────────────────────────
 
+test('the rows that end in a command sit just above reviews, never below it', () => {
+  // runtime and skill are what edit.mjs reports when the deck or the skill is
+  // older than this install. They were missing from ROW_ORDER, so they kept
+  // their arrival position and printed under reviews.
+  const rows = [
+    { key: 'reviews', text: '1 review waiting' },
+    { key: 'skill', text: 'SKILL.md v0.8.0, older than 0.9.0 · run: decklight skills', mark: 'warn' },
+    { key: 'runtime', text: 'deck.html embeds runtime 0.8.0 · run: decklight upgrade deck.html', mark: 'warn' },
+    { key: 'git', text: 'main' },
+  ];
+  const keys = renderBanner({ ...base, rows }).filter((l) => l.startsWith('  ') && !l.includes(URL) && !l.includes('E edit'))
+    .map((l) => l.trim().replace(/^[!\u2713\u2717]\s*/, '').split(/\s+/)[0]);
+  assert.deepEqual(keys, ['git', 'runtime', 'skill', 'reviews']);
+});
+
+
 test('rows sort by ROW_ORDER however they arrived', () => {
   // Deliberately the reverse of ROW_ORDER: this is the race the banner exists
   // to absorb — the voice bridge is slow to introduce itself and used to land

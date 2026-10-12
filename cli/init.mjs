@@ -128,6 +128,19 @@ export function planGit({ args = [], tty = false, inRepo = false } = {}) {
   return { action: tty ? 'ask' : 'hint' };
 }
 
+/**
+ * The arguments init hands to `decklight <deck>` once the deck is written.
+ *
+ * The git answer travels with them. Without it, a "no" to init's git question
+ * left the directory without a repository, and the deck it opened found none
+ * and asked the same question again a second later. `--no-git` typed to init
+ * travels too: "never touch git" is the person's, not one command's.
+ */
+export function handoffArgs({ rel, argv = [], gitPlan, gitAction, noOpen = false }) {
+  const declined = argv.includes('--no-git') || (gitPlan === 'ask' && gitAction === 'skip');
+  return [rel, ...(declined ? ['--no-git'] : []), ...(noOpen ? [] : ['--open'])];
+}
+
 /** Everything committed here that is not the deck — what a push would carry. */
 export function notTheDeck(root, deckPath, run = gitRun) {
   try {
@@ -657,7 +670,7 @@ unless --no-skill is given. The deck file is only touched with --force.
   const rel = path.relative(root, deckPath);
   const cli = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
   // the banner has been printed once, by this run; the child is the same version
-  const r = spawnSync(process.execPath, [cli, rel, ...(noOpen ? [] : ['--open'])],
+  const r = spawnSync(process.execPath, [cli, ...handoffArgs({ rel, argv, gitPlan: plan.action, gitAction: action, noOpen })],
     { stdio: 'inherit', cwd: root, env: { ...process.env, DECKLIGHT_BANNER: '1' } });
   return r.status ?? 0;
 }

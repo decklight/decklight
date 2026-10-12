@@ -54,10 +54,13 @@ export function parseReady(line) {
  * The order rows appear in, whatever order the processes woke up in — which is
  * the entire point of collecting them all before printing any.
  *
- * `reviews` is last because it is the only row that is a THING TO DO rather
- * than a thing that is merely true, so it sits closest to the URL.
+ * The facts come first. Then the rows that are a THING TO DO rather than a
+ * thing that is merely true, `runtime` and `skill` (each ends in the command
+ * that fixes it), then `reviews`, which sits closest to the URL. `runtime` and
+ * `skill` used to be missing here, so they kept their arrival position after
+ * every known row and landed below `reviews`.
  */
-export const ROW_ORDER = ['port', 'voice', 'lips', 'skipped', 'git', 'agents', 'reviews'];
+export const ROW_ORDER = ['port', 'voice', 'lips', 'skipped', 'git', 'agents', 'runtime', 'skill', 'reviews'];
 
 const ESC = { dim: '\x1b[2m', bold: '\x1b[1m', cyan: '\x1b[36m', green: '\x1b[32m', yellow: '\x1b[33m', red: '\x1b[31m', under: '\x1b[4m', reset: '\x1b[0m' };
 
