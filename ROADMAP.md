@@ -105,7 +105,7 @@ can wait for 1.0.
 
 ## 3. Panels, styling, settings, onboarding
 
-- [x] **One side panel with tabs instead of six docks.** (#PR) Notes,
+- [x] **One side panel with tabs instead of six docks.** (#779) Notes,
       Inspector, Sources, Comments, Agent and the HTML editor share one slot
       and one placement per deck (`decklight-panel-dock:`); opening one closes
       the other, and every header carries tabs to the rest (`src/core/dock.js`).
@@ -118,16 +118,16 @@ can wait for 1.0.
       they are actions, and the palette is where actions live. The HTML
       editor now shares the inspector's slot (above), so it no longer stacks
       a seventh panel beside it; making it an inspector tab is still open.
-- [x] **Settings is the home for knobs.** (#PR) Clock, Progress bar,
+- [x] **Settings is the home for knobs.** (#779) Clock, Progress bar,
       Captions, Voice speed and, in write mode, the Editing bar are Settings
       rows; each reads what the deck remembers and ⏎ changes it. The palette
       keeps its rows: the palette does a thing, Settings shows how the deck is
       set up. Also added at the user's request: **Arrows and slide number in
       fullscreen**, with `⇧F` and a palette row.
-- [x] **`prefs.js` is the one storage door.** (#PR) The edit bar and the
+- [x] **`prefs.js` is the one storage door.** (#779) The edit bar and the
       export choices go through it, and a lint keeps every other module off
       `localStorage`. `sessionStorage` (per-tab state, not preferences) stays.
-- [x] **Two onboarding cards, nothing else.** (#PR) The twelve tips, their
+- [x] **Two onboarding cards, nothing else.** (#779) The twelve tips, their
       three palette rows, `instance.tips` and their storage keys are gone, and
       the welcome card teaches `⌃T` only on a Mac. **Revised:** the press-`V`
       chip stays, because it says that THIS deck has a voice-over, which a
