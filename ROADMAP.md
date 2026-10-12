@@ -62,7 +62,7 @@ can wait for 1.0.
 
 ## 2. The palette and the keys (one PR each, land together)
 
-- [x] **Every action at the root, prefixed with its category.** (#PR) The way
+- [x] **Every action at the root, prefixed with its category.** (#775) The way
       VS Code's command palette reads: `Voice: Live voice…`, `Slide: Duplicate
       this slide`, `Share: Export to PDF…`. The five drill-in groups are gone;
       with nothing typed the list runs Go to, Slide, Edit, Look, Voice,
@@ -70,19 +70,19 @@ can wait for 1.0.
       narrows to it, every typed word must match in any order, and a name that
       starts with the query leads. Labels kept their established wording,
       since the SPEC, the README and the harnesses name them.
-- [x] **Rows that duplicate a panel: revised.** (#PR) With every action at the
+- [x] **Rows that duplicate a panel: revised.** (#775) With every action at the
       root, a row that opens the `V` panel on one of its views is an action of
       its own, found by its name, so the rows stay. What was wrong was the
       `V` hint on four of them, which taught a key that opens the panel, not
       that view; only the panel row carries it now.
-- [x] **One write-mode rule.** (#PR) A row that changes the file or needs the
+- [x] **One write-mode rule.** (#775) A row that changes the file or needs the
       edit server exists only while the deck can be written, and carries a
       `write` tag. The lock row is the one exception: it stays while locked,
       because it is how you unlock.
-- [x] **One key per action.** (#PR) `R` (history's second key), `P` (`⎵`'s
+- [x] **One key per action.** (#775) `R` (history's second key), `P` (`⎵`'s
       alias), `J` (progress bar) and `D` (debug log) are unbound; the last two
       are palette rows.
-- [x] **No bare letter writes the file.** (#PR) `L` and `Z` / `⇧Z` are unbound.
+- [x] **No bare letter writes the file.** (#775) `L` and `Z` / `⇧Z` are unbound.
       Undo and redo are the platform's chord (`⌘Z` / `Ctrl+Z`), named in every
       "takes it back" message through `src/core/undo-chord.js`; layout is the
       bar's button, ⇧-click backwards, and a palette row. A lint pins it: no
@@ -96,7 +96,7 @@ can wait for 1.0.
       one panel is a UI redesign, not a key change: the two hold different
       things (what the deck told you, and the event stream). `D` is free now;
       the debug log is `Help: Debug log`.
-- [x] **Help card lists everything bound.** (#PR) A "Write mode, in context"
+- [x] **Help card lists everything bound.** (#775) A "Write mode, in context"
       section names the keys that answer only on a selection, while typing, in
       the overview or in the inspector.
 - [x] ~~Bug: Esc does not close the `?` help in write mode.~~ Not a bug. The
