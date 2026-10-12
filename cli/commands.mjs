@@ -49,8 +49,12 @@ export const COMMANDS = {
   library: { module: './library.mjs', main: 'libraryMain' },
   'design-system': { module: './design-system.mjs', main: 'designSystemMain' },
   font: { module: './font.mjs', main: 'fontMain' },
-  tts: { module: '../tools/voiceover-server.mjs', main: 'ttsMain' },
-  lipsync: { module: '../tools/lipsync-server.mjs', main: 'lipsyncMain' },
+  // The two bridges `decklight <deck>` starts. Still runnable (write mode
+  // spawns them; a file:// deck talks to one run on its own) but `hidden`:
+  // what a person types is `setup voice|face` (ROADMAP section 4).
+  tts: { module: '../tools/voiceover-server.mjs', main: 'ttsMain', hidden: true },
+  lipsync: { module: '../tools/lipsync-server.mjs', main: 'lipsyncMain', hidden: true },
+  setup: { module: './setup.mjs', main: 'setupMain' },
   video: { module: '../tools/video.mjs', main: 'videoMain' },
   // THE command: `decklight <deck.html | url> [--no-trust]`. Reached through
   // routeForPath, never typed as a word, and listed nowhere (`hidden`): the
@@ -284,7 +288,7 @@ Commands:
            import adapters, build-time transforms, speech engines, voices, agents — one grammar:
            add, remove, list, and gate (the admission gate a marketplace's CI runs); nothing travels in a deck
            EXAMPLE: decklight library add plugin timer      (then: decklight talk.html)
-           EXAMPLE: decklight library add engine azure-tts  (then: decklight tts --engine azure-tts)
+           EXAMPLE: decklight library add engine azure-tts  (then: decklight talk.html --tts-engine azure-tts)
            EXAMPLE: decklight library list                  (every kind, or name one)
            EXAMPLE: decklight library gate transform grammar-check.mjs
   design-system  a company's tokens, art and slide templates, referenced by a deck and served from
@@ -296,10 +300,10 @@ Commands:
            served from the marketplace on this machine, carried by bundle; add/remove/list, and gate
            EXAMPLE: decklight font add inter@type-mkt talk.html --use   (and open in it)
            EXAMPLE: decklight font gate fonts/inter   (a catalog's CI gate)
-  tts      serve the live voice bridge — the player synthesizes narration on the fly through it
-           EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
-  lipsync  serve the lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU)
-           EXAMPLE: decklight lipsync    (then pick "Character…" in the deck's / palette)
+  setup    set up this machine's voice and face once — the answers are saved, and every deck
+           you open uses them
+           EXAMPLE: decklight setup voice   (which engine, what it needs, one test sentence)
+           EXAMPLE: decklight setup face --portrait me=me.jpg --wav2lip-dir ~/Wav2Lip --wav2lip-ckpt …
   video    render the deck to ONE narrated mp4 — a still per slide, held for its narration audio
            EXAMPLE: decklight video deck.html -o deck.mp4   (add --voiceover to synthesize first)
            EXAMPLE: decklight video deck.html --slides 5-9 --voiceover   (just those slides, voiced)

@@ -468,7 +468,7 @@ export default function createEngine(opts) {
 ```
 
 - **`decklight library add engine <name>` installs one**, into `~/.decklight/engines/`
-  like any other unit; `decklight tts --engine <name>` then speaks with it and
+  like any other unit; `decklight <deck> --tts-engine <name>` then speaks with it and
   the picker treats it exactly as it treats a built-in. An engine is Node code
   at author privilege, so it is **pinned** by `sha256` on the same terms as a
   transform or an adapter (`UNIT_PINNING`): refused before any fetch without

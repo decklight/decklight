@@ -44,7 +44,7 @@ test('videoSetup says which engines can run — and, when none can, exactly what
   assert.match(noFace.problems.join(), /no portrait/);
   const lostFace = videoSetup({ wav2lipDir: '/w', wav2lipCkpt: '/c', portraits: ['me=/gone.jpg'] }, { exists: have(path.join('/w', 'inference.py'), '/c') });
   assert.match(lostFace.problems.join(), /portrait not found: me/);
-  assert.match(SETUP_HINT, /--save$/);
+  assert.match(SETUP_HINT, /^decklight setup face /, 'the hint is the setup command, which saves');
 });
 
 test('open starts the lip-sync bridge for a saved talking head — rhubarb or not — and says how to set one up otherwise', () => {
@@ -53,7 +53,7 @@ test('open starts the lip-sync bridge for a saved talking head — rhubarb or no
   assert.ok(saved.run.some((s) => s.name === 'lipsync'), 'a saved setup starts it');
   const none = planServices(noRhubarb);
   assert.ok(!none.run.some((s) => s.name === 'lipsync'));
-  assert.match(none.skip.find((s) => s.name === 'lip-sync').why, /decklight lipsync --wav2lip-dir .* --save/);
+  assert.match(none.skip.find((s) => s.name === 'lip-sync').why, /decklight setup face --wav2lip-dir .* --portrait/);
 });
 
 test('a filmed portrait replaces one of its name, keeps the rest, and fills in the bridge’s setup only where none is saved', () => {

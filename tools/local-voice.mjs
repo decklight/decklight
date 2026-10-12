@@ -24,7 +24,7 @@ import { run, PROBE_MS } from './exec.mjs';
 // beats a bridge that starts and never speaks.
 
 const PIPER_SUGGEST = 'piper is the free offline voice — install it with '
-  + '`uv tool install piper-tts`, then run `decklight tts --engine piper`';
+  + '`uv tool install piper-tts`, then run `decklight setup voice`';
 
 /** `say -v '?'` on macOS: one voice per line, name, locale, sample sentence. */
 export const SAY_LIST = ['-v', '?'];
@@ -381,7 +381,7 @@ export function detectLocalVoice({
       engine: null,
       why: 'Android has a system voice, but only as an in-app Java API — there is no '
         + 'command line behind it, so nothing here can drive it',
-      suggest: 'record the narration on a desktop (decklight tts, then V → Record this deck…) and ship the '
+      suggest: 'record the narration on a desktop (decklight <deck>, then V → Record this deck…) and ship the '
         + 'audio with the deck — a recorded track needs no bridge at all',
     };
   }
@@ -402,7 +402,7 @@ export function detectLocalVoice({
           caveat: 'the best voices here are Siri’s, a free download: System Settings '
             + '→ Accessibility → Spoken Content → System Voice → Manage Voices… '
             + '(open it with: open "x-apple.systempreferences:com.apple.preference.universalaccess") '
-            + '— then restart decklight tts',
+            + '— then open the deck again',
         }),
       };
     }
@@ -425,7 +425,7 @@ export function detectLocalVoice({
           ...(voices.some((v) => v.tier === 0) ? {} : {
             caveat: 'the best voices here are Windows’ natural ones, a free download: Settings '
               + '→ Accessibility → Narrator → Add natural voices '
-              + '(open it with: start ms-settings:easeofaccess-narrator) — then restart decklight tts',
+              + '(open it with: start ms-settings:easeofaccess-narrator) — then open the deck again',
           }),
         };
       }

@@ -144,3 +144,16 @@ test('check means the deck lint; the admission gates are `gate`, and the old wor
   assert.match(GLOBAL_HELP, /decklight theme gate/);
   assert.doesNotMatch(GLOBAL_HELP, /--check\b/);
 });
+
+test('setup is the command; the bridges it configures run, but are out of the help', () => {
+  // tts and lipsync are what `decklight <deck>` starts. A person types
+  // `setup voice|face` once (ROADMAP section 4).
+  assert.equal(COMMANDS.setup.module, './setup.mjs');
+  for (const bridge of ['tts', 'lipsync']) {
+    assert.ok(resolveCommand(bridge), `${bridge} still runs`);
+    assert.ok(COMMANDS[bridge].hidden, `${bridge} is hidden`);
+    assert.ok(!listedCommands().includes(bridge), `${bridge} is in the help`);
+  }
+  assert.match(GLOBAL_HELP, /decklight setup voice/);
+  assert.match(GLOBAL_HELP, /decklight setup face/);
+});

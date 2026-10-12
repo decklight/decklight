@@ -321,7 +321,7 @@ test('the deck is the command: the global help opens with it, and no word for it
 
 test('decklight <deck> --help fits a screen; --help --all still names every flag it accepts', () => {
   // The short help used to be 70 lines, most of them voice and lip-sync flags
-  // that the saved configuration (tts --setup, lipsync --save) already holds.
+  // that the saved configuration (setup voice, lipsync --save) already holds.
   const short = execFileSync('node', [CLI, 'deck.html', '--help'], { encoding: 'utf8' });
   assert.ok(short.trim().split('\n').length <= 32, `short help is ${short.trim().split('\n').length} lines`);
   for (const flag of ['--tts-port', '--host', '--commit-every', '--veo-face-y', '--tts-stability']) {

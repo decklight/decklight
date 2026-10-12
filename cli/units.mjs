@@ -103,7 +103,7 @@ export const UNIT_TYPES = {
     dir: 'engines',
     single: 'mjs',
     label: 'speech engine',
-    use: 'decklight tts --engine <name>, then the V picker',
+    use: 'decklight setup voice (or decklight <deck> --tts-engine <name>), then the V picker',
     example: 'azure-tts',
     required: ['apiVersion', 'capability'],
     pinned: true,

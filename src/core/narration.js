@@ -1267,7 +1267,7 @@ export function createNarration({
     if (/^\d{3}/.test(s)) {
       return `🔇 voice bridge error ${s.slice(0, 3)} — auto-advance stopped · press the key left of 1 for messages`;
     }
-    return '🔇 voice bridge unreachable — auto-advance stopped · start it with: decklight tts';
+    return '🔇 voice bridge unreachable — auto-advance stopped · open the deck with: decklight <deck.html>';
   }
   // ── manifest tracks — SPEC PRESENTING ────────────────────────────────────────────
   // A track can NAME its files instead of living in a directory. That is the
@@ -2139,7 +2139,7 @@ export function createNarration({
       }
     }).catch(() => {
       if (btn?.isConnected) btn.textContent = '▶';
-      toast('live voice bridge unreachable — run: decklight tts');
+      toast('live voice bridge unreachable — open the deck with: decklight <deck.html>');
       debugLog('narr', `preview ${voice} failed`);
     });
   }

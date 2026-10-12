@@ -144,7 +144,7 @@ itself (`<script src="decklight/dist/decklight.js">` and a
 - **A face for the voice.** `V` → Character: a 2D narrator whose lips follow
   the voice, or a talking head made from your photo (or from a few seconds of
   you filmed in the deck) lip-synced with Wav2Lip on your own machine, set up
-  once with `decklight lipsync … --save`.
+  once with `decklight setup face …`.
 - **Video.** `decklight video` renders the deck to mp4, mov or webm, narrated
   by its track with subtitles in the file or beside it, and re-voices a slide
   whose notes moved. The same export is a palette row, which can voice the
@@ -218,7 +218,7 @@ narrate, template, library, gate) are defined once in
 
 | Odds and ends | |
 |---|---|
-| `tts` / `lipsync` | the live voice bridge and the lip-sync bridge the player talks to |
+| `setup voice` / `setup face` | set up live narration, or a talking head, once; every deck you open uses it |
 | `associate` | make double-clicking a `.decklight` file open it without trust |
 | `report-bug` | print the version and environment facts a bug report needs |
 | `doctor` | what this machine can do (Chrome, ffmpeg, git, agents…) and the install line for what it can't |

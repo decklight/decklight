@@ -80,8 +80,8 @@ const USAGE = `usage: decklight <deck.html | git url> [--no-trust | --trust] [--
                     (decklight <deck> --no-trust --help for that mode's flags)
   --trust           open a deck that runs code of its own without the question
 
-  The voice and the face are set up once and remembered: decklight tts --setup,
-  decklight lipsync … --save. Their flags (--tts-engine, --voice, --veo, …) are
+  The voice and the face are set up once and remembered: decklight setup voice,
+  decklight setup face …. Their flags (--tts-engine, --voice, --veo, …) are
   also accepted here and passed straight through, for one session.
 
   decklight <deck> --help --all   every flag: cloning, ports, commit cadence,
@@ -147,7 +147,7 @@ const USAGE_ALL = `usage: decklight <deck.html | git url> [--no-trust] [--port 8
                     elevenlabs  your own account's voices, the ones you cloned first
                             in the picker — needs $ELEVENLABS_API_KEY
                     (nothing configured? on a terminal decklight offers a one-time
-                    guided setup; decklight tts --setup re-runs it)
+                    guided setup; decklight setup voice re-runs it)
 
   tts flags     --project <id> (or $GOOGLE_CLOUD_PROJECT; gemini/chirp only),
                 --tts-model, --location, --voice, --data-dir, --lang,
@@ -312,7 +312,7 @@ export function planServices({
   // something it can actually use is present
   const lipPort = opt('--lipsync-port', '8789');
   const rhubarb = opt('--rhubarb', 'rhubarb');
-  // A talking head set up and saved once (`decklight lipsync … --save`,
+  // A talking head set up and saved once (`decklight setup face …`,
   // lipsync.json) counts as configured: `open` starts the bridge for it with
   // no flags, rhubarb or not — the bridge reads the same file.
   const savedLips = lipsync;

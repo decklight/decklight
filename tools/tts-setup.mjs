@@ -152,7 +152,7 @@ export async function runSetupWizard({
       log('  piper is not installed. the install is one command:');
       log('    uv tool install piper-tts');
       if (!yes(await ask('  run it now? [y/N] '), false)) {
-        log('  install piper, then run: decklight tts');
+        log('  install piper, then run: decklight setup voice');
         return null;
       }
       if (!runCmd('uv', ['tool', 'install', 'piper-tts'])) {
@@ -177,7 +177,7 @@ export async function runSetupWizard({
       log(`    ${piperDownloadLine(dl)}`);
       if (!dl) return null;
       if (!yes(await ask('  run it now? [y/N] '), false)) {
-        log('  fetch the model, then run: decklight tts');
+        log('  fetch the model, then run: decklight setup voice');
         return null;
       }
       mkdirSync(models, { recursive: true });
@@ -197,7 +197,7 @@ export async function runSetupWizard({
       log('  then export it (your shell profile is the right home for it — decklight');
       log('  deliberately never writes it to its config file):');
       log(`    export ${ELEVENLABS_KEY_ENV}=...`);
-      log('  then run: decklight tts');
+      log('  then run: decklight setup voice');
       return null;
     }
     // Which voice is a question the account answers, not the user: the roster
@@ -220,7 +220,7 @@ export async function runSetupWizard({
       // detect and name the way in — never drive a browser auth flow
       log('  no application-default credentials — mint them with:');
       log('    gcloud auth application-default login');
-      log('  then run: decklight tts');
+      log('  then run: decklight setup voice');
       return null;
     }
   }
@@ -240,12 +240,12 @@ export async function runSetupWizard({
   } catch (e) {
     engine?.synth.close?.();
     log(`  test synthesis failed: ${e.message ?? e}`);
-    log('  nothing saved — fix that, then run: decklight tts --setup');
+    log('  nothing saved — fix that, then run: decklight setup voice');
     return null;
   }
 
   // 4. only a config that has spoken gets saved
   const file = saveTtsConfig(config, env);
-  log(`  saved to ${file} — decklight tts and decklight <deck> read it from now on`);
+  log(`  saved to ${file} — decklight <deck> reads it from now on`);
   return { config, engine };
 }

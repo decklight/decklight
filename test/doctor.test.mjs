@@ -72,7 +72,7 @@ test('neural video: a set-up Wav2Lip is present with its portraits; none gives t
   assert.equal(row(everything).ok, true);
   assert.match(row(everything).found, /wav2lip · 1 portrait/);
   assert.equal(row({}).ok, false);
-  assert.match(row({}).fix, /decklight lipsync --wav2lip-dir .* --save/);
+  assert.match(row({}).fix, /decklight setup face --wav2lip-dir .* --portrait/);
   const broken = row({ lipsync: { wav2lipDir: '/w2l' }, videoCheck: () => ({ engines: [], problems: ['Wav2Lip needs its checkpoint'] }) });
   assert.equal(broken.ok, false);
   assert.match(broken.fix, /needs its checkpoint/);

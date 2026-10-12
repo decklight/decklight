@@ -7,7 +7,7 @@
  * Neural video needs four things decklight cannot find on its own: a Wav2Lip
  * (or SadTalker) checkout, its checkpoint, the Python that has its packages,
  * and a portrait. Passing them as flags to every `decklight <deck>` is how
- * nobody ends up using the feature — so `decklight lipsync … --save` writes
+ * nobody ends up using the feature — so `decklight setup face …` writes
  * them here once, the way the voice setup lives in `tts.json`, and the
  * lip-sync bridge, `open` and `doctor` all read the same file.
  *
@@ -99,5 +99,5 @@ export function videoSetup(setup, { exists = existsSync } = {}) {
 }
 
 /** The one command that sets neural video up — said wherever it is missing. */
-export const SETUP_HINT = 'decklight lipsync --wav2lip-dir <Wav2Lip checkout> --wav2lip-ckpt <wav2lip_gan.pth>'
-  + ' --python <its venv python> --portrait me=<photo.jpg> --save';
+export const SETUP_HINT = 'decklight setup face --wav2lip-dir <Wav2Lip checkout> --wav2lip-ckpt <wav2lip_gan.pth>'
+  + ' --python <its venv python> --portrait me=<photo.jpg>';

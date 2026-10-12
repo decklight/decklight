@@ -64,7 +64,7 @@ export function diagnose({
     'install one: claude (npm i -g @anthropic-ai/claude-code), codex, gemini, copilot, aider …');
   const local = platform === 'darwin' ? 'say (built in)' : platform === 'win32' ? 'Windows speech (built in)' : null;
   row('a local voice', local ?? (bin('piper') ? 'piper' : null), 'narration with no account and no network',
-    'uv tool install piper-tts   (or a cloud engine: decklight tts --setup)');
+    'uv tool install piper-tts   (or a cloud engine: decklight setup voice)');
   row('rhubarb', bin('rhubarb'), 'lipsync (mouth shapes for the talking-head character)',
     'https://github.com/DanielSWolf/rhubarb-lip-sync/releases — put the binary on PATH');
   // Neural video is not a binary on PATH but a checkout, its checkpoint, the
