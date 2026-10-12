@@ -312,11 +312,27 @@ test('the deck is the command: the global help opens with it, and no word for it
   }
 
   const openHelp = execFileSync('node', [CLI, 'deck.html', '--help'], { encoding: 'utf8' });
-  assert.match(openHelp, /usage: decklight <deck\.html \| git url> \[--no-trust\]/);
+  assert.match(openHelp, /usage: decklight <deck\.html \| git url> \[--no-trust \| --trust\]/);
   // the remote is a flag of the one command, in either mode
   assert.match(openHelp, /^\s+--remote\b/m, 'the LAN opt-in is offered');
-  assert.match(openHelp, /^\s+--host\b/m, 'and so is the bind address');
   assert.match(openHelp, /^\s+--no-trust\b/m, 'the no-trust mode is a flag of the same command');
+});
+
+test('decklight <deck> --help fits a screen; --help --all still names every flag it accepts', () => {
+  // The short help used to be 70 lines, most of them voice and lip-sync flags
+  // that the saved configuration (tts --setup, lipsync --save) already holds.
+  const short = execFileSync('node', [CLI, 'deck.html', '--help'], { encoding: 'utf8' });
+  assert.ok(short.trim().split('\n').length <= 32, `short help is ${short.trim().split('\n').length} lines`);
+  for (const flag of ['--tts-port', '--host', '--commit-every', '--veo-face-y', '--tts-stability']) {
+    assert.doesNotMatch(short, new RegExp(`^\\s+${flag}\\b`, 'm'), `${flag} is in the short help`);
+  }
+  assert.match(short, /--help --all/, 'the short help says where the rest is');
+  const all = execFileSync('node', [CLI, 'deck.html', '--help', '--all'], { encoding: 'utf8' });
+  // every flag that takes a value is documented somewhere in the full help
+  for (const flag of ['--branch', '--into', '--port', '--tts-port', '--lipsync-port', '--host', '--commit-every',
+    '--git-mode', '--agent', '--tts-engine', '--project', '--veo-prompt', '--veo-location', '--veo-face-y']) {
+    assert.match(all, new RegExp(`${flag}\\b`), `${flag} is missing from --help --all`);
+  }
 });
 
 test('`edit` is not a command, and says so the way any other unknown one does', () => {

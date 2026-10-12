@@ -58,7 +58,35 @@ const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 // run directly. The dispatcher would refuse `edit` out loud.
 const EDIT = fileURLToPath(new URL('./edit.mjs', import.meta.url));
 
-const USAGE = `usage: decklight <deck.html | git url> [--no-trust] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
+const USAGE = `usage: decklight <deck.html | git url> [--no-trust | --trust] [--open] [--port 8788]
+                    [--git | --no-git] [--agent <name>] [--remote] [--no-tts] [--no-lipsync]
+  brings up the deck server plus every bridge this machine can run, under one Ctrl-C
+
+  A git URL clones the repository into ./<repo> and opens the deck inside it.
+  Nothing is ever pushed.
+
+  --open            open the deck in your browser once the server is up
+  --port N          the deck server                                   [8788]
+  --git / --no-git  keep the deck in git (snapshots, K commits) / never touch git
+                    (no repository and no flag: decklight asks whether to create one)
+  --agent <name>    preferred AI agent for A (default: first detected)
+  --remote          also listen on the LAN for the phone remote
+  --no-tts          don't start the voice bridge
+  --no-lipsync      don't start the lip-sync bridge
+
+  --no-trust        open a deck you did not write: served under a
+                    Content-Security-Policy, every edit route refuses, no bridge
+                    (decklight <deck> --no-trust --help for that mode's flags)
+  --trust           open a deck that runs code of its own without the question
+
+  The voice and the face are set up once and remembered: decklight tts --setup,
+  decklight lipsync … --save. Their flags (--tts-engine, --voice, --veo, …) are
+  also accepted here and passed straight through, for one session.
+
+  decklight <deck> --help --all   every flag: cloning, ports, commit cadence,
+                                  agent-written commit subjects, voice, lip-sync`;
+
+const USAGE_ALL = `usage: decklight <deck.html | git url> [--no-trust] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper|elevenlabs] [--project <id>] [--no-tts]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
   brings up the deck server plus every bridge this machine can run, under one Ctrl-C
@@ -72,7 +100,7 @@ const USAGE = `usage: decklight <deck.html | git url> [--no-trust] [--port 8788]
   --into <dir>      where to clone (default: ./<repo name>)
 
   --port N          the deck server (live reload + edit write-back)   [8788]
-                    (taken already? author offers to take over that session
+                    (taken already? decklight offers to take over that session
                     on a TTY, or moves to the next free port otherwise)
   --tts-port N      live voice bridge                                 [8787]
   --lipsync-port N  lip-sync bridge (visemes + talking head)          [8789]
@@ -117,7 +145,7 @@ const USAGE = `usage: decklight <deck.html | git url> [--no-trust] [--port 8788]
                     piper   local, offline, unlimited, no project needed
                     elevenlabs  your own account's voices, the ones you cloned first
                             in the picker — needs $ELEVENLABS_API_KEY
-                    (nothing configured? on a terminal author offers a one-time
+                    (nothing configured? on a terminal decklight offers a one-time
                     guided setup; decklight tts --setup re-runs it)
 
   tts flags     --project <id> (or $GOOGLE_CLOUD_PROJECT; gemini/chirp only),
@@ -128,7 +156,8 @@ const USAGE = `usage: decklight <deck.html | git url> [--no-trust] [--port 8788]
   lipsync flags --rhubarb <bin>, --portrait <name=img.png|clip.mp4>…, --wav2lip-dir,
                 --wav2lip-ckpt, --sadtalker-dir, --python, --cache-dir,
                 --veo (animate the portrait once through Vertex — BILLED),
-                --veo-project, --veo-model, --veo-seconds, --veo-face-y
+                --veo-project, --veo-model, --veo-seconds, --veo-face-y,
+                --veo-prompt, --veo-location
   (all passed straight through — see decklight tts --help / lipsync --help)`;
 
 // flags that take a value (so the deck argument can be found past them)
@@ -354,7 +383,7 @@ export async function openMain(args) {
   const named = args.find((a) => !a.startsWith('-') && /\.decklight$/i.test(a));
   const noTrust = args.includes('--no-trust') || Boolean(named);
   if (noTrust && args.includes('--help')) return (await import('./edit.mjs')).editMain(args.includes('--no-trust') ? args : [...args, '--no-trust']);
-  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
+  if (args.includes('--help') || args.includes('-h')) { console.log(args.includes('--all') ? USAGE_ALL : USAGE); return; }
 
   let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   let deck = plan.deck;
@@ -471,15 +500,10 @@ export async function openMain(args) {
       const answer = await rl.question('  no git repository here — create one so every version of the deck is kept? [Y/n] ');
       const yes = !/^n/i.test(answer.trim());
       args = [...args, yes ? '--git' : '--no-git'];
-      // Only while we are ALREADY setting git up, and only when an agent could
-      // actually drive edits, offer the boundary that suits agent work. A
-      // session in an existing repository gains no new question — that is the
-      // one thing this must not cost, so `--git-mode agent` is how you reach it
-      // there.
-      if (yes && !args.includes('--git-mode') && detectAgents().length) {
-        const mode = await rl.question("  commit once per agent edit, with the agent's own message, instead of on a timer? [y/N] ");
-        if (/^y/i.test(mode.trim())) args = [...args, '--git-mode', 'agent'];
-      }
+      // No follow-up about WHEN to commit: one per agent edit, and on K, is
+      // already the default (resolveGitMode), so the question it used to ask
+      // could only offer what was on. Init says so in a line; --git-mode
+      // timer is the way to the plain cadence.
       rl.close();
       plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
     } else {

@@ -7,33 +7,25 @@
  * Code (and any AGENTS.md-reading agent) knows the authoring contract
  * without a web search or a guess from Reveal.js memory.
  *
- *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …]
- *                  [--git | --no-git] [--open] [--force]
- *                  [--no-skill | --global-skill]
+ *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--inline [--themes …]]
+ *                  [--git | --no-git] [--remote <url> | --no-remote]
+ *                  [--no-open] [--force] [--no-skill | --global-skill]
  *
- * Run bare in a terminal it asks one question — the deck's title — with
- * "My Deck" as the default; a title argument (or a non-TTY run) never prompts.
- * A terminal run is also asked where the skill should live: the project
- * (today's install, the default) or globally in each PATH-detected agent's
- * config home — the same files `decklight skills --global` installs.
- * --global-skill preselects global, --no-skill skips skill and question,
- * and a non-TTY run keeps the project install without asking.
+ * A terminal run can ask up to four questions, each skipped by its flag or
+ * by a non-TTY run: the deck's title ("My Deck" by default), where the skill
+ * goes (the project, or each detected agent's config home), whether to create
+ * a git repository, and, for a repository it just created, a remote.
  *
- * The deck is fully self-contained (runtime + every theme inlined, like
- * `decklight bundle --themes all` produces) — double-click it, it presents,
- * no sibling files, and the in-deck picker is fully stocked. Pass --themes to
- * ship a narrower set. The runtime blocks are marked data-decklight-runtime
- * so `decklight upgrade` can swap them for a newer installed version later.
- * The skill is regenerated every run (it's derived, not
- * authored content) so re-running after an upgrade refreshes it; the deck
- * file is only touched with --force.
+ * The deck is data by default: slides plus a JSON configuration block, with
+ * no runtime in the file. `decklight <deck>` serves the installed runtime into
+ * it, and `decklight bundle` embeds it when the deck is handed over.
+ * `--inline` writes the self-contained shape instead, with the runtime and
+ * the themes `--themes` selects. The skill is regenerated every run (it is
+ * derived, not authored content), so re-running after an upgrade refreshes
+ * it; the deck file is only touched with --force.
  *
- * init ends like the start of an authoring session: outside a repository it
- * offers `git init` (the same question `decklight <deck>` asks, at the natural
- * moment — the repo starts with the shared starter .gitignore), prints an
- * accent-colored epilogue — the deck's file:// URL and the `decklight <deck>`
- * line, which is the command that starts editing. `--open` launches the deck
- * in the default browser (the file IS the presentation).
+ * On a terminal, init ends by opening the deck in write mode. Off a terminal
+ * it prints the command and starts nothing.
  */
 
 import fs from 'node:fs';
@@ -399,7 +391,7 @@ export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, 
 
 Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--inline [--themes …]]
-                 [--git | --no-git] [--no-open] [--force]
+                 [--git | --no-git] [--remote <url> | --no-remote] [--no-open] [--force]
                  [--no-skill | --global-skill]
 
 Options:
@@ -419,6 +411,10 @@ Options:
                   commit everything init wrote
                   (outside a repo + no flag: init ASKS on a TTY)
   --no-git        never touch git
+  --remote <url>  add it as origin to the repository init creates, and push
+                  (without it, a terminal run offers a private GitHub
+                  repository when gh is signed in, or asks for a URL)
+  --no-remote     create the repository, and ask nothing about a remote
   --no-open       start the deck without opening the browser. Once the deck
                   is written, init opens it: the default deck in write mode
                   (live reload, edits from the browser, an AI agent on A), a
