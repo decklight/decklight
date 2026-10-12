@@ -25,11 +25,16 @@ export const DEBUG_KEEP = 200;
  * that timestamps exist — the elapsed figure is the whole point of the log,
  * since "3.001s in" is what ties a stall to what caused it.
  */
-export function createDebugLog({ now = Date.now, keep = DEBUG_KEEP, seed = [] } = {}) {
+export function createDebugLog({ now = Date.now, keep = DEBUG_KEEP, seed = [], first = null } = {}) {
   const t0 = now();
   // What the page before the reload had recorded (`unstashDebug`), marked
   // `prev`: their times are that page's, and the window dims them
   const entries = seed.slice(-keep).map((e) => ({ t: String(e.t), kind: String(e.kind), msg: String(e.msg), prev: true }));
+  // This page's first word (the reason it reloaded), stamped AT t0, not
+  // logged after it: a log() a moment later reads 0.001 on a slow machine,
+  // and "this page starts at zero" is the promise the window makes
+  if (first) entries.push({ t: (0).toFixed(3), kind: String(first.kind), msg: String(first.msg) });
+  if (entries.length > keep) entries.shift();
   let sink = null;
 
   /** Record one event: `kind` groups it, `msg` is what a human reads. */

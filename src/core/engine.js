@@ -396,10 +396,12 @@ export function init(userConfig = {}) {
   // reason first — "↻ reloaded — notes saved · this tab" (PRESENTING).
   let stashed = null;
   try { stashed = unstashDebug(sessionStorage, location.pathname); } catch { /* no storage: a fresh log */ }
-  const debug = createDebugLog({ seed: stashed?.entries ?? [] });
+  const debug = createDebugLog({
+    seed: stashed?.entries ?? [],
+    first: stashed && { kind: 'reload', msg: `↻ reloaded — ${stashed.reason ?? 'by the browser (⌘R, or a navigation)'}` },
+  });
   let debugEl = null;
   const debugLog = (kind, msg) => debug.log(kind, msg);
-  if (stashed) debugLog('reload', `↻ reloaded — ${stashed.reason ?? 'by the browser (⌘R, or a navigation)'}`);
   // …and this page stashes on its way out: told why (the server's reload
   // message, through editmode) or not (⌘R, a navigation).
   let reloadReason = null;

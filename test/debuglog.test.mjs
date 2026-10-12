@@ -36,6 +36,21 @@ test('the buffer stashed by one page seeds the next, marked as the page before, 
   assert.equal(fresh.t, '0.000', 'this page\'s clock starts at its own init');
 });
 
+test('the reload reason is this page\'s first row at 0.000, however slow the page is to get to it', () => {
+  // a clock that moves on every read: a slow runner, where a log() a moment
+  // after init reads 0.001 (the debugreload harness failed on exactly that)
+  let t = 9000;
+  const next = createDebugLog({ now: () => (t += 3), seed: [{ t: '0.412', kind: 'ready', msg: 'deck up' }],
+    first: { kind: 'reload', msg: '↻ reloaded — notes saved · this tab' } });
+  const later = next.log('ready', 'deck up');
+  assert.deepEqual(next.entries.map((e) => [e.t, e.msg, e.prev ?? false]), [
+    ['0.412', 'deck up', true], ['0.000', '↻ reloaded — notes saved · this tab', false], [later.t, 'deck up', false]]);
+  assert.notEqual(later.t, '0.000', 'what follows is timed as it happens');
+  const full = createDebugLog({ seed: Array.from({ length: DEBUG_KEEP }, (_, i) => ({ t: '0', kind: 'x', msg: String(i) })), first: { kind: 'reload', msg: 'why' } });
+  assert.equal(full.entries.length, DEBUG_KEEP, 'the first row keeps the ring at its size');
+  assert.equal(full.entries.at(-1).msg, 'why');
+});
+
 test('a stale, missing or malformed stash is nothing, and a seed never exceeds the ring', () => {
   const store = memory();
   assert.equal(unstashDebug(store, '/talk.html'), null);
