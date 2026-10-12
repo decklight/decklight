@@ -677,7 +677,7 @@ try {
   });
 
   await step('the ingredients label vouches for the runtime', () => {
-    const r = dl(['deck.html', '--no-trust', '--check']);
+    const r = dl(['deck.html', '--no-trust', '--audit']);
     must(vouchesForRuntime(r.all), `the label does not vouch for the runtime (the 0.3.0 near-miss): ${r.all}`);
     must(/0 unaccounted script blocks/.test(r.all), 'the deck carries unaccounted script');
     must(/0 inline handlers/.test(r.all), 'the deck carries inline handlers');
@@ -713,7 +713,7 @@ try {
     // the runtime through its own copy of a transform which escaped `</script`
     // but not `<!--`, so every imported deck rendered perfectly and hashed
     // differently. Only the label can see that.
-    const r = dl(['q3-review.html', '--no-trust', '--check']);
+    const r = dl(['q3-review.html', '--no-trust', '--audit']);
     must(vouchesForRuntime(r.all),
       `an imported deck reports a runtime that is not this install — the 0.3.0 bug, exactly: ${r.all}`);
     must(/0 unaccounted script blocks/.test(r.all), 'the imported deck carries unaccounted script');
@@ -769,7 +769,7 @@ try {
   await step('a voice installs offline, as a pointer', () => {
     // The one add that fetches nothing: a voice entry carries no `source`, so
     // there is no code path by which a model could arrive (SPEC VOICE_UNITS).
-    dl(['voice', 'add', 'soak-voice@soak-market']);
+    dl(['library', 'add', 'voice', 'soak-voice@soak-market']);
     const ref = JSON.parse(readFileSync(join(HOME, 'voices', 'soak-voice.json'), 'utf8'));
     must(ref.engine === 'elevenlabs' && ref.voiceId === 'soak-voice-id', `the pointer says ${JSON.stringify(ref)}`);
     must(!('source' in ref), 'something that looks like a payload survived into the library');
@@ -786,12 +786,12 @@ try {
     // anything is rendered, which is why this assertion runs everywhere.
     const hostile = join(SPACE, 'hostile.mjs');
     writeFileSync(hostile, 'export default async (h) => (await fetch("http://x")).text();\n');
-    const no = dl(['extension', 'check', hostile], { allowFail: true });
+    const no = dl(['library', 'gate', 'transform', hostile], { allowFail: true });
     must(no.code !== 0, 'a transform that calls fetch() was admitted');
     must(/fetch/.test(no.all), `the refusal does not name what it found: ${no.all}`);
 
     if (!HAVE_CHROME) return { skip: 'no Chrome — the load half of the gate cannot run' };
-    const r = dl(['extension', 'check', src]);
+    const r = dl(['library', 'gate', 'transform', src]);
     must(/lints clean/.test(r.all), `the gate did not pass a clean transform: ${r.all}`);
     const printed = /sha256: ([0-9a-f]{64})/.exec(r.all);
     must(printed, 'the gate printed no digest — there is nothing for a catalog to pin to');
@@ -805,9 +805,9 @@ try {
     // and installs offline; an importer and an engine are Node code and install
     // only against their pins — the same UNIT_PINNING gate the step below
     // proves the refusals of.
-    dl(['agent', 'add', 'soak-agent@soak-market']);
-    dl(['importer', 'add', 'soak-importer@soak-market']);
-    dl(['engine', 'add', 'soak-engine@soak-market']);
+    dl(['library', 'add', 'agent', 'soak-agent@soak-market']);
+    dl(['library', 'add', 'importer', 'soak-importer@soak-market']);
+    dl(['library', 'add', 'engine', 'soak-engine@soak-market']);
     for (const [dir, file] of [['agents', 'soak-agent.json'], ['importers', join('soak-importer', 'importer.mjs')],
       ['engines', 'soak-engine.mjs']]) {
       must(existsSync(join(HOME, dir, file)), `${dir}/${file} did not land in the library`);
@@ -823,16 +823,16 @@ try {
     // SPEC UNIT_PINNING, both refusals — and they land at different moments: no
     // pin is refused before anything is read, a wrong pin after the read and
     // before any write, so neither can leave a half-installed unit behind.
-    const unpinned = dl(['transform', 'add', 'soak-unpinned@soak-market'], { allowFail: true });
+    const unpinned = dl(['library', 'add', 'transform', 'soak-unpinned@soak-market'], { allowFail: true });
     must(unpinned.code !== 0, 'an unpinned transform installed');
     must(/carries no sha256/.test(unpinned.all), `the refusal does not name the pin: ${unpinned.all}`);
 
-    const bad = dl(['transform', 'add', 'soak-badpin@soak-market'], { allowFail: true });
+    const bad = dl(['library', 'add', 'transform', 'soak-badpin@soak-market'], { allowFail: true });
     must(bad.code !== 0, 'a transform whose bytes miss its pin installed');
     must(/does not match the catalog's pin/.test(bad.all), `the refusal does not name the mismatch: ${bad.all}`);
     must(!existsSync(join(HOME, 'transforms', 'soak-badpin.mjs')), 'a refused install still wrote a file');
 
-    dl(['transform', 'add', 'soak-transform@soak-market']);
+    dl(['library', 'add', 'transform', 'soak-transform@soak-market']);
     must(existsSync(join(HOME, 'transforms', 'soak-transform.mjs')), 'the pinned transform did not install');
   });
 
@@ -1401,7 +1401,7 @@ try {
     must(stale !== read(), 'the runtime block marker was not found — has it been renamed?');
     writeFileSync(aged, stale);
 
-    const before = dl(['aged.html', '--no-trust', '--check'], { allowFail: true });
+    const before = dl(['aged.html', '--no-trust', '--audit'], { allowFail: true });
     must(/DIFFERS from this install/.test(before.all),
       'the label did not notice a runtime that is not this install — the 0.3.0 near-miss, undetected');
 
@@ -1410,7 +1410,7 @@ try {
     dl(['upgrade', 'aged.html']);
     must(existsSync(`${aged}.bak`), 'upgrade did not write a backup');
 
-    const after = dl(['aged.html', '--no-trust', '--check']);
+    const after = dl(['aged.html', '--no-trust', '--audit']);
     must(after.all.includes('identical to this install'), 'the upgraded runtime still is not this install');
     locateSlide(read(), 3);   // throws if the added slide did not survive
     must(read().includes('edited by the soak'), 'the element edit did not survive the upgrade');
@@ -1450,12 +1450,12 @@ try {
     must(themesThen > 0, 'the older deck inlined no themes');
 
     // This install must SEE that the deck is not its own.
-    const before = dl(['from-an-older-decklight.html', '--no-trust', '--check'], { allowFail: true });
+    const before = dl(['from-an-older-decklight.html', '--no-trust', '--audit'], { allowFail: true });
     must(/DIFFERS from this install/.test(before.all),
       `a deck from ${OLDER_RELEASE} was not reported as differing from this build: ${before.all}`);
 
     const up = dl(['upgrade', 'from-an-older-decklight.html']);
-    const after = dl(['from-an-older-decklight.html', '--no-trust', '--check']);
+    const after = dl(['from-an-older-decklight.html', '--no-trust', '--audit']);
     must(after.all.includes('identical to this install'),
       `upgrade did not bring a ${OLDER_RELEASE} deck up to this build: ${after.all}`);
 
@@ -1490,11 +1490,11 @@ try {
     // part of any deck: it is your chrome, layered on at serve time, and a deck
     // you send someone plays the same whatever you have installed. The library
     // is the whole boundary, so this step is about where the files land.
-    const check = dl(['plugin', 'check', join(MARKET, 'plugins', 'soak-timer')]);
+    const check = dl(['library', 'gate', 'plugin', join(MARKET, 'plugins', 'soak-timer')]);
     must(/soak-timer — corner-br/.test(check.all), `plugin check said: ${check.all}`);
     must(/bundle will not/.test(check.all), 'the check does not state the boundary it enforces');
 
-    const add = dl(['plugin', 'add', 'soak-timer@soak-market']);
+    const add = dl(['library', 'add', 'plugin', 'soak-timer@soak-market']);
     must(/it is yours, not the deck's/.test(add.all), `plugin add said: ${add.all}`);
     must(/reads your speaker notes/.test(add.all),
       'a plugin that declared needs: ["notes"] was installed without saying so');
@@ -1503,7 +1503,7 @@ try {
       'the plugin did not land in the library');
     must(!deck().includes('soak-timer'), 'installing a plugin touched the deck');
 
-    const list = dl(['plugin', 'list']);
+    const list = dl(['library', 'list', 'plugin']);
     must(/soak-timer/.test(list.all) && /your speaker notes/.test(list.all),
       `plugin list said: ${list.all}`);
   });
@@ -1870,18 +1870,17 @@ try {
     // surface rather than the few paths this journey happens to walk. It found
     // `video` answering --help on stderr with exit 1 on its first run (#294).
     for (const cmd of ['init', 'import', 'bundle', 'upgrade', 'pdf', 'publish',
-      'theme', 'marketplace', 'plugin', 'skills', 'importer', 'transform', 'engine',
-      'voice', 'agent', 'extension', 'restore', 'cast', 'record', 'comments',
-      'tts', 'lipsync', 'video', 'voiceover', 'report-bug', 'associate']) {
+      'theme', 'marketplace', 'library', 'skills', 'restore', 'cast', 'narrate', 'comments',
+      'tts', 'lipsync', 'video', 'report-bug', 'associate']) {
       const r = dl([cmd, '--help']);
       must(r.stdout.length > 40, `${cmd} --help printed almost nothing to stdout`);
     }
     for (const [args, want] of [
-      [['voiceover'], /decklight narrate: name the deck/],
+      [['narrate'], /usage: decklight narrate/],
       [['nope.html', '--no-trust'], /decklight: deck not found/],
       [['import', 'deck.html'], /import:/],
       [['marketplace', 'add', SPACE], /marketplace add:/],
-      [['theme', 'check', 'nope.css'], /theme check:/],
+      [['theme', 'gate', 'nope.css'], /theme gate:/],
       [['upgrade', 'nope.html'], /upgrade:/],
     ]) {
       const r = dl(args, { allowFail: true });
@@ -1916,7 +1915,7 @@ try {
   });
 
   await step('--no-trust --audit validates the bundle', () => {
-    const r = dl(['linked bundle.html', '--no-trust', '--check']);
+    const r = dl(['linked bundle.html', '--no-trust', '--audit']);
     must(r.all.includes('identical to this install'), 'the bundled runtime is not this install');
     must(/0 unaccounted script blocks/.test(r.all), 'the bundle carries unaccounted script');
     must(/0 inline handlers/.test(r.all), 'the bundle carries inline handlers');
@@ -1927,7 +1926,7 @@ try {
     // injectBeforeBodyEnd, not a replace: the inlined runtime carries a literal
     // </body> in its speaker-view template.
     writeFileSync(join(PROJECT, 'tampered.html'), injectBeforeBodyEnd(src, '<script>window.__soak = 1;</script>'));
-    const r = dl(['tampered.html', '--no-trust', '--check'], { allowFail: true });
+    const r = dl(['tampered.html', '--no-trust', '--audit'], { allowFail: true });
     must(r.code === 1, `--check passed a tampered deck (exit ${r.code}) — the gate is decoration`);
     must(/1 unaccounted script block/.test(r.all), 'the report does not name the spliced script');
   });
@@ -2079,23 +2078,23 @@ try {
     // Only `add` was ever exercised. These are the two verbs a user reaches for
     // when something is wrong, and the library is the one place decklight
     // writes that a release could quietly break the shape of.
-    const units = [['skills', 'soak-pitch'], ['transform', 'soak-transform'], ['voice', 'soak-voice'],
+    const units = [['skill', 'soak-pitch'], ['transform', 'soak-transform'], ['voice', 'soak-voice'],
       ['agent', 'soak-agent'], ['importer', 'soak-importer'], ['engine', 'soak-engine']];
     for (const [kind, name] of units) {
-      const listed = dl([kind, 'list']);
+      const listed = dl(['library', 'list', kind]);
       must(listed.all.includes(name), `${kind} list does not name ${name}: ${listed.all}`);
       must(listed.all.includes('soak-market'), `${kind} list forgot where ${name} came from`);
     }
     for (const [kind, name] of units) {
-      const gone = dl([kind, 'remove', name]);
+      const gone = dl(['library', 'remove', kind, name]);
       must(new RegExp(`removed ${name}`).test(gone.all), `${kind} remove said: ${gone.all}`);
-      must(!dl([kind, 'list']).all.includes(`${name} `), `${name} is still listed after removal`);
+      must(!dl(['library', 'list', kind]).all.includes(`${name} `), `${name} is still listed after removal`);
     }
     // The plugin library is separate from the unit library, and has the same
     // two verbs over it.
-    dl(['plugin', 'remove', 'soak-timer']);
+    dl(['library', 'remove', 'plugin', 'soak-timer']);
     must(!existsSync(join(HOME, 'plugins', 'soak-timer')), 'the plugin survived its removal');
-    must(/no presenter plugins installed/.test(dl(['plugin', 'list']).all),
+    must(/no presenter plugins installed/.test(dl(['library', 'list', 'plugin']).all),
       'plugin list still reports chrome that is gone');
   });
 
