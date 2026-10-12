@@ -200,7 +200,7 @@ can wait for 1.0.
 ## 6. Docs and the installed skill
 
 - [x] **Split the SPEC into an authoring contract and a platform contract.**
-      (#SPLIT) `MARKETPLACE_REGISTRY` through `VOICE_UNITS` (641 lines) live in
+      (#786) `MARKETPLACE_REGISTRY` through `VOICE_UNITS` (641 lines) live in
       `PLATFORM.md`, shipped beside `SPEC.md`, which points at it and lists
       its mnemonics. `PRESENTING` is eight subsections, each with a mnemonic
       (`PRESENTING_NAVIGATION`, `_CHROME`, `_LOOK`, `_MODES`, `_EDITING`,
