@@ -65,3 +65,19 @@ test('the last slide points its next-hash at itself, not past the deck', () => {
   const st = speakerState(fakeDeck({ state: { slide: 3, step: 0, totalSlides: 3 } }), 'd');
   assert.equal(st.nextHash, '/3/0');
 });
+
+test('the transcript is read in the speaker view, not in a card over the slides', async () => {
+  // Notes had four places to be read; the transcript card over the deck was
+  // the one a presenter cannot use while presenting (ROADMAP section 3). The
+  // popup's script view is built from source text, so these are source checks;
+  // the view itself is driven in a real browser.
+  const { readFileSync } = await import('node:fs');
+  const src = (f) => readFileSync(new URL(`../src/core/${f}`, import.meta.url), 'utf8');
+  const speaker = src('speaker.js');
+  assert.match(speaker, /<button id="script"/, 'the speaker view has a script button');
+  assert.match(speaker, /window\.__decklightSpeakerScript = /, 'the deck can turn the script view on');
+  assert.match(speaker, /transcript: \(\) => instance\.transcript\?\.data\?\.\(\)/, 'the bridge carries the transcript');
+  assert.match(speaker, /goto: \(n\) => instance\.goto\(n, 0/, 'and a slide to go to from it');
+  assert.doesNotMatch(src('hud.js'), /decklight-transcript/, 'the card over the slides is gone');
+  assert.match(src('engine.js'), /label: 'Download the transcript \(\.md\)'/, 'export needs no second window');
+});

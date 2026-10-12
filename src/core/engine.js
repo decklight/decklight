@@ -1046,7 +1046,9 @@ export function init(userConfig = {}) {
       // HIDDEN_SLIDES: contextual, since a deck with nothing hidden has nothing to show
       (showHidden || hasHiddenSlides()) && { label: `Hidden slides ${showHidden ? 'skip' : 'show'}`, cat: 'Present',
         alias: 'all cut backup skipped unhide reveal present hidden ⊘', run: toggleShowHidden },
-      { label: 'Transcript…', cat: 'Present', alias: 'notes script export text markdown spoken', run: toggleTranscript },
+      { label: 'Transcript… (speaker view)', cat: 'Present', alias: 'notes script whole deck text spoken read', run: () => openTranscript() },
+      { label: 'Download the transcript (.md)', cat: 'Share', alias: 'transcript notes script markdown download spoken text', run: () => instance.transcript.download('md') },
+      { label: 'Download the transcript (.txt)', cat: 'Share', alias: 'transcript notes script text download spoken plain', run: () => instance.transcript.download('txt') },
       // ── Review ──────────────────────────────────────────────────────────
       { label: 'Comments…', cat: 'Review', hint: 'M', alias: 'feedback remarks reviewer notes critique review read', run: () => review.open() },
       { label: 'Leave a comment…', cat: 'Review', hint: '⇧M', alias: 'comment note remark feedback add write say', run: () => review.compose() },
@@ -2862,7 +2864,15 @@ export function init(userConfig = {}) {
     root, printMode, toast, debugLog, overlays, instance, narration, downloadFromUrl,
     setProgressBar: (el) => { progressBar = el; },
   });
-  const { toggleClock, toggleProgress, toggleInk, toggleTranscript } = hud;
+  const { toggleClock, toggleProgress, toggleInk } = hud;
+  // The transcript is read in the speaker view's script view (speaker.js),
+  // opened here, and exported from the palette without a second window.
+  function openTranscript() {
+    const w = speakerWindow();
+    if (!w) { toast('the speaker view could not open: allow pop-ups for this page, then try again', 4200); return; }
+    w.__decklightSpeakerScript?.(true);
+  }
+  instance.transcript.setOpener(openTranscript);
   instance.toggleClock = toggleClock;       // the palette's Clock row, and API callers
   instance.toggleProgress = toggleProgress; // the palette's Progress bar row, and API callers
 

@@ -96,6 +96,9 @@ export function openSpeakerView(instance) {
     getState: () => speakerState(instance, deckUrl()),
     next: () => instance.next(),
     prev: () => instance.prev(),
+    // the script view: every slide's notes, and a slide to go to from it
+    transcript: () => instance.transcript?.data?.() ?? [],
+    goto: (n) => instance.goto(n, 0, { force: true }),
   };
   instance.__notifySpeaker = () => {
     if (instance.__speakerCb && !win.closed) instance.__speakerCb(speakerState(instance, deckUrl()));
@@ -140,6 +143,15 @@ export function openSpeakerView(instance) {
   aside .seg.said { opacity:.8; }
   .cue { display:inline-block; background:#553; color:#ffc; font-size:11px; border-radius:4px; padding:0 6px; margin:0 4px; }
   .cue.tag { background:#354; color:#dfe; font-style:italic; }
+  /* the script view (SPEC PRESENTING_CHROME, the transcript): the whole deck's
+     notes in the notes pane, the slide on screen lit and kept in view */
+  #script.on { background:#173a5c; color:#cfe6ff; }
+  .sc-slide { margin:0 0 1.1em; opacity:.6; }
+  .sc-slide.now { opacity:1; }
+  .sc-title { font-weight:700; cursor:pointer; color:#9ecbff; margin-bottom:.2em; }
+  .sc-slide.now .sc-title { color:#ffe38a; }
+  .sc-title:hover { text-decoration:underline; }
+  .sc-seg { margin:.25em 0; }
   footer { grid-column:1/3; color:#888; font-size:12px; display:flex; gap:14px; overflow:auto; white-space:nowrap; }
   footer .step.now { color:#ffc; }
 </style></head><body>
@@ -150,6 +162,7 @@ export function openSpeakerView(instance) {
   <button id="prev">◀ prev</button>
   <button id="next">next ▶</button>
   <button id="mode" title="S or ⌥⏎ toggles rehearse mode (cue cards instead of prose)">speak</button>
+  <button id="script" title="the whole deck's notes, the slide on screen lit; a slide's title goes there">script</button>
   <button id="rec" title="record how long each slide takes, then save the timings onto the deck">⏱ rehearse timings</button>
   <span id="pace" class="pace"></span>
   <img id="qr" alt="scan to use your phone as a remote" title="scan to use your phone as a remote — click to enlarge" hidden>
@@ -231,6 +244,29 @@ export function openSpeakerView(instance) {
     if (lastSt) render(lastSt);
   };
   $('#mode').onclick = window.__decklightSpeakerToggle;
+  // the script view: the deck's whole transcript in the notes pane. On from
+  // the button, or from the deck's palette (Transcript…) through
+  // window.__decklightSpeakerScript(true), which only ever turns it on.
+  let script = false;
+  window.__decklightSpeakerScript = (on) => {
+    script = on === true ? true : !script;
+    $('#script').classList.toggle('on', script);
+    if (lastSt) render(lastSt);
+  };
+  $('#script').onclick = () => window.__decklightSpeakerScript();
+  const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  function renderScript(st) {
+    const data = (api && api.transcript ? api.transcript() : []).filter((d) => d.segs.length);
+    $('#notes').innerHTML = data.map((d) => '<div class="sc-slide' + (d.n === st.slide ? ' now' : '') + '" data-n="' + d.n + '">'
+      + '<div class="sc-title">' + d.n + ' · ' + esc(d.title) + '</div>'
+      + d.segs.map((g) => '<p class="sc-seg">' + esc(g) + '</p>').join('') + '</div>').join('')
+      || '<p>this deck has no speaker notes</p>';
+    $('#notes').querySelectorAll('.sc-title').forEach((t) => {
+      t.onclick = () => api && api.goto(Number(t.parentNode.dataset.n));
+    });
+    const now = $('#notes .sc-slide.now');
+    if (now) now.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
   $('#qr').onclick = () => $('#qr').classList.toggle('big');
   document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || e.key === ' ') api && api.next();
@@ -250,6 +286,7 @@ export function openSpeakerView(instance) {
     if (st.slide !== last.slide || st.step !== last.step) $('#cur').src = st.url + '#/' + st.slide + '/' + st.step;
     if (st.nextHash !== last.nextHash) $('#nxt').src = st.url + '#' + st.nextHash;
     last = { slide: st.slide, step: st.step, nextHash: st.nextHash };
+    if (script) { renderScript(st); } else {
     const segs = (mode === 'rehearse' && st.rehearseSegments) ? st.rehearseSegments : st.notesSegments;
     // Splitting on ⟨CLICK⟩ can cut through a paragraph, leaving fragments
     // with dangling open tags that would swallow the following segments —
@@ -264,6 +301,7 @@ export function openSpeakerView(instance) {
     // be out of view.
     const now = $('#notes .seg.now');
     if (now) now.scrollIntoView({ block: mode === 'rehearse' ? 'center' : 'nearest', behavior: 'smooth' });
+    }
     // Only set src once: reassigning it every render would refetch the QR on
     // every build step, and a flickering code is one nobody can scan.
     const qr = $('#qr');

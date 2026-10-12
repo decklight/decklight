@@ -3,7 +3,7 @@
 
 // The presenter's heads-up display: the four things you can layer over the
 // slides while you talk. The clock and the progress hairline (palette rows),
-// the ink tools (W pen, ⇧W laser) and the transcript (palette).
+// the ink tools (W pen, ⇧W laser). The transcript is read in the speaker view.
 //
 // They share a shape rather than any state. Each is off by default, each
 // remembers its setting per deck in localStorage, each mounts one element
@@ -11,7 +11,6 @@
 // in ?print. That shape was repeated four times in the middle of engine.js,
 // between the deck's own scaling and its narration.
 
-import { closeOnBackdrop } from './overlay.js';
 import { createAnnotator } from './annotate.js';
 import { readPref, writePref } from './prefs.js';
 
@@ -124,10 +123,10 @@ export function createHud({
     debugLog('nav', `ink ${t ?? 'off'}`);
   }
 
-  // ── transcript (palette command) — SPEC PRESENTING ───────────────────────────────
+  // ── transcript — SPEC PRESENTING ───────────────────────────────────────────────
   // The deck's full spoken script: every slide's notes segments, in order,
-  // in a scrollable overlay (titles jump to their slide) with .txt and .md
-  // export — the same segmentation narration and captions use.
+  // with .txt and .md export — the same segmentation narration and captions
+  // use. Read in the speaker view's script view.
   function transcriptData() {
     return (instance._sections || []).map((s, i) => ({
       n: i + 1,
@@ -153,62 +152,27 @@ export function createHud({
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     debugLog('narr', `transcript exported (.${md ? 'md' : 'txt'})`);
   }
-  let transcriptEl = null;
-  function toggleTranscript() {
-    if (transcriptEl) { transcriptEl.remove(); transcriptEl = null; return; }
-    transcriptEl = document.createElement('div');
-    transcriptEl.className = 'decklight-narr decklight-transcript';
-    const card = document.createElement('div');
-    card.className = 'narr-card';
-    const head = document.createElement('div');
-    head.className = 'narr-head';
-    head.textContent = 'transcript — the deck’s spoken notes · Esc closes';
-    const actions = document.createElement('div');
-    actions.className = 'tr-actions';
-    for (const [label, kind] of [['⬇ export .txt', 'txt'], ['⬇ export .md', 'md']]) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'narr-prev-btn';
-      b.textContent = label;
-      b.addEventListener('click', () => downloadTranscript(kind));
-      actions.appendChild(b);
-    }
-    card.append(head, actions);
-    for (const { n, title, segs } of transcriptData()) {
-      if (!segs.length) continue;
-      const sec = document.createElement('div');
-      sec.className = 'tr-slide';
-      const t = document.createElement('div');
-      t.className = 'tr-title';
-      t.textContent = `${n} · ${title}`;
-      t.title = 'jump to this slide';
-      t.addEventListener('click', () => { toggleTranscript(); instance.goto(n, 0, { force: true }); });
-      sec.appendChild(t);
-      for (const seg of segs) {
-        const p = document.createElement('p');
-        p.className = 'tr-seg';
-        p.textContent = seg;
-        sec.appendChild(p);
-      }
-      card.appendChild(sec);
-    }
-    transcriptEl.appendChild(card);
-    closeOnBackdrop(transcriptEl, toggleTranscript);
-    root.appendChild(transcriptEl);
-  }
-  instance.transcript = { open: toggleTranscript, text: () => transcriptString(false), markdown: () => transcriptString(true) };
-  // a reading surface — it traps navigation while it is up
-  overlays.register({
-    isOpen: () => !!transcriptEl,
-    close: toggleTranscript,
-    keydown: (e) => e.key === 'Escape' && (toggleTranscript(), true),
-  });
+  // The transcript is READ in the speaker view now (its script view: every
+  // slide's notes, the current one lit), not in a card over the slides: notes
+  // had four places to be read, and a card over the deck is the one a
+  // presenter cannot use while presenting (ROADMAP section 3). The text, the
+  // markdown and the two exports stay here; `open` hands over to the speaker
+  // view, which the engine wires in (`openScript`).
+  let openScript = () => {};
+  instance.transcript = {
+    open: () => openScript(),
+    text: () => transcriptString(false),
+    markdown: () => transcriptString(true),
+    data: transcriptData,
+    download: downloadTranscript,
+    /** The engine's speaker view, so `open` reaches it (engine.js). */
+    setOpener(fn) { openScript = fn; },
+  };
 
   return {
     toggleClock,
     toggleProgress,
     toggleInk,
-    toggleTranscript,
     /** The ink surface, or null when no tool has ever been picked up. */
     get annotator() { return annotator; },
     /** Palette labels ask what is currently on. */
