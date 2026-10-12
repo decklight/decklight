@@ -1,0 +1,388 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
+// The routes that change how the deck LOOKS rather than what it says: the
+// theme it opens in and whether the picker holds it to its brand's themes,
+// and the three things a marketplace hands a deck to wear (themes, design
+// systems, fonts), each listed from the cache and marked or dropped in the
+// deck's config block (SPEC THEME_DISTRIBUTION, DESIGN_SYSTEMS, FONTS).
+//
+// They came out of cli/edit.mjs because they are a family with one shape and
+// one set of needs. Every one either lists what the cached catalogs offer
+// against what the deck already references, or writes one entry into the
+// config block as one undo entry; and between them they want six of editMain's
+// bindings, none of them about git, agents, bridges or the export machinery
+// that make up the rest of that server. The marketplace and reference modules
+// they lean on are imported per request, as they always were, so the server
+// still pays for none of them until somebody opens a picker.
+//
+// The import back to edit.mjs is avoided rather than repeated: nothing here
+// needs edit.mjs's own transforms, so this module imports only leaf modules,
+// and edit.mjs reaches it with a STATIC import for the reason
+// cli/edit-slides.mjs gives (a dynamic one from inside editMain would wait on
+// edit.mjs's top-level `await`).
+
+import { readFileSync } from 'node:fs';
+
+import { oneline } from './git.mjs';
+import { setDeckTheme, setDeckBrandThemesOnly } from './runtime-link.mjs';
+
+/**
+ * Put the look routes into `routes`, the table cli/edit.mjs dispatches on, and
+ * hand it back.
+ *
+ * `ctx` is the whole of what these handlers may touch: `readDeck()` for the
+ * current file; `applyEdit()` for the routes that are one text transform;
+ * `writeDeck()` and `history` for the marks, which compute the next file
+ * themselves (a mark may fetch, validate and record an install first) and so
+ * record the undo entry and write it in two steps of their own; `broadcast`
+ * for the in-place theme and brand-theme picks; and `quiet(html)`, which
+ * tells the deck watcher that the next write of exactly these bytes updates
+ * the page itself and must not reload it. `quiet` is a setter, not the
+ * variable, because the watcher in editMain reads and clears it.
+ */
+export function registerLookRoutes(routes, { readDeck, applyEdit, writeDeck, history, broadcast = () => {}, quiet = () => {} }) {
+  // The deck's theme (PRESENTING): in write mode a pick is the deck's, not
+  // the viewer's — written the way this deck carries it (setDeckTheme), quiet
+  // and in place like a layout pick, with a `theme` event for every other
+  // page. One undo entry, so Z takes it back.
+  function themeRoute({ body, json }) {
+    const { theme, quiet: inPlace, from } = JSON.parse(body || '{}');
+    if (typeof theme !== 'string' || !/^[\w-]+$/.test(theme)) return json(400, { ok: false, error: 'theme is a name' });
+    let unwritable = false;
+    const changed = applyEdit((html) => { const next = setDeckTheme(html, theme); if (next === null) unwritable = true; return next ?? html; });
+    if (unwritable) return json(409, { ok: false, error: `this deck does not carry a theme the server can set to ${theme} — a bundle holds only the themes it embeds` });
+    if (changed) {
+      console.log(`  theme saved: ${theme}`);
+      if (inPlace === true) {
+        quiet(readDeck());
+        broadcast('theme', { theme, from: typeof from === 'string' ? from.slice(0, 64) : null });
+      }
+    }
+    return json(200, { ok: true, changed, inPlace: changed && inPlace === true, ...history.counts() });
+  }
+  /**
+   * `POST /deck/edit/brand-themes` `{ only, quiet?, from? }`: whether the
+   * picker holds this deck to its design systems' own themes (SPEC
+   * BRAND_PALETTE) — the picker's *Show every theme* and *Only <brand>'s
+   * themes* rows. Quiet and in place like a theme pick; every other page reloads.
+   */
+  function brandThemesRoute({ body, json }) {
+    const { only, quiet: inPlace, from } = JSON.parse(body || '{}');
+    if (typeof only !== 'boolean') return json(400, { ok: false, error: 'only is true or false' });
+    let unwritable = false;
+    const changed = applyEdit((html) => { const next = setDeckBrandThemesOnly(html, only); if (next === null) unwritable = true; return next ?? html; });
+    if (unwritable) return json(409, { ok: false, error: 'this deck carries no configuration block to record it in — decklight upgrade --link <deck.html> gives it one' });
+    if (changed) {
+      console.log(`  brand themes only: ${only}`);
+      if (inPlace === true) {
+        quiet(readDeck());
+        broadcast('styles', { slide: 1, index: 0, from: typeof from === 'string' ? from.slice(0, 64) : null });
+      }
+    }
+    return json(200, { ok: true, changed, inPlace: changed && inPlace === true, ...history.counts() });
+  }
+
+  // ── marketplace themes, and marking (THEME_BROWSE#UI) ─────────────────
+  // What the overlay lists while authoring: every theme of every registered
+  // marketplace, each saying whether this deck marks it. Cache-only by
+  // construction — the catalogs `marketplace update` already fetched — so a
+  // deck on a plane lists what it has and names what it could not read.
+  async function themeBrowseRoute({ json }) {
+    const { marketplaceThemes, markedRefs, markedSources, resolveThemeRef } = await import('./theme-refs.mjs');
+    const { themes, stale } = marketplaceThemes();
+    // what the deck marks, as THIS machine names it — the deck may call the
+    // same catalog something else (its recorded source says which it means)
+    const html = readDeck();
+    const sources = markedSources(html);
+    const marked = new Set(markedRefs(html).map((r) => {
+      const hit = resolveThemeRef(r, undefined, { source: sources[r.marketplace] ?? null });
+      return `${r.name}@${hit.local ?? r.marketplace}`;
+    }));
+    const out = themes.map((t) => ({
+      ...t, marked: marked.has(t.qualified),
+      ...(resolveThemeRef(t.qualified).remote ? { remote: true } : {}),
+    }));
+    return json(200, { ok: true, themes: out, stale, cacheOnly: true });
+  }
+
+  /**
+   * Mark a theme for this deck, or unmark it (SPEC THEME_DISTRIBUTION). The
+   * deck gains or loses one reference in its config block — never CSS — as
+   * one undo entry; the watcher's reload brings every browser back with the
+   * list as the file now says it is.
+   *
+   * Marking runs the theme through `theme add`'s own validator first, so a
+   * theme refused on the command line is refused here, by the same code, and
+   * a deck cannot be made to carry what the shipped set could not contain.
+   * An entry whose bytes live at a URL is read now — this is the explicit act
+   * — and kept, so no server ever has to reach for it again.
+   */
+  async function themeMarkRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const ref = typeof req.ref === 'string' ? req.ref.trim() : '';
+    const on = req.marked !== false;
+    const { parseRef, parseShipped, resolveThemeRef, setMarked, cacheThemeCss, refForDeck } = await import('./theme-refs.mjs');
+    const { MarketplaceError, configHome } = await import('./marketplace.mjs');
+    const shipped = parseShipped(ref);
+    if (!shipped && !parseRef(ref)) return json(400, { ok: false, error: 'which theme? — a shipped name, or name@marketplace' });
+    const before = readDeck();
+    let deckRef = ref, source = null;
+    // A shipped theme needs no resolving and no check — it is decklight's own,
+    // and passed the contract when it shipped. Marking it says only that the
+    // deck carries it when it travels.
+    if (on && !shipped) {
+      const r = resolveThemeRef(ref);
+      let css;
+      if (r.file) css = readFileSync(r.file, 'utf8');
+      else if (r.remote) {
+        const { fetchTheme } = await import('./theme.mjs');
+        try { css = await fetchTheme(r.remote); }
+        catch (e) { return json(502, { ok: false, error: `could not read ${r.remote}: ${oneline(e)}` }); }
+      } else {
+        // An entry this machine knows but whose files are not here is a state
+        // `marketplace update` fixes (409); one it has never heard of is 404.
+        const status = r.entry && r.entry.type !== 'theme' ? 400 : r.entry ? 409 : 404;
+        return json(status, { ok: false, error: r.missing });
+      }
+      const { validateTheme } = await import('../tools/theme-check.mjs');
+      const check = validateTheme(css);
+      if (!check.ok) {
+        // The deck is left byte-for-byte unchanged.
+        return json(400, { ok: false, error: `${r.name} fails the theme contract`, problems: check.errors ?? [] });
+      }
+      if (r.remote) cacheThemeCss(configHome(), r.marketplace, r.name, css);
+      source = r.source ?? null;
+      deckRef = refForDeck(before, r.name, r.local, source);
+    }
+    let out;
+    try { out = setMarked(before, deckRef, on, { source }); }
+    catch (e) {
+      if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
+      throw e;
+    }
+    if (out.changed) {
+      history.record(before);   // Z takes a mark back like any other edit
+      // The picker asks for `quiet`: it shows the new mark itself and stays
+      // open. Everyone else — the export card's "mark and carry on", which
+      // resumes across the reload — gets the reload.
+      if (req.quiet === true) quiet(out.html);
+      writeDeck(out.html);
+      console.log(`  theme: ${on ? 'marked' : 'unmarked'} ${deckRef}`);
+    }
+    return json(200, { ok: true, ref: deckRef, marked: on, changed: out.changed, ...history.counts() });
+  }
+  // Every design system every registered marketplace offers, each saying
+  // whether this deck references it (SPEC DESIGN_SYSTEMS) — the palette's
+  // "Design systems…" list. Cache-only, like the theme browse above.
+  async function designSystemBrowseRoute({ json }) {
+    const { marketplaceDesignSystems, designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
+    const { markedSources } = await import('./theme-refs.mjs');
+    const { systems, stale, unfetched } = marketplaceDesignSystems();
+    const html = readDeck();
+    const sources = markedSources(html);
+    // what the deck references, as THIS machine names the catalog
+    const used = new Set(designSystemRefs(html).map((r) => {
+      const hit = resolveDesignSystemRef(r, undefined, { source: sources[r.marketplace] ?? null });
+      return `${r.name}@${hit.local ?? r.marketplace}`;
+    }));
+    return json(200, { ok: true, systems: systems.map((s) => ({ ...s, used: used.has(s.qualified) })), stale, unfetched, cacheOnly: true });
+  }
+
+  /**
+   * Reference a design system from this deck, or drop it (SPEC
+   * DESIGN_SYSTEMS) — the twin of the theme mark below it. The package runs
+   * through `decklight design-system gate` first, so the command line and
+   * this route refuse by the same code; the deck gains or loses one entry in
+   * its config block as one undo entry.
+   */
+  async function designSystemMarkRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const ref = typeof req.ref === 'string' ? req.ref.trim() : '';
+    const on = req.used !== false && req.marked !== false;
+    const { parseRef, refForDeck } = await import('./theme-refs.mjs');
+    const { resolveDesignSystemRef, setDesignSystem, designSystemRefs } = await import('./design-system-refs.mjs');
+    const { checkDir } = await import('./design-system.mjs');
+    const { MarketplaceError, recordInstall, loadRegistry, configHome } = await import('./marketplace.mjs');
+    if (!parseRef(ref)) return json(400, { ok: false, error: 'which design system? — name@marketplace' });
+    const before = readDeck();
+    let deckRef = ref, source = null, manifest = null, local = null;
+    if (on) {
+      const r = resolveDesignSystemRef(ref);
+      if (!r.dir) {
+        const status = r.entry && r.entry.type !== 'design-system' ? 400 : r.entry ? 409 : 404;
+        return json(status, { ok: false, error: r.missing });
+      }
+      const verdict = checkDir(r.dir);
+      if (!verdict.ok) {
+        // the deck is left byte-for-byte unchanged
+        return json(400, { ok: false, error: `${r.ref} fails the design-system check`, problems: verdict.problems.map((p) => `${p.file}${p.line ? ` line ${p.line}` : ''}: ${p.msg}`) });
+      }
+      source = r.source ?? null;
+      manifest = verdict.manifest;
+      local = r.local;
+      deckRef = refForDeck(before, r.name, r.local, source);
+      if (!designSystemRefs(before).some((x) => x.ref === deckRef)) {
+        recordInstall({ type: 'design-system', name: r.name, marketplace: r.local, version: r.entry.version ?? null,
+          commit: loadRegistry(configHome()).marketplaces?.[r.local]?.commit ?? null });
+      }
+    } else {
+      // the deck's own spelling, whatever this machine calls the catalog
+      const p = parseRef(ref);
+      deckRef = designSystemRefs(before).find((x) => x.ref === ref || x.name === p.name)?.ref ?? ref;
+    }
+    let out;
+    try { out = setDesignSystem(before, deckRef, on, { source }); }
+    catch (e) {
+      if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
+      throw e;
+    }
+    // Its themes and fonts come with it (SPEC DESIGN_SYSTEMS, #642) — in the
+    // same write, so the whole thing is ONE undo — unless the author held ⇧
+    // (recommended: false). The look is offered, and applied only when asked.
+    let html = out.html, plan = null, look = null;
+    if (on && manifest) {
+      const deps = await import('./design-system-deps.mjs');
+      plan = deps.planRecommended(html, { manifest, local });
+      if (req.recommended !== false) {
+        html = deps.writePlan(html, plan);
+        for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
+      }
+      look = deps.lookOf(html, req.recommended !== false ? plan
+        : { ...plan, items: plan.items.filter((it) => it.status === 'already' || it.status === 'stack') });
+      if (req.apply === true && look.differs) html = deps.applyLook(html, look);
+      look.phrase = deps.lookPhrase(look, plan);
+    }
+    const changed = html !== before;
+    if (changed) {
+      history.record(before);   // Z takes it back like any other edit
+      if (req.quiet === true) quiet(html);
+      writeDeck(html);
+      console.log(`  design system: ${on ? 'referenced' : 'dropped'} ${deckRef}`);
+    }
+    const pulled = plan && req.recommended !== false ? plan.items.map(({ kind, rec, ref: r2, status, why, cmd, family }) => ({ kind, rec, ref: r2, status, why, cmd, family })) : [];
+    return json(200, { ok: true, ref: deckRef, used: on, changed, pulled, look, ...history.counts() });
+  }
+
+  /**
+   * Give the deck the look a design system it uses was drawn for (SPEC
+   * DESIGN_SYSTEMS, #642): its first recommended theme and font, bringing any
+   * that are missing — one edit, one undo, so Z puts the old look back and
+   * keeps the design system. The twin of `decklight design-system apply`.
+   */
+  async function designSystemApplyRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const { designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
+    const { markedSources, parseRef } = await import('./theme-refs.mjs');
+    const { checkDir } = await import('./design-system.mjs');
+    const { recordInstall } = await import('./marketplace.mjs');
+    const deps = await import('./design-system-deps.mjs');
+    const before = readDeck();
+    const p = parseRef(String(req.ref ?? ''));
+    const hit = designSystemRefs(before).find((x) => x.ref === req.ref || x.name === (p?.name ?? req.ref));
+    if (!hit) return json(404, { ok: false, error: `this deck does not use ${req.ref}` });
+    const r = resolveDesignSystemRef(hit, undefined, { source: markedSources(before)[hit.marketplace] ?? null });
+    if (!r.dir) return json(409, { ok: false, error: r.missing });
+    const verdict = checkDir(r.dir);
+    if (!verdict.ok) return json(409, { ok: false, error: `${hit.ref} no longer passes its check` });
+    const plan = deps.planRecommended(before, { manifest: verdict.manifest, local: r.local });
+    let html = deps.writePlan(before, plan);
+    const look = deps.lookOf(html, plan);
+    if (look.differs) html = deps.applyLook(html, look);
+    look.phrase = deps.lookPhrase(look, plan);
+    // recorded even when the deck is unchanged: a dependency already there
+    // takes the catalog's version now, as `design-system apply` does (#653)
+    for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
+    if (html !== before) {
+      history.record(before);
+      writeDeck(html);
+      console.log(`  design system: applied ${look.title}'s look — ${look.phrase || 'already worn'}`);
+    }
+    return json(200, { ok: true, ref: hit.ref, changed: html !== before, look, ...history.counts() });
+  }
+
+  // Every font every registered marketplace offers (SPEC FONTS), each saying
+  // whether this deck references it, with the faces a preview needs — the
+  // font picker's marketplace rows. Cache-only, like the theme browse.
+  async function fontBrowseRoute({ json }) {
+    const { marketplaceFonts, fontRefs, resolveFontRef } = await import('./font-refs.mjs');
+    const { markedSources } = await import('./theme-refs.mjs');
+    const { fonts, stale, unfetched } = marketplaceFonts();
+    const html = readDeck();
+    const sources = markedSources(html);
+    const used = new Set(fontRefs(html).map((r) => {
+      const hit = resolveFontRef(r, undefined, { source: sources[r.marketplace] ?? null });
+      return `${r.name}@${hit.local ?? r.marketplace}`;
+    }));
+    return json(200, { ok: true, fonts: fonts.map((f) => ({ ...f, used: used.has(f.qualified) })), stale, unfetched, cacheOnly: true });
+  }
+
+  /**
+   * Reference a font from this deck, or drop it (SPEC FONTS) — the twin of
+   * the design-system mark above: `font gate` first, one config entry, one
+   * undo. `use: true` also makes it the deck's default font. `quiet` writes
+   * without the reload: the picker previews the face itself, and stays open.
+   */
+  async function fontMarkRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const ref = typeof req.ref === 'string' ? req.ref.trim() : '';
+    const on = req.used !== false && req.marked !== false;
+    const { parseRef, refForDeck } = await import('./theme-refs.mjs');
+    const { resolveFontRef, setFont, fontRefs } = await import('./font-refs.mjs');
+    const { checkFontDir } = await import('./font.mjs');
+    const { MarketplaceError, recordInstall, loadRegistry, configHome } = await import('./marketplace.mjs');
+    if (!parseRef(ref)) return json(400, { ok: false, error: 'which font? — name@marketplace' });
+    const before = readDeck();
+    let deckRef = ref, source = null;
+    if (on) {
+      const r = resolveFontRef(ref);
+      if (!r.dir) {
+        const status = r.entry && r.entry.type !== 'font' ? 400 : r.entry ? 409 : 404;
+        return json(status, { ok: false, error: r.missing });
+      }
+      const verdict = checkFontDir(r.dir);
+      if (!verdict.ok) {
+        return json(400, { ok: false, error: `${r.ref} fails the font check`, problems: verdict.problems.map((p) => `${p.file}${p.line ? ` line ${p.line}` : ''}: ${p.msg}`) });
+      }
+      source = r.source ?? null;
+      deckRef = refForDeck(before, r.name, r.local, source);
+      if (!fontRefs(before).some((x) => x.ref === deckRef)) {
+        recordInstall({ type: 'font', name: r.name, marketplace: r.local, version: r.entry.version ?? null,
+          commit: loadRegistry(configHome()).marketplaces?.[r.local]?.commit ?? null });
+      }
+    } else {
+      const p = parseRef(ref);
+      deckRef = fontRefs(before).find((x) => x.ref === ref || x.name === p.name)?.ref ?? ref;
+    }
+    let out;
+    try { out = setFont(before, deckRef, on, { source, use: req.use === true }); }
+    catch (e) {
+      if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
+      throw e;
+    }
+    if (out.changed) {
+      history.record(before);
+      if (req.quiet === true) quiet(out.html);
+      writeDeck(out.html);
+      console.log(`  font: ${on ? 'referenced' : 'dropped'} ${deckRef}${on && req.use === true ? ' (the deck\'s default)' : ''}`);
+    }
+    return json(200, { ok: true, ref: deckRef, used: on, changed: out.changed, ...history.counts() });
+  }
+
+  // `/deck/edit/theme/add` was 0.9.0's name for installing from Browse. A deck that
+  // carries its OWN copy of the runtime still asks for it; it means "mark".
+  const themeAddRoute = ({ body, json }) =>
+    themeMarkRoute({ body: JSON.stringify({ ref: JSON.parse(body || '{}').ref, marked: true }), json });
+
+  routes.set('POST /deck/edit/theme', themeRoute);
+  routes.set('POST /deck/edit/brand-themes', brandThemesRoute);
+  routes.set('GET /deck/edit/theme/browse', themeBrowseRoute);
+  routes.set('POST /deck/edit/theme/add', themeAddRoute);
+  routes.set('POST /deck/edit/theme/mark', themeMarkRoute);
+  routes.set('GET /deck/edit/design-system/browse', designSystemBrowseRoute);
+  routes.set('POST /deck/edit/design-system/mark', designSystemMarkRoute);
+  routes.set('POST /deck/edit/design-system/apply', designSystemApplyRoute);
+  routes.set('GET /deck/edit/font/browse', fontBrowseRoute);
+  routes.set('POST /deck/edit/font/mark', fontMarkRoute);
+  return routes;
+}

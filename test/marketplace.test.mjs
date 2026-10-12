@@ -406,7 +406,7 @@ test('nothing on the deck-load or presenting path can FETCH from a marketplace',
   const files = [
     ...fs.readdirSync(path.join(root, 'src'), { recursive: true })
       .filter((f) => /\.(js|mjs)$/.test(f)).map((f) => path.join('src', f)),
-    'cli/serve.mjs', 'cli/edit.mjs', 'cli/open.mjs', 'cli/bundle.mjs', 'cli/upgrade.mjs',
+    'cli/serve.mjs', 'cli/edit.mjs', 'cli/edit-look.mjs', 'cli/open.mjs', 'cli/bundle.mjs', 'cli/upgrade.mjs',
     // cli/plugin.mjs is on the presenting path (present injects presenter
     // chrome from the local library, NO_TRUST#PLUGINS). It reads the catalog
     // CACHE to resolve `plugin add`, which is the same considered read the
