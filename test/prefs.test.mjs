@@ -71,3 +71,22 @@ test('no storage object at all is the same as one that throws', (t) => {
   assert.equal(readPref('k', 'x'), 'x');
   assert.equal(writePref('k', 'v'), false);
 });
+
+test('prefs.js is the one door to localStorage in the runtime', async () => {
+  // The edit bar and the export choices each kept a private try/catch around
+  // localStorage. One door means one fallback rule, and it is what lets
+  // Settings list what a deck remembers. sessionStorage is per-tab state
+  // (what was open across a reload), not a preference, and stays where it is.
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const dir = new URL('../src/core/', import.meta.url);
+  const raw = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.js') || f === 'prefs.js') continue;
+    readFileSync(new URL(f, dir), 'utf8').split('\n').forEach((line, i) => {
+      const code = line.replace(/\/\/.*$/, '');
+      if (/^\s*\*/.test(line)) return;               // a doc comment
+      if (/\blocalStorage\s*\.\s*(getItem|setItem|removeItem)\b/.test(code)) raw.push(`${f}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(raw, [], `direct localStorage use outside prefs.js: ${raw.join(', ')}`);
+});

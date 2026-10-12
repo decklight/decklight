@@ -43,7 +43,7 @@ import { createConceptsEditor, conceptsOn, conceptSuggestions, markConceptHints 
 import { setupSlideTemplates, isTemplateRef, pageDesignSystems } from './design-system.js';
 import { createFonts } from './fonts.js';
 import { createBleed } from './bleed.js';
-import { readPref, writePref } from './prefs.js';
+import { readPref, readJson, writePref, writeJson } from './prefs.js';
 import { markDensity } from './density.js';
 import { createDeckCheck } from './deckcheck.js';
 import { IS_MAC, UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
@@ -2900,7 +2900,7 @@ export function init(userConfig = {}) {
   // browser picked last time. ↑ reaches them; ← → turn them.
   const VIDEO_PREFS = 'decklight:video-export';
   function videoPrefs() {
-    try { return JSON.parse(localStorage.getItem(VIDEO_PREFS) ?? '{}') ?? {}; } catch { return {}; }
+    return readJson(VIDEO_PREFS, {});
   }
   async function openVideoExport() {
     const voice = await narration.exportSources();
@@ -2918,7 +2918,7 @@ export function init(userConfig = {}) {
       onPick: (slides, { voice: v, format, quality, subtitles }) => {
         // Remembered here and not per deck: a format is a habit of the person
         // exporting, and the voice is not remembered at all — it follows V.
-        try { localStorage.setItem(VIDEO_PREFS, JSON.stringify({ format, quality, subtitles })); } catch { /* private mode */ }
+        writeJson(VIDEO_PREFS, { format, quality, subtitles });   // private mode: not remembered
         editmode.exportDeck('video', { slides, voice: v, format, quality, subtitles });
       },
     });
@@ -2939,8 +2939,7 @@ export function init(userConfig = {}) {
     const { base, audio: a } = est;
     const mb = (n) => (n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1048576).toFixed(1)} MB`);
     const mins = a.seconds == null ? null : `${Math.floor(a.seconds / 60)}:${String(Math.round(a.seconds % 60)).padStart(2, '0')}`;
-    let last = null;
-    try { last = localStorage.getItem(BUNDLE_AUDIO); } catch { /* private mode */ }
+    const last = readPref(BUNDLE_AUDIO);
     choiceCard.open({
       title: 'bundle into one file — and the narration audio?',
       lines: [`${a.files} recorded file${a.files === 1 ? '' : 's'}${mins ? `, ${mins} of voice` : ''}, ${mb(a.bytes)} in ${a.folders}`],
@@ -2952,7 +2951,7 @@ export function init(userConfig = {}) {
       ],
       current: last ?? 'aac',
       onPick: (how) => {
-        try { localStorage.setItem(BUNDLE_AUDIO, how); } catch { /* private mode */ }
+        writePref(BUNDLE_AUDIO, how);   // private mode: not remembered
         editmode.exportDeck('bundle', how === 'none' ? {} : { audio: how });
       },
     });

@@ -30,6 +30,7 @@ import { authoredTop } from './design-system.js';
 import { editableTarget, svgTextTarget, CODE_EDITABLE } from './authoring.js';
 import { pickNode, isDrawn, createSpotlight, createFrame } from './pick.js';
 import { UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
+import { readPref, readJson, writePref, writeJson } from './prefs.js';
 
 const BUTTONS = [
   { id: 'text', label: 'Text', key: '⏎', title: 'select some text and press Enter, or double-click it' },
@@ -61,13 +62,13 @@ export function createEditBar({
   // the right-click menu — because the bar is a surface over them.
   const HIDE_KEY = 'decklight-editbar-hidden:' + location.pathname;
   let hiddenByUser = false;
-  try { hiddenByUser = localStorage.getItem(HIDE_KEY) === '1'; } catch { /* no storage: shown */ }
+  hiddenByUser = readPref(HIDE_KEY) === '1';   // no storage: shown
   const inFullscreen = () => !!document.fullscreenElement;
   const editingOn = () => editmode.elementEditOn() && enabled();
   const on = () => editingOn() && !hiddenByUser && !inFullscreen();
   function setHidden(want) {
     hiddenByUser = want;
-    try { if (want) localStorage.setItem(HIDE_KEY, '1'); else localStorage.removeItem(HIDE_KEY); } catch { /* no storage: this page only */ }
+    writePref(HIDE_KEY, want ? '1' : null);   // no storage: this page only
     sync();
     toast(want ? 'the bar is hidden — editing stays on; Show the bar in the palette brings it back' : 'the bar is back', 2600);
   }
@@ -130,10 +131,11 @@ export function createEditBar({
   // resize; a double-click on the grip puts it back at the bottom centre.
   const PLACE_KEY = 'decklight-editbar-at:' + location.pathname;
   function readPlace() {
-    try { const v = JSON.parse(localStorage.getItem(PLACE_KEY) ?? 'null'); return v && Number.isFinite(v.fx) && Number.isFinite(v.fy) ? v : null; } catch { return null; }
+    const v = readJson(PLACE_KEY);
+    return v && Number.isFinite(v.fx) && Number.isFinite(v.fy) ? v : null;
   }
   function keepPlace(place) {
-    try { if (place) localStorage.setItem(PLACE_KEY, JSON.stringify(place)); else localStorage.removeItem(PLACE_KEY); } catch { /* no storage: the bar moves for this page only */ }
+    if (place) writeJson(PLACE_KEY, place); else writePref(PLACE_KEY, null);   // no storage: the bar moves for this page only
   }
   /** Put the bar at `place` ({ fx, fy }: its centre, as fractions of the stage), or back at the bottom centre. */
   function placeBar(place) {
