@@ -20,9 +20,7 @@ import { createInterface } from 'node:readline/promises';
 import { resolvePortConflict } from './port-conflict.mjs';
 import { packageAsset } from './pkg.mjs';
 import { linkRuntime } from './runtime-link.mjs';
-import { linkAddedThemes, themeRefAsset } from './theme-refs.mjs';
-import { linkDesignSystems, designSystemAsset, inDesignSystemNamespace } from './design-system-refs.mjs';
-import { linkFonts, fontAsset, inFontNamespace } from './font-refs.mjs';
+import { linkReferences, namespacedKind, fallbackReferenceAsset } from './deck-refs.mjs';
 
 // ── remote access: the security seam for the phone remote (#39) ────────────
 // --remote widens the LISTENER, never the editing surface: off-loopback,
@@ -237,22 +235,18 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     let type;
     let extra = {};
     const dotted = rel.split('/').some((s) => s.startsWith('.'));
-    // A referenced design system's files (SPEC DESIGN_SYSTEMS) — somebody
-    // else's package, so this namespace is TERMINAL: it is answered from the
+    // A referenced design system's or font's files (deck-refs.mjs) — somebody
+    // else's package, so its namespace is TERMINAL: it is answered from the
     // package or not at all, and every refusal is the same plain 404.
-    if (inDesignSystemNamespace(rel)) {
-      const asset = !dotted && designSystemAsset(rel);
-      if (!asset) { res.writeHead(404); res.end('not found'); return true; }
-      file = asset.file; type = asset.type; extra = asset.headers;
-    } else if (inFontNamespace(rel)) {
-      // a font's faces (SPEC FONTS): the same terminal namespace, one 404
-      const asset = !dotted && fontAsset(rel);
+    const owner = namespacedKind(rel);
+    if (owner) {
+      const asset = !dotted && owner.asset(rel);
       if (!asset) { res.writeHead(404); res.end('not found'); return true; }
       file = asset.file; type = asset.type; extra = asset.headers;
     } else {
       const escapes = !file.startsWith(root + sep) && file !== root;
       if (escapes || !existsSync(file)) {
-        const asset = !dotted && (packageAsset(rel) ?? themeRefAsset(rel));
+        const asset = !dotted && (packageAsset(rel) ?? fallbackReferenceAsset(rel));
         if (asset) { file = asset.file; type = asset.type; }
         else if (escapes) { res.writeHead(403); res.end('forbidden'); return true; }
       }
@@ -289,7 +283,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     // is a page; everything else streams below.
     if (type === MIME['.html']) {
       const text = readFileSync(file).toString('utf8');
-      const body = Buffer.from(linkFonts(linkDesignSystems(linkAddedThemes(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text)))), 'utf8');
+      const body = Buffer.from(linkReferences(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text)), 'utf8');
       const want = rangeOf(req.headers.range, body.length);
       if (want && !want.satisfiable) {
         res.writeHead(416, { 'content-range': `bytes */${body.length}` });

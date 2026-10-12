@@ -100,9 +100,7 @@ const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime, setDeckTheme, setDeckBrandThemesOnly } from './runtime-link.mjs';
-import { linkAddedThemes } from './theme-refs.mjs';
-import { linkDesignSystems } from './design-system-refs.mjs';
-import { linkFonts } from './font-refs.mjs';
+import { linkReferences } from './deck-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
@@ -1421,7 +1419,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // does: a deck that is only data (#520) gets the runtime referenced on its
   // way out, and the audit above described the bytes WITHOUT it — which is
   // the point. `staticFiles` does this for every other page itself.
-  const serveAudited = (text) => linkFonts(linkDesignSystems(linkAddedThemes(linkRuntime(rewrite(text, deckPath)))));
+  const serveAudited = (text) => linkReferences(linkRuntime(rewrite(text, deckPath)));
   // The deck itself, in no-trust mode, is served from MEMORY — container and
   // plain HTML alike — from the bytes the audit read and the signature
   // covered. The label, the signature verdict and `strict` were all decided
@@ -2635,7 +2633,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * `<base>` comes first, so those references resolve from the root, where
    * `staticFiles` answers them, not from under /deck/edit/.
    */
-  const asServed = (html) => linkFonts(linkDesignSystems(linkAddedThemes(linkRuntime(withBaseHref(html)))));
+  const asServed = (html) => linkReferences(linkRuntime(withBaseHref(html)));
 
   /**
    * Which slides a version changed, added and removed against the one before

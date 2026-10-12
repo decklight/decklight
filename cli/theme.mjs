@@ -29,7 +29,15 @@ import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools
 import { checkoutPath, classifySource, configHome, MarketplaceError, loadRegistry, loadCatalog, resolveEntry, recordInstall } from './marketplace.mjs';
 import { setMarked, addToLocalMarketplace, resolveThemeRef, cacheThemeCss, markedEntries, parseRef, parseShipped, refForDeck } from './theme-refs.mjs';
 
-const USAGE = `usage: decklight theme <gate|add|remove> …
+const USAGE = `usage: decklight theme <add|remove|list|gate> …
+
+  The same grammar as font and design-system: add, remove and list what a deck
+  references, and gate, the admission check a catalog's CI runs.
+
+  decklight theme list [<deck.html>]
+    with a deck: the themes it marks, shipped and from a marketplace, and the
+    one it opens on; without: the themes every registered marketplace offers
+    EXAMPLE: decklight theme list talk.html
 
   decklight theme gate <file|url>
     run the SPEC THEMING token contract and the WCAG contrast gates on a theme file
@@ -278,6 +286,34 @@ function removeMain(args) {
   return 0;
 }
 
+/** `theme list`, the shape of `font list` and `design-system list`. */
+async function listMain(args) {
+  const [deck] = args.filter((a) => !a.startsWith('-'));
+  const { markedEntries, markedSources, resolveThemeRef, marketplaceThemes, shippedThemes } = await import('./theme-refs.mjs');
+  if (deck) {
+    let html;
+    try { html = readFileSync(deck, 'utf8'); } catch { console.error(`decklight theme list: no such deck: ${deck}`); return 1; }
+    const { configBlock } = await import('./runtime-link.mjs');
+    const opensOn = configBlock(html)?.config?.theme ?? 'aurora';
+    const entries = markedEntries(html);
+    console.log(`${deck} opens on ${opensOn}`);
+    if (!entries.length) { console.log(`  it marks no theme to carry — decklight theme add <name|name@marketplace> ${deck}`); return 0; }
+    const sources = markedSources(html);
+    for (const e of entries) {
+      if (e.shipped) { console.log(`  ${e.name}  (shipped)`); continue; }
+      const r = resolveThemeRef(e, undefined, { source: sources[e.marketplace] ?? null });
+      console.log(`  ${e.ref}${r.entry?.version ? `  ${r.entry.version}` : ''}${r.missing ? `  — missing: ${r.missing}` : r.title ? `  — ${r.title}` : ''}`);
+    }
+    return 0;
+  }
+  console.log(`shipped: ${shippedThemes().join(', ')}`);
+  const { themes, stale } = marketplaceThemes();
+  if (!themes.length) console.log('no registered marketplace offers a theme');
+  for (const t of themes) console.log(`${t.qualified}${t.title ? `  — ${t.title}` : ''}${t.description ? ` — ${t.description}` : ''}`);
+  for (const m of stale) console.log(`  ${m}'s cached catalog could not be read — decklight marketplace update ${m}`);
+  return 0;
+}
+
 export async function themeMain(args = []) {
   const sub = args[0];
   if (!sub || sub === '--help' || sub === '-h' || sub === 'help') { console.log(USAGE); return sub ? 0 : 1; }
@@ -286,7 +322,8 @@ export async function themeMain(args = []) {
   if (sub === 'gate' || sub === 'check') return checkMain(rest);   // `check` still answers, unadvertised: a catalog's CI may run it
   if (sub === 'add') return addMain(rest);
   if (sub === 'remove') return removeMain(rest);
-  console.error(`decklight theme: unknown subcommand "${sub}"\n\n${USAGE}`);
+  if (sub === 'list') return listMain(rest);
+  console.error(`decklight theme: unknown subcommand "${sub}" — add, remove, list, gate\n\n${USAGE}`);
   return 1;
 }
 
