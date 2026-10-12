@@ -105,33 +105,39 @@ can wait for 1.0.
 
 ## 3. Panels, styling, settings, onboarding
 
-- [ ] **One side panel with tabs instead of six docks.** Notes, Inspector,
-      Sources, Comments, Agent and the HTML editor each remember their own
-      placement (`decklight-*-dock:` keys) and are modal or not depending on
-      dock state, so keys reach the deck only sometimes. One panel, one
-      placement, one Esc. The largest UI change on this list and the one that
-      removes the most confusion (`src/core/dock.js`, `editmode.js:2156-2178`).
-- [ ] **The inspector is the only styling surface.** The element menu's
-      Colors and Type rows already open inspector tabs
-      (`src/core/editmode.js:1779-1780`). Drop the Copy style and Paste style
-      palette rows (the chords stay) and make Edit content (HTML) an inspector
-      tab rather than a seventh editor.
-- [ ] **Settings is the home for knobs.** Move clock, progress bar, captions,
-      voice speed, tips and dock placement into Settings; they are palette
-      toggles today. Settings holds four rows while 28 pref families live
-      elsewhere, against the intent stated at `engine.js:1226-1232`.
-- [ ] **`prefs.js` is the one storage door.** `src/core/editbar.js:63-135`
-      uses raw `localStorage`; everything should go through the helpers so
-      Settings can list what exists.
-- [ ] **Two onboarding cards, nothing else.** Keep the welcome card and the
-      write-mode tour. Retire the twelve rotating tips, the press-`V` chip and
-      the Tips on, Tips off and Reset tips rows (`src/core/onboarding.js`,
-      `narration.js:1875-1900`). The welcome card teaches `⌃T`, which only
-      works on a Mac.
-- [ ] **One slide picker.** Fold Go to slide and the numeric query into the
-      finder (`G`), keep the overview (`O`) as the write-mode rearranger.
-- [ ] **One place to read notes.** `S`, the speaker view, Transcript and Print
-      with notes are four. Fold Transcript into the speaker view.
+- [x] **One side panel with tabs instead of six docks.** (#PR) Notes,
+      Inspector, Sources, Comments, Agent and the HTML editor share one slot
+      and one placement per deck (`decklight-panel-dock:`); opening one closes
+      the other, and every header carries tabs to the rest (`src/core/dock.js`).
+      Still open: whether a docked panel takes the keyboard depends on the
+      panel (the comments are modal only while you work in them, the notes
+      while you type). Unifying that is the next step, and needs a decision on
+      what `←`/`→` mean while a panel has focus.
+- [ ] **The inspector is the only styling surface: revised.** The Copy style
+      and Paste style rows stay: with every action at the root (section 2)
+      they are actions, and the palette is where actions live. The HTML
+      editor now shares the inspector's slot (above), so it no longer stacks
+      a seventh panel beside it; making it an inspector tab is still open.
+- [x] **Settings is the home for knobs.** (#PR) Clock, Progress bar,
+      Captions, Voice speed and, in write mode, the Editing bar are Settings
+      rows; each reads what the deck remembers and ⏎ changes it. The palette
+      keeps its rows: the palette does a thing, Settings shows how the deck is
+      set up. Also added at the user's request: **Arrows and slide number in
+      fullscreen**, with `⇧F` and a palette row.
+- [x] **`prefs.js` is the one storage door.** (#PR) The edit bar and the
+      export choices go through it, and a lint keeps every other module off
+      `localStorage`. `sessionStorage` (per-tab state, not preferences) stays.
+- [x] **Two onboarding cards, nothing else.** (#PR) The twelve tips, their
+      three palette rows, `instance.tips` and their storage keys are gone, and
+      the welcome card teaches `⌃T` only on a Mac. **Revised:** the press-`V`
+      chip stays, because it says that THIS deck has a voice-over, which a
+      once-per-browser card cannot.
+- [ ] **One slide picker: revised, kept.** With every action at the root, the
+      palette's `goto 27` is the same kind of thing as VS Code's "Go to line";
+      the finder (`G`) searches by name and the overview (`O`) rearranges.
+      Three doors for three jobs.
+- [ ] **One place to read notes.** Not done: folding Transcript into the
+      speaker view moves a feature between windows, and wants its own PR.
 
 ## 4. The command roster (release-sized)
 
