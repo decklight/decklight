@@ -2550,8 +2550,20 @@
         try { stash = JSON.parse(sessionStorage.getItem('decklight-debug:' + location.pathname)); } catch {}
         r.leavingStashesTheLog = !!stash && stash.reason === null && Array.isArray(stash.entries) && stash.entries.length === rows().length
           && stash.entries[2].msg === '↻ reloaded — notes saved · another tab';
+        // one log panel, two tabs: Events and Messages switch in place, never
+        // two panels; ` opens it on Messages; Esc closes it on either tab
+        const logs = () => document.querySelectorAll('.decklight-log').length;
+        r.oneLogPanel = logs() === 1 && !document.querySelector('.decklight-msglog');
+        [...document.querySelectorAll('.decklight-log .log-tab')].find((t) => t.textContent === 'messages')?.click();
+        r.tabSwitchesInPlace = logs() === 1 && !!document.querySelector('.decklight-log.decklight-msglog') && !document.querySelector('.decklight-debug');
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '`', code: 'Backquote', bubbles: true, cancelable: true }));
+        r.backquoteClosesItsOwnTab = logs() === 0;
+        runRow('debug log'); await settle();
+        press('Escape');
+        r.escapeClosesEitherTab = logs() === 0;
         r.PASS = r.panelOpens && r.theRowsBeforeComeFirstDimmed && r.theirTimesAreTheirs && r.theReasonComesNext && r.thisPageStartsAtZero
-          && r.thenThisPagesOwn && r.stashTaken && r.leavingStashesTheLog;
+          && r.thenThisPagesOwn && r.stashTaken && r.leavingStashesTheLog
+          && r.oneLogPanel && r.tabSwitchesInPlace && r.backquoteClosesItsOwnTab && r.escapeClosesEitherTab;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

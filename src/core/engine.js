@@ -2152,24 +2152,65 @@ export function init(userConfig = {}) {
     const el = debugEl?.querySelector('.dbg-state');
     if (el) el.textContent = debugStateLine();
   }
-  function toggleDebug() {
-    if (debugEl) { debugEl.remove(); debugEl = null; debug.onEntry(null); return; }
-    debugEl = document.createElement('div');
-    debugEl.className = 'decklight-debug';
-    debugEl.innerHTML = '<div class="dbg-head">debug log — Esc closes</div><div class="dbg-state"></div><div class="dbg-log"></div>';
-    root.appendChild(debugEl);
-    debug.entries.forEach(appendDebugRow);
-    updateDebugState();
-    const log = debugEl.querySelector('.dbg-log');
-    log.scrollTop = log.scrollHeight;
-    // From here the buffer feeds the window directly; closing detaches it.
-    debug.onEntry((entry) => {
-      appendDebugRow(entry);
-      updateDebugState();
-      const box = debugEl.querySelector('.dbg-log');
-      box.scrollTop = box.scrollHeight;
-    });
+  // ONE log panel, two tabs (ROADMAP section 2): Messages (what the deck told
+  // you, `) and Events (the debug stream, the palette's Help: Debug log). They
+  // were two panels in two corners, either or both open, and a newcomer could
+  // not tell which one explained "why the voice stopped". The element keeps
+  // each view's old class (`decklight-msglog`, `decklight-debug`) and inner
+  // markup, so the code that fills a view, and everything that reads one, is
+  // unchanged; `msgListEl` and `debugEl` point at the panel while it shows them.
+  let logEl = null;
+  let logView = null;   // 'messages' | 'events'
+  function closeLog() {
+    if (!logEl) return;
+    if (logView === 'events') debug.onEntry(null);
+    logEl.remove();
+    logEl = null; logView = null; debugEl = null; msgListEl = null;
   }
+  function openLog(view) {
+    if (logEl && logView === view) { closeLog(); return; }
+    closeLog();
+    logEl = document.createElement('div');
+    logView = view;
+    logEl.className = 'decklight-log ' + (view === 'events' ? 'decklight-debug' : 'decklight-msglog');
+    const tabs = document.createElement('div');
+    tabs.className = 'log-tabs';
+    for (const [v, label] of [['messages', 'messages'], ['events', 'events']]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'log-tab' + (v === view ? ' log-tab-on' : '');
+      b.textContent = label;
+      if (v !== view) b.addEventListener('click', (e) => { e.stopPropagation(); openLog(v); });
+      tabs.appendChild(b);
+    }
+    const hint = document.createElement('span');
+    hint.className = 'log-hint';
+    hint.innerHTML = '<kbd title="the key left of 1">&#96;</kbd> · Esc closes';
+    tabs.appendChild(hint);
+    logEl.appendChild(tabs);
+    if (view === 'events') {
+      debugEl = logEl;
+      logEl.insertAdjacentHTML('beforeend', '<div class="dbg-state"></div><div class="dbg-log"></div>');
+      root.appendChild(logEl);
+      debug.entries.forEach(appendDebugRow);
+      updateDebugState();
+      const log = logEl.querySelector('.dbg-log');
+      log.scrollTop = log.scrollHeight;
+      // From here the buffer feeds the panel directly; closing detaches it.
+      debug.onEntry((entry) => {
+        appendDebugRow(entry);
+        updateDebugState();
+        const box = debugEl.querySelector('.dbg-log');
+        box.scrollTop = box.scrollHeight;
+      });
+    } else {
+      msgListEl = logEl;
+      logEl.insertAdjacentHTML('beforeend', '<div class="msg-log"></div>');
+      root.appendChild(logEl);
+      renderMsgList();
+    }
+  }
+  function toggleDebug() { openLog('events'); }
   // The message LOG (`). Messages fade after a few seconds — which is exactly
   // when you were looking at the slide, not the corner — so every one is kept
   // and can be read back. Reachable while presenting AND while editing notes:
@@ -2199,14 +2240,7 @@ export function init(userConfig = {}) {
     });
     log.scrollTop = log.scrollHeight;
   }
-  function toggleMessages() {
-    if (msgListEl) { msgListEl.remove(); msgListEl = null; return; }
-    msgListEl = document.createElement('div');
-    msgListEl.className = 'decklight-msglog';
-    msgListEl.innerHTML = '<div class="msg-head">messages — <kbd title="the key left of 1">&#96;</kbd></div><div class="msg-log"></div>';
-    root.appendChild(msgListEl);
-    renderMsgList();
-  }
+  function toggleMessages() { openLog('messages'); }
 
   // feed the log: engine events + page errors (theme/font/narration log at
   // their call sites). The panel is passive chrome — keys keep driving the
@@ -2233,7 +2267,7 @@ export function init(userConfig = {}) {
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>pinch · 0</td><td>zoom the slide (trackpad pinch, or two fingers; scroll pans) · 0, Esc or a slide change fits it again</td></tr>
-      <tr><td>&#96;</td><td>messages — the key left of 1 (⌃&#96; / ⌥&#96; also works while editing notes)</td></tr>
+      <tr><td>&#96;</td><td>the log, on its messages tab (the events tab beside it is the debug stream) — the key left of 1; ⌃&#96; / ⌥&#96; also works while editing notes</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>W</td><td>pen — draw on the slide (⌫ clears)</td></tr>
       <tr><td>⇧W</td><td>laser pointer</td></tr>
@@ -2528,7 +2562,7 @@ export function init(userConfig = {}) {
         // the two panels that are not overlays (they take no keys of their
         // own) still close on Esc, like every other panel
         else if (helpEl) toggleHelp();
-        else if (debugEl) toggleDebug();
+        else if (logEl) closeLog();   // the log panel, on either tab
         break;
       case '0': if (zoom.k !== 1) resetZoom(); else return; break;
       default: return;
