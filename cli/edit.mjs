@@ -63,7 +63,6 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, wa
 // that is interrupted leaves a prefix of a talk where the talk was.
 import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import { resolve, relative, dirname, sep, basename, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -86,7 +85,7 @@ const startup = (key, text, human, mark) => {
   else console.log(human);
 };
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
-import { runMain, CommandError } from './util.mjs';
+import { runMain } from './util.mjs';
 import { PKG, AGENTS_MARKER, skillVersionOf } from './skill-content.mjs';
 import { selfCommand } from './pkg.mjs';
 import { commitPlan, headTags, planWorking, pushBlocked, pushBranch, slideDiff, slidesSinceHead, tagHead, unitSummary } from './commit-split.mjs';
@@ -99,7 +98,7 @@ const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts
   '--host', '--root', '--branch', '--into', '--upstream-every'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
-import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
+import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkReferences } from './deck-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
@@ -112,8 +111,10 @@ import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-man
 // hoisted before either runs, and nothing is read until a request arrives.
 import { registerSlideRoutes } from './edit-slides.mjs';
 // The route groups split out after it, imported the same way and for the same
-// reason: the deck's look (themes, design systems, fonts).
+// reason: the deck's look (themes, design systems, fonts), and handing the
+// deck over (export, publish, the inspector's read).
 import { registerLookRoutes } from './edit-look.mjs';
+import { registerHandoverRoutes } from './edit-handover.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
 import { classifyScripts, auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
@@ -1089,7 +1090,6 @@ import {
   describeCommit, describeWorking, messagesLine,
 } from './commit-message.mjs';
 import { WIP_REF, deckDirty, nagText, planNag, snapshotWip, wipLine } from './commit-flow.mjs';
-import { THEME_NAME, GEN_THEME } from '../tools/render-theme.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 /** Who the author is, from git's own answer — see cli/review-routes.mjs. */
@@ -1497,11 +1497,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const agentAsks = [];
   const ASKS_KEPT = 20;
   let askSeq = 0;
-  let exporting = false; // an export in flight — one browser, one output path, any kind
   let enhancing = null;  // a script enhancement in flight: { of, done } — one at a time
   let reviewing = null;  // an agent review in flight: { of, done } — one at a time
   let lastReview = null; // its last result: { at, agent, findings, failed } — kept for Check deck… to re-ask
-  let publishing = false; // a publish in flight — one push at a time
 
   // ── git autocommit — the durable record, independent of undo/redo ──────
   const noGit = args.includes('--no-git');
@@ -2725,97 +2723,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
     } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
   }
 
-  /**
-   * GET /deck/edit/export/estimate?kind=bundle — how big an export would be, before
-   * it is written. Only the bundle has one today: the file without its audio
-   * (`base`), and what each way of carrying the narration's recorded audio
-   * would add (cli/bundle-audio.mjs), so the bundle card can say "Opus — ≈ 2.1
-   * MB" before anybody chooses. `audio` is null for a deck with no recorded
-   * audio on this disk.
-   */
-  /**
-   * Where slide N lives in the file, for the inspector (`I`, PRESENTING): the
-   * slide's lines, each authored top-level child's lines by the same raw index
-   * the element routes use, and what `decklight check` would say about it.
-   * Read-only, and only the static half of the check: the render half needs a
-   * browser and takes seconds, and the panel asks on every slide change.
-   */
-  async function inspectRoute({ url, json }) {
-    const { sectionRanges, staticFindings } = await import('./check.mjs');
-    const html = readDeck();
-    const ranges = sectionRanges(html);
-    const slide = Number(url.searchParams.get('slide'));
-    if (!Number.isInteger(slide) || slide < 1 || slide > ranges.length) {
-      return json(400, { ok: false, error: `no slide ${url.searchParams.get('slide') ?? ''} — the deck has ${ranges.length}`.trim() });
-    }
-    // 1-based line of an offset: the newlines before it, plus one
-    const breaks = [];
-    for (let i = html.indexOf('\n'); i !== -1; i = html.indexOf('\n', i + 1)) breaks.push(i);
-    const lineAt = (at) => {
-      let lo = 0, hi = breaks.length;
-      while (lo < hi) { const mid = (lo + hi) >> 1; if (breaks[mid] < at) lo = mid + 1; else hi = mid; }
-      return lo + 1;
-    };
-    const span = (start, end) => [lineAt(start), lineAt(Math.max(start, end - 1))];
-    const range = ranges[slide - 1];
-    const { parts, idx } = locateSlide(html, slide);
-    const segAt = parts.slice(0, idx).join('').length;
-    let blocks = [];
-    try {
-      blocks = sectionChildRanges(parts[idx]).map((r) => ({ tag: r.tag, lines: span(segAt + r.start, segAt + r.end) }));
-    } catch { /* a malformed section still has its own lines */ }
-    const findings = staticFindings(html, { dir: dirname(deckPath) })
-      .filter((f) => f.slide === slide)
-      .map(({ level, rule, message }) => ({ level, rule, message }));
-    return json(200, { ok: true, file: basename(deckPath), lines: span(range.start, range.end), blocks, findings });
-  }
-
-  async function exportEstimateRoute({ url, json }) {
-    const kind = url.searchParams.get('kind');
-    if (kind !== 'bundle') return json(400, { ok: false, error: `no estimate for ${kind ?? 'that'} — only a bundle has one` });
-    const theme = url.searchParams.get('theme');
-    if (theme != null && !THEME_NAME.test(theme)) return json(400, { ok: false, error: 'the theme is a theme name' });
-    const { bundleMain } = await import('./bundle.mjs');
-    const estimate = (argv) => bundleMain([deckPath, ...argv], { estimate: true });
-    try {
-      // in the theme on screen, as the export will be — or, when that one
-      // cannot be bundled yet (the export asks to mark it first), in the
-      // deck's own: an estimate a theme's stylesheet away is still one
-      let r;
-      try { r = await estimate(theme ? ['--theme', theme] : []); } catch (e) {
-        if (!theme || !(e instanceof CommandError)) throw e;
-        r = await estimate([]);
-      }
-      return json(200, { ok: true, base: r.base, audio: r.audio });
-    } catch (e) {
-      if (!(e instanceof CommandError)) throw e;
-      return json(409, { ok: false, error: e.message.split('\n')[0] });
-    }
-  }
-
-  /**
-   * The marketplace theme on screen that this deck does not mark, as a
-   * reference — or null. An export or a publish of an unmarked theme would
-   * come out in a theme the deck does not carry; the card asks first
-   * (`409 { unmarked }`), and marking is one more press.
-   */
-  async function unmarkedOnScreen(theme, { carried = false } = {}) {
-    if (!theme) return null;
-    const html = readDeck();
-    const { markedRefs, markedShipped, marketplaceThemes, shippedThemes } = await import('./theme-refs.mjs');
-    if (shippedThemes().includes(theme)) {
-      // A render shows a shipped theme without carrying it — every install has
-      // it. A BUNDLE carries only what the deck marks, plus the theme it opens
-      // on: one it opens on in some other theme is a question first (Gilles'
-      // rule), so the file never leaves carrying a theme nobody chose to send.
-      if (!carried) return null;
-      return markedShipped(html).includes(theme) || theme === configTheme(html) ? null : theme;
-    }
-    if (markedRefs(html).some((r) => r.name === theme)) return null;
-    if (new RegExp(`<style\\b[^>]*\\bdata-theme\\s*=\\s*["']${theme}["']`, 'i').test(html)) return null;
-    return marketplaceThemes().themes.find((t) => t.name === theme)?.qualified ?? null;
-  }
-
   // ── the engine wizard (ENGINES#WIZARD) ─────────────────────────────
   // The schema the player renders. Validated on the way OUT as well as on
   // the way in: a catalog is a file someone else wrote, and handing the
@@ -3031,302 +2938,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return json(200, { ok: true, tracks: seen });
   }
 
-  // ── hand-over: the files this deck can be written out as, and publishing ───
-
-  /**
-   * Write the deck out as a file, for the palette's hand-over rows
-   * (PRESENTING) — `{ kind }`, one of EXPORT_KINDS.
-   *
-   * `decklight pptx` and `decklight pdf` need Node and a headless Chrome,
-   * so the deck cannot do this itself — the same reason `A` asks the
-   * server to run an agent. The work is the commands' own `main`s,
-   * unchanged, so what a row writes is exactly what the command line
-   * writes.
-   *
-   * Four things this route owes the session it is running inside:
-   *
-   * - it must not TAKE THE SERVER DOWN. `chromeBin` exits the process when
-   *   there is no browser — correct for a one-shot command, fatal here, so
-   *   Chrome is resolved with the non-fatal `findChrome` first and a machine
-   *   without one gets a sentence instead of a dead edit server.
-   * - it must not run twice at once. Two exports write the same path
-   *   through two browsers; the second caller is told to wait. ONE flag for
-   *   every kind, deliberately: two different exports at once is still two
-   *   browsers on one machine, and the second would only be slower.
-   * - it must not block. Both `main`s are async all the way down (pptx
-   *   serves the deck from THIS process while Chrome fetches it; pdf is
-   *   async so the session stays answerable while Chrome prints), so live
-   *   reload, the SSE stream and every other route keep answering while a
-   *   slide renders. That is also why a row can say "rendering…" and mean it.
-   * - it must SAY WHERE IT IS. An export is tens of seconds, so each slide
-   *   is announced on the `export` channel of the same SSE stream the agent
-   *   chip rides, and the deck rewrites its one progress row from it.
-   */
-  async function exportRoute({ url, body, json }) {
-    const req = JSON.parse(body || '{}');
-    const kind = req.kind ?? 'pptx';
-    const job = EXPORT_KINDS[kind];
-    if (!job) {
-      return json(400, { ok: false, error: `not a file this server writes: ${kind} — try ${Object.keys(EXPORT_KINDS).join(', ')}` });
-    }
-    // The theme on screen, which the render is told because it cannot see the
-    // browser's pick (#547): a name — what `--theme` takes — or, for a theme
-    // that lives only in that browser, its tokens as `--gen` takes them
-    // (base64url JSON, the form `?gen=` loads; the runtime vets every token).
-    if (req.theme != null && !(typeof req.theme === 'string' && THEME_NAME.test(req.theme))) {
-      return json(400, { ok: false, error: 'the theme is a theme name' });
-    }
-    if (req.gen != null && !(typeof req.gen === 'string' && GEN_THEME.test(req.gen))) {
-      return json(400, { ok: false, error: 'the generated theme is base64url, at most 16 KB' });
-    }
-    if (req.theme != null && req.gen != null) return json(400, { ok: false, error: 'one theme — a name or a generated one' });
-    if (kind === 'bundle') {
-      // A bundle EMBEDS its themes, and a generated one is tokens in this
-      // browser with no file to embed. Bundling in the configured theme
-      // instead would hand over a file that does not look like the screen.
-      if (req.gen != null) {
-        return json(400, { ok: false, error: 'a generated theme lives only in this browser — save it (⌃⇧T) and add it with decklight theme add to bundle it' });
-      }
-      if (alreadyOneFile(readDeck())) {
-        return json(409, { ok: false, error: 'this deck is already one file — send it as it is' });
-      }
-    }
-    const unmarked = await unmarkedOnScreen(req.theme, { carried: kind === 'bundle' });
-    if (unmarked) return json(409, { ok: false, unmarked, error: `${unmarked} is not marked for this deck` });
-    const themed = req.theme ? ['--theme', req.theme] : req.gen ? ['--gen', req.gen] : [];
-    if (kind === 'video') {
-      const bad = videoExportProblem(req, dirname(deckPath));
-      if (bad) return json(400, { ok: false, error: bad });
-    }
-    if (exporting) return json(409, { ok: false, error: 'an export is already running' });
-    const { findChrome } = await import('../tools/chrome.mjs');
-    // every file but the bundle is a render; the bundle launches no browser
-    if (kind !== 'bundle' && !findChrome()) {
-      return json(503, { ok: false, error: 'no Chrome found — install one, or point $CHROME at it' });
-    }
-    exporting = true;
-    const started = Date.now();
-    console.log(`  export: ${basename(deckPath)} → ${job.what}${req.slides ? ` of slides ${req.slides}` : ''}`
-      + `${req.synthesize ? `, voiced by ${req.synthesize.engine} into ${req.synthesize.dir}/` : ''} …`);
-    broadcast('export', { state: 'start', kind, what: job.what });
-    try {
-      let out, code, reason = null, subs = null;
-      if (kind === 'video') {
-        const { videoOut, videoProgress, voiceoverProgress, subtitlesOut } = await import('../tools/video.mjs');
-        out = videoOut(deckPath, req.slides || null, req.format || 'mp4');
-        subs = req.subtitles === 'file' ? subtitlesOut(out, req.format || 'mp4') : null;
-        // Two phases, each told apart on the channel: voicing is minutes on a
-        // cloud engine, and a row that said "rendering" through all of it would
-        // read as stuck on slide one.
-        if (req.synthesize) {
-          ({ code, reason } = await runTool('voiceover', await voiceoverArgv(req),
-            voiceoverProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'voice', n, of }))));
-        }
-        if (!code) {
-          const narration = req.synthesize?.dir ?? req.narration ?? null;
-          ({ code, reason } = await runTool('video', [deckPath, '-o', out, ...themed,
-            ...(req.slides ? ['--slides', req.slides] : []),
-            ...(req.format ? ['--format', req.format] : []),
-            ...(req.quality ? ['--quality', req.quality] : []),
-            ...(req.subtitles ? ['--subtitles', req.subtitles] : []),
-            ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : req.silent ? ['--no-narration'] : []),
-            // the card showed the track as recorded from older notes and it was picked anyway (#536)
-            ...(req.allowStale === true ? ['--allow-stale'] : [])],
-          videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of }))));
-        }
-      } else if (kind === 'bundle') {
-        // The CLI's own name for the file, beside the deck, so the row and
-        // `decklight bundle` write the same one; `audio` is its --audio
-        // ('original', 'aac' or 'opus'), the recorded voice carried inside.
-        // bundleMain returns nothing on success and throws a sentence on a
-        // refusal — the catch below says it.
-        const { bundleMain } = await import('./bundle.mjs');
-        const { AUDIO_CHOICES } = await import('./bundle-audio.mjs');
-        out = join(dirname(deckPath), `${basename(deckPath).replace(/\.html?$/i, '')}-standalone.html`);
-        code = (await bundleMain([deckPath, '-o', out, ...(req.theme ? ['--theme', req.theme] : []),
-          ...(AUDIO_CHOICES.includes(req.audio) ? ['--audio', req.audio] : [])])) ?? 0;
-      } else if (kind === 'pptx') {
-        const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
-        out = pptxOut(deckPath);
-        code = await pptxMain([deckPath, ...themed], {
-          log: (line) => console.log(`  ${line}`),
-          onSlide: (n, of) => broadcast('export', { state: 'slide', kind, n, of }),
-        });
-      } else {
-        const { pdfMain, pdfOut } = await import('./pdf.mjs');
-        out = pdfOut(deckPath, null, job.variant);
-        code = await pdfMain([deckPath, ...themed, ...(job.variant ? [`--${job.variant}`] : [])]);
-      }
-      const file = relative(process.cwd(), out) || basename(out);
-      const seconds = Math.round((Date.now() - started) / 100) / 10;
-      if (code !== 0) {
-        broadcast('export', { state: 'done', kind, ok: false });
-        return json(500, { ok: false, error: reason ?? 'the export refused — see the edit server\'s output' });
-      }
-      // A render with nothing spoken writes no subtitles and says so; the deck
-      // is told of a file only when there is one to open.
-      const voiced = {
-        ...(req.synthesize ? { voiced: req.synthesize.dir } : {}),
-        ...(subs && existsSync(subs) ? { subtitles: relative(process.cwd(), subs) || basename(subs) } : {}),
-      };
-      broadcast('export', { state: 'done', kind, ok: true, file, seconds, ...voiced });
-      return json(200, { ok: true, kind, what: job.what, file, seconds, ...voiced });
-    } catch (e) {
-      // A render that hangs or a Chrome that dies is the export's problem,
-      // never the session's: the message goes back to the palette and the
-      // server carries on serving the deck.
-      console.log(`  export: ${job.what} failed — ${oneline(e)}`);
-      broadcast('export', { state: 'done', kind, ok: false, error: oneline(e) });
-      return json(500, { ok: false, error: oneline(e) });
-    } finally {
-      exporting = false;
-    }
-  }
-
-  /**
-   * `decklight video` (and `decklight narrate` before it, when the export
-   * voices its slides), run as CHILDREN rather than through their `main`s like
-   * the other exports: both end in `process.exit` on every refusal, and each
-   * would take this session down or freeze it. A child keeps that where it
-   * belongs, and its output is read line by line for the progress it already
-   * prints.
-   *
-   * Served from the same root `pptx` picks: the current directory when the deck
-   * is under it, its own directory otherwise.
-   */
-  function runTool(name, argv, onLine) {
-    const script = fileURLToPath(new URL(`../tools/${name}.mjs`, import.meta.url));
-    const cwd = deckPath.startsWith(process.cwd() + sep) ? process.cwd() : dirname(deckPath);
-    return new Promise((done) => {
-      const child = spawn(process.execPath, [script, ...argv], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-      let pending = '', err = '';
-      child.stdout.on('data', (chunk) => {
-        pending += chunk;
-        for (let i; (i = pending.indexOf('\n')) >= 0;) {
-          const line = pending.slice(0, i);
-          pending = pending.slice(i + 1);
-          console.log(`  ${line}`);
-          onLine(line);
-        }
-      });
-      child.stderr.on('data', (chunk) => { err += chunk; process.stdout.write(String(chunk).replace(/^/gm, '  ')); });
-      child.on('error', (e) => done({ code: 1, reason: oneline(e) }));
-      child.on('close', (code) => {
-        // the command's own refusal is the sentence the deck shows
-        const said = err.split('\n').map((l) => l.trim()).filter(Boolean);
-        const prefix = `decklight ${name}:`;
-        const refusal = said.findLast((l) => l.startsWith(prefix)) ?? said.at(-1);
-        done({ code, reason: code === 0 ? null : (refusal?.replace(prefix, '').trim() ?? null) });
-      });
-    });
-  }
-
-  /**
-   * argv for voicing an export: the live voice the deck is speaking with, as
-   * `decklight narrate` spells it. The deck sends what only it knows — the
-   * engine and model the bridge answered with, the voice and tone picked in V —
-   * and the rest comes from where the bridge itself reads it (the environment,
-   * then ~/.config/decklight/tts.json for the same engine), so a sentence
-   * already heard live is a cache hit here and not a second bill.
-   */
-  async function voiceoverArgv({ slides, synthesize: s }) {
-    const { loadTtsConfig } = await import('../tools/tts-setup.mjs');
-    const { piperModelDir } = await import('../tools/tts-engines.mjs');
-    const saved = loadTtsConfig();
-    const savedFor = saved?.engine === s.engine ? saved : null;
-    const project = process.env.GOOGLE_CLOUD_PROJECT ?? saved?.project;
-    const dataDir = savedFor?.dataDir ?? (s.engine === 'piper' ? piperModelDir() : null);
-    return [deckPath, '-o', resolve(dirname(deckPath), s.dir), '--engine', s.engine,
-      ...(s.voice ? ['--voice', s.voice] : []),
-      ...(s.style ? ['--style', s.style] : []),
-      ...(s.model ? ['--tts-model', s.model] : []),
-      ...(savedFor?.format ? ['--tts-format', savedFor.format] : []),
-      ...(dataDir ? ['--data-dir', dataDir] : []),
-      ...(project && (s.engine === 'gemini' || s.engine === 'chirp') ? ['--project', project] : []),
-      ...(slides ? ['--slides', slides] : [])];
-  }
-
-  /**
-   * Publish the deck — and, before that, say where to (PRESENTING).
-   *
-   * The one row in the palette that reaches OFF this machine. Everything
-   * else the deck can ask this server for writes a file beside it; this
-   * pushes a page the world can read, and `Z` does not take that back. So
-   * it is two routes, not one: the deck asks for the PLAN, shows a person
-   * the remote and the URL, and only posts after a second, deliberate
-   * press. The arming lives in the deck, not here — an unarmed POST
-   * publishes, exactly as the command line does, because a confirmation
-   * belongs to the surface that can show somebody what they are agreeing
-   * to.
-   *
-   * `GIT_TERMINAL_PROMPT=0` matters more here than anywhere else: publish
-   * pushes with a synchronous git, so a credential prompt would not be
-   * asking anybody anything — it would hang the write-mode session on a
-   * terminal nobody is looking at.
-   */
-  async function publishPlanRoute({ json }) {
-    if (!gitOn) return json(409, { ok: false, error: 'git is off for this session — there is nothing to publish from' });
-    const remote = remoteState(root);
-    if (!remote.url) {
-      return json(409, { ok: false, error: `nowhere to publish to — ${remoteLine(remote) || remote.state}` });
-    }
-    const { pagesUrl } = await import('./publish.mjs');
-    // Whether it COULD sign is part of the plan, not a failure after the
-    // fact: publish signs by default and refuses rather than publishing
-    // unsigned (INTEGRITY), and the deck would otherwise show somebody a
-    // URL, take their confirmation, and only then say it cannot.
-    //
-    // The SENTENCE is built here, not in the deck. The runtime must never
-    // so much as name the signing client (test/sign.test.mjs greps src/
-    // and dist/ for it — the invariant is that the browser never reaches
-    // for it), so the server hands over words the deck only has to show.
-    const { loadClient, INSTALL_HINT } = await import('./sign.mjs');
-    const canSign = Boolean(await loadClient());
-    return json(200, {
-      ok: true, remote: remote.remote, branch: 'gh-pages',
-      url: pagesUrl(remote.url), bundled: !alreadyOneFile(readDeck()),
-      signing: canSign,
-      why: canSign ? null : `publish signs the deck first, and that client is not installed — ${INSTALL_HINT}`,
-    });
-  }
-
-  async function publishRoute({ body, json }) {
-    if (!gitOn) return json(409, { ok: false, error: 'git is off for this session — there is nothing to publish from' });
-    if (publishing) return json(409, { ok: false, error: 'a publish is already running' });
-    // The theme on screen is the one the page opens on (SPEC THEME_DISTRIBUTION)
-    // — the same question the export card answers, asked the same way.
-    const { theme = null } = JSON.parse(body || '{}');
-    if (theme != null && !(typeof theme === 'string' && THEME_NAME.test(theme))) {
-      return json(400, { ok: false, error: 'the theme is a theme name' });
-    }
-    const unmarked = await unmarkedOnScreen(theme);
-    if (unmarked) return json(409, { ok: false, unmarked, error: `${unmarked} is not marked for this deck` });
-    publishing = true;
-    const before = process.env.GIT_TERMINAL_PROMPT;
-    process.env.GIT_TERMINAL_PROMPT = '0';
-    console.log(`  publish: ${basename(deckPath)} → gh-pages …`);
-    try {
-      const { publishMain } = await import('./publish.mjs');
-      // A deck that is already one file has nothing to flatten, and the
-      // bundler rightly refuses it — the same two cases `decklight
-      // publish` has, decided here rather than made the presenter's
-      // problem. Everything else is the command's own default, signature
-      // included.
-      const oneFile = alreadyOneFile(readDeck());
-      const args = [deckPath, ...(oneFile ? ['--no-bundle'] : theme ? ['--theme', theme] : [])];
-      const r = await publishMain(args);
-      console.log(`  publish: ${r.url ?? `${r.remote} ${r.branch}`}`);
-      return json(200, { ok: true, url: r.url ?? null, branch: r.branch, remote: r.remote, commit: r.commit });
-    } catch (e) {
-      console.log(`  publish: refused — ${oneline(e)}`);
-      return json(500, { ok: false, error: oneline(e) });
-    } finally {
-      process.env.GIT_TERMINAL_PROMPT = before ?? '';
-      if (before === undefined) delete process.env.GIT_TERMINAL_PROMPT;
-      publishing = false;
-    }
-  }
-
   // ── AI agents — the one-shot editing task behind A ───────────────────────
 
   // Remember which agent A should reach for (#125, SPEC AGENT_UNITS). A
@@ -3512,12 +3123,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'POST /deck/edit/narration/record': recordRoute,
     'GET /deck/edit/narration/tracks': tracksRoute,
 
-    'POST /deck/edit/export': exportRoute,
-    'GET /deck/edit/export/estimate': exportEstimateRoute,
-    'GET /deck/edit/inspect': inspectRoute,
-    'GET /deck/edit/publish/plan': publishPlanRoute,
-    'POST /deck/edit/publish': publishRoute,
-
     'POST /deck/edit/agent': agentRoute,
     'POST /deck/edit/agent/prefer': agentPreferRoute,
     'POST /deck/edit/enhance': enhanceRoute,
@@ -3549,6 +3154,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
     readDeck, applyEdit, writeDeck, history, broadcast,
     // a quiet pick or mark updates the page that asked: no reload for it
     quiet: (html) => { quietWrite = html; },
+  });
+
+  // Handing the deck over is a third (cli/edit-handover.mjs): export, the
+  // bundle estimate, the inspector's read, and publish. None of them edits
+  // the deck; they read it, write files beside it or push it, and own their
+  // own in-flight flags.
+  registerHandoverRoutes(routes, {
+    readDeck, deckPath, root, broadcast,
+    gitOn: () => gitOn,
   });
 
   // The routes that run BEFORE the shared body read, and the only reason the
