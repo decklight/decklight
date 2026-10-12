@@ -11,7 +11,7 @@
 // gates their theme would be judged by.
 //
 // So the rules live here, under tools/, which ships. test/contrast.mjs is now
-// a loop over this, and `decklight theme check` is the same loop over one file.
+// a loop over this, and `decklight theme gate` is the same loop over one file.
 //
 // There is no version number in a theme, deliberately. Compatibility with a
 // runtime IS passing that runtime's check — and when the contract grows a
@@ -154,7 +154,7 @@ export const NESTED_MIN_DL = 0.06;
 export function themeNameFrom(source) {
   // Both separators, because `source` is either a URL (always `/`) or a local
   // path (`\` on Windows). Splitting on `/` alone made the whole path the
-  // name there — `decklight theme check C:\themes\aurora.css` reported
+  // name there — `decklight theme gate C:\themes\aurora.css` reported
   // `✔ C:\themes\aurora`, and `theme add` would then have tried to install
   // under a name validThemeName refuses, from a file that was perfectly fine.
   const last = String(source ?? '').split(/[?#]/)[0].split(/[/\\]/).filter(Boolean).pop() ?? '';

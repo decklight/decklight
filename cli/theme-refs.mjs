@@ -246,7 +246,7 @@ export function stillValid(file) {
   const hit = verdicts.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.value;
   const r = validateTheme(readFileSync(file, 'utf8'));
-  const value = r.ok ? { ok: true } : { ok: false, why: `it no longer passes the theme contract — ${r.errors[0] ?? 'see decklight theme check'}` };
+  const value = r.ok ? { ok: true } : { ok: false, why: `it no longer passes the theme contract — ${r.errors[0] ?? 'see decklight theme gate'}` };
   verdicts.set(file, { mtimeMs: st.mtimeMs, size: st.size, value });
   return value;
 }

@@ -1104,7 +1104,7 @@ function reviewerName(cwd = process.cwd()) {
 
 /** `decklight <deck> --no-trust --help`: the no-trust mode's own flags. */
 const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository url> --no-trust [--port 8788] [--strict]
-                        [--root <dir>] [--remote] [--host <addr>] [--check]
+                        [--root <dir>] [--remote] [--host <addr>] [--audit]
                         [--no-plugins] [--branch <ref>] [--into <dir>]
 
   opens a deck in no-trust mode — the safe way in for one you did not write,
@@ -1148,7 +1148,7 @@ const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository u
              and its QR carry — the deck itself, and every file beside it, stay
              unreachable from the LAN whether or not this flag is passed.
   --host A   the address --remote binds                            [0.0.0.0]
-  --check    print the ingredients label and exit — no server. Exits non-zero
+  --audit    print the ingredients label and exit — no server. Exits non-zero
              if the deck runs any script that is not the runtime — a block or
              an executable attribute — so CI can gate on a deck before it is
              forwarded or published.
@@ -1220,7 +1220,7 @@ const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository u
   code. It stops that code from reaching anywhere it shouldn't.`;
 
 // `client` is the sigstore client — injectable so a test can drive the
-// signature states of `--no-trust --check` without the network; `undefined`
+// signature states of `--no-trust --audit` without the network; `undefined`
 // means "go load the real one".
 export async function editMain(args, { onListen = null, client } = {}) {
   // /deck/review/incoming's answer, briefly remembered (see the route).
@@ -1373,7 +1373,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
     audit();
   }
 
-  if (args.includes('--check')) {
+  // `--audit` prints the ingredients label and exits; `--check` still answers,
+  // unadvertised, from before `check` came to mean the deck lint alone
+  if (args.includes('--audit') || args.includes('--check')) {
     // No server. The label, the manifest, the signature — and an exit code CI
     // can gate on: non-zero means "this deck executes something I could not
     // account for", or "it carries a signature I could not stand behind" —
@@ -2871,7 +2873,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   /**
    * Reference a design system from this deck, or drop it (SPEC
    * DESIGN_SYSTEMS) — the twin of the theme mark below it. The package runs
-   * through `decklight design-system check` first, so the command line and
+   * through `decklight design-system gate` first, so the command line and
    * this route refuse by the same code; the deck gains or loses one entry in
    * its config block as one undo entry.
    */
@@ -3066,7 +3068,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
   /**
    * Reference a font from this deck, or drop it (SPEC FONTS) — the twin of
-   * the design-system mark above: `font check` first, one config entry, one
+   * the design-system mark above: `font gate` first, one config entry, one
    * undo. `use: true` also makes it the deck's default font. `quiet` writes
    * without the reload: the picker previews the face itself, and stays open.
    */

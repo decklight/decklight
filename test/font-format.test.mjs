@@ -89,12 +89,12 @@ test('fontFaceCss: one @font-face per face, swap, the url the caller gives — a
   assert.equal(fontStack(m), "'Decklight Sample', system-ui, sans-serif");
 });
 
-test('decklight font check: ✔ and a summary, or ✘ and the rule, exit 1', () => {
-  const ok = spawnSync(process.execPath, [CLI, 'font', 'check', OK], { encoding: 'utf8' });
+test('decklight font gate: ✔ and a summary, or ✘ and the rule, exit 1', () => {
+  const ok = spawnSync(process.execPath, [CLI, 'font', 'gate', OK], { encoding: 'utf8' });
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stdout, /✔ sample — font 1\.0\.0, api 1/);
   assert.match(ok.stdout, /faces {6}400 · 700 — 2 files/);
-  const bad = spawnSync(process.execPath, [CLI, 'font', 'check', here], { encoding: 'utf8' });
+  const bad = spawnSync(process.execPath, [CLI, 'font', 'gate', here], { encoding: 'utf8' });
   assert.equal(bad.status, 1);
   assert.match(bad.stdout, /no font\.json at the package root/);
 });

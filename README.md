@@ -169,7 +169,9 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   executable travels inside a deck.
 
 Every item above has a SPEC section behind it. The index at the top of
-`SPEC.md` maps the names to the sections.
+`SPEC.md` maps the names to the sections. The words themselves (write mode, bundle, cast,
+narrate, template, library, gate) are defined once in
+[`docs/GLOSSARY.md`](docs/GLOSSARY.md).
 
 ## The CLI
 

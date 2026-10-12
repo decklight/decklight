@@ -152,7 +152,7 @@ test('design-system check admits the brand package and reports its palette and t
   assert.equal(ok.ok, true, JSON.stringify(ok.problems));
   assert.equal(ok.summary.palette, '12 colours, 120 swatches');
   assert.deepEqual(ok.summary.brand.themes.map((x) => x.name), ['acme-dark', 'acme-light']);
-  const report = execFileSync(process.execPath, [CLI, 'design-system', 'check', BRAND], { encoding: 'utf8' });
+  const report = execFileSync(process.execPath, [CLI, 'design-system', 'gate', BRAND], { encoding: 'utf8' });
   assert.match(report, /theme {16}acme-dark \(dark\) — 1 token stated, \d+ chosen from the palette/);
 
   // a swatch redefined in the CSS: the manifest is the one source

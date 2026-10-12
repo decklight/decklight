@@ -319,7 +319,7 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
   if (t.pinned && !hit.entry.sha256) {
     throw new UnitError(`${hit.qualified} carries no sha256 — a ${t.label} is Node code decklight`
       + ` runs unsandboxed, so it installs only pinned to the digest its catalog admitted`
-      + ` (SPEC UNIT_PINNING). Ask the marketplace to pin the entry; decklight library check transform`
+      + ` (SPEC UNIT_PINNING). Ask the marketplace to pin the entry; decklight library gate transform`
       + ` prints the digest to use`);
   }
 

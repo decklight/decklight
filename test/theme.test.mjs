@@ -173,7 +173,7 @@ test('a bundle carries a marked theme as a block that cannot close itself', () =
 });
 
 test('theme check passes a shipped theme and fails a broken one', () => {
-  const ok = spawnSync('node', [CLI, 'theme', 'check', AURORA], { encoding: 'utf8' });
+  const ok = spawnSync('node', [CLI, 'theme', 'gate', AURORA], { encoding: 'utf8' });
   assert.equal(ok.status, 0, ok.stdout + ok.stderr);
   assert.match(ok.stdout, /✔ aurora/);
   assert.match(ok.stdout, /56 tokens present/);
@@ -182,7 +182,7 @@ test('theme check passes a shipped theme and fails a broken one', () => {
   try {
     const broken = path.join(dir, 'broken.css');
     writeFileSync(broken, '.decklight { --bg: #ffffff; --fg: #fefefe; }');
-    const bad = spawnSync('node', [CLI, 'theme', 'check', broken], { encoding: 'utf8' });
+    const bad = spawnSync('node', [CLI, 'theme', 'gate', broken], { encoding: 'utf8' });
     assert.equal(bad.status, 1);
     assert.match(bad.stdout, /✘ broken/);
     assert.match(bad.stdout, /missing token/);
@@ -307,7 +307,7 @@ test('theme is routed and documented by the dispatcher', () => {
   assert.match(help, /^  theme {4}/m);
 
   const own = execFileSync('node', [CLI, 'theme', '--help'], { encoding: 'utf8' });
-  assert.match(own, /decklight theme check/);
+  assert.match(own, /decklight theme gate/);
   assert.match(own, /decklight theme add/);
 
   assert.match(own, /decklight theme remove/);
@@ -316,7 +316,7 @@ test('theme is routed and documented by the dispatcher', () => {
   assert.equal(unknown.status, 1);
   assert.match(unknown.stderr, /unknown subcommand "install"/);
 
-  const noArgs = spawnSync('node', [CLI, 'theme', 'check'], { encoding: 'utf8' });
+  const noArgs = spawnSync('node', [CLI, 'theme', 'gate'], { encoding: 'utf8' });
   assert.equal(noArgs.status, 1);
   assert.match(noArgs.stderr, /needs a theme file or url/);
 });

@@ -473,7 +473,7 @@ test('decklight library add transform surfaces the pin refusal as a clean messag
   const { code, out } = run(['library', 'add', 'transform', 'grammar-check'], m.home);
   assert.equal(code, 1);
   assert.match(out, /carries no sha256/);
-  assert.match(out, /decklight library check transform prints the digest/);
+  assert.match(out, /decklight library gate transform prints the digest/);
   assert.doesNotMatch(out, /^\s+at /m, 'an unpinned catalog entry is not an internal error');
   m.cleanup();
 });

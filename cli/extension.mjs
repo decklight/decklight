@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `decklight library check transform` — the marketplace admission gate for build-time code
+ * `decklight library gate transform` — the marketplace admission gate for build-time code
  * (MARKETPLACE.md `EXTENSIONS#CHECK`, SPEC `EXTENSIONS_CHECK`).
  *
- *   decklight library check transform <file> [--type transform]
+ *   decklight library gate transform <file> [--type transform]
  *
  * Validates a bare source FILE, not an installed, catalog-backed unit —
  * `bundle`, `import` and `publish` run an already-installed transform and
@@ -15,7 +15,7 @@
  * `transform` entry; a failing check blocks that PR from merging — the
  * extension's admission to a catalog, never `decklight publish`ing a deck.
  *
- * Named `extension`, not `transform`: `decklight library check plugin` already gates
+ * Named `extension`, not `transform`: `decklight library gate plugin` already gates
  * presenter-library plugins (a different risk — a stranger's code on the
  * presenter's own machine). This is the gate for build-time code
  * specifically, and `--type` leaves room for an `importer` check later. The
@@ -28,9 +28,9 @@ import { existsSync } from 'node:fs';
 import { isMain, argReader } from '../tools/args.mjs';
 import { checkExtension, TYPES } from '../tools/extension-check.mjs';
 
-const USAGE = `usage: decklight library check transform <file> [--type transform]
+const USAGE = `usage: decklight library gate transform <file> [--type transform]
 
-  decklight library check transform <file>
+  decklight library gate transform <file>
     lints the source — refuses fetch(), eval(), XMLHttpRequest or a dynamic
     import() anywhere in it — then runs it against a randomised fixture in a
     SEPARATE Node process under the permission model (no filesystem writes,
@@ -40,7 +40,7 @@ const USAGE = `usage: decklight library check transform <file> [--type transform
     a refusal, so a marketplace's own CI can gate admission on it.
     On a pass it prints the file's sha256 — the pin the catalog entry carries,
     which installs are held to (SPEC UNIT_PINNING)
-    EXAMPLE: decklight library check transform grammar-check.mjs
+    EXAMPLE: decklight library gate transform grammar-check.mjs
 
   --type transform   what kind of extension this is (default, and the only
                      kind implemented — the import-adapter contract is frozen
@@ -80,12 +80,12 @@ export function reportLines(name, result) {
 async function checkMain(args) {
   const { opt } = argReader(args);
   const [file] = args.filter((a, i) => !a.startsWith('-') && args[i - 1] !== '--type');
-  if (!file) { console.error(`decklight library check transform: needs a file\n\n${USAGE}`); return 1; }
-  if (!existsSync(file)) { console.error(`decklight library check transform: no such file: ${file}`); return 1; }
+  if (!file) { console.error(`decklight library gate transform: needs a file\n\n${USAGE}`); return 1; }
+  if (!existsSync(file)) { console.error(`decklight library gate transform: no such file: ${file}`); return 1; }
 
   const type = opt('--type') ?? 'transform';
   if (!TYPES.includes(type)) {
-    console.error(`decklight library check transform: --type ${type} is not implemented`
+    console.error(`decklight library gate transform: --type ${type} is not implemented`
       + ` — this decklight only checks: ${TYPES.join(', ')}`);
     return 1;
   }
@@ -101,7 +101,7 @@ export async function extensionMain(args = []) {
   const rest = args.slice(1);
   if (rest.includes('--help') || rest.includes('-h')) { console.log(USAGE); return 0; }
   if (sub === 'check') return checkMain(rest);
-  console.error(`decklight library check: unknown verb "${sub}"\n\n${USAGE}`);
+  console.error(`decklight library gate: unknown verb "${sub}"\n\n${USAGE}`);
   return 1;
 }
 

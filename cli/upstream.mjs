@@ -228,6 +228,7 @@ export function canPull(status, { offered = false } = {}) {
  */
 export function upstreamSuppressed({ args = [], env = process.env } = {}) {
   if (args.includes('--no-upstream')) return '--no-upstream';
+  if (args.includes('--audit')) return '--audit';
   if (args.includes('--check')) return '--check';
   if (env.DECKLIGHT_NO_UPSTREAM_CHECK) return 'DECKLIGHT_NO_UPSTREAM_CHECK is set';
   if (env.CI) return 'CI';

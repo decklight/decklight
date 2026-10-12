@@ -3,7 +3,7 @@
 
 // tools/template-theme.mjs — a PowerPoint template's colour and font schemes
 // as a decklight theme, derived and then pushed through the same gates
-// `decklight theme check` runs. The gates are the point: a template has
+// `decklight theme gate` runs. The gates are the point: a template has
 // twelve colours and a theme needs fifty-six that read against each other.
 
 import { test } from 'node:test';

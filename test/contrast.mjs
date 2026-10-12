@@ -9,7 +9,7 @@
 // The rules themselves live in tools/theme-check.mjs so that they SHIP: a
 // theme author outside this repo needs to run the same gates their file will
 // be judged by, and `test/` is not in the npm package. This file is the loop
-// that applies them to themes/; `decklight theme check` applies them to one
+// that applies them to themes/; `decklight theme gate` applies them to one
 // file. The two can never drift, because there is only one copy of the rules.
 //
 // Assertions (SPEC THEMING + presentation-quality extras, marked ✦):

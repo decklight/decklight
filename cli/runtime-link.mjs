@@ -20,7 +20,7 @@
  * boots — `Decklight.init()` with no argument takes its options from it, and
  * the engine boots itself once the document is parsed when a deck calls no
  * `init` of its own. Two keys are the file's, not the engine's: `decklight`
- * is the version the deck was written for (what --no-trust --check compares
+ * is the version the deck was written for (what --no-trust --audit compares
  * against the runtime this install serves), `theme` names the theme the
  * server links (default `aurora`).
  *

@@ -129,7 +129,7 @@ const USAGE_ALL = `usage: decklight <deck.html | git url> [--no-trust] [--port 8
                     its own directory under a Content-Security-Policy header,
                     the ingredients label runs first, every edit route refuses,
                     and no bridge is started. The way to open a deck you did
-                    not write; --strict, --check and --root apply here
+                    not write; --strict, --audit and --root apply here
                     (decklight <deck> --no-trust --help for that mode's flags)
   --trust           a deck that runs code of its own is opened in write mode
                     without the question. Without a flag, the ingredients

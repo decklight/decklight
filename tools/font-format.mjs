@@ -15,7 +15,7 @@
 //     OFL.txt …     the licence the manifest names: a hand-over redistributes
 //                   the font, so a package without one is refused
 //
-// PURE: texts and a file list in, never a path. `decklight font check` is a
+// PURE: texts and a file list in, never a path. `decklight font gate` is a
 // thin main over it, and the same rules run again wherever a package is
 // served — and `fontFaceCss` is the one place an @font-face rule is written,
 // for the servers and for bundle alike.

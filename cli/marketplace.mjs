@@ -393,7 +393,7 @@ export const ENGINE_CAPABILITIES = ['tts', 'lipsync'];
 /**
  * The pin a code-carrying entry installs against (SPEC `UNIT_PINNING`): the
  * SHA-256 of the module file's bytes, lowercase hex, as `sha256sum` prints it
- * and `decklight library check transform` emits it on success.
+ * and `decklight library gate transform` emits it on success.
  *
  * Validated for SHAPE when present, like everything else in `ENTRY_SHAPES` —
  * but its ABSENCE is refused at install time (`cli/units.mjs`), not here.

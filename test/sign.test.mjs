@@ -275,7 +275,7 @@ test('plain bundle neither signs nor warns — offline-clean by default', () => 
   assert.doesNotMatch(log, /signed|signing|\.sig\b/i, 'no nag: the default is a choice, not an oversight');
 });
 
-test('--no-trust --check fails a deck whose signature does not verify', () => {
+test('--no-trust --audit fails a deck whose signature does not verify', () => {
   const dir = tmp();
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, '<html><body><script>Decklight.init()</script></body></html>');

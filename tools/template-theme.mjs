@@ -19,7 +19,7 @@
  * tools/theme-check.mjs clears — a link colour that reads on the slide
  * background, six diagram fills a label can be read on, a code palette that
  * is legible on the block. The result is validated by the same function
- * `decklight theme check` runs, and if it cannot be made to pass, that is
+ * `decklight theme gate` runs, and if it cannot be made to pass, that is
  * reported rather than shipped.
  */
 

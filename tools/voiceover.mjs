@@ -12,8 +12,8 @@
 //                            [--keep-wav]  (keep the lossless intermediates —
 //                                           tools/lipsync.mjs consumes them)
 //
-// Engines (tools/tts-engines.mjs — the same three the live bridge speaks with;
-// the built-in macOS voices were dropped: not good enough):
+// Engines (tools/tts-engines.mjs — the same six the live bridge speaks with:
+// the four below, and the system voice, `say` on macOS and `sapi` on Windows):
 //   piper  — neural local TTS, fully offline, unlimited, free. --voice takes a
 //            piper model name (default en_US-ryan-high, a natural US male):
 //              uv tool install piper-tts

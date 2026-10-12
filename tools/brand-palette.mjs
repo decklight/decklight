@@ -9,7 +9,7 @@
 // brand by construction: an off-palette colour cannot be written down at all.
 //
 // PURE, like tools/design-system-format.mjs beside it: texts and objects in,
-// objects out, nothing read from disk. `design-system check` runs it on a
+// objects out, nothing read from disk. `design-system gate` runs it on a
 // package; the servers and `bundle` read what the check already worked out.
 //
 // What is derived is only what the palette lacks. A palette with a neutral

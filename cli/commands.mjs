@@ -101,7 +101,6 @@ const SHORT = {
   bundle: 'one self-contained HTML file to hand over',
   publish: 'bundle and push to GitHub Pages, Netlify, Vercel or a folder',
   doctor: 'what this machine can do, and the install line for what it cannot',
-  trust: 'the decks whose script you said you trust: list them, or forget one so it asks again',
 };
 
 export function shortHelp() {
@@ -237,7 +236,7 @@ Usage:
            --no-trust is the same server in no-trust mode: every edit route refuses, the deck is
            served from its own directory under a CSP header, and what the file will execute is
            listed before it runs — the way in for a deck you did not write, and where --strict and
-           --check live. The phone remote (--remote) and comments (M) work in either mode.
+           --audit live. The phone remote (--remote) and comments (M) work in either mode.
            A repository URL is cloned (in full) and the deck inside opened. A .decklight
            container is without trust by nature. (decklight <deck> --help for every flag)
   decklight <command> [options]        (decklight <command> --help for full flags)
@@ -274,7 +273,7 @@ Commands:
   import   convert an existing PowerPoint, Keynote or Google Slides deck into a decklight deck
            EXAMPLE: decklight import "Q3 Review.pptx"   (also .key on macOS, or a Slides URL)
   theme    validate a theme file against the token contract, or mark one for a deck to carry
-           EXAMPLE: decklight theme check nord-deep.css
+           EXAMPLE: decklight theme gate nord-deep.css
            EXAMPLE: decklight theme add nord-deep@acme-themes talk.html
   publish  bundle a deck and push it to GitHub Pages — deck to shareable URL in one command
            EXAMPLE: decklight publish deck.html   (prints https://owner.github.io/repo/)
@@ -283,20 +282,20 @@ Commands:
            EXAMPLE: decklight marketplace list              (offline-safe: reads only the cache)
   library  what this machine installs from a marketplace for its own use — plugins, skills,
            import adapters, build-time transforms, speech engines, voices, agents — one grammar:
-           add, remove, list, and check (the gate a marketplace's CI runs); nothing travels in a deck
+           add, remove, list, and gate (the admission gate a marketplace's CI runs); nothing travels in a deck
            EXAMPLE: decklight library add plugin timer      (then: decklight talk.html)
            EXAMPLE: decklight library add engine azure-tts  (then: decklight tts --engine azure-tts)
            EXAMPLE: decklight library list                  (every kind, or name one)
-           EXAMPLE: decklight library check transform grammar-check.mjs
-  design-system  a company's tokens, art and slide layouts, referenced by a deck and served from
-           the marketplace on this machine — add/remove/list/layouts, and check, the admission gate
+           EXAMPLE: decklight library gate transform grammar-check.mjs
+  design-system  a company's tokens, art and slide templates, referenced by a deck and served from
+           the marketplace on this machine — add/remove/list/templates/apply, and gate, the admission gate
            EXAMPLE: decklight design-system add acme@acme-mkt talk.html
            EXAMPLE: decklight design-system templates acme@acme-mkt   (the slots a slide fills)
-           EXAMPLE: decklight design-system check systems/acme   (a catalog's CI gate)
+           EXAMPLE: decklight design-system gate systems/acme   (a catalog's CI gate)
   font     a typeface's files and licence, referenced by a deck so its faces travel with it —
-           served from the marketplace on this machine, carried by bundle; add/remove/list, check
+           served from the marketplace on this machine, carried by bundle; add/remove/list, and gate
            EXAMPLE: decklight font add inter@type-mkt talk.html --use   (and open in it)
-           EXAMPLE: decklight font check fonts/inter   (a catalog's CI gate)
+           EXAMPLE: decklight font gate fonts/inter   (a catalog's CI gate)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
            EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
   lipsync  serve the lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU)
@@ -322,8 +321,10 @@ Commands:
            --incoming to see what reviews are waiting on the remote)
            EXAMPLE: decklight comments submit talk.html   (--pr opens a pull request)
   associate  wire double-clicking a .decklight file to decklight <file> (without trust by nature)
-  trust    list the decks whose script you said you trust, or forget one so decklight <deck> asks again
            EXAMPLE: decklight associate   (per-user, no admin rights; --uninstall undoes it)
+  trust    list the decks whose script you said you trust, or forget one so decklight <deck> asks again
+           EXAMPLE: decklight trust list
+           EXAMPLE: decklight trust forget talk.html   (the next open asks again)
   report-bug  gather the version + environment facts a Decklight bug report needs, and the issue URL
            EXAMPLE: decklight report-bug   (prints and exits — nothing is sent anywhere)
   doctor   what this machine can do — Chrome, ffmpeg, git, the optional deps, the agents on PATH —

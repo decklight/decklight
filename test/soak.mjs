@@ -1915,7 +1915,7 @@ try {
     return undefined;
   });
 
-  await step('--no-trust --check validates the bundle', () => {
+  await step('--no-trust --audit validates the bundle', () => {
     const r = dl(['linked bundle.html', '--no-trust', '--check']);
     must(r.all.includes('identical to this install'), 'the bundled runtime is not this install');
     must(/0 unaccounted script blocks/.test(r.all), 'the bundle carries unaccounted script');

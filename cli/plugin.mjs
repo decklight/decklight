@@ -8,7 +8,7 @@
  *
  *   decklight library add plugin    <name[@marketplace]>
  *   decklight library list plugin
- *   decklight library check plugin  <name | directory>
+ *   decklight library gate plugin  <name | directory>
  *   decklight library remove plugin <name>
  *
  * WHY THIS IS ALLOWED TO EXIST AT ALL. The asymmetry MARKETPLACE.md WHY is
@@ -458,7 +458,7 @@ const USAGE = `usage: decklight library <add|list|check|remove> plugin …
   decklight library list plugin
     what is installed, where each sits, and which ones read your speaker notes
 
-  decklight library check plugin <name | directory>
+  decklight library gate plugin <name | directory>
     validate a plugin without installing it — the same manifest vocabulary and
     the same lint the loader applies. Exits non-zero on a refusal, so a
     plugin's own CI can gate on it
@@ -605,9 +605,9 @@ function listMain(home) {
 
 function checkMain(args, home) {
   const [target] = args.filter((a) => !a.startsWith('-'));
-  if (!target) { console.error(`decklight library check plugin: needs a plugin name or directory\n\n${USAGE}`); return 1; }
+  if (!target) { console.error(`decklight library gate plugin: needs a plugin name or directory\n\n${USAGE}`); return 1; }
   const dir = existsSync(target) ? resolve(target) : join(pluginsDir(home), target);
-  if (!existsSync(dir)) { console.error(`decklight library check plugin: no such plugin or directory: ${target}`); return 1; }
+  if (!existsSync(dir)) { console.error(`decklight library gate plugin: no such plugin or directory: ${target}`); return 1; }
   let p;
   try { p = loadPlugin(dir); } catch (e) {
     if (!(e instanceof PluginError)) throw e;

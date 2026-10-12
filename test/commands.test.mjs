@@ -124,3 +124,23 @@ test('did-you-mean: the word for the command first, then a unique prefix, then a
   assert.equal(suggestCommand('bundle'), null, 'a real command needs no suggestion');
   assert.equal(suggestCommand('p'), null, 'one letter matches too many to guess from');
 });
+
+test('check means the deck lint; the admission gates are `gate`, and the old word still answers', async () => {
+  // Seven things were called check (ROADMAP section 5). The help names one;
+  // a catalog's CI that already runs `theme check` keeps working, unadvertised.
+  const { spawnSync } = await import('node:child_process');
+  const path = await import('node:path');
+  const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'cli', 'decklight.mjs');
+  const theme = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'themes', 'aurora.css');
+  const run = (...a) => spawnSync(process.execPath, [CLI, ...a], { encoding: 'utf8' });
+  const gate = run('theme', 'gate', theme);
+  const old = run('theme', 'check', theme);
+  assert.equal(gate.status, 0, gate.stderr);
+  assert.equal(old.status, gate.status, 'theme check still answers as the gate');
+  assert.equal(old.stdout, gate.stdout);
+  assert.match(run('library', 'check', 'voice', 'x').stderr, /no admission gate for a voice/, 'library check is the gate too');
+  // the help advertises gate only
+  assert.doesNotMatch(GLOBAL_HELP, /decklight (theme|font|design-system|library) check\b/);
+  assert.match(GLOBAL_HELP, /decklight theme gate/);
+  assert.doesNotMatch(GLOBAL_HELP, /--check\b/);
+});

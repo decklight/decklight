@@ -104,7 +104,7 @@ export function signature(dir) {
 const verdicts = new Map();
 
 /**
- * Does the package STILL pass `decklight design-system check`? It follows its
+ * Does the package STILL pass `decklight design-system gate`? It follows its
  * marketplace, so it is re-checked wherever it is used. `{ ok, why, summary,
  * manifest }`, remembered by its stat signature.
  */
@@ -116,7 +116,7 @@ export function packageVerdict(dir) {
   const r = checkDir(dir);
   const value = r.ok
     ? { ok: true, summary: r.summary, manifest: r.manifest, templatesHtml: r.templatesHtml }
-    : { ok: false, why: `it no longer passes the design-system check — ${r.problems[0].file}${r.problems[0].line ? ` line ${r.problems[0].line}` : ''}: ${r.problems[0].msg} (decklight design-system check)` };
+    : { ok: false, why: `it no longer passes the design-system check — ${r.problems[0].file}${r.problems[0].line ? ` line ${r.problems[0].line}` : ''}: ${r.problems[0].msg} (decklight design-system gate)` };
   verdicts.set(dir, { sig, value });
   return value;
 }

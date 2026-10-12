@@ -4,7 +4,7 @@
 
 // decklight font — the font unit (SPEC FONTS).
 //
-//   decklight font check <dir>
+//   decklight font gate <dir>
 //   decklight font add|remove <name@marketplace> <deck.html> [--use]
 //   decklight font list [<deck.html>]
 //
@@ -39,11 +39,11 @@ const USAGE = `usage: decklight font <add|remove|list|check> …
     what a deck references; with no deck, every font the registered
     marketplaces offer — from the cache alone, works on a plane
 
-  decklight font check <dir>
+  decklight font gate <dir>
     the marketplace admission gate for a font package (SPEC FONTS). Prints
     what the package holds and exits 0, or names the file and the rule for
     every problem and exits 1.
-    EXAMPLE: decklight font check fonts/inter
+    EXAMPLE: decklight font gate fonts/inter
 
   A font is a directory:
     font.json   apiVersion (${FONT_API_VERSION}), name, version (semver), title,
@@ -128,9 +128,9 @@ export function reportLines(dir, r) {
 
 async function checkMain(args) {
   const [dir] = args.filter((a) => !a.startsWith('-'));
-  if (!dir) { console.error(`decklight font check: needs a package directory\n\n${USAGE}`); return 1; }
-  if (!existsSync(dir)) { console.error(`decklight font check: no such directory: ${dir}`); return 1; }
-  if (!statSync(dir).isDirectory()) { console.error(`decklight font check: ${dir} is a file — a font is a directory holding font.json`); return 1; }
+  if (!dir) { console.error(`decklight font gate: needs a package directory\n\n${USAGE}`); return 1; }
+  if (!existsSync(dir)) { console.error(`decklight font gate: no such directory: ${dir}`); return 1; }
+  if (!statSync(dir).isDirectory()) { console.error(`decklight font gate: ${dir} is a file — a font is a directory holding font.json`); return 1; }
   const r = checkFontDir(dir);
   for (const line of reportLines(dir, r)) console.log(line);
   return r.ok ? 0 : 1;
@@ -235,7 +235,7 @@ export async function fontMain(args = []) {
   const rest = args.slice(1);
   if (rest.includes('--help') || rest.includes('-h')) { console.log(USAGE); return 0; }
   argReader(rest);
-  if (sub === 'check') return checkMain(rest);
+  if (sub === 'gate' || sub === 'check') return checkMain(rest);   // `check` still answers, unadvertised: a catalog's CI may run it
   if (sub === 'add') return addMain(rest, true);
   if (sub === 'remove') return addMain(rest, false);
   if (sub === 'list') return listMain(rest);

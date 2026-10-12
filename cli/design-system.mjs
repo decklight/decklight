@@ -4,13 +4,13 @@
 
 // decklight design-system — the design-system unit (SPEC DESIGN_SYSTEMS).
 //
-//   decklight design-system check <dir>
+//   decklight design-system gate <dir>
 //   decklight design-system add|remove <name@marketplace> <deck.html>
 //   decklight design-system list [<deck.html>]
 //   decklight design-system templates <name@marketplace>
 //
 // `check` is the admission gate a catalog's own CI runs, in the mould of
-// `decklight library check transform` and `decklight theme check`: a valid package
+// `decklight library gate transform` and `decklight theme gate`: a valid package
 // prints what it holds and exits 0; a broken or unsafe one names the file,
 // the line and the rule for every problem, and exits 1. Every rule lives in
 // tools/design-system-format.mjs, which is pure — this file only reads a
@@ -28,7 +28,7 @@ import { argReader, isMain } from '../tools/args.mjs';
 import { checkPackage, DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS } from '../tools/design-system-format.mjs';
 import { THEMES_DIR } from './pkg.mjs';
 
-const USAGE = `usage: decklight design-system <add|remove|list|templates|check> …
+const USAGE = `usage: decklight design-system <add|remove|list|templates|apply|gate> …
 
   decklight design-system add <name@marketplace> <deck.html> [--no-recommended] [--apply|--no-apply]
     reference a design system from a deck — after the package passes check;
@@ -55,12 +55,12 @@ const USAGE = `usage: decklight design-system <add|remove|list|templates|check> 
   decklight design-system templates <name@marketplace>
     the package's templates and their slots — the names a slide writes
 
-  decklight design-system check <dir>
+  decklight design-system gate <dir>
     the marketplace admission gate for a design-system package — its manifest,
     stylesheet, templates and assets, held to the format's rules (SPEC
     DESIGN_SYSTEMS). Prints what the package holds and exits 0, or names the
     file, the line and the rule for every problem and exits 1.
-    EXAMPLE: decklight design-system check systems/acme
+    EXAMPLE: decklight design-system gate systems/acme
 
   A design system is a directory:
     design-system.json   apiVersion (${DESIGN_SYSTEM_API_VERSION}), name, version (semver), title,
@@ -181,10 +181,10 @@ export function reportLines(dir, r) {
 
 async function checkMain(args) {
   const [dir] = args.filter((a) => !a.startsWith('-'));
-  if (!dir) { console.error(`decklight design-system check: needs a package directory\n\n${USAGE}`); return 1; }
-  if (!existsSync(dir)) { console.error(`decklight design-system check: no such directory: ${dir}`); return 1; }
+  if (!dir) { console.error(`decklight design-system gate: needs a package directory\n\n${USAGE}`); return 1; }
+  if (!existsSync(dir)) { console.error(`decklight design-system gate: no such directory: ${dir}`); return 1; }
   if (!statSync(dir).isDirectory()) {
-    console.error(`decklight design-system check: ${dir} is a file — a design system is a directory holding design-system.json`);
+    console.error(`decklight design-system gate: ${dir} is a file — a design system is a directory holding design-system.json`);
     return 1;
   }
   const r = checkDir(dir);
@@ -375,7 +375,7 @@ async function applyMain(args) {
   const r = resolveDesignSystemRef(hit, undefined, { source: markedSources(d.html)[hit.marketplace] ?? null });
   if (!r.dir) { console.error(`decklight design-system apply: ${hit.ref} — ${r.missing}`); return 1; }
   const verdict = checkDir(r.dir);
-  if (!verdict.ok) { console.error(`decklight design-system apply: ${hit.ref} no longer passes its check — decklight design-system check ${r.dir}`); return 1; }
+  if (!verdict.ok) { console.error(`decklight design-system apply: ${hit.ref} no longer passes its check — decklight design-system gate ${r.dir}`); return 1; }
   const deps = await import('./design-system-deps.mjs');
   const plan = deps.planRecommended(d.html, { manifest: verdict.manifest, local: r.local });
   let html = deps.writePlan(d.html, plan);
@@ -404,7 +404,7 @@ export async function designSystemMain(args = []) {
   const rest = args.slice(1);
   if (rest.includes('--help') || rest.includes('-h')) { console.log(USAGE); return 0; }
   argReader(rest);
-  if (sub === 'check') return checkMain(rest);
+  if (sub === 'gate' || sub === 'check') return checkMain(rest);   // `check` still answers, unadvertised: a catalog's CI may run it
   if (sub === 'add') return addMain(rest, true);
   if (sub === 'remove') return addMain(rest, false);
   if (sub === 'list') return listMain(rest);

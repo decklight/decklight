@@ -48,7 +48,7 @@ that inversion.
   run: **registered, not fetched**. The network is touched only when the
   browse UI is opened, so a deck on conference wifi, on a plane, or air-gapped
   behaves identically.
-- "Vetted" means a written bar enforced by CI (`theme check`, `extension
+- "Vetted" means a written bar enforced by CI (`theme gate`, `extension
   check`), not a folder with the project's logo on it.
 - Third-party marketplaces are unreviewed, auto-update off by default; the
   community one screens submissions and pins what it screened. This is
@@ -188,7 +188,7 @@ things the loader alone decides, both left open by `EXTENSIONS#CONVENTION`:
 **`EXTENSIONS#CHECK`: landed (full contract text: SPEC `EXTENSIONS_CHECK`;
 `cli/extension.mjs`, `tools/extension-check.mjs`).** `decklight library
 check transform <file>` is the marketplace admission gate the WHY section already
-promised ("a written bar enforced by CI"), for the same reason `theme check`
+promised ("a written bar enforced by CI"), for the same reason `theme gate`
 is one: it operates on a source FILE,
 not an installed, catalog-backed unit: a marketplace repo's own CI runs it
 against a submitted `transform.mjs` before merging the PR that adds the
@@ -196,10 +196,10 @@ catalog entry, which is what "failure blocks publish" means here: *publishing
 the extension to a catalog*, not `decklight publish`ing a deck. `bundle` and
 `publish` stay exactly as `EXTENSIONS#LOADER` left them: an installed
 transform a deck actually uses is never re-checked on that path, the same way
-an installed theme is never re-run through `theme check` on `bundle`: the
+an installed theme is never re-run through `theme gate` on `bundle`: the
 gate sits at the marketplace's door, once, not on every local iteration.
 
-Named `extension`, not `transform`, on purpose: `decklight library check plugin`
+Named `extension`, not `transform`, on purpose: `decklight library gate plugin`
 already exists for presenter-library plugins (a different risk: a
 stranger's code on the presenter's machine, SPEC `NO_TRUST#PLUGINS`); this is
 the gate for **build-time** code units specifically, and `EXTENSIONS#ADAPTEREXEC`
@@ -267,7 +267,7 @@ Right-sized as ONE ticket, unlike `EXTENSIONS#TRANSFORMS`: that one fanned
 into four because it bundled a design freeze with three separate execution
 surfaces (the contract, the loader, running it from `import`). Here the
 design is what this paragraph just settled, and the remaining surface (
-lint, fixture run, headless dump, `decklight library check transform` command) is
+lint, fixture run, headless dump, `decklight library gate transform` command) is
 comparable in size to `theme add`/`check` landing together (#206). It needs
 Chrome the same way `npm run verify`'s render harnesses do, and answers the
 same way they already do when Chrome is absent: a named refusal, never a
@@ -293,7 +293,7 @@ in the installer's own Node process. Now a code-carrying entry carries the
 module file's `sha256`: a content digest, not a commit SHA, so it holds for
 raw URLs, git URLs and local directories alike, against the math rather than
 the host, and installing is held to it twice: no pin, no fetch; a fetched
-module off the pin, no write, both refusals named. `library check transform` prints
+module off the pin, no write, both refusals named. `library gate transform` prints
 the digest on a pass, so the admission gate emits the very pin the catalog
 entry carries. Data kinds stay unpinned (a theme re-passes its whole contract
 at `theme add`; skills execute nothing), and a hand-placed unit
@@ -621,7 +621,7 @@ deck is sent to: a catalog that must not be named simply omits `title`.
 ### SETTLED · Unchanged from the interview
 
 Player-first surface · `.decklight/marketplace.json` mirroring Claude's layout ·
-versions for code, none for data · `library check transform` = lint, then headless load ·
+versions for code, none for data · `library gate transform` = lint, then headless load ·
 disclosure at install · official curated + community screened with pinning
 (landed as an artifact digest, not a commit SHA, `EXTENSIONS#PIN`) ·
 third-party unreviewed with auto-update off.
@@ -723,7 +723,7 @@ to play someone else's deck is a single command.
       **cannot modify slide content**, enforced, not documented
 - [ ] Build-time transforms run only during `bundle`; a transform cannot emit a
       `<script>` that is not declared in the manifest
-- [ ] `library check transform` lints (no `fetch`/`eval`/`XMLHttpRequest`/dynamic
+- [ ] `library gate transform` lints (no `fetch`/`eval`/`XMLHttpRequest`/dynamic
       import) then loads headlessly; failure blocks publish
 
 ### How would you demo it?
@@ -780,7 +780,7 @@ Depends column cites tickets by mnemonic, never by position.
 | `THEME_BROWSE#UI` | **Browse** in the picker, authoring-only, installing via `theme add` | `MARKETPLACES#CORE` |
 | `EXTENSIONS#CONVENTION` | freeze the transform calling convention `apiVersion` names a version of | `OPEN` 2 (resolved) |
 | `EXTENSIONS#LOADER` | the pipeline stage: install a transform, run it from `bundle --transform <name>` before signing | `EXTENSIONS#CONVENTION` |
-| `EXTENSIONS#CHECK` | `library check transform`: lint (no `fetch`/`eval`/`XMLHttpRequest`/dynamic import), then a headless load of the transform's OUTPUT; failure blocks publish | `EXTENSIONS#LOADER` |
+| `EXTENSIONS#CHECK` | `library gate transform`: lint (no `fetch`/`eval`/`XMLHttpRequest`/dynamic import), then a headless load of the transform's OUTPUT; failure blocks publish | `EXTENSIONS#LOADER` |
 | `EXTENSIONS#ADAPTEREXEC` | wire the same loader into `cli/import.mjs`: an installed import adapter finally runs | `EXTENSIONS#LOADER` |
 | `NO_TRUST#PLUGINS` | presenter-library plugins, chrome-only, enforced | `NO_TRUST`, `MARKETPLACES#CORE` |
 | `ENGINES#WIZARD` | wizard framework: declarative schema, `~/.decklight/` writes restricted to your account, write-mode-only | `MARKETPLACES#CORE` |
@@ -790,8 +790,8 @@ Depends column cites tickets by mnemonic, never by position.
 | `UNITS#REST` | skills, importers, publish targets, voices (deck templates, since removed) | `MARKETPLACES#CORE` |
 | `COMMANDS#RENAME` | `dev` → `open` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
 | `NO_TRUST#REMOTE` | move speaker view + phone remote off the edit server onto `--no-trust` | `NO_TRUST` |
-| `THEME_BROWSE#SPLIT` | **landed**: `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) moved to `decklight/decklight-plugins-official`; `palette-rules` no longer grades them, `theme check` still does | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
-| `EXTENSIONS#PIN` | **landed**: `sha256` on transform/importer entries; `add` refuses unpinned or mismatched, `library check transform` prints the digest | `EXTENSIONS#CHECK`, `UNITS#REST` |
+| `THEME_BROWSE#SPLIT` | **landed**: `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) moved to `decklight/decklight-plugins-official`; `palette-rules` no longer grades them, `theme gate` still does | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
+| `EXTENSIONS#PIN` | **landed**: `sha256` on transform/importer entries; `add` refuses unpinned or mismatched, `library gate transform` prints the digest | `EXTENSIONS#CHECK`, `UNITS#REST` |
 
 `NO_TRUST` through `DECK_FILE#ASSOC` are a coherent first release with no
 marketplace at all: they make playing someone else's deck safe, which is worth
@@ -814,7 +814,7 @@ before 0.3.0 ships to npm.
    what you installed is compared against it (SPEC `UNIT_VERSIONS`). The deck
    still records none, and `upgrade` still re-fetches nothing. What follows
    stands for the DECK: compatibility with a runtime *is* passing
-   `theme check`, there is no compat range to be stale against,
+   `theme gate`, there is no compat range to be stale against,
    and once a theme is inline in a deck nothing records which marketplace it
    came from, so there is nowhere to re-fetch FROM even if `upgrade` fetched
    at all, which it does not, the same registered-not-fetched posture
@@ -875,7 +875,7 @@ before 0.3.0 ships to npm.
    own `.decklight/marketplace.json` as `theme` entries, installable the same
    way any third-party theme is (`decklight theme add star-wars@decklight`).
    This also answers the ticket's "decide where grading lives": the two gates are not
-   one bar wearing two names. `theme check` (`tools/theme-check.mjs`, SPEC
+   one bar wearing two names. `theme gate` (`tools/theme-check.mjs`, SPEC
    `THEME_DISTRIBUTION`) is the token contract + WCAG gates, and it travels
    with a theme wherever it lives, because it is about whether the theme
    RENDERS correctly against a runtime: the same reason it already ships

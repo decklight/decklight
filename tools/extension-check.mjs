@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The marketplace admission gate for build-time code (MARKETPLACE.md
-// EXTENSIONS#CHECK, SPEC EXTENSIONS_CHECK) — what `decklight library check transform`
+// EXTENSIONS#CHECK, SPEC EXTENSIONS_CHECK) — what `decklight library gate transform`
 // runs. Lives under tools/, which ships, for the reason tools/theme-check.mjs
 // already gives: test/ does not, so a marketplace's own CI needs this
 // reachable from the installed package, not from a suite that never travels.
@@ -97,7 +97,7 @@ export const CHECK_TIMEOUT_MS = Number(process.env.DECKLIGHT_CHECK_TIMEOUT_MS) |
  * the checking machine was busy, is worse than one that takes a minute to
  * reject a hostile one. So slow machines raise it (`DECKLIGHT_CHECK_LOAD_MS`),
  * exactly as they already raise `VERIFY_TIMEOUT_MS`, and the default is
- * unchanged for anyone running `decklight library check transform` by hand.
+ * unchanged for anyone running `decklight library gate transform` by hand.
  */
 export const LOAD_TIMEOUT_MS = Number(process.env.DECKLIGHT_CHECK_LOAD_MS) || CHECK_TIMEOUT_MS;
 
@@ -115,7 +115,7 @@ export const RESULT_DELIM = '\n__decklight_extension_check_result__';
 export function makeFixture() {
   const nonce = randomBytes(8).toString('hex');
   return `<!doctype html>\n<html><head><title>check ${nonce}</title></head>`
-    + `<body><section><h2>Check ${nonce}</h2><p>decklight library check transform ${nonce}</p></section></body></html>\n`;
+    + `<body><section><h2>Check ${nonce}</h2><p>decklight library gate transform ${nonce}</p></section></body></html>\n`;
 }
 
 /**

@@ -224,7 +224,7 @@ test('--deck and --no-sign together are refused before anything happens', () => 
 
 // ── present on a container ─────────────────────────────────────────────────
 
-test('--no-trust --check reads a container like the deck it wraps', async () => {
+test('--no-trust --audit reads a container like the deck it wraps', async () => {
   const dir = tmp();
   const out = path.join(dir, 'out.html');
   const { bundleMain } = await import('../cli/bundle.mjs');

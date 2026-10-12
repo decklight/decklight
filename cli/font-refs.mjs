@@ -78,7 +78,7 @@ export function resolveFontRef(ref, home = configHome(), { source = null } = {})
 const verdicts = new Map();
 
 /**
- * Does the package STILL pass `decklight font check`? It follows its
+ * Does the package STILL pass `decklight font gate`? It follows its
  * marketplace, so it is re-checked wherever it is used, remembered by a stat
  * signature. `{ ok, why, summary, manifest }`.
  */
@@ -90,7 +90,7 @@ export function fontVerdict(dir) {
   const r = checkFontDir(dir);
   const value = r.ok
     ? { ok: true, summary: r.summary, manifest: r.manifest }
-    : { ok: false, why: `it no longer passes the font check — ${r.problems[0].file}${r.problems[0].line ? ` line ${r.problems[0].line}` : ''}: ${r.problems[0].msg} (decklight font check)` };
+    : { ok: false, why: `it no longer passes the font check — ${r.problems[0].file}${r.problems[0].line ? ` line ${r.problems[0].line}` : ''}: ${r.problems[0].msg} (decklight font gate)` };
   verdicts.set(dir, { sig, value });
   return value;
 }

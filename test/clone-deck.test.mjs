@@ -216,7 +216,7 @@ test('present and review open a repository URL — into the one clone author mad
   assert.equal(fs.readdirSync(cwd).join(','), 'talk', 'one clone, all three times');
 });
 
-test('--no-trust --check works on a repository URL, and a URL that is no repository is a sentence', (t) => {
+test('--no-trust --audit works on a repository URL, and a URL that is no repository is a sentence', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-url-check-'));
   t.after(() => rmTemp(root));
   const { url } = bareRepo(root, { 'deck.html': DECK });

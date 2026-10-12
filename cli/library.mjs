@@ -7,7 +7,7 @@
  *   decklight library add <kind> <name[@marketplace]>
  *   decklight library remove <kind> <name>
  *   decklight library list [kind]
- *   decklight library check <kind> <path>     (the marketplace admission gate)
+ *   decklight library gate <kind> <path>     (the marketplace admission gate)
  *
  * It used to be seven top-level commands, one per kind (`importer`,
  * `transform`, `engine`, `voice`, `agent`, `plugin`, `extension`) plus the
@@ -28,7 +28,10 @@ import { isMain } from '../tools/args.mjs';
 
 const UNIT_KINDS = Object.keys(UNIT_TYPES);
 export const KINDS = [...UNIT_KINDS, 'plugin'];
-export const VERBS = ['add', 'remove', 'list', 'check'];
+// `gate` is the marketplace admission gate; `check` still answers for it,
+// unadvertised, because a catalog's CI may already run it. Bare `decklight
+// check` is the deck lint, and the word now has that one meaning.
+export const VERBS = ['add', 'remove', 'list', 'gate', 'check'];
 /** The kinds a marketplace can gate admission on before an entry is listed. */
 const CHECKABLE = { plugin: 'a plugin directory, or an installed plugin\'s name', transform: 'a build-time transform\'s .mjs file' };
 
@@ -46,11 +49,11 @@ export const USAGE = `usage: decklight library <add|remove|list|check> <kind> �
   decklight library remove <kind> <name>
   decklight library list [kind]          every kind when none is named
 
-  decklight library check <kind> <path>
+  decklight library gate <kind> <path>
     the admission gate a marketplace's CI runs before listing an entry;
     exits non-zero on a refusal
-    EXAMPLE: decklight library check transform grammar-check.mjs
-    EXAMPLE: decklight library check plugin plugins/timer
+    EXAMPLE: decklight library gate transform grammar-check.mjs
+    EXAMPLE: decklight library gate plugin plugins/timer
 
   kinds
     plugin     presenter chrome for your machine; every deck you open shows it
@@ -65,7 +68,7 @@ export const USAGE = `usage: decklight library <add|remove|list|check> <kind> �
 /**
  * The library form of a command typed the old way, for "did you mean":
  * `plugin add timer` → `library add plugin timer`, `extension check t.mjs` →
- * `library check transform t.mjs`, `engines` → `library list engine`.
+ * `library gate transform t.mjs`, `engines` → `library list engine`.
  * Pure, so the suggestion can be tested without running anything.
  */
 export function libraryForm(cmd, rest = []) {
@@ -85,7 +88,7 @@ function refuse(msg) {
 export async function libraryMain(args = []) {
   const [verb, kind, ...rest] = args;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') { console.log(USAGE); return verb ? 0 : 1; }
-  if (!VERBS.includes(verb)) return refuse(`unknown verb "${verb}" — add, remove, list or check`);
+  if (!VERBS.includes(verb)) return refuse(`unknown verb "${verb}" — add, remove, list or gate`);
   if (args.includes('--help') || args.includes('-h')) {
     // a kind named: that kind's own usage, its examples and what uses it
     if (KINDS.includes(kind)) return kind === 'plugin' ? pluginRun(['--help']) : unitRun(kind, ['--help']);
@@ -102,7 +105,7 @@ export async function libraryMain(args = []) {
   if (!kind) return refuse(`${verb} needs a kind: ${KINDS.join(', ')}`);
   if (!KINDS.includes(kind)) return refuse(`unknown kind "${kind}": ${KINDS.join(', ')}`);
 
-  if (verb === 'check') {
+  if (verb === 'gate' || verb === 'check') {
     if (!CHECKABLE[kind]) return refuse(`there is no admission gate for a ${kind} — only for ${Object.keys(CHECKABLE).join(' and ')}`);
     if (kind === 'plugin') return pluginRun(['check', ...rest]);
     const { extensionMain } = await import('./extension.mjs');

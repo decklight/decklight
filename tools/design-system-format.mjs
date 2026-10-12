@@ -15,7 +15,7 @@
 //     assets/…             svg · png · jpg · jpeg · webp · woff2 · woff
 //
 // PURE: every function here takes texts and a file list, never a path to read,
-// and imports nothing from Node. `decklight design-system check` (the
+// and imports nothing from Node. `decklight design-system gate` (the
 // admission gate a catalog's CI runs) is a thin main over it, and the same
 // rules run again where a package is served and where the engine clones a
 // template — one module, so the three can never disagree about what is safe.

@@ -5,7 +5,7 @@
 // decklight theme — validate themes that came from somewhere else, and mark
 // which of them a deck travels with.
 //
-//   decklight theme check  <file|url>
+//   decklight theme gate  <file|url>
 //   decklight theme add    <name@marketplace|file|url> <deck.html> [--name x] [--dry-run]
 //   decklight theme remove <name|name@marketplace> <deck.html>
 //
@@ -29,11 +29,11 @@ import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools
 import { checkoutPath, classifySource, configHome, MarketplaceError, loadRegistry, loadCatalog, resolveEntry, recordInstall } from './marketplace.mjs';
 import { setMarked, addToLocalMarketplace, resolveThemeRef, cacheThemeCss, markedEntries, parseRef, parseShipped, refForDeck } from './theme-refs.mjs';
 
-const USAGE = `usage: decklight theme <check|add|remove> …
+const USAGE = `usage: decklight theme <gate|add|remove> …
 
-  decklight theme check <file|url>
+  decklight theme gate <file|url>
     run the SPEC THEMING token contract and the WCAG contrast gates on a theme file
-    EXAMPLE: decklight theme check nord-deep.css
+    EXAMPLE: decklight theme gate nord-deep.css
 
   decklight theme add <name|name@marketplace|file|url> <deck.html> [--name <name>] [--dry-run]
     validate a theme, then MARK it for the deck: its configuration block gains
@@ -135,9 +135,9 @@ export function reportLines(name, result) {
 
 async function checkMain(args) {
   const [source] = args.filter((a) => !a.startsWith('-'));
-  if (!source) { console.error(`decklight theme check: needs a theme file or url\n\n${USAGE}`); return 1; }
+  if (!source) { console.error(`decklight theme gate: needs a theme file or url\n\n${USAGE}`); return 1; }
   let css;
-  try { css = await fetchTheme(source); } catch (e) { console.error(`decklight theme check: ${e.message}`); return 1; }
+  try { css = await fetchTheme(source); } catch (e) { console.error(`decklight theme gate: ${e.message}`); return 1; }
   const name = themeNameFrom(source) || 'theme';
   const result = validateTheme(css);
   for (const line of reportLines(name, result)) console.log(line);
@@ -283,7 +283,7 @@ export async function themeMain(args = []) {
   if (!sub || sub === '--help' || sub === '-h' || sub === 'help') { console.log(USAGE); return sub ? 0 : 1; }
   const rest = args.slice(1);
   if (rest.includes('--help') || rest.includes('-h')) { console.log(USAGE); return 0; }
-  if (sub === 'check') return checkMain(rest);
+  if (sub === 'gate' || sub === 'check') return checkMain(rest);   // `check` still answers, unadvertised: a catalog's CI may run it
   if (sub === 'add') return addMain(rest);
   if (sub === 'remove') return removeMain(rest);
   console.error(`decklight theme: unknown subcommand "${sub}"\n\n${USAGE}`);
