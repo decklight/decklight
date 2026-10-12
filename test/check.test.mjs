@@ -433,3 +433,23 @@ test('the deck init scaffolds passes its own lint — one [click] beat per build
       'a new deck that warns in its own check teaches the wrong count — and the last build played in silence');
   } finally { rmTemp(dir); }
 });
+
+// ── whether a slide's diagram builds ──────────────────────────────────────────
+
+test('an SVG diagram with no build is a hint; a built one, a drawn one, a chart, an icon and an opt-out are not', () => {
+  const shapes = '<rect/><rect/><path d="M0 0"/><text>API</text>';
+  const html = deck(`  <section><h2>Still</h2><svg viewBox="0 0 10 10">${shapes}</svg></section>
+  <section><h2>Drawn</h2><svg data-build="draw">${shapes}</svg></section>
+  <section><h2>Grouped</h2><svg><g data-build><g>${shapes}</g><g><rect/></g></g></svg></section>
+  <section><h2>Chart</h2><div class="chart" data-chart="bar"><svg>${shapes}</svg></div></section>
+  <section><h2>Icon</h2><p>See <svg><path d="M0 0"/></svg> here</p></section>
+  <section><h2>Meant</h2><svg data-static-ok>${shapes}</svg></section>
+  <section data-static-ok><h2>Meant too</h2><svg>${shapes}</svg></section>
+  <section><h2>Illustration</h2><svg><rect/><rect/><path d="M0 0"/><circle/></svg></section>
+  <section><h2>Bullets build, the diagram does not</h2><ul data-build><li>a</li><li>b</li></ul><svg>${shapes}</svg><svg>${shapes}</svg></section>`);
+  const found = only(staticFindings(html, everything), 'static-diagram');
+  assert.deepEqual(found.map((f) => f.slide), [1, 9], 'an illustration with no words is drawn, not explained: no build asked of it');
+  assert.ok(found.every((f) => f.level === 'hint'));
+  assert.match(found[1].message, /^2 SVG diagrams with no build/, 'one hint per slide, counting its still diagrams');
+  assert.match(found[0].message, /data-static-ok/);
+});

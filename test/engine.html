@@ -2456,6 +2456,19 @@
           && document.querySelector(`${Q} .narr-head`)?.textContent === 'check';
         r.escCloses = escapeUntilClosed(Q);
 
+        // decklight check's diagram hint, asked of the open deck (cli/check.mjs)
+        const shapes = '<rect width="9" height="9"/><rect x="20" width="9" height="9"/><path d="M0 0h9"/><text y="30">API</text>';
+        // into the stage, where init moved the slides: sync() reads them from there
+        secs[0].parentElement.insertAdjacentHTML('beforeend', `
+          <section><h2>Still</h2><svg viewBox="0 0 60 40" width="60">${shapes}</svg></section>
+          <section><h2>Built</h2><svg viewBox="0 0 60 40" width="60" data-build><g>${shapes}</g><g><rect width="5" height="5"/></g></svg></section>
+          <section><h2>Meant</h2><svg viewBox="0 0 60 40" width="60" data-static-ok>${shapes}</svg></section>`);
+        deck.sync();
+        await settle();
+        const hints = (rule) => deck.check().filter((f) => f.rule === rule);
+        r.stillDiagramHinted = hints('static-diagram').map((f) => f.slide).join(',') === '10'
+          && hints('static-diagram')[0].level === 'hint';
+
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -5727,7 +5740,8 @@
         const hint = [...document.querySelectorAll('.decklight-deckcheck .dc-row')].find((x) => x.dataset.rule === 'concept-suggestion');
         r.suggestsTheRecurringLabel = !!hint && hint.classList.contains('dc-hint')
           && /“Other” is on slides 5 and 6 in 2 colours: make it the “other” concept · ⏎ makes it/.test(hint.textContent)
-          && /1 suggestion$/.test(q('.decklight-deckcheck .narr-head')?.textContent ?? '');
+          // every hint row is counted as a suggestion (a diagram with no build is a hint too)
+          && new RegExp(` · ${document.querySelectorAll('.decklight-deckcheck .dc-hint').length} suggestions?$`).test(q('.decklight-deckcheck .narr-head')?.textContent ?? '');
         r.agentNoLongerSuggested = ![...document.querySelectorAll('.decklight-deckcheck .dc-row')].some((x) => /“Agent”/.test(x.textContent));
         hint.click();
         await settle(); await settle();

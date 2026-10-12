@@ -474,6 +474,39 @@ function designSystemFindings(value, tree, systems, configured, push) {
 
 // ── A. the static half ───────────────────────────────────────────────────────
 
+// ── whether a slide's diagram builds ─────────────────────────────────────────
+
+const hasClass = (node, cls) => new RegExp(`(?:^|\\s)${cls}(?:\\s|$)`).test(readAttrs(node.attrs).class ?? '');
+/** Generated, not drawn: a chart or a terminal cast has nothing an author would build. */
+const generated = (node) => hasClass(node, 'chart') || hasClass(node, 'terminal');
+
+/** Every authored `<svg>` on the slide that is a diagram: three drawn shapes or more and a label, outside anything generated. */
+function diagramsIn(tree) {
+  const out = [];
+  const walk = (node) => {
+    for (const child of node.children) {
+      if (child.tag === 'aside' || generated(child)) continue;
+      if (child.tag === 'svg') {
+        // shapes AND words: an illustration (a trophy, a logo) is drawn but says nothing to build up
+        const inside = [...descendants(child)];
+        const shapes = inside.filter((n) => SHAPE_TAGS.has(n.tag) || n.tag === 'line').length;
+        if (shapes >= 3 && inside.some((n) => n.tag === 'text')) out.push(child);
+        continue;
+      }
+      walk(child);
+    }
+  };
+  walk(tree);
+  return out;
+}
+
+/** Does the diagram reveal itself in steps: a build on the svg, or on anything drawn inside it. */
+function diagramBuilds(svg) {
+  const attrs = readAttrs(svg.attrs);
+  return 'data-build' in attrs || 'data-draw-stops' in attrs || buildItems(svg).length > 0;
+}
+
+
 /**
  * Everything decidable from the file text. Pure when `exists` is injected:
  * nothing here reads a file, spawns anything, or looks at the clock.
@@ -578,6 +611,20 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
         + ` — ${clicks} click${clicks === 1 ? '' : 's'} take${clicks === 1 ? 's' : ''} ${clicks} [click] marker${clicks === 1 ? '' : 's'}`
         + ` in the notes (${clicks + 1} segments: one before the first click, one per click), and this slide has`
         + ` ${segments - 1}, so the narration and the builds drift apart here`));
+    }
+
+
+    // A diagram that lands all at once (SVG_DIAGRAMS, BUILDS): a HINT per
+    // svg with no build on it or in it. A deliberate still says so with
+    // data-static-ok on the svg or the section.
+    if (!('data-static-ok' in attrs)) {
+      const still = diagramsIn(tree).filter((svg) => !diagramBuilds(svg) && !('data-static-ok' in readAttrs(svg.attrs)));
+      if (still.length) {
+        out.push(finding('hint', 'static-diagram', slide, head,
+          `${still.length === 1 ? 'an SVG diagram' : `${still.length} SVG diagrams`} with no build: ${still.length === 1 ? 'it lands' : 'they land'} all at once,`
+          + ' so the audience reads the whole picture before you have said its first part; reveal it in steps'
+          + ' (data-build="draw" on the svg, or data-build on the groups inside it, BUILDS), or mark it data-static-ok if it is meant'));
+      }
     }
   }
 
@@ -751,7 +798,9 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
                       section says it is meant), split layouts fighting their
                       own flexbox, and a deck whose runtime never mounted
     hints             the same words on boxes on several slides in different
-                      colours: one idea, worth one concept (SVG_DIAGRAMS)
+                      colours: one idea, worth one concept (SVG_DIAGRAMS) · an
+                      SVG diagram with no build, landing all at once
+                      (data-static-ok says it is meant)
 
   --no-render    the file half only — no Chrome, no render (a machine without
                  Chrome skips that half by itself, and says so)

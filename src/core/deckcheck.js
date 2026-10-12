@@ -18,6 +18,12 @@
  *   clicks-vs-builds  ⟨CLICK⟩ markers that do not match the build steps
  *   missing-media     an image or a video that did not load
  *   markdown-slide    a data-markdown slide, which comes up empty
+ *   static-diagram    (hint) an SVG diagram with no build, landing all at once
+ *
+ * The diagram hint is `decklight check`'s own (cli/check.mjs), asked of the
+ * DOM: the same threshold and the same opt-out, so the panel and the terminal
+ * never disagree about a slide. The page answers it one better than the file
+ * can: it asks the engine's build records, not the attributes.
  *
  * After them, the AGENT REVIEW's findings, when one has run (Review deck with
  * agent…, cli/agent-review.mjs): judgement rather than counting, so they are
@@ -40,6 +46,19 @@ import { notesSegments } from './speaker.js';
 const finding = (level, rule, slide, title, message) => ({ level, rule, slide, title, message });
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+// ── whether a slide's diagram builds (cli/check.mjs's twin)
+
+/** Generated, not drawn, or not the slide's own: nothing here is asked to build. */
+const NOT_AUTHORED = 'aside, .chart, .terminal, [data-ds-injected]';
+const SHAPES = 'rect, circle, ellipse, polygon, polyline, path, line';
+
+/** The slide's diagrams: an authored svg with three drawn shapes or more and a label. */
+function diagramsOf(sec) {
+  return [...sec.querySelectorAll('svg')].filter((svg) => !svg.parentElement.closest('svg')
+    && !svg.closest(NOT_AUTHORED)
+    && svg.querySelectorAll(SHAPES).length >= 3 && svg.querySelector('text'));
+}
 
 export function createDeckCheck({
   root, overlays, instance, goto, measureOverflow, slideTitle, suggestions = () => [], accept = () => null,
@@ -78,6 +97,16 @@ export function createDeckCheck({
       const steps = inst._records?.[i]?.groups.length ?? 0;
       if (clicks > 0 && clicks !== steps) {
         add('warn', 'clicks-vs-builds', `${plural(clicks, '⟨CLICK⟩', '⟨CLICK⟩s')} in the notes for ${plural(steps, 'build step')}: narration and builds drift apart`);
+      }
+      // built is what the engine built: a step on the svg, or on anything in it
+      if (!sec.hasAttribute('data-static-ok')) {
+        const built = (inst._records?.[i]?.steps ?? []).map((st) => st.el).filter(Boolean);
+        const still = diagramsOf(sec).filter((svg) => !svg.hasAttribute('data-static-ok')
+          && !built.some((b) => b === svg || svg.contains(b)));
+        if (still.length) {
+          add('hint', 'static-diagram', `${still.length === 1 ? 'a diagram' : plural(still.length, 'diagram')} with no build: `
+            + `${still.length === 1 ? 'it lands' : 'they land'} all at once. Reveal it in steps, or mark it data-static-ok`);
+        }
       }
     });
     // labels that recur in different colours (SVG_DIAGRAMS): a hint, not a
