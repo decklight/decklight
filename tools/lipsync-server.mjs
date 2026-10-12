@@ -166,6 +166,16 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
         const at = sp.indexOf('=');
         return at > 0 ? `${sp.slice(0, at)}=${abs(sp.slice(at + 1))}` : abs(sp);
       }) } : {}),
+      // the rest of what used to be a flag on `decklight <deck>` each run
+      ...(opt('--cache-dir') ? { cacheDir: abs(opt('--cache-dir')) } : {}),
+      ...(opt('--rhubarb') ? { rhubarb: opt('--rhubarb') } : {}),
+      // Veo animates the portrait through Vertex, BILLED once per portrait
+      // and cached: remembered only when --veo is asked for here, explicitly
+      ...(args.includes('--veo') ? { veo: true } : {}),
+      ...(args.includes('--no-veo') ? { veo: false } : {}),
+      ...Object.fromEntries([['--veo-project', 'veoProject'], ['--veo-model', 'veoModel'], ['--veo-seconds', 'veoSeconds'],
+        ['--veo-prompt', 'veoPrompt'], ['--veo-location', 'veoLocation'], ['--veo-face-y', 'veoFaceY']]
+        .filter(([f]) => opt(f) !== undefined).map(([f, k]) => [k, /seconds|face-y/.test(f) ? Number(opt(f)) : opt(f)])),
     };
     const { engines, problems } = videoSetup(next);
     console.log(`saved to ${saveLipsyncConfig(next)} — decklight <deck> starts the lip-sync bridge with it from now on`);
@@ -176,22 +186,22 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     process.exitCode = problems.length && !engines.length ? 1 : 0;
     return;
   }
-  const cacheDir = resolve(opt('--cache-dir', join(homedir(), '.cache', 'decklight', 'lipsync')));
+  const cacheDir = resolve(opt('--cache-dir', saved.cacheDir ?? join(homedir(), '.cache', 'decklight', 'lipsync')));
   mkdirSync(cacheDir, { recursive: true });
 
   // Veo: the portrait's MOTION, bought once (tools/veo.mjs). Only wav2lip can
   // use it — SadTalker animates the head itself and wants a still.
-  const veoOn = args.includes('--veo');
+  const veoOn = args.includes('--veo') || (saved.veo === true && !args.includes('--no-veo'));
   let veo = null;
   if (veoOn) {
     try {
       veo = createVeo({
-        project: opt('--veo-project', process.env.GOOGLE_CLOUD_PROJECT),
-        location: opt('--veo-location', 'us-central1'),
-        model: opt('--veo-model', VEO_MODELS[0]),
-        seconds: Number(opt('--veo-seconds', 8)),
-        prompt: opt('--veo-prompt', DEFAULT_PROMPT),
-        faceY: Number(opt('--veo-face-y', 0.12)),
+        project: opt('--veo-project', saved.veoProject ?? process.env.GOOGLE_CLOUD_PROJECT),
+        location: opt('--veo-location', saved.veoLocation ?? 'us-central1'),
+        model: opt('--veo-model', saved.veoModel ?? VEO_MODELS[0]),
+        seconds: Number(opt('--veo-seconds', saved.veoSeconds ?? 8)),
+        prompt: opt('--veo-prompt', saved.veoPrompt ?? DEFAULT_PROMPT),
+        faceY: Number(opt('--veo-face-y', saved.veoFaceY ?? 0.12)),
         cacheDir,
       });
     } catch (e) {

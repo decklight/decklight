@@ -389,10 +389,14 @@ test('flags still beat the saved config, and --setup refuses to run headless', (
   assert.match(setup.stderr, /--setup needs a terminal/);
 });
 
-test('`decklight <deck>` on a TTY offers the same setup where it would skip the voice', { skip: ptySkip, timeout: 60_000 }, async () => {
+test('`decklight <deck>` on a TTY asks nothing about the voice, and names setup voice instead', { skip: ptySkip, timeout: 60_000 }, async () => {
+  // It used to ask "set up live narration now?" between the trust question
+  // and the deck, on every open of a machine with no voice. Setup is
+  // `decklight setup voice` now (ROADMAP section 1): the banner's skip row
+  // names it, and the deck opens with no question in the way.
   const { home, env } = freshMachine();
   fs.writeFileSync(path.join(home, 'talk.html'), '<!doctype html><div class="decklight"><section><h2>Hi</h2></section></div>');
-  spawnSync('git', ['init', '-q'], { cwd: home }); // no git question — the voice offer is the one under test
+  spawnSync('git', ['init', '-q'], { cwd: home }); // no git question either
   const editPort = 18600 + (process.pid % 300);
 
   const out = await new Promise((resolve, reject) => {
@@ -400,40 +404,21 @@ test('`decklight <deck>` on a TTY offers the same setup where it would skip the 
       ['-qec', `node "${CLI}" talk.html --port ${editPort} --tts-port ${editPort + 1} --no-lipsync`, '/dev/null'],
       { cwd: home, env, stdio: ['pipe', 'pipe', 'pipe'] });
     let text = '';
-    const done = { offer: false, engine: false, int: false };
-    const answer = (key, re, reply) => {
-      if (done[key] || !re.test(text)) return;
-      done[key] = true;
-      setTimeout(() => child.stdin.write(reply), 100);
-    };
+    let sent = false;
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
       text += chunk;
-      answer('offer', /set up live narration now\? \(V in the deck uses it\) \[Y\/n\]/, '\n');
-      answer('engine', /engine \[1\]/, '\n');
-      // NOT the bridge's own line: in write mode it prints no sentence, it
-      // reports a row. The banner's url is the signal that everything is
-      // up, and being last is the one thing it is guaranteed to be.
-      answer('int', DECK_URL_RE, '\x03');
+      if (!sent && DECK_URL_RE.test(text)) { sent = true; setTimeout(() => child.stdin.write('\x03'), 100); }
     });
     child.stderr.on('data', (c) => { text += c; });
-    const kill = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`timed out:\n${text}`)); }, 45_000);
+    const kill = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`timed out (a question in the way?):\n${text}`)); }, 45_000);
     child.on('close', () => { clearTimeout(kill); resolve(text); });
     child.on('error', reject);
   });
 
-  assert.match(out, /no voice engine configured — set up live narration now\?/);
-  // ESCAPES INTERLEAVE WITH THE TEXT, so match a stripped copy rather than
-  // trying to spell them. `open` dims the banner's label and resets before the
-  // value — `\x1b[2mvoice  \x1b[0m  piper · …` — so `/voice\s+piper/` cannot
-  // match, and the assertion fails on a line a person reading the log would
-  // swear says exactly that. This is the second time that shape bit here; the
-  // first was the url pattern, and the answer there was to spell the escapes.
-  // Stripping them is the answer that keeps working for the next assertion.
   const plain = out.replace(/\x1b\[[0-9;]*m/g, '');
-  assert.match(plain, /voice\s+piper · en_US-ryan-high/, 'the bridge joined the same write-mode session');
-  assert.doesNotMatch(out, /voice\s+skipped/, 'no skip line once setup completed');
-  assert.deepEqual(loadTtsConfig({ HOME: home }), { engine: 'piper', voice: 'en_US-ryan-high' });
+  assert.doesNotMatch(plain, /set up live narration now\?|download it now\?/, 'no voice question at startup');
+  assert.match(plain, /decklight setup voice/, 'the skip row names the command that sets it up');
 });
 
 test('the piper download command is chosen for the machine, not assumed', () => {

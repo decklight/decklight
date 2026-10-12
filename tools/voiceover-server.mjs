@@ -176,13 +176,16 @@ export async function ttsMain(args) {
       engine = await resolveEngine({
         engine: engineName,
         project: opt('--project') ?? process.env.GOOGLE_CLOUD_PROJECT ?? saved?.project,
-        model: opt('--tts-model'),
-        location: opt('--location'),
+        // every setting reads the saved config under its flag: `decklight
+        // setup voice --model …` (and the guided setup) is how a value is
+        // given once, now that `decklight <deck>` no longer passes the flags
+        model: opt('--tts-model') ?? savedFor?.model,
+        location: opt('--location') ?? saved?.location,
         voice: opt('--voice') ?? savedFor?.voice,
         dataDir: opt('--data-dir') ?? savedFor?.dataDir,
-        lang: opt('--lang'),
+        lang: opt('--lang') ?? saved?.lang,
         format: opt('--tts-format') ?? savedFor?.format,
-        stability: opt('--tts-stability'),
+        stability: opt('--tts-stability') ?? savedFor?.stability,
       });
     } catch (e) {
       // an explicit --engine/--project is a hand on the wheel — fail exactly
@@ -320,7 +323,7 @@ export async function ttsMain(args) {
   const menuOpts = () => ({
     env: process.env,
     project: opt('--project') ?? process.env.GOOGLE_CLOUD_PROJECT ?? saved?.project,
-    voice: opt('--voice'), dataDir: opt('--data-dir'), lang: opt('--lang'),
+    voice: opt('--voice') ?? savedFor?.voice, dataDir: opt('--data-dir') ?? savedFor?.dataDir, lang: opt('--lang') ?? saved?.lang,
   });
 
   // the player reads the cost estimate for its debug window

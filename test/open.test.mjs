@@ -35,8 +35,8 @@ const ALL_BINS = () => true;
 // synthesizer" everywhere, so "a bare machine" was bare by accident on every
 // machine, including one listing 184 voices.
 const NO_VOICE = () => ({ engine: null, why: 'no system speech synthesizer here', suggest: 'install piper' });
-const plan = (args, { env = {}, hasBin = NO_BINS, saved = null, exists = () => true, detect = NO_VOICE } = {}) =>
-  planServices({ args, env, hasBin, saved, exists, detect });
+const plan = (args, { env = {}, hasBin = NO_BINS, saved = null, lipsync = null, exists = () => true, detect = NO_VOICE } = {}) =>
+  planServices({ args, env, hasBin, saved, lipsync, exists, detect });
 
 const names = (p) => p.run.map((s) => s.name);
 const svc = (p, name) => p.run.find((s) => s.name === name);
@@ -67,10 +67,10 @@ test('a bare machine still gets the deck — bridges are skipped, not fatal', ()
   assert.match(why(p, 'lip-sync'), /rhubarb/);
 });
 
-test('voice comes up when a project is available (flag or env)', () => {
-  const viaFlag = plan(['deck.html', '--project', 'proj-1']);
-  assert.ok(names(viaFlag).includes('tts'));
-  assert.deepEqual(svc(viaFlag, 'tts').args, ['tts', '--port', '8787', '--project', 'proj-1']);
+test('voice comes up when a project is available (saved or env)', () => {
+  const viaSaved = plan(['deck.html'], { saved: { project: 'proj-1' } });
+  assert.ok(names(viaSaved).includes('tts'));
+  assert.deepEqual(svc(viaSaved, 'tts').args, ['tts', '--port', '8787', '--project', 'proj-1']);
 
   const viaEnv = plan(['deck.html'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-2' } });
   assert.deepEqual(svc(viaEnv, 'tts').args, ['tts', '--port', '8787', '--project', 'proj-2']);
@@ -93,7 +93,7 @@ test('piper needs no project — the cloud engines do', () => {
   assert.match(why(chirp, 'voice'), /chirp needs a GCP project/);
   assert.match(why(chirp, 'voice'), /--tts-engine piper/, 'offers the free way out');
 
-  const chirpOk = plan(['deck.html', '--tts-engine', 'chirp', '--project', 'decklight-tts']);
+  const chirpOk = plan(['deck.html', '--tts-engine', 'chirp'], { env: { GOOGLE_CLOUD_PROJECT: 'decklight-tts' } });
   assert.deepEqual(svc(chirpOk, 'tts').args,
     ['tts', '--port', '8787', '--engine', 'chirp', '--project', 'decklight-tts']);
 
@@ -110,14 +110,14 @@ test('a malformed project id is caught here, not by Vertex', () => {
   // 'decklight-tts,' — the trailing comma is real: it rides along when the id
   // is copied out of a sentence. The bridge used to start, look healthy, and
   // 403 on the first keypress, naming a project nobody typed.
-  const p = plan(['deck.html', '--project', 'decklight-tts,']);
+  const p = plan(['deck.html'], { saved: { project: 'decklight-tts,' } });
   assert.deepEqual(names(p), ['edit'], 'voice must not start on a bad id');
   assert.match(why(p, 'voice'), /decklight-tts,/, 'the reason quotes the id back');
 
   for (const bad of ['decklight tts', 'Decklight-TTS', 'x', 'proj-', '1proj', 'a/../b'])
-    assert.ok(!names(plan(['deck.html', '--project', bad])).includes('tts'), `rejected: ${bad}`);
+    assert.ok(!names(plan(['deck.html'], { saved: { project: bad } })).includes('tts'), `rejected: ${bad}`);
   for (const ok of ['decklight-tts', 'proj-1', 'a1b2c3'])
-    assert.ok(names(plan(['deck.html', '--project', ok])).includes('tts'), `accepted: ${ok}`);
+    assert.ok(names(plan(['deck.html'], { saved: { project: ok } })).includes('tts'), `accepted: ${ok}`);
 });
 
 test('the saved tts config counts — but flags and the environment still win', () => {
@@ -134,9 +134,9 @@ test('the saved tts config counts — but flags and the environment still win', 
   assert.deepEqual(svc(plan(['deck.html'], { saved: chirpSaved }), 'tts').args,
     ['tts', '--port', '8787', '--engine', 'chirp', '--project', 'proj-saved']);
 
-  // precedence: flags > environment > saved config
-  const viaFlag = plan(['deck.html', '--tts-engine', 'gemini', '--project', 'proj-flag'], { saved: chirpSaved });
-  assert.deepEqual(svc(viaFlag, 'tts').args, ['tts', '--port', '8787', '--engine', 'gemini', '--project', 'proj-flag']);
+  // precedence: --tts-engine > saved engine; the environment's project > the saved one
+  const viaFlag = plan(['deck.html', '--tts-engine', 'gemini'], { saved: chirpSaved });
+  assert.deepEqual(svc(viaFlag, 'tts').args, ['tts', '--port', '8787', '--engine', 'gemini', '--project', 'proj-saved']);
   const viaEnv = plan(['deck.html'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-env' }, saved: chirpSaved });
   assert.deepEqual(svc(viaEnv, 'tts').args, ['tts', '--port', '8787', '--engine', 'chirp', '--project', 'proj-env']);
 });
@@ -146,7 +146,7 @@ test('the setup offer fires only on the fixable skip — a flag-chosen outcome n
   assert.ok(voiceSetupOffer(plan(['deck.html', '--tts-engine', 'chirp'])), 'engine picked, project missing: still fixable');
   assert.equal(voiceSetupOffer(plan(['deck.html', '--no-tts'])), null, '--no-tts never asks');
   assert.equal(voiceSetupOffer(plan(['deck.html', '--tts-engine', 'espeak'])), null, 'an unknown engine is a typo, not a setup');
-  assert.equal(voiceSetupOffer(plan(['deck.html', '--project', 'decklight-tts,'])), null, 'a malformed id keeps its own message');
+  assert.equal(voiceSetupOffer(plan(['deck.html'], { saved: { project: 'decklight-tts,' } })), null, 'a malformed id keeps its own message');
   assert.equal(voiceSetupOffer(plan(['deck.html', '--tts-engine', 'piper'])), null, 'a missing binary is an install, not a config');
   assert.equal(voiceSetupOffer(plan(['deck.html'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-1' } })), null, 'nothing to fix: the voice runs');
 });
@@ -155,11 +155,11 @@ test('lip-sync comes up when rhubarb is on PATH, or when explicitly configured',
   const onPath = plan(['deck.html'], { hasBin: ALL_BINS });
   assert.ok(names(onPath).includes('lipsync'));
 
-  // no rhubarb on PATH, but the user pointed at a portrait — trust them
-  const configured = plan(['deck.html', '--portrait', 'me=face.png']);
+  // no rhubarb on PATH, but a talking head was set up (setup face): the
+  // bridge comes up with no flags and reads the rest from lipsync.json
+  const configured = plan(['deck.html'], { lipsync: { wav2lipDir: '/w', portraits: ['me=/face.png'] } });
   assert.ok(names(configured).includes('lipsync'));
-  assert.deepEqual(svc(configured, 'lipsync').args,
-    ['lipsync', '--port', '8789', '--portrait', 'me=face.png']);
+  assert.deepEqual(svc(configured, 'lipsync').args, ['lipsync', '--port', '8789']);
 });
 
 test('--no-tts / --no-lipsync opt out, and say so', () => {
@@ -169,16 +169,27 @@ test('--no-tts / --no-lipsync opt out, and say so', () => {
   assert.match(why(p, 'lip-sync'), /--no-lipsync/);
 });
 
-test('ports and bridge flags pass through to the right child', () => {
-  const p = plan(
-    ['deck.html', '--port', '9000', '--tts-port', '9001', '--lipsync-port', '9002',
-      '--project', 'proj-9', '--tts-model', 'm', '--wav2lip-dir', '/w'],
-    { hasBin: ALL_BINS },
-  );
+test('ports reach the right child; every other bridge setting is the saved config', () => {
+  const p = plan(['deck.html', '--port', '9000', '--tts-port', '9001', '--lipsync-port', '9002'],
+    { hasBin: ALL_BINS, saved: { project: 'proj-9', model: 'm' }, lipsync: { wav2lipDir: '/w' } });
   // the bridge ports reach the edit server too: the deck asks it for /tts and /lipsync (#520)
   assert.deepEqual(svc(p, 'edit').args, ['deck.html', '--port', '9000', '--tts-port', '9001', '--lipsync-port', '9002']);
-  assert.deepEqual(svc(p, 'tts').args, ['tts', '--port', '9001', '--project', 'proj-9', '--tts-model', 'm']);
-  assert.deepEqual(svc(p, 'lipsync').args, ['lipsync', '--port', '9002', '--wav2lip-dir', '/w']);
+  // the model is not passed: the bridge reads it from tts.json itself
+  assert.deepEqual(svc(p, 'tts').args, ['tts', '--port', '9001', '--project', 'proj-9']);
+  assert.deepEqual(svc(p, 'lipsync').args, ['lipsync', '--port', '9002']);
+});
+
+test('the voice, lip-sync and Veo flags are refused by name, with where each went', async () => {
+  const { movedFlagLines, MOVED_FLAGS } = await import('../cli/open.mjs');
+  assert.equal(Object.keys(MOVED_FLAGS).length, 22);
+  assert.deepEqual(movedFlagLines(['deck.html', '--voice', 'Anna', '--veo']), [
+    '  --voice moved: decklight setup voice --voice <name> (or V → Live voice in the deck)',
+    '  --veo moved: decklight setup face --veo (billed once per portrait)',
+  ]);
+  assert.deepEqual(movedFlagLines(['deck.html', '--tts-engine', 'piper', '--no-tts']), [], '--tts-engine and the opt-outs stay');
+  const r = spawnSync(process.execPath, [CLI, 'deck.html', '--tts-model', 'x'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--tts-model moved: decklight setup voice --model <model>/);
 });
 
 test('git and agent flags ride along to the edit child', () => {
@@ -331,9 +342,12 @@ test('decklight <deck> --help fits a screen; --help --all still names every flag
   const all = execFileSync('node', [CLI, 'deck.html', '--help', '--all'], { encoding: 'utf8' });
   // every flag that takes a value is documented somewhere in the full help
   for (const flag of ['--branch', '--into', '--port', '--tts-port', '--lipsync-port', '--host', '--commit-every',
-    '--git-mode', '--agent', '--tts-engine', '--project', '--veo-prompt', '--veo-location', '--veo-face-y']) {
+    '--git-mode', '--agent', '--tts-engine']) {
     assert.match(all, new RegExp(`${flag}\\b`), `${flag} is missing from --help --all`);
   }
+  // the voice and face settings are saved, and the full help says where
+  assert.match(all, /decklight setup voice/);
+  assert.match(all, /decklight setup face/);
 });
 
 test('`edit` is not a command, and says so the way any other unknown one does', () => {

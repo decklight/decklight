@@ -323,25 +323,18 @@ test('dev starts the bridge only when the key is there, and says where to get on
     'no --project: this engine has none, and passing an empty one would be a lie');
 });
 
-test('--tts-format rides along to the bridge', () => {
+test('format, model and stability are saved settings: decklight <deck> passes none of them', () => {
+  // They were flags on every run, passed straight through; now they are given
+  // once (decklight setup voice --format mp3 --model … --stability …) and the
+  // bridge reads tts.json itself, so the plan carries only the engine.
   const p = planServices({
-    args: ['deck.html', '--tts-engine', 'elevenlabs', '--tts-format', 'mp3'],
+    args: ['deck.html', '--tts-engine', 'elevenlabs'],
     env: { [KEY_ENV]: 'k' },
-    hasBin: () => false,
-  });
-  assert.ok(p.run.find((s) => s.name === 'tts').args.join(' ').includes('--tts-format mp3'));
-  assert.equal(p.deck, 'deck.html', 'and the deck is still found past it');
-});
-
-test('--tts-model and --tts-stability both ride along, and the deck is still found past them', () => {
-  const p = planServices({
-    args: ['deck.html', '--tts-engine', 'elevenlabs', '--tts-model', V3_MODEL, '--tts-stability', 'natural'],
-    env: { [KEY_ENV]: 'k' },
+    saved: { engine: 'elevenlabs', format: 'mp3', model: V3_MODEL, stability: 'natural' },
     hasBin: () => false,
   });
   const argv = p.run.find((s) => s.name === 'tts').args.join(' ');
-  assert.ok(argv.includes(`--tts-model ${V3_MODEL}`));
-  assert.ok(argv.includes('--tts-stability natural'));
+  assert.equal(argv, 'tts --port 8787 --engine elevenlabs');
   assert.equal(p.deck, 'deck.html');
 });
 

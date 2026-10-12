@@ -2445,7 +2445,10 @@ export function createNarration({
         narrRows.push({
           text: 'no voice bridge is answering',
           flavor: 'the engine list comes from it',
-          blocked: 'decklight <deck>, write mode',
+          // the deck never collects a key or a project (the menu's rule,
+          // voiceover-server.mjs): it names the one command that sets the
+          // voice up, in a terminal, and how to open the deck with it
+          blocked: 'set one up once: decklight setup voice · then open the deck with decklight <deck.html>',
           cur: false,
           commit: () => {},
         });

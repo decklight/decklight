@@ -256,10 +256,10 @@ test('a detected engine is actually PASSED to the bridge', () => {
   assert.equal(tts.args[tts.args.indexOf('--engine') + 1], 'say');
 });
 
-test('flags and a saved config both win over detection, which is never consulted', () => {
+test('--tts-engine and a saved config both win over detection, which is never consulted', () => {
   const boom = () => { throw new Error('detection must not run when the choice is already made'); };
   assert.equal(voiceEngine(planServices({ args: ['d.html', '--tts-engine', 'piper'], env: {}, hasBin: () => true, exists: () => true, detect: boom })).engine, 'piper');
-  assert.equal(voiceEngine(planServices({ args: ['d.html', '--project', 'my-proj'], env: {}, detect: boom })).engine, 'gemini (default)');
+  assert.equal(voiceEngine(planServices({ args: ['d.html'], env: {}, saved: { project: 'my-proj' }, detect: boom })).engine, 'gemini (default)');
   assert.equal(voiceEngine(planServices({ args: ['d.html'], env: { GOOGLE_CLOUD_PROJECT: 'my-project-123' }, detect: boom })).engine, 'gemini (default)');
   assert.equal(voiceEngine(planServices({ args: ['d.html'], env: {}, saved: { engine: 'chirp', project: 'my-project-123' }, detect: boom })).engine, 'chirp');
 });
@@ -307,10 +307,10 @@ test('piper with no voice model is caught before the bridge starts', () => {
     ['piper.download_voices', 'en_US-ryan-high', '--data-dir', join('/home/x', '.local/share/piper')]);
 });
 
-test('a read-only model just starts the bridge, and --voice/--data-dir are honored', () => {
+test('a read-only model just starts the bridge, and the saved voice and data dir are honored', () => {
   const seen = [];
   const plan = planServices({
-    args: ['d.html', '--tts-engine', 'piper', '--voice', 'en_GB-alba-medium', '--data-dir', '/models'],
+    args: ['d.html'], saved: { engine: 'piper', voice: 'en_GB-alba-medium', dataDir: '/models' },
     env: {}, hasBin: () => true,
     exists: (p) => { seen.push(p); return true; },
   });
@@ -324,7 +324,7 @@ test('a read-only model just starts the bridge, and --voice/--data-dir are honor
 test('a voice given as a path needs no data dir', () => {
   const seen = [];
   planServices({
-    args: ['d.html', '--tts-engine', 'piper', '--voice', '/opt/voices/custom.onnx'],
+    args: ['d.html'], saved: { engine: 'piper', voice: '/opt/voices/custom.onnx' },
     env: {}, hasBin: () => true, exists: (p) => { seen.push(p); return true; },
   });
   assert.ok(seen.includes('/opt/voices/custom.onnx'), `the path is the model: ${seen}`);

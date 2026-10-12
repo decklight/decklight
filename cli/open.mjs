@@ -23,7 +23,7 @@
 // still gives you live reload and notes editing, and the player degrades on
 // its own (each bridge is probed via /ping).
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
@@ -34,7 +34,7 @@ import {
   piperDownloadCmd, piperDownloadLine,
 } from '../tools/tts-engines.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV } from '../tools/elevenlabs-tts.mjs';
-import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
+import { loadTtsConfig } from '../tools/tts-setup.mjs';
 import { detectLocalVoice } from '../tools/local-voice.mjs';
 import { relative } from 'node:path';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
@@ -81,8 +81,7 @@ const USAGE = `usage: decklight <deck.html | git url> [--no-trust | --trust] [--
   --trust           open a deck that runs code of its own without the question
 
   The voice and the face are set up once and remembered: decklight setup voice,
-  decklight setup face …. Their flags (--tts-engine, --voice, --veo, …) are
-  also accepted here and passed straight through, for one session.
+  decklight setup face. --tts-engine E picks an engine for one session.
 
   decklight <deck> --help --all   every flag: cloning, ports, commit cadence,
                                   agent-written commit subjects, voice, lip-sync`;
@@ -146,30 +145,56 @@ const USAGE_ALL = `usage: decklight <deck.html | git url> [--no-trust] [--port 8
                     piper   local, offline, unlimited, no project needed
                     elevenlabs  your own account's voices, the ones you cloned first
                             in the picker — needs $ELEVENLABS_API_KEY
-                    (nothing configured? on a terminal decklight offers a one-time
-                    guided setup; decklight setup voice re-runs it)
+                    (nothing configured? decklight asks nothing at startup: the
+                    banner and the deck's V panel name decklight setup voice)
 
-  tts flags     --project <id> (or $GOOGLE_CLOUD_PROJECT; gemini/chirp only),
-                --tts-model, --location, --voice, --data-dir, --lang,
-                --tts-format pcm|mp3 (elevenlabs),
-                --tts-stability creative|natural|robust (elevenlabs eleven_v3 only)
-                --tts-model eleven_v4 (default) · eleven_v4_turbo · eleven_v3 · eleven_multilingual_v2
-  lipsync flags --rhubarb <bin>, --portrait <name=img.png|clip.mp4>…, --wav2lip-dir,
-                --wav2lip-ckpt, --sadtalker-dir, --python, --cache-dir,
-                --veo (animate the portrait once through Vertex — BILLED),
-                --veo-project, --veo-model, --veo-seconds, --veo-face-y,
-                --veo-prompt, --veo-location
-  (all passed straight through — see decklight tts --help / lipsync --help)`;
+  the voice and the face are saved settings, not flags: decklight setup voice
+  (--engine, --voice, --project, --model, --location, --lang, --format,
+  --stability, --data-dir) and decklight setup face (--portrait, the models,
+  --cache-dir, --veo …) write them once, and every deck opened after uses them`;
 
 // flags that take a value (so the deck argument can be found past them)
 const VALUE_FLAGS = new Set([
-  '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--project', '--tts-model',
-  '--location', '--voice', '--data-dir', '--lang', '--tts-format', '--tts-stability',
-  '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
-  '--python', '--cache-dir', '--commit-every', '--agent', '--git-mode',
-  '--veo-project', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-location', '--veo-face-y',
+  '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--commit-every', '--agent', '--git-mode',
   '--branch', '--into', '--host',
 ]);
+
+/**
+ * The voice, lip-sync and Veo flags `decklight <deck>` no longer takes, and
+ * where each went (ROADMAP section 1). They were passed straight through to
+ * the bridges every run; every one is now saved once (`decklight setup voice
+ * --model …`, `decklight setup face --veo …`) or picked in the deck. Refused
+ * by name, never ignored: a flag that silently did nothing would be worse.
+ */
+export const MOVED_FLAGS = {
+  '--project': 'setup voice --project <id> (or $GOOGLE_CLOUD_PROJECT)',
+  '--tts-model': 'setup voice --model <model>',
+  '--location': 'setup voice --location <region>',
+  '--voice': 'setup voice --voice <name> (or V → Live voice in the deck)',
+  '--data-dir': 'setup voice --data-dir <dir>',
+  '--lang': 'setup voice --lang <code>',
+  '--tts-format': 'setup voice --format pcm|mp3',
+  '--tts-stability': 'setup voice --stability creative|natural|robust',
+  '--rhubarb': 'setup face --rhubarb <bin>',
+  '--portrait': 'setup face --portrait <name=photo>',
+  '--wav2lip-dir': 'setup face --wav2lip-dir <checkout>',
+  '--wav2lip-ckpt': 'setup face --wav2lip-ckpt <checkpoint>',
+  '--sadtalker-dir': 'setup face --sadtalker-dir <checkout>',
+  '--python': 'setup face --python <python>',
+  '--cache-dir': 'setup face --cache-dir <dir>',
+  '--veo': 'setup face --veo (billed once per portrait)',
+  '--veo-project': 'setup face --veo-project <id>',
+  '--veo-model': 'setup face --veo-model <model>',
+  '--veo-seconds': 'setup face --veo-seconds 4|6|8',
+  '--veo-prompt': 'setup face --veo-prompt "…"',
+  '--veo-location': 'setup face --veo-location <region>',
+  '--veo-face-y': 'setup face --veo-face-y <fraction>',
+};
+
+/** The moved flags present in `args`, as refusal lines; empty when none. Pure. */
+export function movedFlagLines(args = []) {
+  return args.filter((a) => MOVED_FLAGS[a]).map((a) => `  ${a} moved: decklight ${MOVED_FLAGS[a]}`);
+}
 
 /**
  * Decide what to bring up, WITHOUT starting anything — the whole capability
@@ -186,7 +211,7 @@ export function planServices({
   args = [], env = process.env, hasBin = onPath, saved = null, lipsync = null,
   detect = detectLocalVoice, exists = existsSync,
 } = {}) {
-  const { opt, opts } = argReader(args);
+  const { opt } = argReader(args);
   const has = (flag) => args.includes(flag);
   const pass = (flag) => (opt(flag) !== undefined ? [flag, opt(flag)] : []);
 
@@ -223,7 +248,7 @@ export function planServices({
   // be started at all: the Google ones need a project, ElevenLabs needs a key,
   // and piper needs neither, only the binary
   const ttsPort = opt('--tts-port', '8787');
-  const project = opt('--project', env.GOOGLE_CLOUD_PROJECT ?? saved?.project);
+  const project = env.GOOGLE_CLOUD_PROJECT ?? saved?.project;
 
   // Nothing chosen, nothing saved, no cloud credential: rather than default to
   // an engine that will be skipped for want of a project, ask the machine what
@@ -232,7 +257,7 @@ export function planServices({
   // --tts-engine, a saved engine, or a project all win over this: flags decide,
   // detection only fills a vacuum.
   const chosen = opt('--tts-engine', saved?.engine);
-  const native = chosen || project ? null : detect({ lang: opt('--lang') });
+  const native = chosen || project ? null : detect({ lang: saved?.lang });
   // Only a NATIVE voice is claimed automatically. It is the one engine that
   // needs no setup at all — no install, no download, no credential — so using
   // it silently costs the presenter nothing. piper is deliberately NOT picked
@@ -248,19 +273,17 @@ export function planServices({
     // picked for its system voice would try to reach Vertex AI instead
     ...(has('--tts-engine') || saved?.engine || ttsEngine !== 'gemini' ? ['--engine', ttsEngine] : []),
     ...(cloudVoice ? ['--project', project] : []),
-    ...pass('--tts-model'), ...pass('--location'),
-    ...pass('--voice'), ...pass('--data-dir'), ...pass('--lang'), ...pass('--tts-format'),
-    ...pass('--tts-stability'),
+    // every other setting the bridge reads from the saved config itself
   ];
   // The SAME readiness check the bridge runs when the deck asks what it may
   // switch to (SPEC NARRATION). Sharing the decision is the point: a picker
   // that offered an engine `open` would have refused to start is a picker
   // that lies. Only the phrasing differs — here there is a terminal, a
   // presenter still setting things up, and room for the whole answer.
-  const ttsVoice = opt('--voice', saved?.voice ?? PIPER_DEFAULT_VOICE);
-  const ttsData = opt('--data-dir', piperModelDir(env));
+  const ttsVoice = saved?.voice ?? PIPER_DEFAULT_VOICE;
+  const ttsData = saved?.dataDir ?? piperModelDir(env);
   const status = engineStatus(ttsEngine, {
-    env, project, voice: ttsVoice, dataDir: ttsData, lang: opt('--lang'),
+    env, project, voice: ttsVoice, dataDir: ttsData, lang: saved?.lang,
     // every probe threaded through, `detect` included: these are the injection
     // points that let planServices be tested on any machine, and a readiness
     // check reaching for the REAL PATH or the REAL synthesizer would decide a
@@ -281,8 +304,8 @@ export function planServices({
     skip.push({
       name: 'voice',
       why: `the piper voice ${ttsVoice} is not in ${ttsData} (~120 MB, one time)`
-        + ` — ${piperDownloadLine(download)}`,
-      download,   // author offers to run this on a TTY; nothing is ever pulled silently
+        + ` — decklight setup voice fetches it, or: ${piperDownloadLine(download)}`,
+      download,   // the command setup voice runs; nothing is ever pulled silently
     });
   } else if (status.reason === 'no-key') {
     // The key never lands in the saved config, so the environment is the only
@@ -291,7 +314,7 @@ export function planServices({
   } else if (status.reason === 'no-project') {
     skip.push({
       name: 'voice',
-      why: `${ttsEngine} needs a GCP project — pass --project <id> or set GOOGLE_CLOUD_PROJECT`
+      why: `${ttsEngine} needs a GCP project — decklight setup voice --project <id>, or set GOOGLE_CLOUD_PROJECT`
         + (native?.why ? `\n    this machine has no system voice either: ${native.why}` : '')
         + (native?.suggest ? `\n    ${native.suggest}` : ' — or use --tts-engine piper'),
     });
@@ -311,13 +334,14 @@ export function planServices({
   // lip-sync — starts degraded (it probes its own engines), so only bother when
   // something it can actually use is present
   const lipPort = opt('--lipsync-port', '8789');
-  const rhubarb = opt('--rhubarb', 'rhubarb');
   // A talking head set up and saved once (`decklight setup face …`,
   // lipsync.json) counts as configured: `open` starts the bridge for it with
-  // no flags, rhubarb or not — the bridge reads the same file.
+  // no flags, rhubarb or not. The bridge reads every setting (portraits,
+  // models, cache, Veo) from that same file.
   const savedLips = lipsync;
+  const rhubarb = savedLips?.rhubarb ?? 'rhubarb';
   const savedVideo = !!(savedLips?.wav2lipDir || savedLips?.sadtalkerDir);
-  const configured = has('--rhubarb') || has('--portrait') || has('--wav2lip-dir') || has('--sadtalker-dir') || savedVideo;
+  const configured = savedVideo || !!savedLips?.rhubarb;
   if (has('--no-lipsync')) {
     skip.push({ name: 'lip-sync', why: 'disabled with --no-lipsync' });
   } else if (!configured && !hasBin(rhubarb, env)) {
@@ -327,20 +351,9 @@ export function planServices({
       name: 'lipsync',
       tag: 'lips',
       entry: CLI,
-      args: [
-        'lipsync', '--port', lipPort,
-        ...(has('--rhubarb') ? ['--rhubarb', rhubarb] : []),
-        ...opts('--portrait').flatMap((p) => ['--portrait', p]),
-        ...pass('--wav2lip-dir'), ...pass('--wav2lip-ckpt'),
-        ...pass('--sadtalker-dir'), ...pass('--python'), ...pass('--cache-dir'),
-        // --veo animates the portrait through Vertex (once, then cached) so the
-        // narrator moves while you author; it is the one bridge flag that spends
-        // money, so it is opt-in here exactly as it is on `decklight lipsync`
-        ...(has('--veo') ? ['--veo'] : []),
-        ...pass('--veo-project'), ...pass('--veo-model'),
-        ...pass('--veo-seconds'), ...pass('--veo-prompt'), ...pass('--veo-location'),
-        ...pass('--veo-face-y'),
-      ],
+      // every setting comes from lipsync.json; Veo, the one that spends
+      // money, only when `setup face --veo` asked for it there
+      args: ['lipsync', '--port', lipPort],
       url: `http://127.0.0.1:${lipPort}`,
     });
   }
@@ -391,6 +404,12 @@ export async function openMain(args) {
   const noTrust = args.includes('--no-trust') || Boolean(named);
   if (noTrust && args.includes('--help')) return (await import('./edit.mjs')).editMain(args.includes('--no-trust') ? args : [...args, '--no-trust']);
   if (args.includes('--help') || args.includes('-h')) { console.log(args.includes('--all') ? USAGE_ALL : USAGE); return; }
+  // a voice, lip-sync or Veo flag from before they were saved settings: say where it went
+  const moved = movedFlagLines(args);
+  if (moved.length) {
+    console.error(`decklight <deck> no longer takes these; set them once and every deck uses them:\n${moved.join('\n')}`);
+    return 1;
+  }
 
   let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   let deck = plan.deck;
@@ -517,45 +536,12 @@ export async function openMain(args) {
       console.log('  git: no repository here — pass --git to create one and keep every version of the deck');
     }
   }
-  // piper is installed and chosen, but its voice model is not on disk. The
-  // download is ~120 MB, so it is ASKED FOR, never silent — and only on a TTY,
-  // so CI and pipes keep the skip line exactly as it was. Accepting re-plans,
-  // so the bridge joins `run` and comes up in this same session.
-  {
-    const offer = voiceModelOffer(plan);
-    if (offer && process.stdin.isTTY && process.stdout.isTTY) {
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      try {
-        console.log(`  ${offer.why}`);
-        const answer = await rl.question('  download it now? [Y/n] ');
-        if (!/^n/i.test(answer.trim())) {
-          const { bin, args: dlArgs } = offer.download;
-          const r = spawnSync(bin, dlArgs, { stdio: 'inherit' });
-          if (r.status === 0) plan = planServices({ args, lipsync: loadLipsyncConfig() });
-          else console.log('  download failed — the voice stays skipped');
-        }
-      } finally { rl.close(); }
-    }
-  }
-  // The voice would be skipped for the one reason setup can fix: nothing is
-  // configured. Offer the guided setup (TTY only — headless runs keep the
-  // skip line exactly as it was); a completed setup re-plans, so the bridge
-  // joins `run` and comes up in this same session.
-  if (voiceSetupOffer(plan) && process.stdin.isTTY && process.stdout.isTTY) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    try {
-      const answer = await rl.question('  no voice engine configured — set up live narration now? (V in the deck uses it) [Y/n] ');
-      if (!/^n/i.test(answer.trim())) {
-        const result = await runSetupWizard({ ask: (q) => rl.question(q) });
-        if (result) {
-          // the wizard's test synthesis may hold a resident engine (piper);
-          // the edit server runs the bridge as its own child process, so let it go
-          result.engine.synth.close?.();
-          plan = planServices({ args, saved: result.config, lipsync: loadLipsyncConfig() });
-        }
-      }
-    } finally { rl.close(); }
-  }
+  // The voice asks nothing at startup (ROADMAP section 1). A piper model to
+  // download or an engine to configure is named in the banner's skip row,
+  // with the one command that does it (`decklight setup voice`), and the
+  // deck's V panel says the same when the voice is not there. It used to ask
+  // two questions here, between the trust question and the deck, on every
+  // open of a machine with no voice set up.
   // The edit port might already be held — often an earlier decklight session
   // left running. Resolved here, with author's OWN stdin, because the edit
   // child below is spawned with its stdin piped (not a terminal) and could
