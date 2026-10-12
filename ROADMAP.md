@@ -141,85 +141,95 @@ can wait for 1.0.
 
 ## 4. The command roster (release-sized)
 
-- [ ] **Fold `refresh` and `export` back under `cast`.** `export` as a top-level
-      verb means asciicast, while the deck's Export and share means PDF, PPTX,
-      video and bundle.
-- [ ] **One grammar for the library.** `importer`, `transform`, `engine`,
-      `voice`, `agent`, `plugin`, `extension` and the `skills add` unit kind
-      become `decklight add <kind> <name>` and `decklight library list`,
-      removing seven top-level commands. `plugin` is parallel code with its own
-      add, list, check and remove (`cli/plugin.mjs`); `extension check` covers
-      transforms only.
-- [ ] **One grammar for what a deck references.** `theme add`, `font add` and
-      `design-system add` each take a different shape, theme lacks `list`, and
-      the three reference modules are one pattern written three times
-      (`cli/theme-refs.mjs` 515, `cli/font-refs.mjs` 273,
-      `cli/design-system-refs.mjs` 398 lines, three NAMESPACE regexes, three
-      link and asset trios wired separately in `serve.mjs` and `edit.mjs`). A
-      reference-kind table like `UNIT_TYPES` collapses them.
-- [ ] **`tts` and `lipsync` become internals.** They exist as commands because
-      open spawns them. One `decklight voice setup` replaces `tts --setup`.
-- [ ] **`record` folds into open plus `V`.** It already runs the same server
-      (`cli/record.mjs`).
-- [ ] **One way to narrate.** Six producers today: live voice, `voiceover`,
-      Record this deck, `video --voiceover`, the mic recorder and `enhance`,
-      plus `tools/lipsync.mjs` batch with no command at all. One
-      `decklight narrate <deck> [--engine X | --mic] [--slides a-b]`, and one
-      Record view in the deck.
-- [ ] **One documented shape for `narration.files`.** `tools/voiceover.mjs:66`
-      and `cli/record.mjs:46` document two; `cli/edit.mjs:786-870` normalises
-      both.
-- [ ] **CLI commands as thin clients of shared modules.** Each hand-over and
-      git feature exists twice, as a command and as an edit route:
-      `history` and `restore`, `publish`, `bundle`, `pdf`, `pptx`, `video`,
-      `theme add`, `enhance`, `comments`. Split `cli/edit.mjs` (4162 lines, 81
-      routes) along the groups already used for `edit-slides.mjs`: git, review,
-      hand-over, look.
+- [x] **Fold `refresh` and `export` back under `cast`.** (#778)
+      `decklight cast refresh` and `cast export`; the top-level words are gone.
+- [x] **One grammar for the library.** (#781) `decklight library
+      add|remove|list|gate <kind>` replaced `importer`, `transform`, `engine`,
+      `voice`, `agent`, `plugin`, `extension` and the unit half of `skills`.
+      **Revised:** `library add`, not a bare `add`, because `theme add`,
+      `font add` and `design-system add` put a reference into a deck and a
+      top-level `add` installing into the library would read as the same act.
+- [ ] **One grammar for what a deck references.** Still open. `theme add`,
+      `font add` and `design-system add` each take a different shape, theme
+      lacks `list`, and the three reference modules are one pattern written
+      three times (`cli/theme-refs.mjs`, `cli/font-refs.mjs`,
+      `cli/design-system-refs.mjs`). A reference-kind table like `UNIT_TYPES`
+      collapses them. A refactor across serve, edit and bundle, so its own PR.
+- [ ] **`tts` and `lipsync` become internals.** Still open. Planned as
+      `decklight setup voice` and `setup face` (replacing `tts --setup` and
+      `lipsync … --save`), with `tts` and `lipsync` kept runnable but out of
+      the help: write mode spawns them, and a `file://` deck still talks to a
+      bridge run on its own.
+- [x] **`record` folds into one narrate command.** (#782) `decklight narrate
+      <deck> --mic`. **Revised:** a command rather than open plus `V`,
+      because a microphone needs the deck served on 127.0.0.1, which is the
+      one thing `--mic` does.
+- [x] **One way to narrate.** (#782) `decklight narrate <deck> [--engine E |
+      --mic] [--slides a-b] [--dir NAME]` replaced `voiceover` and `record`.
+      `video --voiceover` stays a flag of `video`, and `enhance` stays: it
+      rewrites the script rather than voicing it. `tools/lipsync.mjs` batch
+      still has no command.
+- [x] **One documented shape for `narration.files`.** (#780) One track is
+      `files: '<dir>', ext, segments`; several are a list of the same fields.
+- [ ] **CLI commands as thin clients of shared modules.** Still open: split
+      `cli/edit.mjs` (about 4,100 lines, 81 routes) along the groups already
+      used for `edit-slides.mjs`: git, review, hand-over, look.
 
 ## 5. Vocabulary
 
-- [ ] **record versus cast.** Both help entries have to disclaim the other
-      (`cli/commands.mjs:262`, `345`).
-- [ ] **layout versus template.** The purge from #725 missed the palette row
-      "Use design-system layout…" and the global help, which names the
-      subcommand `layouts` (`commands.mjs:312`) when it is `templates`
-      (`cli/design-system.mjs:411`) and omits `apply`.
-- [ ] **check means seven things.** `check` (lint), `--no-trust --check`
-      (ingredients label), `theme`, `font`, `design-system`, `plugin` and
-      `extension check` (admission gates), and the palette's Check deck…
-      (lint plus agent review). Rename the gates `verify` or `gate`.
-- [ ] **Presenter plugins load in write mode too.** They load only under
-      `--no-trust`, so presenting your own deck with a timer means opening it
-      without trust. Loading them in both modes fixes that without reviving a
-      `present` command.
-- [ ] **unit, extension, plugin.** One word once the library grammar lands
-      (section 4).
-- [ ] **Help drift.** The `trust` paragraph carries `associate`'s example
-      (`commands.mjs:351-353`); `engine` says "six built-in" while
-      `tools/voiceover.mjs:14` says three; `SHORT.trust` exists though `trust`
-      is not a start command (`commands.mjs:110-118`).
+- [x] **record versus cast.** (#782) `record` is gone; `cast` records a
+      terminal and `narrate --mic` records you, and each help names the other.
+- [x] **layout versus template.** (#785) The global help says `templates`
+      and `apply`. The palette row was already right; the review read a stale
+      `dist/`.
+- [x] **check means seven things.** (#785) Bare `check` is the deck lint. The
+      marketplace admission gates are `gate` (`theme`, `font`,
+      `design-system`, `library gate transform|plugin`), and `--no-trust
+      --check` is `--audit`. The old spellings still answer, unadvertised, so
+      a catalog's CI keeps working.
+- [x] **Presenter plugins load in write mode too.** (#784) Same sandboxed
+      chrome, named in the banner; `--no-plugins` turns it off in either mode.
+- [x] **unit, extension, plugin.** (#781, #785) The commands name the kind
+      (`library add plugin`, `library gate transform`); "unit" and "extension"
+      no longer appear in any command, and the glossary defines library and
+      plugin.
+- [x] **Help drift.** (#785) `trust` and `associate` each carry their own
+      example, the engine count says six everywhere, and the short help has
+      no row for `trust`.
 
 ## 6. Docs and the installed skill
 
-- [ ] **Split the SPEC into an authoring contract and a platform contract.**
-      The block from `MARKETPLACE_REGISTRY` through `VOICE_UNITS` is 640
-      lines, longer than every authoring section combined, and the skill
-      install copies it into every project as `reference.md`. `PRESENTING` is
-      one section of 40 KB in 112 lines; break its bullets into subsections.
-- [ ] **Fix the stale slice comment.** `cli/skill-content.mjs:28` says the
-      reference stops at `JS_API`; it runs through `FONTS`.
-- [ ] **Trim SKILL.md to what an author does weekly.** About 40 percent is
-      ElevenLabs prompting, committing through curl and design systems
-      (`cli/skill-content.mjs:206-306`). Move it to the reference behind a
-      pointer.
+- [x] **Split the SPEC into an authoring contract and a platform contract.**
+      (#SPLIT) `MARKETPLACE_REGISTRY` through `VOICE_UNITS` (641 lines) live in
+      `PLATFORM.md`, shipped beside `SPEC.md`, which points at it and lists
+      its mnemonics. `PRESENTING` is eight subsections, each with a mnemonic
+      (`PRESENTING_NAVIGATION`, `_CHROME`, `_LOOK`, `_MODES`, `_EDITING`,
+      `_VOICE`, `_FIT`, `_OUTPUT`). `SPEC.md` went from about 1,800 lines to
+      1,180.
+- [x] **Fix the stale slice comment.** (#783)
+- [x] **Trim SKILL.md to what an author does weekly.** (#783) **Revised:**
+      shortened rather than moved, keeping every rule (design system slots,
+      prompting ElevenLabs v4, committing through the edit server), because
+      the ElevenLabs guidance is not in the SPEC to point at. About 2,390
+      words became 2,050; `reference.md` dropped from about 1,690 lines to
+      1,054.
 - [x] **Init's header says it asks one question.** (#773) It can ask four
       (`cli/init.mjs:14`).
-- [ ] **Stale text in the intro deck.** `demo/intro.html` says 62 themes in
-      five packs (46 in 2) and that `E` edits notes (`S` does).
-- [ ] **Stale code comments.** `src/core/editmode.js:42-45` and
-      `editbar.js:7, 12, 363` describe the retired `E` key; `hud.js:3` says
-      the clock is `K`; the comment near `engine.js:2160` says the message log
-      is `I`.
-- [ ] **A glossary.** One page naming write mode, no-trust, bundle, cast,
-      record, narrate, template, unit, reference, marketplace, so the README,
-      the help and the SPEC stop defining them each in their own words.
+- [x] **Stale text in the intro deck.** (#783) 46 themes in 2 packs, `S` for
+      notes, and the showcase diagram no longer lists `rec`.
+- [x] **Stale code comments.** (#783)
+- [x] **A glossary.** (#785) `docs/GLOSSARY.md`, linked from the README.
+
+## What is left
+
+From the sections above, still open:
+
+- **Section 1:** the voice setup questions move from startup into the deck's
+  `V` panel (an in-deck setup flow), and the voice, lip-sync and Veo flags
+  can be removed once their settings are savable.
+- **Section 2:** one log panel for Messages and the debug log.
+- **Section 3:** the keyboard rule for docked panels (needs a decision on
+  what `←`/`→` mean while a panel has focus), the HTML editor as an
+  inspector tab, and Transcript in the speaker view.
+- **Section 4:** `setup voice|face` with `tts` and `lipsync` out of the help,
+  one grammar for deck references, and splitting the edit server.
