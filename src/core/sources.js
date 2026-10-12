@@ -238,6 +238,6 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
   }
 
   // Modal: a letter typed into a field must not also reach the deck.
-  overlays.register({ isOpen, close, keydown, modal: () => editing() });
+  overlays.register({ isOpen, close, keydown, modal: () => editing(), panel: true });
   return { edit: open, close, isOpen, has: () => !!read(), canEdit };
 }

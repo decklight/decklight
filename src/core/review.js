@@ -761,6 +761,7 @@ export function createReview({
   overlays.register({
     isOpen: () => !!el,
     close,
+    panel: true,   // ←/→ move the deck even while you work in it (engine.js)
     // Modal only while you are working IN the panel — then it owns the keyboard
     // like any dialog. When your last touch was the deck it goes transparent, so
     // arrows walk the slides beside it (see the dispatch in engine.js).

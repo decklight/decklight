@@ -3477,6 +3477,26 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         r.slotReleased = side('left') === 0 && side('right') === 0 && side('bottom') === 0;
 
+        // ←/→ move the deck whenever a panel holds the keyboard, floating
+        // (modal) or docked, unless the caret is in a text field
+        press('a'); await settle();
+        document.querySelector(`${A} .dk-btn[data-mode="float"]`)?.click(); await settle();
+        deck.goto(2, 0); await settle();
+        const head = document.querySelector(`${A} .narr-head`);
+        head?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+        await settle();
+        r.arrowRightMovesPastAFloatingPanel = deck.state.slide === 3 && !!document.querySelector(A);
+        head?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+        await settle();
+        r.arrowLeftMovesBack = deck.state.slide === 2;
+        const box = document.querySelector(`${A} textarea`);
+        box?.focus();
+        box?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+        await settle();
+        r.aTextFieldKeepsItsArrows = deck.state.slide === 2;
+        box?.blur();
+        document.querySelector(`${A} .dk-close`)?.click(); await settle();
+
         try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);

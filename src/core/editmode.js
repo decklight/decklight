@@ -2180,6 +2180,7 @@ export function createEditMode({
   overlays.register({
     isOpen: () => !!contentEl,
     close: closeContentEditor,
+    panel: true,
     // floating, it is the modal it always was; docked, the deck's keys work
     // whenever the caret is not in the textarea (which stops its own keys)
     modal: () => editorDock.isFloat(),
@@ -2685,6 +2686,7 @@ export function createEditMode({
   overlays.register({
     isOpen: () => !!editEl,
     close: toggleEditor,
+    panel: true,
     // read-only (no edit server) it is never modal: nothing in it is being
     // written, so → and the rest go on to the deck, floating or docked
     modal: () => !notesReadOnly && notesDock.isFloat(),
@@ -2695,6 +2697,7 @@ export function createEditMode({
   overlays.register({
     isOpen: () => !!agentEl,
     close: toggleAgentAsk,
+    panel: true,
     modal: () => agentDock.isFloat(),
     keydown: (e) => e.key === 'Escape' && (toggleAgentAsk(), true),
   });

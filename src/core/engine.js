@@ -2257,7 +2257,7 @@ export function init(userConfig = {}) {
     helpEl = document.createElement('div');
     helpEl.className = 'decklight-help';
     helpEl.innerHTML = `<div class="help-card"><h3>Keyboard</h3><table>
-      <tr><td>→ / PageDown</td><td>next build / slide</td></tr>
+      <tr><td>→ / PageDown</td><td>next build / slide (← and → also while a panel beside the slide has the keyboard; a text field keeps them)</td></tr>
       <tr><td>⎵</td><td>pause / resume the voice while it is speaking — otherwise it advances</td></tr>
       <tr><td>← / PageUp</td><td>previous</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
@@ -2460,6 +2460,17 @@ export function init(userConfig = {}) {
     // particular key. Registration order (see `overlays.register` calls) is the
     // priority order the long if-chain here used to encode.
     const top = overlays.active();
+    // ←/→ always move the deck while a docked panel (the notes, the inspector,
+    // the sources, the comments, the agent, the HTML editor) holds the keyboard:
+    // a panel beside the slide is there to be used WHILE presenting, and what
+    // the arrows did used to depend on which panel it was and how it was docked
+    // (ROADMAP section 3). A text field keeps them for its caret: the typing
+    // guard above has already returned for one.
+    if (top?.panel && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      if (e.key === 'ArrowRight') instance.next(); else instance.prev();
+      e.preventDefault();
+      return;
+    }
     if (top) {
       // never offered to an overlay as a `z` — a filter would type it
       if (!undoChord && top.keydown(e)) { e.preventDefault(); return; }
