@@ -48,6 +48,8 @@ const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceove
   writes <dir>/slide-NN.wav (the whole slide) and <dir>/slide-NN-KK.wav (one
   per beat); play them back with:
       narration: { files: '<dir>', ext: 'wav', segments: true }
+  (the same one-track form decklight voiceover prints; several tracks are a
+  list of the same fields, each with a label)
 
   a microphone needs a secure context, which is why this serves the deck rather
   than opening the file — and why the recorder on a file:// deck says so instead of failing

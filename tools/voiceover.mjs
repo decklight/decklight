@@ -71,7 +71,11 @@ Usage:
 The headless counterpart of the deck's V → Record this deck…: it reads each slide's speaker
 notes and writes one slide-NN file per slide (plus a file per [click] beat)
 and a manifest.json into <dir>, so a deck can point at it with
-narration: { files: [{ label, dir, segments: true }] }.
+  narration: { files: '<dir>', segments: true }              (m4a, the default)
+  narration: { files: '<dir>', ext: 'wav', segments: true }  (--format wav)
+— the same one-track form decklight record and the deck's recorder print.
+Several tracks to pick between are a list of the same fields, each labelled:
+  narration: { files: [{ label: 'Anna', dir: 'voices/anna', segments: true }, …] }
 
 A folder that already holds a track is REFRESHED as that track: its engine,
 voice, style and format are the defaults, so voicing one stale slide of a track
