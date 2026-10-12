@@ -144,8 +144,12 @@ export function createInspector({
 
   // ----- the rows ------------------------------------------------------------
 
-  /** A row: `key`, `value`, and an optional mark ('ok' ✓, 'warn' !). */
-  const row = (key, value, mark = null, extra = null) => ({ key, value, mark, extra });
+  /**
+   * A row: `key`, `value`, an optional mark ('ok' ✓, 'warn' !), and an
+   * optional `look`: the colour the value names, shown beside it
+   * (`{ fill }`, `{ ring }`), or the text on its background (`{ ink, on }`).
+   */
+  const row = (key, value, mark = null, extra = null, look = null) => ({ key, value, mark, extra, look });
 
   function slideRows() {
     const n = slideNo();
@@ -249,21 +253,24 @@ export function createInspector({
     // a drawn shape's own paint: its fill and its stroke, by token where one holds it
     if (node instanceof SVGElement && !/^(svg|g|text|tspan)$/i.test(node.tagName)) {
       const paint = (v) => { const c = parseColor(v); return c && c[3] > 0 ? colourName(v, c) : 'none'; };
-      rows.push(row('fill', paint(cs.fill)));
+      const shown = (v) => { const c = parseColor(v); return c && c[3] > 0 ? v : null; };
+      rows.push(row('fill', paint(cs.fill), null, null, shown(cs.fill) && { fill: cs.fill }));
       // the concept that colours it (SVG_DIAGRAMS), or how to give it one
       if (node.closest('svg') && /^(rect|circle|ellipse|polygon|path)$/i.test(node.tagName)) {
         const name = conceptNameOf(node);
-        rows.push(row('concept', name ?? 'none', null, name ? 'its colour is the concept’s, on every slide' : 'Colors tab → Concept gives it one'));
+        rows.push(row('concept', name ?? 'none', null, name ? 'its colour is the concept’s, on every slide' : 'Colors tab → Concept gives it one',
+          name && shown(cs.fill) ? { fill: cs.fill } : null));
       }
       const w = parseFloat(cs.strokeWidth);
-      rows.push(row('stroke', paint(cs.stroke), null, paint(cs.stroke) !== 'none' && w ? `${+w.toFixed(2)} wide` : null));
+      rows.push(row('stroke', paint(cs.stroke), null, paint(cs.stroke) !== 'none' && w ? `${+w.toFixed(2)} wide` : null,
+        shown(cs.stroke) && { ring: cs.stroke }));
     }
     const text = (node.textContent ?? '').trim();
     if (text) {
       const svg = node instanceof SVGElement;
       const colour = svg && node.tagName !== 'svg' ? cs.fill : cs.color;
       const c = parseColor(colour);
-      rows.push(row('type', fontLine(cs), null, c ? colourName(colour, c) : null));
+      rows.push(row('type', fontLine(cs), null, c ? colourName(colour, c) : null, c && c[3] > 0 ? { fill: colour } : null));
       if (c) {
         // nothing opaque behind it: the theme's own --bg is the canvas
         const canvas = parseColor(getComputedStyle(root).getPropertyValue('--bg'));
@@ -276,7 +283,8 @@ export function createInspector({
         const floor = aaFloor(parseFloat(cs.fontSize) || 0, cs.fontWeight);
         // cut, never rounded: 4.48 shown as "4.5:1 !" next to "AA wants 4.5" reads as a bug
         rows.push(row('contrast', `${(Math.floor(ratio * 10) / 10).toFixed(1)}:1`, ratio >= floor ? 'ok' : 'warn',
-          `on ${seen.image ? '≈ ' : ''}${hex(bg)}${seen.image ? ' (gradient)' : ''} · AA wants ${floor}:1`));
+          `on ${seen.image ? '≈ ' : ''}${hex(bg)}${seen.image ? ' (gradient)' : ''} · AA wants ${floor}:1`,
+          { ink: colour, on: hex(bg), weight: cs.fontWeight, family: cs.fontFamily }));
       }
     }
 
@@ -381,12 +389,19 @@ export function createInspector({
     title.className = 'ins-title';
     const n = slideNo();
     const sec = sectionAt(n);
-    if (!target) {
-      title.textContent = `slide ${n} / ${inst().state.totalSlides} · ${sec ? slideTitle(sec, n - 1, '') : ''}`;
-    } else {
-      title.append(Object.assign(document.createElement('span'), { textContent: `slide ${n}` }));
-      for (const node of crumbs()) {
-        title.append(Object.assign(document.createElement('span'), { className: 'ins-sep', textContent: '›' }));
+    // the number quiet, the slide's name bright, the name the one that gives way to an ellipsis
+    title.append(
+      Object.assign(document.createElement('span'), { className: 'ins-root', textContent: `slide ${n} / ${inst().state.totalSlides} · ` }),
+      Object.assign(document.createElement('span'), { className: 'ins-name', textContent: sec ? slideTitle(sec, n - 1, '') : '' }),
+    );
+    // with something selected, the path down to it on a line of its own,
+    // where a deep one wraps instead of squeezing the node inspected
+    let path = null;
+    if (target) {
+      path = document.createElement('div');
+      path.className = 'ins-path';
+      crumbs().forEach((node, i) => {
+        if (i) path.append(Object.assign(document.createElement('span'), { className: 'ins-sep', textContent: '›' }));
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'ins-crumb' + (node === focus ? ' ins-on' : '');
@@ -398,8 +413,8 @@ export function createInspector({
         // nothing, which lets go of the selection (editbar.js). A crumb is the
         // element inspected from then on: the selection moves to it.
         b.addEventListener('click', (e) => { e.stopPropagation(); unhover(); inspectNode(node); });
-        title.append(b);
-      }
+        path.append(b);
+      });
     }
     head.append(title);
     const pick = document.createElement('button');
@@ -422,6 +437,7 @@ export function createInspector({
     head.append(dock.controls(close));
     dock.wireHeader(head);
     card.append(head);
+    if (path) card.append(path);
   }
 
   // ----- the Colors and Type tabs ---------------------------------------------
@@ -470,6 +486,7 @@ export function createInspector({
         // the Concept row: the deck's concepts as chips, set in place (SVG_DIAGRAMS)
         concepts: editmode()?.available?.() && concepts() ? {
           names: () => concepts().names(),
+          fill: (name) => concepts().fill?.(name) ?? null,
           set: (name) => concepts().set(targets.conceptAt.el, name),
         } : null,
         onEscape: () => keydown({ key: 'Escape' }),
@@ -573,6 +590,7 @@ export function createInspector({
           className: r.mark === 'ok' ? 'ins-ok' : 'ins-warn', textContent: r.mark === 'ok' ? '✓' : '!',
         }));
       }
+      if (r.look) dd.append(lookOf(r.look));
       dd.append(Object.assign(document.createElement('span'), { className: 'ins-value', textContent: r.value }));
       if (r.extra) dd.append(Object.assign(document.createElement('span'), { className: 'ins-extra', textContent: r.extra }));
       dd.dataset.key = r.key;
@@ -592,6 +610,24 @@ export function createInspector({
     ].filter(Boolean).join(' · ');
     card.append(foot);
     if (!target) fetchAsync(n);
+  }
+
+  /** What a colour row shows beside its value: a chip, a ring, or `Aa` in the text's colour on its background. */
+  function lookOf(look) {
+    const s = document.createElement('span');
+    s.setAttribute('aria-hidden', 'true');
+    if (look.ink) {
+      s.className = 'ins-look ins-sample';
+      s.textContent = 'Aa';
+      Object.assign(s.style, { color: look.ink, background: look.on, fontWeight: look.weight, fontFamily: look.family });
+    } else if (look.ring) {
+      s.className = 'ins-look ins-ring';
+      s.style.borderColor = look.ring;
+    } else {
+      s.className = 'ins-look ins-chip';
+      s.style.background = look.fill;
+    }
+    return s;
   }
 
   /** The slide's sources (SLIDE_SOURCES), read here; `e` opens their editor. */

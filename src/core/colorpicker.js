@@ -25,6 +25,7 @@
  */
 
 import { toOklab } from '../../tools/color.mjs';
+import { conceptFill } from './svg.js';
 
 // ----- colour maths (pure) --------------------------------------------------
 
@@ -367,6 +368,14 @@ const h = (tag, cls, text) => {
  * `systems` is the deck's design-system metas (`pageDesignSystems()`), whose
  * palettes follow the theme's. Returns `{ el, setSide, side, settled }`.
  */
+// Align's icons, in the order of its options: a long line, a short one, a long
+// one, the short one flush to the start, centred, or flush to the end
+const ALIGN_ICONS = [[2, 10], [4, 12], [6, 14]].map(([x1, x2]) => {
+  const line = (y, a, b) => `<line x1="${a}" y1="${y}" x2="${b}" y2="${y}"/>`;
+  return '<svg class="cp-seg-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">'
+    + line(4, 2, 14) + line(8, x1, x2) + line(12, 2, 14) + '</svg>';
+});
+
 export function createColorEditor({ root, targets, systems = [], side: startSide = 'fill', save, onDetach, concepts = null, brand = null, onError = () => {}, onEscape = () => {} }) {
   targets.stroke ??= [];
   const saved = (el, prop) => [el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)];
@@ -455,6 +464,14 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     for (const o of options) {
       const b = h('button', 'cp-seg-btn', o.label);
       b.type = 'button';
+      // a mark before the word: the colour that part is now, or what the option does
+      if (o.chip !== undefined) {
+        const c = h('span', `cp-seg-chip cp-seg-${o.id}`);
+        c.style.setProperty('--chip', o.chip ?? 'transparent');
+        if (!o.chip) c.classList.add('cp-seg-none');
+        b.prepend(c);
+      } else if (o.icon) b.insertAdjacentHTML('afterbegin', o.icon);
+      if (o.style) Object.assign(b.style, o.style);
       b.setAttribute('role', 'tab');
       b.setAttribute('aria-selected', String(o.id === value));
       b.dataset.id = o.id;
@@ -503,6 +520,21 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     else { hsb = { ...hsb, [k]: n }; rgb = hsbToRgb(hsb.h, hsb.s, hsb.v); }
   }
 
+  /** The track of a channel's slider: the colours it runs through, the others held where they are. */
+  function track(k) {
+    const stops = (f) => [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1].map(f).join(', ');
+    if (model === 'rgb') {
+      const at = (n) => rgbToHex({ ...rgb, [k]: n });
+      return `linear-gradient(to right, ${at(0)}, ${at(255)})`;
+    }
+    if (k === 'h') return `linear-gradient(to right, ${stops((t) => rgbToHex(hsbToRgb(t * 360, 100, 100)))})`;
+    const at = (n) => rgbToHex(hsbToRgb(hsb.h, k === 's' ? n : hsb.s, k === 'v' ? n : hsb.v));
+    return `linear-gradient(to right, ${at(0)}, ${at(100)})`;
+  }
+  const paintTracks = () => el.querySelectorAll('.cp-range[data-chan]').forEach((r) => {
+    if (/^[rgbhsv]$/.test(r.dataset.chan)) r.style.setProperty('--track', track(r.dataset.chan));
+  });
+
   function renderCustom(body) {
     body.appendChild(segmented('cp-model', 'Color model', [{ id: 'rgb', label: 'RGB' }, { id: 'hsb', label: 'HSB' }], model, (id) => { model = id; render(); }));
     const chans = model === 'rgb'
@@ -512,7 +544,8 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     for (const [name, k, max] of chans) {
       const row = h('label', 'cp-chan');
       row.appendChild(h('span', 'cp-chan-name', name));
-      const range = h('input', 'cp-range'); range.type = 'range';
+      const range = h('input', 'cp-range cp-tracked'); range.type = 'range';
+      range.style.setProperty('--track', track(k));
       const num = h('input', 'cp-num'); num.type = 'number';
       for (const i of [range, num]) { i.min = '0'; i.max = String(max); i.step = '1'; i.value = String(src[k]); i.dataset.chan = k; }
       range.setAttribute('aria-label', name);
@@ -525,6 +558,7 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
         picks[side] = rgbToHex(rgb); paint(targets[side], null, picks[side]);
         el.querySelector('.cp-hex').value = picks[side];
         el.querySelector('.cp-now').style.background = picks[side];
+        paintTracks();
       });
       range.addEventListener('change', () => pick(rgbToHex(rgb)));
       num.addEventListener('change', () => { move(k, clamp(Math.round(Number(num.value) || 0), 0, max)); pick(rgbToHex(rgb)); });
@@ -594,13 +628,13 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     range.addEventListener('input', () => showSize(range.value));
     range.addEventListener('change', () => keepSize(range.value));
     num.addEventListener('change', () => keepSize(num.value));
-    row('Size', range, num);
+    row('Size', range, num, h('span', 'cp-unit', 'px'));
 
     const weightNow = String(typePicks['font-weight'] ?? (Math.round((Number(cs.fontWeight) || 400) / 100) * 100));
     row('Weight', segmented('cp-weight', 'Weight', [
       { id: '400', label: 'Regular', title: '400' }, { id: '500', label: 'Medium', title: '500' }, { id: '600', label: 'Semi', title: 'semibold · 600' },
       { id: '700', label: 'Bold', title: '700' }, { id: '800', label: 'Heavy', title: '800' },
-    ], weightNow, (id) => typePick('font-weight', id)));
+    ].map((o) => ({ ...o, style: { fontWeight: o.id } })), weightNow, (id) => typePick('font-weight', id)));
 
     // the role the text is set in: the one picked, else the one its family is
     const style = getComputedStyle(root);
@@ -610,15 +644,17 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     row('Font', segmented('cp-family', 'Font', ['heading', 'body', 'mono'].map((r) => ({
       id: r, label: r[0].toUpperCase() + r.slice(1), title: `the theme's ${r} font · var(--font-${r})`,
       disabled: !style.getPropertyValue(`--font-${r}`).trim(),
+      style: { fontFamily: `var(--font-${r}), inherit` },
     })), roleNow, (id) => typePick('font-family', `var(--font-${id})`)));
 
     const italic = (typePicks['font-style'] ?? cs.fontStyle) === 'italic';
     const it = h('button', 'cp-btn cp-italic', 'Italic'); it.type = 'button';
     it.setAttribute('aria-pressed', String(italic));
     it.addEventListener('click', () => typePick('font-style', italic ? 'normal' : 'italic'));
-    const anchors = isSvg(t)
+    const anchors = (isSvg(t)
       ? [{ id: 'start', label: 'Start' }, { id: 'middle', label: 'Middle' }, { id: 'end', label: 'End' }]
-      : [{ id: 'left', label: 'Left' }, { id: 'center', label: 'Center' }, { id: 'right', label: 'Right' }];
+      : [{ id: 'left', label: 'Left' }, { id: 'center', label: 'Center' }, { id: 'right', label: 'Right' }])
+      .map((o, i) => ({ ...o, icon: ALIGN_ICONS[i] }));
     const alignNow = typePicks.align ?? (isSvg(t) ? cs.textAnchor : ({ start: 'left', end: 'right', justify: 'left' }[cs.textAlign] ?? cs.textAlign));
     row('Align', segmented('cp-align', 'Align', anchors, alignNow, (id) => typePick('align', id)), it);
   }
@@ -635,10 +671,11 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     if (!concepts || !targets.conceptAt) return;
     const now = targets.conceptAt.name;
     const line = h('div', 'cp-concept-row');
-    line.append(h('span', 'cp-label', 'Concept'));
+    line.append(h('span', 'cp-label cp-section', 'Concept'));
     const chips = h('div', 'cp-concepts');
-    const chip = (label, value, pressed, title) => {
+    const chip = (label, value, pressed, title, colour = null) => {
       const b = h('button', 'cp-btn cp-concept-chip' + (pressed ? ' cp-on' : ''), label); b.type = 'button';
+      if (colour) { const dot = h('span', 'cp-concept-dot'); dot.style.background = colour; b.prepend(dot); }
       b.setAttribute('aria-pressed', String(pressed));
       b.title = title;
       b.addEventListener('click', () => concepts.set(value));
@@ -646,7 +683,8 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     };
     for (const name of concepts.names()) {
       chips.append(chip(name, name === now ? null : name, name === now,
-        name === now ? `this shape is “${name}”: click to take it off` : `make this shape the “${name}” concept: one colour for the idea, on every slide`));
+        name === now ? `this shape is “${name}”: click to take it off` : `make this shape the “${name}” concept: one colour for the idea, on every slide`,
+        concepts.fill?.(name)));
     }
     const add = h('button', 'cp-btn cp-concept-chip cp-new', '+ new'); add.type = 'button';
     add.title = 'name a new concept and put this shape in it';
@@ -662,14 +700,18 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
       box.focus();
     });
     chips.append(add);
-    if (now) chips.append(chip('none', null, false, `take “${now}” off this shape, then colour it by hand`));
+    if (now) chips.append(Object.assign(chip('none', null, false, `take “${now}” off this shape, then colour it by hand`), { className: 'cp-btn cp-concept-chip cp-none' }));
     line.append(chips);
     into.appendChild(line);
   }
 
   function renderConcept(body) {
-    const note = h('div', 'cp-notice');
-    note.append(h('span', 'cp-notice-text', `this shape is the “${targets.concept.name}” concept — the deck colours it, and a fill picked here would be painted over on the next load. Pin the concept's slot in / → Concept colors…, or`));
+    const note = h('div', 'cp-notice cp-callout');
+    const head = h('div', 'cp-callout-head');
+    const dot = h('span', 'cp-callout-chip');
+    dot.style.background = concepts?.fill?.(targets.concept.name) ?? conceptFill(targets.concept.name);
+    head.append(dot, h('span', 'cp-callout-title', `Filled by the “${targets.concept.name}” concept`));
+    note.append(head, h('span', 'cp-notice-text', 'The deck colours every shape in it, so a fill picked here would be painted over on the next load. Pin its colour in / → Concept colors…, or take this shape out of it.'));
     const btn = h('button', 'cp-btn cp-detach', 'Detach from concept'); btn.type = 'button';
     btn.title = `take data-concept="${targets.concept.name}" off this ${targets.concept.tag}, then colour it by hand`;
     btn.addEventListener('click', () => onDetach?.(targets.concept));
@@ -686,10 +728,12 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
       renderType(body);
       main.appendChild(body);
     } else {
+      // each part wears the colour it has now, so the switch reads as a legend of the shape
+      const now = (s) => { const c = targets[s].length ? current(s) : null; return c ? rgbToHex(c) : null; };
       main.appendChild(segmented('cp-side', 'What to color', [
-        { id: 'fill', label: 'Fill', disabled: !targets.fill.length, title: targets.fill.length ? 'the shape’s background' : 'nothing here has a background to color' },
-        { id: 'stroke', label: 'Stroke', disabled: !targets.stroke.length, title: targets.stroke.length ? 'the shape’s border, and how wide it is' : 'nothing here has a border' },
-        { id: 'text', label: 'Text', disabled: !targets.text.length, title: targets.text.length ? 'the text on it' : 'this shape carries no text' },
+        { id: 'fill', label: 'Fill', chip: now('fill'), disabled: !targets.fill.length, title: targets.fill.length ? 'the shape’s background' : 'nothing here has a background to color' },
+        { id: 'stroke', label: 'Stroke', chip: now('stroke'), disabled: !targets.stroke.length, title: targets.stroke.length ? 'the shape’s border, and how wide it is' : 'nothing here has a border' },
+        { id: 'text', label: 'Text', chip: now('text'), disabled: !targets.text.length, title: targets.text.length ? 'the text on it' : 'this shape carries no text' },
       ], side, (id) => { side = colourSide = id; if (picks[side] === undefined || picks[side] === null || picks[side].startsWith('var(')) syncFromTarget(); else setRgb(hexToRgb(picks[side])); render(); }));
       if (side === 'stroke') renderWidth(main);
       if (side === 'fill') renderConceptRow(main);

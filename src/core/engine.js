@@ -5,7 +5,7 @@
 // scaling, print. SPEC BUILD_SEMANTICS, SLIDE_TRANSITIONS, PRESENTING, JS_API.
 
 import { scanSlide, applyBuildState, stepLabels, registerProvider } from './builds.js';
-import { namespaceSvgIds, applyConcepts, applyNesting } from './svg.js';
+import { namespaceSvgIds, applyConcepts, applyNesting, conceptFill } from './svg.js';
 import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
@@ -2999,6 +2999,7 @@ export function init(userConfig = {}) {
     // the Colors tab's Concept row: the deck's concepts, and an attach in place
     concepts: () => (conceptTools ? {
       names: () => conceptsOn(stage, config.concepts ?? {}).map((c) => c.name),
+      fill: (name) => conceptFill(name, config.concepts ?? {}),
       set: (el, name) => {
         if (name !== null && !/^[a-z][a-z0-9-]{0,40}$/i.test(name)) { toast('a concept is a name: letters, digits and dashes, starting with a letter', 3200); return null; }
         return conceptTools.attach([el], name);
