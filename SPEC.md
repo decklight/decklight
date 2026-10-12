@@ -1142,7 +1142,7 @@ decklight/
                  credential wizard, ENGINES#WIZARD), sign.mjs + deckfile.mjs + associate.mjs (signing, the
                  .decklight container, the double-click), audit.mjs (the ingredients label), serve.mjs (the server
                  core), deck-routes.mjs (the deck's channel, both modes'), edit.mjs (the one server, write mode and no-trust mode: a route table, with the slide-mutation routes in
-                 edit-slides.mjs the look routes in edit-look.mjs, the hand-over routes in edit-handover.mjs), open.mjs, remote.mjs, agents.mjs (AI-agent roster), git.mjs (the
+                 edit-slides.mjs, the look routes in edit-look.mjs, the hand-over routes in edit-handover.mjs, the commit and history routes in edit-git.mjs), open.mjs, remote.mjs, agents.mjs (AI-agent roster), git.mjs (the
                  commit-mode decision table: on your word, or the timer), update-check.mjs (the "a newer decklight exists" notice), qr.mjs,
                  port-conflict.mjs, supervise.mjs, skill-content.mjs (the agent skill's shipped text), start.mjs (a bare
                  `decklight`: start a deck here, or open the one that is), doctor.mjs (what this machine can do),
