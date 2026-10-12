@@ -92,10 +92,9 @@ can wait for 1.0.
       resolves), as in any focused app. The risky ones are already safe:
       submitting a review is two presses, and every delete has an undo. Revisit
       only if someone trips on one.
-- [ ] **One log.** Not done. Merging Messages (`` ` ``) and the debug log into
-      one panel is a UI redesign, not a key change: the two hold different
-      things (what the deck told you, and the event stream). `D` is free now;
-      the debug log is `Help: Debug log`.
+- [x] **One log.** (#789) One panel, top left, with a messages tab and an
+      events tab: `` ` `` opens it on messages, `Help: Debug log` on events, a
+      tab switches in place, and Esc closes it on either.
 - [x] **Help card lists everything bound.** (#775) A "Write mode, in context"
       section names the keys that answer only on a selection, while typing, in
       the overview or in the inspector.
@@ -113,11 +112,11 @@ can wait for 1.0.
       panel (the comments are modal only while you work in them, the notes
       while you type). Unifying that is the next step, and needs a decision on
       what `←`/`→` mean while a panel has focus.
-- [ ] **The inspector is the only styling surface: revised.** The Copy style
-      and Paste style rows stay: with every action at the root (section 2)
-      they are actions, and the palette is where actions live. The HTML
-      editor now shares the inspector's slot (above), so it no longer stacks
-      a seventh panel beside it; making it an inspector tab is still open.
+- [x] **The inspector is the only styling surface: revised.** (#791) The
+      Copy style and Paste style rows stay: with every action at the root
+      (section 2) they are actions, and the palette is where actions live.
+      The HTML editor is the inspector's **HTML** tab, opening in the same
+      panel slot, with a "← Inspector" button back.
 - [x] **Settings is the home for knobs.** (#779) Clock, Progress bar,
       Captions, Voice speed and, in write mode, the Editing bar are Settings
       rows; each reads what the deck remembers and ⏎ changes it. The palette
@@ -136,8 +135,10 @@ can wait for 1.0.
       palette's `goto 27` is the same kind of thing as VS Code's "Go to line";
       the finder (`G`) searches by name and the overview (`O`) rearranges.
       Three doors for three jobs.
-- [ ] **One place to read notes.** Not done: folding Transcript into the
-      speaker view moves a feature between windows, and wants its own PR.
+- [x] **One place to read notes.** (#790) The transcript is the speaker
+      view's script view: the whole deck's notes, the slide on screen lit, a
+      title moving the deck there. *Transcript…* opens it; two *Share* rows
+      download it without a second window. The card over the slides is gone.
 
 ## 4. The command roster (release-sized)
 
@@ -155,11 +156,12 @@ can wait for 1.0.
       three times (`cli/theme-refs.mjs`, `cli/font-refs.mjs`,
       `cli/design-system-refs.mjs`). A reference-kind table like `UNIT_TYPES`
       collapses them. A refactor across serve, edit and bundle, so its own PR.
-- [ ] **`tts` and `lipsync` become internals.** Still open. Planned as
-      `decklight setup voice` and `setup face` (replacing `tts --setup` and
-      `lipsync … --save`), with `tts` and `lipsync` kept runnable but out of
-      the help: write mode spawns them, and a `file://` deck still talks to a
-      bridge run on its own.
+- [x] **`tts` and `lipsync` become internals.** (#788) `decklight setup
+      voice` runs the guided engine setup and stops; `setup face` remembers a
+      talking head. `tts` and `lipsync` still run (write mode spawns them, a
+      `file://` deck talks to one run on its own) but are out of the help,
+      and every hint that sent a person to them names `setup` or
+      `decklight <deck>`.
 - [x] **`record` folds into one narrate command.** (#782) `decklight narrate
       <deck> --mic`. **Revised:** a command rather than open plus `V`,
       because a microphone needs the deck served on 127.0.0.1, which is the
@@ -227,9 +229,7 @@ From the sections above, still open:
 - **Section 1:** the voice setup questions move from startup into the deck's
   `V` panel (an in-deck setup flow), and the voice, lip-sync and Veo flags
   can be removed once their settings are savable.
-- **Section 2:** one log panel for Messages and the debug log.
 - **Section 3:** the keyboard rule for docked panels (needs a decision on
-  what `←`/`→` mean while a panel has focus), the HTML editor as an
-  inspector tab, and Transcript in the speaker view.
-- **Section 4:** `setup voice|face` with `tts` and `lipsync` out of the help,
-  one grammar for deck references, and splitting the edit server.
+  what `←`/`→` mean while a panel has focus).
+- **Section 4:** one grammar for deck references, and splitting the edit
+  server.
