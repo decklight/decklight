@@ -52,10 +52,12 @@ test('an alias resolves to the row it names, and stays out of the help', () => {
   assert.equal(resolveCommand('frobnicate'), null);
 });
 
-test('the cast subcommands reach castMain with their name first, except for --help', () => {
-  assert.deepEqual(COMMANDS.refresh.args(['casts/'], 'refresh'), [['refresh', 'casts/']]);
-  assert.deepEqual(COMMANDS.export.args(['--help'], 'export'), [['--help']],
-    '--help must reach castMain bare, or it is read as a file to export');
+test('refresh and export are cast subcommands only, not top-level commands', () => {
+  // A top-level `export` meaning asciicast sat beside the deck's Export &
+  // share meaning PDF, PowerPoint and video. `cast export` says which.
+  assert.equal(resolveCommand('refresh'), null);
+  assert.equal(resolveCommand('export'), null);
+  assert.ok(!listedCommands().includes('refresh') && !listedCommands().includes('export'));
 });
 
 test('the five unit commands share one main and pass their own name', () => {

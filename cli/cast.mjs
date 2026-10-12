@@ -6,7 +6,7 @@
  * decklight-cast — record truthful terminal casts for Decklight decks (SPEC RECORDER_CLI/CAST_FORMAT).
  *
  *   decklight cast <script.term.yaml> [-o out.cast.json] [--allow-fail] [--quiet]
- *   decklight refresh <dir | cast.json…> [--allow-fail]
+ *   decklight cast refresh <dir | cast.json…> [--allow-fail]
  *
  * This briefly shipped as `decklight rec`, a name dropped without an alias or
  * a refusal stub: `rec` reads as an abbreviation of `record`, and `decklight
@@ -461,8 +461,8 @@ const HELP = `decklight cast — record terminal casts for Decklight decks
 
 Usage:
   decklight cast <script.term.yaml> [-o out.cast.json] [--allow-fail] [--quiet]
-  decklight refresh <dir | cast.json…> [--allow-fail]
-  decklight export <cast.json> [-o out.cast]         # asciicast v2
+  decklight cast refresh <dir | cast.json…> [--allow-fail]
+  decklight cast export <cast.json> [-o out.cast]    # asciicast v2
 
 Script format (YAML):
   shell: zsh          # default: $SHELL (rc files are skipped: zsh -f / bash --norc)
@@ -496,9 +496,9 @@ Notes:
     that step's output and are stored as ▓▓▓ in the cast's input record. Prefer the
     $ENV form — a literal secret is scrubbed from the embedded script, which makes
     that cast non-refreshable.
-  • --refresh re-executes the script embedded in each cast and rewrites on drift.
-  • export writes asciicast v2 for the asciinema ecosystem — e.g. a GIF for docs:
-      decklight export demo.cast.json && agg demo.cast demo.gif
+  • cast refresh re-executes the script embedded in each cast and rewrites on drift.
+  • cast export writes asciicast v2 for the asciinema ecosystem — e.g. a GIF for docs:
+      decklight cast export demo.cast.json && agg demo.cast demo.gif
 `;
 
 export async function castMain(argv = process.argv.slice(2)) {

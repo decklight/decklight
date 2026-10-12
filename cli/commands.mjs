@@ -20,8 +20,7 @@
  * cli/util.mjs). Two optional fields cover the exceptions:
  *
  *   args(rest, cmd)  the argument list to call the main with, when it is not
- *                    simply `[rest]` — `refresh`/`export` prepend a subcommand,
- *                    the unit commands pass their own name
+ *                    simply `[rest]` — the unit commands pass their own name
  *   alias            this name is another command, spelled differently; the
  *                    row it names is dispatched and the alias stays out of help
  *   spawn            a script to run in a child process instead of importing
@@ -31,8 +30,10 @@ export const COMMANDS = {
   init: { module: './init.mjs', main: 'initMain' },
   skills: { module: './skills.mjs', main: 'skillsMain' },
   cast: { module: './cast.mjs', main: 'castMain' },
-  refresh: { module: './cast.mjs', main: 'castMain', args: castSubcommand('refresh') },
-  export: { module: './cast.mjs', main: 'castMain', args: castSubcommand('export') },
+  // `cast refresh` and `cast export` are castMain's own subcommands. They
+  // used to be top-level `refresh` and `export` too, and a top-level `export`
+  // meaning asciicast sat beside the deck's Export & share meaning PDF and
+  // video (ROADMAP section 4).
   bundle: { module: './bundle.mjs', main: 'bundleMain' },
   restore: { module: './restore.mjs', main: 'restoreMain' },
   history: { module: './history.mjs', main: 'historyMain' },
@@ -75,11 +76,6 @@ export const COMMANDS = {
   trust: { module: './trust.mjs', main: 'trustMain' },
   check: { module: './check.mjs', main: 'checkMain' },
 };
-
-/** `refresh` and `export` are castMain subcommands; `--help` must still reach it bare. */
-function castSubcommand(name) {
-  return (rest) => [rest.includes('--help') ? ['--help'] : [name, ...rest]];
-}
 
 /** The row a command name dispatches to, aliases followed, or null. */
 export function resolveCommand(name) {
@@ -263,10 +259,8 @@ Commands:
   cast     record a truthful terminal cast by running a YAML command script in a real PTY
            (this records a TERMINAL — decklight record records your VOICE)
            EXAMPLE: decklight cast deck.term.yaml -o deck.cast.json
-  refresh  re-execute the script embedded in each cast; rewrite the ones whose output drifted
-           EXAMPLE: decklight refresh casts/
-  export   flatten a cast to asciicast v2 (markers per step) for the asciinema ecosystem
-           EXAMPLE: decklight export demo.cast.json && agg demo.cast demo.gif
+           EXAMPLE: decklight cast refresh casts/   (re-run each cast's script; rewrite the ones that drifted)
+           EXAMPLE: decklight cast export demo.cast.json && agg demo.cast demo.gif   (asciicast v2)
   bundle   flatten a deck into ONE self-contained HTML file (runtime, themes, casts, images inlined)
            EXAMPLE: decklight bundle demo/showcase.html --themes midnight,graphite
            EXAMPLE: decklight bundle deck.html --all --title "My Course"   (merge the whole playlist into one file)

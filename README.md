@@ -181,7 +181,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser editing is on: double-click text to edit it (`⌘B`, `⌘I`, `⌘E` for bold, italic and code while you do), drop a picture onto a slide, the bar's Layout for a layout, `S` for notes, `O` to rearrange slides; `Lock deck` in the palette turns changes off until you unlock |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
 | `record deck.html` | record the narration in your own voice, one [click] beat at a time |
-| `cast script.term.yaml` | record a terminal session in a real PTY (`refresh` re-runs, `export` writes asciicast) |
+| `cast script.term.yaml` | record a terminal session in a real PTY (`cast refresh` re-runs, `cast export` writes asciicast) |
 
 | Sharing | |
 |---|---|

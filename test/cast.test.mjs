@@ -268,7 +268,7 @@ test('export: asciicast v2 with markers, injected prompt/command, hidden steps o
     '  - cmd: echo after-sleep',
   ].join('\n'));
   run([script, '--quiet']);
-  run(['export', path.join(dir, 'exp.cast.json'), '--quiet']);
+  run(['export', path.join(dir, 'exp.cast.json'), '--quiet']);   // cast.mjs directly: its own subcommand
 
   const lines = fs.readFileSync(path.join(dir, 'exp.cast'), 'utf8').trim().split('\n');
   const header = JSON.parse(lines[0]);

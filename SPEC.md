@@ -404,7 +404,7 @@ An added theme (linked for a marked theme, a bundle's inline copy, or a block an
 ### RECORDER_CLI · Recorder CLI (authoring-time; the only part with native deps)
 
 `cli/cast.mjs`, invoked as `npx decklight@latest cast <script.term.yaml> [-o out.cast.json]`. It briefly shipped as `rec`, a name dropped with **no alias and no refusal stub**: it reads as an abbreviation of `record`, and `decklight record` now records the author's VOICE, so keeping it alive would mean keeping a name that quietly means the opposite of what its reader assumes. Nothing is released against it, so there is nothing to migrate. `cast` was already the word: the file is `.cast.json`, the format is CAST_FORMAT, `refresh` takes casts and `export` flattens one
-(the `decklight` dispatcher in `cli/decklight.mjs` also provides `refresh`, `export`, `bundle`,
+(the `decklight` dispatcher in `cli/decklight.mjs` also provides `bundle`,
 and a global `--help`; the per-file entry points still run directly, undocumented).
 
 Script format:
@@ -451,7 +451,7 @@ Prefer the `$ENV` form: it resolves from the recorder's environment at run time,
 secret refers to) are scrubbed to `▓▓▓` in the embedded script; refreshing such a cast
 requires the operator to provide the value via the environment.
 
-**Refresh**: the cast embeds the full script. `decklight refresh <dir|cast…>` re-executes
+**Refresh**: the cast embeds the full script. `decklight cast refresh <dir|cast…>` re-executes
 every embedded script and rewrites casts whose output changed; prints a drift summary.
 (Note: a cast that records the state of the repository it lives in (e.g. `git status`)
 converges over two refreshes, since the rewrite itself changes that state.)
@@ -523,7 +523,7 @@ absent: no compatibility break in either direction.
 
 ### ASCIICAST_INTEROP · asciicast v2 interop
 
-- **Export**: `decklight export <cast.json> [-o out.cast]` flattens a decklight cast to
+- **Export**: `decklight cast export <cast.json> [-o out.cast]` flattens a decklight cast to
   asciicast v2 NDJSON: prompt and typed command injected as output events
   (deterministic 45ms/char typing), step boundaries as `m` marker events, hidden steps
   omitted, sleep steps as pure time gaps. Unlocks the asciinema ecosystem:
