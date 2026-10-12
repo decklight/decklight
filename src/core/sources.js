@@ -56,9 +56,12 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
   const dock = createDock({
     root,
     reflow: () => reflow?.(),
-    key: 'decklight-sources-dock:' + location.pathname,
     getEl: () => el,
     closeLabel: 'close (esc)',
+    name: 'Sources',
+    open: () => { if (!el) open(); },
+    close: () => { if (el) close(); },
+    available: () => canEdit(),
   });
   let el = null;
   // The editor is a DRAFT, not the slide: nothing is written until ⏎, so

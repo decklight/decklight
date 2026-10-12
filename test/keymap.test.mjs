@@ -178,3 +178,8 @@ test('the help says which keys answer only in a context', () => {
     assert.ok(ctx.some((t) => want.test(t)), `no context row matching ${want}`);
   }
 });
+
+test('⇧F shows and hides the arrows and the slide number in fullscreen, and the help says so', () => {
+  assert.match(SRC, /case 'f': case 'F': if \(e\.shiftKey\) setFsChrome\(/, '⇧F is not the fullscreen-chrome toggle');
+  assert.ok(helpRows().some((r) => r.key === '⇧F' && /arrows and the slide number in fullscreen/.test(r.what)), 'no ⇧F row in the help');
+});

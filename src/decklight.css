@@ -57,6 +57,11 @@
    the theme's colour. A slide that bleeds its art (Bleed) still fills the
    screen: the stage goes transparent so the art behind it shows through. */
 .decklight:fullscreen { background: #000; }
+/* ⇧F (Settings, palette): a fullscreen talk with nothing but the slides — the
+   arrows and both slide numbers (the player's and write mode's) leave */
+.decklight.fs-chrome-hidden:fullscreen .decklight-controls,
+.decklight.fs-chrome-hidden:fullscreen .decklight-slide-number,
+.decklight.fs-chrome-hidden:fullscreen .decklight-slide-num { display: none; }
 .decklight:fullscreen::before { content: none; }
 .decklight:fullscreen > .decklight-stage {
   background: var(--bg, #111);
@@ -1967,6 +1972,20 @@
   opacity: .5; cursor: pointer;
 }
 .decklight-dockable .dk-btn:hover { opacity: .9; background: rgba(255, 255, 255, .12); }
+/* the tabs: one panel beside the slide, and the others it can be, in the same
+   place (dock.js). A full-width row across the top of the header. */
+.decklight-dockable .narr-head { flex-wrap: wrap; }
+.decklight-dockable .dk-tabs {
+  display: flex; flex-wrap: wrap; gap: 2px; flex: 0 0 100%; order: -1;
+  margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255, 255, 255, .1);
+  text-transform: none; letter-spacing: normal; cursor: default;
+}
+.decklight-dockable .dk-tab {
+  background: none; border: 0; border-radius: 4px; padding: 2px 6px; cursor: pointer;
+  color: inherit; font: inherit; font-size: 11px; letter-spacing: .02em; opacity: .55;
+}
+.decklight-dockable .dk-tab:hover { opacity: .9; background: rgba(255, 255, 255, .08); }
+.decklight-dockable .dk-tab-on { opacity: 1; cursor: default; box-shadow: inset 0 -2px 0 var(--accent, #6af); border-radius: 4px 4px 0 0; }
 .decklight-dockable .dk-on { opacity: 1; background: rgba(255, 255, 255, .18); }
 .decklight-dockable .dk-close { font-size: 16px; margin-left: 2px; }
 /* the panel's composer: at the FOOT, and pinned there while the list scrolls

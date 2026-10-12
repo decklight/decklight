@@ -288,11 +288,9 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
   try {
     localStorage.removeItem('decklight-clock:' + location.pathname);
     localStorage.removeItem('decklight-progress:' + location.pathname);
-    // …and the GLOBAL onboarding flags, so every dump is a first run: the
-    // welcome card shows, and the tip rotation starts from its first entry.
+    // …and the GLOBAL onboarding flag, so every dump is a first run: the
+    // welcome card shows.
     localStorage.removeItem('decklight-onboarded');
-    localStorage.removeItem('decklight-tips-seen');
-    localStorage.removeItem('decklight-tips-off');
   } catch { /* ignore */ }
   // Read BEFORE init: the engine writes #/1/0 on load, so by the time the
   // assertions run every load looks deep-linked.
@@ -435,20 +433,9 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
         recs.push(rec('welcomereopen', !!card()));
         card().click();                         // …and a click closes it without advancing
         recs.push(rec('welcomeclickclosed', !card() && deck.state.slide === at));
-        // Tips (SPEC PRESENTING): the drip that follows the card. First one
-        // first, each at most once ever, silence once they are all read.
-        const tipText = () => deck.messages()[deck.messages().length - 1]?.text ?? '';
-        recs.push(rec('tipfirst', (deck.tips.show(), tipText())));
-        recs.push(rec('tipsecond', (deck.tips.show(), tipText())));
-        const left = deck.tips.status().tipsLeft;
-        while (deck.tips.show()) { /* read the rotation to its end */ }
-        recs.push(rec('tipsexhausted', deck.tips.show() === null));
-        recs.push(rec('tipsleftshrinks', deck.tips.status().tipsLeft === 0 && left > 0));
-        deck.tips.reset();
-        recs.push(rec('tipsreset', (deck.tips.show(), tipText())));
-        deck.tips.set(false);
-        recs.push(rec('tipsoff', localStorage.getItem('decklight-tips-off') === '1' && !deck.tips.status().tipsOn));
-        deck.tips.set(true);
+        // The tip rotation that used to follow the card is gone: the welcome
+        // is the whole of the first run, and no tips API remains.
+        recs.push(rec('notips', deck.tips === undefined));
       }
       recs.push(rec('clockdefault', !document.querySelector('.decklight-clock')));
       // K is the commit window now; the clock kept the palette row and this

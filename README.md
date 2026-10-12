@@ -105,8 +105,9 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   (size, weight, the theme's font role, italic, alignment) that save as you
   pick, and a picker that hovers shapes the way DevTools does, each boxed in
   the theme's accent; a double-click retypes a label in place and `⌫` removes
-  just that shape. The notes editor, the inspector and the agent ask dock
-  beside the slide, wherever you left them. Every edit lands in the file and
+  just that shape. The notes, the inspector, the comments, the sources and the
+  agent ask share one panel beside the slide, with a tab for each, wherever
+  you left it. Every edit lands in the file and
   `⌘Z` (`Ctrl+Z`) takes it back. `decklight check`
   reports what an author or an agent would otherwise only see by looking:
   clipped slides, crowded ones, missing images, notes whose [click] count
@@ -236,7 +237,7 @@ the CLI only.
 | `⎵` | play / pause the voice once one is chosen; otherwise it advances |
 | `V` | everything about the voice: tracks, live voice, character, record, captions, speed |
 | `M` | review comments: `⏎` jumps to the slide, `R` marks one done and again reopens it, `D` hides the done ones, `⌫` deletes one of yours; `⇧M` writes one |
-| `K` | commit what you changed, with a message; `⌘Z` / `Ctrl+Z` undoes an edit; `⌘⏎` / `Ctrl+Enter` fullscreen |
+| `K` | commit what you changed, with a message; `⌘Z` / `Ctrl+Z` undoes an edit; `⌘⏎` / `Ctrl+Enter` fullscreen, `⇧F` hides the arrows and slide number there |
 | `H` | the deck's history, every version previewed live, `⏎` restores one |
 | `I` | the inspector: everything about this slide, or the selected shape's colours and type; its sources |
 | `/` | command palette, `G` find a slide |

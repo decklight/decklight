@@ -2,11 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * A panel that sits BESIDE the slide rather than over it.
+ * THE panel that sits BESIDE the slide rather than over it.
  *
  * Four placements — a movable float, or docked left, right or bottom — with the
  * stage reflowing away from a docked gutter so the slide stays whole and the
  * deck stays navigable. Remembered per deck, like the clock and the character.
+ *
+ * ONE slot, ONE placement, tabs between them (ROADMAP section 3). The notes,
+ * the inspector, the sources, the comments, the agent and the HTML editor
+ * used to be six panels, each remembering its own placement, any number of
+ * them open at once on any sides. Now they share one placement per deck
+ * (`decklight-panel-dock:`), opening one closes whichever other holds the
+ * slot, and every header carries tabs to the others this deck offers, so
+ * moving from the notes to the inspector is a click in the same place.
  *
  * This came out of review.js unchanged when a second panel wanted it (`I`,
  * SLIDE_SOURCES). Docking is forty lines of gutter arithmetic, inline-style
@@ -30,6 +38,18 @@ const SIDES = ['left', 'right', 'bottom'];
 // vars itself: docking the inspector right zeroed the agent's left gutter, and
 // closing either one let go of the other's, leaving a panel over the slide.
 const claims = new WeakMap();   // root → Map(panel token → { side, px })
+
+// The panels that share a root's slot: token → { name, open, close, isOpen,
+// available, tab }. The order of registration is the order of the tabs.
+const panels = new WeakMap();   // root → Map(token → panel)
+const panelsOf = (root) => { if (!panels.has(root)) panels.set(root, new Map()); return panels.get(root); };
+
+/** Close every OTHER panel holding the root's slot: one panel beside the slide. */
+function takeSlot(root, token) {
+  for (const [t, p] of panelsOf(root)) {
+    if (t !== token && p.isOpen()) p.close();
+  }
+}
 
 function applyGutters(root) {
   const mine = claims.get(root);
@@ -55,17 +75,31 @@ function claim(root, token, side, px) {
  * the panel opens and closes, and one of these panels is built before the deck
  * exists — naming it here would read it inside its own dead zone.
  */
-export function createDock({ root, reflow, key, getEl, closeLabel = 'close', defaultMode = 'float' }) {
-  // `defaultMode` is where the panel opens the FIRST time, before anyone has
-  // chosen: a drawer (the notes) belongs at the bottom, a tool card afloat
+export function createDock({
+  root, reflow, getEl, closeLabel = 'close', defaultMode = 'float',
+  // the slot: what the tab is called, how to open and close this panel, and
+  // whether it can be opened at all right now (the agent needs write mode).
+  // `tab: false` keeps a panel out of the tabs (the HTML editor opens on an
+  // element, so there is nothing for a tab to open it on).
+  name = null, open = null, close = null, available = () => true, tab = true,
+}) {
+  // ONE placement per deck for every panel. `defaultMode` is where a panel
+  // opens before anyone has chosen: a drawer (the notes) belongs at the
+  // bottom, a tool card afloat.
+  const key = 'decklight-panel-dock:' + (typeof location !== 'undefined' ? location.pathname : '');
   const dock = { mode: MODES.includes(defaultMode) ? defaultMode : 'float', x: null, y: null };
-  {
+  const load = () => {
     // first run, or storage denied — either way the default placement is fine
     const s = readJson(key);
     if (s?.mode) { dock.mode = s.mode; dock.x = s.x ?? null; dock.y = s.y ?? null; }
-  }
+  };
+  load();
   const persist = () => writeJson(key, dock);
-  const token = {};   // this panel's claim on the root's gutters
+  const token = {};   // this panel's claim on the root's gutters, and its place in the slot
+  panelsOf(root).set(token, {
+    name, tab: tab && !!name && !!open, available,
+    open: () => open?.(), close: () => close?.(), isOpen: () => !!getEl(),
+  });
 
   // The gutter a docked panel reserves, in px — the same figure drives the
   // panel's own width/height (CSS var) and the stage's inset (root var), so the
@@ -79,6 +113,10 @@ export function createDock({ root, reflow, key, getEl, closeLabel = 'close', def
   function reserveGutter() {
     const el = getEl();
     if (!el) return;
+    // the slot is this panel's now; the placement is the one every panel shares,
+    // which another panel may have moved since this one last drew
+    takeSlot(root, token);
+    load();
     el.dataset.dock = dock.mode;
     const g = gutter();
     const side = SIDES.includes(dock.mode) ? dock.mode : null;
@@ -176,10 +214,38 @@ export function createDock({ root, reflow, key, getEl, closeLabel = 'close', def
     return ctl;
   }
 
-  /** Give a header the drag handle and the cursor that advertises it. */
+  /**
+   * The tabs: every panel this deck offers, this one lit, the others a click
+   * away in the same place. A row of their own across the top of the header,
+   * since a docked panel is narrow and the header already holds a title and
+   * the placement buttons. Absent while this is the only panel on offer.
+   */
+  function tabs() {
+    const offered = [...panelsOf(root)].filter(([t, p]) => p.tab && (t === token || p.available()));
+    if (!panelsOf(root).get(token)?.tab || offered.length < 2) return null;
+    const row = document.createElement('div');
+    row.className = 'dk-tabs';
+    row.setAttribute('role', 'tablist');
+    for (const [t, p] of offered) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'dk-tab' + (t === token ? ' dk-tab-on' : '');
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', t === token ? 'true' : 'false');
+      b.textContent = p.name;
+      if (t !== token) b.addEventListener('click', (e) => { e.stopPropagation(); p.open(); });
+      row.append(b);
+    }
+    return row;
+  }
+
+  /** Give a header the drag handle, the cursor that advertises it, and the tabs. */
   function wireHeader(head) {
     head.style.cursor = dock.mode === 'float' ? 'move' : '';
     head.addEventListener('pointerdown', startDrag);
+    head.querySelector(':scope > .dk-tabs')?.remove();
+    const row = tabs();
+    if (row) head.prepend(row);
   }
 
   /**

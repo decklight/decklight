@@ -1072,9 +1072,12 @@ export function createEditMode({
   const agentDock = createDock({
     root,
     reflow: () => instance._reflow?.(),
-    key: 'decklight-agent-dock:' + location.pathname,
     getEl: () => agentEl,
     closeLabel: 'close (esc)',
+    name: 'Agent',
+    open: () => { if (!agentEl) toggleAgentAsk(); },
+    close: () => { if (agentEl) toggleAgentAsk(); },
+    available: () => editAvailable && editAgents.length > 0,
   });
   // A DOCKED card stays open across the reload an agent's edit causes: the
   // author asked from beside the slide and is waiting beside it for the
@@ -1291,10 +1294,12 @@ export function createEditMode({
   const notesDock = createDock({
     root,
     reflow: () => instance._reflow?.(),
-    key: 'decklight-notes-dock:' + location.pathname,
     getEl: () => editEl,
     closeLabel: 'close (esc)',
     defaultMode: 'bottom',
+    name: 'Notes',
+    open: () => { if (!editEl) toggleEditor(); },
+    close: () => { if (editEl) toggleEditor(); },
   });
   let notesDirty = null;     // does the open card hold edits the file does not have?
   let notesDrafted = null;   // …and are they an agent's draft, to be read before they are written?
@@ -2028,9 +2033,12 @@ export function createEditMode({
   const editorDock = createDock({
     root,
     reflow: () => instance._reflow?.(),
-    key: 'decklight-editor-dock:' + location.pathname,
     getEl: () => contentEl,
     closeLabel: 'close (esc)',
+    // in the slot, so it takes the place of whatever panel was open; not a
+    // tab, since it opens on an element and a tab would have nothing to open
+    name: 'HTML', tab: false,
+    close: () => closeContentEditor(),
   });
   function closeContentEditor() {
     contentEl?.remove(); contentEl = null;

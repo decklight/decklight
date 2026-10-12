@@ -621,7 +621,7 @@
       // mode's first key; the two tour modes clear it again
       localStorage.setItem('decklight-onboarded-tour', '1');
       // agentlog: the agent card docked right, as the author left it
-      if (mode === 'agentlog') localStorage.setItem('decklight-agent-dock:' + location.pathname, JSON.stringify({ mode: 'right' }));
+      if (mode === 'agentlog') localStorage.setItem('decklight-panel-dock:' + location.pathname, JSON.stringify({ mode: 'right' }));
       sessionStorage.clear();
     } catch { /* ignore */ }
 
@@ -1634,7 +1634,25 @@
         for (let i = 0; i < 5; i++) { knob('Voice speed').run(); speeds.push(knob('Voice speed').value); }
         r.voiceSpeedCycles = speeds.join(' ') === '1.25× 1.5× 2× 0.75× 1×';
 
-        r.PASS = r.knobsListed && r.clockKnobSwitches && r.voiceSpeedCycles && r.settingsIsFirstMatch && r.versionFindsSettingsFirst && r.opens && r.hasRows && r.showsVersionRow && r.saysEnterCopies
+        // ⇧F (Settings, palette): the arrows and the slide number in fullscreen
+        const rootEl = document.querySelector('.decklight');
+        const fsKey = 'decklight-fs-chrome:' + location.pathname;
+        const fsRow = () => knob('Arrows and slide number in fullscreen');
+        r.fsChromeShownByDefault = fsRow()?.value === 'shown' && !rootEl.classList.contains('fs-chrome-hidden');
+        press('F', { shiftKey: true });
+        r.shiftFHides = rootEl.classList.contains('fs-chrome-hidden') && fsRow()?.value === 'hidden' && localStorage.getItem(fsKey) === 'hidden';
+        r.shiftFDidNotGoFullscreen = !document.fullscreenElement;
+        fsRow().run();
+        r.settingsRowShows = !rootEl.classList.contains('fs-chrome-hidden') && localStorage.getItem(fsKey) === null;
+        // the CSS: hidden only in fullscreen, never in the window
+        rootEl.classList.add('fs-chrome-hidden');
+        r.windowKeepsTheArrows = !document.querySelector('.decklight-controls') || getComputedStyle(document.querySelector('.decklight-controls')).display !== 'none';
+        rootEl.classList.remove('fs-chrome-hidden');
+        r.paletteHasFsChrome = (() => { press('/'); for (const ch of 'arrows') press(ch);
+          const ok = palNames().some((t) => /^Hide arrows and slide number in fullscreen/.test(t)); escapeUntilClosed('.decklight-palette'); return ok; })();
+
+        r.PASS = r.fsChromeShownByDefault && r.shiftFHides && r.shiftFDidNotGoFullscreen && r.settingsRowShows && r.windowKeepsTheArrows && r.paletteHasFsChrome
+          && r.knobsListed && r.clockKnobSwitches && r.voiceSpeedCycles && r.settingsIsFirstMatch && r.versionFindsSettingsFirst && r.opens && r.hasRows && r.showsVersionRow && r.saysEnterCopies
           && r.versionIsReal && r.versionMatchesApi && r.apiRowsMatch
           && r.enterCopiesTheVersion && r.saysItCopied && r.closesAfterCopying && r.refusedCopyStillShowsIt
           && r.escapeCloses && r.apiOpens && r.apiCloses;
@@ -2056,7 +2074,7 @@
         for (const ch of 'inspector') press(ch);
         r.paletteRow = /Inspector/.test(document.querySelector('.decklight-palette .pal-row')?.textContent ?? '');
         press('Escape');
-        try { localStorage.removeItem('decklight-inspector-dock:' + location.pathname); } catch {}
+        try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || k === 'crumbs' || k === 'contrast' || v === true);
       }
 
@@ -2638,7 +2656,7 @@
         // written when the author leaves the box, moves to another slide or
         // closes the card — and kept open, still unsaved, when a save fails.
         await settle();   // the ping: authoring
-        try { localStorage.removeItem('decklight-notes-dock:' + location.pathname); } catch { /* fine */ }
+        try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch { /* fine */ }
         // the leaving saves first, with the quiet time off, so nothing writes
         // itself between a keystroke and the step that looks
         try { localStorage.setItem('decklight-notes-quiet', '0'); } catch { /* fine */ }
@@ -3325,7 +3343,7 @@
         press('ArrowRight'); await settle();
         r.deckStaysNavigable = deck.state.slide === 2;
         press('ArrowLeft'); await settle();
-        r.persists = JSON.parse(localStorage.getItem('decklight-editor-dock:' + location.pathname) ?? '{}').mode === 'right';
+        r.persists = JSON.parse(localStorage.getItem('decklight-panel-dock:' + location.pathname) ?? '{}').mode === 'right';
         press('Escape'); await settle();
         r.escapeCloses = !document.querySelector(W);
         r.releasesTheStage = gutter() === '0px' && !h1.classList.contains('dl-editing');
@@ -3336,7 +3354,7 @@
         await settle();
         r.restoresTheDock = document.querySelector(W)?.dataset.dock === 'right' && parseFloat(gutter()) > 100;
         press('Escape'); await settle();
-        try { localStorage.removeItem('decklight-editor-dock:' + location.pathname); } catch {}
+        try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
         r.PASS = r.opens && r.loaded && r.codeInheritsTheMetrics && r.layersMeasureTheSame && r.longLineWraps
           && r.opensAtTheTop && r.hasRoomToScroll && r.paintFollowsToTheEnd
           && r.dockable && r.outlinesTheElement && r.noBackdrop && r.docksRight && r.fillsTheGutter && r.layersStillAgree
@@ -3377,12 +3395,21 @@
         };
         await openNotes();
         const N = '.decklight-notes';
+        // the box takes what the card's other rows (the tabs, the header, the
+        // buttons) leave it, whatever they wrap to at this window's size
+        const fills = (el, ta) => {
+          const card = el?.querySelector('.narr-card');
+          if (!card || !ta) return false;
+          const box = ta.closest('.narr-card > *');
+          const others = [...card.children].filter((c) => c !== box).reduce((h, c) => h + c.offsetHeight, 0);
+          return ta.clientHeight >= card.clientHeight - others - 60;
+        };
         const n = card(N, 'notes');
         Object.assign(r, n.out);
         await settle();
         const heading = () => document.querySelector(`${N} .ed-heading`)?.textContent ?? '';
         r.notesDocksRight = n.el?.dataset.dock === 'right' && parseFloat(gutter()) > 100;
-        r.notesFillsTheGutter = !!n.ta && n.ta.clientHeight >= n.el.querySelector('.narr-card').clientHeight - 200;
+r.notesFillsTheGutter = fills(n.el, n.ta);
         n.ta?.blur();
         press('ArrowRight'); await settle();
         r.notesDeckNavigable = deck.state.slide === 2;
@@ -3395,7 +3422,7 @@
         n.ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
         await settle();
         r.notesSavesItsOwnSlide = CALLS.post.some((c) => c.u.includes('/deck/edit/slide/notes') && c.body.slide === 2);
-        r.notesPersists = JSON.parse(localStorage.getItem('decklight-notes-dock:' + location.pathname) ?? '{}').mode === 'right';
+        r.notesPersists = JSON.parse(localStorage.getItem('decklight-panel-dock:' + location.pathname) ?? '{}').mode === 'right';
         press('Escape'); await settle();
         r.notesEscapeCloses = !document.querySelector(N);
         r.notesReleasesTheStage = gutter() === '0px';
@@ -3412,8 +3439,8 @@
         Object.assign(r, a.out);
         await settle();
         r.agentDocksRight = a.el?.dataset.dock === 'right' && parseFloat(gutter()) > 100;
-        r.agentFillsTheGutter = !!a.ta && a.ta.clientHeight >= a.el.querySelector('.narr-card').clientHeight - 200;
-        r.agentOwnKey = JSON.parse(localStorage.getItem('decklight-agent-dock:' + location.pathname) ?? '{}').mode === 'right';
+        r.agentFillsTheGutter = fills(a.el, a.ta);
+        r.agentSharesThePlacement = JSON.parse(localStorage.getItem('decklight-panel-dock:' + location.pathname) ?? '{}').mode === 'right';
         a.ta?.blur();
         press('ArrowRight'); await settle();
         r.agentDeckNavigable = deck.state.slide === 2 && !!document.querySelector(A);
@@ -3421,30 +3448,24 @@
         r.agentEscapeCloses = !document.querySelector(A);
         r.agentReleasesTheStage = gutter() === '0px';
 
-        // ── two at once ── each panel claims its own side: docking the notes
-        // right keeps the agent's left gutter, and closing the notes hands back
-        // only the right — the agent stays beside the slide, not over it
+        // ── one slot ── one panel beside the slide, in one placement (dock.js):
+        // moving the agent left moves every panel left, and opening the notes
+        // closes the agent and takes its place, tabs in its header
         const side = (s) => parseFloat(document.querySelector('.decklight').style.getPropertyValue('--dock-' + s)) || 0;
         press('a'); await settle();
         document.querySelector(`${A} .dk-btn[data-mode="left"]`)?.click();
         await settle();
-        press('e');
-        await openNotes();
-        r.pairBothGutters = !!document.querySelector(A) && !!document.querySelector(N)
-          && side('left') > 100 && side('right') > 100;
+        r.agentHasTabs = [...document.querySelectorAll(`${A} .dk-tab`)].map((t) => t.textContent).includes('Notes');
+        document.querySelector(`${A} .dk-tab`) && [...document.querySelectorAll(`${A} .dk-tab`)].find((t) => t.textContent === 'Notes')?.click();
+        await settle(); await settle();
+        r.slotHoldsOne = !document.querySelector(A) && !!document.querySelector(N);
+        r.placementIsShared = document.querySelector(N)?.dataset.dock === 'left' && side('left') > 100 && side('right') === 0;
+        r.tabIsLit = document.querySelector(`${N} .dk-tab-on`)?.textContent === 'Notes';
         document.querySelector(`${N} .dk-close`)?.click();
         await settle();
-        press('e');
-        r.pairClosingOneKeepsTheOther = !document.querySelector(N) && !!document.querySelector(A)
-          && side('left') > 100 && side('right') === 0;
-        document.querySelector(`${A} .dk-close`)?.click();
-        await settle();
-        r.pairAllReleased = side('left') === 0 && side('right') === 0 && side('bottom') === 0;
+        r.slotReleased = side('left') === 0 && side('right') === 0 && side('bottom') === 0;
 
-        try {
-          localStorage.removeItem('decklight-notes-dock:' + location.pathname);
-          localStorage.removeItem('decklight-agent-dock:' + location.pathname);
-        } catch {}
+        try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

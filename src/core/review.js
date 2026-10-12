@@ -105,9 +105,11 @@ export function createReview({
   const dock = createDock({
     root,
     reflow: () => instance._reflow?.(),
-    key: 'decklight-review-dock:' + location.pathname,
     getEl: () => el,
     closeLabel: 'close (M)',
+    name: 'Comments',
+    open: () => { if (!el) open(); },
+    close: () => { if (el) close(); },
   });
 
   const slidesNow = () => indexSlides(sections(), { titleOf, bodyOf });

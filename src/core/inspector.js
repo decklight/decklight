@@ -60,10 +60,12 @@ export function createInspector({
   const dock = createDock({
     root,
     reflow: () => instance()._reflow?.(),
-    key: 'decklight-inspector-dock:' + location.pathname,
     getEl: () => el,
     closeLabel: 'close (I)',
     defaultMode: 'right',
+    name: 'Inspector',
+    open: () => { if (!el) open(); },
+    close: () => { if (el) close(); },
   });
   let el = null;
   let onResize = null;

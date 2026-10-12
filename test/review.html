@@ -275,7 +275,7 @@
 
           // remembered per deck
           try {
-            r.persisted = JSON.parse(localStorage.getItem('decklight-review-dock:' + location.pathname))?.mode === 'right';
+            r.persisted = JSON.parse(localStorage.getItem('decklight-panel-dock:' + location.pathname))?.mode === 'right';
           } catch (e) { r.persisted = false; }
 
           // non-modal: a touch on the deck hands the arrows back to the slides
