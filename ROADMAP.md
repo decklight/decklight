@@ -31,7 +31,7 @@ can wait for 1.0.
 - [x] **Init forwards a declined git answer.** (#772) Saying no to git at init is asked
       again by the `decklight <deck> --open` it spawns (`cli/init.mjs:660` does
       not pass `--no-git`; `cli/open.mjs:471` asks).
-- [x] **Delete the git-mode follow-up question.** (#PR) `agent` is already the default
+- [x] **Delete the git-mode follow-up question.** (#773) `agent` is already the default
       (`cli/git.mjs` `resolveGitMode`), so the question at `cli/open.mjs:480`
       changes nothing.
 - [ ] **Move the piper download and the TTS setup questions out of startup.**
@@ -42,7 +42,7 @@ can wait for 1.0.
       answering" (`src/core/narration.js:2443`). This needs the bridge to start
       with no engine and list what each one needs, plus an in-deck setup for a
       key, a project or the piper model. A feature PR of its own.
-- [x] **Take the TTS, lip-sync and Veo pass-through flags off the help.** (#PR)
+- [x] **Take the TTS, lip-sync and Veo pass-through flags off the help.** (#773)
       `decklight <deck> --help` is 27 lines instead of 70; `--help --all`
       keeps the full list. The flags are still accepted, because the saved
       configuration does not hold all of them: Veo, `--tts-format`,
@@ -50,10 +50,10 @@ can wait for 1.0.
       Removing them outright needs those in `tts.json` and `lipsync.json`
       first.
 - [x] **Take `--tts-port`, `--lipsync-port`, `--host` and `--commit-every` off
-      the help.** (#PR) Still accepted: open passes the bridge ports to the
+      the help.** (#773) Still accepted: open passes the bridge ports to the
       edit server when it moves a bridge off a squatted port, and a `file://`
       deck still knocks on 8787.
-- [x] **Document the flags help did not list.** (#PR) `--remote` and
+- [x] **Document the flags help did not list.** (#773) `--remote` and
       `--no-remote` on init; `--veo-prompt` and `--veo-location` on open.
 - [x] **Fix the banner row order.** (#772) `runtime` and `skill` are missing from
       `ROW_ORDER` (`cli/banner.mjs:60`) and sort below `reviews`, against the
@@ -199,7 +199,7 @@ can wait for 1.0.
       ElevenLabs prompting, committing through curl and design systems
       (`cli/skill-content.mjs:206-306`). Move it to the reference behind a
       pointer.
-- [x] **Init's header says it asks one question.** (#PR) It can ask four
+- [x] **Init's header says it asks one question.** (#773) It can ask four
       (`cli/init.mjs:14`).
 - [ ] **Stale text in the intro deck.** `demo/intro.html` says 62 themes in
       five packs (46 in 2) and that `E` edits notes (`S` does).
