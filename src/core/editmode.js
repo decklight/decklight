@@ -2025,6 +2025,7 @@ export function createEditMode({
   // FILE (never the live DOM: the engine mutates elements in place, so what
   // the player sees is not what a Save should write back over).
   let contentEl = null;
+  let inspectorOpen = null;   // set by the engine: back to the inspector from here
   let contentTarget = null;   // the element on the slide, outlined while its source is open
   let onEditorResize = null;
   // Beside the slide, not over it (#530): the review and sources panels'
@@ -2056,6 +2057,17 @@ export function createEditMode({
     head.append(Object.assign(document.createElement('span'), {
       className: 'ed-heading', textContent: `edit content — slide ${slide}, element ${index} · ⌘⏎ saves`,
     }));
+    // back to the inspector on the same element, in the same slot: the two
+    // read as tabs of one place (inspector.js offers HTML the other way)
+    if (inspectorOpen) {
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'ins-tab ed-to-inspector';
+      back.textContent = '← Inspector';
+      back.title = 'back to the inspector, on this element';
+      back.addEventListener('click', (e) => { e.stopPropagation(); closeContentEditor(); inspectorOpen(); });
+      head.prepend(back);
+    }
     head.append(editorDock.controls(closeContentEditor));
     editorDock.wireHeader(head);
     // A textarea cannot render markup, so the highlighting is a <pre> BEHIND a
@@ -3280,6 +3292,10 @@ export function createEditMode({
     onElementEditChange: (fn) => { elementEditListeners.add(fn); },
     /** What a click addresses: `{ sec, slide, index, top, clicked }`, or null. */
     elementTargetOf,
+    /** The element's HTML in the content editor (the inspector's HTML tab). */
+    editContent: (t) => { if (t && t.index != null) openElementContentEditor(t); },
+    /** The inspector's own door, so the content editor can go back to it. */
+    setInspectorOpener(fn) { inspectorOpen = fn; },
     /** The element menu, opened at a point by something other than a right-click: the bar's ⋯ handle and Slide ▾. */
     openElementMenuAt: (x, y, target, view = 'main', opts = {}) => { if (!elementEditOn) return; overlays.opening(); openElementMenu(x, y, target, view, opts); },
     /** Remove the element a target names: ⌫ on a selection. */

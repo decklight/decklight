@@ -3051,3 +3051,9 @@
   display: inline-block; min-width: 1.4em; padding: 0 5px; text-align: center;
   border: 1px solid rgba(255, 255, 255, .25); border-radius: 4px;
 }
+/* the content editor's way back to the inspector (its HTML tab's other end) */
+.decklight-editor .ed-to-inspector {
+  background: none; border: 1px solid rgba(255, 255, 255, .18); border-radius: 5px;
+  color: inherit; font: inherit; font-size: 12px; padding: 2px 8px; cursor: pointer; opacity: .8;
+}
+.decklight-editor .ed-to-inspector:hover { opacity: 1; background: rgba(255, 255, 255, .08); }

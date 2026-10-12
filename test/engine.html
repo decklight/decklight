@@ -5940,6 +5940,20 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && contentPost?.body.html === '<h1>Renamed</h1>';
         r.escapeClosesContentEditor = escapeUntilClosed(W);
 
+        // …and the same editor is the inspector's HTML tab: select the
+        // element, open the inspector, HTML opens the editor in its slot, and
+        // the editor's way back opens the inspector again
+        h1.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+        press('i'); await settle();
+        const htmlTab = document.querySelector('.decklight-inspector .ins-tab[data-tab="html"]');
+        r.inspectorOffersHtml = !!htmlTab;
+        htmlTab?.click(); await settle(); await settle();
+        r.htmlTabOpensTheEditor = !!document.querySelector(`${W} textarea`) && !document.querySelector('.decklight-inspector');
+        document.querySelector(`${W} .ed-to-inspector`)?.click(); await settle();
+        r.editorGoesBackToTheInspector = !document.querySelector(W) && !!document.querySelector('.decklight-inspector');
+        escapeUntilClosed('.decklight-inspector');
+
         // A slide with no per-element source mapping (data-markdown-removed,
         // #112's stand-in for the notes editor's markdown guard — markdown
         // slides were removed in 0.3.0, so this repo has no real fixture)
@@ -5964,6 +5978,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.escapeCloses && r.opensOnBackground && r.backgroundOnlyNotes
           && r.submenuShape && r.postsEffect && r.closesAfterEffect && r.postsRemove
           && r.contentMounts && r.contentLoadedFromSource && r.postsContent && r.escapeClosesContentEditor
+          && r.inspectorOffersHtml && r.htmlTabOpensTheEditor && r.editorGoesBackToTheInspector
           && r.declinesOnMarkdownSlide && r.backdropCloses && r.disarmedNoMenu;
       }
     } catch (e) {

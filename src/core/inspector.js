@@ -464,6 +464,23 @@ export function createInspector({
       b.addEventListener('click', (e) => { e.stopPropagation(); tab = id; render(); });
       bar.append(b);
     }
+    // HTML: the selected element's source, in the editor that shares this
+    // panel's slot (dock.js). A tab here rather than a seventh panel found
+    // only on the right-click menu (ROADMAP section 3); the editor's own
+    // header has an Inspector tab that comes back.
+    const em = editmode();
+    if (target && target.index != null && em?.available?.() && em?.editContent) {
+      const h = document.createElement('button');
+      h.type = 'button';
+      h.className = 'ins-tab';
+      h.dataset.tab = 'html';
+      h.textContent = 'HTML';
+      h.setAttribute('role', 'tab');
+      h.setAttribute('aria-selected', 'false');
+      h.title = 'edit this element as HTML, in this panel';
+      h.addEventListener('click', (e) => { e.stopPropagation(); em.editContent(target); });
+      bar.append(h);
+    }
     return bar;
   }
 

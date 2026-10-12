@@ -3061,6 +3061,8 @@ export function init(userConfig = {}) {
     // the deck's brand (SPEC BRAND_PALETTE): held to it or not, and the theme on screen
     brand: () => ({ locked: themes.brandLocked(), theme: themes.currentTheme() }),
   });
+  // the content editor's way back to the inspector (its HTML tab's other end)
+  editmode.setInspectorOpener?.(() => inspector?.open());
   // Check deck… (palette, SPEC PRESENTING): the open deck's own lint, slide by
   // slide. An inactive slide is display:none, so overflow is measured under
   // the same momentary .pin-measure the pinned titles use.
