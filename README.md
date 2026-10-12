@@ -8,7 +8,8 @@ every byte of it.
 
 It is live at [decklight.io](https://decklight.io). The two-minute version is
 `demo/intro.html`, the exhaustive one is `demo/showcase.html`, and the contract
-everything is built against is [`SPEC.md`](SPEC.md).
+everything is built against is [`SPEC.md`](SPEC.md), with the marketplace
+and library half in [`PLATFORM.md`](PLATFORM.md).
 
 ## Why
 

@@ -143,7 +143,7 @@ test('no shipped file still names a key that was retired', () => {
       if (/\.(m?js)$/.test(f)) shipped.push(path.join(dir, f));
     }
   }
-  shipped.push('README.md', 'SPEC.md', 'site/index.html');
+  shipped.push('README.md', 'SPEC.md', 'PLATFORM.md', 'site/index.html');
   for (const f of fs.readdirSync(path.join(root, 'docs'))) if (f.endsWith('.md')) shipped.push(path.join('docs', f));
   for (const f of fs.readdirSync(path.join(root, 'demo'))) if (f.endsWith('.html')) shipped.push(path.join('demo', f));
   const hits = [];
@@ -205,7 +205,7 @@ test('no printed string or doc still describes the two modes by the commands tha
   // for a command that no longer exists. These are the strings the release
   // pass found by hand; pinned so they cannot come back.
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const files = ['README.md', 'SPEC.md', 'MARKETPLACE.md', 'CONTRIBUTING.md', 'site/index.html',
+  const files = ['README.md', 'SPEC.md', 'PLATFORM.md', 'MARKETPLACE.md', 'CONTRIBUTING.md', 'site/index.html',
     ...fs.readdirSync(path.join(root, 'cli')).filter((f) => f.endsWith('.mjs')).map((f) => `cli/${f}`)];
   const stale = [
     /\bpresent (loads|behaves|startup|mode)\b/,

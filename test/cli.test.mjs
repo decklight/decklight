@@ -207,7 +207,7 @@ test('init scaffolds a deck that is slides plus a configuration block — and --
   // the platform contract is left out, with a pointer to it; what a slide
   // uses from a marketplace (templates, fonts) stays
   assert.doesNotMatch(reference, /## MARKETPLACE_REGISTRY|### UNIT_PINNING|### ENGINE_UNITS/);
-  assert.match(reference, /marketplace and library contract .* is in `SPEC\.md`/);
+  assert.match(reference, /specified in \[`PLATFORM\.md`\]\(PLATFORM\.md\)/);
   assert.match(reference, /## DESIGN_SYSTEMS/);
   assert.match(reference, /## FONTS/);
 

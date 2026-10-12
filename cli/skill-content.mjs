@@ -25,29 +25,16 @@ import { PKG_ROOT, PKG } from './pkg.mjs';
 export { PKG_ROOT, PKG };
 
 /**
- * The authoring contract, sliced from SPEC.md: everything an agent needs to
- * write slides, which is the SPEC from DECK_ANATOMY through FONTS less two
- * blocks. REPO_LAYOUT onward only matters to Decklight's own contributors.
- * MARKETPLACE_REGISTRY up to DESIGN_SYSTEMS (the marketplace, the library
- * and its units, engines, agents and voices) is the platform contract: how
- * a catalog is registered and a unit installed, pinned and checked. It was
- * 640 lines, about a third of every project's reference.md, read by agents
- * that only ever write slides. A one-line pointer stands in for it, so an
- * agent that does need it knows where it is. DESIGN_SYSTEMS and FONTS stay:
- * a slide fills a template's slots and a deck names a font.
+ * The authoring contract: SPEC.md up to REPO_LAYOUT, which only matters to
+ * Decklight's own contributors. The platform contract (the marketplace and
+ * the library's units) lives in PLATFORM.md, which SPEC.md points at and the
+ * skill does not install: an agent writing slides rarely needs it, and it
+ * was a third of every project's reference.md.
  */
-export const PLATFORM_POINTER = '> The marketplace and library contract (`MARKETPLACE_REGISTRY` through `VOICE_UNITS`: '
-  + 'registering a catalog, installing, pinning and checking a unit, speech engines, agents and voices) is left out '
-  + 'of this reference: a deck author rarely needs it. It is in `SPEC.md` in the installed decklight package.\n';
-
 export function referenceDoc() {
   const spec = fs.readFileSync(path.join(PKG_ROOT, 'SPEC.md'), 'utf8');
   const cut = spec.indexOf('\n## REPO_LAYOUT');
-  let doc = cut > 0 ? spec.slice(0, cut) : spec;
-  const from = doc.indexOf('\n## MARKETPLACE_REGISTRY');
-  const to = doc.indexOf('\n## DESIGN_SYSTEMS');
-  if (from > 0 && to > from) doc = doc.slice(0, from) + '\n\n' + PLATFORM_POINTER + doc.slice(to);
-  return doc.trimEnd() + '\n';
+  return (cut > 0 ? spec.slice(0, cut) : spec).trimEnd() + '\n';
 }
 
 /**

@@ -13,7 +13,8 @@
     "dist/",
     "themes/",
     "docs/",
-    "SPEC.md"
+    "SPEC.md",
+    "PLATFORM.md"
   ],
   "homepage": "https://decklight.io",
   "repository": {
