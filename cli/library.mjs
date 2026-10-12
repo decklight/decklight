@@ -53,7 +53,7 @@ export const USAGE = `usage: decklight library <add|remove|list|check> <kind> â€
     EXAMPLE: decklight library check plugin plugins/timer
 
   kinds
-    plugin     presenter chrome for your machine; no-trust mode loads it
+    plugin     presenter chrome for your machine; every deck you open shows it
     skill      an agent skill (Markdown)
     importer   an import adapter, for a format decklight cannot read itself
     transform  build-time Node code that runs during bundle, never in a deck

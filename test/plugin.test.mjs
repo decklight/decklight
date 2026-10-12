@@ -282,6 +282,47 @@ test('--no-plugins presents without the library', async (t) => {
   assert.equal(await (await fetch(base + '/')).text(), DECK);
 });
 
+// ── write mode: the presenter's chrome over your own deck too ───────────────
+// It used to be no-trust only, so presenting your own deck with your own timer
+// meant opening it without trust (ROADMAP section 5).
+
+async function startWrite(t, dir, home, extraArgs = []) {
+  const EDIT = path.join(path.dirname(CLI), 'edit.mjs');
+  const child = spawn(process.execPath, [EDIT, 'talk.html', '--port', '0', '--no-git', ...extraArgs],
+    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
+  t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  const base = await new Promise((resolve, reject) => {
+    const scan = setInterval(() => {
+      const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
+      if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
+    }, 25);
+    child.on('exit', () => { clearInterval(scan); reject(new Error('write mode exited early:\n' + out)); });
+    setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for write mode:\n' + out)); }, 10000);
+  });
+  return { base, log: () => out };
+}
+
+test('write mode layers the presenter\'s chrome over the deck, and says so', async (t) => {
+  const dir = deckDir();
+  const home = homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } });
+  const { base, log } = await startWrite(t, dir, home);
+  const served = await (await fetch(base + '/talk.html')).text();
+  assert.match(served, /decklight-chrome/, 'the chrome is there in write mode too');
+  assert.match(served, /sandbox="allow-scripts"/, 'in the same sandbox as under no-trust');
+  assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8'), DECK, 'the file on disk is untouched');
+  assert.match(log(), /chrome: timer — yours, not in the deck \(--no-plugins plays without them\)/);
+});
+
+test('write mode with --no-plugins serves the deck without the chrome', async (t) => {
+  const dir = deckDir();
+  const home = homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } });
+  const { base } = await startWrite(t, dir, home, ['--no-plugins']);
+  assert.doesNotMatch(await (await fetch(base + '/talk.html')).text(), /decklight-chrome/);
+});
+
 test('a plugin does not widen the CSP or register a route', async (t) => {
   const dir = deckDir();
   const home = homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } });

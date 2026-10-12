@@ -60,7 +60,7 @@ export function parseReady(line) {
  * `skill` used to be missing here, so they kept their arrival position after
  * every known row and landed below `reviews`.
  */
-export const ROW_ORDER = ['port', 'voice', 'lips', 'skipped', 'git', 'agents', 'runtime', 'skill', 'reviews'];
+export const ROW_ORDER = ['port', 'voice', 'lips', 'skipped', 'git', 'agents', 'plugins', 'runtime', 'skill', 'reviews'];
 
 const ESC = { dim: '\x1b[2m', bold: '\x1b[1m', cyan: '\x1b[36m', green: '\x1b[32m', yellow: '\x1b[33m', red: '\x1b[31m', under: '\x1b[4m', reset: '\x1b[0m' };
 

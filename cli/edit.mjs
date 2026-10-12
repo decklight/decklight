@@ -1395,8 +1395,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // the bytes, so a plugin is never counted as an unaccounted script block in
   // the label (the label describes the file; a plugin is not in the file),
   // and injected after `stripUnaccounted`, so strict never strips the chrome
-  // as if the deck had smuggled it in. No-trust mode only: an author's own
-  // deck gets no chrome layered over the slides they are editing.
+  // as if the deck had smuggled it in. BOTH modes: it used to be no-trust
+  // only, so presenting your own deck with your own timer meant opening it
+  // without trust (ROADMAP section 5). The chrome is the presenter's, and a
+  // presenter is often the author. `--no-plugins` turns it off in either.
   const chrome = args.includes('--no-plugins') ? { plugins: [], refused: [] } : loadLibrary();
   // Consulted per request rather than decided once: after a pull `strict`
   // may have ratcheted on, and the bytes served have to follow the verdict
@@ -1808,6 +1810,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
         `${older.map((o) => `${basename(o.rel)} ${o.v ? `v${o.v}` : 'before 0.9.0'}`).join(', ')}, older than ${PKG.version} · run: ${selfCommand()} skills`,
         `  skill: ${older.map((o) => `${o.rel} (${o.v ? `v${o.v}` : 'before 0.9.0'})`).join(', ')} — older than this install (${PKG.version}): an agent reads an old contract; run ${selfCommand()} skills`, 'warn');
     }
+  }
+  // The presenter's chrome, named here as no-trust mode names it under its
+  // label: what is layered over the slides, and which plugin reads the notes.
+  if (!noTrust && (chrome.plugins.length || chrome.refused.length)) {
+    const names = chrome.plugins.map((pl) => `${pl.name}${pl.needs.includes('notes') ? ' (reads your notes)' : ''}`);
+    const refused = chrome.refused.map((r) => `${r.name} refused`);
+    startup('plugins', [...names, ...refused].join(', ') + ' · --no-plugins plays without them',
+      `  chrome: ${[...names, ...refused].join(', ')} — yours, not in the deck (--no-plugins plays without them)`,
+      refused.length ? 'warn' : 'ok');
   }
   // Said out loud, every session it is on: this is the switch that starts
   // sending the deck somewhere, and a capability nobody is reminded of is one
@@ -3943,7 +3954,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // a `.pem`, a database — is only ever fetched to be exfiltrated), rewrites
   // every html page on its way out (strict, then the chrome), and has no
   // index: "/" is the deck, answered from memory before this is consulted.
-  const files = staticFiles(root, { index: deckUrl });
+  // write mode: the deck gets the presenter's chrome too, every other page none
+  const files = staticFiles(root, { index: deckUrl, html: (text, file) => (file === deckPath ? injectChrome(text, chrome.plugins) : text) });
   const auditedFiles = staticFiles(root, { html: rewrite, knownTypesOnly: true });
   const server = createServer(async (req, res) => {
     // No-trust mode: the policy on EVERY response this server writes — the

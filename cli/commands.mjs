@@ -286,7 +286,7 @@ Commands:
   library  what this machine installs from a marketplace for its own use — plugins, skills,
            import adapters, build-time transforms, speech engines, voices, agents — one grammar:
            add, remove, list, and check (the gate a marketplace's CI runs); nothing travels in a deck
-           EXAMPLE: decklight library add plugin timer      (then: decklight talk.html --no-trust)
+           EXAMPLE: decklight library add plugin timer      (then: decklight talk.html)
            EXAMPLE: decklight library add engine azure-tts  (then: decklight tts --engine azure-tts)
            EXAMPLE: decklight library list                  (every kind, or name one)
            EXAMPLE: decklight library check transform grammar-check.mjs

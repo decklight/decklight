@@ -70,6 +70,7 @@ const USAGE = `usage: decklight <deck.html | git url> [--no-trust | --trust] [--
   --git / --no-git  keep the deck in git (snapshots, K commits) / never touch git
                     (no repository and no flag: decklight asks whether to create one)
   --agent <name>    preferred AI agent for A (default: first detected)
+  --no-plugins      play without your presenter plugins (decklight library add plugin)
   --remote          also listen on the LAN for the phone remote
   --no-tts          don't start the voice bridge
   --no-lipsync      don't start the lip-sync bridge
@@ -212,7 +213,9 @@ export function planServices({
       ...(has('--commit-messages') ? ['--commit-messages'] : []),
       ...(has('--no-commit-messages') ? ['--no-commit-messages'] : []),
       // the phone remote (NO_TRUST#REMOTE) is the server's, in either mode
-      ...(has('--remote') ? ['--remote'] : []), ...pass('--host')],
+      ...(has('--remote') ? ['--remote'] : []), ...pass('--host'),
+      // the presenter's chrome loads in write mode too; this turns it off
+      ...(has('--no-plugins') ? ['--no-plugins'] : [])],
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
 
