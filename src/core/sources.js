@@ -27,6 +27,7 @@
  */
 
 import { createDock } from './dock.js';
+import { UNDO_CHORD } from './undo-chord.js';
 
 /** The facts and links a section carries, or null when it carries none. */
 export function sourcesOf(section) {
@@ -210,7 +211,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
       const refused = j.dropped?.length
         ? `. ${j.dropped.join(', ')} was not written — a reference is a link somebody can follow, not something that runs`
         : '';
-      toast((j.changed ? `sources saved on slide ${at} — Z takes it back` : 'nothing changed') + refused,
+      toast((j.changed ? `sources saved on slide ${at} — ${UNDO_CHORD} takes it back` : 'nothing changed') + refused,
         refused ? 6000 : 3000);
     } catch (e) {
       toast(`could not save — ${e.message}`);

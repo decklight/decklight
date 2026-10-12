@@ -3,7 +3,7 @@
 // then opened headless — J turns on the progress bar, a feature new in
 // 0.2.0 that the deck's era could not do. A couple of advances give the
 // hairline along the bottom edge some width to show.
-press('j'); await sleep(200);
+window.__deck.toggleProgress(); await sleep(200);   // the palette's Progress bar row (J went)
 press('ArrowRight'); await sleep(150);
 press('ArrowRight'); await sleep(150);
 press('ArrowRight'); await sleep(800); // let the width transition land

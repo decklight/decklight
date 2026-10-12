@@ -26,6 +26,7 @@
 
 import { toOklab } from '../../tools/color.mjs';
 import { conceptFill } from './svg.js';
+import { UNDO_CHORD } from './undo-chord.js';
 
 // ----- colour maths (pure) --------------------------------------------------
 
@@ -768,7 +769,7 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
       render();
       commit(changes);
     });
-    foot.append(reset, h('span', 'cp-spacer'), h('span', 'cp-saved', 'saved as you pick · Z takes it back'));
+    foot.append(reset, h('span', 'cp-spacer'), h('span', 'cp-saved', `saved as you pick · ${UNDO_CHORD} takes it back`));
     main.appendChild(foot);
     if (focus) el.querySelector(`.${focus[0].split(' ')[0]}[data-chan="${focus[1]}"]`)?.focus();
   }

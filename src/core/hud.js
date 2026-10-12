@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The presenter's heads-up display: the four things you can layer over the
-// slides while you talk. The clock (K), the progress hairline (J), the ink
-// tools (W pen, ⇧W laser) and the transcript (palette).
+// slides while you talk. The clock and the progress hairline (palette rows),
+// the ink tools (W pen, ⇧W laser) and the transcript (palette).
 //
 // They share a shape rather than any state. Each is off by default, each
 // remembers its setting per deck in localStorage, each mounts one element
@@ -77,7 +77,7 @@ export function createHud({
   instance.toggleClock = toggleClock; // K programmatically
   if (clockOn && !printMode) showClock();
 
-  // ── progress bar (J) — SPEC PRESENTING ────────────────────────────────────────────
+  // ── progress bar (palette) — SPEC PRESENTING ─────────────────────────────────────
   // A hairline along the bottom edge whose width IS the position in the deck —
   // the shape of the talk at a glance, without counting slides. A passive
   // readout of state.slide/step (the fraction _updateChrome computes); it

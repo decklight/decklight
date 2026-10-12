@@ -6,7 +6,7 @@
 //            lipsync` → Rhubarb) per SENTENCE in live mode, or from
 //            slide-NN.visemes.json (tools/lipsync.mjs) in recorded mode. A
 //            30 Hz sync loop maps narrAudio.currentTime → the active cue, so
-//            pause (P) and voice speed (< >) need no extra wiring. (An
+//            pause (⎵) and voice speed (< >) need no extra wiring. (An
 //            interval, not rAF: cues are ~100 ms apart so 30 Hz is visually
 //            identical, and it keeps ticking in hidden tabs and under
 //            headless virtual time, where rAF stalls.)

@@ -47,7 +47,7 @@ test('dropping the config orphans the whole track — the bug this exists for', 
   assert.deepEqual(impact.stale, []);
   assert.deepEqual(impact.reshaped, []);
   assert.match(impactWarning(impact), /voices\/me \(2 recorded slides\) is no longer played/);
-  assert.match(impactWarning(impact), /Z takes the edit back; the audio is still on disk/);
+  assert.match(impactWarning(impact), /⌘Z \(Ctrl\+Z\) takes the edit back; the audio is still on disk/);
 });
 
 test('rewriting a recorded slide’s notes stales that slide, and only that slide', () => {

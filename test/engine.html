@@ -936,6 +936,9 @@
       return n.textContent.slice(cat.length);
     };
     const palNames = () => [...document.querySelectorAll('.decklight-palette .pal-row')].map(palName);
+    // Run a palette row by typing its words: the way to reach what used to
+    // have a key of its own (the debug log, narration play).
+    const runRow = (text) => { press('/'); for (const ch of text) press(ch); press('Enter'); };
 
     // Escape backs out one level at a time (a filter, a drill-in view), so
     // "does Escape ultimately close it?" means pressing it until gone.
@@ -2103,7 +2106,7 @@
           && posted.body.facts.some(([k, v]) => k === 'owner' && v === 'docs-team');
         r.closesOnSave = !document.querySelector(P);
         const said = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
-        r.saysItSaved = said.some((t) => /sources saved on slide 2/.test(t) && /Z takes it back/.test(t));
+        r.saysItSaved = said.some((t) => /sources saved on slide 2/.test(t) && /(⌘Z|Ctrl\+Z) takes it back/.test(t));
 
         r.PASS = r.inspectorOffersEditing && r.inspectorMakesWay && r.opensEmptyForAuthoring && r.startsWithOneLinkRow && r.escapeWroteNothing
           && r.readsFirst && r.editSeedsFromTheSlide && r.typingDoesNotReachTheDeck
@@ -2314,8 +2317,13 @@
         dbl(h1b);
         h1b.textContent = 'One, again';
         h1b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        // ⌘Z on a Mac, Ctrl+Z elsewhere: the undo every editor trained, and
+        // since bare Z stopped writing the file, the deck's only undo key.
+        const mac = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
+        const chord = (shiftKey = false, on = document.body) => on.dispatchEvent(new KeyboardEvent('keydown',
+          { key: 'z', bubbles: true, cancelable: true, shiftKey, ...(mac ? { metaKey: true } : { ctrlKey: true }) }));
         const undosBeforeText = undos();
-        press('z');
+        chord();
         await new Promise((ok) => setTimeout(ok, 700));
         r.undoWaitsForTheTextSave = undos() === undosBeforeText + 1
           && posts().findLastIndex((u) => u.includes('/deck/edit/undo')) > posts().lastIndexOf('LANDED element content');
@@ -2324,17 +2332,19 @@
         for (const ch of 'duplicate') press(ch);
         press('Enter');
         await settle();
-        press('z');
+        chord();
         await new Promise((ok) => setTimeout(ok, 700));
         r.undoWaitsForTheSlideOp = undos() === undosBeforeOp + 1
           && posts().findLastIndex((u) => u.includes('/deck/edit/undo')) > posts().lastIndexOf('LANDED slide op');
 
-        // ⌘Z on a Mac, Ctrl+Z elsewhere — the undo every editor trained —
-        // does what Z does, and ⇧ with it redoes. The OTHER platform's chord is
-        // not taken, and inside text being edited the browser's own undo wins.
-        const mac = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
-        const chord = (shiftKey = false, on = document.body) => on.dispatchEvent(new KeyboardEvent('keydown',
-          { key: 'z', bubbles: true, cancelable: true, shiftKey, ...(mac ? { metaKey: true } : { ctrlKey: true }) }));
+        // ⇧ with the chord redoes. The OTHER platform's chord is not taken,
+        // a bare Z writes nothing, and inside text being edited the browser's
+        // own undo wins.
+        const uBare = undos();
+        press('z');
+        press('Z', { shiftKey: true });
+        await new Promise((ok) => setTimeout(ok, 300));
+        r.bareZWritesNothing = undos() === uBare && !posts().slice(-2).some((u) => u.includes('/deck/edit/redo'));
         const redos = () => posts().filter((u) => u.includes('/deck/edit/redo')).length;
         const u0 = undos();
         chord();
@@ -2360,7 +2370,7 @@
         const help = (() => { press('?'); const t = document.querySelector('.help-card')?.textContent ?? ''; press('?'); return t; })();
         r.helpNamesTheChord = help.includes(mac ? '⌘Z' : 'Ctrl+Z');
 
-        r.PASS = r.chordUndoes && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes
+        r.PASS = r.chordUndoes && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes && r.bareZWritesNothing
           && r.chordInTextIsTheBrowsers && r.helpNamesTheChord
           && r.undoWaitsForTheTextSave && r.undoWaitsForTheSlideOp
           && r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
@@ -2496,7 +2506,7 @@
         // The debug log across a reload (PRESENTING): the page before left
         // its rows and the reason; D shows them dimmed, the reason first.
         await settle();
-        press('d'); await settle();
+        runRow('debug log'); await settle();
         const panel = () => document.querySelector('.decklight-debug');
         const rows = () => [...panel()?.querySelectorAll('.dbg-row') ?? []];
         const text = (el) => el.querySelector('.dbg-m').textContent;
@@ -2527,7 +2537,7 @@
         // keeps its size; a plain wheel pans while zoomed; 0, Esc and a
         // slide change snap back to fit; the overview takes no pinch.
         await settle();
-        press('d'); await settle();   // a panel to measure: the debug log
+        runRow('debug log'); await settle();   // a panel to measure: the debug log
         const panel = () => document.querySelector('.decklight-debug').getBoundingClientRect();
         const before = panel();
         const stage = document.querySelector('.decklight-stage');
@@ -2835,17 +2845,13 @@
         // Editing has a face (editbar.js): a bar that names every door, a
         // click selects an element, and the keys a selection answers go
         // through the same routes the gestures and the menu already use.
-        // L pressed BEFORE the probe answers (the moment after a reload)
-        // waits for it rather than refusing with "run decklight"
+        // L no longer cycles the layout: a bare letter that writes the file
+        // is one a presenter presses by mistake. The bar's button does it.
         press('l');
         await settle();                       // /deck/ping: editAvailable
         await settle();
-        // the ring answered (its write sits behind a debounce), and nothing said "run decklight"
-        {
-          const tx = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
-          r.earlyLWaitsThenLands = tx.some((t) => /^layout: /.test(t)) && !tx.some((t) => /needs write mode|run npx decklight|one moment/.test(t));
-        }
-        press('L', { shiftKey: true });       // and back, so the bar's Layout button below starts from auto
+        r.bareLWritesNothing = !CALLS.post.some((c) => c.u.includes('/deck/edit/slide/layout'))
+          && ![...document.querySelectorAll('.decklight-toast')].some((n) => /^layout: /.test(n.textContent));
         await settle();
         deck.goto(1, 0);
         await settle();
@@ -2858,7 +2864,7 @@
         const sec1 = document.querySelector('.decklight-stage > section');
         r.barAtOnce = !!bar() && document.querySelector('.decklight').classList.contains('dl-editmode');
         r.barNamesEveryDoor = labels().join('|') === 'Text|Picture|Layout · auto|Notes|Slide ▾|Undo|Redo|Lock';
-        r.barShowsTheKeys = ['⏎', 'L', 'S', 'Z', '⇧Z'].every((k) => keys().includes(k));
+        r.barShowsTheKeys = ['⏎', 'S'].every((k) => keys().includes(k)) && keys().some((k) => /^(⌘Z|Ctrl\+Z)$/.test(k)) && !keys().includes('L') && !keys().includes('Z');
         // the grip: the bar moves, the place is remembered, a double-click puts it back
         const grip = () => bar().querySelector('.eb-grip');
         const PLACE = 'decklight-editbar-at:' + location.pathname;
@@ -3002,7 +3008,7 @@
         for (const ch of 'lock deck') press(ch);
         r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(palName(n)));
         press('Escape');
-        r.PASS = r.earlyLWaitsThenLands && r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
+        r.PASS = r.bareLWritesNothing && r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
           && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordAsksFullscreen && r.clickSelects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
@@ -3168,7 +3174,8 @@
         r.editingOffWhileLocked = !bar() && !h1?.isContentEditable;
         r.slideNumberGoesWithTheLock = !num() && !document.querySelector('.decklight').classList.contains('has-slide-num');
         // a door that writes says why, and it is the lock, not "run decklight"
-        press('l');
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true,
+          ...(/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '') ? { metaKey: true } : { ctrlKey: true }) }));
         await settle();
         r.doorsSayLocked = [...document.querySelectorAll('.decklight-toast')].some((n) => /deck is locked — unlock it/.test(n.textContent))
           && ![...document.querySelectorAll('.decklight-toast')].some((n) => /needs write mode/.test(n.textContent));
@@ -3914,12 +3921,12 @@
         await settle();
         r.trackChosen = !!deck.narration.status().track;
 
-        // 4 · start it deliberately — P, the unconditional verb — and only THEN
-        //     does ⎵ belong to the voice
-        press('p');
+        // 4 · start it deliberately — the palette's Narration play, the
+        //     unconditional verb — and only THEN does ⎵ belong to the voice
+        runRow('narration play');
         await settle();
         await new Promise((ok) => setTimeout(ok, 300));
-        r.pStartsTheVoice = !!deck.narration.status().narrating;
+        r.playRowStartsTheVoice = !!deck.narration.status().narrating;
         const mid = at();
         press(' ');
         await settle();
@@ -3931,7 +3938,7 @@
 
         r.PASS = r.spaceAdvancesWhenIdle && r.spaceDidNotStartTheVoice
           && r.offRowIsCurrent && r.trackChosen
-          && r.arrowStillAdvances && r.pStartsTheVoice && r.spacePausesOncePlaying
+          && r.arrowStillAdvances && r.playRowStartsTheVoice && r.spacePausesOncePlaying
           && r.spaceDidNotAdvanceWhilePlaying && r.spaceResumes;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -4104,7 +4111,7 @@
         await settle(); await settle();
         const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/template')).pop()?.body;
         r.posted = sent?.slide === n && sent?.template === 'acme/statement' && !sent?.insert;
-        r.said = [...document.querySelectorAll('.decklight-toast')].some((x) => /now acme\/statement — content stays by slot name — Z takes it back/.test(x.textContent));
+        r.said = [...document.querySelectorAll('.decklight-toast')].some((x) => /now acme\/statement — content stays by slot name — (⌘Z|Ctrl\+Z) takes it back/.test(x.textContent));
         r.PASS = r.titleIsAnElement && r.fileIndex && r.decorationIsNothing && r.paletteRow && r.offersRemove && r.listsLayouts
           && r.livePreview && r.actions && r.posted && r.said;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
@@ -4198,7 +4205,7 @@
         await settle(); await settle();
         const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/design-system/mark')).pop()?.body;
         r.toggled = sent?.ref === 'acme@acme-mkt' && sent?.used === true;
-        r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — its templates are in \/ → Use slide template… · Z takes it back/.test(n.textContent));
+        r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — its templates are in \/ → Use slide template… · (⌘Z|Ctrl\+Z) takes it back/.test(n.textContent));
         r.closed = !document.querySelector('.decklight-design-systems');
         r.PASS = r.paletteRow && r.listed && r.grouped && r.unusableSaidWhy && r.staleNamed && r.toggled && r.said && r.closed;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
@@ -4290,12 +4297,12 @@
         r.counts = /1 of 1 slide/.test(said());
         window.__es.emit('enhance', { state: 'done', ok: true, changed: [2], failed: [], stale: [] });
         await settle();
-        r.saysDone = /enhanced slide 2 — Z undoes/.test(said());
+        r.saysDone = /enhanced slide 2 — (⌘Z|Ctrl\+Z) undoes/.test(said());
         r.allRow = await run('enhance', /Enhance every slide's voiceover script/);
         r.sentAll = CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).pop()?.body?.slides === 'all';
         window.__es.emit('enhance', { state: 'done', ok: true, changed: [1, 3], failed: [{ slide: 2, why: 'the agent changed the words — the prompt allows only tags and emphasis' }], stale: [] });
         await settle();
-        r.saysWhatWasLeft = /enhanced 2 slides — Z undoes · slide 2 left as it was: the agent changed the words/.test(said());
+        r.saysWhatWasLeft = /enhanced 2 slides — (⌘Z|Ctrl\+Z) undoes · slide 2 left as it was: the agent changed the words/.test(said());
         // written for the ear, for the MODULE this slide is in (slide 2 opens
         // "Foundations", which runs to slide 3 — slide 4 opens "Operations")
         r.earModuleRow = await run('ear', /Write this module's notes for the ear/);
@@ -4304,7 +4311,7 @@
         r.saysWritingForTheEar = /writing for the ear: the “Foundations” module \(slides 2–3\)/.test(said());
         window.__es.emit('enhance', { state: 'done', ok: true, changed: [2, 3], failed: [], stale: [], kind: 'spoken' });
         await settle();
-        r.saysWrote = /wrote 2 slides for the ear — Z undoes/.test(said());
+        r.saysWrote = /wrote 2 slides for the ear — (⌘Z|Ctrl\+Z) undoes/.test(said());
         // …and the notes editor's own button: the draft lands IN THE BOX, and
         // nothing is posted to /deck/edit/slide/notes until ⌘⏎
         if (document.querySelector(Q)) press('Escape');
@@ -4707,7 +4714,7 @@
         // the theme on screen is not the old version's: the preview must be
         // told it, or every commit opens on the theme it had configured then
         r.themeApplied = deck.theme('ember') === true;
-        press('r');
+        press('h');
         await settle();                       // let /deck/edit/history resolve
         r.opens = !!document.querySelector(O);
         const frameSrc = document.querySelector(`${O} iframe`)?.getAttribute('src') ?? '';
@@ -4730,7 +4737,7 @@
         r.escapeCloses = escapeUntilClosed(O);
 
         // reopen → backdrop click closes
-        press('r');
+        press('h');
         await settle();
         r.reopens = !!document.querySelector(O);
         document.querySelector(O)?.click();
@@ -4838,7 +4845,7 @@
           ['notes', () => press('s')],
           ['narration', () => press('v')],
           ['inspector', () => press('i')],
-          ['debuglog', () => press('d')],
+          ['debuglog', () => paletteRun('debug log')],
           ['commit', () => press('k')],
           ['history', () => press('h')],
           ['comments', () => press('m')],
@@ -5338,7 +5345,7 @@
         r.labelInkAndWeight = edit(b, 'fill', 'text')?.value === 'var(--d-text)' && edit(b, 'font-weight', 'text')?.value === '700';
         r.pathIsTheFiles = JSON.stringify(edit(b, 'fill', 'rect')?.path) === '[2,0]';   // the line, the box's group, then this one
         r.noConcept = b?.concept === null;
-        r.pastedSaid = toastSays(/style pasted · Z takes it back/);
+        r.pastedSaid = toastSays(/style pasted · (⌘Z|Ctrl\+Z) takes it back/);
         // the same paste again: nothing to write
         rightClick(plain);
         row('Paste style')?.click();

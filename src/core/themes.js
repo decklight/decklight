@@ -15,6 +15,7 @@ import { closeOnBackdrop, selectInList } from './overlay.js';
 import { createPreview } from './preview.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
 import { pageDesignSystems } from './design-system.js';
+import { UNDO_CHORD } from './undo-chord.js';
 
 /**
  * Wire the theme system to a deck.
@@ -709,7 +710,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         renderPickerList();
         selectPickerRow(at, true);
       }
-      toast(on ? `${name} marked — it will be part of the bundle · Z takes it back`
+      toast(on ? `${name} marked — it will be part of the bundle · ${UNDO_CHORD} takes it back`
         : `${name} unmarked — the bundle will leave it out`, 2800);
       debugLog('theme', `${ref} ${on ? 'marked' : 'unmarked'}`);
     } catch {
@@ -1005,7 +1006,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       return;
     }
     brandOnly = only;
-    toast(only ? `keeping to ${brandTitles()}'s themes · Z takes it back` : 'every theme listed · Z takes it back', 2600);
+    toast(only ? `keeping to ${brandTitles()}'s themes · ${UNDO_CHORD} takes it back` : `every theme listed · ${UNDO_CHORD} takes it back`, 2600);
     if (pickerEl) setPickerView(homeView(), true);
     else pickerView = homeView();
   }

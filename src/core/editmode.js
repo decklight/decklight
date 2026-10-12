@@ -31,6 +31,7 @@ import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.j
 import { wordDiff, diffCounts } from './worddiff.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
+import { UNDO_CHORD } from './undo-chord.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
@@ -734,7 +735,7 @@ export function createEditMode({
                 if (ask) Object.assign(ask, d, { finishedAt: Date.now() });
                 paintAgentChip();
                 const status = d.ok ? '' : d.error ? ` — ${d.error}` : ` (exit ${d.code})`;
-                toast(d.changed ? `🤖 ${d.agent} edited the deck — Z undoes${status}`
+                toast(d.changed ? `🤖 ${d.agent} edited the deck — ${UNDO_CHORD} undoes${status}`
                   : `🤖 ${d.agent} finished — no changes${status}`, 3000);
                 debugLog('agent', `${d.agent} done ok=${d.ok} changed=${d.changed}${status}`);
                 // A recording the edit orphaned or staled — held longer and on
@@ -1626,8 +1627,8 @@ export function createEditMode({
           enhanceScript(scope, { kind: b.kind });
         };
         opt(`this slide`, 'into the box above — read it, then ⌘⏎ saves', () => rewriteBox(b, btn)).classList.add('narr-sel');
-        if (mod) opt(`module “${mod.title}” · ${mod.to - mod.from + 1}`, `slides ${mod.from}–${mod.to}, in the file — Z undoes`, writesFile('module'));
-        opt(`whole deck · ${instance.state.totalSlides}`, 'every slide with notes, in the file — Z undoes', writesFile('all'));
+        if (mod) opt(`module “${mod.title}” · ${mod.to - mod.from + 1}`, `slides ${mod.from}–${mod.to}, in the file — ${UNDO_CHORD} undoes`, writesFile('module'));
+        opt(`whole deck · ${instance.state.totalSlides}`, `every slide with notes, in the file — ${UNDO_CHORD} undoes`, writesFile('all'));
         opt('✕', 'never mind', () => {});
         const hint = document.createElement('span');
         hint.className = 'notes-scope-what';
@@ -1854,7 +1855,7 @@ export function createEditMode({
       const said = {
         new: `new slide added after ${slide}`,
         duplicate: `slide ${slide} duplicated`,
-        delete: `slide ${slide} deleted — Z takes it back`,
+        delete: `slide ${slide} deleted — ${UNDO_CHORD} takes it back`,
         up: `slide ${slide} moved up`,
         down: `slide ${slide} moved down`,
         move: `slide ${slide} moved to ${to}`,
@@ -1964,7 +1965,7 @@ export function createEditMode({
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || res.status);
-      toast(!j.changed ? 'concept unchanged' : name === null ? 'detached from its concept — reloading · Z takes it back' : `now the “${name}” concept — reloading · Z takes it back`);
+      toast(!j.changed ? 'concept unchanged' : name === null ? `detached from its concept — reloading · ${UNDO_CHORD} takes it back` : `now the “${name}” concept — reloading · ${UNDO_CHORD} takes it back`);
     } catch (e) {
       toast(`concept not saved: ${String(e.message || e).slice(0, 90)}`, 3400);
     }
@@ -2177,9 +2178,9 @@ export function createEditMode({
     keydown: (e) => e.key === 'Escape' && (closeContentEditor(), true),
   });
 
-  // ----- the versions overlay (R restores, H reads) — SPEC PRESENTING ---------
-  // The git-level sibling of Z/⇧Z: Z takes back a keystroke, R takes back a
-  // session. Rows are the deck's commits (from `decklight restore`'s own
+  // ----- the versions overlay (H) — SPEC PRESENTING -------------------------
+  // The git-level sibling of the undo chord: ⌘Z takes back an edit, H takes
+  // back a session. Rows are the deck's commits (from `decklight restore`'s own
   // helper, over the edit server); the preview is that commit's deck rendered
   // for real, because a hash and a subject are not enough to recognise the
   // version you actually want.
@@ -2667,7 +2668,7 @@ export function createEditMode({
       if (!j.ok) return toast(`restore failed: ${j.error}`, 3000);
       if (!j.changed) return toast(`already at ${entry.hash}`, 2000);
       // the write lands on disk; the watcher's reload brings the deck back up
-      toast(`restored ${entry.hash} — Z takes it back`, 2600);
+      toast(`restored ${entry.hash} — ${UNDO_CHORD} takes it back`, 2600);
     } catch { toast('restore failed: the edit server did not answer', 3000); }
   }
   // typing surfaces — the textarea handles its own keys. Floating, each is
@@ -3095,7 +3096,7 @@ export function createEditMode({
     const k = REWRITES[d.kind] ?? REWRITES.tags;
     if (!d.ok) return `could not rewrite the script — ${d.error}`;
     const n = d.changed.length;
-    const parts = [n ? `${k.done(n === 1 ? `slide ${d.changed[0]}` : `${n} slides`)} — Z undoes` : 'no slide changed'];
+    const parts = [n ? `${k.done(n === 1 ? `slide ${d.changed[0]}` : `${n} slides`)} — ${UNDO_CHORD} undoes` : 'no slide changed'];
     if (d.failed.length) {
       parts.push(d.failed.length === 1 ? `slide ${d.failed[0].slide} left as it was: ${d.failed[0].why}`
         : `${d.failed.length} left as they were (the agent's answer did not pass the check)`);

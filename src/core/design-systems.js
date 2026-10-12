@@ -15,6 +15,7 @@
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { pageDesignSystems, setupSlideTemplates, isTemplateRef } from './design-system.js';
+import { UNDO_CHORD } from './undo-chord.js';
 
 /**
  * `base()` is the edit server's URL, or null when there is none — and `''`
@@ -113,8 +114,8 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
       const lost = (j.pulled ?? []).filter((x) => x.status === 'skip');
       toast(!j.changed ? `${j.ref}: nothing to change`
         : j.used ? `● this deck now uses ${j.ref}${withIt}${lost.length ? ` · ⚠ not added: ${lost.map((x) => `${x.rec} (${x.why})`).join('; ')}` : ''}`
-          + ' — its templates are in / → Use slide template… · Z takes it back'
-          : `○ dropped ${j.ref} — Z takes it back`, j.used && j.changed ? 7000 : 3200);
+          + ` — its templates are in / → Use slide template… · ${UNDO_CHORD} takes it back`
+          : `○ dropped ${j.ref} — ${UNDO_CHORD} takes it back`, j.used && j.changed ? 7000 : 3200);
       // the look it was drawn for is OFFERED after the reload this write brings
       // — by then the page has the theme and font it would switch to
       if (j.used && j.look?.differs) rememberOffer({ ref: j.ref, ...j.look });
@@ -334,7 +335,7 @@ export function createSlideTemplatePicker({ root, base, toast, deck, lookHint = 
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error ?? `the edit server answered ${r.status}`);
       debugLog('design-system', `slide ${body.slide}: ${j.said}`);
-      toast(`${j.said} — Z takes it back`, 6000);
+      toast(`${j.said} — ${UNDO_CHORD} takes it back`, 6000);
       close();
     } catch (e) {
       toast(`${what}: ${e.message ?? e}`, 7000);

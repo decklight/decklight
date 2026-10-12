@@ -25,6 +25,7 @@ import { readPref, readJson, writePref, writeJson } from './prefs.js';
 import {
   manifestSegmentUrl, manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
 } from './voicetrack.js';
+import { UNDO_CHORD } from './undo-chord.js';
 
 /**
  * Should the "this deck has a voice-over" pill show on this load?
@@ -3338,7 +3339,7 @@ export function createNarration({
    * The recorder writes the files and then used to ask you to paste a line
    * into the deck by hand — the one manual step in a flow that is otherwise a
    * key and an arrow. The edit server already owns this file, so it can
-   * write this too; Z undoes it like any other edit.
+   * write this too; the undo chord takes it back like any other edit.
    *
    * A BUTTON, never automatic. Editing someone's deck the moment a recording
    * ends is the wrong default even with undo behind it, and the button is
@@ -3357,7 +3358,7 @@ export function createNarration({
       });
       const out = await r.json();
       if (!out?.ok) throw new Error(out?.error || `HTTP ${r.status}`);
-      btn.textContent = '✓ the deck now plays this track — Z undoes it';
+      btn.textContent = `✓ the deck now plays this track — ${UNDO_CHORD} undoes it`;
       btn.classList.add('rec-done');
       debugLog('narr', `narration config → ${dir}`);
     } catch (e) {

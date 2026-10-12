@@ -18,7 +18,7 @@
 //   SELECTION: a click on an element selects it (outlined, with a ⋯ handle at
 //   its corner that opens the element's menu by left-click). With something
 //   selected, ⏎ edits it in place when it is text and opens its menu when it
-//   is not, ⌫ removes it (Z takes it back), Esc lets it go. The right-click
+//   is not, ⌫ removes it (the undo chord takes it back), Esc lets it go. The right-click
 //   menu and the drop still work exactly as before, and the double-click
 //   edits only while editing is on: the bar
 //   is a surface over them, not a replacement.
@@ -29,15 +29,16 @@
 import { authoredTop } from './design-system.js';
 import { editableTarget, svgTextTarget, CODE_EDITABLE } from './authoring.js';
 import { pickNode, isDrawn, createSpotlight, createFrame } from './pick.js';
+import { UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
 
 const BUTTONS = [
   { id: 'text', label: 'Text', key: '⏎', title: 'select some text and press Enter, or double-click it' },
   { id: 'picture', label: 'Picture', key: '', title: 'add a picture (or drop one onto the slide)' },
-  { id: 'layout', label: 'Layout', key: 'L', title: 'cycle this slide\'s layout (⇧L backwards)' },
+  { id: 'layout', label: 'Layout', key: '', title: 'cycle this slide\'s layout (⇧-click backwards)' },
   { id: 'notes', label: 'Notes', key: 'S', title: 'edit the speaker notes' },
   { id: 'slide', label: 'Slide ▾', key: '', title: 'new, duplicate, move or delete this slide' },
-  { id: 'undo', label: 'Undo', key: 'Z', title: 'take the last edit back' },
-  { id: 'redo', label: 'Redo', key: '⇧Z', title: 'put it back' },
+  { id: 'undo', label: 'Undo', key: UNDO_CHORD, title: 'take the last edit back' },
+  { id: 'redo', label: 'Redo', key: REDO_CHORD, title: 'put it back' },
   { id: 'lock', label: 'Lock', key: '', title: 'lock the deck: nothing changes the file until you unlock it' },
 ];
 
@@ -56,7 +57,7 @@ export function createEditBar({
   // Editing on is one thing; the bar on screen is another. The bar can be
   // hidden by the person (a palette row, remembered per deck) and hides
   // itself in fullscreen, which in write mode is a rehearsal, not an edit.
-  // Hidden, every door the bar names still works — double-click, drop, L, S,
+  // Hidden, every door the bar names still works — double-click, drop, S,
   // the right-click menu — because the bar is a surface over them.
   const HIDE_KEY = 'decklight-editbar-hidden:' + location.pathname;
   let hiddenByUser = false;
@@ -103,7 +104,7 @@ export function createEditBar({
       }
       // the pointer down must not steal focus from an inline edit in progress
       btn.addEventListener('mousedown', (e) => e.preventDefault());
-      btn.addEventListener('click', (e) => { e.stopPropagation(); run(b.id, btn); });
+      btn.addEventListener('click', (e) => { e.stopPropagation(); run(b.id, btn, e); });
       bar.append(btn);
     }
     root.appendChild(bar);
@@ -210,7 +211,7 @@ export function createEditBar({
     if (b) b.textContent = `Layout · ${layoutLabel()}`;
   }
 
-  function run(id, btn) {
+  function run(id, btn, e = null) {
     switch (id) {
       case 'text': {
         const el = selected && textTarget(selected);
@@ -219,7 +220,7 @@ export function createEditBar({
         break;
       }
       case 'picture': fileInput?.click(); break;
-      case 'layout': cycleLayout(1); refresh(); break;
+      case 'layout': cycleLayout(e?.shiftKey ? -1 : 1); refresh(); break;
       case 'notes': toggleEditor(); break;
       case 'slide': {
         const r = btn.getBoundingClientRect();

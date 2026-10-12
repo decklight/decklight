@@ -107,7 +107,7 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   the theme's accent; a double-click retypes a label in place and `⌫` removes
   just that shape. The notes editor, the inspector and the agent ask dock
   beside the slide, wherever you left them. Every edit lands in the file and
-  `Z` takes it back. `decklight check`
+  `⌘Z` (`Ctrl+Z`) takes it back. `decklight check`
   reports what an author or an agent would otherwise only see by looking:
   clipped slides, crowded ones, missing images, notes whose [click] count
   disagrees with the builds. In the deck, the palette's Check deck… lists the
@@ -178,7 +178,7 @@ Every item above has a SPEC section behind it. The index at the top of
 |---|---|
 | `init ["Title"]` | scaffold a deck and the agent skill, then open it in write mode (`--no-open` keeps the browser closed) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob; a skill older than this build is refreshed, and write mode names one at startup |
-| `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser editing is on: double-click text to edit it (`⌘B`, `⌘I`, `⌘E` for bold, italic and code while you do), drop a picture onto a slide, `L` for a layout, `S` for notes, `O` to rearrange slides; `Lock deck` in the palette turns changes off until you unlock |
+| `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser editing is on: double-click text to edit it (`⌘B`, `⌘I`, `⌘E` for bold, italic and code while you do), drop a picture onto a slide, the bar's Layout for a layout, `S` for notes, `O` to rearrange slides; `Lock deck` in the palette turns changes off until you unlock |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
 | `record deck.html` | record the narration in your own voice, one [click] beat at a time |
 | `cast script.term.yaml` | record a terminal session in a real PTY (`refresh` re-runs, `export` writes asciicast) |
@@ -236,7 +236,7 @@ the CLI only.
 | `⎵` | play / pause the voice once one is chosen; otherwise it advances |
 | `V` | everything about the voice: tracks, live voice, character, record, captions, speed |
 | `M` | review comments: `⏎` jumps to the slide, `R` marks one done and again reopens it, `D` hides the done ones, `⌫` deletes one of yours; `⇧M` writes one |
-| `K` | commit what you changed, with a message; `L` cycles the slide's layout; `⌘⏎` / `Ctrl+Enter` fullscreen |
+| `K` | commit what you changed, with a message; `⌘Z` / `Ctrl+Z` undoes an edit; `⌘⏎` / `Ctrl+Enter` fullscreen |
 | `H` | the deck's history, every version previewed live, `⏎` restores one |
 | `I` | the inspector: everything about this slide, or the selected shape's colours and type; its sources |
 | `/` | command palette, `G` find a slide |

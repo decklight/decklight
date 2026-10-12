@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The debug log's RING BUFFER (D) — what is recorded, and when. The window
+// The debug log's RING BUFFER (palette: Help: Debug log) — what is recorded, and when. The window
 // that displays it stays in engine.js with the rest of the chrome.
 //
 // The buffer starts recording at init and never stops, because the events

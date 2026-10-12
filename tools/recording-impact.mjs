@@ -97,7 +97,7 @@ export function impactWarning(impact) {
     const list = s.slides.join(', ');
     parts.push(`${s.dir}: the recording no longer matches the notes on slide${s.slides.length === 1 ? '' : 's'} ${list}`);
   }
-  return `🎙 heads up — ${parts.join('; ')}. Z takes the edit back; the audio is still on disk.`;
+  return `🎙 heads up — ${parts.join('; ')}. ⌘Z (Ctrl+Z) takes the edit back; the audio is still on disk.`;
 }
 
 /**

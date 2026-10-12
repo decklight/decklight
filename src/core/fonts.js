@@ -27,6 +27,7 @@ import { closeOnBackdrop, selectInList } from './overlay.js';
 import { readPref, writePref } from './prefs.js';
 import { pageDesignSystems } from './design-system.js';
 import { STACKS } from '../../tools/font-stacks.mjs';
+import { UNDO_CHORD } from './undo-chord.js';
 
 export { STACKS };
 
@@ -257,7 +258,7 @@ export function createFonts({
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error([j.error, ...(j.problems ?? []).slice(0, 1)].filter(Boolean).join(' · ') || `the edit server said ${r.status}`);
       f.used = j.used;
-      toast(j.used ? `● the deck now uses ${j.ref} — its faces travel with it (bundle carries them) · Z takes it back`
+      toast(j.used ? `● the deck now uses ${j.ref} — its faces travel with it (bundle carries them) · ${UNDO_CHORD} takes it back`
         : `○ dropped ${j.ref}`, 3600);
       if (el) render();
     } catch (e) {

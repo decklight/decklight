@@ -18,6 +18,7 @@
  */
 
 import { conceptSuggestions, lookAlikes, shapeLabel } from './concepts.js';
+import { UNDO_CHORD } from './undo-chord.js';
 
 const SHAPES = 'rect, circle, ellipse, polygon, path';
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -67,8 +68,8 @@ export function createConceptTools({ stage, editmode, choiceCard, toast, repaint
     // one shape picked by hand is "now"; a batch (look-alikes, a suggestion, a pick) says how many
     const who = targets.length === 1 && offer ? 'now' : `${plural(targets.length, 'shape')} now`;
     toast(name
-      ? `${who} the “${name}” concept · Z takes it back`
-      : `${targets.length === 1 ? 'detached from its concept' : `${targets.length} shapes detached`} · Z takes it back`, 2600);
+      ? `${who} the “${name}” concept · ${UNDO_CHORD} takes it back`
+      : `${targets.length === 1 ? 'detached from its concept' : `${targets.length} shapes detached`} · ${UNDO_CHORD} takes it back`, 2600);
     if (name && offer && els.length === 1) offerLookAlikes(els[0], name);
     return targets.length;
   }
@@ -85,7 +86,7 @@ export function createConceptTools({ stage, editmode, choiceCard, toast, repaint
       title: `the other “${label}” boxes`,
       lines: [`${plural(more.length, 'other shape')} on ${slidesSaid(slides)} ${more.length === 1 ? 'says' : 'say'} “${label}” too.`],
       rows: [
-        { label: `Make ${more.length === 1 ? 'it' : `all ${more.length}`} the “${name}” concept`, value: 'all', note: 'one write · Z takes it back' },
+        { label: `Make ${more.length === 1 ? 'it' : `all ${more.length}`} the “${name}” concept`, value: 'all', note: `one write · ${UNDO_CHORD} takes it back` },
         { label: 'Just this one', value: 'one' },
       ],
       onPick: (v) => { if (v === 'all') attach(more, name, { offer: false }); },

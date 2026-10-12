@@ -83,7 +83,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('clock: elapsed runs from the first advance', s.clockruns, '+00:02');
   check('clock: calling it again removes it', s.clockoff, 'true');
   check('progress bar: off by default', s.progressdefault, 'true');
-  check('progress bar: J shows it', s.progressshown, 'true');
+  check('progress bar: the toggle shows it', s.progressshown, 'true');
   check('progress bar: width tracks the position (slide 1 ≠ last, last = full)', s.progresstracks, 'true');
   check('progress bar: J again removes it', s.progressoff, 'true');
   check('welcome: auto-shows on a first, unseen load', s.welcomeauto, 'true');

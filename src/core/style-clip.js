@@ -31,6 +31,7 @@
 
 import { colorTargets, resolveColor, rgbToHex } from './colorpicker.js';
 import { readJson, writePref } from './prefs.js';
+import { UNDO_CHORD } from './undo-chord.js';
 
 const KEY = 'decklight-style-clip';
 
@@ -258,7 +259,7 @@ export function createStyleClip({ save, toast, repaint = () => {}, snap = () => 
     }
     if (concept) repaint();
     debugLog('edit', `style pasted on slide ${target.slide} #${target.index}: ${changes.length} declaration${changes.length === 1 ? '' : 's'}${concept ? `, concept ${concept.value ?? '(detached)'}` : ''}`);
-    toast(plan.snapped.length ? `style pasted, on the brand's palette: ${plan.snapped.join(', ')} · Z takes it back` : 'style pasted · Z takes it back', plan.snapped.length ? 3200 : 2200);
+    toast(plan.snapped.length ? `style pasted, on the brand's palette: ${plan.snapped.join(', ')} · ${UNDO_CHORD} takes it back` : `style pasted · ${UNDO_CHORD} takes it back`, plan.snapped.length ? 3200 : 2200);
     return true;
   }
 

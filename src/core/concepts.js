@@ -14,6 +14,7 @@
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { conceptFill, conceptSlot } from './svg.js';
+import { UNDO_CHORD } from './undo-chord.js';
 
 const NAME = /^[a-z][a-z0-9-]{0,40}$/i;
 
@@ -311,7 +312,7 @@ export function createConceptsEditor({
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.ok) throw new Error(j.error || `the edit server answered ${res.status}`);
       debugLog('concepts', `${r.name} → ${slot === null ? 'auto' : `fill ${slot}`}`);
-      toast(slot === null ? `${r.name}: pin taken off — fill ${conceptSlot(r.name)} by its name · Z takes it back` : `${r.name} → fill ${slot}, deck-wide · Z takes it back`, 2600);
+      toast(slot === null ? `${r.name}: pin taken off — fill ${conceptSlot(r.name)} by its name · ${UNDO_CHORD} takes it back` : `${r.name} → fill ${slot}, deck-wide · ${UNDO_CHORD} takes it back`, 2600);
     } catch (e) {
       apply(was);
       render();

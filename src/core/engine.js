@@ -46,15 +46,15 @@ import { createBleed } from './bleed.js';
 import { readPref, writePref } from './prefs.js';
 import { markDensity } from './density.js';
 import { createDeckCheck } from './deckcheck.js';
+import { IS_MAC, UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
 
 /**
  * ⌘Z on a Mac, Ctrl+Z everywhere else — and ⇧ with it for redo: the undo
- * every editor has trained, beside the bare Z. One platform's chord only, so
- * Ctrl+Z on a Mac stays whatever the Mac makes it, as ⌘Z on Windows does.
+ * every editor has trained, and the only one since bare Z stopped undoing
+ * (undo-chord.js). One platform's chord only, so Ctrl+Z on a Mac stays
+ * whatever the Mac makes it, as ⌘Z on Windows does.
  */
-const IS_MAC = typeof navigator !== 'undefined'
-  && /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
-const UNDO_CHORD = IS_MAC ? '⌘Z' : 'Ctrl+Z';
+
 const isUndoChord = (e) => (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)
   && !e.altKey && (e.key === 'z' || e.key === 'Z');
 
@@ -385,7 +385,7 @@ export function init(userConfig = {}) {
   const showHidden = params.has('all');
   const printVariant = params.get('print') || ''; // '' (plain) | 'handout' | 'notes'
 
-  // ----- debug log (D) -------------------------------------------------------
+  // ----- debug log (palette) -----------------------------------------------
   // The ring buffer (debuglog.js) records from init, whether or not the window
   // is open — by the time a presenter notices something went wrong, the reason
   // is already in the past. Built this early because theme restoration logs
@@ -948,7 +948,7 @@ export function init(userConfig = {}) {
       write({ label: 'Move slide down', cat: 'Slide', alias: 'reorder later after swap', run: () => editmode.slideOp('down') }),
       write({ label: 'Delete this slide', cat: 'Slide', alias: 'remove slide drop', run: () => editmode.slideOp('delete') }),
       write({ label: `${currentHidden() ? 'Unhide' : 'Hide'} this slide`, cat: 'Slide', alias: 'hidden hide skip cut backup keep out of the talk unhide show', run: () => setHidden(instance.state.slide, !currentHidden()) }),
-      write({ label: 'Cycle slide layout', cat: 'Slide', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) }),
+      write({ label: 'Cycle slide layout', cat: 'Slide', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) }),
       // Two rows, not one row with a mode in it: one adds a slide, the other
       // rewrites one you wrote, and ⏎ should not depend on a keystroke you
       // may not have pressed.
@@ -956,8 +956,8 @@ export function init(userConfig = {}) {
         alias: 'slide template slots convert switch insert slide divider section structure design system',
         run: () => slideTemplates.open() }),
       // ── Edit ────────────────────────────────────────────────────────────
-      write({ label: 'Undo deck edit', cat: 'Edit', hint: `Z · ${UNDO_CHORD}`, alias: 'revert back history', run: () => deckHistory('undo') }),
-      write({ label: 'Redo deck edit', cat: 'Edit', hint: '⇧Z', alias: 'forward history repeat', run: () => deckHistory('redo') }),
+      write({ label: 'Undo deck edit', cat: 'Edit', hint: UNDO_CHORD, alias: 'revert back history', run: () => deckHistory('undo') }),
+      write({ label: 'Redo deck edit', cat: 'Edit', hint: REDO_CHORD, alias: 'forward history repeat', run: () => deckHistory('redo') }),
       write({ label: 'Ask agent…', cat: 'Edit', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk }),
       // the format painter, on whatever is selected while editing (style-clip.js)
       editmode.elementEditOn() && editbar.selected() && write({ label: 'Copy style', cat: 'Edit', hint: styleClip.keys.copy,
@@ -1036,7 +1036,7 @@ export function init(userConfig = {}) {
       { label: `Laser pointer ${hud.annotator?.tool === 'laser' ? 'off' : 'on'}`, cat: 'Present', hint: '⇧W', alias: 'ink dot glow point at', run: () => toggleInk('laser') },
       // The clock lost K to the commit window and lives here, with no key.
       { label: `Clock ${hud.status().clockOn ? 'off' : 'on'}`, cat: 'Present', alias: 'time elapsed timer talk wall watch clock', run: toggleClock },
-      { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, cat: 'Present', hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
+      { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, cat: 'Present', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       // REHEARSAL_TIMINGS: the recorder lives in the speaker view; this opens
       // it (if it is not already) and starts the clock in one step.
       { label: 'Rehearse timings… (speaker view)', cat: 'Present', alias: 'rehearsal timing time each slide record pace plan stopwatch',
@@ -1094,7 +1094,7 @@ export function init(userConfig = {}) {
       // ── Help ────────────────────────────────────────────────────────────
       { label: 'Keyboard help', cat: 'Help', hint: '?', alias: 'keys keyboard shortcuts', run: toggleHelp },
       { label: 'Messages', cat: 'Help', hint: '`', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
-      { label: 'Debug log', cat: 'Help', hint: 'D', alias: 'console events state', run: toggleDebug },
+      { label: 'Debug log', cat: 'Help', alias: 'console events state', run: toggleDebug },
       { label: 'Welcome to Decklight', cat: 'Help', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
       write({ label: 'Editing tour', cat: 'Help', alias: 'onboarding intro getting started first run tour how do I edit write mode gestures', run: onboarding.showEditingTour }),
       { label: `Tips ${onboarding.status().tipsOn ? 'off' : 'on'}`, cat: 'Help', alias: 'hints teach shortcuts learn stop showing quiet', run: () => onboarding.setTips(!onboarding.status().tipsOn) },
@@ -1891,7 +1891,7 @@ export function init(userConfig = {}) {
 
 
   // ----- chrome ------------------------------------------------------------
-  let progressBar = null; // mounted by the progress bar toggle (J), below
+  let progressBar = null; // mounted by the progress bar toggle (palette), below
   let slideNumEl = null;
   if (config.controls && !printMode) {
     const controls = document.createElement('div');
@@ -1998,7 +1998,7 @@ export function init(userConfig = {}) {
   function ovEditable(cell, i) {
     const tools = document.createElement('div');
     tools.className = 'ov-tools';
-    for (const [op, glyph, title] of [['new', '+', 'new slide after this one'], ['duplicate', '⧉', 'duplicate this slide'], ['delete', '🗑', 'delete this slide (Z takes it back)']]) {
+    for (const [op, glyph, title] of [['new', '+', 'new slide after this one'], ['duplicate', '⧉', 'duplicate this slide'], ['delete', '🗑', `delete this slide (${UNDO_CHORD} takes it back)`]]) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = `ov-tool ov-${op}`;
@@ -2124,7 +2124,7 @@ export function init(userConfig = {}) {
     if (debugEl) { debugEl.remove(); debugEl = null; debug.onEntry(null); return; }
     debugEl = document.createElement('div');
     debugEl.className = 'decklight-debug';
-    debugEl.innerHTML = '<div class="dbg-head">debug log — D closes</div><div class="dbg-state"></div><div class="dbg-log"></div>';
+    debugEl.innerHTML = '<div class="dbg-head">debug log — Esc closes</div><div class="dbg-state"></div><div class="dbg-log"></div>';
     root.appendChild(debugEl);
     debug.entries.forEach(appendDebugRow);
     updateDebugState();
@@ -2200,31 +2200,34 @@ export function init(userConfig = {}) {
       <tr><td>I</td><td>inspector — all about this slide, or the element selected on it: layout, builds, notes, fit, contrast, sources; its colours and type; ⬚ picks an element</td></tr>
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
-      <tr><td>D</td><td>debug log</td></tr>
       <tr><td>pinch · 0</td><td>zoom the slide (trackpad pinch, or two fingers; scroll pans) · 0, Esc or a slide change fits it again</td></tr>
       <tr><td>&#96;</td><td>messages — the key left of 1 (⌃&#96; / ⌥&#96; also works while editing notes)</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>W</td><td>pen — draw on the slide (⌫ clears)</td></tr>
       <tr><td>⇧W</td><td>laser pointer</td></tr>
       <tr><td>K</td><td>commit — what changed, and what to call it (⌘K / ⌃K also works while typing)</td></tr>
-      <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
-      <tr><td>H / R</td><td>history — commits, slides and diff per version, ⏎ restores one (write mode)</td></tr>
+      <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (write mode)</td></tr>
       <tr><td>M</td><td>comments — yours and every review's, grouped by who said them, ⏎ jumps</td></tr>
       <tr><td>⇧M</td><td>leave a comment on the slide you are looking at</td></tr>
-      <tr><td>P</td><td>narration play / pause — ⎵'s alias</td></tr>
       <tr><td>F / ⌘⏎ / Ctrl+Enter</td><td>fullscreen (⌘⏎ is the present chord; the bar and the commit chip leave with it)</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette — find, themes, everything (“Welcome to Decklight” reopens the intro)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
-      <tr><td>L / ⇧L</td><td>slide layout — writes the file (write mode)</td></tr>
       <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a selected shape's style: colours, border, type (write mode)</td></tr>
-      <tr><td>Z / ⇧Z · ${UNDO_CHORD} / ${IS_MAC ? '⌘⇧Z' : 'Ctrl+⇧Z'}</td><td>undo / redo deck edits (write mode)</td></tr>
+      <tr><td>${UNDO_CHORD} / ${REDO_CHORD}</td><td>undo / redo deck edits (write mode)</td></tr>
       <tr><td>A</td><td>ask an AI agent to edit the deck (write mode)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
-      <tr><td>?</td><td>this help</td></tr></table></div>`;
+      <tr><td>?</td><td>this help</td></tr></table>
+      <h3>Write mode, in context</h3><table>
+      <tr class="help-ctx"><td>⏎ · ⌫ · Esc</td><td>on a selected element: edit its text (or open its menu) · remove it · let it go</td></tr>
+      <tr class="help-ctx"><td>⏎ · ⇧⏎ · Esc</td><td>while editing text: save · new line · cancel</td></tr>
+      <tr class="help-ctx"><td>${IS_MAC ? '⌘B · ⌘I · ⌘E' : 'Ctrl+B · Ctrl+I · Ctrl+E'}</td><td>while editing text: bold · italic · code</td></tr>
+      <tr class="help-ctx"><td>N · D · ⌫</td><td>in the overview: new slide · duplicate · delete</td></tr>
+      <tr class="help-ctx"><td>E</td><td>in the inspector: edit this slide's sources</td></tr>
+      <tr class="help-ctx"><td>⇧-click Layout</td><td>on the bar: cycle the layout backwards</td></tr></table></div>`;
     helpEl.addEventListener('click', toggleHelp);
     root.appendChild(helpEl);
   }
@@ -2422,6 +2425,12 @@ export function init(userConfig = {}) {
     if (isMsgKey(e)) { toggleMessages(); e.preventDefault(); return; }
     // something selected on the slide answers ⏎, ⌫ and Esc first (editbar.js)
     if (editbar.keydown(e)) { e.preventDefault(); return; }
+    // One key per action, and no bare letter that writes the file (ROADMAP,
+    // section 2). R (history's second key), P (⎵'s alias), J (progress bar)
+    // and D (debug log) went: the first two duplicated a key, the last two
+    // are palette rows. L (cycle layout) and Z / ⇧Z (undo, redo) went because
+    // a stray press while presenting changed the file; the bar's buttons, the
+    // palette and the undo chord (⌘Z / Ctrl+Z, above) do those now.
     switch (e.key) {
       // ⎵ belongs to the voice only WHILE THE VOICE IS IN PLAY — pausing it,
       // resuming it — and to the deck at every other moment, including on a
@@ -2445,12 +2454,9 @@ export function init(userConfig = {}) {
       case 'End': instance.goto(instance.state.totalSlides, 0); break;
       case 'o': case 'O': toggleOverview(); break;
       case 'b': case 'B': toggleBlackout(); break;
-      case 'd': case 'D': toggleDebug(); break;
       case 'c': case 'C': toggleCaptions(); break;
       case 'k': case 'K': editmode.commit.open(); break;
-      case 'j': case 'J': toggleProgress(); break;
       case 'h': case 'H': editmode.history.open(); break;
-      case 'p': case 'P': narration.playPause(); break;   // ⎵'s alias
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
       // browser find is sacred, and / already belongs to the palette.
       case 'g': case 'G': openSlideFinder(); break;
@@ -2459,9 +2465,6 @@ export function init(userConfig = {}) {
       // M reads what people said; ⇧M says something — the same split every
       // other shift-variant here makes (the your-voice recorder records, the synthesized recorder the record dialog).
       case 'm': case 'M': if (e.shiftKey) review.compose(); else review.open(); break;
-      // R is history's other door — kept because it is in people's fingers.
-      // the your-voice recorder records YOUR voice; bare R stays history, which is in people's fingers.
-      case 'r': case 'R': editmode.history.open(); break;
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': narration.openPicker(); break;   // everything about the voice
       case 'i': case 'I': inspector?.open(); break;        // (I)nspector: all about this slide, or the selection
@@ -2478,8 +2481,6 @@ export function init(userConfig = {}) {
       case '[': cycleFont(-1); break;
       // L right after a write lands while the reloaded page is still asking
       // its server: wait for the answer, then do what was asked
-      case 'l': case 'L': { const dir = e.shiftKey ? -1 : 1; if (editmode.probed()) cycleLayout(dir); else editmode.settled().then(() => cycleLayout(dir)); break; }
-      case 'z': case 'Z': deckHistory(e.shiftKey ? 'redo' : 'undo'); break;
       case 'a': case 'A': toggleAgentAsk(); break;
       case 'w': case 'W': toggleInk(e.shiftKey ? 'laser' : 'pen'); break;
       case 'Backspace':
@@ -2836,7 +2837,7 @@ export function init(userConfig = {}) {
   });
   const { toggleClock, toggleProgress, toggleInk, toggleTranscript } = hud;
   instance.toggleClock = toggleClock;       // the palette's Clock row, and API callers
-  instance.toggleProgress = toggleProgress; // J programmatically
+  instance.toggleProgress = toggleProgress; // the palette's Progress bar row, and API callers
 
   // ── dev-server features (editmode.js) ────────────────────────────────────
   // Live reload, the notes editor, the phone remote, asking an agent, undo/redo

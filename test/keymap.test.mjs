@@ -145,3 +145,36 @@ test('the narration keys are the ones the rationalisation settled on', () => {
   assert.ok(help.some((r) => r.key === 'V' && /narration/i.test(r.what)),
     'the help does not explain what V opens');
 });
+
+test('no bare letter in the deck\'s key switch writes the file', () => {
+  // L cycled the layout and Z / ⇧Z undid and redid, all on a bare press, so a
+  // stray key while presenting in write mode changed the file. The undo chord
+  // (⌘Z / Ctrl+Z, handled above the switch) and the bar's buttons do it now.
+  const at = SRC.indexOf('function onKey(');
+  const from = SRC.indexOf('switch (e.key) {', at);
+  const body = SRC.slice(from, SRC.indexOf('\n    }', from));
+  const writers = [];
+  for (const m of body.matchAll(/case '([a-zA-Z])':[^\n]*/g)) {
+    if (/deckHistory|cycleLayout|slideOp|setHidden/.test(m[0])) writers.push(m[1]);
+  }
+  assert.deepEqual(writers, [], `bare letters that write the file: ${writers.join(', ')}`);
+});
+
+test('one key per action: the aliases and the palette-only toggles stay unbound', () => {
+  // R was history's second key, P was ⎵'s, J toggled the progress bar and D
+  // the debug log. Each is a palette row now; a letter that comes back has to
+  // mean it, and has to come off this list.
+  const bound = boundKeys();
+  for (const k of ['r', 'p', 'j', 'd', 'l', 'z']) {
+    assert.ok(!bound.has(k) && !bound.has(k.toUpperCase()), `${k.toUpperCase()} is bound again`);
+  }
+});
+
+test('the help says which keys answer only in a context', () => {
+  // ⏎ and ⌫ on a selection, the formatting chords while typing, the
+  // overview's N · D · ⌫ and the inspector's E were bound and listed nowhere.
+  const ctx = [...SRC.matchAll(/<tr class="help-ctx"><td>([^<]+)<\/td><td>([^<]*)<\/td><\/tr>/g)].map((m) => m[2]);
+  for (const want of [/selected element/, /while editing text: bold/, /in the overview/, /in the inspector/]) {
+    assert.ok(ctx.some((t) => want.test(t)), `no context row matching ${want}`);
+  }
+});

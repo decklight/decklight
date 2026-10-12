@@ -2068,7 +2068,10 @@
 /* blackout / help */
 .decklight-blackout { position: absolute; inset: 0; background: #000; z-index: 90; }
 .decklight-help { position: absolute; inset: 0; z-index: 95; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; }
-.decklight-help .help-card { background: var(--bg, #222); color: var(--fg, #eee); border-radius: 12px; padding: 24px 34px; font-size: 16px; box-shadow: var(--shadow, 0 10px 40px rgba(0,0,0,.5)); }
+.decklight-help .help-card { background: var(--bg, #222); color: var(--fg, #eee); border-radius: 12px; padding: 24px 34px; font-size: 16px; box-shadow: var(--shadow, 0 10px 40px rgba(0,0,0,.5)); max-height: 92%; overflow-y: auto; }
+/* the keys that only answer in a context (a selection, a panel, while typing) */
+.decklight-help h3 + table { margin-bottom: 4px; }
+.decklight-help .help-card h3 ~ h3 { margin-top: 18px; }
 .decklight-help td { padding: 3px 14px 3px 0; }
 .decklight-help td:first-child { font-family: var(--font-mono, monospace); color: var(--accent, #6af); }
 

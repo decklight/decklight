@@ -62,39 +62,46 @@ can wait for 1.0.
 
 ## 2. The palette and the keys (one PR each, land together)
 
-- [ ] **Every action at the root, prefixed with its category.** The way
-      VS Code's command palette reads: `Voice: Live voice…`, `Slide: Duplicate`,
-      `Share: Export as PDF`, `Look: Generate a theme`, `Review: Leave a
-      comment…`. No drill-in groups: the five groups that collapse rows today
-      (Slide…, Print…, Add audio tags…, Write for the ear…, Export & share…)
-      flatten into prefixed rows, and the category is what a filter types to
-      narrow the list (`voice`, `slide`). Categories to settle in the PR: Go to,
-      Slide, Edit, Look, Voice, Review, Share, Check, View, Help. Rows live in
-      `src/core/engine.js:913-1123`, grouping in `src/core/palette.js:51-83`.
-- [ ] **Remove the rows that duplicate a panel.** The four rows that all open
-      the `V` panel at different views, the six enhance rows the `V` panel and
-      the notes editor already carry, Character solo, First slide and Last
-      slide, and one of the Print and PDF triplets.
-- [ ] **One write-mode rule.** Five rows are tagged `(dev)` without a server
-      check (`engine.js:923-953`) and four write-only rows are untagged
-      (`932`, `1031`, `1035`, `1038`). Gate everything on
-      `editmode.available()` and drop the suffix convention.
-- [ ] **One key per action.** Drop `R` for history, `P` for play, `J` for the
-      progress bar, `D` for the debug log. Keep the chord and the letter only
-      where the chord works while typing (`K`, `Z`).
-- [ ] **No bare letter writes the file.** In write mode `L` edits the deck on a
-      stray keypress, which is why Lock exists. Reserve bare letters for
-      navigation and viewing; route edits through chords or the bar.
-- [ ] **Resolve the overlay collisions.** `D` means four things, `S` three
-      (including Submit all in the review panel), `R` three, `⌫` eight. Each
-      overlay should reuse the deck's meaning or use a different key.
-- [ ] **One log.** Merge Messages (`` ` ``) and the debug log (`D`) into one
-      panel behind the palette.
-- [ ] **Help card lists everything bound.** `E` in the inspector, `⌘B` `⌘I`
-      `⌘E` while editing, `⏎` and `⌫` on a selection, and the overview's
-      `N` `D` `⌫` are bound but not listed (`engine.js:2205-2245`).
-- [ ] **Bug: Esc does not close the `?` help in write mode.** Reproduced
-      headlessly on `demo/intro.html` (`src/core/engine.js:2508-2516`).
+- [x] **Every action at the root, prefixed with its category.** (#PR) The way
+      VS Code's command palette reads: `Voice: Live voice…`, `Slide: Duplicate
+      this slide`, `Share: Export to PDF…`. The five drill-in groups are gone;
+      with nothing typed the list runs Go to, Slide, Edit, Look, Voice,
+      Present, Review, Git, Share, Help, Preferences. Typing the category
+      narrows to it, every typed word must match in any order, and a name that
+      starts with the query leads. Labels kept their established wording,
+      since the SPEC, the README and the harnesses name them.
+- [x] **Rows that duplicate a panel: revised.** (#PR) With every action at the
+      root, a row that opens the `V` panel on one of its views is an action of
+      its own, found by its name, so the rows stay. What was wrong was the
+      `V` hint on four of them, which taught a key that opens the panel, not
+      that view; only the panel row carries it now.
+- [x] **One write-mode rule.** (#PR) A row that changes the file or needs the
+      edit server exists only while the deck can be written, and carries a
+      `write` tag. The lock row is the one exception: it stays while locked,
+      because it is how you unlock.
+- [x] **One key per action.** (#PR) `R` (history's second key), `P` (`⎵`'s
+      alias), `J` (progress bar) and `D` (debug log) are unbound; the last two
+      are palette rows.
+- [x] **No bare letter writes the file.** (#PR) `L` and `Z` / `⇧Z` are unbound.
+      Undo and redo are the platform's chord (`⌘Z` / `Ctrl+Z`), named in every
+      "takes it back" message through `src/core/undo-chord.js`; layout is the
+      bar's button, ⇧-click backwards, and a palette row. A lint pins it: no
+      `case` in the deck's key switch may call an edit.
+- [ ] **Overlay collisions: reviewed, left as they are.** Inside a panel that
+      has the keyboard, its letters are its own (`D` hides done comments, `R`
+      resolves), as in any focused app. The risky ones are already safe:
+      submitting a review is two presses, and every delete has an undo. Revisit
+      only if someone trips on one.
+- [ ] **One log.** Not done. Merging Messages (`` ` ``) and the debug log into
+      one panel is a UI redesign, not a key change: the two hold different
+      things (what the deck told you, and the event stream). `D` is free now;
+      the debug log is `Help: Debug log`.
+- [x] **Help card lists everything bound.** (#PR) A "Write mode, in context"
+      section names the keys that answer only on a selection, while typing, in
+      the overview or in the inspector.
+- [x] ~~Bug: Esc does not close the `?` help in write mode.~~ Not a bug. The
+      reproduction ran against a stale `dist/`; after `npm run build`, Esc
+      closes it in write mode and from a file.
 
 ## 3. Panels, styling, settings, onboarding
 
