@@ -25,14 +25,29 @@ import { PKG_ROOT, PKG } from './pkg.mjs';
 export { PKG_ROOT, PKG };
 
 /**
- * The authoring contract, sliced from SPEC.md through JS_API (everything an
- * agent needs to write slides), dropping the repo-layout/tooling section
- * that only matters to Decklight's own contributors.
+ * The authoring contract, sliced from SPEC.md: everything an agent needs to
+ * write slides, which is the SPEC from DECK_ANATOMY through FONTS less two
+ * blocks. REPO_LAYOUT onward only matters to Decklight's own contributors.
+ * MARKETPLACE_REGISTRY up to DESIGN_SYSTEMS (the marketplace, the library
+ * and its units, engines, agents and voices) is the platform contract: how
+ * a catalog is registered and a unit installed, pinned and checked. It was
+ * 640 lines, about a third of every project's reference.md, read by agents
+ * that only ever write slides. A one-line pointer stands in for it, so an
+ * agent that does need it knows where it is. DESIGN_SYSTEMS and FONTS stay:
+ * a slide fills a template's slots and a deck names a font.
  */
+export const PLATFORM_POINTER = '> The marketplace and library contract (`MARKETPLACE_REGISTRY` through `VOICE_UNITS`: '
+  + 'registering a catalog, installing, pinning and checking a unit, speech engines, agents and voices) is left out '
+  + 'of this reference: a deck author rarely needs it. It is in `SPEC.md` in the installed decklight package.\n';
+
 export function referenceDoc() {
   const spec = fs.readFileSync(path.join(PKG_ROOT, 'SPEC.md'), 'utf8');
   const cut = spec.indexOf('\n## REPO_LAYOUT');
-  return (cut > 0 ? spec.slice(0, cut) : spec).trimEnd() + '\n';
+  let doc = cut > 0 ? spec.slice(0, cut) : spec;
+  const from = doc.indexOf('\n## MARKETPLACE_REGISTRY');
+  const to = doc.indexOf('\n## DESIGN_SYSTEMS');
+  if (from > 0 && to > from) doc = doc.slice(0, from) + '\n\n' + PLATFORM_POINTER + doc.slice(to);
+  return doc.trimEnd() + '\n';
 }
 
 /**
@@ -204,26 +219,13 @@ beside a drawing stroke in the browser: they are not in the file, so never
 copy them from the rendered DOM into the deck. SVG_DIAGRAMS has the rules.
 
 **On a deck that uses a design system, fill its templates' slots — never
-recreate a template's structure by hand.** A design system (DESIGN_SYSTEMS) is a
-company's look as a package: the deck lists it under \`designSystems\` in its
-configuration block, and a slide names one of its templates and supplies only
-content, one element per named slot:
-
-\`\`\`html
-<section data-template="acme/section-divider">
-  <p data-slot="kicker">Module 01</p>
-  <h2 data-slot="title">Flink on Confluent Cloud</h2>
-</section>
-\`\`\`
-
-Find the templates and their slots first —
-\`decklight design-system templates acme@<marketplace>\` lists every template, its
-slots, and which are required (\`*\`). The structure comes from the design
-system when the deck renders, so a slide that copies a template's markup instead
-never updates with it. Then \`decklight check deck.html\` names every template
-or slot the design system does not have, a slot filled twice, and a required
-one left empty — before the talk, not on stage, where the slide would only
-render plainly.
+recreate a template's structure by hand.** A slide names a template and
+supplies one element per slot (\`<section data-template="acme/section-divider">\`
+with \`<h2 data-slot="title">\`); the structure comes from the design system
+when the deck renders, so copied markup never updates with it.
+\`decklight design-system templates acme@<marketplace>\` lists the templates and
+their slots (\`*\` required); \`decklight check\` names a missing template or slot,
+a slot filled twice and a required one left empty (DESIGN_SYSTEMS in the reference).
 
 Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
@@ -238,37 +240,14 @@ Any other bracketed words — \`[whispers]\`, \`[laughs]\` — are audio tags fo
 ElevenLabs v4 (the default ElevenLabs model) and v3; every other voice leaves
 them out, and captions never show them, so the notes read the same anywhere.
 
-**Prompting ElevenLabs v4 in the notes.** When a deck is narrated by
-ElevenLabs, the notes ARE the prompt — write them the way ElevenLabs'
-[best practices](https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices#prompting-eleven-v4)
-say v4 is prompted:
-
-- **Text structure does most of the work.** Natural spoken sentences, real
-  punctuation and a clear emotional context steer v4 more than tags do.
-  An ellipsis (…) adds a pause and weight; CAPITALS add emphasis — use both
-  sparingly, since captions show them.
-- **Tags are free-form direction, placed right before what they direct**:
-  delivery (\`[whispers]\`, \`[excited]\`, \`[curious]\`, \`[sarcastic]\`,
-  \`[sighs]\`), reactions (\`[laughs]\`, \`[exhales]\`), sound effects
-  (\`[applause]\`, \`[clapping]\`). Being explicit helps: \`[low, warm voice]\`
-  says more than a vague cue. Tags can be combined for a layered delivery.
-- **Match the tag to the voice.** A tag lands best when the voice already has
-  that delivery in it — a calm narrator will not shout convincingly, a hyped
-  one will not whisper. Experimental tags (\`[sings]\`, \`[strong French
-  accent]\`) vary by voice; tell the author to listen before the talk.
-- **Pauses are tags, not SSML**: v4 and v3 ignore \`<break>\`. Write
-  \`[pause]\` or \`[long pause]\` (decklight's own markers, above) — or an
-  ellipsis for a lighter one.
-- **One or two tags a slide, at the lines that earn them.** A tag on every
-  sentence flattens the delivery it was meant to lift, and every tag is
-  billed as characters.
-
-To tag a script that already exists, \`decklight enhance deck.html --slides 3\`
-(or \`--all\`, \`--dry-run\` to only look) asks the installed agent with the
-prompt ElevenLabs publishes for exactly that, and writes only answers that kept
-every word, \`[click]\` and \`[pause]\`. When you edit the notes yourself,
-follow the same rules: add tags and emphasis, never reword the author's script
-unless asked.
+**Prompting ElevenLabs v4 in the notes.** When ElevenLabs narrates, the notes
+ARE the prompt ([its best practices](https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices#prompting-eleven-v4)):
+natural sentences and punctuation do most of the work; a tag goes right before
+what it directs (\`[whispers]\`, \`[curious]\`, \`[laughs]\`), suits the voice, and
+earns its place, one or two a slide; pauses are \`[pause]\`, never \`<break>\`.
+\`decklight enhance deck.html --slides 3\` adds tags with ElevenLabs' own prompt
+and writes only answers that kept every word, \`[click]\` and \`[pause]\`. Editing
+by hand, follow the same rules: add tags, never reword the author's script.
 
 **Notes are said, not read.** Write them as sentences a person would say out
 loud — "And if you fluff a line, just press Backspace to take it again", not
@@ -277,24 +256,18 @@ not "⌘"). To rewrite terse notes that way when asked, \`decklight enhance
 deck.html --spoken --slides 3\` does it with the same checks on the beats and
 the pauses.
 
-**Commit your own changes when an edit server is running.** The edit
-server does not commit edits for anyone: it snapshots the deck silently on
-\`decklight/wip\` and commits when told to — the person presses K; only an
-agent it started itself (A) commits on its own — and it did not start you. So
-when you finish one logical change, say so:
+**Commit your own changes when an edit server is running.** It snapshots
+silently and commits only when told; you are not an agent it started, so
+after each logical change:
 
 \`\`\`sh
 curl -sf -X POST localhost:8788/deck/edit/commit \\
-  -H 'content-type: application/json' \\
-  -d '{"message":"split the crowded video slides"}'
+  -H 'content-type: application/json' -d '{"message":"split the crowded video slides"}'
 \`\`\`
 
-One call per logical change, with a subject describing THAT change — not
-\"updated the deck\". It commits only the deck file, and does nothing when
-nothing changed, so an extra call is harmless. If the port is not listening
-there is no edit server: skip it silently and carry on, never start one
-yourself. This is what makes a history someone can read afterwards, instead
-of a wall of identical timer commits.
+A subject for THAT change, never "updated the deck". It commits only the deck
+and is a no-op when nothing changed. Nothing listening on the port: skip it
+silently, and never start a server yourself.
 
 **That history is readable, and it is how a bad edit is undone.** \`decklight
 history deck.html\` lists every commit that touched the deck and marks the ones

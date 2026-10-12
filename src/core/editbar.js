@@ -9,7 +9,7 @@
 // (Z). Eight doors, each learnt separately, none of them on screen: the only
 // way to know editing existed was to already know the keys.
 //
-// `E` now opens EDITING, and editing has a face:
+// Editing is on in write mode (E, L and bare Z have since gone), and it has a face:
 //
 //   THE BAR, along the bottom of the deck: Text, Picture, Layout, Notes,
 //   Slide ▾, Undo, Redo, Done — each with the key it stands for, so the keys
@@ -363,7 +363,7 @@ export function createEditBar({
     return false;
   }
 
-  /** After E: show or hide the bar to match. */
+  /** After write mode or the lock changes: show or hide the bar to match. */
   function sync() {
     if (on()) mount(); else unmount();
     root.classList.toggle('dl-editmode', editingOn());

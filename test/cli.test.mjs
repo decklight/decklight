@@ -201,6 +201,12 @@ test('init scaffolds a deck that is slides plus a configuration block — and --
   assert.match(reference, /## DECK_ANATOMY/);
   assert.match(reference, /## JS_API/);
   assert.doesNotMatch(reference, /## REPO_LAYOUT/);
+  // the platform contract is left out, with a pointer to it; what a slide
+  // uses from a marketplace (templates, fonts) stays
+  assert.doesNotMatch(reference, /## MARKETPLACE_REGISTRY|### UNIT_PINNING|### ENGINE_UNITS/);
+  assert.match(reference, /marketplace and library contract .* is in `SPEC\.md`/);
+  assert.match(reference, /## DESIGN_SYSTEMS/);
+  assert.match(reference, /## FONTS/);
 
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.match(agents, /decklight:skill/);
@@ -1390,12 +1396,12 @@ test('the AGENTS.md section points its readers at the bug flow too, idempotently
 test('the skill tells agents to commit their own logical changes', () => {
   const md = claudeSkillMd();
   assert.match(md, /POST localhost:8788\/deck\/edit\/commit/);
-  assert.match(md, /One call per logical change/);
+  assert.match(md, /after each logical change/);
   // it must be honest about WHY the server cannot do this for them
-  assert.match(md, /it did not\s*\n?start you/);
+  assert.match(md, /you are not an agent it started/);
   // and must not have agents starting servers or failing when none is up
-  assert.match(md, /skip it silently/);
-  assert.match(md, /never start one\s*\n?yourself/);
+  assert.match(md, /skip it\s+silently/);
+  assert.match(md, /never start a server yourself/);
 });
 
 test('the AGENTS.md section carries the same instruction for agents that read it', () => {

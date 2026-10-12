@@ -40,10 +40,10 @@ export function createEditMode({
   knownConcepts = () => [],
   captionsOn = () => false, toggleCaptions = null,
 }) {
-  // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
+  // ── write mode + live reload — SPEC PRESENTING ───────────────────────────────────
   // Served by the edit server: the deck subscribes to /deck/events and
   // reloads whenever the file changes on disk (any editor works — the
-  // #/slide/step hash restores the position). E opens a notes editor whose
+  // #/slide/step hash restores the position). S opens a notes editor whose
   // Save writes the current slide's aside back through the server. Decks
   // opened via file:// probe the server at its default localhost port — the
   // printed URL and a double-clicked file both work; config.edit.url overrides.

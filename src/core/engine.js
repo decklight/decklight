@@ -2170,7 +2170,7 @@ export function init(userConfig = {}) {
       box.scrollTop = box.scrollHeight;
     });
   }
-  // The message LOG (I). Messages fade after a few seconds — which is exactly
+  // The message LOG (`). Messages fade after a few seconds — which is exactly
   // when you were looking at the slide, not the corner — so every one is kept
   // and can be read back. Reachable while presenting AND while editing notes:
   // the reason the voice died is the one thing you always need to see.
