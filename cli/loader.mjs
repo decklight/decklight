@@ -66,7 +66,7 @@ function resolveCodeUnit(type, name, ceiling, home) {
   const unit = findUnit(type, name, home);
   if (!unit) {
     throw new LoaderError(`no ${type} "${name}" installed`
-      + ` (decklight ${type} add ${name}, decklight ${type} list)`);
+      + ` (decklight library add ${type} ${name}, decklight library list ${type})`);
   }
   const t = UNIT_TYPES[type];
   const modulePath = t.single ? unit.path : join(unit.path, t.files[0]);

@@ -234,8 +234,8 @@ test('marketplace list groups entries by kind and names how to install each', ()
   const m = market();
   const { out } = run(['marketplace', 'list'], m.home);
   assert.match(out, /skill {2}—/, 'kinds are headings');
-  assert.match(out, /decklight skills add <name>/);
-  assert.match(out, /decklight importer add <name>/);
+  assert.match(out, /decklight library add skill <name>/);
+  assert.match(out, /decklight library add importer <name>/);
   // The entry sits under its kind, not in a flat list.
   assert.match(out, /skill.*\n\s+note-taking@cat/);
   m.cleanup();
@@ -271,7 +271,7 @@ test('installing the wrong kind is refused, and names the right command', async 
   await assert.rejects(() => installUnit('skill', 'marp-import', m.home), (e) => {
     assert.ok(e instanceof UnitError);
     assert.match(e.message, /is a importer, not a skill/);
-    assert.match(e.message, /decklight importer add marp-import/);
+    assert.match(e.message, /decklight library add importer marp-import/);
     return true;
   });
   assert.equal(listUnits('skill', m.home).length, 0, 'nothing was written');
@@ -339,7 +339,7 @@ test('import names the adapter for an extension it cannot read', async () => {
   const lines = (await adapterOffer('talk.marp', { home: m.home })).join('\n');
   assert.match(lines, /don't know how to read talk\.marp/);
   assert.match(lines, /no adapter for \.marp — marp-import@cat reads it/);
-  assert.match(lines, /decklight importer add marp-import@cat/);
+  assert.match(lines, /decklight library add importer marp-import@cat/);
   m.cleanup();
 });
 
@@ -466,14 +466,14 @@ test('a matching pin installs, and the installed bytes are the pinned bytes', as
   } finally { m.cleanup(); }
 });
 
-test('decklight transform add surfaces the pin refusal as a clean message, never a stack', () => {
+test('decklight library add transform surfaces the pin refusal as a clean message, never a stack', () => {
   const m = market({
     entries: [{ name: 'grammar-check', type: 'transform', source: 'grammar.mjs', apiVersion: 1 }],
   });
-  const { code, out } = run(['transform', 'add', 'grammar-check'], m.home);
+  const { code, out } = run(['library', 'add', 'transform', 'grammar-check'], m.home);
   assert.equal(code, 1);
   assert.match(out, /carries no sha256/);
-  assert.match(out, /decklight extension check prints the digest/);
+  assert.match(out, /decklight library check transform prints the digest/);
   assert.doesNotMatch(out, /^\s+at /m, 'an unpinned catalog entry is not an internal error');
   m.cleanup();
 });
@@ -484,7 +484,7 @@ test('a marketplace skill installs without touching the authoring skill', () => 
   const m = market();
   const work = tmp('units-skills');
   assert.equal(run(['skills', 'claude', '--dir', '.'], m.home, work).code, 0);
-  assert.equal(run(['skills', 'add', 'note-taking'], m.home, work).code, 0);
+  assert.equal(run(['library', 'add', 'skill', 'note-taking'], m.home, work).code, 0);
 
   assert.ok(existsSync(path.join(work, '.claude/skills/decklight/SKILL.md')),
     'the authoring skill is where it always was');
@@ -501,7 +501,7 @@ test('a marketplace skill installs without touching the authoring skill', () => 
 test('skills still installs for a named agent, and add/list/remove do not shadow one', () => {
   const m = market();
   const work = tmp('units-skills2');
-  assert.equal(run(['skills', 'list'], m.home, work).code, 0, 'list is a subcommand');
+  assert.equal(run(['library', 'list', 'skill'], m.home, work).code, 0, 'list is a subcommand');
   const bad = run(['skills', 'nosuchagent'], m.home, work);
   assert.equal(bad.code, 1);
   assert.match(bad.out, /unknown agent/, 'a non-verb positional is still an agent name');
@@ -513,19 +513,19 @@ test('skills still installs for a named agent, and add/list/remove do not shadow
 
 test('every unit command shares one help shape', () => {
   for (const type of Object.keys(UNIT_TYPES)) {
-    const { out } = run([type === 'skill' ? 'skills' : type, '--help'], tmp('units-help'));
-    if (type === 'skill') continue; // `skills --help` is the agent command's own
-    assert.match(out, new RegExp(`decklight ${type} <add\\|list\\|remove>`));
+    const { out } = run(['library', 'add', type, '--help'], tmp('units-help'));
+    assert.match(out, new RegExp(`decklight library <add\\|list\\|remove> ${type}`));
     assert.match(out, /registering a marketplace is not fetching/i);
   }
 });
 
 test('unknown subcommands and missing names are refused, not crashed', () => {
   const home = tmp('units-bad');
-  assert.equal(run(['importer', 'frobnicate'], home).code, 1);
-  assert.equal(run(['importer', 'add'], home).code, 1);
-  assert.equal(run(['importer', 'remove'], home).code, 1);
-  assert.match(run(['importer', 'frobnicate'], home).out, /unknown subcommand/);
+  assert.equal(run(['library', 'frobnicate', 'importer'], home).code, 1);
+  assert.equal(run(['library', 'add', 'importer'], home).code, 1);
+  assert.equal(run(['library', 'remove', 'importer'], home).code, 1);
+  assert.match(run(['library', 'frobnicate', 'importer'], home).out, /unknown verb/);
+  assert.match(run(['library', 'add', 'gizmo', 'x'], home).out, /unknown kind "gizmo"/);
   rmTemp(home);
 });
 

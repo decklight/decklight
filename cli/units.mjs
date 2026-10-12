@@ -10,8 +10,8 @@
  * top of it. This is the rest — agent skills, import adapters, engines, agents,
  * voices — and it is deliberately ONE implementation with a type table rather
  * than a command per kind that each grew its own copy of
- * resolve-fetch-validate-write. `decklight skills add` and `decklight importer
- * add` are the same function with a different row.
+ * resolve-fetch-validate-write. `decklight library add skill` and `decklight library
+ * add importer` are the same function with a different row.
  *
  * THE INVARIANT THAT OUTRANKS CONVENIENCE (SPEC MARKETPLACE_REGISTRY):
  * registering is not fetching. Everything here reads the catalog CACHE; the
@@ -55,7 +55,7 @@ export const UNIT_TYPES = {
     files: ['SKILL.md'],
     optional: ['reference.md'],
     label: 'agent skill',
-    use: 'decklight skills add <name>',
+    use: 'decklight library add skill <name>',
     example: 'conference-cfp',
     required: [],
   },
@@ -299,7 +299,7 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
   }
   if (hit.entry.type !== type) {
     throw new UnitError(`${hit.qualified} is a ${hit.entry.type}, not a ${type}`
-      + `${UNIT_TYPES[hit.entry.type] ? ` — try: decklight ${hit.entry.type} add ${ref}` : ''}`);
+      + `${UNIT_TYPES[hit.entry.type] ? ` — try: decklight library add ${hit.entry.type} ${ref}` : ''}`);
   }
 
   // A reference-only kind is fully installed by the catalog entry it resolved
@@ -319,7 +319,7 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
   if (t.pinned && !hit.entry.sha256) {
     throw new UnitError(`${hit.qualified} carries no sha256 — a ${t.label} is Node code decklight`
       + ` runs unsandboxed, so it installs only pinned to the digest its catalog admitted`
-      + ` (SPEC UNIT_PINNING). Ask the marketplace to pin the entry; decklight extension check`
+      + ` (SPEC UNIT_PINNING). Ask the marketplace to pin the entry; decklight library check transform`
       + ` prints the digest to use`);
   }
 
@@ -396,7 +396,7 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
 /** Delete an installed unit. */
 export function removeUnit(type, name, home = configHome()) {
   const p = unitPath(type, name, home);
-  if (!existsSync(p)) throw new UnitError(`no ${type} "${name}" installed (decklight ${type} list)`);
+  if (!existsSync(p)) throw new UnitError(`no ${type} "${name}" installed (decklight library list ${type})`);
   rmSync(p, { recursive: true, force: true });
   forgetInstall({ type, name }, home);
   return p;
@@ -406,16 +406,16 @@ export function removeUnit(type, name, home = configHome()) {
 
 export const unitUsage = (type) => {
   const t = typeOf(type);
-  return `usage: decklight ${type} <add|list|remove> …
+  return `usage: decklight library <add|list|remove> ${type} …
 
-  decklight ${type} add <name[@marketplace]>
+  decklight library add ${type} <name[@marketplace]>
     install a ${t.label} from a registered marketplace into ~/.decklight/${t.dir}/
-    EXAMPLE: decklight ${type} add ${t.example}${t.note ? `\n\n  ${t.note}` : ''}
+    EXAMPLE: decklight library add ${type} ${t.example}${t.note ? `\n\n  ${t.note}` : ''}
 
-  decklight ${type} list
+  decklight library list ${type}
     what is installed, and what the registered catalogs offer that is not
 
-  decklight ${type} remove <name>
+  decklight library remove ${type} <name>
     delete it from your library
 
   used by: ${t.use}
@@ -427,11 +427,11 @@ export const unitUsage = (type) => {
 
 async function addMain(type, args, home) {
   const [ref] = args.filter((a) => !a.startsWith('-'));
-  if (!ref) { console.error(`decklight ${type} add: needs a name\n\n${unitUsage(type)}`); return 1; }
+  if (!ref) { console.error(`decklight library add ${type}: needs a name\n\n${unitUsage(type)}`); return 1; }
   let done;
   try { done = await installUnit(type, ref, home); } catch (e) {
     if (!(e instanceof UnitError)) throw e;
-    console.error(`decklight ${type} add: ${e.message}`);
+    console.error(`decklight library add ${type}: ${e.message}`);
     return 1;
   }
   console.log(`installed ${done.name}${done.entry.version ? ` ${done.entry.version}` : ''} from ${done.qualified} — ${UNIT_TYPES[type].use}`);
@@ -456,7 +456,7 @@ function listMain(type, home) {
   }
   const rest = offered.filter((e) => !have.has(e.name));
   if (rest.length) {
-    console.log(installed.length ? `\navailable (decklight ${type} add <name>):` : `available (decklight ${type} add <name>):`);
+    console.log(installed.length ? `\navailable (decklight library add ${type} <name>):` : `available (decklight library add ${type} <name>):`);
     for (const e of rest) console.log(`  ${e.qualified}${e.description ? ` — ${e.description}` : ''}`);
   }
   return 0;
@@ -464,17 +464,17 @@ function listMain(type, home) {
 
 function removeMain(type, args, home) {
   const [name] = args.filter((a) => !a.startsWith('-'));
-  if (!name) { console.error(`decklight ${type} remove: which one?\n\n${unitUsage(type)}`); return 1; }
+  if (!name) { console.error(`decklight library remove ${type}: which one?\n\n${unitUsage(type)}`); return 1; }
   try { removeUnit(type, name, home); } catch (e) {
     if (!(e instanceof UnitError)) throw e;
-    console.error(`decklight ${type} remove: ${e.message}`);
+    console.error(`decklight library remove ${type}: ${e.message}`);
     return 1;
   }
   console.log(`removed ${name}`);
   return 0;
 }
 
-/** `decklight <type> <add|list|remove>` — one implementation, three commands. */
+/** `decklight library <add|list|remove> <type>` — one implementation for every unit kind. */
 export async function unitMain(type, args = []) {
   const sub = args[0];
   if (!sub || sub === '--help' || sub === '-h' || sub === 'help') { console.log(unitUsage(type)); return sub ? 0 : 1; }
@@ -487,11 +487,11 @@ export async function unitMain(type, args = []) {
     if (sub === 'remove') return removeMain(type, rest, home);
   } catch (e) {
     if (e instanceof UnitError || e instanceof MarketplaceError) {
-      console.error(`decklight ${type} ${sub}: ${e.message}`);
+      console.error(`decklight library ${sub} ${type}: ${e.message}`);
       return 1;
     }
     throw e;
   }
-  console.error(`decklight ${type}: unknown subcommand "${sub}"\n\n${unitUsage(type)}`);
+  console.error(`decklight library: unknown verb "${sub}" for a ${type}\n\n${unitUsage(type)}`);
   return 1;
 }

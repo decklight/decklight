@@ -58,11 +58,19 @@ test('the cast subcommands reach castMain with their name first, except for --he
     '--help must reach castMain bare, or it is read as a file to export');
 });
 
-test('the five unit commands share one main and pass their own name', () => {
-  for (const kind of ['importer', 'transform', 'engine', 'voice', 'agent']) {
-    assert.equal(COMMANDS[kind].module, './units.mjs');
-    assert.deepEqual(COMMANDS[kind].args(['list'], kind), [kind, ['list']]);
+test('one library command replaced the seven per-kind ones, and the old words point at it', async () => {
+  // importer, transform, engine, voice, agent, plugin and extension were each
+  // a top-level command with its own spelling of add, list and remove
+  assert.equal(COMMANDS.library.module, './library.mjs');
+  for (const old of ['importer', 'transform', 'engine', 'voice', 'agent', 'plugin', 'extension']) {
+    assert.equal(resolveCommand(old), null, `${old} is a command again`);
+    assert.equal(suggestCommand(old), 'library', `${old} does not point at library`);
   }
+  const { libraryForm } = await import('../cli/library.mjs');
+  assert.deepEqual(libraryForm('plugin', ['add', 'timer']), ['library', 'add', 'plugin', 'timer']);
+  assert.deepEqual(libraryForm('extension', ['check', 't.mjs']), ['library', 'check', 'transform', 't.mjs']);
+  assert.deepEqual(libraryForm('engines', []), ['library', 'list', 'engine']);
+  assert.deepEqual(libraryForm('voice', ['remove', 'anna']), ['library', 'remove', 'voice', 'anna']);
 });
 
 // ── the newcomer's surface: the short help, the file as the command, did-you-mean ──

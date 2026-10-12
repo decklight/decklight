@@ -759,7 +759,7 @@ try {
   });
 
   await step('an entry installs from that checkout', () => {
-    dl(['skills', 'add', 'soak-pitch@soak-market']);
+    dl(['library', 'add', 'skill', 'soak-pitch@soak-market']);
     const installed = join(HOME, 'skills', 'soak-pitch', 'SKILL.md');
     must(existsSync(installed), 'the skill did not land in the library');
     must(readFileSync(installed, 'utf8') === readFileSync(join(MARKET, 'skills', 'soak-pitch', 'SKILL.md'), 'utf8'),
@@ -840,7 +840,7 @@ try {
     // Every run so far has had a fresh DECKLIGHT_HOME; a real one accumulates.
     const again = dl(['marketplace', 'add', gitFileUrl(MARKET)]);
     must(/refreshed soak-market/.test(again.all), `re-adding said: ${again.stdout}`);
-    dl(['skills', 'add', 'soak-pitch@soak-market']);   // re-installing a unit is the update path
+    dl(['library', 'add', 'skill', 'soak-pitch@soak-market']);   // re-installing a unit is the update path
     // And init will not quietly clobber the deck this journey has been editing.
     const clobber = dl(['init', 'Second Deck', '-o', 'deck.html'], { allowFail: true });
     must(clobber.code !== 0, 'init overwrote an existing deck');

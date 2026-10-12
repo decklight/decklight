@@ -138,6 +138,11 @@ if (!command) {
     const deck = rest.find((a) => !a.startsWith('-')) ?? '<deck.html>';
     process.stderr.write(`  did you mean:  decklight ${[deck, ...rest.filter((a) => a !== deck)].join(' ')}\n`);
   }
+  else if (meant === 'library') {
+    // the seven commands `library` replaced, said the new way
+    const { libraryForm } = await import('./library.mjs');
+    process.stderr.write(`  did you mean:  decklight ${libraryForm(cmd, rest).join(' ')}\n`);
+  }
   else if (meant) process.stderr.write(`  did you mean:  decklight ${[meant, ...rest].join(' ')}\n`);
   process.stderr.write('\n');
   process.stdout.write(shortHelp());

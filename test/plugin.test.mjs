@@ -337,7 +337,8 @@ test('strict mode does not strip the chrome it was handed', async (t) => {
 
 // ── the command ────────────────────────────────────────────────────────────
 
-const run = (args, home, opts = {}) => cli(['plugin', ...args], { home, ...opts });
+// decklight library <verb> plugin …, called with the verb first as the old `plugin` command took it
+const run = ([verb, ...rest], home, opts = {}) => cli(['library', verb, 'plugin', ...rest], { home, ...opts });
 
 test('plugin list says which plugins read your speaker notes', () => {
   const home = homeWith({

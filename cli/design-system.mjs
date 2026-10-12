@@ -10,7 +10,7 @@
 //   decklight design-system templates <name@marketplace>
 //
 // `check` is the admission gate a catalog's own CI runs, in the mould of
-// `decklight extension check` and `decklight theme check`: a valid package
+// `decklight library check transform` and `decklight theme check`: a valid package
 // prints what it holds and exits 0; a broken or unsafe one names the file,
 // the line and the rule for every problem, and exits 1. Every rule lives in
 // tools/design-system-format.mjs, which is pure — this file only reads a

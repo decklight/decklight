@@ -210,9 +210,8 @@ Every item above has a SPEC section behind it. The index at the top of
 | `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide templates, served from the marketplace on this machine (`list`, `templates`, and `check`, the gate a catalog runs) |
 | `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `check`, the gate a catalog runs) |
 | `marketplace list` / `update <name>` | what each catalog offers, and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it) |
-| `plugin add <name>` | presenter chrome for your machine only; no-trust mode loads it, `bundle` never does |
-| `importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library |
-| `extension check t.mjs` | the marketplace admission gate for a transform |
+| `library add <kind> <name>` | install into your own library: a `plugin` (presenter chrome; no-trust mode loads it, `bundle` never does), a `skill`, an `importer`, a `transform`, an `engine`, a `voice` or an `agent` (`remove`, `list [kind]`) |
+| `library check <kind> <path>` | the marketplace admission gate for a `transform` or a `plugin` |
 
 | Odds and ends | |
 |---|---|

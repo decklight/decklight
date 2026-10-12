@@ -62,7 +62,7 @@ test('the ledger records an install per kind and marketplace, overwrites on a re
   assert.equal(forgetInstall({ type: 'skill', name: 'pitch' }, home), 1);
   assert.deepEqual(loadLedger(home).installs, {});
   assert.equal(reinstallHint('theme', 'nord@acme'), 'decklight theme add nord@acme <deck>');
-  assert.equal(reinstallHint('skill', 'pitch@acme'), 'decklight skills add pitch@acme');
+  assert.equal(reinstallHint('skill', 'pitch@acme'), 'decklight library add skill pitch@acme');
 });
 
 test('the demo: install, the catalog bumps, update names what is newer and how to take it — and no deck is touched', (t) => {
@@ -90,7 +90,7 @@ test('the demo: install, the catalog bumps, update names what is newer and how t
   const added = cli('theme', 'add', 'nord@acme', deckPath);
   assert.equal(added.status, 0, added.stderr);
   assert.match(added.stdout, /marked nord@acme 1\.0\.0 in /);
-  const tpl = cli('skills', 'add', 'pitch@acme');
+  const tpl = cli('library', 'add', 'skill', 'pitch@acme');
   assert.match(tpl.stdout, /installed pitch 2\.0\.0 from pitch@acme/);
   const deckAfterAdd = readFileSync(deckPath, 'utf8');
   assert.doesNotMatch(deckAfterAdd, /1\.0\.0/, 'the deck holds a mark, never a version');
@@ -117,6 +117,6 @@ test('the demo: install, the catalog bumps, update names what is newer and how t
   assert.match(cli('marketplace', 'list').stdout, /^ {4}nord@acme {2}1\.1\.0 installed$/m);
 
   // removing an installed unit forgets it
-  assert.equal(cli('skills', 'remove', 'pitch').status, 0);
+  assert.equal(cli('library', 'remove', 'skill', 'pitch').status, 0);
   assert.equal(loadLedger(home).installs['skill:pitch@acme'], undefined);
 });

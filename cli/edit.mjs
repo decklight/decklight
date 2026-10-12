@@ -1159,7 +1159,7 @@ const READ_ONLY_USAGE = `usage: decklight <deck.html|deck.decklight|repository u
                     OFF by default: with it on, any script in the deck can
                     fast-forward the clone the deck was served from.
 
-  Your presenter plugins (decklight plugin) are layered on at serve time from
+  Your presenter plugins (decklight library add plugin) are layered on at serve time from
   ~/.decklight/plugins/ — a timer, a teleprompter, a confidence monitor. They
   are YOURS: the deck on disk is untouched, nothing is written into it, and the
   same file played on a machine without them is identical slides and no

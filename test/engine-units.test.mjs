@@ -63,7 +63,7 @@ function installEngine(home, body = NO_COST_ENGINE) {
   }, null, 2));
   const env = { ...process.env, DECKLIGHT_HOME: home };
   execFileSync(process.execPath, [CLI, 'marketplace', 'add', market], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-  execFileSync(process.execPath, [CLI, 'engine', 'add', 'azure-tts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  execFileSync(process.execPath, [CLI, 'library', 'add', 'engine', 'azure-tts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   return market;
 }
 
@@ -144,7 +144,7 @@ test('a name that is neither built in nor installed names both ways out', async 
   } catch (e) {
     const out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
     assert.match(out, /no engine "nope" installed/);
-    assert.match(out, /decklight engine add nope/);
+    assert.match(out, /decklight library add engine nope/);
   } finally { rmTemp(home); }
 });
 

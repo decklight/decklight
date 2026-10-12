@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `decklight plugin` — the presenter's own chrome, installed from a
+ * `decklight library … plugin` — the presenter's own chrome, installed from a
  * marketplace and loaded by `--no-trust` (MARKETPLACE.md NO_TRUST#PLUGINS).
  *
- *   decklight plugin add    <name[@marketplace]>
- *   decklight plugin list
- *   decklight plugin check  <name | directory>
- *   decklight plugin remove <name>
+ *   decklight library add plugin    <name[@marketplace]>
+ *   decklight library list plugin
+ *   decklight library check plugin  <name | directory>
+ *   decklight library remove plugin <name>
  *
  * WHY THIS IS ALLOWED TO EXIST AT ALL. The asymmetry MARKETPLACE.md WHY is
  * built on: a plugin is safe when the installer is the risk-bearer, and unsafe
@@ -446,24 +446,24 @@ export function injectChrome(html, plugins) {
 
 // ── the command ────────────────────────────────────────────────────────────
 
-const USAGE = `usage: decklight plugin <add|list|check|remove> …
+const USAGE = `usage: decklight library <add|list|check|remove> plugin …
 
-  decklight plugin add <name[@marketplace]>
+  decklight library add plugin <name[@marketplace]>
     install a presenter plugin from a registered marketplace into your own
     library under ~/.decklight/plugins/. It is yours: it never enters a deck,
     never travels with one, and bundle cannot see it
-    EXAMPLE: decklight plugin add timer
-    EXAMPLE: decklight plugin add teleprompter@decklight
+    EXAMPLE: decklight library add plugin timer
+    EXAMPLE: decklight library add plugin teleprompter@decklight
 
-  decklight plugin list
+  decklight library list plugin
     what is installed, where each sits, and which ones read your speaker notes
 
-  decklight plugin check <name | directory>
+  decklight library check plugin <name | directory>
     validate a plugin without installing it — the same manifest vocabulary and
     the same lint the loader applies. Exits non-zero on a refusal, so a
     plugin's own CI can gate on it
 
-  decklight plugin remove <name>
+  decklight library remove plugin <name>
     delete it from your library
 
   A plugin is two files. Its code runs in a sandboxed frame with an opaque
@@ -530,7 +530,7 @@ function vet(name, files) {
 
 async function addMain(args, home) {
   const [ref] = args.filter((a) => !a.startsWith('-'));
-  if (!ref) { console.error(`decklight plugin add: needs a plugin name\n\n${USAGE}`); return 1; }
+  if (!ref) { console.error(`decklight library add plugin: needs a plugin name\n\n${USAGE}`); return 1; }
 
   const reg = loadRegistry(home);
   const catalogs = {};
@@ -539,18 +539,18 @@ async function addMain(args, home) {
     if (c?.ok) catalogs[name] = c.manifest;
   }
   if (!Object.keys(catalogs).length) {
-    console.error('decklight plugin add: no marketplace has been fetched yet'
+    console.error('decklight library add plugin: no marketplace has been fetched yet'
       + ' — decklight marketplace update <name> (registered is not fetched)');
     return 1;
   }
 
   let hit;
   try { hit = resolveEntry(ref, catalogs); } catch (e) {
-    console.error(`decklight plugin add: ${e.message}`);
+    console.error(`decklight library add plugin: ${e.message}`);
     return 1;
   }
   if (hit.entry.type !== 'plugin') {
-    console.error(`decklight plugin add: ${hit.qualified} is a ${hit.entry.type}, not a plugin`);
+    console.error(`decklight library add plugin: ${hit.qualified} is a ${hit.entry.type}, not a plugin`);
     return 1;
   }
 
@@ -561,7 +561,7 @@ async function addMain(args, home) {
       { name: hit.marketplace, source: reg.marketplaces[hit.marketplace]?.source }, home);
   } catch (e) {
     if (!(e instanceof MarketplaceError)) throw e;
-    console.error(`decklight plugin add: ${e.message}`);
+    console.error(`decklight library add plugin: ${e.message}`);
     return 1;
   }
   let manifest;
@@ -571,7 +571,7 @@ async function addMain(args, home) {
     manifest = vet(hit.entry.name, files);
   } catch (e) {
     if (!(e instanceof PluginError)) throw e;
-    console.error(`decklight plugin add: ${e.message}`);
+    console.error(`decklight library add plugin: ${e.message}`);
     console.error(`\n  ${hit.qualified} was NOT installed`);
     return 1;
   }
@@ -590,7 +590,7 @@ async function addMain(args, home) {
 function listMain(home) {
   const { plugins, refused } = loadLibrary(home);
   if (!plugins.length && !refused.length) {
-    console.log('no presenter plugins installed — decklight plugin add <name>');
+    console.log('no presenter plugins installed — decklight library add plugin <name>');
     console.log(`  (a plugin is your own chrome: a timer, a teleprompter. It never enters a deck.)`);
     return 0;
   }
@@ -605,9 +605,9 @@ function listMain(home) {
 
 function checkMain(args, home) {
   const [target] = args.filter((a) => !a.startsWith('-'));
-  if (!target) { console.error(`decklight plugin check: needs a plugin name or directory\n\n${USAGE}`); return 1; }
+  if (!target) { console.error(`decklight library check plugin: needs a plugin name or directory\n\n${USAGE}`); return 1; }
   const dir = existsSync(target) ? resolve(target) : join(pluginsDir(home), target);
-  if (!existsSync(dir)) { console.error(`decklight plugin check: no such plugin or directory: ${target}`); return 1; }
+  if (!existsSync(dir)) { console.error(`decklight library check plugin: no such plugin or directory: ${target}`); return 1; }
   let p;
   try { p = loadPlugin(dir); } catch (e) {
     if (!(e instanceof PluginError)) throw e;
@@ -622,9 +622,9 @@ function checkMain(args, home) {
 
 function removeMain(args, home) {
   const [name] = args.filter((a) => !a.startsWith('-'));
-  if (!name) { console.error(`decklight plugin remove: which one?\n\n${USAGE}`); return 1; }
+  if (!name) { console.error(`decklight library remove plugin: which one?\n\n${USAGE}`); return 1; }
   const dir = join(pluginsDir(home), name);
-  if (!existsSync(dir)) { console.error(`decklight plugin remove: no plugin "${name}" installed (decklight plugin list)`); return 1; }
+  if (!existsSync(dir)) { console.error(`decklight library remove plugin: no plugin "${name}" installed (decklight library list plugin)`); return 1; }
   rmSync(dir, { recursive: true, force: true });
   forgetInstall({ type: 'plugin', name }, home);
   console.log(`removed ${name}`);
@@ -644,12 +644,12 @@ export async function pluginMain(args = []) {
     if (sub === 'remove') return removeMain(rest, home);
   } catch (e) {
     if (e instanceof PluginError || e instanceof MarketplaceError) {
-      console.error(`decklight plugin ${sub}: ${e.message}`);
+      console.error(`decklight library ${sub} plugin: ${e.message}`);
       return 1;
     }
     throw e;
   }
-  console.error(`decklight plugin: unknown subcommand "${sub}"\n\n${USAGE}`);
+  console.error(`decklight library: unknown verb "${sub}" for a plugin\n\n${USAGE}`);
   return 1;
 }
 

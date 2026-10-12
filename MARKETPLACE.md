@@ -162,8 +162,8 @@ because that code runs on a presenter's machine at a stranger's request, a
 different actor, a different risk.
 
 **`EXTENSIONS#LOADER`: the pipeline stage (`cli/loader.mjs`).** A transform
-installs through the same seam as every other unit (`decklight transform
-add/list/remove`, `cli/units.mjs`), and `bundle --transform <name>` (repeatable,
+installs through the same seam as every other unit (`decklight library
+add/list/remove transform`, `cli/units.mjs`), and `bundle --transform <name>` (repeatable,
 applied in the order given) runs it against the deck's own source before
 anything else is inlined: ahead of theme/image/script inlining and therefore
 ahead of signing, since the whole bundle pipeline runs top to bottom. Two
@@ -186,8 +186,8 @@ things the loader alone decides, both left open by `EXTENSIONS#CONVENTION`:
   unit-installing surface already gives.
 
 **`EXTENSIONS#CHECK`: landed (full contract text: SPEC `EXTENSIONS_CHECK`;
-`cli/extension.mjs`, `tools/extension-check.mjs`).** `decklight extension
-check <file>` is the marketplace admission gate the WHY section already
+`cli/extension.mjs`, `tools/extension-check.mjs`).** `decklight library
+check transform <file>` is the marketplace admission gate the WHY section already
 promised ("a written bar enforced by CI"), for the same reason `theme check`
 is one: it operates on a source FILE,
 not an installed, catalog-backed unit: a marketplace repo's own CI runs it
@@ -199,7 +199,7 @@ transform a deck actually uses is never re-checked on that path, the same way
 an installed theme is never re-run through `theme check` on `bundle`: the
 gate sits at the marketplace's door, once, not on every local iteration.
 
-Named `extension`, not `transform`, on purpose: `decklight plugin check`
+Named `extension`, not `transform`, on purpose: `decklight library check plugin`
 already exists for presenter-library plugins (a different risk: a
 stranger's code on the presenter's machine, SPEC `NO_TRUST#PLUGINS`); this is
 the gate for **build-time** code units specifically, and `EXTENSIONS#ADAPTEREXEC`
@@ -267,7 +267,7 @@ Right-sized as ONE ticket, unlike `EXTENSIONS#TRANSFORMS`: that one fanned
 into four because it bundled a design freeze with three separate execution
 surfaces (the contract, the loader, running it from `import`). Here the
 design is what this paragraph just settled, and the remaining surface (
-lint, fixture run, headless dump, `decklight extension` command) is
+lint, fixture run, headless dump, `decklight library check transform` command) is
 comparable in size to `theme add`/`check` landing together (#206). It needs
 Chrome the same way `npm run verify`'s render harnesses do, and answers the
 same way they already do when Chrome is absent: a named refusal, never a
@@ -293,7 +293,7 @@ in the installer's own Node process. Now a code-carrying entry carries the
 module file's `sha256`: a content digest, not a commit SHA, so it holds for
 raw URLs, git URLs and local directories alike, against the math rather than
 the host, and installing is held to it twice: no pin, no fetch; a fetched
-module off the pin, no write, both refusals named. `extension check` prints
+module off the pin, no write, both refusals named. `library check transform` prints
 the digest on a pass, so the admission gate emits the very pin the catalog
 entry carries. Data kinds stay unpinned (a theme re-passes its whole contract
 at `theme add`; skills execute nothing), and a hand-placed unit
@@ -621,7 +621,7 @@ deck is sent to: a catalog that must not be named simply omits `title`.
 ### SETTLED · Unchanged from the interview
 
 Player-first surface · `.decklight/marketplace.json` mirroring Claude's layout ·
-versions for code, none for data · `extension check` = lint, then headless load ·
+versions for code, none for data · `library check transform` = lint, then headless load ·
 disclosure at install · official curated + community screened with pinning
 (landed as an artifact digest, not a commit SHA, `EXTENSIONS#PIN`) ·
 third-party unreviewed with auto-update off.
@@ -723,7 +723,7 @@ to play someone else's deck is a single command.
       **cannot modify slide content**, enforced, not documented
 - [ ] Build-time transforms run only during `bundle`; a transform cannot emit a
       `<script>` that is not declared in the manifest
-- [ ] `extension check` lints (no `fetch`/`eval`/`XMLHttpRequest`/dynamic
+- [ ] `library check transform` lints (no `fetch`/`eval`/`XMLHttpRequest`/dynamic
       import) then loads headlessly; failure blocks publish
 
 ### How would you demo it?
@@ -780,7 +780,7 @@ Depends column cites tickets by mnemonic, never by position.
 | `THEME_BROWSE#UI` | **Browse** in the picker, authoring-only, installing via `theme add` | `MARKETPLACES#CORE` |
 | `EXTENSIONS#CONVENTION` | freeze the transform calling convention `apiVersion` names a version of | `OPEN` 2 (resolved) |
 | `EXTENSIONS#LOADER` | the pipeline stage: install a transform, run it from `bundle --transform <name>` before signing | `EXTENSIONS#CONVENTION` |
-| `EXTENSIONS#CHECK` | `extension check`: lint (no `fetch`/`eval`/`XMLHttpRequest`/dynamic import), then a headless load of the transform's OUTPUT; failure blocks publish | `EXTENSIONS#LOADER` |
+| `EXTENSIONS#CHECK` | `library check transform`: lint (no `fetch`/`eval`/`XMLHttpRequest`/dynamic import), then a headless load of the transform's OUTPUT; failure blocks publish | `EXTENSIONS#LOADER` |
 | `EXTENSIONS#ADAPTEREXEC` | wire the same loader into `cli/import.mjs`: an installed import adapter finally runs | `EXTENSIONS#LOADER` |
 | `NO_TRUST#PLUGINS` | presenter-library plugins, chrome-only, enforced | `NO_TRUST`, `MARKETPLACES#CORE` |
 | `ENGINES#WIZARD` | wizard framework: declarative schema, `~/.decklight/` writes restricted to your account, write-mode-only | `MARKETPLACES#CORE` |
@@ -791,7 +791,7 @@ Depends column cites tickets by mnemonic, never by position.
 | `COMMANDS#RENAME` | `dev` → `open` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
 | `NO_TRUST#REMOTE` | move speaker view + phone remote off the edit server onto `--no-trust` | `NO_TRUST` |
 | `THEME_BROWSE#SPLIT` | **landed**: `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) moved to `decklight/decklight-plugins-official`; `palette-rules` no longer grades them, `theme check` still does | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
-| `EXTENSIONS#PIN` | **landed**: `sha256` on transform/importer entries; `add` refuses unpinned or mismatched, `extension check` prints the digest | `EXTENSIONS#CHECK`, `UNITS#REST` |
+| `EXTENSIONS#PIN` | **landed**: `sha256` on transform/importer entries; `add` refuses unpinned or mismatched, `library check transform` prints the digest | `EXTENSIONS#CHECK`, `UNITS#REST` |
 
 `NO_TRUST` through `DECK_FILE#ASSOC` are a coherent first release with no
 marketplace at all: they make playing someone else's deck safe, which is worth

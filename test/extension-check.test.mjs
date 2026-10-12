@@ -239,36 +239,36 @@ test('a passing report carries the digest the catalog entry pins — the gate em
 
 // ── the CLI ─────────────────────────────────────────────────────────────
 
-test('decklight extension check with no file prints usage and exits 1', () => {
-  const { code, out } = run(['extension', 'check']);
+test('decklight library check transform with no file prints usage and exits 1', () => {
+  const { code, out } = run(['library', 'check', 'transform']);
   assert.equal(code, 1);
   assert.match(out, /needs a file/);
 });
 
-test('decklight extension check on a missing file names it, rather than crashing', () => {
-  const { code, out } = run(['extension', 'check', '/no/such/file.mjs']);
+test('decklight library check transform on a missing file names it, rather than crashing', () => {
+  const { code, out } = run(['library', 'check', 'transform', '/no/such/file.mjs']);
   assert.equal(code, 1);
   assert.match(out, /no such file: \/no\/such\/file\.mjs/);
 });
 
-test('decklight extension --help and decklight extension (bare) print usage', () => {
-  for (const args of [['extension', '--help'], ['extension']]) {
+test('decklight library --help and decklight library (bare) name the transform gate', () => {
+  for (const args of [['library', '--help'], ['library']]) {
     const { out } = run(args);
-    assert.match(out, /decklight extension check/);
+    assert.match(out, /decklight library check transform/);
   }
 });
 
-test('decklight extension check --type <unimplemented> is refused by name', () => {
+test('decklight library check transform --type <unimplemented> is refused by name', () => {
   const dir = tmp('extcheck-cli-type');
   try {
     const file = transform(dir, 'x.mjs', 'export default async function transform(html) { return html; }\n');
-    const { code, out } = run(['extension', 'check', file, '--type', 'importer']);
+    const { code, out } = run(['library', 'check', 'transform', file, '--type', 'importer']);
     assert.equal(code, 1);
     assert.match(out, /--type importer is not implemented/);
   } finally { rmTemp(dir); }
 });
 
-test('decklight extension check reports every lint hit, with its line and reason', () => {
+test('decklight library check transform reports every lint hit, with its line and reason', () => {
   const dir = tmp('extcheck-cli-lint');
   try {
     const file = transform(dir, 'x.mjs', [
@@ -277,17 +277,23 @@ test('decklight extension check reports every lint hit, with its line and reason
       '  return html;',
       '}',
     ].join('\n'));
-    const { code, out } = run(['extension', 'check', file]);
+    const { code, out } = run(['library', 'check', 'transform', file]);
     assert.equal(code, 1);
     assert.match(out, /✘/);
     assert.match(out, /line 2: calls eval\(\)/);
   } finally { rmTemp(dir); }
 });
 
-test('decklight extension: an unknown subcommand is refused, not swallowed', () => {
-  const { code, out } = run(['extension', 'bogus']);
+test('decklight library: an unknown verb is refused, not swallowed', () => {
+  const { code, out } = run(['library', 'bogus']);
   assert.equal(code, 1);
-  assert.match(out, /unknown subcommand "bogus"/);
+  assert.match(out, /unknown verb "bogus"/);
+});
+
+test('decklight library check refuses a kind with no admission gate, by name', () => {
+  const { code, out } = run(['library', 'check', 'voice', 'x']);
+  assert.equal(code, 1);
+  assert.match(out, /no admission gate for a voice/);
 });
 
 // ── the two safety kills are two numbers, not one ──────────────────────────

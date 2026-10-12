@@ -43,15 +43,9 @@ export const COMMANDS = {
   theme: { module: './theme.mjs', main: 'themeMain' },
   publish: { module: './publish.mjs', main: 'publishMain' },
   marketplace: { module: './marketplace.mjs', main: 'marketplaceMain' },
-  plugin: { module: './plugin.mjs', main: 'pluginMain' },
-  // Six rows of the same table (MARKETPLACE.md UNITS#REST): one implementation,
-  // told which kind of unit it is handling.
-  importer: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
-  transform: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
-  engine: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
-  voice: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
-  agent: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
-  extension: { module: './extension.mjs', main: 'extensionMain' },
+  // Everything installed into YOUR library, one grammar (cli/library.mjs):
+  // it replaced seven commands, one per kind (ROADMAP section 4).
+  library: { module: './library.mjs', main: 'libraryMain' },
   'design-system': { module: './design-system.mjs', main: 'designSystemMain' },
   font: { module: './font.mjs', main: 'fontMain' },
   tts: { module: '../tools/voiceover-server.mjs', main: 'ttsMain' },
@@ -192,7 +186,9 @@ export const SYNONYMS = {
   convert: 'import', pptx2html: 'import',
   env: 'doctor', diagnose: 'doctor', lint: 'check', verify: 'check', validate: 'check',
   update: 'upgrade', undo: 'restore', log: 'history',
-  themes: 'theme', plugins: 'plugin', voices: 'voice', engines: 'engine',
+  themes: 'theme', plugins: 'library', voices: 'library', engines: 'library',
+  plugin: 'library', importer: 'library', transform: 'library', engine: 'library',
+  voice: 'library', agent: 'library', extension: 'library', install: 'library',
 };
 
 /** Levenshtein distance, for the typo half of did-you-mean. */
@@ -293,21 +289,13 @@ Commands:
   marketplace  register catalogs (git repos with .decklight/marketplace.json) — registered, not fetched
            EXAMPLE: decklight marketplace add owner/repo   (or a git URL, or a local path)
            EXAMPLE: decklight marketplace list              (offline-safe: reads only the cache)
-  plugin   install presenter chrome into YOUR library — no-trust mode loads it, bundle never does
-           EXAMPLE: decklight plugin add timer      (then: decklight talk.html --no-trust)
-           EXAMPLE: decklight plugin list           (says which ones read your speaker notes)
-  importer install an import adapter for a format decklight cannot read itself — decklight
-           import runs it the moment it is installed for the extension in hand
-           EXAMPLE: decklight importer add marp-import   (then: decklight import talk.marp)
-  transform install a build-time transform — Node code that runs during bundle, never in the deck
-           EXAMPLE: decklight transform add grammar-check
-           EXAMPLE: decklight bundle deck.html --transform grammar-check   (runs it before signing)
-  engine   install a speech engine the six built-in ones do not cover — Node code that runs
-           at author time only, never in a deck; your own credential still comes from the wizard
-           EXAMPLE: decklight engine add azure-tts   (then: decklight tts --engine azure-tts)
-  extension  the marketplace admission gate for a transform file — lint, then a headless load
-           of its OUTPUT; not run by bundle/import/publish, which never re-check an installed unit
-           EXAMPLE: decklight extension check grammar-check.mjs
+  library  what this machine installs from a marketplace for its own use — plugins, skills,
+           import adapters, build-time transforms, speech engines, voices, agents — one grammar:
+           add, remove, list, and check (the gate a marketplace's CI runs); nothing travels in a deck
+           EXAMPLE: decklight library add plugin timer      (then: decklight talk.html --no-trust)
+           EXAMPLE: decklight library add engine azure-tts  (then: decklight tts --engine azure-tts)
+           EXAMPLE: decklight library list                  (every kind, or name one)
+           EXAMPLE: decklight library check transform grammar-check.mjs
   design-system  a company's tokens, art and slide layouts, referenced by a deck and served from
            the marketplace on this machine — add/remove/list/layouts, and check, the admission gate
            EXAMPLE: decklight design-system add acme@acme-mkt talk.html
@@ -317,12 +305,6 @@ Commands:
            served from the marketplace on this machine, carried by bundle; add/remove/list, check
            EXAMPLE: decklight font add inter@type-mkt talk.html --use   (and open in it)
            EXAMPLE: decklight font check fonts/inter   (a catalog's CI gate)
-  voice    add a marketplace voice to the picker — a reference to one of an engine's
-           voices, never a model, so nothing that reproduces a person is ever downloaded
-           EXAMPLE: decklight voice add narrator-anna    (works offline; speaking needs your key)
-  agent    teach A a coding agent the built-in roster does not cover — a descriptor of how to
-           run it headlessly, never code, so this downloads nothing and works offline
-           EXAMPLE: decklight agent add my-agent     (install the agent itself its own way)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
            EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
   lipsync  serve the lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU)

@@ -89,21 +89,21 @@ function market(home, { apiVersion = TRANSFORM_API_VERSION, name = 'grammar-chec
 
 const run = (args, home, cwd) => cli(args, { home, cwd });
 
-// ── decklight transform add/list/remove — the generic install seam ─────────
+// ── decklight library add transform/list/remove — the generic install seam ─────────
 
 test('a transform installs, lists and removes through the same seam as every other unit', () => {
   const home = tmp('transform-cli');
   try {
     market(home, { body: 'export default async function transform(html) { return html + "\\n<!-- x -->"; }\n' });
-    let { code, out } = run(['transform', 'add', 'grammar-check'], home);
+    let { code, out } = run(['library', 'add', 'transform', 'grammar-check'], home);
     assert.equal(code, 0, out);
     assert.match(out, /installed grammar-check/);
     assert.ok(existsSync(unitPath('transform', 'grammar-check', home)));
 
-    ({ out } = run(['transform', 'list'], home));
+    ({ out } = run(['library', 'list', 'transform'], home));
     assert.match(out, /^grammar-check/m);
 
-    ({ code, out } = run(['transform', 'remove', 'grammar-check'], home));
+    ({ code, out } = run(['library', 'remove', 'transform', 'grammar-check'], home));
     assert.equal(code, 0, out);
     assert.equal(findUnit('transform', 'grammar-check', home), null);
   } finally { rmTemp(home); }
@@ -160,7 +160,7 @@ test('an uninstalled transform names the install command, not a file-not-found e
     await assert.rejects(() => runTransform('nope', '<p>hi</p>', home), (e) => {
       assert.ok(e instanceof LoaderError);
       assert.match(e.message, /no transform "nope" installed/);
-      assert.match(e.message, /decklight transform add nope/);
+      assert.match(e.message, /decklight library add transform nope/);
       return true;
     });
   } finally { rmTemp(home); }
@@ -208,7 +208,7 @@ test('resolveTransform surfaces the same install-command error without running a
   try {
     assert.throws(() => resolveTransform('nope', home), (e) => {
       assert.ok(e instanceof LoaderError);
-      assert.match(e.message, /decklight transform add nope, decklight transform list/);
+      assert.match(e.message, /decklight library add transform nope, decklight library list transform/);
       return true;
     });
   } finally { rmTemp(home); }
@@ -258,7 +258,7 @@ test('bundle --transform names an uninstalled transform rather than crashing', (
     const { code, out: log } = run(['bundle', DEMO, '-o', out, '--transform', 'nope'], home);
     assert.equal(code, 1);
     assert.match(log, /decklight bundle: no transform "nope" installed/);
-    assert.match(log, /decklight transform add nope/);
+    assert.match(log, /decklight library add transform nope/);
     assert.ok(!existsSync(out), 'nothing was written');
   } finally {
     rmTemp(home);
@@ -286,7 +286,7 @@ test('bundle --transform refuses an apiVersion this decklight does not implement
   const out = path.join(tmp('bundle-transform-ahead-out'), 'out.html');
   try {
     market(home, { apiVersion: TRANSFORM_API_VERSION + 7 });
-    execFileSync(process.execPath, [CLI, 'transform', 'add', 'grammar-check'],
+    execFileSync(process.execPath, [CLI, 'library', 'add', 'transform', 'grammar-check'],
       { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
     const { code, out: log } = run(['bundle', DEMO, '-o', out, '--transform', 'grammar-check'], home);
     assert.equal(code, 1);
@@ -344,7 +344,7 @@ test('an uninstalled importer names the install command, not a file-not-found er
     await assert.rejects(() => runImporter('nope', Buffer.from('hi'), home), (e) => {
       assert.ok(e instanceof LoaderError);
       assert.match(e.message, /no importer "nope" installed/);
-      assert.match(e.message, /decklight importer add nope, decklight importer list/);
+      assert.match(e.message, /decklight library add importer nope, decklight library list importer/);
       return true;
     });
   } finally { rmTemp(home); }
@@ -393,7 +393,7 @@ test('resolveImporter surfaces the same install-command error without running an
   try {
     assert.throws(() => resolveImporter('nope', home), (e) => {
       assert.ok(e instanceof LoaderError);
-      assert.match(e.message, /decklight importer add nope, decklight importer list/);
+      assert.match(e.message, /decklight library add importer nope, decklight library list importer/);
       return true;
     });
   } finally { rmTemp(home); }
@@ -439,16 +439,16 @@ test('an engine installs, lists and removes through the same seam as every other
   const home = tmp('engine-cli');
   try {
     engineMarket(home);
-    let { code, out } = run(['engine', 'add', 'azure-tts'], home);
+    let { code, out } = run(['library', 'add', 'engine', 'azure-tts'], home);
     assert.equal(code, 0, out);
     assert.match(out, /installed azure-tts/);
     assert.ok(existsSync(unitPath('engine', 'azure-tts', home)), 'lands in ~/.decklight/engines/');
 
-    ({ code, out } = run(['engine', 'list'], home));
+    ({ code, out } = run(['library', 'list', 'engine'], home));
     assert.equal(code, 0, out);
     assert.match(out, /azure-tts/);
 
-    ({ code, out } = run(['engine', 'remove', 'azure-tts'], home));
+    ({ code, out } = run(['library', 'remove', 'engine', 'azure-tts'], home));
     assert.equal(code, 0, out);
     assert.equal(existsSync(unitPath('engine', 'azure-tts', home)), false);
   } finally { rmTemp(home); }
@@ -458,7 +458,7 @@ test('an installed engine loads and speaks, and reports it was installed', async
   const home = tmp('engine-load');
   try {
     engineMarket(home);
-    assert.equal(run(['engine', 'add', 'azure-tts'], home).code, 0);
+    assert.equal(run(['library', 'add', 'engine', 'azure-tts'], home).code, 0);
     const engine = await loadEngine('azure-tts', { model: 'custom' }, home);
     assert.equal(engine.name, 'azure-tts');
     assert.equal(engine.model, 'custom', 'opts reach the factory untouched');
@@ -477,7 +477,7 @@ test('an engine is PINNED like every other code-carrying unit (SPEC UNIT_PINNING
     // the catalog's digest does not match the module it points at
     const root = engineMarket(home);
     writeFileSync(path.join(root, 'azure.mjs'), GOOD_ENGINE + '// tampered after publication\n');
-    const { code, out } = run(['engine', 'add', 'azure-tts'], home);
+    const { code, out } = run(['library', 'add', 'engine', 'azure-tts'], home);
     assert.notEqual(code, 0, out);
     assert.match(out, /sha256|digest|pin/i);
     assert.equal(existsSync(unitPath('engine', 'azure-tts', home)), false, 'refused BEFORE any write');
@@ -489,7 +489,7 @@ test('apiVersion is the loader\'s check, and capability is refused only at load'
   try {
     engineMarket(ahead, { apiVersion: ENGINE_API_VERSION + 1 });
     // installs fine — the catalog only ever validated the SHAPE
-    assert.equal(run(['engine', 'add', 'azure-tts'], ahead).code, 0);
+    assert.equal(run(['library', 'add', 'engine', 'azure-tts'], ahead).code, 0);
     await assert.rejects(() => loadEngine('azure-tts', {}, ahead), (e) => {
       assert.ok(e instanceof LoaderError);
       assert.match(e.message, new RegExp(`needs apiVersion ${ENGINE_API_VERSION + 1}`));
@@ -505,7 +505,7 @@ test('apiVersion is the loader\'s check, and capability is refused only at load'
     // `transcription` is deliberately a kind decklight has no affordance for —
     // `lipsync` stopped being one the moment ENGINES#LIPSYNC landed.
     engineMarket(other, { capability: 'transcription' });
-    assert.equal(run(['engine', 'add', 'azure-tts'], other).code, 0, 'still installs');
+    assert.equal(run(['library', 'add', 'engine', 'azure-tts'], other).code, 0, 'still installs');
     assert.throws(() => resolveEngine('azure-tts', other), (e) => {
       assert.ok(e instanceof LoaderError);
       assert.match(e.message, /is a transcription engine.*only runs: tts, lipsync/);
@@ -572,7 +572,7 @@ test('resolveEngine surfaces the install command without importing anything', ()
   try {
     assert.throws(() => resolveEngine('nope', home), (e) => {
       assert.ok(e instanceof LoaderError);
-      assert.match(e.message, /decklight engine add nope, decklight engine list/);
+      assert.match(e.message, /decklight library add engine nope, decklight library list engine/);
       return true;
     });
   } finally { rmTemp(home); }

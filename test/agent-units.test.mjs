@@ -8,7 +8,7 @@
 // Two properties get most of the attention, because both are the kind that
 // look fine until the day they are not:
 //
-//   A DESCRIPTOR IS NOT CODE. `decklight agent add` fetches nothing and runs
+//   A DESCRIPTOR IS NOT CODE. `decklight library add agent` fetches nothing and runs
 //   nothing of the catalog's — it names a binary the user installed. That is
 //   what keeps an open roster out of UNIT_PINNING's risk class, so the test
 //   asserts the install works with no network and no sha256 at all.
@@ -63,7 +63,7 @@ test('an agent entry validates as a descriptor — bin plus the argv of its head
 
 test('an agent is REFERENCE_ONLY — it carries no source, so no code can arrive', () => {
   assert.ok(REFERENCE_ONLY.has('agent'));
-  assert.match(INSTALL_HINT.agent, /decklight agent add/);
+  assert.match(INSTALL_HINT.agent, /decklight library add agent/);
 });
 
 test('a descriptor that would hand the agent no instruction is refused', () => {
@@ -94,12 +94,12 @@ test('an agent installs with no network, no source and no sha256 — it is a des
   const home = tmp('agent-install');
   try {
     agentMarket(home);
-    const { code, out } = run(['agent', 'add', 'my-agent'], home);
+    const { code, out } = run(['library', 'add', 'agent', 'my-agent'], home);
     assert.equal(code, 0, out);
     assert.ok(existsSync(unitPath('agent', 'my-agent', home)));
     assert.equal(listUnits('agent', home).length, 1);
 
-    assert.match(run(['agent', 'list'], home).out, /my-agent/);
+    assert.match(run(['library', 'list', 'agent'], home).out, /my-agent/);
   } finally { rmTemp(home); }
 });
 
@@ -107,7 +107,7 @@ test('an installed agent joins the roster and builds a real spawn', () => {
   const home = tmp('agent-roster');
   try {
     agentMarket(home);
-    run(['agent', 'add', 'my-agent'], home);
+    run(['library', 'add', 'agent', 'my-agent'], home);
 
     const loaded = installedAgents(home);
     assert.equal(loaded.length, 1);
@@ -134,7 +134,7 @@ test('a unit may not shadow a built-in, and a malformed one does not take the ro
   try {
     // a descriptor calling itself `claude` must not change how claude is run
     agentMarket(home, { ...DESCRIPTOR, name: 'claude', bin: 'my-agent' });
-    run(['agent', 'add', 'claude'], home);
+    run(['library', 'add', 'agent', 'claude'], home);
     const claude = detectAgents({ hasBin: () => true, home }).find((a) => a.name === 'claude');
     assert.equal(claude.bin, 'claude', 'still the built-in');
     assert.equal(claude.label, 'Claude Code');
@@ -190,7 +190,7 @@ test('a remembered agent that is GONE is named, never silently swapped', () => {
     assert.match(why, /not on PATH/);
 
     // a name nothing has ever heard of says how to teach decklight about it
-    assert.match(agentUnavailable('nope', roster, home), /decklight agent add nope/);
+    assert.match(agentUnavailable('nope', roster, home), /decklight library add agent nope/);
   } finally { rmTemp(home); }
 });
 

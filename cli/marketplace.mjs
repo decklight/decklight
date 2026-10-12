@@ -62,13 +62,13 @@ export const NAME_RE = /^[A-Za-z0-9_-]+$/;
  */
 export const INSTALL_HINT = {
   theme: 'decklight theme add <name@marketplace> <deck>',
-  plugin: 'decklight plugin add <name>',
-  skill: 'decklight skills add <name>',
-  importer: 'decklight importer add <name>',
-  engine: 'decklight engine add <name>',  // ENGINE_UNITS — the wizard then configures it
-  agent: 'decklight agent add <name>',    // AGENT_UNITS — a descriptor, never code
-  transform: 'decklight transform add <name>',  // EXTENSIONS#LOADER — installs; bundle --transform <name> runs it
-  voice: 'decklight voice add <name>',
+  plugin: 'decklight library add plugin <name>',
+  skill: 'decklight library add skill <name>',
+  importer: 'decklight library add importer <name>',
+  engine: 'decklight library add engine <name>',  // ENGINE_UNITS — the wizard then configures it
+  agent: 'decklight library add agent <name>',    // AGENT_UNITS — a descriptor, never code
+  transform: 'decklight library add transform <name>',  // EXTENSIONS#LOADER — installs; bundle --transform <name> runs it
+  voice: 'decklight library add voice <name>',
   'publish-target': null,
   // DESIGN_SYSTEMS: a deck REFERENCES one — nothing is installed into the library
   'design-system': 'decklight design-system add <name@marketplace> <deck>',
@@ -393,7 +393,7 @@ export const ENGINE_CAPABILITIES = ['tts', 'lipsync'];
 /**
  * The pin a code-carrying entry installs against (SPEC `UNIT_PINNING`): the
  * SHA-256 of the module file's bytes, lowercase hex, as `sha256sum` prints it
- * and `decklight extension check` emits it on success.
+ * and `decklight library check transform` emits it on success.
  *
  * Validated for SHAPE when present, like everything else in `ENTRY_SHAPES` —
  * but its ABSENCE is refused at install time (`cli/units.mjs`), not here.

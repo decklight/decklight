@@ -444,7 +444,7 @@ function buildEngine({
 } = {}) {
   if (!ENGINES.includes(engine)) {
     throw new Error(`unknown engine '${engine}' — use ${ENGINES.join(', ')},`
-      + ` or install one: decklight engine add ${engine}`);
+      + ` or install one: decklight library add engine ${engine}`);
   }
 
   // `cost` is the human-facing price note — the bridge's startup line and the

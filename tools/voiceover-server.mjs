@@ -126,7 +126,7 @@ export async function ttsMain(args) {
           --tts-format mp3 if your plan has no PCM output (costs you the panel's
           Record this deck… and lip-sync, both of which read WAV).
 
-  <installed>  any engine from a marketplace (decklight engine add <name>) — --engine
+  <installed>  any engine from a marketplace (decklight library add engine <name>) — --engine
           takes its name like any of the six above, and the picker treats it the same.
 
   project also read from $GOOGLE_CLOUD_PROJECT (gemini and chirp only)
@@ -231,7 +231,7 @@ export async function ttsMain(args) {
     const refs = installedVoices(e.name);
     const h = { engine: e, refs, refIds: new Map(refs.map((r) => [r.label, r.voiceId])) };
     held.set(e.name, h);
-    if (refs.length) console.log(`  voices: +${refs.length} installed for ${e.name} (decklight voice list)`);
+    if (refs.length) console.log(`  voices: +${refs.length} installed for ${e.name} (decklight library list voice)`);
     return h;
   };
   hold(engine);

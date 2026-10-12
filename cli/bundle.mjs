@@ -233,8 +233,8 @@ Options:
                    .decklight renamed to .html still plays in a browser: the
                    deck comes first in the file and the metadata is appended.
   --title <t>      <title> for the multi-module deck
-  --transform <name>  run an installed build-time transform (decklight transform
-                   add <name>) on the deck's own source before anything else
+  --transform <name>  run an installed build-time transform (decklight library
+                   add transform <name>) on the deck's own source before anything else
                    is inlined — repeatable, applied in the order given
   --themes <sel>   which shipped themes to embed:
                      current       just the deck's linked theme (default)

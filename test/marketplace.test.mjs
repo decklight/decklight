@@ -576,7 +576,7 @@ test('installing an entry from a remote marketplace reads the checkout — no se
   const home = tmp();
   const repo = gitMarketRepo(TEMPLATES, { 'skills/pitch/SKILL.md': PITCH });
   assert.equal(run(home, 'add', repo.url).status, 0);
-  const r = spawnSync('node', [CLI, 'skills', 'add', 'pitch@nord-pack'],
+  const r = spawnSync('node', [CLI, 'library', 'add', 'skill', 'pitch@nord-pack'],
     { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home } });
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
   assert.equal(fs.readFileSync(path.join(home, 'skills', 'pitch', 'SKILL.md'), 'utf8'), PITCH);
@@ -721,7 +721,7 @@ test('a malformed capability is refused, not silently coerced', () => {
 test('engine stopped being a kind nothing installs — the hint names a real command', () => {
   // It was `null`, which marketplace.mjs documents as "real but nothing
   // installs it here yet" (#267 is what changed that).
-  assert.match(INSTALL_HINT.engine, /decklight engine add/);
+  assert.match(INSTALL_HINT.engine, /decklight library add engine/);
 });
 
 // ── the catalog cache (loadCatalog) ───────────────────────────────────────

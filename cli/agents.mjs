@@ -291,9 +291,9 @@ export function agentUnavailable(name, roster, home = configHome(),
   const have = roster.length
     ? `available here: ${roster.map((a) => a.name).join(', ')}`
     : 'no agent CLI is detected on this machine';
-  if (!name) return `${have} — install one (claude, codex, bob, …), or: decklight agent add <name>`;
+  if (!name) return `${have} — install one (claude, codex, bob, …), or: decklight library add agent <name>`;
   const entry = AGENTS.find((a) => a.name === name) ?? installedAgents(home).find((a) => a.name === name);
-  if (!entry) return `no agent named "${name}" — ${have}; a marketplace can teach decklight a new one: decklight agent add ${name}`;
+  if (!entry) return `no agent named "${name}" — ${have}; a marketplace can teach decklight a new one: decklight library add agent ${name}`;
   // Found but not runnable is its own answer, and it names the reason rather
   // than the symptom: telling someone their agent "is not on PATH" while
   // `where claude` prints a path is how #307 stayed invisible.
@@ -302,7 +302,7 @@ export function agentUnavailable(name, roster, home = configHome(),
     return `"${name}" is installed at ${where}, but decklight cannot run it as a program: `
       + 'that file is a batch shim and the script it runs cannot be found. '
       + 'decklight will not hand your prompt to cmd.exe instead — reinstall the agent, '
-      + `or point one at its real entry point: decklight agent add ${name}`;
+      + `or point one at its real entry point: decklight library add agent ${name}`;
   }
   return `"${name}" is known but its command is not on PATH — install it, or pick another (${have})`;
 }

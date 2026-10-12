@@ -64,8 +64,8 @@ const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url
   A Google Slides URL is fetched as .pptx — the deck must be link-shared.
 
   A format decklight cannot read itself runs through an installed import
-  adapter instead, if one is installed for that extension: decklight importer
-  add <name>, then this command again. -v/--build/drop reporting are the
+  adapter instead, if one is installed for that extension: decklight library
+  add importer <name>, then this command again. -v/--build/drop reporting are the
   built-in PowerPoint path's own; a third-party adapter has no equivalent yet.`;
 
 /**
@@ -304,7 +304,7 @@ export async function adapterOffer(source, { home } = {}) {
   if (!offered) return out;
 
   out.push(`  no adapter for ${ext} — ${offered.qualified} reads it:`,
-    `    decklight importer add ${offered.qualified}`);
+    `    decklight library add importer ${offered.qualified}`);
   return out;
 }
 
