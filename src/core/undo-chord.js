@@ -8,7 +8,17 @@
 // ⌘Z / Ctrl+Z only (ROADMAP, section 2), and the messages name the chord. One
 // module so a toast in concepts.js and the edit bar cannot spell it apart.
 
+/**
+ * Is this platform string an Apple one? Case-insensitive, because the two
+ * sources spell it differently: `navigator.platform` says `MacIntel`, and
+ * Chrome's `navigator.userAgentData.platform`, read first, says `macOS`. The
+ * old test was `/Mac|iPhone|iPad/`, which `macOS` fails, so Chrome on a Mac
+ * was taken for Windows: undo wanted Ctrl+Z, ⌘Z did nothing, and every hint
+ * said Ctrl.
+ */
+export const isApplePlatform = (platform) => /mac|iphone|ipad/i.test(String(platform ?? ''));
+
 export const IS_MAC = typeof navigator !== 'undefined'
-  && /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
+  && isApplePlatform(navigator.userAgentData?.platform ?? navigator.platform);
 export const UNDO_CHORD = IS_MAC ? '⌘Z' : 'Ctrl+Z';
 export const REDO_CHORD = IS_MAC ? '⌘⇧Z' : 'Ctrl+⇧Z';

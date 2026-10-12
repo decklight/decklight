@@ -31,13 +31,12 @@
 
 import { colorTargets, resolveColor, rgbToHex } from './colorpicker.js';
 import { readJson, writePref } from './prefs.js';
-import { UNDO_CHORD } from './undo-chord.js';
+import { IS_MAC, UNDO_CHORD } from './undo-chord.js';
 
 const KEY = 'decklight-style-clip';
 
 // the chords as this machine spells them: ⌥⌘ on a Mac, Ctrl+Alt elsewhere
-const MAC = typeof navigator !== 'undefined'
-  && /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');   // engine.js IS_MAC
+const MAC = IS_MAC;   // undo-chord.js: one check for the whole runtime
 export const STYLE_KEYS = Object.freeze({ copy: MAC ? '⌥⌘C' : 'Ctrl+Alt+C', paste: MAC ? '⌥⌘V' : 'Ctrl+Alt+V' });
 
 // the server's value shapes (cli/edit.mjs STYLE_VALUE, WIDTH_VALUE, TYPE_VALUES): a

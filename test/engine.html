@@ -2319,7 +2319,7 @@
         h1b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
         // ⌘Z on a Mac, Ctrl+Z elsewhere: the undo every editor trained, and
         // since bare Z stopped writing the file, the deck's only undo key.
-        const mac = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
+        const mac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
         const chord = (shiftKey = false, on = document.body) => on.dispatchEvent(new KeyboardEvent('keydown',
           { key: 'z', bubbles: true, cancelable: true, shiftKey, ...(mac ? { metaKey: true } : { ctrlKey: true }) }));
         const undosBeforeText = undos();
@@ -3175,7 +3175,7 @@
         r.slideNumberGoesWithTheLock = !num() && !document.querySelector('.decklight').classList.contains('has-slide-num');
         // a door that writes says why, and it is the lock, not "run decklight"
         document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true,
-          ...(/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '') ? { metaKey: true } : { ctrlKey: true }) }));
+          ...(/mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '') ? { metaKey: true } : { ctrlKey: true }) }));
         await settle();
         r.doorsSayLocked = [...document.querySelectorAll('.decklight-toast')].some((n) => /deck is locked — unlock it/.test(n.textContent))
           && ![...document.querySelectorAll('.decklight-toast')].some((n) => /needs write mode/.test(n.textContent));
