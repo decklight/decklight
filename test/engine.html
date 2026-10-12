@@ -1622,7 +1622,19 @@
         deck.settings.close();
         r.apiCloses = !document.querySelector(Q);
 
-        r.PASS = r.settingsIsFirstMatch && r.versionFindsSettingsFirst && r.opens && r.hasRows && r.showsVersionRow && r.saysEnterCopies
+        // Settings is the home for the presenter's knobs (ROADMAP section 3):
+        // each row reads the state, ⏎ changes it, and the panel stays open
+        const knob = (label) => deck.settings.rows().find((x) => x.label === label);
+        r.knobsListed = ['Clock', 'Progress bar', 'Captions', 'Voice speed'].every((l) => !!knob(l)?.stays);
+        const clockWas = knob('Clock').value;
+        knob('Clock').run();
+        r.clockKnobSwitches = knob('Clock').value !== clockWas && !!document.querySelector('.decklight-clock') === (knob('Clock').value === 'on');
+        knob('Clock').run();
+        const speeds = [];
+        for (let i = 0; i < 5; i++) { knob('Voice speed').run(); speeds.push(knob('Voice speed').value); }
+        r.voiceSpeedCycles = speeds.join(' ') === '1.25× 1.5× 2× 0.75× 1×';
+
+        r.PASS = r.knobsListed && r.clockKnobSwitches && r.voiceSpeedCycles && r.settingsIsFirstMatch && r.versionFindsSettingsFirst && r.opens && r.hasRows && r.showsVersionRow && r.saysEnterCopies
           && r.versionIsReal && r.versionMatchesApi && r.apiRowsMatch
           && r.enterCopiesTheVersion && r.saysItCopied && r.closesAfterCopying && r.refusedCopyStillShowsIt
           && r.escapeCloses && r.apiOpens && r.apiCloses;

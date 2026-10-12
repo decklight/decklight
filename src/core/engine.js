@@ -1216,6 +1216,8 @@ export function init(userConfig = {}) {
   /** The rows the panel shows. Exposed on the instance so a headless probe can
    *  assert the version without opening an overlay. A row with no `run` is a
    *  FACT, not a disabled command: it is shown plainly, never greyed out. */
+  // Voice speed in Settings walks these; `<` and `>` still step by 0.25.
+  const VOICE_SPEEDS = [0.75, 1, 1.25, 1.5, 2];
   function settingsRows() {
     return [
       // ⏎ copies it: the version goes into a bug report, and a number you
@@ -1228,6 +1230,23 @@ export function init(userConfig = {}) {
       // every press made a two-way switch cost three keys a turn.
       ...(printMode ? [] : [{ label: 'Display', value: displayFill ? 'fill screen' : deckRatio(),
         hint: '⏎ switches', stays: true, run: () => setDisplay(!displayFill) }]),
+      // The presenter's knobs, here as well as in the palette: the palette is
+      // where you DO a thing, Settings is where you see how the deck is set
+      // up and change it in one place. Each is remembered per deck already;
+      // this is the view of what is remembered.
+      ...(printMode ? [] : [
+        { label: 'Clock', value: hud.status().clockOn ? 'on' : 'off', hint: '⏎ switches', stays: true, run: () => toggleClock() },
+        { label: 'Progress bar', value: hud.status().progressOn ? 'on' : 'off', hint: '⏎ switches', stays: true, run: () => toggleProgress() },
+        { label: 'Captions', value: narration.status().captionsOn ? 'on' : 'off', hint: '⏎ switches', stays: true, run: () => toggleCaptions() },
+        { label: 'Voice speed', value: `${narration.status().rate}×`, hint: '⏎ cycles', stays: true, run: () => {
+          const rate = narration.status().rate;
+          const next = VOICE_SPEEDS.find((v) => v > rate + 1e-6) ?? VOICE_SPEEDS[0];
+          changeNarrRate(next - rate);
+        } },
+      ]),
+      // write mode only: the bar is editing's face, hidden or shown per deck
+      ...(editmode?.available() ? [{ label: 'Editing bar', value: editbar.hidden() ? 'hidden' : 'shown',
+        hint: '⏎ switches', stays: true, run: () => editbar.toggleHidden() }] : []),
       // write mode only: Push lives in the commit window, which only an edit
       // server has
       ...(editmode?.available() ? [{ label: 'Push tags', value: editmode.pushTags() ? 'with the branch' : 'off',
