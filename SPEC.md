@@ -95,6 +95,13 @@ being moved, and it says what it points at.
   somebody else's. A refused link is **named in the toast** rather than
   disappearing. Clearing every row removes the aside instead of leaving an
   empty one.
+  **A source bigger than what the slide uses names the part it uses**, so a
+  reader lands where the claim is rather than at page one of a long document:
+  the link points into the source (a PDF page with `#page=12`, a section of a
+  web page by its anchor or a `#:~:text=` fragment) and the note says how much
+  (`pp. 12–14`, `lines 40–88`, `the Enterprise tier`). A local file is linked
+  by its path relative to the deck. Nothing checks either; they are what makes
+  the aside worth following.
   It is not a comment (`REVIEW`): a comment is what somebody thinks for now and
   is answered and resolved, while a source is true until the source changes,
   so it lives in the section and travels with it through `bundle` and `publish`.

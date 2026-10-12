@@ -110,6 +110,48 @@ a claim worth attributing; leave it off when it does not:
 </aside>
 \`\`\`
 
+**Cite as you build.** When a deck is made from material (a PDF, a web page, a
+document, a transcript, files in a repository) the user gave you or you looked
+up, every slide that states something taken from it gets its \`sources\` aside
+**while you write the slide**, not in a pass at the end, when you no longer
+know which page a number came from. One link per source the slide stands on:
+
+- **Name the part, not just the source**, whenever the source is bigger than
+  what you used: the pages of a PDF (\`report.pdf#page=12\`, note \`pp. 12–14\`),
+  the section of a web page (its \`#anchor\`, or a text fragment
+  \`#:~:text=first%20words\`), the heading of a document, the lines of a file
+  (\`src/server.ts\`, note \`lines 40–88\`), the minutes of a recording. The link
+  opens where you read; the note says how much.
+- **A local file is linked by its path relative to the deck**, so the link
+  still opens after the deck moves with it.
+- **Cite only what you actually opened and read.** Never a source you did not
+  read, never a page you did not read, and never a link you reconstructed from
+  memory. A slide built from your own general knowledge carries no link that
+  pretends otherwise: leave it unsourced and say so in the report below.
+
+\`\`\`html
+<aside class="sources">
+  <ul>
+    <li><a href="docs/annual-report-2025.pdf#page=12">Annual report 2025</a> — pp. 12–14, revenue by region</li>
+    <li><a href="https://example.com/pricing#enterprise">Pricing page</a> — Enterprise tier only</li>
+  </ul>
+</aside>
+\`\`\`
+
+**Then tell the user what the deck stands on.** When you finish a deck (or a
+batch of slides), end your reply with a sources report, so they can check the
+deck against its material without opening every slide:
+
+- each source you used, with the parts of it you used (pages, sections,
+  headings, lines) and the slides that cite it;
+- each source you were given but did not use, and why (off topic, unreadable,
+  a scanned PDF with no text layer);
+- each slide that makes claims with no source behind it, so the user knows
+  which ones rest on your general knowledge.
+
+Keep the report in your reply, not on a slide: the deck already carries the same
+facts, per slide, in its \`sources\` asides.
+
 **CLI** (\`npx decklight@latest <command>\`, no install needed):
 - \`decklight deck.html\` — the whole authoring loop: serve with live reload; editing is on in the browser — text, pictures, layouts and speaker notes are written back into the file
 - \`decklight cast script.term.yaml\` — record a truthful terminal cast in a real PTY, for \`<div class="terminal">\` (this records a TERMINAL; \`decklight record\` records the author's voice)
@@ -283,6 +325,12 @@ This project contains a Decklight presentation (a single-file HTML deck —
 see \`${referenceHref}\` for the full authoring
 contract: builds, notes, sources, SVG diagrams, themes, terminals, narration).
 Read that file before adding or editing slides.
+
+When slides come from material (PDFs, web pages, documents, files), give each
+slide a \`<aside class="sources">\` as you write it, linking the part it uses
+(PDF pages via \`#page=N\`, a page section via its anchor, file lines in the
+note), cite only what you actually read, and end with a report to the user of
+each source, the parts used, the slides citing it, and the slides with none.
 
 After editing slides, render the deck and check nothing is clipped:
 \`npx decklight@latest pdf deck.html -o /tmp/check.pdf\` — every \`⚠ slide N overflows\`
