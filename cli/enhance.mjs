@@ -287,7 +287,7 @@ export const KINDS = {
 const kindOf = (kind) => KINDS[kind] ?? KINDS.tags;
 
 /** Run a read-only agent ask; resolves to its stdout, or null. */
-function ask(cmd, cwd, timeoutMs) {
+export function ask(cmd, cwd, timeoutMs) {
   return new Promise((done) => {
     let settled = false;
     const finish = (v) => { if (!settled) { settled = true; done(v); } };

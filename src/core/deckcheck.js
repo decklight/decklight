@@ -19,6 +19,11 @@
  *   missing-media     an image or a video that did not load
  *   markdown-slide    a data-markdown slide, which comes up empty
  *
+ * After them, the AGENT REVIEW's findings, when one has run (Review deck with
+ * agent…, cli/agent-review.mjs): judgement rather than counting, so they are
+ * their own group and never an issue. ⏎ goes to the slide like any row; `f`
+ * hands that one finding's instruction to the A agent, an ordinary edit.
+ *
  * What a file can say and a page cannot (an unaccounted script, an asset the
  * page never asked for) stays `decklight check`'s, and the panel says so in
  * its last line rather than pretending to be the whole lint.
@@ -36,7 +41,10 @@ const finding = (level, rule, slide, title, message) => ({ level, rule, slide, t
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-export function createDeckCheck({ root, overlays, instance, goto, measureOverflow, slideTitle, suggestions = () => [], accept = () => null }) {
+export function createDeckCheck({
+  root, overlays, instance, goto, measureOverflow, slideTitle, suggestions = () => [], accept = () => null,
+  agentFindings = () => [], fix = () => null,
+}) {
   let el = null, sel = 0, rows = [];
 
   /** Every finding the open deck can answer for, slide order, errors first within a slide. */
@@ -83,9 +91,15 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
       });
     }
     const rank = { error: 0, warn: 1, hint: 2 };
-    return out.map((f, i) => [f, i])
+    const own = out.map((f, i) => [f, i])
       .sort((a, b) => a[0].slide - b[0].slide || rank[a[0].level] - rank[b[0].level] || a[1] - b[1])
       .map(([f]) => f);
+    // the agent's, last and apart: already in slide order, already checked by the server
+    const agent = agentFindings().filter((f) => f.slide >= 1 && f.slide <= sections.length).map((f) => ({
+      ...finding('agent', f.rule, f.slide, slideTitle(sections[f.slide - 1], f.slide - 1), f.message),
+      label: f.label, agentFinding: f,
+    }));
+    return [...own, ...agent];
   }
 
   function open() {
@@ -105,14 +119,15 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
     const found = check();
     const slides = instance()?._sections?.length ?? 0;
     const errors = found.filter((f) => f.level === 'error').length;
-    const issues = found.filter((f) => f.level !== 'hint');
-    const hints = found.length - issues.length;
+    const issues = found.filter((f) => f.level === 'error' || f.level === 'warn');
+    const hints = found.filter((f) => f.level === 'hint').length;
+    const fromAgent = found.filter((f) => f.level === 'agent').length;
     const head = document.createElement('div');
     head.className = 'narr-head';
     head.textContent = (issues.length
       ? `check · ${plural(issues.length, 'issue')} on ${plural(new Set(issues.map((f) => f.slide)).size, 'slide')}`
         + (errors ? ` · ${plural(errors, 'error')}` : '')
-      : 'check') + (hints ? ` · ${plural(hints, 'suggestion')}` : '');
+      : 'check') + (hints ? ` · ${plural(hints, 'suggestion')}` : '') + (fromAgent ? ` · ${fromAgent} from the agent` : '');
     card.appendChild(head);
     rows = found;
     if (!issues.length) {
@@ -121,13 +136,20 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
       ok.textContent = `no issues: ${plural(slides, 'slide')} checked`;
       card.appendChild(ok);
     }
+    const canFix = !!fix();
     found.forEach((f, i) => {
+      if (f.level === 'agent' && (i === 0 || found[i - 1].level !== 'agent')) {
+        const sub = document.createElement('div');
+        sub.className = 'narr-group dc-agent-head';
+        sub.textContent = `agent review · ${fromAgent}${canFix ? ' · f asks the agent to fix one' : ''}`;
+        card.appendChild(sub);
+      }
       const row = document.createElement('div');
       row.className = `narr-row dc-row dc-${f.level}`;
       row.dataset.rule = f.rule;
       const mark = document.createElement('span');
       mark.className = 'dc-mark';
-      mark.textContent = f.level === 'error' ? '✗' : f.level === 'hint' ? '+' : '!';
+      mark.textContent = f.level === 'error' ? '✗' : f.level === 'hint' ? '+' : f.level === 'agent' ? '✦' : '!';
       const where = document.createElement('span');
       where.className = 'dc-where';
       where.textContent = `${f.slide}`;
@@ -141,6 +163,12 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
       msg.className = 'dc-msg';
       msg.textContent = f.message + (f.suggestion && accept() ? ' · ⏎ makes it' : '');
       text.append(name, msg);
+      if (f.label) {
+        const tag = document.createElement('span');
+        tag.className = 'dc-rule';
+        tag.textContent = f.label;
+        text.append(tag);
+      }
       row.append(mark, where, text);
       row.addEventListener('mouseenter', () => select(i));
       row.addEventListener('click', () => run(i));
@@ -166,6 +194,16 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
     const take = f.suggestion && accept();
     if (take) take(f.suggestion);
   }
+  /** `f` on an agent finding: the A agent fixes that one, on its slide. */
+  function fixAt(i) {
+    const f = rows[i];
+    const send = fix();
+    if (!f?.agentFinding || !send) return false;
+    close();
+    goto(f.slide);
+    send(f.agentFinding);
+    return true;
+  }
   function close() {
     el?.remove();
     el = null;
@@ -175,7 +213,7 @@ export function createDeckCheck({ root, overlays, instance, goto, measureOverflo
     isOpen: () => !!el,
     close,
     transient: true,
-    keydown: (e) => typeaheadKeydown(e, {
+    keydown: (e) => ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey && fixAt(sel)) || typeaheadKeydown(e, {
       onMove: (d) => select(sel + d),
       onCommit: () => run(sel),
       onClose: close,

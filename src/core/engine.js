@@ -577,6 +577,7 @@ export function init(userConfig = {}) {
   // Concept colors… (SPEC SVG_DIAGRAMS, #718): every concept the deck's
   // diagrams name, pinned to a slot through the edit server, repainted live
   let conceptTools = null;   // made once editmode is (createConceptTools, below)
+  let reviewOpenWanted = false;  // Review deck with agent… asked here: open Check deck… when it lands
   const conceptsEditor = createConceptsEditor({
     root, toast, stage: () => stage,
     base: () => (editmode?.available() ? editmode.base() : null),
@@ -1101,6 +1102,10 @@ export function init(userConfig = {}) {
       // so does `version`, which is what somebody is usually after in here.
       { label: 'Settings…', alias: 'config configuration preferences options about version build release which version',
         run: openSettings },
+      // the agent reads the deck, read-only, and Check deck… lists what it found (cli/agent-review.mjs)
+      editmode.available() && { label: 'Review deck with agent… (dev)',
+        alias: 'review improve critique feedback agent ai suggestions sources figures numbers voiceover notes titles diagram table better',
+        run: () => { reviewOpenWanted = true; editmode.reviewDeck(); } },
       { label: 'Check deck…', alias: 'lint check issues problems errors warnings crowded dense density overflow clipped validate verify report health',
         run: () => deckCheck.open() },
       { label: 'Keyboard help', hint: '?', run: toggleHelp },
@@ -3028,7 +3033,12 @@ export function init(userConfig = {}) {
     // labels that recur in different colours: worth a concept, and ⏎ makes it one in write mode
     suggestions: () => conceptSuggestions(stage),
     accept: () => (editmode?.available() && conceptTools ? (s) => conceptTools.accept(s) : null),
+    // the agent review's findings (cli/agent-review.mjs), and `f` to have the A agent fix one
+    agentFindings: () => editmode?.reviewFindings?.() ?? [],
+    fix: () => (editmode?.available() ? (f) => editmode.fixFinding(f) : null),
   });
+  // a review just finished: show what it found
+  editmode.onReview?.((r) => { if (r.findings.length && reviewOpenWanted) { reviewOpenWanted = false; deckCheck.open(); } });
   instance.check = () => deckCheck.check();
   instance._deckCheck = deckCheck;
 

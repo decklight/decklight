@@ -754,6 +754,10 @@ export function createEditMode({
           es.addEventListener('enhance', (ev) => {
             try { enhanceEvent(JSON.parse(ev.data)); } catch { /* malformed event */ }
           });
+          // The agent review (cli/agent-review.mjs): progress, then the findings, for Check deck…
+          es.addEventListener('review', (ev) => {
+            try { reviewEvent(JSON.parse(ev.data)); } catch { /* malformed event */ }
+          });
           // Progress for a long export — the row that started it is still on
           // screen, so this rewrites that row rather than adding one per slide.
           es.addEventListener('export', (ev) => {
@@ -770,6 +774,7 @@ export function createEditMode({
           probeSettled();
           resumeHandover();
           enhanceSummaryAfterReload();
+          loadReview().then((r) => { for (const fn of reviewListeners) fn(r); });
           return;
         } catch { /* not served by the edit server */ }
       }
@@ -3112,6 +3117,69 @@ export function createEditMode({
       }
     }
   }
+  // ── the agent review (Check deck…, SPEC PRESENTING) ────────────────────────
+  // The agent reads the deck, read-only, against cli/agent-review.mjs's rules;
+  // the server checks every answer and keeps the findings. This page fetches
+  // them on every connect (a fix reloads it) and hands them to Check deck…,
+  // where `f` on one sends its prepared instruction to the A agent.
+  let reviewRun = null;
+  let review = { reviewed: false, findings: [] };
+  const reviewListeners = new Set();
+  async function loadReview() {
+    try {
+      const j = await (await fetch(editBase + '/deck/edit/review')).json();
+      if (j?.ok) review = { reviewed: !!j.reviewed, findings: Array.isArray(j.findings) ? j.findings : [], failed: j.failed ?? [], agent: j.agent };
+    } catch { /* no server: no findings */ }
+    return review;
+  }
+  async function reviewDeck() {
+    if (!editAvailable) { toast(cannot('reviewing the deck'), 3200); return; }
+    if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
+    if (reviewRun) { toast('the agent is already reviewing the deck — one review at a time'); return; }
+    const run = progress('agent review: asking the agent…');
+    reviewRun = { run };
+    try {
+      const r = await fetch(editBase + '/deck/edit/review', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      run.update(`agent review: ${j.label || j.agent} is reading the deck (read-only)…`);
+      debugLog('review', `${j.of} batch(es) → ${j.agent}`);
+    } catch (e) {
+      run.done(`could not review the deck — ${e.message}`, 5200);
+      reviewRun = null;
+    }
+  }
+  async function reviewEvent(d) {
+    if (d.state === 'batch' && reviewRun) {
+      reviewRun.run.update(`agent review: ${d.done} of ${d.of} part${d.of === 1 ? '' : 's'} read · ${d.found} finding${d.found === 1 ? '' : 's'} so far…`);
+    } else if (d.state === 'done') {
+      const line = !d.ok ? `could not review the deck — ${d.error}`
+        : `agent review: ${d.found ? `${d.found} finding${d.found === 1 ? '' : 's'}, in Check deck…` : 'nothing to improve'}`
+          + (d.failed?.length ? ` · ${d.failed.length} part${d.failed.length === 1 ? '' : 's'} went unanswered` : '');
+      if (reviewRun) reviewRun.run.done(line, 6000); else toast(line, 6000);
+      reviewRun = null;
+      debugLog('review', line);
+      if (d.ok) { await loadReview(); for (const fn of reviewListeners) fn(review); }
+    }
+  }
+  /** `f` on a finding: its prepared instruction, as an ordinary A edit (one undo entry, one commit). */
+  async function fixFinding(f) {
+    if (!editAvailable) { toast(cannot('fixing it'), 3200); return; }
+    if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return; }
+    try {
+      const res = await fetch(editBase + '/deck/edit/agent', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: f.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}` }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || res.status);
+      debugLog('review', `fix → ${j.agent}: slide ${f.slide} ${f.rule}`);
+      // progress lands as SSE 'agent' events, as for any ask; the reload follows the save
+    } catch (e) {
+      toast(`could not ask for the fix: ${String(e.message || e).slice(0, 60)}`, 2600);
+    }
+  }
+
   function enhanceSummaryAfterReload() {
     let kept = null;
     try { kept = JSON.parse(sessionStorage.getItem(ENHANCE_DONE_KEY) || 'null'); sessionStorage.removeItem(ENHANCE_DONE_KEY); } catch { /* nothing kept */ }
@@ -3270,6 +3338,11 @@ export function createEditMode({
     bundleEstimate,
     enhanceScript,
     moduleOf,
+    /** The agent review: run it, its findings that still hold, a fix for one, and a word when they change. */
+    reviewDeck,
+    reviewFindings: () => review.findings,
+    fixFinding,
+    onReview: (fn) => { reviewListeners.add(fn); },
     /** The Publish row: the first call asks and arms, the second publishes. */
     publishDeck,
   };

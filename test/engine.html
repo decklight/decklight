@@ -309,6 +309,18 @@
           return json({ ok: true, ref: body.ref, used: body.used, changed: true, undo: 1, redo: 0 });
         }
       }
+      // The agent review (cli/agent-review.mjs): the POST answers how many parts
+      // it will read, progress arrives as 'review' events, and the GET hands
+      // back whatever findings the mode has put in window.__reviewFindings.
+      if (HARNESS_MODE === 'agentreview') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
+        if (u.includes('/deck/edit/review') && init?.method === 'POST') return json({ ok: true, of: 1, agent: 'claude', label: 'Claude Code' });
+        if (u.includes('/deck/edit/review')) {
+          const findings = window.__reviewFindings ?? [];
+          return json({ ok: true, reviewed: !!window.__reviewFindings, running: false, agent: 'claude', findings, failed: [] });
+        }
+        if (u.includes('/deck/edit/agent')) return json({ ok: true, agent: 'claude', label: 'Claude Code' });
+      }
       // Enhance the voiceover script (cli/enhance.mjs): the route answers how many
       // slides it will ask about; the rest arrives as 'enhance' events.
       if (HARNESS_MODE === 'enhance') {
@@ -4158,6 +4170,64 @@
         r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — its templates are in \/ → Use slide template… · Z takes it back/.test(n.textContent));
         r.closed = !document.querySelector('.decklight-design-systems');
         r.PASS = r.paletteRow && r.listed && r.grouped && r.unusableSaidWhy && r.staleNamed && r.toggled && r.said && r.closed;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'agentreview') {
+        // Review deck with agent… (PRESENTING): the palette row posts the
+        // review, its findings land in Check deck… as their own group, ⏎ goes
+        // to a finding's slide and f hands its instruction to the A agent.
+        const Q = '.decklight-deckcheck';
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((e) => e.textContent).join(' | ');
+        await settle();
+        r.nothingBeforeAReview = !deck.check().some((f) => f.level === 'agent');
+        press('/');
+        for (const ch of 'review deck') press(ch);
+        r.paletteRow = /Review deck with agent…/.test(document.querySelector('.decklight-palette .pal-row')?.textContent ?? '');
+        press('Enter');
+        await settle();
+        r.postsTheReview = CALLS.post.some((c) => c.u.includes('/deck/edit/review'));
+        r.saysReading = /Claude Code is reading the deck \(read-only\)/.test(said());
+        window.__es.emit('review', { state: 'batch', done: 1, of: 1, found: 2 });
+        await settle();
+        r.countsProgress = /1 of 1 part read · 2 findings so far/.test(said());
+        window.__reviewFindings = [
+          { slide: 2, title: 'Two', rule: 'topic-title', label: 'title is a topic', message: 'The title names a topic, not the point.', fix: 'Retitle it.', prompt: 'On slide 2 ("Two"), fix this one review finding and nothing else. The problem: The title names a topic, not the point. What to do: Retitle it.' },
+          { slide: 3, title: 'Three', rule: 'thin-voiceover', label: 'voiceover missing or thin', message: 'No speaker notes.', fix: 'Write notes.', prompt: 'On slide 3: write notes.' },
+        ];
+        window.__es.emit('review', { state: 'done', ok: true, found: 2, failed: [] });
+        await settle(); await settle();
+        r.saysDone = /agent review: 2 findings, in Check deck…/.test(said());
+        r.opensCheckDeck = !!document.querySelector(Q);
+        const head = document.querySelector(`${Q} .narr-head`)?.textContent ?? '';
+        r.headCountsThem = / · 2 from the agent$/.test(head);
+        r.groupHead = document.querySelector(`${Q} .dc-agent-head`)?.textContent === 'agent review · 2 · f asks the agent to fix one';
+        const rows = [...document.querySelectorAll(`${Q} .dc-row`)];
+        const agentRows = rows.filter((x) => x.classList.contains('dc-agent'));
+        r.rowPerFinding = agentRows.length === 2 && agentRows[0].querySelector('.dc-mark')?.textContent === '✦'
+          && agentRows[0].querySelector('.dc-rule')?.textContent === 'title is a topic'
+          && agentRows[0].querySelector('.dc-where')?.textContent === '2';
+        r.agentRowsLast = rows.indexOf(agentRows[0]) === rows.length - 2;
+        // f on the first agent finding: the A agent is asked, on that slide, with its prepared instruction
+        for (let i = 0; i < rows.indexOf(agentRows[0]); i++) press('ArrowDown');
+        press('f');
+        await settle();
+        const ask = CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).pop()?.body;
+        r.fPostsTheFix = ask?.slide === 2 && ask?.prompt === window.__reviewFindings[0].prompt && ask?.message === 'review: title is a topic on slide 2';
+        r.fGoesAndCloses = !document.querySelector(Q) && deck.state.slide === 2;
+        // ⏎ on the second: goes to its slide, asks nothing
+        const asked = CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).length;
+        press('/');
+        for (const ch of 'check deck') press(ch);
+        press('Enter');
+        await settle();
+        const again = [...document.querySelectorAll(`${Q} .dc-row`)];
+        for (let i = 0; i < again.length - 1; i++) press('ArrowDown');
+        press('Enter');
+        await settle();
+        r.enterGoesOnly = deck.state.slide === 3 && CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).length === asked;
+        r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

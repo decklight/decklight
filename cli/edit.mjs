@@ -36,6 +36,8 @@
 //   POST /deck/edit/agent           → { prompt, agent?, slide? } one-shot AI agent edit
 //   POST /deck/edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags') or written for the ear ('spoken')
 //   POST /deck/edit/enhance/text    → { text, agent?, kind? } → { text }   the same, for the notes editor's box (writes nothing)
+//   POST /deck/edit/review          → { agent? } the agent reads the deck, read-only, for Check deck…'s agent review (writes nothing)
+//   GET  /deck/edit/review          → the last review's findings that still hold, each with the prompt that fixes it
 //   POST /deck/edit/shutdown        → final autocommit, then exit — same as Ctrl-C, so a
 //                                port conflict can take over an old session cleanly
 //
@@ -1492,6 +1494,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   let askSeq = 0;
   let exporting = false; // an export in flight — one browser, one output path, any kind
   let enhancing = null;  // a script enhancement in flight: { of, done } — one at a time
+  let reviewing = null;  // an agent review in flight: { of, done } — one at a time
+  let lastReview = null; // its last result: { at, agent, findings, failed } — kept for Check deck… to re-ask
   let publishing = false; // a publish in flight — one push at a time
 
   // ── git autocommit — the durable record, independent of undo/redo ──────
@@ -3668,6 +3672,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       : Array.isArray(slides) && slides.length && slides.every((n) => Number.isInteger(n) && n > 0) ? slides : undefined;
     if (which === undefined) throw new Error('bad payload');
     if (enhancing) return json(409, { ok: false, error: `already enhancing — ${enhancing.done} of ${enhancing.of} slides done` });
+    if (reviewing) return json(409, { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' });
     if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is editing the deck — wait for it to finish` });
     const name = agent ?? agentPref ?? null;
     const cmd = agentAsk(name, 'x');
@@ -3722,10 +3727,59 @@ export async function editMain(args, { onListen = null, client } = {}) {
       : json(422, { ok: false, error: r.why, agent: cmd.name });
   }
 
+  // The agent review (cli/agent-review.mjs): the agent reads the deck,
+  // read-only, a few slides at a time, against the rules in REVIEW_RULES;
+  // every answer is checked before it is kept. Nothing here writes: a finding
+  // is fixed by the author's own `f` in Check deck…, which is an ordinary A
+  // edit through agentRoute. Progress rides the SSE channel as 'review' events.
+  async function reviewRoute({ body, json }) {
+    const { agent } = JSON.parse(body || '{}');
+    if (reviewing) return json(409, { ok: false, error: `already reviewing — ${reviewing.done} of ${reviewing.of} batches done` });
+    if (enhancing) return json(409, { ok: false, error: 'the voiceover is being enhanced — wait for it to finish' });
+    if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is editing the deck — wait for it to finish` });
+    const name = agent ?? agentPref ?? null;
+    const cmd = agentAsk(name, 'x');
+    if (!cmd) return json(400, { ok: false, error: agentUnavailable(name, agents) });
+    const { reviewDeck, reviewSlides, REVIEW_BATCH } = await import('./agent-review.mjs');
+    const html = readDeck();
+    const of = Math.ceil(reviewSlides(html).length / REVIEW_BATCH);
+    if (!of) return json(422, { ok: false, error: 'no slides to review' });
+    reviewing = { of, done: 0 };
+    broadcast('review', { state: 'start', of, agent: cmd.name });
+    console.log(`  review: ${of} batch${of === 1 ? '' : 'es'} ← ${cmd.name} (read-only)`);
+    reviewDeck(html, {
+      agent: name, cwd: dirname(deckPath),
+      onBatch: (r) => { reviewing.done = r.done; broadcast('review', { state: 'batch', ...r }); },
+    }).then(({ findings, failed }) => {
+      lastReview = { at: Date.now(), agent: cmd.name, findings, failed };
+      reviewing = null;
+      broadcast('review', { state: 'done', ok: true, found: findings.length, failed });
+      console.log(`  review: done — ${findings.length} finding${findings.length === 1 ? '' : 's'}${failed.length ? `, ${failed.length} batch${failed.length === 1 ? '' : 'es'} unanswered` : ''}`);
+    }).catch((e) => {
+      reviewing = null;
+      broadcast('review', { state: 'done', ok: false, error: oneline(e) });
+    });
+    return json(200, { ok: true, of, agent: cmd.name, label: cmd.label });
+  }
+
+  // The last review's findings, against the deck as it is NOW: a slide that
+  // moved keeps its findings, one that was edited (fixed) drops them. Each
+  // carries the instruction `f` hands the A agent, built here because the
+  // rules and their wording live on this side.
+  async function reviewFindingsRoute({ json }) {
+    if (!lastReview) return json(200, { ok: true, reviewed: false, running: !!reviewing, findings: [] });
+    const { currentFindings, fixPrompt, REVIEW_RULES } = await import('./agent-review.mjs');
+    const label = Object.fromEntries(REVIEW_RULES.map((r) => [r.id, r.label]));
+    const findings = currentFindings(readDeck(), lastReview.findings)
+      .map(({ fp, ...f }) => ({ ...f, label: label[f.rule], prompt: fixPrompt(f) }));
+    return json(200, { ok: true, reviewed: true, running: !!reviewing, at: lastReview.at, agent: lastReview.agent, findings, failed: lastReview.failed });
+  }
+
   function agentRoute({ body, json }) {
     const { prompt, agent, message, slide } = JSON.parse(body);
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
     if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
+    if (reviewing) return json(409, { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' });
     const cmd = runAgent(prompt.trim(), agent, message, slide);
     if (!cmd) return json(400, { ok: false, error: agentUnavailable(agent ?? agentPref, agents) });
     return json(200, { ok: true, agent: cmd.name, label: cmd.label });
@@ -3795,6 +3849,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'POST /deck/edit/agent/prefer': agentPreferRoute,
     'POST /deck/edit/enhance': enhanceRoute,
     'POST /deck/edit/enhance/text': enhanceTextRoute,
+    'POST /deck/edit/review': reviewRoute,
+    'GET /deck/edit/review': reviewFindingsRoute,
   }));
 
   // The slide mutations are a file of their own (cli/edit-slides.mjs): thirteen

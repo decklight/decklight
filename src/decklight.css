@@ -1643,6 +1643,13 @@
 .decklight-deckcheck .dc-error .dc-mark { color: #ff7b72; }
 .decklight-deckcheck .dc-warn .dc-mark { color: #e3b341; }
 .decklight-deckcheck .dc-hint .dc-mark { color: #7ee787; }
+.decklight-deckcheck .dc-agent .dc-mark { color: #d2a8ff; }
+/* the agent review's group: judgement, not a count, so it is set apart under its own head */
+.decklight-deckcheck .dc-agent-head { margin-top: 6px; }
+.decklight-deckcheck .dc-rule {
+  align-self: flex-start; margin-top: 3px; padding: 0 6px; border-radius: 999px;
+  background: rgba(210, 168, 255, .14); color: #d2a8ff; font-size: 11px; line-height: 17px;
+}
 .decklight-deckcheck .dc-where { flex: 0 0 2.2em; text-align: right; font-variant-numeric: tabular-nums; opacity: .55; }
 .decklight-deckcheck .dc-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .decklight-deckcheck .dc-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
