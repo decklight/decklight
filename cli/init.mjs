@@ -8,13 +8,15 @@
  * without a web search or a guess from Reveal.js memory.
  *
  *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--inline [--themes …]]
+ *                  [--design-system <ref> | --no-design-system]
  *                  [--git | --no-git] [--remote <url> | --no-remote]
  *                  [--no-open] [--force] [--no-skill | --global-skill]
  *
- * A terminal run can ask up to four questions, each skipped by its flag or
- * by a non-TTY run: the deck's title ("My Deck" by default), where the skill
- * goes (the project, or each detected agent's config home), whether to create
- * a git repository, and, for a repository it just created, a remote.
+ * A terminal run can ask up to five questions, each skipped by its flag or
+ * by a non-TTY run: the deck's title ("My Deck" by default), which design
+ * system it is built on (only when a cached catalog offers one), where the
+ * skill goes (the project, or each detected agent's config home), whether to
+ * create a git repository, and, for a repository it just created, a remote.
  *
  * The deck is data by default: slides plus a JSON configuration block, with
  * no runtime in the file. `decklight <deck>` serves the installed runtime into
@@ -48,6 +50,7 @@ import {
   looksLikeGitUrl, noPromptEnv, oneline, remoteNames, splitDeckPaths,
 } from './git.mjs';
 import { makeFail, runMain } from './util.mjs';
+import { configHome } from './marketplace.mjs';
 import { openCommand, openDeck, openUrl } from './open-browser.mjs';
 
 // still exported from here — record and review used to import the opener from init
@@ -250,6 +253,173 @@ export function planRemote({
   return { action: ghReady ? 'ask-gh' : 'ask-url', defaultYes: foreign === 0 };
 }
 
+// ── the design system: a brand's deck starts on the brand ───────────────────
+// Asked right after the title, and only when a CACHED catalog of a registered
+// marketplace lists a design system this machine can resolve: nothing is
+// fetched, so the question works on a plane and never slows init down. With
+// none on offer there is no question and no new output. A pure table, like
+// planGit: the rows are handed in, so it is testable without a marketplace.
+export function planDesignSystem({ args = [], tty = false, inline = false, systems = [], unfetched = [], stale = [] } = {}) {
+  const i = args.indexOf('--design-system');
+  const ref = i >= 0 ? args[i + 1] : null;
+  const off = args.includes('--no-design-system');
+  if (i >= 0 && off) return { action: 'refuse', why: '--design-system and --no-design-system are mutually exclusive' };
+  if (i >= 0 && (!ref || ref.startsWith('-'))) return { action: 'refuse', why: '--design-system needs a design system (name or name@marketplace)' };
+  if (i >= 0 && inline) {
+    return { action: 'refuse', why: '--design-system cannot start an --inline deck: a self-contained file opened from disk has'
+      + ' no server to link a design system by reference (decklight bundle embeds one when the deck is handed over)' };
+  }
+  if (off) return { action: 'skip' };
+  if (ref) return { action: 'use', ref };
+  if (inline || !systems.length) return { action: 'skip' };
+  if (!tty) return { action: 'hint', systems };
+  return { action: 'ask', rows: systems, defaultIndex: systems.length === 1 ? 0 : null, unfetched, stale };
+}
+
+/**
+ * The question as printed: one row per design system (title, reference,
+ * version, and its description as a dim second line), `none` last, the
+ * marketplaces the cache cannot answer for as dim lines under it, and the
+ * prompt: `[1]:` when the one design system is the default, else the range.
+ */
+export function designSystemQuestion(plan, { color = false } = {}) {
+  const dim = (s) => (color ? `${DIM}${s}${RESET}` : s);
+  const lines = ['design system for this deck?'];
+  plan.rows.forEach((r, n) => {
+    lines.push(`  ${n + 1}  ${r.title} — ${r.qualified}${r.version ? ` ${r.version}` : ''}`);
+    if (r.description) lines.push(dim(`       ${r.description}`));
+  });
+  lines.push(`  ${plan.rows.length + 1}  none — decklight's own themes`);
+  for (const m of plan.unfetched ?? []) lines.push(dim(`  ${m} has not been fetched yet — decklight marketplace update ${m}`));
+  for (const m of plan.stale ?? []) lines.push(dim(`  ${m}'s cached catalog could not be read — decklight marketplace update ${m}`));
+  const prompt = plan.defaultIndex != null ? `[${plan.defaultIndex + 1}]: ` : `[1-${plan.rows.length + 1}]: `;
+  return { lines, prompt };
+}
+
+/**
+ * One answer to the question: `{ pick }` (a row, or null for none) or
+ * `{ again: true }`. Enter takes the default, and with no default asks again;
+ * a number, a name or `none` picks; anything else asks again. EOF picks none,
+ * as every init question degrades.
+ */
+export function pickDesignSystem(answer, plan, { eof = false } = {}) {
+  const a = String(answer ?? '').trim();
+  if (!a) {
+    if (eof) return { pick: null };
+    return plan.defaultIndex != null ? { pick: plan.rows[plan.defaultIndex] } : { again: true };
+  }
+  if (/^\d+$/.test(a)) {
+    const n = Number(a);
+    if (n >= 1 && n <= plan.rows.length) return { pick: plan.rows[n - 1] };
+    if (n === plan.rows.length + 1) return { pick: null };
+    return { again: true };
+  }
+  if (/^none$/i.test(a)) return { pick: null };
+  const hits = plan.rows.filter((r) => r.qualified === a || r.name === a);
+  return hits.length === 1 ? { pick: hits[0] } : { again: true };
+}
+
+/** The one line a non-terminal run prints when a design system was on offer. */
+export function designSystemHint(systems) {
+  return `  design system: none — this machine's marketplaces offer ${systems.map((s) => s.qualified).join(', ')};`
+    + ' --design-system <name@marketplace> starts a deck on one';
+}
+
+/**
+ * What the cached catalogs offer, as rows: every design-system entry this
+ * machine can resolve (one that needs a newer decklight, or whose checkout is
+ * gone, is left out), and the marketplaces the cache cannot answer for. Cache
+ * and checkouts only, never the network. A registry that does not read is
+ * nothing on offer: init is not the place to fail over it.
+ */
+export async function availableDesignSystems(home = configHome()) {
+  try {
+    const { marketplaceDesignSystems, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
+    const { systems, unfetched, stale } = marketplaceDesignSystems(home);
+    const rows = systems.filter((s) => !s.missing).map((s) => {
+      const r = resolveDesignSystemRef(s.qualified, home);
+      let title = typeof r.entry?.title === 'string' ? r.entry.title.trim() : '';
+      if (!title && r.dir) {
+        try { title = String(JSON.parse(fs.readFileSync(path.join(r.dir, 'design-system.json'), 'utf8')).title ?? '').trim(); } catch { /* the gate's to report */ }
+      }
+      return { name: s.name, marketplace: s.marketplace, qualified: s.qualified, title: title || s.name, version: s.version, description: s.description };
+    });
+    return { systems: rows, unfetched, stale };
+  } catch { return { systems: [], unfetched: [], stale: [] }; }
+}
+
+/**
+ * `--design-system <ref>`, resolved as `design-system add` resolves one: a
+ * bare name or `name@marketplace` against the cached catalogs. Returns the
+ * qualified reference, or throws a message listing what the catalogs offer.
+ */
+export async function resolveDesignSystemFlag(ref, home = configHome()) {
+  const { loadRegistry, loadCatalog, resolveEntry } = await import('./marketplace.mjs');
+  const offered = async () => {
+    const { systems } = await availableDesignSystems(home);
+    return systems.length ? ` — the cached catalogs offer: ${systems.map((s) => s.qualified).join(', ')}`
+      : ' — no cached catalog offers a design system (decklight design-system list)';
+  };
+  const cats = {};
+  try {
+    for (const name of Object.keys(loadRegistry(home).marketplaces ?? {})) {
+      const c = loadCatalog(name, home);
+      if (c?.ok) cats[name] = c.manifest;
+    }
+  } catch (e) { throw new Error(`--design-system: ${e.message}`); }
+  let hit;
+  try { hit = resolveEntry(ref, cats); } catch (e) { throw new Error(`--design-system: ${e.message}${await offered()}`); }
+  if (hit.entry.type !== 'design-system') throw new Error(`--design-system: ${hit.qualified} is a ${hit.entry.type}, not a design system${await offered()}`);
+  return hit.qualified;
+}
+
+/**
+ * The starter deck, built on a design system: exactly what `design-system
+ * add <ref> <deck> --apply` writes, composed on the starter HTML before init's
+ * one write. The gate first, then the reference and its source, the themes
+ * and fonts it recommends, and its look (its own first theme, else the first
+ * recommended one the deck can apply, and the first recommended font). The
+ * title slide is its first template with a heading-hinted slot, carrying the
+ * title (`titleSlideTemplate`, the insert path's slot filling). `build(slide)`
+ * is the starter for a title slide (null: today's). Returns `{ html, label,
+ * installs, warnings }`; throws an Error whose message says why it could not.
+ */
+export async function wireDesignSystem(build, qualified, { home = configHome(), titleHtml }) {
+  const { resolveDesignSystemRef, setDesignSystem } = await import('./design-system-refs.mjs');
+  const { checkDir } = await import('./design-system.mjs');
+  const { refForDeck } = await import('./theme-refs.mjs');
+  const { loadRegistry } = await import('./marketplace.mjs');
+  const deps = await import('./design-system-deps.mjs');
+  const { titleSlideTemplate } = await import('./design-system-edit.mjs');
+  const r = resolveDesignSystemRef(qualified, home);
+  if (!r.dir) throw new Error(r.missing);
+  const verdict = checkDir(r.dir);
+  if (!verdict.ok) {
+    const p = verdict.problems[0];
+    throw new Error(`it no longer passes its gate (${p.file}${p.line ? ` line ${p.line}` : ''}: ${p.msg}; decklight design-system gate ${r.dir})`);
+  }
+  const slide = titleSlideTemplate(verdict.manifest.name, verdict.summary?.templates ?? [], titleHtml);
+  let html = build(slide);
+  const deckRef = refForDeck(html, r.name, r.local, r.source ?? null);
+  html = setDesignSystem(html, deckRef, true, { source: r.source ?? null }).html;
+  const plan = deps.planRecommended(html, { manifest: verdict.manifest, local: r.local }, home);
+  html = deps.writePlan(html, plan);
+  const look = deps.lookOf(html, plan);
+  if (look.differs) html = deps.applyLook(html, look);
+  const commit = loadRegistry(home).marketplaces?.[r.local]?.commit ?? null;
+  const installs = [
+    { type: 'design-system', name: r.name, marketplace: r.local, version: r.entry.version ?? null, commit },
+    ...deps.plannedInstalls(plan, home),
+  ];
+  const theme = configBlock(html)?.config?.theme;
+  const family = plan.items.find((it) => it.kind === 'font' && it.name === look.font)?.family ?? look.font;
+  const version = verdict.summary?.version ?? verdict.manifest.version;
+  const label = `design system: ${verdict.manifest.title || r.name}${version ? ` ${version}` : ''} — theme ${theme}`
+    + `${look.font ? `, font ${family}` : ''}${slide ? ` · title slide on ${slide.ref}` : ''}`;
+  const warnings = deps.planLines({ ...plan, items: plan.items.filter((it) => it.status === 'skip') });
+  return { html, label, installs, warnings, deckRef };
+}
+
 // ── the skill scope: project by default, global as a proposition ────────────
 // The same shape as planGit: a pure decision table over flags and the TTY
 // gate. --no-skill skips skill AND question, --global-skill preselects the
@@ -313,7 +483,7 @@ export function epilogue({ deckPath, tty = false, noColor = false }) {
 }
 
 
-function starterDeck(title, themeNames, activeTheme, { inline = false } = {}) {
+function starterDeck(title, themeNames, activeTheme, { inline = false, titleSlide = null } = {}) {
   title = escapeHtml(title); // a prompt invites &, < and quotes
   // The deck is DATA (#520): slides, plus one JSON block holding its
   // configuration and the version it was written for. No runtime in the file
@@ -332,7 +502,7 @@ ${configBlockHtml({ theme: activeTheme })}
 </head>
 <body>
   <div class="decklight">
-${starterSlides(title)}
+${starterSlides(title, titleSlide)}
   </div>
 </body>
 </html>
@@ -367,12 +537,20 @@ ${starterSlides(title)}
 `;
 }
 
-/** The two starter slides, shared by the linked and the self-contained scaffold. `title` is already escaped. */
-function starterSlides(title) {
-  return `
-    <section>
+/**
+ * The two starter slides, shared by the linked and the self-contained
+ * scaffold. `title` is already escaped. `titleSlide` (`titleSlideTemplate`)
+ * puts the title slide on a design system's template; the build slide is the
+ * same either way: it teaches the one concept every deck needs, on any theme.
+ */
+function starterSlides(title, titleSlide = null) {
+  const open = titleSlide
+    ? `<section data-template="${titleSlide.ref}">\n${titleSlide.lines.map((l) => `      ${l}`).join('\n')}`
+    : `<section>
       <h1>${title}</h1>
-      <p>Made with Decklight — press → to advance, ? for every key</p>
+      <p>Made with Decklight — press → to advance, ? for every key</p>`;
+  return `
+    ${open}
       <aside class="notes">
         <p>Welcome. This is the title slide — say a line or two about what this deck covers.</p>
       </aside>
@@ -404,6 +582,7 @@ export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, 
 
 Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--inline [--themes …]]
+                 [--design-system <ref> | --no-design-system]
                  [--git | --no-git] [--remote <url> | --no-remote] [--no-open] [--force]
                  [--no-skill | --global-skill]
 
@@ -420,6 +599,19 @@ Options:
                     all           every shipped theme (default)
                     name,name,…   an explicit list (aurora stays active when
                                   included, else the first listed)
+  --design-system <ref>
+                  start the deck on a design system a registered marketplace
+                  offers (name or name@marketplace, read from the cached
+                  catalogs: nothing is fetched). The deck references it and
+                  takes what \`decklight design-system add <ref> <deck> --apply\`
+                  gives: its recommended themes and fonts, its theme and font,
+                  and a title slide on its first template with a heading slot.
+                  Refused with --inline: a file opened from disk has no server
+                  to link a design system (\`decklight bundle\` embeds one).
+                  (a cached catalog lists one + no flag: init ASKS on a TTY,
+                  and off a terminal names them in one line)
+  --no-design-system
+                  decklight's own themes; asks nothing about a design system
   --git           create a git repository (with a starter .gitignore) and
                   commit everything init wrote
                   (outside a repo + no flag: init ASKS on a TTY)
@@ -474,11 +666,22 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
     else if (a === '--remote') i++;                // consumed by planRemote below
     else if (a === '--no-remote') ;                // likewise
+    else if (a === '--design-system') i++;         // consumed by planDesignSystem below
+    else if (a === '--no-design-system') ;         // likewise
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
   }
   if (argv.includes('--no-skill') && argv.includes('--global-skill')) {
     fail('--no-skill and --global-skill are mutually exclusive');
+  }
+  // a refusal, or a --design-system no cached catalog has, fails here: before
+  // a question is asked or a file written
+  const home = configHome(env);
+  let ds = planDesignSystem({ args: argv, inline });
+  if (ds.action === 'refuse') fail(ds.why);
+  let dsRef = null;
+  if (ds.action === 'use') {
+    try { dsRef = await resolveDesignSystemFlag(ds.ref, home); } catch (e) { fail(e.message); }
   }
 
   // ONE readline interface for every question this run asks (title, git,
@@ -491,20 +694,22 @@ unless --no-skill is given. The deck file is only touched with --force.
   rl?.on('line', (l) => typedAhead.push(l)); // only fires with no question pending
   let stdinGone = false;
   rl?.once('close', () => { stdinGone = true; });
-  const question = (q) => {
+  // `{ answer, eof }`: an empty answer is Enter, unless the input has ended
+  const ask = (q) => {
     if (typedAhead.length) {
       const answer = typedAhead.shift();
       process.stdout.write(q + answer + '\n'); // the transcript still records the decision
-      return Promise.resolve(answer);
+      return Promise.resolve({ answer, eof: false });
     }
-    if (!rl || stdinGone) return Promise.resolve('');
+    if (!rl || stdinGone) return Promise.resolve({ answer: '', eof: true });
     // rl.question's promise never settles when the input ends mid-question
     // (observed on Node 20), so the close event doubles as the empty answer
     return new Promise((res) => {
-      rl.once('close', () => res(''));
-      rl.question(q).then(res, () => res(''));
+      rl.once('close', () => res({ answer: '', eof: true }));
+      rl.question(q).then((answer) => res({ answer, eof: false }), () => res({ answer: '', eof: true }));
     });
   };
+  const question = async (q) => (await ask(q)).answer;
   // `defaultYes` is what a bare Enter means. It is a parameter rather than a
   // constant because the remote question flips it: for a directory decklight
   // scaffolded the answer is almost certainly yes, and for one that already
@@ -541,14 +746,52 @@ unless --no-skill is given. The deck file is only touched with --force.
     }
     fail(`${rel} already exists — pass --force to overwrite`);
   }
-  let body, themeNote;
-  body = starterDeck(title, themeNames, activeTheme, { inline });
-  themeNote = !inline ? `theme: ${activeTheme} · slides and a config block, no runtime in the file — decklight bundle embeds it to send`
+  // ── the design system: asked right after the title, wired before the write
+  const deckRel = path.relative('.', deckPath) || outFile;
+  if (ds.action === 'skip' && !inline && !argv.includes('--no-design-system')) {
+    ds = planDesignSystem({ args: argv, tty, inline, ...(await availableDesignSystems(home)) });
+  }
+  if (ds.action === 'ask') {
+    const { lines, prompt } = designSystemQuestion(ds, { color });
+    for (const l of lines) process.stdout.write(`${l}\n`);
+    for (;;) {
+      const { answer, eof } = await ask(prompt);
+      const r = pickDesignSystem(answer, ds, { eof });
+      if (r.again) continue;
+      dsRef = r.pick?.qualified ?? null;
+      break;
+    }
+  }
+  const plainNote = 'slides and a config block, no runtime in the file — decklight bundle embeds it to send';
+  let body = starterDeck(title, themeNames, activeTheme, { inline });
+  let themeNote = !inline ? `theme: ${activeTheme} · ${plainNote}`
     : themeNames.length === 1
       ? `theme: ${themeNames[0]}`
       : `${themeNames.length} themes, ${activeTheme} active`;
+  let wired = null, dsNote = null;
+  if (dsRef) {
+    // a failure here costs a note and a plain deck, never the scaffold
+    try {
+      wired = await wireDesignSystem((titleSlide) => starterDeck(title, themeNames, activeTheme, { titleSlide }),
+        dsRef, { home, titleHtml: escapeHtml(title) });
+      body = wired.html;
+      themeNote = `${wired.label} · ${plainNote}`;
+    } catch (e) {
+      dsNote = `  design system: ${dsRef} not wired in — ${String(e?.message ?? e).replace(/\s+/g, ' ')}; the deck starts plain`
+        + ` (decklight design-system add ${dsRef} ${deckRel} --apply retries)`;
+    }
+  }
   fs.writeFileSync(deckPath, body);
-  note(`created ${path.relative('.', deckPath) || outFile} (${themeNote})`);
+  note(`created ${deckRel} (${themeNote})`);
+  if (dsNote) note(dsNote);
+  if (ds.action === 'hint') note(designSystemHint(ds.systems));
+  if (wired) {
+    for (const l of wired.warnings) note(l);
+    try {
+      const { recordInstall } = await import('./marketplace.mjs');
+      for (const inst of wired.installs) recordInstall(inst, home);
+    } catch (e) { note(`  design system: the deck uses it, but installed.json could not record it — ${oneline(e)}`); }
+  }
 
   // ── the skill — project scope by default, global as a proposition ────────
   let skill = planSkill({ args: argv, tty }).action;

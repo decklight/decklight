@@ -137,16 +137,47 @@ const tagFor = (hint) => hintTags(hint).find((t) => /^(h[1-6]|p|ul|ol|blockquote
 const titleCase = (name) => name.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 /**
+ * A new slide's elements in `template`, one per REQUIRED slot, by its hint,
+ * saying the slot's name: what *Use slide template… → insert* writes. `fill`
+ * gives a slot its own markup instead (already escaped), in the tag `tag`
+ * when one is named — how `init` puts the deck's title in a heading slot.
+ */
+export function slotElements(template, fill = {}) {
+  return template.slots.filter((s) => s.required || fill[s.name]).map((s) => {
+    const tag = fill[s.name]?.tag ?? tagFor(s.hint);
+    return `<${tag} data-slot="${s.name}">${fill[s.name]?.html ?? titleCase(s.name)}</${tag}>`;
+  });
+}
+
+/** The heading tag a slot's hint names (`h1,h2` → `h1`), or null. */
+export const headingOf = (slot) => (slot.default ? null : hintTags(slot.hint).find((t) => /^h[1-6]$/.test(t)) ?? null);
+
+/**
+ * The template a new deck's title slide is built on: the FIRST template with
+ * a slot hinted for a heading, its title in that slot and every other
+ * required slot filled as insert fills one. `{ ref, template, slot, lines }`,
+ * or null when no template has a heading-hinted slot.
+ */
+export function titleSlideTemplate(dsName, templates, titleHtml) {
+  for (const template of templates ?? []) {
+    const slot = (template.slots ?? []).find((s) => headingOf(s));
+    if (!slot) continue;
+    return {
+      ref: `${dsName}/${template.id}`, template, slot: slot.name,
+      lines: slotElements(template, { [slot.name]: { tag: headingOf(slot), html: titleHtml } }),
+    };
+  }
+  return null;
+}
+
+/**
  * A deck with a new slide after slide `after`, in `template`: one element per
  * REQUIRED slot, by its hint, saying the slot's name — every other slot is
  * left to the template's own default content, which the engine shows until
  * the author fills it.
  */
 export function insertSlideTemplateSlide(html, after, template) {
-  const lines = template.slots.filter((s) => s.required).map((s) => {
-    const tag = tagFor(s.hint);
-    return `  <${tag} data-slot="${s.name}">${titleCase(s.name)}</${tag}>`;
-  });
+  const lines = slotElements(template).map((l) => `  ${l}`);
   const section = `<section data-template="${template.ref}">\n${lines.join('\n')}${lines.length ? '\n' : ''}  <aside class="notes"></aside>\n</section>`;
   return insertSectionsAfter(String(html ?? ''), after, [section]);
 }
