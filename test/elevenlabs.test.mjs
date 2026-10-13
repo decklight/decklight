@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 import {
   KEY_ENV, DEFAULT_MODEL, V3_MODEL, STABILITY_PRESETS, FORMATS,
-  apiKey, shapeVoices, pickVoice, synthError, createSynth, styleTag,
+  apiKey, shapeVoices, pickVoice, shortName, synthError, createSynth, styleTag,
   voiceLangs, shapeLibrary,
 } from '../tools/elevenlabs-tts.mjs';
 import { createEngine, ENGINES } from '../tools/tts-engines.mjs';
@@ -78,6 +78,23 @@ test('the player sends a name; an id pasted from the dashboard works too', () =>
   assert.equal(pickVoice(r, 'gilles').id, 'c1', 'case came from a text field');
   assert.equal(pickVoice(r, ' Studio  Read ').id, 'pro1', 'and so did the spacing');
   assert.equal(pickVoice(r, 'p2').id, 'p2', 'a raw voice_id needs no lookup');
+});
+
+test('the name before the tagline is the voice\'s name too, when exactly one voice answers to it', () => {
+  const r = shapeVoices({ voices: [
+    ...VOICES.voices,
+    { voice_id: 'p3', name: 'Chris - Charming, Down-to-Earth', category: 'premade' },
+    { voice_id: 'p4', name: 'Brian - Deep, Resonant and Comforting', category: 'premade' },
+  ] });
+  assert.equal(pickVoice(r, 'Chris').id, 'p3', 'nobody types the tagline');
+  assert.equal(pickVoice(r, 'chris').id, 'p3');
+  assert.equal(pickVoice(r, 'Chris - Charming, Down-to-Earth').id, 'p3', 'the full name still wins outright');
+  assert.equal(shortName('Brian - Deep, Resonant and Comforting'), 'Brian');
+  assert.equal(shortName('Studio Read'), 'Studio Read', 'no tagline, no change');
+  // a cloned Chris beside the premade one: nobody's guess to make
+  const two = shapeVoices({ voices: [...r.map((v) => ({ voice_id: v.id, name: v.name, category: 'premade' })), { voice_id: 'c2', name: 'Chris - my clone', category: 'cloned' }] });
+  assert.equal(pickVoice(two, 'Chris'), null);
+  assert.equal(pickVoice(two, 'Chris - my clone').id, 'c2');
 });
 
 test('no voice asked for means the first one — which is yours', () => {

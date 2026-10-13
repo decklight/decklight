@@ -147,16 +147,28 @@ export function shapeLibrary(json) {
  * deck and what a human recognises — but a raw voice_id is accepted too, so an
  * id pasted from the ElevenLabs dashboard works without a lookup. Matching is
  * case- and space-insensitive because the name came from a text field.
+ *
+ * The premade voices carry a tagline after the name ("Chris - Charming,
+ * Down-to-Earth"), and nobody types the tagline: the name before " - " is
+ * the voice's name too, when exactly one voice answers to it. Two that do
+ * (a cloned "Chris" beside the premade one) is nobody's guess to make, so
+ * that is no match, and the refusal lists them.
  */
 export function pickVoice(roster, requested) {
   if (!roster.length) return null;
   if (!requested) return roster[0];
+  const squash = (t) => String(t).trim().toLowerCase().replace(/\s+/g, '');
   const want = String(requested).trim().toLowerCase();
-  return roster.find((v) => v.id === requested)
+  const exact = roster.find((v) => v.id === requested)
     ?? roster.find((v) => v.name.toLowerCase() === want)
-    ?? roster.find((v) => v.name.toLowerCase().replace(/\s+/g, '') === want.replace(/\s+/g, ''))
-    ?? null;
+    ?? roster.find((v) => squash(v.name) === squash(want));
+  if (exact) return exact;
+  const byShortName = roster.filter((v) => squash(shortName(v.name)) === squash(want));
+  return byShortName.length === 1 ? byShortName[0] : null;
 }
+
+/** "Chris - Charming, Down-to-Earth" → "Chris": the name before the tagline's " - ". */
+export const shortName = (name) => String(name).split(/\s+-\s+/)[0].trim();
 
 /**
  * Turn an API failure into a sentence that names the way out. The two that
