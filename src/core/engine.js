@@ -5,7 +5,7 @@
 // scaling, print. SPEC BUILD_SEMANTICS, SLIDE_TRANSITIONS, PRESENTING, JS_API.
 
 import { scanSlide, applyBuildState, stepLabels, registerProvider } from './builds.js';
-import { namespaceSvgIds, applyConcepts, applyNesting, conceptFill } from './svg.js';
+import { namespaceSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf } from './svg.js';
 import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
@@ -1610,6 +1610,8 @@ export function init(userConfig = {}) {
       // FIRST: a slide naming a slide template gets its structure before
       // any pass below measures, pins, splits or scans it (SPEC DESIGN_SYSTEMS)
       setupSlideTemplates(this._sections, { warn: (m) => { console.warn(`decklight: ${m}`); debugLog('design-system', m); } });
+      // a design system's fill roles are its diagram slots, before concepts and nesting paint any (SPEC DESIGN_SYSTEM_ROLES)
+      setFillRoles(fillRolesOf(pageDesignSystems().values()));
       applyConcepts(stage, config.concepts); // idempotent; covers dynamic slides
       setupHeroLogos(this._sections);        // idempotent; before pin measurement
       setupMedia(this._sections, { printMode }); // backgrounds first — .slide-bg must not read as content

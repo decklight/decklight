@@ -10,8 +10,61 @@
 // never changes color between diagrams. Slot resolution: config.concepts
 // override → stable name hash. The indirection targets a slot
 // (var(--d-fill-N)), not a color, so it survives every theme.
+//
+// Roles as slots — SPEC DESIGN_SYSTEM_ROLES. A design system whose `contract`
+// maps a role to a diagram fill (`"--d-fill-3": "surface-diagram-fill-3"`)
+// makes that role the slot on its deck: `var(--acme-color-surface-diagram-fill-3)`
+// nests, pastes and pins exactly as `var(--d-fill-3)` does, and what this
+// module paints for slot N is the role mapped to it, so a deck written in
+// roles stays in roles.
 
 const SHAPES = 'rect, circle, ellipse, polygon, polyline, path';
+
+const FILL_TOKEN = /^--d-fill-[1-6](?:-in)?$/;
+let slotOfRole = new Map();   // role token → the fill token it stands for ('--d-fill-3', '--d-fill-3-in')
+let roleOfSlot = new Map();   // …and back
+
+/**
+ * The fill roles of the page's design systems (`pageDesignSystems()` values):
+ * each `contract` entry naming a diagram fill, as `{ '--d-fill-3': '--acme-color-…' }`.
+ * The first design system to map a fill token keeps it.
+ */
+export function fillRolesOf(systems) {
+  const out = {};
+  for (const sys of systems ?? []) {
+    const tokenOf = new Map((sys?.roles ?? []).map((r) => [r.id, r.token]));
+    for (const [fill, id] of Object.entries(sys?.contract ?? {})) {
+      const role = tokenOf.get(id);
+      if (FILL_TOKEN.test(fill) && typeof role === 'string' && !(fill in out)) out[fill] = role;
+    }
+  }
+  return out;
+}
+
+/** Make `map` (`fillRolesOf`) the fills' roles from now on; empty, every fill is its contract token, as before roles. */
+export function setFillRoles(map = {}) {
+  slotOfRole = new Map(); roleOfSlot = new Map();
+  for (const [fill, role] of Object.entries(map ?? {})) {
+    if (!FILL_TOKEN.test(fill) || !/^--[A-Za-z0-9_-]+$/.test(String(role)) || slotOfRole.has(role)) continue;
+    slotOfRole.set(role, fill); roleOfSlot.set(fill, role);
+  }
+}
+
+// a role as written: bare, with the hex the Colors tab adds, or with the fill token this module adds
+const ROLE_VAR = /^\s*var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*(?:#[0-9a-f]{3,8}|var\(\s*--d-fill-[1-6](?:-in2?)?\s*\))\s*)?\)\s*$/i;
+
+/** A fill as the slot it stands for: a fill role becomes `var(--d-fill-N[-in])`; anything else is returned as it is. */
+export function asSlotFill(value) {
+  const m = slotOfRole.size ? ROLE_VAR.exec(value ?? '') : null;
+  const fill = m && slotOfRole.get(m[1]);
+  return fill ? `var(${fill})` : value;
+}
+
+/** What to paint for a fill token (`--d-fill-3`, `--d-fill-3-in`): the role mapped to it, the token behind it; else the token. */
+export function slotPaint(token) {
+  const role = roleOfSlot.get(token);
+  return role ? `var(${role}, var(${token}))` : `var(${token})`;
+}
 
 // stable across sessions and decks: the same concept name always lands on
 // the same slot with zero configuration (djb2 over the name, mod 6)
@@ -24,9 +77,9 @@ export function conceptSlot(name) {
 /** name → CSS fill value, honoring config overrides (slot number or raw CSS color). */
 export function conceptFill(name, concepts = {}) {
   const conf = concepts[name];
-  if (typeof conf === 'number') return `var(--d-fill-${conf})`;
+  if (typeof conf === 'number') return slotPaint(`--d-fill-${conf}`);
   if (typeof conf === 'string') return conf;
-  return `var(--d-fill-${conceptSlot(name)})`;
+  return slotPaint(`--d-fill-${conceptSlot(name)}`);
 }
 
 export function applyConcepts(root, concepts = {}) {
@@ -35,7 +88,7 @@ export function applyConcepts(root, concepts = {}) {
     const name = el.getAttribute('data-concept');
     if (!name) return;
     const fill = conceptFill(name, concepts);
-    const m = fill.match(/--d-fill-(\d)/);
+    const m = asSlotFill(fill).match(/--d-fill-(\d)/);
     if (m) {
       const owner = seen.get(m[1]);
       if (owner && owner !== name) {
@@ -105,7 +158,9 @@ export function namespaceSvgIds(root) {
 // space — and by PAINT ORDER: only a shape painted earlier can be a panel, so
 // a big shape drawn last is an overlay, not a container. Two steps deep at
 // most (`-in2`). Idempotent: the authored fill is remembered on the shape and
-// the pass re-derives from it, so a second `sync()` changes nothing.
+// the pass re-derives from it, so a second `sync()` changes nothing. A fill
+// role (above) is its slot here, and a nested tone is painted as the role
+// mapped to it when there is one.
 
 const SLOT_RE = /^\s*var\(\s*--d-fill-([1-6])\s*\)\s*$/;
 const NEST_RE = /^\s*var\(\s*--d-fill-in\s*\)\s*$/;
@@ -121,10 +176,10 @@ function ownSlot(el) {
   const holder = el.hasAttribute('data-concept') ? el
     : (el.parentElement?.hasAttribute('data-concept') ? el.parentElement : null);
   if (holder) {
-    const m = /var\(--d-fill-(\d)\)/.exec(el.style.fill || '');
+    const m = /var\(--d-fill-(\d)\)/.exec(asSlotFill(el.style.fill || ''));
     return m ? { slot: Number(m[1]), concept: true } : { slot: null, concept: true };
   }
-  const m = SLOT_RE.exec(authoredFill(el));
+  const m = SLOT_RE.exec(asSlotFill(authoredFill(el)));
   return m ? { slot: Number(m[1]), concept: false } : null;
 }
 
@@ -167,7 +222,7 @@ export function applyNesting(scope) {
       const wantsIn = NEST_RE.test(authored);
       const own = ownSlot(el);
       const unfilled = authored === 'none' || el.getAttribute('fill') === 'none';
-      if (!own && !wantsIn) { if (!unfilled && !SLOT_RE.test(authored)) painted.push(null); continue; }
+      if (!own && !wantsIn) { if (!unfilled && !SLOT_RE.test(asSlotFill(authored))) painted.push(null); continue; }
       const box = boxOf(el);
       if (!box) continue;
       // the innermost earlier-painted filled shape whose box holds this one
@@ -184,11 +239,11 @@ export function applyNesting(scope) {
       if (panel && panel.slot) {
         slot = panel.slot;
         depth = Math.min(2, panel.depth + 1);
-        el.style.fill = `var(--d-fill-${slot}-in${depth === 2 ? '2' : ''})`;
+        el.style.fill = slotPaint(`--d-fill-${slot}-in${depth === 2 ? '2' : ''}`);
       } else if (wantsIn) {
         // "my container's tone" with no container found: the first slot's, so the shape still paints
         slot = 1; depth = 1;
-        el.style.fill = 'var(--d-fill-1-in)';
+        el.style.fill = slotPaint('--d-fill-1-in');
       } else if (!own?.concept) {
         el.style.fill = authored;   // back to the authored token — a panel that lost its container
       }

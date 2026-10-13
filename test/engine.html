@@ -720,6 +720,31 @@
         </svg>
       </section>`);
     }
+    // Fill roles (#820, SPEC DESIGN_SYSTEM_ROLES): a design system whose
+    // contract maps --d-fill-1 and its nested tone to roles (the roles
+    // fixture's), so a box filled with the role, on a panel filled with it,
+    // nests exactly as two var(--d-fill-1) would — and is painted the role
+    if (HARNESS_MODE === 'rolefills') {
+      const tokens = { '--d-text': '#f2ece4', '--d-fill-1': '#141c33', '--d-fill-1-in': '#22305a', '--d-fill-2': '#1a2a44', '--d-fill-2-in': '#2a3f66', '--d-fill-3': '#33201a',
+        '--acme-color-surface-panel': '#d0e6ff', '--acme-color-surface-panel-in': '#a9d0ff' };
+      for (const [k, v] of Object.entries(tokens)) document.querySelector('.decklight').style.setProperty(k, v);
+      const meta = { name: 'acme', version: '3.0.0', title: 'Acme Brand',
+        roles: [{ id: 'surface-panel', label: 'Panel', group: 'Surface', token: '--acme-color-surface-panel' }, { id: 'surface-panel-in', label: 'Panel, nested', group: 'Surface', token: '--acme-color-surface-panel-in' }],
+        contract: { '--d-fill-1': 'surface-panel', '--d-fill-1-in': 'surface-panel-in' } };
+      document.head.insertAdjacentHTML('beforeend', `<script type="application/json" data-design-system-meta="acme">${JSON.stringify(meta)}<\/script>`);
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Roles as slots</h2>
+        <svg viewBox="0 0 800 300" width="800" aria-label="a role panel and a slot panel, each with boxes">
+          <rect class="rf-panel" x="20" y="40" width="340" height="240" style="fill: var(--acme-color-surface-panel)"/>
+          <rect class="rf-box" x="50" y="70" width="120" height="40" style="fill: var(--acme-color-surface-panel)"/>
+          <rect class="rf-box-hex" x="50" y="130" width="120" height="40" style="fill: var(--acme-color-surface-panel, #d0e6ff)"/>
+          <rect class="rf-slot-on-role" x="50" y="190" width="120" height="40" style="fill: var(--d-fill-1)"/>
+          <rect class="rf-plain-panel" x="440" y="40" width="340" height="180" style="fill: var(--d-fill-2)"/>
+          <rect class="rf-role-on-plain" x="470" y="70" width="120" height="40" style="fill: var(--acme-color-surface-panel)"/>
+          <rect class="rf-agent" data-concept="agent" x="440" y="240" width="120" height="40"/>
+          <rect class="rf-tools" data-concept="tools" x="620" y="240" width="120" height="40"/>
+        </svg>
+      </section>`);
+    }
     // The colour picker: a diagram box with its label, a loose label, and an
     // HTML block — only for the mode that looks at it. No theme loads here, so
     // the palette's tokens are given inline (a secondary that IS one).
@@ -934,7 +959,9 @@
             : HARNESS_MODE === 'markedread' ? { markedThemes: ['midnight', 'ember'] }
               // one concept pinned by the deck, the other left to its name (concepts)
               : HARNESS_MODE === 'concepts' ? { concepts: { tools: 4 } }
-                : {});
+                // a concept pinned to a slot a role is mapped to, and one to a slot none is (rolefills)
+                : HARNESS_MODE === 'rolefills' ? { concepts: { agent: 1, tools: 3 } }
+                  : {});
 
     const ovSelected = () => [...document.querySelectorAll('.decklight-overview-grid .ov-cell')].findIndex((c) => c.classList.contains('ov-selected'));
     const press = (k, opts = {}) => document.body.dispatchEvent(
@@ -3712,6 +3739,27 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         press('Escape'); await settle();
         r.PASS = r.leftBoxesTakeTheLeftPanel && r.rightBoxesTakeTheRightPanel && r.twoFamilies && r.shortcutTakesTheContainer
           && r.conceptWins && r.optOutKept && r.outlineUntouched && r.overlayIsNoPanel && r.textUntouched && r.idempotent && r.overviewSame;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'rolefills') {
+        // DESIGN_SYSTEM_ROLES (#820): a fill role the contract maps to --d-fill-1 is slot 1
+        deck.goto(5, 0); await settle();
+        const q = (c) => document.querySelector(`section[data-slide-index="5"] .${c}`);
+        const fillOf = (c) => getComputedStyle(q(c)).fill;
+        const styled = (c) => q(c).style.fill.replace(/\s+/g, ' ');
+        const roleIn = 'var(--acme-color-surface-panel-in, var(--d-fill-1-in))';
+        r.roleBoxTakesTheRoleTone = styled('rf-box') === roleIn && fillOf('rf-box') === 'rgb(169, 208, 255)';
+        r.withItsHexToo = styled('rf-box-hex') === roleIn;
+        r.slotBoxOnARolePanel = styled('rf-slot-on-role') === roleIn;
+        r.panelKeepsItsRole = styled('rf-panel') === 'var(--acme-color-surface-panel)' && fillOf('rf-panel') === 'rgb(208, 230, 255)';
+        r.roleBoxOnASlotPanel = styled('rf-role-on-plain') === 'var(--d-fill-2-in)';
+        r.conceptPaintsTheRole = styled('rf-agent') === 'var(--acme-color-surface-panel, var(--d-fill-1))' && fillOf('rf-agent') === 'rgb(208, 230, 255)';
+        r.unmappedSlotAsBefore = styled('rf-tools') === 'var(--d-fill-3)';
+        const before = ['rf-box', 'rf-box-hex', 'rf-slot-on-role', 'rf-role-on-plain', 'rf-agent'].map(styled).join('|');
+        deck.sync(); deck.goto(5, 0); await settle();
+        r.idempotent = ['rf-box', 'rf-box-hex', 'rf-slot-on-role', 'rf-role-on-plain', 'rf-agent'].map(styled).join('|') === before;
+        r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

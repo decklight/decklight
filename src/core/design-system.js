@@ -81,6 +81,9 @@ export function pageDesignSystems(doc = document) {
       themes: Array.isArray(info?.themes) ? info.themes.filter((t) => t && typeof t.name === 'string') : [],
       // its roles, each theme's value on the theme (SPEC DESIGN_SYSTEM_ROLES)
       roles: Array.isArray(info?.roles) ? info.roles.filter((r) => r && typeof r.id === 'string' && typeof r.token === 'string') : [],
+      // contract token → role id: which theme tokens read which role (a fill role is its diagram slot)
+      contract: info?.contract && typeof info.contract === 'object' && !Array.isArray(info.contract)
+        ? Object.fromEntries(Object.entries(info.contract).filter(([k, v]) => typeof k === 'string' && typeof v === 'string')) : {},
       recommendedThemes: Array.isArray(info?.recommendedThemes) ? info.recommendedThemes.filter((t) => typeof t === 'string') : [],
       recommendedFonts: Array.isArray(info?.recommendedFonts) ? info.recommendedFonts.filter((t) => typeof t === 'string') : [],
       templates,

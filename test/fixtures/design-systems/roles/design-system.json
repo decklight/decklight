@@ -3,7 +3,7 @@
   "name": "acme",
   "version": "3.0.0",
   "title": "Acme Brand",
-  "description": "An invented design system whose themes set four roles, for DESIGN_SYSTEM_ROLES tests and the demo.",
+  "description": "An invented design system whose themes set six roles, two of them diagram fills, for DESIGN_SYSTEM_ROLES tests and the demo.",
   "styles": "design-system.css",
   "templates": "templates.html",
   "palette": {
@@ -207,12 +207,22 @@
     "surface-card": {
       "label": "Card",
       "group": "Surface"
+    },
+    "surface-panel": {
+      "label": "Panel",
+      "group": "Surface"
+    },
+    "surface-panel-in": {
+      "label": "Panel, nested",
+      "group": "Surface"
     }
   },
   "contract": {
     "--heading-color": "text-heading",
     "--fg": "text-body",
-    "--accent": "text-accent"
+    "--accent": "text-accent",
+    "--d-fill-1": "surface-panel",
+    "--d-fill-1-in": "surface-panel-in"
   },
   "themes": [
     {
@@ -223,7 +233,9 @@
         "text-heading": "slate-100",
         "text-body": "slate-200",
         "text-accent": "orange-500",
-        "surface-card": "slate-800"
+        "surface-card": "slate-800",
+        "surface-panel": "orange-800",
+        "surface-panel-in": "orange-700"
       }
     },
     {
@@ -234,7 +246,9 @@
         "text-heading": "slate-1000",
         "text-body": "slate-900",
         "text-accent": "blue-700",
-        "surface-card": "slate-200"
+        "surface-card": "slate-200",
+        "surface-panel": "blue-200",
+        "surface-panel-in": "blue-300"
       }
     }
   ]

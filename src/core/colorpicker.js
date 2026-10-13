@@ -142,10 +142,20 @@ export function brandSnapper(systems, themeName = null) {
     // a token that is not a role (var(--accent), a swatch) is off-role too: read what it is now
     const own = new Set(swatches.map((x) => x.token));
     const snap = snapTo(swatches);
+    // …but a contract token the manifest maps to a role is that role, whatever colour is nearer (var(--d-fill-3), its slot)
+    const mapped = new Map();
+    for (const sys of systems ?? []) {
+      for (const [token, id] of Object.entries(sys?.contract ?? {})) {
+        const role = swatches.find((x) => x.token === (sys.roles ?? []).find((r) => r.id === id)?.token);
+        if (role && !mapped.has(token)) mapped.set(token, role);
+      }
+    }
     const roleSnap = (value) => {
       const m = /^var\(\s*(--[a-z][a-z0-9-]*)\s*(?:,\s*([^()]*))?\)$/i.exec(String(value ?? '').trim());
       if (!m) return snap(value);
       if (own.has(m[1])) return null;
+      const to = mapped.get(m[1]);
+      if (to) return { ref: to.ref, value: `var(${to.token}, ${to.hex})`, role: true };
       const host = typeof document !== 'undefined' ? document.querySelector('.decklight') ?? document.documentElement : null;
       const now = host ? getComputedStyle(host).getPropertyValue(m[1]).trim() : '';
       return snap(now || m[2]);

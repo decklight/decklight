@@ -49,10 +49,12 @@ test('the roles fixture passes its gate, and the report says what its roles are'
     ['text-body', 'Text', '--acme-color-text-body'],
     ['text-accent', 'Text', '--acme-color-text-accent'],
     ['surface-card', 'Surface', '--acme-color-surface-card'],
+    ['surface-panel', 'Surface', '--acme-color-surface-panel'],
+    ['surface-panel-in', 'Surface', '--acme-color-surface-panel-in'],
   ]);
   const report = reportLines(ROLES, r).join('\n');
-  assert.match(report, /roles {16}4 roles — Text 3, Surface 1 · 3 contract tokens read from them/);
-  assert.match(report, /acme-dark \(dark\) — 3 tokens stated \(3 through roles\), 59 chosen from the palette, every role set/);
+  assert.match(report, /roles {16}6 roles — Text 3, Surface 3 · 5 contract tokens read from them/);
+  assert.match(report, /acme-dark \(dark\) — 5 tokens stated \(5 through roles\), 57 chosen from the palette, every role set/);
 });
 
 test('roles and contract are shaped: a label and a group per role, contract tokens of the theme contract naming declared roles', (t) => {
@@ -126,7 +128,8 @@ test('each theme sets every role token, and the contract is derived from the rol
   assert.equal(dark.refs['--accent'], 'orange-500');
   assert.equal(light.refs['--accent'], 'blue-700');
   assert.equal(dark.refs['--heading-color'], 'slate-100');
-  assert.deepEqual(dark.viaRole, { '--heading-color': 'text-heading', '--fg': 'text-body', '--accent': 'text-accent' });
+  assert.deepEqual(dark.viaRole, { '--heading-color': 'text-heading', '--fg': 'text-body', '--accent': 'text-accent', '--d-fill-1': 'surface-panel', '--d-fill-1-in': 'surface-panel-in' });
+  assert.equal(light.refs['--d-fill-1-in'], 'blue-300', 'a diagram fill and its nested tone, through their roles');
   // the gates read the contract alone: no role token in what they read
   assert.doesNotMatch(dark.gateCss, /--acme-color-/);
   // an unmapped contract token is chosen from the palette as before
@@ -156,10 +159,11 @@ test('every server and bundle emit the role values on each brand theme block, an
   const light = /<style data-theme="acme-light"[^>]*>([\s\S]*?)<\/style>/.exec(tags)[1];
   assert.match(dark, /--acme-color-text-accent: var\(--acme-orange-500, #[0-9a-f]{6}\);/);
   assert.match(light, /--acme-color-text-accent: var\(--acme-blue-700, #[0-9a-f]{6}\);/);
-  assert.equal((dark.match(/--acme-color-/g) ?? []).length, 4, 'every role, on every theme');
+  assert.equal((dark.match(/--acme-color-/g) ?? []).length, 6, 'every role, on every theme');
 
   const meta = designSystemMeta(verdict);
-  assert.deepEqual(meta.roles.map((r) => r.id), ['text-heading', 'text-body', 'text-accent', 'surface-card']);
+  assert.deepEqual(meta.roles.map((r) => r.id), ['text-heading', 'text-body', 'text-accent', 'surface-card', 'surface-panel', 'surface-panel-in']);
+  assert.deepEqual(meta.contract, manifest().contract, 'the page is told which contract tokens read which role: a fill role is its diagram slot');
   assert.match(meta.themes[0].roles['text-accent'], /^#[0-9a-f]{6}$/);
 
   const block = bundleDesignSystem({ dir: ROLES, name: 'acme' }, verdict);

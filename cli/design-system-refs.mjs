@@ -131,7 +131,8 @@ export function designSystemMeta(verdict) {
     palette: brand ? brand.palette : Array.isArray(m.palette) ? m.palette : [],
     ...(brand ? { scales: true, themes: brand.themes.map(({ name, title, mode, refs, roleValues }) => ({ name, title, mode, refs, ...(roleValues ? { roles: roleValues } : {}) })) } : {}),
     // its roles (SPEC DESIGN_SYSTEM_ROLES): what the Colors tab offers on a deck held to the brand, each theme's value above
-    ...(brand?.roles ? { roles: brand.roles } : {}),
+    // …and which contract tokens read which role: a fill role is that diagram slot (SVG_DIAGRAMS)
+    ...(brand?.roles ? { roles: brand.roles, contract: brand.contract ?? {} } : {}),
     // the themes it is made to sit on — the theme picker lists them first
     recommendedThemes: Array.isArray(m.recommendedThemes) ? m.recommendedThemes.filter((t) => typeof t === 'string') : [],
     // …and the fonts (SPEC FONTS) — the font picker lists them first

@@ -31,6 +31,7 @@
 
 import { colorTargets, resolveColor, rgbToHex } from './colorpicker.js';
 import { readJson, writePref } from './prefs.js';
+import { asSlotFill } from './svg.js';
 import { IS_MAC, UNDO_CHORD } from './undo-chord.js';
 
 const KEY = 'decklight-style-clip';
@@ -194,7 +195,7 @@ export function pasteChanges(clip, target, { snap = null } = {}) {
 /** A clip said in a few words, for the toast: `box · “agent”`, `box · fill 3`, `blockquote · #2a6f97`. */
 export function describeClip(clip) {
   const name = (token) => {
-    const slot = /^var\(--d-fill-(\d)\)$/.exec(token ?? '');
+    const slot = /^var\(--d-fill-(\d)\)$/.exec(asSlotFill(token ?? ''));
     if (slot) return `fill ${slot[1]}`;
     return /^var\(--([a-z0-9-]+)/i.exec(token ?? '')?.[1] ?? token;
   };
