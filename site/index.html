@@ -157,7 +157,7 @@
       </div>
       <div class="trait">
         <h3>Agent-native authoring</h3>
-        <p>Describe a slide in plain English to your favorite agent, boom, done. The agent ask docks beside the slide, and every edit it makes is a commit you can read back.</p>
+        <p>Describe a slide in plain English to your favorite agent, boom, done. The agent ask shares the panel beside the slide with the notes and the inspector, and every edit it makes is a commit you can read back.</p>
       </div>
       <div class="trait">
         <h3>Or edit it yourself</h3>
@@ -165,7 +165,7 @@
       </div>
       <div class="trait">
         <h3>Design systems</h3>
-        <p>A company&rsquo;s tokens, art and slide templates, referenced from a marketplace and served into the deck, never copied: a slide names a template, fills its slots, and follows the system when it changes. <code>/</code> &rarr; Design systems&hellip; and Use slide template&hellip; The art bleeds to the screen&rsquo;s edges on any aspect ratio.</p>
+        <p>A company&rsquo;s tokens, art and slide templates, referenced from a marketplace and served into the deck, never copied: a slide names a template, fills its slots, and follows the system when it changes. <code>/</code> &rarr; <em>Look: Design systems&hellip;</em> and <em>Slide: Use slide template&hellip;</em> The art bleeds to the screen&rsquo;s edges on any aspect ratio.</p>
       </div>
       <div class="trait">
         <h3>Diagrams &amp; graphics</h3>
@@ -225,7 +225,7 @@
       </div>
       <div class="trait">
         <h3>Command palette</h3>
-        <p>Press <strong>/</strong> for a Claude-style palette: every command with its shortcut, type to filter, Enter runs it. Type a number to jump to that slide. Authoring, it also writes every file you can hand over, and publishes, after showing you the URL and waiting for a second press.</p>
+        <p>Press <strong>/</strong> for a palette that reads like VS Code&rsquo;s: every action at the root, named by its category (<em>Voice: Live voice&hellip;</em>, <em>Share: Export to PDF&hellip;</em>) with its key beside it; type any words, in any order, to filter, Enter runs it. Type a number to jump to that slide. <em>Preferences: Settings&hellip;</em> holds the knobs. Authoring, it also writes every file you can hand over, and publishes, after showing you the URL and waiting for a second press.</p>
       </div>
     </section>
 
@@ -275,7 +275,7 @@
 
     <section class="start after-deck" aria-label="Getting the full experience">
       <h2>Getting the full experience</h2>
-      <p>The same CLI does the rest: serve the deck live with in-browser editing, record truthful terminal casts, bridge live narration or capture your own, render the talk as a video, take comments from a reviewer, then flatten everything into one self-contained file.</p>
+      <p>The same CLI does the rest: serve the deck live with in-browser editing, record truthful terminal casts, set up a voice once and narrate with it or capture your own, render the talk as a video, take comments from a reviewer, then flatten everything into one self-contained file.</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-cli" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="16" data-title="the full cli"></div>
       </div>
@@ -470,11 +470,11 @@
    "duration": 1.0
   },
   {
-   "cmd": "npx decklight tts",
+   "cmd": "npx decklight setup voice --engine piper",
    "output": [
     [
      0.6,
-     "\u001b[32mdecklight tts\u001b[m on http://127.0.0.1:8787/tts \u2014 pick \u201cLive voice\u2026\u201d in the deck's / palette\r\n"
+     "saved to ~/.config/decklight/tts.json: engine piper\r\n  decklight <deck> uses it from now on (V in the deck)\r\n"
     ]
    ],
    "exit": 0,

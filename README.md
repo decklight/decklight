@@ -112,7 +112,7 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   `⌘Z` (`Ctrl+Z`) takes it back. `decklight check`
   reports what an author or an agent would otherwise only see by looking:
   clipped slides, crowded ones, missing images, notes whose [click] count
-  disagrees with the builds. In the deck, the palette's Check deck… lists the
+  disagrees with the builds. In the deck, the palette's *Review: Check deck…* lists the
   same, slide by slide.
 - **Chapters.** `data-module` marks chapters, and `G` shows the outline.
 - **Builds.** `data-build` on a container makes each child a step. The layout
@@ -164,8 +164,8 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   forces the safe mode; `publish` signs what it ships.
 - **Design systems.** A company's tokens, art and slide templates, referenced
   by a deck from a marketplace and served into it, never copied: a slide names
-  a template, fills its slots, and follows the system when it changes. `/` →
-  *Design systems…* and *Use slide template…* in write mode.
+  a template, fills its slots, and follows the system when it changes. *Look:
+  Design systems…* and *Slide: Use slide template…* in the palette, in write mode.
 - **Extensible without shipping code to the audience.** Themes, skills,
   speech engines and presenter plugins install from any git repo. Nothing
   executable travels inside a deck.
@@ -185,12 +185,12 @@ narrate, template, library, gate) are defined once in
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob; a skill older than this build is refreshed, and write mode names one at startup |
 | `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser editing is on: double-click text to edit it (`⌘B`, `⌘I`, `⌘E` for bold, italic and code while you do), drop a picture onto a slide, the bar's Layout for a layout, `S` for notes, `O` to rearrange slides; `Lock deck` in the palette turns changes off until you unlock |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
-| `narrate deck.html` | the narration into a folder beside the deck: an engine reads the notes, or you do with `--mic`, one [click] beat at a time (`--slides 7` for one slide) |
+| `narrate deck.html` | the narration into a folder beside the deck: an engine reads the notes, or you do with `--mic`, one [click] beat at a time (`--slides 7` for one slide); `--face` gives the recorded track its lip-sync, so the character plays it with nothing running |
 | `cast script.term.yaml` | record a terminal session in a real PTY (`cast refresh` re-runs, `cast export` writes asciicast) |
 
 | Sharing | |
 |---|---|
-| `<deck> --no-trust` | open a deck you didn't write in no-trust mode: every edit route refuses, it is served under a CSP, and what it will execute is listed first (a repository URL clones it first, into the same clone write mode uses). Comments (`M`) work here too; a `.decklight` is without trust by nature |
+| `<deck> --no-trust` | open a deck you didn't write in no-trust mode: every edit route refuses, it is served under a CSP, and what it will execute is listed first (`--audit` prints that label and exits; a repository URL clones it first, into the same clone write mode uses). Comments (`M`) work here too; a `.decklight` is without trust by nature |
 | `bundle deck.html` | one self-contained HTML file (`--all` merges a playlist, `--sign`, `--deck`) |
 | `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder |
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
@@ -209,17 +209,18 @@ narrate, template, library, gate) are defined once in
 | Bringing things in | |
 |---|---|
 | `import talk.pptx` | convert PowerPoint, Keynote or Google Slides (`--theme template` keeps its palette, `--shapes strict` draws only snapped diagrams) |
-| `theme check\|add` | validate a theme against the token contract, or install one |
+| `theme add\|remove\|list\|gate` | mark a marketplace theme for a deck to carry, or unmark it (`list` says which it carries); `gate` validates a theme file against the token contract, the gate a catalog runs |
 | `marketplace add owner/repo` | register a catalog; it is cloned with your git credentials, then read from disk |
-| `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide templates, served from the marketplace on this machine (`list`, `templates`, and `check`, the gate a catalog runs) |
-| `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `check`, the gate a catalog runs) |
+| `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide templates, served from the marketplace on this machine (`list`, `templates`, and `gate`, the gate a catalog runs) |
+| `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `gate`, the gate a catalog runs) |
 | `marketplace list` / `update <name>` | what each catalog offers, and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it) |
 | `library add <kind> <name>` | install into your own library: a `plugin` (presenter chrome over any deck you open, with or without trust; `bundle` never carries it), a `skill`, an `importer`, a `transform`, an `engine`, a `voice` or an `agent` (`remove`, `list [kind]`) |
-| `library check <kind> <path>` | the marketplace admission gate for a `transform` or a `plugin` |
+| `library gate <kind> <path>` | the marketplace admission gate for a `transform` or a `plugin` |
 
 | Odds and ends | |
 |---|---|
 | `setup voice` / `setup face` | set up live narration, or a talking head, once; every deck you open uses it |
+| `trust list` / `trust forget <deck>` | the decks whose script you said you trust, and forgetting one so the next open asks again |
 | `associate` | make double-clicking a `.decklight` file open it without trust |
 | `report-bug` | print the version and environment facts a bug report needs |
 | `doctor` | what this machine can do (Chrome, ffmpeg, git, agents…) and the install line for what it can't |
@@ -242,7 +243,7 @@ the CLI only.
 | `K` | commit what you changed, with a message; `⌘Z` / `Ctrl+Z` undoes an edit; `⌘⏎` / `Ctrl+Enter` fullscreen, `⇧F` hides the arrows and slide number there |
 | `H` | the deck's history, every version previewed live, `⏎` restores one |
 | `I` | the inspector: everything about this slide, or the selected shape's colours and type; its sources |
-| `/` | command palette, `G` find a slide |
+| `/` | command palette: every action at the root, named `Category: Action` (`Voice: Live voice…`), filtered by any words you type; *Preferences: Settings…* holds the knobs (clock, progress bar, captions, voice speed, the editing bar). `G` finds a slide, `O` rearranges them, `A` asks the agent |
 | `?` | every key |
 
 ## Working from a checkout

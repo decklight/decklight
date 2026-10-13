@@ -50,10 +50,16 @@ execute) is printed first. `--audit` prints the label and exits.
 until it is unlocked. For presenting a deck you are also editing.
 
 **Panel.** The one slot beside the slide. Notes, Inspector, Sources,
-Comments and Agent share it, each a tab, in one remembered placement.
+Comments and Agent share it, each a tab, in one remembered placement; the
+inspector's HTML tab edits the slide's source there too.
 
 **Palette.** `/`: every command, named `Category: name` (`Share: Export to
-PDF…`), filtered as you type.
+PDF…`), filtered as you type. The palette does a thing.
+
+**Settings.** The palette's *Preferences: Settings…*: how the deck is set
+up to show itself (clock, progress bar, captions, voice speed, the editing
+bar, the arrows and slide number in fullscreen), each row read back from
+what the deck remembers and changed with `⏎`.
 
 ## Voice
 
@@ -65,11 +71,16 @@ slide and per `[click]` beat, played back by the deck. `narration.files`
 names it.
 
 **Narrate.** Make a track: `decklight narrate <deck>` has an engine read the
-notes; `--mic` has you read them, one beat at a time.
+notes; `--mic` has you read them, one beat at a time; `--face` gives the
+track its lip-sync, so the character plays it with no bridge running.
 
 **Engine.** A speech engine: six are built in (gemini, chirp, piper,
 elevenlabs, and the system voice, `say` or `sapi`); more install into the
 library.
+
+**Setup.** `decklight setup voice` and `decklight setup face`: this
+machine's voice and talking head, chosen once and saved. Every deck you open
+uses them, and `decklight <deck>` asks nothing about them at startup.
 
 **Character.** An animated narrator whose lips follow the voice, or a
 talking head made from a photo or a clip of you.
