@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { checkTracks, contentDigest, loadConfig, packList, refreshArgv, voiceDir } from '../tools/site-voices.mjs';
+import { checkTracks, configuredDirs, contentDigest, loadConfig, packList, refreshArgv, voiceDir } from '../tools/site-voices.mjs';
 import { manifestHash, slideTexts } from '../tools/narration-manifest.mjs';
 import { tmp } from './helpers.mjs';
 
@@ -41,19 +41,26 @@ function track(root, voice, texts, { drop = [], corrupt = [] } = {}) {
   return dir;
 }
 
-test('the config must name the release, the asset, the engine, the style and the voices', (t) => {
+test('the config must name the release, the asset, the engine and at least one voice; a style is optional', (t) => {
   const dir = tmp('site-voices-cfg', t);
   const file = path.join(dir, 'voices.json');
   writeFileSync(file, JSON.stringify(CFG));
   assert.equal(loadConfig(file).release, 'site-voices');
   writeFileSync(file, JSON.stringify({ ...CFG, style: undefined }));
-  assert.throws(() => loadConfig(file), /no "style"/);
+  assert.equal(loadConfig(file).style, undefined, 'ElevenLabs takes no style prompt');
+  writeFileSync(file, JSON.stringify({ ...CFG, engine: undefined }));
+  assert.throws(() => loadConfig(file), /no "engine"/);
+  writeFileSync(file, JSON.stringify({ ...CFG, voices: [] }));
+  assert.throws(() => loadConfig(file), /"voices" is empty/);
 });
 
-test('a track is voiced by voiceover.mjs with the engine, the voice and the style every time', () => {
+test('a track is voiced by voiceover.mjs with the engine and the voice every time, and the style only when the config has one', () => {
   const argv = refreshArgv('demo/showcase.html', CFG, CFG.voices[1], '/tmp/x/aoede');
   assert.match(argv[0], /voiceover\.mjs$/);
   assert.deepEqual(argv.slice(1), ['demo/showcase.html', '--engine', 'gemini', '--voice', 'Aoede', '--style', 'Read warmly.', '-o', '/tmp/x/aoede']);
+  const eleven = { ...CFG, engine: 'elevenlabs', style: undefined, voices: [{ label: 'Chris', voice: 'Chris', dir: 'voices/chris' }] };
+  assert.deepEqual(refreshArgv('demo/showcase.html', eleven, eleven.voices[0], '/tmp/x/chris').slice(1),
+    ['demo/showcase.html', '--engine', 'elevenlabs', '--voice', 'Chris', '-o', '/tmp/x/chris']);
 });
 
 test('what travels: audio, manifests and scripts, per voice folder; never temp files or the digest', (t) => {
@@ -66,6 +73,11 @@ test('what travels: audio, manifests and scripts, per voice folder; never temp f
   writeFileSync(path.join(root, '.pulled'), 'abc');
   writeFileSync(path.join(root, 'stray.m4a'), 'x');   // not under a voice folder
   assert.deepEqual(packList(root), ['algenib/manifest.json', 'algenib/slide-01.m4a', 'algenib/slide-01.txt', 'algenib/slide-03.m4a']);
+  // a voice that left the config leaves the asset
+  track(root, { voice: 'Old', dir: 'voices/old' }, texts);
+  assert.ok(packList(root).some((f) => f.startsWith('old/')));
+  assert.ok(!packList(root, configuredDirs(CFG)).some((f) => f.startsWith('old/')));
+  assert.deepEqual(configuredDirs(CFG), ['algenib', 'aoede']);
 });
 
 test('the digest moves with a byte and not with anything else, so an unchanged pull is never re-uploaded', (t) => {

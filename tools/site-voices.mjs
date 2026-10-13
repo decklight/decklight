@@ -12,12 +12,15 @@
 //   node tools/site-voices.mjs push      site/voices/ → the asset, when anything changed
 //
 // The site deploy runs these in that order (.github/workflows/publish-site.yml).
-// `site/voices.json` names the release, the asset, the engine, the style and
-// the voices; the audio itself never enters git history: a deploy pulls the
-// last asset, tools/voiceover.mjs re-synthesizes only the slides whose
-// manifest hash no longer matches the deck (and the shared clip cache under
-// ~/.cache/decklight/tts, restored between runs, makes a slide that merely
-// moved a cache hit), and the asset is uploaded back only if a byte changed.
+// `site/voices.json` names the release, the asset, the engine and the voices
+// (and a style prompt, for an engine that takes one; ElevenLabs reads the
+// tags in the notes instead); the audio itself never enters git history: a
+// deploy pulls the last asset, tools/voiceover.mjs re-synthesizes only the
+// slides whose manifest hash no longer matches the deck (and the shared clip
+// cache under ~/.cache/decklight/tts, restored between runs, makes a slide
+// that merely moved a cache hit), and the asset is uploaded back only if a
+// byte changed. Only the configured voices travel: a voice taken out of the
+// config is pruned on the next pull and absent from the next push.
 // `check` is the gate: a deploy that cannot bring every clip in line with its
 // notes fails here, before Pages, instead of publishing a deck that narrates
 // one slide over another (what the site did for weeks, #803).
@@ -44,21 +47,26 @@ export const USAGE = `usage: node tools/site-voices.mjs <pull | refresh | check 
                                  [--config site/voices.json] [--dir site/voices]
 
   pull     download the voices release asset and extract it into --dir
-  refresh  re-voice, per voice, the slides whose notes changed (needs GOOGLE_CLOUD_PROJECT
-           and gcloud application-default credentials; tools/voiceover.mjs does the work)
+  refresh  re-voice, per voice, the slides whose notes changed (tools/voiceover.mjs does
+           the work, with the engine's own credential: $ELEVENLABS_API_KEY for elevenlabs,
+           GOOGLE_CLOUD_PROJECT and gcloud application-default credentials for gemini)
   check    exit 1 naming every slide whose clip is stale or missing, per voice
   push     pack --dir into the asset and upload it, when it differs from what was pulled
 
   pull and push need gh on PATH, authenticated for this repository`;
 
-/** `site/voices.json`: the release, the asset, the engine, the style and the voices. */
+/** `site/voices.json`: the release, the asset, the engine and the voices; `style` only for an engine that takes one. */
 export function loadConfig(file = 'site/voices.json') {
   const cfg = JSON.parse(readFileSync(file, 'utf8'));
-  for (const key of ['release', 'asset', 'engine', 'style', 'voices']) {
+  for (const key of ['release', 'asset', 'engine', 'voices']) {
     if (!cfg[key]) throw new Error(`${file}: no "${key}"`);
   }
+  if (!Array.isArray(cfg.voices) || !cfg.voices.length) throw new Error(`${file}: "voices" is empty`);
   return cfg;
 }
+
+/** The folder names the config's voices live in: what travels, and what `pull` keeps. */
+export const configuredDirs = (cfg) => cfg.voices.map((v) => basename(v.dir));
 
 /** A voice's folder under the root: `voices/algenib` in the config is `<root>/algenib` on disk. */
 export const voiceDir = (root, voice) => join(root, basename(voice.dir));
@@ -66,20 +74,26 @@ export const voiceDir = (root, voice) => join(root, basename(voice.dir));
 /**
  * The argv that voices one track: tools/voiceover.mjs, which is incremental
  * by manifest hash and shares the clip cache with every other producer of a
- * track. Engine, voice and style are given every time, so a track that does
- * not exist yet is made in the same voice the others speak in.
+ * track. Engine and voice (and the style, where the config has one) are
+ * given every time, so a track that does not exist yet is made in the same
+ * voice the others speak in.
  */
 export function refreshArgv(deck, cfg, voice, outDir) {
-  return [VOICEOVER, deck, '--engine', cfg.engine, '--voice', voice.voice, '--style', cfg.style, '-o', outDir];
+  return [VOICEOVER, deck, '--engine', cfg.engine, '--voice', voice.voice,
+    ...(cfg.style ? ['--style', cfg.style] : []), '-o', outDir];
 }
 
-/** What travels in the asset: audio, manifests and the per-slide scripts; never temp files or the digest. */
-export function packList(root) {
+/**
+ * What travels in the asset: audio, manifests and the per-slide scripts of
+ * the voices in `dirs` (every folder, when none are named); never temp files
+ * or the digest.
+ */
+export function packList(root, dirs = null) {
   if (!existsSync(root)) return [];
   const out = [];
   for (const dir of readdirSync(root).sort()) {
     const abs = join(root, dir);
-    if (!statSync(abs).isDirectory()) continue;
+    if (!statSync(abs).isDirectory() || (dirs && !dirs.includes(dir))) continue;
     for (const f of readdirSync(abs).sort()) {
       if (!/\.(m4a|mp3|wav|json|txt)$/.test(f) || f.includes('.tmp.')) continue;
       out.push(`${dir}/${f}`);
@@ -89,9 +103,9 @@ export function packList(root) {
 }
 
 /** One hash over every packed file's path and bytes: equal digests, nothing to upload. */
-export function contentDigest(root) {
+export function contentDigest(root, dirs = null) {
   const h = createHash('sha256');
-  for (const rel of packList(root)) {
+  for (const rel of packList(root, dirs)) {
     h.update(rel).update('\0').update(readFileSync(join(root, rel))).update('\0');
   }
   return h.digest('hex');
@@ -131,9 +145,17 @@ function pull({ cfg, root }) {
   mkdirSync(root, { recursive: true });
   run('tar', ['-xzf', tar, '-C', root], { stdio: 'inherit' });
   rmSync(tmp, { recursive: true, force: true });
-  const digest = contentDigest(root);
+  // a voice no longer in the config is not kept around: it would be deployed
+  const keep = configuredDirs(cfg);
+  for (const dir of readdirSync(root)) {
+    if (statSync(join(root, dir)).isDirectory() && !keep.includes(dir)) {
+      rmSync(join(root, dir), { recursive: true, force: true });
+      console.log(`pruned ${dir}/: not in site/voices.json`);
+    }
+  }
+  const digest = contentDigest(root, keep);
   writeFileSync(join(root, PULLED), digest);
-  console.log(`pulled ${cfg.asset} → ${root} (${packList(root).length} files, ${digest.slice(0, 12)})`);
+  console.log(`pulled ${cfg.asset} → ${root} (${packList(root, keep).length} files, ${digest.slice(0, 12)})`);
   return 0;
 }
 
@@ -162,7 +184,7 @@ function check({ cfg, root, deck }) {
     if (r.missing.length) parts.push(`missing: ${r.missing.join(', ')}`);
     console.error(`${r.voice}: ${parts.join(' · ')}`);
   }
-  if (bad) console.error(`\nsite-voices: ${bad} track(s) do not match ${deck}: run \`refresh\` (GOOGLE_CLOUD_PROJECT set), then \`push\``);
+  if (bad) console.error(`\nsite-voices: ${bad} track(s) do not match ${deck}: run \`refresh\` with the ${cfg.engine} credential in the environment, then \`push\``);
   return bad ? 1 : 0;
 }
 
@@ -172,9 +194,10 @@ function rootCommit() {
 }
 
 function push({ cfg, root }) {
-  const files = packList(root);
-  if (!files.length) { console.error(`site-voices: nothing under ${root} to push`); return 1; }
-  const digest = contentDigest(root);
+  const keep = configuredDirs(cfg);
+  const files = packList(root, keep);
+  if (!files.length) { console.error(`site-voices: nothing under ${root} for ${keep.join(', ')} to push`); return 1; }
+  const digest = contentDigest(root, keep);
   const pulled = existsSync(join(root, PULLED)) ? readFileSync(join(root, PULLED), 'utf8').trim() : null;
   if (pulled === digest) { console.log(`site-voices: ${root} is what was pulled (${digest.slice(0, 12)}), nothing to upload`); return 0; }
   const tmp = mkdtempSync(join(tmpdir(), 'decklight-site-voices-'));

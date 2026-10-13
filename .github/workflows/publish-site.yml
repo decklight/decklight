@@ -4,21 +4,19 @@
 # the repo's custom domain, set in Settings → Pages). Pages auth is the
 # workflow's own OIDC token.
 #
-# The showcase's voice tracks are not in git. They are one release asset
+# The showcase's voice track is not in git. It is one release asset
 # (`site-voices`, voices.tar.gz) that this workflow pulls, brings up to date
 # with the deck, checks, and pushes back (tools/site-voices.mjs). Bringing it
-# up to date is a Vertex AI call per slide whose notes changed, and only
-# those: the manifests say which, and the clip cache restored below makes a
-# slide that merely moved a cache hit. It needs three settings on the repo:
+# up to date is an ElevenLabs call per slide whose notes changed, and only
+# those: the manifest says which, and the clip cache restored below makes a
+# slide that merely moved a cache hit. It needs one secret on the repo:
 #
-#   secrets.GCP_WORKLOAD_IDENTITY_PROVIDER   projects/N/locations/global/workloadIdentityPools/P/providers/Q
-#   secrets.GCP_SERVICE_ACCOUNT              an account with Vertex AI User on the project
-#   vars.GOOGLE_CLOUD_PROJECT                the project the calls are billed to
+#   secrets.ELEVENLABS_API_KEY   the account whose voices site/voices.json names
 #
-# Without the first, the re-voicing is skipped and the deploy goes ahead only
-# if the pulled tracks already match the deck: `check` fails the run otherwise,
+# Without it, the re-voicing is skipped and the deploy goes ahead only if the
+# pulled track already matches the deck: `check` fails the run otherwise,
 # before Pages, so the site never publishes narration that disagrees with its
-# slides again.
+# slides.
 name: publish decklight.io
 
 on:
@@ -38,8 +36,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # a secret cannot be tested in `if:` directly; through env it can
-  GCP_WIF: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  # the engine reads it from the environment and never writes it anywhere;
+  # a secret cannot be tested in `if:` directly, through env it can
+  ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
 
 jobs:
   publish:
@@ -75,23 +74,15 @@ jobs:
           key: tts-clips-${{ github.run_id }}
           restore-keys: tts-clips-
 
-      - uses: google-github-actions/auth@v2
-        if: env.GCP_WIF != ''
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
       - name: re-voice the slides whose notes changed
-        if: env.GCP_WIF != ''
-        env:
-          GOOGLE_CLOUD_PROJECT: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+        if: env.ELEVENLABS_API_KEY != ''
         run: node tools/site-voices.mjs refresh
 
       - name: every clip matches its notes
         run: node tools/site-voices.mjs check
 
       - name: push the voices back (only when a clip changed)
-        if: env.GCP_WIF != ''
+        if: env.ELEVENLABS_API_KEY != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: node tools/site-voices.mjs push
@@ -105,7 +96,7 @@ jobs:
           # terminal casts name them, and a visitor who follows those commands lands
           # on a deck that expects them to resolve
           cp themes/paper.css themes/meadow.css out/themes/
-          # the voice tracks pulled above (see site/voices.json)
+          # the voice track pulled above (see site/voices.json)
           cp -r site/voices out/voices
           rm -f out/voices/.pulled
           node cli/decklight.mjs bundle demo/showcase.html --themes all -o out/showcase.html
@@ -118,7 +109,7 @@ jobs:
             const out = h.replace("Decklight.init({", `Decklight.init({\n    narration: { files: [${files}] },`);
             if (out === h) throw new Error("init config anchor not found");
             fs.writeFileSync(p, out);
-            console.log("narration config injected:", cfg.voices.length, "voices");
+            console.log("narration config injected:", cfg.voices.length, "voice(s)");
           '
 
       - uses: actions/upload-pages-artifact@v3

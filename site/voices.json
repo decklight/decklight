@@ -1,31 +1,15 @@
 {
-  "comment": "The voices demonstrated on decklight.io. The audio is NOT in this repository: it is one release asset (`site-voices`, voices.tar.gz) that the site deploy pulls into site/voices/ (gitignored), re-voices where the deck's notes changed, checks, and pushes back. tools/site-voices.mjs is the command, pull | refresh | check | push; the workflow is .github/workflows/publish-site.yml.",
+  "comment": "The voice demonstrated on decklight.io. The audio is NOT in this repository: it is one release asset (`site-voices`, voices.tar.gz) that the site deploy pulls into site/voices/ (gitignored), re-voices where the deck's notes changed, checks, and pushes back. tools/site-voices.mjs is the command, pull | refresh | check | push; the workflow is .github/workflows/publish-site.yml. The engine is ElevenLabs, which takes direction from the tags in the notes ([pause], [chuckles]) rather than a style prompt; the key is secrets.ELEVENLABS_API_KEY.",
   "release": "site-voices",
   "asset": "voices.tar.gz",
   "dir": "site/voices",
   "deck": "demo/showcase.html",
-  "engine": "gemini",
-  "style": "Read in a warm, welcoming tone, like a friendly battle-hardened senior engineer who is still curious about new technology.",
+  "engine": "elevenlabs",
   "voices": [
     {
-      "label": "Algenib · gravelly",
-      "voice": "Algenib",
-      "dir": "voices/algenib"
-    },
-    {
-      "label": "Aoede · breezy",
-      "voice": "Aoede",
-      "dir": "voices/aoede"
-    },
-    {
-      "label": "Enceladus · breathy",
-      "voice": "Enceladus",
-      "dir": "voices/enceladus"
-    },
-    {
-      "label": "Vindemiatrix · gentle",
-      "voice": "Vindemiatrix",
-      "dir": "voices/vindemiatrix"
+      "label": "Chris · charming, down-to-earth",
+      "voice": "Chris",
+      "dir": "voices/chris"
     }
   ]
 }
