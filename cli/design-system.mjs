@@ -161,8 +161,17 @@ export function reportLines(dir, r) {
       out.push(`                         ${l.id} (${slots || 'no slots'})`);
     }
     if (templates.some((l) => l.slots.length)) out.push('                         * required · † takes unslotted content');
+    const roles = s.brand?.roles ?? [];
+    if (roles.length) {
+      const groups = {};
+      for (const r of roles) groups[r.group] = (groups[r.group] ?? 0) + 1;
+      out.push(`  roles                ${roles.length} role${roles.length === 1 ? '' : 's'} — ${Object.entries(groups).map(([g, n]) => `${g} ${n}`).join(', ')}`
+        + ` · ${Object.keys(s.brand.contract ?? {}).length} contract token${Object.keys(s.brand.contract ?? {}).length === 1 ? '' : 's'} read from them`);
+    }
     for (const t of s.brand?.themes ?? []) {
-      out.push(`  theme                ${t.name} (${t.mode}) — ${t.stated.length} token${t.stated.length === 1 ? '' : 's'} stated, ${t.chosen.length} chosen from the palette`);
+      const via = Object.keys(t.viaRole ?? {}).length;
+      out.push(`  theme                ${t.name} (${t.mode}) — ${t.stated.length} token${t.stated.length === 1 ? '' : 's'} stated${via ? ` (${via} through roles)` : ''}, ${t.chosen.length} chosen from the palette`
+        + `${roles.length ? `, every role set` : ''}`);
     }
     const assets = s.assets ?? [];
     const byExt = {};

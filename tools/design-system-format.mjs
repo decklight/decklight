@@ -26,7 +26,7 @@
 // references, and the CSS reaches nothing outside its own package.
 
 import { SEMVER_RE } from './semver.mjs';
-import { readScales, expandThemes, paletteEntries, offPaletteTokens, WEIGHTS } from './brand-palette.mjs';
+import { readScales, expandThemes, paletteEntries, offPaletteTokens, offRoleColours, nearestRole, roleToken, COLOUR_TOKENS, WEIGHTS } from './brand-palette.mjs';
 
 /**
  * The design-system package contract's own version (SPEC DESIGN_SYSTEMS) —
@@ -165,6 +165,33 @@ export function readManifest(raw) {
     if (!Array.isArray(m.themes)) at('manifest-field', 'themes', 'themes must be an array of { name, title, mode, tokens }');
     else if (!(m.palette && typeof m.palette === 'object' && !Array.isArray(m.palette))) at('manifest-field', 'themes', 'themes are drawn from a palette of scales — palette must be { colors: { … } } (SPEC BRAND_PALETTE)');
     else if (Number.isInteger(m.apiVersion) && m.apiVersion < BRAND_API_VERSION) at('manifest-field', 'themes', `themes need apiVersion ${BRAND_API_VERSION}`);
+  }
+  // roles (SPEC DESIGN_SYSTEM_ROLES): what each colour is for, set by every theme
+  const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+  if (m.roles !== undefined) {
+    if (!isObj(m.roles) || !Object.keys(m.roles).length) at('manifest-field', 'roles', 'roles must be { "<role>": { "label": "…", "group": "…" } }, one entry per role');
+    else if (!Array.isArray(m.themes) || !m.themes.length) at('manifest-field', 'roles', 'roles are set by the themes — a design system with roles has themes, and every theme gives every role a swatch');
+    else {
+      for (const [id, r] of Object.entries(m.roles)) {
+        const token = roleToken(typeof m.tokenPrefix === 'string' ? m.tokenPrefix : `--${m.name ?? ''}-`, id);
+        if (!NAME_RE.test(id)) at('manifest-field', 'roles', `roles: ${JSON.stringify(id)} — a role's name is a lowercase word (letters, digits and -), e.g. "text-heading-main"`);
+        // the longest token a slide's style may name (the edit server's own limit)
+        else if (token.length > 43) at('manifest-field', 'roles', `roles: ${id} makes the token ${token}, ${token.length} characters — a slide's style names at most 43; shorten the role's name`);
+        else if (!isObj(r) || typeof r.label !== 'string' || !r.label.trim() || (r.group !== undefined && (typeof r.group !== 'string' || !r.group.trim()))) {
+          at('manifest-field', 'roles', `roles: ${id} must be { "label": "<what a person reads>", "group": "<Text, Surface, Border…>" }`);
+        }
+      }
+    }
+  }
+  if (m.contract !== undefined) {
+    if (!isObj(m.roles)) at('manifest-field', 'contract', 'contract maps theme-contract tokens to roles — it needs "roles"');
+    else if (!isObj(m.contract)) at('manifest-field', 'contract', 'contract must be { "--<contract token>": "<role>" }, e.g. { "--heading-color": "text-heading-main" }');
+    else {
+      for (const [token, id] of Object.entries(m.contract)) {
+        if (!COLOUR_TOKENS.has(token)) at('manifest-field', 'contract', `contract: ${token} is not a colour token of the theme contract (SPEC THEMING)`);
+        else if (typeof id !== 'string' || !Object.hasOwn(m.roles, id)) at('manifest-field', 'contract', `contract: ${token} names ${JSON.stringify(id)}, which "roles" does not declare`);
+      }
+    }
   }
   if (m.recommendedThemes !== undefined && (!Array.isArray(m.recommendedThemes) || !m.recommendedThemes.every((t) => typeof t === 'string'))) {
     at('manifest-field', 'recommendedThemes', 'recommendedThemes must be an array of theme names');
@@ -519,8 +546,20 @@ export function checkPackage(pkg) {
       for (const t of tokens) {
         if (swatch.test(t.name)) problems.push({ file: stylesPath, line: t.line, rule: 'palette-redefined', msg: `${t.name} is a swatch of the palette — the server defines it from design-system.json; read it with var(), never redefine it here` });
       }
+      // roles too: the theme sets them, the stylesheet only reads them (SPEC DESIGN_SYSTEM_ROLES)
+      // false: declared but malformed (already said), so the themes are not also told they have none
+      const rolesBroken = mp.some((p) => p.rule === 'manifest-field' && /^(?:roles|contract)\b/.test(p.msg));
+      const roles = rolesBroken ? false
+        : manifest.roles && typeof manifest.roles === 'object' && !Array.isArray(manifest.roles) ? manifest.roles : null;
+      const contract = roles && manifest.contract && typeof manifest.contract === 'object' ? manifest.contract : null;
+      if (roles) {
+        const named = new Set(Object.keys(roles).map((id) => roleToken(prefix, id)));
+        for (const t of tokens) {
+          if (named.has(t.name)) problems.push({ file: stylesPath, line: t.line, rule: 'role-redefined', msg: `${t.name} is a role — each theme sets it from design-system.json; read it with var(), never define it here` });
+        }
+      }
       const shipped = new Set(pkg.shippedThemes ?? []);
-      const ex = expandThemes(read, Array.isArray(manifest.themes) ? manifest.themes : [], prefix);
+      const ex = expandThemes(read, Array.isArray(manifest.themes) ? manifest.themes : [], prefix, { roles, contract });
       problems.push(...ex.problems.map(atKey('themes')));
       notes.push(...ex.notes.map(atKey('themes')));
       for (const t of ex.themes) {
@@ -538,8 +577,45 @@ export function checkPackage(pkg) {
         neutral: read.neutral,
         palette: paletteEntries(read.scales, prefix),
         scales: Object.values(read.scales).map((sc) => ({ name: sc.name, label: sc.label, role: sc.role, derived: sc.derived })),
-        themes: ex.themes.map((t) => ({ name: t.name, title: t.title ?? t.name, mode: t.mode, css: t.css, refs: t.refs, stated: t.stated, chosen: t.chosen })),
+        themes: ex.themes.map((t) => ({ name: t.name, title: t.title ?? t.name, mode: t.mode, css: t.css, refs: t.refs, stated: t.stated, chosen: t.chosen,
+          ...(roles ? { roleRefs: t.roleRefs, roleValues: t.roleValues, tokens: t.tokens, viaRole: t.viaRole } : {}) })),
+        ...(roles ? {
+          roles: Object.entries(roles).map(([id, r]) => ({ id, label: r.label, group: r.group ?? 'Roles', token: roleToken(prefix, id) })),
+          contract: contract ?? {},
+        } : {}),
       };
+      // a package with roles colours its components through them, and only them
+      if (roles && ex.themes.length) {
+        const first = ex.themes[0];
+        const ctx = { prefix, scales: read.scales, roles, contractHex: first.tokens };
+        const say = (file, line, off) => warnings.push({ file, line, rule: 'component-off-role',
+          msg: `${off.map((o) => `${o.name}${o.kind === 'contract' ? ' (a theme-contract token)' : o.kind === 'swatch' ? ' (a swatch)' : ''}`
+            + ` (nearest role ${(o.kind === 'contract' && contract && Object.entries(contract).find(([t]) => t === o.name)?.[1]) || nearestRole(first.roleValues, o.hex) || '?'})`).join(', ')}`
+            + ` — a component colours through the design system's roles, so every theme recolours it; read a role, var(${roleToken(prefix, '<role>')})` });
+        if (stylesRead) {
+          const css = files.get(stylesPath).text ?? '';
+          const bare = css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
+          for (const rule of bare.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+            let at = rule.index + rule[1].length + 1;
+            for (const decl of rule[2].split(';')) {
+              const m = /^\s*(--[A-Za-z0-9_-]+|[a-z-]+)\s*:\s*([\s\S]*?)\s*$/i.exec(decl);
+              if (m) {
+                const off = offRoleColours(m[2], ctx);
+                if (off.length) say(stylesPath, lineAt(css, at + decl.search(/\S/)), off);
+              }
+              at += decl.length + 1;
+            }
+          }
+        }
+        const tf = templatesPath && files.get(templatesPath);
+        if (tf) {
+          const html = tf.text ?? '';
+          for (const a of html.matchAll(/\s(style|fill|stroke|color|stop-color|bgcolor)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
+            const off = offRoleColours(a[2] ?? a[3], ctx);
+            if (off.length) say(templatesPath, lineAt(html, a.index + 1), off);
+          }
+        }
+      }
     }
   }
   summary.notes = notes;

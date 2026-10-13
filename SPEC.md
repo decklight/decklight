@@ -23,7 +23,7 @@ being moved, and it says what it points at.
 | `REVIEW` | reviewer comments on a deck, anchored to slides and carried by git |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
 | `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `UNIT_VERSIONS` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | **in [`PLATFORM.md`](PLATFORM.md)**: catalogs of themes, templates, skills and engines, registered not fetched; the unit library, its pins, gates and calling conventions; voices, agents and engines as units |
-| `DESIGN_SYSTEMS` · `BRAND_PALETTE` | a company's tokens, art and slide templates, published once and referenced by every deck built on it; its palette, and the themes drawn from it |
+| `DESIGN_SYSTEMS` · `BRAND_PALETTE` · `DESIGN_SYSTEM_ROLES` | a company's tokens, art and slide templates, published once and referenced by every deck built on it; its palette, and the themes drawn from it; its roles, which each theme sets |
 | `FONTS` | a typeface's files and licence, from a marketplace, referenced by a deck so its faces travel with it |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
@@ -1059,6 +1059,49 @@ and, when the current slide uses one, **take it out**: the attribute goes, `data
 **`recommendedThemes`** keeps its meaning (DESIGN_SYSTEMS) for a theme from outside the design system. With a palette of scales, `check` warns about every recommended **shipped** theme whose colours are not within OKLab distance 0.02 of a swatch (`recommended-off-palette`, ⚠), naming the tokens that miss and their nearest swatches. A design system that ships its own themes usually needs none.
 
 **`design-system gate`** gains these rules, in `tools/brand-palette.mjs` beside the format's own: `palette-shape`, `palette-order`, `palette-too-narrow`, `palette-redefined`, `theme-off-palette`, `theme-token`, `theme-shape`, `theme-name`, `theme-contrast` (✘); `recommended-off-palette` (⚠); and the notes, printed with `·` on every run: `palette-neutral`, `palette-derived-neutral`, `palette-derived-weight`, `theme-nearest-role`. The summary counts the palette (`12 colours, 120 swatches`) and each theme (`acme-dark (dark): 1 token stated, 61 chosen from the palette`).
+
+### DESIGN_SYSTEM_ROLES · A design system's roles, set by each theme
+
+**A role is what a colour is for; the theme decides its value.** The heading, the body text, an eyebrow, an accent, a card surface, a tile border: in Figma these are a presentation's Variables (`color-text/heading/main`), and a Variable has one value per mode. Without roles a design system has three ways to name a colour, and they behave differently: the theme contract (`--heading-color`) follows the theme, a swatch (`--acme-blue-700`) never changes, and a design system's own aliases, defined in its stylesheet, never change either, because a brand theme may only set contract tokens. So a component either binds to decklight's contract instead of the brand's names, or keeps the brand's names and never follows the theme. Roles make the design system's own names the ones that follow it.
+
+**Roles are declared in the manifest, like the palette**, and are an optional key of `apiVersion` 2: a design system without `roles` behaves exactly as before.
+
+```json
+"roles": {
+  "text-heading-main": { "label": "Heading · main", "group": "Text" },
+  "text-accent-polar": { "label": "Accent · Polar", "group": "Text" },
+  "surface-bg-page":   { "label": "Page",           "group": "Surface" },
+  "border-tile-violet": { "label": "Tile · Violet", "group": "Border" }
+},
+"contract": { "--bg": "surface-bg-page", "--heading-color": "text-heading-main", "--accent": "text-accent-polar" }
+```
+
+- A role's key is its name (`[a-z][a-z0-9-]*`), its `label` what a person reads, its `group` the heading it is listed under (*Roles* when left out). A design system with roles has themes, since the themes set them.
+- Every role is a token, **`--<tokenPrefix>color-<role>`** (`--acme-color-text-heading-main`), which keeps the names a package written after Figma's Variables already uses. A token longer than a slide's style may name (43 characters) is refused, naming the role to shorten.
+- **The themes are the one source of a role's value**: `design-system.css` reads role tokens with `var()` and never defines them (`role-redefined`, ✘), as `palette-redefined` holds it to the swatches.
+
+**Every theme gives every role a swatch**, in its own `roles` map, under the same rules as a theme's tokens (BRAND_PALETTE): a swatch, `polar-500`, or a swatch at an opacity, `polar-500/40`, where no contrast gate reads it.
+
+```json
+{ "name": "acme-dark", "title": "Acme Dark", "mode": "dark",
+  "roles": { "text-heading-main": "neutral-100", "text-accent-polar": "polar-500", "surface-bg-page": "neutral-1000", "border-tile-violet": "violet-600/60" } }
+```
+
+A role a theme leaves out is refused (`theme-role-missing`), and so is a value that names no swatch (`theme-off-palette`), a role the manifest does not declare (`theme-role-unknown`), and an opacity on a role the contract maps to a token a gate reads.
+
+**decklight's contract is derived from the roles.** The manifest's `contract` maps contract colour tokens to roles once, for every theme: each theme's `--heading-color` is then the swatch its `text-heading-main` has. A contract token the theme states itself in `tokens` wins; one neither mapped nor stated is chosen from the palette as before (BRAND_PALETTE). The engine's chrome, code highlighting, charts and builds keep reading the contract, and the contract's gates (`theme-contrast`) run on the derived values, naming the role a failing token came through (`(stated: --fg neutral-900 through the role text-body-default)`). On such a deck the contract is internal: authors never name it. `contract` names only colour tokens of the contract, and only declared roles.
+
+**Each theme block carries the roles.** Every server, and `bundle`, writes every role token into each brand theme's block (`<style data-design-system-theme>`) beside the contract, `--acme-color-text-accent-polar: var(--acme-polar-500, #5ec6ff);`, so `T` among the brand's themes recolours every role and every component that reads one. The contrast gates read the contract alone.
+
+**Colours on a deck held to a brand with roles.** The Colors tab (PRESENTING, Editing) lists the design system's roles and nothing else: one group per role `group`, `<title> · <group>`, each swatch showing the value it has in the theme on screen. There is no Theme group of contract roles, no palette scales and no Custom. A pick writes the role's token with its current value as the fallback, `var(--acme-color-text-accent-polar, #5ec6ff)`. Paste style puts a copied colour, a literal or a token that is not a role, on the role whose value in the theme on screen is nearest, and the toast names it (*style pasted, on the brand's roles: Accent · Polar*).
+
+**What `check` holds slides to.** On a deck held to a brand with roles, any colour a slide names in a fill, stroke or colour attribute or a style that is not a role is warned about (`off-role`, ⚠, once per slide): a literal, a contract token (`var(--accent)`, `var(--d-fill-2)`) or a swatch (`var(--acme-polar-700)`). Each is named with the role nearest it in the deck's theme, or, for a contract token the manifest maps, the role it reads. `off-role` replaces `off-palette-literal` on such a deck, so one colour is not warned about twice.
+
+**What the gate holds the package to.** `design-system gate` warns about every colour in `design-system.css` or a template's `style`, `fill`, `stroke`, `color` or `stop-color` in `templates.html` that is a contract token, a swatch or a literal (`component-off-role`, ⚠), one per declaration, naming the file, the line and the nearest role. A role read with a fallback is a role; a component's own custom properties are its own business. The report prints the roles, by group, and how many contract tokens each theme takes through them.
+
+**`"brandThemesOnly": false` stands it down** for a deck, as it does the palette lock: the Colors tab shows the theme, the palette and Custom again, and `off-role` is not raised. The gate's `component-off-role` is about the package, not a deck, and stays.
+
+**`design-system gate`** gains these rules: `role-redefined`, `theme-role-missing`, `theme-role-unknown` (✘), `component-off-role` (⚠), with a malformed `roles` or `contract` refused as `manifest-field`. `decklight check` gains `off-role` (⚠).
 
 ## FONTS · Fonts: a typeface's files, by reference
 

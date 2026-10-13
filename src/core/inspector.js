@@ -498,7 +498,7 @@ export function createInspector({
         // the deck's design systems' palettes follow the theme's (SPEC DESIGN_SYSTEMS)
         systems: [...pageDesignSystems().values()],
         // a deck held to its brand (SPEC BRAND_PALETTE): no Custom, and the swatches name their roles
-        brand: (() => { const b = brand(); return b ? { locked: b.locked, roles: brandRoles([...pageDesignSystems().values()], b.theme) } : null; })(),
+        brand: (() => { const b = brand(); return b ? { locked: b.locked, theme: b.theme, roles: brandRoles([...pageDesignSystems().values()], b.theme) } : null; })(),
         save: (edits) => editmode().saveStyles({ slide, index, edits }),
         onError: (m) => toast(`not saved: ${m.slice(0, 90)}`, 3400),
         onDetach: (c) => editmode().detachConcept({ slide, index, path: c.path, tag: c.tag, el: c.el }),

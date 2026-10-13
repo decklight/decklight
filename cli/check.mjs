@@ -52,7 +52,7 @@ import { auditDeck } from './audit.mjs';
 import { designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
 import { markedSources } from './theme-refs.mjs';
 import { parseColor, toOklab } from '../tools/color.mjs';
-import { ON_PALETTE_DISTANCE } from '../tools/brand-palette.mjs';
+import { ON_PALETTE_DISTANCE, offRoleColours, nearestRole } from '../tools/brand-palette.mjs';
 import { printUrl } from './pdf.mjs';
 import { runMain } from './util.mjs';
 
@@ -381,15 +381,24 @@ export function deckDesignSystems(html) {
     const r = resolveDesignSystemRef(ref, undefined, { source: sources[ref.marketplace] ?? null });
     const verdict = r.dir ? packageVerdict(r.dir) : null;
     const missing = r.missing ?? (verdict.ok ? null : verdict.why);
-    const brand = verdict?.summary?.brand;
-    out.set(ref.name, missing ? { ref: ref.ref, missing }
-      : {
-        ref: ref.ref, templates: new Map((verdict.summary?.templates ?? []).map((l) => [l.id, l.slots])),
-        // a palette of scales and its own themes (SPEC BRAND_PALETTE): what off-palette-literal holds slides to
-        ...(brand ? { palette: brand.palette.map((e) => ({ ref: e.ref, hex: e.hex })), themes: brand.themes.length } : {}),
-      });
+    out.set(ref.name, missing ? { ref: ref.ref, missing } : checkEntry(ref.ref, verdict));
   }
   return out;
+}
+
+/** What `check` keeps of a design system that passed its gate: its templates, and its palette and roles when it has them. */
+export function checkEntry(ref, verdict) {
+  const brand = verdict?.summary?.brand;
+  return {
+    ref, templates: new Map((verdict?.summary?.templates ?? []).map((l) => [l.id, l.slots])),
+    // a palette of scales and its own themes (SPEC BRAND_PALETTE): what off-palette-literal holds slides to
+    ...(brand ? { palette: brand.palette.map((e) => ({ ref: e.ref, hex: e.hex, token: e.token })), themes: brand.themes.length } : {}),
+    // its roles (SPEC DESIGN_SYSTEM_ROLES): what off-role holds slides to, with each theme's values to name the nearest
+    ...(brand?.roles ? {
+      prefix: verdict.summary.prefix, roles: brand.roles, contract: brand.contract ?? {},
+      themeRoles: Object.fromEntries(brand.themes.map((t) => [t.name, { roles: t.roleValues ?? {}, tokens: t.tokens ?? {} }])),
+    } : {}),
+  };
 }
 
 // ── the brand's palette (SPEC BRAND_PALETTE) ─────────────────────────────────
@@ -410,6 +419,32 @@ function brandHold(src, systems) {
     for (const e of sys.palette ?? []) swatches.push({ ref: e.ref, lab: toOklab(parseColor(e.hex)) });
   }
   return themes && swatches.length ? { swatches } : null;
+}
+
+/**
+ * The deck's roles when it is held to a design system that declares them
+ * (SPEC DESIGN_SYSTEM_ROLES): what off-role reads, at their values in the
+ * deck's theme (its own `theme` when that is one of the brand's, else the
+ * brand's first). Null when the deck is unlocked or no design system has roles.
+ */
+function roleHold(src, systems) {
+  const config = (() => { try { return JSON.parse(/<script[^>]*data-decklight-config[^>]*>([\s\S]*?)<\/script>/i.exec(src)?.[1] ?? 'null'); } catch { return null; } })();
+  if (config?.brandThemesOnly === false) return null;
+  for (const sys of systems.values()) {
+    if (!sys.roles?.length || !sys.prefix) continue;
+    const names = Object.keys(sys.themeRoles ?? {});
+    const theme = sys.themeRoles[names.includes(config?.theme) ? config.theme : names[0]] ?? { roles: {}, tokens: {} };
+    const scales = {};
+    for (const e of sys.palette ?? []) {
+      const m = /^([a-z][a-z0-9-]*)-(\d{3,4})$/.exec(e.ref ?? '');
+      if (m) ((scales[m[1]] ??= { weights: {} }).weights[Number(m[2])] = e.hex);
+    }
+    return {
+      ctx: { prefix: sys.prefix, scales, roles: Object.fromEntries(sys.roles.map((r) => [r.id, r])), contractHex: theme.tokens },
+      values: theme.roles, contract: sys.contract ?? {},
+    };
+  }
+  return null;
 }
 
 /** The palette swatch nearest a literal, and how far (OKLab). */
@@ -524,6 +559,7 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
   const configured = designSystemRefs(src);
   const systems = configured.length ? designSystems(src) : new Map();
   const hold = brandHold(src, systems);
+  const roles = roleHold(src, systems);
   for (const [, sys] of systems) {
     if (sys.missing) {
       out.push(finding('warn', 'ds-unresolved', null, 'head',
@@ -577,8 +613,26 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       const own = a.fill && a.fill !== 'none' ? `fill="${a.fill}"` : /(?:^|;)\s*fill\s*:\s*(?!none\b)[^;]+/i.test(a.style ?? '') ? 'a fill in its style' : null;
       if (own) push('concept-fill', `<${node.tag} data-concept="${a['data-concept']}"> also carries ${own} — the concept colours it, and the fill is painted over; pin the concept's slot (Concept colors…) or take the concept off (Colors… → Detach from concept)`);
     }
+    // a deck on a design system with roles: every colour its slides name is a role (SPEC DESIGN_SYSTEM_ROLES)
+    if (roles) {
+      const off = [];
+      for (const node of descendants(tree)) {
+        const a = readAttrs(node.attrs);
+        const values = [...COLOUR_ATTRS.map((k) => a[k]).filter(Boolean), ...[...(a.style ?? '').matchAll(COLOUR_DECL)].map((m) => m[1])];
+        for (const v of values) {
+          for (const o of offRoleColours(v, roles.ctx)) {
+            if (off.some((x) => x.name === o.name)) continue;
+            off.push({ ...o, near: (o.kind === 'contract' && roles.contract[o.name]) || nearestRole(roles.values, o.hex) });
+          }
+        }
+      }
+      if (off.length) {
+        const what = (o) => `${o.name}${o.kind === 'contract' ? ' (the theme contract)' : o.kind === 'swatch' ? ' (a swatch)' : ''}${o.near ? ` (nearest role ${o.near})` : ''}`;
+        push('off-role', `${off.slice(0, 3).map(what).join(', ')}${off.length > 3 ? ` and ${off.length - 3} more` : ''}`
+          + ` ${off.length === 1 ? 'is' : 'are'} not one of the design system's roles — this deck colours through them, so every theme recolours it: pick a role in Colors…, or set "brandThemesOnly": false`);
+      }
+    } else if (hold) {
     // a deck held to its brand: every colour its slides write by hand is a palette colour
-    if (hold) {
       const off = [];
       for (const node of descendants(tree)) {
         const a = readAttrs(node.attrs);

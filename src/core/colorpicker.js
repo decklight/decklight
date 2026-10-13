@@ -127,8 +127,32 @@ export function brandRoles(systems, themeName) {
  * scales, or the colour does not parse. What Paste style puts on a deck held
  * to its brand instead of the literal it copied.
  */
-export function brandSnapper(systems) {
+export function brandSnapper(systems, themeName = null) {
   const swatches = [];
+  // a design system with roles (SPEC DESIGN_SYSTEM_ROLES): the role nearest, at its value in the theme on screen
+  for (const sys of systems ?? []) {
+    const theme = (sys?.themes ?? []).find((t) => t.name === themeName);
+    for (const r of Array.isArray(sys?.roles) ? sys.roles : []) {
+      const hex = theme?.roles?.[r.id];
+      const c = resolveColor(hex);
+      if (c && TOKEN.test(String(r.token))) swatches.push({ ref: r.label || r.id, token: r.token, hex: rgbToHex(c), lab: toOklab([c.r, c.g, c.b]), role: true });
+    }
+  }
+  if (swatches.length) {
+    // a token that is not a role (var(--accent), a swatch) is off-role too: read what it is now
+    const own = new Set(swatches.map((x) => x.token));
+    const snap = snapTo(swatches);
+    const roleSnap = (value) => {
+      const m = /^var\(\s*(--[a-z][a-z0-9-]*)\s*(?:,\s*([^()]*))?\)$/i.exec(String(value ?? '').trim());
+      if (!m) return snap(value);
+      if (own.has(m[1])) return null;
+      const host = typeof document !== 'undefined' ? document.querySelector('.decklight') ?? document.documentElement : null;
+      const now = host ? getComputedStyle(host).getPropertyValue(m[1]).trim() : '';
+      return snap(now || m[2]);
+    };
+    roleSnap.roles = true;
+    return roleSnap;
+  }
   for (const sys of systems ?? []) {
     if (!sys?.scales) continue;
     for (const p of sys.palette ?? []) {
@@ -137,6 +161,10 @@ export function brandSnapper(systems) {
     }
   }
   if (!swatches.length) return null;
+  return snapTo(swatches);
+}
+
+function snapTo(swatches) {
   return (value) => {
     const c = resolveColor(value);
     if (!c) return null;
@@ -146,8 +174,37 @@ export function brandSnapper(systems) {
       const e = Math.hypot(lab[0] - s.lab[0], lab[1] - s.lab[1], lab[2] - s.lab[2]);
       if (e < d) { d = e; best = s; }
     }
-    return { ref: best.ref, value: `var(${best.token}, ${best.hex})` };
+    return { ref: best.ref, value: `var(${best.token}, ${best.hex})`, role: !!best.role };
   };
+}
+
+/**
+ * A design system's roles (SPEC DESIGN_SYSTEM_ROLES), for a deck held to the
+ * brand: one group per role `group`, headed `<title> · <group>`, each role a
+ * swatch of the theme on screen (read off the page, else the theme's value in
+ * the meta). Empty when no design system on the page declares roles: the
+ * card then offers the theme and the palette, as before.
+ */
+export function rolePalette(systems, read, themeName) {
+  const norm = (v) => String(v ?? '').trim().toLowerCase();
+  const out = [];
+  for (const sys of systems ?? []) {
+    const roles = Array.isArray(sys?.roles) ? sys.roles : [];
+    if (!roles.length) continue;
+    const title = String(sys.title || sys.name || 'Design system');
+    const theme = (sys.themes ?? []).find((t) => t.name === themeName) ?? null;
+    const groups = new Map();
+    for (const r of roles) {
+      if (!r || !TOKEN.test(String(r.token))) continue;
+      const value = norm(read(r.token)) || norm(theme?.roles?.[r.id]);
+      if (!value) continue;
+      const g = String(r.group || 'Roles');
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push({ label: r.label || r.id, token: r.token, value, role: r.id });
+    }
+    for (const [g, items] of groups) out.push({ group: `${title} · ${g}`, system: sys.name, fallback: true, roles: true, items });
+  }
+  return out;
 }
 
 /** PALETTE against a token reader: undefined tokens dropped, a secondary equal to its primary dropped. */
@@ -490,7 +547,10 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     const read = (t) => style.getPropertyValue(t);
     // marked by the token, never by a design-system pick's fallback, which can go stale
     const chosenToken = tokenOf(chosen);
-    for (const g of [...themePalette(read), ...systemPalette(systems, read, { roles: brand?.roles ?? null })]) {
+    // held to a brand with roles (SPEC DESIGN_SYSTEM_ROLES): its roles, and nothing else
+    const roleGroups = brand?.locked ? rolePalette(systems, read, brand.theme) : [];
+    const groups = roleGroups.length ? roleGroups : [...themePalette(read), ...systemPalette(systems, read, { roles: brand?.roles ?? null })];
+    for (const g of groups) {
       const box = h('div', g.scale ? 'cp-groupbox cp-scalebox' : 'cp-groupbox');
       box.appendChild(h('div', 'cp-group', g.group));
       const grid = h('div', g.scale ? 'cp-swatches cp-compact cp-scale' : g.compact ? 'cp-swatches cp-compact' : 'cp-swatches');

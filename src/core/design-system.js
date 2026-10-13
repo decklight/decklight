@@ -79,6 +79,8 @@ export function pageDesignSystems(doc = document) {
       // a palette of scales and the themes drawn from it (SPEC BRAND_PALETTE)
       scales: info?.scales === true,
       themes: Array.isArray(info?.themes) ? info.themes.filter((t) => t && typeof t.name === 'string') : [],
+      // its roles, each theme's value on the theme (SPEC DESIGN_SYSTEM_ROLES)
+      roles: Array.isArray(info?.roles) ? info.roles.filter((r) => r && typeof r.id === 'string' && typeof r.token === 'string') : [],
       recommendedThemes: Array.isArray(info?.recommendedThemes) ? info.recommendedThemes.filter((t) => typeof t === 'string') : [],
       recommendedFonts: Array.isArray(info?.recommendedFonts) ? info.recommendedFonts.filter((t) => typeof t === 'string') : [],
       templates,

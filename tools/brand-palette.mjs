@@ -201,6 +201,9 @@ export function paletteEntries(scales, prefix) {
   return out;
 }
 
+/** The token a role is: `--<prefix>color-<role>` (SPEC DESIGN_SYSTEM_ROLES). */
+export const roleToken = (prefix, id) => `${prefix}color-${id}`;
+
 /** `blue-700` or `blue-700/40` → `{ color, weight, alpha }`, or null for anything else. */
 export function parseSwatchRef(ref) {
   const m = /^([a-z][a-z0-9-]*)-(\d{3,4})(?:\/(\d{1,3}))?$/.exec(String(ref ?? ''));
@@ -227,7 +230,7 @@ export function nearestSwatch(scales, hex) {
 // ── themes ──────────────────────────────────────────────────────────────────
 
 /** The theme contract's colour tokens: what a brand theme may give only a swatch. */
-const COLOUR_TOKENS = new Set([
+export const COLOUR_TOKENS = new Set([
   '--bg', '--bg-accent', '--fg', '--muted', '--heading-color', '--link', '--accent', '--accent-contrast',
   '--block-bg', '--block-border', '--code-bg', '--code-fg',
   '--hl-keyword', '--hl-string', '--hl-number', '--hl-comment', '--hl-function', '--hl-type', '--hl-punct',
@@ -248,7 +251,7 @@ const PLAIN_TOKENS = {
   '--shadow': /^none$/,
 };
 /** Colour tokens a contrast gate reads: these must be opaque. */
-const GATED = new Set([
+export const GATED = new Set([
   '--bg', '--fg', '--muted', '--heading-color', '--link', '--accent', '--accent-contrast', '--code-bg', '--code-fg',
   '--hl-keyword', '--hl-string', '--hl-number', '--hl-comment', '--hl-function', '--hl-type', '--hl-punct',
   '--d-text', '--d-muted', '--d-accent', ...[1, 2, 3, 4, 5, 6].flatMap((i) => [`--d-fill-${i}`, `--d-fill-${i}-in`]),
@@ -276,12 +279,12 @@ const ROLE_REACH = 40;
  * design system's stylesheet is missing), `gateCss` the same in plain colours
  * — what the contrast gates read — and `tokens` the plain-colour map.
  */
-export function expandTheme(read, theme, prefix) {
+export function expandTheme(read, theme, prefix, { roles = null, contract = null } = {}) {
   const { scales, neutral } = read;
   const problems = [];
   const notes = [];
   const where = `themes: ${theme?.name ?? '?'}`;
-  const out = { name: theme?.name, title: theme?.title, mode: theme?.mode, css: '', gateCss: '', tokens: {}, refs: {}, stated: [], chosen: [], problems, notes };
+  const out = { name: theme?.name, title: theme?.title, mode: theme?.mode, css: '', gateCss: '', tokens: {}, refs: {}, stated: [], chosen: [], roleRefs: {}, roleValues: {}, viaRole: {}, problems, notes };
   const N = scales[neutral];
   const colours = Object.values(scales).filter((s) => s.name !== neutral);
   const hexOfRef = (r) => scales[r.color]?.weights[r.weight];
@@ -296,8 +299,48 @@ export function expandTheme(read, theme, prefix) {
     out.refs[token] = `${color}-${weight}${alpha === null ? '' : `/${alpha}`}`;
   };
 
-  // ── what the brand stated
-  const stated = theme?.tokens && typeof theme.tokens === 'object' && !Array.isArray(theme.tokens) ? theme.tokens : {};
+  // ── the design system's roles (SPEC DESIGN_SYSTEM_ROLES): every one a swatch, in every theme
+  const roleLive = {};
+  const themeRoles = theme?.roles && typeof theme.roles === 'object' && !Array.isArray(theme.roles) ? theme.roles : null;
+  if (roles) {
+    const gatedRole = new Set(Object.entries(contract ?? {}).filter(([t]) => GATED.has(t)).map(([, r]) => r));
+    for (const id of Object.keys(roles)) {
+      const value = themeRoles?.[id];
+      if (value === undefined) {
+        problems.push({ rule: 'theme-role-missing', msg: `${where}: gives no swatch to the role ${id} — every theme sets every role, "roles": { "${id}": "<colour>-<weight>" }` });
+        continue;
+      }
+      const r = parseSwatchRef(value);
+      if (!r || !hexOfRef(r)) {
+        problems.push({ rule: 'theme-off-palette', msg: `${where}: role ${id} ${JSON.stringify(value)} names no swatch — a role is a swatch of the palette, "<colour>-<weight>" or "<colour>-<weight>/<opacity>"` });
+        continue;
+      }
+      if (r.alpha !== null && gatedRole.has(id)) {
+        problems.push({ rule: 'theme-off-palette', msg: `${where}: role ${id} ${value} — the contract reads it for a colour a contrast gate checks, so it is opaque` });
+        continue;
+      }
+      const hex = scales[r.color].weights[r.weight];
+      out.roleRefs[id] = value;
+      out.roleValues[id] = r.alpha === null ? hex : rgba(hex, r.alpha);
+      roleLive[roleToken(prefix, id)] = r.alpha === null ? swatchCss(r.color, r.weight) : `color-mix(in srgb, ${swatchCss(r.color, r.weight)} ${r.alpha}%, transparent)`;
+    }
+    for (const id of Object.keys(themeRoles ?? {})) {
+      if (!Object.hasOwn(roles, id)) problems.push({ rule: 'theme-role-unknown', msg: `${where}: sets the role ${id}, which the manifest's "roles" does not declare` });
+    }
+  } else if (themeRoles && roles !== false) {
+    problems.push({ rule: 'theme-role-unknown', msg: `${where}: sets "roles", but the manifest declares none — declare them in a top-level "roles"` });
+  }
+  if (problems.length) return out;
+
+  // ── what the brand stated: the contract's roles first, then the theme's own tokens, which win
+  const own = theme?.tokens && typeof theme.tokens === 'object' && !Array.isArray(theme.tokens) ? theme.tokens : {};
+  const fromRoles = {};
+  for (const [token, id] of Object.entries(roles ? contract ?? {} : {})) {
+    if (Object.hasOwn(own, token) || out.roleRefs[id] === undefined) continue;
+    fromRoles[token] = out.roleRefs[id];
+    out.viaRole[token] = id;
+  }
+  const stated = { ...fromRoles, ...own };
   for (const [token, value] of Object.entries(stated)) {
     if (COLOUR_TOKENS.has(token)) {
       if (token === '--bg' && value && typeof value === 'object' && !Array.isArray(value)) {
@@ -511,7 +554,9 @@ export function expandTheme(read, theme, prefix) {
 
   out.tokens = plain;
   out.gateCss = themeCss(theme.name, plain);
-  out.css = themeCss(theme.title || theme.name, live);
+  // the roles ride on the theme block, so switching theme recolours every role;
+  // the gates read the contract alone
+  out.css = themeCss(theme.title || theme.name, { ...live, ...roleLive });
   const verdict = validateTheme(out.gateCss);
   for (const e of verdict.errors) problems.push({ rule: 'theme-contrast', msg: `${where}: ${e}${blame(e, out)}` });
   return out;
@@ -531,14 +576,14 @@ function themeCss(title, tokens) {
 /** Which of a failing pair the brand stated, so the message points at the choice to change. */
 function blame(error, out) {
   const named = [...error.matchAll(/--([a-z0-9-]+)/g)].map((m) => `--${m[1]}`).filter((t) => out.stated.includes(t));
-  return named.length ? ` (stated: ${named.map((t) => `${t} ${out.refs[t]}`).join(', ')})` : ' (chosen from the palette: no weight of it clears the gate — state this token, or widen the scale)';
+  return named.length ? ` (stated: ${named.map((t) => `${t} ${out.refs[t]}${out.viaRole[t] ? ` through the role ${out.viaRole[t]}` : ''}`).join(', ')})` : ' (chosen from the palette: no weight of it clears the gate — state this token, or widen the scale)';
 }
 
 /**
  * Every theme of a manifest, expanded. Returns `{ themes, problems, notes }`;
  * a theme with a problem is left out of `themes`.
  */
-export function expandThemes(read, themes, prefix) {
+export function expandThemes(read, themes, prefix, roleSpec = {}) {
   const problems = [];
   const notes = [];
   const out = [];
@@ -552,7 +597,7 @@ export function expandThemes(read, themes, prefix) {
     seen.add(t.name);
     if (t.mode !== 'dark' && t.mode !== 'light') { problems.push({ rule: 'theme-shape', msg: `themes: ${t.name} — "mode" is "dark" or "light"` }); continue; }
     if (t.title !== undefined && (typeof t.title !== 'string' || !t.title.trim())) { problems.push({ rule: 'theme-shape', msg: `themes: ${t.name} — "title" is the name a person reads` }); continue; }
-    const e = expandTheme(read, t, prefix);
+    const e = expandTheme(read, t, prefix, roleSpec);
     problems.push(...e.problems);
     notes.push(...e.notes);
     if (!e.problems.length) out.push(e);
@@ -574,4 +619,56 @@ export function offPaletteTokens(scales, tokens) {
     }
   }
   return out;
+}
+
+// ── roles (SPEC DESIGN_SYSTEM_ROLES) ──────────────────────────────────────────
+
+/** A colour written as a value: hex, or a colour function (color-mix is a recipe, not a colour). */
+const LITERAL_COLOUR = /#[0-9a-f]{8}\b|#[0-9a-f]{6}\b|#[0-9a-f]{3,4}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^()]*\)/gi;
+/** `var(--x)` or `var(--x, fallback)`, a fallback holding at most one level of parentheses. */
+const VAR_REF = /var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,(?:[^()]|\([^()]*\))*)?\)/g;
+
+/**
+ * Every colour a CSS value names that is not one of the design system's roles:
+ * `[{ kind: 'literal' | 'contract' | 'swatch', name, hex }]`. A role read with
+ * a fallback (`var(--acme-color-text, #fff)`, what the Colors tab writes) is a
+ * role; a swatch or contract token is reported by its name, never again by its
+ * fallback's literal. Other custom properties (a component's own) are left be.
+ * `hex` is the colour it stands for where that is known, for naming the
+ * nearest role: `contractHex` maps a contract token to its value in a theme.
+ */
+export function offRoleColours(value, { prefix, scales, roles, contractHex = {} }) {
+  const out = [];
+  const seen = new Set();
+  const add = (kind, name, hex) => { if (!seen.has(name)) { seen.add(name); out.push({ kind, name, hex: hex ?? null }); } };
+  const roleNames = new Set(Object.keys(roles ?? {}).map((id) => roleToken(prefix, id)));
+  const swatchRe = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([a-z][a-z0-9-]*)-(\\d{3,4})$`);
+  const rest = String(value ?? '').replace(VAR_REF, (whole, token) => {
+    if (roleNames.has(token)) return ' ';
+    const sw = swatchRe.exec(token);
+    if (sw && scales[sw[1]]?.weights[Number(sw[2])]) { add('swatch', token, scales[sw[1]].weights[Number(sw[2])]); return ' '; }
+    if (COLOUR_TOKENS.has(token)) { add('contract', token, contractHex[token]); return ' '; }
+    return whole;
+  });
+  for (const lit of rest.match(LITERAL_COLOUR) ?? []) {
+    const c = parseColor(lit);
+    add('literal', lit, c ? rgbToHex(c.slice(0, 3)) : null);
+  }
+  return out;
+}
+
+/** The role whose value (in one theme) is nearest `hex`, by OKLab; `roleValues` is `{ id: '#hex' | 'rgba(…)' }`. */
+export function nearestRole(roleValues, hex) {
+  if (!hex) return null;
+  const c = parseColor(hex);
+  if (!c) return null;
+  const target = toOklab(c.slice(0, 3));
+  let best = null;
+  for (const [id, v] of Object.entries(roleValues ?? {})) {
+    const rc = parseColor(v);
+    if (!rc) continue;
+    const d = labDistance(target, toOklab(rc.slice(0, 3)));
+    if (!best || d < best.d) best = { id, d };
+  }
+  return best?.id ?? null;
 }

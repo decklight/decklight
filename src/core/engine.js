@@ -2951,7 +2951,7 @@ export function init(userConfig = {}) {
     save: (body) => editmode.saveStyles(body), toast,
     repaint: () => { applyConcepts(stage, config.concepts ?? {}); conceptsEditor.refresh(); inspector?.refresh?.(); },
     // a deck held to its brand takes no literal colour: the nearest swatch instead (SPEC BRAND_PALETTE)
-    snap: () => (themes.brandLocked() ? brandSnapper([...pageDesignSystems().values()]) : null),
+    snap: () => (themes.brandLocked() ? brandSnapper([...pageDesignSystems().values()], themes.currentTheme()) : null),
     debugLog: (...a) => debugLog(...a),
   });
   editmode.setStyleClip(styleClip);

@@ -31,7 +31,7 @@ export const MODES = [
   'restore', 'historydetails', 'historycaptions', 'historychanges', 'escapeall', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'publish',
   'inspector', 'sourcesedit',
-  'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'pinch', 'debugreload', 'lockmode', 'notrustmode', 'editingtour', 'editingtourwelcome',
+  'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'designroles', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'pinch', 'debugreload', 'lockmode', 'notrustmode', 'editingtour', 'editingtourwelcome',
   'linedraw', 'dasheddraw', 'nestedfills', 'dstemplates', 'dsedit', 'concepts', 'conceptsfind',
 ];
 

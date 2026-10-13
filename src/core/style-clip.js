@@ -120,7 +120,8 @@ export function pasteChanges(clip, target, { snap = null } = {}) {
   // is put on the palette swatch nearest it, and the paste says which
   const snapped = [];
   const onBrand = (v) => {
-    if (!snap || !v || v.startsWith('var(')) return v;
+    // a design system's roles (SPEC DESIGN_SYSTEM_ROLES) take no other token either
+    if (!snap || !v || (v.startsWith('var(') && !snap.roles)) return v;
     const s = snap(v);
     if (!s) return v;
     snapped.push(s.ref);
@@ -187,7 +188,7 @@ export function pasteChanges(clip, target, { snap = null } = {}) {
       set(t, svgText ? 'text-anchor' : 'text-align', (svgText ? TO_ANCHOR : TO_ALIGN)[clip.type.align]);
     }
   }
-  return { changes, concept, snapped: [...new Set(snapped)] };
+  return { changes, concept, snapped: [...new Set(snapped)], snapRoles: !!snap?.roles };
 }
 
 /** A clip said in a few words, for the toast: `box · “agent”`, `box · fill 3`, `blockquote · #2a6f97`. */
@@ -258,7 +259,7 @@ export function createStyleClip({ save, toast, repaint = () => {}, snap = () => 
     }
     if (concept) repaint();
     debugLog('edit', `style pasted on slide ${target.slide} #${target.index}: ${changes.length} declaration${changes.length === 1 ? '' : 's'}${concept ? `, concept ${concept.value ?? '(detached)'}` : ''}`);
-    toast(plan.snapped.length ? `style pasted, on the brand's palette: ${plan.snapped.join(', ')} · ${UNDO_CHORD} takes it back` : `style pasted · ${UNDO_CHORD} takes it back`, plan.snapped.length ? 3200 : 2200);
+    toast(plan.snapped.length ? `style pasted, on the brand's ${plan.snapRoles ? 'roles' : 'palette'}: ${plan.snapped.join(', ')} · ${UNDO_CHORD} takes it back` : `style pasted · ${UNDO_CHORD} takes it back`, plan.snapped.length ? 3200 : 2200);
     return true;
   }
 
