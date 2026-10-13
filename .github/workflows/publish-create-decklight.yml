@@ -25,11 +25,11 @@ jobs:
       run:
         working-directory: create-decklight
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # no registry-url, for the reason release.yml spells out: a configured
       # token pre-empts the OIDC exchange
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - run: npm install -g npm@11

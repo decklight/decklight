@@ -47,11 +47,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # tools/site-voices.mjs tags the voices release at the root commit
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
 
@@ -68,7 +68,7 @@ jobs:
       # the shared clip cache: a sentence already voiced in a voice is never
       # bought twice, across runs too. A new key every run, restored by prefix,
       # so the newest cache is always the one picked up.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: ~/.cache/decklight/tts
           key: tts-clips-${{ github.run_id }}
@@ -118,9 +118,9 @@ jobs:
             console.log("narration config injected:", cfg.voices.length, "voice(s)");
           '
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ./out
 
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
