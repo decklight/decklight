@@ -74,6 +74,12 @@ jobs:
           key: tts-clips-${{ github.run_id }}
           restore-keys: tts-clips-
 
+      # the track is m4a, and the encoder is ffmpeg, which the runner image no
+      # longer ships; the synthesizer checks for it before it voices anything
+      - name: ffmpeg, for the m4a encoding
+        if: env.ELEVENLABS_API_KEY != ''
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null && ffmpeg -version | head -1
+
       - name: re-voice the slides whose notes changed
         if: env.ELEVENLABS_API_KEY != ''
         run: node tools/site-voices.mjs refresh
