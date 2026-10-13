@@ -35,6 +35,7 @@
     "agent"
   ],
   "scripts": {
+    "site:voices": "node tools/site-voices.mjs",
     "build": "node build.mjs",
     "prepare": "npm run build",
     "test": "node test/run.mjs",

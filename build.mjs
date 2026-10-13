@@ -109,7 +109,7 @@ const virtualTerminal = {
 // answer there, not a made-up zero.
 let buildInfo = null;
 try {
-  const desc = execFileSync('git', ['describe', '--tags', '--long', '--dirty=.dirty'],
+  const desc = execFileSync('git', ['describe', '--tags', '--match', 'v*', '--long', '--dirty=.dirty'],
     { cwd: here, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   buildInfo = parseDescribe(desc);
 } catch { /* not a clone — the plain version is the whole truth */ }

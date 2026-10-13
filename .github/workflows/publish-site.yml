@@ -1,8 +1,24 @@
 # Publishes decklight.io: every push to main rebuilds the runtime, bundles
 # demo/showcase.html with every theme into ONE self-contained file, and
 # deploys the assembled site to GitHub Pages on THIS repo (decklight.io is
-# the repo's custom domain, set in Settings → Pages). Auth is the workflow's
-# own OIDC token — no stored credential anywhere.
+# the repo's custom domain, set in Settings → Pages). Pages auth is the
+# workflow's own OIDC token.
+#
+# The showcase's voice tracks are not in git. They are one release asset
+# (`site-voices`, voices.tar.gz) that this workflow pulls, brings up to date
+# with the deck, checks, and pushes back (tools/site-voices.mjs). Bringing it
+# up to date is a Vertex AI call per slide whose notes changed, and only
+# those: the manifests say which, and the clip cache restored below makes a
+# slide that merely moved a cache hit. It needs three settings on the repo:
+#
+#   secrets.GCP_WORKLOAD_IDENTITY_PROVIDER   projects/N/locations/global/workloadIdentityPools/P/providers/Q
+#   secrets.GCP_SERVICE_ACCOUNT              an account with Vertex AI User on the project
+#   vars.GOOGLE_CLOUD_PROJECT                the project the calls are billed to
+#
+# Without the first, the re-voicing is skipped and the deploy goes ahead only
+# if the pulled tracks already match the deck: `check` fails the run otherwise,
+# before Pages, so the site never publishes narration that disagrees with its
+# slides again.
 name: publish decklight.io
 
 on:
@@ -11,14 +27,19 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # the voices release asset
   pages: write
   id-token: write
 
-# one Pages deployment at a time; never cancel one mid-flight
+# one Pages deployment at a time; never cancel one mid-flight (the voices
+# asset is read-modify-write, so two runs must not interleave)
 concurrency:
   group: pages
   cancel-in-progress: false
+
+env:
+  # a secret cannot be tested in `if:` directly; through env it can
+  GCP_WIF: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
 
 jobs:
   publish:
@@ -28,6 +49,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tools/site-voices.mjs tags the voices release at the root commit
 
       - uses: actions/setup-node@v4
         with:
@@ -38,6 +61,41 @@ jobs:
 
       - run: node build.mjs
 
+      - name: pull the voices (the last deploy's asset)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/site-voices.mjs pull
+
+      # the shared clip cache: a sentence already voiced in a voice is never
+      # bought twice, across runs too. A new key every run, restored by prefix,
+      # so the newest cache is always the one picked up.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/decklight/tts
+          key: tts-clips-${{ github.run_id }}
+          restore-keys: tts-clips-
+
+      - uses: google-github-actions/auth@v2
+        if: env.GCP_WIF != ''
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: re-voice the slides whose notes changed
+        if: env.GCP_WIF != ''
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+        run: node tools/site-voices.mjs refresh
+
+      - name: every clip matches its notes
+        run: node tools/site-voices.mjs check
+
+      - name: push the voices back (only when a clip changed)
+        if: env.GCP_WIF != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/site-voices.mjs push
+
       - name: assemble the site
         run: |
           mkdir -p out/dist out/themes
@@ -47,8 +105,9 @@ jobs:
           # terminal casts name them, and a visitor who follows those commands lands
           # on a deck that expects them to resolve
           cp themes/paper.css themes/meadow.css out/themes/
-          # demo voice tracks for the showcase (see site/voices.json)
+          # the voice tracks pulled above (see site/voices.json)
           cp -r site/voices out/voices
+          rm -f out/voices/.pulled
           node cli/decklight.mjs bundle demo/showcase.html --themes all -o out/showcase.html
           node -e '
             const fs = require("fs");

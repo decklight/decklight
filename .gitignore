@@ -9,6 +9,10 @@ node_modules
 bundles/
 demo/voiceover*/
 
+# The showcase's voice tracks for decklight.io: a release asset, pulled here by
+# tools/site-voices.mjs and the site deploy, never committed (see site/voices.json).
+site/voices/
+
 # Build output. Derived from src/, so it is not versioned: the "prepare" script
 # rebuilds it on npm install (contributors, git installs) and before npm
 # publish/pack, and CI rebuilds it before both the npm release and the site

@@ -41,7 +41,7 @@ let buildInfo = null;
 if (existsSync(new URL('../.git', import.meta.url))) {
   try {
     const { execFileSync } = await import('node:child_process');
-    buildInfo = parseDescribe(execFileSync('git', ['describe', '--tags', '--long', '--dirty=.dirty'],
+    buildInfo = parseDescribe(execFileSync('git', ['describe', '--tags', '--match', 'v*', '--long', '--dirty=.dirty'],
       { cwd: new URL('..', import.meta.url), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
   } catch { buildInfo = null; }   // a tagless clone: plain is the whole truth
 } else {
