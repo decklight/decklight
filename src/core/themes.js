@@ -531,6 +531,12 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
    * from localStorage), then the deck's configured `theme` — and failing all
    * three, whatever the markup already selects (the first inline block).
    *
+   * The brand lock (SPEC BRAND_PALETTE) holds the last two to the brand's
+   * themes: a saved pick outside them is passed over, and a configured theme
+   * outside them (or none) opens on the brand's first. `?theme=` is exempt —
+   * it is one view asked for by name (a picker preview, an export's --theme),
+   * never saved.
+   *
    * The configured theme used to be missing from this chain (#547): a deck
    * whose themes are inline blocks — every `upgrade --link` deck — is never
    * given a theme link, so `"theme": "confluent"` in its config block did
@@ -559,6 +565,25 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     // a theme this browser chose before the deck kept to its brand is not one it may open on
     if (saved && !(brandLocked() && !brandOf.has(saved)) && applyTheme(saved, true)) return;
     const configured = config.theme;
+    // a deck held to its brand never opens outside it (SPEC BRAND_PALETTE): a
+    // theme its configuration names from while it was unlocked (or the default,
+    // when it names none) would leave every role undefined, so the brand's
+    // first theme is what it opens on — and an author is told why, once
+    if (brandLocked() && !brandOf.has(configured)) {
+      const first = brandOf.keys().next().value;
+      applyTheme(first, true, { persist: false });
+      if (configured) {
+        debugLog('theme', `configured ${configured} is not the brand's: opened on ${first}`);
+        Promise.resolve().then(() => editmode?.()?.settled?.()).then(() => {
+          if (!authoring()) return;
+          // once a session, not on every reload an edit causes
+          const key = `decklight-theme-off-brand:${location.pathname}:${configured}`;
+          try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch { /* no storage: say it each load */ }
+          toast(`"theme": "${configured}" is not one of ${brandTitles()}'s themes — opened on ${first}; pick one with T, or show every theme to wear ${configured}`, 7000);
+        }).catch(() => {});
+      }
+      return;
+    }
     if (configured && (inlineThemes || addedThemes.has(configured))) applyTheme(configured, true, { persist: false });
   }
 
