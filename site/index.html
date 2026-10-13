@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Decklight: the presentation library that presents itself</title>
-  <meta name="description" content="Single-file decks, Keynote-grade motion, 46 themes through WCAG contrast gates, truthful terminal recordings, narration in a synthesized voice or your own, review comments carried by git, and your old PowerPoint, imported with its charts as data and its diagrams as diagrams. Authored by humans and AI agents alike.">
+  <title>Decklight: describe the slide, your agent builds it</title>
+  <meta name="description" content="Describe the slide and your coding agent builds it: a deck is one HTML file an agent can write, a headless render proves right before you look, and git can carry. Narration from your own notes, truthful terminal recordings, 46 themes behind contrast gates, review comments as a git branch, and your old PowerPoint imported with its charts as data.">
   <link rel="stylesheet" href="dist/decklight.css">
   <style>
     :root {
@@ -21,16 +21,80 @@
       line-height: 1.55;
     }
     .wrap { max-width: 980px; margin: 0 auto; padding: 56px 24px 40px; }
-    header { text-align: center; margin-bottom: 40px; }
-    h1 {
-      margin: 0;
-      font-size: clamp(2.4rem, 6vw, 3.6rem);
-      letter-spacing: -0.02em;
-      text-transform: uppercase;
+    /* the hero: benefit 1 as the headline, the live deck as the proof */
+    header.hero {
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+      gap: 40px;
+      align-items: center;
+      margin: 8px 0 28px;
+    }
+    @media (max-width: 860px) { header.hero { grid-template-columns: minmax(0, 1fr); } }
+    .wordmark {
+      margin: 0 0 18px;
+      font-size: 0.95rem;
       font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
       color: var(--accent);
     }
-    .tagline { margin: 10px 0 0; font-size: 1.15rem; color: var(--fg); }
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 4.4vw, 3.2rem);
+      line-height: 1.06;
+      letter-spacing: -0.025em;
+      font-weight: 900;
+      color: var(--fg);
+    }
+    h1 em { font-style: normal; color: var(--accent); }
+    .lead { margin: 18px 0 0; font-size: 1.1rem; color: var(--muted); }
+    .cmd {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 22px 0 0;
+      padding: 8px 8px 8px 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+      font-size: 0.88rem;
+    }
+    .cmd .prompt { color: var(--muted); }
+    .cmd code { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--fg); }
+    .cmd button {
+      flex: 0 0 auto;
+      width: 44px; height: 44px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.75rem;
+    }
+    .cmd button:hover { color: var(--fg); border-color: var(--muted); }
+    .cmd-note { margin: 10px 0 0; font-size: 0.9rem; color: var(--muted); }
+    .deck-note { margin: 10px 0 0; font-size: 0.9rem; color: var(--muted); text-align: center; }
+    .deck-note a { color: var(--accent); text-decoration: none; white-space: nowrap; }
+    .deck-note a:hover { text-decoration: underline; }
+    /* the four benefits, one row above the fold; the feature cards follow */
+    .benefits {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin: 0 0 48px;
+    }
+    .benefit {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .benefit svg { display: block; margin-bottom: 10px; }
+    .benefit h3 { margin: 0 0 6px; font-size: 1rem; color: var(--fg); }
+    .benefit p { margin: 0; font-size: 0.92rem; color: var(--muted); }
+    .everything { margin: 0 0 -22px; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 
     .traits {
       display: grid;
@@ -69,7 +133,6 @@
     .start h2 { font-size: 1.35rem; margin: 0 0 4px; color: var(--fg); }
     .start p { margin: 0 0 14px; color: var(--muted); font-size: 0.95rem; }
     .start.after-deck { margin-top: 44px; }
-    .deck-caption.after-deck { margin-top: 44px; }
     .term-wrap {
       font-size: clamp(16px, 5vw, 45px);
       --term-bg: #0d0d0f; --term-fg: #e2e1dc; --term-prompt: #f5c542;
@@ -83,17 +146,6 @@
       --ansi-bright-cyan: #b0e0d5; --ansi-bright-white: #fdfcf7;
     }
 
-    .deck-caption {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 12px;
-      margin: 0 0 10px;
-      font-size: 0.95rem;
-      color: var(--muted);
-    }
-    .deck-caption a { color: var(--accent); text-decoration: none; white-space: nowrap; }
-    .deck-caption a:hover { text-decoration: underline; }
     .deckbox {
       aspect-ratio: 16 / 9;
       border: 1px solid var(--border);
@@ -145,11 +197,50 @@
 <body>
   <div class="gh-band"><a href="https://github.com/decklight/decklight">Fork me on GitHub</a></div>
   <div class="wrap">
-    <header>
-      <h1>Decklight</h1>
-      <p class="tagline">Slides as a single HTML file. Written by your agent.<br>No build, no server, no framework.</p>
+    <header class="hero">
+      <div>
+        <p class="wordmark">Decklight</p>
+        <h1>Describe the slide. <em>Your agent builds it.</em></h1>
+        <p class="lead">A deck is one HTML file your coding agent can write, and a headless render proves each slide right before you look. Present it, review it in git, and let the notes become the voice-over.</p>
+        <div class="cmd">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code id="install-cmd">npx decklight@latest init "My Talk"</code>
+          <button type="button" id="copy-cmd" aria-label="Copy the command">copy</button>
+        </div>
+        <p class="cmd-note">Scaffolds the deck and hands your agent the authoring contract. Then tell it what the talk is about.</p>
+      </div>
+      <div>
+        <div class="deckbox">
+          <iframe src="showcase.html?voiceover" title="The Decklight showcase deck" allow="fullscreen"></iframe>
+        </div>
+        <p class="deck-note">The showcase deck, live: click it and it narrates its own pitch from its speaker notes. <strong>→</strong> advances, <strong>⎵</strong> plays and pauses the voice, <strong>?</strong> shows every key. <a href="showcase.html?voiceover">Open full screen ↗</a></p>
+      </div>
     </header>
 
+    <section class="benefits" aria-label="Why Decklight">
+      <div class="benefit">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 20l9-9"></path><path d="M14 4l1.5 3 3 1.5-3 1.5L14 13l-1.5-3-3-1.5 3-1.5z"></path></svg>
+        <h3>Your agent writes it</h3>
+        <p>Builds, diagrams, terminals and notes, from the contract <code>init</code> hands it. Press <kbd>A</kbd> in the deck to change one slide.</p>
+      </div>
+      <div class="benefit">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path><path d="M9 12l2 2 4-4"></path></svg>
+        <h3>It proves itself first</h3>
+        <p>A headless render catches clipped slides, failed contrast and <code>[click]</code> beats out of step with the builds, before you look.</p>
+      </div>
+      <div class="benefit">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="9" r="2"></circle><path d="M6 7v10"></path><path d="M18 11c0 3-4 3-6 4-2 1-4 1-4 2"></path></svg>
+        <h3>Worked on like code</h3>
+        <p>Diff it, review it, restore it in git. A reviewer&rsquo;s comments come back as a branch; a design system is referenced, never copied.</p>
+      </div>
+      <div class="benefit">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.7"></path><path d="M20 4v5h-5"></path></svg>
+        <h3>Change the notes, the talk follows</h3>
+        <p>Narration, captions, the mp4, the PDF and the one file to send, all from the same source. Nothing is re-recorded.</p>
+      </div>
+    </section>
+
+    <p class="everything">Everything else</p>
     <section class="traits" aria-label="Top characteristics">
       <div class="trait">
         <h3>One file, zero build</h3>
@@ -265,14 +356,6 @@
       </div>
     </section>
 
-    <div class="deck-caption after-deck">
-      <span>The pitch <em>is</em> the product. This is the showcase deck, live, and it narrates itself: click it and it starts speaking. <strong>→</strong> advances, <strong>⎵</strong> plays and pauses the voice, <strong>V</strong> opens everything about it, <strong>?</strong> shows all keys.</span>
-      <a href="showcase.html?voiceover">Open full screen ↗</a>
-    </div>
-    <div class="deckbox">
-      <iframe src="showcase.html?voiceover" title="The Decklight showcase deck" loading="lazy" allow="fullscreen"></iframe>
-    </div>
-
     <section class="start after-deck" aria-label="Getting the full experience">
       <h2>Getting the full experience</h2>
       <p>The same CLI does the rest: serve the deck live with in-browser editing, record truthful terminal casts, set up a voice once and narrate with it or capture your own, render the talk as a video, take comments from a reviewer, then flatten everything into one self-contained file.</p>
@@ -320,7 +403,7 @@
    "output": [
     [
      0.5,
-     "\u001b[90m# your deck opens in the browser \u2014 out of the box, it looks like this \u2193\u001b[m\r\n"
+     "\u001b[90m# your deck opens in the browser \u2014 out of the box, it looks like the deck at the top \u2191\u001b[m\r\n"
     ]
    ],
    "exit": 0,
@@ -429,7 +512,7 @@
     ],
     [
      4.6,
-     "\r\nDone. The deck folds a dart in six creases and ends in flight \u2014\r\n\u001b[33m\u2192\u001b[m advances one crease at a time. It's live below \u2193\r\n"
+     "\r\nDone. The deck folds a dart in six creases and ends in flight \u2014\r\n\u001b[33m\u2192\u001b[m advances one crease at a time. It's live at the top of this page \u2191\r\n"
     ]
    ],
    "exit": 0,
@@ -505,6 +588,17 @@
     document.querySelector('.egg-trigger').addEventListener('click', () => egg.classList.toggle('open'));
     if (location.hash === '#thocky') egg.classList.add('open');
 
+    // the hero's install line: one click copies it
+    const copyBtn = document.getElementById('copy-cmd');
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(document.getElementById('install-cmd').textContent);
+        copyBtn.textContent = 'copied';
+      } catch {
+        copyBtn.textContent = 'select';
+      }
+      setTimeout(() => { copyBtn.textContent = 'copy'; }, 1600);
+    });
     // Activate the standalone terminals and keep each one's playback tied to
     // whether it is actually on screen. The observer stays connected — it used
     // to disconnect after the first auto-play, so a terminal scrolled past
