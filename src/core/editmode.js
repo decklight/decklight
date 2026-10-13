@@ -25,7 +25,7 @@ import { agentChipText, boundedFetch, commitChipParts, commitChipText, commitChi
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { readPref, writePref } from './prefs.js';
-import { createDock } from './dock.js';
+import { createDock, reopenPanel } from './dock.js';
 import { thinking } from './thinking.js';
 import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
 import { wordDiff, diffCounts } from './worddiff.js';
@@ -662,6 +662,8 @@ export function createEditMode({
           paintAgentChip();
           reopenAgentAsk();   // a docked agent card open before the reload is open after it
           reopenNotes();      // …and the notes card a save reloaded, where the author was
+          reopenContentEditor();   // …and the HTML editor, on the element its ⌘⏎ saved
+          reopenPanel(root);       // …and whichever other panel held the slot (the inspector)
           const es = new EventSource(base + '/deck/events');
           // the server says what wrote the file; the debug log keeps it across the reload
           es.onmessage = (ev) => { debugReload(reloadLine(ev.data, PAGE_ID)); location.reload(); };
@@ -2041,7 +2043,23 @@ export function createEditMode({
     name: 'HTML', tab: false,
     close: () => closeContentEditor(),
   });
+  // The editor open when its save reloads the deck is open after it, on the
+  // same element (#807): the save remembers where it was, per tab, and the
+  // reload reads it back. Closed on purpose, it is forgotten.
+  const EDITOR_OPEN_KEY = 'decklight-editor-open:' + location.pathname;
+  const forgetEditorOpen = () => { try { sessionStorage.removeItem(EDITOR_OPEN_KEY); } catch { /* no storage */ } };
+  function reopenContentEditor() {
+    let rec = null;
+    try { rec = JSON.parse(sessionStorage.getItem(EDITOR_OPEN_KEY) ?? 'null'); } catch { /* no storage */ }
+    forgetEditorOpen();
+    // a minute is a save's reload; anything older is a different session
+    if (!rec || Date.now() - rec.t > 60000 || contentEl || rec.slide !== instance.state.slide) return;
+    const sec = instance._sections[rec.slide - 1];
+    if (!sec || !sec.children?.[rec.index]) return;
+    openElementContentEditor({ sec, slide: rec.slide, index: rec.index });
+  }
   function closeContentEditor() {
+    forgetEditorOpen();
     contentEl?.remove(); contentEl = null;
     contentTarget?.classList.remove('dl-editing'); contentTarget = null;
     if (onEditorResize) { window.removeEventListener('resize', onEditorResize); onEditorResize = null; }
@@ -2112,6 +2130,7 @@ export function createEditMode({
     });
     const save = async () => {
       try {
+        try { sessionStorage.setItem(EDITOR_OPEN_KEY, JSON.stringify({ slide, index, t: Date.now() })); } catch { /* no storage: the reload closes it, as before */ }
         const res = await writeFetch(editBase + '/deck/edit/element/content', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ slide, index, html: ta.value }),
@@ -2119,6 +2138,7 @@ export function createEditMode({
         if (!res.ok) throw new Error(await res.text());
         toast('element content saved — reloading');
       } catch (e) {
+        forgetEditorOpen();   // no reload is coming
         toast(`save failed: ${String(e.message || e).slice(0, 60)}`);
       }
     };

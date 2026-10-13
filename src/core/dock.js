@@ -44,6 +44,36 @@ const claims = new WeakMap();   // root → Map(panel token → { side, px })
 const panels = new WeakMap();   // root → Map(token → panel)
 const panelsOf = (root) => { if (!panels.has(root)) panels.set(root, new Map()); return panels.get(root); };
 
+// The slot survives the reload a save causes. A docked panel open when the
+// deck reloaded (the HTML editor's ⌘⏎, a dropped picture, an agent's edit)
+// used to be closed by it: the notes and the agent ask remembered themselves
+// (editmode.js), the inspector did not, and a docked panel that vanishes on
+// ⌘⏎ reads as ⌘⏎ closing it. The slot remembers which panel holds it, per
+// TAB (sessionStorage: a preference would reopen the panel on every future
+// visit), and `reopenPanel` opens it again once the deck is back up.
+const OPEN_KEY = () => 'decklight-panel-open:' + (typeof location !== 'undefined' ? location.pathname : '');
+const rememberOpen = (name) => { try { sessionStorage.setItem(OPEN_KEY(), name); } catch { /* no storage: the reload closes it, as before */ } };
+const forgetOpen = (name) => { try { if (sessionStorage.getItem(OPEN_KEY()) === name) sessionStorage.removeItem(OPEN_KEY()); } catch { /* no storage */ } };
+
+/**
+ * After a reload: the panel that held the slot, open again. Nothing when a
+ * panel is already open (one that remembered itself in more detail, like the
+ * notes with their caret), when the remembered panel cannot open on its own
+ * (the HTML editor needs its element; editmode.js reopens that one) or is
+ * not available in this mode. True when a panel was opened here.
+ */
+export function reopenPanel(root) {
+  let name = null;
+  try { name = sessionStorage.getItem(OPEN_KEY()); } catch { return false; }
+  if (!name) return false;
+  const all = [...panelsOf(root).values()];
+  if (all.some((p) => p.isOpen())) return false;
+  const p = all.find((x) => x.name === name);
+  if (!p?.opens || !p.available()) return false;
+  p.open();
+  return p.isOpen();
+}
+
 /** Close every OTHER panel holding the root's slot: one panel beside the slide. */
 function takeSlot(root, token) {
   for (const [t, p] of panelsOf(root)) {
@@ -97,7 +127,7 @@ export function createDock({
   const persist = () => writeJson(key, dock);
   const token = {};   // this panel's claim on the root's gutters, and its place in the slot
   panelsOf(root).set(token, {
-    name, tab: tab && !!name && !!open, available,
+    name, tab: tab && !!name && !!open, available, opens: !!open,
     open: () => open?.(), close: () => close?.(), isOpen: () => !!getEl(),
   });
 
@@ -116,6 +146,7 @@ export function createDock({
     // the slot is this panel's now; the placement is the one every panel shares,
     // which another panel may have moved since this one last drew
     takeSlot(root, token);
+    if (name) rememberOpen(name);   // after takeSlot: the panels it closed forgot themselves
     load();
     el.dataset.dock = dock.mode;
     const g = gutter();
@@ -253,6 +284,7 @@ export function createDock({
    * only THIS panel's gutter: another panel docked elsewhere keeps its own.
    */
   function release() {
+    if (name) forgetOpen(name);
     claim(root, token, null);
     reflow?.();
   }
