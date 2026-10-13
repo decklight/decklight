@@ -160,10 +160,18 @@ export function brandTags(name, verdict) {
   if (!brand) return [];
   const sys = escapeHtml(name);
   const title = escapeHtml(String(verdict.manifest?.title ?? name));
-  const lines = brand.palette.map((e) => `  ${e.token}: ${e.hex};`).join('\n');
+  const lines = brand.palette.map((e) => `  ${e.token}: ${e.hex};`);
+  // every role at its value in the brand's first theme, always on (SPEC DESIGN_SYSTEM_ROLES):
+  // each theme block sets them again after this, so a role is never undefined
+  // while no brand theme is applied — an unlocked deck on another theme, a block gone
+  const first = brand.themes[0]?.css ?? '';
+  for (const r of brand.roles ?? []) {
+    const m = new RegExp(`^\\s*${r.token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*([^;\\n]+);`, 'm').exec(first);
+    if (m) lines.push(`  ${r.token}: ${m[1]};`);
+  }
   const safe = (css) => css.replace(/<\/(style)/gi, '<\\/$1');
   return [
-    `<style data-design-system-palette="${sys}">\n.decklight {\n${lines}\n}\n</style>`,
+    `<style data-design-system-palette="${sys}">\n.decklight {\n${lines.join('\n')}\n}\n</style>`,
     ...brand.themes.map((t) => `<style data-theme="${escapeHtml(t.name)}" data-theme-added data-design-system-theme="${sys}" data-theme-source="${title}" media="not all">\n${safe(t.css)}</style>`),
   ];
 }

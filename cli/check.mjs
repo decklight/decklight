@@ -394,7 +394,7 @@ export function checkEntry(ref, verdict) {
     // component classes its base styles also give a plain element (SPEC DESIGN_SYSTEMS)
     components: verdict?.summary?.baseStyles?.components ?? {},
     // a palette of scales and its own themes (SPEC BRAND_PALETTE): what off-palette-literal holds slides to
-    ...(brand ? { palette: brand.palette.map((e) => ({ ref: e.ref, hex: e.hex, token: e.token })), themes: brand.themes.length } : {}),
+    ...(brand ? { palette: brand.palette.map((e) => ({ ref: e.ref, hex: e.hex, token: e.token })), themes: brand.themes.length, themeNames: brand.themes.map((t) => t.name) } : {}),
     // its roles (SPEC DESIGN_SYSTEM_ROLES): what off-role holds slides to, with each theme's values to name the nearest
     ...(brand?.roles ? {
       prefix: verdict.summary.prefix, roles: brand.roles, contract: brand.contract ?? {},
@@ -426,8 +426,8 @@ function brandHold(src, systems) {
 /**
  * The deck's roles when it is held to a design system that declares them
  * (SPEC DESIGN_SYSTEM_ROLES): what off-role reads, at their values in the
- * deck's theme (its own `theme` when that is one of the brand's, else the
- * brand's first). Null when the deck is unlocked or no design system has roles.
+ * theme the deck opens on (its own `theme` when that is one of the brand's,
+ * else the brand's first, as the runtime does — theme-off-brand says so). Null when the deck is unlocked or no design system has roles.
  */
 function roleHold(src, systems) {
   const config = (() => { try { return JSON.parse(/<script[^>]*data-decklight-config[^>]*>([\s\S]*?)<\/script>/i.exec(src)?.[1] ?? 'null'); } catch { return null; } })();
@@ -447,6 +447,20 @@ function roleHold(src, systems) {
     };
   }
   return null;
+}
+
+/**
+ * A deck held to its brand whose configuration names a theme outside it
+ * (SPEC BRAND_PALETTE): `{ theme, brand: [names] }`, else null. The runtime
+ * opens such a deck on the brand's first theme instead, so the configured one
+ * is never what it shows — said here, where an author reads it, rather than
+ * only by a toast on load.
+ */
+function themeOffBrand(src, systems) {
+  const config = (() => { try { return JSON.parse(/<script[^>]*data-decklight-config[^>]*>([\s\S]*?)<\/script>/i.exec(src)?.[1] ?? 'null'); } catch { return null; } })();
+  if (config?.brandThemesOnly === false || typeof config?.theme !== 'string' || !config.theme) return null;
+  const brand = [...systems.values()].flatMap((sys) => sys.themeNames ?? []);
+  return brand.length && !brand.includes(config.theme) ? { theme: config.theme, brand } : null;
 }
 
 /** The palette swatch nearest a literal, and how far (OKLab). */
@@ -562,6 +576,12 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
   const systems = configured.length ? designSystems(src) : new Map();
   const hold = brandHold(src, systems);
   const roles = roleHold(src, systems);
+  const offBrand = themeOffBrand(src, systems);
+  if (offBrand) {
+    out.push(finding('warn', 'theme-off-brand', null, 'head',
+      `"theme": "${offBrand.theme}" is not one of the brand's themes (${offBrand.brand.join(', ')}) — a deck held to its brand opens on ${offBrand.brand[0]} instead: `
+      + `name one of them, or set "brandThemesOnly": false to wear ${offBrand.theme}`));
+  }
   for (const [, sys] of systems) {
     if (sys.missing) {
       out.push(finding('warn', 'ds-unresolved', null, 'head',
