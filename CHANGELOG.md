@@ -7,7 +7,7 @@ carrying the same notes in prose.
 
 ## 0.9.0
 
-Three hundred and twelve commits since 0.8.1, and the release has a shape:
+Three hundred and thirteen commits since 0.8.1, and the release has a shape:
 **the deck is the command** (`decklight talk.html`, one server, write mode by
 default and `--no-trust` for a deck you did not write), and a deck is something
 you **edit with the mouse**, down to one shape, wire or label inside a diagram,
@@ -539,7 +539,8 @@ open (#792, #797, #800). The showcase speaks with ElevenLabs, its voices a
 release asset the deploy keeps in step with the deck (#803, #805, #806). SPEC
 says `recommendedThemes` once (#765), and the skill, README, site and glossary
 say a design system can carry the brand and a brand deck colours through its
-roles (#824).
+roles (#824). SPEC's `REPO_LAYOUT` names the tree that ships, and the skill's
+description says a deck can be built on a design system (#826).
 
 ## 0.8.1
 
