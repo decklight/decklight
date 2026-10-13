@@ -6,6 +6,7 @@
  *
  *   decklight narrate <deck.html> [--engine E] [--voice V] [--format F] [--slides a-b] [--dir NAME]
  *   decklight narrate <deck.html> --mic [--slides a-b] [--dir NAME] [--port N] [--no-open]
+ *   decklight narrate <deck.html> --face [--video] [--dir NAME]
  *
  * One command for the two ways a deck gets a recorded voice: an engine reads
  * the notes (what `decklight voiceover` did), or you do, into the microphone,
@@ -19,18 +20,28 @@
  * parses its argv at load) and cli/record.mjs. This is the grammar in front.
  * `video --voiceover` stays a flag of `video`, and `enhance` rewrites the
  * script rather than voicing it, so neither is here.
+ *
+ * `--face` is the third: the narration already in the folder gets the
+ * character's lip-sync (tools/lipsync.mjs, which had no command). It never
+ * voices anything, so a take recorded at the microphone cannot be replaced by
+ * an engine on the way to getting a face; voice first, then `--face`.
  */
 
 import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { firstPositional, isMain } from '../tools/args.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
+import { configuredTrackDirs } from './edit.mjs';
 
 const VOICEOVER = fileURLToPath(new URL('../tools/voiceover.mjs', import.meta.url));
+const LIPSYNC = fileURLToPath(new URL('../tools/lipsync.mjs', import.meta.url));
 // the flags either side takes a value for, so the deck is found past them
 const VALUE_FLAGS = new Set(['-o', '--dir', '--engine', '--voice', '--style', '--data-dir', '--project',
-  '--format', '--slides', '--port', '--model', '--lang', '--location', '--tts-format', '--tts-stability']);
+  '--format', '--slides', '--port', '--model', '--lang', '--location', '--tts-format', '--tts-stability',
+  '--rhubarb', '--portrait', '--python', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
+  '--veo-project', '--veo-location', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-face-y']);
 
 export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b] [--dir NAME] …
 
@@ -51,9 +62,18 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
     --port N, --no-open
     EXAMPLE: decklight narrate talk.html --mic
 
-  either way
+  either way, an engine or the microphone
     --slides a-b only these slides; every other slide's files are left alone
     --dir NAME   the folder, relative to the deck  [its narration.files, else voiceover]
+
+  the character mouths what is already there                (--face)
+    --face       lip-sync for every slide and [click] beat in the folder, which the
+                 character plays with no bridge running; voices nothing, so voice first
+    --video      a talking-head clip per slide too (SadTalker or Wav2Lip, slow)
+    uses what decklight setup face saved: rhubarb, the portrait, the engine, Veo
+    --rhubarb, --portrait NAME|FILE, --engine sadtalker|wav2lip, --no-veo   for this run only
+    --dir NAME   only this folder  [every one the deck's narration.files names]
+    EXAMPLE: decklight narrate talk.html --face
 
   the deck plays the folder back with
     narration: { files: '<dir>', segments: true }            (wav: ext: 'wav')
@@ -85,6 +105,52 @@ export function narratePlan(argv = [], cwd = process.cwd()) {
   return { mic, deck, args: out };
 }
 
+/** Audio a track folder holds: `slide-NN.wav|m4a`, the whole slide or one beat. */
+const hasAudio = (dir) => existsSync(dir) && readdirSync(dir).some((f) => /^slide-\d+(?:-\d+)?\.(wav|m4a)$/.test(f));
+
+/**
+ * The folders `--face` cuts sidecars into: `--dir NAME`, else every local
+ * folder the deck's `narration.files` names, else `voiceover/`. A folder
+ * without audio is skipped, but only when the deck chose it; one named by
+ * `--dir` that has nothing in it is the caller's mistake and is reported.
+ */
+export function faceFolders(deckPath, html, dirArg) {
+  const deckDir = dirname(resolve(deckPath));
+  if (dirArg) return [resolve(deckDir, dirArg)];
+  const named = configuredTrackDirs(html).filter((d) => !/^[a-z][a-z0-9+.-]*:/i.test(d));
+  const dirs = (named.length ? named : ['voiceover']).map((d) => resolve(deckDir, d));
+  return [...new Set(dirs)].filter(hasAudio);
+}
+
+/**
+ * `--face`: the deck's narration folders, each through tools/lipsync.mjs.
+ * `--slides` is refused rather than ignored: the batch is incremental by
+ * audio hash, so a rerun already touches only what changed.
+ */
+function faceMain(plan, argv) {
+  if (plan.mic) { console.error('decklight narrate: --face gives a recorded track its lip-sync; record it first (--mic), then run --face'); return 2; }
+  if (argv.includes('--slides')) { console.error('decklight narrate: --face takes no --slides; a rerun only redoes the slides whose audio changed'); return 2; }
+  if (!plan.deck || !existsSync(plan.deck)) { console.error(`decklight narrate: ${plan.deck ? `no deck at ${plan.deck}` : 'name the deck'}`); return 1; }
+  const html = readFileSync(plan.deck, 'utf8');
+  const dirAt = argv.indexOf('--dir');
+  const dirArg = dirAt === -1 ? null : argv[dirAt + 1];
+  const folders = faceFolders(plan.deck, html, dirArg);
+  if (!folders.length || (dirArg && !hasAudio(folders[0]))) {
+    console.error(`decklight narrate: no narration to give a face to${dirArg ? ` in ${dirArg}` : ''}; `
+      + `voice it first: decklight narrate ${plan.deck}`);
+    return 1;
+  }
+  // everything else passes through: the folder goes first, and the deck,
+  // --face and --dir NAME are this command's, not the tool's
+  const deckAt = argv.indexOf(plan.deck);
+  const rest = argv.filter((a, i) => i !== deckAt && a !== '--face' && (dirAt === -1 || (i !== dirAt && i !== dirAt + 1)));
+  for (const dir of folders) {
+    const r = spawnSync(process.execPath, [LIPSYNC, dir, ...rest], { stdio: 'inherit' });
+    if (r.status !== 0) return r.status ?? 1;
+  }
+  return 0;
+}
+
 export async function narrateMain(argv = []) {
   const wantsHelp = argv.includes('--help') || argv.includes('-h');
   if (!argv.length || (wantsHelp && !argv.includes('--engine') && !argv.includes('--mic'))) {
@@ -92,6 +158,7 @@ export async function narrateMain(argv = []) {
     return argv.length ? 0 : 1;
   }
   const plan = narratePlan(argv);
+  if (argv.includes('--face')) return faceMain(plan, argv);
   // a terminal script is `cast`'s, whichever way it was meant to be narrated
   const mixedUp = wrongRecorder('narrate', plan.deck);
   if (mixedUp) { console.error(mixedUp); return 2; }   // the code record and cast give it

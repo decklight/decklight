@@ -314,6 +314,7 @@ Commands:
            EXAMPLE: decklight narrate talk.html --engine chirp --voice Achernar
            EXAMPLE: decklight narrate talk.html --mic   (serves it: a microphone needs 127.0.0.1)
            EXAMPLE: decklight narrate talk.html --slides 7   (just that slide, either way)
+           EXAMPLE: decklight narrate talk.html --face   (the character's lip-sync, no bridge needed)
   enhance  add ElevenLabs v4 audio tags ([thoughtful], [sighs]) to the voiceover script, with the
            prompt ElevenLabs publishes for it — your agent drafts, decklight checks no word changed
            EXAMPLE: decklight enhance talk.html --slides 3   (or --all; --dry-run to only look)

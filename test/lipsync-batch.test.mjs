@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { winShellSkip as winSkip, writeRhubarbStub, rmTemp } from './helpers.mjs';
+import { winShellSkip as winSkip, writeRhubarbStub, rmTemp, tmp } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TOOL = path.resolve(here, '../tools/lipsync.mjs');
@@ -84,4 +84,68 @@ test('a ⟨CLICK⟩ beat gets its own sidecar, cut to its own audio', { skip: wi
   assert.match(again, /slide-01-02: visemes unchanged — kept/);
 
   rmTemp(dir);
+});
+
+// `decklight narrate <deck> --face`: the command in front of the batch tool.
+
+const NARRATE = path.resolve(here, '../cli/decklight.mjs');
+const wavOf = (fill) => Buffer.concat([Buffer.from('RIFF....WAVEfmt '), Buffer.alloc(512, fill)]);
+const deckWith = (config = '') => `<!doctype html><html><body><div class="decklight">
+<section><h2>One</h2></section><section><h2>Two</h2></section></div>
+<script>Decklight.init(${config || '{}'});</script></body></html>`;
+
+test('narrate --face cuts sidecars into every folder the deck names', { skip: winSkip }, (t) => {
+  const dir = tmp('narrate-face', t);
+  const stub = writeRhubarbStub(dir, path.join(here, 'fixtures', 'rhubarb-out.json'));
+  const deck = path.join(dir, 'talk.html');
+  fs.writeFileSync(deck, deckWith(`{ narration: { files: [{ dir: 'en' }, { dir: 'fr' }] } }`));
+  for (const d of ['en', 'fr']) {
+    fs.mkdirSync(path.join(dir, d));
+    fs.writeFileSync(path.join(dir, d, 'slide-01.wav'), wavOf(d === 'en' ? 1 : 2));
+  }
+  // an empty home: nothing `setup face` saved leaks in from the machine
+  const env = { ...process.env, XDG_CONFIG_HOME: path.join(dir, 'config') };
+  const out = execFileSync(process.execPath, [NARRATE, 'narrate', deck, '--face', '--rhubarb', stub], { encoding: 'utf8', env });
+  assert.match(out, /en: 1 slides with audio/);
+  assert.match(out, /fr: 1 slides with audio/);
+  for (const d of ['en', 'fr']) assert.ok(fs.existsSync(path.join(dir, d, 'slide-01.visemes.json')), `${d} has no sidecar`);
+  // nothing was voiced: the audio is the audio it was
+  assert.deepEqual(fs.readFileSync(path.join(dir, 'en', 'slide-01.wav')), wavOf(1));
+});
+
+test('narrate --face uses the rhubarb `setup face` saved', { skip: winSkip }, (t) => {
+  const dir = tmp('narrate-face-saved', t);
+  const stub = writeRhubarbStub(dir, path.join(here, 'fixtures', 'rhubarb-out.json'));
+  const config = path.join(dir, 'config');
+  fs.mkdirSync(path.join(config, 'decklight'), { recursive: true });
+  fs.writeFileSync(path.join(config, 'decklight', 'lipsync.json'), JSON.stringify({ rhubarb: stub }));
+  const deck = path.join(dir, 'talk.html');
+  fs.writeFileSync(deck, deckWith());
+  fs.mkdirSync(path.join(dir, 'voiceover'));
+  fs.writeFileSync(path.join(dir, 'voiceover', 'slide-02.wav'), wavOf(3));
+  const env = { ...process.env, XDG_CONFIG_HOME: config, PATH: '/usr/bin:/bin' };
+  const out = execFileSync(process.execPath, [NARRATE, 'narrate', deck, '--face'], { encoding: 'utf8', env });
+  assert.match(out, /1 generated/);
+  assert.ok(fs.existsSync(path.join(dir, 'voiceover', 'slide-02.visemes.json')));
+});
+
+test('narrate --face refuses what it cannot do, before any work', (t) => {
+  const dir = tmp('narrate-face-no', t);
+  const deck = path.join(dir, 'talk.html');
+  fs.writeFileSync(deck, deckWith());
+  const env = { ...process.env, XDG_CONFIG_HOME: path.join(dir, 'config') };
+  const fail = (...args) => {
+    try { execFileSync(process.execPath, [NARRATE, 'narrate', deck, '--face', ...args], { encoding: 'utf8', env, stdio: 'pipe' }); }
+    catch (e) { return { code: e.status, err: String(e.stderr) }; }
+    assert.fail('expected a refusal');
+  };
+  // no narration yet: it says how to make some, and voices nothing itself
+  const none = fail();
+  assert.equal(none.code, 1);
+  assert.match(none.err, /voice it first: decklight narrate/);
+  assert.ok(!fs.existsSync(path.join(dir, 'voiceover')));
+  // the batch is incremental by audio, so a range is refused rather than ignored
+  assert.equal(fail('--slides', '1').code, 2);
+  // a microphone take is made first, then given a face
+  assert.equal(fail('--mic').code, 2);
 });

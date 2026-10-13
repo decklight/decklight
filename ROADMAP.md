@@ -165,8 +165,8 @@ can wait for 1.0.
 - [x] **One way to narrate.** (#782) `decklight narrate <deck> [--engine E |
       --mic] [--slides a-b] [--dir NAME]` replaced `voiceover` and `record`.
       `video --voiceover` stays a flag of `video`, and `enhance` stays: it
-      rewrites the script rather than voicing it. `tools/lipsync.mjs` batch
-      still has no command.
+      rewrites the script rather than voicing it. The batch lip-sync is
+      `narrate --face` (#798).
 - [x] **One documented shape for `narration.files`.** (#780) One track is
       `files: '<dir>', ext, segments`; several are a list of the same fields.
 - [x] **CLI commands as thin clients of shared modules.** (#796)

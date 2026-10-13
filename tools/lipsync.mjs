@@ -21,6 +21,12 @@
 // default engine — per-slide clips are long enough that its natural head
 // motion beats Wav2Lip's static pose (live mode is the reverse).
 //
+// `decklight narrate <deck> --face [--video]` is the command in front of this
+// (cli/narrate.mjs): it finds the deck's narration folders and runs this once
+// per folder. What `decklight setup face` saved (tools/lipsync-config.mjs)
+// fills every flag not given: rhubarb, python, the engine checkouts, the
+// first portrait, and Veo. Flags win, as they do for the live bridge.
+//
 // Incremental like voiceover.mjs: lipsync.json stores a hash of
 // (audio bytes, tool, engine, portrait) per slide, persisted after every
 // slide, so a rerun only regenerates what actually changed.
@@ -33,6 +39,7 @@ import { argReader } from './args.mjs';
 import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
 import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
 import { captioned, canonMarks } from './sentences.mjs';
+import { loadLipsyncConfig, parsePortrait } from './lipsync-config.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -46,25 +53,34 @@ const dir = resolve(dirArg);
 const { opt } = argReader(args);
 const doVideo = args.includes('--video');
 const doVisemes = args.includes('--visemes') || !doVideo; // visemes by default
-const rhubarb = opt('--rhubarb', 'rhubarb');
-const engine = opt('--engine', 'sadtalker');
-const portrait = opt('--portrait') && resolve(opt('--portrait'));
-const wav2lipDir = opt('--wav2lip-dir');
-const wav2lipCkpt = opt('--wav2lip-ckpt');
-const sadtalkerDir = opt('--sadtalker-dir');
-const python = opt('--python', 'python3');
+const saved = loadLipsyncConfig() ?? {};
+const rhubarb = opt('--rhubarb', saved.rhubarb ?? 'rhubarb');
+const wav2lipDir = opt('--wav2lip-dir', saved.wav2lipDir);
+const wav2lipCkpt = opt('--wav2lip-ckpt', saved.wav2lipCkpt);
+const sadtalkerDir = opt('--sadtalker-dir', saved.sadtalkerDir);
+// SadTalker by default (see above), unless the machine was set up for Wav2Lip only
+const engine = opt('--engine', !sadtalkerDir && wav2lipDir && wav2lipCkpt ? 'wav2lip' : 'sadtalker');
+// --portrait is a file, or the name of a portrait `setup face` saved; none
+// given, the first saved one, which the live bridge also calls 'default'
+const savedPortraits = (saved.portraits ?? []).map(parsePortrait);
+const portraitArg = opt('--portrait');
+const portrait = portraitArg
+  ? savedPortraits.find(([name]) => name === portraitArg)?.[1] ?? resolve(portraitArg)
+  : savedPortraits[0]?.[1];
+const python = opt('--python', saved.python ?? 'python3');
 // --veo: animate the portrait ONCE through Vertex (tools/veo.mjs) and give
 // wav2lip that clip instead of the still, so the recorded narrator moves
 // instead of staring. One billed call per portrait, cached next to the audio.
-const veoOn = args.includes('--veo');
+// A saved `veo: true` turns it on here too, and --no-veo off.
+const veoOn = args.includes('--veo') || (saved.veo === true && !args.includes('--no-veo'));
 
 const veo = veoOn ? createVeo({
-  project: opt('--veo-project', process.env.GOOGLE_CLOUD_PROJECT),
-  location: opt('--veo-location', 'us-central1'),
-  model: opt('--veo-model', VEO_MODELS[0]),
-  seconds: Number(opt('--veo-seconds', 8)),
-  prompt: opt('--veo-prompt', DEFAULT_PROMPT),
-  faceY: Number(opt('--veo-face-y', 0.12)),
+  project: opt('--veo-project', saved.veoProject ?? process.env.GOOGLE_CLOUD_PROJECT),
+  location: opt('--veo-location', saved.veoLocation ?? 'us-central1'),
+  model: opt('--veo-model', saved.veoModel ?? VEO_MODELS[0]),
+  seconds: Number(opt('--veo-seconds', saved.veoSeconds ?? 8)),
+  prompt: opt('--veo-prompt', saved.veoPrompt ?? DEFAULT_PROMPT),
+  faceY: Number(opt('--veo-face-y', saved.veoFaceY ?? 0.12)),
   cacheDir: dir,
 }) : null;
 
@@ -72,11 +88,11 @@ const have = (bin, flags = ['--version']) => {
   try { run(bin, flags, { stdio: 'ignore', timeout: PROBE_MS }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
 };
 if (doVisemes && !have(rhubarb)) {
-  console.error(`rhubarb not found — install https://github.com/DanielSWolf/rhubarb-lip-sync or pass --rhubarb <bin>`);
+  console.error(`rhubarb not found — install https://github.com/DanielSWolf/rhubarb-lip-sync, then decklight setup face --rhubarb <bin>`);
   process.exit(1);
 }
 if (doVideo) {
-  if (!portrait || !existsSync(portrait)) { console.error('--video needs --portrait <image>'); process.exit(1); }
+  if (!portrait || !existsSync(portrait)) { console.error(portrait ? `portrait not found: ${portrait}` : '--video needs a portrait: --portrait <image>, or decklight setup face --portrait me=<image>'); process.exit(1); }
   if (engine === 'wav2lip' && !(wav2lipDir && wav2lipCkpt)) { console.error('--engine wav2lip needs --wav2lip-dir and --wav2lip-ckpt'); process.exit(1); }
   if (engine === 'sadtalker' && !sadtalkerDir) { console.error('--engine sadtalker needs --sadtalker-dir'); process.exit(1); }
 }

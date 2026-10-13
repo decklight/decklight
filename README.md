@@ -144,7 +144,8 @@ itself (`<script src="decklight/dist/decklight.js">` and a
 - **A face for the voice.** `V` → Character: a 2D narrator whose lips follow
   the voice, or a talking head made from your photo (or from a few seconds of
   you filmed in the deck) lip-synced with Wav2Lip on your own machine, set up
-  once with `decklight setup face …`.
+  once with `decklight setup face …`. `decklight narrate <deck> --face`
+  cuts the lip-sync into the recorded track, so it plays with nothing running.
 - **Video.** `decklight video` renders the deck to mp4, mov or webm, narrated
   by its track with subtitles in the file or beside it, and re-voices a slide
   whose notes moved. The same export is a palette row, which can voice the
