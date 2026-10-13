@@ -630,14 +630,20 @@ const VAR_REF = /var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,(?:[^()]|\([^()]*\))*)?\)/g;
 
 /**
  * Every colour a CSS value names that is not one of the design system's roles:
- * `[{ kind: 'literal' | 'contract' | 'swatch', name, hex }]`. A role read with
- * a fallback (`var(--acme-color-text, #fff)`, what the Colors tab writes) is a
- * role; a swatch or contract token is reported by its name, never again by its
- * fallback's literal. Other custom properties (a component's own) are left be.
- * `hex` is the colour it stands for where that is known, for naming the
- * nearest role: `contractHex` maps a contract token to its value in a theme.
+ * `[{ kind: 'literal' | 'contract' | 'swatch' | 'token', name, hex }]`. A role
+ * read with a fallback (`var(--acme-color-text, #fff)`, what the Colors tab
+ * writes) is a role; a swatch or contract token is reported by its name, never
+ * again by its fallback's literal. `hex` is the colour it stands for where
+ * that is known, for naming the nearest role: `contractHex` maps a contract
+ * token to its value in a theme.
+ *
+ * The design system's other tokens (an alias like `--acme-color-brand:
+ * var(--acme-blue-600)`) are reported as `'token'` only when `tokens` is given
+ * — `{ name: '#hex' | null }`, what each resolves to (`resolveTokenColours`) —
+ * which is how a slide is held to them (`check`). Without it, any other custom
+ * property is left be: a component's own token is its business.
  */
-export function offRoleColours(value, { prefix, scales, roles, contractHex = {} }) {
+export function offRoleColours(value, { prefix, scales, roles, contractHex = {}, tokens = null }) {
   const out = [];
   const seen = new Set();
   const add = (kind, name, hex) => { if (!seen.has(name)) { seen.add(name); out.push({ kind, name, hex: hex ?? null }); } };
@@ -648,12 +654,49 @@ export function offRoleColours(value, { prefix, scales, roles, contractHex = {} 
     const sw = swatchRe.exec(token);
     if (sw && scales[sw[1]]?.weights[Number(sw[2])]) { add('swatch', token, scales[sw[1]].weights[Number(sw[2])]); return ' '; }
     if (COLOUR_TOKENS.has(token)) { add('contract', token, contractHex[token]); return ' '; }
+    if (tokens && token.startsWith(prefix)) { add('token', token, tokens[token]); return ' '; }
     return whole;
   });
   for (const lit of rest.match(LITERAL_COLOUR) ?? []) {
     const c = parseColor(lit);
     add('literal', lit, c ? rgbToHex(c.slice(0, 3)) : null);
   }
+  return out;
+}
+
+/**
+ * What each of a design system's own tokens stands for, in one theme:
+ * `{ name: '#hex' | null }`. `tokenValues` is what its stylesheet sets each
+ * to; a value that reads another token (`var(--acme-blue-600)`, a role, a
+ * contract token, another alias, with or without a fallback) is followed to
+ * the colour at its end. Null where the chain ends in something that is not
+ * one colour (`8px`, a `color-mix()`), loops, or names a token nobody sets.
+ */
+export function resolveTokenColours(tokenValues, { prefix, scales, roles, roleValues = {}, contractHex = {} }) {
+  const roleIds = new Map(Object.keys(roles ?? {}).map((id) => [roleToken(prefix, id), id]));
+  const swatchRe = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([a-z][a-z0-9-]*)-(\\d{3,4})$`);
+  const hexOf = (v) => { const c = parseColor(String(v ?? '').trim()); return c ? rgbToHex(c.slice(0, 3)) : null; };
+  const memo = new Map();
+  const tokenHex = (name, path) => {
+    if (roleIds.has(name)) return hexOf(roleValues[roleIds.get(name)]);
+    const sw = swatchRe.exec(name);
+    if (sw && scales[sw[1]]?.weights[Number(sw[2])]) return scales[sw[1]].weights[Number(sw[2])];
+    if (COLOUR_TOKENS.has(name)) return hexOf(contractHex[name]);
+    if (memo.has(name)) return memo.get(name);
+    if (path.has(name) || !(name in (tokenValues ?? {}))) return null;
+    path.add(name);
+    const hex = valueHex(tokenValues[name], path);
+    path.delete(name);
+    memo.set(name, hex);
+    return hex;
+  };
+  const valueHex = (v, path) => {
+    const m = /^var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([\s\S]*))?\)$/.exec(String(v ?? '').trim());
+    if (!m) return hexOf(v);
+    return tokenHex(m[1], path) ?? (m[2] !== undefined ? valueHex(m[2], path) : null);
+  };
+  const out = {};
+  for (const name of Object.keys(tokenValues ?? {})) out[name] = tokenHex(name, new Set());
   return out;
 }
 

@@ -14,7 +14,7 @@ import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmp as scratch } from './helpers.mjs';
-import { readScales, expandTheme, offRoleColours, nearestRole, roleToken } from '../tools/brand-palette.mjs';
+import { readScales, expandTheme, offRoleColours, nearestRole, roleToken, resolveTokenColours } from '../tools/brand-palette.mjs';
 import { checkDir, reportLines } from '../cli/design-system.mjs';
 import { packageVerdict, designSystemMeta, brandTags, bundleDesignSystem } from '../cli/design-system-refs.mjs';
 import { staticFindings, checkEntry } from '../cli/check.mjs';
@@ -193,6 +193,21 @@ test('offRoleColours names literals, contract tokens and swatches, never a role 
   assert.equal(nearestRole({ a: '#000000', b: '#ffffff' }, '#f0f0f0'), 'b');
 });
 
+test("a design system's own tokens resolve to the colour at the end of their chain, at a theme, and offRoleColours names them only when given", () => {
+  const m = manifest();
+  const read = readScales(m.palette);
+  const ctx = { prefix: '--acme-', scales: read.scales, roles: m.roles };
+  const values = { '--acme-color-highlight': 'var(--acme-highlight)', '--acme-highlight': 'var(--acme-color-text-accent)',
+    '--acme-legacy-blue': 'var(--acme-blue-600)', '--acme-divider-pad': '6vh', '--acme-loop': 'var(--acme-loop)',
+    '--acme-fallback': 'var(--acme-nobody, #123456)', '--acme-mix': 'color-mix(in oklab, var(--acme-blue-600), white)', '--acme-ink': 'var(--fg)' };
+  const hex = resolveTokenColours(values, { ...ctx, roleValues: { 'text-accent': '#dd6f23' }, contractHex: { '--fg': '#dce6f2' } });
+  assert.deepEqual(hex, { '--acme-color-highlight': '#dd6f23', '--acme-highlight': '#dd6f23', '--acme-legacy-blue': '#2d74d9', '--acme-divider-pad': null,
+    '--acme-loop': null, '--acme-fallback': '#123456', '--acme-mix': null, '--acme-ink': '#dce6f2' });
+  assert.deepEqual(offRoleColours('var(--acme-color-highlight)', ctx), [], 'without its tokens, the gate leaves a component its own');
+  const off = offRoleColours('var(--acme-color-highlight) var(--acme-blue-600) var(--acme-color-text-accent) var(--acme-divider-pad)', { ...ctx, tokens: hex });
+  assert.deepEqual(off.map((o) => [o.kind, o.name, o.hex]), [['token', '--acme-color-highlight', '#dd6f23'], ['swatch', '--acme-blue-600', '#2d74d9'], ['token', '--acme-divider-pad', null]]);
+});
+
 test('design-system gate warns about a component colour that is not a role, naming the file, the line and the nearest role', (t) => {
   const css = `${cssOf()}.decklight .acme-title { color: var(--heading-color); }\n.decklight .acme-tile { border: 1px solid var(--acme-blue-600); background: #101820; }\n`;
   const templates = `${readFileSync(path.join(ROLES, 'templates.html'), 'utf8')}<template data-template="tile" data-title="Tile">\n  <div class="acme-tile" style="color: #ff6600"><div data-slot="body" data-slot-default></div></div>\n</template>\n`;
@@ -221,4 +236,20 @@ test('decklight check warns off-role once per slide on a deck held to the brand,
   assert.match(found[0].message, /--acme-slate-500 \(a swatch\)/);
   assert.equal(staticFindings(deck({}), { designSystems: systems }).filter((f) => f.rule === 'off-palette-literal').length, 0, 'off-role says it; the palette warning does not repeat it');
   assert.equal(staticFindings(deck({ brandThemesOnly: false }), { designSystems: systems }).filter((f) => f.rule === 'off-role').length, 0, 'unlocked: the deck may wear anything');
+});
+
+test("decklight check names a design system's own non-role token as off-role, nearest the role its value resolves to, and leaves a width in a border be", () => {
+  const systems = () => new Map([['acme', checkEntry('acme@acme-mkt', packageVerdict(ROLES))]]);
+  const deck = (slide) => `<!doctype html><html><head><script type="application/json" data-decklight-config>${JSON.stringify({ decklight: '0.9.0', designSystems: ['acme@acme-mkt'], theme: 'acme-light' })}</script></head><body><div class="decklight">
+    <section><h2>Aliases</h2>${slide}</section>
+  </div></body></html>`;
+  const offRole = (slide) => staticFindings(deck(slide), { designSystems: systems }).filter((f) => f.rule === 'off-role');
+  const found = offRole('<svg viewBox="0 0 200 100"><rect style="fill: var(--acme-color-highlight)" width="80" height="40"/><rect style="fill: var(--acme-blue-700)" x="100" width="80" height="40"/></svg>');
+  assert.equal(found.length, 1);
+  assert.match(found[0].message, /--acme-color-highlight \(a design-system token\) \(nearest role text-accent\), --acme-blue-700 \(a swatch\) \(nearest role text-accent\) are not one/,
+    "the alias resolves through --acme-highlight to the role text-accent, blue-700 in acme-light: the theme the deck opens on");
+  assert.deepEqual(offRole('<p style="border: var(--acme-divider-pad) solid var(--acme-color-text-accent); padding: var(--acme-divider-pad)">x</p>'), [],
+    'a token that is no colour, in a shorthand or a property that is not a colour, is not off-role');
+  const pad = offRole('<svg viewBox="0 0 10 10"><rect fill="var(--acme-divider-pad)" width="5" height="5"/></svg>');
+  assert.match(pad[0]?.message ?? '', /--acme-divider-pad \(a design-system token\) is not one/, 'read as a colour, it is reported, with no nearest role to name');
 });

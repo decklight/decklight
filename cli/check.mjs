@@ -52,7 +52,7 @@ import { auditDeck } from './audit.mjs';
 import { designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
 import { markedSources } from './theme-refs.mjs';
 import { parseColor, toOklab } from '../tools/color.mjs';
-import { ON_PALETTE_DISTANCE, offRoleColours, nearestRole } from '../tools/brand-palette.mjs';
+import { ON_PALETTE_DISTANCE, offRoleColours, nearestRole, resolveTokenColours } from '../tools/brand-palette.mjs';
 import { printUrl } from './pdf.mjs';
 import { runMain } from './util.mjs';
 
@@ -397,7 +397,7 @@ export function checkEntry(ref, verdict) {
     ...(brand ? { palette: brand.palette.map((e) => ({ ref: e.ref, hex: e.hex, token: e.token })), themes: brand.themes.length } : {}),
     // its roles (SPEC DESIGN_SYSTEM_ROLES): what off-role holds slides to, with each theme's values to name the nearest
     ...(brand?.roles ? {
-      prefix: verdict.summary.prefix, roles: brand.roles, contract: brand.contract ?? {},
+      prefix: verdict.summary.prefix, roles: brand.roles, contract: brand.contract ?? {}, tokenValues: verdict.summary.tokenValues ?? {},
       themeRoles: Object.fromEntries(brand.themes.map((t) => [t.name, { roles: t.roleValues ?? {}, tokens: t.tokens ?? {} }])),
     } : {}),
   };
@@ -408,7 +408,9 @@ export function checkEntry(ref, verdict) {
 /** Colour literals a slide's markup writes: in a fill/stroke/color attribute or a style. */
 const LITERAL = /#[0-9a-f]{6}\b|#[0-9a-f]{3}\b|rgba?\([^)]*\)/gi;
 const COLOUR_ATTRS = ['fill', 'stroke', 'color', 'bgcolor', 'stop-color'];
-const COLOUR_DECL = /(?:^|;)\s*(?:color|background(?:-color)?|fill|stroke|border(?:-(?:top|right|bottom|left))?(?:-color)?|outline(?:-color)?|stop-color)\s*:\s*([^;]+)/gi;
+const COLOUR_DECL = /(?:^|;)\s*(color|background(?:-color)?|fill|stroke|border(?:-(?:top|right|bottom|left))?(?:-color)?|outline(?:-color)?|stop-color)\s*:\s*([^;]+)/gi;
+/** A shorthand whose value also holds widths, images, styles: a token read there is a colour only if it resolves to one. */
+const SHORTHAND = /^(?:background|border(?:-(?:top|right|bottom|left))?|outline)$/i;
 
 /** `{ swatches: [{ ref, lab }] }` when the deck is held to a brand palette — its own themes, not unlocked — else null. */
 function brandHold(src, systems) {
@@ -441,10 +443,10 @@ function roleHold(src, systems) {
       const m = /^([a-z][a-z0-9-]*)-(\d{3,4})$/.exec(e.ref ?? '');
       if (m) ((scales[m[1]] ??= { weights: {} }).weights[Number(m[2])] = e.hex);
     }
-    return {
-      ctx: { prefix: sys.prefix, scales, roles: Object.fromEntries(sys.roles.map((r) => [r.id, r])), contractHex: theme.tokens },
-      values: theme.roles, contract: sys.contract ?? {},
-    };
+    const ctx = { prefix: sys.prefix, scales, roles: Object.fromEntries(sys.roles.map((r) => [r.id, r])), contractHex: theme.tokens };
+    // its own other tokens (an alias of a swatch, kept for older decks) are not roles either: each at the colour it resolves to here
+    ctx.tokens = resolveTokenColours(sys.tokenValues ?? {}, { ...ctx, roleValues: theme.roles });
+    return { ctx, values: theme.roles, contract: sys.contract ?? {} };
   }
   return null;
 }
@@ -620,16 +622,18 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       const off = [];
       for (const node of descendants(tree)) {
         const a = readAttrs(node.attrs);
-        const values = [...COLOUR_ATTRS.map((k) => a[k]).filter(Boolean), ...[...(a.style ?? '').matchAll(COLOUR_DECL)].map((m) => m[1])];
-        for (const v of values) {
+        const values = [...COLOUR_ATTRS.map((k) => [k, a[k]]).filter(([, v]) => v), ...[...(a.style ?? '').matchAll(COLOUR_DECL)].map((m) => [m[1], m[2]])];
+        for (const [prop, v] of values) {
           for (const o of offRoleColours(v, roles.ctx)) {
             if (off.some((x) => x.name === o.name)) continue;
+            // `border: var(--acme-rule-width) solid …`: a design-system token that is no colour is the width, not off-role
+            if (o.kind === 'token' && !o.hex && SHORTHAND.test(prop)) continue;
             off.push({ ...o, near: (o.kind === 'contract' && roles.contract[o.name]) || nearestRole(roles.values, o.hex) });
           }
         }
       }
       if (off.length) {
-        const what = (o) => `${o.name}${o.kind === 'contract' ? ' (the theme contract)' : o.kind === 'swatch' ? ' (a swatch)' : ''}${o.near ? ` (nearest role ${o.near})` : ''}`;
+        const what = (o) => `${o.name}${o.kind === 'contract' ? ' (the theme contract)' : o.kind === 'swatch' ? ' (a swatch)' : o.kind === 'token' ? ' (a design-system token)' : ''}${o.near ? ` (nearest role ${o.near})` : ''}`;
         push('off-role', `${off.slice(0, 3).map(what).join(', ')}${off.length > 3 ? ` and ${off.length - 3} more` : ''}`
           + ` ${off.length === 1 ? 'is' : 'are'} not one of the design system's roles — this deck colours through them, so every theme recolours it: pick a role in Colors…, or set "brandThemesOnly": false`);
       }
@@ -638,7 +642,7 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       const off = [];
       for (const node of descendants(tree)) {
         const a = readAttrs(node.attrs);
-        const values = [...COLOUR_ATTRS.map((k) => a[k]).filter(Boolean), ...[...(a.style ?? '').matchAll(COLOUR_DECL)].map((m) => m[1])];
+        const values = [...COLOUR_ATTRS.map((k) => a[k]).filter(Boolean), ...[...(a.style ?? '').matchAll(COLOUR_DECL)].map((m) => m[2])];
         for (const v of values) {
           for (const lit of String(v).match(LITERAL) ?? []) {
             const n = nearestOf(hold, lit);

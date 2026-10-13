@@ -9,6 +9,9 @@
 
 .decklight {
   --acme-divider-pad: 6vh;
+  /* kept for decks written before roles: an alias of one, through another, and not a role itself */
+  --acme-color-highlight: var(--acme-highlight);
+  --acme-highlight: var(--acme-color-text-accent);
 }
 
 .decklight .acme-divider {

@@ -224,8 +224,8 @@ export function parseStyles(css) {
   // comments blanked to spaces, so indexes (and lines) stay true
   const bare = text.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
   const tokens = [];
-  for (const m of bare.matchAll(/(^|[{;\s])(--[A-Za-z0-9_-]+)\s*:/g)) {
-    tokens.push({ name: m[2], line: lineAt(text, m.index + m[1].length) });
+  for (const m of bare.matchAll(/(^|[{;\s])(--[A-Za-z0-9_-]+)\s*:([^;{}]*)/g)) {
+    tokens.push({ name: m[2], value: m[3].trim(), line: lineAt(text, m.index + m[1].length) });
   }
   const exceptions = [];
   for (const m of text.matchAll(/ds-exception:\s*(--[A-Za-z0-9_-]+)\s+([^\n*]+)/g)) {
@@ -605,6 +605,9 @@ export function checkPackage(pkg) {
     }
   }
   summary.tokens = [...new Set(tokens.filter((t) => prefix && t.name.startsWith(prefix)).map((t) => t.name))];
+  // what each of them is set to (its first declaration): how check resolves an alias a slide reads to a colour
+  summary.tokenValues = {};
+  for (const t of tokens) if (prefix && t.name.startsWith(prefix) && !(t.name in summary.tokenValues)) summary.tokenValues[t.name] = t.value;
   summary.prefix = prefix;
 
   if (templatesPath) {
