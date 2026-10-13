@@ -7,11 +7,11 @@ carrying the same notes in prose.
 
 ## 0.9.0
 
-Two hundred and forty-one commits since 0.8.1, and the release has a shape:
+Three hundred and twelve commits since 0.8.1, and the release has a shape:
 **the deck is the command** (`decklight talk.html`, one server, write mode by
 default and `--no-trust` for a deck you did not write), and a deck is something
 you **edit with the mouse**, down to one shape, wire or label inside a diagram,
-**dress in a design system** with its templates, themes and fonts, **take slides
+**dress in a design system** with its templates, themes, fonts and the brand's own colours, **take slides
 into**, **import real PowerPoint drawings into**, **export as video**, and
 **narrate in a voice you can pace and direct, with a face, yours if you like**.
 The runtime it plays with is a link, not a copy, and so is a theme, a design
@@ -362,6 +362,55 @@ divider's art bleeds (#710), as background art does on every deck: a 16:9 deck
 on a 16:10 or 4:3 screen no longer shows bands where its background stops
 (#647).
 
+### The brand: a palette, its own themes, and roles (SPEC `BRAND_PALETTE`, `DESIGN_SYSTEM_ROLES`)
+
+A design system can carry the brand itself. Its palette is a set of scales,
+each colour ten weights, and its own themes are drawn only from it, gated for
+contrast like any theme; a deck on it is **held to the brand**: the picker
+lists the brand's themes, nothing generates one off the palette, *Colors…*
+shows the palette by scale and offers no literal, Paste style lands a copied
+colour on the nearest swatch, and `check` warns about a hand-written colour off
+the palette (`off-palette-literal`); `"brandThemesOnly": false` lifts it (#766).
+`decklight init` asks which design system a new deck is built on when a
+registered marketplace offers one, and starts the deck on its look and its
+first template (#814). A design system can declare **roles**
+(`text-accent`, `surface-card`) that each of its themes sets and decklight's
+contract is derived from: a deck on it names only its roles, `T` recolours
+every one, *Colors…* lists the roles and nothing else, and `check` and the gate
+hold slides and components to them (`off-role`, `component-off-role`) (#815).
+Plain markup gets the brand's components, and slot names are conventional
+across design systems (#817). `off-role` names a design system's own non-role
+tokens too, an alias like `--cf-color-polar-default`, nearest the role its value
+resolves to (#821); a role the contract maps to a diagram fill is that slot, so
+nested tones, concepts and Paste style keep working on a roles deck, and what
+the engine paints is the role (#822); and a locked deck never opens on a theme
+outside its brand, `check` says so (`theme-off-brand`), and a role keeps a
+value even under a foreign theme (#823).
+
+### One pass to make it simpler (SPEC `PRESENTING`)
+
+Late in the release, decklight was made smaller to learn without losing
+anything. Every command sits at the palette's root under its category, one key
+per action, and no bare letter writes the file (#775). The panels share one
+slot with tabs, Settings holds the knobs, and onboarding is two cards (#779);
+the log is one panel with two tabs, messages and events (#789); the inspector
+gained an HTML tab, the element's source in the same slot (#791); the
+transcript is read in the speaker view's script and exported from the palette
+(#790); and ← → move the deck whenever a panel has the keyboard (#793). The CLI
+folded too: `narrate` is one command for the deck's narration, by an engine or
+by you (#782), `library` one command for everything installed into your library
+(#781), `cast refresh` and `cast export` subcommands of `cast` (#778), `setup
+voice|face` the way to the bridges, which leave the help (#788), and `theme`
+gained `list` like `font` and `design-system`, from one table of what a deck
+references (#795). The voice's settings are saved rather than passed as flags,
+and startup asks nothing about it (#794); startup asks one git question
+instead of two, `decklight <deck> --help` fits a screen (#773), and init's git
+answer reaches the deck it opens (#772). The words settled: `check` is the deck
+lint, the admission checks are `gate`, and a glossary defines each word once
+(#785); the platform contract moved out of SPEC into `PLATFORM.md`, and
+`PRESENTING` is eight subsections (#786). Presenter plugins show over your own
+deck too, not only without trust (#784).
+
 ### Fonts travel with the deck (SPEC `FONTS`)
 
 A typeface is a marketplace kind: referenced by a deck so its faces travel with
@@ -402,6 +451,38 @@ at (#657), and a deck whose configuration block names its tracks gets its
 lip-sync sidecars and voice manifest inlined too (#658). `check`'s old slashed
 `data-layout` warning no longer throws (#721).
 
+**Copy style and Paste style** put one shape's look on another, HTML or SVG,
+by role and in one undo (#762), and concepts are easy to find and attach: a
+Concept row in *Colors…*, the look-alikes offered, a pick mode and suggestions
+(#760), the *Concept ▸* submenu ending with *Edit concepts…* opened on the
+shape's concept (#763). While editing, the slide number sits at the top right
+in the theme's accent (#744), an element's menu is about the element and has no
+notes row (#753), the inspector's Info tab leads with the slide's title (#746)
+and shows colours where they are named, tabs above the switches, and type that
+previews itself (#769). The notes card writes itself once the typing stops, the
+quiet time a setting (#748), and ↺ goes back to the notes as the card opened
+(#749). Each proposed commit has a tick, and an unticked one stays for later
+(#757). ⏎ on a settings knob switches it in place (#745). In the history, `I`
+shows the version's details under its preview (#751) and `C` its own notes as
+closed captions (#761). The speaker view's CURRENT pane shows the slide at the
+deck's step (#756); in fullscreen the letterbox bands are black and the slide
+keeps the theme's canvas (#755); a pinch zooms the slide and nothing else
+(#754). A second session's startup prints the same banner, its port row yellow,
+bridges already running green, a dead service a red ✗ (#752). A skill older
+than this install is offered up to date at startup (#747). `check` counts a
+crowded slide and *Check deck…* lists the deck's issues (#759), the local agent
+reads the deck and *Check deck…* lists where it could be better (#767), and a
+diagram with no build is hinted (#768). The debug log survives a reload and
+says why the page reloaded (#750), stamped at 0.000 (#771). Agents cite the part
+of each source a slide uses and report what the deck stands on (#770). Chrome
+on a Mac is a Mac, so ⌘Z undoes and the hints say ⌘ (#777). `narration.files`
+has one documented shape (#780). `narrate --face` gives a recorded track its
+lip-sync, with what `setup face` saved (#798). A docked panel is open again
+after the reload a save causes, the HTML editor on its element (#807). An
+ElevenLabs voice is found by the name before its tagline, so `--voice Chris`
+finds Chris (#808). Taking over a session waits for its bridges to close, so
+the new voice bridge keeps port 8787 (#813).
+
 ### Verification
 
 `engine-render` and `narration-render` run as one harness per concern — eight
@@ -424,7 +505,12 @@ dispatch (#713); the recording harness waits for its take as long as the
 budget allows instead of failing the slow sixth of runs (#659), the
 `bundledaudio` mode checks the carried blob without awaiting a read (#662), and
 the `--remote` log line is waited for rather than read the instant the URL
-appears (#684).
+appears (#684). The soak drives the current commands and passes again (#787),
+reading a second session's port off the banner (#758); the look, hand-over and
+git routes moved out of `edit.mjs` into modules of their own and are tested as
+functions (#796, #799); the engine suggestion is checked against an empty
+environment rather than the developer's (#804); and every CI action runs on
+Node 24, ahead of GitHub retiring Node 20 (#809).
 
 ### Documentation
 
@@ -445,7 +531,15 @@ pass rewrote the README's command table, the site, SPEC, `MARKETPLACE.md` and
 the demo, and the soak drives it (#671, #672), and the README, the site, SPEC
 and the guides no longer use em dashes in their prose (#652). The last pass
 before the tag says what a diagram's shapes can do now, and how a line draws
-(#740).
+(#740). After the simplification pass, the reference lost the platform
+contract and the skill got shorter (#783), the README, the site and the
+glossary say what it left (#801), the site's hero leads with the four benefits
+and the live deck is the proof (#802), and ROADMAP keeps only what is still
+open (#792, #797, #800). The showcase speaks with ElevenLabs, its voices a
+release asset the deploy keeps in step with the deck (#803, #805, #806). SPEC
+says `recommendedThemes` once (#765), and the skill, README, site and glossary
+say a design system can carry the brand and a brand deck colours through its
+roles (#824).
 
 ## 0.8.1
 
