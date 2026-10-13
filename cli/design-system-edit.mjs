@@ -186,7 +186,7 @@ export function insertSlideTemplateSlide(html, after, template) {
 export function describeTemplateChange({ mode, moved, lacking }, ref) {
   const out = [];
   if (mode === 'remove') out.push('back to a plain slide — data-slot attributes stay');
-  if (mode === 'switch') out.push(`now ${ref} — content stays by slot name`);
+  if (mode === 'switch') out.push(`now ${ref} — content stays by slot name${lacking.length ? '' : ', nothing left over'}`);
   if (mode === 'convert') out.push(`now ${ref}`);
   for (const m of moved) out.push(m.slot ? `${m.tag} → ${m.slot}${m.by.startsWith('hint') ? ` (${m.by})` : ' (the default slot)'}` : `${m.tag} → ${m.by}`);
   if (lacking.length) out.push(`${ref} has no ${lacking.map((s) => `"${s}"`).join(', ')} slot — that content shows in the unslotted box`);

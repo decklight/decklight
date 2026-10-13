@@ -1,0 +1,28 @@
+/* North Brand: an invented design system for decklight's tests (SPEC DESIGN_SYSTEMS).
+   Each component is styled once, by its class, with the plain element as a
+   second selector, so a slide without a template takes the same look. */
+
+.decklight {
+  --north-ink: #0b5fff;
+  --north-mark: #ff3d7f;
+}
+
+/* the slide title */
+.decklight .north-title,
+.decklight section:not([data-template]) > h2 {
+  color: var(--north-ink); text-transform: uppercase; letter-spacing: .06em;
+  border-bottom: .12em solid var(--north-mark); padding-bottom: .2em;
+}
+
+/* the bullet list */
+.decklight .north-points,
+.decklight section:not([data-template]) > ul {
+  list-style: none; padding-left: 0;
+}
+.decklight .north-points > li,
+.decklight section:not([data-template]) > ul > li {
+  border-left: .3em solid var(--north-mark); padding-left: .6em; margin: .35em 0;
+}
+
+/* a tile: no plain element is a tile, so only the class gives it */
+.decklight .north-tile { border: 2px solid var(--north-ink); border-radius: 12px; padding: 1em; }

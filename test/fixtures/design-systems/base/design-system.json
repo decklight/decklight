@@ -1,0 +1,9 @@
+{
+  "apiVersion": 1,
+  "name": "north",
+  "version": "1.0.0",
+  "title": "North Brand",
+  "description": "An invented design system that styles plain markup and names its slots by convention, for SPEC DESIGN_SYSTEMS tests.",
+  "styles": "design-system.css",
+  "templates": "templates.html"
+}

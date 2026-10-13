@@ -1010,6 +1010,28 @@ and, when the current slide uses one, **take it out**: the attribute goes, `data
 
 **Slot names are the design system's contract.** A slide addresses a template only by its template id and slot names, so renaming either is a breaking change for the design system's author; a version that keeps them re-lays-out every slide that uses the template on the next load, by design, with the deck file untouched.
 
+**Plain markup takes the brand's look (base styles).** A slide on a design system says *what* each part is in plain markup, an `<h2>`, a `<p>`, a `<ul>`, a `<table>`, and the design system decides how it looks. So a design system may, and should, style the plain content elements inside a slide, `.decklight section :is(h1, h2, h3, p, ul, ol, li, table, blockquote, pre, code, a, figcaption)`: a slide without a template then wears the brand's title and bullets, and a deck whose design system is missing (`data-ds-missing`) still reads, in decklight's own styles, with nothing lost. These are content, not the page, so `paints-the-page` does not count them. The pattern is to style a component **once**, by its class, with the plain element as a second selector:
+
+```css
+.decklight .cf-title,
+.decklight section:not([data-template]) > h2 { … }
+```
+
+Precedence falls out of specificity: a template's component rule (`.decklight .cf-title`) wins over a base style (`.decklight section h2`), which wins over decklight's own defaults (`.decklight h2`). Authors name a design system's classes only for a component with no plain equivalent (a tile) or a variant the component defines. A design system's README says which plain elements it styles, and `design-system gate` prints them (`base styles  h2, ul, li`). `decklight check` gives a **hint** (`·`, never ⚠), once per slide, where a component class sits on an element that plain markup would already give it, for example `<div class="cf-title">` when the base styles give `.cf-title` to a plain `<h2>` (`ds-plain-markup`): *a plain `<h2>` (or a template's title slot) gets this component from the design system*. A class the base styles give to no plain element, a tile, is never hinted at.
+
+**Conventional slot names.** Switching a slide to another template keeps its content by slot name, so the names should mean the same thing in every design system. A design system uses these where its part is that part, each with its usual hint, and its own name only for a part with no conventional one:
+
+| slot | hint | | slot | hint |
+|---|---|---|---|---|
+| `eyebrow` | `p` | | `diagram` | `div,svg,img` |
+| `title` | `h1,h2` | | `table` | `table` |
+| `subtitle` | `p` | | `quote` | `blockquote,p` |
+| `number` | `p` | | `code` | `pre` |
+| `points` | `ul,ol` | | `image` | `img,figure` |
+| `body` | `p,div` | | `caption` | `p,figcaption` |
+
+A switch between two design systems that both use them loses nothing, and the sentence it prints says so (*…content stays by slot name, nothing left over*). `design-system gate` notes a near miss with `·`, never ✘: a slot whose hint names only one part's tags but whose name is not that part's (`heading` hinted `h1,h2`: *the conventional name for this part is "title"*, `slot-name-conventional`). A hint a paragraph could fill (`p`) names no one part, so it is never noted.
+
 **In a catalog** a design-system entry carries a required positive-integer `apiVersion` (shape only, like a transform's) and a `source` that is a **directory in the marketplace's own repo**: a URL, an absolute path or one with `..` is refused with why (v1 has no https source: the theme cache holds single files, a package is many). `marketplace list` groups the kind like any other. Nothing is ever installed into `~/.decklight/` (`cli/units.mjs` `UNIT_TYPES` has no row): a deck references a package in place, from the checkout; the kind's hint is `decklight design-system add <name@marketplace> <deck>`.
 
 ### BRAND_PALETTE · A design system's palette, and the themes drawn from it

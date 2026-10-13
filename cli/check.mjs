@@ -391,6 +391,8 @@ export function checkEntry(ref, verdict) {
   const brand = verdict?.summary?.brand;
   return {
     ref, templates: new Map((verdict?.summary?.templates ?? []).map((l) => [l.id, l.slots])),
+    // component classes its base styles also give a plain element (SPEC DESIGN_SYSTEMS)
+    components: verdict?.summary?.baseStyles?.components ?? {},
     // a palette of scales and its own themes (SPEC BRAND_PALETTE): what off-palette-literal holds slides to
     ...(brand ? { palette: brand.palette.map((e) => ({ ref: e.ref, hex: e.hex, token: e.token })), themes: brand.themes.length } : {}),
     // its roles (SPEC DESIGN_SYSTEM_ROLES): what off-role holds slides to, with each theme's values to name the nearest
@@ -648,6 +650,25 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
         push('off-palette-literal', `${off.slice(0, 3).map((o) => `${o.lit} (nearest ${o.near})`).join(', ')}${off.length > 3 ? ` and ${off.length - 3} more` : ''}`
           + ` ${off.length === 1 ? 'is' : 'are'} not in the brand's palette — this deck keeps to it: pick a swatch in Colors…, or set "brandThemesOnly": false`);
       }
+    }
+    // a design system's component class on a part plain markup already gets it on (SPEC DESIGN_SYSTEMS)
+    const plainWouldDo = [];
+    for (const [, sys] of systems) {
+      for (const node of descendants(tree)) {
+        const cls = String(readAttrs(node.attrs).class ?? '').split(/\s+/).filter(Boolean);
+        for (const c of cls) {
+          const tags = sys.components?.[c];
+          if (!tags?.length || plainWouldDo.some((x) => x.c === c)) continue;
+          plainWouldDo.push({ c, tag: node.tag, tags });
+        }
+      }
+    }
+    if (plainWouldDo.length) {
+      const say = ({ c, tag, tags }) => {
+        const part = { h1: 'title', h2: 'title', h3: 'title', ul: 'points', ol: 'points', blockquote: 'quote', table: 'table', pre: 'code', figcaption: 'caption' }[tags[0]];
+        return `<${tag} class="${c}">: a plain <${tags[0]}>${part ? ` (or a template's ${part} slot)` : ''} gets this component from the design system`;
+      };
+      out.push(finding('hint', 'ds-plain-markup', slide, head, `${plainWouldDo.map(say).join('; ')} — plain markup keeps the slide readable without it`));
     }
     if (attrs['data-template']) {
       designSystemFindings(attrs['data-template'], tree, systems, configured.map((r) => r.ref),

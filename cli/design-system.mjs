@@ -154,6 +154,9 @@ export function reportLines(dir, r) {
     out.push(`  design-system.json   ${s.title}${s.palette ? ` — palette of ${s.palette}` : ''}`
       + `${s.recommendedThemes?.length ? ` · recommends ${s.recommendedThemes.join(', ')}` : ''}`);
     out.push(`  stylesheet           ${s.tokens.length} token${s.tokens.length === 1 ? '' : 's'} (${s.prefix}…)`);
+    if (s.baseStyles?.elements?.length) {
+      out.push(`  base styles          ${s.baseStyles.elements.join(', ')} — a slide without a template takes the brand's look for these`);
+    }
     const templates = s.templates ?? [];
     out.push(`  templates            ${templates.length} template${templates.length === 1 ? '' : 's'}${templates.length ? ':' : ''}`);
     for (const l of templates) {

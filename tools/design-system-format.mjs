@@ -318,6 +318,96 @@ export function pageRules(css) {
   return out;
 }
 
+// ── plain markup and conventional parts (SPEC DESIGN_SYSTEMS) ───────────────
+
+/**
+ * The conventional slot names, each with its usual hint: a design system uses
+ * them where its part IS that part, so a slide switched between two design
+ * systems keeps its content by name.
+ */
+export const CONVENTIONAL_SLOTS = [
+  { name: 'eyebrow', hint: 'p' }, { name: 'title', hint: 'h1,h2' }, { name: 'subtitle', hint: 'p' },
+  { name: 'number', hint: 'p' }, { name: 'points', hint: 'ul,ol' }, { name: 'body', hint: 'p,div' },
+  { name: 'diagram', hint: 'div,svg,img' }, { name: 'table', hint: 'table' }, { name: 'quote', hint: 'blockquote,p' },
+  { name: 'code', hint: 'pre' }, { name: 'image', hint: 'img,figure' }, { name: 'caption', hint: 'p,figcaption' },
+];
+const CONVENTIONAL_NAMES = new Set(CONVENTIONAL_SLOTS.map((c) => c.name));
+/** A tag that belongs to one part only: a slot hinted only with tags of one part is that part. */
+const PART_OF_TAG = {
+  h1: 'title', h2: 'title', h3: 'title', ul: 'points', ol: 'points', table: 'table', blockquote: 'quote',
+  pre: 'code', figure: 'image', img: 'image', svg: 'diagram', figcaption: 'caption',
+};
+
+/** The conventional part a slot is, by its hint, when its name is not that part's: `{ part }` or null. */
+export function conventionalMiss(slot) {
+  if (!slot || slot.default || CONVENTIONAL_NAMES.has(slot.name)) return null;
+  const tags = String(slot.hint ?? '').toLowerCase().split(/[\s,]+/).filter(Boolean);
+  const parts = new Set(tags.map((t) => PART_OF_TAG[t] ?? null));
+  if (parts.size !== 1 || parts.has(null)) return null;
+  return { part: [...parts][0] };
+}
+
+/** The plain content elements a design system may style inside a slide. */
+export const BASE_ELEMENTS = ['h1', 'h2', 'h3', 'p', 'ul', 'ol', 'li', 'table', 'blockquote', 'pre', 'code', 'a', 'figcaption'];
+const BASE_SET = new Set(BASE_ELEMENTS);
+
+/** A selector list split at its top-level commas (a comma inside :is( … ) stays). */
+function splitSelectors(text) {
+  const out = [];
+  let depth = 0; let at = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    else if (c === ',' && depth === 0) { out.push(text.slice(at, i)); at = i + 1; }
+  }
+  out.push(text.slice(at));
+  return out.map((x) => x.trim()).filter(Boolean);
+}
+
+/** A selector's subject: its last compound (combinators outside parentheses split it). */
+function subjectOf(selector) {
+  let depth = 0; let at = 0;
+  for (let i = 0; i < selector.length; i++) {
+    const c = selector[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    else if (depth === 0 && /[\s>+~]/.test(c)) at = i + 1;
+  }
+  return selector.slice(at).trim();
+}
+
+/**
+ * The stylesheet's base styles: the plain content elements it styles inside a
+ * slide (`.decklight section h2`, `.decklight section :is(h2, ul)`), and, for
+ * a rule that styles a component AND a plain element (`.decklight .cf-title,
+ * .decklight section:not([data-template]) > h2`), which elements give each
+ * component class. `{ elements: ['h2', 'ul'], components: { 'cf-title': ['h2'] } }`.
+ */
+export function baseStyles(css) {
+  const bare = String(css ?? '').replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const elements = new Set();
+  const components = {};
+  for (const rule of bare.matchAll(/([^{}]*)\{[^{}]*\}/g)) {
+    const prelude = rule[1].trim();
+    if (!prelude || prelude.startsWith('@')) continue;
+    const plain = new Set();
+    const classes = new Set();
+    for (const sel of splitSelectors(prelude.replace(/^@[^{]*$/, ''))) {
+      const subject = subjectOf(sel);
+      const cls = [...subject.matchAll(/\.([A-Za-z][\w-]*)/g)].map((m) => m[1]);
+      if (cls.length) { classes.add(cls[0]); continue; }
+      if (!/\bsection\b/.test(sel)) continue;   // a base style is inside a slide
+      const bareTag = /^([a-z][a-z0-9]*)/i.exec(subject)?.[1]?.toLowerCase();
+      const isTags = /^:is\(([^()]*)\)/i.exec(subject)?.[1]?.split(',').map((t) => t.trim().toLowerCase()) ?? [];
+      for (const t of bareTag ? [bareTag] : isTags) if (BASE_SET.has(t)) plain.add(t);
+    }
+    for (const t of plain) elements.add(t);
+    if (plain.size) for (const c of classes) components[c] = [...new Set([...(components[c] ?? []), ...plain])];
+  }
+  return { elements: BASE_ELEMENTS.filter((t) => elements.has(t)), components };
+}
+
 // ── the templates ────────────────────────────────────────────────────────────
 
 /** Tags a template may never contain: anything that runs, loads, or frames. */
@@ -499,6 +589,7 @@ export function checkPackage(pkg) {
 
   let tokens = [];
   let stylesRead = false;
+  const conventionNotes = [];
   if (stylesPath) {
     const f = files.get(stylesPath);
     if (!f) problems.push({ file: 'design-system.json', line: keyLine(pkg.manifest, 'styles'), rule: 'file-missing', msg: `styles names ${stylesPath}, which is not in the package` });
@@ -509,6 +600,8 @@ export function checkPackage(pkg) {
       warnings.push(...r.warnings);
       tokens = r.tokens;
       summary.exceptions = r.exceptions;
+      // the plain elements it styles, and which component each also is (SPEC DESIGN_SYSTEMS)
+      summary.baseStyles = baseStyles(f.text ?? '');
     }
   }
   summary.tokens = [...new Set(tokens.filter((t) => prefix && t.name.startsWith(prefix)).map((t) => t.name))];
@@ -521,6 +614,13 @@ export function checkPackage(pkg) {
       const { templates, problems: lp } = walkTemplates(f.text ?? '');
       problems.push(...lp.map((p) => ({ file: templatesPath, ...p })));
       summary.templates = templates.map(({ id, title, slots }) => ({ id, title, slots }));
+      // a part named off the convention: said, never refused
+      for (const t of templates) {
+        for (const slot of t.slots) {
+          const miss = conventionalMiss(slot);
+          if (miss) conventionNotes.push({ file: templatesPath, line: t.line, rule: 'slot-name-conventional', msg: `${t.id}: the slot "${slot.name}" (hint ${slot.hint}) is a ${miss.part}; the conventional name for this part is "${miss.part}", which keeps its content when a slide switches between design systems` });
+        }
+      }
     }
   }
 
@@ -618,6 +718,7 @@ export function checkPackage(pkg) {
       }
     }
   }
+  notes.push(...conventionNotes);
   summary.notes = notes;
 
   const assets = [];
