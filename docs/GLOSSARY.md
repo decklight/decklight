@@ -114,10 +114,24 @@ bundle embeds what it references.
 **Design system.** A company's look as a package: tokens, art, slide
 templates and a palette, referenced by a deck (`DESIGN_SYSTEMS`).
 
+**Palette of scales.** A design system's brand colours, each a scale of
+weights (`blue-100` to `blue-1000`), and the themes it ships drawn only from
+them (`BRAND_PALETTE`).
+
+**Brand lock.** A deck on a design system that ships themes is held to them:
+the picker lists only the brand's themes, the deck opens on one of them, and
+`check` warns about a colour off the brand. `"brandThemesOnly": false` in the
+configuration lifts it (`BRAND_PALETTE`).
+
+**Role.** A named colour a design system declares (`text-accent`,
+`surface-card`) and every one of its themes sets, read as
+`var(--<prefix>color-<role>)`. On a brand deck with roles, slides and
+components colour through them alone (`DESIGN_SYSTEM_ROLES`).
+
 ## Checking
 
 **Check.** The deck lint: `decklight check <deck>` and the palette's *Check
-deck…* say, slide by slide, what is clipped, crowded, missing or out of step.
+deck…* say, slide by slide, what is clipped, crowded, missing, out of step or off the brand.
 
 **Gate.** The admission gate a marketplace's CI runs before listing an entry:
 `decklight theme gate`, `font gate`, `design-system gate`, and

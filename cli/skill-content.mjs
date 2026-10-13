@@ -214,6 +214,21 @@ when the deck renders, so copied markup never updates with it.
 their slots (\`*\` required); \`decklight check\` names a missing template or slot,
 a slot filled twice and a required one left empty (DESIGN_SYSTEMS in the reference).
 
+**On a deck held to a design system's brand, colour through its roles.** A
+design system that ships a palette and its own themes holds the deck to them
+(\`"brandThemesOnly"\` unset): the deck opens only on the brand's themes, and
+every colour a slide names is the brand's. When it declares roles, write
+\`var(--acme-color-text-accent)\` (\`--<prefix>color-<role>\`, the roles are in
+\`design-system.json\`), never a swatch (\`var(--acme-blue-600)\`), the theme
+contract (\`var(--accent)\`, \`var(--d-fill-2)\`), one of its other tokens, or a
+literal: each theme sets every role, so \`T\` recolours the deck and nothing
+drifts off-brand. A diagram fill the contract maps to a role is written as that
+role and still nests like its slot. \`decklight check\` says \`off-role\` (a
+colour that is not a role, with the nearest one), \`off-palette-literal\` (on a
+brand without roles) and \`theme-off-brand\` (a configured theme outside the
+brand); \`"brandThemesOnly": false\` is the author's way out, never yours to
+add (BRAND_PALETTE and DESIGN_SYSTEM_ROLES in the reference).
+
 Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
 multi-beat notes with a bare \`[click]\` line so narration and build steps
@@ -302,7 +317,9 @@ On a deck with a design system, a slide fills a template's slots
 (\`<section data-template="acme/section-divider">\` and children carrying
 \`data-slot\`, listed by \`decklight design-system templates <ref>\`) and never
 recreates its structure by hand; \`decklight check deck.html\` names any slot
-or template the design system does not have.
+or template the design system does not have. On a design system with roles,
+every colour is a role (\`var(--acme-color-<role>)\`), never a swatch, a theme
+token or a literal; \`check\` names each one that is not (\`off-role\`).
 
 When the deck is open in write mode (\`decklight deck.html\`), commit each logical
 change you finish rather than leaving it to the timer's generic \`autosave\`:

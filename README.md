@@ -164,7 +164,10 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   forces the safe mode; `publish` signs what it ships.
 - **Design systems.** A company's tokens, art and slide templates, referenced
   by a deck from a marketplace and served into it, never copied: a slide names
-  a template, fills its slots, and follows the system when it changes. *Look:
+  a template, fills its slots, and follows the system when it changes. A design
+  system can also carry the brand itself: a palette of scales, its own themes
+  drawn only from it, and roles (`text-accent`, `surface-card`) that each theme
+  sets, so the deck is held to the brand and `T` recolours every role. *Look:
   Design systems…* and *Slide: Use slide template…* in the palette, in write mode.
 - **Extensible without shipping code to the audience.** Themes, skills,
   speech engines and presenter plugins install from any git repo. Nothing
