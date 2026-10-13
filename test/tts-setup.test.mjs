@@ -66,10 +66,12 @@ test('save/load roundtrip — missing or corrupt files read as first-run, never 
 });
 
 test('the suggested engine follows what the machine already has', () => {
+  // `env` is given every time: left out, the suggestion reads the real
+  // environment, and a developer with $ELEVENLABS_API_KEY exported fails here
   const piperInstalled = (b) => b === 'piper';
-  assert.equal(suggestEngine({ hasBin: piperInstalled }), 'piper');
-  assert.equal(suggestEngine({ hasBin: () => false, project: 'proj-1' }), 'chirp');
-  assert.equal(suggestEngine({ hasBin: () => false }), 'piper', 'a bare machine gets the free path');
+  assert.equal(suggestEngine({ hasBin: piperInstalled, env: {} }), 'piper');
+  assert.equal(suggestEngine({ hasBin: () => false, env: {}, project: 'proj-1' }), 'chirp');
+  assert.equal(suggestEngine({ hasBin: () => false, env: {} }), 'piper', 'a bare machine gets the free path');
   // nobody exports an ElevenLabs key by accident, so it outranks the rest
   assert.equal(suggestEngine({ hasBin: piperInstalled, env: { ELEVENLABS_API_KEY: 'k' }, project: 'p' }), 'elevenlabs');
 });
