@@ -566,6 +566,12 @@ export async function openMain(args) {
       rl?.close();
       editSvc.args[portIdx + 1] = String(freshPort);
       editSvc.url = `http://127.0.0.1:${freshPort}/${deck}`;
+      // Kept the port: the session that held it was taken over. Its edit
+      // server is gone, but its bridges are still on their way out (its
+      // `shutdown` gives them up to 500 ms), so wait for their ports before
+      // deciding who holds them, or this session's own bridge moves off a
+      // port that is about to be free and blames "another program" (#810).
+      if (freshPort === editPort) await waitForBridgePorts(plan);
     }
   }
   // A bridge moved off a stranger's port: a row on the bridge's own line
@@ -848,8 +854,41 @@ export async function offerSkillRefresh({
   return { stale, refreshed: true, written };
 }
 
+const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * After a takeover, wait for the bridge ports this run is about to use to
+ * close: the killed session's bridges sit on the same default ports and are
+ * still exiting when its edit port frees up. Bounded (about 3 s in all) and
+ * silent: a port still open at the end is left to `moveBridgesOffStrangers`,
+ * which says who holds it. A holder `lsof` names as something other than node
+ * is a real stranger, not a bridge on its way out, so the wait stops there.
+ * Returns the ports still open.
+ */
+export async function waitForBridgePorts(plan, {
+  isOpen = isPortOpen, stranger = identifyStranger, sleep = nap, timeoutMs = 3000, stepMs = 100,
+} = {}) {
+  const ports = plan.run
+    .filter((s) => (s.name === 'tts' || s.name === 'lipsync') && s.args.includes('--port'))
+    .map((s) => Number(s.args[s.args.indexOf('--port') + 1]));
+  const open = new Set();
+  for (const port of ports) if (await isOpen(port)) open.add(port);
+  const waiting = new Set(open);   // open, and possibly a bridge on its way out
+  for (let waited = 0; waiting.size && waited < timeoutMs; waited += stepMs) {
+    for (const port of waiting) {
+      const who = stranger(port);
+      if (who && !/^node/i.test(who.command)) waiting.delete(port);
+    }
+    if (!waiting.size) break;
+    await sleep(stepMs);
+    for (const port of [...waiting]) if (!(await isOpen(port))) { waiting.delete(port); open.delete(port); }
+  }
+  return ports.filter((p) => open.has(p));
+}
+
 export async function moveBridgesOffStrangers(plan, {
   isOpen = isPortOpen, isBridge = identifyBridge, bindable = canBind, stranger = identifyStranger,
+  sleep = nap, reprobes = 5, reprobeMs = 100,
 } = {}) {
   const lines = [];
   const editSvc = plan.run.find((s) => s.name === 'edit');
@@ -870,20 +909,35 @@ export async function moveBridgesOffStrangers(plan, {
     if (!(await isOpen(port))) continue;
     // ours only if it is the SAME kind: a voice bridge that moved to 8789 is
     // not the lip-sync bridge, and "reusing" it would send /lipsync to /tts
-    const there = await isBridge(port);
+    let there = await isBridge(port);
+    let who = there ? null : stranger(port);
+    // Open, yet nobody answers and lsof names no listener: a bridge exiting,
+    // or a socket closing. Ask again for a moment before calling it a
+    // stranger's (#810).
+    let closed = false;
+    for (let i = 0; !there && !who && i < reprobes; i++) {
+      await sleep(reprobeMs);
+      if (!(await isOpen(port))) { closed = true; break; }
+      there = await isBridge(port);
+      who = there ? null : stranger(port);
+    }
+    if (closed) continue;
     const sameKind = there && (name === 'tts' ? typeof there.engine === 'string' : typeof there.engines === 'object');
     if (sameKind) continue;
     const fresh = await freeFrom(port + 1);
     if (!fresh) continue;   // nothing free nearby: the bridge refuses with its own message, as before
     spoken.add(fresh);
-    const who = stranger(port);
     svc.args[at + 1] = String(fresh);
     svc.url = `http://127.0.0.1:${fresh}`;
     const e = editSvc.args.indexOf(flag);
     if (e >= 0) editSvc.args[e + 1] = String(fresh); else editSvc.args.push(flag, String(fresh));
-    const holder = there ? there.name ?? 'another decklight bridge' : who ? `${who.command} (pid ${who.pid})` : 'another program';
-    lines.push(`${name === 'tts' ? 'voice' : 'lip-sync'}: port ${port} is held by ${holder}`
-      + ` — ${there ? 'not this bridge' : 'not decklight'} — so the bridge takes ${fresh}; the deck reaches it through this server`);
+    const label = name === 'tts' ? 'voice' : 'lip-sync';
+    const tail = `so the bridge takes ${fresh}; the deck reaches it through this server`;
+    // "not decklight" only when something was actually named; an unnamed
+    // holder is said to be unnamed, not asserted to be somebody else's
+    if (!there && !who) lines.push(`${label}: port ${port} is held by a process decklight could not identify, ${tail}`);
+    else lines.push(`${label}: port ${port} is held by ${there ? there.name ?? 'another decklight bridge' : `${who.command} (pid ${who.pid})`}`
+      + ` — ${there ? 'not this bridge' : 'not decklight'} — ${tail}`);
   }
   return lines;
 }

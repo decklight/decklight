@@ -15,7 +15,7 @@ import path from 'node:path';
 import { rmTemp, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
-import { planServices, inGitRepo, voiceSetupOffer, moveBridgesOffStrangers, noAgentRow } from '../cli/open.mjs';
+import { planServices, inGitRepo, voiceSetupOffer, moveBridgesOffStrangers, waitForBridgePorts, noAgentRow } from '../cli/open.mjs';
 import { AGENTS } from '../cli/agents.mjs';
 import { LEASH, onLeash, leashEnv, exitWhenOrphaned } from '../cli/supervise.mjs';
 import { isPortOpen } from '../cli/port-conflict.mjs';
@@ -556,6 +556,88 @@ test('a voice bridge that moved onto the lip-sync port is not the lip-sync bridg
   });
   assert.equal(plan.run[1].args.at(-1), '8790');
   assert.match(lines[0], /lip-sync: port 8789 is held by the say voice bridge — not this bridge — so the bridge takes 8790/);
+});
+
+// ── a takeover: the killed session's bridges are still on their way out (#810) ──
+
+// a virtual clock: `sleep` advances it, a port is open until its closing time
+const clock = (closesAt) => {
+  let t = 0;
+  return {
+    now: () => t,
+    sleep: async (ms) => { t += ms; },
+    isOpen: async (p) => p in closesAt && t < closesAt[p],
+  };
+};
+const takeoverPlan = () => ({ run: [
+  { name: 'edit', args: ['deck.html', '--port', '8788'] },
+  { name: 'tts', args: ['tts', '--port', '8787'], url: 'http://127.0.0.1:8787' },
+  { name: 'lipsync', args: ['--port', '8789'], url: 'http://127.0.0.1:8789' },
+] });
+
+test('after a takeover, open waits for the old session\'s bridge ports to close before placing its own', async () => {
+  const c = clock({ 8787: 300, 8789: 450 });
+  const left = await waitForBridgePorts(takeoverPlan(), { isOpen: c.isOpen, sleep: c.sleep, stranger: () => null });
+  assert.deepEqual(left, [], 'both closed inside the wait');
+  assert.ok(c.now() >= 450 && c.now() < 600, `it waited for the slower one and no longer (${c.now()} ms)`);
+});
+
+test('the post-takeover wait is bounded, and does not wait on a holder lsof names as a stranger', async () => {
+  const stuck = clock({ 8787: Infinity });
+  assert.deepEqual(await waitForBridgePorts(takeoverPlan(), { isOpen: stuck.isOpen, sleep: stuck.sleep, stranger: () => null }), [8787]);
+  assert.equal(stuck.now(), 3000, 'about 3 s, then it hands over to the stranger check');
+
+  const python = clock({ 8787: Infinity });
+  const left = await waitForBridgePorts(takeoverPlan(), {
+    isOpen: python.isOpen, sleep: python.sleep, stranger: () => ({ pid: 42, command: 'Python' }),
+  });
+  assert.deepEqual(left, [8787]);
+  assert.equal(python.now(), 0, 'a named non-node holder is not going to exit: no wait at all');
+});
+
+test('a bridge port that closes within the re-probe is not a stranger\'s: the bridge is not moved', async () => {
+  const plan = takeoverPlan();
+  const c = clock({ 8787: 300 });
+  const lines = await moveBridgesOffStrangers(plan, {
+    isOpen: c.isOpen, sleep: c.sleep, isBridge: async () => null, bindable: async () => true, stranger: () => null,
+  });
+  assert.deepEqual(lines, []);
+  assert.equal(plan.run[1].args.at(-1), '8787', 'the voice bridge keeps 8787');
+  assert.equal(plan.run[0].args.includes('--tts-port'), false, 'the edit server is not told about a move');
+});
+
+test('a port that stays open with a named stranger moves the bridge at once, worded as before', async () => {
+  const plan = takeoverPlan();
+  const c = clock({ 8787: Infinity });
+  const lines = await moveBridgesOffStrangers(plan, {
+    isOpen: c.isOpen, sleep: c.sleep, isBridge: async () => null, bindable: async (p) => p !== 8787,
+    stranger: () => ({ pid: 42, command: 'Python' }),
+  });
+  assert.equal(c.now(), 0, 'no re-probe when lsof names the holder');
+  assert.deepEqual(lines, ['voice: port 8787 is held by Python (pid 42) — not decklight — so the bridge takes 8790; the deck reaches it through this server']);
+});
+
+test('a port that stays open and unnamed moves the bridge after the re-probe, and does not claim it is not decklight', async () => {
+  const plan = takeoverPlan();
+  const c = clock({ 8787: Infinity });
+  const lines = await moveBridgesOffStrangers(plan, {
+    isOpen: c.isOpen, sleep: c.sleep, isBridge: async () => null, bindable: async (p) => p !== 8787, stranger: () => null,
+  });
+  assert.equal(c.now(), 500, 'five tries, 100 ms apart');
+  assert.equal(plan.run[1].args.at(-1), '8790');
+  assert.deepEqual(lines, ['voice: port 8787 is held by a process decklight could not identify, so the bridge takes 8790; the deck reaches it through this server']);
+  assert.doesNotMatch(lines[0], /not decklight|another program/);
+});
+
+test('a bridge that starts answering during the re-probe is reused, not moved', async () => {
+  const plan = takeoverPlan();
+  const c = clock({ 8787: Infinity });
+  const lines = await moveBridgesOffStrangers(plan, {
+    isOpen: c.isOpen, sleep: c.sleep, bindable: async () => true, stranger: () => null,
+    isBridge: async () => (c.now() >= 200 ? { ok: true, bridge: true, engine: 'say', name: 'the say voice bridge' } : null),
+  });
+  assert.deepEqual(lines, []);
+  assert.equal(plan.run[1].args.at(-1), '8787');
 });
 
 test('the no-agent banner row counts the roster rather than naming a stale three', () => {
