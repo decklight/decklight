@@ -28,6 +28,7 @@ export const MODES = [
   'themepicker', 'markedread', 'dsrecommended', 'fonts', 'fontslegacy', 'fontswrite', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard',
   'palette', 'settings', 'deckcheck', 'display', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'agentreview', 'designsystems', 'skeys', 'skeys&nosrv',
   'narration', 'nonarration', 'panel',
+  'chromescale',
   'restore', 'historydetails', 'historycaptions', 'historychanges', 'escapeall', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'publish',
   'inspector', 'sourcesedit',

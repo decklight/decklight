@@ -2164,6 +2164,31 @@
 .decklight-debug .dbg-prev { opacity: .5; }
 .decklight-debug .dbg-reload .dbg-k, .decklight-debug .dbg-reload .dbg-m { color: #ffd27f; }
 
+/* The chrome follows a small box down. Arrows, the slide number, toasts, the
+   voice hint and the welcome and help cards sit on the root, outside the
+   scaled stage, in px: a deck embedded in a 520×292 box (decklight.io's hero)
+   showed its slide at 0.4× under a full-size welcome card that overflowed the
+   frame. They now take `zoom` from the FIT scale, the way the captions take
+   their size (#490), but gentler and with a floor: full size whenever the
+   slide is drawn at 0.72× or more (a window about 920 px wide), down to half
+   size and no further, so an arrow stays something a finger can hit. Never
+   up: a full-screen deck is exactly as it was. */
+.decklight { --chrome-k: clamp(0.5, calc(var(--stage-scale, 1) * 1.4), 1); }
+.decklight-controls,
+.decklight-slide-number,
+.decklight-toast,
+.decklight-narr-hint,
+.decklight-welcome .wel-card,
+.decklight-help .help-card { zoom: var(--chrome-k); }
+/* a card taller than its box scrolls inside it rather than overflowing it; a
+   percentage resolves against the box as it is on screen, zoom or no zoom
+   (the help card has had this all along) */
+.decklight-welcome .wel-card { max-height: 92%; overflow-y: auto; }
+/* …and the cap counts the padding: a content-box card was its padding taller */
+.decklight-welcome .wel-card,
+.decklight-help .help-card { box-sizing: border-box; }
+.decklight-help .help-card { max-width: 96%; }
+
 /* closed captions (C) — the current notes segment, youtube-style */
 .decklight-captions {
   /* The bar lives on the root, outside the scaled stage, so px here are px on

@@ -2622,6 +2622,47 @@
         return;
       }
 
+      if (mode === 'chromescale') {
+        // The chrome outside the stage follows a small box DOWN, with a floor,
+        // and never up. decklight.io embeds its showcase in a 520×292 box, where
+        // the slide is drawn at 0.4× and a full-size welcome card overflowed the
+        // frame. The root is resized in place, so one headless window can stand
+        // in for the hero, a box below the floor and a big screen.
+        await settle();
+        const root = document.querySelector('.decklight');
+        const zoomOf = (sel) => parseFloat(getComputedStyle(document.querySelector(sel)).zoom);
+        const expected = () => Math.max(0.5, Math.min(1, deck._scale * 1.4));
+        const fitTo = async (w, h) => {
+          Object.assign(root.style, { right: 'auto', bottom: 'auto', width: `${w}px`, height: `${h}px` });
+          deck._reflow(); await settle(); await settle();
+        };
+        await fitTo(520, 292);
+        r.heroScale = Math.round(deck._scale * 1000) / 1000;
+        r.heroZoom = zoomOf('.decklight-controls');
+        r.theHeroShrinks = r.heroZoom < 1 && Math.abs(r.heroZoom - expected()) < 0.01;
+        // the slide number is off by default; when a deck shows it, it follows too
+        r.theSlideNumberToo = !document.querySelector('.decklight-slide-number')
+          || zoomOf('.decklight-slide-number') === r.heroZoom;
+        const arrow = document.querySelector('.decklight-arrow').getBoundingClientRect();
+        r.arrowPx = Math.round(arrow.height);
+        r.theArrowStaysHittable = arrow.height >= 16;
+        press('?'); await settle();
+        const help = document.querySelector('.decklight-help .help-card')?.getBoundingClientRect();
+        r.helpPx = help ? `${Math.round(help.width)}x${Math.round(help.height)}` : 'none';
+        r.theHelpCardFitsTheBox = !!help && help.width <= 521 && help.height <= 293;
+        press('Escape'); await settle();
+        await fitTo(260, 146);
+        r.tinyZoom = zoomOf('.decklight-controls');
+        r.theFloorHolds = r.tinyZoom === 0.5;
+        await fitTo(1600, 900);
+        r.bigZoom = zoomOf('.decklight-controls');
+        r.neverUp = r.bigZoom === 1 && getComputedStyle(document.querySelector('.decklight-arrow')).fontSize === '34px';
+        r.PASS = r.theHeroShrinks && r.theSlideNumberToo && r.theArrowStaysHittable && r.theHelpCardFitsTheBox
+          && r.theFloorHolds && r.neverUp;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'pinch') {
         // Pinch zoom (PRESENTING): a ctrl-wheel (a trackpad pinch) or two
         // fingers zoom the STAGE about the pointer; the chrome outside it
