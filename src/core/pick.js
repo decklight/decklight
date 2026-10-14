@@ -19,14 +19,28 @@
  */
 
 const DRAWN = 'rect, circle, ellipse, polygon, polyline, path, line, text, image, use, foreignObject';
-const NOT_THE_FILES = 'defs, marker, mask, .draw-head, .draw-mask, [data-ds-injected]';
+const NOT_THE_FILES = 'defs, marker, mask, .draw-head, .draw-mask';
+
+/**
+ * Did a slide template bring `n` (SPEC DESIGN_SYSTEMS): the `<svg>` itself, or
+ * a node between `n` and it? A slot container ABOVE the svg does not count:
+ * it holds the author's diagram, it is not it.
+ */
+export const injectedIn = (n, svg) => {
+  for (let e = n; e; e = e.parentElement) {
+    if (e.hasAttribute?.('data-ds-injected')) return true;
+    if (e === svg) return false;
+  }
+  return false;
+};
 
 /** The node a click on `clicked` selects inside the top-level block `top`. */
 export function pickNode(top, clicked) {
   if (!top || !clicked?.closest || !top.contains(clicked)) return top;
   const svg = clicked.closest('svg');
   if (!svg || !top.contains(svg) || svg.closest('[data-chart], .terminal')) return top;
-  if (clicked.closest(NOT_THE_FILES)) return svg;
+  if (svg.hasAttribute?.('data-ds-injected')) return top;
+  if (clicked.closest(NOT_THE_FILES) || injectedIn(clicked, svg)) return svg;
   const drawn = clicked.closest(DRAWN);
   return drawn && svg.contains(drawn) ? drawn : svg;
 }

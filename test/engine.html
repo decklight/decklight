@@ -880,7 +880,8 @@
         <section class="ds-builds" data-template="acme/statement"><h2 data-slot="title">Steps</h2><ul data-slot="body" data-build><li>one</li><li>two</li></ul></section>
         <section class="ds-nolayout" data-template="acme/nope"><h2>Plain, still here</h2></section>
         <section class="ds-nosystem" data-template="other/x"><h2>Also plain</h2></section>
-        <section class="ds-booby" data-template="acme/booby"><h2 data-slot="title">Booby-trapped layout</h2></section>`);
+        <section class="ds-booby" data-template="acme/booby"><h2 data-slot="title">Booby-trapped layout</h2></section>
+        <section class="ds-diagram" data-template="acme/statement"><h2 data-slot="title">Diagram</h2><svg viewBox="0 0 400 200" width="400"><rect class="dd-box" x="10" y="10" width="120" height="60"/><circle cx="200" cy="40" r="20"/><path d="M130 40h50"/><text class="dd-label" x="70" y="45">Label</text></svg></section>`);
     }
     if (HARNESS_MODE === 'codeedit') {
       document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
@@ -4217,6 +4218,37 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         r.decorationIsNothing = !!document.querySelector(M) && !rows().includes('Remove element');
         if (document.querySelector(M)) press('Escape');
+        // a diagram in a template's slot is the author's (#831): a click picks the
+        // shape, a double-click edits the label, check lints it — the slot
+        // container above the svg is no reason to treat it as decoration
+        const dslide = document.querySelector('section.ds-diagram');
+        const dn = deck._sections.indexOf(dslide) + 1;
+        deck.goto(dn, 0);
+        await settle();
+        const dbox = dslide.querySelector('.dd-box'), dlabel = dslide.querySelector('.dd-label'), dsvg = dbox.closest('svg');
+        r.diagramInASlot = !!dsvg.closest('[data-ds-injected][data-slot="body"]');
+        const fireOn = (el, type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+        fireOn(dbox, 'click');
+        await settle();
+        r.slottedClickPicksTheShape = deck._selection?.()?.node === dbox;
+        fireOn(dsvg, 'click');
+        r.slottedCanvasPicksTheSvg = deck._selection?.()?.node === dsvg;
+        if (deck._selection?.()) press('Escape');
+        fireOn(dlabel, 'dblclick');
+        await settle();
+        const lbox = document.querySelector('.dl-label-edit');
+        r.slottedLabelOpensTheEditor = !!lbox && lbox.value === 'Label';
+        if (lbox) {
+          lbox.value = 'Edited'; lbox.dispatchEvent(new Event('input', { bubbles: true }));
+          lbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          await settle(); await settle();
+        }
+        const lw = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/text')).pop()?.body;
+        r.slottedLabelSavesThatText = lw?.slide === dn && lw?.index === 1 && JSON.stringify(lw?.path) === '[3]'
+          && lw?.tag === 'text' && lw?.was === 'Label' && lw?.text === 'Edited';
+        r.slottedDiagramChecked = deck.check().some((f) => f.rule === 'static-diagram' && f.slide === dn);
+        deck.goto(n, 0);
+        await settle();
         press('e');
         await settle();
         // the palette's "Use slide template…": the deck's layouts, a live preview, one write
@@ -4246,7 +4278,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/template')).pop()?.body;
         r.posted = sent?.slide === n && sent?.template === 'acme/statement' && !sent?.insert;
         r.said = [...document.querySelectorAll('.decklight-toast')].some((x) => /now acme\/statement — content stays by slot name — (⌘Z|Ctrl\+Z) takes it back/.test(x.textContent));
-        r.PASS = r.titleIsAnElement && r.fileIndex && r.decorationIsNothing && r.paletteRow && r.offersRemove && r.listsLayouts
+        r.PASS = r.titleIsAnElement && r.fileIndex && r.decorationIsNothing && r.diagramInASlot && r.slottedClickPicksTheShape
+          && r.slottedCanvasPicksTheSvg && r.slottedLabelOpensTheEditor && r.slottedLabelSavesThatText && r.slottedDiagramChecked && r.paletteRow && r.offersRemove && r.listsLayouts
           && r.livePreview && r.actions && r.posted && r.said;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

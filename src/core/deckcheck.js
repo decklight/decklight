@@ -41,6 +41,7 @@
 import { closeOnBackdrop, selectInList, typeaheadKeydown } from './overlay.js';
 import { slideDensity } from './density.js';
 import { notesSegments } from './speaker.js';
+import { injectedIn } from './pick.js';
 
 /** One finding, shaped like the CLI's (`--json`), so the two read alike. */
 const finding = (level, rule, slide, title, message) => ({ level, rule, slide, title, message });
@@ -50,15 +51,20 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // ── whether a slide's diagram builds (cli/check.mjs's twin)
 
 /** Generated, not drawn, or not the slide's own: nothing here is asked to build. */
-const NOT_AUTHORED = 'aside, .chart, .terminal, [data-ds-injected]';
+const NOT_AUTHORED = 'aside, .chart, .terminal';
 const SHAPES = 'rect, circle, ellipse, polygon, polyline, path, line';
 
-/** The slide's diagrams: an authored svg with three drawn shapes or more and a label. */
-function diagramsOf(sec) {
-  return [...sec.querySelectorAll('svg')].filter((svg) => !svg.parentElement.closest('svg')
-    && !svg.closest(NOT_AUTHORED)
-    && svg.querySelectorAll(SHAPES).length >= 3 && svg.querySelector('text'));
-}
+/**
+ * A diagram: an authored svg with three drawn shapes or more and a label. A
+ * slide template's own svg is not the slide's; a slot container it was put in
+ * is no reason to skip it (SPEC DESIGN_SYSTEMS).
+ */
+export const isAuthoredDiagram = (svg) => !svg.parentElement?.closest('svg')
+  && !svg.closest(NOT_AUTHORED) && !injectedIn(svg, svg)
+  && svg.querySelectorAll(SHAPES).length >= 3 && !!svg.querySelector('text');
+
+/** The slide's diagrams. */
+const diagramsOf = (sec) => [...sec.querySelectorAll('svg')].filter(isAuthoredDiagram);
 
 export function createDeckCheck({
   root, overlays, instance, goto, measureOverflow, slideTitle, suggestions = () => [], accept = () => null,

@@ -22,6 +22,7 @@
 import { authoredTop, authoredIndex } from './design-system.js';
 import { boundedFetch } from './devmode.js';
 import { pathFrom } from './colorpicker.js';
+import { injectedIn } from './pick.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -63,7 +64,7 @@ export function childPath(top, node) {
 export function svgTextTarget(target, sec) {
   const el = target?.closest?.('tspan, text');
   if (!el || !sec?.contains?.(el) || !el.closest('svg')) return null;
-  if (el.closest('[data-chart], .terminal, aside, .draw-head, .draw-mask, [data-ds-injected]')) return null;
+  if (el.closest('[data-chart], .terminal, aside, .draw-head, .draw-mask') || injectedIn(el, el.closest('svg'))) return null;
   return el;
 }
 

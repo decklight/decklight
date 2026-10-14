@@ -15,6 +15,7 @@ import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { conceptFill, conceptSlot } from './svg.js';
 import { UNDO_CHORD } from './undo-chord.js';
+import { injectedIn } from './pick.js';
 
 const NAME = /^[a-z][a-z0-9-]{0,40}$/i;
 
@@ -35,13 +36,17 @@ export function conceptsOn(stage, concepts = {}) {
 const SHAPES = 'rect, circle, ellipse, polygon, path';
 // not a shape an author drew: SVG plumbing, the draw build's injected pieces,
 // and whatever the runtime GENERATES (a chart, a terminal cast), which is
-// nowhere in the file to be given an attribute
-const NOT_A_SHAPE = 'defs, marker, clipPath, mask, pattern, symbol, .draw-head, .draw-mask, [data-ds-injected], .chart, .terminal';
+// nowhere in the file to be given an attribute — nor what a slide template
+// drew, tested against the svg (a slot container above it holds the author's)
+const NOT_A_SHAPE = 'defs, marker, clipPath, mask, pattern, symbol, .draw-head, .draw-mask, .chart, .terminal';
+
+/** Is `el` a shape an author drew, one a concept can be attached to? */
+export const isAuthoredShape = (el) => !el.closest(NOT_A_SHAPE) && !injectedIn(el, el.closest('svg'));
 
 /** Every drawn shape in a diagram an author wrote on the deck's slides, document order. */
 export function diagramShapes(stage) {
   return [...stage.querySelectorAll(':scope > section svg')].flatMap((svg) => [...svg.querySelectorAll(SHAPES)])
-    .filter((el) => !el.closest(NOT_A_SHAPE));
+    .filter(isAuthoredShape);
 }
 
 /** The element that gives `shape` its concept (itself or a group in its diagram), or null. */
