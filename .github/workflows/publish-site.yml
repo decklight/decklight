@@ -106,6 +106,10 @@ jobs:
           cp -r site/voices out/voices
           rm -f out/voices/.pulled
           node cli/decklight.mjs bundle demo/showcase.html --themes all -o out/showcase.html
+          # the landing page's live tiles: one small deck, embedded and driven by the page;
+          # the themes are the ones its theme tile cycles through (THEMES in site/index.html)
+          node cli/decklight.mjs bundle site/pillars.html --themes eclipse,paper,synthwave,meadow,berry,glacier -o out/pillars.html
+          cp -r site/img out/img
           node -e '
             const fs = require("fs");
             const cfg = JSON.parse(fs.readFileSync("site/voices.json", "utf8"));

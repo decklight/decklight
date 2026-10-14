@@ -219,32 +219,24 @@
     .tile h3 { margin: 14px 16px 4px; font-size: 1rem; color: var(--fg); }
     .tile p { margin: 0 16px 16px; font-size: 0.92rem; color: var(--muted); }
 
-    /* diagrams that draw themselves: strokes run in whenever the tile is on screen */
-    .draw .ln { stroke-dasharray: 1; stroke-dashoffset: 1; }
-    .draw .bx { opacity: 0; }
-    .draw.on .bx { animation: pop 6s ease-out infinite; }
-    .draw.on .ln { animation: run 6s ease-in-out infinite; }
-    .draw.on .d1 { animation-delay: 0.6s; } .draw.on .d2 { animation-delay: 1.2s; } .draw.on .d3 { animation-delay: 1.8s; } .draw.on .d4 { animation-delay: 2.4s; }
-    @keyframes run { 0% { stroke-dashoffset: 1; } 20%, 85% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; opacity: 0; } }
-    @keyframes pop { 0% { opacity: 0; } 8%, 85% { opacity: 1; } 100% { opacity: 0; } }
+    /* the live tiles: the same Decklight deck (pillars.html) the page drives,
+       embedded without controls; the frame takes no pointer so the page scrolls */
+    .tile .art.live-art, .tile .art.shot-art { padding: 0; aspect-ratio: 16 / 9; position: relative; }
+    .tile .art iframe.live { width: 100%; height: 100%; border: 0; display: block; pointer-events: none; }
+    .tile .art.shot-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .badge {
+      position: absolute; right: 8px; bottom: 8px;
+      padding: 2px 8px;
+      background: rgba(0, 0, 0, 0.7);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--fg);
+      font-size: 0.72rem;
+    }
 
     /* a keycap that bottoms out */
     .key-top { animation: press 1.6s ease-in-out infinite; transform-box: fill-box; }
     @keyframes press { 0%, 40%, 100% { transform: translateY(0); } 48%, 56% { transform: translateY(6px); } }
-
-    /* themes: one slide, five themes, on a loop */
-    .theme-cycle { width: 82%; aspect-ratio: 16 / 9; border-radius: 6px; padding: 9%; animation: themes 10s steps(1) infinite; }
-    .theme-cycle b, .theme-cycle i { display: block; border-radius: 2px; }
-    .theme-cycle b { width: 60%; height: 16%; margin-bottom: 9%; background: currentColor; }
-    .theme-cycle i { height: 7%; margin-bottom: 5%; background: currentColor; opacity: 0.45; }
-    .theme-cycle i:last-child { width: 70%; }
-    @keyframes themes {
-      0% { background: #f6f2e7; color: #1d1b16; }
-      20% { background: #10131c; color: #8fb4ff; }
-      40% { background: #1f3b2c; color: #e9dfb4; }
-      60% { background: #fbe9ec; color: #8c2741; }
-      80% { background: #111111; color: #e3bd54; }
-    }
 
     /* the command palette, filtering as you type */
     .pal { width: 88%; background: #17171a; border: 1px solid var(--border); border-radius: 8px; font-size: 0.78rem; overflow: hidden; }
@@ -255,10 +247,8 @@
     .pal .r.hit { background: rgba(227, 189, 84, 0.14); color: var(--fg); }
 
     @media (prefers-reduced-motion: reduce) {
-      .wave i, .key-top, .theme-cycle, .pal .q span { animation: none; }
+      .wave i, .key-top, .pal .q span { animation: none; }
       .pal .q span { width: 10ch; }
-      .draw .ln { stroke-dashoffset: 0; } .draw .bx { opacity: 1; }
-      .draw.on .bx, .draw.on .ln { animation: none; }
     }
 
     /* how it stacks up: one table that scrolls inside itself on a phone */
@@ -466,17 +456,8 @@
       <p class="section-sub">Go on, press things.</p>
       <div class="wow">
         <div class="tile">
-          <div class="art">
-            <svg class="draw" viewBox="0 0 320 180" aria-hidden="true" fill="none" stroke-width="2.5" stroke-linecap="round">
-              <rect class="bx" x="20" y="62" width="76" height="52" rx="8" stroke="#e3bd54"/>
-              <rect class="bx d2" x="122" y="18" width="76" height="52" rx="8" stroke="#96abd0"/>
-              <rect class="bx d2" x="122" y="108" width="76" height="52" rx="8" stroke="#96abd0"/>
-              <rect class="bx d4" x="224" y="62" width="76" height="52" rx="8" stroke="#a5c987"/>
-              <path class="ln d1" pathLength="1" d="M96 80 L122 50" stroke="#ecebe6"/>
-              <path class="ln d1" pathLength="1" d="M96 96 L122 128" stroke="#ecebe6"/>
-              <path class="ln d3" pathLength="1" d="M198 44 L224 80" stroke="#ecebe6"/>
-              <path class="ln d3" pathLength="1" d="M198 134 L224 98" stroke="#ecebe6"/>
-            </svg>
+          <div class="art live-art">
+            <iframe class="live" data-live="draw" src="pillars.html?embedded#/1/0" title="A diagram drawing itself in, live" tabindex="-1" loading="lazy"></iframe>
           </div>
           <h3>Diagrams that draw themselves</h3>
           <p>Native SVG that draws itself in. Scaled and perfectly crisp on every screen.</p>
@@ -497,22 +478,18 @@
           <p>Deeply satisfying keystrokes in every terminal on this page. Mute it, we dare you.</p>
         </div>
         <div class="tile">
-          <div class="art">
-            <svg viewBox="0 0 320 180" aria-hidden="true" fill="none" stroke-width="2">
-              <rect x="10" y="30" width="130" height="120" rx="6" fill="#e9e9e9"/>
-              <rect x="24" y="52" width="102" height="18" fill="#4472c4"/><rect x="24" y="80" width="102" height="18" fill="#ed7d31"/><rect x="24" y="108" width="102" height="18" fill="#a5a5a5"/>
-              <path d="M150 90 h22 m-8 -8 l8 8 l-8 8" stroke="#e3bd54" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-              <rect x="180" y="30" width="130" height="120" rx="6" fill="#141416" stroke="#26262a"/>
-              <rect x="194" y="44" width="46" height="28" rx="6" stroke="#e3bd54"/><rect x="250" y="44" width="46" height="28" rx="6" stroke="#96abd0"/>
-              <rect x="222" y="106" width="46" height="28" rx="6" stroke="#a5c987"/>
-              <path d="M217 72 L238 106 M273 72 L252 106" stroke="#ecebe6" stroke-linecap="round"/>
-            </svg>
+          <div class="art shot-art">
+            <img src="img/import-order-flow.png" alt="A PowerPoint process diagram after decklight import: three chevrons with arrows between them, and the table under it" width="960" height="540" loading="lazy">
+            <span class="badge mono">talk.pptx &rarr; decklight import</span>
           </div>
           <h3>Bring your old deck</h3>
           <p>Your .pptx, Keynote or Slides deck comes over. SmartArt arrives as a real diagram which you can edit. Export back to PowerPoint, or even PDF if you really need to.</p>
         </div>
         <div class="tile">
-          <div class="art"><div class="theme-cycle" aria-hidden="true"><b></b><i></i><i></i><i></i></div></div>
+          <div class="art live-art">
+            <iframe class="live" data-live="themes" src="pillars.html?embedded#/2/0" title="One slide changing theme, live" tabindex="-1" loading="lazy"></iframe>
+            <span class="badge mono" data-theme-name>eclipse</span>
+          </div>
           <h3>46 themes, one key</h3>
           <p>46 built-in themes, every one contrast-checked. Press <kbd>T</kbd> until you&rsquo;re happy.</p>
         </div>
@@ -865,11 +842,43 @@
       }
       setTimeout(() => { copyBtn.textContent = 'copy'; }, 1600);
     });
-    // The drawn diagram runs its strokes in only while its tile is on screen.
-    document.querySelectorAll('svg.draw').forEach((svg) => {
+    // The live tiles are one small Decklight deck (pillars.html), embedded
+    // twice and driven with the deck's own preview protocol: `goto` steps the
+    // diagram through its draw build, `theme` swaps the theme on the other.
+    // Each runs only while its tile is on screen; with reduced motion the
+    // diagram is shown drawn and the theme left as it opened.
+    const THEMES = ['eclipse', 'paper', 'synthwave', 'meadow', 'berry', 'glacier'];
+    const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.querySelectorAll('iframe.live').forEach((frame) => {
+      const kind = frame.dataset.live;
+      const send = (msg) => frame.contentWindow?.postMessage({ __decklightPreview: msg }, '*');
+      const label = frame.parentElement.querySelector('[data-theme-name]');
+      let timer = null, n = 0, ready = false, visible = false;
+      const tick = () => {
+        if (kind === 'draw') {
+          // 0 to 3 builds, then hold the finished diagram for two beats
+          const step = Math.min(n % 6, 3);
+          send({ goto: [1, step] });
+        } else {
+          const theme = THEMES[n % THEMES.length];
+          send({ theme });
+          if (label) label.textContent = theme;
+        }
+        n++;
+      };
+      const run = () => {
+        clearInterval(timer); timer = null;
+        if (!ready || !visible) return;
+        if (calm) { if (kind === 'draw') send({ goto: [1, 3] }); return; }
+        tick();
+        timer = setInterval(tick, kind === 'draw' ? 1100 : 1800);
+      };
+      // the deck listens once it has booted, a moment after the frame loads
+      frame.addEventListener('load', () => setTimeout(() => { ready = true; run(); }, 400));
       new IntersectionObserver((entries) => {
-        svg.classList.toggle('on', entries[0].isIntersecting);
-      }, { threshold: 0.4 }).observe(svg);
+        visible = entries[0].isIntersecting;
+        run();
+      }, { threshold: 0.4 }).observe(frame);
     });
 
     // Activate the standalone terminals and keep each one's playback tied to

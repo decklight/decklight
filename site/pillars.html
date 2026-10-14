@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Decklight site pictures</title>
+  <!-- The live pictures on decklight.io: the landing page embeds this deck
+       twice (?embedded, no controls) and drives it with the preview protocol,
+       goto for the diagram that draws itself and theme for the theme tile.
+       Bundled by .github/workflows/publish-site.yml with the themes the tile
+       cycles through; keep that list and THEMES in site/index.html in step. -->
+  <script type="application/json" data-decklight-config>
+  { "decklight": "0.9.0", "theme": "eclipse", "controls": false }
+  </script>
+</head>
+<body>
+  <div class="decklight">
+
+    <section data-subtitle="none">
+      <svg viewBox="0 0 900 460" role="img" aria-label="A request flows from the browser through the API to the database and the cache" data-build="draw">
+        <defs>
+          <marker id="head" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+            <polygon points="0 0, 6 2, 0 4" fill="var(--d-stroke)"/>
+          </marker>
+        </defs>
+        <g data-build-stay>
+          <rect x="30" y="185" width="190" height="90" rx="14" fill="var(--d-fill-1)" stroke="var(--d-stroke)" stroke-width="2.5"/>
+          <text x="125" y="238" text-anchor="middle" fill="var(--d-text)" font-size="28" font-weight="700">Browser</text>
+        </g>
+        <g>
+          <path d="M220 230 L 345 230" fill="none" stroke="var(--d-stroke)" stroke-width="2.5" marker-end="url(#head)"/>
+          <rect x="355" y="185" width="190" height="90" rx="14" fill="var(--d-fill-2)" stroke="var(--d-stroke)" stroke-width="2.5"/>
+          <text x="450" y="238" text-anchor="middle" fill="var(--d-text)" font-size="28" font-weight="700">API</text>
+        </g>
+        <g>
+          <path d="M545 210 C 610 210, 610 105, 670 105" fill="none" stroke="var(--d-stroke)" stroke-width="2.5" marker-end="url(#head)"/>
+          <rect x="680" y="60" width="190" height="90" rx="14" fill="var(--d-fill-3)" stroke="var(--d-stroke)" stroke-width="2.5"/>
+          <text x="775" y="113" text-anchor="middle" fill="var(--d-text)" font-size="28" font-weight="700">Database</text>
+        </g>
+        <g>
+          <path d="M545 250 C 610 250, 610 355, 670 355" fill="none" stroke="var(--d-stroke)" stroke-width="2.5" stroke-dasharray="9 7" marker-end="url(#head)"/>
+          <rect x="680" y="310" width="190" height="90" rx="14" fill="var(--d-fill-4)" stroke="var(--d-stroke)" stroke-width="2.5"/>
+          <text x="775" y="363" text-anchor="middle" fill="var(--d-text)" font-size="28" font-weight="700">Cache</text>
+        </g>
+      </svg>
+      <aside class="notes">
+        <p>A request starts in the browser.</p>
+        <p>[click]</p>
+        <p>It reaches the API.</p>
+        <p>[click]</p>
+        <p>Which reads the database.</p>
+        <p>[click]</p>
+        <p>And, when it can, the cache.</p>
+      </aside>
+    </section>
+
+    <section data-layout="split">
+      <h2>Q3 at a glance</h2>
+      <ul>
+        <li>Setup time halved</li>
+        <li>Three teams switched</li>
+        <li>Zero clipped slides</li>
+      </ul>
+      <div class="chart" data-chart="bar">
+        <script type="application/json">
+        { "labels": ["Q1", "Q2", "Q3"],
+          "series": [ { "name": "decks", "data": [12, 19, 31] },
+                      { "name": "talks", "data": [4, 9, 14] } ] }
+        </script>
+      </div>
+      <aside class="notes">
+        <p>One slide, shown in every theme the tile cycles through.</p>
+      </aside>
+    </section>
+
+  </div>
+</body>
+</html>
