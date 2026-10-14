@@ -113,7 +113,9 @@ jobs:
           node -e '
             const fs = require("fs");
             const cfg = JSON.parse(fs.readFileSync("site/voices.json", "utf8"));
-            const files = cfg.voices.map(v => `{ label: ${JSON.stringify(v.label)}, dir: ${JSON.stringify(v.dir)} }`).join(", ");
+            // segments: the track's per-beat clips (slide-NN-KK) play one per [click],
+            // so the voice steps the builds; without it a slide plays as one clip
+            const files = cfg.voices.map(v => `{ label: ${JSON.stringify(v.label)}, dir: ${JSON.stringify(v.dir)}, segments: true }`).join(", ");
             const p = "out/showcase.html";
             const h = fs.readFileSync(p, "utf8");
             const out = h.replace("Decklight.init({", `Decklight.init({\n    narration: { files: [${files}] },`);
