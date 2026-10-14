@@ -6,6 +6,7 @@
 // element or one unit of a registered provider's count.
 
 import { computeGroups, orderItem } from '../../tools/build-groups.mjs';
+import { pointAlong, shapeLength } from './stroke-geometry.js';
 
 const CONTAINER_TAGS = new Set(['UL', 'OL', 'TABLE', 'TBODY', 'DL', 'SVG']);
 const SVG_SKIP = new Set(['defs', 'title', 'desc', 'style', 'metadata', 'mask', 'clippath']);
@@ -96,8 +97,7 @@ function prepareStroke(s) {
   if (s.classList.contains('draw-stroke')) return true;
   const stroke = s.getAttribute('stroke') ?? getComputedStyle(s).stroke;
   if (!stroke || stroke === 'none') return false;
-  let len = 0;
-  try { len = s.getTotalLength(); } catch { return false; }
+  const len = strokeLength(s);
   if (!len) return false;
   // The draw CSS overrides stroke-dasharray with the path length. A dashed
   // stroke keeps its dashes and draws through a mask instead (#737); any other
@@ -333,12 +333,25 @@ function revealHead(head, d, which) {
   el.setAttribute('clip-path', `url(#${head.clipId})`);
 }
 
+/**
+ * The stroke's length, and the point `d` along it. A slide is prepared while
+ * it is hidden, and some Chrome builds refuse both on a non-rendered shape
+ * that is not a `<path>`: the shape's own attributes answer then
+ * (stroke-geometry.js).
+ */
+function strokeLength(s) {
+  try { return s.getTotalLength(); } catch { return shapeLength(s); }
+}
+function pointAt(s, d) {
+  try { return s.getPointAtLength(d); } catch { return pointAlong(s, d) ?? { x: 0, y: 0 }; }
+}
+
 /** The point and the tangent angle (degrees) at `d` along the stroke. */
 function alongStroke(s, d, len) {
   const at = Math.max(0, Math.min(len, d));
-  const p = s.getPointAtLength(at);
-  const a = s.getPointAtLength(Math.max(0, at - 0.5));
-  const b = s.getPointAtLength(Math.min(len, at + 0.5));
+  const p = pointAt(s, at);
+  const a = pointAt(s, Math.max(0, at - 0.5));
+  const b = pointAt(s, Math.min(len, at + 0.5));
   return { x: p.x, y: p.y, angle: Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI };
 }
 
