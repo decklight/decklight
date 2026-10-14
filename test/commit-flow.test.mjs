@@ -349,8 +349,22 @@ test('open survives a deck git has never seen, with commit-messages on', async (
   assert.doesNotMatch(out, /ReferenceError/, `the server crashed on startup:\n${out}`);
   assert.equal(child.exitCode, null, `the server exited (${child.exitCode}):\n${out}`);
   assert.match(out, /decklight · \S+ on http/, `the server never came up:\n${out}`);
-  // and the opening commit it was in the middle of is really there
-  assert.match(g('log', '--oneline'), /decklight: add talk-pt\.html/);
+  // and it did not commit the deck behind the author's back: a deck git has
+  // never seen, in a repository with history, stays untracked until K (it used
+  // to be committed on whatever branch was checked out, main included)
+  assert.doesNotMatch(g('log', '--oneline'), /decklight: add/, 'committed an untracked deck at startup');
+  assert.match(g('status', '--porcelain', '--', 'talk-pt.html'), /^\?\? talk-pt\.html$/m, 'the deck is still untracked');
+  assert.match(out, /talk-pt\.html is not in git: K adds it/, 'and the banner says so instead of "commits on K"');
+  assert.match(g('for-each-ref', 'refs/decklight/wip'), /refs\/decklight\/wip/, 'the snapshot keeps it safe meanwhile');
+
+  // K is what adds it: the commit the deck's own window (and an agent) makes
+  const port = out.match(/on http:\/\/[^:\s]+:(\d+)/)[1];
+  const res = await fetch(`http://127.0.0.1:${port}/deck/edit/commit`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message: 'add the Portuguese talk' }) });
+  assert.equal(res.status, 200, await res.text());
+  assert.match(g('log', '-1', '--format=%s'), /^add the Portuguese talk$/);
+  assert.equal(g('ls-files', '--', 'talk-pt.html'), 'talk-pt.html', 'and now the deck is in git');
 
   // STOP IT HERE, and wait for it to actually be gone. `repo()` registered its
   // rmSync first, so on Windows the directory was removed while this child
@@ -359,4 +373,32 @@ test('open survives a deck git has never seen, with commit-messages on', async (
   // under test. A kill in a t.after cannot fix that: it would run after the
   // cleanup it needs to precede.
   await new Promise((done) => { child.once('exit', done); child.kill('SIGKILL'); });
+});
+
+test('a repository with no commits yet still gets the deck as its first commit', async (t) => {
+  // The one opening commit that stays: with no HEAD there is nothing for the
+  // snapshot to parent on, so committing is the only way the deck is kept.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-flow-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const g = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
+  g('init', '-q');
+  g('config', 'user.name', 'T');
+  g('config', 'user.email', 't@x');
+  fs.writeFileSync(path.join(dir, 'talk.html'), '<section><h1>One</h1></section>\n');
+
+  const { spawn } = await import('node:child_process');
+  const child = spawn(process.execPath, [EDIT, 'talk.html', '--port', '0'], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline && !/decklight · \S+ on http/.test(out) && child.exitCode === null) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  try {
+    assert.match(out, /decklight · \S+ on http/, `the server never came up:\n${out}`);
+    assert.match(g('log', '--oneline'), /decklight: add talk\.html/);
+  } finally {
+    await new Promise((done) => { child.once('exit', done); child.kill('SIGKILL'); });
+  }
 });

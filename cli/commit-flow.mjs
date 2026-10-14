@@ -176,7 +176,11 @@ export function nagText({ lines = 0, sinceMs = 0 } = {}) {
 }
 
 /** The line `open` prints when the snapshot is what stands behind the nag. */
-export function wipLine(deckRel) {
-  return `  git: committing ${deckRel} when you say so — a silent snapshot rides on`
-    + ` ${WIP_REF.replace('refs/', '')} in between (git show decklight/wip:${deckRel})`;
+export function wipLine(deckRel, { untracked = false } = {}) {
+  // An untracked deck is not committed until K (edit.mjs startGit), so the
+  // line says that rather than promising a commit nobody asked for.
+  const lead = untracked
+    ? `  git: ${deckRel} is not in git: K adds it — until then a silent snapshot rides on`
+    : `  git: committing ${deckRel} when you say so — a silent snapshot rides on`;
+  return `${lead} ${WIP_REF.replace('refs/', '')} in between (git show decklight/wip:${deckRel})`;
 }

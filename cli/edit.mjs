@@ -1669,13 +1669,20 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // The session bookends are the cadence's siblings: generic subjects for
       // moments nobody described, and in the default mode the snapshot covers
       // what they were covering. THE FIRST COMMIT IS NOT ONE OF THEM. A
-      // repository decklight just created has no commits at all, and a deck git
-      // has never seen is in no commit — in both cases there is no HEAD for the
-      // snapshot to parent on and nothing in git to recover, so this commit is
-      // how the deck ENTERS history rather than an autosave of it.
+      // repository decklight just created has no commits at all: there is no
+      // HEAD for the snapshot to parent on, so this commit is how the deck
+      // ENTERS history rather than an autosave of it.
+      //
+      // A deck git has never seen, in a repository that HAS history, is not
+      // that case. It used to be committed here too, on whatever branch was
+      // checked out, before anyone pressed anything: a scratch deck in a repo
+      // landed on main. Whether a deck is versioned is the author's call, so it
+      // stays untracked until K, and the snapshot (which needs only a HEAD, not
+      // the deck in it) keeps it safe meanwhile; the chip already reads an
+      // untracked deck as uncommitted work and asks once, like any other.
       const opening = deckDirty(root, deckRel);
       if (gitMode === 'timer') ownCommit(`decklight: start editing ${basename(deckPath)}`);
-      else if (opening.firstCommit || opening.untracked) ownCommit(`decklight: add ${basename(deckPath)}`);
+      else if (opening.firstCommit) ownCommit(`decklight: add ${basename(deckPath)}`);
       else { measureDirty(); lastWip = snapshotWip(root, deckPath, deckRel) ?? lastWip; }
       // The cadence no longer WRITES HISTORY. It used to commit every
       // --commit-every seconds, and what that produced was a column of
@@ -1696,10 +1703,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
       startup('git',
         gitMode === 'timer'
           ? `auto-commit every ${commitEvery}s`
-          : 'snapshots on decklight/wip · commits on K',
+          : `snapshots on decklight/wip · ${opening.untracked ? `${basename(deckPath)} is not in git: K adds it` : 'commits on K'}`,
         gitMode === 'timer'
           ? `  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`
-          : wipLine(deckRel),
+          : wipLine(deckRel, { untracked: opening.untracked }),
         'ok');
     }
   }
