@@ -184,15 +184,10 @@
       font-size: 0.75rem;
     }
 
-    /* 4: notes in, voice and captions out */
-    .voice { display: grid; gap: 14px; }
-    .notes { margin: 0; padding: 10px 12px; border-left: 3px solid var(--accent); background: #0d0d0f; border-radius: 0 8px 8px 0; color: var(--fg); }
-    .notes code { color: var(--accent); }
-    .wave { display: flex; gap: 4px; align-items: center; height: 46px; }
-    .wave i { flex: 1; background: var(--accent); border-radius: 2px; height: 30%; animation: wave 1.2s ease-in-out infinite; }
-    .wave i:nth-child(3n) { animation-delay: -0.3s; } .wave i:nth-child(3n+1) { animation-delay: -0.7s; } .wave i:nth-child(4n) { animation-delay: -0.5s; }
-    @keyframes wave { 0%, 100% { height: 18%; } 50% { height: 95%; } }
-    .caption-bar { justify-self: center; padding: 4px 12px; background: rgba(0, 0, 0, 0.75); border-radius: 6px; color: #fff; font-size: 0.9rem; }
+    /* 4: the notes are the talk: a recording of the showcase narrating one
+       slide, captions on, its builds stepping with the voice (tools/site-clip.mjs) */
+    .clip { display: grid; gap: 12px; padding: 12px; }
+    .clip video { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; background: #000; }
     .outputs { display: flex; flex-wrap: wrap; gap: 8px; }
 
     /* 5: a design system's templates, picked from the palette */
@@ -247,7 +242,7 @@
     .pal .r.hit { background: rgba(227, 189, 84, 0.14); color: var(--fg); }
 
     @media (prefers-reduced-motion: reduce) {
-      .wave i, .key-top, .pal .q span { animation: none; }
+      .key-top, .pal .q span { animation: none; }
       .pal .q span { width: 10ch; }
     }
 
@@ -429,11 +424,13 @@
           <h2 id="p-voice">The notes are the talk</h2>
           <p>Edit a sentence, the voice-over follows. Live narration, your own voice, a lip-synced face, an mp4. Nobody re-records anything, ever.</p>
         </div>
-        <div class="mock voice" aria-hidden="true">
-          <p class="notes mono">Three teams tried it. <code>[pause]</code> All three kept it. <code>[click]</code> Here&rsquo;s what changed.</p>
-          <div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          <div class="caption-bar">All three kept it.</div>
-          <div class="outputs"><span class="chip">live voice</span><span class="chip">your voice</span><span class="chip">captions</span><span class="chip">talk.mp4</span></div>
+        <div class="mock clip">
+          <video class="narration" muted loop playsinline preload="metadata" poster="img/narration.jpg"
+            aria-label="A Decklight slide narrating itself: a diagram draws in box by box as the voice reaches each one, with the words on screen as captions">
+            <source src="img/narration.webm" type="video/webm">
+            <source src="img/narration.mp4" type="video/mp4">
+          </video>
+          <div class="outputs" aria-hidden="true"><span class="chip">live voice</span><span class="chip">your voice</span><span class="chip">captions</span><span class="chip">talk.mp4</span></div>
         </div>
       </section>
 
@@ -880,6 +877,16 @@
         run();
       }, { threshold: 0.4 }).observe(frame);
     });
+
+    // The narration clip plays only while it is on screen, and not at all
+    // under reduced motion: the poster (its finished frame) stands in.
+    const clip = document.querySelector('video.narration');
+    if (clip && !calm) {
+      new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) clip.play().catch(() => {});
+        else clip.pause();
+      }, { threshold: 0.4 }).observe(clip);
+    }
 
     // Activate the standalone terminals and keep each one's playback tied to
     // whether it is actually on screen. The observer stays connected — it used
