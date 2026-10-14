@@ -4,12 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Decklight: describe the slide, your agent builds it</title>
-  <meta name="description" content="Describe the slide and your coding agent builds it: a deck is one HTML file an agent can write, a headless render proves right before you look, and git can carry. Narration from your own notes, truthful terminal recordings, 46 themes behind contrast gates, review comments as a git branch, and your old PowerPoint imported with its charts as data.">
+  <meta name="description" content="Stop dragging boxes around. A Decklight deck is plain HTML in git: your coding agent writes it, a headless check proves it, and the speaker notes become the voice-over. 46 themes, truthful terminals, reviews as a branch, and your old PowerPoint imported with its charts as data.">
   <link rel="stylesheet" href="dist/decklight.css">
   <style>
     :root {
       --bg: #0b0b0d; --fg: #ecebe6; --muted: #a5a49c;
       --accent: #e3bd54; --card: #141416; --border: #26262a;
+      --good: #a5c987; --bad: #e5897d; --meh: #e3bd54;
+      --mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
     }
     * { box-sizing: border-box; }
     body {
@@ -20,14 +22,32 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       line-height: 1.55;
     }
-    .wrap { max-width: 980px; margin: 0 auto; padding: 56px 24px 40px; }
-    /* the hero: benefit 1 as the headline, the live deck as the proof */
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 56px 24px 40px; }
+    @media (max-width: 600px) { .wrap { padding: 48px 16px 32px; } }
+    code, kbd { font-family: var(--mono); font-size: 0.88em; }
+    kbd {
+      padding: 0 5px;
+      border: 1px solid var(--border);
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      color: var(--fg);
+    }
+    h2.section {
+      margin: 0 0 6px;
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      font-weight: 900;
+    }
+    p.section-sub { margin: 0 0 24px; color: var(--muted); }
+
+    /* the hero: the headline, the install line, and the live deck as the proof */
     header.hero {
       display: grid;
       grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
       gap: 40px;
       align-items: center;
-      margin: 8px 0 28px;
+      margin: 8px 0 72px;
     }
     @media (max-width: 860px) { header.hero { grid-template-columns: minmax(0, 1fr); } }
     .wordmark {
@@ -57,11 +77,11 @@
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 10px;
-      font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+      font-family: var(--mono);
       font-size: 0.88rem;
     }
     .cmd .prompt { color: var(--muted); }
-    .cmd code { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--fg); }
+    .cmd code { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--fg); font-size: inherit; }
     .cmd button {
       flex: 0 0 auto;
       width: 44px; height: 44px;
@@ -78,44 +98,200 @@
     .deck-note { margin: 10px 0 0; font-size: 0.9rem; color: var(--muted); text-align: center; }
     .deck-note a { color: var(--accent); text-decoration: none; white-space: nowrap; }
     .deck-note a:hover { text-decoration: underline; }
-    /* the four benefits, one row above the fold; the feature cards follow */
-    .benefits {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 14px;
-      margin: 0 0 48px;
-    }
-    .benefit {
-      background: var(--card);
+    .deckbox {
+      aspect-ratio: 16 / 9;
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 18px;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+      background: #000;
     }
-    .benefit svg { display: block; margin-bottom: 10px; }
-    .benefit h3 { margin: 0 0 6px; font-size: 1rem; color: var(--fg); }
-    .benefit p { margin: 0; font-size: 0.92rem; color: var(--muted); }
-    .everything { margin: 0 0 -22px; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .deckbox iframe { width: 100%; height: 100%; border: 0; display: block; }
 
-    .traits {
+    /* the five pillars: text on one side, the picture on the other, alternating */
+    .pillars { display: grid; gap: 72px; margin: 0 0 88px; }
+    .pillar {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
-      gap: 14px;
-      margin: 36px 0 44px;
+      grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+      gap: 40px;
+      align-items: center;
     }
-    .trait {
+    .pillar:nth-child(even) { grid-template-columns: minmax(0, 6fr) minmax(0, 4fr); }
+    .pillar:nth-child(even) .pitch { order: 2; }
+    .pillar.wide { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+    .pillar.wide .pitch { max-width: 640px; }
+    @media (max-width: 860px) {
+      .pillar, .pillar:nth-child(even) { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+      .pillar:nth-child(even) .pitch { order: 0; }
+    }
+    .pitch .num { margin: 0 0 6px; font-family: var(--mono); font-size: 0.85rem; color: var(--accent); }
+    .pitch h2 { margin: 0 0 10px; font-size: clamp(1.5rem, 3vw, 2rem); line-height: 1.15; letter-spacing: -0.02em; font-weight: 900; }
+    .pitch p { margin: 0; color: var(--muted); font-size: 1.02rem; }
+
+    /* the drawn pictures: plain HTML and SVG on the page's own tokens */
+    .mock {
+      position: relative;
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 18px;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+      font-size: 0.9rem;
     }
-    .trait h3 { margin: 0 0 6px; font-size: 1rem; color: var(--accent); }
-    .trait p { margin: 0; font-size: 0.92rem; color: var(--muted); }
+    .mono { font-family: var(--mono); font-size: 0.82rem; line-height: 1.7; }
+    .ok { color: var(--good); } .no { color: var(--bad); } .warn { color: var(--meh); }
+    .dim { color: var(--muted); }
+    .mini-slide {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      background: #f6f2e7;
+      color: #1d1b16;
+      border-radius: 8px;
+      padding: 7% 8%;
+      overflow: hidden;
+    }
+    .mini-slide b { display: block; font-size: 1.05rem; margin-bottom: 6px; }
+
+    /* 2: the check catches a clipped line */
+    .verify { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 16px; align-items: center; }
+    @media (max-width: 600px) { .verify { grid-template-columns: minmax(0, 1fr); } }
+    .verify .mini-slide span { display: block; white-space: nowrap; font-size: 0.85rem; }
+    .verify .mini-slide::after {
+      content: "";
+      position: absolute; top: 0; right: 0; bottom: 0;
+      width: 14%;
+      background: repeating-linear-gradient(135deg, rgba(229, 137, 125, 0.55) 0 6px, transparent 6px 12px);
+      border-left: 2px dashed var(--bad);
+    }
+    .verify pre { margin: 0; white-space: pre-wrap; }
+
+    /* 3: a diff, the commits that were written for you, the review branch */
+    .gitmock { display: grid; gap: 12px; }
+    .diff { background: #0d0d0f; border-radius: 8px; padding: 10px 12px; overflow: hidden; }
+    .diff div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .diff .rm { color: var(--bad); } .diff .add { color: var(--good); }
+    .commits { list-style: none; margin: 0; padding: 0; }
+    .commits li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--border); }
+    .commits li:last-child { border-bottom: 0; }
+    .commits .sha { color: var(--accent); }
+    .chip {
+      display: inline-block;
+      padding: 1px 8px;
+      border: 1px solid var(--accent);
+      border-radius: 99px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+    }
+
+    /* 4: notes in, voice and captions out */
+    .voice { display: grid; gap: 14px; }
+    .notes { margin: 0; padding: 10px 12px; border-left: 3px solid var(--accent); background: #0d0d0f; border-radius: 0 8px 8px 0; color: var(--fg); }
+    .notes code { color: var(--accent); }
+    .wave { display: flex; gap: 4px; align-items: center; height: 46px; }
+    .wave i { flex: 1; background: var(--accent); border-radius: 2px; height: 30%; animation: wave 1.2s ease-in-out infinite; }
+    .wave i:nth-child(3n) { animation-delay: -0.3s; } .wave i:nth-child(3n+1) { animation-delay: -0.7s; } .wave i:nth-child(4n) { animation-delay: -0.5s; }
+    @keyframes wave { 0%, 100% { height: 18%; } 50% { height: 95%; } }
+    .caption-bar { justify-self: center; padding: 4px 12px; background: rgba(0, 0, 0, 0.75); border-radius: 6px; color: #fff; font-size: 0.9rem; }
+    .outputs { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    /* 5: a design system's templates, picked from the palette */
+    .brand { display: grid; gap: 12px; }
+    .palette-row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; background: #0d0d0f; border: 1px solid var(--border); border-radius: 8px; }
+    .templates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .tpl { aspect-ratio: 16 / 9; border-radius: 6px; background: #12324a; position: relative; overflow: hidden; }
+    .tpl::before { content: ""; position: absolute; left: 8%; top: 12%; width: 22%; height: 8%; background: #ff7a45; border-radius: 2px; }
+    .tpl.a::after { content: ""; position: absolute; left: 8%; right: 8%; top: 38%; height: 12%; background: rgba(255, 255, 255, 0.85); border-radius: 2px; box-shadow: 0 14px 0 -2px rgba(255, 255, 255, 0.35); }
+    .tpl.b { background: #f3efe6; }
+    .tpl.b::after { content: ""; position: absolute; right: 8%; top: 22%; width: 38%; height: 56%; background: #12324a; border-radius: 4px; }
+    .tpl.c { background: #ff7a45; }
+    .tpl.c::before { background: #12324a; }
+    .tpl.c::after { content: ""; position: absolute; left: 8%; right: 30%; top: 44%; height: 16%; background: #12324a; border-radius: 2px; }
+    .tpl.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* the show-offs: six tiles, a picture and a line each */
+    .wow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0 0 88px; }
+    @media (max-width: 860px) { .wow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 560px) { .wow { grid-template-columns: minmax(0, 1fr); } }
+    .tile { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+    .tile .art { aspect-ratio: 16 / 10; background: #0d0d0f; display: grid; place-items: center; padding: 14px; border-bottom: 1px solid var(--border); overflow: hidden; }
+    .tile .art svg { width: 100%; height: 100%; }
+    .tile h3 { margin: 14px 16px 4px; font-size: 1rem; color: var(--fg); }
+    .tile p { margin: 0 16px 16px; font-size: 0.92rem; color: var(--muted); }
+
+    /* diagrams that draw themselves: strokes run in whenever the tile is on screen */
+    .draw .ln { stroke-dasharray: 1; stroke-dashoffset: 1; }
+    .draw .bx { opacity: 0; }
+    .draw.on .bx { animation: pop 6s ease-out infinite; }
+    .draw.on .ln { animation: run 6s ease-in-out infinite; }
+    .draw.on .d1 { animation-delay: 0.6s; } .draw.on .d2 { animation-delay: 1.2s; } .draw.on .d3 { animation-delay: 1.8s; } .draw.on .d4 { animation-delay: 2.4s; }
+    @keyframes run { 0% { stroke-dashoffset: 1; } 20%, 85% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+    @keyframes pop { 0% { opacity: 0; } 8%, 85% { opacity: 1; } 100% { opacity: 0; } }
+
+    /* a keycap that bottoms out */
+    .key-top { animation: press 1.6s ease-in-out infinite; transform-box: fill-box; }
+    @keyframes press { 0%, 40%, 100% { transform: translateY(0); } 48%, 56% { transform: translateY(6px); } }
+
+    /* themes: one slide, five themes, on a loop */
+    .theme-cycle { width: 82%; aspect-ratio: 16 / 9; border-radius: 6px; padding: 9%; animation: themes 10s steps(1) infinite; }
+    .theme-cycle b, .theme-cycle i { display: block; border-radius: 2px; }
+    .theme-cycle b { width: 60%; height: 16%; margin-bottom: 9%; background: currentColor; }
+    .theme-cycle i { height: 7%; margin-bottom: 5%; background: currentColor; opacity: 0.45; }
+    .theme-cycle i:last-child { width: 70%; }
+    @keyframes themes {
+      0% { background: #f6f2e7; color: #1d1b16; }
+      20% { background: #10131c; color: #8fb4ff; }
+      40% { background: #1f3b2c; color: #e9dfb4; }
+      60% { background: #fbe9ec; color: #8c2741; }
+      80% { background: #111111; color: #e3bd54; }
+    }
+
+    /* the command palette, filtering as you type */
+    .pal { width: 88%; background: #17171a; border: 1px solid var(--border); border-radius: 8px; font-size: 0.78rem; overflow: hidden; }
+    .pal .q { padding: 7px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); color: var(--fg); }
+    .pal .q span { display: inline-block; overflow: hidden; white-space: nowrap; vertical-align: bottom; border-right: 2px solid var(--accent); animation: typing 5s steps(10) infinite; }
+    @keyframes typing { 0% { width: 0; } 40%, 90% { width: 10ch; } 100% { width: 0; } }
+    .pal .r { display: flex; justify-content: space-between; padding: 5px 10px; color: var(--muted); }
+    .pal .r.hit { background: rgba(227, 189, 84, 0.14); color: var(--fg); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .wave i, .key-top, .theme-cycle, .pal .q span { animation: none; }
+      .pal .q span { width: 10ch; }
+      .draw .ln { stroke-dashoffset: 0; } .draw .bx { opacity: 1; }
+      .draw.on .bx, .draw.on .ln { animation: none; }
+    }
+
+    /* how it stacks up: one table that scrolls inside itself on a phone */
+    .compare { margin: 0 0 88px; }
+    .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; background: var(--card); }
+    table.grid { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 0.86rem; }
+    table.grid th, table.grid td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+    table.grid tr:last-child td { border-bottom: 0; }
+    table.grid thead th { color: var(--muted); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+    table.grid tbody th { color: var(--fg); font-weight: 600; width: 19%; }
+    table.grid .us { background: rgba(227, 189, 84, 0.08); }
+    table.grid thead .us { color: var(--accent); }
+    table.grid td::before { display: inline-block; width: 1.2em; font-weight: 700; }
+    table.grid td.y::before { content: "\2713"; color: var(--good); }
+    table.grid td.n::before { content: "\2717"; color: var(--bad); }
+    table.grid td.k::before { content: "~"; color: var(--meh); }
+    table.grid td { color: var(--muted); }
+    table.grid td.us { color: var(--fg); }
+    .jabs { display: flex; flex-wrap: wrap; gap: 10px 28px; margin: 16px 0 0; padding: 0; list-style: none; color: var(--muted); font-style: italic; }
+
+    /* also in the box: an icon, a headline, a line */
+    .box { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 0 0 88px; }
+    .feat { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 12px; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+    .feat svg { margin-top: 1px; }
+    .feat p { grid-column: 2; }
+    .feat h3 { margin: 0; font-size: 0.98rem; color: var(--fg); }
+    .feat p { margin: 0; font-size: 0.88rem; color: var(--muted); }
 
     /* the thocky easter egg: click the word, get the lab note */
     .egg-trigger { border-bottom: 1px dotted var(--accent); cursor: help; }
     .egg {
       display: none;
-      margin: -30px 0 44px;
+      margin: 0 0 44px;
       padding: 14px 18px;
       background: var(--card);
       border: 1px dashed var(--accent);
@@ -127,14 +303,14 @@
     .egg.open { display: block; }
     .egg strong { color: var(--accent); }
 
-    /* the get-started terminal: Decklight's own player, playing a cast;
+    /* the get-started terminals: Decklight's own player, playing a cast;
        terminal tokens supplied here since no theme stylesheet is loaded */
     .start { margin: 0 0 44px; }
-    .start h2 { font-size: 1.35rem; margin: 0 0 4px; color: var(--fg); }
+    .start h3 { font-size: 1.05rem; margin: 28px 0 4px; color: var(--fg); }
     .start p { margin: 0 0 14px; color: var(--muted); font-size: 0.95rem; }
-    .start.after-deck { margin-top: 44px; }
+    .start a { color: var(--accent); }
     .term-wrap {
-      font-size: clamp(16px, 5vw, 45px);
+      font-size: clamp(16px, 2.6vw, 28px);
       --term-bg: #0d0d0f; --term-fg: #e2e1dc; --term-prompt: #f5c542;
       --term-cursor: #f5c542; --term-selection: rgba(245, 197, 66, 0.25);
       --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
@@ -145,16 +321,6 @@
       --ansi-bright-yellow: #fad76e; --ansi-bright-blue: #b3c4e2; --ansi-bright-magenta: #d8bcdd;
       --ansi-bright-cyan: #b0e0d5; --ansi-bright-white: #fdfcf7;
     }
-
-    .deckbox {
-      aspect-ratio: 16 / 9;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      overflow: hidden;
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
-      background: #000;
-    }
-    .deckbox iframe { width: 100%; height: 100%; border: 0; display: block; }
 
     footer {
       margin-top: 44px;
@@ -200,123 +366,183 @@
     <header class="hero">
       <div>
         <p class="wordmark">Decklight</p>
-        <h1>Describe the slide. <em>Your agent builds it.</em></h1>
-        <p class="lead">A deck is one HTML file your coding agent can write, and a headless render proves each slide right before you look. Present it, review it in git, and let the notes become the voice-over.</p>
+        <h1>Stop dragging boxes around. <em>Describe the slide, your agent builds it.</em></h1>
+        <p class="lead">Your deck is plain HTML: data only, no code, and versioned in git from the very first save. Your agent writes it, a headless browser checks it, and the speaker notes read themselves out loud.</p>
         <div class="cmd">
           <span class="prompt" aria-hidden="true">$</span>
           <code id="install-cmd">npx decklight@latest init "My Talk"</code>
           <button type="button" id="copy-cmd" aria-label="Copy the command">copy</button>
         </div>
-        <p class="cmd-note">Scaffolds the deck and hands your agent the authoring contract. Then tell it what the talk is about.</p>
+        <p class="cmd-note">That&rsquo;s the install. Now tell your agent what the talk is about.</p>
       </div>
       <div>
         <div class="deckbox">
           <iframe src="showcase.html?voiceover" title="The Decklight showcase deck" allow="fullscreen"></iframe>
         </div>
-        <p class="deck-note">The showcase deck, live: click it and it narrates its own pitch from its speaker notes. <strong>→</strong> advances, <strong>⎵</strong> plays and pauses the voice, <strong>?</strong> shows every key. <a href="showcase.html?voiceover">Open full screen ↗</a></p>
+        <p class="deck-note">This is a Decklight deck pitching itself. Click it and it talks. <kbd>&rarr;</kbd> next, <kbd>Space</kbd> for voice, <kbd>?</kbd> every key. <a href="showcase.html?voiceover">Open full screen &#8599;</a></p>
       </div>
     </header>
 
-    <section class="benefits" aria-label="Why Decklight">
-      <div class="benefit">
-        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 20l9-9"></path><path d="M14 4l1.5 3 3 1.5-3 1.5L14 13l-1.5-3-3-1.5 3-1.5z"></path></svg>
-        <h3>Your agent writes it</h3>
-        <p>Builds, diagrams, terminals and notes, from the contract <code>init</code> hands it. Press <kbd>A</kbd> in the deck to change one slide.</p>
-      </div>
-      <div class="benefit">
-        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path><path d="M9 12l2 2 4-4"></path></svg>
-        <h3>It proves itself first</h3>
-        <p>A headless render catches clipped slides, failed contrast and <code>[click]</code> beats out of step with the builds, before you look.</p>
-      </div>
-      <div class="benefit">
-        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="9" r="2"></circle><path d="M6 7v10"></path><path d="M18 11c0 3-4 3-6 4-2 1-4 1-4 2"></path></svg>
-        <h3>Worked on like code</h3>
-        <p>Diff it, review it, restore it in git. A reviewer&rsquo;s comments come back as a branch; a design system is referenced, never copied.</p>
-      </div>
-      <div class="benefit">
-        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.7"></path><path d="M20 4v5h-5"></path></svg>
-        <h3>Change the notes, the talk follows</h3>
-        <p>Narration, captions, the mp4, the PDF and the one file to send, all from the same source. Nothing is re-recorded.</p>
-      </div>
-    </section>
+    <div class="pillars">
+      <section class="pillar wide" aria-labelledby="p-agent">
+        <div class="pitch">
+          <p class="num">01</p>
+          <h2 id="p-agent">Your agent writes it</h2>
+          <p>Say what the slide should do. Go get a coffee. Press <kbd>A</kbd> when you want to argue about one slide. Here, Claude Code gets one prompt and edits the deck:</p>
+        </div>
+        <div class="term-wrap">
+          <div class="terminal" data-cast-inline="#cast-claude" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="10" data-title="one prompt later"></div>
+        </div>
+      </section>
 
-    <p class="everything">Everything else</p>
-    <section class="traits" aria-label="Top characteristics">
-      <div class="trait">
-        <h3>One file, zero build</h3>
-        <p>Author a single HTML file that is nothing but your slides: <code>decklight &lt;deck&gt;</code> adds the runtime as it serves it, and <code>bundle</code> embeds it into the one file you send. One server, two modes: yours opens in write mode; somebody else&rsquo;s opens without trust.</p>
-      </div>
-      <div class="trait">
-        <h3>Agent-native authoring</h3>
-        <p>Describe a slide in plain English to your favorite agent, boom, done. The agent ask shares the panel beside the slide with the notes and the inspector, and every edit it makes is a commit you can read back.</p>
-      </div>
-      <div class="trait">
-        <h3>Or edit it yourself</h3>
-        <p>Editing is on the moment your deck opens: double-click text to change it (<kbd>&#8984;B</kbd>, <kbd>&#8984;I</kbd>, <kbd>&#8984;E</kbd> for bold, italic, code), a code block to edit its source, drop a picture onto a slide, pick a layout from the bar, and drag slides around from the palette. Inside a diagram, pick one shape, wire or label and restyle it from the inspector, colours and type alike, or retype a label in place. Every edit lands in the file and <kbd>&#8984;Z</kbd> takes it back. One switch turns it off: <em>Lock deck</em>, for the talk itself.</p>
-      </div>
-      <div class="trait">
-        <h3>Design systems</h3>
-        <p>A company&rsquo;s tokens, art and slide templates, referenced from a marketplace and served into the deck, never copied: a slide names a template, fills its slots, and follows the system when it changes. It can carry the brand itself too: a palette, its own themes, and roles each theme sets, so a deck stays on brand and <kbd>T</kbd> recolours it whole. <code>/</code> &rarr; <em>Look: Design systems&hellip;</em> and <em>Slide: Use slide template&hellip;</em> The art bleeds to the screen&rsquo;s edges on any aspect ratio.</p>
-      </div>
-      <div class="trait">
-        <h3>Diagrams &amp; graphics</h3>
-        <p>Not only bullet lists: shapes, diagrams, charts and full graphics, all native SVG: declared, theme-aware, and never a screenshot.</p>
-      </div>
-      <div class="trait">
-        <h3>Animation</h3>
-        <p>Display content progressively, Magic Move between slides, and complex SVG diagrams that literally draw themselves in, arrowheads riding the tip and dashed lines drawing dashed.</p>
-      </div>
-      <div class="trait">
-        <h3>46 built-in themes</h3>
-        <p>Every theme passes WCAG contrast gates and codified palette rules; diagrams and terminals reskin too. Generate yours with a keystroke.</p>
-      </div>
-      <div class="trait">
-        <h3>Terminals</h3>
-        <p>Real PTY recordings replayed truthfully, never a video, with the sound of the best mechanical keyboards: <span class="egg-trigger" title="psst">thocky</span>, creamy, or clacky.</p>
-      </div>
-      <div class="trait">
-        <h3>Live narration</h3>
-        <p>Live text-to-speech, on the fly or cached, presents the deck by itself, perfectly in sync. Captions and pop quiz included. Or record it in your own voice, one beat at a time, and your voice steps the builds the same way. The notes are the script: <code>[pause]</code> holds a beat, <code>[click]</code> cuts a beat, and with ElevenLabs v4 a tag like <code>[whispers]</code> is direction the voice performs, and your agent can add them, or rewrite terse notes as sentences a person would say. Give it a face, too: a 2D character, or a few seconds of you filmed in the deck, lip-synced on your own machine.</p>
-      </div>
-      <div class="trait">
-        <h3>A film of the talk</h3>
-        <p><code>decklight video</code> renders the deck to mp4, mov or webm, narrated by its track with subtitles in the file or beside it, and re-voices a slide whose notes moved since it was recorded. Also a palette row, which can voice it with the live voice first.</p>
-      </div>
-      <div class="trait">
-        <h3>Reviewed like code</h3>
-        <p>Reviewers comment on slides and git carries it back: no accounts, no service. A review is a branch: every comment is a commit on the reviewer&rsquo;s own <code>review/&lt;name&gt;-&lt;date&gt;</code>, never on yours, and <em>submit</em> pushes it. A comment remembers which slide it was on, so it still finds it after you insert three above. You resolve it with one key, and the reviewer sees the tick after a pull. Comments are one-way, on purpose: decklight is not a chat.</p>
-      </div>
-      <div class="trait">
-        <h3>Safe to receive</h3>
-        <p>A deck that runs code of its own is named before it opens: the ingredients label lists every script, and the terminal asks whether you trust where the file came from. No, or no terminal to answer, opens it <code>--no-trust</code>: served from its own folder under a content-security policy, with its code stripped and every editing route refused. Yes is remembered against those bytes, so a changed script asks again.</p>
-      </div>
-      <div class="trait">
-        <h3>Bring your old deck</h3>
-        <p><code>decklight import talk.pptx</code> brings a PowerPoint, Keynote or Google Slides deck across: bullets, tables, images, speaker notes, <strong>charts as data</strong> because the numbers were in the file all along, and <strong>diagrams as diagrams</strong>: SmartArt, the boxes-and-arrows somebody dragged onto a slide, and what they drew by hand (shapes, loose lines, groups, rotation) all arrive as themed SVG. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts.</p>
-      </div>
-      <div class="trait">
-        <h3>&hellip; and hand a file back</h3>
-        <p>For the people around you who still ask for &ldquo;the file&rdquo;: <code>decklight pptx</code> writes a PowerPoint (every slide a picture, the notes real notes, your hidden slides not in it), and <code>decklight pdf</code> prints the presenter&rsquo;s copy (<code>--notes</code>) or a three-a-page handout with ruled lines (<code>--handout</code>). Every one of them is a palette row too, so you never leave the deck to produce a file, and each renders in the theme on screen, a generated one included.</p>
-      </div>
-      <div class="trait">
-        <h3>Backup slides, and a stopwatch</h3>
-        <p><code>data-hidden</code> keeps a slide in the file and out of the talk: it keeps its number, and <code>?all</code> presents it anyway. The speaker view records how long each slide actually took and writes it back onto the deck, so the next run has a pace to hold.</p>
-      </div>
-      <div class="trait">
-        <h3>Publish anywhere</h3>
-        <p>GitHub Pages in one command, signed by default; Netlify and Vercel install as targets. Or <code>--target folder</code>, which writes the whole site into a directory for any host that serves files: a share, a bucket, a box you rsync to.</p>
-      </div>
-      <div class="trait">
-        <h3>Everything is text</h3>
-        <p>No binary formats anywhere, so decks diff cleanly in git and agents can read, review, and edit every byte.</p>
-      </div>
-      <div class="trait">
-        <h3>The deck remembers</h3>
-        <p>A silent snapshot keeps your work safe every thirty seconds, off every branch, and <kbd>K</kbd> commits when you say so, with a message you write or one the agent drafts from the diff. <kbd>H</kbd> reads the history back inside the deck: every version with a live preview, what each one changed, and one keystroke to restore it.</p>
-      </div>
-      <div class="trait">
-        <h3>Command palette</h3>
-        <p>Press <strong>/</strong> for a palette that reads like VS Code&rsquo;s: every action at the root, named by its category (<em>Voice: Live voice&hellip;</em>, <em>Share: Export to PDF&hellip;</em>) with its key beside it; type any words, in any order, to filter, Enter runs it. Type a number to jump to that slide. <em>Preferences: Settings&hellip;</em> holds the knobs. Authoring, it also writes every file you can hand over, and publishes, after showing you the URL and waiting for a second press.</p>
+      <section class="pillar" aria-labelledby="p-check">
+        <div class="pitch">
+          <p class="num">02</p>
+          <h2 id="p-check">Built-in verification</h2>
+          <p>Your slides get tested before your audience does. Clipped text, a missing picture or a <code>[click]</code> out of step fails the check, not the talk. Every theme has already passed its contrast gate.</p>
+        </div>
+        <div class="mock verify" aria-hidden="true">
+          <div class="mini-slide"><b>Q3 in one slide</b><span>Revenue up, churn down, and a sentence that keeps going past the edge</span></div>
+          <pre class="mono"><span class="dim">$ npx decklight check talk.html</span>
+<span class="no">&#10007;</span> slide 4  18px off the edge
+<span class="no">&#10007;</span> slide 7  missing chart.png
+<span class="warn">!</span> slide 9  3 clicks, 2 builds
+<span class="ok">&#10003;</span> 19 slides look right</pre>
+        </div>
+      </section>
+
+      <section class="pillar" aria-labelledby="p-git">
+        <div class="pitch">
+          <p class="num">03</p>
+          <h2 id="p-git">Your deck is code</h2>
+          <p>Diff it, blame it, revert the font somebody &ldquo;just tried&rdquo;. Decklight splits your work into tidy commits and writes their messages for you. Reviews arrive as a branch, or as one review file the reviewer sends you, if that&rsquo;s how you roll. No accounts, no cloud, no &ldquo;who has edit access?&rdquo;.</p>
+        </div>
+        <div class="mock gitmock" aria-hidden="true">
+          <div class="diff mono">
+            <div class="dim">@@ slide 3: Why now @@</div>
+            <div class="rm">-  &lt;h2&gt;Our synergies are best-in-class&lt;/h2&gt;</div>
+            <div class="add">+  &lt;h2&gt;Half the setup time, measured&lt;/h2&gt;</div>
+            <div class="add">+  &lt;svg data-build&gt;&hellip; the before/after chart &hellip;&lt;/svg&gt;</div>
+          </div>
+          <ul class="commits mono">
+            <li><span class="sha">a41c9e2</span><span>retitle the why-now slide around the measured win</span></li>
+            <li><span class="sha">7d0b513</span><span>add the before/after chart as a build</span></li>
+            <li><span class="sha">c92f0aa</span><span class="dim">review: a comment on slide 3</span></li>
+          </ul>
+          <div class="outputs"><span class="chip">review/sam-10-14</span><span class="dim mono">1 comment, resolved with one key</span></div>
+        </div>
+      </section>
+
+      <section class="pillar" aria-labelledby="p-voice">
+        <div class="pitch">
+          <p class="num">04</p>
+          <h2 id="p-voice">The notes are the talk</h2>
+          <p>Edit a sentence, the voice-over follows. Live narration, your own voice, a lip-synced face, an mp4. Nobody re-records anything, ever.</p>
+        </div>
+        <div class="mock voice" aria-hidden="true">
+          <p class="notes mono">Three teams tried it. <code>[pause]</code> All three kept it. <code>[click]</code> Here&rsquo;s what changed.</p>
+          <div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="caption-bar">All three kept it.</div>
+          <div class="outputs"><span class="chip">live voice</span><span class="chip">your voice</span><span class="chip">captions</span><span class="chip">talk.mp4</span></div>
+        </div>
+      </section>
+
+      <section class="pillar" aria-labelledby="p-yours">
+        <div class="pitch">
+          <p class="num">05</p>
+          <h2 id="p-yours">Make it yours</h2>
+          <p>Plugins and design systems from a marketplace, and every SVG shape, colour and note still yours to nudge by hand.</p>
+        </div>
+        <div class="mock brand" aria-hidden="true">
+          <div class="palette-row mono"><span><span class="dim">/</span> Slide: Use slide template&hellip;</span><span class="dim">acme</span></div>
+          <div class="templates"><div class="tpl a on"></div><div class="tpl b"></div><div class="tpl c"></div></div>
+          <div class="mono dim">$ decklight design-system add acme@acme-mkt talk.html</div>
+        </div>
+      </section>
+    </div>
+
+    <section aria-labelledby="wow-title">
+      <h2 class="section" id="wow-title">The bits people screenshot</h2>
+      <p class="section-sub">Go on, press things.</p>
+      <div class="wow">
+        <div class="tile">
+          <div class="art">
+            <svg class="draw" viewBox="0 0 320 180" aria-hidden="true" fill="none" stroke-width="2.5" stroke-linecap="round">
+              <rect class="bx" x="20" y="62" width="76" height="52" rx="8" stroke="#e3bd54"/>
+              <rect class="bx d2" x="122" y="18" width="76" height="52" rx="8" stroke="#96abd0"/>
+              <rect class="bx d2" x="122" y="108" width="76" height="52" rx="8" stroke="#96abd0"/>
+              <rect class="bx d4" x="224" y="62" width="76" height="52" rx="8" stroke="#a5c987"/>
+              <path class="ln d1" pathLength="1" d="M96 80 L122 50" stroke="#ecebe6"/>
+              <path class="ln d1" pathLength="1" d="M96 96 L122 128" stroke="#ecebe6"/>
+              <path class="ln d3" pathLength="1" d="M198 44 L224 80" stroke="#ecebe6"/>
+              <path class="ln d3" pathLength="1" d="M198 134 L224 98" stroke="#ecebe6"/>
+            </svg>
+          </div>
+          <h3>Diagrams that draw themselves</h3>
+          <p>Native SVG that draws itself in. Scaled and perfectly crisp on every screen.</p>
+        </div>
+        <div class="tile">
+          <div class="art">
+            <svg viewBox="0 0 320 180" aria-hidden="true">
+              <rect x="105" y="58" width="110" height="96" rx="14" fill="#1d1d21" stroke="#26262a" stroke-width="2"/>
+              <g class="key-top">
+                <rect x="115" y="40" width="90" height="88" rx="12" fill="#2a2a2f"/>
+                <rect x="126" y="48" width="68" height="60" rx="9" fill="#34343a"/>
+                <text x="160" y="85" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="20" fill="#e3bd54">&#8629;</text>
+              </g>
+              <path d="M232 70 q12 18 0 36 M246 60 q20 28 0 56 M88 70 q-12 18 0 36 M74 60 q-20 28 0 56" stroke="#e3bd54" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.6"/>
+            </svg>
+          </div>
+          <h3><span class="egg-trigger" title="psst">Thocky</span>, creamy or clacky keyboard sound</h3>
+          <p>Deeply satisfying keystrokes in every terminal on this page. Mute it, we dare you.</p>
+        </div>
+        <div class="tile">
+          <div class="art">
+            <svg viewBox="0 0 320 180" aria-hidden="true" fill="none" stroke-width="2">
+              <rect x="10" y="30" width="130" height="120" rx="6" fill="#e9e9e9"/>
+              <rect x="24" y="52" width="102" height="18" fill="#4472c4"/><rect x="24" y="80" width="102" height="18" fill="#ed7d31"/><rect x="24" y="108" width="102" height="18" fill="#a5a5a5"/>
+              <path d="M150 90 h22 m-8 -8 l8 8 l-8 8" stroke="#e3bd54" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+              <rect x="180" y="30" width="130" height="120" rx="6" fill="#141416" stroke="#26262a"/>
+              <rect x="194" y="44" width="46" height="28" rx="6" stroke="#e3bd54"/><rect x="250" y="44" width="46" height="28" rx="6" stroke="#96abd0"/>
+              <rect x="222" y="106" width="46" height="28" rx="6" stroke="#a5c987"/>
+              <path d="M217 72 L238 106 M273 72 L252 106" stroke="#ecebe6" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h3>Bring your old deck</h3>
+          <p>Your .pptx, Keynote or Slides deck comes over. SmartArt arrives as a real diagram which you can edit. Export back to PowerPoint, or even PDF if you really need to.</p>
+        </div>
+        <div class="tile">
+          <div class="art"><div class="theme-cycle" aria-hidden="true"><b></b><i></i><i></i><i></i></div></div>
+          <h3>46 themes, one key</h3>
+          <p>46 built-in themes, every one contrast-checked. Press <kbd>T</kbd> until you&rsquo;re happy.</p>
+        </div>
+        <div class="tile">
+          <div class="art">
+            <svg viewBox="0 0 320 180" aria-hidden="true">
+              <rect x="40" y="20" width="240" height="135" rx="8" fill="#12324a"/>
+              <rect x="58" y="36" width="54" height="10" rx="2" fill="#ff7a45"/>
+              <rect x="58" y="66" width="120" height="14" rx="2" fill="#fff" opacity="0.9"/>
+              <rect x="58" y="88" width="96" height="8" rx="2" fill="#fff" opacity="0.4"/>
+              <rect x="58" y="102" width="108" height="8" rx="2" fill="#fff" opacity="0.4"/>
+              <rect x="196" y="60" width="66" height="70" rx="6" fill="none" stroke="#ff7a45" stroke-width="2" stroke-dasharray="5 4"/>
+              <circle cx="56" cy="168" r="6" fill="#12324a" stroke="#ecebe6"/><circle cx="74" cy="168" r="6" fill="#ff7a45"/><circle cx="92" cy="168" r="6" fill="#f3efe6"/>
+            </svg>
+          </div>
+          <h3>Your brand, built in</h3>
+          <p>Your company&rsquo;s design system, referenced, never copied. Off-brand colours get flagged before anyone notices.</p>
+        </div>
+        <div class="tile">
+          <div class="art">
+            <div class="pal" aria-hidden="true">
+              <div class="q">/ <span>export pdf</span></div>
+              <div class="r hit"><span>Share: Export to PDF&hellip;</span><span>P</span></div>
+              <div class="r"><span>Share: Export handout PDF&hellip;</span><span></span></div>
+              <div class="r"><span>Share: Export to PowerPoint&hellip;</span><span></span></div>
+            </div>
+          </div>
+          <h3>Command palette</h3>
+          <p>All actions at your fingertips. Press <kbd>/</kbd>, type a few words, hit Enter.</p>
+        </div>
       </div>
     </section>
 
@@ -332,33 +558,73 @@
       key and a bottomed-out one. Synthesized live in WebAudio. No samples were harmed.
     </aside>
 
-    <section class="start" aria-label="Create a deck">
-      <h2>Create a deck</h2>
-      <p>No install needed: <code>npx</code> runs the CLI straight from npm. <code>init</code> scaffolds a deck (your slides plus a two-line configuration block, nothing else) and an agent skill, so Claude Code knows the authoring contract. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
+    <section class="compare" aria-labelledby="cmp-title">
+      <h2 class="section" id="cmp-title">How it stacks up</h2>
+      <p class="section-sub">We like them. We just stopped making slides in them.</p>
+      <div class="table-scroll">
+        <table class="grid">
+          <thead>
+            <tr><th scope="col"><span class="dim">&nbsp;</span></th><th scope="col" class="us">Decklight</th><th scope="col">Reveal.js</th><th scope="col">Keynote</th><th scope="col">Google Slides</th><th scope="col">PowerPoint</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Your agent writes it</th><td class="y us">With the authoring contract</td><td class="k">It&rsquo;s HTML, nobody checks the result</td><td class="n">No</td><td class="k">Gemini drafts, you drag</td><td class="k">Copilot drafts, you drag</td></tr>
+            <tr><th scope="row">It checks itself</th><td class="y us">Headless check before you look</td><td class="n">No</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
+            <tr><th scope="row">Diffs and reviews in git</th><td class="y us">Commits written for you</td><td class="y">Yes</td><td class="n">Binary bundle</td><td class="n">Version history, not a diff</td><td class="n">Version history, not a diff</td></tr>
+            <tr><th scope="row">Notes become the voice-over</th><td class="y us">Live, and re-voiced on edit</td><td class="n">No</td><td class="k">Record it yourself, again</td><td class="n">No</td><td class="k">Record it yourself, again</td></tr>
+            <tr><th scope="row">Plugins and brand systems</th><td class="y us">Marketplace and design systems</td><td class="y">Plugins</td><td class="k">Themes</td><td class="y">Add-ons</td><td class="y">Add-ins and templates</td></tr>
+            <tr><th scope="row">One file that opens offline</th><td class="y us">One HTML file</td><td class="k">A folder of assets</td><td class="k">Needs Keynote</td><td class="k">Needs a browser and an account</td><td class="k">Needs PowerPoint</td></tr>
+            <tr><th scope="row">Imports the others</th><td class="y us">pptx, Keynote, Slides</td><td class="n">No</td><td class="y">pptx</td><td class="y">pptx</td><td class="k">Keynote and Slides via export</td></tr>
+            <tr><th scope="row">Drag-and-drop canvas</th><td class="k us">Double-click, drop, drag</td><td class="n">No</td><td class="y"><strong>Best in class</strong></td><td class="y">Yes</td><td class="y">Yes</td></tr>
+            <tr><th scope="row">Ten people editing live</th><td class="n us">On purpose: reviews are branches</td><td class="n">No</td><td class="y">Via iCloud</td><td class="y"><strong>Best in class</strong></td><td class="y">Yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="jabs">
+        <li>Use proper commit messages instead of &ldquo;final_v7_REAL_final.pptx&rdquo;.</li>
+        <li>Real-time co-editing is great until ten people move the same box.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="box-title">
+      <h2 class="section" id="box-title">Also in the box</h2>
+      <p class="section-sub">The long version of each lives in the <a href="https://github.com/decklight/decklight#whats-in-the-box" style="color: var(--accent)">README</a>.</p>
+      <div class="box">
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><h3>One file. Zero build.</h3><p>Write slides, get a deck. <code>bundle</code> hands over a single HTML file.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l9-9"/><path d="M14 4l1.5 3 3 1.5-3 1.5L14 13l-1.5-3-3-1.5 3-1.5z"/></svg><h3>Talk to it</h3><p>Describe a slide in the side panel. Every edit is a commit you can read.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 7-6 2-2 6z"/></svg><h3>Or just click</h3><p>Double-click text, drop a picture, drag a slide. <kbd>&#8984;Z</kbd> forgives.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><h3>On brand by default</h3><p>A company&rsquo;s templates and tokens, referenced. Updates arrive on their own.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4"/><rect x="13" y="13" width="8" height="8" rx="1"/><path d="M17 3l4 7h-8z"/></svg><h3>Real diagrams</h3><p>Shapes, charts and graphics in native SVG. Never a screenshot.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2M15 10V8M11 6h2M17 6h2M3 21l12-12"/></svg><h3>Builds and Magic Move</h3><p>Reveal step by step, morph between slides, draw diagrams in.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 2-2s-1-2 0-3 3 0 4-1 3-2 3-4a9 9 0 0 0-9-8z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7" r="1"/><circle cx="15.5" cy="8" r="1"/></svg><h3>46 built-in themes</h3><p>All contrast-checked. Or generate yours with a keystroke.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 9l3 3-3 3M12 15h5"/></svg><h3>Terminals are live</h3><p>Real recordings, replayed live. Thocky, creamy or clacky.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg><h3>It talks</h3><p>Live TTS, captions, a pop quiz, or your own voice one beat at a time.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/></svg><h3>It&rsquo;s also a film</h3><p><code>decklight video</code> renders mp4, subtitles included. Re-voices what changed.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg><h3>Reviews without accounts</h3><p>Comments ride a git branch. No service, no chat, no seats.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><h3>Safe to open</h3><p>A stranger&rsquo;s deck lists its scripts first and runs without trust if you say no.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg><h3>Bring your old deck</h3><p>pptx, Keynote or Slides in. Charts as data, SmartArt as diagrams.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M4 21h16"/></svg><h3>Hand a file back</h3><p>Someone still wants &ldquo;the file&rdquo;? pptx or pdf, one palette row.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M10 2h4"/></svg><h3>Backup slides and a stopwatch</h3><p>Hide slides without deleting them. Learn which slide always runs long.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><h3>Publish anywhere</h3><p>GitHub Pages in one command. Netlify, Vercel or any folder.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg><h3>Everything is text</h3><p>No binary formats anywhere. Agents and diffs read every byte.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><h3>The deck remembers</h3><p>A silent snapshot every 30 seconds. <kbd>H</kbd> shows every version, one key restores.</p></div>
+        <div class="feat"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M11 8l-3 8"/></svg><h3>One palette for everything</h3><p>Press <kbd>/</kbd>, type a few words, hit Enter. Like VS Code, minus the extensions tab.</p></div>
+      </div>
+    </section>
+
+    <section class="start" aria-labelledby="start-title">
+      <h2 class="section" id="start-title">One command. Zero slides harmed.</h2>
+      <h3>Starting fresh</h3>
+      <p><code>npx</code> runs it, nothing to install. You get a deck and a skill your agent reads.</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-init" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="8" data-title="create a deck"></div>
       </div>
-    </section>
-
-    <section class="start after-deck" aria-label="Bring an existing deck across">
-      <h2>Or bring the deck you already have</h2>
-      <p><code>import</code> reads a PowerPoint, Keynote or Google Slides file and writes a decklight deck: bullets, tables, images, speaker notes, and <strong>charts as data</strong>, since the numbers were in the file all along, so a chart arrives as an editable, theme-aware element rather than a picture of one. <strong>Diagrams come as diagrams</strong> too: SmartArt is read from its data model, not its drawing, and the boxes-and-arrows somebody dragged onto a slide are rebuilt as one themed SVG with the arrows still between the right boxes. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts, a hidden slide stays hidden, and anything that cannot cross is named with its slide number. Going the other way, <code>pptx</code> hands a file back to whoever still asks for one, without the slides you were keeping back.</p>
+      <h3>Starting from a .pptx</h3>
+      <p><code>import</code> brings it over, and anything that can&rsquo;t cross is named, slide by slide.</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-import" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="11" data-title="from powerpoint, and back"></div>
       </div>
-    </section>
-
-    <section class="start after-deck" aria-label="Describe the rest to your agent">
-      <h2>Describe the rest to your agent</h2>
-      <p><code>init</code> dropped the authoring contract next to the deck, so any agent that can edit a file can author slides: builds, SVG diagrams, animation and all. Here, Claude Code gets one prompt and edits the same HTML file:</p>
-      <div class="term-wrap">
-        <div class="terminal" data-cast-inline="#cast-claude" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="10" data-title="one prompt later"></div>
-      </div>
-    </section>
-
-    <section class="start after-deck" aria-label="Getting the full experience">
-      <h2>Getting the full experience</h2>
-      <p>The same CLI does the rest: serve the deck live with in-browser editing, record truthful terminal casts, set up a voice once and narrate with it or capture your own, render the talk as a video, take comments from a reviewer, then flatten everything into one self-contained file.</p>
+      <h3>Everything else</h3>
+      <p>One CLI and one <kbd>/</kbd> palette away. The <a href="https://github.com/decklight/decklight#the-cli">README</a> has the long version.</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-cli" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="16" data-title="the full cli"></div>
       </div>
@@ -366,7 +632,7 @@
 
     <footer>
       <a href="https://github.com/decklight/decklight">GitHub</a> · Apache-2.0 ·
-      this page and the deck ship from one <code>decklight bundle</code> command
+      the deck up top is one file made by <code>decklight bundle</code>. We eat our own slides.
     </footer>
   </div>
 
@@ -599,6 +865,13 @@
       }
       setTimeout(() => { copyBtn.textContent = 'copy'; }, 1600);
     });
+    // The drawn diagram runs its strokes in only while its tile is on screen.
+    document.querySelectorAll('svg.draw').forEach((svg) => {
+      new IntersectionObserver((entries) => {
+        svg.classList.toggle('on', entries[0].isIntersecting);
+      }, { threshold: 0.4 }).observe(svg);
+    });
+
     // Activate the standalone terminals and keep each one's playback tied to
     // whether it is actually on screen. The observer stays connected — it used
     // to disconnect after the first auto-play, so a terminal scrolled past
