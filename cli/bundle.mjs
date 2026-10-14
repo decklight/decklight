@@ -55,6 +55,7 @@ import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
 import { AUDIO_CHOICES, CODECS, estimateAudio, inlineAudio, narrationAudio, sizeLabel } from './bundle-audio.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
+import { deckModules, pickModule, renumber, sliceManifest, sliceModule, slug } from './bundle-module.mjs';
 
 const fail = makeFail('bundle');
 
@@ -212,6 +213,7 @@ if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
 
 Usage:
   decklight bundle <deck.html> [-o out.html] [--audio [original|aac|opus]] [--sign] [--deck] [--themes current|all|…]
+  decklight bundle <deck.html> --module <title | n> [-o out.html] [--audio …] [--themes …]
   decklight bundle <deck.html> --all [-o out.html] [--title "…"] [--themes …]
   decklight bundle <a.html> <b.html> … [-o out.html] [--title "…"] [--themes …]
 
@@ -232,6 +234,10 @@ Options:
                    --sign, because the container is the signed artifact. A
                    .decklight renamed to .html still plays in a browser: the
                    deck comes first in the file and the metadata is appended.
+  --module <t|n>   bundle one chapter of the deck: the slides from its
+                   <section data-module="…"> up to the next one, named by
+                   title or by number. The chapter's narration comes with it,
+                   renumbered to its slides (--audio carries it inside)
   --title <t>      <title> for the multi-module deck
   --transform <name>  run an installed build-time transform (decklight library
                    add transform <name>) on the deck's own source before anything else
@@ -273,6 +279,7 @@ let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign
 let allowMissingSystems = false;
 let allowMissingFonts = false;
 let audioChoice = null;
+let moduleWant = null;
 const transformNames = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -287,6 +294,10 @@ for (let i = 0; i < argv.length; i++) {
   // an attestation. Naming the implication beats refusing the obvious command.
   else if (a === '--deck') { deckFile = true; sign = true; }
   else if (a === '--title') mergedTitle = argv[++i];
+  else if (a === '--module') {
+    moduleWant = argv[++i];
+    if (moduleWant == null || moduleWant.startsWith('-')) fail('--module takes a chapter: its title, or its number');
+  }
   else if (a === '--allow-missing-design-systems') allowMissingSystems = true;
   else if (a === '--allow-missing-fonts') allowMissingFonts = true;
   // `--audio` alone is the files as recorded; a codec after it re-encodes them
@@ -297,6 +308,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 if (!inputs.length) fail('no deck given');
 if (all && inputs.length > 1) fail('--all takes a single deck (it follows that deck’s playlist)');
+if (moduleWant != null && inputs.length > 1) fail('--module takes a single deck (it bundles one chapter of it)');
 
 const firstPath = path.resolve(inputs[0]);
 if (!fs.existsSync(firstPath)) fail(`deck not found: ${firstPath}`);
@@ -309,6 +321,14 @@ if (all) {
   const src = fs.readFileSync(firstPath, 'utf8');
   const modules = parsePlaylist(src);
   if (!modules.length) fail('--all: the deck has no parseable playlist ({ title, href } modules)');
+  if (moduleWant != null) {
+    // A playlist's module is a file of its own: bundling it is bundling that file.
+    const k = /^\d+$/.test(moduleWant.trim()) ? Number(moduleWant) - 1
+      : modules.findIndex((m) => m.title.toLowerCase() === moduleWant.trim().toLowerCase());
+    fail(modules[k]
+      ? `--module with --all: a playlist module is a file of its own — bundle it as one:\n  decklight bundle ${path.join(path.relative(process.cwd(), deckDir) || '.', modules[k].href)}`
+      : '--module bundles one chapter of a single deck; --all merges a playlist — use one or the other');
+  }
   jobs = modules.map((m) => {
     const p = path.resolve(deckDir, m.href);
     if (!fs.existsSync(p)) fail(`playlist module not found: ${m.href} (${p})`);
@@ -323,6 +343,8 @@ if (all) {
 }
 
 let html;
+// `--module`: the chapter being bundled; its narration is renumbered to it
+let chapter = null;
 if (jobs) {
   html = mergeDecks(jobs, deckDir, notices);
   const t = mergedTitle ||
@@ -332,8 +354,20 @@ if (jobs) {
     path.join(deckDir, path.basename(firstPath, '.html') + '-course.html'));
 } else {
   html = fs.readFileSync(firstPath, 'utf8');
+  let suffix = '-standalone';
+  if (moduleWant != null) {
+    const bounds = containerBounds(html);
+    if (!bounds) fail(`no .decklight container in ${firstPath}`);
+    const { modules, spans } = deckModules(html, bounds);
+    try { chapter = pickModule(modules, moduleWant); } catch (e) { fail(e.message); }
+    html = sliceModule(html, bounds, spans, chapter);
+    html = html.replace(/<title>([^<]*)<\/title>/i, (t, was) =>
+      `<title>${was.trim() ? `${was.trim()} · ` : ''}${escapeHtml(chapter.title)}</title>`);
+    suffix = `-${slug(chapter.title)}`;
+    notices.push(`module ${chapter.n} of ${modules.length}: ${chapter.title} — slides ${chapter.offset + 1}–${chapter.offset + chapter.count} of the deck, 1–${chapter.count} in the bundle`);
+  }
   outPath = path.resolve(outPath ||
-    path.join(deckDir, path.basename(firstPath, '.html') + '-standalone.html'));
+    path.join(deckDir, path.basename(firstPath, '.html') + suffix + '.html'));
 }
 
 // What went into the file and where each piece came from, said once at the end
@@ -695,6 +729,11 @@ html = html.replace(
       if (vm) {
         // vm[1] is the whole STEM (`slide-07`, `slide-07-02`) — the same name
         // the runtime looks the block up by, so the two cannot drift apart.
+        if (chapter) {
+          // the chapter's own timelines, under the slide number the bundle asks for
+          vm[1] = renumber(vm[1], chapter);
+          if (!vm[1]) continue;
+        }
         if (seen.has(vm[1])) {
           notices.push(`character visemes: ${d}/${f} skipped — ${vm[1]} already inlined from another track`);
           continue;
@@ -704,7 +743,9 @@ html = html.replace(
           + `${scriptSafe(fs.readFileSync(path.join(abs, f), 'utf8'))}\n</script>`);
       } else if (/^slide-\d+\.mp4$/.test(f)) mp4s++;
     }
-    if (mp4s) {
+    if (mp4s && chapter) {
+      notices.push(`character video: ${mp4s} slide-NN.mp4 in ${d}/ are numbered for the whole deck and stay external — the chapter's character plays from its visemes`);
+    } else if (mp4s) {
       notices.push(`character video: ${mp4s} slide-NN.mp4 in ${d}/ stay external — ship the folder next to the bundle`);
     }
   }
@@ -734,8 +775,13 @@ html = html.replace(
       notices.push(`narration manifest: ${rel} not found — the bundle will fetch it at runtime`);
       continue;
     }
+    let text = fs.readFileSync(abs, 'utf8');
+    if (chapter) {
+      // the manifest is indexed by slide: cut it to the chapter's
+      try { text = JSON.stringify(sliceManifest(JSON.parse(text), chapter), null, 1); } catch { /* not JSON: inlined as it is */ }
+    }
     embeds.push(`<script type="application/json" data-decklight-voices="${rel.replace(/"/g, '&quot;')}">\n`
-      + `${scriptSafe(fs.readFileSync(abs, 'utf8'))}\n</script>`);
+      + `${scriptSafe(text)}\n</script>`);
     n++;
   }
   if (n) notices.push(`narration: inlined ${n} voice manifest(s) — the audio stays in its bucket`);
@@ -751,7 +797,7 @@ html = html.replace(
 // files it left out or took in.
 let audioEstimate = null;
 {
-  const { found, remote, folders } = narrationAudio(html, deckDir);
+  const { found, remote, folders } = narrationAudio(html, deckDir, chapter);
   if (estimate) {
     if (found.size) audioEstimate = { ...(await estimateAudio(found)), folders };
   } else if (found.size && audioChoice) {

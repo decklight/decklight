@@ -24,6 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { configuredTrackDirs } from './edit.mjs';
 import { runAsync, CODEC_MS, PROBE_MS } from '../tools/exec.mjs';
+import { renumber, sliceManifest } from './bundle-module.mjs';
 
 export const AUDIO_CHOICES = ['original', 'aac', 'opus'];
 
@@ -56,8 +57,10 @@ export const sizeLabel = (n) => (n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `
  * `file` entries. `found` maps the URL the runtime plays to the file;
  * `folders` reads "voices/ (12), cloud/ (3)"; `remote` counts manifest entries
  * with a `url` of their own (a bucket's, often signed), which stay there.
+ * With `mod` (`bundle --module`, cli/bundle-module.mjs) only that chapter's
+ * files are found, each under the slide number it has in the chapter.
  */
-export function narrationAudio(html, deckDir) {
+export function narrationAudio(html, deckDir, mod = null) {
   const found = new Map();
   const where = new Map();
   const add = (key, abs) => {
@@ -70,7 +73,11 @@ export function narrationAudio(html, deckDir) {
     if (ABSOLUTE.test(d)) continue; // a public bucket's prefix: nothing on this disk
     const abs = path.resolve(deckDir, d);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) continue;
-    for (const f of fs.readdirSync(abs).sort()) if (AUDIO_FILE.test(f)) add(`${d.replace(/\/+$/, '')}/${f}`, path.join(abs, f));
+    for (const f of fs.readdirSync(abs).sort()) {
+      if (!AUDIO_FILE.test(f)) continue;
+      const as = renumber(f, mod);
+      if (as) add(`${d.replace(/\/+$/, '')}/${as}`, path.join(abs, f));
+    }
   }
   let remote = 0;
   // `manifest: '…'` in a boot call, `"manifest": "…"` in a configuration block
@@ -80,7 +87,7 @@ export function narrationAudio(html, deckDir) {
     try { data = JSON.parse(fs.readFileSync(abs, 'utf8')); } catch { continue; }
     const clean = rel.replace(/[?#].*$/, '');
     const base = clean.slice(0, clean.lastIndexOf('/') + 1); // voicetrack.js manifestBase
-    const entries = (data?.slides ?? []).flatMap((e) => (e ? [e, ...(e.segments ?? []).filter(Boolean)] : []));
+    const entries = (sliceManifest(data, mod)?.slides ?? []).flatMap((e) => (e ? [e, ...(e.segments ?? []).filter(Boolean)] : []));
     for (const e of entries) {
       if (e.url) { remote++; continue; }
       if (typeof e.file !== 'string' || ABSOLUTE.test(e.file)) continue;
