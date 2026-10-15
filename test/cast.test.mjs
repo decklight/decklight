@@ -302,7 +302,10 @@ test('a step ended with Ctrl-C (an interact send) completes as 130, and the sess
     fs.writeFileSync(script, [
       `shell: ${shell}`,
       'steps:',
-      '  - cmd: echo serving on 8788; sleep 30',
+      // one process that prints, then waits, like a server: with `echo; sleep`
+      // the shell itself ran the echo, and under load a Ctrl-C could land in
+      // the gap before sleep started and be lost, so the step timed out
+      "  - cmd: sh -c 'echo serving on 8788; exec sleep 30'",
       '    timeout: 10',
       '    interact:',
       '      - expect: "serving"',
