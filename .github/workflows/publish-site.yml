@@ -113,7 +113,7 @@ jobs:
           node -e '
             const fs = require("fs");
             const cfg = JSON.parse(fs.readFileSync("site/voices.json", "utf8"));
-            // segments: the track's per-beat clips (slide-NN-KK) play one per [click],
+            // segments: the per-beat clips of the track (slide-NN-KK) play one per [click],
             // so the voice steps the builds; without it a slide plays as one clip
             const files = cfg.voices.map(v => `{ label: ${JSON.stringify(v.label)}, dir: ${JSON.stringify(v.dir)}, segments: true }`).join(", ");
             const p = "out/showcase.html";
