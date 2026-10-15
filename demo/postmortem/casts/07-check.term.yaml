@@ -1,0 +1,11 @@
+# Step 7 of the showcase journey: check holds the talk to the brand.
+shell: zsh
+cwd: /tmp/cache-postmortem
+cols: 100
+rows: 10
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/cache-postmortem-home }
+max_idle: 1.5
+steps:
+  - cmd: npx decklight@latest check cache-postmortem.html
+    timeout: 120

@@ -1,0 +1,215 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 24,
+  "recorded": "2026-10-15T15:31:16.183Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp",
+  "cols": 100,
+  "rows": 24,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home",
+   "NO_UPDATE_NOTIFIER": "1",
+   "npm_config_update_notifier": "false"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "rm -rf /tmp/cache-postmortem /tmp/cache-postmortem-home && npx -y decklight@latest --version >/dev/null 2>&1",
+    "hide": true,
+    "timeout": 120
+   },
+   {
+    "cmd": "mkdir cache-postmortem && cd $_"
+   },
+   {
+    "cmd": "npx decklight@latest init \"The night the cache fell over\" -o cache-postmortem.html --no-open",
+    "timeout": 90,
+    "interact": [
+     {
+      "expect": "\\[P/g\\]",
+      "send": "p\n"
+     },
+     {
+      "expect": "\\[Y/n\\]",
+      "send": "y\n"
+     },
+     {
+      "expect": "\\[y/N\\]",
+      "send": "n\n"
+     },
+     {
+      "expect": "Ctrl-C stops",
+      "send": "\u0003"
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "rm -rf /tmp/cache-postmortem /tmp/cache-postmortem-home && npx -y decklight@latest --version >/dev/null 2>&1",
+   "output": [],
+   "exit": 0,
+   "duration": 0.903,
+   "hidden": true
+  },
+  {
+   "cmd": "mkdir cache-postmortem && cd $_",
+   "output": [],
+   "exit": 0,
+   "duration": 0.016
+  },
+  {
+   "cmd": "npx decklight@latest init \"The night the cache fell over\" -o cache-postmortem.html --no-open",
+   "output": [
+    [
+     0.295,
+     "⠙"
+    ],
+    [
+     0.376,
+     "\u001b[1G"
+    ],
+    [
+     0.376,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.443,
+     "\u001b[1G\u001b[0K"
+    ],
+    [
+     0.507,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.564,
+     "\u001b[2mcreated cache-postmortem.html (theme: aurora · slides and a config block, no runtime in the file — decklight bundle embeds it to send)\u001b[0m\r\n"
+    ],
+    [
+     0.564,
+     "\u001b[2m  the agent skill teaches AI coding agents how to author this deck. two scopes:\u001b[0m\r\n"
+    ],
+    [
+     0.564,
+     "\u001b[2m    project (p)  .claude/skills/decklight/ + AGENTS.md — this directory only\u001b[0m\r\n\u001b[2m    global  (g)  ~/.claude — every project (Claude Code)\u001b[0m\r\n"
+    ],
+    [
+     0.565,
+     "\u001b[1G\u001b[0J  where should the skill go? [P/g] "
+    ],
+    [
+     0.565,
+     "\u001b[36G"
+    ],
+    [
+     0.569,
+     "p"
+    ],
+    [
+     0.569,
+     "\r\r\n"
+    ],
+    [
+     0.572,
+     "\u001b[2mwrote .claude/skills/decklight/{SKILL.md,reference.md} (v0.9.0)\u001b[0m\r\n"
+    ],
+    [
+     0.572,
+     "\u001b[2mcreated AGENTS.md\u001b[0m\r\n"
+    ],
+    [
+     0.589,
+     "\u001b[1G\u001b[0J  create a git repository so every version of the deck is kept? [Y/n] \u001b[71G"
+    ],
+    [
+     0.6,
+     "y"
+    ],
+    [
+     0.6,
+     "\r\r\n"
+    ],
+    [
+     0.693,
+     "\u001b[2m  git: repository created (with a starter .gitignore), everything committed\u001b[0m\r\n\u001b[2m  your edits are snapshotted as you go and committed when you press K; an agent's edit commits itself, with its own message (--git-mode timer for a plain cadence)\u001b[0m\r\n"
+    ],
+    [
+     1.177,
+     "\u001b[2m  this push would change 6 files, 5 of them not the deck:\u001b[0m\r\n\u001b[2m    .claude/skills/decklight/SKILL.md · .claude/skills/decklight/reference.md · .gitattributes · … 2 more\u001b[0m\r\n"
+    ],
+    [
+     1.177,
+     "\u001b[2m  a push updates everything in this directory — if that is not what you want here, keep the deck in a repository of its own\u001b[0m\r\n"
+    ],
+    [
+     1.177,
+     "\u001b[1G\u001b[0J  create a PRIVATE GitHub repository and push this deck to it? [y/N] \u001b[70G"
+    ],
+    [
+     1.188,
+     "n"
+    ],
+    [
+     1.188,
+     "\r\r\n"
+    ],
+    [
+     1.188,
+     "\u001b[2m  git: no remote — add one later with: gh repo create --source=. --push\u001b[0m\r\n"
+    ],
+    [
+     1.189,
+     "\r\n  \u001b[36mopen to present\u001b[0m   \u001b]8;;file:///private/tmp/cache-postmortem/cache-postmortem.html\u001b\\file:///private/tmp/cache-postmortem/cache-postmortem.html\u001b]8;;\u001b\\\r\n  \u001b[36mstart editing\u001b[0m     decklight cache-postmortem.html\r\n\r\n"
+    ],
+    [
+     2.689,
+     "  \u001b[32m✓\u001b[0m \u001b[2mvoice \u001b[0m  say · Voice 1 · :8787\r\n"
+    ],
+    [
+     2.689,
+     "  \u001b[32m✓\u001b[0m \u001b[2mlips  \u001b[0m  video (wav2lip) · :8789\r\n"
+    ],
+    [
+     2.689,
+     "  \u001b[32m✓\u001b[0m \u001b[2mgit   \u001b[0m  snapshots on decklight/wip · commits on K\r\n  \u001b[32m✓\u001b[0m \u001b[2magents\u001b[0m  claude\r\n\r\n"
+    ],
+    [
+     2.689,
+     "  \u001b[36m▸\u001b[0m \u001b[1m\u001b[36m\u001b[4mhttp://127.0.0.1:8788/cache-postmortem.html\u001b[0m\r\n"
+    ],
+    [
+     2.689,
+     "    \u001b[2mCtrl-C stops\u001b[0m"
+    ]
+   ],
+   "exit": 130,
+   "duration": 4.986,
+   "input": [
+    [
+     0.568,
+     "p\n"
+    ],
+    [
+     0.6,
+     "y\n"
+    ],
+    [
+     1.188,
+     "n\n"
+    ],
+    [
+     2.694,
+     "\u0003"
+    ]
+   ]
+  }
+ ]
+}

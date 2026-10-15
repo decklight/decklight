@@ -1,0 +1,103 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 16,
+  "recorded": "2026-10-15T15:39:32.985Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 16,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "redact": [
+   "sk_[A-Za-z0-9]+"
+  ],
+  "steps": [
+   {
+    "cmd": "npx decklight@latest narrate cache-postmortem.html --engine elevenlabs --voice Chris",
+    "timeout": 900
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest narrate cache-postmortem.html --engine elevenlabs --voice Chris",
+   "output": [
+    [
+     0.366,
+     "⠙"
+    ],
+    [
+     0.449,
+     "\u001b[1G"
+    ],
+    [
+     0.449,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.526,
+     "\u001b[1G\u001b[0K"
+    ],
+    [
+     0.597,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.738,
+     "cache-postmortem.html: 6 slides, 6 with notes · 6 to voice\r\n"
+    ],
+    [
+     2.238,
+     "  slide 01: 187 chars → slide-01.m4a\r\n"
+    ],
+    [
+     3.738,
+     "  slide 02: 671 chars → slide-02.m4a (6 [click] segments)\r\n"
+    ],
+    [
+     5.238,
+     "  slide 03: 491 chars → slide-03.m4a (6 [click] segments)\r\n"
+    ],
+    [
+     6.738,
+     "  slide 04: 392 chars → slide-04.m4a (2 [click] segments)\r\n"
+    ],
+    [
+     8.238,
+     "  slide 05: 663 chars → slide-05.m4a (4 [click] segments)\r\n"
+    ],
+    [
+     9.738,
+     "  slide 06: 401 chars → slide-06.m4a (4 [click] segments)\r\n"
+    ],
+    [
+     9.738,
+     "done → /private/tmp/cache-postmortem/voiceover\r\n"
+    ],
+    [
+     9.749,
+     "⠙"
+    ],
+    [
+     9.75,
+     "\u001b[1G"
+    ],
+    [
+     9.75,
+     "\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 62.795
+  }
+ ]
+}

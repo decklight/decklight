@@ -1,0 +1,134 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 14,
+  "recorded": "2026-10-15T15:41:01.058Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/sam",
+  "cols": 100,
+  "rows": 14,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/sam-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "npx decklight@latest comments submit cache-postmortem.html",
+    "timeout": 60
+   },
+   {
+    "cmd": "cd ../cache-postmortem && export DECKLIGHT_HOME=/tmp/cache-postmortem-home",
+    "hide": true
+   },
+   {
+    "cmd": "npx decklight@latest comments cache-postmortem.html --incoming",
+    "timeout": 60
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest comments submit cache-postmortem.html",
+   "output": [
+    [
+     0.385,
+     "⠙"
+    ],
+    [
+     0.465,
+     "\u001b[1G"
+    ],
+    [
+     0.465,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.545,
+     "\u001b[1G\u001b[0K⠸"
+    ],
+    [
+     0.594,
+     "\u001b[1G"
+    ],
+    [
+     0.594,
+     "\u001b[0K"
+    ],
+    [
+     0.662,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     1.304,
+     "pushed 1 comment on cache-postmortem.html → origin review/sam-2026-10-15\r\n"
+    ],
+    [
+     1.305,
+     "  tell the author:  git fetch origin review/sam-2026-10-15\r\n"
+    ],
+    [
+     1.31,
+     "⠙"
+    ],
+    [
+     1.31,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 1.33
+  },
+  {
+   "cmd": "cd ../cache-postmortem && export DECKLIGHT_HOME=/tmp/cache-postmortem-home",
+   "output": [],
+   "exit": 0,
+   "duration": 0.016,
+   "hidden": true
+  },
+  {
+   "cmd": "npx decklight@latest comments cache-postmortem.html --incoming",
+   "output": [
+    [
+     0.295,
+     "⠙"
+    ],
+    [
+     0.377,
+     "\u001b[1G"
+    ],
+    [
+     0.377,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.378,
+     "\u001b[1G\u001b[0K"
+    ],
+    [
+     0.446,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.69,
+     "review/sam-2026-10-15  1 comment · sam · just now\r\n\r\ntake them in:  decklight cache-postmortem.html  then M in the deck   (or: git merge origin/review/sam-2026-10-15)\r\n"
+    ],
+    [
+     0.694,
+     "⠙"
+    ],
+    [
+     0.695,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.707
+  }
+ ]
+}

@@ -1,0 +1,87 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 8,
+  "recorded": "2026-10-15T15:34:53.035Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 8,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "rm -rf ../northwind && cp -R $DECKLIGHT_REPO/demo/northwind ../northwind",
+    "hide": true
+   },
+   {
+    "cmd": "npx decklight@latest marketplace add ../northwind",
+    "timeout": 60
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "rm -rf ../northwind && cp -R $DECKLIGHT_REPO/demo/northwind ../northwind",
+   "output": [],
+   "exit": 0,
+   "duration": 0.017,
+   "hidden": true
+  },
+  {
+   "cmd": "npx decklight@latest marketplace add ../northwind",
+   "output": [
+    [
+     0.439,
+     "⠙"
+    ],
+    [
+     0.519,
+     "\u001b[1G"
+    ],
+    [
+     0.52,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.6,
+     "\u001b[1G\u001b[0K⠸"
+    ],
+    [
+     0.619,
+     "\u001b[1G"
+    ],
+    [
+     0.619,
+     "\u001b[0K"
+    ],
+    [
+     0.687,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.694,
+     "registered northwind from ../northwind — 1 entry: northwind@northwind\r\n"
+    ],
+    [
+     0.697,
+     "⠙"
+    ],
+    [
+     0.698,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.712
+  }
+ ]
+}

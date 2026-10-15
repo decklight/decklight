@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>The night the cache fell over</title>
+  <script type="application/json" data-decklight-config>
+  {"decklight": "0.9.0", "theme": "northwind-night", "designSystems": ["northwind@northwind"], "narration": {"files": [{"label": "Chris", "dir": "voiceover", "segments": true}]}}
+  </script>
+</head>
+<body>
+  <div class="decklight">
+
+    <section data-template="northwind/cover">
+      <h1 data-slot="title">The night the cache fell over</h1>
+      <p data-slot="kicker">Northwind · Incident review</p>
+      <p data-slot="subtitle">A postmortem of the 2:14am Redis outage</p>
+      <aside class="notes">
+        <p>This is the story of the night our Redis cache fell over, at fourteen minutes past two in the morning. [pause] No blame here, just what happened, why it hurt so much, and what we changed.</p>
+      </aside>
+    </section>
+
+    <section>
+      <h2>Timeline</h2>
+      <p>All times local, night of the incident</p>
+      <ul data-build="fade-up">
+        <li><strong>02:14</strong> — Redis primary OOM-killed; p99 alert fires</li>
+        <li><strong>02:16</strong> — failover to a cold replica; every read misses</li>
+        <li><strong>02:31</strong> — Postgres connection pool exhausted; errors climb</li>
+        <li><strong>02:47</strong> — miss traffic shed, cache warms back up</li>
+        <li><strong>03:20</strong> — p99 back under 100 ms; incident closed</li>
+      </ul>
+      <aside class="notes">
+        <p>Here's how the night unfolded.</p>
+        <p>[click]</p>
+        <p>[exhales] At two fourteen, the Redis primary ran out of memory and the kernel killed it. [pause] Our p99 latency alert fired a few seconds later.</p>
+        <p>[click]</p>
+        <p>Two minutes after that, failover promoted a replica. But it came up cold, so every single read was a miss.</p>
+        <p>[click]</p>
+        <p>All of those misses went straight to Postgres, and by two thirty-one its connection pool was exhausted. That's when errors, not just slowness, started reaching users.</p>
+        <p>[click]</p>
+        <p>At two forty-seven we started shedding miss traffic, which finally let the cache warm back up.</p>
+        <p>[click]</p>
+        <p>And by three twenty, p99 was back under a hundred milliseconds and we closed the incident. About an hour, end to end. [sighs]</p>
+      </aside>
+    </section>
+
+    <section>
+      <h2>The request path</h2>
+      <p>Where a read goes — and where it went that night</p>
+      <svg viewBox="0 0 1000 340" data-build="draw" role="img" aria-label="Client to load balancer to API, API to Redis, and on a miss to Postgres">
+        <defs>
+          <marker id="arrow" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+            <polygon points="0 0, 6 2, 0 4" fill="var(--northwind-color-text-body)"/>
+          </marker>
+        </defs>
+        <g>
+          <rect x="20" y="130" width="160" height="80" rx="10" fill="var(--northwind-color-surface-card)" stroke="var(--northwind-color-text-body)" stroke-width="2"/>
+          <text x="100" y="177" text-anchor="middle" fill="var(--northwind-color-text-heading)" font-size="24">Client</text>
+        </g>
+        <g>
+          <line x1="180" y1="170" x2="252" y2="170" stroke="var(--northwind-color-text-body)" stroke-width="2" marker-end="url(#arrow)"/>
+          <rect x="260" y="130" width="180" height="80" rx="10" fill="var(--northwind-color-surface-card)" stroke="var(--northwind-color-text-body)" stroke-width="2"/>
+          <text x="350" y="177" text-anchor="middle" fill="var(--northwind-color-text-heading)" font-size="24">Load balancer</text>
+        </g>
+        <g>
+          <line x1="440" y1="170" x2="512" y2="170" stroke="var(--northwind-color-text-body)" stroke-width="2" marker-end="url(#arrow)"/>
+          <rect x="520" y="130" width="160" height="80" rx="10" fill="var(--northwind-color-surface-card)" stroke="var(--northwind-color-text-body)" stroke-width="2"/>
+          <text x="600" y="177" text-anchor="middle" fill="var(--northwind-color-text-heading)" font-size="24">API</text>
+        </g>
+        <g>
+          <path d="M 680 150 L 772 70" fill="none" stroke="var(--northwind-color-text-body)" stroke-width="2" marker-end="url(#arrow)"/>
+          <rect x="780" y="30" width="190" height="80" rx="10" fill="var(--northwind-color-surface-panel)" stroke="var(--northwind-color-text-body)" stroke-width="2"/>
+          <text x="875" y="77" text-anchor="middle" fill="var(--northwind-color-text-heading)" font-size="24">Redis</text>
+          <text x="726" y="88" text-anchor="end" fill="var(--northwind-color-text-body)" font-size="18">read</text>
+        </g>
+        <g>
+          <path d="M 680 190 L 772 270" fill="none" stroke="var(--northwind-color-text-accent)" stroke-width="2.5" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
+          <rect x="780" y="230" width="190" height="80" rx="10" fill="var(--northwind-color-surface-panel-in)" stroke="var(--northwind-color-text-body)" stroke-width="2"/>
+          <text x="875" y="277" text-anchor="middle" fill="var(--northwind-color-text-heading)" font-size="24">Postgres</text>
+          <text x="722" y="270" text-anchor="end" fill="var(--northwind-color-text-accent)" font-size="18">on miss</text>
+        </g>
+      </svg>
+      <aside class="notes">
+        <p>To see why a cache failure turned into a database failure, follow one read through the system.</p>
+        <p>[click]</p>
+        <p>It starts at the client.</p>
+        <p>[click]</p>
+        <p>It goes through the load balancer.</p>
+        <p>[click]</p>
+        <p>And lands on one of our API servers.</p>
+        <p>[click]</p>
+        <p>Normally, the API reads from Redis, and well over ninety-five percent of the time, the answer is right there.</p>
+        <p>[click]</p>
+        <p>Only on a miss do we fall through to Postgres. [pause] That night, with a cold replica, every read took this dashed path at once. Postgres was sized for the misses, not for all the traffic.</p>
+      </aside>
+    </section>
+
+    <section>
+      <h2>p99 latency during the outage</h2>
+      <p>API read endpoints, milliseconds</p>
+      <div class="chart" data-chart="line" data-build="draw">
+        <script type="application/json">
+        { "labels": ["02:00", "02:10", "02:14", "02:20", "02:30", "02:40", "02:50", "03:00", "03:10", "03:20"],
+          "series": [ { "name": "p99 (ms)", "data": [82, 85, 1900, 3600, 4200, 3900, 1100, 340, 140, 90] } ] }
+        </script>
+      </div>
+      <aside class="notes">
+        <p>Here's what our users felt: p99 latency for the read endpoints, across the whole incident.</p>
+        <p>[click]</p>
+        <p>A flat eighty-odd milliseconds, then at two fourteen it goes vertical: nearly two seconds, and peaking at over four seconds around two thirty, when Postgres ran out of connections. [pause] Once we shed miss traffic at two forty-seven, it comes down quickly, and by three twenty we're back at baseline.</p>
+      </aside>
+    </section>
+
+    <section data-layout="split">
+      <h2>The fix</h2>
+      <p>One thing that night, three things since</p>
+      <div>
+        <h3>That night</h3>
+        <ul>
+          <li>Shed cache-miss reads at the API with a feature flag</li>
+          <li>Let the replica warm, then ramp traffic back</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Since then</h3>
+        <ul data-build="fade-up">
+          <li>Single-flight fills: one DB query per missing key</li>
+          <li>Circuit breaker in front of Postgres</li>
+          <li>Memory headroom alert at 75% of <code>maxmemory</code></li>
+        </ul>
+      </div>
+      <aside class="notes">
+        <p>On the night itself, the fix was blunt. We flipped a flag that made the API stop sending cache-miss reads to the database, served stale or degraded responses instead, and let the replica fill up before ramping traffic back.</p>
+        <p>[click]</p>
+        <p>Since then, we've made three permanent changes. First, single-flight fills: when a thousand requests miss on the same key, only one of them goes to the database, and the rest wait for its answer.</p>
+        <p>[click]</p>
+        <p>Second, a circuit breaker in front of Postgres, so an overloaded database fails fast instead of queueing everyone.</p>
+        <p>[click]</p>
+        <p>And third, an alert when Redis passes seventy-five percent of its memory limit, so we hear about it long before the kernel does.</p>
+      </aside>
+    </section>
+
+    <section>
+      <h2>What 2:14am taught us</h2>
+      <ol data-build="fade-up">
+        <li><strong>A cache is a dependency.</strong> Size what's behind it for the day it's empty.</li>
+        <li><strong>Failover isn't recovery.</strong> A cold replica is up, not ready: ours took 31 minutes to warm.</li>
+        <li><strong>Alert on headroom, not on death.</strong> Memory told us hours before it killed us.</li>
+      </ol>
+      <aside class="notes">
+        <p>So, three lessons.</p>
+        <p>[click]</p>
+        <p>One. A cache is a dependency, not an optimisation. Whatever sits behind it has to survive the day the cache is empty.</p>
+        <p>[click]</p>
+        <p>Two. Failover is not recovery. Our replica was up within two minutes, but it wasn't ready for another half hour.</p>
+        <p>[click]</p>
+        <p>And three. Alert on headroom, not on death. Redis memory had been climbing for hours before it fell over. [pause] We just weren't listening. Thank you.</p>
+      </aside>
+    </section>
+
+  </div>
+</body>
+</html>

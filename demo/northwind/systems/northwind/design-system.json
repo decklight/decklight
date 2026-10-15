@@ -1,0 +1,165 @@
+{
+  "apiVersion": 2,
+  "name": "northwind",
+  "version": "1.0.0",
+  "title": "Northwind",
+  "description": "The invented company brand the decklight.io showcase puts its postmortem talk on: navy, ember and sand, two themes, three slide templates.",
+  "styles": "design-system.css",
+  "templates": "templates.html",
+  "palette": {
+    "colors": {
+      "navy": {
+        "label": "Navy",
+        "role": "neutral",
+        "weights": {
+          "100": "#eef3fb",
+          "200": "#d6e2f3",
+          "300": "#b3c8e6",
+          "400": "#87a6d3",
+          "500": "#5c82bc",
+          "600": "#3e64a1",
+          "700": "#2c4c82",
+          "800": "#1f3863",
+          "900": "#142645",
+          "1000": "#0a1529"
+        }
+      },
+      "ember": {
+        "label": "Ember",
+        "weights": {
+          "100": "#fff3ec",
+          "200": "#ffdcc9",
+          "300": "#ffbd9a",
+          "400": "#ff9563",
+          "500": "#f26b35",
+          "600": "#d6501c",
+          "700": "#ad3d14",
+          "800": "#832e10",
+          "900": "#5a1f0b",
+          "1000": "#331105"
+        }
+      },
+      "sand": {
+        "label": "Sand",
+        "weights": {
+          "100": "#fbf8f2",
+          "200": "#f3ecdf",
+          "300": "#e6dac4",
+          "400": "#d2c2a3",
+          "500": "#b8a581",
+          "600": "#998763",
+          "700": "#786a4c",
+          "800": "#574d37",
+          "900": "#393224",
+          "1000": "#1f1b13"
+        }
+      },
+      "sky": {
+        "label": "Sky",
+        "weights": {
+          "100": "#eefafd",
+          "200": "#d0f0f8",
+          "300": "#a6e1f0",
+          "400": "#72cbe3",
+          "500": "#3fb0d0",
+          "600": "#2390b2",
+          "700": "#1a718d",
+          "800": "#145569",
+          "900": "#0d3a47",
+          "1000": "#061f26"
+        }
+      },
+      "pine": {
+        "label": "Pine",
+        "weights": {
+          "100": "#eefaf2",
+          "200": "#d2f1dd",
+          "300": "#a9e3bf",
+          "400": "#77cf9a",
+          "500": "#47b574",
+          "600": "#2e9659",
+          "700": "#237545",
+          "800": "#1a5734",
+          "900": "#113b23",
+          "1000": "#082113"
+        }
+      },
+      "plum": {
+        "label": "Plum",
+        "weights": {
+          "100": "#fbf0fb",
+          "200": "#f3d8f2",
+          "300": "#e6b5e4",
+          "400": "#d48bd1",
+          "500": "#bd61b9",
+          "600": "#9d479a",
+          "700": "#7b367a",
+          "800": "#5a285a",
+          "900": "#3c1a3c",
+          "1000": "#220e22"
+        }
+      }
+    }
+  },
+  "roles": {
+    "text-heading": {
+      "label": "Heading",
+      "group": "Text"
+    },
+    "text-body": {
+      "label": "Body",
+      "group": "Text"
+    },
+    "text-accent": {
+      "label": "Accent",
+      "group": "Text"
+    },
+    "surface-card": {
+      "label": "Card",
+      "group": "Surface"
+    },
+    "surface-panel": {
+      "label": "Panel",
+      "group": "Surface"
+    },
+    "surface-panel-in": {
+      "label": "Panel, nested",
+      "group": "Surface"
+    }
+  },
+  "contract": {
+    "--heading-color": "text-heading",
+    "--fg": "text-body",
+    "--accent": "text-accent",
+    "--d-fill-1": "surface-panel",
+    "--d-fill-1-in": "surface-panel-in"
+  },
+  "themes": [
+    {
+      "name": "northwind-night",
+      "title": "Northwind Night",
+      "mode": "dark",
+      "roles": {
+        "text-heading": "sand-100",
+        "text-body": "navy-200",
+        "text-accent": "ember-400",
+        "surface-card": "navy-800",
+        "surface-panel": "navy-700",
+        "surface-panel-in": "navy-600"
+      }
+    },
+    {
+      "name": "northwind-day",
+      "title": "Northwind Day",
+      "mode": "light",
+      "roles": {
+        "text-heading": "navy-900",
+        "text-body": "navy-800",
+        "text-accent": "ember-700",
+        "surface-card": "sand-200",
+        "surface-panel": "sky-200",
+        "surface-panel-in": "sky-300"
+      }
+    }
+  ]
+}

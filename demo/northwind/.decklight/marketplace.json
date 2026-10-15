@@ -1,0 +1,13 @@
+{
+  "name": "northwind",
+  "title": "Northwind",
+  "entries": [
+    {
+      "name": "northwind",
+      "type": "design-system",
+      "source": "systems/northwind",
+      "version": "1.0.0",
+      "apiVersion": 2
+    }
+  ]
+}

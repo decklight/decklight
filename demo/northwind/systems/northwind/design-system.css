@@ -1,0 +1,27 @@
+/* Northwind (SPEC DESIGN_SYSTEMS, DESIGN_SYSTEM_ROLES): each theme sets the
+   role tokens (--northwind-color-text-accent …) from the manifest; this file
+   only reads them, so T recolours every template with the theme. */
+
+.decklight .nw-cover {
+  position: absolute; inset: 0; box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 0 8%;
+  background: url(assets/cover.svg) no-repeat right bottom / 46%;
+}
+.decklight .nw-cover [data-ds-injected][data-slot="kicker"] {
+  color: var(--northwind-color-text-accent);
+  letter-spacing: .12em; text-transform: uppercase; font-size: .7em;
+}
+.decklight .nw-statement {
+  border-left: .35em solid var(--northwind-color-text-accent);
+  padding-left: 1em; text-align: left;
+}
+.decklight .nw-card {
+  background: var(--northwind-color-surface-card);
+  color: var(--northwind-color-text-body);
+  border-radius: 14px; padding: 1em 1.4em; text-align: left;
+}
+.decklight .nw-card [data-ds-injected][data-slot="label"] {
+  color: var(--northwind-color-text-accent); font-size: .6em;
+  letter-spacing: .1em; text-transform: uppercase;
+}

@@ -1,0 +1,16 @@
+# Step 3 of the showcase journey: one real Claude Code run writes the talk.
+# Recorded once and never re-run: what it wrote is the talk's first draft.
+shell: zsh
+cwd: /tmp/cache-postmortem
+cols: 100
+rows: 24
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/cache-postmortem-home }
+max_idle: 1.5
+redact: ["sk-ant-[A-Za-z0-9_-]+"]
+steps:
+  - cmd: >-
+      claude -p "Write a five-slide postmortem talk in cache-postmortem.html: the night our Redis cache fell over at 2:14am.
+      A timeline of the incident, an architecture diagram of the request path that draws itself in, a chart of p99 latency during the outage,
+      the fix, and three lessons learned. Keep the title slide." --permission-mode acceptEdits
+    timeout: 900

@@ -1,0 +1,15 @@
+# Step 9 of the showcase journey: Sam's review comes back as a branch.
+shell: zsh
+cwd: /tmp/sam
+cols: 100
+rows: 14
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/sam-home }
+max_idle: 1.5
+steps:
+  - cmd: npx decklight@latest comments submit cache-postmortem.html
+    timeout: 60
+  - cmd: cd ../cache-postmortem && export DECKLIGHT_HOME=/tmp/cache-postmortem-home
+    hide: true
+  - cmd: npx decklight@latest comments cache-postmortem.html --incoming
+    timeout: 60

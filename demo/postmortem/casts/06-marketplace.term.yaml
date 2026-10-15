@@ -1,0 +1,14 @@
+# Step 6 of the showcase journey: register the company's marketplace, once.
+# The rest of the step happens in the deck (/ → Design systems…).
+shell: zsh
+cwd: /tmp/cache-postmortem
+cols: 100
+rows: 8
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/cache-postmortem-home }
+max_idle: 1.5
+steps:
+  - cmd: rm -rf ../northwind && cp -R $DECKLIGHT_REPO/demo/northwind ../northwind
+    hide: true
+  - cmd: npx decklight@latest marketplace add ../northwind
+    timeout: 60

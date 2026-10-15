@@ -1,0 +1,92 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 14,
+  "recorded": "2026-10-15T15:34:12.777Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 14,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "npx decklight@latest cache-postmortem.html --no-open",
+    "timeout": 60,
+    "interact": [
+     {
+      "expect": "Ctrl-C stops",
+      "send": "\u0003"
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest cache-postmortem.html --no-open",
+   "output": [
+    [
+     0.391,
+     "⠙"
+    ],
+    [
+     0.473,
+     "\u001b[1G"
+    ],
+    [
+     0.473,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.552,
+     "\u001b[1G\u001b[0K⠸"
+    ],
+    [
+     0.568,
+     "\u001b[1G"
+    ],
+    [
+     0.568,
+     "\u001b[0K"
+    ],
+    [
+     0.645,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     2.145,
+     "  \u001b[32m✓\u001b[0m \u001b[2mvoice \u001b[0m  say · Voice 1 · :8787\r\n  \u001b[32m✓\u001b[0m \u001b[2mlips  \u001b[0m  video (wav2lip) · :8789\r\n  \u001b[32m✓\u001b[0m \u001b[2mgit   \u001b[0m  snapshots on decklight/wip · commits on K\r\n  \u001b[32m✓\u001b[0m \u001b[2magents\u001b[0m  claude\r\n\r\n  \u001b[36m▸\u001b[0m \u001b[1m\u001b[36m\u001b[4mhttp://127.0.0.1:8788/cache-postmortem.html\u001b[0m\r\n    \u001b[2mCtrl-C stops\u001b[0m\r\n"
+    ],
+    [
+     2.293,
+     "\u001b[36mdeck \u001b[0m   this deck's history is only on this machine — back it up: git remote add origin <url>\r\n"
+    ],
+    [
+     2.3,
+     "⠙"
+    ],
+    [
+     2.301,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 4.711,
+   "input": [
+    [
+     2.146,
+     "\u0003"
+    ]
+   ]
+  }
+ ]
+}

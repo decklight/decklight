@@ -1,0 +1,166 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 18,
+  "recorded": "2026-10-15T15:43:53.538Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 18,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "npx decklight@latest bundle cache-postmortem.html --audio aac",
+    "timeout": 300
+   },
+   {
+    "cmd": "npx decklight@latest pdf cache-postmortem.html --handout",
+    "timeout": 300
+   },
+   {
+    "cmd": "npx decklight@latest pptx cache-postmortem.html",
+    "timeout": 300
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest bundle cache-postmortem.html --audio aac",
+   "output": [
+    [
+     0.298,
+     "⠙"
+    ],
+    [
+     0.36,
+     "\u001b[1G\u001b[0K"
+    ],
+    [
+     0.422,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     1.922,
+     "bundled cache-postmortem.html → /private/tmp/cache-postmortem/cache-postmortem-standalone.html (2868.4 KB)\r\n"
+    ],
+    [
+     1.922,
+     "  runtime  decklight 0.9.0 — embedded from this install (the source deck carries no runtime)\r\n"
+    ],
+    [
+     1.923,
+     "  themes   aurora (under it) · northwind-night (opens on), northwind-day (northwind's own)\r\n"
+    ],
+    [
+     1.923,
+     "  designs  northwind 1.0.0 (from northwind) — stylesheet, 1 asset (0.2 KB), 3 templates\r\nnote: narration audio: inlined 28 file(s), 1.4 MB (re-encoded from 4.4 MB, AAC, mono 32 kbps), from voiceover/ (28)\r\n"
+    ],
+    [
+     1.93,
+     "⠙"
+    ],
+    [
+     1.931,
+     "\u001b[1G"
+    ],
+    [
+     1.931,
+     "\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 3.623
+  },
+  {
+   "cmd": "npx decklight@latest pdf cache-postmortem.html --handout",
+   "output": [
+    [
+     0.299,
+     "⠙"
+    ],
+    [
+     0.361,
+     "\u001b[1G"
+    ],
+    [
+     0.361,
+     "\u001b[0K"
+    ],
+    [
+     0.425,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     1.514,
+     "pdf: rendering cache-postmortem.html?print=handout — 6 slides, builds complete, casts expanded\r\n"
+    ],
+    [
+     3.014,
+     "/private/tmp/cache-postmortem/cache-postmortem.handout.pdf · 2 pages · portrait, 3 slides a page · 242 KB\r\n"
+    ],
+    [
+     3.019,
+     "⠙"
+    ],
+    [
+     3.021,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 3.092
+  },
+  {
+   "cmd": "npx decklight@latest pptx cache-postmortem.html",
+   "output": [
+    [
+     0.304,
+     "⠙"
+    ],
+    [
+     0.385,
+     "\u001b[1G"
+    ],
+    [
+     0.385,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.4,
+     "\u001b[1G\u001b[0K"
+    ],
+    [
+     0.463,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.498,
+     "pptx: rendering cache-postmortem.html — 6 slides at 1280×720, builds complete\r\n"
+    ],
+    [
+     1.998,
+     "/private/tmp/cache-postmortem/cache-postmortem.pptx · 6 slides as pictures · 6 with notes · 304 KB\r\n"
+    ],
+    [
+     2.002,
+     "⠙"
+    ],
+    [
+     2.003,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 8.13
+  }
+ ]
+}

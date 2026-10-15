@@ -1,0 +1,23 @@
+<!-- Northwind templates: structure only; the look lives in design-system.css -->
+<template data-template="cover" data-title="Cover">
+  <div class="nw-cover" data-ds-bleed>
+    <div data-slot="kicker" data-slot-hint="p">Northwind</div>
+    <div data-slot="title" data-slot-hint="h1" data-slot-required></div>
+    <div data-slot="subtitle" data-slot-hint="p"></div>
+  </div>
+</template>
+
+<template data-template="statement" data-title="Statement">
+  <div class="nw-statement">
+    <div data-slot="title" data-slot-hint="h2" data-slot-required></div>
+    <div data-slot="body" data-slot-default></div>
+  </div>
+</template>
+
+<template data-template="card" data-title="Card">
+  <div class="nw-card">
+    <div data-slot="label" data-slot-hint="p"></div>
+    <div data-slot="title" data-slot-hint="h2" data-slot-required></div>
+    <div data-slot="body" data-slot-default></div>
+  </div>
+</template>

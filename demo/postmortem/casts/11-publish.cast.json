@@ -1,0 +1,63 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 14,
+  "recorded": "2026-10-15T16:06:47.555Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 14,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "rm -rf ../published",
+    "hide": true
+   },
+   {
+    "cmd": "decklight publish cache-postmortem.html --target folder --out ../published --audio aac --no-sign --url https://decklight.io/postmortem/",
+    "timeout": 300
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "rm -rf ../published",
+   "output": [],
+   "exit": 0,
+   "duration": 0.016,
+   "hidden": true
+  },
+  {
+   "cmd": "decklight publish cache-postmortem.html --target folder --out ../published --audio aac --no-sign --url https://decklight.io/postmortem/",
+   "output": [
+    [
+     0.074,
+     "decklight 0.9.0+13.g1fe6573\r\n"
+    ],
+    [
+     1.574,
+     "bundled cache-postmortem.html → /var/folders/09/7ky81cf540v99yqxmcwcxnf80000gn/T/decklight-publish-FvrxS4/index.html (2871.6 KB)\r\n  runtime  decklight 0.9.0 — embedded from this install (the source deck carries no runtime)\r\n"
+    ],
+    [
+     1.576,
+     "  themes   aurora (under it) · northwind-night (opens on), northwind-day (northwind's own)\r\n  designs  northwind 1.0.0 (from northwind) — stylesheet, 1 asset (0.2 KB), 3 templates\r\nnote: narration audio: inlined 28 file(s), 1.4 MB (re-encoded from 4.4 MB, AAC, mono 32 kbps), from voiceover/ (28)\r\n"
+    ],
+    [
+     1.578,
+     "deployed to folder (/private/tmp/published)\r\nhttps://decklight.io/postmortem/"
+    ]
+   ],
+   "exit": 0,
+   "duration": 4.059
+  }
+ ]
+}

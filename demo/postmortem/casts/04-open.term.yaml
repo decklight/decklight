@@ -1,0 +1,14 @@
+# Step 4 of the showcase journey: open the deck, editing on.
+shell: zsh
+cwd: /tmp/cache-postmortem
+cols: 100
+rows: 14
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/cache-postmortem-home }
+max_idle: 1.5
+steps:
+  - cmd: npx decklight@latest cache-postmortem.html --no-open
+    timeout: 60
+    interact:
+      - expect: "Ctrl-C stops"
+        send: "\u0003"

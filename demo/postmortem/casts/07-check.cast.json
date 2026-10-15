@@ -1,0 +1,68 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 10,
+  "recorded": "2026-10-15T15:37:41.221Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 10,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "npx decklight@latest check cache-postmortem.html",
+    "timeout": 120
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest check cache-postmortem.html",
+   "output": [
+    [
+     0.31,
+     "⠙"
+    ],
+    [
+     0.384,
+     "\u001b[1G"
+    ],
+    [
+     0.384,
+     "\u001b[0K"
+    ],
+    [
+     0.45,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     1.649,
+     "check: cache-postmortem.html — 6 slides\r\n"
+    ],
+    [
+     1.65,
+     "\u001b[1mslide 3\u001b[0m  \u001b[2m\"The request path\"\u001b[0m\r\n  \u001b[33mwarn \u001b[0m  --d-stroke (the theme contract) (nearest role surface-panel-in), --d-fill-1 (the theme contract) (nearest role surface-panel), --d-text (the theme contract) (nearest role text-heading) and 6 more are not one of the design system's roles — this deck colours through them, so every theme recolours it: pick a role in Colors…, or set \"brandThemesOnly\": false\r\n\r\n0 errors, 1 warning\r\n"
+    ],
+    [
+     1.655,
+     "⠙"
+    ],
+    [
+     1.656,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 1.668
+  }
+ ]
+}

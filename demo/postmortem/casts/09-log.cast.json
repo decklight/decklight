@@ -1,0 +1,52 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 12,
+  "recorded": "2026-10-15T15:42:39.328Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 12,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home",
+   "GIT_PAGER": "cat"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "git log --oneline -6"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "git log --oneline -6",
+   "output": [
+    [
+     0.014,
+     "\u001b[33m9e17750\u001b[m\u001b[33m (\u001b[m\u001b[1;36mHEAD\u001b[m\u001b[33m -> \u001b[m\u001b[1;32mmain\u001b[m\u001b[33m)\u001b[m review: resolve 1 comment\r\n"
+    ],
+    [
+     0.014,
+     "\u001b[33m0119d37\u001b[m say how long our cold replica took to warm on the failover lesson\r\n\u001b[33maeb149e\u001b[m\u001b[33m (\u001b[m\u001b[1;31morigin/review/sam-2026-10-15\u001b[m\u001b[33m, \u001b[m\u001b[1;31morigin/deck/review/sam-2026-10-15\u001b[m\u001b[33m)\u001b[m review: 1 comment on cache-postmortem.html\r\n\u001b[33m3a62cb5\u001b[m\u001b[33m (\u001b[m\u001b[1;31morigin/main\u001b[m\u001b[33m, \u001b[m\u001b[1;31morigin/HEAD\u001b[m\u001b[33m)\u001b[m direct the voice in the notes, and play the narrated track from voiceov…\r\n"
+    ],
+    [
+     0.014,
+     "\u001b[33m5f4cd2b\u001b[m colour the request-path diagram through Northwind roles, so check passes\r\n"
+    ],
+    [
+     0.014,
+     "\u001b[33mfcbf3ae\u001b[m put the talk on Northwind: its night theme, and the cover template on t…"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.015
+  }
+ ]
+}

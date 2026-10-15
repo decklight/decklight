@@ -1,0 +1,24 @@
+# Steps 1 and 2 of the showcase journey: an empty folder, then init.
+shell: zsh
+cwd: /tmp
+cols: 100
+rows: 24
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/cache-postmortem-home, NO_UPDATE_NOTIFIER: "1", npm_config_update_notifier: "false" }
+max_idle: 1.5
+steps:
+  - cmd: rm -rf /tmp/cache-postmortem /tmp/cache-postmortem-home && npx -y decklight@latest --version >/dev/null 2>&1
+    hide: true
+    timeout: 120
+  - cmd: mkdir cache-postmortem && cd $_
+  - cmd: npx decklight@latest init "The night the cache fell over" -o cache-postmortem.html --no-open
+    timeout: 90
+    interact:
+      - expect: "\\[P/g\\]"
+        send: "p\n"
+      - expect: "\\[Y/n\\]"
+        send: "y\n"
+      - expect: "\\[y/N\\]"
+        send: "n\n"
+      - expect: "Ctrl-C stops"
+        send: "\u0003"

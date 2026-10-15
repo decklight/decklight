@@ -1,0 +1,15 @@
+# Step 10 of the showcase journey: every file the talk can become.
+shell: zsh
+cwd: /tmp/cache-postmortem
+cols: 100
+rows: 18
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/cache-postmortem-home }
+max_idle: 1.5
+steps:
+  - cmd: npx decklight@latest bundle cache-postmortem.html --audio aac
+    timeout: 300
+  - cmd: npx decklight@latest pdf cache-postmortem.html --handout
+    timeout: 300
+  - cmd: npx decklight@latest pptx cache-postmortem.html
+    timeout: 300

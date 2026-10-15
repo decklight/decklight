@@ -1,0 +1,16 @@
+# Step 11 of the showcase journey: publish, and it's a link. Recorded with
+# decklight from main (publish --audio, #843); signing needs CI's identity,
+# so a local publish passes --no-sign. The site deploy serves this folder
+# at decklight.io/postmortem/.
+shell: zsh
+cwd: /tmp/cache-postmortem
+cols: 100
+rows: 14
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/cache-postmortem-home }
+max_idle: 1.5
+steps:
+  - cmd: rm -rf ../published
+    hide: true
+  - cmd: decklight publish cache-postmortem.html --target folder --out ../published --audio aac --no-sign --url https://decklight.io/postmortem/
+    timeout: 300

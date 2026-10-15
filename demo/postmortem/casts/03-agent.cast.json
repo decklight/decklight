@@ -1,0 +1,55 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 24,
+  "recorded": "2026-10-15T15:33:19.768Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 24,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "redact": [
+   "sk-ant-[A-Za-z0-9_-]+"
+  ],
+  "steps": [
+   {
+    "cmd": "claude -p \"Write a five-slide postmortem talk in cache-postmortem.html: the night our Redis cache fell over at 2:14am. A timeline of the incident, an architecture diagram of the request path that draws itself in, a chart of p99 latency during the outage, the fix, and three lessons learned. Keep the title slide.\" --permission-mode acceptEdits",
+    "timeout": 900
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "claude -p \"Write a five-slide postmortem talk in cache-postmortem.html: the night our Redis cache fell over at 2:14am. A timeline of the incident, an architecture diagram of the request path that draws itself in, a chart of p99 latency during the outage, the fix, and three lessons learned. Keep the title slide.\" --permission-mode acceptEdits",
+   "output": [
+    [
+     1.5,
+     "I wrote five new slides into `cache-postmortem.html` after the title slide, but I haven't checked them for overflow. Both `npx decklight@latest pdf` and `decklight check` needed approval and couldn't run in this session. Please run `npx decklight@latest pdf cache-postmortem.html -o /tmp/check.pdf` before presenting; any `⚠ slide N overflows` line means that slide is losing content.\r\n\r\n**The incident details are made up.** You didn't give me any real data, so I wrote a plausible story: the Redis primary runs out of memory and is killed at 02:14, a replica takes over with an empty cache, and every read goes to Postgres until its connections run out. The times, the latency figures, the 95% hit rate and the fixes are all invented. Replace them with your real ones.\r\n\r\nThe deck now runs:\r\n\r\n1. **Title (kept).** I changed the subtitle from the starter text to \"A postmortem of the 2:14am Redis outage\".\r\n2. **Timeline.** Five timestamped events, shown one per click, from 02:14 (Redis killed) to 03:20 (incident close"
+    ],
+    [
+     1.5,
+     "d).\r\n3. **The request path.** A diagram that draws itself in one step at a time: Client → Load balancer → API → Redis, then a dashed, highlighted \"on miss\" line to Postgres, which is the path every read took that night. The colours follow the theme.\r\n4. **p99 latency.** A line chart built into Decklight that draws itself in: a baseline of about 82 ms, a jump at 02:14, a peak of 4.2 s around 02:30, and recovery by 03:20.\r\n5. **The fix.** Two columns: what you did that night (stopped sending cache-miss reads to Postgres via a feature flag, let the cache refill) and three permanent changes, shown one per click (only one database query per missing key, a circuit breaker in front of Postgres, an alert at 75% of Redis's memory limit).\r\n6. **Three lessons.** One per click: a cache is a dependency, failover isn't recovery, and alert on headroom, not on death.\r\n\r\nEvery slide has speaker notes written to be spoken, with one beat per click. No slide has a sources box, because nothing came from source material. I d"
+    ],
+    [
+     1.5,
+     "idn't commit anything.\r\n"
+    ],
+    [
+     1.768,
+     "\u001b[?25h"
+    ]
+   ],
+   "exit": 0,
+   "duration": 94.681
+  }
+ ]
+}

@@ -1,0 +1,10 @@
+# Step 9, the author's side: the commits K made, messages written for you.
+shell: zsh
+cwd: /tmp/cache-postmortem
+cols: 100
+rows: 12
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/cache-postmortem-home, GIT_PAGER: cat }
+max_idle: 1.5
+steps:
+  - cmd: git log --oneline -6

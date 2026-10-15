@@ -1,0 +1,12 @@
+# Step 8 of the showcase journey: the notes become the voice-over.
+shell: zsh
+cwd: /tmp/cache-postmortem
+cols: 100
+rows: 16
+prompt: "$ "
+env: { DECKLIGHT_HOME: /tmp/cache-postmortem-home }
+max_idle: 1.5
+redact: ["sk_[A-Za-z0-9]+"]
+steps:
+  - cmd: npx decklight@latest narrate cache-postmortem.html --engine elevenlabs --voice Chris
+    timeout: 900
