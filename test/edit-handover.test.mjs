@@ -9,7 +9,8 @@
 // route decides BEFORE it reaches for any of that: the payload refusals, the
 // theme question (`unmarkedOnScreen`), the publish plan's "nowhere to publish
 // to", and the two routes that only read the deck (the bundle estimate and the
-// inspector). Each is a temp deck, the five bindings editMain hands over and a
+// inspector). The bundle itself runs here for real, because it launches no
+// browser: the whole deck, and one chapter of it (`module`). Each is a temp deck, the five bindings editMain hands over and a
 // fake `json`, the harness test/edit-slides.test.mjs uses.
 //
 // The "an export is already running" refusal is not here: the flag is only
@@ -19,7 +20,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { registerHandoverRoutes } from '../cli/edit-handover.mjs';
 import { tmp } from './helpers.mjs';
@@ -178,6 +179,95 @@ test('GET /deck/edit/export/estimate refuses every kind but the bundle, and a th
   assert.deepEqual([pdf.code, pdf.body.error], [400, 'no estimate for pdf — only a bundle has one']);
   const bad = await call(routes, 'GET /deck/edit/export/estimate', { query: '?kind=bundle&theme=..%2Fx' });
   assert.deepEqual([bad.code, bad.body.error], [400, 'the theme is a theme name']);
+});
+
+/**
+ * A deck in chapters, with a recorded voice beside it: a title slide that
+ * belongs to none, then "Basics" (slides 2–3) and "2 · Going further" (4–5).
+ */
+const CHAPTERS = `<!doctype html>
+<html><head><title>Talk</title></head><body>
+  <div class="decklight">
+    <section><h1>Title</h1></section>
+    <section data-module="Basics"><h2>B1</h2></section>
+    <section><h2>B2</h2></section>
+    <section data-module="2 · Going further"><h2>F1</h2></section>
+    <section><h2>F2</h2></section>
+  </div>
+  <script type="application/json" data-decklight-config>{"narration":{"files":[{"label":"Me","dir":"voices"}]}}</script>
+</body></html>
+`;
+function chaptered(t) {
+  const h = harness(t, CHAPTERS);
+  mkdirSync(path.join(h.dir, 'voices'));
+  for (const n of ['01', '02', '04', '05']) writeFileSync(path.join(h.dir, 'voices', `slide-${n}.m4a`), `voice ${n}`);
+  return h;
+}
+const headings = (html) => [...html.matchAll(/<h[12]>([^<]*)<\/h[12]>/g)].map((m) => m[1]);
+
+test('POST /deck/edit/export bundles the whole deck by default, as `decklight bundle` names it', async (t) => {
+  const { routes, dir } = chaptered(t);
+  const r = await call(routes, 'POST /deck/edit/export', { body: { kind: 'bundle' } });
+  assert.equal(r.code, 200, r.body.error);
+  assert.equal(path.basename(r.body.file), 'talk-standalone.html');
+  const html = readFileSync(path.join(dir, 'talk-standalone.html'), 'utf8');
+  assert.deepEqual(headings(html).filter((h) => /^(Title|[BF]\d)$/.test(h)), ['Title', 'B1', 'B2', 'F1', 'F2']);
+  assert.ok(!r.body.notes.some((n) => /^module /.test(n)), 'no chapter, no chapter line');
+  assert.ok(r.body.notes.some((n) => /^narration audio: 4 file\(s\) stay beside the deck/.test(n)), r.body.notes.join('\n'));
+});
+
+test('POST /deck/edit/export bundles one chapter by its number, named after it, and says what the CLI says', async (t) => {
+  const { routes, dir } = chaptered(t);
+  const r = await call(routes, 'POST /deck/edit/export', { body: { kind: 'bundle', module: 2 } });
+  assert.equal(r.code, 200, r.body.error);
+  assert.equal(path.basename(r.body.file), 'talk-2-going-further.html', 'never the whole deck\'s talk-standalone.html');
+  assert.deepEqual(readdirSync(dir).sort(), ['talk-2-going-further.html', 'talk.html', 'voices']);
+  const html = readFileSync(path.join(dir, 'talk-2-going-further.html'), 'utf8');
+  assert.deepEqual(headings(html).filter((h) => /^(Title|[BF]\d)$/.test(h)), ['F1', 'F2'], 'the chapter and nothing else');
+  assert.ok(r.body.notes.includes('module 2 of 2: 2 · Going further — slides 4–5 of the deck, 1–2 in the bundle'), r.body.notes.join('\n'));
+  assert.ok(r.body.notes.some((n) => /^narration audio: 2 file\(s\) stay beside the deck, in voices\/ .*--audio/.test(n)),
+    'the chapter\'s own audio, and the way to carry it inside');
+
+  // the number as a string is the same chapter
+  const again = await call(routes, 'POST /deck/edit/export', { body: { kind: 'bundle', module: '1', audio: 'original' } });
+  assert.equal(again.code, 200, again.body.error);
+  assert.equal(path.basename(again.body.file), 'talk-basics.html');
+  assert.ok(again.body.notes.includes('module 1 of 2: Basics — slides 2–3 of the deck, 1–2 in the bundle'));
+  assert.match(readFileSync(path.join(dir, 'talk-basics.html'), 'utf8'), /data-decklight-audio="voices\/slide-01\.m4a"/,
+    'with --audio the chapter\'s voice is inside, renumbered');
+});
+
+test('POST /deck/edit/export refuses a chapter the deck does not have, or that is not a number, and writes nothing', async (t) => {
+  const { routes, dir, sent } = chaptered(t);
+  const unknown = await call(routes, 'POST /deck/edit/export', { body: { kind: 'bundle', module: 9 } });
+  assert.deepEqual(unknown, { code: 500, body: { ok: false, error: '--module: no chapter "9" in this deck' } },
+    'the sentence, without the list it introduces: the card has that already');
+  for (const module of ['', 'Going further', 0, -1, 1.5, true]) {
+    const r = await call(routes, 'POST /deck/edit/export', { body: { kind: 'bundle', module } });
+    assert.deepEqual(r, { code: 400, body: { ok: false, error: 'the module is a chapter number, counting from 1' } }, JSON.stringify(module));
+  }
+  assert.deepEqual(readdirSync(dir).sort(), ['talk.html', 'voices'], 'a refused chapter writes no file');
+  assert.deepEqual(sent.map(([, d]) => d.ok), [undefined, false], 'only the run that reached the bundler was announced');
+
+  const flat = harness(t);
+  const none = await call(flat.routes, 'POST /deck/edit/export', { body: { kind: 'bundle', module: 1 } });
+  assert.equal(none.code, 500);
+  assert.match(none.body.error, /this deck has no chapters/);
+  assert.deepEqual(readdirSync(flat.dir), ['talk.html']);
+});
+
+test('GET /deck/edit/export/estimate sizes one chapter as one chapter', async (t) => {
+  const { routes, dir } = chaptered(t);
+  const whole = await call(routes, 'GET /deck/edit/export/estimate', { query: '?kind=bundle' });
+  const one = await call(routes, 'GET /deck/edit/export/estimate', { query: '?kind=bundle&module=2' });
+  assert.equal(one.code, 200, one.body.error);
+  assert.ok(one.body.base < whole.body.base, 'fewer slides, a smaller file');
+  assert.deepEqual([whole.body.audio.files, one.body.audio.files], [4, 2], 'and only the chapter\'s audio');
+  const bad = await call(routes, 'GET /deck/edit/export/estimate', { query: '?kind=bundle&module=nine' });
+  assert.deepEqual([bad.code, bad.body.error], [400, 'the module is a chapter number, counting from 1']);
+  const unknown = await call(routes, 'GET /deck/edit/export/estimate', { query: '?kind=bundle&module=9' });
+  assert.equal(unknown.code, 409);
+  assert.deepEqual(readdirSync(dir).sort(), ['talk.html', 'voices']);
 });
 
 test('GET /deck/edit/inspect says where a slide and each of its blocks live in the file, and what check says of it', async (t) => {

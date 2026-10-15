@@ -205,8 +205,13 @@ function mergeDecks(jobs, baseDir, notices) {
 
 // ---------------------------------------------------------------- arguments
 
-/** `client` is the sigstore seam — see publishMain; omitted, the real one is used. */
-export async function bundleMain(argv = process.argv.slice(2), { client, estimate = false } = {}) {
+/**
+ * `client` is the sigstore seam — see publishMain; omitted, the real one is used.
+ * `report`, when given, is filled with `{ out, notices }` once the file is
+ * written: where it went and the notes printed after it, for a caller (the edit
+ * server's bundle card) that says them somewhere other than this terminal.
+ */
+export async function bundleMain(argv = process.argv.slice(2), { client, estimate = false, report = null } = {}) {
 
 if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
   process.stdout.write(`decklight bundle — flatten deck(s) into one self-contained HTML file
@@ -956,6 +961,7 @@ if (bundleSig) {
   }
 }
 for (const n of notices) process.stdout.write(`note: ${n}\n`);
+if (report) Object.assign(report, { out: outPath, notices });
 }
 
 if (isMain(import.meta.url)) process.exitCode = await runMain('bundle', bundleMain);

@@ -54,7 +54,7 @@
     // lose them the moment it gains an added one.
     // The exports are told the theme on screen (#547), so they run on a deck
     // that HAS one — linked, the way a data-only deck is served.
-    if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'restore' || HARNESS_MODE === 'dslook'
+    if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportmodule' || HARNESS_MODE === 'restore' || HARNESS_MODE === 'dslook'
         || HARNESS_MODE === 'historydetails' || HARNESS_MODE === 'decktheme') {
       document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="../themes/aurora.css">');
     }
@@ -265,7 +265,7 @@
       // and the export itself. `exportfail` is the same deck with a server
       // that refuses, which is the branch that must not leave the row looking
       // like it silently did nothing.
-      if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail' || HARNESS_MODE === 'exportvideo') {
+      if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail' || HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportmodule') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         // The video card's voices: a folder recorded by `say` (a manifest, so
         // offerable), your own take (no manifest, so not), and a piper bridge.
@@ -286,6 +286,17 @@
           return json({ ok: true, base: 800000, audio: {
             files: 12, bytes: 40e6, seconds: 600, folders: 'voices/t/ (12)',
             original: 53e6, aac: 3.2e6, opus: null, why: { opus: 'needs ffmpeg with libopus' } } });
+        }
+        // one chapter (#840): named after it, and the notes `decklight bundle`
+        // prints after it; a chapter the server will not bundle, refused
+        if (HARNESS_MODE === 'exportmodule' && u.includes('/deck/edit/export')) {
+          const { module } = JSON.parse(init?.body ?? '{}');
+          if (window.__refuseModule) return json({ ok: false, error: `--module: no chapter "${module}" in this deck` }, 409);
+          return json({ ok: true, kind: 'bundle', seconds: 0.4, ...(module === 2
+            ? { file: 'deck-operations.html', notes: ['narration: inlined 1 voice manifest(s) — the audio stays in its bucket',
+              'module 2 of 2: Operations — slides 4–4 of the deck, 1–1 in the bundle',
+              'narration audio: 1 file(s) stay beside the deck, in voices/t/ (1) — ship them next to the bundle, or bundle with --audio [original|aac|opus] to carry them inside'] }
+            : { file: 'deck-standalone.html', notes: [] }) });
         }
         if (u.includes('/deck/edit/export')) {
           const kind = JSON.parse(init?.body ?? '{}').kind;
@@ -968,13 +979,13 @@
         <section><h2>Two clicks, no builds</h2><p>Nothing builds here.</p><aside class="notes"><p>One</p><p>[click]</p><p>Two</p><p>[click]</p><p>Three</p></aside></section>
         <section><h2>Broken image</h2><img src="no-such-image.png" alt=""></section>`);
     }
-    if (HARNESS_MODE.startsWith('chapters') || HARNESS_MODE === 'enhance') {
+    if (HARNESS_MODE.startsWith('chapters') || HARNESS_MODE === 'enhance' || HARNESS_MODE === 'exportmodule') {
       const secs = document.querySelectorAll('.decklight > section');
       secs[1].setAttribute('data-module', 'Foundations');
       secs[3].setAttribute('data-module', 'Operations');
     }
     // exportpptx has a recorded voice too: it is what offers bundling the audio
-    const deck = Decklight.init(HARNESS_MODE === 'narration' || HARNESS_MODE === 'exportpptx'
+    const deck = Decklight.init(HARNESS_MODE === 'narration' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportmodule'
       ? { narration: { files: [{ label: 'Test voice', dir: 'voices/t', ext: 'wav' }] } }
       // a cross-file playlist AND markers: the playlist wins, and the finder
       // must not grow a second set of rows for the same idea
@@ -2015,6 +2026,87 @@
 
         r.PASS = r.rowIsThere && r.closesOnRun && r.saysItStarted && r.saysWhereItIs
           && r.oneRowNotMany && r.posted && r.answered && r.pdfRowIsThere && themedOk;
+      }
+
+      // One chapter of the deck (#840), what `decklight bundle --module` does,
+      // from the bundle card: it lists the chapters with their slide counts
+      // after the whole deck, opens on the chapter of the slide on screen (and
+      // on the whole deck before the first one), sends the chapter's NUMBER,
+      // sizes the audio card for that chapter, and says what the CLI says.
+      if (mode === 'exportmodule') {
+        const Q = '.decklight-palette';
+        await settle();                       // let /deck/ping settle: editAvailable
+        try { localStorage.setItem('decklight:bundle-audio', 'none'); } catch { /* fine */ }
+        const card = () => document.querySelector('.decklight-choice');
+        const cardRows = () => [...(card()?.querySelectorAll('.narr-row') ?? [])].map((n) => n.textContent);
+        const selected = () => card()?.querySelector('.narr-row.narr-sel')?.textContent ?? '';
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+        const lastPost = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/export')).at(-1)?.body ?? {};
+        const openBundle = async () => {
+          if (document.querySelector(Q)) press('Escape');
+          press('/');
+          for (const ch of 'standalone') press(ch);
+          press('Enter');
+          await settle();
+        };
+        const total = deck.state.totalSlides;
+        deck.goto(5, 0);
+        await settle();
+        await openBundle();
+        r.asksWhatGoesIn = /the whole deck, or one module\?/.test(card()?.textContent ?? '');
+        const rows = cardRows();
+        // this deck is four slides: a title, two of Foundations, one of Operations
+        r.listsTheChapters = total === 4 && rows.length === 3
+          && rows[0] === 'Whole deckslides 1–44 slides'
+          && rows[1] === 'Foundationsmodule 1 · slides 2–32 slides'
+          && rows[2] === 'Operationsmodule 2 · slide 41 slide';
+        r.opensOnTheChapterOnScreen = /^Operations/.test(selected());
+        r.nothingAskedYet = !CALLS.get.some((u) => u.includes('/deck/edit/export/estimate'));
+        press('Enter');
+        await settle();
+        await settle();
+        r.sizesTheChapter = CALLS.get.some((u) => u.includes('/deck/edit/export/estimate?kind=bundle&theme=aurora&module=2'));
+        r.audioCardNamesIt = /^bundle module 2 into one file — and the narration audio\?/.test(card()?.textContent ?? '');
+        press('Enter');                       // leave it beside the deck, as last time
+        r.saysWhatItBundles = said().some((t) => /exporting module 2 to one file/.test(t));
+        await settle();
+        await settle();
+        r.postsTheNumber = lastPost().kind === 'bundle' && lastPost().module === 2 && !('audio' in lastPost());
+        const done = said().find((t) => /wrote deck-operations\.html/.test(t)) ?? '';
+        r.saysWhatTheCliSays = /module 2 of 2: Operations — slides 4–4 of the deck, 1–1 in the bundle/.test(done)
+          && /narration audio: 1 file\(s\) stay beside the deck.*--audio/.test(done)
+          && !/voice manifest/.test(done);
+
+        // before the first chapter: the whole deck, and no module sent
+        deck.goto(1, 0);
+        await settle();
+        await openBundle();
+        r.wholeDeckBeforeTheFirst = /^Whole deck/.test(selected());
+        press('Enter');
+        await settle();
+        await settle();
+        press('Enter');
+        await settle();
+        await settle();
+        r.wholeDeckSendsNoModule = lastPost().kind === 'bundle' && !('module' in lastPost());
+
+        // a chapter the server will not bundle: its sentence on the card's row
+        window.__refuseModule = true;
+        deck.goto(2, 0);
+        await settle();
+        await openBundle();
+        r.opensOnTheFirstChapter = /^Foundations/.test(selected());
+        press('Enter');
+        await settle();
+        await settle();
+        press('Enter');
+        await settle();
+        await settle();
+        r.saysTheRefusal = said().some((t) => /could not export to one file — --module: no chapter "1" in this deck/.test(t));
+        window.__refuseModule = false;
+        r.PASS = r.asksWhatGoesIn && r.listsTheChapters && r.opensOnTheChapterOnScreen && r.nothingAskedYet
+          && r.sizesTheChapter && r.audioCardNamesIt && r.saysWhatItBundles && r.postsTheNumber && r.saysWhatTheCliSays
+          && r.wholeDeckBeforeTheFirst && r.wholeDeckSendsNoModule && r.opensOnTheFirstChapter && r.saysTheRefusal;
       }
 
       // PRESENTING: publishing from inside the deck. Everything else the

@@ -1099,7 +1099,7 @@ export function init(userConfig = {}) {
         run: () => editmode.exportDeck('pdf-handout') }),
       // the file most often sent: the deck and everything it needs, in one HTML file
       write({ label: 'Bundle into one file…', cat: 'Share',
-        alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound compressed small aac opus',
+        alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound compressed small aac opus module chapter part',
         run: () => openBundle() }),
       // minutes rather than seconds, and usually of PART of the deck, so it asks which slides first
       write({ label: 'Export a video…', cat: 'Share',
@@ -3036,23 +3036,53 @@ export function init(userConfig = {}) {
   }
 
 
-  // The bundle (DECK_ANATOMY): a deck with a recorded voice is asked what the
-  // file carries of it, each answer with the size the file would come out at,
-  // so "small enough to email?" is answered before anything is written. The
-  // answer is remembered here, not per deck: it is a habit of the person
-  // sending. A deck with no recorded audio bundles straight away.
+  // The bundle (DECK_ANATOMY): a deck in chapters is asked first what goes in,
+  // the whole deck or one chapter of it, as `decklight bundle --module` bundles
+  // one (#840). The card opens on the chapter of the slide on screen, which is
+  // the one a presenter about to ship "this module" means; a slide before the
+  // first chapter opens it on the whole deck. The chapter goes to the server
+  // as its number, never its title: --module takes both, but the number is the
+  // one thing the card and the bundler count the same way.
+  //
+  // Then a deck with a recorded voice is asked what the file carries of it,
+  // each answer with the size the file would come out at, so "small enough to
+  // email?" is answered before anything is written. The answer is remembered
+  // here, not per deck: it is a habit of the person sending. A deck with no
+  // chapters and no recorded audio bundles straight away.
   const BUNDLE_AUDIO = 'decklight:bundle-audio';
-  async function openBundle() {
-    if (!narrationTracks(config.narration).length) return editmode.exportDeck('bundle');
-    const est = await editmode.bundleEstimate();
+  const slidesLabel = (n) => (n === 1 ? '1 slide' : `${n} slides`);
+  const spanLabel = (from, to) => (from === to ? `slide ${from}` : `slides ${from}–${to}`);
+  function openBundle() {
+    const chapters = moduleNav.hasMarkers ? moduleNav.markers() : [];
+    if (!chapters.length) return bundleAudio(null);
+    const total = instance.state.totalSlides;
+    const at = moduleNav.currentMarkerIndex(chapters);
+    choiceCard.open({
+      title: 'bundle into one file — the whole deck, or one module?',
+      rows: [
+        { value: 0, label: 'Whole deck', note: spanLabel(1, total), figure: slidesLabel(total) },
+        ...chapters.map((c, i) => {
+          const last = (chapters[i + 1]?.slide ?? total + 1) - 1;
+          return { value: i + 1, label: c.title, note: `module ${i + 1} · ${spanLabel(c.slide, last)}`, figure: slidesLabel(last - c.slide + 1) };
+        }),
+      ],
+      current: at >= 0 ? at + 1 : 0,
+      onPick: (n) => bundleAudio(n || null),
+    });
+  }
+  /** The bundle of `module` (a chapter's number, or null for the whole deck), and its audio. */
+  async function bundleAudio(module) {
+    const opts = module != null ? { module } : {};
+    if (!narrationTracks(config.narration).length) return editmode.exportDeck('bundle', opts);
+    const est = await editmode.bundleEstimate(opts);
     if (!est) return;
-    if (!est.audio) return editmode.exportDeck('bundle');
+    if (!est.audio) return editmode.exportDeck('bundle', opts);
     const { base, audio: a } = est;
     const mb = (n) => (n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1048576).toFixed(1)} MB`);
     const mins = a.seconds == null ? null : `${Math.floor(a.seconds / 60)}:${String(Math.round(a.seconds % 60)).padStart(2, '0')}`;
     const last = readPref(BUNDLE_AUDIO);
     choiceCard.open({
-      title: 'bundle into one file — and the narration audio?',
+      title: `bundle ${module != null ? `module ${module} ` : ''}into one file — and the narration audio?`,
       lines: [`${a.files} recorded file${a.files === 1 ? '' : 's'}${mins ? `, ${mins} of voice` : ''}, ${mb(a.bytes)} in ${a.folders}`],
       rows: [
         { value: 'none', label: 'Leave it beside the deck', note: 'send the folder with the file', figure: mb(base) },
@@ -3063,7 +3093,7 @@ export function init(userConfig = {}) {
       current: last ?? 'aac',
       onPick: (how) => {
         writePref(BUNDLE_AUDIO, how);   // private mode: not remembered
-        editmode.exportDeck('bundle', how === 'none' ? {} : { audio: how });
+        editmode.exportDeck('bundle', how === 'none' ? opts : { ...opts, audio: how });
       },
     });
   }

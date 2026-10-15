@@ -22,7 +22,7 @@
 // waiting on it. Nothing here reads those bindings until a request arrives.
 
 import { existsSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
@@ -32,6 +32,18 @@ import { configTheme } from './runtime-link.mjs';
 import { CommandError } from './util.mjs';
 import { THEME_NAME, GEN_THEME } from '../tools/render-theme.mjs';
 import { locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
+
+/**
+ * Why `module` cannot name a chapter to bundle, or null when it can (or is
+ * absent: the whole deck). The bundle card sends the chapter's NUMBER, never
+ * its title: `--module` takes a full title too, but a title is free text and
+ * a number is the one thing the picker and the CLI count the same way.
+ * Whether the deck has that chapter is the bundler's to say.
+ */
+export function moduleProblem(module) {
+  if (module == null) return null;
+  return /^[1-9]\d{0,3}$/.test(String(module)) ? null : 'the module is a chapter number, counting from 1';
+}
 
 /**
  * Put the hand-over routes into `routes`, the table cli/edit.mjs dispatches
@@ -108,6 +120,8 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       if (alreadyOneFile(readDeck())) {
         return json(409, { ok: false, error: 'this deck is already one file — send it as it is' });
       }
+      const bad = moduleProblem(req.module);
+      if (bad) return json(400, { ok: false, error: bad });
     }
     const unmarked = await unmarkedOnScreen(req.theme, { carried: kind === 'bundle' });
     if (unmarked) return json(409, { ok: false, unmarked, error: `${unmarked} is not marked for this deck` });
@@ -128,7 +142,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       + `${req.synthesize ? `, voiced by ${req.synthesize.engine} into ${req.synthesize.dir}/` : ''} …`);
     broadcast('export', { state: 'start', kind, what: job.what });
     try {
-      let out, code, reason = null, subs = null;
+      let out, code, reason = null, subs = null, notes = null;
       if (kind === 'video') {
         const { videoOut, videoProgress, voiceoverProgress, subtitlesOut } = await import('../tools/video.mjs');
         out = videoOut(deckPath, req.slides || null, req.format || 'mp4');
@@ -153,16 +167,23 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
           videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of }))));
         }
       } else if (kind === 'bundle') {
-        // The CLI's own name for the file, beside the deck, so the row and
-        // `decklight bundle` write the same one; `audio` is its --audio
-        // ('original', 'aac' or 'opus'), the recorded voice carried inside.
-        // bundleMain returns nothing on success and throws a sentence on a
-        // refusal — the catch below says it.
+        // No -o: the CLI names the file, beside the deck, so the row and
+        // `decklight bundle` write the same one — `<deck>-standalone.html`,
+        // or for one chapter (`module`, its number: --module) the chapter's
+        // own name, which never overwrites the whole deck's. `audio` is its
+        // --audio ('original', 'aac' or 'opus'), the recorded voice carried
+        // inside. bundleMain returns nothing on success and throws a sentence
+        // on a refusal (an unknown chapter among them, before any file is
+        // written) — the catch below says it. The notes it prints after the
+        // file come back too: which chapter went in, and where the audio is.
         const { bundleMain } = await import('./bundle.mjs');
         const { AUDIO_CHOICES } = await import('./bundle-audio.mjs');
-        out = join(dirname(deckPath), `${basename(deckPath).replace(/\.html?$/i, '')}-standalone.html`);
-        code = (await bundleMain([deckPath, '-o', out, ...(req.theme ? ['--theme', req.theme] : []),
-          ...(AUDIO_CHOICES.includes(req.audio) ? ['--audio', req.audio] : [])])) ?? 0;
+        const report = {};
+        code = (await bundleMain([deckPath, ...(req.theme ? ['--theme', req.theme] : []),
+          ...(req.module != null ? ['--module', String(req.module)] : []),
+          ...(AUDIO_CHOICES.includes(req.audio) ? ['--audio', req.audio] : [])], { report })) ?? 0;
+        out = report.out;
+        notes = report.notices;
       } else if (kind === 'pptx') {
         const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
         out = pptxOut(deckPath);
@@ -188,14 +209,17 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
         ...(subs && existsSync(subs) ? { subtitles: relative(process.cwd(), subs) || basename(subs) } : {}),
       };
       broadcast('export', { state: 'done', kind, ok: true, file, seconds, ...voiced });
-      return json(200, { ok: true, kind, what: job.what, file, seconds, ...voiced });
+      return json(200, { ok: true, kind, what: job.what, file, seconds, ...voiced, ...(notes ? { notes } : {}) });
     } catch (e) {
       // A render that hangs or a Chrome that dies is the export's problem,
       // never the session's: the message goes back to the palette and the
-      // server carries on serving the deck.
-      console.log(`  export: ${job.what} failed — ${oneline(e)}`);
-      broadcast('export', { state: 'done', kind, ok: false, error: oneline(e) });
-      return json(500, { ok: false, error: oneline(e) });
+      // server carries on serving the deck. A command's refusal is a sentence
+      // and then, at most, a list it introduces ("— its chapters are:"); the
+      // sentence is what fits on a card, and the card has the list already.
+      const said = e instanceof CommandError ? e.message.split('\n')[0].replace(/\s+—[^—]*:$/, '') : oneline(e);
+      console.log(`  export: ${job.what} failed — ${said}`);
+      broadcast('export', { state: 'done', kind, ok: false, error: said });
+      return json(500, { ok: false, error: said });
     } finally {
       exporting = false;
     }
@@ -358,8 +382,12 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
     if (kind !== 'bundle') return json(400, { ok: false, error: `no estimate for ${kind ?? 'that'} — only a bundle has one` });
     const theme = url.searchParams.get('theme');
     if (theme != null && !THEME_NAME.test(theme)) return json(400, { ok: false, error: 'the theme is a theme name' });
+    // one chapter is estimated as one chapter: its slides, its share of the audio
+    const module = url.searchParams.get('module');
+    const bad = moduleProblem(module);
+    if (bad) return json(400, { ok: false, error: bad });
     const { bundleMain } = await import('./bundle.mjs');
-    const estimate = (argv) => bundleMain([deckPath, ...argv], { estimate: true });
+    const estimate = (argv) => bundleMain([deckPath, ...argv, ...(module != null ? ['--module', module] : [])], { estimate: true });
     try {
       // in the theme on screen, as the export will be — or, when that one
       // cannot be bundled yet (the export asks to mark it first), in the

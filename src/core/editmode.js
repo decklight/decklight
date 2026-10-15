@@ -2947,14 +2947,16 @@ export function createEditMode({
   const AUDIO_HOW = { aac: 'AAC', opus: 'Opus' };
   /**
    * How big the bundle would be (GET /deck/edit/export/estimate): the file without
-   * its audio, and what each way of carrying the audio adds. Null when the
-   * server cannot say; the reason is toasted, since bundling would hit it too.
+   * its audio, and what each way of carrying the audio adds — of one chapter,
+   * when `module` (its number) is given. Null when the server cannot say; the
+   * reason is toasted, since bundling would hit it too.
    */
-  async function bundleEstimate() {
+  async function bundleEstimate({ module = null } = {}) {
     try {
       // in the theme on screen, which is what the export will bundle in
       const { theme } = renderTheme() ?? {};
-      const r = await fetch(editBase + '/deck/edit/export/estimate?kind=bundle' + (theme ? `&theme=${encodeURIComponent(theme)}` : ''));
+      const r = await fetch(editBase + '/deck/edit/export/estimate?kind=bundle' + (theme ? `&theme=${encodeURIComponent(theme)}` : '')
+        + (module != null ? `&module=${module}` : ''));
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
       return j;
@@ -3026,7 +3028,10 @@ export function createEditMode({
     else if (job.kind) exportDeck(job.kind, job.opts ?? {});
   }
 
-  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null, audio = false } = {}) {
+  // What a bundle's card repeats of the notes `decklight bundle` prints after
+  // the file: which chapter went in, and where the narration audio is.
+  const BUNDLE_SAYS = /^(module \d+ of \d+:|narration audio:)/;
+  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null, audio = false, module = null } = {}) {
     const what = EXPORTS[kind];
     if (!what) return;
     // The server refuses a second export too (one browser, one output path);
@@ -3046,10 +3051,11 @@ export function createEditMode({
     // deck knows goes by name; one that lives only in this browser (a saved
     // custom theme, an unsaved roll) goes as its tokens.
     const { theme, gen } = renderTheme() ?? {};
-    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles, audio } })) return;
+    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles, audio, module } })) return;
     const doing = kind === 'video'
       ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
-      : `exporting to ${what}${audio ? `, with the narration audio${AUDIO_HOW[audio] ? ` as ${AUDIO_HOW[audio]}` : ''}` : ''}`;
+      : `exporting ${kind === 'bundle' && module != null ? `module ${module} ` : ''}to ${what}`
+        + `${audio ? `, with the narration audio${AUDIO_HOW[audio] ? ` as ${AUDIO_HOW[audio]}` : ''}` : ''}`;
     const run = progress(`${doing} — this takes a moment…`);
     exportRun = { run, what, doing };
     try {
@@ -3060,6 +3066,7 @@ export function createEditMode({
           ...(theme ? { theme } : gen ? { gen } : {}),
           ...(kind === 'video' ? { slides, format, quality, subtitles, ...videoVoice(voice) } : {}),
           ...(kind === 'bundle' && audio ? { audio } : {}),
+          ...(kind === 'bundle' && module != null ? { module } : {}),
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -3068,8 +3075,9 @@ export function createEditMode({
         return;
       }
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      const says = (j.notes ?? []).filter((n) => BUNDLE_SAYS.test(n));
       run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}${j.subtitles ? ` · subtitles in ${j.subtitles}` : ''}`
-        + `${j.voiced ? ` — its voice is in ${j.voiced}/` : ''}`);
+        + `${j.voiced ? ` — its voice is in ${j.voiced}/` : ''}${says.map((n) => ` · ${n}`).join('')}`, says.length ? 9000 : undefined);
       debugLog('export', `${kind} → ${j.file}`);
     } catch (e) {
       run.done(`could not export to ${what} — ${e.message}`, 5200);
