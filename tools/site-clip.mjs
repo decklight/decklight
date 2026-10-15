@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(name); return i === -1 ? fallback : args[i + 1]; };
-const SLIDE = Number(opt('--slide', 3));
+const SLIDE = Number(opt('--slide', 7));
 const OUT = path.resolve(ROOT, opt('--out', 'site/img/narration'));
 const HOLD_MS = Number(opt('--hold', 2500));
 const LIMIT_MS = 90_000;

@@ -68,11 +68,15 @@ try {
   skip('playwright is not installed — npm install --include=optional, then npx playwright install firefox webkit');
 }
 
-// The deck under test is the demo showcase: it is the biggest one in the repo,
-// it uses every layout and build the runtime has, and it is the file the shot
-// harness and the docs already point at — so a regression here is one somebody
-// would have seen anyway, in a browser nobody was checking.
+// The deck under test is the demo showcase: it is the deck decklight.io serves,
+// with stepped terminals, split slides, images, a drawn chart and builds on
+// every slide, and it is the file the shot harness and the docs already point
+// at, so a regression here is one somebody would have seen anyway, in a
+// browser nobody was checking.
 const DECK = '/demo/showcase.html';
+// a slide in the middle of it, for the deep link and the step back from it
+// (the showcase is 11 slides; it was 12 of 39 before the journey rewrite)
+const DEEP = 8;
 
 let bad = 0;
 const check = (label, cond, detail = '') => {
@@ -224,7 +228,7 @@ async function drive(browser, origin) {
 
   // A deep link is how a deck is shared mid-talk, and the deck has to arrive
   // where the URL says rather than at slide 1.
-  await page.evaluate(() => window.location.hash = '#/12/0');
+  await page.evaluate((n) => window.location.hash = `#/${n}/0`, DEEP);
   await page.waitForTimeout(500);
   const deepLinked = (await where()).slide;
 
@@ -301,9 +305,9 @@ try {
     check(`${name}: speaker notes are in the file and never on the screen`,
       r.notes.count > 0 && r.notes.visible === 0,
       `${r.notes.count} notes, ${r.notes.visible} visible`);
-    check(`${name}: a deep link arrives where it says`, r.deepLinked === 12,
-      `#/12/0 landed on ${r.deepLinked}`);
-    check(`${name}: ← goes back`, r.wentBack === 11, `landed on ${r.wentBack}`);
+    check(`${name}: a deep link arrives where it says`, r.deepLinked === DEEP,
+      `#/${DEEP}/0 landed on ${r.deepLinked}`);
+    check(`${name}: ← goes back`, r.wentBack === DEEP - 1, `landed on ${r.wentBack}`);
     check(`${name}: overview opens and closes`, r.overviewOpen === 1 && r.overviewClosed === 0,
       `open=${r.overviewOpen} closed=${r.overviewClosed}`);
     check(`${name}: the page itself never scrolls`, !r.scrolls.x && !r.scrolls.y,

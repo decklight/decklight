@@ -2,909 +2,200 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Decklight — the deck that presents itself</title>
+  <title>Decklight: from empty folder to published talk</title>
   <link rel="stylesheet" href="../dist/decklight.css">
   <link rel="stylesheet" href="../themes/eclipse.css">
   <style>
-    /* the diagram's SMIL message dots sit out reduced-motion */
-    @media (prefers-reduced-motion: reduce) { .msg-dot { display: none; } }
-    /* kafka slide: the dots' SMIL clock runs from page load and its animated
-       opacity outranks the draw-fade CSS, so park them via visibility (which
-       SMIL never touches) until their build step — after the arrows — reveals */
-    .decklight .msg-dots[data-build-state="pending"] .msg-dot { visibility: hidden; }
-
-    /* quiz: comprehension check at the end, styled from the same token contract as the rest of the deck */
-    .quiz-options { display: flex; flex-direction: column; gap: 10px; max-width: 30em; margin: 0.7em auto 0; text-align: left; }
-    .quiz-options label { display: flex; align-items: center; gap: 10px; padding: 0.5em 0.9em; font-size: 0.56em; background: var(--block-bg, rgba(128,128,128,.12)); border: var(--block-border, 1px solid rgba(128,128,128,.35)); border-radius: var(--block-radius, 8px); cursor: pointer; }
-    .quiz-options label:hover { border-color: var(--accent, #6af); }
-    .quiz-options label:has(input:checked) { border-color: var(--accent, #6af); box-shadow: 0 0 0 2px var(--accent, #6af) inset; }
-    .quiz-options input { accent-color: var(--accent, #6af); width: 1.1em; height: 1.1em; flex: none; }
-    .quiz-btn { font: inherit; font-size: 0.6em; font-weight: 700; padding: 0.6em 1.7em; margin-top: 0.9em; border: none; border-radius: var(--block-radius, 8px); background: var(--accent, #6af); color: var(--accent-contrast, #111); cursor: pointer; }
-    .quiz-btn:hover { filter: brightness(1.08); }
-    .quiz-score { font-size: 0.9em; font-weight: 700; margin-top: 0.6em; }
-    .quiz-pass p, .quiz-fail p { font-size: 0.65em; }
-    /* victory scene: podium on theme tokens, trophy metal set per tier via
-       --trophy/--trophy-deep (semantic medal colors, deliberately not themed) */
-    .quiz-scene { display: block; margin: 0.4em auto 0; }
-    .quiz-tier { font-size: 0.7em; font-weight: 700; margin: 0.3em 0 0; }
-    /* frantic confetti: outer element falls, its pseudo tumbles/sways —
-       two transforms that would cancel on a single element */
-    .quiz-confetti-rain { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-    .quiz-confetti-rain i { position: absolute; top: -28px; display: block; animation: quiz-fall linear infinite; }
-    .quiz-confetti-rain i::before {
-      content: ''; display: block; width: 100%; height: 100%; border-radius: 2px;
-      background: var(--c, var(--accent));
-      animation: quiz-tumble var(--tumble, .6s) ease-in-out infinite alternate;
-    }
-    @keyframes quiz-fall { from { transform: translateY(-32px); } to { transform: translateY(772px); } }
-    @keyframes quiz-tumble { from { transform: rotate3d(1, 1, 0, 0deg) translateX(-16px); } to { transform: rotate3d(1, 1, 0, 340deg) translateX(16px); } }
-    @media (prefers-reduced-motion: reduce) { .quiz-confetti-rain { display: none; } }
-    .quiz-recap { text-align: left; max-width: 40em; margin: 0.5em auto 0; max-height: 240px; overflow-y: auto; font-size: 0.48em; padding-right: 6px; }
-    .quiz-recap li { margin: 0.55em 0; }
-    .quiz-recap .quiz-correct { color: var(--accent, #6af); }
+    /* the journey's two columns: the real recording, and the talk as that step left it */
+    .decklight .result img, .decklight .pair img { display: block; width: 100%; border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .35); }
+    .decklight figure { margin: 0; }
+    .decklight figcaption { margin-top: .4em; font-size: .5em; color: var(--muted, #999); }
+    .decklight .pair { display: grid; grid-template-columns: 1fr 1fr; gap: .5em; align-items: start; }
+    .decklight .pair figure { min-width: 0; }
+    /* a journey step: the recording gets the room, its 100 columns at a size that fits */
+    .decklight section.step > :nth-child(2) { flex: 0 0 56%; max-width: 56%; }
+    .decklight section.step > :nth-child(3) { flex: 0 0 38%; max-width: 38%; }
+    .decklight section.step .terminal, .decklight .wide .terminal { font-size: .65em; }
+    .decklight .aside-note { font-size: .5em; color: var(--muted, #999); margin: .5em 0 0; }
+    .decklight .kicker { font-size: .6em; color: var(--accent, #6af); margin-top: 1.2em; }
+    .decklight .wide { width: 100%; }
+    .decklight .ship { text-align: left; }
+    .decklight .ship .url { font-size: .8em; font-weight: 700; margin: 0 0 .2em; }
+    .decklight .ship pre { font-size: .55em; margin: .8em 0; }
+    .decklight .ship p { font-size: .65em; margin: .3em 0; }
   </style>
 </head>
 <body>
   <div class="decklight">
 
-    <!-- 1 · title (hero logo demo: data-logo) -->
-    <section data-logo="112">
-      <h1>Decklight</h1>
-      <p>The presentation library that presents itself</p>
-      <p style="font-size:0.6em; opacity:.8">Every feature on the next slides is demonstrated live, by the slide itself.<br>This presentation is fully voiced: <strong>P</strong> plays and pauses the voice, <strong>V</strong> changes it.<br>Use → to advance. Press <strong>?</strong> anytime.</p>
-      <aside class="notes">
-        <p>Well hello there, friends. What you're looking at is a deck written in Decklight, about Decklight — which means every slide you're about to see is busy demonstrating the very feature it explains. A little self-referential? Sure. But if a presentation library can't present itself, what exactly are we doing? And that big mark above the title — that's the hero-logo feature. One attribute on the section. We're already demoing.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>The deck IS the demo — hero logo above</p>
-      </aside>
-    </section>
-
-    <!-- 2 · builds -->
-    <section data-layout="centered">
-      <h2>Builds</h2>
-      <p>Keynote-style progressive reveals — the container opts in</p>
-      <ul data-build="fade-up">
-        <li><code>data-build</code> on the list — every item steps in order</li>
-        <li>One attribute, zero per-item classes</li>
-        <li>Hidden steps hold their space — layout never shifts</li>
-        <li>Entrance styles: fade · fade-up · zoom · pop · draw · highlight</li>
-      </ul>
-      <p data-build="pop">…and leaf elements can <strong>pop</strong> in on their own.</p>
-      <aside class="notes">
-        <p>Let's talk about builds — progressive reveals, the bread and butter of every keynote. The Decklight take: the container opts in, and the engine does the rest. That entire list carries exactly one attribute.</p><p>[click]</p><p>Every press of the arrow reveals one item, in document order. No choreography required — the engine reads the DOM like sheet music.</p><p>[click]</p><p>And look at that — not a single class on the items themselves. The list said data-build once, and every child fell in line. That's the kind of parenting we all aspire to.</p><p>[click]</p><p>Notice what didn't happen: the layout didn't jump. Hidden steps keep their box — visibility, not display — so the slide is stable from the first pixel to the last.</p><p>[click]</p><p>Eight entrance styles, all CSS-driven. Fade, zoom, pop, draw — pick your energy level.</p><p>[click]</p><p>And a lone paragraph can be its own build step. Watch this one pop in like it's got somewhere to be.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>Container opts in</p>
-        <p>[click]</p><p>One attribute</p>
-        <p>[click]</p><p>No per-item classes</p>
-        <p>[click]</p><p>No layout shift</p>
-        <p>[click]</p><p>Eight entrance styles</p>
-        <p>[click]</p><p>Leaf pop</p>
-      </aside>
-    </section>
-
-    <!-- 3 · svg diagrams + concept colors.
-         data-narration-pause: a finished diagram is worth two seconds of
-         silence before the voice moves on — the room is still reading it. -->
-    <section data-narration-pause="2">
-      <h2>Theme-Aware SVG Diagrams</h2>
-      <p>Authored once with tokens — recolored by all 46 themes</p>
-      <svg viewBox="0 0 800 300" width="800" data-build="draw" aria-label="Decklight architecture">
-        <defs><marker id="sc-arr" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>
-        <g>
-          <rect data-concept="engine" x="310" y="20" width="180" height="64" rx="10" style="fill: var(--d-fill-3); stroke: var(--d-accent)" stroke-width="2.5"/>
-          <text x="400" y="48" text-anchor="middle" font-size="15" font-weight="700" style="font-family: var(--font-body); fill: var(--d-accent)">Engine</text>
-          <text x="400" y="68" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">builds · nav · svg · print</text>
-        </g>
-        <g>
-          <line x1="330" y1="90" x2="180" y2="150" stroke-width="1.5" style="stroke: var(--d-stroke)" marker-end="url(#sc-arr)"/>
-          <rect data-concept="themes" x="80" y="155" width="200" height="60" rx="10" style="fill: var(--d-fill-5); stroke: var(--d-stroke)" stroke-width="2"/>
-          <text x="180" y="181" text-anchor="middle" font-size="13" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">46 themes · 2 packs</text>
-          <text x="180" y="200" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">one token contract</text>
-        </g>
-        <g>
-          <line x1="400" y1="90" x2="400" y2="150" stroke-width="1.5" style="stroke: var(--d-stroke)" marker-end="url(#sc-arr)"/>
-          <rect data-concept="terminal" x="300" y="155" width="200" height="60" rx="10" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/>
-          <text x="400" y="181" text-anchor="middle" font-size="13" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">Terminal player</text>
-          <text x="400" y="200" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">event casts, never video</text>
-        </g>
-        <g>
-          <line x1="470" y1="90" x2="620" y2="150" stroke-width="1.5" style="stroke: var(--d-stroke)" marker-end="url(#sc-arr)"/>
-          <rect data-concept="cli" x="520" y="155" width="200" height="60" rx="10" style="fill: var(--d-fill-4); stroke: var(--d-stroke)" stroke-width="2"/>
-          <text x="620" y="181" text-anchor="middle" font-size="13" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">CLI</text>
-          <text x="620" y="200" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">import · cast · pdf · bundle</text>
-        </g>
-        <g>
-          <path d="M 620 215 C 640 262, 300 262, 290 230 Q 286 220 300 215" fill="none" stroke-width="1.5" stroke-dasharray="6,4" style="stroke: var(--d-accent)" marker-end="url(#sc-arr)"/>
-          <text x="455" y="244" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">dashed, drawn dashed</text>
-        </g>
-        <g>
-          <text x="400" y="265" text-anchor="middle" font-size="12" style="font-family: var(--font-body); fill: var(--d-muted)">Strokes draw in (data-build="draw") · messages flow (SMIL, theme-tokened) · ids auto-namespaced · concept colors pin boxes</text>
-          <circle class="msg-dot" r="3.5" opacity="0" style="fill: var(--d-accent)">
-            <animateMotion dur="1.8s" begin="0s" repeatCount="indefinite" path="M330,92 L184,148"/>
-            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.8s" begin="0s" repeatCount="indefinite"/>
-          </circle>
-          <circle class="msg-dot" r="3.5" opacity="0" style="fill: var(--d-accent)">
-            <animateMotion dur="1.8s" begin="0.6s" repeatCount="indefinite" path="M400,92 L400,148"/>
-            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.8s" begin="0.6s" repeatCount="indefinite"/>
-          </circle>
-          <circle class="msg-dot" r="3.5" opacity="0" style="fill: var(--d-accent)">
-            <animateMotion dur="1.8s" begin="1.2s" repeatCount="indefinite" path="M470,92 L616,148"/>
-            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.8s" begin="1.2s" repeatCount="indefinite"/>
-          </circle>
-        </g>
-      </svg>
-      <aside class="notes">
-        <p>Now, diagrams. In Decklight, inline SVG is the native tongue — and you author it with theme tokens instead of hex codes. Hold that thought; it pays off in a big way shortly.</p><p>[click]</p><p>Groups build progressively, and strokes literally draw themselves in. There is something deeply satisfying about a box that sketches itself.</p><p>[click]</p><p>That themes box is pinned by concept color — same concept, same color slot, every slide it appears on. Your audience's pattern-matching brain will thank you.</p><p>[click]</p><p>Terminal box — same idea.</p><p>[click]</p><p>CLI box. You see the pattern.</p><p>[click]</p><p>And a dashed arrow draws dashed, from its first frame to its last. No solid line snapping into dashes at the end.</p><p>[click]</p><p>And the payoff: cycle themes with comma and period, and the whole diagram repaints itself. No screenshots were harmed in the making of this slide.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>Tokens, not colors</p>
-        <p>[click]</p><p>draw = strokes animate</p>
-        <p>[click]</p><p>Concept colors pin boxes</p>
-        <p>[click]</p><p>Terminal box</p>
-        <p>[click]</p><p>CLI box</p>
-        <p>[click]</p><p>Dashed draws dashed</p>
-        <p>[click]</p><p>, / . recolors everything</p>
-      </aside>
-    </section>
-
-    <!-- 4 · charts: declared as JSON, painted by the theme (split layout) -->
-    <section data-layout="split">
-      <h2>Charts From Data</h2>
-      <p>Declare the numbers — the theme paints them. No chart library, no images</p>
-      <div class="chart" data-chart="bar" data-title="Build minutes per week">
-        <script type="application/json">
-        { "labels": ["W1", "W2", "W3", "W4", "W5"],
-          "series": [ { "name": "humans", "data": [38, 42, 35, 41, 33] },
-                      { "name": "agents", "data": [12, 19, 27, 36, 48] } ] }
-        </script>
-      </div>
-      <div class="chart" data-chart="donut" data-title="Where the tokens go" data-aspect="16:10">
-        <script type="application/json">
-        { "labels": ["code", "tests", "docs", "chat"], "series": [ { "data": [46, 27, 15, 12] } ] }
-        </script>
-      </div>
-      <aside class="notes">
-        <p>Charts. You don't draw them, and you don't screenshot them out of a spreadsheet — you declare the data in a little block of JSON, and Decklight generates the SVG right on the slide. Bar, line, area, pie. And here's the good part: every color in there is a theme token — the same ones the diagrams use. Cycle the theme with comma and period and both of these repaint instantly, labels staying readable, because the same contrast rules that guard the diagrams guard the charts. Grouped bars on the left, a donut on the right — living happily in a split layout like any other content block.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>JSON in, themed SVG out — , / . repaints</p>
-      </aside>
-    </section>
-
-    <!-- 5 · charts: line series draw themselves in like diagram strokes -->
-    <section>
-      <h2>Charts Build Like Diagrams</h2>
-      <p><code>data-build="draw"</code> — each series draws in on [click], same machinery as the strokes</p>
-      <div class="chart" data-chart="line" data-title="Latency by release (ms)" data-build="draw" style="max-width:62%">
-        <script type="application/json">
-        { "labels": ["v1", "v2", "v3", "v4", "v5", "v6"],
-          "series": [ { "name": "p99", "data": [340, 310, 260, 240, 205, 190] },
-                      { "name": "p50", "data": [120, 100, 85, 70, 60, 45] } ] }
-        </script>
-      </div>
-      <aside class="notes">
-        <p>And because a chart is just an SVG diagram underneath, it builds like one. This chart carries data build draw — each series is a group, and the arrow key reveals them one at a time.</p><p>[click]</p><p>There goes p99, drawing itself left to right like a plotter pen. That's the exact dash-offset machinery the hand-drawn diagrams use — the chart got it for free.</p><p>[click]</p><p>And p50 follows. Two lines, two beats, and your audience reads the gap between them instead of squinting at a finished picture. Numbers with dramatic timing — that's the whole trick of presenting data.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>A chart is a diagram</p>
-        <p>[click]</p><p>p99 draws in</p>
-        <p>[click]</p><p>p50 follows — read the gap</p>
-      </aside>
-    </section>
-
-    <!-- 5b · split: the comparison slide. This slide IS the demo — the Cons
-         column is one bullet against three, and its heading still lines up -->
-    <section data-layout="split">
-      <h2>Comparison Slides</h2>
-      <p><code>data-layout="split"</code> — two sibling blocks become the columns</p>
-      <div>
-        <h3>Pros</h3>
-        <ul>
-          <li>The columns <strong>share a top edge</strong> — unequal heights, headings still line up</li>
-          <li>No per-column flexbox to hand-roll</li>
-          <li><code>split-flip</code> mirrors the pair</li>
-        </ul>
-      </div>
-      <div>
-        <h3>Cons</h3>
-        <ul>
-          <li>Two columns, deliberately — three is another slide</li>
-        </ul>
-      </div>
-      <p data-build="fade-up"><strong>A third block is a footer</strong>, not a third column: full width, centred, under both — exactly where a note about the whole comparison belongs.</p>
-      <aside class="notes">
-        <p>The comparison slide — pros and cons, this versus that — is the most common structured slide there is, and it used to be the one you hand-rolled a flexbox for. Not anymore: data-layout split, two sibling blocks, done. And look at what this slide is doing while I say it: three bullets on the left, one on the right, and the two headings still perfectly level. The columns share a top edge. They used to centre independently, which meant the shorter side's heading drifted down the slide and the pair stopped reading as a pair. Three columns, by the way, is not a shape we offer — cramming three things onto one slide is how a deck ends up technically renderable and practically unreadable.</p><p>[click]</p><p>And there's the third block, landing full width under both columns. That's the footer. It used to get swept into the right-hand column, hanging under one side of a comparison it was about equally — which is a small thing that made every comparison slide read slightly wrong.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>split = two blocks, shared top edge</p>
-        <p>[click]</p><p>Third block = full-width footer</p>
-      </aside>
-    </section>
-
-    <!-- 6+7 · auto-animate pair: three boxes → zoom into the middle one -->
-    <section data-auto-animate>
-      <h2>Auto-Animate</h2>
-      <p>Magic Move between adjacent slides</p>
-      <div style="display:flex; justify-content:center; gap:44px; margin-top:0.5em;">
-        <div data-id="aa-a" style="width:280px; height:150px; display:flex; align-items:center; justify-content:center; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 14px;">
-          <span style="font-size:0.75em; font-weight:700;">Extract</span>
-        </div>
-        <div data-id="aa-b" style="width:280px; height:150px; display:flex; align-items:center; justify-content:center; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 14px;">
-          <span data-id="aa-b-label" style="font-size:0.75em; font-weight:700;">Transform</span>
-        </div>
-        <div data-id="aa-c" style="width:280px; height:150px; display:flex; align-items:center; justify-content:center; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 14px;">
-          <span style="font-size:0.75em; font-weight:700;">Load</span>
-        </div>
-      </div>
-      <p style="font-size:0.6em; opacity:.75">Advance once — the middle box takes over the stage.</p>
-      <aside class="notes">
-        <p>Magic Move, the Keynote party trick — Decklight calls it auto-animate. Three equal boxes, three data-ids. On the next slide only one of them survives — keep your eye on the middle.</p>
-      </aside>
-      <aside class="rehearse"><p>3 boxes — watch the middle</p></aside>
-    </section>
-    <section data-auto-animate>
-      <h2>Auto-Animate</h2>
-      <p>Zoom into the detail — FLIP-morphed, HTML and SVG alike</p>
-      <div data-id="aa-b" style="width:760px; height:340px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; margin:0.4em auto 0; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 20px;">
-        <span data-id="aa-b-label" style="font-size:1.0em; font-weight:800;">Transform</span>
-        <div style="display:flex; gap:26px;">
-          <div style="padding: 20px 30px; background: var(--d-fill-2); border: 1.5px solid var(--d-stroke); border-radius: 16px; font-size:0.62em; color: var(--d-text);">validate the schema</div>
-          <div style="padding: 20px 30px; background: var(--d-fill-4); border: 1.5px solid var(--d-stroke); border-radius: 16px; font-size:0.62em; color: var(--d-text);">enrich with lookups</div>
-        </div>
-      </div>
-      <aside class="notes">
-        <p>And there it goes — the middle box grew into the whole stage. Same element, FLIP-morphed geometry; the neighbors bowed out, and the two detail steps inside faded in as fresh content. That zoom-into-the-details move you love in Keynote? One attribute and matching ids. Nobody wrote a keyframe.</p>
-      </aside>
-      <aside class="rehearse"><p>Middle box zooms — details fade in</p></aside>
-    </section>
-
-    <!-- 8 · element animations -->
-    <section>
-      <h2>Element Animations</h2>
-      <p>Looping attention effects — only while the slide is active</p>
-      <div style="display:flex; gap:22px; justify-content:center; font-size:0.72em; flex-wrap:wrap;">
-        <span data-animate="pulse" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">pulse</span>
-        <span data-animate="float" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">float</span>
-        <span data-animate="shake" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">shake</span>
-        <span data-animate="spin" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">spin</span>
-        <span data-animate="blink" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">blink</span>
-      </div>
-      <div style="display:flex; gap:22px; justify-content:center; font-size:0.72em; flex-wrap:wrap; margin-top: 26px;">
-        <span data-animate="bounce" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">bounce</span>
-        <span data-animate="swing" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">swing</span>
-        <span data-animate="glow" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">glow</span>
-        <span data-animate="breathe" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">breathe</span>
-      </div>
-      <p style="font-size:0.6em; opacity:.75">All of it collapses under <code>prefers-reduced-motion</code>.</p>
-      <aside class="notes">
-        <p>Nine looping attention-getters, one attribute apiece. They only run while their slide is on stage, and every one of them sits down politely when a viewer asks for reduced motion. Use them like hot sauce, friends — sparingly.</p>
-      </aside>
-      <aside class="rehearse"><p>Nine loops, one attribute, a11y-aware</p></aside>
-    </section>
-
-    <!-- 9 · code stepping -->
-    <section>
-      <h2>Code, Stepped Line by Line</h2>
-      <p>This snippet is the source of the builds slide you just saw</p>
-      <pre data-lines="1|2-5|7" data-lines-numbers><code class="language-html">&lt;ul data-build="fade-up"&gt;
-  &lt;li&gt;data-build on the list — every item steps&lt;/li&gt;
-  &lt;li&gt;One attribute, zero per-item classes&lt;/li&gt;
-  &lt;li&gt;Hidden steps hold their space&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p data-build="pop"&gt;…and leaves can pop in on their own.&lt;/p&gt;</code></pre>
-      <aside class="notes">
-        <p>Code slides. The syntax highlighting rides the same theme tokens as everything else — there is no second highlighter theme to keep in sync, because the best config file is the one that doesn't exist.</p><p>[click]</p><p>data-lines turns highlight ranges into build steps. First beat: the container line.</p><p>[click]</p><p>Second beat: the items.</p><p>[click]</p><p>And the standalone pop. Everything you're not talking about dims to the theme's opacity — a spotlight, but for code.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>hl via tokens</p>
-        <p>[click]</p><p>Line 1: the container</p>
-        <p>[click]</p><p>Lines 2–5: items</p>
-        <p>[click]</p><p>Line 7: the pop</p>
-      </aside>
-    </section>
-
-    <!-- 11b · math (data-math: LaTeX → MathML Core via bundled Temml) -->
-    <section data-math>
-      <h2>Math, Rendered Native</h2>
-      <p><code>data-math</code> + LaTeX → MathML Core — no webfonts, no build step, no network</p>
-      <p style="font-size:1.1em; margin:0.5em 0 0.4em">$$\begin{aligned}
-        \nabla \cdot \vec{E} \;&amp;= \frac{\rho}{\varepsilon_0} &amp;
-        \nabla \times \vec{E} \;&amp;= -\frac{\partial \vec{B}}{\partial t} \\[0.5em]
-        \nabla \cdot \vec{B} \;&amp;= 0 &amp;
-        \nabla \times \vec{B} \;&amp;= \mu_0 \Bigl( \vec{J} + \varepsilon_0 \frac{\partial \vec{E}}{\partial t} \Bigr)
-      \end{aligned}$$</p>
-      <p style="font-size:0.78em">Inline math sits right in the sentence — light moves at \(c = 1/\sqrt{\mu_0 \varepsilon_0}\) —
-        while <code>\$</code> keeps \$5 five dollars, and a lone <code>$</code> never trips the parser.</p>
-      <aside class="notes">
-        <p>Academic decks, welcome home. Mark a slide data-math and write LaTeX between double dollars for display math, backslash-parens for inline. That's Maxwell, all four equations, rendering as native MathML — no webfonts shipped, no network fetched, no per-deck build step. And note what we did not support: the single dollar sign. Your prose about five-dollar budgets stays prose. The parser only listens where you actually meant math.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>data-math → LaTeX, native MathML · no single-$</p>
-      </aside>
-    </section>
-
-    <!-- 12 · terminal -->
-    <section>
-      <h2>Terminal Recordings</h2>
-      <p>Real PTY output, replayed step by step — never a video</p>
-      <div class="terminal" data-cast-inline="#cast-git-tour" data-mode="step" data-rows="12"></div>
-      <aside class="notes">
-        <p>Terminal demos. This one was recorded with decklight cast from a YAML script — a real PTY, real output, secrets redacted at capture time. Not a video. Never a video.</p><p>[click]</p><p>Each advance types the command with humane little imperfections, then streams the output exactly as recorded. Truthful, repeatable, and it will never hang on conference Wi-Fi.</p><p>[click]</p><p>Casts embed their own script, so when your CLI changes its output next quarter — and it will — decklight refresh re-records everything and tells you exactly what drifted.</p><p>[click]</p><p>And when it's time to share, decklight export flattens to asciicast v2, and the whole asciinema ecosystem opens up.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>PTY truth, not video</p>
-        <p>[click]</p><p>Typed + streamed per step</p>
-        <p>[click]</p><p>refresh re-records</p>
-        <p>[click]</p><p>export → asciicast v2</p>
-      </aside>
-    </section>
-
-    <!-- 13 · slides from a prompt (ai authoring: the ask) -->
-    <section>
-      <h2>Slides From a Prompt</h2>
-      <p>Describe the slide — an agent writes the Decklight</p>
-      <div class="terminal" data-cast-inline="#cast-ai-prompt" data-mode="step" data-rows="13"></div>
-      <aside class="notes">
-        <p>Here's where it gets interesting. Decklight was designed to be authored by agents — so the workflow can be exactly this: describe the slide you want, in plain English, to your coding agent.</p><p>[click]</p><p>Watch the ask: a broker, a partitioned topic, messages flowing, two consumers — and, the part everyone forgets, an explicit request for labels. Offsets, arrows, names. Agents draw what you name, friends. Name the labels. The agent answers in Decklight: tokens, draw builds, SMIL motion, the works.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>Describe the slide in plain language</p>
-        <p>[click]</p><p>Agent answers in Decklight</p>
-      </aside>
-    </section>
-
-    <!-- 14 · the generated kafka slide (ai authoring: the result) -->
-    <section>
-      <h2>Kafka: Producer to Consumers</h2>
-      <p>The slide the agent generated — shipped untouched</p>
-      <svg viewBox="0 0 800 340" width="800" data-build="draw" aria-label="Kafka broker with topic orders in three labelled partitions; a producer writes round-robin across P0, P1 and P2 while a two-consumer group reads P0/P1 and P2; every box, offset and arrow is labelled">
-        <defs><marker id="ka-arr" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>
-        <g>
-          <rect x="235" y="24" width="330" height="272" rx="12" style="fill: var(--d-fill-5); stroke: var(--d-stroke)" stroke-width="2"/>
-          <text x="400" y="50" text-anchor="middle" font-size="14" font-weight="700" style="font-family: var(--font-body); fill: var(--d-text)">Kafka Broker</text>
-          <text x="400" y="68" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">topic: orders · 3 partitions</text>
-          <rect x="258" y="82" width="284" height="46" rx="8" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="1.5"/>
-          <text x="276" y="110" font-size="12" font-weight="700" style="font-family: var(--font-body); fill: var(--d-text)">P0</text>
-          <rect x="300" y="97" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <rect x="326" y="97" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <rect x="352" y="97" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <rect x="378" y="97" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <text x="308" y="109" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">0</text>
-          <text x="334" y="109" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">1</text>
-          <text x="360" y="109" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">2</text>
-          <text x="386" y="109" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">3</text>
-          <rect x="258" y="140" width="284" height="46" rx="8" style="fill: var(--d-fill-2); stroke: var(--d-stroke)" stroke-width="1.5"/>
-          <text x="276" y="168" font-size="12" font-weight="700" style="font-family: var(--font-body); fill: var(--d-text)">P1</text>
-          <rect x="300" y="155" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <rect x="326" y="155" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <rect x="352" y="155" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <text x="308" y="167" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">0</text>
-          <text x="334" y="167" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">1</text>
-          <text x="360" y="167" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">2</text>
-          <rect x="258" y="198" width="284" height="46" rx="8" style="fill: var(--d-fill-6); stroke: var(--d-stroke)" stroke-width="1.5"/>
-          <text x="276" y="226" font-size="12" font-weight="700" style="font-family: var(--font-body); fill: var(--d-text)">P2</text>
-          <rect x="300" y="213" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <rect x="326" y="213" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <rect x="352" y="213" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <rect x="378" y="213" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <rect x="404" y="213" width="16" height="16" rx="3" style="fill: var(--d-accent); opacity:.45"/>
-          <text x="308" y="225" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">0</text>
-          <text x="334" y="225" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">1</text>
-          <text x="360" y="225" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">2</text>
-          <text x="386" y="225" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">3</text>
-          <text x="412" y="225" text-anchor="middle" font-size="9" style="font-family: var(--font-mono, monospace); fill: var(--d-text)">4</text>
-          <text x="400" y="276" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">each square = one message at its offset</text>
-        </g>
-        <g>
-          <rect x="25" y="140" width="140" height="46" rx="10" style="fill: var(--d-fill-4); stroke: var(--d-stroke)" stroke-width="2"/>
-          <text x="95" y="168" text-anchor="middle" font-size="13" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">Producer</text>
-          <text x="95" y="202" text-anchor="middle" font-size="9" style="font-family: var(--font-body); fill: var(--d-muted)">produce · round-robin</text>
-          <line x1="170" y1="156" x2="252" y2="109" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#ka-arr)"/>
-          <line x1="170" y1="163" x2="252" y2="163" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#ka-arr)"/>
-          <line x1="170" y1="170" x2="252" y2="217" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#ka-arr)"/>
-          <text x="206" y="123" text-anchor="middle" font-size="8" style="font-family: var(--font-mono, monospace); fill: var(--d-muted)">1</text>
-          <text x="211" y="156" text-anchor="middle" font-size="8" style="font-family: var(--font-mono, monospace); fill: var(--d-muted)">2</text>
-          <text x="206" y="207" text-anchor="middle" font-size="8" style="font-family: var(--font-mono, monospace); fill: var(--d-muted)">3</text>
-        </g>
-        <g>
-          <rect x="630" y="96" width="145" height="46" rx="10" style="fill: var(--d-fill-3); stroke: var(--d-stroke)" stroke-width="2"/>
-          <text x="702" y="124" text-anchor="middle" font-size="13" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">Consumer A</text>
-          <line x1="546" y1="105" x2="624" y2="114" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#ka-arr)"/>
-          <line x1="546" y1="163" x2="624" y2="128" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#ka-arr)"/>
-          <text x="585" y="96" text-anchor="middle" font-size="8.5" style="font-family: var(--font-body); fill: var(--d-muted)">consume P0</text>
-          <text x="578" y="172" text-anchor="middle" font-size="8.5" style="font-family: var(--font-body); fill: var(--d-muted)">consume P1</text>
-        </g>
-        <g>
-          <rect x="618" y="84" width="170" height="180" rx="12" fill="none" style="stroke: var(--d-muted)" stroke-width="1.5" stroke-dasharray="5 4"/>
-          <text x="703" y="78" text-anchor="middle" font-size="9" style="font-family: var(--font-body); fill: var(--d-muted)">consumer group</text>
-          <rect x="630" y="200" width="145" height="46" rx="10" style="fill: var(--d-fill-3); stroke: var(--d-stroke)" stroke-width="2"/>
-          <text x="702" y="228" text-anchor="middle" font-size="13" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">Consumer B</text>
-          <line x1="546" y1="221" x2="624" y2="222" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#ka-arr)"/>
-          <text x="585" y="212" text-anchor="middle" font-size="8.5" style="font-family: var(--font-body); fill: var(--d-muted)">consume P2</text>
-          <text x="400" y="330" text-anchor="middle" font-size="11" style="font-family: var(--font-body); fill: var(--d-muted)">producer round-robins P0 → P1 → P2 · consumer group splits: A reads P0 &amp; P1, B reads P2 · colors via var(--d-*)</text>
-        </g>
-        <g class="msg-dots">
-          <circle class="msg-dot" r="4" opacity="0" style="fill: var(--d-accent)">
-            <animateMotion dur="2.4s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;1;1" keyTimes="0;0.3;1" path="M173,156 L248,111"/>
-            <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.04;0.26;0.3;1" dur="2.4s" begin="0s" repeatCount="indefinite"/>
-          </circle>
-          <circle class="msg-dot" r="4" opacity="0" style="fill: var(--d-accent)">
-            <animateMotion dur="2.4s" begin="0.8s" repeatCount="indefinite" calcMode="linear" keyPoints="0;1;1" keyTimes="0;0.3;1" path="M173,163 L248,163"/>
-            <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.04;0.26;0.3;1" dur="2.4s" begin="0.8s" repeatCount="indefinite"/>
-          </circle>
-          <circle class="msg-dot" r="4" opacity="0" style="fill: var(--d-accent)">
-            <animateMotion dur="2.4s" begin="1.6s" repeatCount="indefinite" calcMode="linear" keyPoints="0;1;1" keyTimes="0;0.3;1" path="M173,170 L248,215"/>
-            <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.04;0.26;0.3;1" dur="2.4s" begin="1.6s" repeatCount="indefinite"/>
-          </circle>
-          <circle class="msg-dot" r="4" opacity="0" style="fill: var(--d-accent)">
-            <animateMotion dur="1.8s" begin="0.3s" repeatCount="indefinite" path="M549,105 L620,114"/>
-            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.8s" begin="0.3s" repeatCount="indefinite"/>
-          </circle>
-          <circle class="msg-dot" r="4" opacity="0" style="fill: var(--d-accent)">
-            <animateMotion dur="1.8s" begin="1.1s" repeatCount="indefinite" path="M549,163 L620,129"/>
-            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.8s" begin="1.1s" repeatCount="indefinite"/>
-          </circle>
-          <circle class="msg-dot" r="4" opacity="0" style="fill: var(--d-accent)">
-            <animateMotion dur="1.8s" begin="0.6s" repeatCount="indefinite" path="M549,221 L620,222"/>
-            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.8s" begin="0.6s" repeatCount="indefinite"/>
-          </circle>
-        </g>
-      </svg>
-      <aside class="notes">
-        <p>And this is what came back — committed exactly as generated. No cleanup, no touch-ups. I want to be very clear about that.</p><p>[click]</p><p>The broker sketches itself in: one topic, three partitions, every message square wearing its offset. If you've operated Kafka, this picture is home.</p><p>[click]</p><p>The producer round-robins the partitions — P0, P1, P2, repeat. Order within a partition, balance across them: that's the deal you signed with Kafka.</p><p>[click]</p><p>Consumer A picks up partitions zero and one…</p><p>[click]</p><p>…and consumer B takes partition two — the dashed outline is the consumer group, quietly doing the partition math.</p><p>[click]</p><p>And now the messages flow — watch them take turns across the partitions and stream out to the consumers. Animated, labelled, theme-aware, from one English sentence. Go ahead — cycle themes on it. Nothing breaks, because nothing was hardcoded.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>The prompt's output, untouched</p>
-        <p>[click]</p><p>Broker: topic + 3 partitions</p>
-        <p>[click]</p><p>Producer round-robins P0→P2</p>
-        <p>[click]</p><p>Consumer A: P0 + P1</p>
-        <p>[click]</p><p>Consumer B: P2</p>
-        <p>[click]</p><p>Messages flow — try , / .</p>
-      </aside>
-    </section>
-
-    <!-- 15 · themes & packs -->
-    <section data-transition="slide">
-      <h2>62 Themes in 5 Packs</h2>
-      <p>Try it now — this deck ships them all</p>
-      <table data-build>
-        <tbody>
-          <tr><td><strong>T</strong></td><td>theme picker — packs first, Enter drills in, ✳ flattens, type to filter</td></tr>
-          <tr><td><strong>, / .</strong></td><td>cycle themes — crossing a pack asks you to confirm</td></tr>
-          <tr><td><strong>⌃T</strong></td><td>generate a brand-new theme (WCAG-fitted, rule-conforming)</td></tr>
-          <tr><td><strong>⌃⇧T</strong></td><td>save it — localStorage + a portable .css download</td></tr>
-          <tr><td><strong>[ / ]</strong></td><td>cycle the deck's type through nine font stacks</td></tr>
-        </tbody>
-      </table>
-      <aside class="notes">
-        <p>Sixty-two themes in five packs, one token contract — and when you switch, everything moves: text, diagrams, code, terminals. By the way, did you catch that slide transition just now? Per-slide override. The deck is still demoing.</p><p>[click]</p><p>Press T and the picker opens on the packs: Default, Classics, Old Machines, TV Series, Movies. Yes, there is a Game Boy theme. Yes, it passes contrast.</p><p>[click]</p><p>Comma and period cycle within a pack — and if you're about to wander into a different pack, it asks first. Guardrails, not walls.</p><p>[click]</p><p>Control-T rolls a brand-new theme on the spot — WCAG-fitted, palette-rule-conforming. It cannot fail validation; we property-tested that claim across hundreds of seeds, because 'trust me' is not a spec.</p><p>[click]</p><p>Found one you love? Control-Shift-T saves it and hands you a portable CSS file.</p><p>[click]</p><p>And the brackets swap typography live. Nine font stacks, zero rebuilds.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>One token contract</p>
-        <p>[click]</p><p>T → packs</p>
-        <p>[click]</p><p>, . cycle + guard</p>
-        <p>[click]</p><p>⌃T generate</p>
-        <p>[click]</p><p>⌃⇧T save</p>
-        <p>[click]</p><p>[ ] fonts</p>
-      </aside>
-    </section>
-
-    <!-- 15b · distributing a theme -->
-    <section>
-      <h2>A Theme Is Just a File</h2>
-      <p>No registry, no version number — the unit you share is one CSS file</p>
-      <pre data-lines="1|2"><code class="language-bash">decklight theme check sunset.css          # contract-complete? WCAG gates?
-decklight theme add sunset.css deck.html  # validates, then marks it for the deck</code></pre>
-      <ul data-build>
-        <li>The deck records a <strong>reference</strong> — <code>"markedThemes": ["sunset@local"]</code> — never the CSS; <code>bundle</code> carries it</li>
-        <li>A file that fails leaves the deck <strong>byte-for-byte unchanged</strong> — no deck ever carries a broken theme</li>
-        <li>While authoring, every marketplace's themes are in the picker — <kbd>Space</kbd> marks one</li>
-      </ul>
-      <aside class="notes">
-        <p>So you rolled a theme you love. How do you give it to someone? A theme is one CSS file, and that's the whole distribution story — no registry to publish to, no version number to bump. Compatibility with a runtime just is passing that runtime's check.</p><p>[click]</p><p>Theme check runs the token contract and the contrast gates on any file — the same function that grades the themes we ship, so the two can never drift.</p><p>[click]</p><p>Theme add validates, then marks the theme for your deck, refusing anything the shipped set wouldn't be allowed to contain. A loose file goes into your own local marketplace first.</p><p>[click]</p><p>What lands in the deck is one line: a reference to the theme. The CSS stays where it lives, and bundle inlines it when you hand the deck over.</p><p>[click]</p><p>If a file fails, your deck is byte for byte what it was. Nothing half-added.</p><p>[click]</p><p>And while you author, the picker lists every theme in the marketplaces you've added. Try any of them; press space on the one you want the deck to carry.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>One CSS file, no registry</p>
-        <p>[click]</p><p>check = contract + WCAG</p>
-        <p>[click]</p><p>add = validate, then mark</p>
-        <p>[click]</p><p>A reference, not the CSS</p>
-        <p>[click]</p><p>Fails → deck unchanged</p>
-        <p>[click]</p><p>Space marks in the picker</p>
-      </aside>
-    </section>
-
-    <!-- 16 · presenting -->
-    <section data-transition="scale">
-      <h2>Presenting</h2>
-      <p>Everything a stage needs, no server required</p>
-      <ul data-build>
-        <li><strong>⌥⏎</strong> — speaker view: thumbnails, timer, notes synced to builds</li>
-        <li><strong>S again</strong> — rehearse mode: cue cards instead of prose (this deck has them)</li>
-        <li><strong>G</strong> — slide finder with live preview · <strong>/</strong> the command palette</li>
-        <li><strong>O</strong> — overview grid · <strong>B</strong> blackout · <strong>F</strong> fullscreen</li>
-        <li>Pinned titles, auto-subtitles, per-slide print, the brand-logo chrome below</li>
-      </ul>
-      <aside class="notes">
-        <p>Everything a stage needs, and all of it works from a double-clicked file. No dev server, no build step, no 'hang on, let me npm install' in front of two hundred people.</p><p>[click]</p><p>Option-Enter opens the speaker view in a popup — thumbnails, a timer, and notes that highlight in sync as you advance.</p><p>[click]</p><p>Press Option-Enter again and the prose becomes big cue cards. Rehearse mode — because reading your slides to the room is a crime we've all committed exactly once.</p><p>[click]</p><p>G opens a finder that searches every slide by its words — slide forty-something? Doesn't matter, type the word. And slash opens the command palette, where every one of these features answers to its name.</p><p>[click]</p><p>O for overview, B for blackout, F for fullscreen. The classics.</p><p>[click]</p><p>And the details: titles pin at one height deck-wide, subtitles style themselves, and the corner logo swaps its light and dark variants by measuring the theme's actual background. It's the little things.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>file:// is enough</p>
-        <p>[click]</p><p>⌥⏎ speaker view</p>
-        <p>[click]</p><p>S again = cue cards</p>
-        <p>[click]</p><p>G finder · / palette</p>
-        <p>[click]</p><p>O · B · F</p>
-        <p>[click]</p><p>Pins, subtitles, logo</p>
-      </aside>
-    </section>
-
-    <!-- 16a · narration: the voice you may well be listening to right now -->
-    <section>
-      <h2>The Deck Speaks</h2>
-      <p><strong>P</strong> narrates the notes · <strong>V</strong> picks the voice · <strong>C</strong> captions it</p>
-      <ul data-build>
-        <li><strong>The voice already on your machine</strong> — macOS <code>say</code>, Windows SAPI. No key, no download</li>
-        <li>Or a cloud voice, or <code>piper</code> offline — <code>decklight tts</code> sets itself up on first run</li>
-        <li>Recorded tracks stream from a bucket; a <strong>signed manifest</strong> shows ☁ and its time left</li>
-        <li>A deck with a voice-over <em>says so</em> — a pill fades in, and clicking it plays</li>
-        <li><code>data-narration-pause="2"</code> — a slide that earns a beat gets one</li>
-      </ul>
-      <aside class="notes">
-        <p>You may already know this one, because this deck has been talking to you since slide one. P starts the voice, V picks it, C puts captions under it — and the voice is the clock: each click beat ends, the next build lands, and the deck presents itself.</p><p>[click]</p><p>Here's the part that changed. Every desktop you own has shipped a speech synthesizer for twenty years, and the current ones are genuinely good — macOS Premium and Personal Voices, Windows's natural voices. So with nothing configured, decklight asks the operating system what it can speak with before falling back to anything that needs a credential. No key, no download, no signup.</p><p>[click]</p><p>Prefer a cloud voice, or your own cloned one, or piper running offline on your laptop? All still there — and the first time the bridge can't start, it asks you a few plain questions instead of throwing an error at you.</p><p>[click]</p><p>Recorded tracks are the other half. Point a track at a bucket and it just plays; point it at a signed manifest and the deck shows a little cloud with the time left on the signature — because a link that quietly expires the morning of your talk is not a thing anyone should discover on stage.</p><p>[click]</p><p>And the smallest fix of all: a deck that has a voice-over now tells you. A pill fades in near the bottom a second after load, and clicking it plays — which also happens to be the user gesture browsers demand before any audio at all. Before this, the only way to learn a deck talks was a key nobody had mentioned.</p><p>[click]</p><p>And one small thing for the slides that need room to land. Data narration hold marks a slide interactive and the deck waits there forever. Data narration pause is the same idea with a number on it: two seconds after the last sentence, then it carries on. The diagram slide near the start of this deck has one, which is why it sat there for a moment before moving off.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>V · N · C — the voice is the clock</p>
-        <p>[click]</p><p>Your OS's own voice, free</p>
-        <p>[click]</p><p>Cloud / piper + setup wizard</p>
-        <p>[click]</p><p>Signed manifest = ☁ + time left</p>
-        <p>[click]</p><p>The pill announces the voice-over</p>
-        <p>[click]</p><p>pause = hold, with a number</p>
-      </aside>
-    </section>
-
-    <!-- 16b · background image -->
-    <section data-background-image="assets/sunrise.svg" data-background-dim="0.55">
-      <h2>Full-Bleed Backgrounds</h2>
-      <p>One attribute on the section — the deck does the rest</p>
-      <ul data-build>
-        <li><code>data-background-image</code> — cover by default; <code>contain</code> and position on demand</li>
-        <li><code>data-background-dim</code> — a canvas-colored wash keeps the text readable</li>
-        <li><code>class="full-bleed"</code> on any <code>&lt;img&gt;</code> — the same treatment for content images</li>
-        <li><code>decklight bundle</code> inlines backgrounds like every other image</li>
-      </ul>
-      <aside class="notes">
-        <p>Sometimes a slide wants a photograph behind it — edge to edge, like every keynote you've ever admired. That's one attribute now: data-background-image, right on the section. What's glowing behind these words is exactly that.</p><p>[click]</p><p>Cover by default, so the image fills the frame. Ask for contain, or a position, when the crop matters.</p><p>[click]</p><p>And because white text over a bright sky is a crime against the back row, data-background-dim lays a canvas-colored wash between the photo and the words. This slide is wearing one right now.</p><p>[click]</p><p>Content images get the same trick: class full-bleed on an img covers the slide, and split layouts cap a tall photo before it blows the frame.</p><p>[click]</p><p>Bundling? Backgrounds inline as data URIs like every other image. One file, photo included.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>One attribute = full-bleed</p>
-        <p>[click]</p><p>cover / contain / position</p>
-        <p>[click]</p><p>dim = readable text</p>
-        <p>[click]</p><p>full-bleed imgs, split caps</p>
-        <p>[click]</p><p>bundle inlines it</p>
-      </aside>
-    </section>
-
-    <!-- 16c · background video -->
-    <section data-background-video="assets/clip.mp4" data-background-poster="assets/clip-poster.jpg" data-background-dim="0.35">
-      <h2>Background Video</h2>
-      <p>Muted, looping — and honest about print</p>
-      <ul data-build>
-        <li>Plays while the slide is active — <em>paused for real</em> when you move on</li>
-        <li><code>data-background-poster</code> — the still that stands in under <code>?print</code></li>
-        <li>Bundles keep the clip external — same policy as character video</li>
-      </ul>
-      <aside class="notes">
-        <p>And yes, video. The drift behind this slide is a real mp4: muted, looping, playing inline — all the attributes you'd forget to type. The deck types them for you.</p><p>[click]</p><p>It plays while the slide is on stage, and it gets paused — actually paused, not just hidden — the moment you move on. Your fans stay quiet.</p><p>[click]</p><p>Print is a still world, so print gets a still: the poster renders as the background and no video element is ever created. Your PDF does not buffer.</p><p>[click]</p><p>And bundling keeps the clip external, with a note telling you so — inlining fifty megabytes of video into an HTML file helps nobody. Same policy as the character's clips.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>Real mp4 — muted, looping</p>
-        <p>[click]</p><p>paused for real off-stage</p>
-        <p>[click]</p><p>?print = poster still</p>
-        <p>[click]</p><p>bundle keeps it external</p>
-      </aside>
-    </section>
-
-    <!-- 16d · import: PowerPoint / Keynote / Google Slides → decklight -->
-    <section>
-      <h2>Bring the Deck You Already Have</h2>
-      <p><code>decklight import</code> — PowerPoint, Keynote, or a Google Slides link</p>
-      <ul data-build>
-        <li>Slides, nested bullets, notes, images, tables — and PowerPoint's own per-paragraph builds become <code>data-build</code></li>
-        <li>A <strong>content</strong> importer, not a pixel renderer: the old template's look is replaced by decklight theming, which is what buys you everything else in this deck</li>
-        <li>What can't come across — SmartArt, charts, embedded media — is <strong>named with its slide number</strong> and what to rebuild it as. Never a silent drop</li>
-      </ul>
-      <aside class="notes">
-        <p>Nobody starts from zero. You have a folder of decks, and 'rewrite them all by hand' is not an adoption story — so: decklight import. PowerPoint, Keynote, or the link to a Google Slides deck.</p><p>[click]</p><p>Slides come across in presentation order, bullets keep their real nesting, speaker notes land in the notes aside, images inline, tables become tables. And PowerPoint's own per-paragraph animation list becomes a data-build — your existing reveals survive the trip.</p><p>[click]</p><p>Now the honest part: this is a content importer, not a pixel renderer. Your old template's look is deliberately thrown away and replaced with decklight theming. That's not a limitation, that's the trade — it's what buys the deck sixty-two themes, builds, narration, the notes editor, everything you've just watched.</p><p>[click]</p><p>And the things that genuinely cannot come across — SmartArt, embedded video, a native chart — are named. Slide fourteen, chart dropped, rebuild as data-chart. Because a chart that quietly vanishes from slide fourteen is a thing you discover on stage, and that is the one failure mode this feature could not be allowed to have.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>pptx · key · Google Slides link</p>
-        <p>[click]</p><p>Bullets, notes, images, builds</p>
-        <p>[click]</p><p>Content, not pixels — theming is the trade</p>
-        <p>[click]</p><p>Drops are named with slide numbers</p>
-      </aside>
-    </section>
-
-    <!-- 17 · CLI & bundling -->
-    <section data-transition="flip">
-      <h2>One File to Ship</h2>
-      <p>The CLI records, refreshes, exports — and flattens</p>
-      <pre data-lines="1|2|3|4|5"><code class="language-bash">decklight import talk.pptx          # PowerPoint · Keynote · Google Slides
-decklight cast demo.term.yaml       # record a cast in a real PTY
-decklight refresh casts/            # re-record everything, report drift
-decklight pdf deck.html             # every slide to PDF — overflows named
-decklight bundle deck.html --all    # ONE self-contained HTML, themes included</code></pre>
-      <p data-build style="font-size:0.65em; opacity:.85">This showcase bundles to a single file that works offline — logo, casts, and all 46 themes embedded.</p>
-      <aside class="notes">
-        <p>The entire command-line story fits in five lines, which is about how long a CLI story should be.</p><p>[click]</p><p>import brings in the decks you already have — PowerPoint, Keynote, Google Slides.</p><p>[click]</p><p>rec records a terminal cast against a YAML script — real PTY, real output.</p><p>[click]</p><p>refresh re-runs every embedded script and reports drift. Your demos stay honest even when your tools won't sit still.</p><p>[click]</p><p>pdf renders every slide through the deck's own print path — and names the slides that overflow, which makes it the one command an agent should run before calling a deck done. There's also export, for asciicast v2 and the whole asciinema world.</p><p>[click]</p><p>And bundle merges a deck — or a whole course playlist — into one self-contained HTML file you can email to a colleague with no instructions attached.</p><p>[click]</p><p>This very deck ships that way too: logo, casts, all sixty-two themes. One file. Works offline.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>Five commands</p>
-        <p>[click]</p><p>import = pptx / key / Slides</p>
-        <p>[click]</p><p>rec = PTY capture</p>
-        <p>[click]</p><p>refresh = drift check</p>
-        <p>[click]</p><p>pdf = render + overflow report</p>
-        <p>[click]</p><p>bundle = one file</p>
-        <p>[click]</p><p>This deck too</p>
-      </aside>
-    </section>
-
-    <!-- 18 · verification -->
-    <section>
-      <h2>Verified by Construction</h2>
-      <p>Built for authors who can prove their deck works</p>
-      <ul data-build>
-        <li>Overflow guardrail: clipped content marks itself <code>data-overflow</code> — <code>decklight pdf</code> checks a whole deck in one pass and names the offenders</li>
-        <li>Every theme passes WCAG gates <em>and</em> codified palette rules</li>
-        <li>Generated themes can't fail validation — property-tested across seeds</li>
-        <li>Headless-render assertions ship in the repo; <code>SPEC.md</code> is the contract</li>
-      </ul>
-      <aside class="notes">
-        <p>And here's the philosophy under all of it: Decklight is built to be authored by agents, and agents don't have eyeballs. So every claim has to be checkable by a machine.</p><p>[click]</p><p>If content would clip, the slide raises its hand — a data-overflow attribute, right in the DOM, where a headless test can see it. And decklight pdf reads every one of them in a single pass, so 'is my deck actually intact' is one command instead of twenty screenshots.</p><p>[click]</p><p>Every shipped theme passes two graders: WCAG contrast gates, and codified palette rules distilled from the themes people actually love.</p><p>[click]</p><p>The theme generator is property-tested across hundreds of seeds — not 'we ran it twice and it looked fine.'</p><p>[click]</p><p>And SPEC.md is the contract every subsystem builds against. When the docs and the code disagree, one of them is a bug — and we know which one.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>Agent-authorable = checkable</p>
-        <p>[click]</p><p>data-overflow guardrail</p>
-        <p>[click]</p><p>Two theme graders</p>
-        <p>[click]</p><p>Seeded property tests</p>
-        <p>[click]</p><p>SPEC.md is the contract</p>
-      </aside>
-    </section>
-
-    <!-- 19 · closing -->
+    <!-- 1 · the brief -->
     <section data-logo="96">
-      <h2>One HTML File. No Build Step.</h2>
-      <p>Two stylesheets, one script — view source on this deck to start yours</p>
-      <p style="font-size:0.65em; opacity:.85">Press <strong>O</strong> to see everything you just watched, or <strong>/</strong> to jump back anywhere.</p>
+      <h1>From empty folder to published talk</h1>
+      <p>One postmortem, built live with Decklight</p>
+      <p class="kicker">It's 2:14am. The cache just fell over. The talk is due Friday.</p>
       <aside class="notes">
-        <p>And that's Decklight, friends. Two stylesheets, one script, no build step. The fastest way to learn it? View source on this very deck — the whole thing is right there in one file. Thanks for watching, and go make something worth presenting.</p>
+        <p>[tired sigh] Two in the morning. The cache just fell over, and your boss wants a postmortem talk by Friday. [pause] Let's build it: one folder, one terminal, one agent. Everything you're about to see really happened, recorded as it ran.</p>
       </aside>
-      <aside class="rehearse"><p>View source — it's one file</p></aside>
     </section>
 
-    <!-- 20 · quizzes: the feature itself -->
+    <!-- 2 · one command -->
+    <section data-layout="split" class="step">
+      <h2>One command</h2>
+      <div><div class="terminal" data-cast-inline="#cast-01-init" data-mode="step" data-rows="14" data-type-sound="thocky" data-title="cache-postmortem"></div></div>
+      <figure class="result" data-build><img src="assets/showcase/02-title.jpg" alt="The talk&#x27;s title slide, as init wrote it"><figcaption>the talk, after <code>init</code></figcaption></figure>
+      <aside class="notes">
+        <p>Start with an empty folder.</p>
+        <p>[click]</p>
+        <p>Then one command, and nothing to install. It asks where the agent skill goes, offers to keep every version in git, and starts the deck.</p>
+        <p>[click]</p>
+        <p>And there's the title slide. [pause] So far, so ordinary.</p>
+      </aside>
+    </section>
+
+    <!-- 3 · the agent writes it -->
+    <section data-layout="split" class="step">
+      <h2>The agent writes it</h2>
+      <div><div class="terminal" data-cast-inline="#cast-03-agent" data-mode="step" data-rows="14" data-type-sound="thocky" data-title="cache-postmortem"></div></div>
+      <figure class="result" data-build><img src="assets/showcase/03-draft.jpg" alt="The six slides Claude Code wrote: title, timeline, request path, p99 chart, the fix, three lessons"><figcaption>one real Claude Code run, as it came</figcaption></figure>
+      <aside class="notes">
+        <p>[whispers] Now the fun part.</p>
+        <p>[click]</p>
+        <p>Describe the talk, go get a coffee. Ninety-five seconds later, Claude Code is done, and it even admits it made up the incident details. [chuckles]</p>
+        <p>[click]</p>
+        <p>A timeline, a diagram that draws itself, a latency chart, the fix, three lessons. Not bad for one prompt.</p>
+      </aside>
+    </section>
+
+    <!-- 4 · edit with the mouse -->
+    <section data-layout="split" class="step">
+      <h2>Edit with the mouse</h2>
+      <div><div class="terminal" data-cast-inline="#cast-04-open" data-mode="step" data-rows="10" data-type-sound="thocky" data-title="cache-postmortem"></div></div>
+      <figure class="result" data-build><img src="assets/showcase/04-retitled.jpg" alt="The lessons slide, retitled by double-click: What 2:14am taught us"><figcaption>double-click, retype, done</figcaption></figure>
+      <aside class="notes">
+        <p>Open the deck, and editing is on.</p>
+        <p>[click]</p>
+        <p>Double-click a title and retype it. That one went from Three lessons to What 2:14am taught us. [pause] It's in the file the moment you press Enter, and Command Z takes it back.</p>
+      </aside>
+    </section>
+
+    <!-- 5 · press T -->
     <section>
-      <h2>Quizzes</h2>
-      <p>The last thing every presentation needs</p>
-      <p style="font-size:0.68em; max-width: 27em;">What's the last thing everyone needs when they've just followed a presentation? <strong>A quiz, of course!</strong> So, Decklight:</p>
-      <ul data-build>
-        <li>Options are plain HTML inputs — the theme tokens style them</li>
-        <li><code>data-narration="hold"</code> — voice mode waits while you answer</li>
-        <li>Live re-grading — change an answer, the verdict follows</li>
-        <li>A podium with bronze · silver · gold — under frantic confetti</li>
-      </ul>
-      <aside class="notes">
-        <p>So we've reached the end — and what is the last thing everyone needs when they've just followed a presentation? A quiz, of course! So, Decklight makes quizzes something you build out of nothing but slides.</p>
-        <p>[click]</p><p>The options are plain HTML inputs — radios inside labels — and the theme tokens dress them, so your quiz reskins with the rest of the deck.</p>
-        <p>[click]</p><p>Interactive slides carry data-narration hold: in voice mode the deck narrates right up to the question, then waits patiently while the room argues.</p>
-        <p>[click]</p><p>Grading is live. Change an answer after the reveal and the verdict follows you — we don't do stale scores.</p>
-        <p>[click]</p><p>And when you pass, there's a podium. Bronze at eighty, silver at ninety, gold for the perfect run — under confetti that does not know when to stop. Let's go earn it.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>Last thing you need? A quiz!</p>
-        <p>[click]</p><p>HTML inputs + tokens</p>
-        <p>[click]</p><p>hold = voice waits</p>
-        <p>[click]</p><p>Live re-grade</p>
-        <p>[click]</p><p>Podium + confetti</p>
-      </aside>
-    </section>
-
-    <!-- 21 · quiz intro -->
-    <section data-transition="scale">
-      <h2>Pop Quiz</h2>
-      <p>Twelve questions on what you just watched — 80% to pass</p>
-      <p style="font-size:0.6em; opacity:.8">Click an answer on each slide, then → to move on. Your score is tallied on the last slide — nothing is graded until you ask for it.</p>
-      <aside class="notes">
-        <p>Pop quiz time — twelve questions on everything you just watched. No pressure, except that the podium at the end has three tiers of trophy, and we both know you want the gold. Take your time with each one; the score only reveals itself when asked.</p>
-      </aside>
-      <aside class="rehearse"><p>12 questions, 80% to pass</p></aside>
-    </section>
-
-    <!-- 22 · quiz q1 -->
-    <section class="quiz-q" data-narration="hold" data-q="1" data-answer="2">
-      <h3>Question 1 of 12</h3>
-      <p>What attribute turns a container's children into Keynote-style progressive reveals?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 1">
-        <label><input type="radio" name="q1" value="1"><code>data-fragment</code></label>
-        <label><input type="radio" name="q1" value="2"><code>data-build</code></label>
-        <label><input type="radio" name="q1" value="3"><code>data-step</code></label>
-        <label><input type="radio" name="q1" value="4"><code>data-reveal</code></label>
-      </div>
-    </section>
-
-    <!-- 23 · quiz q2 -->
-    <section class="quiz-q" data-narration="hold" data-q="2" data-answer="3">
-      <h3>Question 2 of 12</h3>
-      <p>Where do the deck's inline SVG diagrams get their color from?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 2">
-        <label><input type="radio" name="q2" value="1">Hardcoded hex values baked into each diagram</label>
-        <label><input type="radio" name="q2" value="2">A separate highlighter-style theme file, like the code blocks</label>
-        <label><input type="radio" name="q2" value="3">CSS custom-property tokens shared with the rest of the deck</label>
-        <label><input type="radio" name="q2" value="4">An exported PNG re-rendered per theme</label>
-      </div>
-    </section>
-
-    <!-- 24 · quiz q3 -->
-    <section class="quiz-q" data-narration="hold" data-q="3" data-answer="1">
-      <h3>Question 3 of 12</h3>
-      <p>What makes two adjacent slides Magic-Move between each other?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 3">
-        <label><input type="radio" name="q3" value="1">Both carry <code>data-auto-animate</code>, with matching <code>data-id</code> elements</label>
-        <label><input type="radio" name="q3" value="2">Both carry <code>data-transition="morph"</code></label>
-        <label><input type="radio" name="q3" value="3">A shared <code>class="magic-move"</code> wrapper around both</label>
-        <label><input type="radio" name="q3" value="4">They're really one <code>&lt;section&gt;</code>, rewritten by JS between clicks</label>
-      </div>
-    </section>
-
-    <!-- 25 · quiz q4 -->
-    <section class="quiz-q" data-narration="hold" data-q="4" data-answer="3">
-      <h3>Question 4 of 12</h3>
-      <p>How many looping <code>data-animate</code> effects did the element-animations slide show?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 4">
-        <label><input type="radio" name="q4" value="1">5</label>
-        <label><input type="radio" name="q4" value="2">6</label>
-        <label><input type="radio" name="q4" value="3">9</label>
-        <label><input type="radio" name="q4" value="4">12</label>
-      </div>
-    </section>
-
-    <!-- 26 · quiz q5 -->
-    <section class="quiz-q" data-narration="hold" data-q="5" data-answer="3">
-      <h3>Question 5 of 12</h3>
-      <p>A slide centres its content. What happens when that content is taller than the slide?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 5">
-        <label><input type="radio" name="q5" value="1">It overflows evenly, half above the slide and half below</label>
-        <label><input type="radio" name="q5" value="2">The engine shrinks the font until it fits</label>
-        <label><input type="radio" name="q5" value="3">It falls back to top alignment, so the overflow only ever goes down</label>
-        <label><input type="radio" name="q5" value="4">The slide grows and the deck scrolls</label>
-      </div>
-    </section>
-
-    <!-- 27 · quiz q6 -->
-    <section class="quiz-q" data-narration="hold" data-q="6" data-answer="2">
-      <h3>Question 6 of 12</h3>
-      <p>How are the deck's terminal recordings stored and replayed?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 6">
-        <label><input type="radio" name="q6" value="1">As an embedded screen-capture video file</label>
-        <label><input type="radio" name="q6" value="2">As a recorded event cast (<code>.cast.json</code>), replayed step by step</label>
-        <label><input type="radio" name="q6" value="3">As an animated GIF generated at build time</label>
-        <label><input type="radio" name="q6" value="4">As a live SSH session run during the talk</label>
-      </div>
-    </section>
-
-    <!-- 28 · quiz q7 -->
-    <section class="quiz-q" data-narration="hold" data-q="7" data-answer="2">
-      <h3>Question 7 of 12</h3>
-      <p>How many themes, across how many packs, ship with this deck?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 7">
-        <label><input type="radio" name="q7" value="1">75 themes in 6 packs</label>
-        <label><input type="radio" name="q7" value="2">46 themes in 2 packs</label>
-        <label><input type="radio" name="q7" value="3">100 themes in 8 packs</label>
-        <label><input type="radio" name="q7" value="4">30 themes in 3 packs</label>
-      </div>
-    </section>
-
-    <!-- 29 · quiz q8 -->
-    <section class="quiz-q" data-narration="hold" data-q="8" data-answer="3">
-      <h3>Question 8 of 12</h3>
-      <p>Which key opens the theme picker while presenting?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 8">
-        <label><input type="radio" name="q8" value="1"><strong>P</strong></label>
-        <label><input type="radio" name="q8" value="2"><strong>⇧T</strong></label>
-        <label><input type="radio" name="q8" value="3"><strong>T</strong></label>
-        <label><input type="radio" name="q8" value="4"><strong>⌃P</strong></label>
-      </div>
-    </section>
-
-    <!-- 30 · quiz q9 -->
-    <section class="quiz-q" data-narration="hold" data-q="9" data-answer="2">
-      <h3>Question 9 of 12</h3>
-      <p>Which CLI command flattens a whole deck — casts, themes and all — into one self-contained HTML file?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 9">
-        <label><input type="radio" name="q9" value="1"><code>decklight export</code></label>
-        <label><input type="radio" name="q9" value="2"><code>decklight bundle</code></label>
-        <label><input type="radio" name="q9" value="3"><code>decklight pack</code></label>
-        <label><input type="radio" name="q9" value="4"><code>decklight ship</code></label>
-      </div>
-    </section>
-
-    <!-- 31 · quiz q10 -->
-    <section class="quiz-q" data-narration="hold" data-q="10" data-answer="2">
-      <h3>Question 10 of 12</h3>
-      <p>What marks a slide whose content doesn't fit, so both humans and headless tests can catch it?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 10">
-        <label><input type="radio" name="q10" value="1">A <code>console.warn</code> at runtime only</label>
-        <label><input type="radio" name="q10" value="2">The <code>data-overflow</code> attribute</label>
-        <label><input type="radio" name="q10" value="3">A red border injected by the active theme</label>
-        <label><input type="radio" name="q10" value="4">Nothing — it silently scrolls the slide</label>
-      </div>
-    </section>
-
-    <!-- 32 · quiz q11 -->
-    <section class="quiz-q" data-narration="hold" data-q="11" data-answer="4">
-      <h3>Question 11 of 12</h3>
-      <p>In a <code>data-layout="split"</code> slide, what does a <em>third</em> content block become?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 11">
-        <label><input type="radio" name="q11" value="1">A third, narrower column beside the other two</label>
-        <label><input type="radio" name="q11" value="2">A second row, paired with the next block</label>
-        <label><input type="radio" name="q11" value="3">Nothing — the engine refuses to render it</label>
-        <label><input type="radio" name="q11" value="4">A full-width footer centred under both columns</label>
-      </div>
-    </section>
-
-    <!-- 33 · quiz q12 -->
-    <section class="quiz-q" data-narration="hold" data-q="12" data-answer="2">
-      <h3>Question 12 of 12</h3>
-      <p>What does <code>decklight import</code> do with a PowerPoint chart it can't convert?</p>
-      <div class="quiz-options" role="radiogroup" aria-label="Question 12">
-        <label><input type="radio" name="q12" value="1">Falls back to a screenshot of the original slide</label>
-        <label><input type="radio" name="q12" value="2">Reports it with the slide number and what to rebuild it as</label>
-        <label><input type="radio" name="q12" value="3">Drops it silently — the import always succeeds cleanly</label>
-        <label><input type="radio" name="q12" value="4">Fails the whole import until you remove the chart</label>
-      </div>
-    </section>
-
-    <!-- 34 · quiz results -->
-    <section data-transition="flip" data-narration="hold" style="font-size:0.85em">
-      <h2>Your Score</h2>
-      <p>Reveal it whenever the room's ready</p>
-      <button id="quiz-check" class="quiz-btn" type="button">Reveal My Score</button>
-      <p id="quiz-score" class="quiz-score" hidden></p>
-      <div id="quiz-pass" class="quiz-pass" hidden>
-        <svg id="quiz-scene" class="quiz-scene" viewBox="0 0 360 194" width="330" data-static-ok role="img" aria-label="Winners' podium with a trophy on the first-place step">
-          <!-- trophy — metal colors set per tier (gold/silver/bronze) by the grader -->
-          <g>
-            <rect x="154" y="24" width="52" height="8" rx="3" style="fill: var(--trophy, #f7c948)"/>
-            <path d="M160 32 h40 v16 a20 20 0 0 1 -40 0 z" style="fill: var(--trophy, #f7c948)"/>
-            <path d="M160 36 h-12 a10 12 0 0 0 16 18" fill="none" style="stroke: var(--trophy-deep, #b8860b)" stroke-width="4" stroke-linecap="round"/>
-            <path d="M200 36 h12 a10 12 0 0 1 -16 18" fill="none" style="stroke: var(--trophy-deep, #b8860b)" stroke-width="4" stroke-linecap="round"/>
-            <path d="M168 37 q2 11 7 15" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="3" stroke-linecap="round"/>
-            <rect x="175" y="68" width="10" height="12" style="fill: var(--trophy-deep, #b8860b)"/>
-            <rect x="165" y="80" width="30" height="7" rx="2" style="fill: var(--trophy, #f7c948)"/>
-            <rect x="157" y="87" width="46" height="11" rx="3" style="fill: var(--trophy-deep, #b8860b)"/>
-          </g>
-          <!-- podium — theme tokens, restyles with every theme -->
-          <g style="font-family: var(--font-body)">
-            <rect x="140" y="98" width="80" height="82" rx="4" style="fill: var(--d-fill-3); stroke: var(--d-stroke)" stroke-width="2"/>
-            <rect x="60" y="126" width="80" height="54" rx="4" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/>
-            <rect x="220" y="140" width="80" height="40" rx="4" style="fill: var(--d-fill-6); stroke: var(--d-stroke)" stroke-width="2"/>
-            <text x="180" y="148" text-anchor="middle" font-size="30" font-weight="800" style="fill: var(--d-text)">1</text>
-            <text x="100" y="162" text-anchor="middle" font-size="22" font-weight="700" style="fill: var(--d-muted)">2</text>
-            <text x="260" y="168" text-anchor="middle" font-size="20" font-weight="700" style="fill: var(--d-muted)">3</text>
-            <line x1="40" y1="182" x2="320" y2="182" style="stroke: var(--d-stroke)" stroke-width="2" stroke-linecap="round"/>
-          </g>
-        </svg>
-        <p id="quiz-tier" class="quiz-tier"></p>
-      </div>
-      <div id="quiz-fail" class="quiz-fail" hidden>
-        <p>Under 80% — here's what to revisit:</p>
-        <ol id="quiz-recap" class="quiz-recap" data-scroll-ok></ol>
+      <h2>Press <kbd>T</kbd></h2>
+      <p>The talk's own latency chart. Go on, try it on this deck.</p>
+      <div class="chart" data-chart="line" data-aspect="21:9" data-build="draw">
+        <script type="application/json">
+        { "labels": ["02:00", "02:10", "02:14", "02:20", "02:30", "02:40", "02:50", "03:00", "03:10", "03:20"],
+          "series": [ { "name": "p99 (ms)", "data": [82, 85, 1900, 3600, 4200, 3900, 1100, 340, 140, 90] } ] }
+        </script>
       </div>
       <aside class="notes">
-        <p>Moment of truth. Reveal grades everything client-side: eighty percent puts bronze on the podium, ninety takes silver, and a perfect run gets the gold — under a frankly irresponsible amount of confetti. Come up short and you get a precise list of what to revisit. And if you change an answer, the verdict re-grades on the spot. We don't do stale scores here.</p>
+        <p>Forty-six themes, every one contrast-checked.</p>
+        <p>[click]</p>
+        <p>That's the talk's own p99 chart. Press T, and the chart, the diagrams and the terminals repaint with the theme. [pause] Keep pressing until you're happy, or until your designer looks over your shoulder.</p>
       </aside>
-      <aside class="rehearse"><p>Reveal → podium trophy + confetti, or a miss list</p></aside>
+    </section>
+
+    <!-- 6 · the company look -->
+    <section data-layout="split" class="step">
+      <h2>The company look</h2>
+      <div><div class="terminal" data-cast-inline="#cast-06-marketplace" data-mode="step" data-rows="6" data-type-sound="thocky" data-title="cache-postmortem"></div><p class="aside-note">then in the deck: <kbd>/</kbd> → Design systems…, Space, <kbd>⏎</kbd></p></div>
+      <div class="pair">
+        <figure data-build><img src="assets/showcase/06-before.jpg" alt="The title slide before: Decklight&#x27;s default theme"><figcaption>before</figcaption></figure>
+        <figure data-build><img src="assets/showcase/06-after.jpg" alt="The title slide after: Northwind&#x27;s cover template and night theme"><figcaption>on Northwind</figcaption></figure>
+      </div>
+      <aside class="notes">
+        <p>Speaking of designers.</p>
+        <p>[click]</p>
+        <p>Northwind ships its look as a design system on a marketplace. Register it once.</p>
+        <p>[click]</p>
+        <p>Then, right in the deck, pick it. Here's the draft,</p>
+        <p>[click]</p>
+        <p>and here it is on brand: Northwind's theme and its cover template. Referenced, never copied. When the brand changes, the talk follows.</p>
+      </aside>
+    </section>
+
+    <!-- 7 · on brand, checked -->
+    <section data-layout="split" class="step">
+      <h2>On brand, checked</h2>
+      <div><div class="terminal" data-cast-inline="#cast-07-check" data-mode="step" data-rows="9" data-type-sound="thocky" data-title="cache-postmortem"></div></div>
+      <div class="pair">
+        <figure data-build><img src="assets/showcase/07-before.jpg" alt="The request-path diagram in generic diagram colours"><figcaption>the agent's colours</figcaption></figure>
+        <figure data-build><img src="assets/showcase/07-after.jpg" alt="The same diagram in Northwind&#x27;s roles"><figcaption>Northwind's roles</figcaption></figure>
+      </div>
+      <aside class="notes">
+        <p>Now, did the agent stay on brand?</p>
+        <p>[click]</p>
+        <p>Check says no. [pause] The diagram coloured itself with generic theme tokens, not Northwind's roles. Real finding, by the way. We didn't plant it.</p>
+        <p>[click]</p>
+        <p>Here's what it looked like,</p>
+        <p>[click]</p>
+        <p>and here it is with every box on a Northwind role. Check passes, and nobody in marketing has to find out. [chuckles]</p>
+      </aside>
+    </section>
+
+    <!-- 8 · the notes are the talk -->
+    <section data-layout="split" class="step">
+      <h2>The notes are the talk</h2>
+      <div><div class="terminal" data-cast-inline="#cast-08-narrate" data-mode="step" data-rows="12" data-type-sound="thocky" data-title="cache-postmortem"></div></div>
+      <figure class="result" data-build><img src="assets/showcase/08-timeline.jpg" alt="The timeline slide, whose notes now carry voice direction"><figcaption>notes: <code>[exhales] … [pause] …</code></figcaption></figure>
+      <aside class="notes">
+        <p>The speaker notes are the script. A sigh here, a pause there. [exhales]</p>
+        <p>[click]</p>
+        <p>One command voices the whole talk, one clip per click, so the voice steps the builds.</p>
+        <p>[click]</p>
+        <p>Edit a sentence later, and only that line is re-voiced. Nobody re-records anything, ever.</p>
+      </aside>
+    </section>
+
+    <!-- 9 · reviewed like code -->
+    <section data-layout="split" class="step">
+      <h2>Reviewed like code</h2>
+      <div><div class="terminal" data-cast-inline="#cast-09-review" data-mode="step" data-rows="12" data-type-sound="thocky" data-title="cache-postmortem"></div></div>
+      <div class="pair">
+        <figure data-build><img src="assets/showcase/09-comment.jpg" alt="Sam&#x27;s comment on the lessons slide, written in the deck"><figcaption>Sam comments on a slide</figcaption></figure>
+        <figure data-build><img src="assets/showcase/09-commit.jpg" alt="The commit window: two commits, messages written for you"><figcaption>K writes the commits</figcaption></figure>
+      </div>
+      <aside class="notes">
+        <p>Your reviewer, Sam, opens the deck without trust and comments right on the slide.</p>
+        <p>[click]</p>
+        <p>The review goes back as a branch. No accounts, no seats.</p>
+        <p>[click]</p>
+        <p>On your side, it's waiting.</p>
+        <p>[click]</p>
+        <p>Sam asked for a number, so the slide got one: thirty-one minutes.</p>
+        <p>[click]</p>
+        <p>Resolve it with one key, press K, and the commits write their own messages.</p>
+      </aside>
+    </section>
+
+    <!-- 10 · hand it over -->
+    <section>
+      <h2>Hand it over</h2>
+      <div class="wide"><div class="terminal" data-cast-inline="#cast-10-handover" data-mode="step" data-rows="16" data-type-sound="thocky" data-title="cache-postmortem"></div></div>
+      <aside class="notes">
+        <p>Time to hand it over.</p>
+        <p>[click]</p>
+        <p>One HTML file that plays anywhere, with the voice inside.</p>
+        <p>[click]</p>
+        <p>A PDF handout. And by the way, the PDF render caught a chart overflowing in print, the first time round. We fixed it before this take.</p>
+        <p>[click]</p>
+        <p>And a PowerPoint, for the one person who still asks for the file. [chuckles]</p>
+      </aside>
+    </section>
+
+    <!-- 11 · ship it -->
+    <section data-layout="split" class="step">
+      <h2>Ship it</h2>
+      <div><div class="terminal" data-cast-inline="#cast-11-publish" data-mode="step" data-rows="9" data-type-sound="thocky" data-title="cache-postmortem"></div></div>
+      <div class="ship" data-build>
+        <p class="url"><a href="https://decklight.io/postmortem/">decklight.io/postmortem</a> is live</p>
+        <pre><code>npx decklight@latest init "Your talk"</code></pre>
+      </div>
+      <aside class="notes">
+        <p>Publish, and it's a link.</p>
+        <p>[click]</p>
+        <p>It's live right now, at decklight dot io slash postmortem. [pause] From an empty folder to a published talk, well before Friday. Your turn.</p>
+      </aside>
     </section>
 
   </div>
@@ -924,132 +215,994 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
     </svg>
   </div>
 
-  <script type="application/json" id="cast-git-tour">{
+  <script type="application/json" id="cast-01-init">{
  "decklightCast": 1,
  "meta": {
   "shell": "zsh",
   "cols": 100,
-  "rows": 28,
-  "recorded": "2026-07-06T19:08:48.090Z",
+  "rows": 24,
+  "recorded": "2026-10-15T15:31:16.183Z",
   "prompt": "$ "
  },
  "script": {
   "shell": "zsh",
-  "cwd": "../..",
+  "cwd": "/tmp",
+  "cols": 100,
+  "rows": 24,
   "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home",
+   "NO_UPDATE_NOTIFIER": "1",
+   "npm_config_update_notifier": "false"
+  },
+  "max_idle": 1.5,
   "steps": [
    {
-    "cmd": "git -c color.ui=always log --oneline -3",
-    "note": "recent history"
+    "cmd": "rm -rf /tmp/cache-postmortem /tmp/cache-postmortem-home && npx -y decklight@latest --version >/dev/null 2>&1",
+    "hide": true,
+    "timeout": 120
    },
    {
-    "cmd": "git -c color.status=always status --short --branch",
-    "note": "working tree state"
+    "cmd": "mkdir cache-postmortem && cd $_"
    },
    {
-    "cmd": "ls -la src/"
+    "cmd": "npx decklight@latest init \"The night the cache fell over\" -o cache-postmortem.html --no-open",
+    "timeout": 90,
+    "interact": [
+     {
+      "expect": "\\[P/g\\]",
+      "send": "p\n"
+     },
+     {
+      "expect": "\\[Y/n\\]",
+      "send": "y\n"
+     },
+     {
+      "expect": "\\[y/N\\]",
+      "send": "n\n"
+     },
+     {
+      "expect": "Ctrl-C stops",
+      "send": "\u0003"
+     }
+    ]
    }
   ]
  },
  "steps": [
   {
-   "cmd": "git -c color.ui=always log --oneline -3",
-   "output": [
-    [
-     0.018,
-     "\u001b[33mb3d659f\u001b[m\u001b[33m (\u001b[m\u001b[1;36mHEAD\u001b[m\u001b[33m -> \u001b[m\u001b[1;32mmain\u001b[m\u001b[33m)\u001b[m Theme picker: T opens a list with a live minified preview of the current slide\r\n"
-    ],
-    [
-     0.018,
-     "\u001b[33m6a75529\u001b[m Live theme switching: ?theme= param, T/shift-T cycling, instance.theme()\r\n"
-    ],
-    [
-     0.018,
-     "\u001b[33m71d4710\u001b[m Fix draw entrance consuming authored stroke-dasharray"
-    ]
-   ],
+   "cmd": "rm -rf /tmp/cache-postmortem /tmp/cache-postmortem-home && npx -y decklight@latest --version >/dev/null 2>&1",
+   "output": [],
    "exit": 0,
-   "duration": 0.032,
-   "note": "recent history"
+   "duration": 0.903,
+   "hidden": true
   },
   {
-   "cmd": "git -c color.status=always status --short --branch",
-   "output": [
-    [
-     0.02,
-     "## \u001b[32mmain\u001b[m\r\n \u001b[31mM\u001b[m cli/cast.mjs\r\n \u001b[31mM\u001b[m demo/casts/git-tour.cast.json\r\n \u001b[31mM\u001b[m src/terminal/player.mjs\r\n"
-    ],
-    [
-     0.02,
-     " \u001b[31mM\u001b[m test/cast.test.mjs\r\n \u001b[31mM\u001b[m test/player.html\r\n\u001b[31m??\u001b[m demo/casts/interactive-demo.cast.json\r\n\u001b[31m??\u001b[m demo/casts/interactive-demo.term.yaml\r\n\u001b[31m??\u001b[m test/fixtures/features.cast.json\r\n\u001b[31m??\u001b[m test/fixtures/import.cast"
-    ]
-   ],
+   "cmd": "mkdir cache-postmortem && cd $_",
+   "output": [],
    "exit": 0,
-   "duration": 0.032,
-   "note": "working tree state"
+   "duration": 0.016
   },
   {
-   "cmd": "ls -la src/",
+   "cmd": "npx decklight@latest init \"The night the cache fell over\" -o cache-postmortem.html --no-open",
    "output": [
     [
-     0.007,
-     "total 48\r\n"
+     0.295,
+     "⠙"
     ],
     [
-     0.007,
-     "drwxr-xr-x@  8 gphilippart  staff    256 Jul  6 21:00 .\r\n"
+     0.376,
+     "\u001b[1G"
     ],
     [
-     0.007,
-     "drwxr-xr-x@ 19 gphilippart  staff    608 Jul  6 20:58 ..\r\ndrwxr-xr-x@  3 gphilippart  staff     96 Jul  6 18:36 code\r\ndrwxr-xr-x@  7 gphilippart  staff    224 Jul  6 20:59 core\r\n-rw-r--r--@  1 gphilippart  staff   1044 Jul  6 18:38 index.js\r\n"
+     0.376,
+     "\u001b[0K⠹"
     ],
     [
-     0.007,
-     "-rw-r--r--@  1 gphilippart  staff  19352 Jul  6 21:00 decklight.css\r\ndrwxr-xr-x@  3 gphilippart  staff     96 Jul  6 18:43 md\r\n"
+     0.443,
+     "\u001b[1G\u001b[0K"
     ],
     [
-     0.007,
-     "drwxr-xr-x@  5 gphilippart  staff    160 Jul  6 20:54 terminal"
+     0.507,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.564,
+     "\u001b[2mcreated cache-postmortem.html (theme: aurora · slides and a config block, no runtime in the file — decklight bundle embeds it to send)\u001b[0m\r\n"
+    ],
+    [
+     0.564,
+     "\u001b[2m  the agent skill teaches AI coding agents how to author this deck. two scopes:\u001b[0m\r\n"
+    ],
+    [
+     0.564,
+     "\u001b[2m    project (p)  .claude/skills/decklight/ + AGENTS.md — this directory only\u001b[0m\r\n\u001b[2m    global  (g)  ~/.claude — every project (Claude Code)\u001b[0m\r\n"
+    ],
+    [
+     0.565,
+     "\u001b[1G\u001b[0J  where should the skill go? [P/g] "
+    ],
+    [
+     0.565,
+     "\u001b[36G"
+    ],
+    [
+     0.569,
+     "p"
+    ],
+    [
+     0.569,
+     "\r\r\n"
+    ],
+    [
+     0.572,
+     "\u001b[2mwrote .claude/skills/decklight/{SKILL.md,reference.md} (v0.9.0)\u001b[0m\r\n"
+    ],
+    [
+     0.572,
+     "\u001b[2mcreated AGENTS.md\u001b[0m\r\n"
+    ],
+    [
+     0.589,
+     "\u001b[1G\u001b[0J  create a git repository so every version of the deck is kept? [Y/n] \u001b[71G"
+    ],
+    [
+     0.6,
+     "y"
+    ],
+    [
+     0.6,
+     "\r\r\n"
+    ],
+    [
+     0.693,
+     "\u001b[2m  git: repository created (with a starter .gitignore), everything committed\u001b[0m\r\n\u001b[2m  your edits are snapshotted as you go and committed when you press K; an agent's edit commits itself, with its own message (--git-mode timer for a plain cadence)\u001b[0m\r\n"
+    ],
+    [
+     1.177,
+     "\u001b[2m  this push would change 6 files, 5 of them not the deck:\u001b[0m\r\n\u001b[2m    .claude/skills/decklight/SKILL.md · .claude/skills/decklight/reference.md · .gitattributes · … 2 more\u001b[0m\r\n"
+    ],
+    [
+     1.177,
+     "\u001b[2m  a push updates everything in this directory — if that is not what you want here, keep the deck in a repository of its own\u001b[0m\r\n"
+    ],
+    [
+     1.177,
+     "\u001b[1G\u001b[0J  create a PRIVATE GitHub repository and push this deck to it? [y/N] \u001b[70G"
+    ],
+    [
+     1.188,
+     "n"
+    ],
+    [
+     1.188,
+     "\r\r\n"
+    ],
+    [
+     1.188,
+     "\u001b[2m  git: no remote — add one later with: gh repo create --source=. --push\u001b[0m\r\n"
+    ],
+    [
+     1.189,
+     "\r\n  \u001b[36mopen to present\u001b[0m   \u001b]8;;file:///private/tmp/cache-postmortem/cache-postmortem.html\u001b\\file:///private/tmp/cache-postmortem/cache-postmortem.html\u001b]8;;\u001b\\\r\n  \u001b[36mstart editing\u001b[0m     decklight cache-postmortem.html\r\n\r\n"
+    ],
+    [
+     2.689,
+     "  \u001b[32m✓\u001b[0m \u001b[2mvoice \u001b[0m  say · Voice 1 · :8787\r\n"
+    ],
+    [
+     2.689,
+     "  \u001b[32m✓\u001b[0m \u001b[2mlips  \u001b[0m  video (wav2lip) · :8789\r\n"
+    ],
+    [
+     2.689,
+     "  \u001b[32m✓\u001b[0m \u001b[2mgit   \u001b[0m  snapshots on decklight/wip · commits on K\r\n  \u001b[32m✓\u001b[0m \u001b[2magents\u001b[0m  claude\r\n\r\n"
+    ],
+    [
+     2.689,
+     "  \u001b[36m▸\u001b[0m \u001b[1m\u001b[36m\u001b[4mhttp://127.0.0.1:8788/cache-postmortem.html\u001b[0m\r\n"
+    ],
+    [
+     2.689,
+     "    \u001b[2mCtrl-C stops\u001b[0m"
     ]
    ],
-   "exit": 0,
-   "duration": 0.017
+   "exit": 130,
+   "duration": 4.986,
+   "input": [
+    [
+     0.568,
+     "p\n"
+    ],
+    [
+     0.6,
+     "y\n"
+    ],
+    [
+     1.188,
+     "n\n"
+    ],
+    [
+     2.694,
+     "\u0003"
+    ]
+   ]
   }
  ]
 }</script>
 
-  <script type="application/json" id="cast-ai-prompt">{
+  <script type="application/json" id="cast-03-agent">{
  "decklightCast": 1,
  "meta": {
   "shell": "zsh",
   "cols": 100,
-  "rows": 13,
-  "recorded": "2026-07-08T09:00:00.000Z",
+  "rows": 24,
+  "recorded": "2026-10-15T15:33:19.768Z",
   "prompt": "$ "
  },
  "script": {
   "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 24,
   "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "redact": [
+   "sk-ant-[A-Za-z0-9_-]+"
+  ],
   "steps": [
    {
-    "cmd": "claude \"Create an animated slide with a Kafka broker, a topic with a few partitions, and show how messages are produced to that topic round-robin across the partitions and consumed by 2 different consumers over different partitions. Label everything — broker, topic name, each partition, message offsets, and the produce/consume arrows — so the diagram reads without narration\"",
-    "note": "describe the slide you want"
+    "cmd": "claude -p \"Write a five-slide postmortem talk in cache-postmortem.html: the night our Redis cache fell over at 2:14am. A timeline of the incident, an architecture diagram of the request path that draws itself in, a chart of p99 latency during the outage, the fix, and three lessons learned. Keep the title slide.\" --permission-mode acceptEdits",
+    "timeout": 900
    }
   ]
  },
  "steps": [
   {
-   "cmd": "claude \"Create an animated slide with a Kafka broker, a topic with a few partitions, and show how messages are produced to that topic round-robin across the partitions and consumed by 2 different consumers over different partitions. Label everything — broker, topic name, each partition, message offsets, and the produce/consume arrows — so the diagram reads without narration\"",
+   "cmd": "claude -p \"Write a five-slide postmortem talk in cache-postmortem.html: the night our Redis cache fell over at 2:14am. A timeline of the incident, an architecture diagram of the request path that draws itself in, a chart of p99 latency during the outage, the fix, and three lessons learned. Keep the title slide.\" --permission-mode acceptEdits",
    "output": [
-    [0.6, "\u001b[36m✻\u001b[m Reading the request… broker · partitioned topic · produce flow · two consumers · label everything.\r\n"],
-    [1.1, "\u001b[35m●\u001b[m Authoring in Decklight: inline SVG on var(--d-*) tokens, data-build=\"draw\" groups,\r\n"],
-    [0.3, "  SMIL message dots (reduced-motion aware), speaker + rehearse notes.\r\n"],
-    [1.0, "  ⎿ 4 builds: broker & partitions → producer → consumer A → consumer B · offsets + arrows labelled\r\n"],
-    [0.9, "\u001b[32m✔\u001b[m Slide written. Advance to see it — shipped exactly as generated.\r\n"]
+    [
+     1.5,
+     "I wrote five new slides into `cache-postmortem.html` after the title slide, but I haven't checked them for overflow. Both `npx decklight@latest pdf` and `decklight check` needed approval and couldn't run in this session. Please run `npx decklight@latest pdf cache-postmortem.html -o /tmp/check.pdf` before presenting; any `⚠ slide N overflows` line means that slide is losing content.\r\n\r\n**The incident details are made up.** You didn't give me any real data, so I wrote a plausible story: the Redis primary runs out of memory and is killed at 02:14, a replica takes over with an empty cache, and every read goes to Postgres until its connections run out. The times, the latency figures, the 95% hit rate and the fixes are all invented. Replace them with your real ones.\r\n\r\nThe deck now runs:\r\n\r\n1. **Title (kept).** I changed the subtitle from the starter text to \"A postmortem of the 2:14am Redis outage\".\r\n2. **Timeline.** Five timestamped events, shown one per click, from 02:14 (Redis killed) to 03:20 (incident close"
+    ],
+    [
+     1.5,
+     "d).\r\n3. **The request path.** A diagram that draws itself in one step at a time: Client → Load balancer → API → Redis, then a dashed, highlighted \"on miss\" line to Postgres, which is the path every read took that night. The colours follow the theme.\r\n4. **p99 latency.** A line chart built into Decklight that draws itself in: a baseline of about 82 ms, a jump at 02:14, a peak of 4.2 s around 02:30, and recovery by 03:20.\r\n5. **The fix.** Two columns: what you did that night (stopped sending cache-miss reads to Postgres via a feature flag, let the cache refill) and three permanent changes, shown one per click (only one database query per missing key, a circuit breaker in front of Postgres, an alert at 75% of Redis's memory limit).\r\n6. **Three lessons.** One per click: a cache is a dependency, failover isn't recovery, and alert on headroom, not on death.\r\n\r\nEvery slide has speaker notes written to be spoken, with one beat per click. No slide has a sources box, because nothing came from source material. I d"
+    ],
+    [
+     1.5,
+     "idn't commit anything.\r\n"
+    ],
+    [
+     1.768,
+     "\u001b[?25h"
+    ]
    ],
    "exit": 0,
-   "duration": 3.9,
-   "note": "describe the slide you want"
+   "duration": 94.681
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-04-open">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 14,
+  "recorded": "2026-10-15T15:34:12.777Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 14,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "npx decklight@latest cache-postmortem.html --no-open",
+    "timeout": 60,
+    "interact": [
+     {
+      "expect": "Ctrl-C stops",
+      "send": "\u0003"
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest cache-postmortem.html --no-open",
+   "output": [
+    [
+     0.391,
+     "⠙"
+    ],
+    [
+     0.473,
+     "\u001b[1G"
+    ],
+    [
+     0.473,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.552,
+     "\u001b[1G\u001b[0K⠸"
+    ],
+    [
+     0.568,
+     "\u001b[1G"
+    ],
+    [
+     0.568,
+     "\u001b[0K"
+    ],
+    [
+     0.645,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     2.145,
+     "  \u001b[32m✓\u001b[0m \u001b[2mvoice \u001b[0m  say · Voice 1 · :8787\r\n  \u001b[32m✓\u001b[0m \u001b[2mlips  \u001b[0m  video (wav2lip) · :8789\r\n  \u001b[32m✓\u001b[0m \u001b[2mgit   \u001b[0m  snapshots on decklight/wip · commits on K\r\n  \u001b[32m✓\u001b[0m \u001b[2magents\u001b[0m  claude\r\n\r\n  \u001b[36m▸\u001b[0m \u001b[1m\u001b[36m\u001b[4mhttp://127.0.0.1:8788/cache-postmortem.html\u001b[0m\r\n    \u001b[2mCtrl-C stops\u001b[0m\r\n"
+    ],
+    [
+     2.293,
+     "\u001b[36mdeck \u001b[0m   this deck's history is only on this machine — back it up: git remote add origin <url>\r\n"
+    ],
+    [
+     2.3,
+     "⠙"
+    ],
+    [
+     2.301,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 4.711,
+   "input": [
+    [
+     2.146,
+     "\u0003"
+    ]
+   ]
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-06-marketplace">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 8,
+  "recorded": "2026-10-15T15:34:53.035Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 8,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "rm -rf ../northwind && cp -R $DECKLIGHT_REPO/demo/northwind ../northwind",
+    "hide": true
+   },
+   {
+    "cmd": "npx decklight@latest marketplace add ../northwind",
+    "timeout": 60
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "rm -rf ../northwind && cp -R $DECKLIGHT_REPO/demo/northwind ../northwind",
+   "output": [],
+   "exit": 0,
+   "duration": 0.017,
+   "hidden": true
+  },
+  {
+   "cmd": "npx decklight@latest marketplace add ../northwind",
+   "output": [
+    [
+     0.439,
+     "⠙"
+    ],
+    [
+     0.519,
+     "\u001b[1G"
+    ],
+    [
+     0.52,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.6,
+     "\u001b[1G\u001b[0K⠸"
+    ],
+    [
+     0.619,
+     "\u001b[1G"
+    ],
+    [
+     0.619,
+     "\u001b[0K"
+    ],
+    [
+     0.687,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.694,
+     "registered northwind from ../northwind — 1 entry: northwind@northwind\r\n"
+    ],
+    [
+     0.697,
+     "⠙"
+    ],
+    [
+     0.698,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.712
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-07-check">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 10,
+  "recorded": "2026-10-15T15:37:41.221Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 10,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "npx decklight@latest check cache-postmortem.html",
+    "timeout": 120
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest check cache-postmortem.html",
+   "output": [
+    [
+     0.31,
+     "⠙"
+    ],
+    [
+     0.384,
+     "\u001b[1G"
+    ],
+    [
+     0.384,
+     "\u001b[0K"
+    ],
+    [
+     0.45,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     1.649,
+     "check: cache-postmortem.html — 6 slides\r\n"
+    ],
+    [
+     1.65,
+     "\u001b[1mslide 3\u001b[0m  \u001b[2m\"The request path\"\u001b[0m\r\n  \u001b[33mwarn \u001b[0m  --d-stroke (the theme contract) (nearest role surface-panel-in), --d-fill-1 (the theme contract) (nearest role surface-panel), --d-text (the theme contract) (nearest role text-heading) and 6 more are not one of the design system's roles — this deck colours through them, so every theme recolours it: pick a role in Colors…, or set \"brandThemesOnly\": false\r\n\r\n0 errors, 1 warning\r\n"
+    ],
+    [
+     1.655,
+     "⠙"
+    ],
+    [
+     1.656,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 1.668
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-08-narrate">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 16,
+  "recorded": "2026-10-15T15:39:32.985Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 16,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "redact": [
+   "sk_[A-Za-z0-9]+"
+  ],
+  "steps": [
+   {
+    "cmd": "npx decklight@latest narrate cache-postmortem.html --engine elevenlabs --voice Chris",
+    "timeout": 900
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest narrate cache-postmortem.html --engine elevenlabs --voice Chris",
+   "output": [
+    [
+     0.366,
+     "⠙"
+    ],
+    [
+     0.449,
+     "\u001b[1G"
+    ],
+    [
+     0.449,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.526,
+     "\u001b[1G\u001b[0K"
+    ],
+    [
+     0.597,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.738,
+     "cache-postmortem.html: 6 slides, 6 with notes · 6 to voice\r\n"
+    ],
+    [
+     2.238,
+     "  slide 01: 187 chars → slide-01.m4a\r\n"
+    ],
+    [
+     3.738,
+     "  slide 02: 671 chars → slide-02.m4a (6 [click] segments)\r\n"
+    ],
+    [
+     5.238,
+     "  slide 03: 491 chars → slide-03.m4a (6 [click] segments)\r\n"
+    ],
+    [
+     6.738,
+     "  slide 04: 392 chars → slide-04.m4a (2 [click] segments)\r\n"
+    ],
+    [
+     8.238,
+     "  slide 05: 663 chars → slide-05.m4a (4 [click] segments)\r\n"
+    ],
+    [
+     9.738,
+     "  slide 06: 401 chars → slide-06.m4a (4 [click] segments)\r\n"
+    ],
+    [
+     9.738,
+     "done → /private/tmp/cache-postmortem/voiceover\r\n"
+    ],
+    [
+     9.749,
+     "⠙"
+    ],
+    [
+     9.75,
+     "\u001b[1G"
+    ],
+    [
+     9.75,
+     "\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 62.795
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-09-review">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 14,
+  "recorded": "2026-10-15T15:41:01.058Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/sam",
+  "cols": 100,
+  "rows": 14,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/sam-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "npx decklight@latest comments submit cache-postmortem.html",
+    "timeout": 60
+   },
+   {
+    "cmd": "cd ../cache-postmortem && export DECKLIGHT_HOME=/tmp/cache-postmortem-home",
+    "hide": true
+   },
+   {
+    "cmd": "npx decklight@latest comments cache-postmortem.html --incoming",
+    "timeout": 60
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest comments submit cache-postmortem.html",
+   "output": [
+    [
+     0.385,
+     "⠙"
+    ],
+    [
+     0.465,
+     "\u001b[1G"
+    ],
+    [
+     0.465,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.545,
+     "\u001b[1G\u001b[0K⠸"
+    ],
+    [
+     0.594,
+     "\u001b[1G"
+    ],
+    [
+     0.594,
+     "\u001b[0K"
+    ],
+    [
+     0.662,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     1.304,
+     "pushed 1 comment on cache-postmortem.html → origin review/sam-2026-10-15\r\n"
+    ],
+    [
+     1.305,
+     "  tell the author:  git fetch origin review/sam-2026-10-15\r\n"
+    ],
+    [
+     1.31,
+     "⠙"
+    ],
+    [
+     1.31,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 1.33
+  },
+  {
+   "cmd": "cd ../cache-postmortem && export DECKLIGHT_HOME=/tmp/cache-postmortem-home",
+   "output": [],
+   "exit": 0,
+   "duration": 0.016,
+   "hidden": true
+  },
+  {
+   "cmd": "npx decklight@latest comments cache-postmortem.html --incoming",
+   "output": [
+    [
+     0.295,
+     "⠙"
+    ],
+    [
+     0.377,
+     "\u001b[1G"
+    ],
+    [
+     0.377,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.378,
+     "\u001b[1G\u001b[0K"
+    ],
+    [
+     0.446,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.69,
+     "review/sam-2026-10-15  1 comment · sam · just now\r\n\r\ntake them in:  decklight cache-postmortem.html  then M in the deck   (or: git merge origin/review/sam-2026-10-15)\r\n"
+    ],
+    [
+     0.694,
+     "⠙"
+    ],
+    [
+     0.695,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.707
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-10-handover">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 18,
+  "recorded": "2026-10-15T15:43:53.538Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 18,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "npx decklight@latest bundle cache-postmortem.html --audio aac",
+    "timeout": 300
+   },
+   {
+    "cmd": "npx decklight@latest pdf cache-postmortem.html --handout",
+    "timeout": 300
+   },
+   {
+    "cmd": "npx decklight@latest pptx cache-postmortem.html",
+    "timeout": 300
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight@latest bundle cache-postmortem.html --audio aac",
+   "output": [
+    [
+     0.298,
+     "⠙"
+    ],
+    [
+     0.36,
+     "\u001b[1G\u001b[0K"
+    ],
+    [
+     0.422,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     1.922,
+     "bundled cache-postmortem.html → /private/tmp/cache-postmortem/cache-postmortem-standalone.html (2868.4 KB)\r\n"
+    ],
+    [
+     1.922,
+     "  runtime  decklight 0.9.0 — embedded from this install (the source deck carries no runtime)\r\n"
+    ],
+    [
+     1.923,
+     "  themes   aurora (under it) · northwind-night (opens on), northwind-day (northwind's own)\r\n"
+    ],
+    [
+     1.923,
+     "  designs  northwind 1.0.0 (from northwind) — stylesheet, 1 asset (0.2 KB), 3 templates\r\nnote: narration audio: inlined 28 file(s), 1.4 MB (re-encoded from 4.4 MB, AAC, mono 32 kbps), from voiceover/ (28)\r\n"
+    ],
+    [
+     1.93,
+     "⠙"
+    ],
+    [
+     1.931,
+     "\u001b[1G"
+    ],
+    [
+     1.931,
+     "\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 3.623
+  },
+  {
+   "cmd": "npx decklight@latest pdf cache-postmortem.html --handout",
+   "output": [
+    [
+     0.299,
+     "⠙"
+    ],
+    [
+     0.361,
+     "\u001b[1G"
+    ],
+    [
+     0.361,
+     "\u001b[0K"
+    ],
+    [
+     0.425,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     1.514,
+     "pdf: rendering cache-postmortem.html?print=handout — 6 slides, builds complete, casts expanded\r\n"
+    ],
+    [
+     3.014,
+     "/private/tmp/cache-postmortem/cache-postmortem.handout.pdf · 2 pages · portrait, 3 slides a page · 242 KB\r\n"
+    ],
+    [
+     3.019,
+     "⠙"
+    ],
+    [
+     3.021,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 3.092
+  },
+  {
+   "cmd": "npx decklight@latest pptx cache-postmortem.html",
+   "output": [
+    [
+     0.304,
+     "⠙"
+    ],
+    [
+     0.385,
+     "\u001b[1G"
+    ],
+    [
+     0.385,
+     "\u001b[0K⠹"
+    ],
+    [
+     0.4,
+     "\u001b[1G\u001b[0K"
+    ],
+    [
+     0.463,
+     "decklight 0.9.0\r\n"
+    ],
+    [
+     0.498,
+     "pptx: rendering cache-postmortem.html — 6 slides at 1280×720, builds complete\r\n"
+    ],
+    [
+     1.998,
+     "/private/tmp/cache-postmortem/cache-postmortem.pptx · 6 slides as pictures · 6 with notes · 304 KB\r\n"
+    ],
+    [
+     2.002,
+     "⠙"
+    ],
+    [
+     2.003,
+     "\u001b[1G\u001b[0K"
+    ]
+   ],
+   "exit": 0,
+   "duration": 8.13
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-11-publish">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 14,
+  "recorded": "2026-10-15T16:06:47.555Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "/tmp/cache-postmortem",
+  "cols": 100,
+  "rows": 14,
+  "prompt": "$ ",
+  "env": {
+   "DECKLIGHT_HOME": "/tmp/cache-postmortem-home"
+  },
+  "max_idle": 1.5,
+  "steps": [
+   {
+    "cmd": "rm -rf ../published",
+    "hide": true
+   },
+   {
+    "cmd": "decklight publish cache-postmortem.html --target folder --out ../published --audio aac --no-sign --url https://decklight.io/postmortem/",
+    "timeout": 300
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "rm -rf ../published",
+   "output": [],
+   "exit": 0,
+   "duration": 0.016,
+   "hidden": true
+  },
+  {
+   "cmd": "decklight publish cache-postmortem.html --target folder --out ../published --audio aac --no-sign --url https://decklight.io/postmortem/",
+   "output": [
+    [
+     0.074,
+     "decklight 0.9.0+13.g1fe6573\r\n"
+    ],
+    [
+     1.574,
+     "bundled cache-postmortem.html → /var/folders/09/7ky81cf540v99yqxmcwcxnf80000gn/T/decklight-publish-FvrxS4/index.html (2871.6 KB)\r\n  runtime  decklight 0.9.0 — embedded from this install (the source deck carries no runtime)\r\n"
+    ],
+    [
+     1.576,
+     "  themes   aurora (under it) · northwind-night (opens on), northwind-day (northwind's own)\r\n  designs  northwind 1.0.0 (from northwind) — stylesheet, 1 asset (0.2 KB), 3 templates\r\nnote: narration audio: inlined 28 file(s), 1.4 MB (re-encoded from 4.4 MB, AAC, mono 32 kbps), from voiceover/ (28)\r\n"
+    ],
+    [
+     1.578,
+     "deployed to folder (/private/tmp/published)\r\nhttps://decklight.io/postmortem/"
+    ]
+   ],
+   "exit": 0,
+   "duration": 4.059
   }
  ]
 }</script>
@@ -1060,118 +1213,9 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
     transition: 'fade',
     slideNumber: 'n/N',
     pinTitles: true,
-    concepts: { engine: 3, themes: 5, terminal: 1, cli: 4 },
     logo: { onLight: '#dl-mark-charcoal', onDark: '#dl-mark-snow' },
-    // no pre-rendered narration tracks: V opens straight on live voices
-    // (decklight tts); record a fresh set anytime from V → Record this deck…,
-    // or headlessly with `decklight narrate`
+    // the site deploy adds the recorded voice track here (site/voices.json)
   });
-  </script>
-  <script>
-  // Quiz grading: pure DOM scan, no dependency on the Decklight instance —
-  // the question text and correct-answer label are read straight off each
-  // .quiz-q slide, so there's exactly one place that can be wrong. Grading
-  // is LIVE once revealed: change any answer and the score, the pass/fail
-  // verdict, and the recap all recalculate immediately.
-  (() => {
-    const questions = [...document.querySelectorAll('.quiz-q')];
-    const checkBtn = document.getElementById('quiz-check');
-    const scoreEl = document.getElementById('quiz-score');
-    const passEl = document.getElementById('quiz-pass');
-    const failEl = document.getElementById('quiz-fail');
-    const recapEl = document.getElementById('quiz-recap');
-    let revealed = false;
-
-    // podium tiers — semantic medal colors, deliberately not theme-tokened
-    const TIERS = {
-      gold:   { trophy: '#f7c948', deep: '#b8860b', line: 'Gold — a perfect run.' },
-      silver: { trophy: '#d7dee8', deep: '#8e9bad', line: 'Silver — one step from flawless.' },
-      bronze: { trophy: '#d2884b', deep: '#96562a', line: 'Bronze — you get Decklight.' },
-    };
-    const tierFor = (pct) => (pct === 100 ? 'gold' : pct >= 90 ? 'silver' : 'bronze');
-
-    // frantic confetti: ~90 theme-colored pieces raining over the whole
-    // slide; sizes, columns, speeds and phases are randomized once
-    let confettiEl = null;
-    function ensureConfetti() {
-      if (confettiEl) return;
-      confettiEl = document.createElement('div');
-      confettiEl.className = 'quiz-confetti-rain';
-      confettiEl.setAttribute('aria-hidden', 'true');
-      const colors = ['var(--accent)', 'var(--d-accent)', 'var(--d-fill-1)', 'var(--d-fill-2)',
-        'var(--d-fill-3)', 'var(--d-fill-4)', 'var(--d-fill-5)', 'var(--d-fill-6)'];
-      for (let i = 0; i < 90; i++) {
-        const p = document.createElement('i');
-        p.style.left = (Math.random() * 100) + '%';
-        p.style.width = (6 + Math.random() * 7) + 'px';
-        p.style.height = (9 + Math.random() * 9) + 'px';
-        p.style.setProperty('--c', colors[i % colors.length]);
-        p.style.setProperty('--tumble', (0.35 + Math.random() * 0.65) + 's');
-        p.style.animationDuration = (1.1 + Math.random() * 1.6) + 's';
-        p.style.animationDelay = (-Math.random() * 3) + 's';
-        confettiEl.appendChild(p);
-      }
-      passEl.appendChild(confettiEl);
-    }
-
-    function grade() {
-      const misses = [];
-      let correct = 0;
-      for (const section of questions) {
-        const n = section.dataset.q;
-        const answer = section.dataset.answer;
-        const picked = section.querySelector(`input[name="q${n}"]:checked`);
-        if (picked && picked.value === answer) {
-          correct++;
-        } else {
-          misses.push({
-            n,
-            question: section.querySelector('p').textContent.trim(),
-            correctLabel: section.querySelector(`input[value="${answer}"]`).closest('label').textContent.trim(),
-          });
-        }
-      }
-      const pct = Math.round((correct / questions.length) * 100);
-      scoreEl.textContent = `${correct} / ${questions.length} correct (${pct}%)`;
-      scoreEl.hidden = false;
-      checkBtn.hidden = true;
-      const pass = pct >= 80;
-      passEl.hidden = !pass;
-      failEl.hidden = pass;
-      if (pass) {
-        const t = TIERS[tierFor(pct)];
-        const scene = document.getElementById('quiz-scene');
-        scene.style.setProperty('--trophy', t.trophy);
-        scene.style.setProperty('--trophy-deep', t.deep);
-        document.getElementById('quiz-tier').textContent = t.line;
-        ensureConfetti();
-      }
-      // question/label text came from textContent (entities decoded) —
-      // build the recap with textContent too, never re-parse it as HTML
-      recapEl.replaceChildren(...(pass ? [] : misses.map((m) => {
-        const li = document.createElement('li');
-        const q = document.createElement('strong');
-        q.textContent = `Q${m.n}. `;
-        const ans = document.createElement('span');
-        ans.className = 'quiz-correct';
-        ans.textContent = `Correct answer: ${m.correctLabel}`;
-        li.append(q, m.question, document.createElement('br'), ans);
-        return li;
-      })));
-    }
-
-    checkBtn.addEventListener('click', () => { revealed = true; grade(); });
-    for (const section of questions) {
-      section.addEventListener('change', (e) => {
-        // Clicking a label focuses its radio, and a focused radiogroup owns
-        // the arrow keys (native selection-move) — the deck would stop
-        // advancing on →. Blur right after each pick so navigation keys
-        // reach the engine.
-        e.target.blur();
-        if (revealed) grade(); // answers changed after reveal → recalculate
-      });
-    }
-  })();
   </script>
 </body>
 </html>
