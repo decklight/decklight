@@ -39,6 +39,7 @@ import { putBlob, remoteHead } from './git-tree.mjs';
 import { ownerRepo } from './git.mjs';
 import { TARGETS, schemaFor, envVarsFor, envAnswers, deploy } from '../tools/publish-targets.mjs';
 import { checkAnswers } from './wizard.mjs';
+import { AUDIO_CHOICES } from './bundle-audio.mjs';
 
 const fail = makeFail('publish');
 
@@ -78,7 +79,8 @@ if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
 Usage:
   decklight publish <deck.html> [--branch gh-pages] [--remote origin]
                                 [--no-bundle] [--no-sign] [--deck] [--path <subdir>]
-                                [--theme <name>] [--target gh-pages|netlify|vercel]
+                                [--theme <name>] [--audio [original|aac|opus]]
+                                [--target gh-pages|netlify|vercel|folder]
 
 Options:
   --branch <name>   branch to publish to (default: gh-pages; gh-pages target only)
@@ -87,6 +89,10 @@ Options:
   --no-sign         publish without a Sigstore signature
   --theme <name>    the theme the published page opens on — a shipped theme or
                     one the deck marks (default: the deck's own "theme")
+  --audio [how]     carry the narration's recorded audio inside the published
+                    page, as \`bundle --audio\` does: original (the default), aac
+                    (plays everywhere) or opus (the smallest). Without it the
+                    clips stay beside the deck and the page plays no voice
   --deck            also publish index.decklight — the signed container, which
                     is the file a visitor downloads and forwards
   --path <subdir>   publish under a subdirectory of the site (other content
@@ -114,7 +120,7 @@ orphan; later publishes append to its history.
 }
 
 let deck = null, branch = 'gh-pages', remote = 'origin', bundle = true, subdir = '', sign = true, deckFile = false,
-  target = 'gh-pages', branchGiven = false, remoteGiven = false, theme = null;
+  target = 'gh-pages', branchGiven = false, remoteGiven = false, theme = null, audio = null;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--branch') { branch = argv[++i]; branchGiven = true; }
@@ -123,6 +129,9 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--no-sign') sign = false;
   else if (a === '--deck') deckFile = true;
   else if (a === '--theme') theme = argv[++i];
+  // `--audio` alone carries the files as recorded; a codec after it re-encodes
+  // them (bundle's own choices, read from the same list)
+  else if (a === '--audio') audio = AUDIO_CHOICES.includes(argv[i + 1]) ? argv[++i] : 'original';
   else if (a === '--path') subdir = argv[++i];
   else if (a === '--target') target = argv[++i];
   // the folder target's two answers, as flags — a directory is not a secret,
@@ -133,6 +142,7 @@ for (let i = 0; i < argv.length; i++) {
   else fail(`unknown argument: ${a}`);
 }
 if (!deck) fail('no deck given');
+if (audio && !bundle) fail('--audio carries the narration inside the bundle, and --no-bundle publishes the deck as it is: use one or the other');
 // Checked here rather than at pack time: an argument that cannot work should
 // be refused before the command starts doing things.
 if (deckFile && !sign) fail('--deck packs the SIGNED deck — it cannot be combined with --no-sign');
@@ -196,7 +206,7 @@ if (bundle) {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-publish-'));
   sitePage = path.join(tmpDir, 'index.html');
   const { bundleMain } = await import('./bundle.mjs');
-  await bundleMain([deckPath, '-o', sitePage, ...(theme ? ['--theme', theme] : [])]);
+  await bundleMain([deckPath, '-o', sitePage, ...(theme ? ['--theme', theme] : []), ...(audio ? ['--audio', audio] : [])]);
 }
 
 // --------------------------------------------------------------- plumbing
