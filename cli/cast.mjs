@@ -113,6 +113,23 @@ function shellArgs(shellPath) {
   return [];
 }
 
+/**
+ * The two lines a step is written as: the command in a brace group, and the
+ * sentinel that marks its end. A command stopped with Ctrl-C (an `interact`
+ * send of \u0003, the way a server is ended) used to take the sentinel with
+ * it: an interactive shell abandons the rest of the line on an interrupt, so
+ * the marker never printed and the step timed out. zsh's `always` block runs
+ * after an interrupt and bash's INT trap fires on one, both printing the
+ * marker with the interrupt's status (130); any other shell keeps the plain
+ * form.
+ */
+export function stepLine(shellBase, cmd) {
+  const mark = (status) => `printf '${GS_OCTAL}DECKLIGHT:%d:${GS_OCTAL}\\n' ${status}`;
+  if (shellBase === 'zsh') return `{\n${cmd}\n} always { ${mark('$?')} }\n`;
+  if (shellBase === 'bash') return `trap "${mark(130).replace(/"/g, '\\"')}" INT; {\n${cmd}\n}; ${mark('$?')}; trap - INT\n`;
+  return `{\n${cmd}\n}; ${mark('$?')}\n`;
+}
+
 function setupLine(shellBase) {
   const common = `stty -echo; printf '${GS_OCTAL}DECKLIGHT-READY${GS_OCTAL}\\n'`;
   if (shellBase === 'zsh') return `unsetopt zle prompt_cr prompt_sp banghist 2>/dev/null; PS1=''; PROMPT=''; PS2=''; PROMPT2=''; ${common}\n`;
@@ -217,7 +234,7 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
       // lines while parsing, so nothing is buffered for the command's stdin —
       // interact sends are the only input it can see. The lone `}` line also
       // makes trailing `#` comments in cmd harmless.
-      term.write(`{\n${step.cmd}\n}; printf '${GS_OCTAL}DECKLIGHT:%d:${GS_OCTAL}\\n' $?\n`);
+      term.write(stepLine(path.basename(shellPath), step.cmd));
 
       // interact: watch output, answer prompts (expect/send) — runs alongside
       // the sentinel wait; secrets are sent for real but recorded as ▓▓▓ and
@@ -225,7 +242,7 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
       const interacts = Array.isArray(step.interact) ? step.interact : [];
       const inputs = [];
       const stepRedactions = [];
-      let interactState = { done: interacts.length === 0, error: null, pending: null, cancelled: false };
+      let interactState = { done: interacts.length === 0, error: null, pending: null, cancelled: false, interrupted: false };
       if (interacts.length) {
         (async () => {
           let searchFrom = 0;
@@ -249,6 +266,7 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
                 display = text;
               }
               inputs.push([round3(Number(process.hrtime.bigint() - t0) / 1e9), display]);
+              if (text.includes('\x03')) interactState.interrupted = true;
               term.write(text);
               interactState.pending = null;
             }
@@ -310,7 +328,9 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
         ...(inClamped.length ? { input: inClamped } : {}),
       });
       log(`  ✓ ${step.cmd}  (exit ${exit}, ${duration.toFixed(2)}s)`);
-      if (exit !== 0 && !allowFail) {
+      // 130 is how a command ends when the script itself pressed Ctrl-C:
+      // that is the step working (a server stopped), not failing
+      if (exit !== 0 && !(exit === 130 && interactState.interrupted) && !allowFail) {
         throw new Error(`step ${idx + 1} exited ${exit}: ${step.cmd}  (use --allow-fail to record failures as content)`);
       }
     }

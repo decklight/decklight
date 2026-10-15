@@ -291,3 +291,38 @@ test('export: asciicast v2 with markers, injected prompt/command, hidden steps o
 function joined(step) {
   return step.output.map(([, d]) => d).join('');
 }
+
+test('a step ended with Ctrl-C (an interact send) completes as 130, and the session carries on', () => {
+  // How a server is stopped on camera: it prints its banner, the script
+  // presses Ctrl-C. The interrupt used to abandon the sentinel with the rest
+  // of the line, so the step timed out; and its exit, 130, aborted the cast.
+  for (const shell of ['zsh', 'bash'].filter((s) => fs.existsSync(`/bin/${s}`))) {
+    const dir = tmpdir();
+    const script = path.join(dir, 'server.term.yaml');
+    fs.writeFileSync(script, [
+      `shell: ${shell}`,
+      'steps:',
+      '  - cmd: echo serving on 8788; sleep 30',
+      '    timeout: 10',
+      '    interact:',
+      '      - expect: "serving"',
+      '        send: "\\u0003"',
+      '  - cmd: echo after',
+    ].join('\n'));
+    run([script, '--quiet']);
+    const cast = JSON.parse(fs.readFileSync(path.join(dir, 'server.cast.json'), 'utf8'));
+    assert.equal(cast.steps.length, 2, `${shell}: both steps recorded`);
+    assert.equal(cast.steps[0].exit, 130, `${shell}: the interrupted step exits 130`);
+    assert.match(cast.steps[0].output.map(([, d]) => d).join(''), /serving on 8788/, `${shell}: its output is kept`);
+    assert.match(cast.steps[1].output.map(([, d]) => d).join(''), /after/, `${shell}: the session carries on`);
+  }
+});
+
+test('Ctrl-C the script did not send still fails the step', () => {
+  // only an interrupt the script itself sent is a normal end: a command that
+  // exits 130 by itself is still a failure without --allow-fail
+  const dir = tmpdir();
+  const script = path.join(dir, 'selfint.term.yaml');
+  fs.writeFileSync(script, [`shell: ${SHELL}`, 'steps:', '  - cmd: (exit 130)'].join('\n'));
+  assert.match(runExpectFail([script, '--quiet']), /exited 130/);
+});

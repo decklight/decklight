@@ -440,7 +440,7 @@ Behavior: spawn PTY (node-pty), run each `cmd` sequentially in the same shell se
 capture raw output chunks with timestamps, apply redaction and idle-clamping, write the
 cast. Commands run inside a brace group with the sentinel on the closing line, so a
 command that reads stdin sees only `interact` sends (never the recorder's own control
-lines). Exit non-zero if any step exceeds its timeout, an `expect` never matches
+lines). **A step can end on Ctrl-C**, the way a server is stopped on camera: an `interact` send of `\u0003`. An interactive shell abandons the rest of the line on an interrupt, which used to take the sentinel with it and time the step out, so under zsh the sentinel sits in the group's `always` block and under bash an INT trap prints it; the step then records exit 130, and 130 counts as a normal end when the script itself sent the interrupt (a command that exits 130 on its own still fails without `--allow-fail`). Exit non-zero if any step exceeds its timeout, an `expect` never matches
 (including command exit before it fires), or the shell dies; `--allow-fail` records
 failures as content (prompts and error output are often the point).
 
