@@ -1746,6 +1746,9 @@
 }
 /* Design systems… (DESIGN_SYSTEMS): the marketplaces' design systems, ● used / ○ not */
 .decklight-design-systems .narr-card { width: min(520px, 90vw); }
+/* Add a marketplace… (DESIGN_SYSTEMS): one field, then what it is about to clone */
+.decklight-marketplace-add .narr-card { width: min(520px, 90vw); }
+.decklight-marketplace-add .mk-error { white-space: pre-wrap; }
 /* Concept colors… (SVG_DIAGRAMS): one row per concept, its six slots beside it */
 .decklight-concepts .narr-card { width: min(640px, 92vw); }
 .decklight-concepts .cc-row { display: flex; align-items: center; gap: 10px; }

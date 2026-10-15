@@ -278,5 +278,11 @@ export function createFonts({
     }
   }
 
-  return { apply, cycle, restore, open, close, isOpen: () => !!el, keydown, list, current: () => currentId };
+  /** A marketplace was just registered: ask the edit server again (Add a marketplace…). */
+  function refreshOffered() {
+    offeredState = null;
+    if (el) loadOffered();
+  }
+
+  return { apply, cycle, restore, open, close, isOpen: () => !!el, keydown, list, current: () => currentId, refreshOffered };
 }

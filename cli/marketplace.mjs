@@ -663,6 +663,43 @@ export function classifySource(spec, { exists = existsSync } = {}) {
   return { kind: 'local', root: resolve(spec), spec };
 }
 
+/**
+ * What `add <spec>` is about to do, said before it does it — the in-deck door's
+ * first ⏎ (SPEC DESIGN_SYSTEMS). Touches no network: it classifies the spec,
+ * and for a local directory checks that the manifest is there, since that much
+ * is free and saying it now beats saying it after a second ⏎.
+ *
+ * `base` is the directory a relative path is read against: the deck's, for
+ * the door, where the CLI uses its cwd. A local spec comes back ABSOLUTE in
+ * `spec`, because the registry keeps the source as given and a relative one
+ * would mean something else from the next directory `update` runs in.
+ * `registered` names the marketplace already registered from that source, if
+ * any: adding it again re-clones it, as `add` does at the command line.
+ */
+export function planAdd(rawSpec, { base = process.cwd(), home = configHome(), exists = existsSync } = {}) {
+  const raw = String(rawSpec ?? '').trim();
+  if (!raw) throw new MarketplaceError('needs an owner/repo, a git url, or a path');
+  // it becomes one argument of `decklight marketplace add`: never an option,
+  // never more than one line
+  if (raw.startsWith('-') || /[\u0000-\u001f\u007f]/.test(raw) || raw.length > 2048) {
+    throw new MarketplaceError(`${JSON.stringify(raw.slice(0, 80))} is not an owner/repo, a git url, or a path`);
+  }
+  const src = classifySource(raw, { exists: (p) => exists(resolve(base, p)) });
+  let spec = raw, does;
+  if (src.kind === 'local') {
+    const root = resolve(base, raw);
+    if (!exists(root)) throw new MarketplaceError(`no such directory: ${root}`);
+    if (!exists(join(root, MANIFEST_PATH))) throw new MarketplaceError(`${root} has no ${MANIFEST_PATH} — is it a marketplace?`);
+    spec = root;
+    does = `register ${root} — read in place, nothing is fetched`;
+  } else {
+    does = `clone ${cloneUrl(src)} with your git credentials on this machine`;
+  }
+  const reg = loadRegistry(home).marketplaces ?? {};
+  const registered = Object.keys(reg).find((n) => reg[n].source === spec) ?? null;
+  return { spec, kind: src.kind, url: src.kind === 'local' ? null : cloneUrl(src), path: src.kind === 'local' ? spec : null, does, registered };
+}
+
 /** The URL git is handed for a remote source. */
 export const cloneUrl = (src) =>
   (src.kind === 'github' ? `https://github.com/${src.owner}/${src.repo}.git` : src.url);

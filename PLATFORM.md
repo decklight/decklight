@@ -117,6 +117,22 @@ presenting path imports the marketplace module at all (pinned by
 state: `list` reads only the cache, and a fetch failure is fast and names the
 marketplace and the reason, no spinner, no hang.
 
+**The in-deck door.** In write mode, `/` → **Add a marketplace…** registers a
+catalog without leaving the deck (`DESIGN_SYSTEMS` has the flow). It takes the
+same three forms, and the edit server runs **`decklight marketplace add`
+itself**, as a child process: the same command, the caller's git credentials on
+this machine, the same refusals, so `marketplace list` cannot tell which door a
+marketplace came in by, and a failed add leaves nothing registered from either.
+It is still an explicit act, and still the only fetch: the row says what it is
+about to clone (or which directory it would read in place) and asks for a
+second ⏎ before it does, as publish does, since a clone is network access as
+the person. A relative path is the **deck's** folder's, registered as an
+absolute one, because the registry keeps a source as given and a relative path
+would mean something else to the next `update`. Nothing is fetched on a later
+open. A deck opened `--no-trust` has neither the row nor the route
+(`POST /deck/edit/marketplace/add`), which sits behind the server's mode gate
+with every other write.
+
 **The unit library** (`UNITS#REST`) is where the installable kinds land:
 `~/.decklight/skills/`, `.../importers/`, `.../voices/`,
 beside the `plugins/` that `NO_TRUST#PLUGINS` writes. One seam installs all of

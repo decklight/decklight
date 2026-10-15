@@ -322,6 +322,29 @@
           return json({ ok: true, ref: body.ref, used: body.used, changed: true, undo: 1, redo: 0 });
         }
       }
+      // Add a marketplace… (SPEC DESIGN_SYSTEMS): nothing registered until the
+      // second ⏎; the first only says what would be cloned or read, a path
+      // that is not a marketplace is refused in a sentence, and once the
+      // registration lands every browse route answers with what it offers
+      if (HARNESS_MODE === 'marketplaceadd') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/marketplace/add')) {
+          const body = JSON.parse(init?.body ?? '{}');
+          if (body.spec === './plain') return json({ ok: false, error: '/talks/plain has no .decklight/marketplace.json — is it a marketplace?' }, 400);
+          const plan = { spec: '/talks/northwind', kind: 'local', url: null, path: '/talks/northwind', does: 'register /talks/northwind — read in place, nothing is fetched', registered: null };
+          if (body.confirm !== true) return json({ ok: true, confirm: true, plan });
+          window.__mkRegistered = true;
+          return json({ ok: true, name: 'northwind', spec: plan.spec, refreshed: false, counts: { 'design-system': 1, theme: 1, font: 1 }, said: 'registered northwind from /talks/northwind — 3 entries' });
+        }
+        if (u.includes('/deck/edit/design-system/browse')) {
+          return json({ ok: true, cacheOnly: true, unfetched: [], stale: [], systems: window.__mkRegistered
+            ? [{ name: 'northwind', marketplace: 'northwind', qualified: 'northwind@northwind', group: 'Northwind', version: '1.0.0', description: 'Northwind Traders', used: false }] : [] });
+        }
+        if (u.includes('/deck/edit/theme/browse')) {
+          return json({ ok: true, stale: [], themes: window.__mkRegistered ? [{ name: 'northwind-dark', marketplace: 'northwind', qualified: 'northwind-dark@northwind', title: 'Northwind', description: '' }] : [] });
+        }
+        if (u.includes('/deck/edit/font/browse')) return json({ ok: true, cacheOnly: true, stale: [], unfetched: [], fonts: [] });
+      }
       // The agent review (cli/agent-review.mjs): the POST answers how many parts
       // it will read, progress arrives as 'review' events, and the GET hands
       // back whatever findings the mode has put in window.__reviewFindings.
@@ -3392,8 +3415,14 @@
         const top = rows();
         r.noModeRow = !top.some((t) => /^Write mode|^No-trust mode|^Lock editing|^Export /.test(t));
         press('Escape');
+        // no door to a clone in a deck opened without trust (#838)
+        press('/');
+        for (const ch of 'add a marketplace') press(ch);
+        await settle();
+        r.noMarketplaceAdd = !rows().some((t) => /Add a marketplace/.test(t));
+        press('Escape'); press('Escape');
         r.presentedChannelWired = CALLS.get.some((u) => u.includes('/deck/events')) || !!window.__es;
-        r.PASS = r.notAvailable && r.noChip && r.nothingEdits && r.noModeRow;
+        r.PASS = r.notAvailable && r.noChip && r.nothingEdits && r.noModeRow && r.noMarketplaceAdd;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -4420,6 +4449,88 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         return;
       }
 
+      if (mode === 'marketplaceadd') {
+        // The ticket's demo (#838): no marketplace registered, / → Design
+        // systems… offers Add a marketplace…, ./northwind is said before it is
+        // read, a second ⏎ registers it, and the list comes back with it,
+        // the theme and font pickers asking again rather than trusting the
+        // list they loaded before it existed
+        const Q = '.decklight-palette', ROW = '.pal-row', A = '.decklight-marketplace-add';
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((e) => e.textContent).join(' | ');
+        const asked = (route) => CALLS.get.filter((u) => u.includes(route)).length;
+        const paletteRun = async (text) => {
+          press('/'); await settle();
+          for (const ch of text) press(ch);
+          await settle();
+          const rows = [...document.querySelectorAll(`${Q} ${ROW}`)];
+          const hit = rows.find((n) => palName(n) === text.replace(/^./, (c) => c.toUpperCase()) || palName(n).toLowerCase().startsWith(text));
+          for (let i = 0; hit && i < rows.indexOf(hit); i++) press('ArrowDown');
+          press('Enter');
+          await settle(); await settle();
+          return !!hit;
+        };
+        const typeSpec = async (v) => {
+          const box = document.querySelector(`${A} .mk-spec`);
+          box.value = v;
+          box.dispatchEvent(new Event('input', { bubbles: true }));
+          box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          await settle(); await settle();
+        };
+        await settle(); await settle();
+        // the pickers' first look, before anything is registered
+        press('t'); await settle(); await settle(); press('Escape'); await settle();
+        await paletteRun('font…'); press('Escape'); await settle();
+        const themesBefore = asked('/deck/edit/theme/browse'), fontsBefore = asked('/deck/edit/font/browse');
+        // the row is in the palette, write mode
+        press('/'); await settle();
+        for (const ch of 'add a marketplace') press(ch);
+        await settle();
+        r.paletteRow = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => palName(n).startsWith('Add a marketplace…'));
+        press('Escape'); press('Escape'); await settle();
+        // Design systems…, empty: it offers the door, not only the command
+        r.dsOpened = await paletteRun('design systems');
+        const ds = document.querySelector('.decklight-design-systems');
+        r.emptySaid = /No registered marketplace offers a design system/.test(ds?.textContent ?? '');
+        r.emptyOffersRow = /Add a marketplace…/.test(ds?.querySelector('.ds-add')?.textContent ?? '')
+          && ds?.querySelector('.ds-add')?.classList.contains('narr-sel');
+        press('Enter');
+        await settle(); await settle();
+        r.adderOpens = !!document.querySelector(A) && !document.querySelector('.decklight-design-systems');
+        r.fieldHasFocus = document.activeElement === document.querySelector(`${A} .mk-spec`);
+        // a path that is not a marketplace: a sentence, in the card, nothing run
+        await typeSpec('./plain');
+        r.refusalSaid = /has no \.decklight\/marketplace\.json — is it a marketplace\?/.test(document.querySelector(`${A} .mk-error`)?.textContent ?? '');
+        // the first ⏎ says what it is about to do, and does nothing
+        await typeSpec('./northwind');
+        const first = CALLS.post.filter((c) => c.u.includes('/deck/edit/marketplace/add')).pop()?.body;
+        r.firstAsksOnly = first?.spec === './northwind' && first?.confirm !== true;
+        r.saysBefore = /^Register \/talks\/northwind — read in place, nothing is fetched$/.test(document.querySelector(`${A} .mk-does`)?.textContent ?? '')
+          && /⏎ register it · Esc back/.test(document.querySelector(`${A} .rec-hint`)?.textContent ?? '');
+        r.notYet = !window.__mkRegistered;
+        // the second ⏎ registers it
+        press('Enter');
+        await settle(); await settle(); await settle();
+        const second = CALLS.post.filter((c) => c.u.includes('/deck/edit/marketplace/add')).pop()?.body;
+        r.secondConfirms = second?.spec === '/talks/northwind' && second?.confirm === true;
+        r.toastCounts = /registered northwind — 1 design system, 1 theme, 1 font/.test(said());
+        r.adderClosed = !document.querySelector(A);
+        // …and Design systems… is back, listing it, with no reload
+        const back = document.querySelector('.decklight-design-systems');
+        r.listedNow = /○ northwind@northwind/.test(back?.querySelector('.ds-row .narr-row-label')?.textContent ?? '');
+        press('Escape'); await settle();
+        press('t'); await settle(); await settle();
+        r.themesAskAgain = asked('/deck/edit/theme/browse') === themesBefore + 1
+          // its pack is in the picker, under the catalog's title
+          && [...document.querySelectorAll('.decklight-theme-picker .tp-row')].some((n) => /Northwind/.test(n.textContent));
+        press('Escape'); await settle();
+        await paletteRun('font…');
+        r.fontsAskAgain = asked('/deck/edit/font/browse') === fontsBefore + 1;
+        press('Escape'); await settle();
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'agentreview') {
         // Review deck with agent… (PRESENTING): the palette row posts the
         // review, its findings land in Check deck… as their own group, ⏎ goes
@@ -5063,6 +5174,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           ['agent', () => press('a')],
           ['fonts', () => paletteRun('font…')],
           ['designsystems', () => paletteRun('design systems')],
+          ['marketplaceadd', () => paletteRun('add a marketplace')],
           ['concepts', () => paletteRun('concept colors')],
           ['sourceseditor', () => paletteRun('add sources')],
           ['welcome', () => paletteRun('welcome to decklight')],

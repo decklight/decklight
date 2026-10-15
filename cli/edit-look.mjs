@@ -23,6 +23,9 @@
 // edit.mjs's top-level `await`).
 
 import { readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { oneline } from './git.mjs';
 import { setDeckTheme, setDeckBrandThemesOnly } from './runtime-link.mjs';
@@ -40,8 +43,13 @@ import { setDeckTheme, setDeckBrandThemesOnly } from './runtime-link.mjs';
  * tells the deck watcher that the next write of exactly these bytes updates
  * the page itself and must not reload it. `quiet` is a setter, not the
  * variable, because the watcher in editMain reads and clears it.
+ * `deckPath` is where a relative marketplace path is read from, and
+ * `addMarketplace(spec)` runs the registration (a test hands in its own).
  */
-export function registerLookRoutes(routes, { readDeck, applyEdit, writeDeck, history, broadcast = () => {}, quiet = () => {} }) {
+export function registerLookRoutes(routes, {
+  readDeck, applyEdit, writeDeck, history, broadcast = () => {}, quiet = () => {},
+  deckPath = null, addMarketplace = runMarketplaceAdd,
+}) {
   // The deck's theme (PRESENTING): in write mode a pick is the deck's, not
   // the viewer's — written the way this deck carries it (setDeckTheme), quiet
   // and in place like a layout pick, with a `theme` event for every other
@@ -374,6 +382,40 @@ export function registerLookRoutes(routes, { readDeck, applyEdit, writeDeck, his
   const themeAddRoute = ({ body, json }) =>
     themeMarkRoute({ body: JSON.stringify({ ref: JSON.parse(body || '{}').ref, marked: true }), json });
 
+  /**
+   * `POST /deck/edit/marketplace/add` `{ spec, confirm? }`: register a
+   * marketplace from inside the deck (SPEC DESIGN_SYSTEMS, PLATFORM
+   * MARKETPLACE_REGISTRY). Two steps, like publish. Without `confirm` it says
+   * what it is about to do (`planAdd`: which URL it would clone, or which
+   * directory it would read) and touches nothing. With it, it runs
+   * `decklight marketplace add` itself, as a child process: the same command,
+   * so the registry cannot tell the two doors apart, and a clone that takes
+   * thirty seconds holds up nobody but the person who asked for it. A relative
+   * path is the deck's directory's, and is registered absolute. Nothing in
+   * the deck changes, so there is no undo entry and no reload: the pickers ask
+   * again, and find it.
+   */
+  async function marketplaceAddRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const { planAdd, loadRegistry, loadCatalog, MarketplaceError, configHome } = await import('./marketplace.mjs');
+    let plan;
+    try { plan = planAdd(req.spec, { base: deckPath ? dirname(deckPath) : process.cwd(), home: configHome() }); }
+    catch (e) {
+      if (e instanceof MarketplaceError) return json(400, { ok: false, error: e.message });
+      throw e;
+    }
+    if (req.confirm !== true) return json(200, { ok: true, confirm: true, plan });
+    const out = await addMarketplace(plan.spec);
+    if (!out.ok) return json(409, { ok: false, error: out.error, plan });
+    const reg = loadRegistry(configHome()).marketplaces ?? {};
+    const name = Object.keys(reg).find((n) => reg[n].source === plan.spec) ?? null;
+    const cat = name ? loadCatalog(name, configHome()) : null;
+    const counts = {};
+    for (const e of cat?.ok ? cat.manifest.entries ?? [] : []) counts[e.type] = (counts[e.type] ?? 0) + 1;
+    console.log(`  marketplace: ${plan.registered ? 'refreshed' : 'registered'} ${name ?? plan.spec} from ${plan.spec}`);
+    return json(200, { ok: true, name, spec: plan.spec, refreshed: !!plan.registered, counts, said: out.said });
+  }
+
   routes.set('POST /deck/edit/theme', themeRoute);
   routes.set('POST /deck/edit/brand-themes', brandThemesRoute);
   routes.set('GET /deck/edit/theme/browse', themeBrowseRoute);
@@ -384,5 +426,28 @@ export function registerLookRoutes(routes, { readDeck, applyEdit, writeDeck, his
   routes.set('POST /deck/edit/design-system/apply', designSystemApplyRoute);
   routes.set('GET /deck/edit/font/browse', fontBrowseRoute);
   routes.set('POST /deck/edit/font/mark', fontMarkRoute);
+  routes.set('POST /deck/edit/marketplace/add', marketplaceAddRoute);
   return routes;
+}
+
+const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
+
+/**
+ * Run `decklight marketplace add <spec>` and say how it went: `{ ok, said }`
+ * with the command's own first line, or `{ ok: false, error }` with what it
+ * printed on the way out, prefix dropped. git is told never to prompt (the
+ * command does that too; a server has no terminal to prompt on), and the
+ * update notice is the command line's business, not this sentence's.
+ */
+export function runMarketplaceAdd(spec, { timeoutMs = 120000 } = {}) {
+  return new Promise((done) => {
+    execFile(process.execPath, [CLI, 'marketplace', 'add', spec], {
+      encoding: 'utf8', timeout: timeoutMs,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', DECKLIGHT_NO_UPDATE_CHECK: '1' },
+    }, (err, stdout, stderr) => {
+      if (!err) return done({ ok: true, said: String(stdout).trim().split('\n')[0] ?? '' });
+      const said = String(stderr).trim().replace(/^decklight marketplace add: /, '');
+      done({ ok: false, error: said || (err.killed ? `gave up after ${Math.round(timeoutMs / 1000)}s` : oneline(err)) });
+    });
+  });
 }

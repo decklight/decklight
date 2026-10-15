@@ -17,7 +17,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { registerLookRoutes } from '../cli/edit-look.mjs';
 import { createHistory } from '../cli/edit.mjs';
@@ -56,7 +56,7 @@ const BARE = `<!doctype html>
  * onto the history and goes through it, and `quiet` and `broadcast` are
  * recorded so a test can say which writes were in place.
  */
-function harness(t, html = DECK) {
+function harness(t, html = DECK, extra = {}) {
   const dir = tmp('edit-look', t);
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, html);
@@ -78,8 +78,10 @@ function harness(t, html = DECK) {
     readDeck, applyEdit, writeDeck, history,
     broadcast: (e, d) => sent.push([e, d]),
     quiet: (h) => quiet.push(h),
+    deckPath: deck,
+    ...extra,
   });
-  return { routes, history, readDeck, deck, writes, quiet, sent };
+  return { routes, history, readDeck, deck, dir, writes, quiet, sent };
 }
 
 /** Call one route the way the dispatcher does: a fake `json`, no socket. */
@@ -109,6 +111,7 @@ test('every look route the server dispatches is registered here', () => {
     'POST /deck/edit/design-system/apply',
     'POST /deck/edit/design-system/mark',
     'POST /deck/edit/font/mark',
+    'POST /deck/edit/marketplace/add',
     'POST /deck/edit/theme',
     'POST /deck/edit/theme/add',
     'POST /deck/edit/theme/mark',
@@ -274,4 +277,83 @@ test('the browse lists read the cache only: an empty one lists nothing, and says
   const fonts = await call(routes, 'GET /deck/edit/font/browse');
   assert.deepEqual([fonts.code, fonts.body.fonts, fonts.body.cacheOnly], [200, [], true]);
   assert.equal(readDeck(), before, 'a list is a read');
+});
+
+// ── Add a marketplace… (SPEC DESIGN_SYSTEMS, PLATFORM MARKETPLACE_REGISTRY) ──
+
+/** A local marketplace beside the deck, offering one design system and one theme. */
+function localMarketplace(dir, name = 'northwind', manifest = null) {
+  const root = path.join(dir, name);
+  mkdirSync(path.join(root, '.decklight'), { recursive: true });
+  writeFileSync(path.join(root, '.decklight', 'marketplace.json'), manifest ?? JSON.stringify({
+    name, entries: [
+      { name: 'northwind', type: 'design-system', source: 'systems/northwind', version: '1.0.0', apiVersion: 1 },
+      { name: 'northwind-dark', type: 'theme', source: './themes/northwind-dark.css' },
+    ],
+  }));
+  return root;
+}
+
+test('POST /deck/edit/marketplace/add without confirm says what it would do, reads a relative path from the deck\'s folder, and registers nothing', async (t) => {
+  let ran = 0;
+  const { routes, dir } = harness(t, DECK, { addMarketplace: async () => { ran++; return { ok: true }; } });
+  const root = localMarketplace(dir);
+  const r = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: './northwind' } });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.confirm, true);
+  assert.equal(r.body.plan.spec, root, 'registered absolute: a relative source would mean something else to the next update');
+  assert.equal(r.body.plan.kind, 'local');
+  assert.match(r.body.plan.does, /^register .*northwind — read in place, nothing is fetched$/);
+  assert.equal(ran, 0, 'the first ⏎ runs nothing');
+});
+
+test('POST /deck/edit/marketplace/add names the clone a remote source would make, before making it', async (t) => {
+  const { routes } = harness(t, DECK, { addMarketplace: async () => assert.fail('nothing is cloned without confirm') });
+  const r = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: 'acme/brand-kit' } });
+  assert.equal(r.body.plan.url, 'https://github.com/acme/brand-kit.git');
+  assert.match(r.body.plan.does, /^clone https:\/\/github\.com\/acme\/brand-kit\.git with your git credentials on this machine$/);
+});
+
+test('POST /deck/edit/marketplace/add refuses what is not a source, in a sentence, before anything runs', async (t) => {
+  const { routes, dir } = harness(t, DECK, { addMarketplace: async () => assert.fail('a refusal runs nothing') });
+  for (const [spec, why] of [
+    ['', /needs an owner\/repo, a git url, or a path/],
+    ['--upload-pack=x', /is not an owner\/repo, a git url, or a path/],
+    ['acme/x\nevil', /is not an owner\/repo, a git url, or a path/],
+    ['./nowhere', /no such directory: .*nowhere/],
+  ]) {
+    const r = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec, confirm: true } });
+    assert.equal(r.code, 400, spec);
+    assert.match(r.body.error, why, spec);
+  }
+  mkdirSync(path.join(dir, 'plain'));
+  const r = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: './plain', confirm: true } });
+  assert.match(r.body.error, /has no \.decklight\/marketplace\.json — is it a marketplace\?/);
+});
+
+test('POST /deck/edit/marketplace/add with confirm runs `decklight marketplace add`: the registry has it as the command line would, and the answer counts what it offers', async (t) => {
+  const { loadRegistry } = await import('../cli/marketplace.mjs');
+  const { routes, dir } = harness(t);
+  const root = localMarketplace(dir, 'northwind-door');
+  const r = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: './northwind-door', confirm: true } });
+  assert.equal(r.code, 200, JSON.stringify(r.body));
+  assert.equal(r.body.name, 'northwind-door');
+  assert.equal(r.body.refreshed, false);
+  assert.deepEqual(r.body.counts, { 'design-system': 1, theme: 1 });
+  assert.match(r.body.said, /^registered northwind-door from /);
+  assert.equal(loadRegistry().marketplaces['northwind-door']?.source, root);
+  // the same again is a refresh, as `add` of a registered source is
+  const again = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: root } });
+  assert.equal(again.body.plan.registered, 'northwind-door');
+});
+
+test('POST /deck/edit/marketplace/add says why a registration failed, and leaves nothing registered', async (t) => {
+  const { loadRegistry } = await import('../cli/marketplace.mjs');
+  const { routes, dir } = harness(t);
+  localMarketplace(dir, 'broken-door', '{ "name": "broken-door", "entries": [ { "name": "x" } ] }');
+  const r = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: './broken-door', confirm: true } });
+  assert.equal(r.code, 409);
+  assert.match(r.body.error, /is not a valid marketplace manifest/);
+  assert.match(r.body.error, /entries\[0\]\.type/, 'the reason, not only the fact');
+  assert.equal(loadRegistry().marketplaces['broken-door'], undefined);
 });

@@ -39,6 +39,7 @@ import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { createDesignSystemsPicker, createSlideTemplatePicker, createLookOffer } from './design-systems.js';
+import { createMarketplaceAdder } from './marketplace-add.js';
 import { createConceptsEditor, conceptsOn, conceptSuggestions, markConceptHints } from './concepts.js';
 import { setupSlideTemplates, isTemplateRef, pageDesignSystems } from './design-system.js';
 import { createFonts } from './fonts.js';
@@ -570,9 +571,20 @@ export function init(userConfig = {}) {
 
   // Design systems… (SPEC DESIGN_SYSTEMS): the registered marketplaces'
   // design systems, toggled for this deck through the edit server
+  // Add a marketplace… (SPEC DESIGN_SYSTEMS): `decklight marketplace add`
+  // without leaving the deck; afterwards every picker that lists what the
+  // marketplaces offer asks again, so the new catalog is in them at once
+  const marketplaceAdder = createMarketplaceAdder({
+    root, toast,
+    base: () => (editmode?.available() ? editmode.base() : null),
+    onAdded: () => { themes.refreshOffered(); fonts.refreshOffered(); },
+    debugLog: (...a) => debugLog(...a),
+  });
+  overlays.register({ isOpen: marketplaceAdder.isOpen, close: marketplaceAdder.close, keydown: marketplaceAdder.keydown });
   const designSystems = createDesignSystemsPicker({
     root, toast,
     base: () => (editmode?.available() ? editmode.base() : null),
+    addMarketplace: (opts) => marketplaceAdder.open(opts),
     debugLog: (...a) => debugLog(...a),
   });
   overlays.register({ isOpen: designSystems.isOpen, close: designSystems.close, keydown: designSystems.keydown });
@@ -986,6 +998,11 @@ export function init(userConfig = {}) {
       write({ label: 'Design systems…', cat: 'Look',
         alias: 'design system brand kit company tokens layouts slots marketplace corporate identity style guide',
         run: () => designSystems.open() }),
+      // never under --no-trust: write() needs a deck that can be written, and
+      // the route sits behind the server's mode gate besides
+      write({ label: 'Add a marketplace…', cat: 'Look',
+        alias: 'marketplace add register catalog repo repository git clone owner design systems themes fonts install source',
+        run: () => marketplaceAdder.open() }),
       // ── Voice ───────────────────────────────────────────────────────────
       // ⎵ is the verb and V the panel. The rows below the panel row open it
       // on one of its views, so they are found by what they are called; only

@@ -2868,7 +2868,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // want the deck's text and the two ways of writing it, the undo stack, the
   // event channel, and the quiet-write latch, and nothing else of editMain's.
   registerLookRoutes(routes, {
-    readDeck, applyEdit, writeDeck, history, broadcast,
+    readDeck, applyEdit, writeDeck, history, broadcast, deckPath,
     // a quiet pick or mark updates the page that asked: no reload for it
     quiet: (html) => { quietWrite = html; },
   });

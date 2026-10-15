@@ -22,7 +22,7 @@ import { UNDO_CHORD } from './undo-chord.js';
  * when the deck is served BY the edit server, every fetch same-origin, so
  * only `null` means "no server": an empty base is the commonest one.
  */
-export function createDesignSystemsPicker({ root, base, toast, debugLog = () => {} }) {
+export function createDesignSystemsPicker({ root, base, toast, addMarketplace = null, debugLog = () => {} }) {
   let el = null, rows = [], sel = 0, busy = false;
 
   const card = () => el?.querySelector('.narr-card');
@@ -52,12 +52,22 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
           + `${s.missing ? `<div class="narr-fix">${escapeHtml(s.missing)}</div>` : ''}</div>`;
       }
     }
-    if (!systems.length) html += '<div class="rec-line">No registered marketplace offers a design system — decklight marketplace add &lt;owner/repo&gt;</div>';
+    if (!systems.length) {
+      html += '<div class="rec-line">No registered marketplace offers a design system.</div>';
+      // the door, not only the command: registering one from here brings this
+      // list straight back with it (SPEC DESIGN_SYSTEMS)
+      if (addMarketplace) {
+        rows.push({ add: true });
+        html += `<div class="narr-row ds-row ds-add" data-i="${rows.length - 1}"><span class="narr-row-label">+ Add a marketplace…`
+          + ' <span class="narr-flavor">owner/repo, a git URL, or a path</span></span></div>';
+      } else html += '<div class="rec-line">decklight marketplace add &lt;owner/repo&gt;</div>';
+    }
     // never fetched is not a fault — nothing is fetched unasked — so it is
     // said plainly, and only a cached catalog that no longer reads is a warning
     for (const m of unfetched) html += `<div class="rec-line">${escapeHtml(m)} has not been fetched yet — decklight marketplace update ${escapeHtml(m)}</div>`;
     for (const m of stale) html += `<div class="rec-line rec-warn">${escapeHtml(m)}'s cached catalog could not be read — decklight marketplace update ${escapeHtml(m)}</div>`;
-    html += '<div class="rec-hint">↑/↓ · Space or ⏎ toggles — with its recommended themes and fonts (⇧ for the design system alone) · Esc closes</div>';
+    html += systems.length ? '<div class="rec-hint">↑/↓ · Space or ⏎ toggles — with its recommended themes and fonts (⇧ for the design system alone) · Esc closes</div>'
+      : `<div class="rec-hint">${addMarketplace ? '⏎ adds a marketplace · ' : ''}Esc closes</div>`;
     c.innerHTML = html;
     c.querySelectorAll('.ds-row').forEach((r) => {
       r.addEventListener('mouseenter', () => select(Number(r.dataset.i)));
@@ -94,6 +104,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
   async function toggle(alone = false) {
     const s = rows[sel];
     if (!s || busy) return;
+    if (s.add) { close(); addMarketplace({ then: open }); return; }
     if (s.missing && !s.used) { toast(`${s.qualified}: ${s.missing}`, 6000); return; }
     busy = true;
     try {
