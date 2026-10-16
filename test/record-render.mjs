@@ -107,7 +107,9 @@ const DECK = `<!doctype html>
 </script>
 <script src="decklight.js"></script>
 <script>
-  const deck = Decklight.init({});
+  // ?cfg: a deck that names a narration folder of its own, as one voiced by an
+  // engine does. Your voice must not land in it.
+  const deck = Decklight.init(params.has('cfg') ? { narration: { files: 'voiceover', ext: 'wav' } } : {});
   const RESULTS = params.get('results');
   const r = { mode, beats: [], steps: [] };
   const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
@@ -151,6 +153,9 @@ const DECK = `<!doctype html>
         card().querySelector('[data-noise="off"]').click();
         card().querySelector('[data-rate="48000"]').click();
       }
+      r.folder = (await until(() => card()?.querySelector('.rec-dir'), 5000))?.value ?? null;
+      r.clash = !!card()?.querySelector('.rec-warn');
+      if (params.has('introonly')) throw 'introonly';
       r.introOpts = [...(card()?.querySelectorAll('.rec-seg button.on') ?? [])].map((b) => b.textContent);
       r.introWhy = card()?.querySelector('.rec-opt-why')?.textContent ?? '';
       // with --remote on, the card carries the QR (the speaker view is not open)
@@ -208,7 +213,7 @@ const DECK = `<!doctype html>
       }
       r.audioRan = window.__audioRan !== false;
       r.gum = window.__gum?.audio ?? null;
-    } catch (e) { r.exception = String(e && (e.stack || e.message || e)); }
+    } catch (e) { if (e !== 'introonly') r.exception = String(e && (e.stack || e.message || e)); }
     // The page is the only thing that knows it is finished; nothing is dumped,
     // so this is how the harness finds out.
     try {
@@ -294,9 +299,9 @@ const resultsUrl = `http://127.0.0.1:${results.address().port}/`;
 /** One run of the deck in a fresh browser: returns what the page reported. */
 async function run(mic, dir, via = 'keys', extra = '') {
   report = null;
-  const profile = path.join(tmp, `profile-${mic}-${dir}`);
+  const profile = path.join(tmp, `profile-${mic}-${dir || 'default'}-${extra.length}`);
   mkdirSync(profile, { recursive: true });
-  const url = `${deckBase}/deck.html?record&mic=${mic}&dir=${dir}&via=${via}${extra}`
+  const url = `${deckBase}/deck.html?record&mic=${mic}${dir ? `&dir=${dir}` : ''}&via=${via}${extra}`
     + `&results=${encodeURIComponent(resultsUrl)}`;
   // --autoplay-policy: the deck's own audio elements are not what is under
   // test, and a blocked one would toast over the recorder. A throwaway
@@ -449,6 +454,18 @@ check('options', JSON.stringify(took.introOpts) === JSON.stringify(['on', '24 kH
   && rateOf('slide-01.wav') === 48000 && readFileSync(path.join(outDir, 'slide-01.wav')).readUInt32LE(24) === 24000,
 `defaults on/24 kHz=${JSON.stringify(took.introOpts)} · chosen ${JSON.stringify(backed.introOpts)}`
   + ` · asked noiseSuppression=${backed.gum?.noiseSuppression} · wrote ${backFiles.length ? rateOf('slide-01.wav') : '?'} Hz`);
+
+// ── run 5: no --dir, on a deck that names its own folder: voices/me ─────────
+const mine = await run('tone', '', 'keys', '&cfg');
+const meDir = path.join(tmp, 'voices', 'me');
+const meFiles = existsSync(meDir) ? readdirSync(meDir).sort() : [];
+// …and the next visit refreshes that folder, rather than proposing voices/me-2
+const again = await run('tone', '', 'keys', '&cfg&introonly');
+check('voices/me', mine.folder === 'voices/me' && mine.finished === true
+  && JSON.stringify(meFiles) === JSON.stringify(files) && !existsSync(path.join(tmp, 'voiceover'))
+  && again.folder === 'voices/me' && again.clash === false,
+`proposed ${mine.folder} over the deck's voiceover/ · wrote ${meFiles.length} files there`
+  + ` · voiceover/ untouched=${!existsSync(path.join(tmp, 'voiceover'))} · next time ${again.folder}, no clash warning=${again.clash === false}`);
 
 if (bad) fail(`${bad} check${bad === 1 ? '' : 's'} failed`);
 console.log(`record-render: PASS (${((Date.now() - t0) / 1000).toFixed(1)}s)`

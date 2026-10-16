@@ -4,7 +4,7 @@
 
 // decklight narrate --mic — capture the deck's narration in YOUR voice.
 //
-//   decklight narrate --mic <deck.html> [--port 8788] [--dir voiceover] [--no-open]
+//   decklight narrate --mic <deck.html> [--port 8788] [--dir voices/me] [--no-open]
 //
 // WHY THIS IS A COMMAND AND NOT JUST A KEY. The recorder itself lives in the
 // deck (V → Record this deck… → With your voice…): it has to, because the notes, the builds and the microphone are
@@ -30,7 +30,7 @@ import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
-const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voiceover] [--slides a-b] [--remote] [--no-open]
+const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voices/me] [--slides a-b] [--remote] [--no-open]
   serves the deck over http://127.0.0.1 and opens it with the voice recorder up
 
   the deck reads you its notes one [click] beat at a time; → ends a beat, which
@@ -38,8 +38,7 @@ const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir v
   deck exactly as it will when you present it
 
   --port N     port to serve on (taken? moves to the next free one)     [8788]
-  --dir NAME   folder to write into, relative to the deck   [the deck's own
-               narration.files, else voiceover]
+  --dir NAME   folder to write into, relative to the deck          [voices/me]
   --slides a-b re-record only this range (1-based, inclusive; "7" for one
                slide). Every other slide's files are left untouched, so a
                fluffed beat costs one slide and not the whole deck
@@ -152,7 +151,8 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   out.write(`decklight narrate --mic on ${url}\n`);
   out.write('  V → Record this deck… → With your voice… opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
   if (remote) out.write('  the phone remote is on: scan the QR on the recorder\'s card; next ends a beat, retake redoes it\n');
-  out.write(`  files land in ${dir ?? "the deck's narration folder"}, next to the deck.`
+  out.write(`  files land in ${dir ?? 'voices/me'}, next to the deck.`
+    + `${dir ? '' : ' Recording again refreshes it.'}`
     + `${slides ? ` Only slide${/-/.test(slides) ? 's' : ''} ${slides}.` : ''} Ctrl-C when you are done.\n`);
   if (!args.includes('--no-open')) await open(url, { out, what: url });
   return 0;

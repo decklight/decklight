@@ -3226,7 +3226,14 @@ export function createNarration({
 
     const asked = plainFolder(params?.get?.('dir'));
     if (asked) return at(asked, 'asked');
-    if (!mine && voice) {
+    // Your own voice goes to voices/me, and recording again refreshes it.
+    // Never the deck's configured folder: that is usually an engine's track,
+    // and a take of yours written into it replaced the engine's files.
+    if (mine) {
+      const me = proposeTrack(who, []).dir;
+      return at(me, tracks.some((t) => t.dir === me) ? 'refresh' : 'new');
+    }
+    if (voice) {
       const same = tracks.find((t) => t.voice && t.voice === voice && (!t.engine || !engine || t.engine === engine));
       if (same) return at(same.dir, 'refresh');
     }
@@ -3837,7 +3844,7 @@ export function createNarration({
     const where = dir
       ? `saved to <code>${escapeHtml(dir)}/</code>, next to the deck`
       : `saved to your downloads — ${noServerReason()}`;
-    const cfg = `narration: { files: '${escapeHtml(dir ?? 'voiceover')}', ext: 'wav'${segmented ? ', segments: true' : ''} }`;
+    const cfg = `narration: { files: '${escapeHtml(dir ?? 'voices/me')}', ext: 'wav'${segmented ? ', segments: true' : ''} }`;
     card.innerHTML = `<div class="narr-head">${stopped ? 'recording stopped' : 'recording done'}</div>
       <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${files} file${files === 1 ? '' : 's'} ${where}</div>
       <div class="rec-line">Play it back with <code>${cfg}</code>${segmented

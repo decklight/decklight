@@ -66,7 +66,8 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
 
   either way, an engine or the microphone
     --slides a-b only these slides; every other slide's files are left alone
-    --dir NAME   the folder, relative to the deck  [its narration.files, else voiceover]
+    --dir NAME   the folder, relative to the deck
+                 [an engine: its narration.files, else voiceover · --mic: voices/me]
 
   the character mouths what is already there                (--face)
     --face       lip-sync for every slide and [click] beat in the folder, which the
