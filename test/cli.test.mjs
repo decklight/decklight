@@ -1863,6 +1863,14 @@ test('--slides re-records a range, so a fluffed beat costs one slide', async () 
     'http://127.0.0.1:8788/talk.html?record&dir=takes&slides=7');
 });
 
+test('--countdown sets the count-in before each take, in whole seconds, 0 for none', async () => {
+  const { countdownProblem, recordUrl } = await import('../cli/record.mjs');
+  for (const ok of [undefined, '0', '1', '3', '9']) assert.equal(countdownProblem(ok), null, String(ok));
+  for (const bad of ['10', '-1', '1.5', 'x', '']) assert.match(countdownProblem(bad), /whole seconds from 0 \(none\) to 9/, bad);
+  assert.equal(recordUrl(8788, '/talk.html', null, null, null, 0), 'http://127.0.0.1:8788/talk.html?record&countdown=0');
+  assert.equal(recordUrl(8788, '/talk.html', 'takes', '6', '3', 1), 'http://127.0.0.1:8788/talk.html?record&dir=takes&slides=6&beats=3&countdown=1');
+});
+
 test('--beats re-records beats of one slide, and is refused anywhere it cannot mean that (#851)', async () => {
   const { beatsProblem, recordUrl } = await import('../cli/record.mjs');
   assert.equal(beatsProblem(undefined, '6'), null);

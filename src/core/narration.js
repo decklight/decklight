@@ -3693,9 +3693,21 @@ export function createNarration({
   const MIC_RATE = 24000;
   const MIC_RATES = [24000, 48000];
   const MIC_PREFS = 'decklight-mic';
+  // the count-in before each take, in seconds: 3 by default, 1 for a long
+  // deck read quickly, or none. `?countdown=N` (`narrate --mic --countdown N`)
+  // sets it for this visit, until the card is clicked.
+  const COUNT_INS = [3, 1, 0];
+  let countInAsked = (() => {
+    const n = Number(params?.get?.('countdown'));
+    return params?.get?.('countdown') != null && Number.isInteger(n) && n >= 0 && n <= 9 ? n : null;
+  })();
   function micPrefs() {
     const p = readJson(MIC_PREFS, {});
-    return { noise: p.noise !== false, rate: MIC_RATES.includes(p.rate) ? p.rate : MIC_RATE };
+    return {
+      noise: p.noise !== false,
+      rate: MIC_RATES.includes(p.rate) ? p.rate : MIC_RATE,
+      countIn: countInAsked ?? (COUNT_INS.includes(p.countIn) ? p.countIn : COUNT_INS[0]),
+    };
   }
   async function openMic(forced = null) {
     // a partial re-record takes the rate of the beats it keeps: one slide's
@@ -3749,16 +3761,17 @@ export function createNarration({
     return new Promise((done) => { micEnd = done; });
   }
   /**
-   * 3, 2, 1, before every take: after Enter, →, ⌫ or ←, which are the moments
+   * 3, 2, 1 (the count-in setting) before every take: after Enter, →, ⌫ or ←, which are the moments
    * you were pressing a key instead of breathing in. Nothing is captured while
    * it counts, so the key is not in the take and the beat starts on your first
    * word. Resolves 'go', or what interrupted it: ← ('back') and Esc ('stop')
    * work here as they do during a take; → and ⌫ wait for it.
    */
-  const COUNTDOWN = 3;
   function countIn() {
+    let n = micPrefs().countIn;
+    // no count-in: the take starts on the key, as it did before there was one
+    if (!n) return Promise.resolve('go');
     micPhase = 'countdown';
-    let n = COUNTDOWN;
     paintMicStatus(n);
     return new Promise((done) => {
       micEnd = done;
@@ -3924,9 +3937,9 @@ export function createNarration({
     }
     return { rate, pcm };
   }
-  /** The intro card's two microphone choices, remembered for every deck. */
+  /** The intro card's microphone choices and the count-in, remembered for every deck. */
   function micOptsRow() {
-    const { noise, rate } = micPrefs();
+    const { noise, rate, countIn: secs } = micPrefs();
     const seg = (name, value, label, on) => `<button type="button" tabindex="-1" data-${name}="${value}"`
       + ` aria-pressed="${on}" class="${on ? 'on' : ''}">${label}</button>`;
     return `<div class="rec-line rec-opts">
@@ -3934,7 +3947,13 @@ export function createNarration({
   seg('noise', 'on', 'on', noise)}${seg('noise', 'off', 'off', !noise)}</span></span>
         <span class="rec-opt"><span class="rec-opt-label">sample rate</span><span class="rec-seg" role="group" aria-label="sample rate">${
   MIC_RATES.map((r) => seg('rate', r, `${r / 1000} kHz`, r === rate)).join('')}</span></span>
+        <span class="rec-opt"><span class="rec-opt-label">count-in</span><span class="rec-seg" role="group" aria-label="count-in before each take">${
+  [...new Set([...COUNT_INS, secs])].map((c) => seg('count', c, c ? `${c} s` : 'off', c === secs)).join('')}</span></span>
       </div><div class="rec-line rec-opt-why">${micOptsWhy(noise, rate)}</div>`;
+  }
+  /** What the intro card says the count-in is: `Every take starts after a 3, 2, 1, and`. */
+  function countSays(n) {
+    return n ? ` Every take starts after a ${[...Array(n)].map((_, k) => n - k).join(', ')}, and` : '';
   }
   function micOptsWhy(noise, rate) {
     return [
@@ -3943,7 +3962,7 @@ export function createNarration({
     ].join(' · ');
   }
   function wireMicOpts(card) {
-    card.querySelectorAll('.rec-seg button').forEach((b) => {
+    card.querySelectorAll('.rec-opts .rec-seg button').forEach((b) => {
       // never takes focus: Enter on the card starts the recording, and a
       // focused button would take that Enter as a click as well
       b.addEventListener('mousedown', (e) => e.preventDefault());
@@ -3951,14 +3970,20 @@ export function createNarration({
         const p = micPrefs();
         if (b.dataset.noise) p.noise = b.dataset.noise === 'on';
         if (b.dataset.rate) p.rate = Number(b.dataset.rate);
-        writeJson(MIC_PREFS, p);
-        card.querySelectorAll('.rec-seg button').forEach((o) => {
-          const on = o.dataset.noise ? (o.dataset.noise === 'on') === p.noise : Number(o.dataset.rate) === p.rate;
+        // a click is newer than the URL's ?countdown, so it wins from here on
+        if (b.dataset.count) { p.countIn = Number(b.dataset.count); countInAsked = null; }
+        // only a count-in click stores a count-in: a ?countdown visit stays one
+        writeJson(MIC_PREFS, { noise: p.noise, rate: p.rate, countIn: b.dataset.count ? p.countIn : readJson(MIC_PREFS, {}).countIn });
+        card.querySelectorAll('.rec-opts .rec-seg button').forEach((o) => {
+          const on = o.dataset.noise ? (o.dataset.noise === 'on') === p.noise
+            : o.dataset.count ? Number(o.dataset.count) === p.countIn : Number(o.dataset.rate) === p.rate;
           o.classList.toggle('on', on);
           o.setAttribute('aria-pressed', String(on));
         });
         const why = card.querySelector('.rec-opt-why');
         if (why) why.textContent = micOptsWhy(p.noise, p.rate);
+        const says = card.querySelector('.rec-count-says');
+        if (says) says.textContent = countSays(p.countIn);
       });
     });
   }
@@ -3987,7 +4012,8 @@ export function createNarration({
         ${beats === 0
     ? `<div class="rec-line rec-warn">Nothing to record${range ? ` in slides ${escapeHtml(range)}` : ''} — no slide there has notes to read.</div>`
     : '<div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.'
-      + " Every take starts after a 3, 2, 1, and <kbd>←</kbd> goes back to record a slide again.</div>"}
+      + `<span class="rec-count-says">${countSays(micPrefs().countIn)}</span>`
+      + " <kbd>←</kbd> goes back to record a slide again.</div>"}
         ${folderRow(data.target)}
         ${canStart ? fromRow() : ''}
         ${beats === 0 ? '' : micOptsRow()}

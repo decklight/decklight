@@ -30,7 +30,7 @@ import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
-const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voices/me] [--slides a-b [--beats k-l]] [--remote] [--no-open]
+const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voices/me] [--slides a-b [--beats k-l]] [--countdown N] [--remote] [--no-open]
   serves the deck over http://127.0.0.1 and opens it with the voice recorder up
 
   the deck reads you its notes one [click] beat at a time; → ends a beat, which
@@ -46,6 +46,8 @@ const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir v
                ("3" for one). The other beats' files are left byte for byte, and
                slide-NN.wav is rebuilt from all of them. The recorder's card can
                also start from any beat: ← → pick it before you press Enter
+  --countdown N  seconds of count-in before each take, 0 for none (0-9)
+               [the recorder card's count-in: 3 s, 1 s or off, remembered]
   --remote     the phone remote too, so recording needs no keyboard: its next
                ends a beat and its retake redoes one, and a tap is not in the
                take the way a keystroke is. The recorder's card shows the QR;
@@ -92,11 +94,12 @@ export function dirProblem(name) {
  * record against the slides your audience will see, at the build they will see
  * them at.
  */
-export function recordUrl(port, deckUrl, dir, slides, beats) {
+export function recordUrl(port, deckUrl, dir, slides, beats, countdown) {
   const q = ['record',
     ...(dir ? [`dir=${encodeURIComponent(dir)}`] : []),
     ...(slides ? [`slides=${encodeURIComponent(slides)}`] : []),
-    ...(beats ? [`beats=${encodeURIComponent(beats)}`] : [])].join('&');
+    ...(beats ? [`beats=${encodeURIComponent(beats)}`] : []),
+    ...(countdown != null ? [`countdown=${countdown}`] : [])].join('&');
   return `http://127.0.0.1:${port}${deckUrl}?${q}`;
 }
 
@@ -140,6 +143,12 @@ export function beatsProblem(beats, slides) {
   return null;
 }
 
+/** `--countdown`: whole seconds, 0 to 9; anything else → a message. */
+export function countdownProblem(value) {
+  if (value === undefined || value === null) return null;
+  return /^\d$/.test(String(value).trim()) ? null : `--countdown is whole seconds from 0 (none) to 9 (got "${value}")`;
+}
+
 export async function recordMain(args, { open = openUrl, out = process.stdout, onListen = null } = {}) {
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     out.write(USAGE);
@@ -149,11 +158,12 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   const dir = opt('--dir');
   const slides = opt('--slides');
   const beats = opt('--beats');
-  for (const bad of [dirProblem(dir), slidesProblem(slides), beatsProblem(beats, slides)]) {
+  const countdown = opt('--countdown');
+  for (const bad of [dirProblem(dir), slidesProblem(slides), beatsProblem(beats, slides), countdownProblem(countdown)]) {
     if (bad) { process.stderr.write(`decklight narrate --mic: ${bad}\n`); return 2; }
   }
 
-  const deck = firstPositional(args, ['--dir', '--slides', '--beats', '--port']);
+  const deck = firstPositional(args, ['--dir', '--slides', '--beats', '--countdown', '--port']);
   // Before the server, not after: this used to serve the YAML file, print a
   // URL and open a browser on it, with no error anywhere.
   const mixedUp = wrongRecorder('narrate', deck);
@@ -174,7 +184,7 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   // missing or outside the served root — say nothing on top of it.
   if (!started) return process.exitCode ?? 1;
 
-  const url = recordUrl(started.port, started.deckUrl, dir, slides, beats);
+  const url = recordUrl(started.port, started.deckUrl, dir, slides, beats, countdown == null ? null : Number(countdown));
   out.write(`decklight narrate --mic on ${url}\n`);
   out.write('  V → Record this deck… → With your voice… opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
   if (remote) out.write('  the phone remote is on: scan the QR on the recorder\'s card; next ends a beat, retake redoes it\n');

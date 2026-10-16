@@ -161,7 +161,9 @@ const DECK = `<!doctype html>
         await until(() => card()?.querySelector('.rec-folder'), 5000);
         card().querySelector('[data-noise="off"]').click();
         card().querySelector('[data-rate="48000"]').click();
+        card().querySelector('[data-count="1"]').click();   // the count-in, by click
       }
+      r.countSays = card()?.querySelector('.rec-count-says')?.textContent ?? null;
       // ?from=N: step the start point N beats on with → before Enter
       for (let k = 0; k < Number(params.get('from') ?? 0); k++) { press('ArrowRight'); await wait(50); }
       r.fromLine = card()?.querySelector('.rec-from')?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
@@ -193,8 +195,9 @@ const DECK = `<!doctype html>
           // the build the beat is filmed at — the claim that → both ends a file
           // AND reveals the next build has to be visible from outside
           r.steps.push(deck.state.slide + '.' + deck.state.step);
-          // every take is counted in, and nothing is captured while it counts
-          r.counted.push(phase() === 'countdown' && /3/.test(status()?.textContent ?? ''));
+          // every take is counted in, from the count-in asked for, and nothing
+          // is captured while it counts: the first number seen, or null for none
+          r.counted.push(phase() === 'countdown' ? ((status()?.textContent ?? '').match(/\\d/)?.[0] ?? '?') : null);
           if (i === 0 && params.has('early')) {
             // → during the 3-2-1 waits for the take, it does not skip the beat
             press('ArrowRight');
@@ -442,7 +445,8 @@ const phoneReader = phoneStream.body.getReader();
     }
   }
 })();
-const tapped = await run('tone', 'phone', 'phone');
+// a one-second count-in, asked for in the URL as narrate --countdown 1 does
+const tapped = await run('tone', 'phone', 'phone', '&countdown=1');
 phoneReader.cancel().catch(() => {});
 const phoneFiles = wavs(path.join(tmp, 'phone'));
 check('qr', took.introQr === true, `--remote puts the phone's QR on the recorder's intro card=${took.introQr}`);
@@ -451,7 +455,7 @@ check('qr', took.introQr === true, `--remote puts the phone's QR on the recorder
 check('phone', JSON.stringify(tapped.steps) === JSON.stringify(['1.0', '1.1', '1.2', '2.0'])
   && tapped.finished === true && JSON.stringify(phoneFiles) === JSON.stringify(files),
 `phone next read ${tapped.beats.length} beats at builds ${tapped.steps.join(' ')} · wrote ${phoneFiles.join(' ') || '(nothing)'}`);
-check('retake', tapped.retook === true && tapped.beats[0] === 'Beat one.' && tapped.counted.every(Boolean),
+check('retake', tapped.retook === true && tapped.beats[0] === 'Beat one.' && tapped.counted.every((c) => c === '1'),
   `phone retake kept the same beat at the same build=${tapped.retook}`);
 const recs = phoneSaw.map((p) => p.rec).filter(Boolean);
 check('readout', recs.some((r) => r.slide === 1 && r.beat === 2 && r.of === 3)
@@ -467,31 +471,35 @@ const backed = await run('tone', 'back', 'keys',
 const backDir = path.join(tmp, 'back');
 const backFiles = wavs(backDir);
 const rateOf = (f) => readFileSync(path.join(backDir, f)).readUInt32LE(24);
-check('count-in', took.counted.length === 4 && took.counted.every(Boolean) && backed.earlyIgnored === true,
-  `every take counted in from 3=${took.counted.every(Boolean)} · → during the count waited=${backed.earlyIgnored}`);
 check('back', JSON.stringify(backed.steps) === JSON.stringify(
   ['1.0', '1.1', '1.0', '1.1', '1.2', '2.0', '1.0', '1.1', '1.2', '2.0'])
   && backed.finished === true && /2 slides · 5 files/.test(backed.card ?? '')
   && JSON.stringify(backFiles) === JSON.stringify(files),
 `← read ${backed.steps.join(' ')} · done card: "${/\d+ slides? · \d+ files?/.exec(backed.card ?? '')?.[0]}" · wrote ${backFiles.join(' ') || '(nothing)'}`);
-check('options', JSON.stringify(took.introOpts) === JSON.stringify(['on', '24 kHz'])
-  && JSON.stringify(backed.introOpts) === JSON.stringify(['off', '48 kHz']) && /5\.8 MB/.test(backed.introWhy)
+check('options', JSON.stringify(took.introOpts) === JSON.stringify(['on', '24 kHz', '3 s'])
+  && JSON.stringify(backed.introOpts) === JSON.stringify(['off', '48 kHz', '1 s'])
+  && /after a 3, 2, 1, and/.test(took.countSays ?? '') && /after a 1, and/.test(backed.countSays ?? '') && /5\.8 MB/.test(backed.introWhy)
   && took.gum?.noiseSuppression === true && backed.gum?.noiseSuppression === false
   && rateOf('slide-01.wav') === 48000 && readFileSync(path.join(outDir, 'slide-01.wav')).readUInt32LE(24) === 24000,
 `defaults on/24 kHz=${JSON.stringify(took.introOpts)} · chosen ${JSON.stringify(backed.introOpts)}`
   + ` · asked noiseSuppression=${backed.gum?.noiseSuppression} · wrote ${backFiles.length ? rateOf('slide-01.wav') : '?'} Hz`);
 
 // ── run 5: no --dir, on a deck that names its own folder: voices/me ─────────
-const mine = await run('tone', '', 'keys', '&cfg');
+const mine = await run('tone', '', 'keys', '&cfg&countdown=0');
 const meDir = path.join(tmp, 'voices', 'me');
 const meFiles = wavs(meDir);
 // …and the next visit refreshes that folder, rather than proposing voices/me-2
-const again = await run('tone', '', 'keys', '&cfg&introonly');
+const again = await run('tone', '', 'keys', '&cfg&introonly&countdown=0');
 check('voices/me', mine.folder === 'voices/me' && mine.finished === true
   && JSON.stringify(meFiles) === JSON.stringify(files) && !existsSync(path.join(tmp, 'voiceover'))
   && again.folder === 'voices/me' && again.clash === false,
 `proposed ${mine.folder} over the deck's voiceover/ · wrote ${meFiles.length} files there`
   + ` · voiceover/ untouched=${!existsSync(path.join(tmp, 'voiceover'))} · next time ${again.folder}, no clash warning=${again.clash === false}`);
+
+check('count-in', took.counted.length === 4 && took.counted.every((c) => c === '3') && backed.earlyIgnored === true
+  && backed.counted.every((c) => c === '1') && mine.counted.every((c) => c === null),
+`by default from 3=${took.counted.join('')} · clicked 1 s=${backed.counted.join('')}`
+  + ` · → during the count waited=${backed.earlyIgnored} · ?countdown=0 none=${mine.counted.every((c) => c === null)}`);
 
 // ── run 6+: part of a slide (#851), against run 1's takes/ ──────────────────
 const bytes = (f) => readFileSync(path.join(outDir, f));
@@ -500,7 +508,7 @@ const same = (f) => before[f] && Buffer.compare(before[f], bytes(f)) === 0;
 const pcmLen = (f) => bytes(f).length - 44;
 // --beats 2-3, stopped on beat 3's count-in: beat 2 is new, 1 and 3 are byte
 // for byte as recorded, and slide-01.wav is the three beats back to back
-const part = await run('tone', 'takes', 'keys', '&slides=1&beats=2-3&keys=R,E&escnext');
+const part = await run('tone', 'takes', 'keys', '&slides=1&beats=2-3&keys=R,E&escnext&countdown=0');
 check('beats', part.fromLine?.includes('beats 2–3 of 3 only') && part.steps[0] === '1.1'
   && !same('slide-01-02.wav') && same('slide-01-01.wav') && same('slide-01-03.wav') && same('slide-02.wav')
   && pcmLen('slide-01.wav') === pcmLen('slide-01-01.wav') + pcmLen('slide-01-02.wav') + pcmLen('slide-01-03.wav'),
@@ -513,7 +521,7 @@ check('no beat', /slide 1 has 3 beats: there is no beat 5/.test(nope.warnText ??
   `--beats 5 on a 3-beat slide: "${nope.warnText}" · offers to start=${nope.canStart}`);
 // → twice on the intro card starts at beat 3; that one is redone, then slide 2
 const now = Object.fromEntries(files.map((f) => [f, bytes(f)]));
-const picked = await run('tone', 'takes', 'keys', '&from=2&keys=R,R');
+const picked = await run('tone', 'takes', 'keys', '&from=2&keys=R,R&countdown=0');
 check('start at', /slide 1 · beat 3 of 3/.test(picked.fromLine ?? '') && /beats 1–2 of slide 1 kept/.test(picked.fromLine ?? '')
   && JSON.stringify(picked.steps) === JSON.stringify(['1.2', '2.0']) && picked.finished === true
   && Buffer.compare(now['slide-01-01.wav'], bytes('slide-01-01.wav')) === 0
