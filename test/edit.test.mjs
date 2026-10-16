@@ -2629,6 +2629,43 @@ test('POST /deck/edit/narration/record?kind=manifest writes the take’s manifes
   assert.equal((await fetch(base + '/deck/edit/narration/record?slide=1&kind=manifest&dir=..%2Fout', { method: 'POST', body: '{}' })).status, 400);
 });
 
+// ── your own voice keeps a manifest: the beats as read (#850) ───────────────
+test('your own voice\'s manifest records the beats as read, keeps the slides already on disk, and the track list says what drifted', async (t) => {
+  const dir = tmp(t);
+  // slide 1 speaks; the first </section> is slide 1's
+  const deck = (one) => DECK.replace('</section>', `<aside class="notes">${one}</aside></section>`);
+  writeFileSync(path.join(dir, 'deck.html'), deck('One. Two. [click] Three.'));
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const me = path.join(dir, 'voices', 'me');
+  mkdirSync(me, { recursive: true });
+  // recorded before #850: slide 2's take is on disk with no manifest
+  writeFileSync(path.join(me, 'slide-02.wav'), 'audio');
+  const wav = Buffer.from('RIFF....WAVEfmt ');
+  for (const q of ['slide=1&kind=wav', 'slide=1&kind=wav&seg=1', 'slide=1&kind=wav&seg=2']) {
+    await fetch(base + `/deck/edit/narration/record?${q}&dir=voices%2Fme`, { method: 'POST', body: wav });
+  }
+  const r = await fetch(base + '/deck/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fme', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mine: true, range: [1, 1], slides: { 1: { segments: [1, 2] } } }),
+  });
+  assert.equal((await r.json()).ok, true, 'no engine is needed for your own voice');
+  const m = JSON.parse(readFileSync(path.join(me, 'manifest.json'), 'utf8'));
+  assert.equal(m.recorder, 'mic');
+  assert.equal(m.engine, null);
+  assert.deepEqual(m.slides[0].beats, ['One. Two.', 'Three.'], 'the beats as they were read');
+  assert.deepEqual(m.slides[1], { file: 'slide-02.wav' }, 'the take already on disk is kept, with no script: unknown');
+  // in step: nothing drifted
+  const tracks = async () => (await (await fetch(base + '/deck/edit/narration/tracks')).json()).tracks.find((x) => x.dir === 'voices/me');
+  assert.deepEqual((await tracks()).drift, []);
+  assert.equal((await tracks()).mine, true);
+  // the [click] moves a sentence: the track list says so, by slide and by kind
+  writeFileSync(path.join(dir, 'deck.html'), deck('One. [click] Two. Three.'));
+  assert.deepEqual((await tracks()).drift, [{ slide: 1, why: 'clicks', was: 2, now: 2 }]);
+  // put back: in step again
+  writeFileSync(path.join(dir, 'deck.html'), deck('One. Two. [click] Three.'));
+  assert.deepEqual((await tracks()).drift, []);
+});
+
 // ── a track recorded from older notes is named, and refused unless allowed (#536) ──
 test('/deck/edit/export refuses a narration recorded from other notes, names the slides, and renders it when the card says so', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');

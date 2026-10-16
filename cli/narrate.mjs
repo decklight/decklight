@@ -79,6 +79,14 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
     --dir NAME   only this folder  [every one the deck's narration.files names]
     EXAMPLE: decklight narrate talk.html --face
 
+  is the narration still the notes?                        (--check)
+    --check      every track beside the deck, slide by slide: in step, the words
+                 changed, or (your own voice) only the [click] split moved, which
+                 a recording cannot follow; each with the command that fixes it.
+                 Exits 1 when something is out of step
+    --dir NAME   only this folder
+    EXAMPLE: decklight narrate talk.html --check
+
   the deck plays the folder back with
     narration: { files: '<dir>', segments: true }            (wav: ext: 'wav')
 `;
@@ -155,6 +163,60 @@ function faceMain(plan, argv) {
   return 0;
 }
 
+/**
+ * The track folders beside a deck that carry a manifest: the same two levels
+ * the edit server's track list walks (`voices/<voice>`), relative to the deck.
+ */
+export function manifestTracks(deckDir) {
+  const out = [];
+  const look = (rel) => {
+    let entries;
+    try { entries = readdirSync(join(deckDir, rel), { withFileTypes: true }); } catch { return []; }
+    if (entries.some((e) => e.isFile() && e.name === 'manifest.json')) out.push(rel);
+    return entries.filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules');
+  };
+  for (const e of look('.')) {
+    for (const k of look(e.name)) look(`${e.name}/${k.name}`);
+  }
+  return out.filter((d) => d !== '.');
+}
+
+/**
+ * `--check` (#850): each track against the deck's notes, said per slide, with
+ * the re-record line. A track recorded by hand before a manifest existed has
+ * nothing to compare and is named as unchecked rather than passed.
+ */
+async function checkMain(plan, argv) {
+  if (!plan.deck || !existsSync(plan.deck)) { console.error(`decklight narrate: ${plan.deck ? `no deck at ${plan.deck}` : 'name the deck'}`); return 1; }
+  const { trackDrift, rerecordLine } = await import('../tools/narration-manifest.mjs');
+  const html = readFileSync(plan.deck, 'utf8');
+  const deckDir = dirname(resolve(plan.deck));
+  const dirAt = argv.indexOf('--dir');
+  const dirs = dirAt === -1 ? manifestTracks(deckDir) : [argv[dirAt + 1]];
+  let out = 0;
+  if (!dirs.length) { console.log('no narration track with a manifest beside this deck — nothing to check'); return 0; }
+  for (const dir of dirs) {
+    let m = null;
+    try { m = JSON.parse(readFileSync(join(deckDir, dir, 'manifest.json'), 'utf8')); } catch { /* reported below */ }
+    if (!Array.isArray(m?.slides)) { console.log(`${dir}/  no manifest: recorded before decklight kept one, not checked`); continue; }
+    const mine = m.recorder === 'mic';
+    const who = mine ? 'your voice' : [m.voice, m.engine].filter(Boolean).join(' · ') || 'recorded';
+    const { drift, unknown } = trackDrift(m, html);
+    const note = unknown ? ` (${unknown} slide${unknown === 1 ? '' : 's'} recorded before the script was kept: not checked)` : '';
+    if (!drift.length) { console.log(`${dir}/  ${who}: in step with the notes${note}`); continue; }
+    out = 1;
+    console.log(`${dir}/  ${who}: ${drift.length} slide${drift.length === 1 ? '' : 's'} out of step${note}`);
+    for (const d of drift) {
+      console.log(d.why === 'clicks'
+        ? `  slide ${d.slide}: the [click] split moved${d.was !== d.now ? ` (${d.was} beats → ${d.now})` : ''}, the words did not`
+          + (mine ? ' — a recorded beat is cut where you pressed →, so the marker alone cannot move a build' : '')
+        : `  slide ${d.slide}: the notes changed since it was recorded`);
+      console.log(`    ${rerecordLine(plan.deck, dir, [d.slide], { mine })}`);
+    }
+  }
+  return out;
+}
+
 export async function narrateMain(argv = []) {
   const wantsHelp = argv.includes('--help') || argv.includes('-h');
   if (!argv.length || (wantsHelp && !argv.includes('--engine') && !argv.includes('--mic'))) {
@@ -162,6 +224,7 @@ export async function narrateMain(argv = []) {
     return argv.length ? 0 : 1;
   }
   const plan = narratePlan(argv);
+  if (argv.includes('--check')) return checkMain(plan, argv);
   if (argv.includes('--face')) return faceMain(plan, argv);
   // a terminal script is `cast`'s, whichever way it was meant to be narrated
   const mixedUp = wrongRecorder('narrate', plan.deck);

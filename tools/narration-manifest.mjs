@@ -19,7 +19,7 @@
 import { createHash } from 'node:crypto';
 import { cacheKey } from './tts-cache.mjs';
 import { readsAudioTags } from './elevenlabs-tts.mjs';
-import { sectionBodies, NOTES_ASIDE, cleanNotes, readNotes, isHiddenSection } from './deck-html.mjs';
+import { sectionBodies, NOTES_ASIDE, cleanNotes, readNotes, isHiddenSection, notesSegments } from './deck-html.mjs';
 import { deckConfig } from '../cli/runtime-link.mjs';
 import { PAUSE_MARK } from './sentences.mjs';
 
@@ -171,13 +171,84 @@ export function staleSlides(manifest, texts, range = null, prior = null) {
 }
 
 /**
+ * Each slide's beats as a reader is shown them: the ⟨CLICK⟩ segments with
+ * words, ⟨PAUSE⟩ kept, or the whole slide as one beat when it is not
+ * segmented; [] for a slide with nothing to say. Index i is slide i+1.
+ *
+ * What your own voice's manifest records per slide (#850). A hash says THAT
+ * the notes moved; this says how: a recorded beat is cut where you pressed →,
+ * so moving a ⟨CLICK⟩ changes nothing you hear, and the one fix is to read
+ * those beats again. A synthesized track is re-voiced from the notes, so
+ * its hash is all it needs.
+ */
+export const slideBeats = (html) => slideNotes(html).map((raw) => {
+  if (!raw) return [];
+  const segs = notesSegments(raw, { marks: true });
+  if (segs) return segs;
+  const text = cleanNotes(raw, { marks: true });
+  return text ? [text] : [];
+});
+
+/**
+ * How a slide recorded in your own voice differs from its notes now: null in
+ * step; `{ why: 'text' }` when the words moved; `{ why: 'clicks', was, now }`
+ * when the words are the same and only the ⟨CLICK⟩ split moved (`was`/`now`
+ * the beat counts). `undefined` when the entry carries no record of what was
+ * read (anything recorded before #850): unknown, which is never a verdict.
+ */
+export function scriptDrift(entry, beats) {
+  if (!Array.isArray(entry?.beats)) return undefined;
+  const was = entry.beats.map(String);
+  const now = (beats ?? []).map(String);
+  if (was.length === now.length && was.every((b, k) => b === now[k])) return null;
+  const words = (list) => list.join(' ').replace(/\s+/g, ' ').trim();
+  if (words(was) === words(now)) return { why: 'clicks', was: was.length, now: now.length };
+  return { why: 'text' };
+}
+
+/**
+ * Every slide of `manifest` out of step with the deck: `drift` lists
+ * `{ slide, why, was?, now? }`, from the beats a take of your own voice
+ * recorded, else from the notes hash; `unknown` counts the slides that carry
+ * neither (recorded by hand before either existed), which are left alone.
+ */
+export function trackDrift(manifest, html) {
+  const out = { drift: [], unknown: 0 };
+  const beats = slideBeats(html);
+  const texts = slideTexts(html);
+  const prior = priorSlideTexts(html);
+  const slides = manifest?.slides ?? [];
+  for (let i = 0; i < slides.length; i++) {
+    const entry = slides[i];
+    if (!entry) continue;
+    const d = scriptDrift(entry, beats[i]);
+    if (d) { out.drift.push({ slide: i + 1, ...d }); continue; }
+    if (d === null) continue;
+    if (!entry.hash) { out.unknown++; continue; }
+    if (entryMatches(manifest, entry, texts[i] ?? '')) continue;
+    if (manifest.recorder === 'deck' && prior[i] && entryMatches(manifest, entry, prior[i])) continue;
+    out.drift.push({ slide: i + 1, why: 'text' });
+  }
+  return out;
+}
+
+/**
+ * What a re-record of `slides` takes, as a line to paste: your own voice at
+ * the microphone, or the track's engine from the notes.
+ */
+export function rerecordLine(deck, dir, slides, { mine = false } = {}) {
+  const range = slides.length === 1 ? String(slides[0]) : `${Math.min(...slides)}-${Math.max(...slides)}`;
+  return `decklight narrate ${deck}${mine ? ' --mic' : ''} --slides ${range} --dir ${dir}`;
+}
+
+/**
  * The manifest the deck recorder writes, after each slide of a take (#535):
  * `recorded` maps slide number → its beat file numbers; every slide inside
  * `range` not in it has no notes and is null; every slide outside it keeps
  * `prev`'s entry — a ranged re-record is a surgical redo, the same promise
  * `voiceover --slides` makes. Files are wav: the recorder stitches WAV.
  */
-export function recorderManifest({ prev, header, texts, range, recorded }) {
+export function recorderManifest({ prev, header, texts, range, recorded, recorder = 'deck', beats = null }) {
   const total = Math.max(texts.length, prev?.slides?.length ?? 0);
   const slides = [];
   for (let i = 0; i < total; i++) {
@@ -189,8 +260,11 @@ export function recorderManifest({ prev, header, texts, range, recorded }) {
     const entry = { file: `slide-${nn}.wav`, hash: manifestHash(header, texts[i] ?? '') };
     const segs = (take.segments ?? []).filter((k) => Number.isInteger(k) && k > 0);
     if (segs.length) entry.segments = segs.map((k) => ({ file: `slide-${nn}-${String(k).padStart(2, '0')}.wav` }));
+    // your own voice: the beats as you read them, which is what tells a moved
+    // ⟨CLICK⟩ from changed words (scriptDrift)
+    if (beats) entry.beats = beats[i] ?? [];
     slides.push(entry);
   }
   const { engine, model, voice, style } = header;
-  return { engine, model, voice, style, recorder: 'deck', slides };
+  return { engine, model, voice, style, recorder, slides };
 }

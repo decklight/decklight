@@ -2205,6 +2205,37 @@ export function createNarration({
       if (narrEl && narrView === 'library') renderNarr('library');
     }
   }
+  /**
+   * A track's slides out of step with the notes (#850), as the V panel says
+   * them: the slide you are on first, and how it moved. A moved ⟨CLICK⟩ in
+   * your own voice gets the sentence that explains why the build did not
+   * follow it, and every message ends in the command that fixes it.
+   */
+  let narrDrift = new Map();   // track dir → { drift, mine }
+  function driftOf(t) {
+    const d = t?.dir ? narrDrift.get(String(t.dir).replace(/^\.\//, '').replace(/\/+$/, '')) : null;
+    if (!d) return null;
+    const here = d.drift.find((x) => x.slide === instance.state.slide) ?? null;
+    return { ...d, here };
+  }
+  function driftFlavor(t) {
+    const d = driftOf(t);
+    if (!d) return null;
+    if (d.here) return `⚠ slide ${d.here.slide}: ${d.here.why === 'clicks' ? 'build split changed' : 'notes changed'} — re-record slide ${d.here.slide}`;
+    const n = d.drift.length;
+    return `⚠ ${n} slide${n === 1 ? '' : 's'} out of sync: ${d.drift.map((x) => x.slide).join(', ')}`;
+  }
+  function driftWarning(t) {
+    const d = driftOf(t);
+    if (!d?.here) return null;
+    const { slide, why, was, now } = d.here;
+    const cmd = `decklight narrate ${deckFileName()}${d.mine ? ' --mic' : ''} --slides ${slide} --dir ${t.dir}`;
+    const what = why === 'clicks'
+      ? `Slide ${slide}'s [click] moved since it was recorded${was !== now ? ` (${was} beat${was === 1 ? '' : 's'} → ${now})` : ''}.`
+        + (d.mine ? ' A recorded beat is cut where you pressed →, so the marker alone cannot move a build: read those beats again.' : '')
+      : `Slide ${slide}'s notes changed since it was recorded.`;
+    return `${escapeHtml(what)} <code>${escapeHtml(cmd)}</code>`;
+  }
   function renderNarr(view) {
     const cameFrom = narrView;
     narrView = view;
@@ -2221,6 +2252,15 @@ export function createNarration({
     narrRows = [];
     if (view === 'tracks') {
       head.textContent = 'narration';
+      // the track V plays, else any track out of step here: a deck nobody
+      // has picked a voice for still has a recording to be wrong about
+      const warn = driftWarning(narrSet?.dir ? narrSet : narrSets.find((t) => driftOf(t)?.here));
+      if (warn) {
+        const w = document.createElement('div');
+        w.className = 'narr-warn';
+        w.innerHTML = warn;
+        card.appendChild(w);
+      }
       // OFF first, and checked on a deck nobody has chosen for. It is the
       // state the deck arrives in, so it reads as the top of a list of
       // choices rather than an escape hatch at the bottom of one — and it is
@@ -2246,7 +2286,7 @@ export function createNarration({
         // only once it has been loaded — before that, the row is honest
         // about knowing only where to look.
         text: t.manifest ? `☁ ${t.label}` : `🔊 ${t.label} (${t.dir}/)`,
-        flavor: t.manifest ? manifestFlavor(t) : '',
+        flavor: driftFlavor(t) ?? (t.manifest ? manifestFlavor(t) : ''),
         cur: t === narrSet,
         commit: () => {
           narrSet = t; persistNarr(); closeNarrPicker(); toast(`🔊 track: ${t.label}`);
@@ -2968,6 +3008,12 @@ export function createNarration({
     // character, recording, captions and speed, and a deck with no track yet is
     // exactly the deck whose owner needs to find "Record this deck…".
     renderNarr(view ?? 'tracks');
+    // which tracks are out of step with the notes (#850), from the server
+    // that can read their manifests; repainted only if there is news
+    knownTracks().then((tracks) => {
+      narrDrift = new Map(tracks.filter((t) => t.drift?.length).map((t) => [t.dir, t]));
+      if (narrDrift.size && narrEl && narrView === 'tracks') renderNarr('tracks');
+    });
     // ask the bridge what it can speak, and repaint if the answer changes the
     // list under the user — but only while they are still looking at it
     probeLive().then((p) => { if (p && narrEl && narrView === 'voices') renderNarr('voices'); });
@@ -4037,6 +4083,20 @@ export function createNarration({
     // Indexed, not for…of: ← walks back, to the start of this slide and from
     // there to the slide before, and a slide recorded twice is counted once.
     const saved = new Map();   // slide → { files, segmented, toDisk }
+    // The folder's manifest (#850), one slide at a time and only that slide:
+    // the server records the beats as they read now, which is what tells a
+    // moved ⟨CLICK⟩ from changed words later, and hashes the notes the way
+    // `decklight video` checks them. Best-effort: the audio is what matters.
+    const saveMicManifest = async (sl, segments) => {
+      if (!dir) return;
+      try {
+        await fetch(`${dir.base}/deck/edit/narration/record?slide=${sl}&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mine: true, range: [sl, sl], slides: { [sl]: { segments } } }),
+        });
+      } catch { /* the take is on disk; the next slide's write tries again */ }
+    };
     let s = from.s;
     slides: while (s < list.length) {
       if (run !== micRun) return;
@@ -4088,6 +4148,8 @@ export function createNarration({
           if (run !== micRun) return;
           redone.add(i);
           saved.set(sl, { files: redone.size + 1, segmented: true, toDisk: whole });
+          await saveMicManifest(sl, plan.map((b) => b.file));
+          if (run !== micRun) return;
           continue;
         }
         takes.push({ file: beat.file, pcm: micTake });
@@ -4130,6 +4192,8 @@ export function createNarration({
         done.segmented = true;
       }
       saved.set(sl, done);
+      await saveMicManifest(sl, takes.map((t) => t.file).filter((f) => f != null));
+      if (run !== micRun) return;
       if (endsHere) break;
       s++;
     }
@@ -4311,8 +4375,8 @@ export function createNarration({
         // no manifest is a take by hand: voices/me is the recorder's name for
         // yours, and the picker's (proposeTrack)
         const who = t.voice ? `${t.voice}${t.engine ? ` · ${t.engine}` : ''}`
-          : t.manifest ? 'recorded'
-            : t.dir === proposeTrack({ mine: true }).dir ? 'My voice' : 'recorded by hand';
+          : t.dir === proposeTrack({ mine: true }).dir ? 'My voice'
+            : t.mine || !t.manifest ? 'recorded by hand' : 'recorded';
         // a track voiced from other notes than the deck has now is offered,
         // marked — picking it says so on the export, and the render is told
         // the choice was seen (#536). A machine-voiced one is re-voiced on

@@ -1914,6 +1914,14 @@
 }
 .decklight-mic .rec-level.hot .rec-level-fill { background: #e5533d; }
 
+/* a track out of step with the notes (#850): what moved, and the command
+   that fixes it, under the panel's head */
+.decklight-narr .narr-warn {
+  margin: 2px 12px 8px; padding: 7px 10px; border-radius: 6px;
+  color: #ffcf8b; background: rgba(255, 207, 139, .1); font-size: 13px; line-height: 1.45;
+}
+.decklight-narr .narr-warn code { display: block; margin-top: 4px; font-size: .92em; user-select: all; }
+
 /* the microphone's two choices on the intro card: segmented, and remembered */
 .decklight-mic .rec-opts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; }
 .decklight-mic .rec-opt { display: inline-flex; align-items: center; gap: 8px; }

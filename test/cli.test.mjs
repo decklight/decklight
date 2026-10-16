@@ -2026,6 +2026,36 @@ test('narrate --mic --remote puts the phone remote on the recorder\'s server (#8
   assert.equal((await fetch(base + '/deck/remote/qr.svg')).status, 200);
 });
 
+test('narrate --check says which slides drifted from the notes, how, and the line that fixes it (#850)', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-narrate-check-'));
+  t.after(() => rmTemp(dir));
+  const { recorderManifest, slideTexts, slideBeats } = await import('../tools/narration-manifest.mjs');
+  const deck = (one, two) => '<!doctype html><div class="decklight">'
+    + `<section><h1>A</h1><aside class="notes">${one}</aside></section>`
+    + `<section><h1>B</h1><aside class="notes">${two}</aside></section></div>`;
+  const was = deck('One. Two. [click] Three.', 'Four.');
+  fs.writeFileSync(path.join(dir, 'talk.html'), was);
+  fs.mkdirSync(path.join(dir, 'voices', 'me'), { recursive: true });
+  const m = recorderManifest({ prev: null, header: { engine: null, model: null, voice: null, style: null },
+    texts: slideTexts(was), range: { from: 1, to: 2 }, recorded: { 1: { segments: [1, 2] }, 2: { segments: [] } },
+    recorder: 'mic', beats: slideBeats(was) });
+  fs.writeFileSync(path.join(dir, 'voices', 'me', 'manifest.json'), JSON.stringify(m));
+  const check = () => spawnSync(process.execPath, [CLI, 'narrate', 'talk.html', '--check'], { cwd: dir, encoding: 'utf8', env: childEnv() });
+
+  let r = check();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^voices\/me\/ {2}your voice: in step with the notes$/m);
+
+  fs.writeFileSync(path.join(dir, 'talk.html'), deck('One. [click] Two. Three.', 'Four, said differently.'));
+  r = check();
+  assert.equal(r.status, 1, 'out of step exits 1');
+  assert.match(r.stdout, /voices\/me\/ {2}your voice: 2 slides out of step/);
+  assert.match(r.stdout, /slide 1: the \[click\] split moved, the words did not — a recorded beat is cut where you pressed →, so the marker alone cannot move a build/);
+  assert.match(r.stdout, /decklight narrate talk\.html --mic --slides 1 --dir voices\/me/);
+  assert.match(r.stdout, /slide 2: the notes changed since it was recorded/);
+  assert.match(r.stdout, /decklight narrate talk\.html --mic --slides 2 --dir voices\/me/);
+});
+
 // ── a linked deck bundles from the installed package (#517) ──────────────────
 test('bundle: a deck that links the runtime and ships none of it inlines the installed package, and says so', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-linked-bundle-'));

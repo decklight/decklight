@@ -100,7 +100,7 @@ import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, split
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkReferences } from './deck-refs.mjs';
-import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-manifest.mjs';
+import { slideTexts, priorSlideTexts, staleSlides, trackDrift } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
 // pure transforms — is a deliberate static cycle and not a dynamic one: this
@@ -2590,8 +2590,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
       let req2;
       try { req2 = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(400, { ok: false, error: 'the manifest is not JSON' }); }
       const str = (v, max = 120) => (typeof v === 'string' && v.length <= max && /^[\w .:+()'-]*$/.test(v) ? v : null);
-      const header = { engine: str(req2.engine, 40), model: str(req2.model), voice: str(req2.voice), style: typeof req2.style === 'string' && req2.style.length <= 400 ? req2.style : null };
-      if (!header.engine) return json(400, { ok: false, error: 'the manifest names no engine' });
+      // `mine`: your own voice (#850), which no engine voiced. Its manifest
+      // carries the beats as you read them, so a moved ⟨CLICK⟩ can be told
+      // from changed words, and the notes hash `decklight video` checks.
+      const mine = req2.mine === true;
+      const header = mine ? { engine: null, model: null, voice: null, style: null }
+        : { engine: str(req2.engine, 40), model: str(req2.model), voice: str(req2.voice), style: typeof req2.style === 'string' && req2.style.length <= 400 ? req2.style : null };
+      if (!mine && !header.engine) return json(400, { ok: false, error: 'the manifest names no engine' });
       const from = Number(req2.range?.[0]), to = Number(req2.range?.[1]);
       if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from || to > 9999) return json(400, { ok: false, error: 'bad range' });
       const recorded = {};
@@ -2600,10 +2605,22 @@ export async function editMain(args, { onListen = null, client } = {}) {
         if (!Number.isInteger(n) || n < from || n > to) continue;
         recorded[n] = { segments: Array.isArray(v?.segments) ? v.segments.map(Number) : [] };
       }
-      const { recorderManifest, slideTexts } = await import('../tools/narration-manifest.mjs');
+      const { recorderManifest, slideTexts, slideBeats } = await import('../tools/narration-manifest.mjs');
       let prev = null;
       try { prev = JSON.parse(readFileSync(resolve(dir, 'manifest.json'), 'utf8')); } catch { /* first take here */ }
-      const manifest = recorderManifest({ prev: Array.isArray(prev?.slides) ? prev : null, header, texts: slideTexts(readDeck()), range: { from, to }, recorded });
+      // A folder of your voice recorded before it had a manifest: its other
+      // slides are on disk, and a manifest naming only this one would hide
+      // them from `decklight video`, which trusts a manifest over the files.
+      // They are kept as found, with no record of what was read: unknown.
+      if (!Array.isArray(prev?.slides) && mine) {
+        const { folderNarration } = await import('../tools/video.mjs');
+        prev = folderNarration(dir);
+      }
+      const deckNow = readDeck();
+      const manifest = recorderManifest({
+        prev: Array.isArray(prev?.slides) ? prev : null, header, texts: slideTexts(deckNow), range: { from, to }, recorded,
+        ...(mine ? { recorder: 'mic', beats: slideBeats(deckNow) } : {}),
+      });
       try {
         mkdirSync(dir, { recursive: true });
         writeFileSync(resolve(dir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
@@ -2636,13 +2653,19 @@ export async function editMain(args, { onListen = null, client } = {}) {
       try { entries = readdirSync(resolve(root2, rel), { withFileTypes: true }); } catch { return; }
       const wav = entries.filter((e) => e.isFile() && /^slide-\d+(-\d+)?\.(wav|m4a|mp3)$/.test(e.name));
       if (wav.length) {
-        let engine = null; let voice = null; let manifest = false; let stale = 0;
+        let engine = null; let voice = null; let manifest = false; let stale = 0; let mine = false;
+        let drift = [];
         try {
           const m = JSON.parse(readFileSync(resolve(root2, rel, 'manifest.json'), 'utf8'));
-          engine = m.engine ?? null; voice = m.voice ?? null; manifest = true;
+          engine = m.engine ?? null; voice = m.voice ?? null; manifest = true; mine = m.recorder === 'mic';
           // how many of its slides were voiced from other notes than the deck
           // has now — the export card marks the track with it (#536)
-          if (Array.isArray(m.slides)) stale = staleSlides(m, texts, null, prior).stale.length;
+          if (Array.isArray(m.slides)) {
+            stale = staleSlides(m, texts, null, prior).stale.length;
+            // …and which, and how (#850): the V panel and narrate --check
+            // say "the [click] moved" rather than only "different notes"
+            drift = trackDrift(m, deck).drift;
+          }
         } catch { /* a folder recorded by hand has no manifest, and needs none */ }
         seen.push({
           dir: rel.split(sep).join('/'),
@@ -2654,6 +2677,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
           engine,
           voice,
           manifest,
+          mine,
+          drift,
           // what `decklight video` can render from: a manifest, or a
           // whole-slide file to read off the disk, which is what your own
           // voice leaves (folderNarration). Beats alone render nothing.

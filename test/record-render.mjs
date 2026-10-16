@@ -109,7 +109,7 @@ const DECK = `<!doctype html>
 <script>
   // ?cfg: a deck that names a narration folder of its own, as one voiced by an
   // engine does. Your voice must not land in it.
-  const deck = Decklight.init(params.has('cfg') ? { narration: { files: 'voiceover', ext: 'wav' } } : {});
+  const deck = Decklight.init(params.has('cfg') ? { narration: { files: params.get('cfg') || 'voiceover', ext: 'wav', segments: true } } : {});
   const RESULTS = params.get('results');
   const r = { mode, beats: [], steps: [] };
   const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
@@ -142,6 +142,15 @@ const DECK = `<!doctype html>
   }
   (async () => {
     try {
+      // ?vpanel: no recording — open V and read what it says about the track
+      if (params.has('vpanel')) {
+        await wait(1500);   // the probe, then the track list the panel asks for
+        press('v');
+        const warn = await until(() => document.querySelector('.decklight-narr .narr-warn'), 6000);
+        r.vWarn = warn?.textContent ?? null;
+        r.vRows = [...document.querySelectorAll('.decklight-narr .narr-row')].map((n) => n.textContent).join(' | ');
+        throw 'introonly';
+      }
       // ?record opened it — no keystroke, which is the command's whole promise
       r.autoOpened = !!(await until(() => card()));
       // the beat count is read off the notes before a single sample is captured
@@ -316,7 +325,7 @@ async function run(mic, dir, via = 'keys', extra = '') {
   report = null;
   const profile = path.join(tmp, `profile-${++runs}`);
   mkdirSync(profile, { recursive: true });
-  const url = `${deckBase}/deck.html?record&mic=${mic}${dir ? `&dir=${dir}` : ''}&via=${via}${extra}`
+  const url = `${deckBase}/deck.html?${extra.includes('vpanel') ? '' : 'record&'}mic=${mic}${dir ? `&dir=${dir}` : ''}&via=${via}${extra}`
     + `&results=${encodeURIComponent(resultsUrl)}`;
   // --autoplay-policy: the deck's own audio elements are not what is under
   // test, and a blocked one would toast over the recorder. A throwaway
@@ -340,7 +349,9 @@ async function run(mic, dir, via = 'keys', extra = '') {
 const t0 = Date.now();
 const took = await run('tone', 'takes');
 const outDir = path.join(tmp, 'takes');
-const files = existsSync(outDir) ? readdirSync(outDir).sort() : [];
+// the audio; the manifest and the slide-NN.txt scripts beside it are #850's, checked below
+const wavs = (d) => (existsSync(d) ? readdirSync(d).filter((f) => f.endsWith('.wav')).sort() : []);
+const files = wavs(outDir);
 const sizes = Object.fromEntries(files.map((f) => [f, readFileSync(path.join(outDir, f)).length]));
 
 check('record', took.autoOpened === true && /2 slides · 4 beats/.test(took.introLine ?? ''),
@@ -433,7 +444,7 @@ const phoneReader = phoneStream.body.getReader();
 })();
 const tapped = await run('tone', 'phone', 'phone');
 phoneReader.cancel().catch(() => {});
-const phoneFiles = existsSync(path.join(tmp, 'phone')) ? readdirSync(path.join(tmp, 'phone')).sort() : [];
+const phoneFiles = wavs(path.join(tmp, 'phone'));
 check('qr', took.introQr === true, `--remote puts the phone's QR on the recorder's intro card=${took.introQr}`);
 // The phone's next ENDS the beat; the recorder reveals the next build. Had the
 // deck also stepped, beat two would be read at 1.2 and the third at slide 2.
@@ -454,7 +465,7 @@ check('readout', recs.some((r) => r.slide === 1 && r.beat === 2 && r.of === 3)
 const backed = await run('tone', 'back', 'keys',
   '&early&keys=R,L,R,R,R,L&pick');
 const backDir = path.join(tmp, 'back');
-const backFiles = existsSync(backDir) ? readdirSync(backDir).sort() : [];
+const backFiles = wavs(backDir);
 const rateOf = (f) => readFileSync(path.join(backDir, f)).readUInt32LE(24);
 check('count-in', took.counted.length === 4 && took.counted.every(Boolean) && backed.earlyIgnored === true,
   `every take counted in from 3=${took.counted.every(Boolean)} · → during the count waited=${backed.earlyIgnored}`);
@@ -473,7 +484,7 @@ check('options', JSON.stringify(took.introOpts) === JSON.stringify(['on', '24 kH
 // ── run 5: no --dir, on a deck that names its own folder: voices/me ─────────
 const mine = await run('tone', '', 'keys', '&cfg');
 const meDir = path.join(tmp, 'voices', 'me');
-const meFiles = existsSync(meDir) ? readdirSync(meDir).sort() : [];
+const meFiles = wavs(meDir);
 // …and the next visit refreshes that folder, rather than proposing voices/me-2
 const again = await run('tone', '', 'keys', '&cfg&introonly');
 check('voices/me', mine.folder === 'voices/me' && mine.finished === true
@@ -509,6 +520,24 @@ check('start at', /slide 1 · beat 3 of 3/.test(picked.fromLine ?? '') && /beats
   && Buffer.compare(now['slide-01-02.wav'], bytes('slide-01-02.wav')) === 0
   && Buffer.compare(now['slide-01-03.wav'], bytes('slide-01-03.wav')) !== 0,
 `picked "${picked.fromLine}" · read ${picked.steps.join(' ')} · beats 1–2 untouched, 3 redone`);
+
+// ── #850: the take kept its script, and V says when the notes move on ────────
+const takeManifest = JSON.parse(readFileSync(path.join(outDir, 'manifest.json'), 'utf8'));
+check('manifest', takeManifest.recorder === 'mic' && takeManifest.engine === null
+  && JSON.stringify(takeManifest.slides[0]?.beats) === JSON.stringify(['Beat one.', 'Beat two.', 'Beat three.'])
+  && JSON.stringify(takeManifest.slides[1]?.beats) === JSON.stringify(['Slide two, all in one breath.'])
+  && takeManifest.slides[0]?.segments?.length === 3 && !takeManifest.slides[2],
+`recorder=${takeManifest.recorder} · slide 1 beats=${JSON.stringify(takeManifest.slides[0]?.beats)}`);
+// move slide 1's second [click] one sentence on: the words are the same
+const deckFile = path.join(tmp, 'deck.html');
+writeFileSync(deckFile, DECK.replace('Beat two. ⟨CLICK⟩ Beat three.', 'Beat two. Beat three. ⟨CLICK⟩'));
+const moved = await run('tone', '', 'keys', '&cfg=takes&vpanel');
+writeFileSync(deckFile, DECK);
+const steady = await run('tone', '', 'keys', '&cfg=takes&vpanel');
+check('drift', /Slide 1's \[click\] moved since it was recorded \(3 beats → 2\)/.test(moved.vWarn ?? '')
+  && /cannot move a build/.test(moved.vWarn ?? '') && /decklight narrate deck\.html --mic --slides 1 --dir takes/.test(moved.vWarn ?? '')
+  && /build split changed — re-record slide 1/.test(moved.vRows ?? '') && steady.vWarn === null,
+`V says: "${moved.vWarn}" · put back, says nothing=${steady.vWarn === null}`);
 
 if (bad) fail(`${bad} check${bad === 1 ? '' : 's'} failed`);
 console.log(`record-render: PASS (${((Date.now() - t0) / 1000).toFixed(1)}s)`

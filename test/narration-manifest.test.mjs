@@ -145,3 +145,53 @@ test('markerPauses: two beat pauses — the slide\'s attribute, else the deck\'s
   // the attribute in a slide's CONTENT is not the slide's
   assert.deepEqual(markerPauses('<section><div data-narration-beat-pause="3"></div></section>'), [2 * BEAT_PAUSE_DEFAULT]);
 });
+
+// ── your own voice: the beats as read, and how a slide drifted (#850) ────────
+const deckOf = (...notes) => `<!doctype html><div class="decklight">${notes.map((n) => (n == null
+  ? '<section><h1>x</h1></section>'
+  : `<section><h1>x</h1><aside class="notes">${n}</aside></section>`)).join('')}</div>`;
+
+test('slideBeats: the [click] segments a reader is shown, the whole slide as one, [] for silence', async () => {
+  const { slideBeats } = await import('../tools/narration-manifest.mjs');
+  assert.deepEqual(slideBeats(deckOf('One. [click] Two. [click] Three.', 'All in one breath.', null)), [
+    ['One.', 'Two.', 'Three.'], ['All in one breath.'], [],
+  ]);
+});
+
+test('scriptDrift tells a moved [click] from changed words, and an unrecorded script from either', async () => {
+  const { scriptDrift } = await import('../tools/narration-manifest.mjs');
+  const entry = { beats: ['One. Two.', 'Three.'] };
+  assert.equal(scriptDrift(entry, ['One. Two.', 'Three.']), null, 'in step');
+  assert.deepEqual(scriptDrift(entry, ['One.', 'Two. Three.']), { why: 'clicks', was: 2, now: 2 }, 'the marker moved a sentence');
+  assert.deepEqual(scriptDrift(entry, ['One.', 'Two.', 'Three.']), { why: 'clicks', was: 2, now: 3 }, 'a marker added');
+  assert.deepEqual(scriptDrift(entry, ['One. Two.', 'Four.']), { why: 'text' });
+  assert.equal(scriptDrift({ file: 'slide-01.wav' }, ['One.']), undefined, 'recorded before #850: unknown, never a verdict');
+});
+
+test('trackDrift: your voice by its beats, an engine by its hash, a take by hand left alone', async () => {
+  const { trackDrift, slideBeats, rerecordLine } = await import('../tools/narration-manifest.mjs');
+  const was = deckOf('One. Two. [click] Three.', 'Four.', 'Five.');
+  const header = { engine: null, model: null, voice: null, style: null };
+  const texts = slideTexts(was);
+  const mine = recorderManifest({ prev: null, header, texts, range: { from: 1, to: 3 },
+    recorded: { 1: { segments: [1, 2] }, 2: { segments: [] }, 3: { segments: [] } }, recorder: 'mic', beats: slideBeats(was) });
+  assert.equal(mine.recorder, 'mic');
+  assert.deepEqual(mine.slides[0].beats, ['One. Two.', 'Three.']);
+  assert.ok(mine.slides[0].hash, 'and the notes hash decklight video checks');
+  assert.deepEqual(trackDrift(mine, was), { drift: [], unknown: 0 }, 'a slide that has not changed is never flagged');
+  // the [click] moves on slide 1, the words change on slide 2
+  const now = deckOf('One. [click] Two. Three.', 'Four, said differently.', 'Five.');
+  assert.deepEqual(trackDrift(mine, now), { drift: [
+    { slide: 1, why: 'clicks', was: 2, now: 2 }, { slide: 2, why: 'text' },
+  ], unknown: 0 });
+  // put the marker back and the flag goes away
+  assert.deepEqual(trackDrift(mine, deckOf('One. Two. [click] Three.', 'Four.', 'Five.')).drift, []);
+  // an engine's track: the hash says THAT, and re-voicing is its fix
+  const engine = { engine: 'say', model: 'Samantha', voice: 'Samantha', style: '' };
+  const voiced = { ...engine, slides: [{ file: 'slide-01.m4a', hash: manifestHash(engine, slideTexts(was)[0]) }] };
+  assert.deepEqual(trackDrift(voiced, now).drift, [], 'a moved [click] keeps the words, and the engine re-cuts beats from the notes');
+  assert.deepEqual(trackDrift(voiced, deckOf('Different.')).drift, [{ slide: 1, why: 'text' }]);
+  // a take recorded by hand before any of this: unknown, never a verdict
+  assert.deepEqual(trackDrift({ slides: [{ file: 'slide-01.wav' }, null] }, now), { drift: [], unknown: 1 });
+  assert.equal(rerecordLine('talk.html', 'voices/me', [6], { mine: true }), 'decklight narrate talk.html --mic --slides 6 --dir voices/me');
+});
