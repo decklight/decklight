@@ -1914,6 +1914,36 @@
 }
 .decklight-mic .rec-level.hot .rec-level-fill { background: #e5533d; }
 
+/* the microphone's two choices on the intro card: segmented, and remembered */
+.decklight-mic .rec-opts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; }
+.decklight-mic .rec-opt { display: inline-flex; align-items: center; gap: 8px; }
+.decklight-mic .rec-opt-label { opacity: .75; }
+.decklight-mic .rec-seg { display: inline-flex; border: 1px solid rgba(255, 255, 255, .18); border-radius: 6px; overflow: hidden; }
+.decklight-mic .rec-seg button {
+  font: inherit; font-size: 12px; color: inherit; cursor: pointer;
+  padding: 3px 10px; border: 0; background: transparent; opacity: .7;
+}
+.decklight-mic .rec-seg button + button { border-left: 1px solid rgba(255, 255, 255, .18); }
+.decklight-mic .rec-seg button.on { background: rgba(255, 255, 255, .16); opacity: 1; }
+.decklight-mic .rec-opt-why { font-size: 12px; opacity: .55; }
+
+/* before a take, 3-2-1 in amber; during one, the red dot. The words to read
+   are already on the card while it counts, so the count is a glance, not a wall */
+.decklight-mic .rec-status {
+  display: flex; align-items: center; gap: 10px;
+  margin: 2px 12px 0; min-height: 34px;
+  font-size: 13px; font-weight: 600; letter-spacing: .06em;
+}
+.decklight-mic .rec-status[data-phase="countdown"] { color: #ffcf8b; }
+.decklight-mic .rec-status[data-phase="rec"] { color: #ff6b5a; }
+.decklight-mic .rec-count { font-size: 30px; line-height: 1; font-variant-numeric: tabular-nums; min-width: 1ch; }
+.decklight-mic .rec-dot {
+  width: 12px; height: 12px; border-radius: 50%; background: #e5533d;
+  animation: decklight-rec-pulse 1.2s ease-in-out infinite;
+}
+@keyframes decklight-rec-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .decklight-mic .rec-dot { animation: none; } }
+
 /* "Use this track" — the offer that spares you pasting a config line. Shares
    .narr-row's chrome; the two states it can reach are the two things worth
    saying afterwards, so neither is a toast that scrolls away. */

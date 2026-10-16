@@ -72,7 +72,8 @@ const DECK = `<!doctype html>
     navigator.mediaDevices.getUserMedia = () => Promise.reject(
       Object.assign(new DOMException('Permission denied', 'NotAllowedError')));
   } else if (mode !== 'real') {
-    navigator.mediaDevices.getUserMedia = async () => {
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      window.__gum = constraints;   // what the recorder asked the microphone for
       const ctx = new AudioContext();
       if (ctx.state === 'suspended') await ctx.resume();
       // DOES THE AUDIO GRAPH ACTUALLY RUN HERE? ctx.state says "running" on a
@@ -113,6 +114,13 @@ const DECK = `<!doctype html>
   const card = () => document.querySelector('.decklight-mic .narr-card');
   const reading = () => document.querySelector('.decklight-mic .rec-read')?.textContent ?? null;
   const done = () => /recording done|recording stopped/.test(card()?.textContent ?? '');
+  // the indicator: 'countdown' during the 3-2-1, 'rec' once the take runs.
+  // A new element per beat, which is how a re-render (a retake, a ←) is seen.
+  const status = () => document.querySelector('.decklight-mic .rec-status');
+  const phase = () => status()?.dataset.phase ?? null;
+  // ?keys=R,L,…: what to answer each beat the deck puts up (R → or the
+  // phone's next, L ←); past the end of the list, R
+  const KEYS = (params.get('keys') || '').split(',').filter(Boolean);
   const press = (key) => document.body.dispatchEvent(
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   // ?via=phone: every beat is ended by the phone remote instead (#848), the
@@ -136,6 +144,15 @@ const DECK = `<!doctype html>
       r.autoOpened = !!(await until(() => card()));
       // the beat count is read off the notes before a single sample is captured
       r.introLine = card()?.querySelector('.rec-line')?.textContent ?? '';
+      // ?pick: choose noise suppression off and 48 kHz on the card, by click,
+      // once the deferred render has settled (it re-renders with the folder)
+      if (params.has('pick')) {
+        await until(() => card()?.querySelector('.rec-folder'), 5000);
+        card().querySelector('[data-noise="off"]').click();
+        card().querySelector('[data-rate="48000"]').click();
+      }
+      r.introOpts = [...(card()?.querySelectorAll('.rec-seg button.on') ?? [])].map((b) => b.textContent);
+      r.introWhy = card()?.querySelector('.rec-opt-why')?.textContent ?? '';
       // with --remote on, the card carries the QR (the speaker view is not open)
       r.introQr = !!(await until(() => card()?.querySelector('.rec-phone img'), 5000));
       press('Enter');
@@ -149,24 +166,40 @@ const DECK = `<!doctype html>
       } else {
         // Read every beat the deck puts up, holding each one long enough that
         // there is real audio in it, and answer it the way a presenter does.
-        for (let i = 0; i < 12; i++) {
+        r.counted = [];
+        for (let i = 0; i < 16; i++) {
           const text = await until(() => reading());
           if (text === null) break;
           r.beats.push(text);
           // the build the beat is filmed at — the claim that → both ends a file
           // AND reveals the next build has to be visible from outside
           r.steps.push(deck.state.slide + '.' + deck.state.step);
+          // every take is counted in, and nothing is captured while it counts
+          r.counted.push(phase() === 'countdown' && /3/.test(status()?.textContent ?? ''));
+          if (i === 0 && params.has('early')) {
+            // → during the 3-2-1 waits for the take, it does not skip the beat
+            press('ArrowRight');
+            await wait(200);
+            r.earlyIgnored = phase() === 'countdown' && reading() === text;
+          }
+          if (!(await until(() => phase() === 'rec', 6000))) { r.noTake = text; break; }
           await wait(${BEAT_MS});
           if (VIA === 'phone' && i === 0) {
-            // retake from the phone: the same beat comes back, at the same build
+            // retake from the phone: the same beat comes back, at the same
+            // build, counted in again
+            const el = status();
             await tap('retake');
-            await wait(300);
-            r.retook = reading() === text && (deck.state.slide + '.' + deck.state.step) === r.steps[0];
+            await until(() => status() !== el, 5000);
+            r.retook = reading() === text && (deck.state.slide + '.' + deck.state.step) === r.steps[0]
+              && phase() === 'countdown';
+            if (!(await until(() => phase() === 'rec', 6000))) { r.noTake = text; break; }
             await wait(${BEAT_MS});
           }
-          if (VIA === 'phone') await tap('next');
+          const el = status();
+          if ((KEYS[i] ?? 'R') === 'L') press('ArrowLeft');
+          else if (VIA === 'phone') await tap('next');
           else press('ArrowRight');
-          const moved = await until(() => reading() !== text || done(), 15000);
+          const moved = await until(() => status() !== el || done(), 15000);
           if (!moved || done()) break;
         }
         await until(() => done());
@@ -174,6 +207,7 @@ const DECK = `<!doctype html>
         r.finished = done();
       }
       r.audioRan = window.__audioRan !== false;
+      r.gum = window.__gum?.audio ?? null;
     } catch (e) { r.exception = String(e && (e.stack || e.message || e)); }
     // The page is the only thing that knows it is finished; nothing is dumped,
     // so this is how the harness finds out.
@@ -258,11 +292,11 @@ await new Promise((r) => results.listen(0, '127.0.0.1', r));
 const resultsUrl = `http://127.0.0.1:${results.address().port}/`;
 
 /** One run of the deck in a fresh browser: returns what the page reported. */
-async function run(mic, dir, via = 'keys') {
+async function run(mic, dir, via = 'keys', extra = '') {
   report = null;
-  const profile = path.join(tmp, `profile-${mic}-${via}`);
+  const profile = path.join(tmp, `profile-${mic}-${dir}`);
   mkdirSync(profile, { recursive: true });
-  const url = `${deckBase}/deck.html?record&mic=${mic}&dir=${dir}&via=${via}`
+  const url = `${deckBase}/deck.html?record&mic=${mic}&dir=${dir}&via=${via}${extra}`
     + `&results=${encodeURIComponent(resultsUrl)}`;
   // --autoplay-policy: the deck's own audio elements are not what is under
   // test, and a blocked one would toast over the recorder. A throwaway
@@ -386,12 +420,35 @@ check('qr', took.introQr === true, `--remote puts the phone's QR on the recorder
 check('phone', JSON.stringify(tapped.steps) === JSON.stringify(['1.0', '1.1', '1.2', '2.0'])
   && tapped.finished === true && JSON.stringify(phoneFiles) === JSON.stringify(files),
 `phone next read ${tapped.beats.length} beats at builds ${tapped.steps.join(' ')} · wrote ${phoneFiles.join(' ') || '(nothing)'}`);
-check('retake', tapped.retook === true && tapped.beats[0] === 'Beat one.',
+check('retake', tapped.retook === true && tapped.beats[0] === 'Beat one.' && tapped.counted.every(Boolean),
   `phone retake kept the same beat at the same build=${tapped.retook}`);
 const recs = phoneSaw.map((p) => p.rec).filter(Boolean);
 check('readout', recs.some((r) => r.slide === 1 && r.beat === 2 && r.of === 3)
   && recs.some((r) => r.slide === 2 && r.beat === 1 && r.of === 1) && phoneSaw.at(-1)?.rec === null,
 `the phone saw ${recs.length} beat reports, ending on not-recording=${phoneSaw.at(-1)?.rec === null}`);
+
+// ── run 4: ← goes back, the 3-2-1 holds, and the microphone choices stick ──
+// ← on beat two goes back to beat one; ← on slide 2's first beat goes back to
+// slide 1, which is recorded again over its own files. 48 kHz with noise
+// suppression off, clicked on the intro card before Enter starts it.
+const backed = await run('tone', 'back', 'keys',
+  '&early&keys=R,L,R,R,R,L&pick');
+const backDir = path.join(tmp, 'back');
+const backFiles = existsSync(backDir) ? readdirSync(backDir).sort() : [];
+const rateOf = (f) => readFileSync(path.join(backDir, f)).readUInt32LE(24);
+check('count-in', took.counted.length === 4 && took.counted.every(Boolean) && backed.earlyIgnored === true,
+  `every take counted in from 3=${took.counted.every(Boolean)} · → during the count waited=${backed.earlyIgnored}`);
+check('back', JSON.stringify(backed.steps) === JSON.stringify(
+  ['1.0', '1.1', '1.0', '1.1', '1.2', '2.0', '1.0', '1.1', '1.2', '2.0'])
+  && backed.finished === true && /2 slides · 5 files/.test(backed.card ?? '')
+  && JSON.stringify(backFiles) === JSON.stringify(files),
+`← read ${backed.steps.join(' ')} · done card: "${/\d+ slides? · \d+ files?/.exec(backed.card ?? '')?.[0]}" · wrote ${backFiles.join(' ') || '(nothing)'}`);
+check('options', JSON.stringify(took.introOpts) === JSON.stringify(['on', '24 kHz'])
+  && JSON.stringify(backed.introOpts) === JSON.stringify(['off', '48 kHz']) && /5\.8 MB/.test(backed.introWhy)
+  && took.gum?.noiseSuppression === true && backed.gum?.noiseSuppression === false
+  && rateOf('slide-01.wav') === 48000 && readFileSync(path.join(outDir, 'slide-01.wav')).readUInt32LE(24) === 24000,
+`defaults on/24 kHz=${JSON.stringify(took.introOpts)} · chosen ${JSON.stringify(backed.introOpts)}`
+  + ` · asked noiseSuppression=${backed.gum?.noiseSuppression} · wrote ${backFiles.length ? rateOf('slide-01.wav') : '?'} Hz`);
 
 if (bad) fail(`${bad} check${bad === 1 ? '' : 's'} failed`);
 console.log(`record-render: PASS (${((Date.now() - t0) / 1000).toFixed(1)}s)`

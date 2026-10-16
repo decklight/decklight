@@ -3570,7 +3570,9 @@ export function createNarration({
   let micChunks = null;      // the beat being captured, or null between beats
   let micTake = null;        // the beat just finished
   let micPeak = 0, micMeter = null;
-  let micEnd = null;         // resolves the beat: 'next' | 'retake' | 'stop'
+  let micEnd = null;         // resolves the beat: 'next' | 'retake' | 'back' | 'stop'
+  let micPhase = null;       // 'countdown' before a take, 'rec' during one, null otherwise
+  let micCount = null;       // the countdown's interval
 
   /** Why this browser cannot record, in the words of the thing to do about it. */
   function micUnavailable() {
@@ -3595,15 +3597,28 @@ export function createNarration({
   // video.mjs already read, at ~2.8 MB a minute rather than 5.8. Asked of the
   // AudioContext rather than decimated by hand: the browser resamples properly,
   // and naive decimation aliases everything above 12 kHz down into the voice.
+  //
+  // …unless you ask for more on the intro card. Both of its choices are the
+  // microphone's and the room's, not the deck's, so they are remembered once
+  // for every deck: 48 kHz (twice the size, everything above 12 kHz kept) and
+  // noise suppression off (the browser's suppressor can sound processed on a
+  // good microphone in a quiet room).
   const MIC_RATE = 24000;
+  const MIC_RATES = [24000, 48000];
+  const MIC_PREFS = 'decklight-mic';
+  function micPrefs() {
+    const p = readJson(MIC_PREFS, {});
+    return { noise: p.noise !== false, rate: MIC_RATES.includes(p.rate) ? p.rate : MIC_RATE };
+  }
   async function openMic() {
+    const { noise, rate } = micPrefs();
     micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: noise, autoGainControl: true },
     });
     const Ctx = window.AudioContext ?? window.webkitAudioContext;
     // A browser that will not give the rate asked for gives its own; the WAV
     // header records whatever came back, so both cases are correct files.
-    try { micCtx = new Ctx({ sampleRate: MIC_RATE }); } catch { micCtx = new Ctx(); }
+    try { micCtx = new Ctx({ sampleRate: rate }); } catch { micCtx = new Ctx(); }
     micSource = micCtx.createMediaStreamSource(micStream);
     micNode = micCtx.createScriptProcessor(4096, 1, 1);
     micNode.onaudioprocess = (e) => {
@@ -3622,7 +3637,7 @@ export function createNarration({
     micNode.connect(mute);
     mute.connect(micCtx.destination);
     if (micCtx.state === 'suspended') await micCtx.resume();
-    debugLog('narr', `mic open at ${micCtx.sampleRate} Hz`);
+    debugLog('narr', `mic open at ${micCtx.sampleRate} Hz, noise suppression ${noise ? 'on' : 'off'}`);
   }
   function closeMic() {
     try { micNode?.disconnect(); micSource?.disconnect(); } catch { /* already gone */ }
@@ -3639,16 +3654,56 @@ export function createNarration({
   function captureBeat() {
     micChunks = [];
     micPeak = 0;
+    micPhase = 'rec';
+    paintMicStatus();
     return new Promise((done) => { micEnd = done; });
   }
-  /** The keys that end a beat, called from the overlay handler below. */
+  /**
+   * 3, 2, 1, before every take: after Enter, →, ⌫ or ←, which are the moments
+   * you were pressing a key instead of breathing in. Nothing is captured while
+   * it counts, so the key is not in the take and the beat starts on your first
+   * word. Resolves 'go', or what interrupted it: ← ('back') and Esc ('stop')
+   * work here as they do during a take; → and ⌫ wait for it.
+   */
+  const COUNTDOWN = 3;
+  function countIn() {
+    micPhase = 'countdown';
+    let n = COUNTDOWN;
+    paintMicStatus(n);
+    return new Promise((done) => {
+      micEnd = done;
+      micCount = setInterval(() => {
+        if (--n > 0) { paintMicStatus(n); return; }
+        clearInterval(micCount);
+        micCount = null;
+        if (micEnd === done) { micEnd = null; done('go'); }
+      }, 1000);
+    });
+  }
+  /** Ends the take, or the countdown before it: 'next' | 'retake' | 'back' | 'stop'. */
   function endBeat(how) {
     if (!micEnd) return;
+    clearInterval(micCount);
+    micCount = null;
     micTake = micChunks ?? [];
     micChunks = null;
+    micPhase = null;
     const done = micEnd;
     micEnd = null;
     done(how);
+  }
+  /** → and ⌫ mean something only once a take is running: during the 3-2-1 they wait. */
+  function endTake(how) {
+    if (micPhase === 'rec') endBeat(how);
+  }
+  /** The capture card's indicator: the count, or the red dot of a take in progress. */
+  function paintMicStatus(n) {
+    const el = micEl?.querySelector('.rec-status');
+    if (!el) return;
+    el.dataset.phase = micPhase ?? '';
+    el.innerHTML = micPhase === 'countdown'
+      ? `<span class="rec-count" aria-live="assertive">${n}</span><span>recording starts…</span>`
+      : '<span class="rec-dot" aria-hidden="true"></span><span>REC</span>';
   }
 
   // The phone remote's half of the recorder (#848). A keystroke on the laptop
@@ -3665,8 +3720,8 @@ export function createNarration({
     get state() { return micEl && micView === 'capture' ? micBeat : null; },
     remote(key) {
       if (!micEl || micView !== 'capture') return false;
-      if (key === 'next') endBeat('next');
-      else if (key === 'retake') endBeat('retake');
+      if (key === 'next') endTake('next');
+      else if (key === 'retake') endTake('retake');
       return true;
     },
     onChange: null,
@@ -3690,6 +3745,44 @@ export function createNarration({
       <span>Scan it to record without the keyboard: the phone's <strong>next</strong> ends a beat and
       <strong>retake</strong> redoes it, and a tap is not in the take the way a keystroke is.</span></div>`;
   }
+  /** The intro card's two microphone choices, remembered for every deck. */
+  function micOptsRow() {
+    const { noise, rate } = micPrefs();
+    const seg = (name, value, label, on) => `<button type="button" tabindex="-1" data-${name}="${value}"`
+      + ` aria-pressed="${on}" class="${on ? 'on' : ''}">${label}</button>`;
+    return `<div class="rec-line rec-opts">
+        <span class="rec-opt"><span class="rec-opt-label">noise suppression</span><span class="rec-seg" role="group" aria-label="noise suppression">${
+  seg('noise', 'on', 'on', noise)}${seg('noise', 'off', 'off', !noise)}</span></span>
+        <span class="rec-opt"><span class="rec-opt-label">sample rate</span><span class="rec-seg" role="group" aria-label="sample rate">${
+  MIC_RATES.map((r) => seg('rate', r, `${r / 1000} kHz`, r === rate)).join('')}</span></span>
+      </div><div class="rec-line rec-opt-why">${micOptsWhy(noise, rate)}</div>`;
+  }
+  function micOptsWhy(noise, rate) {
+    return [
+      noise ? 'the browser cleans up the room' : 'the room as your microphone hears it: best with a good microphone somewhere quiet',
+      rate === 48000 ? 'about 5.8 MB a minute' : 'about 2.8 MB a minute, everything above 12 kHz left out',
+    ].join(' · ');
+  }
+  function wireMicOpts(card) {
+    card.querySelectorAll('.rec-seg button').forEach((b) => {
+      // never takes focus: Enter on the card starts the recording, and a
+      // focused button would take that Enter as a click as well
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => {
+        const p = micPrefs();
+        if (b.dataset.noise) p.noise = b.dataset.noise === 'on';
+        if (b.dataset.rate) p.rate = Number(b.dataset.rate);
+        writeJson(MIC_PREFS, p);
+        card.querySelectorAll('.rec-seg button').forEach((o) => {
+          const on = o.dataset.noise ? (o.dataset.noise === 'on') === p.noise : Number(o.dataset.rate) === p.rate;
+          o.classList.toggle('on', on);
+          o.setAttribute('aria-pressed', String(on));
+        });
+        const why = card.querySelector('.rec-opt-why');
+        if (why) why.textContent = micOptsWhy(p.noise, p.rate);
+      });
+    });
+  }
   function renderMicCard(view, data = {}) {
     micView = view;
     micBeat = view === 'capture' ? { slide: data.sl, beat: data.i + 1, of: data.of } : null;
@@ -3710,13 +3803,16 @@ export function createNarration({
   range ? ` <strong>(slides ${escapeHtml(range)} only — everything else is left alone)</strong>` : ''}</div>
         ${beats === 0
     ? `<div class="rec-line rec-warn">Nothing to record${range ? ` in slides ${escapeHtml(range)}` : ''} — no slide there has notes to read.</div>`
-    : '<div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.</div>'}
+    : '<div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.'
+      + " Every take starts after a 3, 2, 1, and <kbd>←</kbd> goes back to record a slide again.</div>"}
         ${folderRow(data.target)}
+        ${beats === 0 ? '' : micOptsRow()}
         ${beats === 0 ? '' : phoneRow()}
         ${warn ? `<div class="rec-line rec-warn">${warn}</div>` : ''}
         ${beats === 0 ? '' : '<div class="narr-row narr-sel">Start recording</div>'}
         <div class="rec-hint">${beats === 0 ? 'Esc to close' : 'Enter to start · Esc to cancel'}</div>`;
       wireFolderRow(card, (t) => { micTarget = t; });
+      wireMicOpts(card);
       card.querySelector('.narr-row')?.addEventListener('click', () => startMicRecording());
       return;
     }
@@ -3724,10 +3820,11 @@ export function createNarration({
       const { sl, nth, slides, beat, i, of, note } = data;
       card.innerHTML = `<div class="narr-head">recording · slide ${nth} of ${slides}</div>
         <div class="rec-line rec-where">slide ${sl} · beat ${i + 1} of ${of}</div>
+        <div class="rec-status"></div>
         <div class="rec-read">${escapeHtml(beat.text)}</div>
         ${note ? `<div class="rec-line rec-note">${note}</div>` : ''}
         ${micBar(0)}
-        <div class="rec-hint"><kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>Esc</kbd> stop${
+        <div class="rec-hint"><kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>←</kbd> ${i > 0 ? 'back to beat 1' : nth > 1 ? 'back a slide' : 'start over'} · <kbd>Esc</kbd> stop${
   instance.__remoteQr ? ' · or the phone: next, retake' : ''}</div>`;
       return;
     }
@@ -3760,7 +3857,7 @@ export function createNarration({
     const target = micTarget ?? targetFor({ mine: true }, await knownTracks());
     if (run !== micRun) return;
     const dir = base == null ? null : { base, name: target.dir };
-    let slidesDone = 0, files = 0, toDisk = 0, segmented = false, stopped = false;
+    let stopped = false;
     // The recorded track must not play over the take, and P must not be
     // holding a chain that resumes into the middle of one.
     if (narrating) toggleNarration();
@@ -3781,10 +3878,16 @@ export function createNarration({
       micPeak *= 0.7;
     }, 100);
 
-    outer: for (const sl of list) {
+    // Indexed, not for…of: ← walks back, to the start of this slide and from
+    // there to the slide before, and a slide recorded twice is counted once.
+    const plans = list.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
+    const saved = new Map();   // slide → { files, segmented, toDisk }
+    let s = 0;
+    slides: while (s < list.length) {
       if (run !== micRun) return;
-      const plan = recordPlan(notesSegs(sl), buildSteps(sl));
-      if (!plan.length) continue;
+      const sl = list[s];
+      const plan = plans[s];
+      if (!plan.length) { s++; continue; }
       // Said HERE, where it can still be acted on: a slide with builds and no
       // ⟨CLICK⟩ in its notes is recorded as one take, so its builds will not be
       // paced by anything. That is an authoring gap, and the moment you are
@@ -3794,19 +3897,38 @@ export function createNarration({
           + ' — one take for the whole slide; add [click] between the beats to pace them'
         : null;
       const takes = [];
+      let back = false;
       for (let i = 0; i < plan.length; i++) {
         const beat = plan[i];
         instance.goto(sl, beat.step);
-        renderMicCard('capture', { sl, nth: slidesDone + 1, slides: list.length, beat, i, of: plan.length, note });
-        const how = await captureBeat();
+        renderMicCard('capture', { sl, nth: s + 1, slides: list.length, beat, i, of: plan.length, note });
+        let how = await countIn();
         if (run !== micRun) return;
-        if (how === 'stop') { stopped = true; break outer; }
+        if (how === 'go') how = await captureBeat();
+        if (run !== micRun) return;
+        if (how === 'stop') { stopped = true; break slides; }
         if (how === 'retake') { i--; continue; }   // the for's i++ returns to the same beat
+        if (how === 'back') {
+          // Mid-slide, back to this slide's first beat: its takes are not
+          // saved until the slide is done, so they are simply dropped. On a
+          // first beat, the slide before, which is recorded again over its
+          // files. Before the first slide there is nothing: it starts over.
+          if (i > 0) { takes.length = 0; i = -1; continue; }
+          back = true;
+          break;
+        }
         takes.push({ file: beat.file, pcm: micTake });
       }
-      if (!takes.length) continue;
+      if (back) {
+        let p = s - 1;
+        while (p >= 0 && !plans[p].length) p--;
+        if (p >= 0) s = p;
+        continue;
+      }
+      if (!takes.length) { s++; continue; }
       renderMicCard('saving', { sl, files: takes.length + 1 });
       const rate = micCtx?.sampleRate ?? MIC_RATE;
+      const done = { files: 0, segmented: false, toDisk: false };
       // The whole-slide file, for every reader that predates segments:
       // tools/lipsync.mjs, tools/video.mjs, and a deck that never opts in.
       //
@@ -3818,8 +3940,8 @@ export function createNarration({
       // …and no trailing slide pause either: advanceFrom holds it at play
       // time, and a take that carried it as well held every slide twice.
       const chunks = takes.flatMap((t) => t.pcm);
-      if (await saveRecording(sl, 'wav', stitchWav(chunks, rate), dir)) toDisk++;
-      files++;
+      if (await saveRecording(sl, 'wav', stitchWav(chunks, rate), dir)) done.toDisk = true;
+      done.files++;
       if (run !== micRun) return;
       // …and one file per beat, which is what lets the recording step the
       // builds. Never carrying the slide's trailing pause: `advanceFrom`
@@ -3829,11 +3951,17 @@ export function createNarration({
         if (t.file == null) continue;
         await saveRecording(sl, 'wav', stitchWav(t.pcm, rate), dir, t.file);
         if (run !== micRun) return;
-        files++;
-        segmented = true;
+        done.files++;
+        done.segmented = true;
       }
-      slidesDone++;
+      saved.set(sl, done);
+      s++;
     }
+    const all = [...saved.values()];
+    const slidesDone = all.length;
+    const files = all.reduce((n, d) => n + d.files, 0);
+    const toDisk = all.some((d) => d.toDisk);
+    const segmented = all.some((d) => d.segmented);
     closeMic();
     if (run !== micRun) return;
     renderMicCard('done', { slides: slidesDone, files, dir: toDisk ? dir.name : null, segmented, stopped, label: target.label });
@@ -3891,8 +4019,12 @@ export function createNarration({
         // in a presentation, and binding it to "discard that take" is a trap
         // you spring once and remember forever — retake is ⌫, which reads as
         // taking it back.
-        if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ' || e.key === 'PageDown') endBeat('next');
-        else if (e.key === 'Backspace') endBeat('retake');
+        // ← (and ⇞, a clicker's back) goes back, during a take or the
+        // 3-2-1 before one; → and ⌫ wait for the take to start, and are
+        // swallowed until then so the deck never moves under the recorder.
+        if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ' || e.key === 'PageDown') endTake('next');
+        else if (e.key === 'Backspace') endTake('retake');
+        else if (e.key === 'ArrowLeft' || e.key === 'PageUp') endBeat('back');
         else if (e.key === 'Escape') closeMicRecorder();
         else return false;
         return true;
