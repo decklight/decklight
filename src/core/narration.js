@@ -521,6 +521,40 @@ export function stitchWav(chunks, rate) {
   return new Blob([h.buffer, ...chunks], { type: 'audio/wav' });
 }
 
+/**
+ * A WAV the recorders wrote, read back: `{ rate, pcm }` for 16-bit mono PCM,
+ * else null. Walks the chunks rather than assuming a 44-byte header, because
+ * a beat file that was re-saved by an editor can carry a LIST chunk before
+ * its data. What a partial re-record keeps of the beats it does not redo.
+ */
+export function wavPcm(buf) {
+  const v = new DataView(buf);
+  const id = (o) => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
+  if (buf.byteLength < 12 || id(0) !== 'RIFF' || id(8) !== 'WAVE') return null;
+  let rate = 0, pcm16 = false;
+  for (let o = 12; o + 8 <= buf.byteLength;) {
+    const len = v.getUint32(o + 4, true);
+    if (id(o) === 'fmt ' && len >= 16) {
+      rate = v.getUint32(o + 12, true);
+      pcm16 = v.getUint16(o + 8, true) === 1 && v.getUint16(o + 10, true) === 1 && v.getUint16(o + 22, true) === 16;
+    } else if (id(o) === 'data') {
+      if (!pcm16 || !rate) return null;
+      return { rate, pcm: new Uint8Array(buf, o + 8, Math.min(len, buf.byteLength - o - 8)) };
+    }
+    o += 8 + len + (len & 1);
+  }
+  return null;
+}
+
+/** `?beats=3` or `3-4` → `{ from, to }`, 1-based and inclusive; anything else → null. */
+export function beatSpan(text) {
+  const m = /^(\d+)(?:-(\d+))?$/.exec(String(text ?? '').trim());
+  if (!m) return null;
+  const from = Number(m[1]);
+  const to = m[2] ? Number(m[2]) : from;
+  return from >= 1 && to >= from ? { from, to } : null;
+}
+
 /** `seconds` of 16-bit mono silence at `rate` — the gap between beats. */
 export const silencePcm = (rate, seconds) => new Uint8Array(2 * Math.round(rate * seconds));
 
@@ -3617,8 +3651,11 @@ export function createNarration({
     const p = readJson(MIC_PREFS, {});
     return { noise: p.noise !== false, rate: MIC_RATES.includes(p.rate) ? p.rate : MIC_RATE };
   }
-  async function openMic() {
-    const { noise, rate } = micPrefs();
+  async function openMic(forced = null) {
+    // a partial re-record takes the rate of the beats it keeps: one slide's
+    // files at two rates cannot be joined into its whole-slide file
+    const { noise, rate: chosen } = micPrefs();
+    const rate = forced ?? chosen;
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: noise, autoGainControl: true },
     });
@@ -3723,6 +3760,14 @@ export function createNarration({
   // the clicker it always was. `state` is what the phone shows instead of
   // looking at the laptop; editmode reads both, and `onChange` is its.
   let micBeat = null;
+  // Where the take starts (#851): an index into the slides being recorded and
+  // a beat of that slide. Picked with ← → on the intro card, or fixed by
+  // `?beats=k-l` (`narrate --mic --slides N --beats k-l`), which also says
+  // where it ends. Starting past a slide's first beat keeps the beats before
+  // it as they are on disk and rebuilds the whole-slide file around the new.
+  const recBeats = beatSpan(params?.get?.('beats'));
+  let micFrom = { s: 0, i: 0 };
+  let micList = [], micPlans = [], micIntro = null;
   instance.__recorder = {
     get state() { return micEl && micView === 'capture' ? micBeat : null; },
     remote(key) {
@@ -3751,6 +3796,87 @@ export function createNarration({
     return `<div class="rec-line rec-phone"><img src="${escapeHtml(qr)}" alt="QR code for the phone remote" width="96" height="96">
       <span>Scan it to record without the keyboard: the phone's <strong>next</strong> ends a beat and
       <strong>retake</strong> redoes it, and a tap is not in the take the way a keystroke is.</span></div>`;
+  }
+  /** `?beats` naming a beat the slide does not have: said with the count, and nothing starts. */
+  function fromProblem() {
+    if (!recBeats) return null;
+    const plan = micPlans[0] ?? [];
+    if (recBeats.to <= plan.length) return null;
+    return `slide ${micList[0]} has ${plan.length} beat${plan.length === 1 ? '' : 's'}: there is no beat ${recBeats.to}.`;
+  }
+  /** The start point, as a line: where the take begins, and what is kept. */
+  function fromRow() {
+    const { s, i } = micFrom;
+    const sl = micList[s];
+    const of = micPlans[s]?.length ?? 0;
+    if (sl == null) return '';
+    if (recBeats) {
+      const last = recBeats.to;
+      return `<div class="rec-line rec-from"><strong>slide ${sl}, beat${last > i + 1 ? `s ${i + 1}–${last}` : ` ${i + 1}`} of ${of} only</strong>`
+        + ' — the other beats are kept as recorded, and the whole-slide file is rebuilt from all of them</div>';
+    }
+    const total = micPlans.reduce((n, p) => n + p.length, 0);
+    if (total < 2) return '';
+    const kept = i > 0
+      ? `beat${i > 1 ? `s 1–${i}` : ' 1'} of slide ${sl} kept as recorded`
+      : s > 0 ? 'the slides before it are left alone' : 'from the top';
+    return `<div class="rec-line rec-from">start at
+      <span class="rec-seg"><button type="button" tabindex="-1" data-from="-1" aria-label="start one beat earlier">‹</button></span>
+      <strong>slide ${sl} · beat ${i + 1} of ${of}</strong>
+      <span class="rec-seg"><button type="button" tabindex="-1" data-from="1" aria-label="start one beat later">›</button></span>
+      <span class="rec-from-why">${kept} · <kbd>←</kbd> <kbd>→</kbd></span></div>`;
+  }
+  /** Step the start point one beat, across slides; ← → on the intro card. */
+  function moveFrom(d) {
+    const at = [];
+    micPlans.forEach((p, s) => p.forEach((_, i) => at.push({ s, i })));
+    const k = at.findIndex((p) => p.s === micFrom.s && p.i === micFrom.i);
+    const next = at[Math.max(0, Math.min(at.length - 1, k + d))];
+    if (!next) return;
+    micFrom = next;
+    const row = micEl?.querySelector('.rec-from');
+    if (row) { row.outerHTML = fromRow(); wireFromRow(micEl.querySelector('.narr-card')); }
+  }
+  function wireFromRow(card) {
+    card?.querySelectorAll('[data-from]').forEach((b) => {
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => moveFrom(Number(b.dataset.from)));
+    });
+  }
+  /** The intro card again, saying why it did not start. */
+  function micRefuse(warn) {
+    closeMic();
+    renderMicCard('intro', { ...(micIntro ?? {}), target: micTarget ?? micIntro?.target, warn });
+  }
+  /**
+   * The beats of a slide as they are on disk, for a partial re-record: every
+   * one of them, because the whole-slide file is rebuilt from all of them
+   * after each new take. A string when they cannot be: the reason, said on
+   * the card.
+   */
+  async function loadBeats(sl, plan, name) {
+    const nn = String(sl).padStart(2, '0');
+    const pcm = new Map();
+    let rate = 0;
+    for (let i = 0; i < plan.length; i++) {
+      const f = `${name}/slide-${nn}-${String(plan[i].file).padStart(2, '0')}.wav`;
+      let w = null;
+      try {
+        const r = await fetch(new URL(f, location.href), { cache: 'no-store' });
+        if (r.ok) w = wavPcm(await r.arrayBuffer());
+      } catch { /* missing is the answer */ }
+      if (!w) {
+        return `slide ${sl} has no recording of beat ${i + 1} in <code>${escapeHtml(name)}/</code> to keep,`
+          + ' so it cannot be recorded in part: start from its beat 1.';
+      }
+      if (rate && w.rate !== rate) {
+        return `the beats of slide ${sl} in <code>${escapeHtml(name)}/</code> were recorded at different rates`
+          + ' and cannot be joined: record the whole slide from its beat 1.';
+      }
+      rate = w.rate;
+      pcm.set(i, [w.pcm]);
+    }
+    return { rate, pcm };
   }
   /** The intro card's two microphone choices, remembered for every deck. */
   function micOptsRow() {
@@ -3804,7 +3930,11 @@ export function createNarration({
           <div class="rec-hint">Esc to close</div>`;
         return;
       }
-      const { range, warn } = data;
+      micIntro = data;
+      const { range } = data;
+      const bad = beats === 0 ? null : fromProblem();
+      const warn = bad ?? data.warn;
+      const canStart = beats > 0 && !bad;
       card.innerHTML = `<div class="narr-head">record your voice</div>
         <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${beats} beat${beats === 1 ? '' : 's'} — the deck reads you the notes, one [click] at a time${
   range ? ` <strong>(slides ${escapeHtml(range)} only — everything else is left alone)</strong>` : ''}</div>
@@ -3813,13 +3943,15 @@ export function createNarration({
     : '<div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.'
       + " Every take starts after a 3, 2, 1, and <kbd>←</kbd> goes back to record a slide again.</div>"}
         ${folderRow(data.target)}
+        ${canStart ? fromRow() : ''}
         ${beats === 0 ? '' : micOptsRow()}
         ${beats === 0 ? '' : phoneRow()}
         ${warn ? `<div class="rec-line rec-warn">${warn}</div>` : ''}
-        ${beats === 0 ? '' : '<div class="narr-row narr-sel">Start recording</div>'}
-        <div class="rec-hint">${beats === 0 ? 'Esc to close' : 'Enter to start · Esc to cancel'}</div>`;
+        ${canStart ? '<div class="narr-row narr-sel">Start recording</div>' : ''}
+        <div class="rec-hint">${canStart ? 'Enter to start · Esc to cancel' : 'Esc to close'}</div>`;
       wireFolderRow(card, (t) => { micTarget = t; });
       wireMicOpts(card);
+      wireFromRow(card);
       card.querySelector('.narr-row')?.addEventListener('click', () => startMicRecording());
       return;
     }
@@ -3831,7 +3963,7 @@ export function createNarration({
         <div class="rec-read">${escapeHtml(beat.text)}</div>
         ${note ? `<div class="rec-line rec-note">${note}</div>` : ''}
         ${micBar(0)}
-        <div class="rec-hint"><kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>←</kbd> ${i > 0 ? 'back to beat 1' : nth > 1 ? 'back a slide' : 'start over'} · <kbd>Esc</kbd> stop${
+        <div class="rec-hint"><kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>←</kbd> ${i > (data.first ?? 0) ? `back to beat ${(data.first ?? 0) + 1}` : nth > 1 ? 'back a slide' : 'start over'} · <kbd>Esc</kbd> stop${
   instance.__remoteQr ? ' · or the phone: next, retake' : ''}</div>`;
       return;
     }
@@ -3865,11 +3997,28 @@ export function createNarration({
     if (run !== micRun) return;
     const dir = base == null ? null : { base, name: target.dir };
     let stopped = false;
+    const plans = list.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
+    // where the take starts, and (--beats) ends; a slide entered past its
+    // first beat, or named by --beats, is recorded in part around what is kept
+    const from = plans[micFrom.s]?.[micFrom.i] ? { ...micFrom } : { s: 0, i: 0 };
+    const lastI = recBeats ? recBeats.to - 1 : null;
+    const partialAt = (from.i > 0 || recBeats) && plans[from.s]?.length > 1 ? from.s : -1;
+    let keep = null;
+    if (partialAt >= 0) {
+      if (!dir) { micRefuse(`recording part of a slide reads its other beats back from the folder, which needs the server: ${noServerReason()}`); return; }
+      keep = await loadBeats(list[partialAt], plans[partialAt], dir.name);
+      if (run !== micRun) return;
+      if (typeof keep === 'string') { micRefuse(keep); return; }
+    }
     // The recorded track must not play over the take, and P must not be
     // holding a chain that resumes into the middle of one.
     if (narrating) toggleNarration();
     try {
-      await openMic();
+      await openMic(keep?.rate);
+      if (keep && micCtx.sampleRate !== keep.rate) {
+        micRefuse(`this browser will not record at ${keep.rate / 1000} kHz, the rate slide ${list[partialAt]}'s beats were recorded at: record the whole slide.`);
+        return;
+      }
     } catch (e) {
       renderMicCard('intro', { why: micWhy(e) });
       return;
@@ -3887,9 +4036,8 @@ export function createNarration({
 
     // Indexed, not for…of: ← walks back, to the start of this slide and from
     // there to the slide before, and a slide recorded twice is counted once.
-    const plans = list.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
     const saved = new Map();   // slide → { files, segmented, toDisk }
-    let s = 0;
+    let s = from.s;
     slides: while (s < list.length) {
       if (run !== micRun) return;
       const sl = list[s];
@@ -3905,10 +4053,14 @@ export function createNarration({
         : null;
       const takes = [];
       let back = false;
-      for (let i = 0; i < plan.length; i++) {
+      const partial = s === partialAt;
+      const first = partial ? from.i : 0;
+      const last = s === from.s && lastI != null ? Math.min(lastI, plan.length - 1) : plan.length - 1;
+      const redone = new Set();   // the partial slide's beats written this run
+      for (let i = first; i <= last; i++) {
         const beat = plan[i];
         instance.goto(sl, beat.step);
-        renderMicCard('capture', { sl, nth: s + 1, slides: list.length, beat, i, of: plan.length, note });
+        renderMicCard('capture', { sl, nth: s + 1, slides: list.length, beat, i, of: plan.length, note, first });
         let how = await countIn();
         if (run !== micRun) return;
         if (how === 'go') how = await captureBeat();
@@ -3920,9 +4072,23 @@ export function createNarration({
           // saved until the slide is done, so they are simply dropped. On a
           // first beat, the slide before, which is recorded again over its
           // files. Before the first slide there is nothing: it starts over.
-          if (i > 0) { takes.length = 0; i = -1; continue; }
+          if (i > first) { takes.length = 0; i = first - 1; continue; }
           back = true;
           break;
+        }
+        if (partial) {
+          // Written as it is taken, with the whole-slide file rebuilt from
+          // every beat, kept and new: stopping after this beat leaves the
+          // slide consistent, and the beats not redone are never written.
+          const rate = micCtx?.sampleRate ?? keep.rate;
+          keep.pcm.set(i, micTake);
+          await saveRecording(sl, 'wav', stitchWav(micTake, rate), dir, beat.file);
+          if (run !== micRun) return;
+          const whole = await saveRecording(sl, 'wav', stitchWav(plan.flatMap((_, k) => keep.pcm.get(k)), rate), dir);
+          if (run !== micRun) return;
+          redone.add(i);
+          saved.set(sl, { files: redone.size + 1, segmented: true, toDisk: whole });
+          continue;
         }
         takes.push({ file: beat.file, pcm: micTake });
       }
@@ -3932,7 +4098,9 @@ export function createNarration({
         if (p >= 0) s = p;
         continue;
       }
-      if (!takes.length) { s++; continue; }
+      // --beats ends with its last beat: nothing after it is recorded
+      const endsHere = s === from.s && lastI != null;
+      if (partial || !takes.length) { if (endsHere) break; s++; continue; }
       renderMicCard('saving', { sl, files: takes.length + 1 });
       const rate = micCtx?.sampleRate ?? MIC_RATE;
       const done = { files: 0, segmented: false, toDisk: false };
@@ -3962,6 +4130,7 @@ export function createNarration({
         done.segmented = true;
       }
       saved.set(sl, done);
+      if (endsHere) break;
       s++;
     }
     const all = [...saved.values()];
@@ -3983,9 +4152,13 @@ export function createNarration({
     root.appendChild(micEl);
     const why = micUnavailable();
     const list = slidesWithNotes();
-    const beats = list.reduce((n, sl) => n + recordPlan(notesSegs(sl), buildSteps(sl)).length, 0);
+    micList = list;
+    micPlans = list.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
+    const beats = micPlans.reduce((n, p) => n + p.length, 0);
     const range = recRange;
     micTarget = null;
+    const speaks = Math.max(0, micPlans.findIndex((p) => p.length));
+    micFrom = recBeats ? { s: speaks, i: recBeats.from - 1 } : { s: speaks, i: 0 };
     renderMicCard('intro', why ? { why } : { slides: list.length, beats, range });
     if (why) return;
     // ONE deferred render, not two: the target and the no-server warning both
@@ -4037,7 +4210,9 @@ export function createNarration({
         return true;
       }
       if (e.key === 'Escape') closeMicRecorder();
-      else if (e.key === 'Enter') {
+      else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && micView === 'intro' && micEl?.querySelector('[data-from]')) {
+        moveFrom(e.key === 'ArrowLeft' ? -1 : 1);
+      } else if (e.key === 'Enter') {
         if (micView === 'intro' && !micUnavailable() && micEl?.querySelector('.narr-row')) startMicRecording();
         else if (pendingUseTrack(micEl)) pendingUseTrack(micEl).click();
         else if (micView !== 'saving') closeMicRecorder();

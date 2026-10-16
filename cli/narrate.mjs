@@ -39,7 +39,7 @@ const VOICEOVER = fileURLToPath(new URL('../tools/voiceover.mjs', import.meta.ur
 const LIPSYNC = fileURLToPath(new URL('../tools/lipsync.mjs', import.meta.url));
 // the flags either side takes a value for, so the deck is found past them
 const VALUE_FLAGS = new Set(['-o', '--dir', '--engine', '--voice', '--style', '--data-dir', '--project',
-  '--format', '--slides', '--port', '--model', '--lang', '--location', '--tts-format', '--tts-stability',
+  '--format', '--slides', '--beats', '--port', '--model', '--lang', '--location', '--tts-format', '--tts-stability',
   '--rhubarb', '--portrait', '--python', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
   '--veo-project', '--veo-location', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-face-y']);
 
@@ -59,6 +59,7 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
     --mic        serves the deck on http://127.0.0.1 (a microphone needs it) and
                  opens it with the recorder up; → ends a beat and reveals the
                  next build, so your voice paces the deck as it will be presented
+    --beats k-l  with --slides N: only these beats of slide N; the others are kept
     --remote     the phone remote too: its next ends a beat, its retake redoes one,
                  so no keystroke gets into the take
     --port N, --no-open
@@ -165,6 +166,12 @@ export async function narrateMain(argv = []) {
   // a terminal script is `cast`'s, whichever way it was meant to be narrated
   const mixedUp = wrongRecorder('narrate', plan.deck);
   if (mixedUp) { console.error(mixedUp); return 2; }   // the code record and cast give it
+  // an engine re-voices a slide from its notes in seconds; --beats exists
+  // because reading a slide aloud again is what costs
+  if (!plan.mic && argv.includes('--beats')) {
+    console.error('decklight narrate: --beats re-records beats of your own voice; it goes with --mic');
+    return 2;
+  }
   if (plan.mic) {
     const { recordMain } = await import('./record.mjs');
     return recordMain(plan.args);

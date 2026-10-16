@@ -717,3 +717,25 @@ test('a beat of nothing but ⟨PAUSE⟩ has no take — no file number, no recor
 test('the CLI\'s beat pause is the runtime\'s — a hold that drifted would pace a render off the deck', () => {
   assert.equal(BEAT_PAUSE_DEFAULT, BEAT_PAUSE_S);
 });
+
+test('wavPcm reads back what stitchWav writes, and refuses what it cannot join (#851)', async () => {
+  const { wavPcm, stitchWav, beatSpan } = await import('../src/core/narration.js');
+  const pcm = new Uint8Array([1, 0, 2, 0, 3, 0]);
+  const back = wavPcm(await stitchWav([pcm], 24000).arrayBuffer());
+  assert.equal(back.rate, 24000);
+  assert.deepEqual([...back.pcm], [...pcm]);
+  // a LIST chunk before the data, as an editor re-saving the file adds
+  const wav = new Uint8Array(await stitchWav([pcm], 48000).arrayBuffer());
+  const list = new Uint8Array([...'LIST'].map((c) => c.charCodeAt(0)).concat([4, 0, 0, 0, 0, 0, 0, 0]));
+  const withList = new Uint8Array([...wav.slice(0, 36), ...list, ...wav.slice(36)]);
+  assert.equal(wavPcm(withList.buffer).rate, 48000);
+  assert.deepEqual([...wavPcm(withList.buffer).pcm], [...pcm]);
+  // not a WAV, or not 16-bit mono PCM: nothing to join a take onto
+  assert.equal(wavPcm(new TextEncoder().encode('not a wav at all').buffer), null);
+  const stereo = new Uint8Array(wav); stereo[22] = 2;
+  assert.equal(wavPcm(stereo.buffer), null);
+
+  assert.deepEqual(beatSpan('3'), { from: 3, to: 3 });
+  assert.deepEqual(beatSpan('3-4'), { from: 3, to: 4 });
+  for (const bad of ['0', '4-3', 'x', '', null]) assert.equal(beatSpan(bad), null, String(bad));
+});

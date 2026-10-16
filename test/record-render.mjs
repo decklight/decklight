@@ -153,8 +153,13 @@ const DECK = `<!doctype html>
         card().querySelector('[data-noise="off"]').click();
         card().querySelector('[data-rate="48000"]').click();
       }
+      // ?from=N: step the start point N beats on with → before Enter
+      for (let k = 0; k < Number(params.get('from') ?? 0); k++) { press('ArrowRight'); await wait(50); }
+      r.fromLine = card()?.querySelector('.rec-from')?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
       r.folder = (await until(() => card()?.querySelector('.rec-dir'), 5000))?.value ?? null;
       r.clash = !!card()?.querySelector('.rec-warn');
+      r.warnText = [...(card()?.querySelectorAll('.rec-warn') ?? [])].map((w) => w.textContent).join(' | ');
+      r.canStart = !!card()?.querySelector('.narr-row');
       if (params.has('introonly')) throw 'introonly';
       r.introOpts = [...(card()?.querySelectorAll('.rec-seg button.on') ?? [])].map((b) => b.textContent);
       r.introWhy = card()?.querySelector('.rec-opt-why')?.textContent ?? '';
@@ -201,13 +206,22 @@ const DECK = `<!doctype html>
             await wait(${BEAT_MS});
           }
           const el = status();
+          if ((KEYS[i + 1] ?? 'R') === 'E' && params.has('escnext')) {
+            // stop on the NEXT beat's count-in, once this one is saved
+            if (VIA === 'phone') await tap('next'); else press('ArrowRight');
+            await until(() => status() !== el, 15000);
+            await wait(300);
+            press('Escape');
+            r.escaped = true;
+            break;
+          }
           if ((KEYS[i] ?? 'R') === 'L') press('ArrowLeft');
           else if (VIA === 'phone') await tap('next');
           else press('ArrowRight');
           const moved = await until(() => status() !== el || done(), 15000);
           if (!moved || done()) break;
         }
-        await until(() => done());
+        if (!r.escaped) await until(() => done());
         r.card = card()?.textContent ?? '';
         r.finished = done();
       }
@@ -296,10 +310,11 @@ const results = http.createServer((req, res) => {
 await new Promise((r) => results.listen(0, '127.0.0.1', r));
 const resultsUrl = `http://127.0.0.1:${results.address().port}/`;
 
+let runs = 0;
 /** One run of the deck in a fresh browser: returns what the page reported. */
 async function run(mic, dir, via = 'keys', extra = '') {
   report = null;
-  const profile = path.join(tmp, `profile-${mic}-${dir || 'default'}-${extra.length}`);
+  const profile = path.join(tmp, `profile-${++runs}`);
   mkdirSync(profile, { recursive: true });
   const url = `${deckBase}/deck.html?record&mic=${mic}${dir ? `&dir=${dir}` : ''}&via=${via}${extra}`
     + `&results=${encodeURIComponent(resultsUrl)}`;
@@ -466,6 +481,34 @@ check('voices/me', mine.folder === 'voices/me' && mine.finished === true
   && again.folder === 'voices/me' && again.clash === false,
 `proposed ${mine.folder} over the deck's voiceover/ · wrote ${meFiles.length} files there`
   + ` · voiceover/ untouched=${!existsSync(path.join(tmp, 'voiceover'))} · next time ${again.folder}, no clash warning=${again.clash === false}`);
+
+// ── run 6+: part of a slide (#851), against run 1's takes/ ──────────────────
+const bytes = (f) => readFileSync(path.join(outDir, f));
+const before = Object.fromEntries(files.map((f) => [f, bytes(f)]));
+const same = (f) => before[f] && Buffer.compare(before[f], bytes(f)) === 0;
+const pcmLen = (f) => bytes(f).length - 44;
+// --beats 2-3, stopped on beat 3's count-in: beat 2 is new, 1 and 3 are byte
+// for byte as recorded, and slide-01.wav is the three beats back to back
+const part = await run('tone', 'takes', 'keys', '&slides=1&beats=2-3&keys=R,E&escnext');
+check('beats', part.fromLine?.includes('beats 2–3 of 3 only') && part.steps[0] === '1.1'
+  && !same('slide-01-02.wav') && same('slide-01-01.wav') && same('slide-01-03.wav') && same('slide-02.wav')
+  && pcmLen('slide-01.wav') === pcmLen('slide-01-01.wav') + pcmLen('slide-01-02.wav') + pcmLen('slide-01-03.wav'),
+`--beats 2-3 started at build ${part.steps[0]} · Esc after beat 2 · rewrote 01-02=${!same('slide-01-02.wav')}`
+  + ` · kept 01-01, 01-03, 02 byte for byte=${same('slide-01-01.wav') && same('slide-01-03.wav') && same('slide-02.wav')}`
+  + ' · slide-01.wav rebuilt from all three');
+// a beat the slide does not have is refused with the count, and nothing starts
+const nope = await run('tone', 'takes', 'keys', '&slides=1&beats=5&introonly');
+check('no beat', /slide 1 has 3 beats: there is no beat 5/.test(nope.warnText ?? '') && nope.canStart === false,
+  `--beats 5 on a 3-beat slide: "${nope.warnText}" · offers to start=${nope.canStart}`);
+// → twice on the intro card starts at beat 3; that one is redone, then slide 2
+const now = Object.fromEntries(files.map((f) => [f, bytes(f)]));
+const picked = await run('tone', 'takes', 'keys', '&from=2&keys=R,R');
+check('start at', /slide 1 · beat 3 of 3/.test(picked.fromLine ?? '') && /beats 1–2 of slide 1 kept/.test(picked.fromLine ?? '')
+  && JSON.stringify(picked.steps) === JSON.stringify(['1.2', '2.0']) && picked.finished === true
+  && Buffer.compare(now['slide-01-01.wav'], bytes('slide-01-01.wav')) === 0
+  && Buffer.compare(now['slide-01-02.wav'], bytes('slide-01-02.wav')) === 0
+  && Buffer.compare(now['slide-01-03.wav'], bytes('slide-01-03.wav')) !== 0,
+`picked "${picked.fromLine}" · read ${picked.steps.join(' ')} · beats 1–2 untouched, 3 redone`);
 
 if (bad) fail(`${bad} check${bad === 1 ? '' : 's'} failed`);
 console.log(`record-render: PASS (${((Date.now() - t0) / 1000).toFixed(1)}s)`

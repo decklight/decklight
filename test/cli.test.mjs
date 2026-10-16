@@ -1863,6 +1863,27 @@ test('--slides re-records a range, so a fluffed beat costs one slide', async () 
     'http://127.0.0.1:8788/talk.html?record&dir=takes&slides=7');
 });
 
+test('--beats re-records beats of one slide, and is refused anywhere it cannot mean that (#851)', async () => {
+  const { beatsProblem, recordUrl } = await import('../cli/record.mjs');
+  assert.equal(beatsProblem(undefined, '6'), null);
+  assert.equal(beatsProblem('3', '6'), null);
+  assert.equal(beatsProblem('3-4', '6-6'), null, 'a one-slide range is one slide');
+  assert.match(beatsProblem('3', undefined), /--slides to name one slide/);
+  assert.match(beatsProblem('3', '6-8'), /--slides to name one slide/, 'beats are counted per slide');
+  assert.match(beatsProblem('0', '6'), /1-based/);
+  assert.match(beatsProblem('4-3', '6'), /ends before it starts/);
+  assert.match(beatsProblem('x', '6'), /k-l or a single beat number/);
+  // how many beats slide 6 has is the runtime's to say: it reads the notes
+  assert.equal(beatsProblem('99', '6'), null);
+  assert.equal(recordUrl(8788, '/talk.html', null, '6', '3-4'),
+    'http://127.0.0.1:8788/talk.html?record&slides=6&beats=3-4');
+  // an engine re-voices from the notes; --beats is the microphone's
+  const r = spawnSync(process.execPath, [CLI, 'narrate', 'talk.html', '--slides', '6', '--beats', '3'],
+    { encoding: 'utf8', env: childEnv() });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--beats .* goes with --mic/);
+});
+
 test('record opens the deck on the server it just started, with the recorder armed', async () => {
   const { recordUrl } = await import('../cli/record.mjs');
   // ?record, not #record: the runtime reads location.search. And the deck

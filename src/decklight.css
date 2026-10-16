@@ -1926,6 +1926,10 @@
 .decklight-mic .rec-seg button + button { border-left: 1px solid rgba(255, 255, 255, .18); }
 .decklight-mic .rec-seg button.on { background: rgba(255, 255, 255, .16); opacity: 1; }
 .decklight-mic .rec-opt-why { font-size: 12px; opacity: .55; }
+/* where the take starts: ‹ slide 6 · beat 3 of 4 ›, and what that keeps */
+.decklight-mic .rec-from { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
+.decklight-mic .rec-from .rec-seg button { opacity: 1; padding: 1px 9px; font-size: 14px; }
+.decklight-mic .rec-from-why { font-size: 12px; opacity: .6; }
 
 /* before a take, 3-2-1 in amber; during one, the red dot. The words to read
    are already on the card while it counts, so the count is a glance, not a wall */
