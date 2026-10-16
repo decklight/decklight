@@ -962,6 +962,8 @@ export function createEditMode({
     es.addEventListener('remote', (ev) => {
       try {
         const { key } = JSON.parse(ev.data);
+        // the voice recorder takes the tap while a beat is being captured (#848)
+        if (instance.__recorder?.remote(key)) return;
         if (key === 'next') instance.next();
         else if (key === 'prev') instance.prev();
       } catch { /* malformed event */ }
@@ -970,9 +972,12 @@ export function createEditMode({
       fetch(base + '/deck/remote/pos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ i: instance.state.slide, n: instance.state.totalSlides }),
+        // `rec`: the beat the voice recorder is capturing, or null — the phone
+        // shows it, so recording needs no glance at the laptop (#848)
+        body: JSON.stringify({ i: instance.state.slide, n: instance.state.totalSlides, rec: instance.__recorder?.state ?? null }),
       }).catch(() => {});
     };
+    if (instance.__recorder) instance.__recorder.onChange = postPos;
     instance.on('slide', postPos);
     instance.on('build', postPos);
     postPos();

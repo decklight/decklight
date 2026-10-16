@@ -1977,6 +1977,34 @@ test('narrate --mic serves the deck and prints the URL the browser is sent to', 
   assert.match(await res.text(), /class="decklight"/);
 });
 
+test('narrate --mic --remote puts the phone remote on the recorder\'s server (#848)', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-record-remote-'));
+  t.after(() => rmTemp(dir));
+  fs.writeFileSync(path.join(dir, 'talk.html'),
+    '<!doctype html><div class="decklight"><section><h1>Hi</h1></section></div>');
+  const child = spawn(process.execPath, [CLI, 'narrate', 'talk.html', '--mic', '--remote', '--port', '0', '--no-open'],
+    { cwd: dir, env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => stop(child));
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  const url = await new Promise((resolve, reject) => {
+    const scan = setInterval(() => {
+      const m = out.match(/decklight narrate --mic on (\S+)/);
+      if (m && /the phone remote is on/.test(out)) { clearInterval(scan); resolve(m[1]); }
+    }, 25);
+    child.on('exit', () => { clearInterval(scan); reject(new Error('record exited early:\n' + out)); });
+    setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 15000);
+  });
+  // the LAN URL, printed exactly as `decklight <deck> --remote` prints it
+  assert.match(out, /remote: listening on \S+ — http:\/\/\S+\/deck\/remote\?t=\S+/);
+  const base = url.replace(/\/talk\.html.*/, '');
+  // the deck learns the remote is on, which is what puts the QR on the recorder's card…
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).phone, true);
+  // …and the QR has a LAN URL to encode
+  assert.equal((await fetch(base + '/deck/remote/qr.svg')).status, 200);
+});
+
 // ── a linked deck bundles from the installed package (#517) ──────────────────
 test('bundle: a deck that links the runtime and ships none of it inlines the installed package, and says so', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-linked-bundle-'));

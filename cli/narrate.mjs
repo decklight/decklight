@@ -5,7 +5,7 @@
  * decklight narrate — put the deck's narration into a folder beside it.
  *
  *   decklight narrate <deck.html> [--engine E] [--voice V] [--format F] [--slides a-b] [--dir NAME]
- *   decklight narrate <deck.html> --mic [--slides a-b] [--dir NAME] [--port N] [--no-open]
+ *   decklight narrate <deck.html> --mic [--slides a-b] [--dir NAME] [--port N] [--remote] [--no-open]
  *   decklight narrate <deck.html> --face [--video] [--dir NAME]
  *
  * One command for the two ways a deck gets a recorded voice: an engine reads
@@ -59,6 +59,8 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
     --mic        serves the deck on http://127.0.0.1 (a microphone needs it) and
                  opens it with the recorder up; → ends a beat and reveals the
                  next build, so your voice paces the deck as it will be presented
+    --remote     the phone remote too: its next ends a beat, its retake redoes one,
+                 so no keystroke gets into the take
     --port N, --no-open
     EXAMPLE: decklight narrate talk.html --mic
 

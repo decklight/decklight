@@ -115,6 +115,12 @@ const DECK = `<!doctype html>
   const done = () => /recording done|recording stopped/.test(card()?.textContent ?? '');
   const press = (key) => document.body.dispatchEvent(
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  // ?via=phone: every beat is ended by the phone remote instead (#848), the
+  // same POST its next and retake buttons make, relayed back over the deck's
+  // own stream. Loopback, so no token: the relay is not what is under test.
+  const VIA = params.get('via') ?? 'keys';
+  const tap = (key) => fetch('/deck/remote/key', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
   async function until(fn, ms = 15000) {
     const stop = Date.now() + ms;
     for (;;) {
@@ -130,6 +136,8 @@ const DECK = `<!doctype html>
       r.autoOpened = !!(await until(() => card()));
       // the beat count is read off the notes before a single sample is captured
       r.introLine = card()?.querySelector('.rec-line')?.textContent ?? '';
+      // with --remote on, the card carries the QR (the speaker view is not open)
+      r.introQr = !!(await until(() => card()?.querySelector('.rec-phone img'), 5000));
       press('Enter');
       if (mode === 'blocked') {
         // a refusal must SAY so and change nothing — no take, no file, and the
@@ -149,7 +157,15 @@ const DECK = `<!doctype html>
           // AND reveals the next build has to be visible from outside
           r.steps.push(deck.state.slide + '.' + deck.state.step);
           await wait(${BEAT_MS});
-          press('ArrowRight');
+          if (VIA === 'phone' && i === 0) {
+            // retake from the phone: the same beat comes back, at the same build
+            await tap('retake');
+            await wait(300);
+            r.retook = reading() === text && (deck.state.slide + '.' + deck.state.step) === r.steps[0];
+            await wait(${BEAT_MS});
+          }
+          if (VIA === 'phone') await tap('next');
+          else press('ArrowRight');
           const moved = await until(() => reading() !== text || done(), 15000);
           if (!moved || done()) break;
         }
@@ -205,7 +221,9 @@ if (!existsSync(path.join(root, 'dist', 'decklight.js'))) fail('dist/decklight.j
 writeFileSync(path.join(tmp, 'deck.html'), DECK);
 for (const f of ['decklight.js', 'decklight.css']) copyFileSync(path.join(root, 'dist', f), path.join(tmp, f));
 
-const server = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', '--no-git'], {
+// --remote: the QR on the recorder's card is only offered when the remote is
+// on. The phone's taps go over loopback, which answers either way.
+const server = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', '--no-git', '--remote', '--host', '127.0.0.1'], {
   cwd: tmp,
   stdio: ['ignore', 'pipe', 'pipe'],
   // PATH narrowed to the temp dir: no git, no agents, no surprises
@@ -240,11 +258,11 @@ await new Promise((r) => results.listen(0, '127.0.0.1', r));
 const resultsUrl = `http://127.0.0.1:${results.address().port}/`;
 
 /** One run of the deck in a fresh browser: returns what the page reported. */
-async function run(mic, dir) {
+async function run(mic, dir, via = 'keys') {
   report = null;
-  const profile = path.join(tmp, `profile-${mic}`);
+  const profile = path.join(tmp, `profile-${mic}-${via}`);
   mkdirSync(profile, { recursive: true });
-  const url = `${deckBase}/deck.html?record&mic=${mic}&dir=${dir}`
+  const url = `${deckBase}/deck.html?record&mic=${mic}&dir=${dir}&via=${via}`
     + `&results=${encodeURIComponent(resultsUrl)}`;
   // --autoplay-policy: the deck's own audio elements are not what is under
   // test, and a blocked one would toast over the recorder. A throwaway
@@ -338,6 +356,42 @@ check('refusal', /microphone was blocked/.test(blocked.card ?? '')
   && blocked.recordedNothing === true && !existsSync(path.join(tmp, 'denied')),
 `explains and offers a retry=${/microphone was blocked/.test(blocked.card ?? '')}`
   + ` · wrote nothing=${!existsSync(path.join(tmp, 'denied'))}`);
+
+// ── run 3: the phone ends every beat, and retakes one (#848) ────────────────
+// The phone's view of the take, from the relay's own readout stream: what a
+// phone subscribed to /deck/remote/events would have shown.
+const phoneSaw = [];
+const phoneStream = await fetch(`${deckBase}/deck/remote/events`);
+const phoneReader = phoneStream.body.getReader();
+(async () => {
+  const dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done: end } = await phoneReader.read().catch(() => ({ done: true }));
+    if (end) return;
+    buf += dec.decode(value, { stream: true });
+    for (let k; (k = buf.indexOf('\n\n')) !== -1;) {
+      const ev = buf.slice(0, k); buf = buf.slice(k + 2);
+      const data = /^event: pos\ndata: (.*)$/m.exec(ev)?.[1];
+      if (data) { try { phoneSaw.push(JSON.parse(data)); } catch { /* malformed */ } }
+    }
+  }
+})();
+const tapped = await run('tone', 'phone', 'phone');
+phoneReader.cancel().catch(() => {});
+const phoneFiles = existsSync(path.join(tmp, 'phone')) ? readdirSync(path.join(tmp, 'phone')).sort() : [];
+check('qr', took.introQr === true, `--remote puts the phone's QR on the recorder's intro card=${took.introQr}`);
+// The phone's next ENDS the beat; the recorder reveals the next build. Had the
+// deck also stepped, beat two would be read at 1.2 and the third at slide 2.
+check('phone', JSON.stringify(tapped.steps) === JSON.stringify(['1.0', '1.1', '1.2', '2.0'])
+  && tapped.finished === true && JSON.stringify(phoneFiles) === JSON.stringify(files),
+`phone next read ${tapped.beats.length} beats at builds ${tapped.steps.join(' ')} · wrote ${phoneFiles.join(' ') || '(nothing)'}`);
+check('retake', tapped.retook === true && tapped.beats[0] === 'Beat one.',
+  `phone retake kept the same beat at the same build=${tapped.retook}`);
+const recs = phoneSaw.map((p) => p.rec).filter(Boolean);
+check('readout', recs.some((r) => r.slide === 1 && r.beat === 2 && r.of === 3)
+  && recs.some((r) => r.slide === 2 && r.beat === 1 && r.of === 1) && phoneSaw.at(-1)?.rec === null,
+`the phone saw ${recs.length} beat reports, ending on not-recording=${phoneSaw.at(-1)?.rec === null}`);
 
 if (bad) fail(`${bad} check${bad === 1 ? '' : 's'} failed`);
 console.log(`record-render: PASS (${((Date.now() - t0) / 1000).toFixed(1)}s)`

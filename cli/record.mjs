@@ -30,7 +30,7 @@ import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
-const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voiceover] [--slides a-b] [--no-open]
+const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voiceover] [--slides a-b] [--remote] [--no-open]
   serves the deck over http://127.0.0.1 and opens it with the voice recorder up
 
   the deck reads you its notes one [click] beat at a time; → ends a beat, which
@@ -43,6 +43,10 @@ const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir v
   --slides a-b re-record only this range (1-based, inclusive; "7" for one
                slide). Every other slide's files are left untouched, so a
                fluffed beat costs one slide and not the whole deck
+  --remote     the phone remote too, so recording needs no keyboard: its next
+               ends a beat and its retake redoes one, and a tap is not in the
+               take the way a keystroke is. The recorder's card shows the QR;
+               off this machine only the remote answers, as with decklight <deck> --remote
   --no-open    don't launch a browser — print the URL and wait
 
   writes <dir>/slide-NN.wav (the whole slide) and <dir>/slide-NN-KK.wav (one
@@ -131,7 +135,10 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   let started;
   // `--no-git`, always: recording is not editing, and a take that happens to
   // coincide with the autocommit cadence has no business creating a commit.
-  await editMain([deck, '--port', String(opt('--port', 8788)), '--no-git'], {
+  // `--remote` passes through untouched: the edit server owns the LAN
+  // listener, the token and the line that prints its URL (NO_TRUST#REMOTE).
+  const remote = args.includes('--remote');
+  await editMain([deck, '--port', String(opt('--port', 8788)), '--no-git', ...(remote ? ['--remote'] : [])], {
     // the same seam editMain offers, passed through: this server outlives the
     // call (it is the whole point), so a caller that is not a terminal — a
     // test — needs a handle to close it
@@ -144,6 +151,7 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   const url = recordUrl(started.port, started.deckUrl, dir, slides);
   out.write(`decklight narrate --mic on ${url}\n`);
   out.write('  V → Record this deck… → With your voice… opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
+  if (remote) out.write('  the phone remote is on: scan the QR on the recorder\'s card; next ends a beat, retake redoes it\n');
   out.write(`  files land in ${dir ?? "the deck's narration folder"}, next to the deck.`
     + `${slides ? ` Only slide${/-/.test(slides) ? 's' : ''} ${slides}.` : ''} Ctrl-C when you are done.\n`);
   if (!args.includes('--no-open')) await open(url, { out, what: url });

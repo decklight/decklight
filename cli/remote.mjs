@@ -16,7 +16,9 @@ import { escapeHtml, isLoopback, sseChannel } from './serve.mjs';
 /**
  * The phone controller page (#39): a clicker, NOT a second screen — SPEC NON_GOALS
  * rules out multiplex/follow-along, so this renders no slides, only two big
- * targets and the position readout. Self-contained by necessity: the phone is
+ * targets and the position readout. While the voice recorder is capturing a
+ * beat (`narrate --mic --remote`, #848) prev gives its place to retake and the
+ * readout says which beat. Self-contained by necessity: the phone is
  * off-loopback, and every asset it could reference is one more thing the token
  * would have to guard. It carries the token it was opened with into both its
  * POSTs and its SSE subscription.
@@ -37,6 +39,12 @@ export function remoteControllerHtml(deckName) {
   .deck { font-weight: 400; opacity: .6; font-size: .8rem; }
   .pos { font-size: 1.6rem; font-variant-numeric: tabular-nums; }
   main { flex: 1; display: grid; grid-template-rows: 1fr 1fr; gap: .6rem; padding: .6rem; }
+  .rec { display: none; color: #ff6b6b; font-size: .85rem; letter-spacing: .04em; }
+  #retake { display: none; }
+  body.recording .rec { display: block; }
+  body.recording #prev { display: none; }
+  body.recording #retake { display: block; background: #3a2226; }
+  body.recording header { border-bottom-color: #5a2a2f; }
   button { font: inherit; font-size: 2rem; border: 0; border-radius: 1rem; color: #eee;
            background: #26262b; touch-action: manipulation; }
   button:active { background: #3a3a44; }
@@ -46,17 +54,21 @@ export function remoteControllerHtml(deckName) {
 <body>
   <header>
     <div class="deck">${escapeHtml(deckName)}</div>
+    <div class="rec" id="rec">● recording</div>
     <div class="pos" id="pos">—</div>
   </header>
   <main>
     <button id="next" aria-label="next">▼ next</button>
     <button id="prev" aria-label="previous">▲ prev</button>
+    <button id="retake" aria-label="retake this beat">↺ retake</button>
   </main>
   <footer id="state">connecting…</footer>
 <script>
   var t = new URLSearchParams(location.search).get('t') || '';
   var q = t ? '?t=' + encodeURIComponent(t) : '';
   var pos = document.getElementById('pos');
+  var rec = document.getElementById('rec');
+  var next = document.getElementById('next');
   var state = document.getElementById('state');
   function send(key) {
     return fetch('/deck/remote/key' + q, {
@@ -64,11 +76,21 @@ export function remoteControllerHtml(deckName) {
       body: JSON.stringify({ key: key }),
     }).catch(function () { state.textContent = 'offline'; });
   }
-  document.getElementById('next').onclick = function () { send('next'); };
+  next.onclick = function () { send('next'); };
   document.getElementById('prev').onclick = function () { send('prev'); };
+  document.getElementById('retake').onclick = function () { send('retake'); };
   var es = new EventSource('/deck/remote/events' + q);
   es.addEventListener('pos', function (e) {
-    try { var p = JSON.parse(e.data); pos.textContent = p.i + ' / ' + p.n; } catch (err) {}
+    try {
+      var p = JSON.parse(e.data);
+      // the voice recorder is capturing a beat: say which, so the phone is
+      // usable without looking at the laptop, and offer retake in prev's place
+      var r = p.rec;
+      document.body.classList.toggle('recording', !!r);
+      rec.textContent = r ? '● recording · beat ' + r.beat + ' of ' + r.of : '● recording';
+      pos.textContent = r ? 'slide ' + r.slide + ' / ' + p.n : p.i + ' / ' + p.n;
+      next.textContent = r ? '▼ next beat' : '▼ next';
+    } catch (err) {}
   });
   es.onopen = function () { state.textContent = 'connected'; };
   es.onerror = function () { state.textContent = 'reconnecting…'; };
@@ -123,7 +145,9 @@ export function createRemoteRelay({ deckName, token, remoteUrl, relayToDeck, dec
       }
       if (req.method === 'POST' && url.pathname === '/deck/remote/key') {
         const { key } = JSON.parse(body);
-        if (key !== 'next' && key !== 'prev') throw new Error('bad payload');
+        // `retake` means something only while the voice recorder is capturing
+        // a beat (#848); the deck ignores it anywhere else
+        if (key !== 'next' && key !== 'prev' && key !== 'retake') throw new Error('bad payload');
         // relayed as a named event on the stream the deck ALREADY listens to —
         // no second socket, no WebSockets anywhere in this codebase
         relayToDeck('remote', { key });
@@ -137,9 +161,11 @@ export function createRemoteRelay({ deckName, token, remoteUrl, relayToDeck, dec
         if (!isLoopback(req.socket?.remoteAddress)) {
           return json(403, { ok: false, error: 'position reports come from the deck, not the phone' });
         }
-        const { i, n } = JSON.parse(body);
+        const { i, n, rec = null } = JSON.parse(body);
         if (!Number.isInteger(i) || !Number.isInteger(n)) throw new Error('bad payload');
-        lastPos = { i, n };
+        // the beat the voice recorder is capturing, or null (#848)
+        if (rec !== null && !['slide', 'beat', 'of'].every((k) => Number.isInteger(rec?.[k]))) throw new Error('bad payload');
+        lastPos = { i, n, rec: rec && { slide: rec.slide, beat: rec.beat, of: rec.of } };
         pushPos();
         return json(200, { ok: true });
       }

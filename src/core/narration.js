@@ -3651,13 +3651,49 @@ export function createNarration({
     done(how);
   }
 
+  // The phone remote's half of the recorder (#848). A keystroke on the laptop
+  // is in the take; a tap on a phone is not. So while a beat is being
+  // captured, the phone's `next` is this recorder's →, ending the beat, which
+  // reveals the next build when the loop moves on, so the deck is NOT also
+  // stepped (that would reveal two). `retake` is ⌫, and `prev` is swallowed:
+  // moving the deck under a take would film the beat at the wrong build.
+  // Anywhere else (the intro, between slides, no recorder open) the phone is
+  // the clicker it always was. `state` is what the phone shows instead of
+  // looking at the laptop; editmode reads both, and `onChange` is its.
+  let micBeat = null;
+  instance.__recorder = {
+    get state() { return micEl && micView === 'capture' ? micBeat : null; },
+    remote(key) {
+      if (!micEl || micView !== 'capture') return false;
+      if (key === 'next') endBeat('next');
+      else if (key === 'retake') endBeat('retake');
+      return true;
+    },
+    onChange: null,
+  };
+  const micChanged = () => { try { instance.__recorder.onChange?.(); } catch { /* the phone is best-effort */ } };
+
   function micBar(level) {
     const pct = Math.min(100, Math.round(level * 140));   // headroom, not a VU
     const hot = level > 0.95;
     return `<div class="rec-level${hot ? ' hot' : ''}"><div class="rec-level-fill" style="width:${pct}%"></div></div>`;
   }
+  /**
+   * The phone remote, offered on the intro card when the server has one on
+   * (`narrate --mic --remote`): its QR, scanned from here, because the speaker
+   * view that usually carries it is not open while you record.
+   */
+  function phoneRow() {
+    const qr = instance.__remoteQr;
+    if (!qr) return '';
+    return `<div class="rec-line rec-phone"><img src="${escapeHtml(qr)}" alt="QR code for the phone remote" width="96" height="96">
+      <span>Scan it to record without the keyboard: the phone's <strong>next</strong> ends a beat and
+      <strong>retake</strong> redoes it, and a tap is not in the take the way a keystroke is.</span></div>`;
+  }
   function renderMicCard(view, data = {}) {
     micView = view;
+    micBeat = view === 'capture' ? { slide: data.sl, beat: data.i + 1, of: data.of } : null;
+    micChanged();
     const card = micEl?.querySelector('.narr-card');
     if (!card) return;
     if (view === 'intro') {
@@ -3676,6 +3712,7 @@ export function createNarration({
     ? `<div class="rec-line rec-warn">Nothing to record${range ? ` in slides ${escapeHtml(range)}` : ''} — no slide there has notes to read.</div>`
     : '<div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.</div>'}
         ${folderRow(data.target)}
+        ${beats === 0 ? '' : phoneRow()}
         ${warn ? `<div class="rec-line rec-warn">${warn}</div>` : ''}
         ${beats === 0 ? '' : '<div class="narr-row narr-sel">Start recording</div>'}
         <div class="rec-hint">${beats === 0 ? 'Esc to close' : 'Enter to start · Esc to cancel'}</div>`;
@@ -3690,7 +3727,8 @@ export function createNarration({
         <div class="rec-read">${escapeHtml(beat.text)}</div>
         ${note ? `<div class="rec-line rec-note">${note}</div>` : ''}
         ${micBar(0)}
-        <div class="rec-hint"><kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>Esc</kbd> stop</div>`;
+        <div class="rec-hint"><kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>Esc</kbd> stop${
+  instance.__remoteQr ? ' · or the phone: next, retake' : ''}</div>`;
       return;
     }
     if (view === 'saving') {
@@ -3842,6 +3880,7 @@ export function createNarration({
     closeMic();
     micEl?.remove();
     micEl = null;
+    micChanged();              // the phone stops saying it is recording
   }
   overlays.register({
     isOpen: () => !!micEl,

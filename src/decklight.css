@@ -1852,6 +1852,10 @@
   overflow-y: auto;
 }
 .decklight-mic .rec-note { font-size: 12px; opacity: .7; }
+/* the phone remote's QR, on the intro card: the speaker view that usually
+   carries it is not open while you record */
+.decklight-mic .rec-phone { display: flex; gap: 12px; align-items: center; font-size: 13px; opacity: 1; }
+.decklight-mic .rec-phone img { flex: none; background: #fff; border-radius: 6px; padding: 4px; }
 /* Something you need to act on before you start reading — the amber the deck
    uses everywhere for "this will not do what you expect". */
 .decklight-record .rec-warn, .decklight-range .rec-warn {

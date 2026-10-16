@@ -599,6 +599,48 @@ test('POST /deck/remote/pos is deck→phones only — an off-loopback caller is 
   assert.ok(phone.chunks.some((c) => c.includes('"i":2')), 'the readout shows the real position');
 });
 
+test('the voice recorder\'s beat reaches the phone, and only a well-formed one (#848)', () => {
+  const relayed = [];
+  const relay = createRemoteRelay({
+    deckName: 'talk.html', token: 'tok', remoteUrl: () => 'http://x',
+    relayToDeck: (event, data) => relayed.push([event, data]), deckCount: () => 1, CORS: {},
+  });
+  const answer = (addr, method, path, body = '') => {
+    const out = { code: null, chunks: [] };
+    const res = {
+      writeHead: (code) => { out.code = code; },
+      write: (c) => out.chunks.push(String(c)),
+      end: (c) => { if (c) out.chunks.push(String(c)); },
+    };
+    try {
+      relay.handle({ method, socket: { remoteAddress: addr }, on: () => {} }, res, new URL('http://127.0.0.1' + path), body);
+    } catch { out.code = 400; }   // the mounting server's error path
+    return out;
+  };
+  const phone = answer('192.168.1.23', 'GET', '/deck/remote/events');
+  // the deck is capturing beat 2 of 3 on slide 4: the phone says so
+  assert.equal(answer('127.0.0.1', 'POST', '/deck/remote/pos', '{"i":4,"n":9,"rec":{"slide":4,"beat":2,"of":3}}').code, 200);
+  assert.ok(phone.chunks.some((c) => c.includes('"rec":{"slide":4,"beat":2,"of":3}')), 'the beat reached the phone');
+  // a report with no recorder is the readout it always was
+  assert.equal(answer('127.0.0.1', 'POST', '/deck/remote/pos', '{"i":5,"n":9}').code, 200);
+  assert.ok(phone.chunks.at(-1).includes('"rec":null'), 'and recording ended on the phone too');
+  // a half-formed beat is refused, not shown
+  assert.equal(answer('127.0.0.1', 'POST', '/deck/remote/pos', '{"i":5,"n":9,"rec":{"slide":"x"}}').code, 400);
+  // retake is a key the phone can send; anything else still is not
+  assert.equal(answer('192.168.1.23', 'POST', '/deck/remote/key', '{"key":"retake"}').code, 200);
+  assert.deepEqual(relayed.at(-1), ['remote', { key: 'retake' }]);
+  assert.equal(answer('192.168.1.23', 'POST', '/deck/remote/key', '{"key":"stop"}').code, 400);
+});
+
+test('the controller has a retake button, shown only while recording (#848)', async () => {
+  const { remoteControllerHtml } = await import('../cli/remote.mjs');
+  const html = remoteControllerHtml('talk.html');
+  assert.match(html, /id="retake"/);
+  assert.match(html, /#retake \{ display: none; \}/, 'hidden by default');
+  assert.match(html, /body\.recording #retake \{ display: block;/, 'shown while the recorder captures a beat');
+  assert.match(html, /send\('retake'\)/);
+});
+
 test('the remote never writes, and a malformed payload is refused not crashed', async (t) => {
   const dir = deckDir();
   const before = snapshot(dir);
