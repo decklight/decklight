@@ -2665,6 +2665,30 @@ test('/deck/edit/export refuses a narration recorded from other notes, names the
   assert.equal((await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/samantha', allowStale: 'yes' })).status, 400, 'a flag, not a string');
 });
 
+// ── your own voice exports: no manifest, read off the disk ──────────────────
+test('/deck/edit/export renders your own voice, which leaves no manifest — and refuses a folder of beats alone', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base, log } = await videoSession(t, { deck: SPOKEN_DECK });
+  const me = path.join(dir, 'voices', 'me');
+  mkdirSync(me, { recursive: true });
+  for (const f of ['slide-01.wav', 'slide-01-01.wav', 'slide-01-02.wav', 'slide-02.wav']) writeFileSync(path.join(me, f), 'audio');
+  const beats = path.join(dir, 'voices', 'beats');
+  mkdirSync(beats, { recursive: true });
+  writeFileSync(path.join(beats, 'slide-01-01.wav'), 'audio');
+  // the card learns both from the track list: one renders, one does not
+  const tracks = (await (await fetch(base + '/deck/edit/narration/tracks')).json()).tracks;
+  const mine = tracks.find((x) => x.dir === 'voices/me');
+  assert.equal(mine?.manifest, false);
+  assert.equal(mine?.renders, true, 'a whole-slide file is something a render plays');
+  assert.equal(tracks.find((x) => x.dir === 'voices/beats')?.renders, false);
+  const r = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/me' });
+  assert.equal((await r.json()).ok, true);
+  assert.match(log(), /carr(y|ies) no notes hash \(recorded by hand\) — not checked/, 'and it says the take was not checked');
+  const no = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/beats' });
+  assert.equal(no.status, 400);
+  assert.match((await no.json()).error, /no recorded narration in voices\/beats\//);
+});
+
 // ── the inspector's file facts (I, PRESENTING) ────────────────────────────
 
 test('the inspector hears where a slide and its blocks live, and what check says about it', async (t) => {

@@ -3981,7 +3981,8 @@ export function createNarration({
     /**
      * The voices a video export can carry (PRESENTING), for its card: every
      * folder beside the deck that `decklight video` can render from (one with a
-     * manifest — your own voice leaves none), the live voice when a bridge is
+     * manifest, or your own voice, which leaves none and is read off the
+     * disk), the live voice when a bridge is
      * speaking — voiced into a folder first, so a second export does not pay
      * again — and silence.
      *
@@ -3992,8 +3993,12 @@ export function createNarration({
     async exportSources() {
       const [tracks, bridge] = await Promise.all([knownTracks(), probeLive()]);
       const options = [];
-      for (const t of tracks.filter((x) => x.manifest)) {
-        const who = t.voice ? `${t.voice}${t.engine ? ` · ${t.engine}` : ''}` : 'recorded';
+      for (const t of tracks.filter((x) => x.manifest || x.renders)) {
+        // no manifest is a take by hand: voices/me is the recorder's name for
+        // yours, and the picker's (proposeTrack)
+        const who = t.voice ? `${t.voice}${t.engine ? ` · ${t.engine}` : ''}`
+          : t.manifest ? 'recorded'
+            : t.dir === proposeTrack({ mine: true }).dir ? 'My voice' : 'recorded by hand';
         // a track voiced from other notes than the deck has now is offered,
         // marked — picking it says so on the export, and the render is told
         // the choice was seen (#536). A machine-voiced one is re-voiced on

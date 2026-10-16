@@ -312,7 +312,7 @@ export function previewError(why) {
  * - `slides` is the command's own `--slides` spelling; `format`, `quality` and
  *   `subtitles` its `--format`, `--quality` and `--subtitles`.
  * - The voice is ONE of three: `narration` names a recorded folder (inside the
- *   deck's directory, holding a manifest — a render that cannot find its audio
+ *   deck's directory, holding a manifest or whole-slide audio — a render that cannot find its audio
  *   should refuse, not come out silent); `synthesize` asks for the live voice
  *   to be voiced into a folder first; `silent` is silence by name. None of them
  *   is the command's own default: a `voiceover/` beside the deck if there is one.
@@ -358,7 +358,11 @@ export function videoExportProblem({ slides, narration, synthesize, silent, form
   if (narration == null || narration === '') return null;
   const bad = folderProblem(narration, deckDir, 'the narration');
   if (bad) return bad;
-  if (!existsSync(resolve(deckDir, narration, 'manifest.json'))) {
+  // a manifest, or the audio itself: your own voice leaves no manifest, and
+  // `decklight video` reads the files (folderNarration)
+  let audio = false;
+  try { audio = readdirSync(resolve(deckDir, narration)).some((f) => /^slide-\d+\.(wav|m4a|mp3)$/.test(f)); } catch { /* no folder */ }
+  if (!audio && !existsSync(resolve(deckDir, narration, 'manifest.json'))) {
     return `no recorded narration in ${narration}/ — record the deck first (V → Record this deck…)`;
   }
   return null;
@@ -2649,9 +2653,11 @@ export async function editMain(args, { onListen = null, client } = {}) {
           ext: (wav[0].name.split('.').pop()),
           engine,
           voice,
-          // only a folder with a manifest is one `decklight video` can render
-          // from — your own voice leaves none, and the export must not offer it
           manifest,
+          // what `decklight video` can render from: a manifest, or a
+          // whole-slide file to read off the disk, which is what your own
+          // voice leaves (folderNarration). Beats alone render nothing.
+          renders: manifest || wav.some((e) => /^slide-\d+\./.test(e.name)),
           stale,
         });
       }

@@ -267,11 +267,13 @@
       // like it silently did nothing.
       if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail' || HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportmodule') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        // The video card's voices: a folder recorded by `say` (a manifest, so
-        // offerable), your own take (no manifest, so not), and a piper bridge.
+        // The video card's voices: a folder recorded by `say` (a manifest),
+        // your own take (no manifest, rendered off the disk), and a piper bridge.
         if (HARNESS_MODE === 'exportvideo' && u.includes('/deck/edit/narration/tracks')) {
           return json({ ok: true, tracks: [
-            { dir: 'voices/me', files: 3, segments: false, ext: 'wav', engine: null, voice: null, manifest: false },
+            { dir: 'voices/me', files: 3, segments: false, ext: 'wav', engine: null, voice: null, manifest: false, renders: true },
+            // only beats, no whole-slide file: nothing a render can play
+            { dir: 'voices/beatsonly', files: 2, segments: true, ext: 'wav', engine: null, voice: null, manifest: false, renders: false },
             { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true, stale: 0 },
             // voiced from notes the deck no longer has on two slides (#536): offered, marked
             { dir: 'voices/older', files: 4, segments: false, ext: 'm4a', engine: 'say', voice: 'Daniel', manifest: true, stale: 2 },
@@ -1830,14 +1832,15 @@
         r.asksWhichSlides = !!card() && /which slides/.test(card().textContent);
         r.offersRanges = rows().some((t) => /All slides/.test(t)) && rows().some((t) => /This slide/.test(t));
         // The voice row starts on what a render would have used anyway — the
-        // voiceover/ folder — never offers your own take, and ← → turn it to the
-        // live voice, which proposes a new folder rather than the say one.
+        // voiceover/ folder, offers your own take as My voice one step back,
+        // and ← → turn it to the live voice, which proposes a new folder
+        // rather than the say one.
         // The settings sit above the ranges: ↑ reaches them from the slides, and
         // ← → turn the one under the selection.
         const settingRow = (name) => [...document.querySelectorAll('.decklight-range .range-setting')]
           .find((n) => n.querySelector('.range-setting-name')?.textContent === name)?.textContent ?? '';
         r.startsOnTheRecordedTrack = /Samantha · say — voiceover\//.test(settingRow('Voice'));
-        r.ownTakeNotOffered = !/voices\/me/.test(card()?.textContent ?? '');
+        r.ownTakeNotOffered = !/voices\/beatsonly/.test(card()?.textContent ?? '');
         r.defaultsAreMp4Standard = /MP4/.test(settingRow('Format')) && /Standard/.test(settingRow('Quality'))
           && /None/.test(settingRow('Subtitles'));
         press('ArrowRight');           // on a range row, ← → change nothing
@@ -1848,6 +1851,9 @@
         press('ArrowUp');              // Format
         press('ArrowRight');           // → MOV
         press('ArrowUp');              // Voice
+        press('ArrowLeft');            // ← your own voice, no manifest (rendered off the disk)
+        r.offersMyVoice = /My voice — voices\/me\//.test(settingRow('Voice'));
+        press('ArrowRight');           // → back to voiceover/
         press('ArrowRight');           // → the track voiced from older notes, offered marked (#536)
         // a machine-voiced track is re-voiced on those slides first (#553), and says so
         r.staleTrackMarked = /Daniel · say — voices\/older\/ · 2 slides from older notes, re-voiced first/.test(settingRow('Voice'));
@@ -1883,7 +1889,7 @@
         r.toldTheTheme = sent?.theme === 'eclipse';
         r.remembersTheFormat = /"format":"mov"/.test(localStorage.getItem('decklight:video-export') ?? '');
         r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t) && /its voice is in voices\/en-us-ryan-high\//.test(t));
-        r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges && r.staleTrackMarked
+        r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges && r.staleTrackMarked && r.offersMyVoice
           && r.startsOnTheRecordedTrack && r.ownTakeNotOffered && r.defaultsAreMp4Standard && r.arrowsLeaveRangesAlone
           && r.arrowsTurnTheSettings && r.remembersTheFormat && r.saysTheRenderPhase
           && r.typingFillsTheBox && r.badRangeStaysOpen && r.nothingPostedYet && r.closesOnPick

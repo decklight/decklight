@@ -33,7 +33,7 @@
 // written here would be a copy that drifts.
 
 import { execFile, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
@@ -549,8 +549,48 @@ export function ffprobeArgs(file) {
 }
 
 /**
- * Where the narration lives: --narration <dir> (its manifest is then required)
- * → <deckdir>/voiceover/manifest.json → null (a silent deck).
+ * A folder recorded by hand, read off the disk: what a manifest would say
+ * about its files, and nothing it would say about the notes. Your own voice
+ * (`narrate --mic`) wrote no manifest, and a folder of `slide-NN.wav` with its
+ * `slide-NN-KK.wav` beats is everything a render plays; with no hash per
+ * slide, the freshness check counts it as hand-recorded and says so.
+ * Null when the folder holds no whole-slide audio at all.
+ */
+export function folderNarration(dir) {
+  let names;
+  try { names = readdirSync(dir); } catch { return null; }
+  const EXT = ['wav', 'm4a', 'mp3'];   // a folder holding two, the recorder's first
+  const whole = new Map();
+  const beats = new Map();
+  for (const f of names) {
+    const m = /^slide-(\d+)(?:-(\d+))?\.(wav|m4a|mp3)$/.exec(f);
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (m[2] == null) {
+      const had = whole.get(n);
+      if (!had || EXT.indexOf(m[3]) < EXT.indexOf(had.split('.').pop())) whole.set(n, f);
+    } else {
+      if (!beats.has(n)) beats.set(n, new Map());
+      const k = Number(m[2]);
+      const had = beats.get(n).get(k);
+      if (!had || EXT.indexOf(m[3]) < EXT.indexOf(had.split('.').pop())) beats.get(n).set(k, f);
+    }
+  }
+  if (!whole.size) return null;
+  const slides = [];
+  for (let n = 1; n <= Math.max(...whole.keys()); n++) {
+    const file = whole.get(n);
+    if (!file) { slides.push(null); continue; }
+    const segs = [...(beats.get(n) ?? new Map()).entries()].sort((a, b) => a[0] - b[0]).map(([, f]) => ({ file: f }));
+    slides.push(segs.length ? { file, segments: segs } : { file });
+  }
+  return { dir, slides, engine: undefined, model: undefined, voice: undefined, style: undefined };
+}
+
+/**
+ * Where the narration lives: --narration <dir> (its manifest, else the audio
+ * files in it, recorded by hand) → <deckdir>/voiceover/manifest.json → null
+ * (a silent deck).
  * @returns {{ dir, slides }|null}
  */
 export function resolveNarration(deckPath, narrationDir) {
@@ -558,8 +598,10 @@ export function resolveNarration(deckPath, narrationDir) {
     const path = join(dir, 'manifest.json');
     if (!existsSync(path)) {
       if (required) {
-        throw new Error(`--narration: no manifest.json in ${dir} — `
-          + 'run tools/voiceover.mjs (or decklight video --voiceover) first');
+        const byHand = folderNarration(dir);
+        if (byHand) return byHand;
+        throw new Error(`--narration: no manifest.json and no slide-NN audio in ${dir} — `
+          + 'record it first (decklight narrate, or decklight video --voiceover)');
       }
       return null;
     }

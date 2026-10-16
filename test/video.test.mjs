@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   TAIL_SECONDS, LAST_STEP, SLIDE_PAUSE_DEFAULT, parseSize, parseSlideRange, extractHolds, extractPauses, planTimeline,
-  segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, parseBuildSteps, voiceoverArgs,
+  segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, folderNarration, parseBuildSteps, voiceoverArgs,
   videoOut, videoProgress, voiceoverProgress, ENCODINGS, videoOptions, subtitleCues, toSrt, toVtt, subtitlesOut,
   pauseMarks,
 } from '../tools/video.mjs';
@@ -378,7 +378,7 @@ test('narration resolves --narration → deck voiceover/ → silent, in that ord
     // …and an explicit dir WITHOUT a manifest is an error, not a silent fallback
     const empty = join(dir, 'empty');
     mkdirSync(empty);
-    assert.throws(() => resolveNarration(deck, empty), /no manifest\.json/);
+    assert.throws(() => resolveNarration(deck, empty), /no manifest\.json and no slide-NN audio/);
 
     // a manifest that is not a voiceover manifest is named, not half-read
     writeFileSync(join(other, 'manifest.json'), JSON.stringify({ files: [] }));
@@ -538,4 +538,37 @@ test('resolveNarration carries the manifest header, which the freshness check ha
   assert.equal(n.dir, vo);
   assert.deepEqual([n.engine, n.model, n.voice, n.style], ['gemini', 'gemini-2.5-pro-tts', 'Kore', 'warm']);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('a folder recorded by hand renders off the disk: its files are the manifest it never wrote', async () => {
+  const { staleSlides } = await import('../tools/narration-manifest.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'video-hand-'));
+  try {
+    const deck = join(dir, 'deck.html');
+    writeFileSync(deck, '<section></section>');
+    const me = join(dir, 'voices', 'me');
+    mkdirSync(me, { recursive: true });
+    // slide 1 in two beats (and a stray m4a twin the wav wins over), no slide 2, slide 3 whole
+    for (const f of ['slide-01.wav', 'slide-01.m4a', 'slide-01-02.wav', 'slide-01-01.wav', 'slide-03.wav', 'notes.txt']) {
+      writeFileSync(join(me, f), 'audio');
+    }
+    const n = resolveNarration(deck, me);
+    assert.equal(n.dir, me);
+    assert.deepEqual(n.slides, [
+      { file: 'slide-01.wav', segments: [{ file: 'slide-01-01.wav' }, { file: 'slide-01-02.wav' }] },
+      null,
+      { file: 'slide-03.wav' },
+    ]);
+    assert.equal(n.engine, undefined, 'nobody voiced it: nothing to re-voice it with');
+    // no hashes: counted as recorded by hand, never called stale
+    assert.deepEqual(staleSlides(n, ['a', 'b', 'c']), { stale: [], hashless: 2 });
+    // beats with no whole-slide file are nothing a render can play
+    const beats = join(dir, 'beats');
+    mkdirSync(beats);
+    writeFileSync(join(beats, 'slide-01-01.wav'), 'audio');
+    assert.equal(folderNarration(beats), null);
+    assert.equal(folderNarration(join(dir, 'missing')), null);
+  } finally {
+    rmTemp(dir);
+  }
 });
