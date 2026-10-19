@@ -4528,9 +4528,27 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         press('Enter');
         await settle(); await settle();
         const list = document.querySelector('.decklight-design-systems');
-        const labels = [...(list?.querySelectorAll('.ds-row .narr-row-label') ?? [])].map((n) => n.textContent);
+        const dsRows = [...(list?.querySelectorAll('.ds-row') ?? [])];
+        const labels = dsRows.map((n) => `${n.querySelector('.ds-mark')?.textContent} ${n.querySelector('.ds-name')?.textContent}`);
         r.listed = labels.length === 3 && /^○ acme@acme-mkt/.test(labels[0]) && /^● globex@acme-mkt/.test(labels[1]);
         r.grouped = /Acme/.test(list?.querySelector('.narr-group')?.textContent ?? '');
+        // #860: one in-use marker — the ●, never the narration panel's trailing ✓
+        const after = (n) => (n ? getComputedStyle(n, '::after').content : '');
+        r.oneMarker = !!dsRows[1] && /none|normal/.test(after(dsRows[1])) && !dsRows[1].classList.contains('narr-cur');
+        // the version apart from the description; the description one line, whole in the tooltip
+        const desc = dsRows[0]?.querySelector('.ds-desc');
+        r.versionApart = !!dsRows[0]?.querySelector('.ds-version') && !desc?.contains(dsRows[0].querySelector('.ds-version'));
+        r.descOneLine = !!desc && getComputedStyle(desc).whiteSpace === 'nowrap' && dsRows[0].title === desc.textContent;
+        // the selected row says what Space does, and only it; ⇧ only where adding
+        const act = (n) => n?.querySelector('.ds-act');
+        r.rowSaysAction = act(dsRows[0])?.textContent === 'Space: use, with its themes and fonts (⇧ alone)'
+          && getComputedStyle(act(dsRows[0])).display !== 'none' && getComputedStyle(act(dsRows[1])).display === 'none';
+        press('ArrowDown'); await settle();
+        r.usedRowSaysStop = /^Space: stop using/.test(act(dsRows[1])?.textContent ?? '') && !/⇧/.test(act(dsRows[1])?.textContent ?? '')
+          && getComputedStyle(act(dsRows[1])).display !== 'none';
+        press('ArrowUp'); await settle();
+        // the keys said once: the heading names no key, the footer no action
+        r.hintOnce = !/Space/.test(list?.querySelector('.narr-head')?.textContent ?? '') && !/⇧|toggles/.test(list?.querySelector('.rec-hint')?.textContent ?? '');
         r.unusableSaidWhy = /needs a newer decklight/.test(list?.querySelectorAll('.ds-row')[2]?.textContent ?? '');
         // never fetched is said plainly; only a cached catalog that no longer reads warns
         const lines = [...(list?.querySelectorAll('.rec-line') ?? [])];
@@ -4542,7 +4560,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.toggled = sent?.ref === 'acme@acme-mkt' && sent?.used === true;
         r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — its templates are in \/ → Use slide template… · (⌘Z|Ctrl\+Z) takes it back/.test(n.textContent));
         r.closed = !document.querySelector('.decklight-design-systems');
-        r.PASS = r.paletteRow && r.listed && r.grouped && r.unusableSaidWhy && r.staleNamed && r.toggled && r.said && r.closed;
+        r.PASS = r.paletteRow && r.listed && r.grouped && r.oneMarker && r.versionApart && r.descOneLine && r.rowSaysAction && r.usedRowSaysStop && r.hintOnce
+          && r.unusableSaidWhy && r.staleNamed && r.toggled && r.said && r.closed;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -4614,7 +4633,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.adderClosed = !document.querySelector(A);
         // …and Design systems… is back, listing it, with no reload
         const back = document.querySelector('.decklight-design-systems');
-        r.listedNow = /○ northwind@northwind/.test(back?.querySelector('.ds-row .narr-row-label')?.textContent ?? '');
+        r.listedNow = /○\s*northwind@northwind/.test(back?.querySelector('.ds-row')?.textContent ?? '');
         press('Escape'); await settle();
         press('t'); await settle(); await settle();
         r.themesAskAgain = asked('/deck/edit/theme/browse') === themesBefore + 1

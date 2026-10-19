@@ -5,8 +5,9 @@
 // registered marketplace offers, write mode only (SPEC DESIGN_SYSTEMS).
 //
 // Each row says whether this deck references it — ● uses, ○ does not — and
-// Space (or ⏎, or a click) toggles it through the edit server
-// (POST /deck/edit/design-system/mark): one entry in the deck's config block, one
+// the selected one says what Space would do. Space (or ⏎, or a click) toggles
+// it through the edit server (POST /deck/edit/design-system/mark): one entry
+// in the deck's config block, one
 // undo entry, and the reload that brings the deck back WITH the design system
 // linked, since linking is the server's job. Cache-only, like the theme
 // picker: a marketplace that could not be read is named with the command that
@@ -18,11 +19,42 @@ import { pageDesignSystems, setupSlideTemplates, isTemplateRef } from './design-
 import { UNDO_CHORD } from './undo-chord.js';
 
 /**
+ * What Space would do to this row, said on the row while it is selected — so
+ * dropping the design system the deck's templated slides stand on is read
+ * before it is done, not only in the toast after. `slides` is how many of
+ * this deck's slides name one of its templates. Null: Space does nothing here
+ * (an unusable one says why on its own line).
+ */
+export function designSystemAction(s, { slides = 0 } = {}) {
+  if (s.used) return `Space: stop using${slides ? ` — ${slides} slide${slides === 1 ? '' : 's'} use${slides === 1 ? 's' : ''} its templates` : ''}`;
+  if (s.missing) return null;
+  return 'Space: use, with its themes and fonts (⇧ alone)';
+}
+
+/**
+ * One row: one marker (● used, ○ not), the name with its version set apart,
+ * the description cut to a line with the whole of it in the tooltip, and the
+ * action, shown only on the selected row (SPEC DESIGN_SYSTEMS).
+ */
+export function designSystemRow(s, i, { slides = 0 } = {}) {
+  const act = designSystemAction(s, { slides });
+  return `<div class="narr-row ds-row${s.used ? ' ds-used' : ''}${s.missing ? ' narr-blocked' : ''}" data-i="${i}"`
+    + `${s.description ? ` title="${escapeHtml(s.description)}"` : ''}>`
+    + `<span class="ds-mark" aria-label="${s.used ? 'in use' : 'not in use'}">${s.used ? '●' : '○'}</span>`
+    + '<span class="narr-row-label">'
+    + `<span class="ds-name">${escapeHtml(s.qualified)}</span>`
+    + `${s.version ? `<span class="ds-version">${escapeHtml(s.version)}</span>` : ''}`
+    + `${s.description ? `<span class="ds-desc">${escapeHtml(s.description)}</span>` : ''}`
+    + `${act ? `<span class="ds-act">${escapeHtml(act)}</span>` : ''}</span>`
+    + `${s.missing ? `<div class="narr-fix">${escapeHtml(s.missing)}</div>` : ''}</div>`;
+}
+
+/**
  * `base()` is the edit server's URL, or null when there is none — and `''`
  * when the deck is served BY the edit server, every fetch same-origin, so
  * only `null` means "no server": an empty base is the commonest one.
  */
-export function createDesignSystemsPicker({ root, base, toast, addMarketplace = null, debugLog = () => {} }) {
+export function createDesignSystemsPicker({ root, base, toast, addMarketplace = null, slidesUsing = () => 0, debugLog = () => {} }) {
   let el = null, rows = [], sel = 0, busy = false;
 
   const card = () => el?.querySelector('.narr-card');
@@ -38,18 +70,14 @@ export function createDesignSystemsPicker({ root, base, toast, addMarketplace = 
       if (!groups.has(s.group)) groups.set(s.group, []);
       groups.get(s.group).push(s);
     }
-    let html = '<div class="narr-head">design systems — ● this deck uses it · Space toggles</div>';
+    let html = '<div class="narr-head">design systems — ● this deck uses it</div>';
     rows = [];
     for (const [group, list] of groups) {
-      html += `<div class="narr-group">${escapeHtml(group)}</div>`;
+      // a heading over one design system only repeats what its @marketplace says
+      if (list.length > 1) html += `<div class="narr-group">${escapeHtml(group)}</div>`;
       for (const s of list) {
-        const i = rows.length;
+        html += designSystemRow(s, rows.length, { slides: s.used ? slidesUsing(s.name) : 0 });
         rows.push(s);
-        html += `<div class="narr-row ds-row${s.used ? ' narr-cur' : ''}${s.missing ? ' narr-blocked' : ''}" data-i="${i}">`
-          + `<span class="narr-row-label">${s.used ? '●' : '○'} ${escapeHtml(s.qualified)}`
-          + `${s.version ? ` <span class="narr-flavor">${escapeHtml(s.version)}</span>` : ''}`
-          + `${s.description ? ` <span class="narr-flavor">${escapeHtml(s.description)}</span>` : ''}</span>`
-          + `${s.missing ? `<div class="narr-fix">${escapeHtml(s.missing)}</div>` : ''}</div>`;
       }
     }
     if (!systems.length) {
@@ -66,7 +94,8 @@ export function createDesignSystemsPicker({ root, base, toast, addMarketplace = 
     // said plainly, and only a cached catalog that no longer reads is a warning
     for (const m of unfetched) html += `<div class="rec-line">${escapeHtml(m)} has not been fetched yet — decklight marketplace update ${escapeHtml(m)}</div>`;
     for (const m of stale) html += `<div class="rec-line rec-warn">${escapeHtml(m)}'s cached catalog could not be read — decklight marketplace update ${escapeHtml(m)}</div>`;
-    html += systems.length ? '<div class="rec-hint">↑/↓ · Space or ⏎ toggles — with its recommended themes and fonts (⇧ for the design system alone) · Esc closes</div>'
+    // what Space does is said on the selected row itself, so the footer only names the keys
+    html += systems.length ? '<div class="rec-hint">↑/↓ · Space or ⏎ · Esc closes</div>'
       : `<div class="rec-hint">${addMarketplace ? '⏎ adds a marketplace · ' : ''}Esc closes</div>`;
     c.innerHTML = html;
     c.querySelectorAll('.ds-row').forEach((r) => {

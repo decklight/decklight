@@ -1746,6 +1746,22 @@
 }
 /* Design systems… (DESIGN_SYSTEMS): the marketplaces' design systems, ● used / ○ not */
 .decklight-design-systems .narr-card { width: min(520px, 90vw); }
+/* one marker says "in use" — the ● — so the row is not .narr-cur and gets no ✓ */
+.decklight-design-systems .ds-row:not(.ds-add) { align-items: flex-start; }
+.decklight-design-systems .ds-mark { flex: none; width: 1em; line-height: 1.45; }
+.decklight-design-systems .ds-row .narr-row-label { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; line-height: 1.45; }
+.decklight-design-systems .ds-name { font-weight: 600; }
+.decklight-design-systems .ds-version {
+  font: 500 .75em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 0 5px;
+  border: 1px solid rgba(255, 255, 255, .22); border-radius: 4px; opacity: .7;
+}
+/* the description is a line; the whole of it is the row's tooltip */
+.decklight-design-systems .ds-desc {
+  flex: 1 0 100%; min-width: 0; font-size: .85em; opacity: .55;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.decklight-design-systems .ds-act { display: none; flex: 1 0 100%; font-size: .8em; opacity: .85; }
+.decklight-design-systems .ds-row.narr-sel .ds-act { display: block; }
 /* Add a marketplace… (DESIGN_SYSTEMS): one field, then what it is about to clone */
 .decklight-marketplace-add .narr-card { width: min(520px, 90vw); }
 .decklight-marketplace-add .mk-error { white-space: pre-wrap; }

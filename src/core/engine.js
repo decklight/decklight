@@ -585,6 +585,8 @@ export function init(userConfig = {}) {
     root, toast,
     base: () => (editmode?.available() ? editmode.base() : null),
     addMarketplace: (opts) => marketplaceAdder.open(opts),
+    // how many slides stand on its templates — what stopping using it takes from
+    slidesUsing: (name) => (instance?._sections ?? []).filter((s) => s.getAttribute('data-template')?.startsWith(`${name}/`)).length,
     debugLog: (...a) => debugLog(...a),
   });
   overlays.register({ isOpen: designSystems.isOpen, close: designSystems.close, keydown: designSystems.keydown });
