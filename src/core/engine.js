@@ -596,7 +596,8 @@ export function init(userConfig = {}) {
     root, toast, stage: () => stage,
     base: () => (editmode?.available() ? editmode.base() : null),
     concepts: () => config.concepts ?? {},
-    apply: (map) => { config.concepts = map; applyConcepts(stage, config.concepts); },
+    // a pin repaints the slides and the inspector's swatches with them
+    apply: (map) => { config.concepts = map; applyConcepts(stage, config.concepts); inspector?.refresh?.(); },
     pageId: () => editmode?.pageId?.() ?? '',
     debugLog: (...a) => debugLog(...a),
     // pick mode attaches through the concept tools; ←/→ visit the slides a concept is on
@@ -1554,6 +1555,7 @@ export function init(userConfig = {}) {
     config.concepts = map;
     applyConcepts(stage, config.concepts);
     conceptsEditor.refresh();
+    inspector?.refresh?.();
   });
   // a layout picked on another page of this deck (editmode.js relays the event)
   root.addEventListener('decklight:layout', (e) => {
@@ -3094,6 +3096,8 @@ export function init(userConfig = {}) {
         if (name !== null && !/^[a-z][a-z0-9-]{0,40}$/i.test(name)) { toast('a concept is a name: letters, digits and dashes, starting with a letter', 3200); return null; }
         return conceptTools.attach([el], name);
       },
+      // Concept colors…, at `name`'s row: the inspector's way into the deck's concepts
+      edit: (name) => conceptsEditor.open({ select: name }),
     } : null),
     instance: () => instance, stage: () => stage,
     editmode: () => editmode, editbar: () => editbar,

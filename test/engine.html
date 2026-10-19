@@ -6021,6 +6021,33 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         q(`${C} .cp-side [data-id="stroke"]`).click();
         r.strokeStillPicks = !!q(`${C} .cp-swatch`) && !q(`${C} .cp-notice`);
         q(`${C} .cp-side [data-id="fill"]`).click();
+        // the notice's Concept colors…: the list, at this shape's concept, over the inspector, and Escape back to it
+        r.noticeOffersTheList = !!q(`${C} .cp-notice .cp-concept-colors`) && !/→ Concept colors…/.test(q(`${C} .cp-notice`).textContent);
+        q(`${C} .cp-concept-colors`)?.click();
+        await settle();
+        r.noticeOpensTheList = q(`${E} .cc-row.narr-sel`)?.dataset.name === 'tools';
+        press('Escape');
+        await settle();
+        r.listClosesToTheInspector = !q(E) && !!q(`${C} .cp-notice`);
+        // the Concept row's edit…, last: the same list, at the same concept
+        r.rowEditLast = q(`${C} .cp-concepts`)?.lastElementChild?.classList.contains('cp-concept-edit') ?? false;
+        q(`${C} .cp-concept-edit`)?.click();
+        await settle();
+        r.rowEditOpensTheList = q(`${E} .cc-row.narr-sel`)?.dataset.name === 'tools';
+        press('Escape');
+        await settle();
+        // the Info tab: the concept's name is a link into the list
+        q('.decklight-inspector .ins-tab[data-tab="info"]').click();
+        await settle();
+        const infoConcept = q('.decklight-inspector dd[data-key="concept"] .ins-act');
+        r.infoNamesALink = infoConcept?.textContent === 'tools';
+        infoConcept?.click();
+        await settle();
+        r.infoOpensTheList = q(`${E} .cc-row.narr-sel`)?.dataset.name === 'tools';
+        press('Escape');
+        await settle();
+        q('.decklight-inspector .ins-tab[data-tab="colors"]').click();
+        await settle();
         q(`${C} .cp-detach`).click();
         await settle();
         const viaCard = lastConceptWrite();
@@ -6033,6 +6060,14 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         rowNamed('Colors…').click();
         await settle();
         r.plainCardUnchanged = !!q(`${C} .cp-swatch`) && !q(`${C} .cp-notice`);
+        // its Info tab says none, as a link to the Colors tab, where the Concept row gives it one
+        q('.decklight-inspector .ins-tab[data-tab="info"]').click();
+        await settle();
+        const none = q('.decklight-inspector dd[data-key="concept"] .ins-act');
+        r.infoNoneIsALink = none?.textContent === 'none';
+        none?.click();
+        await settle();
+        r.infoNoneGoesToColors = q('.decklight-inspector .ins-tab[data-tab="colors"]')?.getAttribute('aria-selected') === 'true' && !!q(`${C} .cp-concept-row`);
         press('Escape');
 
         // the palette's Concept colors…: every concept, its slot, its shape count
@@ -6077,6 +6112,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.PASS = r.paintedOnLoad && r.menuOffersConcept && r.submenu && r.detachPostsTheHolder && r.detachIsInPlace
           && r.editRowLast && r.editOpensTheList && r.editListCloses && r.plainSubmenu && r.inputRow
           && r.newNamePostsTheShape && r.fillIsANotice && r.strokeStillPicks && r.cardDetaches && r.plainCardUnchanged
+          && r.noticeOffersTheList && r.noticeOpensTheList && r.listClosesToTheInspector && r.rowEditLast && r.rowEditOpensTheList
+          && r.infoNamesALink && r.infoOpensTheList && r.infoNoneIsALink && r.infoNoneGoesToColors
           && r.paletteRow && r.listsEveryConcept && r.repaintsAtOnce && r.pinPostsTheMap && r.listFollows
           && r.refusedRepaintsFirst && r.refusedGoesBack && r.zeroUnpins && r.escapeCloses && r.eventRepaints;
       }

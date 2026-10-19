@@ -150,8 +150,9 @@ export function createInspector({
    * A row: `key`, `value`, an optional mark ('ok' ✓, 'warn' !), and an
    * optional `look`: the colour the value names, shown beside it
    * (`{ fill }`, `{ ring }`), or the text on its background (`{ ink, on }`).
+   * An optional `act` makes the value a button: `{ title, run() }`.
    */
-  const row = (key, value, mark = null, extra = null, look = null) => ({ key, value, mark, extra, look });
+  const row = (key, value, mark = null, extra = null, look = null, act = null) => ({ key, value, mark, extra, look, act });
 
   function slideRows() {
     const n = slideNo();
@@ -260,8 +261,13 @@ export function createInspector({
       // the concept that colours it (SVG_DIAGRAMS), or how to give it one
       if (node.closest('svg') && /^(rect|circle|ellipse|polygon|path)$/i.test(node.tagName)) {
         const name = conceptNameOf(node);
+        // the value goes where the concept is set: the deck's Concept colors list, or the Colors tab's Concept row
+        const edit = concepts()?.edit;
+        const act = name
+          ? (edit && editmode()?.available?.() ? { title: `open Concept colors at “${name}”: its colour on every slide, and the shapes in it`, run: () => edit(name) } : null)
+          : (styleTargets() ? { title: 'open the Colors tab, where its Concept row gives it one', run: () => { tab = 'colors'; render(); } } : null);
         rows.push(row('concept', name ?? 'none', null, name ? 'its colour is the concept’s, on every slide' : 'Colors tab → Concept gives it one',
-          name && shown(cs.fill) ? { fill: cs.fill } : null));
+          name && shown(cs.fill) ? { fill: cs.fill } : null, act));
       }
       const w = parseFloat(cs.strokeWidth);
       rows.push(row('stroke', paint(cs.stroke), null, paint(cs.stroke) !== 'none' && w ? `${+w.toFixed(2)} wide` : null,
@@ -507,6 +513,8 @@ export function createInspector({
           names: () => concepts().names(),
           fill: (name) => concepts().fill?.(name) ?? null,
           set: (name) => concepts().set(targets.conceptAt.el, name),
+          // the deck's Concept colors list, at this shape's concept: where its colour is pinned
+          edit: concepts().edit ? (name) => concepts().edit(name) : null,
         } : null,
         onEscape: () => keydown({ key: 'Escape' }),
       });
@@ -610,7 +618,11 @@ export function createInspector({
         }));
       }
       if (r.look) dd.append(lookOf(r.look));
-      dd.append(Object.assign(document.createElement('span'), { className: 'ins-value', textContent: r.value }));
+      if (r.act) {
+        const b = Object.assign(document.createElement('button'), { type: 'button', className: 'ins-value ins-act', textContent: r.value, title: r.act.title });
+        b.addEventListener('click', (e) => { e.stopPropagation(); r.act.run(); });
+        dd.append(b);
+      } else dd.append(Object.assign(document.createElement('span'), { className: 'ins-value', textContent: r.value }));
       if (r.extra) dd.append(Object.assign(document.createElement('span'), { className: 'ins-extra', textContent: r.extra }));
       dd.dataset.key = r.key;
       grid.append(dt, dd);

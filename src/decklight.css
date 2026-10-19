@@ -1797,6 +1797,8 @@
 .decklight-colorpicker .cp-callout-chip { flex: none; width: 18px; height: 18px; border-radius: 5px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); }
 .decklight-colorpicker .cp-callout .cp-notice-text { color: #b9bec8; }
 .decklight-colorpicker .cp-callout .cp-detach { margin-top: 2px; }
+.decklight-colorpicker .cp-callout-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.decklight-colorpicker .cp-callout-actions .cp-detach { margin-top: 0; }
 .decklight-ctxmenu .cm-input { padding: 4px 8px; }
 .decklight-ctxmenu .cm-input input { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.35); color: inherit; }
 .decklight-ds-templates .narr-card { width: min(860px, 94vw); }
@@ -2839,6 +2841,11 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .2);
 }
 .decklight-inspector .ins-extra { display: block; opacity: .5; font-size: .88em; }
+.decklight-inspector .ins-act {
+  padding: 0; border: 0; background: none; font: inherit; color: #9ecbff; cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.decklight-inspector .ins-act:hover, .decklight-inspector .ins-act:focus-visible { color: #fff; text-decoration-style: solid; }
 .decklight-inspector .ins-none { margin: 2px 12px 8px; opacity: .5; font-size: .9em; }
 .decklight-inspector .ins-link { text-decoration: none; color: inherit; }
 .decklight-inspector .src-go { flex: none; opacity: .45; font-size: .85em; }

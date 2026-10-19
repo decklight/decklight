@@ -735,8 +735,10 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
    * concepts as chips, the shape's own pressed, `+ new` to name one, `none`
    * to take it off. Where people colour a shape is where they look for "make
    * this the same colour as the others", so the concept is offered here and
-   * not only behind a right-click. `concepts` is `{ names(), set(name) }`;
-   * without it (no write mode) the row is not drawn.
+   * not only behind a right-click. `concepts` is `{ names(), set(name),
+   * edit?(name) }`; `edit` puts an `edit…` chip last, into the deck's Concept
+   * colors list (pins, pick shapes). Without `concepts` (no write mode) the
+   * row is not drawn.
    */
   function renderConceptRow(into) {
     if (!concepts || !targets.conceptAt) return;
@@ -772,6 +774,12 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     });
     chips.append(add);
     if (now) chips.append(Object.assign(chip('none', null, false, `take “${now}” off this shape, then colour it by hand`), { className: 'cp-btn cp-concept-chip cp-none' }));
+    if (concepts.edit) {
+      const edit = h('button', 'cp-btn cp-concept-chip cp-none cp-concept-edit', 'edit…'); edit.type = 'button';
+      edit.title = now ? `Concept colors, at “${now}”: pin its colour, pick its shapes` : 'Concept colors: every concept in the deck, its colour and its shapes';
+      edit.addEventListener('click', () => concepts.edit(now));
+      chips.append(edit);
+    }
     line.append(chips);
     into.appendChild(line);
   }
@@ -782,11 +790,21 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
     const dot = h('span', 'cp-callout-chip');
     dot.style.background = concepts?.fill?.(targets.concept.name) ?? conceptFill(targets.concept.name);
     head.append(dot, h('span', 'cp-callout-title', `Filled by the “${targets.concept.name}” concept`));
-    note.append(head, h('span', 'cp-notice-text', 'The deck colours every shape in it, so a fill picked here would be painted over on the next load. Pin its colour in / → Concept colors…, or take this shape out of it.'));
+    note.append(head, h('span', 'cp-notice-text', concepts?.edit
+      ? 'The deck colours every shape in it, so a fill picked here would be painted over on the next load. Change its colour on every slide, or take this shape out of it.'
+      : 'The deck colours every shape in it, so a fill picked here would be painted over on the next load. Pin its colour in / → Concept colors…, or take this shape out of it.'));
+    const actions = h('div', 'cp-callout-actions');
+    if (concepts?.edit) {
+      const edit = h('button', 'cp-btn cp-concept-colors', 'Concept colors…'); edit.type = 'button';
+      edit.title = `the deck's concepts, at “${targets.concept.name}”: pin its colour, on every slide`;
+      edit.addEventListener('click', () => concepts.edit(targets.concept.name));
+      actions.appendChild(edit);
+    }
     const btn = h('button', 'cp-btn cp-detach', 'Detach from concept'); btn.type = 'button';
     btn.title = `take data-concept="${targets.concept.name}" off this ${targets.concept.tag}, then colour it by hand`;
     btn.addEventListener('click', () => onDetach?.(targets.concept));
-    note.appendChild(btn);
+    actions.appendChild(btn);
+    note.appendChild(actions);
     body.appendChild(note);
   }
 
