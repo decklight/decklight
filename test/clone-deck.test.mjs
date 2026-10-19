@@ -169,7 +169,13 @@ test('decklight <url>: the clone IS the working directory — git runs there, no
   });
   assert.match(out, /cloned file:.*talk\.git → talk/);
   assert.ok(!fs.existsSync(path.join(cwd, '.git')), 'no repository was created where the deck was opened from');
-  const ping = await (await fetch(`${base}/deck/ping`)).json();
+  // a refused or dropped connection is only "fetch failed" on its own: say why,
+  // and what the server said before it stopped answering (windows CI, #871)
+  const ping = await fetch(`${base}/deck/ping`).then((r) => r.json(), async (e) => {
+    await new Promise((r) => setTimeout(r, 1000));
+    throw new Error(`GET ${base}/deck/ping: ${e.cause?.code ?? e.cause?.message ?? e.message}`
+      + ` · server exit ${child.exitCode ?? 'none'}${child.signalCode ? ` (${child.signalCode})` : ''}\n${out}`);
+  });
   assert.equal(ping.git, true, 'git is on — a clone is a repository, not a question');
   assert.equal(ping.remote?.url, url, "the edit server's git is the clone's, with its origin");
   assert.equal(fs.readdirSync(cwd).join(','), 'talk', 'the only thing left behind is the clone');
