@@ -121,7 +121,7 @@ const DECK = `<!doctype html>
   const status = () => document.querySelector('.decklight-mic .rec-status');
   const phase = () => status()?.dataset.phase ?? null;
   // ?keys=R,L,…: what to answer each beat the deck puts up (R → or the
-  // phone's next, L ←, B ⌫); past the end of the list, R
+  // phone's next, L ←, B ⌫, X E: edit the words to ?words=); past the end of the list, R
   const KEYS = (params.get('keys') || '').split(',').filter(Boolean);
   const press = (key) => document.body.dispatchEvent(
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
@@ -219,6 +219,18 @@ const DECK = `<!doctype html>
               && phase() === 'countdown';
             if (!(await until(() => phase() === 'rec', 6000))) { r.noTake = text; break; }
             await wait(${BEAT_MS});
+          }
+          if ((KEYS[i] ?? 'R') === 'X') {
+            // E, the words typed into the box, Enter: the beat comes back
+            // with them, to be read again
+            press('e');
+            const box = await until(() => document.querySelector('.decklight-mic .rec-edit'), 5000);
+            r.editBox = box?.value ?? null;
+            if (!box) break;
+            box.value = params.get('words');
+            box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+            if (!(await until(() => reading(), 8000))) break;
+            continue;
           }
           const el = status();
           if ((KEYS[i + 1] ?? 'R') === 'E' && params.has('escnext')) {
@@ -580,6 +592,25 @@ check('drift', /Slide 1's \[click\] moved since it was recorded \(3 beats → 2\
   && /cannot move a build/.test(moved.vWarn ?? '') && /decklight narrate deck\.html --mic --slides 1 --dir takes/.test(moved.vWarn ?? '')
   && /build split changed — re-record slide 1/.test(moved.vRows ?? '') && steady.vWarn === null,
 `V says: "${moved.vWarn}" · put back, says nothing=${steady.vWarn === null}`);
+
+// ── the words, edited mid-take ───────────────────────────────────────────
+// E on slide 1's beat two: the box holds that beat's words, Enter writes them
+// to the deck's notes, and the beat is read again with them, counted in; per
+// slide, beat one is kept. The [click] split is untouched.
+const edited = await run('tone', 'edited', 'keys', `&keys=R,X&words=${encodeURIComponent('Beat two, and then some.')}&countdown=1`);
+const editedDeck = readFileSync(deckFile, 'utf8');
+writeFileSync(deckFile, DECK);
+const slide1Notes = /<aside class="notes">([\s\S]*?)<\/aside>/.exec(editedDeck)?.[1] ?? '';
+check('edit', edited.editBox === 'Beat two.'
+  && JSON.stringify(edited.beats) === JSON.stringify(['Beat one.', 'Beat two.', 'Beat two, and then some.', 'Beat three.', 'Slide two, all in one breath.'])
+  && JSON.stringify(edited.steps) === JSON.stringify(['1.0', '1.1', '1.1', '1.2', '2.0'])
+  && JSON.stringify(edited.counted) === JSON.stringify(['1', null, '1', null, '1'])
+  && /Beat two, and then some\./.test(slide1Notes) && (slide1Notes.match(/\[click\]/g) ?? []).length === 2
+  && edited.finished === true && JSON.stringify(wavs(path.join(tmp, 'edited'))) === JSON.stringify(files)
+  // the manifest has the words as read, so V does not call the slide drifted
+  && JSON.parse(readFileSync(path.join(tmp, 'edited', 'manifest.json'), 'utf8')).slides[0]?.beats?.[1] === 'Beat two, and then some.',
+`box held "${edited.editBox}" · read ${edited.beats.join(' | ')} at ${edited.steps.join(' ')}`
+  + ` · counted ${(edited.counted ?? []).map((c) => c ?? '·').join('')} · notes on disk: ${slide1Notes.replace(/\s+/g, ' ').trim()}`);
 
 if (bad) fail(`${bad} check${bad === 1 ? '' : 's'} failed`);
 console.log(`record-render: PASS (${((Date.now() - t0) / 1000).toFixed(1)}s)`

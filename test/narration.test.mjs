@@ -22,7 +22,7 @@ import { BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
 import {
   hintApplies, clipTallyLine, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack, parseVoiceQuery, voiceMatches,
-  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, notesPlain, notesDraft, stepPlan,
+  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, notesPlain, notesDraft, notesWithBeat, stepPlan,
 } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
@@ -599,6 +599,26 @@ test('the notes editor shows each paragraph a blank line apart — the narration
     el('p', txt('[click]')), el('p', txt('Beat two.')), el('p', txt('More of it.')));
   assert.equal(notesDraft(aside), 'First para.\n\nSecond para, same one.\n\n⟨CLICK⟩\n\nBeat two.\n\nMore of it.');
   assert.equal(notesSegsOf(Object.assign(aside, { innerHTML: 'y' })).length, 2, 'the narration\'s beats are unchanged');
+});
+
+test('the mic recorder edits one beat\'s words and leaves the [click] split and the other beats alone', async () => {
+  const { notesTextToAside } = await import('../cli/edit.mjs');
+  const draft = 'Beat one.\n\n⟨CLICK⟩\n\nBeat two, ⟨PAUSE⟩ held.\n\nMore of it.\n\n⟨CLICK⟩\n\nBeat three.';
+  const r = notesWithBeat(draft, 1, 'Beat two, and [pause] then held.');
+  assert.equal(r.why, undefined);
+  assert.equal(r.text, 'Beat one.\n\n[click]\n\nBeat two, and [pause] then held.\n\n[click]\n\nBeat three.');
+  assert.equal(r.read, `Beat two, and ${PAUSE_MARK} then held.`, 'what the card puts up next: canonical, one line');
+  // what the notes route writes: still three beats, the other two untouched
+  const aside = notesTextToAside(r.text);
+  assert.equal(aside.match(/\[click\]/g).length, 2);
+  assert.match(aside, /<p>Beat one\.<\/p>/);
+  assert.match(aside, /<p>Beat three\.<\/p>/);
+  // a beat with no words before it keeps its leading [click]
+  assert.equal(notesWithBeat('⟨CLICK⟩\n\nOnly.', 1, 'Only this.').text, '[click]\n\nOnly this.');
+  // refused, with the reason: a moved build, an emptied beat, a beat that is gone
+  assert.match(notesWithBeat(draft, 0, 'One. [click] Two.').why, /\[click\] moves a build/);
+  assert.match(notesWithBeat(draft, 0, '  [pause] ').why, /needs words/);
+  assert.match(notesWithBeat(draft, 5, 'x').why, /changed under the recorder/);
 });
 
 test('notesPlain reads a marker ELEMENT as its marker — textContent sees nothing there', () => {

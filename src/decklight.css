@@ -1878,6 +1878,8 @@
   overflow-y: auto;
 }
 .decklight-mic .rec-ahead p { margin: 0 0 6px; }
+/* the beat's words, edited at the size they are read at */
+.decklight-mic .rec-edit { font-size: 18px; line-height: 1.45; resize: vertical; min-height: 6em; }
 .decklight-mic .rec-note { font-size: 12px; opacity: .7; }
 /* the phone remote's QR, on the intro card: the speaker view that usually
    carries it is not open while you record */

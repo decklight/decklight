@@ -36,7 +36,9 @@ const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir v
   the deck reads you its notes one [click] beat at a time; → ends a beat, which
   both closes that file and reveals the next build — so your voice paces the
   deck exactly as it will when you present it. A slide is one take by default:
-  → cuts the beat without stopping, and the recording runs on into the next
+  → cuts the beat without stopping, and the recording runs on into the next.
+  E edits the words of the beat on screen, saved to the deck's notes, and
+  records it again
 
   --port N     port to serve on (taken? moves to the next free one)     [8788]
   --dir NAME   folder to write into, relative to the deck          [voices/me]
