@@ -84,6 +84,19 @@ test('a reference resolves to its package directory, or says why it cannot — a
   assert.match(resolveDesignSystemRef('nope', h).missing, /not a design-system reference/);
 });
 
+test('a GitHub repo is one catalog whether it was added by SSH URL or as owner/repo (#869)', (t) => {
+  for (const [registered, recorded] of [
+    ['acme/decklight-marketplace', 'git@github.com:acme/decklight-marketplace'],
+    ['git@github.com:acme/decklight-marketplace.git', 'acme/decklight-marketplace'],
+  ]) {
+    const { home: h, repo } = home(t);
+    const pkg = asRemote(h, repo, registered);
+    const hit = resolveDesignSystemRef('acme@acme-mkt', h, { source: recorded });
+    assert.equal(hit.missing, undefined, `${recorded} against ${registered}: ${hit.missing}`);
+    assert.equal(hit.dir, path.resolve(pkg));
+  }
+});
+
 test('the catalog listing: every design system on offer, the ones this machine cannot use named', (t) => {
   const { home: h } = home(t);
   const { systems, stale, unfetched } = marketplaceDesignSystems(h);

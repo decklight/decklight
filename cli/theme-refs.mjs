@@ -117,6 +117,12 @@ export const markedShipped = (html) => markedEntries(html).filter((r) => r.shipp
 export function portableSource(source) {
   if (typeof source !== 'string' || !source) return null;
   const bare = source.replace(/^(https?:\/\/|ssh:\/\/|git:\/\/)[^/@]*@/i, '$1');
+  // GitHub over SSH is the same repo as over https: one identity, or a deck
+  // marked where the catalog was added by SSH URL is "a different catalog"
+  // wherever it was added as owner/repo. Here only: `classifySource` also picks
+  // the clone transport, and an SSH user keeps cloning over SSH.
+  const ssh = /^(?:ssh:\/\/github\.com(?::22)?\/|git@github\.com:)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(bare);
+  if (ssh) return `${ssh[1]}/${ssh[2]}`;
   const src = classifySource(bare, { exists: () => false });
   if (src.kind === 'github') return `${src.owner}/${src.repo}`;
   if (src.kind === 'git' && !/^file:\/\//i.test(bare)) return bare.replace(/\.git\/?$/, '').replace(/\/$/, '');
@@ -171,7 +177,10 @@ export function resolveCatalogEntry(parsed, home = configHome(), { source = null
   const registry = loadRegistry(home).marketplaces ?? {};
   let marketplace = parsed.marketplace;
   if (source) {
-    const same = Object.entries(registry).find(([, m]) => portableSource(m.source) === source)?.[0];
+    // both sides: a deck that recorded the SSH form before it was normalised
+    // still resolves without being re-marked
+    const wanted = portableSource(source) ?? source;
+    const same = Object.entries(registry).find(([, m]) => portableSource(m.source) === wanted)?.[0];
     if (same) marketplace = same;
     else if (registry[marketplace]) {
       return { ...parsed, missing: `"${marketplace}" here is a different catalog (${portableSource(registry[marketplace].source) ?? 'a local one'}) — the deck's comes from ${source}` };

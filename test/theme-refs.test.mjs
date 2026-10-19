@@ -222,7 +222,11 @@ test('a source is written the way marketplace add takes it, and never with a sec
     ['https://x-access-token:ghp_secret@github.com/acme/decklight-themes.git', 'acme/decklight-themes'],
     ['https://deploy:s3cret@git.example.com/team/themes.git', 'https://git.example.com/team/themes'],
     ['ssh://git@git.example.com/team/themes.git', 'ssh://git.example.com/team/themes'],
-    ['git@github.com:acme/themes.git', 'git@github.com:acme/themes'],
+    ['git@github.com:acme/themes.git', 'acme/themes'],
+    ['git@github.com:acme/themes', 'acme/themes'],
+    ['ssh://git@github.com/acme/themes.git', 'acme/themes'],
+    ['ssh://github.com:22/acme/themes', 'acme/themes'],
+    ['git@gitlab.com:acme/themes.git', 'git@gitlab.com:acme/themes'],
     ['./mkt', null], ['/Users/someone/.decklight/local', null], ['file:///srv/mirror/themes.git', null], ['', null],
   ];
   for (const [given, want] of cases) assert.equal(portableSource(given), want, given);
@@ -251,6 +255,21 @@ test('the source decides: the same catalog under another name here is the one th
   assert.match(link, /data-theme-marketplace="acme"/, 'grouped, and toggled, by what the deck calls it');
   assert.equal(refForDeck(html, 'dusk', 'acme-here', 'acme/decklight-themes'), 'dusk@acme',
     'and a second theme from it is recorded under the deck\'s name, not a second one');
+});
+
+test('a GitHub repo is one catalog whether it was added by SSH URL or as owner/repo (#869)', (t) => {
+  for (const [registered, recorded] of [
+    ['acme/decklight-themes', 'git@github.com:acme/decklight-themes'],
+    ['git@github.com:acme/decklight-themes.git', 'acme/decklight-themes'],
+    ['ssh://git@github.com/acme/decklight-themes', 'https://github.com/acme/decklight-themes.git'],
+  ]) {
+    const { home: h, repo } = home(t);
+    asRemote(h, repo, { source: registered });
+    const html = deck({ decklight: '0.9.0', markedThemes: ['nord@acme'], themeSources: { acme: recorded } });
+    const out = linkAddedThemes(html, h);
+    assert.match(out, /<link[^>]*data-theme="nord"/, `${recorded} against ${registered}: ${out}`);
+    assert.doesNotMatch(out, /different catalog/);
+  }
 });
 
 test('a marketplace that only shares the name is not the one the deck means', (t) => {

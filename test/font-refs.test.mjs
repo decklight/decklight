@@ -60,6 +60,24 @@ test('a font reference resolves to its package, or says why it cannot — and a 
   assert.ok(unfetched.includes('decklight'));
 });
 
+test('a GitHub repo is one catalog whether it was added by SSH URL or as owner/repo (#869)', (t) => {
+  for (const [registered, recorded] of [
+    ['acme/type', 'git@github.com:acme/type'],
+    ['git@github.com:acme/type.git', 'acme/type'],
+  ]) {
+    const { home: h, repo } = home(t);
+    // as though cloned from a remote: the checkout `marketplace add` makes, its source a repo
+    cpSync(repo, path.join(h, 'marketplaces', 'type-mkt'), { recursive: true });
+    const regPath = path.join(h, 'marketplaces.json');
+    const reg = JSON.parse(readFileSync(regPath, 'utf8'));
+    reg.marketplaces['type-mkt'].source = registered;
+    writeFileSync(regPath, JSON.stringify(reg));
+    const hit = resolveFontRef('sample@type-mkt', h, { source: recorded });
+    assert.equal(hit.missing, undefined, `${recorded} against ${registered}: ${hit.missing}`);
+    assert.equal(hit.dir, path.resolve(h, 'marketplaces', 'type-mkt', 'fonts', 'sample'));
+  }
+});
+
 test('every server links the faces and the meta; a carried copy is not linked twice; a missing one is named', (t) => {
   const { home: h } = home(t);
   const out = linkFonts(deck({ decklight: '0.9.0', fonts: ['sample@type-mkt'] }), h);
