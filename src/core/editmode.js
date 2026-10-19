@@ -1317,27 +1317,21 @@ export function createEditMode({
     close: () => { if (editEl) toggleEditor(); },
   });
   let notesDirty = null;     // does the open card hold edits the file does not have?
-  let notesDrafted = null;   // …and are they an agent's draft, to be read before they are written?
   let notesClosing = false;  // a close that is saving first
   // Docked, the deck stays navigable beside the notes card, so the card
-  // follows the slide — but only while it holds nothing unsaved: a draft
-  // stays with the slide it was written for, and its heading still says which.
+  // follows the slide, once anything unsaved in it is written.
   instance.on('slide', () => notesFollow?.());
   function toggleEditor() {
     if (editEl) {
       // A card holding edits saves them on the way out, and closes once they
       // are written; a save that fails leaves it open, still marked unsaved,
       // because closing would be the one way to lose what was typed.
-      if (notesSave && notesDirty?.() && notesDrafted?.()) {
-        toast('the agent\'s draft is unsaved — ⌘⏎ saves it, ↺ reset drops it', 4200);
-        return;
-      }
       if (!notesClosing && notesSave && notesDirty?.()) {
         notesClosing = true;
         notesSave().then(() => { notesClosing = false; if (editEl && !notesDirty?.()) toggleEditor(); });
         return;
       }
-      unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; notesRefresh = null; notesDirty = null; notesDrafted = null; forgetNotesOpen();
+      unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; notesRefresh = null; notesDirty = null; forgetNotesOpen();
       return;
     }
     // With no edit server behind the deck — without trust, a file —
@@ -1368,18 +1362,14 @@ export function createEditMode({
     let saving = false;           // a save in flight: the mark says "saving…"
     let autosaving = false;       // …and it is the quiet time's own: "autosaving…"
     let justSaved = 0;            // an autosave that landed: the mark says so for a moment, in place of a toast
-    let drafted = false;          // the box holds an agent's draft, to be read before it is written
     if (!notesRO) notesDirty = () => ta.value !== loaded;
-    if (!notesRO) notesDrafted = () => drafted;
     notesFollow = () => {
       if (instance.state.slide === sl) return;
       // Edits go to the slide they were written for, and the card moves on
       // once they are written. A save that fails leaves it where it was,
       // marked unsaved, with the slide it belongs to in its heading.
       if (ta.value !== loaded) {
-        // …but an agent's draft stays with the slide it was drafted for,
-        // unwritten, until it has been read
-        if (!notesRO && !saving && !drafted) save().then(() => { if (ta.value === loaded) notesFollow?.(); });
+        if (!notesRO && !saving) save().then(() => { if (ta.value === loaded) notesFollow?.(); });
         return;
       }
       sl = instance.state.slide;
@@ -1418,7 +1408,6 @@ export function createEditMode({
         if (j.changed === false) {
           forgetNotesOpen();   // no reload is coming
           saving = false;
-          drafted = false;
           loaded = text;
           syncChanged();
           if (ta.value !== loaded) armAutosave();
@@ -1429,7 +1418,6 @@ export function createEditMode({
         // written, and IN PLACE: no reload is coming (the server sends every
         // page the new notes instead), so the card simply stays as it is
         saving = false;
-        drafted = false;
         loaded = text;
         if (j.inPlace) forgetNotesOpen();
         // an autosave says so by the mark, not a toast: one every pause in
@@ -1464,10 +1452,8 @@ export function createEditMode({
     // Leaving the card saves it: a press on the slide, or the window losing
     // focus to another. Not a focus event: the card's own machinery drops
     // focus all the time (a button disabled while drafting, the box hidden
-    // behind the before/after view), and none of that is the author leaving.
-    // An agent's draft is never saved this way (`drafted`): it landed in the
-    // box to be read, and only ⌘⏎ or the button writes it.
-    const leaving = () => { if (!saving && !drafted && ta.value !== loaded) save(); };
+    // behind the changes view), and none of that is the author leaving.
+    const leaving = () => { if (!saving && ta.value !== loaded) save(); };
     const onPress = (e) => { if (!el.contains(e.target)) leaving(); };
     root.addEventListener('pointerdown', onPress, true);
     window.addEventListener('blur', leaving);
@@ -1475,14 +1461,13 @@ export function createEditMode({
     // the settings' quiet time (500 ms unless changed; Settings → Notes
     // autosave), it is written, and the mark says "autosaving…" while it
     // goes. There is no save button: a card that writes itself when you
-    // stop typing has nothing for one to do that ⌘⏎ does not. An agent's
-    // draft is never written this way either, for the reason above.
+    // stop typing has nothing for one to do that ⌘⏎ does not.
     let quietTimer = 0;
     const armAutosave = () => {
       clearTimeout(quietTimer);
       const ms = notesQuiet();
       if (!ms) return;
-      quietTimer = setTimeout(() => { if (!saving && !drafted && ta.value !== loaded) save({ auto: true }); }, ms);
+      quietTimer = setTimeout(() => { if (!saving && ta.value !== loaded) save({ auto: true }); }, ms);
     };
     const unmountLeaving = () => {
       clearTimeout(quietTimer);
@@ -1490,37 +1475,50 @@ export function createEditMode({
       root.removeEventListener('pointerdown', onPress, true);
       window.removeEventListener('blur', leaving);
     };
+    // The toolbar: what the box shows and how to undo it on the left, the
+    // agent's rewrites on the right.
+    //
+    // ✎ edit / ⇄ changes is a switch, not a button that names the other
+    // view: the lit half is what is on screen. Changes is the notes AS THE
+    // CARD OPENED on this slide (`opened`) against the box, word by word,
+    // the same starting point ↺ reset goes back to. Not the last save: the
+    // card writes itself whenever the typing stops, so against the last save
+    // there was nearly never anything to show.
     const actions = document.createElement('div');
-    actions.className = 'tr-actions';
-    // ↺ reset: back to the notes as the card opened on this slide (`opened`),
-    // every change made since dropped — typed, written by the quiet time or
-    // drafted by the agent — and written back when the file has moved on.
-    // ⇄ before / after: against the notes AS LAST SAVED (`loaded`), what ⌘⏎
-    // would write, word by word. Neither does anything while the box says
-    // what the file said when the card opened.
+    actions.className = 'tr-actions notes-bar';
+    const tools = document.createElement('div');
+    tools.className = 'notes-tools';
+    const views = document.createElement('div');
+    views.className = 'notes-views';
+    views.setAttribute('role', 'group');
+    views.setAttribute('aria-label', 'show');
     const diffEl = document.createElement('div');
     diffEl.className = 'notes-diff';
     diffEl.hidden = true;
     diffEl.tabIndex = 0;
-    const resetBtn = document.createElement('button');
-    resetBtn.type = 'button';
-    resetBtn.className = 'narr-prev-btn notes-reset';
-    resetBtn.textContent = '↺ reset';
-    resetBtn.title = 'back to the notes as the card opened on this slide — drops every change made since, typed, autosaved or drafted, and writes them back';
-    const diffBtn = document.createElement('button');
-    diffBtn.type = 'button';
-    diffBtn.className = 'narr-prev-btn notes-compare';
-    diffBtn.title = 'what saving would change: the notes as last saved, and this box, word by word';
+    const button = (cls, text, tip) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `narr-prev-btn notes-btn ${cls}`;
+      b.textContent = text;
+      if (tip) b.title = tip;
+      return b;
+    };
+    const editBtn = button('notes-edit', '✎ edit', 'the notes, to type into');
+    const diffBtn = button('notes-compare', '⇄ changes', 'what changed since this card opened on this slide, word by word');
+    const resetBtn = button('notes-reset', '↺ reset',
+      'back to the notes as the card opened on this slide — drops every change made since, typed or rewritten by the agent, and writes them back');
+    views.append(editBtn, diffBtn);
     const showDiff = (on) => {
       diffEl.hidden = !on;
       ta.hidden = on;
       if (on) {
-        const runs = wordDiff(loaded, ta.value);
+        const runs = wordDiff(opened, ta.value);
         const { removed, added } = diffCounts(runs);
         diffEl.replaceChildren();
         const head = document.createElement('div');
         head.className = 'notes-diff-head';
-        head.textContent = `before → after · −${removed} +${added} word${added === 1 ? '' : 's'} · ⌘⏎ saves the after`;
+        head.textContent = `since this card opened · −${removed} +${added} word${added === 1 ? '' : 's'} · ↺ reset puts it back`;
         const body = document.createElement('div');
         body.className = 'notes-diff-body';
         // built as nodes: the notes are text, and an agent's answer is somebody else's
@@ -1532,8 +1530,10 @@ export function createEditMode({
         diffEl.append(head, body);
         diffEl.focus();
       } else ta.focus();
-      diffBtn.textContent = on ? '✎ back to editing' : '⇄ before / after';
+      editBtn.classList.toggle('narr-sel', !on);
       diffBtn.classList.toggle('narr-sel', on);
+      editBtn.setAttribute('aria-pressed', String(!on));
+      diffBtn.setAttribute('aria-pressed', String(on));
     };
     // ● unsaved beside the heading while the box differs from the file —
     // at full strength, the heading itself dimmed — and saving… in flight
@@ -1542,43 +1542,45 @@ export function createEditMode({
     title.after(mark);
     syncChanged = () => {
       const changed = ta.value !== loaded;
+      const edited = ta.value !== opened;
       mark.textContent = saving ? (autosaving ? 'autosaving…' : 'saving…') : changed ? '● unsaved' : justSaved ? 'saved' : '';
       mark.classList.toggle('notes-saved-mark', !saving && !changed && !!justSaved);
       mark.hidden = !mark.textContent;
-      resetBtn.disabled = !changed && ta.value === opened;
-      diffBtn.disabled = !changed && diffEl.hidden;
-      if (!changed && !diffEl.hidden) showDiff(false);
+      resetBtn.disabled = !edited;
+      diffBtn.disabled = !edited;
+      if (!edited && !diffEl.hidden) showDiff(false);
     };
     resetBtn.addEventListener('click', () => {
       clearTimeout(quietTimer);
       ta.value = opened;
-      drafted = false;
-      diffBtn.classList.remove('notes-fresh');
       showDiff(false);
       syncChanged();
-      // the file has moved on (the quiet time wrote the typing): put it back
-      // too, the quiet way — the mark says it; a save in flight lands first,
-      // and the box differing from what it wrote is written again after it
+      // the file has moved on (the quiet time wrote the typing, or the
+      // agent's rewrite saved itself): put it back too, the quiet way — the
+      // mark says it; a save in flight lands first, and the box differing
+      // from what it wrote is written again after it
       if (ta.value !== loaded && !saving) save({ auto: true });
       toast('back to the notes as the card opened on this slide', 2200);
     });
-    diffBtn.addEventListener('click', () => { diffBtn.classList.remove('notes-fresh'); showDiff(diffEl.hidden); });
+    editBtn.addEventListener('click', () => showDiff(false));
+    diffBtn.addEventListener('click', () => showDiff(true));
     diffEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { save(); e.preventDefault(); }
       else if (e.key === 'Escape') { showDiff(false); e.preventDefault(); }
       e.stopPropagation();
     });
-    ta.addEventListener('input', () => { drafted = false; syncChanged(); armAutosave(); });   // typed into, the draft is the author's own
-    actions.append(resetBtn, diffBtn);
+    ta.addEventListener('input', () => { syncChanged(); armAutosave(); });
+    tools.append(views, resetBtn);
+    actions.append(tools);
     showDiff(false);
     syncChanged();
     // Two rewrites by the agent (cli/enhance.mjs), each for this slide, its
     // module, or the whole deck:
     //   ✨ add audio tags — the tags ElevenLabs v4 performs, same words;
     //   🗣 write it for the ear — terse notes as sentences a person would say.
-    // THIS SLIDE lands in the box — to read, edit, and save with ⌘⏎, or not;
-    // nothing is written by pressing it. A module or the deck is rewritten in
-    // the file in one edit, which Z takes back.
+    // THIS SLIDE lands in the box and saves itself, like typing, with the
+    // changes on screen: ↺ reset (or Z) takes it back. A module or the deck
+    // is rewritten in the file in one edit, which Z takes back.
     if (editAgents.length) {
       const agent = editAgents.find((a) => a.name === preferredAgent) ?? editAgents[0];
       const REWRITE_BUTTONS = [
@@ -1609,11 +1611,12 @@ export function createEditMode({
           if (!j.changed) toast(`${j.label || j.agent} ${b.none}`, 3200);
           else {
             ta.value = j.text;
-            drafted = true;
             syncChanged();
-            // fresh: the button that shows what just changed, lit until looked at
-            diffBtn.classList.add('notes-fresh');
-            toast(`${b.landed} — ⇄ before / after shows what changed · ⌘⏎ saves · ↺ reset drops it`, 6000);
+            // what changed, on screen the moment it lands, and written like
+            // any other edit: it was asked for, and ↺ reset undoes it
+            showDiff(true);
+            save({ auto: true });
+            toast(`${b.landed} and saved — ✎ edit to change it · ↺ reset puts the notes back`, 6000);
           }
           debugLog('enhance', `notes editor (${b.kind}): ${j.changed ? 'drafted' : 'nothing to change'}`);
         } catch (e) {
@@ -1623,7 +1626,7 @@ export function createEditMode({
           btn.textContent = b.label;
           btn.disabled = false;
           ta.readOnly = false;
-          ta.focus();
+          if (diffEl.hidden) ta.focus();
         }
       };
       // which slides: this one (the box), its module, or the whole deck
@@ -1646,7 +1649,7 @@ export function createEditMode({
           toggleEditor();
           enhanceScript(scope, { kind: b.kind });
         };
-        opt(`this slide`, 'into the box above — read it, then ⌘⏎ saves', () => rewriteBox(b, btn)).classList.add('narr-sel');
+        opt(`this slide`, 'into the box above, saved as it lands — ↺ reset puts it back', () => rewriteBox(b, btn)).classList.add('narr-sel');
         if (mod) opt(`module “${mod.title}” · ${mod.to - mod.from + 1}`, `slides ${mod.from}–${mod.to}, in the file — ${UNDO_CHORD} undoes`, writesFile('module'));
         opt(`whole deck · ${instance.state.totalSlides}`, `every slide with notes, in the file — ${UNDO_CHORD} undoes`, writesFile('all'));
         opt('✕', 'never mind', () => {});
@@ -1658,15 +1661,15 @@ export function createEditMode({
         actions.after(row);
         row.querySelector('.narr-sel')?.focus();
       };
+      const rewrites = document.createElement('div');
+      rewrites.className = 'notes-rewrites';
       for (const b of REWRITE_BUTTONS) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = `narr-prev-btn notes-${b.kind === 'tags' ? 'enhance' : 'spoken'}`;
-        btn.textContent = b.label;
-        btn.title = `${b.title} The notes are sent to that agent, which may pass them to its provider.`;
+        const btn = button(`notes-${b.kind === 'tags' ? 'enhance' : 'spoken'}`, b.label,
+          `${b.title} The notes are sent to that agent, which may pass them to its provider.`);
         btn.addEventListener('click', () => chooseScope(b, btn));
-        actions.appendChild(btn);
+        rewrites.appendChild(btn);
       }
+      actions.appendChild(rewrites);
     }
     card.append(ta, diffEl, actions);
     const unmountCard = mountTypingCard(el, notesDock);

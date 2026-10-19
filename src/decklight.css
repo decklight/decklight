@@ -2526,12 +2526,31 @@
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .edit-code > pre { max-height: none; }
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .tr-actions { flex: 0 0 auto; }
 /* the notes editor's rewrite buttons ask which slides first */
-.decklight-editor .tr-actions { flex-wrap: wrap; }
+.decklight-editor .tr-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
 .decklight-editor .notes-scope { align-items: center; }
-.decklight-editor .notes-scope-what { font-size: 12px; opacity: .7; margin-right: 2px; }
-/* ↺ reset · ⇄ before / after: the notes as last saved, against this box */
+.decklight-editor .notes-scope-what { font-size: 13px; opacity: .7; margin-right: 2px; }
+/* The notes toolbar: ✎ edit / ⇄ changes and ↺ reset on the left, the agent's
+   rewrites on the right. Buttons a pointer can find: the shared .narr-prev-btn
+   is sized for a row's corner, 11px, and read as a row of specks here. */
+.decklight-editor .notes-bar { justify-content: space-between; align-items: center; }
+.decklight-editor .notes-tools,
+.decklight-editor .notes-rewrites { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.decklight-editor .narr-prev-btn,
+.decklight-editor .notes-btn {
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 7px 12px;
+  min-height: 32px;
+  border-radius: 8px;
+  opacity: .85;
+}
 .decklight-editor .narr-prev-btn:disabled { opacity: .35; cursor: default; }
-.decklight-editor .notes-compare.notes-fresh { box-shadow: 0 0 0 2px var(--accent, #6af); }
+/* a switch, not two buttons: the lit half is the view on screen */
+.decklight-editor .notes-views { display: inline-flex; }
+.decklight-editor .notes-views .notes-btn { border-radius: 0; }
+.decklight-editor .notes-views .notes-btn:first-child { border-radius: 8px 0 0 8px; }
+.decklight-editor .notes-views .notes-btn:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+.decklight-editor .notes-views .notes-btn.narr-sel { background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .4); opacity: 1; }
 .decklight-editor .notes-diff {
   flex: 1 1 auto;
   min-height: 160px;

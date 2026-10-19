@@ -378,6 +378,8 @@
           const { text } = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, text: `[warm] ${text}`, agent: 'claude', label: 'Claude Code' });
         }
+        // the box's rewrite saves itself, like typing
+        if (u.includes('/deck/edit/slide/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/enhance')) {
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, of: body.slides === 'all' ? 3 : 1, agent: 'claude', label: 'Claude Code' });
@@ -4762,8 +4764,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         window.__es.emit('enhance', { state: 'done', ok: true, changed: [2, 3], failed: [], stale: [], kind: 'spoken' });
         await settle();
         r.saysWrote = /wrote 2 slides for the ear — (⌘Z|Ctrl\+Z) undoes/.test(said());
-        // …and the notes editor's own button: the draft lands IN THE BOX, and
-        // nothing is posted to /deck/edit/slide/notes until ⌘⏎
+        // …and the notes editor's own button: the rewrite lands IN THE BOX,
+        // saves itself like typing, and its changes are on screen at once
         if (document.querySelector(Q)) press('Escape');
         await settle();
         deck.goto(2, 0);
@@ -4786,25 +4788,30 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.asksWhichSlides = JSON.stringify(scopes().slice(0, 2)) === '["this slide","module “Foundations” · 2"]' && scopes().some((t) => /^whole deck · \d+$/.test(t));
         [...document.querySelectorAll('.decklight-editor .notes-scope button')].find((b) => b.textContent === 'this slide')?.click();
         await settle(); await settle();
-        r.draftInTheBox = !!before && box?.value === `[warm] ${before}`;
-        r.nothingSaved = notesPosts() === posted;
-        // ⇄ before / after: the notes as last saved against the box, word by word
-        r.compareLit = !btnOf('notes-compare')?.disabled && btnOf('notes-compare')?.classList.contains('notes-fresh');
-        btnOf('notes-compare')?.click();
         await settle();
+        r.draftInTheBox = !!before && box?.value === `[warm] ${before}`;
+        const lastNotes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/notes')).pop()?.body;
+        r.draftSaved = notesPosts() === posted + 1 && lastNotes()?.text === `[warm] ${before}`;
+        // ⇄ changes, on screen without a click: the notes as the card opened,
+        // against the box, word by word; the switch lights the view shown
         const diff = document.querySelector('.decklight-editor .notes-diff');
         r.diffShown = !!diff && !diff.hidden && box.hidden
+          && btnOf('notes-compare')?.classList.contains('narr-sel') && !btnOf('notes-edit')?.classList.contains('narr-sel')
           && [...diff.querySelectorAll('ins')].some((n) => n.textContent.includes('[warm]'))
           && [...diff.querySelectorAll('ins')].some((n) => n.textContent.includes('An unsaved line.'))
-          && /before → after · −\d+ \+\d+ words/.test(diff.querySelector('.notes-diff-head')?.textContent ?? '');
-        r.diffNothingSaved = notesPosts() === posted;
-        btnOf('notes-compare')?.click();   // ✎ back to editing
+          && /since this card opened · −\d+ \+\d+ words/.test(diff.querySelector('.notes-diff-head')?.textContent ?? '');
+        // …and it stays there once saved: against the card's opening, not the last save
+        r.diffAfterSave = !btnOf('notes-compare')?.disabled;
+        btnOf('notes-edit')?.click();   // ✎ edit
         await settle();
-        r.backToEditing = diff.hidden && !box.hidden && box.value === `[warm] ${before}`;
-        // ↺ reset: back to the notes as last saved — the draft AND the typing go
+        r.backToEditing = diff.hidden && !box.hidden && box.value === `[warm] ${before}`
+          && btnOf('notes-edit')?.classList.contains('narr-sel');
+        // ↺ reset: back to the notes as the card opened — the rewrite AND the
+        // typing go, and the file is written back
         btnOf('notes-reset')?.click();
-        await settle();
-        r.resetToSaved = box.value === saved && !!btnOf('notes-reset')?.disabled && notesPosts() === posted;
+        await settle(); await settle();
+        r.resetToSaved = box.value === saved && !!btnOf('notes-reset')?.disabled
+          && notesPosts() === posted + 2 && lastNotes()?.text === saved;
         r.boxAskedForTags = CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance/text')).pop()?.body?.kind === 'tags';
         // 🗣 write it for the ear: the same choice; the whole deck is written in the file
         const spoken = document.querySelector('.decklight-editor .notes-spoken');
@@ -4822,9 +4829,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         if (box) box.value = loadedAgain;
         r.PASS = r.slideRow && r.sentSlide === '[2]' && r.saysDrafting && r.counts && r.saysDone
           && r.allRow && r.sentAll && r.saysWhatWasLeft
-          && r.editorButton && r.tooltipNamesTheAgent && r.asksWhichSlides && r.draftInTheBox && r.nothingSaved
+          && r.editorButton && r.tooltipNamesTheAgent && r.asksWhichSlides && r.draftInTheBox && r.draftSaved
           && r.boxAskedForTags && r.spokenButton && r.unsavedStops
-          && r.idleWhenUnchanged && r.compareLit && r.diffShown && r.diffNothingSaved && r.backToEditing && r.resetToSaved
+          && r.idleWhenUnchanged && r.diffShown && r.diffAfterSave && r.backToEditing && r.resetToSaved
           && r.earModuleRow && r.sentModuleSpoken && r.saysWritingForTheEar && r.saysWrote;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
