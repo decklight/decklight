@@ -2053,6 +2053,11 @@
 .decklight-mic .rec-from { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
 .decklight-mic .rec-from .rec-seg button { opacity: 1; padding: 1px 9px; font-size: 14px; }
 .decklight-mic .rec-from-why { font-size: 12px; opacity: .6; }
+.decklight-mic .rec-to { white-space: nowrap; }
+/* the beats a part-of-a-slide take will read, by their opening words */
+.decklight-mic .rec-beats { display: flex; flex-direction: column; gap: 2px; padding-top: 0; font-size: 12px; opacity: .75; }
+.decklight-mic .rec-beat { display: flex; gap: 8px; }
+.decklight-mic .rec-beat-n { flex: none; width: 18px; text-align: right; opacity: .6; font-variant-numeric: tabular-nums; }
 
 /* before a take, 3-2-1 in amber; during one, the red dot. The words to read
    are already on the card while it counts, so the count is a glance, not a wall */

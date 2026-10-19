@@ -3431,7 +3431,7 @@ export function createNarration({
       : t ? '' : 'a new folder';
     return `<div class="rec-line rec-folder"><label>saved next to the deck in
       <input class="rec-dir" value="${escapeHtml(target.dir)}" spellcheck="false"
-             aria-label="folder to record into"></label>${note ? `<span class="rec-folder-note">· ${note}</span>` : ''}</div>${clash}`;
+             aria-label="folder to record into"></label>${note ? `<span class="rec-folder-note">${note}</span>` : ''}</div>${clash}`;
   }
   function wireFolderRow(card, keep) {
     const input = card?.querySelector('.rec-dir');
@@ -3874,6 +3874,16 @@ export function createNarration({
   // it as they are on disk and rebuilds the whole-slide file around the new.
   const recBeats = beatSpan(params?.get?.('beats'));
   let micFrom = { s: 0, i: 0 };
+  // …and where it ends: the last beat of the start slide, after which the
+  // take stops and the beats after it are kept, or null for a take that runs
+  // on into the slides after. The row's second stepper (⇧← ⇧→), or `?beats`.
+  let micTo = null;
+  /** The take's last beat for this start point, or null when it runs on. */
+  function micEndFor(from) {
+    const of = micPlans[from.s]?.length ?? 0;
+    return micTo != null && micTo >= from.i + 1 && micTo <= of ? micTo : null;
+  }
+  const clip = (t, n) => (t.length > n ? `${t.slice(0, n - 1).replace(/\s+\S*$/, '')}…` : t);
   let micList = [], micPlans = [];
   instance.__recorder = {
     get state() { return micEl && micView === 'capture' ? micBeat : null; },
@@ -3913,27 +3923,46 @@ export function createNarration({
     if (recBeats.to <= plan.length) return null;
     return `slide ${micList[0]} has ${plan.length} beat${plan.length === 1 ? '' : 's'}: there is no beat ${recBeats.to}.`;
   }
-  /** The start point, as a line: where the take begins, and what is kept. */
+  /**
+   * The start point and the end, as a line: where the take begins, where it
+   * stops, and what is kept. The end is a beat of the start slide; at the
+   * slide's last beat the take runs on into the slides after it, as a start
+   * point alone does. When the chosen beats are fewer than the slide's, their
+   * opening words are listed under the row, so the pick can be checked
+   * against the notes before Enter.
+   */
   function fromRow() {
     const { s, i } = micFrom;
     const sl = micList[s];
-    const of = micPlans[s]?.length ?? 0;
+    const plan = micPlans[s] ?? [];
+    const of = plan.length;
     if (sl == null) return '';
-    if (recBeats) {
-      const last = recBeats.to;
-      return `<div class="rec-line rec-from"><strong>slide ${sl}, beat${last > i + 1 ? `s ${i + 1}–${last}` : ` ${i + 1}`} of ${of} only</strong>`
-        + ' — the other beats are kept as recorded, and the whole-slide file is rebuilt from all of them</div>';
-    }
     const total = micPlans.reduce((n, p) => n + p.length, 0);
     if (total < 2) return '';
-    const kept = i > 0
-      ? `beat${i > 1 ? `s 1–${i}` : ' 1'} of slide ${sl} kept as recorded`
-      : s > 0 ? 'the slides before it are left alone' : 'from the top';
+    const to = micEndFor(micFrom);
+    const step = (name, d, label) => `<span class="rec-seg"><button type="button" tabindex="-1" data-${name}="${d}" aria-label="${label}">${d < 0 ? '‹' : '›'}</button></span>`;
+    const end = of > 1
+      ? ` <span class="rec-to">to beat ${step('to', -1, 'end one beat earlier')}<strong>${to ?? of}</strong>${step('to', 1, 'end one beat later')}</span>`
+      : '';
+    let why;
+    if (to != null) {
+      const before = i > 0 ? `beat${i > 1 ? `s 1–${i}` : ' 1'}` : '';
+      const after = to < of ? `beat${of - to > 1 ? `s ${to + 1}–${of}` : ` ${of}`}` : '';
+      const kept = [before, after].filter(Boolean).join(' and ');
+      why = `${to > i + 1 ? `beats ${i + 1}–${to}` : `beat ${i + 1}`} of ${of} only${kept ? ` — ${kept} kept as recorded` : ''}, and it stops after beat ${to}`;
+    } else {
+      why = i > 0
+        ? `beat${i > 1 ? `s 1–${i}` : ' 1'} of slide ${sl} kept as recorded`
+        : s > 0 ? 'the slides before it are left alone' : 'from the top';
+    }
+    const chosen = plan.slice(i, to ?? of);
+    const preview = of > 1 && chosen.length < of
+      ? `<div class="rec-line rec-beats">${chosen.map((b, k) =>
+        `<span class="rec-beat"><span class="rec-beat-n">${i + k + 1}</span> <span>${escapeHtml(clip(b.text, 72))}</span></span>`).join('')}</div>`
+      : '';
     return `<div class="rec-line rec-from">start at
-      <span class="rec-seg"><button type="button" tabindex="-1" data-from="-1" aria-label="start one beat earlier">‹</button></span>
-      <strong>slide ${sl} · beat ${i + 1} of ${of}</strong>
-      <span class="rec-seg"><button type="button" tabindex="-1" data-from="1" aria-label="start one beat later">›</button></span>
-      <span class="rec-from-why">${kept} · <kbd>←</kbd> <kbd>→</kbd></span></div>`;
+      ${step('from', -1, 'start one beat earlier')}<strong>slide ${sl} · beat ${i + 1} of ${of}</strong>${step('from', 1, 'start one beat later')}${end}
+      <span class="rec-from-why">${why} · <kbd>←</kbd> <kbd>→</kbd>${of > 1 ? ' · <span class="rec-to">end <kbd>⇧←</kbd> <kbd>⇧→</kbd></span>' : ''}</span></div>${preview}`;
   }
   /** Step the start point one beat, across slides; ← → on the plan card. */
   function moveFrom(d) {
@@ -3942,14 +3971,24 @@ export function createNarration({
     const k = at.findIndex((p) => p.s === micFrom.s && p.i === micFrom.i);
     const next = at[Math.max(0, Math.min(at.length - 1, k + d))];
     if (!next) return;
+    // an end belongs to its slide, and cannot come before the start
+    if (next.s !== micFrom.s || (micTo != null && micTo <= next.i)) micTo = null;
     micFrom = next;
     // the whole card: the row's "start here", the estimate and the button follow
     if (micEl && micView === 'intro') renderMicCard('intro', micIntroData());
   }
+  /** Step the end one beat, within the start slide; ⇧← ⇧→ on the plan card. At the last beat the take runs on. */
+  function moveTo(d) {
+    const of = micPlans[micFrom.s]?.length ?? 0;
+    if (of < 2) return;
+    const t = Math.max(micFrom.i + 1, Math.min(of, (micEndFor(micFrom) ?? of) + d));
+    micTo = t >= of ? null : t;
+    if (micEl && micView === 'intro') renderMicCard('intro', micIntroData());
+  }
   function wireFromRow(card) {
-    card?.querySelectorAll('[data-from]').forEach((b) => {
+    card?.querySelectorAll('[data-from], [data-to]').forEach((b) => {
       b.addEventListener('mousedown', (e) => e.preventDefault());
-      b.addEventListener('click', () => moveFrom(Number(b.dataset.from)));
+      b.addEventListener('click', () => (b.dataset.to ? moveTo(Number(b.dataset.to)) : moveFrom(Number(b.dataset.from))));
     });
   }
   /** The plan card again, saying why it did not start. */
@@ -4045,8 +4084,13 @@ export function createNarration({
     micPlans = micList.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
     const speaks = Math.max(0, micPlans.findIndex((p) => p.length));
     const k = micList.indexOf(was);
-    if (k < 0) micFrom = { s: speaks, i: recBeats ? recBeats.from - 1 : 0 };
-    else micFrom = { s: k, i: Math.min(micFrom.i, Math.max(0, (micPlans[k]?.length ?? 1) - 1)) };
+    if (k < 0) {
+      micFrom = { s: speaks, i: recBeats ? recBeats.from - 1 : 0 };
+      micTo = recBeats ? recBeats.to : null;
+    } else {
+      if (k !== micFrom.s) micTo = null;
+      micFrom = { s: k, i: Math.min(micFrom.i, Math.max(0, (micPlans[k]?.length ?? 1) - 1)) };
+    }
   }
   /** What the plan card is rendered from, whichever change asked for it. */
   function micIntroData(extra = {}) {
@@ -4109,6 +4153,11 @@ export function createNarration({
     const drift = new Map((t?.drift ?? []).map((d) => [d.slide, d]));
     const startSl = micList[micFrom.s];
     const listed = new Set(micList);
+    const endAt = micEndFor(micFrom);
+    const ofStart = micPlans[micFrom.s]?.length ?? 0;
+    const pill = micFrom.i > 0 || endAt != null
+      ? `start here · beat${(endAt ?? ofStart) > micFrom.i + 1 ? `s ${micFrom.i + 1}–${endAt ?? ofStart}` : ` ${micFrom.i + 1}`}`
+      : 'start here';
     let rows = '';
     for (let sl = 1; sl <= instance.state.totalSlides; sl++) {
       const sec = instance._sections?.[sl - 1];
@@ -4127,7 +4176,7 @@ export function createNarration({
         + `<span class="rec-slide-n">${sl}</span><span class="rec-slide-t">${escapeHtml(title)}</span>`
         + `<span class="rec-slide-b">${notes ? `${plan.length} beat${plan.length === 1 ? '' : 's'}` : ''}</span>`
         + `<span class="rec-slide-s${tone ? ` ${tone}` : ''}">${escapeHtml(status)}</span>`
-        + `${isStart ? '<span class="rec-pill">start here</span>' : ''}</button>`;
+        + `${isStart ? `<span class="rec-pill">${pill}</span>` : ''}</button>`;
     }
     return `<div class="rec-slides" role="group" aria-label="slides">${rows}</div>`;
   }
@@ -4138,6 +4187,7 @@ export function createNarration({
         const k = micList.indexOf(Number(b.dataset.slide));
         if (k < 0) return;
         micFrom = { s: k, i: 0 };
+        micTo = null;
         renderMicCard('intro', micIntroData());
       });
     });
@@ -4499,12 +4549,14 @@ export function createNarration({
     const dir = base == null ? null : { base, name: target.dir };
     let stopped = false;
     const plans = list.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
-    // where the take starts, and (--beats) ends; a slide entered past its
-    // first beat, or named by --beats, is recorded in part around what is kept
+    // where the take starts, and (the row's end, or --beats) stops; a slide
+    // entered past its first beat, or ended before its last, is recorded in
+    // part around what is kept
     const from = plans[micFrom.s]?.[micFrom.i] ? { ...micFrom } : { s: 0, i: 0 };
-    const lastI = recBeats ? recBeats.to - 1 : null;
+    const to = micEndFor(from);
+    const lastI = to != null ? to - 1 : null;
     const bySlide = micPrefs().takes === 'slide';
-    const partialAt = (from.i > 0 || recBeats) && plans[from.s]?.length > 1 ? from.s : -1;
+    const partialAt = (from.i > 0 || to != null) && plans[from.s]?.length > 1 ? from.s : -1;
     let keep = null;
     if (partialAt >= 0) {
       if (!dir) { micRefuse(`recording part of a slide reads its other beats back from the folder, which needs the server: ${noServerReason()}`); return; }
@@ -4772,7 +4824,7 @@ export function createNarration({
       if (micView === 'edit') return true;
       if (e.key === 'Escape') closeMicRecorder();
       else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && micView === 'intro' && micEl?.querySelector('[data-from]')) {
-        moveFrom(e.key === 'ArrowLeft' ? -1 : 1);
+        (e.shiftKey ? moveTo : moveFrom)(e.key === 'ArrowLeft' ? -1 : 1);
       } else if (e.key === 'Enter') {
         if (micView === 'intro' && !micUnavailable() && micEl?.querySelector('.narr-row')) startMicRecording();
         else if (pendingUseTrack(micEl)) pendingUseTrack(micEl).click();

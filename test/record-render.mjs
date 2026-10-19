@@ -123,8 +123,8 @@ const DECK = `<!doctype html>
   // ?keys=R,L,…: what to answer each beat the deck puts up (R → or the
   // phone's next, L ←, B ⌫, X E: edit the words to ?words=); past the end of the list, R
   const KEYS = (params.get('keys') || '').split(',').filter(Boolean);
-  const press = (key) => document.body.dispatchEvent(
-    new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  const press = (key, opts = {}) => document.body.dispatchEvent(
+    new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts }));
   // ?via=phone: every beat is ended by the phone remote instead (#848), the
   // same POST its next and retake buttons make, relayed back over the deck's
   // own stream. Loopback, so no token: the relay is not what is under test.
@@ -169,7 +169,10 @@ const DECK = `<!doctype html>
       r.countSays = card()?.querySelector('.rec-count-says')?.textContent ?? null;
       // ?from=N: step the start point N beats on with → before Enter
       for (let k = 0; k < Number(params.get('from') ?? 0); k++) { press('ArrowRight'); await wait(50); }
+      // ?to=N: pull the end of the take N beats in with ⇧← before Enter
+      for (let k = 0; k < Number(params.get('to') ?? 0); k++) { press('ArrowLeft', { shiftKey: true }); await wait(50); }
       r.fromLine = card()?.querySelector('.rec-from')?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
+      r.beatsLine = card()?.querySelector('.rec-beats')?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
       r.folder = (await until(() => card()?.querySelector('.rec-dir'), 5000))?.value ?? null;
       r.clash = !!card()?.querySelector('.rec-warn');
       r.warnText = [...(card()?.querySelectorAll('.rec-warn') ?? [])].map((w) => w.textContent).join(' | ');
@@ -561,6 +564,21 @@ check('one take', JSON.stringify(rolledPart.steps) === JSON.stringify(['1.1', '1
   && pcmLen('slide-01.wav') === pcmLen('slide-01-01.wav') + pcmLen('slide-01-02.wav') + pcmLen('slide-01-03.wav'),
 `--beats 2-3 per slide read ${rolledPart.steps.join(' ')} · 01-01 kept=${kept1} · 01-02 and 01-03 redone=${redone23}`
   + ' · slide-01.wav rebuilt from all three');
+
+// ── the row's end: ⇧← pulls the last beat in, and the take stops there ──────
+// → once then ⇧← once on the card: beat 2 alone, read at its build, redone
+// while 1 and 3 are kept byte for byte, and nothing after it is recorded
+const mid = Object.fromEntries(files.map((f) => [f, { b: bytes(f), t: mtime(f) }]));
+const ranged = await run('tone', 'takes', 'keys', '&from=1&to=1&countdown=0');
+check('to beat', /slide 1 · beat 2 of 3/.test(ranged.fromLine ?? '') && /beat 2 of 3 only/.test(ranged.fromLine ?? '')
+  && /beat 1 and beat 3 kept/.test(ranged.fromLine ?? '') && /stops after beat 2/.test(ranged.fromLine ?? '')
+  && /^2 Beat two\./.test(ranged.beatsLine ?? '')
+  && JSON.stringify(ranged.steps) === JSON.stringify(['1.1']) && ranged.finished === true
+  && Buffer.compare(mid['slide-01-01.wav'].b, bytes('slide-01-01.wav')) === 0 && mid['slide-01-01.wav'].t === mtime('slide-01-01.wav')
+  && Buffer.compare(mid['slide-01-03.wav'].b, bytes('slide-01-03.wav')) === 0 && mid['slide-01-03.wav'].t === mtime('slide-01-03.wav')
+  && mtime('slide-01-02.wav') > mid['slide-01-02.wav'].t
+  && pcmLen('slide-01.wav') === pcmLen('slide-01-01.wav') + pcmLen('slide-01-02.wav') + pcmLen('slide-01-03.wav'),
+`picked "${ranged.fromLine}" · listed "${ranged.beatsLine}" · read ${ranged.steps.join(' ')} · beats 1 and 3 untouched, 2 redone`);
 
 // ── per slide: ⌫ retakes the whole slide, ← goes back a slide ──────────────
 // ⌫ on slide 1's beat two starts the slide over, counted in again; ← on
