@@ -83,6 +83,15 @@ test('the deck is reviewed in batches, a failed batch is reported rather than th
   await assert.rejects(reviewDeck(html, { resolveAgent: () => null, env: { PATH: '' } }), /agent/i, 'no agent at all is the one thing that throws');
 });
 
+test('a stopped review asks for no batch after the ones in flight', async () => {
+  const html = deck(...Array.from({ length: REVIEW_BATCH * 3 }, (_, i) => `<h2>S${i + 1}</h2><p>text ${i + 1}</p>`));
+  const stop = new AbortController();
+  let asked = 0;
+  const exec = async (_cmd, _cwd, _ms, signal) => { asked++; stop.abort(); assert.equal(signal, stop.signal); return null; };
+  await reviewDeck(html, { resolveAgent: (_a, prompt) => fake(prompt), exec, concurrency: 1, signal: stop.signal });
+  assert.equal(asked, 1);
+});
+
 test('a finding follows its slide when it moves, and goes when the slide is edited', () => {
   const html = deck('<h2>Intro</h2><p>a</p>', '<h2>Results</h2><p>b</p>');
   const [, results] = reviewSlides(html);

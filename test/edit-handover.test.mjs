@@ -20,7 +20,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { registerHandoverRoutes } from '../cli/edit-handover.mjs';
 import { tmp } from './helpers.mjs';
@@ -66,7 +66,7 @@ const ONE_FILE = `<!doctype html>
  * is over its `let`; `root` is the deck's own directory, the repository a
  * publish would push from when the test makes it one.
  */
-function harness(t, html = DECK, { git = false } = {}) {
+function harness(t, html = DECK, { git = false, exports = [] } = {}) {
   const dir = tmp('edit-handover', t);
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, html);
@@ -78,6 +78,7 @@ function harness(t, html = DECK, { git = false } = {}) {
     readDeck, deckPath: deck, root: dir,
     gitOn: () => state.gitOn,
     broadcast: (e, d) => sent.push([e, d]),
+    onExport: (job) => exports.push(job),
   });
   return { routes, readDeck, deck, dir, sent, state };
 }
@@ -106,6 +107,7 @@ test('every hand-over route the server dispatches is registered here', () => {
     'GET /deck/edit/inspect',
     'GET /deck/edit/publish/plan',
     'POST /deck/edit/export',
+    'POST /deck/edit/export/stop',
     'POST /deck/edit/publish',
   ], 'a route that leaves this list has left the edit server too');
 });
@@ -148,6 +150,36 @@ test('POST /deck/edit/export refuses to bundle a deck that is already one file',
   const r = await call(routes, 'POST /deck/edit/export', { body: { kind: 'bundle' } });
   assert.deepEqual(r, { code: 409, body: { ok: false, error: 'this deck is already one file — send it as it is' } });
   assert.deepEqual(readdirSync(dir), ['talk.html']);
+});
+
+test('POST /deck/edit/export/stop with nothing running says so', async (t) => {
+  const { routes } = harness(t);
+  assert.deepEqual(await call(routes, 'POST /deck/edit/export/stop'), { code: 409, body: { ok: false, error: 'no export is running' } });
+});
+
+test('an export stopped part-way kills its Chrome, writes nothing and says it stopped — the server carries on', async (t) => {
+  if (process.platform === 'win32') return t.skip('a shell script stands in for Chrome');
+  // a Chrome that never finishes: what a ten-minute render looks like from here
+  const bin = path.join(tmp('edit-handover-chrome', t), 'chrome');
+  writeFileSync(bin, '#!/bin/sh\nexec sleep 30\n');
+  chmodSync(bin, 0o755);
+  const was = process.env.CHROME;
+  process.env.CHROME = bin;
+  t.after(() => { if (was === undefined) delete process.env.CHROME; else process.env.CHROME = was; });
+  const exports = [];
+  const { routes, dir, sent } = harness(t, DECK, { exports });
+  const t0 = Date.now();
+  const running = call(routes, 'POST /deck/edit/export', { body: { kind: 'pdf' } });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(exports, [{ kind: 'pdf', what: 'PDF' }], '/deck/ping hears there is an export to stop');
+  assert.deepEqual(await call(routes, 'POST /deck/edit/export/stop'), { code: 200, body: { ok: true } });
+  const r = await running;
+  assert.ok(Date.now() - t0 < 10_000, 'it stopped when asked, not when Chrome gave up');
+  assert.deepEqual(r, { code: 200, body: { ok: false, stopped: true, kind: 'pdf', what: 'PDF' } });
+  assert.deepEqual(sent.at(-1), ['export', { state: 'done', kind: 'pdf', ok: false, stopped: true }]);
+  assert.deepEqual(exports.at(-1), null, 'and that it is over');
+  assert.deepEqual(readdirSync(dir), ['talk.html'], 'no PDF, half-written or otherwise');
+  assert.equal((await call(routes, 'POST /deck/edit/export/stop')).code, 409, 'nothing left to stop');
 });
 
 test('GET /deck/edit/export/estimate sizes a bundle without writing it, in the theme on screen or the deck\'s own', async (t) => {

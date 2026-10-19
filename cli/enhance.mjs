@@ -286,15 +286,15 @@ export const KINDS = {
 };
 const kindOf = (kind) => KINDS[kind] ?? KINDS.tags;
 
-/** Run a read-only agent ask; resolves to its stdout, or null. */
-export function ask(cmd, cwd, timeoutMs) {
+/** Run a read-only agent ask; resolves to its stdout, or null — null too when `signal` stops it. */
+export function ask(cmd, cwd, timeoutMs, signal = null) {
   return new Promise((done) => {
     let settled = false;
     const finish = (v) => { if (!settled) { settled = true; done(v); } };
     let child;
     try {
-      child = execFile(cmd.bin, cmd.args, { cwd, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
-        (err, stdout) => finish(err && !stdout ? null : String(stdout ?? '')));
+      child = execFile(cmd.bin, cmd.args, { cwd, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], ...(signal ? { signal } : {}) },
+        (err, stdout) => finish(err && (!stdout || err.name === 'AbortError') ? null : String(stdout ?? '')));
     } catch { return finish(null); }
     child.on('error', () => finish(null));
   });
@@ -329,12 +329,13 @@ export function enhanceable(html, only = null) {
  */
 export async function enhanceText(script, {
   kind = 'tags', agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
-  resolveAgent = agentAsk, exec = ask,
+  resolveAgent = agentAsk, exec = ask, signal = null,
 } = {}) {
   const k = kindOf(kind);
   const cmd = resolveAgent(agent, k.prompt(script), { env });
   if (!cmd) return { ok: false, why: agentUnavailable(agent, detectAgents({ env })) };
-  const out = await exec(cmd, cwd, timeoutMs);
+  const out = await exec(cmd, cwd, timeoutMs, signal);
+  if (signal?.aborted) return { ok: false, why: 'stopped' };
   if (out == null) return { ok: false, why: 'the agent did not answer in time' };
   const text = unwrapAnswer(out);
   const why = k.problem(script, text);
@@ -366,20 +367,21 @@ export function applyEnhanced(html, answers) {
  * the deck with every passing slide rewritten (`applyEnhanced`), one
  * `{ slide, ok, changed, why }` per slide asked about, and the raw answers for
  * a caller that applies them to a newer copy of the deck. Never throws for one
- * slide's failure — only when there is no agent to ask at all.
+ * slide's failure — only when there is no agent to ask at all. `signal` stops
+ * it: the asks in flight are killed and no slide after them is asked about.
  */
 export async function enhanceDeck(html, slides = null, {
   kind = 'tags', agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
-  concurrency = ENHANCE_CONCURRENCY, resolveAgent = agentAsk, exec = ask, onSlide = () => {},
+  concurrency = ENHANCE_CONCURRENCY, resolveAgent = agentAsk, exec = ask, onSlide = () => {}, signal = null,
 } = {}) {
   if (!resolveAgent(agent, 'x', { env })) throw new Error(agentUnavailable(agent, detectAgents({ env })));
   const todo = enhanceable(html, slides);
   const answers = [];
   let next = 0, finished = 0;
   const worker = async () => {
-    while (next < todo.length) {
+    while (next < todo.length && !signal?.aborted) {
       const { slide, script } = todo[next++];
-      const a = await enhanceText(script, { kind, agent, cwd, env, timeoutMs, resolveAgent, exec });
+      const a = await enhanceText(script, { kind, agent, cwd, env, timeoutMs, resolveAgent, exec, signal });
       const r = { slide, ok: a.ok, changed: a.ok && a.text !== script, ...(a.ok ? {} : { why: a.why }) };
       answers.push({ ...r, before: script, text: a.text ?? null });
       onSlide({ ...r, done: ++finished, of: todo.length });

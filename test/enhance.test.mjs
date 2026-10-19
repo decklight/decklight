@@ -94,6 +94,23 @@ test('each slide is asked once, read-only; one that passes is written, one that 
   assert.match(out, /<p>\[warm\] Hello there!<\/p>\n\s*<p>\[click\]<\/p>/, 'written the way the notes editor writes');
 });
 
+test('a stopped enhancement asks about no slide after the ones in flight, and those come back as stopped', async () => {
+  const html = deck('<p>One.</p>', '<p>Two.</p>', '<p>Three.</p>', '<p>Four.</p>');
+  const stop = new AbortController();
+  const asked = [];
+  const resolveAgent = (name, prompt) => ({ bin: 'fake', args: [prompt], name: 'claude', label: 'Claude Code' });
+  const exec = async (cmd, _cwd, _ms, signal) => {
+    asked.push(cmd.args[0]);
+    stop.abort();   // stopped while the first ask is out
+    assert.equal(signal, stop.signal, 'the ask is handed the signal, so it can kill the agent');
+    return null;
+  };
+  const { html: out, results } = await enhanceDeck(html, null, { resolveAgent, exec, concurrency: 1, signal: stop.signal });
+  assert.equal(asked.length, 1, 'nothing asked after the stop');
+  assert.deepEqual(results, [{ slide: 1, ok: false, changed: false, why: 'stopped' }]);
+  assert.equal(out, html, 'nothing written');
+});
+
 test('an answer lands only on a slide still as it was asked about — an edit made meanwhile is kept', () => {
   const before = deck('<p>One.</p>', '<p>Two.</p>');
   const answers = [

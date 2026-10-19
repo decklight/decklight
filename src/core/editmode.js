@@ -655,6 +655,11 @@ export function createEditMode({
           // shows the chip immediately instead of waiting for the next tick.
           if (j.commit) { commitNow = j.commit; paintCommitChip(); }
           agentBusy = j.agentBusy || null; // an agent may already be mid-run across a reload
+          // …and so may an export, an enhancement or a review: the palette's
+          // Stop row offers to stop it whether or not this page started it
+          exportBusy = j.exportBusy || null;
+          enhanceBusy = !!j.enhanceBusy;
+          reviewBusy = !!j.reviewBusy;
           agentAsks = Array.isArray(j.agentAsks) ? j.agentAsks : [];
           if (agentBusy) toast(`${agentBusy.agent} is editing the deck…`, 2000);
           // The chip is restored too, with the SERVER's startedAt — a reload
@@ -737,8 +742,9 @@ export function createEditMode({
                 if (ask) Object.assign(ask, d, { finishedAt: Date.now() });
                 paintAgentChip();
                 const status = d.ok ? '' : d.error ? ` — ${d.error}` : ` (exit ${d.code})`;
-                toast(d.changed ? `🤖 ${d.agent} edited the deck — ${UNDO_CHORD} undoes${status}`
-                  : `🤖 ${d.agent} finished — no changes${status}`, 3000);
+                toast(d.stopped ? `🤖 ${d.agent} stopped${d.changed ? ` — what it had written stays, ${UNDO_CHORD} undoes` : ' — no changes'}`
+                  : d.changed ? `🤖 ${d.agent} edited the deck — ${UNDO_CHORD} undoes${status}`
+                    : `🤖 ${d.agent} finished — no changes${status}`, d.stopped && d.changed ? 5200 : 3000);
                 debugLog('agent', `${d.agent} done ok=${d.ok} changed=${d.changed}${status}`);
                 // A recording the edit orphaned or staled — held longer and on
                 // its own line, because it is the one thing here you might act
@@ -766,6 +772,8 @@ export function createEditMode({
           es.addEventListener('export', (ev) => {
             try {
               const d = JSON.parse(ev.data);
+              if (d.state === 'start') exportBusy = { kind: d.kind, what: d.what };
+              else if (d.state === 'done') exportBusy = null;
               if (d.state === 'slide' && exportRun) {
                 exportRun.run.update(`${exportRun.doing} — ${d.phase === 'voice' ? 'voicing ' : ''}slide ${d.n} of ${d.of}…`);
               }
@@ -2948,6 +2956,47 @@ export function createEditMode({
     bundle: 'one file',
   };
   let exportRun = null;
+
+  // ── stopping a long job (PRESENTING) ─────────────────────────────────────
+  // A video is minutes, an agent run up to ten, and one started on the wrong
+  // slides used to be a choice between waiting it out and killing the edit
+  // server. The palette offers a Stop row while one runs — this page's, or
+  // one another page (or this one, before a reload) started, which is what
+  // the `…Busy` flags mirror from /deck/ping and the event stream.
+  const STOP_HOW = '/ → Stop to stop it';
+  let exportBusy = null;   // { kind, what } while the server exports
+  let enhanceBusy = false; // …rewrites the script
+  let reviewBusy = false;  // …reviews the deck
+  /** The job a Stop row would stop, as `{ label, path, run }` (`run`: this page's progress row for it), or null when nothing runs. */
+  function running() {
+    // not `editAvailable`: that is false while the deck is locked, and a stop
+    // writes nothing, so the server answers it locked or not
+    if (!served || noTrust) return null;
+    const ex = exportRun ?? exportBusy;
+    if (ex && ex.kind !== 'bundle') {
+      return { label: `Stop the ${ex.what} export`, path: '/deck/edit/export/stop', run: exportRun?.run };
+    }
+    if (agentBusy) return { label: `Stop ${agentBusy.agent}'s edit`, path: '/deck/edit/agent/stop' };
+    if (enhanceRun || enhanceBusy) return { label: 'Stop rewriting the script', path: '/deck/edit/agent/stop', run: enhanceRun?.run };
+    if (reviewRun || reviewBusy) return { label: 'Stop the agent review', path: '/deck/edit/agent/stop', run: reviewRun?.run };
+    return null;
+  }
+  async function stopRunning() {
+    const job = running();
+    if (!job) { toast('nothing is running'); return; }
+    try {
+      const r = await fetch(editBase + job.path, { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      // The job's own row (or the agent's toast) says when it has stopped,
+      // which can be before this answer lands; until then the row says the
+      // stop was heard, since a render takes a moment to clear up.
+      job.run?.update('stopping…');
+      debugLog('stop', job.label);
+    } catch (e) {
+      toast(`could not stop it — ${e.message}`, 4000);
+    }
+  }
   // what `audio` a bundle carries its narration as, when it is not as recorded
   const AUDIO_HOW = { aac: 'AAC', opus: 'Opus' };
   /**
@@ -3061,8 +3110,9 @@ export function createEditMode({
       ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
       : `exporting ${kind === 'bundle' && module != null ? `module ${module} ` : ''}to ${what}`
         + `${audio ? `, with the narration audio${AUDIO_HOW[audio] ? ` as ${AUDIO_HOW[audio]}` : ''}` : ''}`;
-    const run = progress(`${doing} — this takes a moment…`);
-    exportRun = { run, what, doing };
+    // a bundle is seconds; anything else can be stopped, and says how
+    const run = progress(`${doing} — this takes a moment…${kind === 'bundle' ? '' : ` (${STOP_HOW})`}`);
+    exportRun = { run, what, doing, kind };
     try {
       const r = await fetch(editBase + '/deck/edit/export', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -3077,6 +3127,11 @@ export function createEditMode({
       const j = await r.json().catch(() => ({}));
       if (j.unmarked) {
         armMark(j.unmarked, theme, run, { bundles: kind === 'bundle' });
+        return;
+      }
+      if (j.stopped) {
+        run.done(`stopped — no ${what} written${j.voiced ? ` · the slides already voiced are kept in ${j.voiced}/` : ''}`, j.voiced ? 6000 : undefined);
+        debugLog('export', `${kind} stopped`);
         return;
       }
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
@@ -3130,7 +3185,7 @@ export function createEditMode({
       : mod ? Array.from({ length: mod.to - mod.from + 1 }, (_, i) => mod.from + i) : [slide];
     const what = scope === 'all' ? 'every slide\'s script'
       : mod ? `the “${mod.title}” module (slides ${mod.from}–${mod.to})` : `slide ${slide}'s script`;
-    const run = progress(`${k.doing}: ${what}${k.with} — asking the agent…`);
+    const run = progress(`${k.doing}: ${what}${k.with} — asking the agent… (${STOP_HOW})`);
     enhanceRun = { run, what, kind };
     try {
       const r = await fetch(editBase + '/deck/edit/enhance', {
@@ -3150,6 +3205,7 @@ export function createEditMode({
   /** What a finished run says, in one line. */
   function enhanceSummary(d) {
     const k = REWRITES[d.kind] ?? REWRITES.tags;
+    if (d.stopped) return 'stopped — the script is as it was';
     if (!d.ok) return `could not rewrite the script — ${d.error}`;
     const n = d.changed.length;
     const parts = [n ? `${k.done(n === 1 ? `slide ${d.changed[0]}` : `${n} slides`)} — ${UNDO_CHORD} undoes` : 'no slide changed'];
@@ -3161,6 +3217,8 @@ export function createEditMode({
     return parts.join(' · ');
   }
   function enhanceEvent(d) {
+    if (d.state === 'start') enhanceBusy = true;
+    else if (d.state === 'done') enhanceBusy = false;
     if (d.state === 'slide' && enhanceRun) {
       enhanceRun.run.update(`${(REWRITES[enhanceRun.kind] ?? REWRITES.tags).doing}: ${enhanceRun.what} — ${d.done} of ${d.of} slide${d.of === 1 ? '' : 's'}…`);
     } else if (d.state === 'done') {
@@ -3193,7 +3251,7 @@ export function createEditMode({
     if (!editAvailable) { toast(cannot('reviewing the deck'), 3200); return; }
     if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
     if (reviewRun) { toast('the agent is already reviewing the deck — one review at a time'); return; }
-    const run = progress('agent review: asking the agent…');
+    const run = progress(`agent review: asking the agent… (${STOP_HOW})`);
     reviewRun = { run };
     try {
       const r = await fetch(editBase + '/deck/edit/review', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -3207,10 +3265,13 @@ export function createEditMode({
     }
   }
   async function reviewEvent(d) {
+    if (d.state === 'start') reviewBusy = true;
+    else if (d.state === 'done') reviewBusy = false;
     if (d.state === 'batch' && reviewRun) {
       reviewRun.run.update(`agent review: ${d.done} of ${d.of} part${d.of === 1 ? '' : 's'} read · ${d.found} finding${d.found === 1 ? '' : 's'} so far…`);
     } else if (d.state === 'done') {
-      const line = !d.ok ? `could not review the deck — ${d.error}`
+      const line = d.stopped ? 'agent review stopped — Check deck… keeps what the last one found'
+        : !d.ok ? `could not review the deck — ${d.error}`
         : `agent review: ${d.found ? `${d.found} finding${d.found === 1 ? '' : 's'}, in Check deck…` : 'nothing to improve'}`
           + (d.failed?.length ? ` · ${d.failed.length} part${d.failed.length === 1 ? '' : 's'} went unanswered` : '');
       if (reviewRun) reviewRun.run.done(line, 6000); else toast(line, 6000);
@@ -3311,6 +3372,9 @@ export function createEditMode({
 
   return {
     deckHistory,
+    /** The long job a Stop row would stop — `{ label }` — or null (the palette's Stop row). */
+    running: () => { const j = running(); return j && { label: j.label }; },
+    stopRunning,
     /** Settings… → Push tags: does Push send the annotated tags with the branch. */
     pushTags: pushTagsOn,
     setPushTags,

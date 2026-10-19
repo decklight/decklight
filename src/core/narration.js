@@ -16,7 +16,7 @@
 
 import { createCharacter, concatTimelines } from './character.js';
 import { createFilmRecorder, cameraUnavailable } from './film.js';
-import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
+import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, writtenMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { slideTitle, slideBody } from './finder.js';
 import { thinking } from './thinking.js';
@@ -498,6 +498,26 @@ export function notesDraft(aside) {
   return notesPlain(aside, { blocks: true }).split(CLICK_MARK)
     .map((beat) => beat.split(/\n[ \t]*\n/).map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n\n'))
     .join('\n\n⟨CLICK⟩\n\n').trim();
+}
+
+/**
+ * A slide's notes with one beat's words replaced, as the author writes them
+ * (`[click]`, `[pause]`): what the mic recorder's edit sends the notes route.
+ * `draft` is `notesDraft` of the slide, `seg` the beat's ⟨CLICK⟩ segment.
+ *
+ * Words only. A `[click]` typed into a beat would move a build, which a take
+ * cannot follow (a recorded beat is cut where → was pressed), and a beat
+ * emptied of words is no longer a beat to read: both come back as `why`, the
+ * reason, and nothing is written.
+ */
+export function notesWithBeat(draft, seg, text) {
+  const words = canonMarks(String(text ?? '')).trim();
+  if (words.includes(CLICK_MARK)) return { why: 'a [click] moves a build, and the takes cannot follow it: change the split in the notes card (S), then record the slide again.' };
+  if (!hasWords(words)) return { why: 'a beat needs words to read: to drop it, edit the notes card (S).' };
+  const segs = String(draft ?? '').split(CLICK_MARK).map((t) => t.trim());
+  if (!Number.isInteger(seg) || seg < 0 || seg >= segs.length) return { why: 'the notes changed under the recorder: close it and open it again.' };
+  segs[seg] = words;
+  return { text: writtenMarks(segs.join('\n\n⟨CLICK⟩\n\n').trim()), read: words.replace(/\s+/g, ' ').trim() };
 }
 
 /** `47s`, `1m05s` — how the recorder's progress line says how long it has been. */
@@ -3668,6 +3688,8 @@ export function createNarration({
   let micEnd = null;         // resolves the beat: 'next' | 'retake' | 'back' | 'stop'
   let micPhase = null;       // 'countdown' before a take, 'rec' during one, null otherwise
   let micCount = null;       // the countdown's interval
+  let micEdit = null;        // the edit box's answer: its text, or null for unchanged
+  let micCanEdit = false;    // E is offered: the server is there to write the notes
 
   /** Why this browser cannot record, in the words of the thing to do about it. */
   function micUnavailable() {
@@ -3856,6 +3878,8 @@ export function createNarration({
   instance.__recorder = {
     get state() { return micEl && micView === 'capture' ? micBeat : null; },
     remote(key) {
+      // editing a beat, the phone does nothing: the deck must not move under the box
+      if (micEl && micView === 'edit') return true;
       if (!micEl || micView !== 'capture') return false;
       if (key === 'next') endTake('next');
       else if (key === 'retake') endTake('retake');
@@ -4371,6 +4395,7 @@ export function createNarration({
     if (view === 'capture') {
       const { sl, nth, slides, beat, i, of, note, ahead = [] } = data;
       const first = data.first ?? 0;
+      micCanEdit = !!data.canEdit;
       // per slide, the rest of the take is on the card too: you read on into
       // it without a stop, so you see it coming
       const keys = data.bySlide
@@ -4383,8 +4408,27 @@ export function createNarration({
         ${ahead.length ? `<div class="rec-ahead">${ahead.map((b) => `<p>${escapeHtml(b.text)}</p>`).join('')}</div>` : ''}
         ${note ? `<div class="rec-line rec-note">${note}</div>` : ''}
         ${micBar(0)}
-        <div class="rec-hint">${keys} · <kbd>Esc</kbd> stop${
+        <div class="rec-hint">${keys}${micCanEdit ? ' · <kbd>E</kbd> edit the words' : ''} · <kbd>Esc</kbd> stop${
   instance.__remoteQr ? ' · or the phone: next, retake' : ''}</div>`;
+      return;
+    }
+    if (view === 'edit') {
+      const { sl, i, of, text, why } = data;
+      card.innerHTML = `<div class="narr-head">edit the words · slide ${sl} · beat ${i + 1} of ${of}</div>
+        <div class="rec-line rec-where">saved to the deck's notes, then this beat is recorded again</div>
+        <textarea class="narr-input rec-edit" rows="5" spellcheck="true" aria-label="the words of this beat"></textarea>
+        ${why ? `<div class="rec-line rec-warn">${escapeHtml(why)}</div>` : ''}
+        <div class="rec-hint"><kbd>Enter</kbd> save and record it again · <kbd>⇧</kbd><kbd>Enter</kbd> new line · <kbd>Esc</kbd> back, unchanged</div>`;
+      const ta = card.querySelector('.rec-edit');
+      ta.value = text;
+      ta.addEventListener('keydown', (e) => {
+        // the box owns its keys: the deck's never see them (engine's typing
+        // guard), and the recorder's own are these two
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); micEdit?.(ta.value); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); micEdit?.(null); }
+      });
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
       return;
     }
     if (view === 'saving') {
@@ -4405,6 +4449,43 @@ export function createNarration({
       ${useTrackRow(dir)}
       ${doneHint(dir)}`;
     wireUseTrack(card, dir, { ext: 'wav', label: data.label, ...(segmented ? { segments: true } : {}) });
+  }
+
+  /**
+   * The words of the beat on screen, edited where you are reading them: a
+   * sentence that does not work aloud, a missing "and". Saved to the deck's
+   * notes by the notes card's own route, so the file, every open view and the
+   * manifest's hash all have the new words; the take it interrupted is
+   * dropped. Resolves the beat's new text, or null when nothing changed.
+   */
+  async function editBeat(sl, beat, i, of) {
+    const segs = notesDraftOf(sl).split(CLICK_MARK).map((t) => t.trim());
+    let text = writtenMarks(segs[beat.seg] ?? beat.text);
+    let why = null;
+    for (;;) {
+      renderMicCard('edit', { sl, i, of, text, why });
+      const typed = await new Promise((done) => { micEdit = done; });
+      micEdit = null;
+      if (typed == null || !micEl) return null;
+      const next = notesWithBeat(notesDraftOf(sl), beat.seg, typed);
+      text = typed;
+      if (next.why) { why = next.why; continue; }
+      try {
+        const r = await fetch(`${editBase()}/deck/edit/slide/notes`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ slide: sl, text: next.text }),
+        });
+        if (!r.ok) throw new Error((await r.text()).slice(0, 120) || `HTTP ${r.status}`);
+        const j = await r.json().catch(() => ({}));
+        // the server sends every page the new notes; this one reads them from
+        // the plan it is given, so the next take does not wait on the stream
+        debugLog('narr', `slide ${sl} beat ${i + 1} words ${j.changed === false ? 'unchanged' : 'saved'}`);
+        return j.changed === false ? null : next.read;
+      } catch (e) {
+        why = `the notes were not saved: ${String(e.message || e)}`;
+      }
+    }
   }
 
   async function startMicRecording() {
@@ -4476,7 +4557,7 @@ export function createNarration({
     slides: while (s < list.length) {
       if (run !== micRun) return;
       const sl = list[s];
-      const plan = plans[s];
+      let plan = plans[s];
       if (!plan.length) { s++; continue; }
       // Said HERE, where it can still be acted on: a slide with builds and no
       // ⟨CLICK⟩ in its notes is recorded as one take, so its builds will not be
@@ -4493,16 +4574,18 @@ export function createNarration({
       const last = s === from.s && lastI != null ? Math.min(lastI, plan.length - 1) : plan.length - 1;
       const redone = new Set();   // the partial slide's beats written this run
       const pending = new Map();  // …and those taken but not yet written: a take runs on
+      let countAgain = false;     // per slide, a take resumed after an edit is counted in
       for (let i = first; i <= last; i++) {
         const beat = plan[i];
         instance.goto(sl, beat.step);
         renderMicCard('capture', {
           sl, nth: s + 1, slides: list.length, beat, i, of: plan.length, note, first,
-          bySlide, ahead: bySlide ? plan.slice(i + 1, last + 1) : [],
+          bySlide, ahead: bySlide ? plan.slice(i + 1, last + 1) : [], canEdit: !!dir,
         });
         // per slide, only the take's first beat is counted in: the ones after
         // it are already recording, cut from the one before at the →
-        let how = bySlide && i > first ? 'go' : await countIn();
+        let how = bySlide && i > first && !countAgain ? 'go' : await countIn();
+        countAgain = false;
         if (run !== micRun) return;
         if (how === 'go') {
           micRolling = bySlide && i < last;
@@ -4510,6 +4593,17 @@ export function createNarration({
         }
         if (run !== micRun) return;
         if (how === 'stop') { stopped = true; break slides; }
+        if (how === 'edit') {
+          // The words, fixed where they failed, then this beat again, counted
+          // in. Per slide the beats before it are kept: their words did not
+          // change, and the files are per beat anyway.
+          const read = await editBeat(sl, beat, i, plan.length);
+          if (run !== micRun) return;
+          if (read) plan = plans[s] = plan.map((b, k) => (k === i ? { ...b, text: read } : b));
+          countAgain = true;
+          i--;
+          continue;
+        }
         if (how === 'retake') {
           // per slide, the whole take again from its first beat; per beat, the same beat
           if (bySlide) { takes.length = 0; pending.clear(); i = first - 1; } else i--;
@@ -4643,6 +4737,7 @@ export function createNarration({
   function closeMicRecorder() {
     micRun++;                  // invalidate any loop in flight
     endBeat('stop');           // …and unblock it, so its finally runs
+    micEdit?.(null);           // …or the edit box it is waiting on
     closeMic();
     micPreviewStop();
     micOnly = null;            // the "only…" scope is this card's; the range stays, as the V panel's
@@ -4664,11 +4759,17 @@ export function createNarration({
         // swallowed until then so the deck never moves under the recorder.
         if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ' || e.key === 'PageDown') endTake('next');
         else if (e.key === 'Backspace') endTake('retake');
+        // E edits the words: during the take or the count-in before it, the
+        // take is dropped either way (needs the server, which writes the notes)
+        else if ((e.key === 'e' || e.key === 'E') && micCanEdit) endBeat('edit');
         else if (e.key === 'ArrowLeft' || e.key === 'PageUp') endBeat('back');
         else if (e.key === 'Escape') closeMicRecorder();
         else return false;
         return true;
       }
+      // the edit box answers its own keys; anything that reaches here came
+      // from outside it, and must not close the recorder under the words
+      if (micView === 'edit') return true;
       if (e.key === 'Escape') closeMicRecorder();
       else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && micView === 'intro' && micEl?.querySelector('[data-from]')) {
         moveFrom(e.key === 'ArrowLeft' ? -1 : 1);

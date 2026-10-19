@@ -930,7 +930,7 @@ export function init(userConfig = {}) {
    * VS Code's command palette reads: `Voice: Live voice…`, `Share: Export to
    * PDF…`. All of them sit at the root; typing the category narrows to it.
    */
-  const PALETTE_CATEGORIES = ['Go to', 'Slide', 'Edit', 'Look', 'Voice', 'Present', 'Review', 'Git', 'Share', 'Help', 'Preferences'];
+  const PALETTE_CATEGORIES = ['Running', 'Go to', 'Slide', 'Edit', 'Look', 'Voice', 'Present', 'Review', 'Git', 'Share', 'Help', 'Preferences'];
 
   function paletteCommands() {
     const has = (fn) => typeof fn === 'function';
@@ -940,7 +940,13 @@ export function init(userConfig = {}) {
     // gated, so they showed in a read-only deck, and some were gated without
     // the tag, so they sat among the presenter's rows untagged.
     const write = (row) => editmode.available() && { ...row, write: true };
+    const stoppable = editmode.running();
     const all = [
+      // ── Running: only while a long job is, so it is the first row ───────
+      // a video, a PDF, an agent's edit — stopped without stopping the server
+      stoppable && { label: stoppable.label, cat: 'Running',
+        alias: 'stop cancel abort halt kill interrupt quit end export render video agent running job',
+        run: () => editmode.stopRunning() },
       // ── Go to ───────────────────────────────────────────────────────────
       { label: 'Find slide…', cat: 'Go to', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
       { label: 'Go to slide…', cat: 'Go to', hint: '#', alias: 'goto jump number', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },

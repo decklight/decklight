@@ -33,6 +33,9 @@ import { CommandError } from './util.mjs';
 import { THEME_NAME, GEN_THEME } from '../tools/render-theme.mjs';
 import { locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
 
+/** How long a stopped child has to clean up after SIGTERM before SIGKILL. */
+const STOP_GRACE_MS = 5000;
+
 /**
  * Why `module` cannot name a chapter to bundle, or null when it can (or is
  * absent: the whole deck). The bundle card sends the chapter's NUMBER, never
@@ -55,10 +58,13 @@ export function moduleProblem(module) {
  * `broadcast` for the export's progress, and `gitOn()` for whether this
  * session has a repository to publish from: a getter, not a copy, because it
  * is a `let` of editMain's and the answer is whatever it holds when a publish
- * asks.
+ * asks. `onExport` hears `{ kind, what }` when an export starts and null when
+ * it ends, so `/deck/ping` can tell a page that loads mid-render there is one
+ * to stop.
  */
-export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn, broadcast = () => {} }) {
+export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn, broadcast = () => {}, onExport = () => {} }) {
   let exporting = false; // an export in flight — one browser, one output path, any kind
+  let stopExport = null; // stops it, while it is one that can be stopped
   let publishing = false; // a publish in flight — one push at a time
 
   // ── hand-over: the files this deck can be written out as, and publishing ───
@@ -91,6 +97,9 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
    * - it must SAY WHERE IT IS. An export is tens of seconds, so each slide
    *   is announced on the `export` channel of the same SSE stream the agent
    *   chip rides, and the deck rewrites its one progress row from it.
+   *
+   * And it can be STOPPED (`exportStopRoute`), so a ten-minute video started
+   * on the wrong slides is not a reason to kill the session it runs in.
    */
   async function exportRoute({ url, body, json }) {
     const req = JSON.parse(body || '{}');
@@ -137,6 +146,11 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       return json(503, { ok: false, error: 'no Chrome found — install one, or point $CHROME at it' });
     }
     exporting = true;
+    // Every kind but the bundle: the bundle launches nothing and is seconds
+    // from done, so there is nothing to stop part-way.
+    const stop = new AbortController();
+    stopExport = kind === 'bundle' ? null : () => stop.abort();
+    onExport({ kind, what: job.what });
     const started = Date.now();
     console.log(`  export: ${basename(deckPath)} → ${job.what}${req.slides ? ` of slides ${req.slides}` : ''}`
       + `${req.synthesize ? `, voiced by ${req.synthesize.engine} into ${req.synthesize.dir}/` : ''} …`);
@@ -152,9 +166,9 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
         // read as stuck on slide one.
         if (req.synthesize) {
           ({ code, reason } = await runTool('voiceover', await voiceoverArgv(req),
-            voiceoverProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'voice', n, of }))));
+            voiceoverProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'voice', n, of })), stop.signal));
         }
-        if (!code) {
+        if (!code && !stop.signal.aborted) {
           const narration = req.synthesize?.dir ?? req.narration ?? null;
           ({ code, reason } = await runTool('video', [deckPath, '-o', out, ...themed,
             ...(req.slides ? ['--slides', req.slides] : []),
@@ -164,7 +178,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
             ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : req.silent ? ['--no-narration'] : []),
             // the card showed the track as recorded from older notes and it was picked anyway (#536)
             ...(req.allowStale === true ? ['--allow-stale'] : [])],
-          videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of }))));
+          videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of })), stop.signal));
         }
       } else if (kind === 'bundle') {
         // No -o: the CLI names the file, beside the deck, so the row and
@@ -190,12 +204,14 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
         code = await pptxMain([deckPath, ...themed], {
           log: (line) => console.log(`  ${line}`),
           onSlide: (n, of) => broadcast('export', { state: 'slide', kind, n, of }),
+          signal: stop.signal,
         });
       } else {
         const { pdfMain, pdfOut } = await import('./pdf.mjs');
         out = pdfOut(deckPath, null, job.variant);
-        code = await pdfMain([deckPath, ...themed, ...(job.variant ? [`--${job.variant}`] : [])]);
+        code = await pdfMain([deckPath, ...themed, ...(job.variant ? [`--${job.variant}`] : [])], { signal: stop.signal });
       }
+      if (stop.signal.aborted) return stopped();
       const file = relative(process.cwd(), out) || basename(out);
       const seconds = Math.round((Date.now() - started) / 100) / 10;
       if (code !== 0) {
@@ -211,6 +227,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       broadcast('export', { state: 'done', kind, ok: true, file, seconds, ...voiced });
       return json(200, { ok: true, kind, what: job.what, file, seconds, ...voiced, ...(notes ? { notes } : {}) });
     } catch (e) {
+      if (stop.signal.aborted) return stopped();
       // A render that hangs or a Chrome that dies is the export's problem,
       // never the session's: the message goes back to the palette and the
       // server carries on serving the deck. A command's refusal is a sentence
@@ -222,7 +239,32 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       return json(500, { ok: false, error: said });
     } finally {
       exporting = false;
+      stopExport = null;
+      onExport(null);
     }
+
+    // Not a failure: what was asked for. The voice a stopped export had
+    // already synthesized stays where it was written — it is the deck's own
+    // folder, and the next export finds those slides done.
+    function stopped() {
+      const kept = req.synthesize && existsSync(resolve(dirname(deckPath), req.synthesize.dir)) ? { voiced: req.synthesize.dir } : {};
+      console.log(`  export: ${job.what} stopped — nothing written`);
+      broadcast('export', { state: 'done', kind, ok: false, stopped: true, ...kept });
+      return json(200, { ok: false, stopped: true, kind, what: job.what, ...kept });
+    }
+  }
+
+  /**
+   * POST /deck/edit/export/stop — stop the export in flight. Answers at once;
+   * the export's own request is the one that says it stopped (`{ stopped }`),
+   * once its children are gone and its scratch files with them.
+   */
+  function exportStopRoute({ json }) {
+    if (!exporting) return json(409, { ok: false, error: 'no export is running' });
+    if (!stopExport) return json(409, { ok: false, error: 'a bundle cannot be stopped part-way — it is seconds from done' });
+    console.log('  export: stopping …');
+    stopExport();
+    return json(200, { ok: true });
   }
 
   /**
@@ -235,12 +277,22 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
    *
    * Served from the same root `pptx` picks: the current directory when the deck
    * is under it, its own directory otherwise.
+   *
+   * `signal` stops it: SIGTERM, which `decklight video` answers by killing its
+   * Chrome and ffmpeg and clearing its scratch frames, then SIGKILL for a child
+   * that has not gone a few seconds later.
    */
-  function runTool(name, argv, onLine) {
+  function runTool(name, argv, onLine, signal = null) {
     const script = fileURLToPath(new URL(`../tools/${name}.mjs`, import.meta.url));
     const cwd = deckPath.startsWith(process.cwd() + sep) ? process.cwd() : dirname(deckPath);
     return new Promise((done) => {
       const child = spawn(process.execPath, [script, ...argv], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+      let hard = null;
+      const stop = () => {
+        child.kill('SIGTERM');
+        hard = setTimeout(() => child.kill('SIGKILL'), STOP_GRACE_MS);
+      };
+      if (signal?.aborted) stop(); else signal?.addEventListener('abort', stop, { once: true });
       let pending = '', err = '';
       child.stdout.on('data', (chunk) => {
         pending += chunk;
@@ -254,6 +306,8 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       child.stderr.on('data', (chunk) => { err += chunk; process.stdout.write(String(chunk).replace(/^/gm, '  ')); });
       child.on('error', (e) => done({ code: 1, reason: oneline(e) }));
       child.on('close', (code) => {
+        clearTimeout(hard);
+        signal?.removeEventListener('abort', stop);
         // the command's own refusal is the sentence the deck shows
         const said = err.split('\n').map((l) => l.trim()).filter(Boolean);
         const prefix = `decklight ${name}:`;
@@ -465,6 +519,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
   }
 
   routes.set('POST /deck/edit/export', exportRoute);
+  routes.set('POST /deck/edit/export/stop', exportStopRoute);
   routes.set('GET /deck/edit/export/estimate', exportEstimateRoute);
   routes.set('GET /deck/edit/inspect', inspectRoute);
   routes.set('GET /deck/edit/publish/plan', publishPlanRoute);

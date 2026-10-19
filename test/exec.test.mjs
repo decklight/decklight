@@ -92,6 +92,22 @@ test('runAsync names a hang the same way run does, and rethrows everything else 
   });
 });
 
+test('runAsync stopped by its signal rejects with the AbortError — stopped, not hung', async (t) => {
+  if (!posix) return t.skip();
+  const stuck = fakeBin(t, 'stuck', 'exec sleep 30');
+  const stop = new AbortController();
+  const t0 = Date.now();
+  setTimeout(() => stop.abort(), 100);
+  await assert.rejects(() => runAsync(stuck, [], { timeout: 20_000, signal: stop.signal, why: 'never said' }), (e) => {
+    assert.equal(e.name, 'AbortError');
+    assert.notEqual(e.code, 'ETIMEDOUT', 'a stop is not reported as a hang');
+    return true;
+  });
+  assert.ok(Date.now() - t0 < 5000, 'the child went when it was stopped, not at the timeout');
+  // nothing that could stop it is `signal: null`, which execFile itself refuses
+  assert.equal(await runAsync(fakeBin(t, 'fine', 'echo hi'), [], { encoding: 'utf8', signal: null }), 'hi\n');
+});
+
 test('the budgets are named for what they are, and ordered that way', () => {
   assert.ok(PROBE_MS < NETWORK_MS && NETWORK_MS < CODEC_MS);
   assert.ok(PROBE_MS >= 5_000, 'a probe budget so short it fails on a busy machine is a flake');

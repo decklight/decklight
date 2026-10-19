@@ -745,7 +745,7 @@ export function parseBuildSteps(dom, slides) {
   return counts.length === slides ? counts : null;
 }
 
-export async function videoMain(argv, { exec = run, log = console.log } = {}) {
+export async function videoMain(argv, { exec: execRaw = run, log = console.log } = {}) {
   const { opt } = argReader(argv);
   const deckArg = argv.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
   // Two different situations, and the stream and the exit code follow WHICH
@@ -778,6 +778,20 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       + '(apt install ffmpeg / brew install ffmpeg)');
     process.exit(1);
   }
+
+  // Stopped part-way — the edit server's stop route sends SIGTERM. Every Chrome
+  // and ffmpeg in flight is killed through this signal and the next one never
+  // starts; the `finally` below takes the scratch frames, and the catch takes a
+  // file ffmpeg had begun writing, because a half-written video looks exactly
+  // like a finished one in a file browser. Anything not waiting on a child
+  // (re-voicing over the network) gets a moment, then the process goes anyway.
+  const stopping = new AbortController();
+  process.once('SIGTERM', () => {
+    stopping.abort();
+    setTimeout(() => process.exit(143), 3000).unref();
+  });
+  const exec = (bin, args, opts = {}) => execRaw(bin, args, { ...opts, signal: stopping.signal });
+  let writing = false;
 
   let out; let plan; let narration;
   try {
@@ -971,7 +985,9 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
 
       const list = join(work, 'concat.txt');
       writeFileSync(list, concatList(segments));
+      writing = true;
       await exec('ffmpeg', concatArgs(list, out, { format, subtitles: embedded }));
+      writing = false;
     } finally {
       await server.close();
       rmSync(work, { recursive: true, force: true });
@@ -980,6 +996,11 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     const total = Number((await exec('ffprobe', ffprobeArgs(out))).stdout.trim());
     log(`done → ${out} (${total.toFixed(1)}s)`);
   } catch (e) {
+    if (stopping.signal.aborted) {
+      if (writing) rmSync(out, { force: true });
+      console.error('decklight video: stopped — no video written');
+      process.exit(143);
+    }
     console.error(`decklight video: ${e.message}`);
     process.exit(1);
   }
