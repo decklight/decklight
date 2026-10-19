@@ -4945,7 +4945,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         press('k');
         await settle();
         const dflt = document.querySelector('.cm-write');
-        r.defaultOffersIt = dflt?.textContent === 'write them for me';
+        r.defaultOffersIt = dflt?.textContent === '✨ write it for me';
         r.tooltipNamesTheAgent = /Sends the deck's uncommitted changes to claude \(Claude Code\), the agent installed on this machine, which may pass them to its provider\./
           .test(dflt?.getAttribute('title') ?? '');
         r.nothingSentOnOpen = subjectAsks() === 0;
@@ -4956,7 +4956,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         press('k');
         await settle();
         const none = document.querySelector('.cm-write');
-        r.noAgentSaysSo = /write them for me — no agent/.test(none?.textContent ?? '');
+        r.noAgentSaysSo = /write it for me — no agent/.test(none?.textContent ?? '');
         none?.click();
         await settle();
         r.noAgentExplains = /no agent is installed on this machine/.test(hintNow()) && /decklight doctor/.test(hintNow());
@@ -4966,7 +4966,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         press('k');
         await settle();
         const off = document.querySelector('.cm-write');
-        r.offSaysOff = /write them for me — off/.test(off?.textContent ?? '');
+        r.offSaysOff = /write it for me — off/.test(off?.textContent ?? '');
         off?.click();
         await settle();
         r.offExplains = /started with --no-commit-messages/.test(hintNow());
@@ -4998,7 +4998,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.asciiOnly = /^[\x20-\x7e]+$/.test(a + b);
         await new Promise((ok) => setTimeout(ok, 1000));
         r.subjectLands = box2.value === 'split the crowded video slides';
-        r.stopsThinking = write.textContent === 'write them again' && box2.placeholder === idle
+        r.stopsThinking = write.textContent === '✨ write it again' && box2.placeholder === idle
           && !write.classList.contains('cm-thinking');
         const later = write.textContent;
         await new Promise((ok) => setTimeout(ok, 300));
@@ -5140,13 +5140,37 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         r.cleanStillOpens = !!document.querySelector(`${O} .narr-card`);
         r.cleanSaysNothingToCommit = /nothing to commit/.test(document.querySelector('.cm-what')?.textContent ?? '')
-          && document.querySelector('.cm-input').hidden && document.querySelector('.cm-slides').hidden;
+          && !!document.querySelector('.cm-input').closest('[hidden]') && document.querySelector('.cm-slides').hidden;
         // a push that cannot go says why, and asks the server nothing
         r.blockedPushSaysWhy = document.querySelector('.cm-push-what')?.textContent === 'no remote to push to — git remote add origin <url>'
           && document.querySelector('.cm-push-go').classList.contains('cm-off');
         document.querySelector('.cm-push-go').click();
         await settle();
         r.blockedPushAsksNothing = window.__pushes === 2;
+        escapeUntilClosed(O);
+        // Up to date, no tag to carry: Push has nothing to send and is off;
+        // a commit ahead lights it again. Enter on Tag tags, never commits.
+        window.__clean = true; window.__tags = [];
+        window.__push = { state: 'ok', remote: 'origin', branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, blocked: null };
+        press('k');
+        await settle();
+        r.idlePushIsOff = document.querySelector('.cm-push-go')?.disabled === true;
+        r.headNamesTheBranch = document.querySelector(`${O} .narr-head`)?.textContent === 'git · main';
+        escapeUntilClosed(O);
+        window.__push = { ...window.__push, ahead: 2 };
+        window.__clean = false;
+        press('k');
+        await settle();
+        r.aheadPushIsOn = document.querySelector('.cm-push-go')?.disabled === false;
+        const committedBefore = window.__committed;
+        document.querySelector('.cm-input').value = 'must not be committed by Enter on Tag';
+        document.querySelector('.cm-tag').value = 'v2.0';
+        const tagButton = document.querySelector('.cm-tag-go');
+        tagButton.focus();
+        tagButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        tagButton.click();   // what the browser does with that Enter on a button
+        await settle(); await settle();
+        r.enterOnTagTags = window.__tagged === 'v2.0' && window.__committed === committedBefore;
         escapeUntilClosed(O);
         window.__clean = false; window.__push = undefined; window.__tags = undefined;
 
@@ -5160,6 +5184,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.tagSendsTheName && r.tagShowsOnHead && r.tagLeftTheWindowOpen && r.pushSaysItIsPushing && r.pushLands
           && r.pushSendsTheTags && r.pushTagsRowInWriteMode && r.pushTagsTurnsOff && r.tagSaysNotPushed && r.pushLeavesTheTags && r.pushTagsBackOn
           && r.cleanStillOpens && r.cleanSaysNothingToCommit && r.blockedPushSaysWhy && r.blockedPushAsksNothing
+          && r.idlePushIsOff && r.headNamesTheBranch && r.aheadPushIsOn && r.enterOnTagTags
           && r.slidesCounted && r.slidesEachInItsColour && r.slidesZeroDimmed && r.chipCountsSlides && r.chipSlidesInColour;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

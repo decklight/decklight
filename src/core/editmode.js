@@ -205,12 +205,19 @@ export function createEditMode({
       if (text !== undefined) e.textContent = text;
       return e;
     };
+    // real buttons, one size: the window's own Enter (which commits) never
+    // hears a key pressed on one, so Enter on Tag tags and on Push pushes
     const button = (cls, text) => {
-      const b = el('div', `narr-row narr-sel ${cls}`, text);
-      b.setAttribute('role', 'button');
-      b.tabIndex = 0;
-      b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); b.click(); } });
+      const b = el('button', `cm-btn ${cls}`, text);
+      b.type = 'button';
+      b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); });
       return b;
+    };
+    // a section: its name on the left of a rule, then its rows
+    const section = (cls, name) => {
+      const sec = el('div', `cm-sec ${cls}`);
+      sec.append(el('div', 'cm-label', name));
+      return sec;
     };
     // a typing surface: the deck must not advance under it, but ⌘K still
     // reaches the deck so the shortcut that opened the window closes it
@@ -224,7 +231,12 @@ export function createEditMode({
       e.stopPropagation();
     });
 
-    const head = el('div', 'narr-head', 'commit');
+    // Three steps, in the order they happen, each a labelled section with its
+    // one button at the same right edge: commit the work, tag a commit,
+    // push them. Commit is the only filled button; it is the window's point.
+    // The window is named for the branch the work lands on: the sections
+    // already say what each step is.
+    const head = el('div', 'narr-head', state.push?.branch ? `git · ${state.push.branch}` : 'git');
     const what = el('div', 'cm-what');
     // the same work in slides, each count in its colour (painted below)
     const slidesEl = el('div', 'cm-slides');
@@ -236,7 +248,7 @@ export function createEditMode({
     // subject editable, where it lands beside it. Hidden until there is one.
     const planEl = el('div', 'cm-plan');
     planEl.hidden = true;
-    const row = el('div', 'cm-row');
+    const row = el('div', 'cm-line cm-actions');
     // Asked of the agent installed on this machine, and only when pressed —
     // so the button says, before it is pressed, where the changes will go. The
     // agent is named because it is a real program with a real provider behind
@@ -245,42 +257,56 @@ export function createEditMode({
     // rather than offering what the server can only refuse, and the reason
     // (which does not fit on a button) goes on the hint line when pressed.
     const who = state.describer;
-    const write = button('cm-write', who ? 'write them for me'
-      : state.subjectsOff ? 'write them for me — off' : 'write them for me — no agent');
+    const write = button('cm-write cm-quiet', who ? '✨ write it for me'
+      : state.subjectsOff ? '✨ write it for me — off' : '✨ write it for me — no agent');
     if (!who) write.classList.add('cm-off');
     if (who) {
       write.title = `Sends the deck's uncommitted changes to ${who.name} (${who.label}), the agent installed`
         + ' on this machine, which may pass them to its provider. It proposes one commit, or several when the changes are separate ideas.';
     }
-    const single = button('cm-single', 'one commit');
+    const single = button('cm-single cm-quiet', 'as one commit');
     single.hidden = true;
-    const go = button('cm-go', 'Commit');
-    row.append(write, single, go);
+    single.title = 'set the proposed commits aside and write one message for all of it';
+    const go = button('cm-go cm-primary', 'Commit');
+    // the message's own tools sit on its label line, where they act
+    const msgHead = el('div', 'cm-line cm-msg-head');
+    const msgTools = el('span', 'cm-tools');
+    msgTools.append(single, write);
+    msgHead.append(el('span', 'cm-sub', 'message'), msgTools);
+    row.append(el('span', 'cm-keys', '⌘⏎'), go);
+    // what only exists while there is something to commit
+    const body = el('div', 'cm-body');
+    body.append(msgHead, input, planEl, row);
+    const secCommit = section('cm-sec-commit', 'commit');
+    secCommit.append(what, slidesEl, body);
 
     // Tag and push: what happens to the work once it is committed. Both read
     // the status route's `tags` and `push`, and both work with nothing to
     // commit — tagging what is there, pushing what is not on the remote yet.
-    const tagRow = el('div', 'cm-row cm-tagrow');
+    const tagRow = el('div', 'cm-line cm-tagrow');
     const tagInput = el('input', 'narr-input cm-tag');
     tagInput.type = 'text';
     tagInput.placeholder = 'tag the last commit, e.g. v1.0';
     tagInput.setAttribute('aria-label', 'Tag name');
     const tagGo = button('cm-tag-go', 'Tag');
     const tagsNow = el('span', 'cm-tags');
-    tagRow.append(tagInput, tagGo, tagsNow);
-    const pushRow = el('div', 'cm-row cm-pushrow');
+    tagRow.append(tagInput, tagGo);
+    const secTag = section('cm-sec-tag', 'tag');
+    secTag.append(tagRow, tagsNow);
+    const pushRow = el('div', 'cm-line cm-pushrow');
     const pushWhat = el('span', 'cm-push-what');
     const pushGo = button('cm-push-go', 'Push');
     pushRow.append(pushWhat, pushGo);
+    const secPush = section('cm-sec-push', 'push');
+    secPush.append(pushRow);
 
-    const hint = el('div', 'rec-hint', '⌘⏎ commits · Esc closes — the work is snapshotted either way');
-    card.append(head, what, slidesEl, input, planEl, row, tagRow, pushRow, hint);
+    const hint = el('div', 'rec-hint', 'Esc closes · the work is snapshotted either way');
+    card.append(head, secCommit, secTag, secPush, hint);
 
     let now = state;
     const paintWhat = () => {
       const dirty = !!now.dirty;
-      input.hidden = !dirty;
-      row.hidden = !dirty;
+      body.hidden = !dirty;
       slidesEl.hidden = true;
       if (!dirty) { planEl.hidden = true; what.textContent = 'nothing to commit — the deck matches its last commit'; return; }
       const n = Number(now.lines) || 0;
@@ -314,10 +340,14 @@ export function createEditMode({
       tagsNow.textContent = tags.length ? `on it: ${tags.join(', ')}${pushTagsOn() ? '' : ' · not pushed'}` : '';
       tagsNow.hidden = !tags.length;
       const p = now.push;
+      const n = Number(p?.ahead) || 0;
+      // nothing to send: no commit ahead, a branch already there, and no tag
+      // that Push would carry — the button is off rather than a no-op
+      const idle = !!p && !p.blocked && !n && p.state !== 'no-upstream' && !(tags.length && pushTagsOn());
       pushGo.classList.toggle('cm-off', !p || !!p.blocked);
-      if (!p) { pushWhat.textContent = 'push: git cannot say where this branch stands'; return; }
+      pushGo.disabled = idle;
+      if (!p) { pushWhat.textContent = 'git cannot say where this branch stands'; return; }
       if (p.blocked) { pushWhat.textContent = p.blocked; return; }
-      const n = Number(p.ahead) || 0;
       const commits = `${n} commit${n === 1 ? '' : 's'}`;
       pushWhat.textContent = p.state === 'no-upstream'
         ? `${p.branch} is not on ${p.remote} yet${n ? ` · ↑${commits}` : ''}`
@@ -438,12 +468,12 @@ export function createEditMode({
         const commits = Array.isArray(j.commits) ? j.commits : [];
         if (commits.length > 1) {
           showPlan({ base: j.base, units: j.units ?? [], commits: commits.map((c) => ({ subject: String(c.subject ?? ''), units: c.units ?? [] })) });
-          write.textContent = 'write them again';
+          write.textContent = '✨ write it again';
         } else {
           showPlan(null);
           const subject = commits[0]?.subject;
           if (subject && !input.value.trim()) input.value = subject;
-          write.textContent = subject ? 'write them again' : 'nothing to say about it';
+          write.textContent = subject ? '✨ write it again' : 'nothing to say about it';
         }
       } catch (e) {
         // the whole sentence, where there is room for it — a reason cut at forty
@@ -476,7 +506,7 @@ export function createEditMode({
       input.value = '';
       paintWhat();
       showPlan(j.left ? { base: j.left.base, units: j.left.units ?? [], commits: j.left.commits.map((c) => ({ subject: String(c.subject ?? ''), units: c.units ?? [] })) } : null);
-      if (more && !j.left) write.textContent = 'write them again';
+      if (more && !j.left) write.textContent = '✨ write it again';
       what.textContent = more ? `${text} · the rest is still uncommitted` : text;
       paintTagsAndPush();
       setTimeout(() => (more ? (planEl.querySelector('.cm-plan-subject') ?? input) : pushGo).focus(), 0);
@@ -507,7 +537,7 @@ export function createEditMode({
         const j = await r.json();
         if (!j?.ok) {
           // the work moved while the agent was thinking: its plan is for other work
-          if (j?.code === 'STALE') { showPlan(null); write.textContent = 'write them again'; }
+          if (j?.code === 'STALE') { showPlan(null); write.textContent = '✨ write it again'; }
           throw new Error(j?.error || `HTTP ${r.status}`);
         }
         if (!j.committed) { closeCommit(); toast('nothing to commit', 2600); return; }
@@ -580,7 +610,7 @@ export function createEditMode({
       close: closeCommit,
       keydown(e) {
         if (e.key === 'Escape') { closeCommit(); return true; }
-        if (/^(input|textarea)$/i.test(e.target?.tagName ?? '')) return false;
+        if (/^(input|textarea|button)$/i.test(e.target?.tagName ?? '')) return false;
         if (e.key === 'Enter') {
           const b = commitEl?.querySelector('.cm-go');
           if (b && !b.closest('[hidden]')) b.click();

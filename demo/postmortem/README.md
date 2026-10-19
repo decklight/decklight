@@ -25,7 +25,7 @@ this folder is that journey, done for real.
 6. `narrate --engine elevenlabs --voice Chris`, one clip per build step.
 7. A reviewer, Sam (fictional, from a second clone), commented through the
    no-trust deck; the review came back as `review/sam-<date>`, was resolved
-   with R, and K's *write them for me* wrote the commit messages.
+   with R, and K's *write it for me* wrote the commit messages.
 8. `bundle --audio aac`, `pdf --handout`, `pptx`; the PDF render caught slide 4
    overflowing in print, which was fixed before the step was recorded.
 9. `publish --target folder --audio aac` (from main: `--audio` is #843).

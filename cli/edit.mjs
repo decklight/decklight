@@ -1517,7 +1517,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const commitEvery = Math.max(5, Number(opt('--commit-every', 300)) || 300);
   // Commit subjects written by an agent, from the deck's diff. Two levels:
   //
-  //  - ON CLICK, by default: the commit window's "write them for me" asks the
+  //  - ON CLICK, by default: the commit window's "write it for me" asks the
   //    agent installed on this machine when — and only when — it is pressed,
   //    and its tooltip names the agent and says the changes go to it (and may
   //    go on to its provider). Nothing leaves without that click.
@@ -1655,7 +1655,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     wip: lastWip,
     canWrite: gitOn && gitMode !== 'off',
     messages: wantMessages,
-    // who "write them for me" would ask — null when the session turned subjects
+    // who "write it for me" would ask — null when the session turned subjects
     // off, or no agent is installed; `subjectsOff` says which
     describer: describer(),
     subjectsOff,

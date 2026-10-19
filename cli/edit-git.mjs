@@ -128,7 +128,7 @@ export function registerGitRoutes(routes, {
     return json(200, { ok: true, subject: null });
   }
 
-  // "write them for me": the uncommitted work cut into the commits an agent
+  // "write it for me": the uncommitted work cut into the commits an agent
   // proposes (cli/commit-split.mjs). The plan carries `base`, the fingerprint
   // of the work it was made on, which the split route checks before it
   // commits anything. Asked only on the click, like the one-line subject.
@@ -143,7 +143,7 @@ export function registerGitRoutes(routes, {
     if (!work) return json(409, { ok: false, code: 'FIRST', error: 'the first commit is one commit — write its message' });
     if (!commits) return json(200, { ok: true, base: work.base, units: [], commits: [] });
     if (!describer() && work.units.some((u) => u.file === deckRel)) {
-      return json(409, { ok: false, error: 'no agent is installed on this machine to write them — decklight doctor lists the ones it can use' });
+      return json(409, { ok: false, error: 'no agent is installed on this machine to write one — decklight doctor lists the ones it can use' });
     }
     return json(200, { ok: true, base: work.base, units: work.units.map(unitSummary), commits });
   }

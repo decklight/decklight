@@ -345,7 +345,7 @@ export async function describeCommit({
 
 /**
  * A subject for work that is NOT COMMITTED YET — what the commit overlay's
- * "write them for me" button asks for.
+ * "write it for me" button asks for.
  *
  * The same prompt, the same read-only argv, the same cap and the same stated
  * truncation as `describeCommit`; three things differ, and each is because

@@ -252,7 +252,7 @@ const addedLines = (f) => {
 };
 
 /**
- * The commits "write them for me" proposes: `{ work, commits }`, where
+ * The commits "write it for me" proposes: `{ work, commits }`, where
  * `commits` is `[{ subject, units }]`, or `{ work, commits: null }` when there
  * is nothing to cut (no HEAD: a first commit is one commit; nothing changed).
  *
@@ -464,7 +464,7 @@ function commitTree(cwd, tree, parent, message, env) {
 export function commitPlan({ cwd, deckRel, also = [], base, commits, template }) {
   const now = workingUnits({ cwd, deckRel, also });
   if (!now || now.base !== base) {
-    return { ok: false, code: 'STALE', error: 'the deck changed since these commits were proposed — write them again' };
+    return { ok: false, code: 'STALE', error: 'the deck changed since these commits were proposed — write it again' };
   }
   const byId = new Map(now.units.map((u) => [u.id, u]));
   const asked = (commits ?? []).map((c) => ({ subject: String(c?.message ?? ''), units: (c?.units ?? []).map(Number), skip: !!c?.skip }));
