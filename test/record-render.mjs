@@ -204,6 +204,14 @@ const DECK = `<!doctype html>
           // every take is counted in, from the count-in asked for, and nothing
           // is captured while it counts: the first number seen, or null for none
           r.counted.push(phase() === 'countdown' ? ((status()?.textContent ?? '').match(/\\d/)?.[0] ?? '?') : null);
+          if (i === 1) {
+            // the card around beat two: beat one ticked off above it with the
+            // moment → cut it, the take's clock running, the bar on slide 1 of 2
+            r.pastSeen = [...document.querySelectorAll('.decklight-mic .rec-past')].map((e) => e.textContent.replace(/\\s+/g, ' ').trim());
+            r.cutLine = document.querySelector('.decklight-mic .rec-cut')?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
+            r.progress = [...document.querySelectorAll('.decklight-mic .rec-progress span')].map((e) => e.className).join(',');
+            r.clock = document.querySelector('.decklight-mic .rec-clock')?.textContent ?? null;
+          }
           if (i === 0 && params.has('early')) {
             // → during the 3-2-1 waits for the take, it does not skip the beat
             press('ArrowRight');
@@ -425,6 +433,13 @@ check('pacing', JSON.stringify(took.beats) === JSON.stringify([
   'Beat one.', 'Beat two.', 'Beat three.', 'Slide two, all in one breath.',
 ]) && JSON.stringify(took.steps) === JSON.stringify(['1.0', '1.1', '1.2', '2.0']),
 `read ${took.beats.length} beats at builds ${took.steps.join(' ')}`);
+
+// The card around a beat (per slide, beat two of slide 1): the beat already
+// read is ticked off above it with the moment → cut it, the take's clock is
+// running, and the bar says slide 1 of 2.
+check('card', JSON.stringify(took.pastSeen) === JSON.stringify(['✓ Beat one.'])
+  && /^\[click\] · you pressed → at 0:0\d$/.test(took.cutLine ?? '') && took.progress === 'now,' && /^\d:\d\d$/.test(took.clock ?? ''),
+`read above=${JSON.stringify(took.pastSeen)} · cut=${JSON.stringify(took.cutLine)} · bar=${took.progress} · clock=${took.clock}`);
 
 // Where a presenter learns what they just made and how to play it back — the
 // flag included, because without it the files are there and nothing uses them.

@@ -3796,9 +3796,14 @@ export function createNarration({
     micMeter = null;
   }
 
+  /** `0:09` — the take's running time on the recording card, and where → cut it. */
+  const clockText = (ms) => { const t = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+  let micTakeT0 = 0;         // when the take on the card began capturing
   /** Capture until the presenter says the beat is over. */
   function captureBeat() {
-    // a rolling take already started this beat's chunks, at the cut
+    // a new take starts the card's clock; a rolling one already started this
+    // beat's chunks, at the cut, and keeps the clock running
+    if (!micChunks) micTakeT0 = Date.now();
     micChunks ??= [];
     micPeak = 0;
     micPhase = 'rec';
@@ -3847,14 +3852,20 @@ export function createNarration({
   function endTake(how) {
     if (micPhase === 'rec') endBeat(how);
   }
-  /** The capture card's indicator: the count, or the red dot of a take in progress. */
+  /**
+   * The recording card's indicator: the count, or the red dot and the running
+   * clock of a take in progress. The card's own phase swaps the key legend
+   * under the words: the count-in's keys are not the take's.
+   */
   function paintMicStatus(n) {
     const el = micEl?.querySelector('.rec-status');
     if (!el) return;
     el.dataset.phase = micPhase ?? '';
+    const card = micEl.querySelector('.narr-card');
+    if (card) card.dataset.phase = micPhase ?? '';
     el.innerHTML = micPhase === 'countdown'
-      ? `<span class="rec-count" aria-live="assertive">${n}</span><span>recording starts…</span>`
-      : '<span class="rec-dot" aria-hidden="true"></span><span>REC</span>';
+      ? `<span class="rec-count" aria-live="assertive">${n}</span><span>reading starts…</span>`
+      : `<span class="rec-dot" aria-hidden="true"></span><span>REC</span><span class="rec-clock">${clockText(Date.now() - micTakeT0)}</span>`;
   }
 
   // The phone remote's half of the recorder (#848). A keystroke on the laptop
@@ -4443,23 +4454,53 @@ export function createNarration({
       return;
     }
     if (view === 'capture') {
-      const { sl, nth, slides, beat, i, of, note, ahead = [] } = data;
+      const { sl, nth, slides, beat, i, of, note, ahead = [], past = [], cuts = [], bySlide } = data;
       const first = data.first ?? 0;
       micCanEdit = !!data.canEdit;
-      // per slide, the rest of the take is on the card too: you read on into
-      // it without a stop, so you see it coming
-      const keys = data.bySlide
-        ? `<kbd>→</kbd> ${ahead.length ? 'next build, still recording' : 'end the slide'} · <kbd>⌫</kbd> retake the slide · <kbd>←</kbd> ${nth > 1 ? 'back a slide' : 'start over'}`
-        : `<kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>←</kbd> ${i > first ? `back to beat ${first + 1}` : nth > 1 ? 'back a slide' : 'start over'}`;
-      card.innerHTML = `<div class="narr-head">recording · slide ${nth} of ${slides}</div>
-        <div class="rec-line rec-where">slide ${sl} · beat ${i + 1} of ${of}</div>
-        <div class="rec-status"></div>
-        <div class="rec-read">${escapeHtml(beat.text)}</div>
-        ${ahead.length ? `<div class="rec-ahead">${ahead.map((b) => `<p>${escapeHtml(b.text)}</p>`).join('')}</div>` : ''}
+      // The card is a teleprompter: the words to read are the largest thing on
+      // it. Around them, in order: a strip with REC and the take's clock (the
+      // count-in in their place before a take), where you are, and the level,
+      // so a muted microphone shows beside the words rather than under them;
+      // a bar across the slides of this take; the beats already read, ticked
+      // off above with the moment → cut them; the beats still to come below
+      // with the [click] where → will cut; and the keys, whose wording does
+      // not change mid-take.
+      const sec = instance._sections?.[sl - 1];
+      const title = sec ? slideTitle(sec, sl - 1, slideBody(sec)) : '';
+      const divider = (text, cls = '') => `<div class="rec-cut${cls}"><span></span><span>${text}</span><span></span></div>`;
+      const pastHtml = past.map((b, k) => `<div class="rec-past"><span class="rec-tick" aria-hidden="true">✓</span> <span>${escapeHtml(b.text)}</span></div>`
+        + divider(`[click]${bySlide && cuts[first + k] != null ? ` · you pressed → at ${clockText(cuts[first + k])}` : ''}`)).join('');
+      const nextCut = ahead.length
+        ? divider(bySlide ? '[click] · press <kbd>→</kbd> here, keep talking' : '[click] · <kbd>→</kbd> ends this beat, the next is counted in', ' rec-cut-next')
+        : '';
+      const segs = [...Array(slides)].map((_, k) => `<span class="${k < nth - 1 ? 'done' : k === nth - 1 ? 'now' : ''}"></span>`).join('');
+      const keysRec = [
+        `<span><kbd>→</kbd> ${ahead.length ? (bySlide ? 'next build' : 'next beat') : (bySlide ? 'end the slide' : 'end the beat')}</span>`,
+        `<span><kbd>⌫</kbd> ${bySlide ? 'redo this slide' : 'redo this beat'}</span>`,
+        `<span><kbd>←</kbd> ${!bySlide && i > first ? `back to beat ${first + 1}` : nth > 1 ? 'previous slide' : 'start over'}</span>`,
+        micCanEdit ? '<span><kbd>E</kbd> edit the words</span>' : '',
+        '<span><kbd>Esc</kbd> finish · slides already done are kept</span>',
+        instance.__remoteQr ? '<span class="rec-keys-dim">phone: next · retake</span>' : '',
+      ].filter(Boolean).join('');
+      const keysCount = [
+        '<span class="rec-keys-dim">breathe in · the key you pressed is not in the take</span>',
+        `<span><kbd>←</kbd> ${nth > 1 ? 'previous slide' : 'start over'}</span>`,
+        '<span><kbd>Esc</kbd> finish · slides already done are kept</span>',
+      ].join('');
+      card.innerHTML = `<div class="rec-strip">
+          <div class="rec-status"></div>
+          <div class="rec-where">slide ${sl} · beat ${i + 1} of ${of}</div>
+          <div class="rec-meter"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5" stroke="currentColor" stroke-width="1.4" fill="none"></rect><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg>${micBar(0)}</div>
+        </div>
+        <div class="rec-progress" role="img" aria-label="slide ${nth} of ${slides} in this take">${segs}</div>
+        <div class="rec-title">${sl}${title ? ` · ${escapeHtml(title)}` : ''}</div>
+        <div class="rec-script">${pastHtml}<div class="rec-read">${escapeHtml(beat.text)}</div>${nextCut}${
+  ahead.length ? `<div class="rec-ahead">${ahead.map((b) => `<p>${escapeHtml(b.text)}</p>`).join('')}</div>` : ''}</div>
         ${note ? `<div class="rec-line rec-note">${note}</div>` : ''}
-        ${micBar(0)}
-        <div class="rec-hint">${keys}${micCanEdit ? ' · <kbd>E</kbd> edit the words' : ''} · <kbd>Esc</kbd> stop${
-  instance.__remoteQr ? ' · or the phone: next, retake' : ''}</div>`;
+        <div class="rec-keys rec-keys-rec">${keysRec}</div>
+        <div class="rec-keys rec-keys-count">${keysCount}</div>`;
+      card.dataset.phase = micPhase ?? '';
+      card.querySelector('.rec-read')?.scrollIntoView?.({ block: 'nearest' });
       return;
     }
     if (view === 'edit') {
@@ -4580,6 +4621,8 @@ export function createNarration({
     // The meter is the answer to "is it even hearing me" BEFORE twenty slides
     // are recorded silent. Decays on its own so a peak reads as a peak.
     micMeter = setInterval(() => {
+      const clock = micEl?.querySelector('.rec-clock');
+      if (clock && micPhase === 'rec') clock.textContent = clockText(Date.now() - micTakeT0);
       const fill = micEl?.querySelector('.rec-level-fill');
       const box = micEl?.querySelector('.rec-level');
       if (!fill) return;
@@ -4620,6 +4663,7 @@ export function createNarration({
           + ' — one take for the whole slide; add [click] between the beats to pace them'
         : null;
       const takes = [];
+      const cuts = [];           // when → cut each beat of the take, for the card
       let back = false;
       const partial = s === partialAt;
       const first = partial ? from.i : 0;
@@ -4632,7 +4676,7 @@ export function createNarration({
         instance.goto(sl, beat.step);
         renderMicCard('capture', {
           sl, nth: s + 1, slides: list.length, beat, i, of: plan.length, note, first,
-          bySlide, ahead: bySlide ? plan.slice(i + 1, last + 1) : [], canEdit: !!dir,
+          bySlide, ahead: plan.slice(i + 1, last + 1), past: plan.slice(first, i), cuts, canEdit: !!dir,
         });
         // per slide, only the take's first beat is counted in: the ones after
         // it are already recording, cut from the one before at the →
@@ -4642,6 +4686,7 @@ export function createNarration({
         if (how === 'go') {
           micRolling = bySlide && i < last;
           how = await captureBeat();
+          if (how === 'next') cuts[i] = Date.now() - micTakeT0;
         }
         if (run !== micRun) return;
         if (how === 'stop') { stopped = true; break slides; }
@@ -4658,7 +4703,7 @@ export function createNarration({
         }
         if (how === 'retake') {
           // per slide, the whole take again from its first beat; per beat, the same beat
-          if (bySlide) { takes.length = 0; pending.clear(); i = first - 1; } else i--;
+          if (bySlide) { takes.length = 0; cuts.length = 0; pending.clear(); i = first - 1; } else i--;
           continue;   // the for's i++ lands where it should
         }
         if (how === 'back') {

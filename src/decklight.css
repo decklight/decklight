@@ -2077,6 +2077,33 @@
 }
 @keyframes decklight-rec-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .decklight-mic .rec-dot { animation: none; } }
+/* The recording card around the words: the strip (REC and the clock, or the
+   count; where you are; the level), the bar across the take's slides, the
+   beats read and to come either side of the one on screen, and the keys */
+.decklight-mic .rec-strip { display: flex; align-items: center; gap: 14px; padding: 2px 12px 6px; min-height: 40px; }
+.decklight-mic .rec-strip .rec-status { margin: 0; min-width: 130px; }
+.decklight-mic .rec-strip .rec-where { flex: 1 1 auto; text-align: center; }
+.decklight-mic .rec-clock { font-weight: 500; letter-spacing: 0; color: #e8eaee; font-variant-numeric: tabular-nums; }
+.decklight-mic .rec-meter { display: flex; align-items: center; gap: 8px; min-width: 150px; justify-content: flex-end; opacity: .85; }
+.decklight-mic .rec-meter .rec-level { width: 120px; margin: 0; }
+.decklight-mic .rec-progress { display: flex; gap: 3px; margin: 0 12px 8px; }
+.decklight-mic .rec-progress span { flex: 1 1 0; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .12); }
+.decklight-mic .rec-progress span.done { background: color-mix(in srgb, var(--accent, #6af) 55%, transparent); }
+.decklight-mic .rec-progress span.now { background: var(--accent, #6af); }
+.decklight-mic .rec-title { padding: 0 12px 2px; font-size: 12px; opacity: .55; }
+.decklight-mic .rec-script { max-height: 56vh; overflow-y: auto; }
+.decklight-mic .rec-script .rec-read, .decklight-mic .rec-script .rec-ahead { max-height: none; overflow: visible; }
+.decklight-mic .rec-past { display: flex; gap: 10px; align-items: flex-start; padding: 4px 12px; font-size: 14px; opacity: .55; }
+.decklight-mic .rec-tick { flex: none; color: #7bd88f; }
+.decklight-mic .rec-cut { display: flex; align-items: center; gap: 8px; padding: 2px 12px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .55; }
+.decklight-mic .rec-cut > span:first-child, .decklight-mic .rec-cut > span:last-child { flex: 1 1 auto; height: 1px; background: rgba(255, 255, 255, .14); }
+.decklight-mic .rec-cut kbd { text-transform: none; letter-spacing: 0; }
+.decklight-mic .rec-cut-next { color: var(--accent, #6af); opacity: 1; }
+.decklight-mic .rec-cut-next > span:first-child, .decklight-mic .rec-cut-next > span:last-child { background: color-mix(in srgb, var(--accent, #6af) 35%, transparent); }
+.decklight-mic .rec-keys { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 12px 0; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .1); font-size: 12px; opacity: .85; }
+.decklight-mic .rec-keys-dim { opacity: .6; }
+.decklight-mic .narr-card[data-phase="countdown"] .rec-keys-rec,
+.decklight-mic .narr-card:not([data-phase="countdown"]) .rec-keys-count { display: none; }
 
 /* "Use this track" — the offer that spares you pasting a config line. Shares
    .narr-row's chrome; the two states it can reach are the two things worth
