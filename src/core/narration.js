@@ -3655,6 +3655,7 @@ export function createNarration({
   let micEl = null, micView = 'intro', micRun = 0, micTarget = null;
   let micCtx = null, micStream = null, micNode = null, micSource = null;
   let micChunks = null;      // the beat being captured, or null between beats
+  let micRolling = false;    // → cuts the beat and the take runs on into the next (per slide)
   let micTake = null;        // the beat just finished
   let micPeak = 0, micMeter = null;
   let micEnd = null;         // resolves the beat: 'next' | 'retake' | 'back' | 'stop'
@@ -3701,12 +3702,21 @@ export function createNarration({
     const n = Number(params?.get?.('countdown'));
     return params?.get?.('countdown') != null && Number.isInteger(n) && n >= 0 && n <= 9 ? n : null;
   })();
+  // What one take is: a whole slide (the default), read straight through with
+  // → revealing each build and cutting the beat file there without stopping,
+  // or one beat, counted in and ended on its own. The files are the same
+  // either way; per slide reads like talking, per beat gives each beat its own
+  // retake. `?takes=slide|beat` (`narrate --mic --takes`) sets it for this
+  // visit, until the card is clicked.
+  const TAKES = ['slide', 'beat'];
+  let takesAsked = TAKES.includes(params?.get?.('takes')) ? params.get('takes') : null;
   function micPrefs() {
     const p = readJson(MIC_PREFS, {});
     return {
       noise: p.noise !== false,
       rate: MIC_RATES.includes(p.rate) ? p.rate : MIC_RATE,
       countIn: countInAsked ?? (COUNT_INS.includes(p.countIn) ? p.countIn : COUNT_INS[0]),
+      takes: takesAsked ?? (TAKES.includes(p.takes) ? p.takes : TAKES[0]),
     };
   }
   async function openMic(forced = null) {
@@ -3754,7 +3764,8 @@ export function createNarration({
 
   /** Capture until the presenter says the beat is over. */
   function captureBeat() {
-    micChunks = [];
+    // a rolling take already started this beat's chunks, at the cut
+    micChunks ??= [];
     micPeak = 0;
     micPhase = 'rec';
     paintMicStatus();
@@ -3789,7 +3800,10 @@ export function createNarration({
     clearInterval(micCount);
     micCount = null;
     micTake = micChunks ?? [];
-    micChunks = null;
+    // Cut here, not stopped: the next beat's audio starts in the same
+    // callback's stead, so nothing said across the → is lost
+    micChunks = how === 'next' && micRolling ? [] : null;
+    micRolling = false;
     micPhase = null;
     const done = micEnd;
     micEnd = null;
@@ -3939,10 +3953,12 @@ export function createNarration({
   }
   /** The intro card's microphone choices and the count-in, remembered for every deck. */
   function micOptsRow() {
-    const { noise, rate, countIn: secs } = micPrefs();
+    const { noise, rate, countIn: secs, takes } = micPrefs();
     const seg = (name, value, label, on) => `<button type="button" tabindex="-1" data-${name}="${value}"`
       + ` aria-pressed="${on}" class="${on ? 'on' : ''}">${label}</button>`;
     return `<div class="rec-line rec-opts">
+        <span class="rec-opt"><span class="rec-opt-label">one take</span><span class="rec-seg" role="group" aria-label="one take per slide or per beat">${
+  seg('takes', 'slide', 'per slide', takes === 'slide')}${seg('takes', 'beat', 'per beat', takes === 'beat')}</span></span>
         <span class="rec-opt"><span class="rec-opt-label">noise suppression</span><span class="rec-seg" role="group" aria-label="noise suppression">${
   seg('noise', 'on', 'on', noise)}${seg('noise', 'off', 'off', !noise)}</span></span>
         <span class="rec-opt"><span class="rec-opt-label">sample rate</span><span class="rec-seg" role="group" aria-label="sample rate">${
@@ -3950,6 +3966,12 @@ export function createNarration({
         <span class="rec-opt"><span class="rec-opt-label">count-in</span><span class="rec-seg" role="group" aria-label="count-in before each take">${
   [...new Set([...COUNT_INS, secs])].map((c) => seg('count', c, c ? `${c} s` : 'off', c === secs)).join('')}</span></span>
       </div><div class="rec-line rec-opt-why">${micOptsWhy(noise, rate)}</div>`;
+  }
+  /** What the intro card says a take is, per slide or per beat. */
+  function takesSays(takes) {
+    return takes === 'beat'
+      ? 'Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.'
+      : 'Each slide is one take: press <kbd>→</kbd> at each [click] and the next build appears while the recording runs on, cut into a file per beat there, so your voice paces the deck exactly as it will on the night.';
   }
   /** What the intro card says the count-in is: `Every take starts after a 3, 2, 1, and`. */
   function countSays(n) {
@@ -3970,13 +3992,21 @@ export function createNarration({
         const p = micPrefs();
         if (b.dataset.noise) p.noise = b.dataset.noise === 'on';
         if (b.dataset.rate) p.rate = Number(b.dataset.rate);
-        // a click is newer than the URL's ?countdown, so it wins from here on
+        // a click is newer than the URL's ?countdown or ?takes, so it wins from here on
         if (b.dataset.count) { p.countIn = Number(b.dataset.count); countInAsked = null; }
-        // only a count-in click stores a count-in: a ?countdown visit stays one
-        writeJson(MIC_PREFS, { noise: p.noise, rate: p.rate, countIn: b.dataset.count ? p.countIn : readJson(MIC_PREFS, {}).countIn });
+        if (b.dataset.takes) { p.takes = b.dataset.takes; takesAsked = null; }
+        // only a count-in click stores a count-in, and a take click a take:
+        // a ?countdown or ?takes visit stays one
+        const stored = readJson(MIC_PREFS, {});
+        writeJson(MIC_PREFS, {
+          noise: p.noise, rate: p.rate,
+          countIn: b.dataset.count ? p.countIn : stored.countIn,
+          takes: b.dataset.takes ? p.takes : stored.takes,
+        });
         card.querySelectorAll('.rec-opts .rec-seg button').forEach((o) => {
           const on = o.dataset.noise ? (o.dataset.noise === 'on') === p.noise
-            : o.dataset.count ? Number(o.dataset.count) === p.countIn : Number(o.dataset.rate) === p.rate;
+            : o.dataset.takes ? o.dataset.takes === p.takes
+              : o.dataset.count ? Number(o.dataset.count) === p.countIn : Number(o.dataset.rate) === p.rate;
           o.classList.toggle('on', on);
           o.setAttribute('aria-pressed', String(on));
         });
@@ -3984,6 +4014,8 @@ export function createNarration({
         if (why) why.textContent = micOptsWhy(p.noise, p.rate);
         const says = card.querySelector('.rec-count-says');
         if (says) says.textContent = countSays(p.countIn);
+        const takesLine = card.querySelector('.rec-takes-says');
+        if (takesLine) takesLine.innerHTML = takesSays(p.takes);
       });
     });
   }
@@ -4011,7 +4043,7 @@ export function createNarration({
   range ? ` <strong>(slides ${escapeHtml(range)} only — everything else is left alone)</strong>` : ''}</div>
         ${beats === 0
     ? `<div class="rec-line rec-warn">Nothing to record${range ? ` in slides ${escapeHtml(range)}` : ''} — no slide there has notes to read.</div>`
-    : '<div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.'
+    : `<div class="rec-line"><span class="rec-takes-says">${takesSays(micPrefs().takes)}</span>`
       + `<span class="rec-count-says">${countSays(micPrefs().countIn)}</span>`
       + " <kbd>←</kbd> goes back to record a slide again.</div>"}
         ${folderRow(data.target)}
@@ -4028,14 +4060,21 @@ export function createNarration({
       return;
     }
     if (view === 'capture') {
-      const { sl, nth, slides, beat, i, of, note } = data;
+      const { sl, nth, slides, beat, i, of, note, ahead = [] } = data;
+      const first = data.first ?? 0;
+      // per slide, the rest of the take is on the card too: you read on into
+      // it without a stop, so you see it coming
+      const keys = data.bySlide
+        ? `<kbd>→</kbd> ${ahead.length ? 'next build, still recording' : 'end the slide'} · <kbd>⌫</kbd> retake the slide · <kbd>←</kbd> ${nth > 1 ? 'back a slide' : 'start over'}`
+        : `<kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>←</kbd> ${i > first ? `back to beat ${first + 1}` : nth > 1 ? 'back a slide' : 'start over'}`;
       card.innerHTML = `<div class="narr-head">recording · slide ${nth} of ${slides}</div>
         <div class="rec-line rec-where">slide ${sl} · beat ${i + 1} of ${of}</div>
         <div class="rec-status"></div>
         <div class="rec-read">${escapeHtml(beat.text)}</div>
+        ${ahead.length ? `<div class="rec-ahead">${ahead.map((b) => `<p>${escapeHtml(b.text)}</p>`).join('')}</div>` : ''}
         ${note ? `<div class="rec-line rec-note">${note}</div>` : ''}
         ${micBar(0)}
-        <div class="rec-hint"><kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>←</kbd> ${i > (data.first ?? 0) ? `back to beat ${(data.first ?? 0) + 1}` : nth > 1 ? 'back a slide' : 'start over'} · <kbd>Esc</kbd> stop${
+        <div class="rec-hint">${keys} · <kbd>Esc</kbd> stop${
   instance.__remoteQr ? ' · or the phone: next, retake' : ''}</div>`;
       return;
     }
@@ -4074,6 +4113,7 @@ export function createNarration({
     // first beat, or named by --beats, is recorded in part around what is kept
     const from = plans[micFrom.s]?.[micFrom.i] ? { ...micFrom } : { s: 0, i: 0 };
     const lastI = recBeats ? recBeats.to - 1 : null;
+    const bySlide = micPrefs().takes === 'slide';
     const partialAt = (from.i > 0 || recBeats) && plans[from.s]?.length > 1 ? from.s : -1;
     let keep = null;
     if (partialAt >= 0) {
@@ -4143,22 +4183,36 @@ export function createNarration({
       const first = partial ? from.i : 0;
       const last = s === from.s && lastI != null ? Math.min(lastI, plan.length - 1) : plan.length - 1;
       const redone = new Set();   // the partial slide's beats written this run
+      const pending = new Map();  // …and those taken but not yet written: a take runs on
       for (let i = first; i <= last; i++) {
         const beat = plan[i];
         instance.goto(sl, beat.step);
-        renderMicCard('capture', { sl, nth: s + 1, slides: list.length, beat, i, of: plan.length, note, first });
-        let how = await countIn();
+        renderMicCard('capture', {
+          sl, nth: s + 1, slides: list.length, beat, i, of: plan.length, note, first,
+          bySlide, ahead: bySlide ? plan.slice(i + 1, last + 1) : [],
+        });
+        // per slide, only the take's first beat is counted in: the ones after
+        // it are already recording, cut from the one before at the →
+        let how = bySlide && i > first ? 'go' : await countIn();
         if (run !== micRun) return;
-        if (how === 'go') how = await captureBeat();
+        if (how === 'go') {
+          micRolling = bySlide && i < last;
+          how = await captureBeat();
+        }
         if (run !== micRun) return;
         if (how === 'stop') { stopped = true; break slides; }
-        if (how === 'retake') { i--; continue; }   // the for's i++ returns to the same beat
+        if (how === 'retake') {
+          // per slide, the whole take again from its first beat; per beat, the same beat
+          if (bySlide) { takes.length = 0; pending.clear(); i = first - 1; } else i--;
+          continue;   // the for's i++ lands where it should
+        }
         if (how === 'back') {
-          // Mid-slide, back to this slide's first beat: its takes are not
-          // saved until the slide is done, so they are simply dropped. On a
-          // first beat, the slide before, which is recorded again over its
-          // files. Before the first slide there is nothing: it starts over.
-          if (i > first) { takes.length = 0; i = first - 1; continue; }
+          // Mid-slide, per beat, back to this slide's first beat: its takes
+          // are not saved until the slide is done, so they are simply
+          // dropped (per slide, that is ⌫). On a first beat, or per slide,
+          // the slide before, which is recorded again over its files. Before
+          // the first slide there is nothing: it starts over.
+          if (!bySlide && i > first) { takes.length = 0; i = first - 1; continue; }
           back = true;
           break;
         }
@@ -4166,13 +4220,20 @@ export function createNarration({
           // Written as it is taken, with the whole-slide file rebuilt from
           // every beat, kept and new: stopping after this beat leaves the
           // slide consistent, and the beats not redone are never written.
+          // Per slide, once the take ends: a write mid-take would stall the
+          // capture it is part of.
+          pending.set(i, micTake);
+          if (bySlide && i < last) continue;
           const rate = micCtx?.sampleRate ?? keep.rate;
-          keep.pcm.set(i, micTake);
-          await saveRecording(sl, 'wav', stitchWav(micTake, rate), dir, beat.file);
-          if (run !== micRun) return;
+          for (const [k, pcm] of pending) {
+            keep.pcm.set(k, pcm);
+            await saveRecording(sl, 'wav', stitchWav(pcm, rate), dir, plan[k].file);
+            if (run !== micRun) return;
+            redone.add(k);
+          }
+          pending.clear();
           const whole = await saveRecording(sl, 'wav', stitchWav(plan.flatMap((_, k) => keep.pcm.get(k)), rate), dir);
           if (run !== micRun) return;
-          redone.add(i);
           saved.set(sl, { files: redone.size + 1, segmented: true, toDisk: whole });
           await saveMicManifest(sl, plan.map((b) => b.file));
           if (run !== micRun) return;

@@ -39,7 +39,7 @@ const VOICEOVER = fileURLToPath(new URL('../tools/voiceover.mjs', import.meta.ur
 const LIPSYNC = fileURLToPath(new URL('../tools/lipsync.mjs', import.meta.url));
 // the flags either side takes a value for, so the deck is found past them
 const VALUE_FLAGS = new Set(['-o', '--dir', '--engine', '--voice', '--style', '--data-dir', '--project',
-  '--format', '--slides', '--beats', '--countdown', '--port', '--model', '--lang', '--location', '--tts-format', '--tts-stability',
+  '--format', '--slides', '--beats', '--countdown', '--takes', '--port', '--model', '--lang', '--location', '--tts-format', '--tts-stability',
   '--rhubarb', '--portrait', '--python', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
   '--veo-project', '--veo-location', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-face-y']);
 
@@ -60,6 +60,7 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
                  opens it with the recorder up; → ends a beat and reveals the
                  next build, so your voice paces the deck as it will be presented
     --beats k-l  with --slides N: only these beats of slide N; the others are kept
+    --takes slide|beat  one take per slide (→ cuts a beat and keeps going), or per beat
     --countdown N  seconds of count-in before each take, 0 for none
     --remote     the phone remote too: its next ends a beat, its retake redoes one,
                  so no keystroke gets into the take

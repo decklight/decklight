@@ -30,7 +30,7 @@
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, rmSync, existsSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, rmSync, existsSync, statSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -121,7 +121,7 @@ const DECK = `<!doctype html>
   const status = () => document.querySelector('.decklight-mic .rec-status');
   const phase = () => status()?.dataset.phase ?? null;
   // ?keys=R,L,…: what to answer each beat the deck puts up (R → or the
-  // phone's next, L ←); past the end of the list, R
+  // phone's next, L ←, B ⌫); past the end of the list, R
   const KEYS = (params.get('keys') || '').split(',').filter(Boolean);
   const press = (key) => document.body.dispatchEvent(
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
@@ -228,6 +228,7 @@ const DECK = `<!doctype html>
             break;
           }
           if ((KEYS[i] ?? 'R') === 'L') press('ArrowLeft');
+          else if ((KEYS[i] ?? 'R') === 'B') press('Backspace');
           else if (VIA === 'phone') await tap('next');
           else press('ArrowRight');
           const moved = await until(() => status() !== el || done(), 15000);
@@ -446,7 +447,7 @@ const phoneReader = phoneStream.body.getReader();
   }
 })();
 // a one-second count-in, asked for in the URL as narrate --countdown 1 does
-const tapped = await run('tone', 'phone', 'phone', '&countdown=1');
+const tapped = await run('tone', 'phone', 'phone', '&countdown=1&takes=beat');
 phoneReader.cancel().catch(() => {});
 const phoneFiles = wavs(path.join(tmp, 'phone'));
 check('qr', took.introQr === true, `--remote puts the phone's QR on the recorder's intro card=${took.introQr}`);
@@ -467,7 +468,7 @@ check('readout', recs.some((r) => r.slide === 1 && r.beat === 2 && r.of === 3)
 // slide 1, which is recorded again over its own files. 48 kHz with noise
 // suppression off, clicked on the intro card before Enter starts it.
 const backed = await run('tone', 'back', 'keys',
-  '&early&keys=R,L,R,R,R,L&pick');
+  '&early&keys=R,L,R,R,R,L&pick&takes=beat');
 const backDir = path.join(tmp, 'back');
 const backFiles = wavs(backDir);
 const rateOf = (f) => readFileSync(path.join(backDir, f)).readUInt32LE(24);
@@ -476,8 +477,8 @@ check('back', JSON.stringify(backed.steps) === JSON.stringify(
   && backed.finished === true && /2 slides · 5 files/.test(backed.card ?? '')
   && JSON.stringify(backFiles) === JSON.stringify(files),
 `← read ${backed.steps.join(' ')} · done card: "${/\d+ slides? · \d+ files?/.exec(backed.card ?? '')?.[0]}" · wrote ${backFiles.join(' ') || '(nothing)'}`);
-check('options', JSON.stringify(took.introOpts) === JSON.stringify(['on', '24 kHz', '3 s'])
-  && JSON.stringify(backed.introOpts) === JSON.stringify(['off', '48 kHz', '1 s'])
+check('options', JSON.stringify(took.introOpts) === JSON.stringify(['per slide', 'on', '24 kHz', '3 s'])
+  && JSON.stringify(backed.introOpts) === JSON.stringify(['per beat', 'off', '48 kHz', '1 s'])
   && /after a 3, 2, 1, and/.test(took.countSays ?? '') && /after a 1, and/.test(backed.countSays ?? '') && /5\.8 MB/.test(backed.introWhy)
   && took.gum?.noiseSuppression === true && backed.gum?.noiseSuppression === false
   && rateOf('slide-01.wav') === 48000 && readFileSync(path.join(outDir, 'slide-01.wav')).readUInt32LE(24) === 24000,
@@ -496,9 +497,11 @@ check('voices/me', mine.folder === 'voices/me' && mine.finished === true
 `proposed ${mine.folder} over the deck's voiceover/ · wrote ${meFiles.length} files there`
   + ` · voiceover/ untouched=${!existsSync(path.join(tmp, 'voiceover'))} · next time ${again.folder}, no clash warning=${again.clash === false}`);
 
-check('count-in', took.counted.length === 4 && took.counted.every((c) => c === '3') && backed.earlyIgnored === true
+// per slide (the default), only a slide's first beat is counted in: the rest
+// of it is the same take, cut at the →
+check('count-in', JSON.stringify(took.counted) === JSON.stringify(['3', null, null, '3']) && backed.earlyIgnored === true
   && backed.counted.every((c) => c === '1') && mine.counted.every((c) => c === null),
-`by default from 3=${took.counted.join('')} · clicked 1 s=${backed.counted.join('')}`
+`by default from 3, once a slide=${took.counted.map((c) => c ?? '·').join('')} · clicked 1 s=${backed.counted.join('')}`
   + ` · → during the count waited=${backed.earlyIgnored} · ?countdown=0 none=${mine.counted.every((c) => c === null)}`);
 
 // ── run 6+: part of a slide (#851), against run 1's takes/ ──────────────────
@@ -508,7 +511,7 @@ const same = (f) => before[f] && Buffer.compare(before[f], bytes(f)) === 0;
 const pcmLen = (f) => bytes(f).length - 44;
 // --beats 2-3, stopped on beat 3's count-in: beat 2 is new, 1 and 3 are byte
 // for byte as recorded, and slide-01.wav is the three beats back to back
-const part = await run('tone', 'takes', 'keys', '&slides=1&beats=2-3&keys=R,E&escnext&countdown=0');
+const part = await run('tone', 'takes', 'keys', '&slides=1&beats=2-3&keys=R,E&escnext&countdown=0&takes=beat');
 check('beats', part.fromLine?.includes('beats 2–3 of 3 only') && part.steps[0] === '1.1'
   && !same('slide-01-02.wav') && same('slide-01-01.wav') && same('slide-01-03.wav') && same('slide-02.wav')
   && pcmLen('slide-01.wav') === pcmLen('slide-01-01.wav') + pcmLen('slide-01-02.wav') + pcmLen('slide-01-03.wav'),
@@ -528,6 +531,34 @@ check('start at', /slide 1 · beat 3 of 3/.test(picked.fromLine ?? '') && /beats
   && Buffer.compare(now['slide-01-02.wav'], bytes('slide-01-02.wav')) === 0
   && Buffer.compare(now['slide-01-03.wav'], bytes('slide-01-03.wav')) !== 0,
 `picked "${picked.fromLine}" · read ${picked.steps.join(' ')} · beats 1–2 untouched, 3 redone`);
+
+// …and per slide, --beats 2-3 is one take: both written once it ends, beat 1
+// kept, and slide-01.wav rebuilt from all three. Rewritten is told by the
+// write time, not the bytes: a steady test tone can read the same twice
+const mtime = (f) => statSync(path.join(outDir, f)).mtimeMs;
+const was = Object.fromEntries(files.map((f) => [f, { b: bytes(f), t: mtime(f) }]));
+const rolledPart = await run('tone', 'takes', 'keys', '&slides=1&beats=2-3&countdown=0');
+const kept1 = Buffer.compare(was['slide-01-01.wav'].b, bytes('slide-01-01.wav')) === 0
+  && was['slide-01-01.wav'].t === mtime('slide-01-01.wav');
+const redone23 = ['slide-01-02.wav', 'slide-01-03.wav'].every((f) => mtime(f) > was[f].t);
+check('one take', JSON.stringify(rolledPart.steps) === JSON.stringify(['1.1', '1.2']) && rolledPart.finished === true
+  && kept1 && redone23
+  && pcmLen('slide-01.wav') === pcmLen('slide-01-01.wav') + pcmLen('slide-01-02.wav') + pcmLen('slide-01-03.wav'),
+`--beats 2-3 per slide read ${rolledPart.steps.join(' ')} · 01-01 kept=${kept1} · 01-02 and 01-03 redone=${redone23}`
+  + ' · slide-01.wav rebuilt from all three');
+
+// ── per slide: ⌫ retakes the whole slide, ← goes back a slide ──────────────
+// ⌫ on slide 1's beat two starts the slide over, counted in again; ← on
+// slide 2 goes back to slide 1, which is read again over its own files
+const rolled = await run('tone', 'slide', 'keys', '&keys=R,B,R,R,R,L&countdown=1');
+const rolledFiles = wavs(path.join(tmp, 'slide'));
+check('per slide', JSON.stringify(rolled.steps) === JSON.stringify(
+  ['1.0', '1.1', '1.0', '1.1', '1.2', '2.0', '1.0', '1.1', '1.2', '2.0'])
+  && JSON.stringify(rolled.counted) === JSON.stringify(['1', null, '1', null, null, '1', '1', null, null, '1'])
+  && rolled.finished === true && /2 slides · 5 files/.test(rolled.card ?? '')
+  && JSON.stringify(rolledFiles) === JSON.stringify(files),
+`read ${rolled.steps.join(' ')} · counted ${rolled.counted.map((c) => c ?? '·').join('')}`
+  + ` · wrote ${rolledFiles.join(' ') || '(nothing)'}`);
 
 // ── #850: the take kept its script, and V says when the notes move on ────────
 const takeManifest = JSON.parse(readFileSync(path.join(outDir, 'manifest.json'), 'utf8'));

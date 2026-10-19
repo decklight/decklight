@@ -30,12 +30,13 @@ import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
-const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voices/me] [--slides a-b [--beats k-l]] [--countdown N] [--remote] [--no-open]
+const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voices/me] [--slides a-b [--beats k-l]] [--takes slide|beat] [--countdown N] [--remote] [--no-open]
   serves the deck over http://127.0.0.1 and opens it with the voice recorder up
 
   the deck reads you its notes one [click] beat at a time; → ends a beat, which
   both closes that file and reveals the next build — so your voice paces the
-  deck exactly as it will when you present it
+  deck exactly as it will when you present it. A slide is one take by default:
+  → cuts the beat without stopping, and the recording runs on into the next
 
   --port N     port to serve on (taken? moves to the next free one)     [8788]
   --dir NAME   folder to write into, relative to the deck          [voices/me]
@@ -46,6 +47,9 @@ const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir v
                ("3" for one). The other beats' files are left byte for byte, and
                slide-NN.wav is rebuilt from all of them. The recorder's card can
                also start from any beat: ← → pick it before you press Enter
+  --takes slide|beat  one take per slide, read straight through, or per beat,
+               each counted in and retaken on its own
+               [the recorder card's one take choice: per slide, remembered]
   --countdown N  seconds of count-in before each take, 0 for none (0-9)
                [the recorder card's count-in: 3 s, 1 s or off, remembered]
   --remote     the phone remote too, so recording needs no keyboard: its next
@@ -94,12 +98,13 @@ export function dirProblem(name) {
  * record against the slides your audience will see, at the build they will see
  * them at.
  */
-export function recordUrl(port, deckUrl, dir, slides, beats, countdown) {
+export function recordUrl(port, deckUrl, dir, slides, beats, countdown, takes) {
   const q = ['record',
     ...(dir ? [`dir=${encodeURIComponent(dir)}`] : []),
     ...(slides ? [`slides=${encodeURIComponent(slides)}`] : []),
     ...(beats ? [`beats=${encodeURIComponent(beats)}`] : []),
-    ...(countdown != null ? [`countdown=${countdown}`] : [])].join('&');
+    ...(countdown != null ? [`countdown=${countdown}`] : []),
+    ...(takes ? [`takes=${takes}`] : [])].join('&');
   return `http://127.0.0.1:${port}${deckUrl}?${q}`;
 }
 
@@ -149,6 +154,12 @@ export function countdownProblem(value) {
   return /^\d$/.test(String(value).trim()) ? null : `--countdown is whole seconds from 0 (none) to 9 (got "${value}")`;
 }
 
+/** `--takes`: `slide` or `beat`; anything else → a message. */
+export function takesProblem(value) {
+  if (value === undefined || value === null) return null;
+  return ['slide', 'beat'].includes(value) ? null : `--takes is slide or beat (got "${value}")`;
+}
+
 export async function recordMain(args, { open = openUrl, out = process.stdout, onListen = null } = {}) {
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     out.write(USAGE);
@@ -159,11 +170,12 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   const slides = opt('--slides');
   const beats = opt('--beats');
   const countdown = opt('--countdown');
-  for (const bad of [dirProblem(dir), slidesProblem(slides), beatsProblem(beats, slides), countdownProblem(countdown)]) {
+  const takes = opt('--takes');
+  for (const bad of [dirProblem(dir), slidesProblem(slides), beatsProblem(beats, slides), countdownProblem(countdown), takesProblem(takes)]) {
     if (bad) { process.stderr.write(`decklight narrate --mic: ${bad}\n`); return 2; }
   }
 
-  const deck = firstPositional(args, ['--dir', '--slides', '--beats', '--countdown', '--port']);
+  const deck = firstPositional(args, ['--dir', '--slides', '--beats', '--countdown', '--takes', '--port']);
   // Before the server, not after: this used to serve the YAML file, print a
   // URL and open a browser on it, with no error anywhere.
   const mixedUp = wrongRecorder('narrate', deck);
@@ -184,7 +196,7 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   // missing or outside the served root — say nothing on top of it.
   if (!started) return process.exitCode ?? 1;
 
-  const url = recordUrl(started.port, started.deckUrl, dir, slides, beats, countdown == null ? null : Number(countdown));
+  const url = recordUrl(started.port, started.deckUrl, dir, slides, beats, countdown == null ? null : Number(countdown), takes);
   out.write(`decklight narrate --mic on ${url}\n`);
   out.write('  V → Record this deck… → With your voice… opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
   if (remote) out.write('  the phone remote is on: scan the QR on the recorder\'s card; next ends a beat, retake redoes it\n');

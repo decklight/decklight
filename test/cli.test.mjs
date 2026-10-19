@@ -1871,6 +1871,14 @@ test('--countdown sets the count-in before each take, in whole seconds, 0 for no
   assert.equal(recordUrl(8788, '/talk.html', 'takes', '6', '3', 1), 'http://127.0.0.1:8788/talk.html?record&dir=takes&slides=6&beats=3&countdown=1');
 });
 
+test('--takes picks one take per slide or per beat', async () => {
+  const { takesProblem, recordUrl } = await import('../cli/record.mjs');
+  for (const ok of [undefined, 'slide', 'beat']) assert.equal(takesProblem(ok), null, String(ok));
+  for (const bad of ['slides', 'Beat', '', 'x']) assert.match(takesProblem(bad), /--takes is slide or beat/, bad);
+  assert.equal(recordUrl(8788, '/talk.html', null, null, null, null, 'beat'), 'http://127.0.0.1:8788/talk.html?record&takes=beat');
+  assert.equal(recordUrl(8788, '/talk.html', null, null, null, 1, 'slide'), 'http://127.0.0.1:8788/talk.html?record&countdown=1&takes=slide');
+});
+
 test('--beats re-records beats of one slide, and is refused anywhere it cannot mean that (#851)', async () => {
   const { beatsProblem, recordUrl } = await import('../cli/record.mjs');
   assert.equal(beatsProblem(undefined, '6'), null);
