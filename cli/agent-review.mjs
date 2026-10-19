@@ -194,11 +194,12 @@ const order = (a, b) => a.slide - b.slide || ruleRank(a.rule) - ruleRank(b.rule)
  * Review the deck in `html`: batches of `REVIEW_BATCH` slides, a few at a
  * time, each through a read-only ask. Resolves to `{ findings, failed }`,
  * `failed` being `[{ slides, why }]` for a batch that timed out or answered
- * nothing usable. Throws only when there is no agent to ask at all.
+ * nothing usable. Throws only when there is no agent to ask at all. `signal`
+ * stops it: the asks in flight are killed and no batch after them is asked.
  */
 export async function reviewDeck(html, {
   agent = null, cwd = process.cwd(), env = process.env, timeoutMs = REVIEW_TIMEOUT_MS,
-  concurrency = ENHANCE_CONCURRENCY, resolveAgent = agentAsk, exec = ask, onBatch = () => {},
+  concurrency = ENHANCE_CONCURRENCY, resolveAgent = agentAsk, exec = ask, onBatch = () => {}, signal = null,
 } = {}) {
   if (!resolveAgent(agent, 'x', { env })) throw new Error(agentUnavailable(agent, detectAgents({ env })));
   const slides = reviewSlides(html);
@@ -209,10 +210,10 @@ export async function reviewDeck(html, {
   const failed = [];
   let next = 0, done = 0;
   const worker = async () => {
-    while (next < batches.length) {
+    while (next < batches.length && !signal?.aborted) {
       const batch = batches[next++];
       const cmd = resolveAgent(agent, reviewPrompt(batch, outline), { env });
-      const out = cmd ? await exec(cmd, cwd, timeoutMs) : null;
+      const out = cmd ? await exec(cmd, cwd, timeoutMs, signal) : null;
       const r = out == null ? { why: 'the agent did not answer in time' } : parseReview(out, batch);
       if (r.findings) findings.push(...r.findings);
       else failed.push({ slides: batch.map((s) => s.slide), why: r.why });

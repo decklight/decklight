@@ -70,11 +70,13 @@ const titleOf = (html, file) => cleanNotes(/<title>([\s\S]*?)<\/title>/i.exec(ht
  * cause was one import. tools/shot.mjs carries the same warning above the same
  * call; test/pptx-render.mjs is what now notices.
  */
-export async function chromeShot(bin, argv, _ctx, { timeout = CODEC_MS } = {}) {
-  await runAsync(bin, argv, { maxBuffer: 32 * 1024 * 1024, timeout, why: 'Chrome did not finish rendering a slide — it is probably waiting on a resource it cannot reach' });
+export async function chromeShot(bin, argv, { signal } = {}, { timeout = CODEC_MS } = {}) {
+  await runAsync(bin, argv, { maxBuffer: 32 * 1024 * 1024, timeout, signal, why: 'Chrome did not finish rendering a slide — it is probably waiting on a resource it cannot reach' });
 }
 
-export async function pptxMain(args = [], { render = chromeShot, log = console.error, onSlide = null } = {}) {
+// `signal` stops it between slides and mid-slide (the edit server's stop
+// route): it throws the AbortError, and no file is written.
+export async function pptxMain(args = [], { render = chromeShot, log = console.error, onSlide = null, signal = null } = {}) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return 0; }
   const { opt } = argReader(args);
   const deck = args.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
@@ -124,6 +126,7 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
     log(`pptx: rendering ${basename(src)} — ${count} slides at 1280×720, builds complete`
       + (total > count ? ` · ${total - count} hidden, skipped` : ''));
     for (const [i, n] of shown.entries()) {
+      signal?.throwIfAborted();
       // Position in the FILE being written, not in the deck — a caller showing
       // "slide 3 of 5" means the third of five pictures, and a hidden slide in
       // between would make the deck's own numbering count past the end.
@@ -135,7 +138,7 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
       await render(bin, chromeArgs(
         '--hide-scrollbars', '--window-size=1280,720', `--virtual-time-budget=${wait}`,
         `--screenshot=${png}`, `${server.origin}${deckPath}${renderQuery}#/${n}/999`,
-      ), { n, png });
+      ), { n, png, signal });
       if (!existsSync(png) || statSync(png).size === 0) { log(`decklight pptx: slide ${n} did not render — try a longer --wait`); return 1; }
       slides.push({ png: readFileSync(png), notes: notes[n - 1] });
     }

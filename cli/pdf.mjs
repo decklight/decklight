@@ -140,7 +140,9 @@ export const slideCount = (html) => sectionBodies(html).filter((b) => !isHiddenS
 
 const KB = (n) => (n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 
-export async function pdfMain(args = []) {
+// `signal` stops Chrome mid-print (the edit server's stop route): it throws the
+// AbortError, and leaves no half-written PDF behind.
+export async function pdfMain(args = [], { signal = null } = {}) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return 0; }
   const { opt } = argReader(args);
   const deck = args.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
@@ -169,13 +171,13 @@ export async function pdfMain(args = []) {
   const url = printUrl(`${server.origin}/${relative(root, src).split(sep).join('/')}`, { theme, gen, variant });
   const shared = chromeArgs(`--virtual-time-budget=${wait}`);
   try {
-    return await printDeck({ src, out, url, bin, shared, variant, theme });
+    return await printDeck({ src, out, url, bin, shared, variant, theme, signal });
   } finally {
     await server.close();
   }
 }
 
-async function printDeck({ src, out, url, bin, shared, variant, theme }) {
+async function printDeck({ src, out, url, bin, shared, variant, theme, signal }) {
 
   // Chrome is AWAITED, never `run`: the in-process render server above has
   // to answer the browser it launched (the deadlock pptx documents), and the
@@ -189,8 +191,11 @@ async function printDeck({ src, out, url, bin, shared, variant, theme }) {
   let html = '';
   try {
     html = await runAsync(bin, [...shared, '--dump-dom', url],
-      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: CODEC_MS, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
-  } catch { /* the print pass below is the one that must succeed */ }
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: CODEC_MS, signal, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    // the print pass below is the one that must succeed
+  }
   const slides = slideCount(html);
   console.error(`pdf: rendering ${basename(src)}?print${variant ? `=${variant}` : ''}${theme ? ` · theme ${theme}` : ''}`
     + `${slides ? ` — ${slides} slides, builds complete, casts expanded` : ''}`);
@@ -198,8 +203,9 @@ async function printDeck({ src, out, url, bin, shared, variant, theme }) {
   rmSync(out, { force: true }); // never leave a stale PDF looking like a fresh one
   try {
     await runAsync(bin, [...shared, '--no-pdf-header-footer', `--print-to-pdf=${out}`, url],
-      { maxBuffer: 32 * 1024 * 1024, timeout: CODEC_MS, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
+      { maxBuffer: 32 * 1024 * 1024, timeout: CODEC_MS, signal, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
   } catch (e) {
+    if (e.name === 'AbortError') { rmSync(out, { force: true }); throw e; }
     console.error(`decklight pdf: Chrome failed — ${String(e.message ?? e).split('\n')[0]}`);
     return 1;
   }

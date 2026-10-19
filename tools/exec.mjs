@@ -69,11 +69,19 @@ export function run(bin, args, { timeout = NETWORK_MS, why = '', ...opts } = {})
  *
  * Use this — never `run` — whenever the process that spawns the child is also
  * serving it (tools/shot.mjs, tools/video.mjs, cli/pptx-export.mjs).
+ *
+ * A `signal` stops the child (SIGKILL, like the timeout) and rejects with the
+ * AbortError itself, so a caller can tell "stopped" from "hung".
  */
-export function runAsync(bin, args, { timeout = NETWORK_MS, why = '', ...opts } = {}) {
+export function runAsync(bin, args, { timeout = NETWORK_MS, why = '', signal = null, ...opts } = {}) {
   return new Promise((resolve, reject) => {
-    execFile(bin, args, { ...opts, timeout, killSignal: 'SIGKILL' }, (e, stdout, stderr) => {
+    // execFile throws on `signal: null`, which is what a caller with nothing
+    // that could stop it (the command line) passes along
+    execFile(bin, args, { ...opts, ...(signal ? { signal } : {}), timeout, killSignal: 'SIGKILL' }, (e, stdout, stderr) => {
       if (!e) return resolve(stdout);
+      // `signal` aborted: somebody STOPPED it (the edit server's stop routes),
+      // which is not a hang and must not read as one
+      if (e.name === 'AbortError') return reject(e);
       if (e.killed || e.code === 'ETIMEDOUT' || (e.signal === 'SIGKILL' && e.status == null)) {
         const err = new Error(`${bin} hung for ${Math.round(timeout / 1000)}s and was killed`
           + (why ? ` — ${why}` : ''));

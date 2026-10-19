@@ -24,6 +24,7 @@
 //   POST /deck/edit/slide/layout          → { slide, layout }         write data-layout to the file
 //   POST /deck/edit/slide/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
 //   POST /deck/edit/export          → { kind }   write the deck out as a file (the palette's hand-over rows)
+//   POST /deck/edit/export/stop     → stop that export part-way: its children killed, nothing half-written left
 //   GET  /deck/edit/publish/plan    → where publishing would put this deck, without putting it there
 //   POST /deck/edit/publish         → bundle the deck and push it (the palette's Publish row)
 //   GET  /deck/edit/export/estimate → ?kind=bundle&theme=  how big that file would be, before it is written
@@ -34,6 +35,7 @@
 //   POST /deck/edit/undo            → step the deck file back through the edit history
 //   POST /deck/edit/redo            → step it forward again
 //   POST /deck/edit/agent           → { prompt, agent?, slide? } one-shot AI agent edit
+//   POST /deck/edit/agent/stop      → stop the agent job in flight: that edit, an enhancement or a review
 //   POST /deck/edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags') or written for the ear ('spoken')
 //   POST /deck/edit/enhance/text    → { text, agent?, kind? } → { text }   the same, for the notes editor's box (writes nothing)
 //   POST /deck/edit/review          → { agent? } the agent reads the deck, read-only, for Check deck…'s agent review (writes nothing)
@@ -1497,14 +1499,16 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // Declared before the git block below, which reads it to hold the cadence
   // back while a job is in flight.
   let agentJob = null; // { name, prompt, startedAt } — strictly one at a time
+  let agentStop = null; // stops it (POST /deck/edit/agent/stop) — set while it runs
   // The asks of this session, oldest first, with what came of each — what the
   // docked agent panel shows. An agent's edit reloads every browser, so the
   // log lives HERE, not in the page, and rides /deck/ping across the reload.
   const agentAsks = [];
   const ASKS_KEPT = 20;
   let askSeq = 0;
-  let enhancing = null;  // a script enhancement in flight: { of, done } — one at a time
-  let reviewing = null;  // an agent review in flight: { of, done } — one at a time
+  let enhancing = null;  // a script enhancement in flight: { of, done, stop } — one at a time
+  let reviewing = null;  // an agent review in flight: { of, done, stop } — one at a time
+  let exportJob = null;  // an export in flight, { kind, what }: cli/edit-handover.mjs says when
   let lastReview = null; // its last result: { at, agent, findings, failed } — kept for Check deck… to re-ask
 
   // ── git autocommit — the durable record, independent of undo/redo ──────
@@ -1908,6 +1912,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // defaulting to the first detected agent every session (#125)
       preferredAgent: agentPref ?? null,
       agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt, id: agentJob.id },
+      // the long jobs a page that loads mid-run can still stop
+      exportBusy: exportJob,
+      enhanceBusy: !!enhancing,
+      reviewBusy: !!reviewing,
       agentAsks,
       wizards: await configurableEngines(),
       // What is uncommitted, so a deck that loads mid-session shows the
@@ -2277,14 +2285,27 @@ export async function editMain(args, { onListen = null, client } = {}) {
       child.stderr.on('data', keep);
     }
     const timeout = setTimeout(() => child.kill('SIGTERM'), 10 * 60 * 1000);
+    // Stopped by the author: SIGTERM, which every agent CLI answers by
+    // winding down, then SIGKILL for one that has not a few seconds later.
+    // Whatever it had written by then stays, and Z takes it back like any edit.
+    let stopped = false, hard = null;
+    agentStop = () => {
+      stopped = true;
+      child.kill('SIGTERM');
+      hard = setTimeout(() => child.kill('SIGKILL'), 5000);
+    };
     child.on('error', (e) => {
       clearTimeout(timeout);
+      clearTimeout(hard);
       agentJob = null;
+      agentStop = null;
       finish({ ok: false, changed: false, error: String(e.message || e) });
       broadcast('agent', { state: 'done', id: ask.id, agent: cmd.name, ok: false, changed: false, error: String(e.message || e) });
     });
     child.on('exit', (code) => {
       clearTimeout(timeout);
+      clearTimeout(hard);
+      agentStop = null;
       const after = readDeck();
       const changed = after !== before;
       if (changed) history.record(before); // Z takes the agent's edit back
@@ -2318,12 +2339,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // the agent's own words when the stream carried them — raw stream-json
       // stdout is a wall of JSON nobody should be shown
       const said = (resultText ?? tail.trim().split('\n').slice(-6).join('\n')).slice(-600);
-      finish({ ok: code === 0, changed, code, tail: said });
+      finish({ ok: code === 0, changed, code, tail: said, ...(stopped ? { stopped } : {}) });
       broadcast('agent', {
         state: 'done', id: ask.id, agent: cmd.name, ok: code === 0, changed, code, tail: said,
+        ...(stopped ? { stopped } : {}),
         ...(recordingWarning ? { recordingWarning } : {}),
       });
-      console.log(`  agent: ${cmd.name} exited (${code}) — deck ${changed ? 'changed' : 'unchanged'}`);
+      console.log(`  agent: ${cmd.name} ${stopped ? 'stopped' : `exited (${code})`} — deck ${changed ? 'changed' : 'unchanged'}`);
       if (recordingWarning) console.log(`  ${recordingWarning}`);
     });
     return cmd;
@@ -2741,17 +2763,27 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const html = readDeck();
     const of = enhanceable(html, which).length;
     if (!of) return json(422, { ok: false, error: which?.length === 1 ? `slide ${which[0]} has no notes to enhance` : 'no notes to enhance' });
-    enhancing = { of, done: 0 };
+    const stop = new AbortController();
+    enhancing = { of, done: 0, stop: () => stop.abort() };
     broadcast('enhance', { state: 'start', of, agent: cmd.name, kind });
     console.log(`  enhance: ${of} slide${of === 1 ? '' : 's'}${kind === 'spoken' ? ', written for the ear' : ''} ← ${cmd.name} (read-only)`);
     enhanceDeck(html, which, {
-      kind, agent: name, cwd: dirname(deckPath),
+      kind, agent: name, cwd: dirname(deckPath), signal: stop.signal,
       onSlide: (r) => {
         enhancing.done = r.done;
         broadcast('enhance', { state: 'slide', ...r });
         console.log(`  enhance: slide ${r.slide} ${r.ok ? (r.changed ? verb : 'unchanged') : `left as it was — ${r.why}`}`);
       },
     }).then(({ answers, results }) => {
+      // Stopped: nothing is written. Half a deck tagged reads as a deck
+      // somebody forgot to finish, and the slides already answered are a
+      // cache hit for nobody — the agent is asked afresh next time.
+      if (stop.signal.aborted) {
+        enhancing = null;
+        broadcast('enhance', { state: 'done', ok: false, stopped: true, kind });
+        console.log('  enhance: stopped — nothing written');
+        return;
+      }
       let stale = [];
       // against the deck as it is NOW: a slide edited while the agent thought keeps the edit
       applyEdit((cur) => { const a = applyEnhanced(cur, answers); stale = a.stale; return a.html; });
@@ -2803,13 +2835,22 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const html = readDeck();
     const of = Math.ceil(reviewSlides(html).length / REVIEW_BATCH);
     if (!of) return json(422, { ok: false, error: 'no slides to review' });
-    reviewing = { of, done: 0 };
+    const stop = new AbortController();
+    reviewing = { of, done: 0, stop: () => stop.abort() };
     broadcast('review', { state: 'start', of, agent: cmd.name });
     console.log(`  review: ${of} batch${of === 1 ? '' : 'es'} ← ${cmd.name} (read-only)`);
     reviewDeck(html, {
-      agent: name, cwd: dirname(deckPath),
+      agent: name, cwd: dirname(deckPath), signal: stop.signal,
       onBatch: (r) => { reviewing.done = r.done; broadcast('review', { state: 'batch', ...r }); },
     }).then(({ findings, failed }) => {
+      // Stopped: the last review's findings stand — part of a deck's review
+      // would read as a deck with nothing to say about the rest.
+      if (stop.signal.aborted) {
+        reviewing = null;
+        broadcast('review', { state: 'done', ok: false, stopped: true });
+        console.log('  review: stopped');
+        return;
+      }
       lastReview = { at: Date.now(), agent: cmd.name, findings, failed };
       reviewing = null;
       broadcast('review', { state: 'done', ok: true, found: findings.length, failed });
@@ -2832,6 +2873,18 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const findings = currentFindings(readDeck(), lastReview.findings)
       .map(({ fp, ...f }) => ({ ...f, label: label[f.rule], prompt: fixPrompt(f) }));
     return json(200, { ok: true, reviewed: true, running: !!reviewing, at: lastReview.at, agent: lastReview.agent, findings, failed: lastReview.failed });
+  }
+
+  // Stop the agent job in flight, whichever of the three it is: an A edit, a
+  // script enhancement or a review. Answers at once; the job's own `done`
+  // event, with `stopped`, is what says it has gone.
+  function agentStopRoute({ json }) {
+    const stop = agentStop ?? enhancing?.stop ?? reviewing?.stop;
+    if (!stop) return json(409, { ok: false, error: 'no agent is running' });
+    const what = agentStop ? `${agentJob?.agent ?? 'the agent'}'s edit` : enhancing ? 'the enhancement' : 'the review';
+    console.log(`  agent: stopping ${what} …`);
+    stop();
+    return json(200, { ok: true, stopping: what });
   }
 
   function agentRoute({ body, json }) {
@@ -2876,6 +2929,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'GET /deck/edit/narration/tracks': tracksRoute,
 
     'POST /deck/edit/agent': agentRoute,
+    'POST /deck/edit/agent/stop': agentStopRoute,
     'POST /deck/edit/agent/prefer': agentPreferRoute,
     'POST /deck/edit/enhance': enhanceRoute,
     'POST /deck/edit/enhance/text': enhanceTextRoute,
@@ -2915,6 +2969,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   registerHandoverRoutes(routes, {
     readDeck, deckPath, root, broadcast,
     gitOn: () => gitOn,
+    onExport: (job) => { exportJob = job; },
   });
 
   // And git (cli/edit-git.mjs): the commit window and the deck's history. The
@@ -3001,6 +3056,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
     || pathname === '/deck/tts' || pathname.startsWith('/deck/tts/') || pathname.startsWith('/deck/lipsync/')
     || pathname === '/deck/review/incoming' || pathname === '/deck/review/at';
 
+  // What a locked deck still answers: the lock, and the stops.
+  const UNLOCKED_POSTS = new Set(['/deck/edit/lock', '/deck/edit/export/stop', '/deck/edit/agent/stop']);
+
   // Two static servers for one root, chosen per request by the mode. Write
   // mode serves the cwd with the deck at "/" and an author's exotic asset as
   // octet-stream. No-trust mode refuses every extension the MIME table does
@@ -3073,9 +3131,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (noTrust && WRITE_FAMILY(url.pathname)) {
         return json(403, { ok: false, noTrust: true, error: 'this deck is open without trust — nothing here changes it' });
       }
-      // locked: no edit route writes, whatever it was aimed at — the one
-      // POST that still answers is the lock itself, so it can be lifted
-      if (locked && req.method === 'POST' && url.pathname.startsWith('/deck/edit/') && url.pathname !== '/deck/edit/lock') {
+      // locked: no edit route writes, whatever it was aimed at — the POSTs
+      // that still answer are the lock itself, so it can be lifted, and the
+      // stops, which write nothing and end a job started before the lock
+      if (locked && req.method === 'POST' && url.pathname.startsWith('/deck/edit/') && !UNLOCKED_POSTS.has(url.pathname)) {
         return json(423, { ok: false, locked: true, error: 'the deck is locked — unlock it from the palette or the lock chip' });
       }
       const key = `${req.method} ${url.pathname}`;

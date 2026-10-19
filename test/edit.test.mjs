@@ -825,6 +825,42 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   assert.equal(missing.status, 400);
 });
 
+test('an agent run can be stopped — locked or not — and what it wrote by then is one undo away', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  // writes, then thinks for a minute: the run somebody wants back
+  writeFakeBin(bin, 'claude',
+    "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- half-done -->');\nsetTimeout(() => {}, 60_000);\n");
+  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
+
+  assert.equal((await post(base, '/deck/edit/agent/stop')).status, 409, 'nothing to stop yet');
+  await post(base, '/deck/edit/agent', { prompt: 'rewrite everything' });
+  for (let i = 0; i < 200 && !/half-done/.test(readFileSync(deck, 'utf8')); i++) await new Promise((res) => setTimeout(res, 50));
+  // a stop writes nothing, so the lock does not refuse it
+  await post(base, '/deck/edit/lock', { locked: true });
+  const t0 = Date.now();
+  const stopped = await post(base, '/deck/edit/agent/stop');
+  assert.equal(stopped.status, 200);
+  assert.deepEqual(await stopped.json(), { ok: true, stopping: "claude's edit" });
+  let p;
+  for (let i = 0; i < 200; i++) {
+    p = await (await fetch(base + '/deck/ping')).json();
+    if (!p.agentBusy) break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  assert.equal(p.agentBusy, null, 'the run is over');
+  assert.ok(Date.now() - t0 < 8000, 'when it was stopped, not when the agent gave up');
+  assert.equal(p.agentAsks.at(-1).stopped, true, 'and the ask says it was stopped');
+  assert.equal(p.undo, 1, 'what it had written is on the undo stack');
+  assert.match(readFileSync(deck, 'utf8'), /half-done/);
+  await post(base, '/deck/edit/lock', { locked: false });
+  await post(base, '/deck/edit/undo');
+  assert.equal(readFileSync(deck, 'utf8'), DECK);
+});
+
 test('the asks of a session are kept on the server — slide, prompt and outcome — so a reload still shows them', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
