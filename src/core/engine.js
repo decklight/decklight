@@ -2206,7 +2206,7 @@ export function init(userConfig = {}) {
     }
     const hint = document.createElement('span');
     hint.className = 'log-hint';
-    hint.innerHTML = '<kbd title="the key left of 1">&#96;</kbd> · Esc closes';
+    hint.innerHTML = '<kbd title="the tilde key">&#96;</kbd> · Esc closes';
     tabs.appendChild(hint);
     logEl.appendChild(tabs);
     if (view === 'events') {
@@ -2288,7 +2288,7 @@ export function init(userConfig = {}) {
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>pinch · 0</td><td>zoom the slide (trackpad pinch, or two fingers; scroll pans) · 0, Esc or a slide change fits it again</td></tr>
-      <tr><td>&#96;</td><td>the log, on its messages tab (the events tab beside it is the debug stream) — the key left of 1; ⌃&#96; / ⌥&#96; also works while editing notes</td></tr>
+      <tr><td>&#96;</td><td>the log, on its messages tab (the events tab beside it is the debug stream) — the tilde key; ⌃&#96; / ⌥&#96; also works while editing notes</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>W</td><td>pen — draw on the slide (⌫ clears)</td></tr>
       <tr><td>⇧W</td><td>laser pointer</td></tr>

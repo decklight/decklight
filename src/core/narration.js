@@ -1280,7 +1280,7 @@ export function createNarration({
       // must not move on. (A segment with no words at all is a legitimate silent
       // beat and still advances.)
       if (!spoke && sentences.length) {
-        stopNarration('🔇 the voice did not play — auto-advance stopped · press the key left of 1 for messages');
+        stopNarration('🔇 the voice did not play — auto-advance stopped · press the tilde key for messages');
         return;
       }
       // awaited, so chainActive stays true across the slide's pause — P
@@ -1299,7 +1299,7 @@ export function createNarration({
       return '🔇 voice quota exceeded (429) — auto-advance stopped · a free engine: decklight <deck> --tts-engine chirp';
     }
     if (/^\d{3}/.test(s)) {
-      return `🔇 voice bridge error ${s.slice(0, 3)} — auto-advance stopped · press the key left of 1 for messages`;
+      return `🔇 voice bridge error ${s.slice(0, 3)} — auto-advance stopped · press the tilde key for messages`;
     }
     return '🔇 voice bridge unreachable — auto-advance stopped · open the deck with: decklight <deck.html>';
   }
@@ -1615,10 +1615,10 @@ export function createNarration({
     }
     if (fatal) {
       stopNarration(`🔇 no audio for slide ${sl} (${file}) — auto-advance stopped`
-        + ' · press the key left of 1 for messages');
+        + ' · press the tilde key for messages');
       return;
     }
-    toast(`🔇 no narration for slide ${sl} (${file}) · press the key left of 1 for messages`);
+    toast(`🔇 no narration for slide ${sl} (${file}) · press the tilde key for messages`);
   }
 
   /**
