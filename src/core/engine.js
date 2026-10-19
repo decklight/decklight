@@ -3007,10 +3007,11 @@ export function init(userConfig = {}) {
   });
 
   // The video export (PRESENTING): which slides, and how — voice, format,
-  // quality, subtitles — on one card, then the door every export uses. Each
-  // setting starts on the answer already chosen, so the common case is one
-  // Enter: the voice V speaks with, and the format, quality and subtitles this
-  // browser picked last time. ↑ reaches them; ← → turn them.
+  // quality, subtitles — on one card, then the door every export uses. A range
+  // chosen is only chosen: the Export button runs it, as Start runs the
+  // recorder. Each setting starts on the answer already chosen, so the common
+  // case is one Enter: the voice V speaks with, and the format, quality and
+  // subtitles this browser picked last time. ← → turn them.
   const VIDEO_PREFS = 'decklight:video-export';
   function videoPrefs() {
     return readJson(VIDEO_PREFS, {});
@@ -3020,7 +3021,8 @@ export function init(userConfig = {}) {
     const prefs = videoPrefs();
     const at = (list, value, fallback) => Math.max(0, list.findIndex((o) => o.value === (value ?? fallback)));
     rangePicker.open({
-      title: 'export a video — which slides?',
+      title: 'export a video',
+      action: 'Export video',
       total: instance.state.totalSlides, slide: instance.state.slide, chapters: moduleNav.markers(),
       settings: [
         { key: 'voice', name: 'Voice', ...voice },

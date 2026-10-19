@@ -1607,10 +1607,23 @@
 .decklight-range .range-custom input:focus { outline: 2px solid var(--accent, #6af); outline-offset: 1px; }
 /* wide enough that a synthesized voice's folder and the key hint stay on one line */
 .decklight-range .narr-card { width: min(560px, 90vw); }
-/* the export card's settings: answers above the ranges, not ranges */
+/* the export card's settings: answers, not ranges */
 .decklight-range .range-setting { gap: 12px; }
 .decklight-range .range-setting-name { flex: 0 0 5.2em; opacity: .55; font-size: .85em; }
 .decklight-range .range-setting-last { margin-bottom: 6px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, .12); border-radius: 8px 8px 0 0; }
+/* an export card (an action): Slides, Options, and a button that runs it */
+.decklight-range .rec-sect {
+  margin: 6px 12px 4px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .1);
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase; opacity: .55;
+}
+.decklight-range .narr-head + .rec-sect { border-top: 0; padding-top: 0; }
+.decklight-range .rec-foot { display: flex; align-items: center; gap: 14px; margin: 6px 12px 0; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .1); }
+.decklight-range .rec-foot .rec-hint { padding: 0; }
+.decklight-range .narr-row.range-go {
+  display: inline-flex; flex: none; align-items: center; gap: 8px; border: 0; border-radius: 8px; padding: 8px 16px;
+  font: inherit; font-size: 14px; font-weight: 600; color: #16181d; background: var(--accent, #6af); cursor: pointer;
+}
+.decklight-range .narr-row.range-go.narr-sel { background: var(--accent, #6af); outline: 2px solid rgba(255, 255, 255, .7); outline-offset: 2px; }
 .decklight-narr .narr-prev-btn {
   flex: none;
   background: none;

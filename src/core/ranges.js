@@ -70,20 +70,30 @@ export function rangeChoices({ slide, total, chapters = [] }) {
  * inside that panel as often as from the palette and should look like it
  * belongs there.
  *
+ * Plain, a range is the answer: picking one closes the card on it. With an
+ * `action` (the video export's 'Export video'), the range is one answer among
+ * several and the card ends in a button that runs it, as the recorder's card
+ * ends in Start: a range row only chooses the scope, marked ✓, and nothing
+ * runs until the button is pressed. The selection opens on that button, so the
+ * common case (every answer already right) is still one Enter; Enter on a
+ * range chooses it and moves on to the button.
+ *
  * `settings`, when given, are further questions answered on the same card — the
- * video export's voice, format, quality and subtitles — as rows ABOVE the
- * ranges: ↑ reaches them, and ← → (or a click) turn the one under the
- * selection. They are not steps of their own: the answers are usually already
- * right, and a card you have to page through to reach the slides is a card in
- * the way. `onPick(slides, values)` gets each setting's value by its key.
+ * video export's voice, format, quality and subtitles — as rows below the
+ * ranges (above them, on a card with no action): ← → (or a click) turn the one
+ * under the selection. They are not steps of their own: the answers are
+ * usually already right, and a card you have to page through to reach the
+ * slides is a card in the way. `onPick(slides, values)` gets each setting's
+ * value by its key.
  *
  * Register it BEFORE the narration panel: overlays that overlap give the
  * keyboard to the one registered first, and this one opens on top.
  */
 export function createRangePicker({ root, overlays }) {
   let el = null, rows = [], rowEls = [], sel = 0, input = null, note = null, want = null, settings = [];
+  let chosen = -1, go = null;
 
-  function close() { el?.remove(); el = null; want = null; settings = []; }
+  function close() { el?.remove(); el = null; want = null; settings = []; chosen = -1; go = null; }
 
   // Not the `hidden` attribute: .rec-line sets a display of its own, and an
   // author rule beats the attribute's.
@@ -105,39 +115,73 @@ export function createRangePicker({ root, overlays }) {
     else if (!rows[sel].custom && document.activeElement === input) input.blur();
   }
 
-  function pick(i = sel) {
-    const row = rows[i];
-    if (!row || !want) return;
-    // Enter on a setting turns it, like →: it is an answer to change, not a
-    // way to start the export before the slides were even looked at.
-    if (row.setting) { turn(i, 1); return; }
-    let slides = row.slides;
-    if (row.custom) {
-      const typed = input.value.trim();
-      const r = parseRange(typed, want.total);
-      // A range that is not one stays in the box with the reason under it —
-      // closing on it would throw away what was typed to say it was wrong.
-      if (!r) {
-        say(typed ? `${typed} is not a range of this deck — 1 to ${want.total}, like 2-5` : 'type a range first, like 2-5');
-        input.focus();
-        return;
-      }
-      slides = rangeArg(r, want.total);
+  /** The typed range as `--slides` spells it, or undefined (and the reason said) when it is not one. */
+  function typedRange() {
+    const typed = input.value.trim();
+    const r = parseRange(typed, want.total);
+    // A range that is not one stays in the box with the reason under it —
+    // closing on it would throw away what was typed to say it was wrong.
+    if (!r) {
+      say(typed ? `${typed} is not a range of this deck — 1 to ${want.total}, like 2-5` : 'type a range first, like 2-5');
+      input.focus();
+      return undefined;
     }
+    return rangeArg(r, want.total);
+  }
+
+  /** An action card's scope: marked on its row, and named on the button. */
+  function choose(i) {
+    chosen = i;
+    rows.forEach((row, j) => {
+      if (row.setting || row.go) return;
+      rowEls[j].classList.toggle('narr-cur', j === i);
+      rowEls[j].setAttribute('aria-checked', String(j === i));
+    });
+    const row = rows[i];
+    const typed = row.custom && parseRange(input.value, want.total);
+    const what = row.custom ? (typed ? rangeLabel(rangeArg(typed, want.total)) : 'slides…') : rangeLabel(row.slides);
+    go.querySelector('.range-go-label').textContent = `${want.action} · ${what}`;
+  }
+
+  function finish(slides) {
     const { onPick } = want;
     const values = Object.fromEntries(settings.map((s) => [s.key, s.options[s.index].value]));
     close();
     onPick(slides, values);
   }
 
-  function open({ title, lines = [], total, slide, chapters = [], current = null, settings: asked = [], onPick }) {
+  function pick(i = sel) {
+    const row = rows[i];
+    if (!row || !want) return;
+    // Enter on a setting turns it, like →: it is an answer to change, not a
+    // way to start the export before the slides were even looked at.
+    if (row.setting) { turn(i, 1); return; }
+    if (row.go) {
+      const scope = rows[chosen];
+      if (!scope.custom) { finish(scope.slides); return; }
+      const slides = typedRange();
+      if (slides === undefined) select(chosen, { focusBox: false });
+      else finish(slides);
+      return;
+    }
+    const slides = row.custom ? typedRange() : row.slides;
+    if (slides === undefined) return;
+    if (!want.action) { finish(slides); return; }
+    // a scope chosen, not run: on to the button, one more Enter away
+    choose(i);
+    select(rows.length - 1, { focusBox: false });
+  }
+
+  function open({ title, lines = [], total, slide, chapters = [], current = null, settings: asked = [], action = null, onPick }) {
     if (el) close();
-    want = { total, onPick };
+    want = { total, onPick, action };
     settings = asked.filter((s) => s?.options?.length)
       .map((s) => ({ ...s, index: Math.min(Math.max(0, s.index ?? 0), s.options.length - 1) }));
-    rows = [...settings.map((setting) => ({ setting })), ...rangeChoices({ slide, total, chapters }), { label: 'Slides…', custom: true }];
+    const settingRows = settings.map((setting) => ({ setting }));
+    const rangeRows = [...rangeChoices({ slide, total, chapters }), { label: 'Slides…', custom: true }];
+    rows = action ? [...rangeRows, ...settingRows, { go: true }] : [...settingRows, ...rangeRows];
     el = document.createElement('div');
-    el.className = 'decklight-narr decklight-range';
+    el.className = 'decklight-narr decklight-range' + (action ? ' range-action' : '');
     const card = document.createElement('div');
     card.className = 'narr-card';
     card.setAttribute('role', 'dialog');
@@ -152,12 +196,40 @@ export function createRangePicker({ root, overlays }) {
       line.textContent = text;
       card.append(line);
     }
-    const isRange = (c) => !c.custom && !c.setting;
+    // an action card is in sections, as the recorder's is: what, then how
+    const section = (text) => {
+      const h = document.createElement('div');
+      h.className = 'rec-sect';
+      h.textContent = text;
+      card.append(h);
+    };
+    const isRange = (c) => !c.custom && !c.setting && !c.go;
     const known = rows.some((c) => isRange(c) && c.slides === current);
+    const lastSetting = rows.findLastIndex((c) => c.setting);
     rowEls = rows.map((row, i) => {
-      const r = document.createElement('div');
+      if (action && i === 0) section('Slides');
+      if (action && row.setting && !rows[i - 1]?.setting) section('Options');
+      const r = document.createElement(row.go ? 'button' : 'div');
+      if (row.go) {
+        r.type = 'button';
+        r.className = 'narr-row range-go';
+        r.innerHTML = '<span class="range-go-label"></span> <span aria-hidden="true">→</span>';
+        r.addEventListener('mouseenter', () => { if (document.activeElement !== input) select(i, { focusBox: false }); });
+        r.addEventListener('click', () => pick(i));
+        const foot = document.createElement('div');
+        foot.className = 'rec-foot';
+        const hint = document.createElement('span');
+        hint.className = 'rec-hint';
+        hint.textContent = 'Enter exports · Esc closes';
+        foot.append(r, hint);
+        go = r;
+        note = document.createElement('div');
+        note.className = 'rec-line rec-warn';
+        card.append(note, foot);
+        return r;
+      }
       if (row.setting) {
-        r.className = 'narr-row range-setting' + (i === settings.length - 1 ? ' range-setting-last' : '');
+        r.className = 'narr-row range-setting' + (!action && i === lastSetting ? ' range-setting-last' : '');
         const name = document.createElement('span');
         name.className = 'range-setting-name';
         name.textContent = row.setting.name;
@@ -171,7 +243,8 @@ export function createRangePicker({ root, overlays }) {
         return r;
       }
       r.className = 'narr-row' + (row.custom ? ' range-custom' : '')
-        + ((row.custom ? current && !known : row.slides === current) ? ' narr-cur' : '');
+        + (!action && (row.custom ? current && !known : row.slides === current) ? ' narr-cur' : '');
+      if (action) r.setAttribute('role', 'radio');
       const label = document.createElement('span');
       label.className = 'narr-row-label';
       label.textContent = row.label;
@@ -185,6 +258,8 @@ export function createRangePicker({ root, overlays }) {
         input.setAttribute('aria-label', 'slide range');
         if (current && !known) input.value = current;
         input.addEventListener('focus', () => { if (sel !== i) select(i, { focusBox: false }); });
+        // typing a range is choosing it, on a card where choosing is not running
+        input.addEventListener('input', () => { if (action) choose(i); });
         // The deck's keyboard stops at a text box (engine.js returns early for
         // one), so the box answers the keys that would otherwise go nowhere.
         input.addEventListener('keydown', (e) => {
@@ -199,28 +274,38 @@ export function createRangePicker({ root, overlays }) {
       }
       r.addEventListener('mouseenter', () => { if (document.activeElement !== input) select(i, { focusBox: false }); });
       r.addEventListener('click', (e) => {
-        if (row.custom) { if (e.target !== input) select(i); return; }
+        if (row.custom) {
+          if (action) choose(i);
+          if (e.target !== input) select(i);
+          return;
+        }
         select(i, { focusBox: false });
         pick(i);
       });
       card.append(r);
       return r;
     });
-    note = document.createElement('div');
-    note.className = 'rec-line rec-warn';
+    if (!action) {
+      note = document.createElement('div');
+      note.className = 'rec-line rec-warn';
+      card.append(note);
+      const hint = document.createElement('div');
+      hint.className = 'rec-hint';
+      hint.textContent = settings.length
+        ? '↑↓ choose · ← → change a setting · Enter picks the slides · type a range, like 2-5 · Esc closes'
+        : '↑↓ choose · Enter picks · type a range, like 2-5 · Esc closes';
+      card.append(hint);
+    }
     say('');
-    card.append(note);
-    const hint = document.createElement('div');
-    hint.className = 'rec-hint';
-    hint.textContent = settings.length
-      ? '↑↓ choose · ← → change a setting · Enter picks the slides · type a range, like 2-5 · Esc closes'
-      : '↑↓ choose · Enter picks · type a range, like 2-5 · Esc closes';
-    card.append(hint);
     el.append(card);
     closeOnBackdrop(el, close);
     root.appendChild(el);
     const at = rows.findIndex((c) => isRange(c) && c.slides === current);
-    select(at >= 0 ? at : current ? rows.length - 1 : 0, { focusBox: false });
+    const scope = at >= 0 ? at : current ? rows.findIndex((c) => c.custom) : 0;
+    if (action) {
+      choose(scope);
+      select(rows.length - 1, { focusBox: false });
+    } else select(scope, { focusBox: false });
   }
 
   overlays.register({
@@ -235,8 +320,10 @@ export function createRangePicker({ root, overlays }) {
       // A digit starts a range: it lands in the box, and the box has the
       // keyboard from there. Consumed, so the browser does not type it twice.
       else if (/^[0-9-]$/.test(e.key)) {
-        select(rows.length - 1, { focusBox: false });
+        const box = rows.findIndex((c) => c.custom);
+        select(box, { focusBox: false });
         input.value += e.key;
+        if (want?.action) choose(box);
         input.focus();
         say('');
       }

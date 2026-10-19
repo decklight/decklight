@@ -1812,10 +1812,11 @@
       // naming the file (or saying why not). A row that fires and reports
       // nothing is indistinguishable from a broken one, which is the whole
       // reason the toast is part of the contract.
-      // The video row asks WHICH slides before it renders anything — a range
-      // from the rows, or typed; digits typed at the card land in its box. A
-      // range that is not one stays in the box with its reason, and nothing is
-      // posted until a real one is picked.
+      // The video row opens a card that asks WHICH slides before it renders
+      // anything — a range from the rows, or typed; digits typed at the card
+      // land in its box. Choosing a range only chooses it: nothing is posted
+      // until the Export button is pressed. A range that is not one stays in
+      // the box with its reason.
       if (mode === 'exportvideo') {
         const Q = '.decklight-palette', ROW = '.pal-row';
         await settle();
@@ -1829,21 +1830,24 @@
         await settle();                       // the card waits on the tracks and the bridge
         const card = () => document.querySelector('.decklight-range .narr-card');
         const rows = () => [...document.querySelectorAll('.decklight-range .narr-row')].map((n) => n.textContent);
-        r.asksWhichSlides = !!card() && /which slides/.test(card().textContent);
+        const go = () => document.querySelector('.decklight-range .range-go');
+        r.asksWhichSlides = !!card() && /Slides/.test(card().querySelector('.rec-sect')?.textContent ?? '');
+        // the button is where the card opens: one Enter exports what is already right
+        r.opensOnTheButton = !!go()?.classList.contains('narr-sel') && /Export video · all slides/.test(go().textContent);
         r.offersRanges = rows().some((t) => /All slides/.test(t)) && rows().some((t) => /This slide/.test(t));
         // The voice row starts on what a render would have used anyway — the
         // voiceover/ folder, offers your own take as My voice one step back,
         // and ← → turn it to the live voice, which proposes a new folder
         // rather than the say one.
-        // The settings sit above the ranges: ↑ reaches them from the slides, and
-        // ← → turn the one under the selection.
+        // The settings sit between the ranges and the button: ↑ reaches them
+        // from the button, and ← → turn the one under the selection.
         const settingRow = (name) => [...document.querySelectorAll('.decklight-range .range-setting')]
           .find((n) => n.querySelector('.range-setting-name')?.textContent === name)?.textContent ?? '';
         r.startsOnTheRecordedTrack = /Samantha · say — voiceover\//.test(settingRow('Voice'));
         r.ownTakeNotOffered = !/voices\/beatsonly/.test(card()?.textContent ?? '');
         r.defaultsAreMp4Standard = /MP4/.test(settingRow('Format')) && /Standard/.test(settingRow('Quality'))
           && /None/.test(settingRow('Subtitles'));
-        press('ArrowRight');           // on a range row, ← → change nothing
+        press('ArrowRight');           // on the button, ← → change nothing
         r.arrowsLeaveRangesAlone = /MP4/.test(settingRow('Format')) && /Samantha/.test(settingRow('Voice'));
         press('ArrowUp');              // Subtitles
         press('ArrowRight');           // → in the video
@@ -1860,6 +1864,12 @@
         press('ArrowRight');           // → the live voice
         r.arrowsTurnTheSettings = /In the video/.test(settingRow('Subtitles')) && /MOV/.test(settingRow('Format'))
           && /Synthesize — en_US-ryan-high · piper → voices\/en-us-ryan-high\//.test(settingRow('Voice'));
+        // a click on a range chooses it, and runs nothing
+        [...document.querySelectorAll('.decklight-range .narr-row')].find((n) => /This slide/.test(n.textContent))?.click();
+        await settle();
+        r.clickChoosesOnly = !!card() && !CALLS.post.some((c) => c.u.includes('/deck/edit/export'))
+          && /Export video · slide \d+/.test(go().textContent)
+          && /This slide/.test(document.querySelector('.decklight-range .narr-row.narr-cur')?.textContent ?? '');
         for (const ch of '9-99') press(ch);
         const box = () => document.querySelector('.decklight-range input');
         r.typingFillsTheBox = box()?.value === '9-99';
@@ -1870,6 +1880,10 @@
         r.nothingPostedYet = !CALLS.post.some((c) => c.u.includes('/deck/edit/export'));
         box().value = '2-3';
         enterInBox();
+        await settle();
+        r.enterChoosesOnly = !!card() && !CALLS.post.some((c) => c.u.includes('/deck/edit/export'))
+          && /Export video · slides 2–3/.test(go().textContent) && go().classList.contains('narr-sel');
+        press('Enter');                // on the button now: export
         // read BEFORE yielding: the stand-in server answers within one settle,
         // and its answer rewrites the very row being checked
         r.closesOnPick = !card();
@@ -1889,7 +1903,7 @@
         r.toldTheTheme = sent?.theme === 'eclipse';
         r.remembersTheFormat = /"format":"mov"/.test(localStorage.getItem('decklight:video-export') ?? '');
         r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t) && /its voice is in voices\/en-us-ryan-high\//.test(t));
-        r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges && r.staleTrackMarked && r.offersMyVoice
+        r.PASS = r.rowIsThere && r.asksWhichSlides && r.opensOnTheButton && r.clickChoosesOnly && r.enterChoosesOnly && r.offersRanges && r.staleTrackMarked && r.offersMyVoice
           && r.startsOnTheRecordedTrack && r.ownTakeNotOffered && r.defaultsAreMp4Standard && r.arrowsLeaveRangesAlone
           && r.arrowsTurnTheSettings && r.remembersTheFormat && r.saysTheRenderPhase
           && r.typingFillsTheBox && r.badRangeStaysOpen && r.nothingPostedYet && r.closesOnPick
