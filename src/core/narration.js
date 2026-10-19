@@ -18,6 +18,7 @@ import { createCharacter, concatTimelines } from './character.js';
 import { createFilmRecorder, cameraUnavailable } from './film.js';
 import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
+import { slideTitle, slideBody } from './finder.js';
 import { thinking } from './thinking.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
@@ -3396,15 +3397,21 @@ export function createNarration({
     if (!target) return '';
     // A refresh is not a collision: re-recording the same voice into its own
     // folder is the thing you meant. Only a folder holding SOMEBODY ELSE gets
-    // a warning.
-    const clash = target.clash && target.why !== 'refresh'
-      ? `<div class="rec-line rec-warn">${target.clash.files} file(s) are already in`
-        + ` <code>${escapeHtml(target.dir)}/</code>${target.clash.voice ? ` (${escapeHtml(target.clash.voice)})` : ''}`
+    // a warning; your own take there is said as what is kept and what is not.
+    const t = target.clash;
+    const mine = t && (target.why === 'refresh' || t.mine);
+    const clash = t && !mine
+      ? `<div class="rec-line rec-warn">${t.files} file(s) are already in`
+        + ` <code>${escapeHtml(target.dir)}/</code>${t.voice ? ` (${escapeHtml(t.voice)})` : ''}`
         + ' and will be replaced.</div>'
       : '';
-    return `<div class="rec-line rec-folder"><label>folder
+    const n = mine ? (t.slides?.length ?? t.files) : 0;
+    const note = mine
+      ? `${n} slide${n === 1 ? '' : 's'} already there: the ones you record again are replaced, the rest kept`
+      : t ? '' : 'a new folder';
+    return `<div class="rec-line rec-folder"><label>saved next to the deck in
       <input class="rec-dir" value="${escapeHtml(target.dir)}" spellcheck="false"
-             aria-label="folder to record into"></label></div>${clash}`;
+             aria-label="folder to record into"></label>${note ? `<span class="rec-folder-note">· ${note}</span>` : ''}</div>${clash}`;
   }
   function wireFolderRow(card, keep) {
     const input = card?.querySelector('.rec-dir');
@@ -3686,7 +3693,7 @@ export function createNarration({
   // AudioContext rather than decimated by hand: the browser resamples properly,
   // and naive decimation aliases everything above 12 kHz down into the voice.
   //
-  // …unless you ask for more on the intro card. Both of its choices are the
+  // …unless you ask for more on the plan card. Both of its choices are the
   // microphone's and the room's, not the deck's, so they are remembered once
   // for every deck: 48 kHz (twice the size, everything above 12 kHz kept) and
   // noise suppression off (the browser's suppressor can sound processed on a
@@ -3717,15 +3724,20 @@ export function createNarration({
       rate: MIC_RATES.includes(p.rate) ? p.rate : MIC_RATE,
       countIn: countInAsked ?? (COUNT_INS.includes(p.countIn) ? p.countIn : COUNT_INS[0]),
       takes: takesAsked ?? (TAKES.includes(p.takes) ? p.takes : TAKES[0]),
+      // the microphone picked on the card, by its id; '' is the browser's default
+      device: typeof p.device === 'string' ? p.device : '',
     };
   }
+  /** `deviceId` for getUserMedia: asked for, never demanded, so an unplugged one falls back. */
+  const micDeviceConstraint = (device) => (device ? { deviceId: { ideal: device } } : {});
   async function openMic(forced = null) {
     // a partial re-record takes the rate of the beats it keeps: one slide's
     // files at two rates cannot be joined into its whole-slide file
-    const { noise, rate: chosen } = micPrefs();
+    const { noise, rate: chosen, device } = micPrefs();
     const rate = forced ?? chosen;
+    micPreviewStop();   // the card's level check held the microphone until now
     micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: noise, autoGainControl: true },
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: noise, autoGainControl: true, ...micDeviceConstraint(device) },
     });
     const Ctx = window.AudioContext ?? window.webkitAudioContext;
     // A browser that will not give the rate asked for gives its own; the WAV
@@ -3834,13 +3846,13 @@ export function createNarration({
   // looking at the laptop; editmode reads both, and `onChange` is its.
   let micBeat = null;
   // Where the take starts (#851): an index into the slides being recorded and
-  // a beat of that slide. Picked with ← → on the intro card, or fixed by
+  // a beat of that slide. Picked with ← → (or a click on a slide) on the plan card, or fixed by
   // `?beats=k-l` (`narrate --mic --slides N --beats k-l`), which also says
   // where it ends. Starting past a slide's first beat keeps the beats before
   // it as they are on disk and rebuilds the whole-slide file around the new.
   const recBeats = beatSpan(params?.get?.('beats'));
   let micFrom = { s: 0, i: 0 };
-  let micList = [], micPlans = [], micIntro = null;
+  let micList = [], micPlans = [];
   instance.__recorder = {
     get state() { return micEl && micView === 'capture' ? micBeat : null; },
     remote(key) {
@@ -3859,7 +3871,7 @@ export function createNarration({
     return `<div class="rec-level${hot ? ' hot' : ''}"><div class="rec-level-fill" style="width:${pct}%"></div></div>`;
   }
   /**
-   * The phone remote, offered on the intro card when the server has one on
+   * The phone remote, offered on the plan card when the server has one on
    * (`narrate --mic --remote`): its QR, scanned from here, because the speaker
    * view that usually carries it is not open while you record.
    */
@@ -3899,7 +3911,7 @@ export function createNarration({
       <span class="rec-seg"><button type="button" tabindex="-1" data-from="1" aria-label="start one beat later">›</button></span>
       <span class="rec-from-why">${kept} · <kbd>←</kbd> <kbd>→</kbd></span></div>`;
   }
-  /** Step the start point one beat, across slides; ← → on the intro card. */
+  /** Step the start point one beat, across slides; ← → on the plan card. */
   function moveFrom(d) {
     const at = [];
     micPlans.forEach((p, s) => p.forEach((_, i) => at.push({ s, i })));
@@ -3907,8 +3919,8 @@ export function createNarration({
     const next = at[Math.max(0, Math.min(at.length - 1, k + d))];
     if (!next) return;
     micFrom = next;
-    const row = micEl?.querySelector('.rec-from');
-    if (row) { row.outerHTML = fromRow(); wireFromRow(micEl.querySelector('.narr-card')); }
+    // the whole card: the row's "start here", the estimate and the button follow
+    if (micEl && micView === 'intro') renderMicCard('intro', micIntroData());
   }
   function wireFromRow(card) {
     card?.querySelectorAll('[data-from]').forEach((b) => {
@@ -3916,10 +3928,11 @@ export function createNarration({
       b.addEventListener('click', () => moveFrom(Number(b.dataset.from)));
     });
   }
-  /** The intro card again, saying why it did not start. */
+  /** The plan card again, saying why it did not start. */
   function micRefuse(warn) {
     closeMic();
-    renderMicCard('intro', { ...(micIntro ?? {}), target: micTarget ?? micIntro?.target, warn });
+    renderMicCard('intro', micIntroData({ warn }));
+    micPreviewStart();   // the level again, if the start had taken the microphone
   }
   /**
    * The beats of a slide as they are on disk, for a partial re-record: every
@@ -3951,38 +3964,230 @@ export function createNarration({
     }
     return { rate, pcm };
   }
-  /** The intro card's microphone choices and the count-in, remembered for every deck. */
+  // ── the plan card ────────────────────────────────────────────────────────
+  // What to record, how, where, and whether the microphone hears you, in
+  // that order — the questions a person asks before reading a deck aloud,
+  // answered on one card. The scope (the whole deck, only what is missing or
+  // out of step, this slide, a range) and the slide list are what the old
+  // intro card lacked: it could count the beats but not say which slides were
+  // already on disk, and it learned about a slide with builds and no [click]
+  // one slide at a time, mid-take. The take, count-in and microphone choices
+  // are the old card's, behind one summary line, each with its reason.
+  let micHowOpen = false;     // the HOW section, expanded
+  let micOnly = null;         // "only missing or changed": a Set of slides, or null
+  let micTracks = [];         // the folders beside the deck, from the edit server
+  let micProbed = false;      // …once the server answered (or there is none)
+  let micPreview = null;      // the microphone check before Start
+
+  /** The slides this recorder walks: slidesWithNotes(), narrowed by the "only…" scope. */
+  function micSlides() {
+    const list = slidesWithNotes();
+    return micOnly ? list.filter((sl) => micOnly.has(sl)) : list;
+  }
+  /** The track already in the folder the take goes into, if any. */
+  const micTrack = () => micTarget?.clash ?? null;
+  /** Every slide with notes, whatever the range says. */
+  function micSpeaking() {
+    const out = [];
+    for (let sl = 1; sl <= instance.state.totalSlides; sl++) if (notesText(sl)) out.push(sl);
+    return out;
+  }
+  /**
+   * What that track is missing or has out of step: a slide with notes and no
+   * whole-slide file there, or one whose notes or [click] split moved since it
+   * was recorded (the server's drift, #850). Null with no track to compare.
+   */
+  function micStaleSet() {
+    const t = micTrack();
+    if (!t) return null;
+    const have = new Set(t.slides ?? []);
+    const moved = new Set((t.drift ?? []).map((d) => d.slide));
+    return new Set(micSpeaking().filter((sl) => !have.has(sl) || moved.has(sl)));
+  }
+  /** The scope the card is in, read off the range and the set. */
+  function micScope() {
+    if (micOnly) return 'stale';
+    if (!recRange) return 'all';
+    return recRange === String(instance.state.slide) ? 'this' : 'range';
+  }
+  /**
+   * The list and the plans again, after the scope or the folder changed. The
+   * start point follows its slide when the slide is still listed; otherwise
+   * it is the first slide that speaks (at the beat `--beats` named).
+   */
+  function micRelist() {
+    const was = micList[micFrom.s];
+    micList = micSlides();
+    micPlans = micList.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
+    const speaks = Math.max(0, micPlans.findIndex((p) => p.length));
+    const k = micList.indexOf(was);
+    if (k < 0) micFrom = { s: speaks, i: recBeats ? recBeats.from - 1 : 0 };
+    else micFrom = { s: k, i: Math.min(micFrom.i, Math.max(0, (micPlans[k]?.length ?? 1) - 1)) };
+  }
+  /** What the plan card is rendered from, whichever change asked for it. */
+  function micIntroData(extra = {}) {
+    const beats = micPlans.reduce((n, p) => n + p.length, 0);
+    return {
+      slides: micList.length, beats, range: recRange, target: micTarget,
+      warn: micProbed && editBase() == null ? noServerReason() : null,
+      ...extra,
+    };
+  }
+  /** The scope chips: whole deck · only missing or changed · this slide · slides… */
+  function scopeChips() {
+    const here = instance.state.slide;
+    const kind = micScope();
+    const stale = micStaleSet();
+    const all = micSpeaking().length;
+    const chips = [['all', 'Whole deck']];
+    if (stale && stale.size && stale.size < all) chips.push(['stale', `Only missing or changed · ${stale.size}`]);
+    if (notesText(here)) chips.push(['this', `This slide · ${here}`]);
+    if (rangePicker) chips.push(['range', kind === 'range' ? rangeLabel(recRange) : 'Slides…']);
+    return `<div class="rec-chips" role="group" aria-label="what to record">${chips.map(([k, label]) =>
+      `<button type="button" tabindex="-1" data-scope="${k}" aria-pressed="${k === kind}" class="rec-chip${k === kind ? ' on' : ''}">${escapeHtml(label)}</button>`).join('')}</div>`;
+  }
+  function wireScope(card) {
+    card.querySelectorAll('[data-scope]').forEach((b) => {
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => {
+        const k = b.dataset.scope;
+        if (k === 'range') {
+          rangePicker?.open({
+            title: 'record which slides?',
+            total: instance.state.totalSlides, slide: instance.state.slide, chapters: chapters(),
+            current: recRange,
+            onPick: (slides) => { recRange = slides; micOnly = null; if (micEl && micView === 'intro') repaintIntro(); },
+          });
+          return;
+        }
+        recRange = k === 'this' ? String(instance.state.slide) : null;
+        micOnly = k === 'stale' ? micStaleSet() : null;
+        repaintIntro();
+      });
+    });
+  }
+  /** The card again from the current state: after a scope, a row, a ← → or the server's answer. */
+  function repaintIntro() {
+    micRelist();
+    renderMicCard('intro', micIntroData());
+  }
+  /**
+   * Every slide, one row each: its title, its beats, and what the folder
+   * holds for it — recorded, missing, the notes or the [click] split moved
+   * since, or builds with no [click] to pace them, which used to be said one
+   * slide at a time once the take was running. A slide without notes is
+   * listed, dimmed, so the numbering matches the deck. Clicking a row starts
+   * the take there.
+   */
+  function slideRows() {
+    const t = micTrack();
+    const have = new Set(t?.slides ?? []);
+    const drift = new Map((t?.drift ?? []).map((d) => [d.slide, d]));
+    const startSl = micList[micFrom.s];
+    const listed = new Set(micList);
+    let rows = '';
+    for (let sl = 1; sl <= instance.state.totalSlides; sl++) {
+      const sec = instance._sections?.[sl - 1];
+      const title = sec ? slideTitle(sec, sl - 1, slideBody(sec)) : `slide ${sl}`;
+      const notes = !!notesText(sl);
+      const plan = notes ? recordPlan(notesSegs(sl), buildSteps(sl)) : [];
+      const builds = buildSteps(sl);
+      let status = 'not recorded', tone = '';
+      if (!notes) [status, tone] = ['no notes · skipped', 'dim'];
+      else if (drift.has(sl)) [status, tone] = [drift.get(sl).why === 'clicks' ? '[click] moved since recorded' : 'notes changed since recorded', 'warn'];
+      else if (plan.length === 1 && builds > 0) [status, tone] = [`${builds} build${builds === 1 ? '' : 's'}, no [click] in the notes`, 'warn'];
+      else if (have.has(sl)) [status, tone] = ['recorded', 'ok'];
+      const can = notes && listed.has(sl);
+      const isStart = sl === startSl;
+      rows += `<button type="button" tabindex="-1" data-slide="${sl}" class="rec-slide${isStart ? ' on' : ''}${can ? '' : ' off'}"${can ? '' : ' disabled'}>`
+        + `<span class="rec-slide-n">${sl}</span><span class="rec-slide-t">${escapeHtml(title)}</span>`
+        + `<span class="rec-slide-b">${notes ? `${plan.length} beat${plan.length === 1 ? '' : 's'}` : ''}</span>`
+        + `<span class="rec-slide-s${tone ? ` ${tone}` : ''}">${escapeHtml(status)}</span>`
+        + `${isStart ? '<span class="rec-pill">start here</span>' : ''}</button>`;
+    }
+    return `<div class="rec-slides" role="group" aria-label="slides">${rows}</div>`;
+  }
+  function wireSlides(card) {
+    card.querySelectorAll('.rec-slide[data-slide]').forEach((b) => {
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => {
+        const k = micList.indexOf(Number(b.dataset.slide));
+        if (k < 0) return;
+        micFrom = { s: k, i: 0 };
+        renderMicCard('intro', micIntroData());
+      });
+    });
+  }
+  /** `2 slides · 4 beats · about 1 min of reading`, from the start point on. */
+  function micEstimate() {
+    const plans = micPlans.slice(micFrom.s);
+    const beats = plans.reduce((n, p) => n + p.length, 0) - micFrom.i;
+    const words = plans.flatMap((p, s) => (s === 0 ? p.slice(micFrom.i) : p))
+      .reduce((n, b) => n + b.text.split(/\s+/).filter(Boolean).length, 0);
+    const mins = Math.max(1, Math.round(words / 140));
+    const slides = plans.filter((p) => p.length).length;
+    return `${slides} slide${slides === 1 ? '' : 's'} · ${beats} beat${beats === 1 ? '' : 's'} · about ${mins} min of reading`;
+  }
+  /** The HOW section: one line that says the choices, and the choices behind it. */
+  function howRow() {
+    return `<button type="button" tabindex="-1" class="rec-how" aria-expanded="${micHowOpen}">`
+      + `<span class="rec-chev${micHowOpen ? ' open' : ''}" aria-hidden="true">›</span>`
+      + `<span class="rec-how-sum">${howSummary()}</span><span class="rec-how-act">${micHowOpen ? 'done' : 'change'}</span></button>`
+      + (micHowOpen ? micOptsRow() : '');
+  }
+  function howSummary() {
+    const { noise, rate, countIn: secs, takes } = micPrefs();
+    return `${takes === 'beat' ? 'One take per beat' : 'One take per slide'} · ${secs ? `${secs} s count-in` : 'no count-in'}`
+      + ` · noise suppression ${noise ? 'on' : 'off'} · ${rate / 1000} kHz`;
+  }
+  function wireHow(card) {
+    const b = card.querySelector('.rec-how');
+    if (!b) return;
+    b.addEventListener('mousedown', (e) => e.preventDefault());
+    b.addEventListener('click', () => { micHowOpen = !micHowOpen; renderMicCard('intro', micIntroData()); });
+  }
+  /** The microphone's choices and the count-in, remembered for every deck, each with its reason. */
   function micOptsRow() {
     const { noise, rate, countIn: secs, takes } = micPrefs();
     const seg = (name, value, label, on) => `<button type="button" tabindex="-1" data-${name}="${value}"`
       + ` aria-pressed="${on}" class="${on ? 'on' : ''}">${label}</button>`;
-    return `<div class="rec-line rec-opts">
-        <span class="rec-opt"><span class="rec-opt-label">one take</span><span class="rec-seg" role="group" aria-label="one take per slide or per beat">${
-  seg('takes', 'slide', 'per slide', takes === 'slide')}${seg('takes', 'beat', 'per beat', takes === 'beat')}</span></span>
-        <span class="rec-opt"><span class="rec-opt-label">noise suppression</span><span class="rec-seg" role="group" aria-label="noise suppression">${
-  seg('noise', 'on', 'on', noise)}${seg('noise', 'off', 'off', !noise)}</span></span>
-        <span class="rec-opt"><span class="rec-opt-label">sample rate</span><span class="rec-seg" role="group" aria-label="sample rate">${
-  MIC_RATES.map((r) => seg('rate', r, `${r / 1000} kHz`, r === rate)).join('')}</span></span>
-        <span class="rec-opt"><span class="rec-opt-label">count-in</span><span class="rec-seg" role="group" aria-label="count-in before each take">${
-  [...new Set([...COUNT_INS, secs])].map((c) => seg('count', c, c ? `${c} s` : 'off', c === secs)).join('')}</span></span>
-      </div><div class="rec-line rec-opt-why">${micOptsWhy(noise, rate)}</div>`;
+    return `<div class="rec-opts">
+        <div class="rec-opt-k">Take</div>
+        <div><span class="rec-seg" role="group" aria-label="one take per slide or per beat">${
+  seg('takes', 'slide', 'per slide', takes === 'slide')}${seg('takes', 'beat', 'per beat', takes === 'beat')}</span>
+          <div class="rec-opt-why rec-takes-says">${takesSays(takes)}</div></div>
+        <div class="rec-opt-k">Count-in</div>
+        <div><span class="rec-seg" role="group" aria-label="count-in before each take">${
+  [...new Set([...COUNT_INS, secs])].map((c) => seg('count', c, c ? `${c} s` : 'off', c === secs)).join('')}</span>
+          <div class="rec-opt-why rec-count-says">${countSays(secs)}</div></div>
+        <div class="rec-opt-k">Noise suppression</div>
+        <div><span class="rec-seg" role="group" aria-label="noise suppression">${
+  seg('noise', 'on', 'on', noise)}${seg('noise', 'off', 'off', !noise)}</span>
+          <div class="rec-opt-why rec-noise-says">${noiseSays(noise)}</div></div>
+        <div class="rec-opt-k">Quality</div>
+        <div><span class="rec-seg" role="group" aria-label="sample rate">${
+  MIC_RATES.map((r) => seg('rate', r, `${r / 1000} kHz`, r === rate)).join('')}</span>
+          <div class="rec-opt-why rec-rate-says">${rateSays(rate)}</div></div>
+      </div>`;
   }
-  /** What the intro card says a take is, per slide or per beat. */
+  /** What a take is, per slide or per beat, and what the keys do during one. */
   function takesSays(takes) {
     return takes === 'beat'
-      ? 'Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.'
-      : 'Each slide is one take: press <kbd>→</kbd> at each [click] and the next build appears while the recording runs on, cut into a file per beat there, so your voice paces the deck exactly as it will on the night.';
+      ? 'Each beat is its own take, counted in and retaken on its own: <kbd>→</kbd> ends it and reveals the next build. <kbd>⌫</kbd> retakes the beat, <kbd>←</kbd> goes back.'
+      : 'Read the slide straight through: <kbd>→</kbd> at each [click] reveals the next build and cuts the file there while the recording runs on. <kbd>⌫</kbd> retakes the slide, <kbd>←</kbd> goes back a slide.';
   }
-  /** What the intro card says the count-in is: `Every take starts after a 3, 2, 1, and`. */
+  /** What the count-in does: `Every take starts after a 3, 2, 1, and …`. */
   function countSays(n) {
-    return n ? ` Every take starts after a ${[...Array(n)].map((_, k) => n - k).join(', ')}, and` : '';
+    return n
+      ? `Every take starts after a ${[...Array(n)].map((_, k) => n - k).join(', ')}, and nothing is captured while it counts, so the key you pressed is never in the take.`
+      : 'A take starts on the key, so the keystroke may be heard at its head.';
   }
-  function micOptsWhy(noise, rate) {
-    return [
-      noise ? 'the browser cleans up the room' : 'the room as your microphone hears it: best with a good microphone somewhere quiet',
-      rate === 48000 ? 'about 5.8 MB a minute' : 'about 2.8 MB a minute, everything above 12 kHz left out',
-    ].join(' · ');
-  }
+  const noiseSays = (noise) => (noise
+    ? 'The browser cleans up the room. Off sounds truer with a good microphone somewhere quiet.'
+    : 'The room as your microphone hears it: best with a good microphone somewhere quiet.');
+  const rateSays = (rate) => (rate === 48000
+    ? 'About 5.8 MB a minute, everything above 12 kHz kept. Pick it only if you will master the audio elsewhere.'
+    : 'About 2.8 MB a minute, everything above 12 kHz left out: what every synthesized voice and the lip-sync use.');
   function wireMicOpts(card) {
     card.querySelectorAll('.rec-opts .rec-seg button').forEach((b) => {
       // never takes focus: Enter on the card starts the recording, and a
@@ -3999,7 +4204,7 @@ export function createNarration({
         // a ?countdown or ?takes visit stays one
         const stored = readJson(MIC_PREFS, {});
         writeJson(MIC_PREFS, {
-          noise: p.noise, rate: p.rate,
+          noise: p.noise, rate: p.rate, device: p.device,
           countIn: b.dataset.count ? p.countIn : stored.countIn,
           takes: b.dataset.takes ? p.takes : stored.takes,
         });
@@ -4010,13 +4215,99 @@ export function createNarration({
           o.classList.toggle('on', on);
           o.setAttribute('aria-pressed', String(on));
         });
-        const why = card.querySelector('.rec-opt-why');
-        if (why) why.textContent = micOptsWhy(p.noise, p.rate);
-        const says = card.querySelector('.rec-count-says');
-        if (says) says.textContent = countSays(p.countIn);
-        const takesLine = card.querySelector('.rec-takes-says');
-        if (takesLine) takesLine.innerHTML = takesSays(p.takes);
+        const say = (sel, html) => { const el = card.querySelector(sel); if (el) el.innerHTML = html; };
+        say('.rec-takes-says', takesSays(p.takes));
+        say('.rec-count-says', countSays(p.countIn));
+        say('.rec-noise-says', noiseSays(p.noise));
+        say('.rec-rate-says', rateSays(p.rate));
+        say('.rec-how-sum', howSummary());
       });
+    });
+  }
+
+  // ── the microphone check ─────────────────────────────────────────────────
+  // The level meter used to be the first thing a take showed, which is one
+  // slide too late to learn that the microphone is muted. The card opens the
+  // microphone as soon as it is up, shows the level while you decide, and
+  // lets you pick another input; the take then opens the same one.
+  function micShortWhy(e) {
+    const n = e?.name;
+    if (n === 'NotAllowedError' || n === 'SecurityError') return 'the microphone is blocked for this page: allow it (the 🎤 in the address bar) and open the card again';
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'no microphone was found: plug one in and open the card again';
+    if (n === 'NotReadableError') return 'the microphone is busy in another app';
+    return `the microphone could not be opened (${escapeHtml(String(e?.message || n || e))})`;
+  }
+  async function micPreviewStart() {
+    if (micPreview || micUnavailable()) return;
+    const p = micPreview = { stream: null, ctx: null, node: null, timer: null, peak: 0, devices: [], why: null };
+    try {
+      const { noise, device } = micPrefs();
+      p.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, noiseSuppression: noise, ...micDeviceConstraint(device) } });
+      if (micPreview !== p) { p.stream.getTracks().forEach((t) => t.stop()); return; }
+      const Ctx = window.AudioContext ?? window.webkitAudioContext;
+      p.ctx = new Ctx();
+      const src = p.ctx.createMediaStreamSource(p.stream);
+      p.node = p.ctx.createScriptProcessor(2048, 1, 1);
+      p.node.onaudioprocess = (e) => {
+        const buf = e.inputBuffer.getChannelData(0);
+        let peak = 0;
+        for (let i = 0; i < buf.length; i++) { const a = Math.abs(buf[i]); if (a > peak) peak = a; }
+        p.peak = Math.max(p.peak, peak);
+      };
+      const mute = p.ctx.createGain();   // pulled, never heard: see openMic
+      mute.gain.value = 0;
+      src.connect(p.node);
+      p.node.connect(mute);
+      mute.connect(p.ctx.destination);
+      if (p.ctx.state === 'suspended') await p.ctx.resume();
+      // labels are only given once a microphone was allowed, which it just was
+      try { p.devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput'); } catch { /* no list */ }
+      p.timer = setInterval(() => {
+        const fill = micEl?.querySelector('.rec-check .rec-level-fill');
+        if (fill) {
+          fill.style.width = `${Math.min(100, Math.round(p.peak * 140))}%`;
+          fill.parentElement.classList.toggle('hot', p.peak > 0.95);
+        }
+        p.peak *= 0.7;
+      }, 100);
+    } catch (e) {
+      if (micPreview !== p) return;
+      p.why = micShortWhy(e);
+    }
+    const row = micEl?.querySelector('.rec-check-row');
+    if (row && micView === 'intro') { row.outerHTML = micCheckRow(); wireDevice(micEl.querySelector('.narr-card')); }
+  }
+  function micPreviewStop() {
+    const p = micPreview;
+    if (!p) return;
+    micPreview = null;
+    clearInterval(p.timer);
+    try { p.node?.disconnect(); } catch { /* already gone */ }
+    if (p.node) p.node.onaudioprocess = null;
+    p.stream?.getTracks().forEach((t) => t.stop());
+    p.ctx?.close?.();
+  }
+  function micCheckRow() {
+    const p = micPreview;
+    if (p?.why) return `<div class="rec-line rec-check-row"><span class="rec-check-why">${p.why}</span></div>`;
+    const devices = p?.devices ?? [];
+    const chosen = micPrefs().device;
+    const name = devices.length > 1
+      ? `<select class="rec-device" aria-label="microphone">${devices.map((d) =>
+        `<option value="${escapeHtml(d.deviceId)}"${d.deviceId === chosen ? ' selected' : ''}>${escapeHtml(d.label || 'microphone')}</option>`).join('')}</select>`
+      : `<span class="rec-device-name">${escapeHtml(devices[0]?.label || (p?.stream ? 'microphone' : 'opening the microphone…'))}</span>`;
+    return `<div class="rec-line rec-check-row">${name}<div class="rec-level rec-check"><div class="rec-level-fill"></div></div>`
+      + '<span class="rec-check-hint">say a word · the bar should move</span></div>';
+  }
+  function wireDevice(card) {
+    const sel = card?.querySelector('.rec-device');
+    if (!sel) return;
+    sel.addEventListener('keydown', (e) => e.stopPropagation());   // ↑ ↓ pick, not the start point
+    sel.addEventListener('change', () => {
+      const stored = readJson(MIC_PREFS, {});
+      writeJson(MIC_PREFS, { ...stored, device: sel.value });
+      micPreviewStop();
+      micPreviewStart();
     });
   }
   function renderMicCard(view, data = {}) {
@@ -4026,37 +4317,55 @@ export function createNarration({
     const card = micEl?.querySelector('.narr-card');
     if (!card) return;
     if (view === 'intro') {
-      const { slides, beats, why } = data;
+      const { beats, why } = data;
       if (why) {
-        card.innerHTML = `<div class="narr-head">record your voice</div>
+        card.innerHTML = `<div class="narr-head">record my voice</div>
           <div class="rec-line">${why}</div>
           <div class="rec-hint">Esc to close</div>`;
         return;
       }
-      micIntro = data;
       const { range } = data;
       const bad = beats === 0 ? null : fromProblem();
       const warn = bad ?? data.warn;
       const canStart = beats > 0 && !bad;
-      card.innerHTML = `<div class="narr-head">record your voice</div>
-        <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${beats} beat${beats === 1 ? '' : 's'} — the deck reads you the notes, one [click] at a time${
-  range ? ` <strong>(slides ${escapeHtml(range)} only — everything else is left alone)</strong>` : ''}</div>
-        ${beats === 0
-    ? `<div class="rec-line rec-warn">Nothing to record${range ? ` in slides ${escapeHtml(range)}` : ''} — no slide there has notes to read.</div>`
-    : `<div class="rec-line"><span class="rec-takes-says">${takesSays(micPrefs().takes)}</span>`
-      + `<span class="rec-count-says">${countSays(micPrefs().countIn)}</span>`
-      + " <kbd>←</kbd> goes back to record a slide again.</div>"}
-        ${folderRow(data.target)}
+      const startSl = micList[micFrom.s];
+      const startLabel = `Start at slide ${startSl}${micFrom.i > 0 ? ` · beat ${micFrom.i + 1}` : ''}`;
+      card.innerHTML = `<div class="narr-head">record my voice</div>
+        <p class="rec-lede">You read your notes aloud while the deck shows them to you, one beat at a time.
+          Where the notes say <span class="rec-click">[click]</span>, press <kbd>→</kbd>: the next build appears and the
+          audio is cut there, so afterwards the deck turns its own pages in time with your voice.</p>
+        <div class="rec-sect">What to record</div>
+        ${scopeChips()}
+        <div class="rec-line rec-estimate">${beats === 0
+    ? `Nothing to record${range ? ` in ${rangeLabel(range)}` : ''} — no slide there has notes to read.`
+    : micEstimate() + (range ? ` <strong>(${escapeHtml(rangeLabel(range))} only — everything else is left alone)</strong>` : '')}</div>
+        ${slideRows()}
         ${canStart ? fromRow() : ''}
-        ${beats === 0 ? '' : micOptsRow()}
+        <div class="rec-line rec-slides-hint">Click a slide to start there: the slides before it keep their recording. Slides without notes are skipped.</div>
+        <div class="rec-sect">How</div>
+        ${howRow()}
+        ${data.target ? `<div class="rec-sect">Where</div>${folderRow(data.target)}` : ''}
+        <div class="rec-sect">Microphone</div>
+        ${micCheckRow()}
         ${beats === 0 ? '' : phoneRow()}
         ${warn ? `<div class="rec-line rec-warn">${warn}</div>` : ''}
-        ${canStart ? '<div class="narr-row narr-sel">Start recording</div>' : ''}
-        <div class="rec-hint">${canStart ? 'Enter to start · Esc to cancel' : 'Esc to close'}</div>`;
-      wireFolderRow(card, (t) => { micTarget = t; });
+        <div class="rec-foot">${canStart ? `<button type="button" class="narr-row narr-sel rec-start">${escapeHtml(startLabel)} <span aria-hidden="true">→</span></button>` : ''}
+          <span class="rec-hint">${canStart ? 'Enter starts · Esc closes' : 'Esc to close'}</span></div>`;
+      wireFolderRow(card, (t) => {
+        // the folder typed is the folder listed: its slides, its drift
+        micTarget = { ...t, clash: micTracks.find((x) => x.dir === t.dir) ?? null, why: 'asked' };
+        const rows = card.querySelector('.rec-slides');
+        if (rows) { rows.outerHTML = slideRows(); wireSlides(card); }
+      });
+      wireScope(card);
+      wireSlides(card);
+      wireHow(card);
       wireMicOpts(card);
       wireFromRow(card);
-      card.querySelector('.narr-row')?.addEventListener('click', () => startMicRecording());
+      wireDevice(card);
+      card.querySelector('.rec-start')?.addEventListener('click', () => startMicRecording());
+      // the row the take starts on, in view: a scope change can move it off the list's window
+      card.querySelector('.rec-slide.on')?.scrollIntoView?.({ block: 'nearest' });
       return;
     }
     if (view === 'capture') {
@@ -4100,7 +4409,7 @@ export function createNarration({
 
   async function startMicRecording() {
     const run = ++micRun;
-    const list = slidesWithNotes();
+    const list = micSlides();
     await editReady();          // see startRecording — never sampled early
     if (run !== micRun) return;
     const base = editBase();
@@ -4302,41 +4611,41 @@ export function createNarration({
     closeOnBackdrop(micEl, closeMicRecorder);
     root.appendChild(micEl);
     const why = micUnavailable();
-    const list = slidesWithNotes();
-    micList = list;
-    micPlans = list.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
-    const beats = micPlans.reduce((n, p) => n + p.length, 0);
-    const range = recRange;
     micTarget = null;
-    const speaks = Math.max(0, micPlans.findIndex((p) => p.length));
-    micFrom = recBeats ? { s: speaks, i: recBeats.from - 1 } : { s: speaks, i: 0 };
-    renderMicCard('intro', why ? { why } : { slides: list.length, beats, range });
+    micTracks = [];
+    micOnly = null;
+    micProbed = false;
+    micHowOpen = false;
+    micList = [];
+    micFrom = { s: 0, i: 0 };
+    micRelist();
+    renderMicCard('intro', why ? { why } : micIntroData());
     if (why) return;
+    // the level, while you read the card: a muted microphone is found here
+    // and not after the first slide
+    micPreviewStart();
     // ONE deferred render, not two: the target and the no-server warning both
     // arrive after the probe, and two independent re-renders meant whichever
-    // landed second erased the other.
+    // landed second erased the other. Where the files will land is said
+    // BEFORE the first beat rather than after the last: a take that was going
+    // somewhere unexpected is worth eight seconds of warning and is not worth
+    // eight beats of reading.
     editReady()
       .then(() => knownTracks())
       .then((tracks) => {
         if (!micEl || micView !== 'intro') return;
+        micTracks = tracks;
+        micProbed = true;
         micTarget = editBase() == null ? null : targetFor({ mine: true }, tracks);
-        renderMicCard('intro', {
-          slides: list.length,
-          beats,
-          range,
-          target: micTarget,
-          warn: editBase() == null ? noServerReason() : null,
-        });
+        repaintIntro();
       });
-    // Where the files will land, said BEFORE the first beat rather than after
-    // the last. A take that was going somewhere unexpected is worth eight
-    // seconds of warning and is not worth eight beats of reading.
-
   }
   function closeMicRecorder() {
     micRun++;                  // invalidate any loop in flight
     endBeat('stop');           // …and unblock it, so its finally runs
     closeMic();
+    micPreviewStop();
+    micOnly = null;            // the "only…" scope is this card's; the range stays, as the V panel's
     micEl?.remove();
     micEl = null;
     micChanged();              // the phone stops saying it is recording

@@ -155,6 +155,9 @@ const DECK = `<!doctype html>
       r.autoOpened = !!(await until(() => card()));
       // the beat count is read off the notes before a single sample is captured
       r.introLine = card()?.querySelector('.rec-line')?.textContent ?? '';
+      // the choices sit under HOW, behind one line: open it, as a person
+      // changing them would (the card keeps it open through its re-renders)
+      (await until(() => card()?.querySelector('.rec-how'), 5000))?.click();
       // ?pick: choose noise suppression off and 48 kHz on the card, by click,
       // once the deferred render has settled (it re-renders with the folder)
       if (params.has('pick')) {
@@ -172,8 +175,8 @@ const DECK = `<!doctype html>
       r.warnText = [...(card()?.querySelectorAll('.rec-warn') ?? [])].map((w) => w.textContent).join(' | ');
       r.canStart = !!card()?.querySelector('.narr-row');
       if (params.has('introonly')) throw 'introonly';
-      r.introOpts = [...(card()?.querySelectorAll('.rec-seg button.on') ?? [])].map((b) => b.textContent);
-      r.introWhy = card()?.querySelector('.rec-opt-why')?.textContent ?? '';
+      r.introOpts = [...(card()?.querySelectorAll('.rec-opts .rec-seg button.on') ?? [])].map((b) => b.textContent);
+      r.introWhy = card()?.querySelector('.rec-rate-says')?.textContent ?? '';
       // with --remote on, the card carries the QR (the speaker view is not open)
       r.introQr = !!(await until(() => card()?.querySelector('.rec-phone img'), 5000));
       press('Enter');
@@ -477,8 +480,8 @@ check('back', JSON.stringify(backed.steps) === JSON.stringify(
   && backed.finished === true && /2 slides · 5 files/.test(backed.card ?? '')
   && JSON.stringify(backFiles) === JSON.stringify(files),
 `← read ${backed.steps.join(' ')} · done card: "${/\d+ slides? · \d+ files?/.exec(backed.card ?? '')?.[0]}" · wrote ${backFiles.join(' ') || '(nothing)'}`);
-check('options', JSON.stringify(took.introOpts) === JSON.stringify(['per slide', 'on', '24 kHz', '3 s'])
-  && JSON.stringify(backed.introOpts) === JSON.stringify(['per beat', 'off', '48 kHz', '1 s'])
+check('options', JSON.stringify(took.introOpts) === JSON.stringify(['per slide', '3 s', 'on', '24 kHz'])
+  && JSON.stringify(backed.introOpts) === JSON.stringify(['per beat', '1 s', 'off', '48 kHz'])
   && /after a 3, 2, 1, and/.test(took.countSays ?? '') && /after a 1, and/.test(backed.countSays ?? '') && /5\.8 MB/.test(backed.introWhy)
   && took.gum?.noiseSuppression === true && backed.gum?.noiseSuppression === false
   && rateOf('slide-01.wav') === 48000 && readFileSync(path.join(outDir, 'slide-01.wav')).readUInt32LE(24) === 24000,

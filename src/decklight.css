@@ -1933,10 +1933,59 @@
 }
 .decklight-narr .narr-warn code { display: block; margin-top: 4px; font-size: .92em; user-select: all; }
 
-/* the microphone's two choices on the intro card: segmented, and remembered */
-.decklight-mic .rec-opts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; }
-.decklight-mic .rec-opt { display: inline-flex; align-items: center; gap: 8px; }
-.decklight-mic .rec-opt-label { opacity: .75; }
+/* The plan card (V → Record my voice): what to record, how, where, and the
+   microphone, as sections. Taller than any other card, so it takes more of
+   the screen; the slide list scrolls inside it. */
+.decklight-mic .narr-card { max-height: 88vh; }
+.decklight-mic .rec-lede { margin: 0; padding: 4px 12px 10px; font-size: 14px; line-height: 1.5; opacity: .85; text-wrap: pretty; }
+.decklight-mic .rec-click { color: var(--accent, #6af); }
+.decklight-mic .rec-sect {
+  margin: 6px 12px 4px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .1);
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase; opacity: .55;
+}
+.decklight-mic .rec-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 12px 6px; }
+.decklight-mic .rec-chip {
+  font: inherit; font-size: 13px; color: inherit; cursor: pointer; opacity: .8;
+  padding: 3px 12px; border: 1px solid rgba(255, 255, 255, .2); border-radius: 16px; background: transparent;
+}
+.decklight-mic .rec-chip.on { opacity: 1; border-color: var(--accent, #6af); background: color-mix(in srgb, var(--accent, #6af) 16%, transparent); }
+.decklight-mic .rec-estimate { font-size: 13px; }
+/* every slide, one row: number · title · beats · what the folder holds · start here */
+.decklight-mic .rec-slides {
+  margin: 2px 12px 0; max-height: 196px; overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px;
+}
+.decklight-mic .rec-slide {
+  display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box;
+  padding: 5px 10px; border: 0; border-bottom: 1px solid rgba(255, 255, 255, .06);
+  font: inherit; font-size: 13px; color: inherit; text-align: left; background: transparent; cursor: pointer;
+}
+.decklight-mic .rec-slide:last-child { border-bottom: 0; }
+.decklight-mic .rec-slide.on { background: color-mix(in srgb, var(--accent, #6af) 9%, transparent); }
+.decklight-mic .rec-slide.off { opacity: .45; cursor: default; }
+.decklight-mic .rec-slide-n { flex: none; width: 22px; text-align: right; font-variant-numeric: tabular-nums; opacity: .6; }
+.decklight-mic .rec-slide-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-mic .rec-slide-b { flex: none; width: 52px; text-align: right; font-size: 12px; opacity: .6; }
+.decklight-mic .rec-slide-s { flex: none; width: 170px; font-size: 12px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-mic .rec-slide-s.ok { color: #7bd88f; opacity: 1; }
+.decklight-mic .rec-slide-s.warn { color: #ffcf8b; opacity: 1; }
+.decklight-mic .rec-slide-s.dim { opacity: .5; }
+.decklight-mic .rec-pill {
+  flex: none; font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: #16181d; background: var(--accent, #6af); border-radius: 10px; padding: 1px 8px;
+}
+.decklight-mic .rec-slides-hint { font-size: 12px; opacity: .5; }
+/* HOW: one line that says the choices, and the choices behind it */
+.decklight-mic .rec-how {
+  display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
+  padding: 2px 12px 6px; border: 0; background: transparent; font: inherit; font-size: 13px; color: inherit; cursor: pointer; text-align: left;
+}
+.decklight-mic .rec-chev { display: inline-block; opacity: .6; transition: transform 120ms; }
+.decklight-mic .rec-chev.open { transform: rotate(90deg); }
+.decklight-mic .rec-how-sum { flex: 1 1 auto; }
+.decklight-mic .rec-how-act { font-size: 12px; color: var(--accent, #6af); }
+.decklight-mic .rec-opts { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 10px 12px; padding: 0 12px 10px; font-size: 13px; }
+.decklight-mic .rec-opt-k { opacity: .85; padding-top: 3px; }
 .decklight-mic .rec-seg { display: inline-flex; border: 1px solid rgba(255, 255, 255, .18); border-radius: 6px; overflow: hidden; }
 .decklight-mic .rec-seg button {
   font: inherit; font-size: 12px; color: inherit; cursor: pointer;
@@ -1944,7 +1993,31 @@
 }
 .decklight-mic .rec-seg button + button { border-left: 1px solid rgba(255, 255, 255, .18); }
 .decklight-mic .rec-seg button.on { background: rgba(255, 255, 255, .16); opacity: 1; }
-.decklight-mic .rec-opt-why { font-size: 12px; opacity: .55; }
+.decklight-mic .rec-opt-why { margin-top: 4px; font-size: 12px; opacity: .6; line-height: 1.45; }
+.decklight-mic .rec-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.decklight-mic .rec-folder label { flex: 0 1 auto; }
+.decklight-mic .rec-folder .rec-dir { flex: none; width: 180px; }
+.decklight-mic .rec-folder-note { font-size: 12px; opacity: .6; }
+/* the microphone check: the input, its level while you read the card, and why not */
+.decklight-mic .rec-check-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.decklight-mic .rec-device, .decklight-mic .rec-device-name { flex: none; max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-mic .rec-device {
+  font: inherit; font-size: 13px; color: inherit; background: rgba(255, 255, 255, .07);
+  border: 1px solid rgba(255, 255, 255, .18); border-radius: 6px; padding: 3px 6px;
+}
+.decklight-mic .rec-device-name { opacity: .85; }
+.decklight-mic .rec-level.rec-check { flex: 1 1 auto; margin: 0; }
+.decklight-mic .rec-level.rec-check .rec-level-fill { background: #7bd88f; }
+.decklight-mic .rec-check-hint { flex: none; font-size: 12px; opacity: .55; }
+.decklight-mic .rec-check-why { color: #ffcf8b; font-size: 13px; }
+/* the foot: Start, and what the keys do */
+.decklight-mic .rec-foot { display: flex; align-items: center; gap: 14px; margin: 6px 12px 0; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .1); }
+.decklight-mic .rec-foot .rec-hint { padding: 0; }
+.decklight-mic .rec-start {
+  display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 8px; padding: 8px 16px;
+  font: inherit; font-size: 14px; font-weight: 600; color: #16181d; background: var(--accent, #6af); cursor: pointer;
+}
+.decklight-mic .rec-start.narr-sel { background: var(--accent, #6af); }
 /* where the take starts: ‹ slide 6 · beat 3 of 4 ›, and what that keeps */
 .decklight-mic .rec-from { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
 .decklight-mic .rec-from .rec-seg button { opacity: 1; padding: 1px 9px; font-size: 14px; }

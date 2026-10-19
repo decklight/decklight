@@ -2673,6 +2673,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
           // the beats are what let a track pace the builds, so whether it
           // has them is the one fact worth reporting beside the count
           segments: wav.some((e) => /^slide-\d+-\d+\./.test(e.name)),
+          // …and which slides have a whole-slide file: the recorder's plan
+          // card lists every slide as recorded, missing or out of step
+          slides: wav.map((e) => /^slide-(\d+)\.(wav|m4a|mp3)$/.exec(e.name)).filter(Boolean)
+            .map((m) => Number(m[1])).sort((a, b) => a - b),
           ext: (wav[0].name.split('.').pop()),
           engine,
           voice,

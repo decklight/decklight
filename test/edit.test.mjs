@@ -2622,6 +2622,7 @@ test('POST /deck/edit/narration/record?kind=manifest writes the take’s manifes
   assert.equal(kore?.manifest, true);
   assert.equal(kore?.engine, 'gemini');
   assert.equal(kore?.voice, 'Kore');
+  assert.ok(kore?.slides?.includes(1), 'which slides it holds, for the recorder\'s plan card');
   // what it refuses: no engine, a bad range, not JSON, a folder outside the deck
   assert.equal((await post({ voice: 'Kore', range: [1, 2], slides: {} })).status, 400);
   assert.equal((await post({ ...header, range: [2, 1], slides: {} })).status, 400);
