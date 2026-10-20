@@ -26,6 +26,7 @@
 // references, and the CSS reaches nothing outside its own package.
 
 import { SEMVER_RE } from './semver.mjs';
+import { migrationShapeProblems, migrationNameProblems, migrationsOf, RENAME_KINDS } from './design-system-migrations.mjs';
 import { readScales, expandThemes, paletteEntries, offPaletteTokens, offRoleColours, nearestRole, roleToken, COLOUR_TOKENS, WEIGHTS } from './brand-palette.mjs';
 
 /**
@@ -199,6 +200,8 @@ export function readManifest(raw) {
   if (m.recommendedFonts !== undefined && (!Array.isArray(m.recommendedFonts) || !m.recommendedFonts.every((t) => typeof t === 'string'))) {
     at('manifest-field', 'recommendedFonts', 'recommendedFonts must be an array of font names — a font package (name or name@marketplace) or a font-picker stack');
   }
+  // what a major version renamed (SPEC DESIGN_SYSTEM_MIGRATIONS): its shape here, its names in checkPackage
+  for (const p of migrationShapeProblems(m)) at('migration', 'migrations', p.msg);
   return { manifest: m, problems };
 }
 
@@ -208,6 +211,8 @@ function parseThemeTokens(css) {
   for (const m of String(css ?? '').replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)) out[m[1].toLowerCase()] = m[2].trim();
   return out;
 }
+
+const isObjLike = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
 /** The token prefix a manifest holds its CSS to. */
 export const tokenPrefixOf = (manifest) => manifest?.tokenPrefix ?? `--${manifest?.name ?? ''}-`;
@@ -749,5 +754,25 @@ export function checkPackage(pkg) {
     : summary.brand ? `${summary.brand.scales.length} colours, ${summary.brand.palette.length} swatches${summary.brand.palette.some((e) => e.derived) ? ` (${summary.brand.palette.filter((e) => e.derived).length} derived)` : ''}` : 0;
   summary.recommendedThemes = manifest.recommendedThemes ?? [];
   summary.recommendedFonts = manifest.recommendedFonts ?? [];
+
+  // every name a migration renamed is gone from this version, every successor
+  // here (SPEC DESIGN_SYSTEM_MIGRATIONS) — held only once the files they are
+  // read from were readable, and the shape itself passed
+  if (manifest.migrations !== undefined && stylesRead && !mp.some((p) => p.rule === 'migration')) {
+    const css = files.get(stylesPath)?.text ?? '';
+    const templatesText = (templatesPath && files.get(templatesPath)?.text) || '';
+    const classes = new Set();
+    for (const c of css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{[^{}]*\}/g, '{}').matchAll(/\.(-?[A-Za-z_][A-Za-z0-9_-]*)/g)) classes.add(c[1]);
+    for (const a of templatesText.matchAll(/\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) for (const c of (a[1] ?? a[2]).split(/\s+/)) if (c) classes.add(c);
+    const roleIds = isObjLike(manifest.roles) ? Object.keys(manifest.roles) : [];
+    const has = {
+      roles: new Set(roleIds),
+      tokens: new Set([...summary.tokens, ...(summary.brand?.palette ?? []).map((e) => e.token), ...roleIds.map((id) => roleToken(prefix ?? '', id))]),
+      classes,
+      themes: new Set([...(summary.brand?.themes ?? []).map((t) => t.name), ...(Array.isArray(manifest.recommendedThemes) ? manifest.recommendedThemes.map((t) => String(t).split('@')[0]) : [])]),
+    };
+    for (const p of migrationNameProblems(manifest, has)) problems.push({ file: 'design-system.json', line: keyLine(pkg.manifest, 'migrations'), rule: 'migration', msg: p.msg });
+  }
+  summary.migrations = migrationsOf(manifest).map((m) => ({ version: m.version, skill: m.skill, renames: RENAME_KINDS.reduce((n, k) => n + Object.keys(m[k]).length, 0) }));
   return { ok: problems.length === 0, problems, warnings, summary };
 }

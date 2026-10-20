@@ -3013,6 +3013,19 @@ export function init(userConfig = {}) {
     for (const m of systems) debugLog('design-system', `missing ${m}`);
     for (const [n, why] of slides) debugLog('design-system', `slide ${n}: ${why}`);
   });
+  // A deck written for an older major of its design system (SPEC
+  // DESIGN_SYSTEM_MIGRATIONS): the server says so in a meta, with the renames
+  // and what moves them; said once a session while authoring, like the
+  // off-brand theme, because the slides only lose colours and say nothing.
+  editmode.settled?.().then(() => {
+    if (!editmode.available() || printMode || params.has('embedded') || params.has('capture')) return;
+    for (const m of document.querySelectorAll('meta[name="decklight-design-system-behind"]')) {
+      debugLog('design-system', `behind: ${m.content}`);
+      const key = `decklight-design-system-behind:${location.pathname}:${m.content}`;
+      try { if (sessionStorage.getItem(key)) continue; sessionStorage.setItem(key, '1'); } catch { /* no storage: say it each load */ }
+      toast(m.content, 9000);
+    }
+  });
 
   // The video export (PRESENTING): which slides, and how — voice, format,
   // quality, subtitles — on one card, then the door every export uses. A range

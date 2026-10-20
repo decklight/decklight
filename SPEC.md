@@ -23,7 +23,7 @@ being moved, and it says what it points at.
 | `REVIEW` | reviewer comments on a deck, anchored to slides and carried by git |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
 | `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `UNIT_VERSIONS` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | **in [`PLATFORM.md`](PLATFORM.md)**: catalogs of themes, templates, skills and engines, registered not fetched; the unit library, its pins, gates and calling conventions; voices, agents and engines as units |
-| `DESIGN_SYSTEMS` · `BRAND_PALETTE` · `DESIGN_SYSTEM_ROLES` | a company's tokens, art and slide templates, published once and referenced by every deck built on it; its palette, and the themes drawn from it; its roles, which each theme sets |
+| `DESIGN_SYSTEMS` · `BRAND_PALETTE` · `DESIGN_SYSTEM_ROLES` · `DESIGN_SYSTEM_MIGRATIONS` | a company's tokens, art and slide templates, published once and referenced by every deck built on it; its palette, and the themes drawn from it; its roles, which each theme sets; what each major version renamed, and the deck that took an older one |
 | `FONTS` | a typeface's files and licence, from a marketplace, referenced by a deck so its faces travel with it |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
@@ -920,7 +920,9 @@ A **design system** is what a company publishes once so that every deck built on
                        palette: [{ group, label, token }] or a palette of scales,
                        { colors: { <name>: { label, weights } } }, and themes: [{ name,
                        title, mode, tokens }] drawn from it (apiVersion 2, BRAND_PALETTE),
-                       recommendedThemes: ["…"] (advice only)
+                       recommendedThemes: ["…"] (advice only),
+                       migrations: { "<version>": { skill, roles, tokens, classes,
+                       themes } } (DESIGN_SYSTEM_MIGRATIONS)
   design-system.css    always-on styles: prefixed tokens, component and per-template rules;
                        url()s resolve relative to this file (url(assets/…))
   templates.html         inert <template data-template="…"> blocks, one per template
@@ -1139,6 +1141,38 @@ A role a theme leaves out is refused (`theme-role-missing`), and so is a value t
 **`"brandThemesOnly": false` stands it down** for a deck, as it does the palette lock: the Colors tab shows the theme, the palette and Custom again, and `off-role` is not raised. The gate's `component-off-role` is about the package, not a deck, and stays.
 
 **`design-system gate`** gains these rules: `role-redefined`, `theme-role-missing`, `theme-role-unknown` (✘), `component-off-role` (⚠), with a malformed `roles` or `contract` refused as `manifest-field`. `decklight check` gains `off-role` (⚠).
+
+### DESIGN_SYSTEM_MIGRATIONS · A design system's major versions, and the deck that took an older one
+
+A design system's major version may rename what decks write: a role, a token, a component class, a theme. A deck behind it does not fail; it loses colours, silently, because an undefined `var()` falls back. So a deck **records the version it took**, a package **declares what each major renamed**, and decklight says *migrate* once, where the author is, instead of N unrelated warnings.
+
+**The deck records its version.** `"designSystemVersions": { "<ref>": "5.0.0" }` in the configuration block, keyed by the deck's own spelling of the reference. `design-system add` (and the edit server's add, and `init --design-system`) writes it with the reference, `remove` drops it with the reference, and `migrate` moves it forward. `design-system apply` writes it for a deck that records none, as `add` does for a deck that already used the design system, unless the deck, or a stylesheet it links, still uses a name a migration renamed: recording the new version would hide that the deck is behind. This is the deck's fact and travels with it. The ledger (`~/.decklight/installed.json`, UNIT_VERSIONS) is one machine's and says nothing about a deck written elsewhere, so nothing below reads it. A bundle already carries the version it inlined (`data-design-system-version`).
+
+**The package declares its migrations** in `design-system.json`, keyed by the version that made the change:
+
+```json
+"migrations": {
+  "6.0.0": {
+    "skill":   "acme-migrate",
+    "roles":   { "text-diagram-blue": "text-diagram-default" },
+    "tokens":  { "--acme-font-size-body-lg": "--acme-font-size-body-xl" },
+    "classes": { "acme-tile--zest": "acme-tile--secondary-3" },
+    "themes":  { "acme-devrel": "acme-dark" }
+  }
+}
+```
+
+Every rename is a whole name: a role by its id (a slide writes its token, `--<prefix>color-<role>`), a custom property, a class (no dot), a theme. `skill` names a marketplace skill (`UNITS#REST`) for what a rename cannot decide, a name removed with no successor. The **gate** refuses (`migration`, ✘) a key that is not semver or is later than the package's `version`, a field it does not know, a malformed name, and, against the package as it now is, an old name it still defines (a rename that leaves the name is not one) or a new name it does not define, unless a later migration renamed it again. Roles are read from `roles`; tokens from the stylesheet, the palette and the roles; classes from the stylesheet's selectors and the templates' `class` attributes; themes from the brand's themes and `recommendedThemes`. The report prints one line per migration.
+
+**Behind** means the deck records an older major than the package this machine serves, or uses (in its own markup or a stylesheet it links from its folder, `<link rel="stylesheet" href="course.css">`) a name that a migration since its recorded version renamed. A deck that records no version is held to every migration. Renames are composed in version order, so a name renamed in 5.0.0 and again in 6.0.0 is said, and moved, straight to the last one.
+
+**Said where the author is**, in the same words everywhere: *written for acme 5.0.0, this machine serves 6.0.0: 14 renamed names (text-diagram-blue → text-diagram-default, …). Migrate with the acme-migrate skill, or decklight design-system migrate acme@acme-mkt talk.html*.
+
+- `decklight check`: **one** head-level warning, `ds-behind` (⚠), per design system. The names it counts are not each warned again as `off-role`. An `off-role` that still meets a renamed role names its successor (*was renamed text-diagram-default in 6.0.0*) instead of the nearest role.
+- **Write mode**: the servers pass the sentence to the page in `<meta name="decklight-design-system-behind">`, and the runtime toasts it once a session while authoring, like the off-brand theme. Presenting, a render and a preview say nothing.
+- **`design-system list <deck>`**: the deck's recorded version against the catalog's, `5.0.0 → 6.0.0 (major: migrate)`. A deck that records none shows the catalog's version and says so.
+
+**`decklight design-system migrate <ref> <deck.html>`** applies the renames pending since the deck's recorded version: roles and tokens wherever they stand as whole names, classes in `class` attributes and CSS selectors, and the configured `theme`. It edits the deck and the stylesheets it links from its folder (never a URL, a design system's own link or a theme), renames every file in memory before writing any, records the package's version, and prints the renames by kind. A deck already on the version is left byte for byte (*nothing to migrate*). It decides nothing a rename cannot: the migration's `skill` is named for that, and it is a marketplace skill an agent loads like any other (`UNITS#REST`).
 
 ## FONTS · Fonts: a typeface's files, by reference
 

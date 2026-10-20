@@ -7,6 +7,7 @@
 //   decklight design-system gate <dir>
 //   decklight design-system add|remove <name@marketplace> <deck.html>
 //   decklight design-system list [<deck.html>]
+//   decklight design-system migrate <name@marketplace> <deck.html>
 //   decklight design-system templates <name@marketplace>
 //
 // `check` is the admission gate a catalog's own CI runs, in the mould of
@@ -23,12 +24,12 @@
 // ~/.decklight/ — the ledger only remembers which version a deck took.
 
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { checkPackage, DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS } from '../tools/design-system-format.mjs';
 import { THEMES_DIR } from './pkg.mjs';
 
-const USAGE = `usage: decklight design-system <add|remove|list|templates|apply|gate> …
+const USAGE = `usage: decklight design-system <add|remove|list|templates|apply|migrate|gate> …
 
   decklight design-system add <name@marketplace> <deck.html> [--no-recommended] [--apply|--no-apply]
     reference a design system from a deck — after the package passes check;
@@ -42,6 +43,13 @@ const USAGE = `usage: decklight design-system <add|remove|list|templates|apply|g
   decklight design-system apply <name@marketplace> <deck.html>
     give a deck the look a design system it uses was drawn for: its first
     recommended theme and font (bringing any that are missing)
+
+  decklight design-system migrate <name@marketplace> <deck.html>
+    move a deck written for an older version onto the one this machine
+    serves: the renames its migrations declare (roles, tokens, classes,
+    themes — whole names, in the deck and the stylesheets it links), then the
+    version the deck records. A removed name with no successor is a
+    judgement call: the migration's skill makes it, not this command.
 
   decklight design-system remove <name@marketplace> <deck.html>
     drop the reference; the package stays in its marketplace, and so do the
@@ -69,7 +77,8 @@ const USAGE = `usage: decklight design-system <add|remove|list|templates|apply|g
                            palette [{ group, label, token }] or { colors: { <name>:
                            { label, weights: { "100": "#hex" … "1000" } } } } with
                            themes [{ name, title, mode, tokens }] (SPEC BRAND_PALETTE),
-                           recommendedThemes
+                           recommendedThemes, migrations { "<version>": { skill,
+                           roles, tokens, classes, themes } } (SPEC DESIGN_SYSTEM_MIGRATIONS)
     design-system.css    prefixed tokens and per-template rules; url()s relative to it
     templates.html         inert <template data-template="…"> blocks, with data-slot containers
     assets/…             ${ASSET_EXTENSIONS.join(' · ')}
@@ -176,6 +185,9 @@ export function reportLines(dir, r) {
       out.push(`  theme                ${t.name} (${t.mode}) — ${t.stated.length} token${t.stated.length === 1 ? '' : 's'} stated${via ? ` (${via} through roles)` : ''}, ${t.chosen.length} chosen from the palette`
         + `${roles.length ? `, every role set` : ''}`);
     }
+    for (const m of s.migrations ?? []) {
+      out.push(`  migration            ${m.version} — ${m.renames} rename${m.renames === 1 ? '' : 's'}${m.skill ? ` · skill ${m.skill}` : ''}`);
+    }
     const assets = s.assets ?? [];
     const byExt = {};
     for (const a of assets) byExt[a.ext] = (byExt[a.ext] ?? 0) + 1;
@@ -230,7 +242,7 @@ async function addMain(args, on) {
   const d = readDeckArg(cmd, deck);
   if (!d) return 1;
   const { MarketplaceError, resolveEntry, recordInstall, loadRegistry, configHome } = await import('./marketplace.mjs');
-  const { resolveDesignSystemRef, setDesignSystem, designSystemRefs } = await import('./design-system-refs.mjs');
+  const { resolveDesignSystemRef, setDesignSystem, designSystemRefs, recordVersionIfCurrent } = await import('./design-system-refs.mjs');
   const { refForDeck, writeFileAtomic } = { ...(await import('./theme-refs.mjs')), ...(await import('../tools/atomic-write.mjs')) };
   try {
     if (!on) {
@@ -269,7 +281,10 @@ async function addMain(args, on) {
       return 1;
     }
     const deckRef = refForDeck(d.html, r.name, r.local, r.source ?? null);
-    const out = setDesignSystem(d.html, deckRef, true, { source: r.source ?? null });
+    const out = setDesignSystem(d.html, deckRef, true, { source: r.source ?? null, version: verdict.manifest.version });
+    // a deck that already used it and records no version takes this one —
+    // unless it still uses names a migration renamed, which `migrate` moves first
+    if (!out.changed) out.html = recordVersionIfCurrent(out.html, deckRef, verdict.manifest, dirname(d.path));
     // its themes and fonts, in the SAME string — one write, one edit
     const recommended = !args.includes('--no-recommended');
     const deps = await import('./design-system-deps.mjs');
@@ -283,9 +298,12 @@ async function addMain(args, on) {
     recordInstall({ type: 'design-system', name: r.name, marketplace: r.local, version: r.entry.version ?? null, commit });
     if (recommended) for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
     const v = verdict.summary.version ? ` ${verdict.summary.version}` : '';
+    const { deckDesignSystemVersions } = await import('./design-system-refs.mjs');
+    const took = deckDesignSystemVersions(html)[deckRef];
     console.log(out.changed
       ? `${deck} now uses ${deckRef}${v} — ${verdict.summary.title}; every server links it from the marketplace on this machine`
-      : `${deck} already uses ${deckRef} — recorded${v} as the version you have`);
+      : took ? `${deck} already uses ${deckRef} — written for ${took}${took !== verdict.summary.version ? `; this machine serves ${verdict.summary.version} (decklight design-system migrate ${deckRef} ${deck})` : ''}`
+        : `${deck} already uses ${deckRef} — it uses names from before ${verdict.summary.version}: decklight design-system migrate ${deckRef} ${deck}`);
     if (recommended) for (const line of deps.planLines(plan)) console.log(line);
     else if (plan.items.some((it) => it.status === 'add')) {
       console.log('  --no-recommended: not added — what it recommends:');
@@ -317,21 +335,26 @@ async function addMain(args, on) {
 
 async function listMain(args) {
   const [deck] = args.filter((a) => !a.startsWith('-'));
-  const { marketplaceDesignSystems, designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
-  const { loadLedger, semverCompare } = await import('./marketplace.mjs');
+  const { marketplaceDesignSystems, designSystemRefs, resolveDesignSystemRef, deckDesignSystemVersions } = await import('./design-system-refs.mjs');
+  const { semverCompare } = await import('./marketplace.mjs');
+  const { majorOf } = await import('../tools/design-system-migrations.mjs');
   const { markedSources } = await import('./theme-refs.mjs');
-  const installs = loadLedger().installs;
   if (deck) {
     const d = readDeckArg('list', deck);
     if (!d) return 1;
     const refs = designSystemRefs(d.html);
     if (!refs.length) { console.log(`${deck} uses no design system — decklight design-system add <name@marketplace> ${deck}`); return 0; }
     const sources = markedSources(d.html);
+    // the version the DECK took, against the catalog's — never this machine's
+    // ledger, which knows nothing of a deck written elsewhere (SPEC DESIGN_SYSTEM_MIGRATIONS)
+    const took = deckDesignSystemVersions(d.html);
     for (const ref of refs) {
       const r = resolveDesignSystemRef(ref, undefined, { source: sources[ref.marketplace] ?? null });
-      const had = installs[`design-system:${ref.name}@${r.local ?? ref.marketplace}`]?.version ?? null;
+      const had = took[ref.ref] ?? null;
       const now = r.entry?.version ?? null;
-      const ver = had && now && semverCompare(now, had) > 0 ? `  ${had} → ${now}` : now ? `  ${now}` : '';
+      const newer = had && now && semverCompare(now, had) > 0;
+      const major = newer && majorOf(had) !== null && majorOf(had) < majorOf(now);
+      const ver = newer ? `  ${had} → ${now}${major ? ' (major: migrate)' : ''}` : had ? `  ${had}` : now ? `  ${now} (the deck records no version)` : '';
       console.log(`${ref.ref}${ver}${r.missing ? `  — missing: ${r.missing}` : r.title ? `  — ${r.title}` : ''}`);
     }
     return 0;
@@ -378,7 +401,7 @@ async function applyMain(args) {
   if (!ref) { console.error(`decklight design-system apply: needs a design system and a deck\n\n${USAGE}`); return 1; }
   const d = readDeckArg('apply', deck);
   if (!d) return 1;
-  const { designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
+  const { designSystemRefs, resolveDesignSystemRef, recordVersionIfCurrent } = await import('./design-system-refs.mjs');
   const { markedSources } = await import('./theme-refs.mjs');
   const { writeFileAtomic } = await import('../tools/atomic-write.mjs');
   const { recordInstall } = await import('./marketplace.mjs');
@@ -390,7 +413,7 @@ async function applyMain(args) {
   if (!verdict.ok) { console.error(`decklight design-system apply: ${hit.ref} no longer passes its check — decklight design-system gate ${r.dir}`); return 1; }
   const deps = await import('./design-system-deps.mjs');
   const plan = deps.planRecommended(d.html, { manifest: verdict.manifest, local: r.local });
-  let html = deps.writePlan(d.html, plan);
+  let html = deps.writePlan(recordVersionIfCurrent(d.html, hit.ref, verdict.manifest, dirname(d.path)), plan);
   const look = deps.lookOf(html, plan);
   // recorded even when the deck is left as it is: one already there may be
   // one the catalog has a newer version of, and the ledger is where that goes
@@ -410,6 +433,57 @@ async function applyMain(args) {
   return 0;
 }
 
+/**
+ * `design-system migrate` (SPEC DESIGN_SYSTEM_MIGRATIONS): the renames the
+ * package declares since the version the deck records, applied as whole
+ * names to the deck and to the stylesheets it links beside it, and the
+ * recorded version moved to the one this machine serves. Every file is
+ * renamed in memory before any is written. What a rename cannot decide — a
+ * name removed with no successor — is the migration's skill's, and said.
+ */
+async function migrateMain(args) {
+  const [ref, deck] = args.filter((a) => !a.startsWith('-'));
+  if (!ref) { console.error(`decklight design-system migrate: needs a design system and a deck\n\n${USAGE}`); return 1; }
+  const d = readDeckArg('migrate', deck);
+  if (!d) return 1;
+  const refs = await import('./design-system-refs.mjs');
+  const { markedSources } = await import('./theme-refs.mjs');
+  const { writeFileAtomic } = await import('../tools/atomic-write.mjs');
+  const { applyRenames, RENAME_KINDS } = await import('../tools/design-system-migrations.mjs');
+  const { tokenPrefixOf } = await import('../tools/design-system-format.mjs');
+  const hit = refs.designSystemRefs(d.html).find((r) => r.ref === ref || r.name === ref);
+  if (!hit) { console.error(`decklight design-system migrate: ${deck} does not use ${ref}`); return 1; }
+  const r = refs.resolveDesignSystemRef(hit, undefined, { source: markedSources(d.html)[hit.marketplace] ?? null });
+  if (!r.dir) { console.error(`decklight design-system migrate: ${hit.ref} — ${r.missing}`); return 1; }
+  const verdict = checkDir(r.dir);
+  if (!verdict.ok) { console.error(`decklight design-system migrate: ${hit.ref} no longer passes its check — decklight design-system gate ${r.dir}`); return 1; }
+  const m = verdict.manifest;
+  const recorded = refs.deckDesignSystemVersions(d.html)[hit.ref] ?? null;
+  const sheets = refs.linkedStylesheets(d.html, dirname(d.path));
+  const status = refs.migrationStatus(m, recorded, [d.html, ...sheets.map((x) => x.text)]);
+  const prefix = tokenPrefixOf(m);
+
+  const deckOut = applyRenames(d.html, status.renames, prefix, { config: true });
+  const html = refs.setDesignSystemVersion(deckOut.text, hit.ref, m.version);
+  const sheetsOut = sheets.map((x) => ({ ...x, ...applyRenames(x.text, status.renames, prefix) }));
+  const renamed = deckOut.count + sheetsOut.reduce((n, x) => n + x.count, 0);
+  if (html === d.html && !renamed) { console.log(`${deck} is already on ${hit.ref} ${m.version} — nothing to migrate`); return 0; }
+
+  for (const x of sheetsOut) if (x.count) writeFileAtomic(x.path, x.text);
+  if (html !== d.html) writeFileAtomic(d.path, html);
+  console.log(`${deck}: ${hit.ref} ${recorded ?? '(no version recorded)'} → ${m.version}`);
+  if (renamed) {
+    const byKind = RENAME_KINDS.map((k) => [k, status.found.filter((f) => f.kind === k)]).filter(([, l]) => l.length);
+    for (const [kind, list] of byKind) console.log(`  ${kind.padEnd(8)} ${list.map((f) => `${f.from} → ${f.to}`).join(', ')}`);
+    console.log(`  ${renamed} rename${renamed === 1 ? '' : 's'} — in ${deck}${sheetsOut.filter((x) => x.count).map((x) => `, ${x.href}`).join('')}`);
+  } else console.log('  nothing it uses was renamed — recorded the new version');
+  if (status.skills.length) {
+    console.log(`  what a rename cannot decide (a name removed with no successor) is the ${status.skills.join(' and ')} skill's:`
+      + ` decklight library add skill ${status.skills[0]}, then ask your agent to finish the migration`);
+  }
+  return 0;
+}
+
 export async function designSystemMain(args = []) {
   const sub = args[0];
   if (!sub || sub === '--help' || sub === '-h' || sub === 'help') { console.log(USAGE); return sub ? 0 : 1; }
@@ -422,7 +496,8 @@ export async function designSystemMain(args = []) {
   if (sub === 'list') return listMain(rest);
   if (sub === 'templates') return templatesMain(rest);
   if (sub === 'apply') return applyMain(rest);
-  console.error(`decklight design-system: unknown subcommand "${sub}" — add, remove, apply, list, templates, check\n\n${USAGE}`);
+  if (sub === 'migrate') return migrateMain(rest);
+  console.error(`decklight design-system: unknown subcommand "${sub}" — add, remove, apply, migrate, list, templates, check\n\n${USAGE}`);
   return 1;
 }
 

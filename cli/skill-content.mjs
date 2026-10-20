@@ -227,7 +227,11 @@ role and still nests like its slot. \`decklight check\` says \`off-role\` (a
 colour that is not a role, with the nearest one), \`off-palette-literal\` (on a
 brand without roles) and \`theme-off-brand\` (a configured theme outside the
 brand); \`"brandThemesOnly": false\` is the author's way out, never yours to
-add (BRAND_PALETTE and DESIGN_SYSTEM_ROLES in the reference).
+add (BRAND_PALETTE and DESIGN_SYSTEM_ROLES in the reference). \`check\` says
+\`ds-behind\` when the deck was written for an older major of its design
+system: migrate it (\`decklight design-system migrate <ref> <deck>\`, or the
+skill the warning names) rather than fixing each renamed name by hand
+(DESIGN_SYSTEM_MIGRATIONS).
 
 Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split

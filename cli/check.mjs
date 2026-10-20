@@ -49,7 +49,10 @@ import {
 import { CLICK_MARK } from '../tools/sentences.mjs';
 import { isTemplateRef, parseTemplateRef } from '../tools/design-system-format.mjs';
 import { auditDeck } from './audit.mjs';
-import { designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
+import {
+  designSystemRefs, packageVerdict, resolveDesignSystemRef, deckDesignSystemVersions, linkedStylesheets, migrationStatus, behindMessage,
+} from './design-system-refs.mjs';
+import { composeRenames, migrationsOf } from '../tools/design-system-migrations.mjs';
 import { markedSources } from './theme-refs.mjs';
 import { parseColor, toOklab } from '../tools/color.mjs';
 import { ON_PALETTE_DISTANCE, offRoleColours, nearestRole, resolveTokenColours } from '../tools/brand-palette.mjs';
@@ -389,8 +392,11 @@ export function deckDesignSystems(html) {
 /** What `check` keeps of a design system that passed its gate: its templates, and its palette and roles when it has them. */
 export function checkEntry(ref, verdict) {
   const brand = verdict?.summary?.brand;
+  const m = verdict?.manifest;
   return {
     ref, templates: new Map((verdict?.summary?.templates ?? []).map((l) => [l.id, l.slots])),
+    // what a deck behind its version is held to (SPEC DESIGN_SYSTEM_MIGRATIONS)
+    ...(m?.version ? { migrationManifest: { name: m.name, version: m.version, tokenPrefix: m.tokenPrefix, migrations: m.migrations } } : {}),
     // component classes its base styles also give a plain element (SPEC DESIGN_SYSTEMS)
     components: verdict?.summary?.baseStyles?.components ?? {},
     // a palette of scales and its own themes (SPEC BRAND_PALETTE): what off-palette-literal holds slides to
@@ -567,7 +573,7 @@ function diagramBuilds(svg) {
  * `dir` is what a relative asset path resolves against — the deck's own
  * directory, exactly as the browser would resolve it from the deck's URL.
  */
-export function staticFindings(html, { dir = '.', exists = existsSync, designSystems = deckDesignSystems } = {}) {
+export function staticFindings(html, { dir = '.', exists = existsSync, designSystems = deckDesignSystems, stylesheets = linkedStylesheets, deck = '<deck.html>' } = {}) {
   const src = String(html ?? '');
   const out = [];
   const ranges = sectionRanges(src);
@@ -589,6 +595,26 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       out.push(finding('warn', 'ds-unresolved', null, 'head',
         `design system ${sys.ref} cannot be read on this machine — ${sys.missing}; its slides' templates and slots go unchecked`));
     }
+  }
+  // A deck behind the major this machine serves (SPEC DESIGN_SYSTEM_MIGRATIONS):
+  // ONE finding with the renames and what moves them, read from the deck and
+  // the stylesheets it links — and the names it found are not each said again
+  // as off-role. `renamedTo` names a renamed role wherever off-role still meets one.
+  const behindNames = new Set();
+  const renamedTo = new Map();
+  const versions = configured.length ? deckDesignSystemVersions(src) : {};
+  let linked = null;
+  for (const [name, sys] of systems) {
+    const mm = sys.migrationManifest;
+    if (!mm) continue;
+    linked ??= stylesheets(src, dir).map((x) => x.text);
+    const status = migrationStatus(mm, versions[sys.ref] ?? null, [src, ...linked]);
+    for (const [from, r] of Object.entries(composeRenames(migrationsOf(mm)).roles)) {
+      renamedTo.set(`${mm.tokenPrefix ?? `--${mm.name}-`}color-${from}`, `was renamed ${r.to} in ${r.version}`);
+    }
+    if (!status.behind) continue;
+    for (const f of status.found) behindNames.add(f.as);
+    out.push(finding('warn', 'ds-behind', null, 'head', `${sys.ref} — ${behindMessage(name, status, { ref: sys.ref, deck })}`));
   }
   // `sectionInner`, never the raw body: a body begins mid-open-tag, so a slide
   // with no heading to fall back on would be titled ` data-markdown>` — the
@@ -645,7 +671,7 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
         const values = [...COLOUR_ATTRS.map((k) => [k, a[k]]).filter(([, v]) => v), ...[...(a.style ?? '').matchAll(COLOUR_DECL)].map((m) => [m[1], m[2]])];
         for (const [prop, v] of values) {
           for (const o of offRoleColours(v, roles.ctx)) {
-            if (off.some((x) => x.name === o.name)) continue;
+            if (off.some((x) => x.name === o.name) || behindNames.has(o.name)) continue;
             // `border: var(--acme-rule-width) solid …`: a design-system token that is no colour is the width, not off-role
             if (o.kind === 'token' && !o.hex && SHORTHAND.test(prop)) continue;
             off.push({ ...o, near: (o.kind === 'contract' && roles.contract[o.name]) || nearestRole(roles.values, o.hex) });
@@ -653,7 +679,8 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
         }
       }
       if (off.length) {
-        const what = (o) => `${o.name}${o.kind === 'contract' ? ' (the theme contract)' : o.kind === 'swatch' ? ' (a swatch)' : o.kind === 'token' ? ' (a design-system token)' : ''}${o.near ? ` (nearest role ${o.near})` : ''}`;
+        const what = (o) => `${o.name}${renamedTo.has(o.name) ? ` (${renamedTo.get(o.name)})`
+          : `${o.kind === 'contract' ? ' (the theme contract)' : o.kind === 'swatch' ? ' (a swatch)' : o.kind === 'token' ? ' (a design-system token)' : ''}${o.near ? ` (nearest role ${o.near})` : ''}`}`;
         push('off-role', `${off.slice(0, 3).map(what).join(', ')}${off.length > 3 ? ` and ${off.length - 3} more` : ''}`
           + ` ${off.length === 1 ? 'is' : 'are'} not one of the design system's roles — this deck colours through them, so every theme recolours it: pick a role in Colors…, or set "brandThemesOnly": false`);
       }
@@ -918,7 +945,7 @@ export async function checkMain(args = []) {
 
   const html = readFileSync(src, 'utf8');
   const slides = sectionBodies(html).length;
-  const findings = staticFindings(html, { dir: dirname(src) });
+  const findings = staticFindings(html, { dir: dirname(src), deck });
 
   // The render half is skipped rather than failed when there is no browser:
   // `findChrome` and never `chromeBin`, which exits the process — half a lint

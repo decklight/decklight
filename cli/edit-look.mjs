@@ -240,7 +240,7 @@ export function registerLookRoutes(routes, {
       deckRef = designSystemRefs(before).find((x) => x.ref === ref || x.name === p.name)?.ref ?? ref;
     }
     let out;
-    try { out = setDesignSystem(before, deckRef, on, { source }); }
+    try { out = setDesignSystem(before, deckRef, on, { source, version: manifest?.version ?? null }); }
     catch (e) {
       if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
       throw e;
@@ -280,7 +280,7 @@ export function registerLookRoutes(routes, {
    */
   async function designSystemApplyRoute({ body, json }) {
     const req = JSON.parse(body || '{}');
-    const { designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
+    const { designSystemRefs, resolveDesignSystemRef, recordVersionIfCurrent } = await import('./design-system-refs.mjs');
     const { markedSources, parseRef } = await import('./theme-refs.mjs');
     const { checkDir } = await import('./design-system.mjs');
     const { recordInstall } = await import('./marketplace.mjs');
@@ -294,7 +294,8 @@ export function registerLookRoutes(routes, {
     const verdict = checkDir(r.dir);
     if (!verdict.ok) return json(409, { ok: false, error: `${hit.ref} no longer passes its check` });
     const plan = deps.planRecommended(before, { manifest: verdict.manifest, local: r.local });
-    let html = deps.writePlan(before, plan);
+    // a deck that records no version takes this one, as `design-system apply` does (SPEC DESIGN_SYSTEM_MIGRATIONS)
+    let html = deps.writePlan(recordVersionIfCurrent(before, hit.ref, verdict.manifest, deckPath ? dirname(deckPath) : process.cwd()), plan);
     const look = deps.lookOf(html, plan);
     if (look.differs) html = deps.applyLook(html, look);
     look.phrase = deps.lookPhrase(look, plan);

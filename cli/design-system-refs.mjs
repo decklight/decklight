@@ -32,10 +32,11 @@
 // `marketplace update` can change its bytes afterwards — remembered by a
 // stat signature so a page load re-reads nothing that has not changed.
 
-import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { escapeHtml } from '../tools/escape.mjs';
-import { DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS } from '../tools/design-system-format.mjs';
+import { DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS, tokenPrefixOf } from '../tools/design-system-format.mjs';
+import { pendingMigrations, composeRenames, findRenamed, majorOf } from '../tools/design-system-migrations.mjs';
 import { configBlock, isDeck } from './runtime-link.mjs';
 import { configHome, loadRegistry, loadCatalog, MarketplaceError, NAME_RE } from './marketplace.mjs';
 import {
@@ -45,6 +46,108 @@ import { resolveSource } from './theme.mjs';
 import { checkDir } from './design-system.mjs';
 
 export { DESIGN_SYSTEMS_KEY };
+
+/**
+ * The config key a deck records the version of each design system it took
+ * under (SPEC DESIGN_SYSTEM_MIGRATIONS): `{ "<ref>": "5.0.0" }`, keyed by the
+ * deck's own spelling of the reference. The deck's fact, not this machine's:
+ * the ledger in ~/.decklight/ says what one machine installed, for every deck
+ * at once, and says nothing on the next machine.
+ */
+export const DESIGN_SYSTEM_VERSIONS_KEY = 'designSystemVersions';
+
+/** The versions a deck records, `{ ref: version }` — strings only. */
+export function deckDesignSystemVersions(html) {
+  const v = configBlock(html)?.config?.[DESIGN_SYSTEM_VERSIONS_KEY];
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  return Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === 'string'));
+}
+
+/**
+ * Record (or, with null, forget) the version of one design system the deck
+ * took, editing only that key so the author's formatting survives. A deck
+ * with no configuration block is returned as it is.
+ */
+export function setDesignSystemVersion(html, ref, version) {
+  const block = configBlock(html);
+  if (!block || block.error) return html;
+  const versions = deckDesignSystemVersions(html);
+  if (version) versions[ref] = String(version);
+  else delete versions[ref];
+  const inner = withKey(block.inner, DESIGN_SYSTEM_VERSIONS_KEY, Object.keys(versions).length ? versions : null);
+  return html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd);
+}
+
+/**
+ * The stylesheets a deck links from its own folder (`<link rel="stylesheet"
+ * href="course.css">`), as `[{ href, path, text }]`: what a migration reads
+ * and rewrites beside the deck. A URL, a root-absolute path, a design
+ * system's or a theme's own link, and a file that is not there are left out.
+ */
+export function linkedStylesheets(html, dir) {
+  const out = [];
+  const masked = String(html).replace(/<!--[\s\S]*?-->/g, '');
+  for (const tag of masked.match(/<link\b[^>]*>/gi) ?? []) {
+    if (!/\brel\s*=\s*["']?stylesheet/i.test(tag) || /\bdata-(?:design-system|theme)\b/i.test(tag)) continue;
+    const href = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tag);
+    const url = (href?.[1] ?? href?.[2] ?? href?.[3] ?? '').replace(/[?#].*$/, '');
+    if (!url || /^([a-z][a-z0-9+.-]*:|\/)/i.test(url) || url.includes('decklight-design-system/')) continue;
+    const path = resolve(dir, decodeURI(url));
+    if (out.some((s) => s.path === path)) continue;
+    try { if (existsSync(path) && statSync(path).isFile()) out.push({ href: url, path, text: readFileSync(path, 'utf8') }); } catch { /* unreadable: not ours to migrate */ }
+  }
+  return out;
+}
+
+/**
+ * Is a deck behind the design system this machine serves (SPEC
+ * DESIGN_SYSTEM_MIGRATIONS)? From the version the deck records and the
+ * names it, and the stylesheets it links, still use:
+ *   `{ behind, recorded, current, major, found, skills, renames }`
+ * `behind` when the deck records an older major, or uses a name a migration
+ * since its version renamed; `found` is those names (`findRenamed`), `skills`
+ * the skills the pending migrations name. A deck that records no version is
+ * held to every migration the package declares.
+ */
+export function migrationStatus(manifest, recorded, texts) {
+  const current = manifest?.version ?? null;
+  const pending = pendingMigrations(manifest, recorded);
+  const renames = composeRenames(pending);
+  const found = findRenamed(texts, renames, tokenPrefixOf(manifest));
+  const rm = majorOf(recorded), cm = majorOf(current);
+  const major = rm !== null && cm !== null && rm < cm;
+  return {
+    behind: major || found.length > 0, recorded: recorded ?? null, current, major, found,
+    skills: [...new Set(pending.map((m) => m.skill).filter(Boolean))], renames,
+  };
+}
+
+/**
+ * A deck that uses a design system but records no version takes `manifest`'s
+ * — unless it, or a stylesheet it links from `dir`, still uses a name a
+ * migration renamed: recording the new version then would hide that it is
+ * behind, and `migrate` moves it first. The html, recorded or as it was.
+ */
+export function recordVersionIfCurrent(html, ref, manifest, dir) {
+  if (deckDesignSystemVersions(html)[ref] || !manifest?.version) return html;
+  const status = migrationStatus(manifest, null, [html, ...linkedStylesheets(html, dir).map((x) => x.text)]);
+  return status.found.length ? html : setDesignSystemVersion(html, ref, manifest.version);
+}
+
+/**
+ * The one sentence that says a deck is behind, with what to do — the same in
+ * `check`, the write-mode toast and `design-system migrate`'s refusal.
+ */
+export function behindMessage(name, status, { ref = name, deck = '<deck.html>' } = {}) {
+  const was = status.recorded ? `${name} ${status.recorded}` : `an earlier ${name}`;
+  const n = status.found.length;
+  const shown = status.found.slice(0, 3).map((f) => `${f.from} → ${f.to}`).join(', ');
+  const what = n ? `: ${n} renamed name${n === 1 ? '' : 's'} (${shown}${n > 3 ? ', …' : ''})` : ', a new major version';
+  const how = status.skills.length
+    ? `Migrate with the ${status.skills.join(' or ')} skill, or decklight design-system migrate ${ref} ${deck}`
+    : `Migrate with decklight design-system migrate ${ref} ${deck}`;
+  return `written for ${was}, this machine serves ${status.current}${what}. ${how}`;
+}
 
 /** The design systems a deck references, parsed; anything else dropped, not guessed at. */
 export function designSystemRefs(html) {
@@ -208,6 +311,9 @@ export function linkDesignSystems(html, home = configHome(), { log = null } = {}
       tags.push(`<script type="application/json" data-design-system-meta="${name}">${scriptJson(designSystemMeta(verdict))}</script>`);
       tags.push(`<template data-design-system-templates="${name}">\n${verdict.templatesHtml.trim()}\n</template>`);
       tags.push(...brandTags(ref.name, verdict));
+      // a deck behind the major this machine serves: said once, while authoring (SPEC DESIGN_SYSTEM_MIGRATIONS)
+      const status = migrationStatus(verdict.manifest, deckDesignSystemVersions(html)[ref.ref] ?? null, [html]);
+      if (status.behind) tags.push(`<meta name="decklight-design-system-behind" content="${escapeHtml(`${verdict.manifest.title || ref.name}: ${behindMessage(ref.name, status, { ref: ref.ref })}`)}">`);
     } else {
       tags.push(`<meta name="decklight-design-system-missing" content="${escapeHtml(`${ref.ref} — ${r.missing}`)}">`);
       log?.(`design system ${ref.ref}: ${r.missing}`);
@@ -347,7 +453,7 @@ export function designSystemAsset(rel, home = configHome()) {
  * and goes only with the last reference of EITHER kind. Returns `{ html,
  * changed }`, or throws a MarketplaceError a command prints as-is.
  */
-export function setDesignSystem(html, ref, on, { source = null } = {}) {
+export function setDesignSystem(html, ref, on, { source = null, version = null } = {}) {
   const parsed = parseRef(ref);
   if (!parsed) throw new MarketplaceError(`"${ref}" is not a design-system reference — name@marketplace`);
   const block = configBlock(html);
@@ -374,7 +480,9 @@ export function setDesignSystem(html, ref, on, { source = null } = {}) {
   }
   let inner = withKey(block.inner, DESIGN_SYSTEMS_KEY, next.length ? next : null);
   inner = withKey(inner, SOURCES_KEY, Object.keys(sources).length ? sources : null);
-  return { html: html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd), changed: true };
+  const out = html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd);
+  // the version it took goes in with the reference, and out with it (SPEC DESIGN_SYSTEM_MIGRATIONS)
+  return { html: on ? (version ? setDesignSystemVersion(out, parsed.ref, version) : out) : setDesignSystemVersion(out, parsed.ref, null), changed: true };
 }
 
 /**
