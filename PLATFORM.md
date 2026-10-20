@@ -149,7 +149,18 @@ each is used by the command that needs it. A deck template, a whole deck install
 
 A marketplace skill installs
 into the library and therefore sits **alongside** the authoring skill
-`decklight skills` writes into a project, never replacing it. An import adapter
+`decklight skills` writes into a project, never replacing it. Its consumer is
+an agent, not a decklight command, and no agent reads `~/.decklight/skills/`,
+so `library add skill` also **hands it on** to the agents `decklight skills`
+writes for: a copy in `.claude/skills/<name>/` (the project's, `--dir` for
+another, `--global` for Claude's config home), and a line naming it and its
+`SKILL.md` in every AGENTS.md that carries the Decklight section. A copy
+carries a `.decklight-library` mark, and only a marked directory is ever
+replaced or removed, so a skill of the same name the author wrote is left
+alone. `library remove skill` takes both away; `decklight skills` and `init`
+copy the missing ones and keep the rest as they are. The authoring skill
+itself says where installed skills live, so an agent with neither still finds
+them. An import adapter
 is **offered at the point of failure**: `decklight import talk.marp` names the
 adapter that reads `.marp` and how to get it, which is the ENGINES pattern
 (offer at the moment of need) rather than a setup step nobody performs in

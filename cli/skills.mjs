@@ -33,9 +33,10 @@ import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 import { zipSync } from './zip.mjs';
 import {
-  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc, reportBugSkillMd, skillVersionOf,
+  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, homePath, referenceDoc, reportBugSkillMd, skillVersionOf,
 } from './skill-content.mjs';
 import { semverCompare } from '../tools/semver.mjs';
+import { librarySkills } from './units.mjs';
 
 // The reference doc, relative to whatever dir carries it. Skills keep their
 // own copy next to SKILL.md; AGENTS.md agents keep one under .decklight/.
@@ -106,7 +107,9 @@ installed runtime.
 Marketplace skills (decklight library add skill <name>) are a different thing and
 live somewhere else — ~/.decklight/skills/ — so they sit ALONGSIDE the
 authoring skill above and never replace it. The command above always writes
-the authoring skill; nothing installed from a catalog changes that.
+the authoring skill; nothing installed from a catalog changes that. It does
+hand them on: each is copied into .claude/skills/<name>/ when missing (never
+over one already there) and listed in the AGENTS.md section.
 `;
 
 /** The agents found on PATH, in roster order (empty when none is). */
@@ -167,7 +170,7 @@ const wrote = (file) => (file ? display(file) : null);
 /** Add/refresh the marked Decklight block in the AGENTS.md under `dir`. */
 function mergeAgentsMd(dir, refHref) {
   const agentsPath = path.join(dir, 'AGENTS.md');
-  const section = agentsSection(refHref);
+  const section = agentsSection(refHref, { librarySkills: librarySkills() });
   if (!fs.existsSync(agentsPath)) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(agentsPath, `# Agent notes\n\n${section}`);
@@ -202,6 +205,110 @@ function installReportBugSkill(skillsRoot, force, written) {
   written.push(wrote(writeIfAbsent(path.join(dir, 'SKILL.md'), reportBugSkillMd(), force)));
 }
 
+// --- marketplace skills, handed on to the agents (#880) ----------------------
+//
+// A library skill lives in ~/.decklight/skills/, which no agent reads. Claude
+// indexes one skill per directory under .claude/skills/, so each is COPIED
+// there (a copy, not a link: a symlink is a privilege on Windows, and a copy
+// is what `unzip -d ~/.claude/skills/` would leave too); an AGENTS.md agent
+// reads only its file, so the section lists them (`agentsSection`). A copy
+// carries LIBRARY_MARK, and only a marked directory is ever replaced or
+// removed: a skill the user wrote that happens to share a name is theirs.
+
+const LIBRARY_MARK = '.decklight-library';
+
+/**
+ * Copy one library skill under `skillsRoot`. `update` replaces a copy already
+ * there (what `library add` does, to take a new version); without it an
+ * existing copy is kept as it is (what a `decklight skills` re-run does).
+ */
+function copyLibrarySkill(skill, skillsRoot, { update }) {
+  const dest = path.join(skillsRoot, skill.name);
+  if (fs.existsSync(dest)) {
+    if (!fs.existsSync(path.join(dest, LIBRARY_MARK))) {
+      return `left ${display(dest)} alone — a skill of that name that the library did not put there`;
+    }
+    if (!update) return null;
+    fs.rmSync(dest, { recursive: true, force: true });
+  }
+  fs.cpSync(skill.path, dest, { recursive: true });
+  fs.writeFileSync(path.join(dest, LIBRARY_MARK),
+    `copied from ${homePath(skill.path)} by decklight library add skill; decklight library remove skill ${skill.name} removes it\n`);
+  return `copied ${skill.name} from your library to ${display(dest)}`;
+}
+
+/**
+ * Bring the library skills under one Claude skills root up to the library:
+ * add the missing ones, drop the copies whose skill was removed from it.
+ * Never overwrites a copy — the authoring install re-run keeps them as they are.
+ */
+export function syncLibrarySkills(skillsRoot, written) {
+  const skills = librarySkills();
+  for (const skill of skills) written.push(copyLibrarySkill(skill, skillsRoot, { update: false }));
+  if (!fs.existsSync(skillsRoot)) return;
+  const have = new Set(skills.map((s) => s.name));
+  for (const name of fs.readdirSync(skillsRoot)) {
+    const dir = path.join(skillsRoot, name);
+    if (have.has(name) || !fs.existsSync(path.join(dir, LIBRARY_MARK))) continue;
+    fs.rmSync(dir, { recursive: true, force: true });
+    written.push(`removed ${display(dir)} — no longer in your library`);
+  }
+}
+
+/**
+ * Refresh every Decklight AGENTS.md section this command can find — the
+ * project's under `dir` and each agent's global one — so its list of library
+ * skills matches the library. Only a file already carrying the section is
+ * touched: this never creates an AGENTS.md nobody asked for.
+ */
+function refreshAgentsSections({ dir = '.', env = process.env } = {}) {
+  const out = [];
+  const marked = (d) => {
+    try { return fs.readFileSync(path.join(d, 'AGENTS.md'), 'utf8').includes(AGENTS_MARKER); } catch { return false; }
+  };
+  const root = path.resolve(dir);
+  if (marked(root)) out.push(mergeAgentsMd(root, fs.existsSync(path.join(root, CLAUDE_REF)) ? CLAUDE_REF : SHARED_REF));
+  for (const t of Object.values(TARGETS)) {
+    const home = t.home(env);
+    if (t.kind === 'agents' && marked(home)) out.push(mergeAgentsMd(home, SHARED_REF));
+  }
+  return [...new Set(out)];
+}
+
+/** Claude's skills root for a scope: the project's, or its config home's. */
+const claudeSkillsRoot = ({ dir = '.', global = false, env = process.env }) =>
+  (global ? path.join(TARGETS.claude.home(env), 'skills') : path.join(path.resolve(dir), '.claude', 'skills'));
+
+/**
+ * `library add skill <name>` hands the installed skill to the agents: a copy
+ * in Claude's skills (the project's, or with `global` its config home's), and
+ * a line in every AGENTS.md section. Returns the lines to print.
+ */
+export function placeLibrarySkill(name, { dir = '.', global = false, env = process.env } = {}) {
+  const skill = librarySkills().find((s) => s.name === name);
+  if (!skill) return [];
+  const out = [copyLibrarySkill(skill, claudeSkillsRoot({ dir, global, env }), { update: true })];
+  out.push(...refreshAgentsSections({ dir, env }));
+  return out.filter(Boolean);
+}
+
+/**
+ * `library remove skill <name>` takes it back from the same places: the
+ * copy in this project's and in Claude's global skills (both, whatever scope
+ * it was added with — only a marked copy is ours), and its AGENTS.md lines.
+ */
+export function unplaceLibrarySkill(name, { dir = '.', env = process.env } = {}) {
+  const out = [];
+  for (const global of [false, true]) {
+    const copy = path.join(claudeSkillsRoot({ dir, global, env }), name);
+    if (!fs.existsSync(path.join(copy, LIBRARY_MARK))) continue;
+    fs.rmSync(copy, { recursive: true, force: true });
+    out.push(`removed ${display(copy)}`);
+  }
+  out.push(...refreshAgentsSections({ dir, env }));
+  return out;
+}
+
 // --- project scope: one repo, one shared AGENTS.md for every agent ----------
 
 function installProject(targets, dir, force) {
@@ -216,6 +323,7 @@ function installProject(targets, dir, force) {
     const skillsRoot = path.join(root, '.claude', 'skills');
     installClaudeSkill(path.join(skillsRoot, 'decklight'), force, written);
     installReportBugSkill(skillsRoot, force, written);
+    syncLibrarySkills(skillsRoot, written);
   }
   if (mdAgents.length) {
     // one reference copy: Claude's skill dir when Claude is also a target,
@@ -237,6 +345,7 @@ function installGlobal(targets, env, force) {
     if (t.kind === 'skill') {
       installClaudeSkill(path.join(home, 'skills', 'decklight'), force, written);
       installReportBugSkill(path.join(home, 'skills'), force, written);
+      syncLibrarySkills(path.join(home, 'skills'), written);
     } else {
       written.push(wrote(writeIfAbsent(path.join(home, SHARED_REF), referenceDoc(), force)));
       written.push(mergeAgentsMd(home, SHARED_REF));

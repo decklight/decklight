@@ -1412,6 +1412,17 @@ test('the AGENTS.md section carries the same instruction for agents that read it
   assert.match(agentsSection(), /No server listening means no\n?authoring/);
 });
 
+test('the skill says where installed marketplace skills live, and AGENTS.md lists them (#880)', () => {
+  assert.match(claudeSkillMd(), /~\/\.decklight\/skills\/<name>\/SKILL\.md/);
+  assert.doesNotMatch(agentsSection(), /Installed marketplace skills/, 'nothing installed, no paragraph');
+  const listed = agentsSection(undefined, { librarySkills: [
+    { name: 'migrate', description: 'migrating a deck to acme 6', path: '/lib/skills/migrate' },
+    { name: 'bare', description: '', path: '/lib/skills/bare' },
+  ] });
+  assert.match(listed, /- for migrating a deck to acme 6, read `\/lib\/skills\/migrate\/SKILL\.md`/);
+  assert.match(listed, /- for bare, read `\/lib\/skills\/bare\/SKILL\.md`/, 'no description: by name');
+});
+
 test('the always-loaded skill tells agents to render and check for clipped slides', () => {
   // This lived on line ~336 of the 360-line reference, which is read "before
   // authoring" — so an agent writing thirty slides in one pass could author

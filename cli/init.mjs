@@ -42,7 +42,8 @@ import {
 } from './skill-content.mjs';
 import { THEMES_DIR, themeCss, runtimeCss, runtimeJs } from './pkg.mjs';
 import { configBlock, configBlockHtml, configVersion, hasRuntime } from './runtime-link.mjs';
-import { TARGETS, detectedTargets, installGlobalSkill, display } from './skills.mjs';
+import { TARGETS, detectedTargets, installGlobalSkill, display, syncLibrarySkills } from './skills.mjs';
+import { librarySkills } from './units.mjs';
 import { onPath } from './agents.mjs';
 import { escapeHtml } from './edit.mjs';
 import {
@@ -820,9 +821,13 @@ unless --no-skill is given. The deck file is only touched with --force.
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), claudeSkillMd());
     fs.writeFileSync(path.join(skillDir, 'reference.md'), referenceDoc());
     note(`wrote .claude/skills/decklight/{SKILL.md,reference.md} (v${PKG.version})`);
+    // the marketplace skills in your library go beside it (#880)
+    const handedOn = [];
+    syncLibrarySkills(path.join(root, '.claude', 'skills'), handedOn);
+    for (const line of handedOn.filter(Boolean)) note(line);
 
     const agentsPath = path.join(root, 'AGENTS.md');
-    const section = agentsSection();
+    const section = agentsSection(undefined, { librarySkills: librarySkills() });
     if (!fs.existsSync(agentsPath)) {
       fs.writeFileSync(agentsPath, `# Agent notes\n\n${section}`);
       note('created AGENTS.md');

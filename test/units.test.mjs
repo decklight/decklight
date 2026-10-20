@@ -498,6 +498,83 @@ test('a marketplace skill installs without touching the authoring skill', () => 
   m.cleanup();
 });
 
+// ── …and reach the agents, which never read the library (#880) ─────────────
+
+const NOTE_SKILL = '---\nname: note-taking\ndescription: "taking notes in a deck\'s speaker notes"\n---\n# Note taking\n';
+
+test('library add skill hands the skill to Claude and to every AGENTS.md section', () => {
+  const m = market();
+  writeFileSync(path.join(m.root, 'skills/note-taking/SKILL.md'), NOTE_SKILL);
+  const work = tmp('units-handon');
+  const env = { CLAUDE_CONFIG_DIR: path.join(work, 'claude-home'), CODEX_HOME: path.join(work, 'codex-home') };
+  const go = (args) => cli(args, { home: m.home, cwd: work, env });
+  try {
+    assert.equal(go(['skills', 'claude', 'codex']).code, 0);
+    const add = go(['library', 'add', 'skill', 'note-taking']);
+    assert.equal(add.code, 0, add.out);
+    assert.doesNotMatch(add.out, /used by: decklight library add skill/, 'the hint names a consumer, not itself');
+
+    const copy = path.join(work, '.claude/skills/note-taking');
+    assert.equal(readFileSync(path.join(copy, 'SKILL.md'), 'utf8'), NOTE_SKILL, 'Claude indexes it where it reads skills');
+    assert.ok(existsSync(path.join(copy, 'reference.md')), 'the whole skill, not only its SKILL.md');
+    const agents = readFileSync(path.join(work, 'AGENTS.md'), 'utf8');
+    assert.match(agents, /for taking notes in a deck's speaker notes, read `[^`]*note-taking[/\\]SKILL\.md`/,
+      'an AGENTS.md agent learns it from the one file it reads');
+    assert.equal(agents.split('<!-- decklight:skill -->').length, 3, 'refreshed in place, not duplicated');
+
+    // a re-run of the authoring install keeps it, and does not overwrite it
+    writeFileSync(path.join(copy, 'SKILL.md'), `${NOTE_SKILL}local edit\n`);
+    assert.equal(go(['skills', 'claude', 'codex', '--force']).code, 0);
+    assert.match(readFileSync(path.join(copy, 'SKILL.md'), 'utf8'), /local edit/);
+    assert.match(readFileSync(path.join(work, 'AGENTS.md'), 'utf8'), /note-taking/);
+
+    // --global puts the copy in Claude's config home
+    assert.equal(go(['library', 'add', 'skill', 'note-taking', '--global']).code, 0);
+    assert.ok(existsSync(path.join(env.CLAUDE_CONFIG_DIR, 'skills/note-taking/SKILL.md')));
+
+    const rm = go(['library', 'remove', 'skill', 'note-taking']);
+    assert.equal(rm.code, 0, rm.out);
+    assert.ok(!existsSync(copy), 'removed from the project');
+    assert.ok(!existsSync(path.join(env.CLAUDE_CONFIG_DIR, 'skills/note-taking')), 'and from the global copy');
+    assert.doesNotMatch(readFileSync(path.join(work, 'AGENTS.md'), 'utf8'), /note-taking/);
+    assert.ok(existsSync(path.join(work, '.claude/skills/decklight/SKILL.md')), 'the authoring skill is untouched');
+  } finally { rmTemp(work); m.cleanup(); }
+});
+
+test('a skill the author wrote under the same name is never replaced or removed', () => {
+  const m = market();
+  const work = tmp('units-handon-mine');
+  const mine = path.join(work, '.claude/skills/note-taking/SKILL.md');
+  mkdirSync(path.dirname(mine), { recursive: true });
+  writeFileSync(mine, 'mine\n');
+  try {
+    const add = run(['library', 'add', 'skill', 'note-taking'], m.home, work);
+    assert.equal(add.code, 0, add.out);
+    assert.match(add.out, /left \S+ alone/);
+    assert.equal(run(['library', 'remove', 'skill', 'note-taking'], m.home, work).code, 0);
+    assert.equal(readFileSync(mine, 'utf8'), 'mine\n');
+  } finally { rmTemp(work); m.cleanup(); }
+});
+
+test('decklight skills drops a copy whose skill left the library, and adds a missing one', () => {
+  const m = market();
+  const work = tmp('units-handon-sync');
+  try {
+    assert.equal(run(['library', 'add', 'skill', 'note-taking'], m.home, work).code, 0);
+    removeUnit('skill', 'note-taking', m.home);   // gone from the library behind the copy's back
+    assert.equal(run(['skills', 'claude'], m.home, work).code, 0);
+    assert.ok(!existsSync(path.join(work, '.claude/skills/note-taking')));
+
+    const other = tmp('units-handon-other');
+    try {
+      assert.equal(run(['library', 'add', 'skill', 'note-taking'], m.home, work).code, 0);
+      assert.equal(run(['skills', 'claude'], m.home, other).code, 0);
+      assert.ok(existsSync(path.join(other, '.claude/skills/note-taking/SKILL.md')),
+        'a second project gets the library skills with the authoring one');
+    } finally { rmTemp(other); }
+  } finally { rmTemp(work); m.cleanup(); }
+});
+
 test('skills still installs for a named agent, and add/list/remove do not shadow one', () => {
   const m = market();
   const work = tmp('units-skills2');

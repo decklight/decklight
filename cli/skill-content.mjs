@@ -14,6 +14,7 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 // Imported and re-exported, not redefined: the package root has one
@@ -258,6 +259,14 @@ not "⌘"). To rewrite terse notes that way when asked, \`decklight enhance
 deck.html --spoken --slides 3\` does it with the same checks on the beats and
 the pauses.
 
+**Installed marketplace skills sit beside this one.** \`decklight library add
+skill <name>\` installs a skill from a marketplace into
+\`~/.decklight/skills/<name>/SKILL.md\` (\`$DECKLIGHT_HOME/skills/\` when that is
+set) and copies it next to this skill. When a task is one a skill there
+describes — migrating a deck to a new major version of its design system, say —
+list that directory, read the SKILL.md whose \`description\` fits, and follow
+it together with this contract.
+
 **Commit your own changes when an edit server is running.** It snapshots
 silently and commits only when told; you are not an agent it started, so
 after each logical change:
@@ -291,7 +300,7 @@ export const AGENTS_MARKER = '<!-- decklight:skill -->';
  * marker pair lets `init`/`skills` refresh the block in place instead of
  * appending a duplicate.
  */
-export function agentsSection(referenceHref = '.claude/skills/decklight/reference.md') {
+export function agentsSection(referenceHref = '.claude/skills/decklight/reference.md', { librarySkills = [] } = {}) {
   return `${AGENTS_MARKER}
 ${SKILL_STAMP()}
 ## Decklight decks
@@ -327,10 +336,32 @@ change you finish rather than leaving it to the timer's generic \`autosave\`:
 -d '{"message":"what this change did"}'\`. No server listening means no
 authoring session — skip it and carry on.
 
-Hit a Decklight bug? Run \`npx decklight@latest report-bug\` for the environment
+${librarySkillLines(librarySkills)}Hit a Decklight bug? Run \`npx decklight@latest report-bug\` for the environment
 facts, then ask the user what happened, what they expected, and the smallest
 repro — and show them the whole issue before filing anything.
 ${AGENTS_MARKER}
+`;
+}
+
+/** A path as an agent should read it on this machine: `~/…` under $HOME. */
+export function homePath(file) {
+  const home = os.homedir();
+  return home && file.startsWith(home + path.sep) ? `~${file.slice(home.length)}` : file;
+}
+
+/**
+ * The installed marketplace skills (`librarySkills` in units.mjs), one line
+ * each, for an agent that reads AGENTS.md and nothing else (#880): no
+ * directory of skills is indexed for it, so the line is the only way it
+ * learns one exists. Nothing installed, no paragraph.
+ */
+function librarySkillLines(skills) {
+  if (!skills.length) return '';
+  const lines = skills.map((s) => `- for ${s.description || s.name}, read \`${homePath(path.join(s.path, 'SKILL.md'))}\``);
+  return `Installed marketplace skills (\`decklight library add skill\`). Before a task
+one of them describes, read its SKILL.md and follow it:
+${lines.join('\n')}
+
 `;
 }
 

@@ -21,7 +21,9 @@
  * deck at a desk.
  *
  * WHAT IS DELIBERATELY NOT HERE: running an installed unit. A skill is
- * Markdown, so it is just files. An import adapter and
+ * Markdown, so it is just files — read by an agent, not by a decklight
+ * command, so `library add skill` also hands it to the agents `decklight
+ * skills` writes for (`cli/skills.mjs` `placeLibrarySkill`, #880). An import adapter and
  * a build-time transform are both **Node code**, and executing either is one
  * shared capability rather than two copies of resolve-fetch-validate-load —
  * `cli/loader.mjs` (`EXTENSIONS#LOADER`) is that shared loader. `bundle
@@ -55,7 +57,7 @@ export const UNIT_TYPES = {
     files: ['SKILL.md'],
     optional: ['reference.md'],
     label: 'agent skill',
-    use: 'decklight library add skill <name>',
+    use: 'your coding agent — copied into .claude/skills/ and listed in the AGENTS.md section (decklight skills)',
     example: 'conference-cfp',
     required: [],
   },
@@ -249,6 +251,23 @@ export function installedVoices(engine, home = configHome()) {
   return out;
 }
 
+/**
+ * The installed marketplace skills, each with the `description` its SKILL.md
+ * frontmatter gives — what an agent picks one by (#880): the AGENTS.md section
+ * lists them, and `decklight skills` copies them beside the authoring skill.
+ * Offline like every read here; a SKILL.md with no frontmatter still lists, by
+ * name alone.
+ */
+export function librarySkills(home = configHome()) {
+  return listUnits('skill', home).map(({ name, path }) => {
+    let text = '';
+    try { text = readFileSync(join(path, 'SKILL.md'), 'utf8'); } catch { /* listed by name */ }
+    const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? '';
+    const description = (/^description:[ \t]*(.*)$/m.exec(front)?.[1] ?? '').trim().replace(/^(['"])(.*)\1$/, '$2');
+    return { name, description, path };
+  });
+}
+
 // ── installing, the one place that reaches the network ─────────────────────
 
 /** Read one artifact file from a resolved source (a URL or a local path). */
@@ -418,15 +437,36 @@ export const unitUsage = (type) => {
   decklight library remove ${type} <name>
     delete it from your library
 
-  used by: ${t.use}
+  used by: ${t.use}${type === 'skill' ? `
+
+  A skill is read by your coding agent, so \`add\` also copies it into
+  .claude/skills/<name>/ here (--dir <path> for another project, --global for
+  ~/.claude/skills/) and lists it in every AGENTS.md carrying the Decklight
+  section; \`remove\` takes both away again. \`decklight skills\` keeps them.` : ''}
 
   Registering a marketplace is not fetching it (SPEC MARKETPLACE_REGISTRY):
   \`list\` reads only the cache and works on a plane, and the network is touched
   only by an explicit \`add\`. DECKLIGHT_HOME overrides ~/.decklight/.`;
 };
 
+/**
+ * The positionals and the agent scope of a unit command: `--global` (each
+ * agent's config home) or `--dir <path>` (a project other than the current
+ * directory). Only a skill reads the scope — it is the one kind an agent reads.
+ */
+function scopeArgs(args) {
+  const out = { names: [], global: false, dir: '.' };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--global' || args[i] === '-g') out.global = true;
+    else if (args[i] === '--dir') out.dir = args[++i] ?? '.';
+    else if (!args[i].startsWith('-')) out.names.push(args[i]);
+  }
+  return out;
+}
+
 async function addMain(type, args, home) {
-  const [ref] = args.filter((a) => !a.startsWith('-'));
+  const scope = scopeArgs(args);
+  const [ref] = scope.names;
   if (!ref) { console.error(`decklight library add ${type}: needs a name\n\n${unitUsage(type)}`); return 1; }
   let done;
   try { done = await installUnit(type, ref, home); } catch (e) {
@@ -436,6 +476,12 @@ async function addMain(type, args, home) {
   }
   console.log(`installed ${done.name}${done.entry.version ? ` ${done.entry.version}` : ''} from ${done.qualified} — ${UNIT_TYPES[type].use}`);
   if (done.entry.description) console.log(`  ${done.entry.description}`);
+  // A skill's consumer is an agent, not a decklight command: hand it to the
+  // agents `decklight skills` writes for, or it sits where nothing reads (#880).
+  if (type === 'skill') {
+    const { placeLibrarySkill } = await import('./skills.mjs');
+    for (const line of placeLibrarySkill(done.name, scope)) console.log(`  ${line}`);
+  }
   return 0;
 }
 
@@ -462,8 +508,9 @@ function listMain(type, home) {
   return 0;
 }
 
-function removeMain(type, args, home) {
-  const [name] = args.filter((a) => !a.startsWith('-'));
+async function removeMain(type, args, home) {
+  const scope = scopeArgs(args);
+  const [name] = scope.names;
   if (!name) { console.error(`decklight library remove ${type}: which one?\n\n${unitUsage(type)}`); return 1; }
   try { removeUnit(type, name, home); } catch (e) {
     if (!(e instanceof UnitError)) throw e;
@@ -471,6 +518,10 @@ function removeMain(type, args, home) {
     return 1;
   }
   console.log(`removed ${name}`);
+  if (type === 'skill') {
+    const { unplaceLibrarySkill } = await import('./skills.mjs');
+    for (const line of unplaceLibrarySkill(name, scope)) console.log(`  ${line}`);
+  }
   return 0;
 }
 
@@ -484,7 +535,7 @@ export async function unitMain(type, args = []) {
   try {
     if (sub === 'add') return await addMain(type, rest, home);
     if (sub === 'list') return listMain(type, home);
-    if (sub === 'remove') return removeMain(type, rest, home);
+    if (sub === 'remove') return await removeMain(type, rest, home);
   } catch (e) {
     if (e instanceof UnitError || e instanceof MarketplaceError) {
       console.error(`decklight library ${sub} ${type}: ${e.message}`);
