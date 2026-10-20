@@ -577,8 +577,9 @@ test('installing an entry from a remote marketplace reads the checkout — no se
   const home = tmp();
   const repo = gitMarketRepo(TEMPLATES, { 'skills/pitch/SKILL.md': PITCH });
   assert.equal(run(home, 'add', repo.url).status, 0);
+  // a cwd of its own: a skill install also copies into <cwd>/.claude/skills/ (#880)
   const r = spawnSync('node', [CLI, 'library', 'add', 'skill', 'pitch@nord-pack'],
-    { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home } });
+    { encoding: 'utf8', cwd: tmp(), env: { ...process.env, DECKLIGHT_HOME: home } });
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
   assert.equal(fs.readFileSync(path.join(home, 'skills', 'pitch', 'SKILL.md'), 'utf8'), PITCH);
 });
