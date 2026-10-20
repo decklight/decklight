@@ -182,6 +182,7 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
   let onChunk = null;   // (data) => void — active step's collector
   let shellDead = false;
   let onExitCb = null;
+  let finished = false; // every step recorded — the shell is idle at its prompt
   term.onData(d => { buffer += d; if (onChunk) onChunk(d); });
   term.onExit(() => { shellDead = true; if (onExitCb) onExitCb(); });
 
@@ -334,10 +335,25 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
         throw new Error(`step ${idx + 1} exited ${exit}: ${step.cmd}  (use --allow-fail to record failures as content)`);
       }
     }
+    finished = true;
     return steps;
   } finally {
-    try { term.write('exit\n'); } catch { /* already dead */ }
-    await new Promise(res => { if (shellDead) return res(); onExitCb = res; setTimeout(res, 1500); });
+    // A run that completed leaves the shell at its prompt, where `exit` ends
+    // it in a few milliseconds. A run that bailed mid-step (a timeout, an
+    // abort) leaves that command in the foreground, where `exit` would only
+    // queue behind it until the cap below gave up — so that shell is hung up
+    // on directly, which takes its foreground job with it.
+    if (finished) { try { term.write('exit\n'); } catch { /* already dead */ } }
+    else { try { term.kill(); } catch { /* already dead */ } }
+    // The cap is a fallback, so it must not outlive the exit it guards: a
+    // pending timer keeps the event loop alive, and this one held every
+    // recording open for its full 1.5s after the shell had already gone —
+    // ~1.5s per `rec` on a 100ms recording, and the bulk of test/cast.test.mjs.
+    await new Promise(res => {
+      if (shellDead) return res();
+      const cap = setTimeout(res, 1500);
+      onExitCb = () => { clearTimeout(cap); res(); };
+    });
     try { term.kill(); } catch { /* already dead */ }
   }
 }
