@@ -118,9 +118,9 @@ test('the no-trust server lists the reviewer\'s submitted comments beside her si
   let out = '';
   child.stdout.on('data', (c) => { out += c; }); child.stderr.on('data', (c) => { out += c; });
   const base = await new Promise((ok, no) => {
-    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); ok(`http://127.0.0.1:${m[1]}`); } }, 25);
-    child.on('exit', () => { clearInterval(scan); no(new Error('exited early:\n' + out)); });
-    setTimeout(() => { clearInterval(scan); no(new Error('timeout:\n' + out)); }, 15000);
+    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); clearTimeout(bell); ok(`http://127.0.0.1:${m[1]}`); } }, 25);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); no(new Error('exited early:\n' + out)); });
+    const bell = setTimeout(() => { clearInterval(scan); no(new Error('timeout:\n' + out)); }, 15000);
   });
   const listed = await (await fetch(`${base}/deck/review/comments`)).json();
   assert.deepEqual(listed.records.map((r) => r.id).sort(), ['a1', 'a2', 'a9'], 'sidecar first, the remote\'s own behind it, merged by id');

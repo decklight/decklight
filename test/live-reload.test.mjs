@@ -38,10 +38,10 @@ test('a rename-replace does not kill live reload', async (t) => {
   const base = await new Promise((resolve, reject) => {
     const scan = setInterval(() => {
       const m = log.match(/decklight · \S+ on (http:\/\/127\.0\.0\.1:\d+)/);
-      if (m) { clearInterval(scan); resolve(m[1]); }
+      if (m) { clearInterval(scan); clearTimeout(bell); resolve(m[1]); }
     }, 25);
-    child.on('exit', () => { clearInterval(scan); reject(new Error('edit exited early:\n' + log)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error('no server URL:\n' + log)); }, 20000);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error('edit exited early:\n' + log)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error('no server URL:\n' + log)); }, 20000);
   });
 
   // listen to the reload stream the deck itself listens to

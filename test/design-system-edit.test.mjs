@@ -112,9 +112,9 @@ async function startEditingTour(t, h, body) {
   proc.stdout.on('data', (c) => { out += c; });
   proc.stderr.on('data', (c) => { out += c; });
   const base = await new Promise((resolve, reject) => {
-    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
-    proc.on('exit', () => { clearInterval(scan); reject(new Error(`open exited early:\n${out}`)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error(`timeout:\n${out}`)); }, 10000);
+    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
+    proc.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error(`open exited early:\n${out}`)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error(`timeout:\n${out}`)); }, 10000);
   });
   return { base, deck: path.join(dir, 'deck.html') };
 }

@@ -217,9 +217,9 @@ async function openDeck(t, dir, extra = [], env = {}) {
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
   const base = await new Promise((resolve, reject) => {
-    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
-    child.on('exit', () => { clearInterval(scan); reject(new Error('exited early:\n' + out)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 15000);
+    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error('exited early:\n' + out)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 15000);
   });
   return { base, home, log: () => out };
 }
@@ -287,9 +287,9 @@ test('--no-trust is the same server in no-trust mode: every edit route refuses, 
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
   const base = await new Promise((resolve, reject) => {
-    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
-    child.on('exit', () => { clearInterval(scan); reject(new Error('exited early:\n' + out)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 10000);
+    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error('exited early:\n' + out)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 10000);
   });
   assert.match(out, /no trust: its code stripped, CSP enforced/, 'it says what it is');
   const page = await fetch(base + '/deck.html');

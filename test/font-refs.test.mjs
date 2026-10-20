@@ -178,8 +178,8 @@ test('the edit server: browse lists what is offered and used; mark references it
   let log = '';
   proc.stdout.on('data', (c) => { log += c; });
   const base = await new Promise((resolve, reject) => {
-    const scan = setInterval(() => { const m = log.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
-    setTimeout(() => { clearInterval(scan); reject(new Error(log)); }, 10000);
+    const scan = setInterval(() => { const m = log.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error(log)); }, 10000);
   });
   const browse = async () => (await (await fetch(`${base}/deck/edit/font/browse`)).json());
   let b = await browse();

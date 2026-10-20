@@ -247,10 +247,10 @@ async function startPresent(t, dir, home, extraArgs = []) {
   const base = await new Promise((resolve, reject) => {
     const scan = setInterval(() => {
       const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
-      if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
+      if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); }
     }, 25);
-    child.on('exit', () => { clearInterval(scan); reject(new Error('present exited early:\n' + out)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for present:\n' + out)); }, 10000);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error('present exited early:\n' + out)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for present:\n' + out)); }, 10000);
   });
   return { base, log: () => out };
 }
@@ -297,10 +297,10 @@ async function startWrite(t, dir, home, extraArgs = []) {
   const base = await new Promise((resolve, reject) => {
     const scan = setInterval(() => {
       const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
-      if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
+      if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); }
     }, 25);
-    child.on('exit', () => { clearInterval(scan); reject(new Error('write mode exited early:\n' + out)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for write mode:\n' + out)); }, 10000);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error('write mode exited early:\n' + out)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for write mode:\n' + out)); }, 10000);
   });
   return { base, log: () => out };
 }
@@ -366,9 +366,9 @@ test('strict mode does not strip the chrome it was handed', async (t) => {
   const base = await new Promise((resolve, reject) => {
     const scan = setInterval(() => {
       const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
-      if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
+      if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); }
     }, 25);
-    setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 10000);
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 10000);
   });
   const served = await (await fetch(base + '/')).text();
   assert.match(out, /serving strict/, 'the unaccounted block turned strict on');

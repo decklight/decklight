@@ -79,10 +79,10 @@ async function startPresent(t, dir, { deck = 'talk.html', cwd = dir, extraArgs =
   const base = await new Promise((resolve, reject) => {
     const scan = setInterval(() => {
       const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
-      if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
+      if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); }
     }, 25);
-    child.on('exit', () => { clearInterval(scan); reject(new Error('present exited early:\n' + out)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for present:\n' + out)); }, 10000);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error('present exited early:\n' + out)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for present:\n' + out)); }, 10000);
   });
   return { base, child, log: () => out };
 }
@@ -428,8 +428,8 @@ test('--port binds the port asked for, and Ctrl-C exits clean', { skip: noSignal
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   await new Promise((resolve, reject) => {
-    const scan = setInterval(() => { if (out.includes(`127.0.0.1:${port}`)) { clearInterval(scan); resolve(); } }, 25);
-    setTimeout(() => { clearInterval(scan); reject(new Error(`never bound ${port}:\n${out}`)); }, 8000);
+    const scan = setInterval(() => { if (out.includes(`127.0.0.1:${port}`)) { clearInterval(scan); clearTimeout(bell); resolve(); } }, 25);
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error(`never bound ${port}:\n${out}`)); }, 8000);
   });
   assert.equal((await fetch(`http://127.0.0.1:${port}/talk.html`)).status, 200,
     'serving on the requested port, not a bumped one');

@@ -143,8 +143,8 @@ test('the edit server: mark brings them (⇧ — recommended: false — does not
   let log = '';
   proc.stdout.on('data', (c) => { log += c; });
   const base = await new Promise((resolve, reject) => {
-    const scan = setInterval(() => { const m = log.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
-    setTimeout(() => { clearInterval(scan); reject(new Error(log)); }, 10000);
+    const scan = setInterval(() => { const m = log.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error(log)); }, 10000);
   });
   const post = async (route, body) => (await fetch(`${base}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
   const original = readFileSync(file, 'utf8');
@@ -231,8 +231,8 @@ test('the edit server records a dependency already there: on mark (not with ⇧)
   let log = '';
   proc.stdout.on('data', (c) => { log += c; });
   const base = await new Promise((resolve, reject) => {
-    const scan = setInterval(() => { const m = log.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
-    setTimeout(() => { clearInterval(scan); reject(new Error(log)); }, 10000);
+    const scan = setInterval(() => { const m = log.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error(log)); }, 10000);
   });
   const post = async (route, body) => (await fetch(`${base}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
   const alone = await post('/deck/edit/design-system/mark', { ref: 'acme@acme-mkt', used: true, recommended: false });

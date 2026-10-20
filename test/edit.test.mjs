@@ -373,10 +373,10 @@ async function startEdit(t, dir, { extraArgs = [], env = {} } = {}) {
   const base = await new Promise((resolve, reject) => {
     const scan = setInterval(() => {
       const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
-      if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
+      if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); }
     }, 25);
-    child.on('exit', () => { clearInterval(scan); reject(new Error('edit exited early:\n' + out)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for edit server:\n' + out)); }, 10000);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error('edit exited early:\n' + out)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for edit server:\n' + out)); }, 10000);
   });
   /**
    * Wait for a line the server prints AFTER the URL.

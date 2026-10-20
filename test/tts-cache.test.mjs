@@ -43,10 +43,10 @@ function startBridge(t, env) {
   return new Promise((resolve, reject) => {
     const scan = setInterval(() => {
       const m = log.match(/tts bridge on http:\/\/127\.0\.0\.1:(\d+)/);
-      if (m) { clearInterval(scan); resolve({ child, port: Number(m[1]), log: () => log }); }
+      if (m) { clearInterval(scan); clearTimeout(bell); resolve({ child, port: Number(m[1]), log: () => log }); }
     }, 25);
-    child.on('exit', () => { clearInterval(scan); reject(new Error('bridge exited early:\n' + log)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error('no bridge URL:\n' + log)); }, 20000);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error('bridge exited early:\n' + log)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error('no bridge URL:\n' + log)); }, 20000);
   });
 }
 

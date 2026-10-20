@@ -163,9 +163,9 @@ test('decklight <url>: the clone IS the working directory — git runs there, no
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
   const base = await new Promise((resolve, reject) => {
-    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 50);
-    child.on('exit', () => { clearInterval(scan); reject(new Error(`open exited early:\n${out}`)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error(`no URL in 20s:\n${out}`)); }, 20_000);
+    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); clearTimeout(bell); resolve(`http://127.0.0.1:${m[1]}`); } }, 50);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error(`open exited early:\n${out}`)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error(`no URL in 20s:\n${out}`)); }, 20_000);
   });
   assert.match(out, /cloned file:.*talk\.git → talk/);
   assert.ok(!fs.existsSync(path.join(cwd, '.git')), 'no repository was created where the deck was opened from');
@@ -192,9 +192,9 @@ async function serveFrom(t, args, cwd) {
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
   await new Promise((resolve, reject) => {
-    const scan = setInterval(() => { if (/http:\/\/127\.0\.0\.1:\d+/.test(out)) { clearInterval(scan); resolve(); } }, 50);
-    child.on('exit', () => { clearInterval(scan); reject(new Error(`${args[0]} exited early:\n${out}`)); });
-    setTimeout(() => { clearInterval(scan); reject(new Error(`no URL in 20s:\n${out}`)); }, 20_000);
+    const scan = setInterval(() => { if (/http:\/\/127\.0\.0\.1:\d+/.test(out)) { clearInterval(scan); clearTimeout(bell); resolve(); } }, 50);
+    child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error(`${args[0]} exited early:\n${out}`)); });
+    const bell = setTimeout(() => { clearInterval(scan); reject(new Error(`no URL in 20s:\n${out}`)); }, 20_000);
   });
   await stop(child);
   return out;
