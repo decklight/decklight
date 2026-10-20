@@ -6572,15 +6572,20 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         const hint = [...document.querySelectorAll('.decklight-deckcheck .dc-row')].find((x) => x.dataset.rule === 'concept-suggestion');
         r.suggestsTheRecurringLabel = !!hint && hint.classList.contains('dc-hint')
-          && /“Other” is on slides 5 and 6 in 2 colours: make it the “other” concept · ⏎ makes it/.test(hint.textContent)
+          && /“Other” is on slides 5 and 6 in 2 colours: make it the “other” concept/.test(hint.querySelector('.dc-msg')?.textContent ?? '')
+          // the row's fix is what makes it (PRESENTING_EDITING), in the words of what it will do
+          && hint.querySelector('.dc-fix')?.textContent === 'Make “other” the concept'
           // every hint row is counted as a suggestion (a diagram with no build is a hint too)
-          && new RegExp(` · ${document.querySelectorAll('.decklight-deckcheck .dc-hint').length} suggestions?$`).test(q('.decklight-deckcheck .narr-head')?.textContent ?? '');
+          && new RegExp(` · ${document.querySelectorAll('.decklight-deckcheck .dc-hint').length} suggestions?( · \\d+ with a fix)?$`).test(q('.decklight-deckcheck .dc-heading')?.textContent ?? '');
         r.agentNoLongerSuggested = ![...document.querySelectorAll('.decklight-deckcheck .dc-row')].some((x) => /“Agent”/.test(x.textContent));
-        hint.click();
-        await settle(); await settle();
+        hint.querySelector('.dc-fix').click();
+        await settle(); await settle(); await settle();
         const accepted = writes().at(-1);
+        // one in-place write; the panel stays, and the row goes with the finding
         r.acceptingAttachesThemAll = accepted?.concept === 'other' && accepted.items.length === 2
           && q('.fo1').getAttribute('data-concept') === 'other' && q('.fo2').getAttribute('data-concept') === 'other' && !q(K);
+        r.panelStaysAndRowGoes = !!q('.decklight-deckcheck')
+          && ![...document.querySelectorAll('.decklight-deckcheck .dc-row')].some((x) => x.dataset.rule === 'concept-suggestion');
 
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
