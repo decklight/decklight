@@ -335,12 +335,42 @@
           return json({ ok: true, ref: body.ref, used: body.used, changed: true, undo: 1, redo: 0 });
         }
       }
-      // Add a marketplace… (SPEC DESIGN_SYSTEMS): nothing registered until the
-      // second ⏎; the first only says what would be cloned or read, a path
-      // that is not a marketplace is refused in a sentence, and once the
-      // registration lands every browse route answers with what it offers
-      if (HARNESS_MODE === 'marketplaceadd') {
+      // Marketplaces… (SPEC MARKETPLACES_SCREEN): the list is the cache's;
+      // the check says acme is behind its source; an update answers with
+      // what's new; and an add is nothing registered until the second ⏎ —
+      // the first only says what would be cloned or read, a path that is not
+      // a marketplace is refused in a sentence — after which every browse
+      // route answers with what it offers
+      if (HARNESS_MODE === 'marketplaces') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        const A1 = 'a'.repeat(40), B1 = 'b'.repeat(40);
+        const acmeNews = { at: new Date().toISOString(), from: A1, to: B1, first: false,
+          added: [{ type: 'theme', name: 'frost', version: '0.1.0' }], removed: [{ type: 'theme', name: 'old', version: null }],
+          changed: [{ type: 'theme', name: 'nord', from: '1.0.0', to: '1.1.0' }] };
+        const acmeNewer = [{ qualified: 'nord@acme', type: 'theme', from: '1.0.0', to: '1.1.0', how: 'decklight theme add nord@acme <deck>' }];
+        if (u.includes('/deck/edit/marketplaces')) {
+          const up = !!window.__mkUpdated;
+          return json({ ok: true, cacheOnly: true, marketplaces: [
+            { name: 'acme', source: 'acme/decklight-themes', ref: null, commit: up ? B1 : A1, firstParty: false, local: false, state: 'fetched',
+              description: null, counts: { theme: 2 }, changes: up ? acmeNews : null, newer: up ? acmeNewer : [] },
+            { name: 'decklight', source: 'decklight/decklight-plugins-official', ref: null, commit: null, firstParty: true, local: false, state: 'unfetched',
+              description: null, counts: {}, changes: null, newer: [] },
+            ...(window.__mkRegistered ? [{ name: 'northwind', source: '/talks/northwind', ref: null, commit: null, firstParty: false, local: true, state: 'fetched',
+              description: null, counts: { 'design-system': 1, theme: 1, font: 1 }, changes: null, newer: [] }] : []),
+          ] });
+        }
+        if (u.includes('/deck/edit/marketplace/check')) {
+          return json({ ok: true, marketplaces: [
+            { name: 'acme', source: 'acme/decklight-themes', ref: null, local: false, commit: window.__mkUpdated ? B1 : A1, remote: B1, error: null, state: window.__mkUpdated ? 'current' : 'behind' },
+            { name: 'decklight', source: 'decklight/decklight-plugins-official', ref: null, local: false, commit: null, remote: null, error: null, state: 'unfetched' },
+          ] });
+        }
+        if (u.includes('/deck/edit/marketplace/update')) {
+          const body = JSON.parse(init?.body ?? '{}');
+          if (body.name !== 'acme') return json({ ok: false, error: `${body.name}: git clone failed — offline?` }, 409);
+          window.__mkUpdated = true;
+          return json({ ok: true, name: 'acme', commit: B1, changes: acmeNews, counts: { theme: 2 }, newer: acmeNewer, said: 'updated acme — 2 entries' });
+        }
         if (u.includes('/deck/edit/marketplace/add')) {
           const body = JSON.parse(init?.body ?? '{}');
           if (body.spec === './plain') return json({ ok: false, error: '/talks/plain has no .decklight/marketplace.json — is it a marketplace?' }, 400);
@@ -3531,9 +3561,9 @@
         press('Escape');
         // no door to a clone in a deck opened without trust (#838)
         press('/');
-        for (const ch of 'add a marketplace') press(ch);
+        for (const ch of 'marketplace') press(ch);
         await settle();
-        r.noMarketplaceAdd = !rows().some((t) => /Add a marketplace/.test(t));
+        r.noMarketplaceAdd = !rows().some((t) => /^Marketplaces…|Add a marketplace/.test(t));
         press('Escape'); press('Escape');
         r.presentedChannelWired = CALLS.get.some((u) => u.includes('/deck/events')) || !!window.__es;
         r.PASS = r.notAvailable && r.noChip && r.nothingEdits && r.noModeRow && r.noMarketplaceAdd;
@@ -4582,15 +4612,18 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         return;
       }
 
-      if (mode === 'marketplaceadd') {
-        // The ticket's demo (#838): no marketplace registered, / → Design
-        // systems… offers Add a marketplace…, ./northwind is said before it is
-        // read, a second ⏎ registers it, and the list comes back with it,
-        // the theme and font pickers asking again rather than trusting the
-        // list they loaded before it existed
-        const Q = '.decklight-palette', ROW = '.pal-row', A = '.decklight-marketplace-add';
+      if (mode === 'marketplaces') {
+        // SPEC MARKETPLACES_SCREEN. The empty Design systems… offers the add
+        // view, ./northwind is said before it is read, a second ⏎ registers
+        // it and the list comes back with it, the theme and font pickers
+        // asking again. Then the screen itself: every marketplace from the
+        // cache, C asks which are behind, ⏎ updates one and opens what's new,
+        // W reopens it, A adds — and the palette's old Add a marketplace… row
+        // is gone, folded in here
+        const Q = '.decklight-palette', ROW = '.pal-row', A = '.decklight-marketplaces';
         const said = () => [...document.querySelectorAll('.decklight-toast')].map((e) => e.textContent).join(' | ');
         const asked = (route) => CALLS.get.filter((u) => u.includes(route)).length;
+        const posted = (route) => CALLS.post.filter((c) => c.u.includes(route));
         const paletteRun = async (text) => {
           press('/'); await settle();
           for (const ch of text) press(ch);
@@ -4609,18 +4642,22 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
           await settle(); await settle();
         };
+        const row = (name) => [...document.querySelectorAll(`${A} .mk-row`)].find((n) => n.querySelector('.mk-name')?.textContent === name);
         await settle(); await settle();
         // the pickers' first look, before anything is registered
         press('t'); await settle(); await settle(); press('Escape'); await settle();
         await paletteRun('font…'); press('Escape'); await settle();
         const themesBefore = asked('/deck/edit/theme/browse'), fontsBefore = asked('/deck/edit/font/browse');
-        // the row is in the palette, write mode
+        // one row in the palette, write mode: Marketplaces…, and no Add a marketplace… beside it
         press('/'); await settle();
-        for (const ch of 'add a marketplace') press(ch);
+        for (const ch of 'marketplace') press(ch);
         await settle();
-        r.paletteRow = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => palName(n).startsWith('Add a marketplace…'));
+        const palRows = [...document.querySelectorAll(`${Q} ${ROW}`)].map(palName);
+        r.paletteRow = palRows.some((t) => t.startsWith('Marketplaces…'));
+        r.addRowRetired = !palRows.some((t) => /Add a marketplace/.test(t));
         press('Escape'); press('Escape'); await settle();
-        // Design systems…, empty: it offers the door, not only the command
+
+        // ── the add view, from the empty Design systems… ───────────────────
         r.dsOpened = await paletteRun('design systems');
         const ds = document.querySelector('.decklight-design-systems');
         r.emptySaid = /No registered marketplace offers a design system/.test(ds?.textContent ?? '');
@@ -4628,14 +4665,14 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && ds?.querySelector('.ds-add')?.classList.contains('narr-sel');
         press('Enter');
         await settle(); await settle();
-        r.adderOpens = !!document.querySelector(A) && !document.querySelector('.decklight-design-systems');
+        r.adderOpens = !!document.querySelector(`${A} .mk-spec`) && !document.querySelector('.decklight-design-systems');
         r.fieldHasFocus = document.activeElement === document.querySelector(`${A} .mk-spec`);
         // a path that is not a marketplace: a sentence, in the card, nothing run
         await typeSpec('./plain');
         r.refusalSaid = /has no \.decklight\/marketplace\.json — is it a marketplace\?/.test(document.querySelector(`${A} .mk-error`)?.textContent ?? '');
         // the first ⏎ says what it is about to do, and does nothing
         await typeSpec('./northwind');
-        const first = CALLS.post.filter((c) => c.u.includes('/deck/edit/marketplace/add')).pop()?.body;
+        const first = posted('/deck/edit/marketplace/add').pop()?.body;
         r.firstAsksOnly = first?.spec === './northwind' && first?.confirm !== true;
         r.saysBefore = /^Register \/talks\/northwind — read in place, nothing is fetched$/.test(document.querySelector(`${A} .mk-does`)?.textContent ?? '')
           && /⏎ register it · Esc back/.test(document.querySelector(`${A} .rec-hint`)?.textContent ?? '');
@@ -4643,7 +4680,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // the second ⏎ registers it
         press('Enter');
         await settle(); await settle(); await settle();
-        const second = CALLS.post.filter((c) => c.u.includes('/deck/edit/marketplace/add')).pop()?.body;
+        const second = posted('/deck/edit/marketplace/add').pop()?.body;
         r.secondConfirms = second?.spec === '/talks/northwind' && second?.confirm === true;
         r.toastCounts = /registered northwind — 1 design system, 1 theme, 1 font/.test(said());
         r.adderClosed = !document.querySelector(A);
@@ -4659,6 +4696,46 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await paletteRun('font…');
         r.fontsAskAgain = asked('/deck/edit/font/browse') === fontsBefore + 1;
         press('Escape'); await settle();
+
+        // ── the screen: every marketplace, from the cache ─────────────────
+        r.screenOpened = await paletteRun('marketplaces');
+        await settle();
+        r.everyOneListed = ['acme', 'decklight', 'northwind'].every((n) => !!row(n)) && !!document.querySelector(`${A} .mk-add`);
+        r.listAsksNothing = posted('/deck/edit/marketplace/check').length === 0
+          && /not checked — C asks its source/.test(row('acme')?.textContent ?? '')
+          && /C asks each source whether it has moved — nothing is fetched/.test(document.querySelector(`${A} .mk-summary`)?.textContent ?? '');
+        r.unfetchedSaid = /not fetched yet/.test(row('decklight')?.textContent ?? '') && /first-party/.test(row('decklight')?.textContent ?? '');
+        r.offersSaid = /offers 2 themes/.test(row('acme')?.textContent ?? '') && /acme\/decklight-themes\s+@aaaaaaa/.test(row('acme')?.querySelector('.mk-src')?.textContent ?? '');
+        // C: which are out of date
+        press('c'); await settle(); await settle();
+        r.checkAsked = posted('/deck/edit/marketplace/check').length === 1;
+        r.behindSaid = /update available @aaaaaaa → @bbbbbbb/.test(row('acme')?.textContent ?? '') && row('acme')?.classList.contains('mk-behind');
+        r.summarySaysOutOfDate = /checked just now: 2 of 3 out of date/.test(document.querySelector(`${A} .mk-summary`)?.textContent ?? '');
+        r.selectedSaysEnter = /⏎ updates it — a clone with your git credentials/.test(row('acme')?.querySelector('.mk-act')?.textContent ?? '')
+          && row('acme')?.classList.contains('narr-sel');
+        // ⏎ updates the selected one and opens what's new
+        press('Enter'); await settle(); await settle(); await settle();
+        r.updatePosted = posted('/deck/edit/marketplace/update').pop()?.body?.name === 'acme';
+        const news = document.querySelector(A)?.textContent ?? '';
+        r.newsOpened = /what's new in acme/.test(news)
+          && /\+\s*frost@acme\s*0\.1\.0/.test(news) && /↑\s*nord@acme\s*1\.0\.0 → 1\.1\.0/.test(news) && /−\s*old@acme/.test(news);
+        r.newerInstallsSaid = /newer than what you installed/.test(news) && /decklight theme add nord@acme <deck>/.test(news);
+        r.updateToast = /updated acme — 1 new, 1 gone, 1 new version/.test(said());
+        // Esc is back to the list, acme now up to date; W reads its news again
+        press('Escape'); await settle(); await settle();
+        r.backToList = !!row('acme') && /up to date/.test(row('acme')?.textContent ?? '') && row('acme')?.classList.contains('mk-current');
+        press('w'); await settle();
+        r.wReopens = /what's new in acme/.test(document.querySelector(A)?.textContent ?? '');
+        press('Escape'); await settle();
+        // A is the add view, and Esc from it is the list again, not out
+        press('a'); await settle(); await settle();
+        r.aAdds = !!document.querySelector(`${A} .mk-spec`);
+        press('Escape'); await settle();
+        document.querySelector(`${A} .mk-spec`)?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        r.addEscIsList = !!row('acme') && !document.querySelector(`${A} .mk-spec`);
+        press('Escape'); await settle();
+        r.closed = !document.querySelector(A);
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -5337,7 +5414,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           ['agent', () => press('a')],
           ['fonts', () => paletteRun('font…')],
           ['designsystems', () => paletteRun('design systems')],
-          ['marketplaceadd', () => paletteRun('add a marketplace')],
+          ['marketplaces', () => paletteRun('marketplaces')],
           ['concepts', () => paletteRun('concept colors')],
           ['sourceseditor', () => paletteRun('add sources')],
           ['welcome', () => paletteRun('welcome to decklight')],

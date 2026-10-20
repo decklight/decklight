@@ -5,7 +5,10 @@
 // theme it opens in and whether the picker holds it to its brand's themes,
 // and the three things a marketplace hands a deck to wear (themes, design
 // systems, fonts), each listed from the cache and marked or dropped in the
-// deck's config block (SPEC THEME_DISTRIBUTION, DESIGN_SYSTEMS, FONTS).
+// deck's config block (SPEC THEME_DISTRIBUTION, DESIGN_SYSTEMS, FONTS) — and
+// the marketplaces themselves (SPEC MARKETPLACES_SCREEN): listed, checked,
+// updated and added, every one of them through the `decklight marketplace`
+// command it would be at a terminal.
 //
 // They came out of cli/edit.mjs because they are a family with one shape and
 // one set of needs. Every one either lists what the cached catalogs offer
@@ -44,11 +47,13 @@ import { setDeckTheme, setDeckBrandThemesOnly } from './runtime-link.mjs';
  * the page itself and must not reload it. `quiet` is a setter, not the
  * variable, because the watcher in editMain reads and clears it.
  * `deckPath` is where a relative marketplace path is read from, and
- * `addMarketplace(spec)` runs the registration (a test hands in its own).
+ * `marketplace(args)` runs `decklight marketplace <args…>` (a test hands in
+ * its own); `addMarketplace(spec)` is its `add`, kept apart because a test of
+ * the add door replaces only that.
  */
 export function registerLookRoutes(routes, {
   readDeck, applyEdit, writeDeck, history, broadcast = () => {}, quiet = () => {},
-  deckPath = null, addMarketplace = runMarketplaceAdd,
+  deckPath = null, marketplace = runMarketplace, addMarketplace = (spec) => marketplace(['add', spec]),
 }) {
   // The deck's theme (PRESENTING): in write mode a pick is the deck's, not
   // the viewer's — written the way this deck carries it (setDeckTheme), quiet
@@ -416,6 +421,83 @@ export function registerLookRoutes(routes, {
     return json(200, { ok: true, name, spec: plan.spec, refreshed: !!plan.registered, counts, said: out.said });
   }
 
+  /**
+   * `GET /deck/edit/marketplaces`: every registered marketplace, from the
+   * registry and the cache alone (SPEC MARKETPLACES_SCREEN) — what
+   * `marketplace list` says, as data. Per marketplace: where it comes from
+   * and at which ref and commit, whether it was ever fetched (`state`), what
+   * its catalog offers per kind (`counts`), what its last update changed
+   * (`changes`, as `update` recorded it), and which installs the catalog now
+   * has newer (`newer`). No network: whether a source has MOVED is
+   * `/deck/edit/marketplace/check`'s question, asked only when somebody asks.
+   */
+  async function marketplacesRoute({ json }) {
+    const { loadRegistry, loadCatalog, newerThanInstalled, classifySource, configHome, MarketplaceError } = await import('./marketplace.mjs');
+    let reg;
+    try { reg = loadRegistry(configHome()).marketplaces ?? {}; } catch (e) {
+      if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
+      throw e;
+    }
+    const newer = newerThanInstalled(configHome());
+    const marketplaces = Object.keys(reg).sort().map((name) => {
+      const m = reg[name];
+      const cat = loadCatalog(name, configHome());
+      const counts = {};
+      for (const e of cat?.ok ? cat.manifest.entries : []) counts[e.type] = (counts[e.type] ?? 0) + 1;
+      return {
+        name, source: m.source, ref: m.ref ?? null, commit: m.commit ?? null, firstParty: !!m.firstParty,
+        local: classifySource(m.source).kind === 'local',
+        state: cat === null ? 'unfetched' : cat.ok ? 'fetched' : 'unreadable',
+        description: cat?.ok ? cat.manifest.description ?? null : null,
+        counts, changes: m.changes ?? null,
+        newer: newer.filter((n) => n.qualified.endsWith(`@${name}`)),
+      };
+    });
+    return json(200, { ok: true, marketplaces, cacheOnly: true });
+  }
+
+  /**
+   * `POST /deck/edit/marketplace/check` `{ name? }`: which marketplaces are
+   * behind their source — `decklight marketplace outdated --json`, run as a
+   * child like `add`. It ASKS each remote where its ref points (`git
+   * ls-remote`, the caller's credentials) and fetches nothing, so it is one
+   * explicit press, not a confirm; it never runs on its own.
+   */
+  async function marketplaceCheckRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    if (req.name != null && !/^\w[\w-]*$/.test(String(req.name))) return json(400, { ok: false, error: 'which marketplace? — its registered name' });
+    const out = await marketplace(['outdated', '--json', ...(req.name ? [String(req.name)] : [])]);
+    if (!out.ok) return json(409, { ok: false, error: out.error });
+    let parsed;
+    try { parsed = JSON.parse(out.stdout); } catch { return json(500, { ok: false, error: 'decklight marketplace outdated answered something that is not JSON' }); }
+    return json(200, { ok: true, marketplaces: parsed.marketplaces ?? [] });
+  }
+
+  /**
+   * `POST /deck/edit/marketplace/update` `{ name }`: `decklight marketplace
+   * update <name>`, run as a child — the same re-clone, at the same pinned
+   * ref, with the same refusals; a failed one leaves the cache and checkout
+   * as they were. Answers with what the update changed (the `changes` the
+   * command recorded: added, removed, versions moved) and which installs the
+   * catalog now has newer, with the command that takes each — the screen's
+   * what's new. Nothing in the deck changes, so no undo entry and no reload.
+   */
+  async function marketplaceUpdateRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const name = typeof req.name === 'string' ? req.name : '';
+    if (!/^\w[\w-]*$/.test(name)) return json(400, { ok: false, error: 'which marketplace? — its registered name' });
+    const { loadRegistry, loadCatalog, newerThanInstalled, configHome } = await import('./marketplace.mjs');
+    if (!loadRegistry(configHome()).marketplaces?.[name]) return json(404, { ok: false, error: `no marketplace "${name}" is registered` });
+    const out = await marketplace(['update', name]);
+    if (!out.ok) return json(409, { ok: false, error: out.error });
+    const m = loadRegistry(configHome()).marketplaces?.[name] ?? {};
+    const cat = loadCatalog(name, configHome());
+    const counts = {};
+    for (const e of cat?.ok ? cat.manifest.entries : []) counts[e.type] = (counts[e.type] ?? 0) + 1;
+    console.log(`  marketplace: updated ${name}${m.commit ? ` (${m.commit.slice(0, 7)})` : ''}`);
+    return json(200, { ok: true, name, commit: m.commit ?? null, changes: m.changes ?? null, counts, newer: newerThanInstalled(configHome(), name), said: out.said });
+  }
+
   routes.set('POST /deck/edit/theme', themeRoute);
   routes.set('POST /deck/edit/brand-themes', brandThemesRoute);
   routes.set('GET /deck/edit/theme/browse', themeBrowseRoute);
@@ -427,27 +509,35 @@ export function registerLookRoutes(routes, {
   routes.set('GET /deck/edit/font/browse', fontBrowseRoute);
   routes.set('POST /deck/edit/font/mark', fontMarkRoute);
   routes.set('POST /deck/edit/marketplace/add', marketplaceAddRoute);
+  routes.set('GET /deck/edit/marketplaces', marketplacesRoute);
+  routes.set('POST /deck/edit/marketplace/check', marketplaceCheckRoute);
+  routes.set('POST /deck/edit/marketplace/update', marketplaceUpdateRoute);
   return routes;
 }
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
 /**
- * Run `decklight marketplace add <spec>` and say how it went: `{ ok, said }`
- * with the command's own first line, or `{ ok: false, error }` with what it
- * printed on the way out, prefix dropped. git is told never to prompt (the
- * command does that too; a server has no terminal to prompt on), and the
+ * Run `decklight marketplace <args…>` and say how it went: `{ ok, said,
+ * stdout }` with the command's own first line, or `{ ok: false, error }` with
+ * what it printed on the way out, prefix dropped. git is told never to prompt
+ * (the command does that too; a server has no terminal to prompt on), and the
  * update notice is the command line's business, not this sentence's.
  */
-export function runMarketplaceAdd(spec, { timeoutMs = 120000 } = {}) {
+export function runMarketplace(args, { timeoutMs = 120000 } = {}) {
   return new Promise((done) => {
-    execFile(process.execPath, [CLI, 'marketplace', 'add', spec], {
+    execFile(process.execPath, [CLI, 'marketplace', ...args], {
       encoding: 'utf8', timeout: timeoutMs,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', DECKLIGHT_NO_UPDATE_CHECK: '1' },
+      // no version banner: the server already said which version this is,
+      // and on stderr it would open every refusal read back from there
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', DECKLIGHT_NO_UPDATE_CHECK: '1', DECKLIGHT_BANNER: '1' },
     }, (err, stdout, stderr) => {
-      if (!err) return done({ ok: true, said: String(stdout).trim().split('\n')[0] ?? '' });
-      const said = String(stderr).trim().replace(/^decklight marketplace add: /, '');
+      if (!err) return done({ ok: true, said: String(stdout).trim().split('\n')[0] ?? '', stdout: String(stdout) });
+      const said = String(stderr).trim().replace(new RegExp(`^decklight marketplace ${args[0]}: `), '');
       done({ ok: false, error: said || (err.killed ? `gave up after ${Math.round(timeoutMs / 1000)}s` : oneline(err)) });
     });
   });
 }
+
+/** `decklight marketplace add <spec>` — the add door's one command. */
+export const runMarketplaceAdd = (spec, opts) => runMarketplace(['add', spec], opts);

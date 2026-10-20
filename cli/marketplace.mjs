@@ -7,6 +7,7 @@
 //   decklight marketplace add    <owner/repo | git url | path> [--name x]
 //   decklight marketplace list
 //   decklight marketplace update <name> [--branch <ref>]
+//   decklight marketplace outdated [<name>] [--json]
 //   decklight marketplace remove <name>
 //
 // A marketplace is a git repo (or a local directory) with
@@ -25,8 +26,9 @@
 // offered them.
 //
 // The invariant this module exists to keep (SPEC MARKETPLACE_REGISTRY): the
-// network is touched ONLY by an explicit `add` or `update` of a remote
-// source. Registering is a filesystem write; `list` reads only the cache;
+// network is touched ONLY by an explicit `add`, `update` or `outdated` of a
+// remote source — and `outdated` only asks where a ref points (`git
+// ls-remote`), it fetches no file. Registering is a filesystem write; `list` reads only the cache;
 // installing an entry reads the checkout; nothing on the deck-load or
 // presenting path imports this module at all. A deck on conference wifi, on a
 // plane, or air-gapped behaves identically to one at a desk, marketplace or
@@ -35,7 +37,7 @@
 import {
   existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 // The registry is the file that says which marketplaces exist at all. A
 // truncate interrupted halfway leaves JSON that no longer parses, and
 // loadRegistry rightly refuses to guess at it — so the write is a rename.
@@ -977,9 +979,131 @@ export function resolveEntry(ref, catalogs) {
   return hits[0];
 }
 
+// ── what changed, and what is behind ──────────────────────────────────────
+
+const entryKey = (e) => `${e.type}:${e.name}`;
+
+/**
+ * What one fetch of a catalog changed against the copy it replaced: entries
+ * `added` and `removed`, and entries whose `version` moved (`changed`, with
+ * `from` and `to`). `before` is null for a first fetch, when everything is
+ * new — said as `first`, so a reader does not call forty entries "news".
+ * Pure: two entry lists in, one record out.
+ */
+export function catalogChanges(before, after) {
+  const was = new Map((before ?? []).map((e) => [entryKey(e), e]));
+  const now = new Map((after ?? []).map((e) => [entryKey(e), e]));
+  const brief = (e) => ({ type: e.type, name: e.name, version: e.version ?? null });
+  const added = [...now.values()].filter((e) => !was.has(entryKey(e))).map(brief);
+  const removed = [...was.values()].filter((e) => !now.has(entryKey(e))).map(brief);
+  const changed = [...now.values()]
+    .filter((e) => was.has(entryKey(e)) && (was.get(entryKey(e)).version ?? null) !== (e.version ?? null))
+    .map((e) => ({ type: e.type, name: e.name, from: was.get(entryKey(e)).version ?? null, to: e.version ?? null }));
+  const order = (a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name);
+  return { first: before === null, added: added.sort(order), removed: removed.sort(order), changed: changed.sort(order) };
+}
+
+/**
+ * Remember what a fetch changed on the marketplace's registry record, so the
+ * "what's new" of its last update can be read again later — by `list`, by the
+ * Marketplaces… screen — and not only in the moment it was printed.
+ */
+function noteChanges(record, beforeCat, afterManifest, { from = null, to = null, now = Date.now() } = {}) {
+  const before = beforeCat?.ok ? beforeCat.manifest.entries : null;
+  record.changes = { at: new Date(now).toISOString(), from: from ?? null, to: to ?? null, ...catalogChanges(before, afterManifest.entries) };
+  return record.changes;
+}
+
+/** The what's-new lines `update` prints: `+ new`, `− gone`, `↑ moved`. */
+function changeLines(name, c) {
+  return [
+    ...c.added.map((e) => `+ ${e.name}@${name}${e.version ? ` ${e.version}` : ''} (${e.type})`),
+    ...c.removed.map((e) => `− ${e.name}@${name} (${e.type}) — no longer offered`),
+    ...c.changed.map((e) => `↑ ${e.name}@${name}  ${e.from ?? 'unversioned'} → ${e.to ?? 'unversioned'}`),
+  ];
+}
+
+/** `git ls-remote`, asynchronously: several marketplaces are asked at once. */
+const lsRemote = (url, patterns, { timeoutMs }) => new Promise((done, fail) => {
+  execFile('git', ['ls-remote', '--', url, ...patterns], {
+    encoding: 'utf8', timeout: timeoutMs,
+    // never a password prompt, as for a clone: an unreachable repo is an answer
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  }, (err, stdout, stderr) => (err ? fail(Object.assign(err, { stderr })) : done(stdout)));
+});
+
+/**
+ * The commit `ref` names in an `ls-remote` answer — the one `clone --branch`
+ * would check out: a branch before a tag of the same name, and a tag PEELED
+ * (`^{}`), since an annotated tag's own object is not the commit a clone lands
+ * on. No ref is the remote's `HEAD`, as no `--branch` is.
+ */
+export function remoteCommit(lsRemoteOut, ref = null) {
+  const rows = String(lsRemoteOut).split('\n').map((l) => l.trim().split(/\s+/))
+    .filter(([sha, name]) => /^[0-9a-f]{40,64}$/.test(sha ?? '') && name);
+  const at = (name) => rows.find(([, n]) => n === name)?.[0] ?? null;
+  if (!ref) return at('HEAD');
+  return at(`refs/heads/${ref}`) ?? at(`refs/tags/${ref}^{}`) ?? at(`refs/tags/${ref}`) ?? at(ref);
+}
+
+/**
+ * Is a marketplace behind its source? Asked, never fetched: a remote is asked
+ * where its ref points now (`git ls-remote`, the caller's credentials, no
+ * prompt) and that is held against the commit the cached catalog came from; a
+ * local directory's manifest is compared with the cached copy, with no
+ * network at all. Nothing on disk changes — `update` is what takes it.
+ *
+ * `state` is one of: `current`; `behind` (with `remote`, the commit an update
+ * would bring); `unfetched` (never fetched, so `update` is its first fetch);
+ * `unknown` (fetched before commits were recorded — an update records one);
+ * `unreachable` (with `error`, the reason).
+ */
+export async function checkMarketplace(name, home = configHome(), { ask = lsRemote, timeoutMs = 15000 } = {}) {
+  const m = loadRegistry(home).marketplaces?.[name];
+  if (!m) throw new MarketplaceError(`no marketplace "${name}" (decklight marketplace list)`);
+  const src = classifySource(m.source);
+  const base = { name, source: m.source, ref: m.ref ?? null, local: src.kind === 'local', commit: m.commit ?? null, remote: null, error: null };
+  if (loadCatalog(name, home) === null) return { ...base, state: 'unfetched' };
+  if (src.kind === 'local') {
+    let raw;
+    try { raw = readFileSync(join(src.root, MANIFEST_PATH), 'utf8'); } catch {
+      return { ...base, state: 'unreachable', error: `${m.source} has no ${MANIFEST_PATH} any more` };
+    }
+    let cached = null;
+    try { cached = readFileSync(cachePath(home, name), 'utf8'); } catch { /* read just above; gone since */ }
+    return { ...base, state: raw === cached ? 'current' : 'behind' };
+  }
+  let out;
+  // a tag's peeled line answers only when asked for by name
+  try { out = await ask(cloneUrl(src), m.ref ? [m.ref, `${m.ref}^{}`] : ['HEAD'], { timeoutMs }); } catch (e) {
+    return { ...base, state: 'unreachable', error: `git ls-remote ${cloneUrl(src)} failed — ${e.killed ? `no answer in ${Math.round(timeoutMs / 1000)}s` : oneline(e)}` };
+  }
+  const remote = remoteCommit(out, m.ref ?? null);
+  if (!remote) return { ...base, state: 'unreachable', error: m.ref ? `no branch or tag "${m.ref}" in ${m.source}` : `${m.source} has no HEAD` };
+  if (!m.commit) return { ...base, remote, state: 'unknown' };
+  return { ...base, remote, state: remote === m.commit ? 'current' : 'behind' };
+}
+
+/** `checkMarketplace` for every registered marketplace (or `only` one), asked at once. */
+export async function checkMarketplaces(home = configHome(), { only = null, ...opts } = {}) {
+  const names = only ? [only] : Object.keys(loadRegistry(home).marketplaces ?? {}).sort();
+  return Promise.all(names.map((n) => checkMarketplace(n, home, opts)));
+}
+
+/** One line of `outdated`: the state, and the command that acts on it. */
+function outdatedLine(r) {
+  const at = (c) => (c ? `@${c.slice(0, 7)}` : '');
+  const fix = `  —  decklight marketplace update ${r.name}`;
+  if (r.state === 'current') return `${r.name}  up to date${r.commit ? `  ${at(r.commit)}` : ''}`;
+  if (r.state === 'behind') return r.local ? `${r.name}  changed on disk${fix}` : `${r.name}  behind  ${at(r.commit)} → ${at(r.remote)}${fix}`;
+  if (r.state === 'unfetched') return `${r.name}  registered, not fetched${fix}`;
+  if (r.state === 'unknown') return `${r.name}  no commit recorded to compare (the source is at ${at(r.remote)})${fix}`;
+  return `${r.name}  could not ask — ${r.error}`;
+}
+
 // ── the command ────────────────────────────────────────────────────────────
 
-const USAGE = `usage: decklight marketplace <add|list|update|remove> …
+const USAGE = `usage: decklight marketplace <add|list|update|outdated|remove> …
 
   decklight marketplace add <owner/repo | git url | path> [--name <name>]
                                                           [--branch <ref>]
@@ -1008,15 +1132,23 @@ const USAGE = `usage: decklight marketplace <add|list|update|remove> …
     re-clone a marketplace, refreshing the cached manifest and the checkout
     (at the ref it was added with, unless --branch moves the pin)
     its entries install from; for a registered-not-fetched marketplace this is
-    the FIRST fetch it ever gets. Then it names every entry you installed from
-    it that the catalog now has newer, and the command that takes it — it
-    installs nothing itself
+    the FIRST fetch it ever gets. Then it says what's new in the catalog
+    (entries added, gone, or at a new version — remembered, so the
+    Marketplaces… screen shows it again), names every entry you installed
+    from it that the catalog now has newer, and the command that takes it —
+    it installs nothing itself
+
+  decklight marketplace outdated [<name>] [--json]
+    which marketplaces are behind their source: a remote is ASKED where its
+    ref points now (git ls-remote — no clone, nothing written), a local
+    directory's manifest is compared with the cached copy. Each behind one is
+    named with the update that takes it
 
   decklight marketplace remove <name>
     unregister a marketplace and drop its cached manifest and checkout
 
-  registering is not fetching: the network is touched only by an explicit add
-  or update, never when a deck loads or presents (SPEC MARKETPLACE_REGISTRY).
+  registering is not fetching: the network is touched only by an explicit add,
+  update or outdated, never when a deck loads or presents (SPEC MARKETPLACE_REGISTRY).
   DECKLIGHT_HOME overrides ~/.decklight/.`;
 
 const printManifestErrors = (cmd, spec, errors) => {
@@ -1070,6 +1202,8 @@ async function addMain(args, home) {
     reg.marketplaces[name] = {
       ...(existing ?? {}), source: spec, ref: ref ?? undefined, commit: got.commit ?? undefined,
     };
+    // a re-add is a refresh, and says what it changed as `update` does
+    if (existing) noteChanges(reg.marketplaces[name], loadCatalog(name, home), v.manifest, { from: existing.commit, to: got.commit });
     writeCache(home, name, got.raw);
     const at = adoptCheckout(home, name, got.checkout);
     got.checkout = null;
@@ -1183,6 +1317,7 @@ async function updateMain(args, home) {
   try {
     const v = validateManifest(got.raw);
     if (!v.ok) { printManifestErrors('update', m.source, v.errors); return 1; }
+    const before = loadCatalog(name, home);
     writeCache(home, name, got.raw);
     const at = adoptCheckout(home, name, got.checkout);
     got.checkout = null;
@@ -1191,10 +1326,17 @@ async function updateMain(args, home) {
       reg2.marketplaces[name] = {
         ...reg2.marketplaces[name], ref: ref ?? undefined, commit: got.commit ?? undefined,
       };
+      noteChanges(reg2.marketplaces[name], before, v.manifest, { from: m.commit, to: got.commit });
       saveRegistry(reg2, home);
     }
     console.log(`${first ? 'fetched' : 'updated'} ${name}${ref ? ` at ${ref}` : ''} — ${entriesSummary(name, v.manifest.entries)}`);
     if (at) console.log(`  cloned to ${at}${got.commit ? ` (${got.commit.slice(0, 7)})` : ''}`);
+    // What's new in the CATALOG — the first fetch has no "before" to hold it
+    // against, so it is the entries line above and nothing more.
+    if (!first && before?.ok) {
+      const lines = changeLines(name, catalogChanges(before.manifest.entries, v.manifest.entries));
+      console.log(lines.length ? `  what's new:\n${lines.map((l) => `    ${l}`).join('\n')}` : '  nothing in the catalog changed');
+    }
     // What you installed from it that the catalog now has newer — and the
     // one command that takes each. Nothing is installed here: an update
     // refreshes the catalog, and taking a new version stays your call.
@@ -1209,6 +1351,17 @@ async function updateMain(args, home) {
   } finally {
     if (got.checkout) rmSync(got.checkout, { recursive: true, force: true });
   }
+}
+
+async function outdatedMain(args, home) {
+  const [name] = args.filter((a) => !a.startsWith('-'));
+  const reg = loadRegistry(home);
+  if (name && !reg.marketplaces[name]) { console.error(`decklight marketplace outdated: no marketplace "${name}" (decklight marketplace list)`); return 1; }
+  const results = await checkMarketplaces(home, { only: name ?? null });
+  if (args.includes('--json')) { console.log(JSON.stringify({ marketplaces: results }, null, 2)); return 0; }
+  if (!results.length) { console.log('no marketplaces registered — decklight marketplace add <owner/repo | git url | path>'); return 0; }
+  for (const r of results) console.log(outdatedLine(r));
+  return 0;
 }
 
 function removeMain(args, home) {
@@ -1236,6 +1389,7 @@ export async function marketplaceMain(args = []) {
     if (sub === 'add') return await addMain(rest, home);
     if (sub === 'list') return listMain(home);
     if (sub === 'update') return await updateMain(rest, home);
+    if (sub === 'outdated') return await outdatedMain(rest, home);
     if (sub === 'remove') return removeMain(rest, home);
   } catch (e) {
     if (e instanceof MarketplaceError) { console.error(`decklight marketplace ${sub}: ${e.message}`); return 1; }

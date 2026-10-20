@@ -1797,9 +1797,27 @@
 }
 .decklight-design-systems .ds-act { display: none; flex: 1 0 100%; font-size: .8em; opacity: .85; }
 .decklight-design-systems .ds-row.narr-sel .ds-act { display: block; }
-/* Add a marketplace… (DESIGN_SYSTEMS): one field, then what it is about to clone */
-.decklight-marketplace-add .narr-card { width: min(520px, 90vw); }
-.decklight-marketplace-add .mk-error { white-space: pre-wrap; }
+/* Marketplaces… (MARKETPLACES_SCREEN): one row per catalog, its state beside one mark */
+.decklight-marketplaces .narr-card { width: min(580px, 92vw); }
+.decklight-marketplaces .mk-row { align-items: flex-start; }
+.decklight-marketplaces .mk-mark { flex: none; width: 1.2em; line-height: 1.45; text-align: center; }
+.decklight-marketplaces .mk-row .narr-row-label { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; line-height: 1.45; min-width: 0; }
+.decklight-marketplaces .mk-name { font-weight: 600; }
+.decklight-marketplaces .mk-state { font-size: .85em; opacity: .8; }
+.decklight-marketplaces .mk-behind .mk-mark, .decklight-marketplaces .mk-behind .mk-state { color: #ffcf8b; opacity: 1; }
+.decklight-marketplaces .mk-current .mk-mark { color: #5fc98a; }
+.decklight-marketplaces .mk-warn .mk-state { color: #f0846f; opacity: 1; }
+.decklight-marketplaces .mk-src, .decklight-marketplaces .mk-offers {
+  flex: 1 0 100%; min-width: 0; font-size: .8em; opacity: .55;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.decklight-marketplaces .mk-src { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.decklight-marketplaces .mk-act { display: none; flex: 1 0 100%; font-size: .8em; opacity: .85; }
+.decklight-marketplaces .mk-row.narr-sel .mk-act { display: block; }
+.decklight-marketplaces .mk-summary { opacity: .7; font-size: .85em; }
+.decklight-marketplaces .mk-error { white-space: pre-wrap; }
+.decklight-marketplaces .mk-sign { display: inline-block; width: 1.2em; text-align: center; font-weight: 600; }
+.decklight-marketplaces .mk-newer .narr-fix { margin-left: 0; }
 /* Concept colors… (SVG_DIAGRAMS): one row per concept, its six slots beside it */
 .decklight-concepts .narr-card { width: min(640px, 92vw); }
 .decklight-concepts .cc-row { display: flex; align-items: center; gap: 10px; }

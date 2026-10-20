@@ -21,9 +21,9 @@ import { fileURLToPath } from 'node:url';
 import {
   FIRST_PARTY, MANIFEST_PATH, MarketplaceError, TRANSFORM_API_VERSION, IMPORTER_API_VERSION,
   ENGINE_API_VERSION, ENGINE_CAPABILITIES, INSTALL_HINT,
-  checkoutPath, classifySource, cloneUrl, configHome, ensureFirstPartyRegistered, fetchManifest,
+  catalogChanges, checkoutPath, classifySource, cloneUrl, configHome, ensureFirstPartyRegistered, fetchManifest,
   clearCatalogCache, jsonLineMap, loadCatalog, loadRegistry, parseErrorLine, resolveEntry,
-  validateManifest,
+  remoteCommit, validateManifest,
 } from '../cli/marketplace.mjs';
 import { resolveSource } from '../cli/theme.mjs';
 
@@ -400,8 +400,9 @@ test('nothing on the deck-load or presenting path can FETCH from a marketplace',
   // changing it, which is worse than naming what is actually forbidden.
   //
   // So: fetching is forbidden, and the fetching functions are named. The
-  // registered-not-fetched invariant is intact; `marketplace update` is still
-  // the only thing that reaches the network, and it is not on this path.
+  // registered-not-fetched invariant is intact; `marketplace update` (and
+  // `outdated`, which only asks where a ref points) are still the only things
+  // that reach the network, and neither is on this path.
   const FETCHERS = /fetchManifest|cloneMarketplace|raw\.githubusercontent|marketplaceMain/;
   const files = [
     ...fs.readdirSync(path.join(root, 'src'), { recursive: true })
@@ -782,4 +783,89 @@ test('a never-fetched marketplace is still null, and asking twice is still null'
   clearCatalogCache();
   assert.equal(loadCatalog(FIRST_PARTY.name, home), null);
   assert.equal(loadCatalog(FIRST_PARTY.name, home), null, 'a miss must not be remembered as an answer');
+});
+
+// ── outdated, and what's new (SPEC MARKETPLACES_SCREEN) ────────────────────
+
+const commitAll = (dir, msg) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qam', msg],
+  { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+
+test('catalogChanges says what one fetch added, dropped and moved — and a first fetch is not news', () => {
+  const before = [
+    { name: 'nord', type: 'theme', version: '1.0.0' },
+    { name: 'old', type: 'theme' },
+    { name: 'pitch', type: 'skill', version: '2.0.0' },
+  ];
+  const after = [
+    { name: 'nord', type: 'theme', version: '1.1.0' },
+    { name: 'pitch', type: 'skill', version: '2.0.0' },
+    { name: 'frost', type: 'theme', version: '0.1.0' },
+  ];
+  assert.deepEqual(catalogChanges(before, after), {
+    first: false,
+    added: [{ type: 'theme', name: 'frost', version: '0.1.0' }],
+    removed: [{ type: 'theme', name: 'old', version: null }],
+    changed: [{ type: 'theme', name: 'nord', from: '1.0.0', to: '1.1.0' }],
+  });
+  assert.equal(catalogChanges(null, after).first, true);
+});
+
+test('remoteCommit reads the commit a clone would land on: HEAD, a branch before a same-named tag, a tag peeled', () => {
+  const A = 'a'.repeat(40), B = 'b'.repeat(40), C = 'c'.repeat(40), D = 'd'.repeat(40);
+  const out = `${A}\tHEAD\n${B}\trefs/heads/v1\n${C}\trefs/tags/v2\n${D}\trefs/tags/v2^{}\n`;
+  assert.equal(remoteCommit(out), A);
+  assert.equal(remoteCommit(out, 'v1'), B);
+  assert.equal(remoteCommit(out, 'v2'), D, 'an annotated tag is its commit, not its tag object');
+  assert.equal(remoteCommit(out, 'v3'), null);
+});
+
+test('outdated asks each source where it is — behind until an update, which then says what is new', () => {
+  const home = tmp();
+  const repo = gitMarketRepo(GOOD.replace('"source": "./themes/frost.css"', '"source": "./themes/frost.css", "version": "1.0.0"'));
+  assert.equal(run(home, 'add', repo.url).status, 0);
+  const first = run(home, 'outdated', 'nord-pack');
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, new RegExp(`^nord-pack  up to date  @${repo.commit().slice(0, 7)}$`, 'm'));
+  const was = repo.commit();
+
+  const manifest = path.join(repo.dir, MANIFEST_PATH);
+  fs.writeFileSync(manifest, fs.readFileSync(manifest, 'utf8').replace('"1.0.0"', '"1.1.0"').replace('"nord-deep"', '"nord-deeper"'));
+  commitAll(repo.dir, 'bump');
+  const behind = run(home, 'outdated');
+  assert.match(behind.stdout, new RegExp(`^nord-pack  behind  @${was.slice(0, 7)} → @${repo.commit().slice(0, 7)}  —  decklight marketplace update nord-pack$`, 'm'));
+  assert.equal(loadRegistry(home).marketplaces['nord-pack'].commit, was, 'asking changes nothing on disk');
+  const json = JSON.parse(run(home, 'outdated', '--json').stdout);
+  assert.deepEqual(json.marketplaces.find((m) => m.name === 'nord-pack').state, 'behind');
+  assert.equal(json.marketplaces.find((m) => m.name === 'decklight').state, 'unfetched', 'never fetched is said, never asked');
+
+  const up = run(home, 'update', 'nord-pack');
+  assert.equal(up.status, 0, up.stderr);
+  assert.match(up.stdout, /what's new:\n {4}\+ nord-deeper@nord-pack \(theme\)\n {4}− nord-deep@nord-pack \(theme\) — no longer offered\n {4}↑ frost@nord-pack {2}1\.0\.0 → 1\.1\.0/);
+  const changes = loadRegistry(home).marketplaces['nord-pack'].changes;
+  assert.deepEqual([changes.from, changes.to, changes.changed[0].to], [was, repo.commit(), '1.1.0'], 'remembered for the Marketplaces… screen');
+  assert.match(run(home, 'outdated', 'nord-pack').stdout, /nord-pack {2}up to date/);
+  assert.match(run(home, 'update', 'nord-pack').stdout, /nothing in the catalog changed/);
+});
+
+test('outdated holds a catalog pinned to an annotated tag against the tag\'s commit, and names a pin that is gone', () => {
+  const home = tmp();
+  const repo = gitMarketRepo(GOOD);
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'tag', '-a', 'v1', '-m', 'v1'], { cwd: repo.dir });
+  assert.equal(run(home, 'add', repo.url, '--branch', 'v1').status, 0);
+  fs.writeFileSync(path.join(repo.dir, 'x'), 'x');
+  execFileSync('git', ['add', 'x'], { cwd: repo.dir });
+  commitAll(repo.dir, 'past the tag');
+  assert.match(run(home, 'outdated', 'nord-pack').stdout, /nord-pack {2}up to date/, 'the default branch moved; the pin did not');
+  execFileSync('git', ['tag', '-d', 'v1'], { cwd: repo.dir, stdio: 'ignore' });
+  assert.match(run(home, 'outdated', 'nord-pack').stdout, /nord-pack {2}could not ask — no branch or tag "v1" in /);
+});
+
+test('outdated reads a local catalog against its cached copy, with no network, and names an unknown marketplace', () => {
+  const home = tmp();
+  const repo = marketRepo(GOOD);
+  run(home, 'add', repo);
+  assert.match(run(home, 'outdated', 'nord-pack').stdout, /^nord-pack {2}up to date$/m);
+  fs.writeFileSync(path.join(repo, MANIFEST_PATH), GOOD.replace('"frost"', '"frost-2"'));
+  assert.match(run(home, 'outdated', 'nord-pack').stdout, /^nord-pack {2}changed on disk {2}— {2}decklight marketplace update nord-pack$/m);
+  assert.equal(run(home, 'outdated', 'ghost').status, 1);
 });

@@ -1102,7 +1102,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     openPicker: openThemePicker,
     closePicker: closeThemePicker,
     /**
-     * A marketplace was just registered (Add a marketplace…): the next open
+     * A marketplace was just registered (Marketplaces…): the next open
      * asks the edit server again instead of trusting its once-per-page list,
      * so the new catalog's themes are there without a reload.
      */

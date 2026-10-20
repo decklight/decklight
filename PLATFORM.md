@@ -106,8 +106,9 @@ marketplace keeps no checkout: its own directory already is one. An entry whose
 fetched as written.
 
 **The invariant everything above serves: registering is not fetching.** The
-network is touched only by an explicit `add` or `update` of a remote source:
-never at registration, never when a deck loads, never while presenting. The
+network is touched only by an explicit `add`, `update` or `outdated` of a
+remote source (and `outdated` only asks where a ref points; it fetches no
+file): never at registration, never when a deck loads, never while presenting. The
 first-party marketplace is registered on first CLI run as a pure filesystem
 write; its first fetch happens at the first browse or `update`, so first run
 offline is silent and instant, and a deck on conference wifi, on a plane, or
@@ -117,8 +118,14 @@ presenting path imports the marketplace module at all (pinned by
 state: `list` reads only the cache, and a fetch failure is fast and names the
 marketplace and the reason, no spinner, no hang.
 
-**The in-deck door.** In write mode, `/` → **Add a marketplace…** registers a
-catalog without leaving the deck (`DESIGN_SYSTEMS` has the flow). It takes the
+**The in-deck door.** In write mode, `/` → **Marketplaces…** lists every
+registered catalog, says which are behind their source, updates them and says
+what's new, and registers a new one without leaving the deck (SPEC
+`MARKETPLACES_SCREEN` has the flow). Checking, updating and adding each run the
+`decklight marketplace` command (`outdated`, `update`, `add`) as a child
+process. Checking is the one network act that fetches nothing: `outdated` asks
+each remote where its ref points (`git ls-remote`) and compares a local
+directory's manifest with the cached copy, and it runs only when asked. Adding takes the
 same three forms, and the edit server runs **`decklight marketplace add`
 itself**, as a child process: the same command, the caller's git credentials on
 this machine, the same refusals, so `marketplace list` cannot tell which door a
@@ -129,9 +136,10 @@ second ⏎ before it does, as publish does, since a clone is network access as
 the person. A relative path is the **deck's** folder's, registered as an
 absolute one, because the registry keeps a source as given and a relative path
 would mean something else to the next `update`. Nothing is fetched on a later
-open. A deck opened `--no-trust` has neither the row nor the route
-(`POST /deck/edit/marketplace/add`), which sits behind the server's mode gate
-with every other write.
+open. A deck opened `--no-trust` has neither the row nor the routes
+(`GET /deck/edit/marketplaces`, `POST /deck/edit/marketplace/check`,
+`/update` and `/add`), which sit behind the server's mode gate with every
+other write.
 
 **The unit library** (`UNITS#REST`) is where the installable kinds land:
 `~/.decklight/skills/`, `.../importers/`, `.../voices/`,

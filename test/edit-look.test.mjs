@@ -106,12 +106,15 @@ test('every look route the server dispatches is registered here', () => {
   assert.deepEqual([...routes.keys()].sort(), [
     'GET /deck/edit/design-system/browse',
     'GET /deck/edit/font/browse',
+    'GET /deck/edit/marketplaces',
     'GET /deck/edit/theme/browse',
     'POST /deck/edit/brand-themes',
     'POST /deck/edit/design-system/apply',
     'POST /deck/edit/design-system/mark',
     'POST /deck/edit/font/mark',
     'POST /deck/edit/marketplace/add',
+    'POST /deck/edit/marketplace/check',
+    'POST /deck/edit/marketplace/update',
     'POST /deck/edit/theme',
     'POST /deck/edit/theme/add',
     'POST /deck/edit/theme/mark',
@@ -356,4 +359,67 @@ test('POST /deck/edit/marketplace/add says why a registration failed, and leaves
   assert.match(r.body.error, /is not a valid marketplace manifest/);
   assert.match(r.body.error, /entries\[0\]\.type/, 'the reason, not only the fact');
   assert.equal(loadRegistry().marketplaces['broken-door'], undefined);
+});
+
+// ── Marketplaces… (SPEC MARKETPLACES_SCREEN) ────────────────────────────────
+
+test('GET /deck/edit/marketplaces lists every registered catalog from the cache: its source, what it offers, and what its last update changed', async (t) => {
+  const { loadRegistry } = await import('../cli/marketplace.mjs');
+  const { routes, dir } = harness(t);
+  const root = localMarketplace(dir, 'northwind-list');
+  assert.equal((await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: './northwind-list', confirm: true } })).code, 200);
+  const r = await call(routes, 'GET /deck/edit/marketplaces');
+  assert.equal(r.code, 200);
+  assert.equal(r.body.cacheOnly, true, 'listing asks no source anything');
+  const m = r.body.marketplaces.find((x) => x.name === 'northwind-list');
+  assert.deepEqual([m.source, m.local, m.state, m.counts], [root, true, 'fetched', { 'design-system': 1, theme: 1 }]);
+  assert.equal(m.changes, null, 'registered, never updated: there is no what\'s new yet');
+  assert.ok(Object.keys(loadRegistry().marketplaces).every((n) => r.body.marketplaces.some((x) => x.name === n)), 'every registered one, fetched or not');
+});
+
+test('POST /deck/edit/marketplace/check runs `decklight marketplace outdated`, and says which are behind', async (t) => {
+  const { routes, dir } = harness(t);
+  const root = localMarketplace(dir, 'northwind-check');
+  assert.equal((await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: './northwind-check', confirm: true } })).code, 200);
+  const state = async () => (await call(routes, 'POST /deck/edit/marketplace/check', { body: { name: 'northwind-check' } })).body.marketplaces[0].state;
+  assert.equal(await state(), 'current');
+  writeFileSync(path.join(root, '.decklight', 'marketplace.json'), JSON.stringify({ name: 'northwind-check', entries: [] }));
+  assert.equal(await state(), 'behind', 'a local catalog whose manifest moved on disk is behind its cached copy');
+  const bad = await call(routes, 'POST /deck/edit/marketplace/check', { body: { name: '--upload-pack=x' } });
+  assert.equal(bad.code, 400, 'a name is a name, never an option');
+});
+
+test('POST /deck/edit/marketplace/update runs `decklight marketplace update` and answers with what\'s new — remembered for the list', async (t) => {
+  const { routes, dir } = harness(t);
+  const root = localMarketplace(dir, 'northwind-up');
+  assert.equal((await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: './northwind-up', confirm: true } })).code, 200);
+  writeFileSync(path.join(root, '.decklight', 'marketplace.json'), JSON.stringify({
+    name: 'northwind-up', entries: [
+      { name: 'northwind', type: 'design-system', source: 'systems/northwind', version: '1.1.0', apiVersion: 1 },
+      { name: 'northwind-light', type: 'theme', source: './themes/northwind-light.css' },
+    ],
+  }));
+  const r = await call(routes, 'POST /deck/edit/marketplace/update', { body: { name: 'northwind-up' } });
+  assert.equal(r.code, 200, JSON.stringify(r.body));
+  const { added, removed, changed, first } = r.body.changes;
+  assert.equal(first, false);
+  assert.deepEqual(added.map((e) => e.name), ['northwind-light']);
+  assert.deepEqual(removed.map((e) => e.name), ['northwind-dark']);
+  assert.deepEqual(changed, [{ type: 'design-system', name: 'northwind', from: '1.0.0', to: '1.1.0' }]);
+  const listed = (await call(routes, 'GET /deck/edit/marketplaces')).body.marketplaces.find((x) => x.name === 'northwind-up');
+  assert.deepEqual(listed.changes.changed, changed, 'W on the row reads the same news later');
+  for (const [body, code] of [[{ name: 'ghost' }, 404], [{ name: '-x' }, 400], [{}, 400]]) {
+    assert.equal((await call(routes, 'POST /deck/edit/marketplace/update', { body })).code, code, JSON.stringify(body));
+  }
+});
+
+test('POST /deck/edit/marketplace/update says why an update failed, in the command\'s words', async (t) => {
+  const { routes, dir } = harness(t);
+  const root = localMarketplace(dir, 'northwind-gone');
+  assert.equal((await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: './northwind-gone', confirm: true } })).code, 200);
+  writeFileSync(path.join(root, '.decklight', 'marketplace.json'), '{ "name": "northwind-gone", "entries": [ { "name": "x" } ] }');
+  const r = await call(routes, 'POST /deck/edit/marketplace/update', { body: { name: 'northwind-gone' } });
+  assert.equal(r.code, 409);
+  assert.match(r.body.error, /is not a valid marketplace manifest/);
+  assert.doesNotMatch(r.body.error, /^decklight \d/, 'no version banner ahead of the reason');
 });

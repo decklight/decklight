@@ -278,7 +278,7 @@ export function createFonts({
     }
   }
 
-  /** A marketplace was just registered: ask the edit server again (Add a marketplace…). */
+  /** A marketplace was just registered: ask the edit server again (Marketplaces…). */
   function refreshOffered() {
     offeredState = null;
     if (el) loadOffered();

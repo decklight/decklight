@@ -39,7 +39,7 @@ import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { createDesignSystemsPicker, createSlideTemplatePicker, createLookOffer } from './design-systems.js';
-import { createMarketplaceAdder } from './marketplace-add.js';
+import { createMarketplaces } from './marketplaces.js';
 import { createConceptsEditor, conceptsOn, conceptSuggestions, markConceptHints } from './concepts.js';
 import { setupSlideTemplates, isTemplateRef, pageDesignSystems } from './design-system.js';
 import { createFonts } from './fonts.js';
@@ -571,20 +571,22 @@ export function init(userConfig = {}) {
 
   // Design systems… (SPEC DESIGN_SYSTEMS): the registered marketplaces'
   // design systems, toggled for this deck through the edit server
-  // Add a marketplace… (SPEC DESIGN_SYSTEMS): `decklight marketplace add`
-  // without leaving the deck; afterwards every picker that lists what the
-  // marketplaces offer asks again, so the new catalog is in them at once
-  const marketplaceAdder = createMarketplaceAdder({
+  // Marketplaces… (SPEC MARKETPLACES_SCREEN): every registered catalog, which
+  // ones are behind their source, update and what's new, and `decklight
+  // marketplace add` without leaving the deck; after an add or an update
+  // every picker that lists what the marketplaces offer asks again, so the
+  // catalog as it now is is in them at once
+  const marketplaces = createMarketplaces({
     root, toast,
     base: () => (editmode?.available() ? editmode.base() : null),
-    onAdded: () => { themes.refreshOffered(); fonts.refreshOffered(); },
+    onChanged: () => { themes.refreshOffered(); fonts.refreshOffered(); },
     debugLog: (...a) => debugLog(...a),
   });
-  overlays.register({ isOpen: marketplaceAdder.isOpen, close: marketplaceAdder.close, keydown: marketplaceAdder.keydown });
+  overlays.register({ isOpen: marketplaces.isOpen, close: marketplaces.close, keydown: marketplaces.keydown });
   const designSystems = createDesignSystemsPicker({
     root, toast,
     base: () => (editmode?.available() ? editmode.base() : null),
-    addMarketplace: (opts) => marketplaceAdder.open(opts),
+    addMarketplace: (opts) => marketplaces.open({ ...opts, view: 'add' }),
     // how many slides stand on its templates — what stopping using it takes from
     slidesUsing: (name) => (instance?._sections ?? []).filter((s) => s.getAttribute('data-template')?.startsWith(`${name}/`)).length,
     debugLog: (...a) => debugLog(...a),
@@ -1009,9 +1011,9 @@ export function init(userConfig = {}) {
         run: () => designSystems.open() }),
       // never under --no-trust: write() needs a deck that can be written, and
       // the route sits behind the server's mode gate besides
-      write({ label: 'Add a marketplace…', cat: 'Look',
-        alias: 'marketplace add register catalog repo repository git clone owner design systems themes fonts install source',
-        run: () => marketplaceAdder.open() }),
+      write({ label: 'Marketplaces…', cat: 'Look',
+        alias: 'marketplace marketplaces catalogs add register update upgrade refresh outdated out of date check whats new what\'s new changes changelog repo repository git clone owner design systems themes fonts install source',
+        run: () => marketplaces.open() }),
       // ── Voice ───────────────────────────────────────────────────────────
       // ⎵ is the verb and V the panel. The rows below the panel row open it
       // on one of its views, so they are found by what they are called; only
