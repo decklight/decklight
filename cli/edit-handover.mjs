@@ -496,6 +496,28 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
   }
 
   /**
+   * Every finding `decklight check`'s static half has for the whole deck,
+   * for Check deck… (PRESENTING_EDITING): head-level ones (a design system
+   * the deck is behind, a theme off the brand, a missing file) with
+   * `slide: null`, then each slide's, the same rule ids `check --json`
+   * prints — and on each the quick fix the server could apply for it
+   * (cli/check-fixes.mjs), so the row says what pressing it would do. Read-
+   * only, like the inspector's read above; the render half is the open
+   * page's own (src/core/deckcheck.js measures it).
+   */
+  async function checkRoute({ json }) {
+    const { sectionRanges, staticFindings } = await import('./check.mjs');
+    const { quickFixes } = await import('./check-fixes.mjs');
+    const html = readDeck();
+    const dir = dirname(deckPath);
+    const found = staticFindings(html, { dir, deck: basename(deckPath) });
+    return json(200, {
+      ok: true, file: basename(deckPath), slides: sectionRanges(html).length,
+      findings: quickFixes(found, html, dir, { deck: basename(deckPath) }),
+    });
+  }
+
+  /**
    * The marketplace theme on screen that this deck does not mark, as a
    * reference — or null. An export or a publish of an unmarked theme would
    * come out in a theme the deck does not carry; the card asks first
@@ -522,6 +544,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
   routes.set('POST /deck/edit/export/stop', exportStopRoute);
   routes.set('GET /deck/edit/export/estimate', exportEstimateRoute);
   routes.set('GET /deck/edit/inspect', inspectRoute);
+  routes.set('GET /deck/edit/check', checkRoute);
   routes.set('GET /deck/edit/publish/plan', publishPlanRoute);
   routes.set('POST /deck/edit/publish', publishRoute);
   return routes;

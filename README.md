@@ -114,7 +114,7 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   reports what an author or an agent would otherwise only see by looking:
   clipped slides, crowded ones, missing images, notes whose [click] count
   disagrees with the builds. In the deck, the palette's *Review: Check deck…* lists the
-  same, slide by slide.
+  same in one docked panel, the file's findings included, each with its quick fix.
 - **Chapters.** `data-module` marks chapters, and `G` shows the outline.
 - **Builds.** `data-build` on a container makes each child a step. The layout
   never jumps.

@@ -116,7 +116,7 @@ import { registerSlideRoutes } from './edit-slides.mjs';
 // reason: the deck's look (themes, design systems, fonts), and handing the
 // deck over (export, publish, the inspector's read), and git (the commit
 // window, the deck's history, restore).
-import { registerLookRoutes } from './edit-look.mjs';
+import { registerLookRoutes, runMarketplace } from './edit-look.mjs';
 import { registerHandoverRoutes } from './edit-handover.mjs';
 import { registerGitRoutes } from './edit-git.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
@@ -1045,6 +1045,7 @@ const WRITE_LABELS = {
   '/deck/edit/design-system/apply': 'design system applied',
   '/deck/edit/design-system/mark': 'design system marked',
   '/deck/edit/design-system/migrate': 'design system migrated',
+  '/deck/edit/check/fix': 'problem fixed',
   '/deck/edit/enhance': 'script enhanced',
   '/deck/edit/wizard': 'engine set up',
   '/deck/upstream/pull': 'git pull',
@@ -2237,6 +2238,29 @@ export async function editMain(args, { onListen = null, client } = {}) {
   });
 
   /**
+   * An entry in the agent panel for work THIS SERVER did — a migration, a
+   * quick fix — so it shows beside the agents' edits (DESIGN_SYSTEM_MIGRATIONS,
+   * PRESENTING_EDITING): the same shape as an ask, by *decklight*, started
+   * now; `ownDone` closes it with what came of it. Both ride the `agent`
+   * events the panel already listens to.
+   */
+  function ownAsk({ kind, title, prompt, slide = undefined }) {
+    const ask = {
+      id: ++askSeq, agent: 'decklight', label: 'decklight', kind, title, prompt,
+      ...(Number.isInteger(slide) && slide > 0 ? { slide } : {}),
+      startedAt: Date.now(), state: 'running',
+    };
+    agentAsks.push(ask);
+    if (agentAsks.length > ASKS_KEPT) agentAsks.shift();
+    broadcast('agent', { state: 'start', agent: ask.agent, label: ask.label, prompt: ask.prompt, kind: ask.kind, title, slide: ask.slide, startedAt: ask.startedAt, id: ask.id });
+    return ask;
+  }
+  function ownDone(ask, { ok = true, changed = false, tail = '' } = {}) {
+    Object.assign(ask, { state: 'done', finishedAt: Date.now(), ok, changed, code: ok ? 0 : 1, tail });
+    broadcast('agent', { state: 'done', id: ask.id, agent: ask.agent, ok, changed, code: ok ? 0 : 1, tail });
+  }
+
+  /**
    * Hand an ask to an agent. `files` are files beside the deck the job may
    * also write (a migration's linked stylesheets): snapshotted with the deck,
    * so one Z takes them all back, and committed with it. `reload` is the
@@ -2973,13 +2997,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
     // No agent to run the skill, or no skill to run: this server applies the
     // renames itself, and the panel records it as an entry like an ask.
-    const ask = {
-      id: ++askSeq, agent: 'decklight', label: 'decklight', kind: 'migrate', title,
-      prompt: `decklight design-system migrate ${plan.ref} ${deckRel}`, startedAt: Date.now(), state: 'running',
-    };
-    agentAsks.push(ask);
-    if (agentAsks.length > ASKS_KEPT) agentAsks.shift();
-    broadcast('agent', { state: 'start', agent: ask.agent, label: ask.label, prompt: ask.prompt, kind: ask.kind, title, startedAt: ask.startedAt, id: ask.id });
+    const ask = ownAsk({ kind: 'migrate', title, prompt: `decklight design-system migrate ${plan.ref} ${deckRel}` });
     if (gitOn && shouldCommit(gitMode, { kind: 'bookend' })
         && ownCommit(`decklight: save before migrating ${deckName}`, sheets)) {
       console.log('  git: committed your outstanding changes first');
@@ -2995,10 +3013,101 @@ export async function editMain(args, { onListen = null, client } = {}) {
       console.log(`  git: committed "${subject}"`);
     }
     const tail = migrationLines(plan, deckRel).join('\n');
-    Object.assign(ask, { state: 'done', finishedAt: Date.now(), ok: true, changed: true, code: 0, tail });
-    broadcast('agent', { state: 'done', id: ask.id, agent: ask.agent, ok: true, changed: true, code: 0, tail });
+    ownDone(ask, { changed: true, tail });
     console.log(`  design system: ${reload} — ${plan.renamed} rename${plan.renamed === 1 ? '' : 's'}`);
     return json(200, { ok: true, by: 'server', renamed: plan.renamed, version: plan.version, ask });
+  }
+
+  /**
+   * `POST /deck/edit/check/fix` `{ rule, slide?, all?, ref?, agent? }`: the
+   * quick fix Check deck… offers for one of `decklight check`'s findings
+   * (PRESENTING_EDITING, cli/check-fixes.mjs), applied by this server and
+   * recorded in the agent panel as an entry by *decklight*, beside the
+   * agents' edits. One undo entry and one commit (`fix: <rule> on slide N`,
+   * or `fix: <rule>` for the deck); `all` applies a batchable rule to every
+   * slide as one of each. `ds-behind` is Migrate (above), which keeps its
+   * own words. The judgement fixes never come here: the page hands those to
+   * the A agent as an ordinary ask.
+   */
+  async function checkFixRoute({ body, json }) {
+    const { rule, slide, all, ref, agent } = JSON.parse(body || '{}');
+    if (typeof rule !== 'string' || !/^[a-z][a-z-]*$/.test(rule)) throw new Error('bad payload');
+    if (slide != null && !(Number.isInteger(slide) && slide > 0)) throw new Error('bad payload');
+    if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
+    if (rule === 'ds-behind') {
+      if (typeof ref !== 'string' || !ref.trim()) return json(400, { ok: false, error: 'which design system? — its reference' });
+      return designSystemMigrateRoute({ body: JSON.stringify({ ref, agent }), json });
+    }
+    const { BATCH_RULES, fixSubject, offBrandTarget, renameRoles } = await import('./check-fixes.mjs');
+    const { setDeckTheme } = await import('./runtime-link.mjs');
+    const where = all && BATCH_RULES.includes(rule) ? null : slide ?? null;
+    const subject = fixSubject(rule, where);
+    const before = readDeck();
+    /** The deck rewritten in one step, committed as the fix, and said in the panel. */
+    const land = (next, { said, tail, prompt }) => {
+      const ask = ownAsk({ kind: 'fix', title: subject, prompt, slide: where ?? undefined });
+      if (gitOn && shouldCommit(gitMode, { kind: 'bookend' }) && ownCommit(`decklight: save before fixing ${rule}`)) {
+        console.log('  git: committed your outstanding changes first');
+      }
+      const changed = applyEdit(next, before);
+      if (changed && gitOn && shouldCommit(gitMode, { kind: 'agent', ok: true, changed: true })
+          && gitAutocommit(deckPath, root, subject, alsoNow())) {
+        pendingAttr = null;
+        console.log(`  git: committed "${subject}"`);
+      }
+      ownDone(ask, { changed, tail: changed ? tail : 'nothing to change — already fixed' });
+      console.log(`  check: ${subject} — ${changed ? said : 'nothing to change'}`);
+      return json(200, { ok: true, changed, said: changed ? said : 'nothing to change — already fixed', ask, ...history.counts() });
+    };
+    switch (rule) {
+      case 'theme-off-brand': {
+        const t = offBrandTarget(before);
+        if (!t) return json(409, { ok: false, error: 'the deck is not off its brand — nothing to fix' });
+        const next = setDeckTheme(before, t.to);
+        if (next === null) return json(409, { ok: false, error: `this deck does not carry a theme the server can set to ${t.to}` });
+        return land(next, {
+          said: `theme ${t.from} → ${t.to}`, prompt: `set "theme": "${t.to}"`,
+          tail: `${deckRel}: "theme": "${t.from}" → "${t.to}"${t.renamed ? ` (${t.from} was renamed)` : ' (the brand\'s first theme)'}`,
+        });
+      }
+      case 'off-role': {
+        if (!where && !all) return json(400, { ok: false, error: 'which slide? — or all: true for every slide' });
+        const r = renameRoles(before, where);
+        if (!r.count) return json(409, { ok: false, error: `no renamed role on ${where ? `slide ${where}` : 'any slide'} — nothing to fix` });
+        const said = `${r.count} role${r.count === 1 ? '' : 's'} renamed on slide${r.slides.length === 1 ? '' : 's'} ${r.slides.join(', ')}`;
+        return land(r.html, { said, prompt: where ? `rename the renamed roles on slide ${where}` : 'rename the renamed roles on every slide', tail: `${deckRel}: ${said}` });
+      }
+      case 'ds-unresolved': {
+        const name = typeof ref === 'string' ? ref.trim() : '';
+        if (!/^\w[\w-]*$/.test(name)) return json(400, { ok: false, error: 'which marketplace? — its registered name' });
+        const ask = ownAsk({ kind: 'fix', title: subject, prompt: `decklight marketplace update ${name}` });
+        const out = await runMarketplace(['update', name]);
+        ownDone(ask, { ok: out.ok, changed: false, tail: out.ok ? out.said : `failed — ${out.error}` });
+        if (!out.ok) return json(409, { ok: false, error: out.error, ask });
+        console.log(`  check: ${subject} — updated ${name}`);
+        // nothing in the deck changed: the page reloads to link what resolves now
+        return json(200, { ok: true, changed: false, reload: true, said: out.said, ask });
+      }
+      case 'ds-unknown-system': {
+        if (typeof ref !== 'string' || !ref.trim()) return json(400, { ok: false, error: 'which design system? — name@marketplace' });
+        const ask = ownAsk({ kind: 'fix', title: subject, prompt: `decklight design-system add ${ref.trim()} ${deckRel}` });
+        let answer = null;
+        await routes.get('POST /deck/edit/design-system/mark')({
+          body: JSON.stringify({ ref: ref.trim(), used: true }),
+          json: (code, payload) => { answer = { code, payload }; },
+        });
+        const ok = answer?.code === 200 && answer.payload?.ok;
+        if (ok && gitOn && shouldCommit(gitMode, { kind: 'agent', ok: true, changed: true }) && gitAutocommit(deckPath, root, subject, alsoNow())) {
+          pendingAttr = null;
+          console.log(`  git: committed "${subject}"`);
+        }
+        ownDone(ask, { ok: !!ok, changed: !!ok && !!answer.payload.changed, tail: ok ? `${deckRel}: now uses ${ref.trim()}` : `failed — ${answer?.payload?.error ?? 'no answer'}` });
+        if (!ok) return json(answer?.code ?? 500, { ok: false, error: answer?.payload?.error ?? 'could not add the design system', ask });
+        return json(200, { ok: true, changed: !!answer.payload.changed, said: `added ${ref.trim()}`, ask, ...history.counts() });
+      }
+      default:
+        return json(400, { ok: false, error: `${rule} has no quick fix the server applies — ask the agent` });
+    }
   }
 
   // ── the route table ──────────────────────────────────────────────────────
@@ -3034,6 +3143,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
     'POST /deck/edit/agent': agentRoute,
     'POST /deck/edit/design-system/migrate': designSystemMigrateRoute,
+    'POST /deck/edit/check/fix': checkFixRoute,
     'POST /deck/edit/agent/stop': agentStopRoute,
     'POST /deck/edit/agent/prefer': agentPreferRoute,
     'POST /deck/edit/enhance': enhanceRoute,

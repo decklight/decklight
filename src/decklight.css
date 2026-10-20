@@ -1693,9 +1693,28 @@
 .decklight-settings .narr-row { display: flex; align-items: baseline; }
 /* Check deck… (src/core/deckcheck.js): a row per finding, the mark and the
    slide number in fixed columns so a long list scans down its left edge, the
-   slide's title over what is wrong with it */
-.decklight-deckcheck .narr-card { width: min(560px, 90vw); }
-.decklight-deckcheck .dc-row { align-items: flex-start; }
+   slide's title over what is wrong with it, and under that the fix that
+   would clear it. A dockable panel (dock.js): floating it is a card, docked
+   the list takes the gutter and scrolls while the head and foot stay put. */
+.decklight-deckcheck.decklight-dockable[data-dock="float"] .narr-card { width: min(560px, 90vw); }
+.decklight-deckcheck .narr-card { display: flex; flex-direction: column; overflow: hidden; }
+.decklight-deckcheck .dc-heading { flex: 1; opacity: .55; }
+.decklight-deckcheck .dc-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.decklight-deckcheck .dc-row { align-items: flex-start; cursor: pointer; }
+/* a deck-wide finding: no slide to go to, the dash says so */
+.decklight-deckcheck .dc-deck .dc-where { opacity: .35; }
+.decklight-deckcheck .dc-act { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.decklight-deckcheck .dc-fix {
+  font: inherit; font-size: 11.5px; line-height: 1.3; padding: 2px 8px; cursor: pointer;
+  border: 1px solid rgba(126, 231, 135, .45); border-radius: 999px;
+  background: rgba(126, 231, 135, .1); color: #b6f5c8;
+}
+.decklight-deckcheck .dc-fix:hover { background: rgba(126, 231, 135, .22); }
+.decklight-deckcheck .dc-fix:disabled { opacity: .4; cursor: default; }
+.decklight-deckcheck .dc-fix-agent { border-color: rgba(210, 168, 255, .45); background: rgba(210, 168, 255, .1); color: #e2ccff; }
+.decklight-deckcheck .dc-fix-agent:hover { background: rgba(210, 168, 255, .22); }
+.decklight-deckcheck .dc-fix-all { border-style: dashed; }
+.decklight-deckcheck .dc-nofix { font-size: 11px; opacity: .4; }
 .decklight-deckcheck .dc-mark { flex: 0 0 1em; font-weight: 700; text-align: center; }
 .decklight-deckcheck .dc-error .dc-mark { color: #ff7b72; }
 .decklight-deckcheck .dc-warn .dc-mark { color: #e3b341; }

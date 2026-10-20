@@ -28,7 +28,7 @@ import { UNDO_CHORD } from './undo-chord.js';
  * more so: edit mode is built after this and only ever consulted from the open
  * picker. It is what makes the marketplace listing authoring-only.
  */
-export function createThemes({ root, config, params, toast, debugLog, overlays, deck, editmode }) {
+export function createThemes({ root, config, params, toast, debugLog, overlays, deck, editmode, problem = null }) {
   // ----- theme switching -----------------------------------------------------
   // Two modes. Link mode: the theme is the stylesheet link pointing into
   // themes/, and applyTheme swaps its href. Inline mode (bundled single-file
@@ -579,7 +579,9 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
           // once a session, not on every reload an edit causes
           const key = `decklight-theme-off-brand:${location.pathname}:${configured}`;
           try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch { /* no storage: say it each load */ }
-          toast(`"theme": "${configured}" is not one of ${brandTitles()}'s themes — opened on ${first}; pick one with T, or show every theme to wear ${configured}`, 7000);
+          // a row in Check deck…, with the fix (PRESENTING_EDITING): the toast points there
+          if (problem) problem(`"theme": "${configured}" is not one of ${brandTitles()}'s themes — opened on ${first} · 1 problem with a fix`, 'theme-off-brand');
+          else toast(`"theme": "${configured}" is not one of ${brandTitles()}'s themes — opened on ${first}; pick one with T, or show every theme to wear ${configured}`, 7000);
         }).catch(() => {});
       }
       return;

@@ -393,6 +393,29 @@
         }
         if (u.includes('/deck/edit/font/browse')) return json({ ok: true, cacheOnly: true, stale: [], unfetched: [], fonts: [] });
       }
+      // Check deck… (src/core/deckcheck.js): the file's half of the check for
+      // the whole deck, each finding with the fix the server would apply; a
+      // fix is recorded (window.__fixed) and answered as done; Migrate is the
+      // server's own run. No agent on this machine: a judgement row has no fix.
+      if (HARNESS_MODE === 'deckcheck') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], agentAsks: window.__asks ?? [] });
+        if (u.includes('/deck/edit/check/fix')) {
+          const body = JSON.parse(init?.body ?? '{}');
+          (window.__fixed ??= []).push(body);
+          const ask = { id: 90 + window.__fixed.length, agent: 'decklight', label: 'decklight', kind: 'fix', title: `fix: ${body.rule}`, prompt: 'x', startedAt: Date.now(), state: 'done', ok: true, changed: true, tail: 'done' };
+          (window.__asks ??= []).push(ask);
+          return json({ ok: true, changed: true, said: `fixed ${body.rule}`, ask, undo: 1, redo: 0 });
+        }
+        if (u.includes('/deck/edit/check')) return json({ ok: true, file: 'engine.html', slides: 10, findings: window.__fileFindings ?? [] });
+        if (u.includes('/deck/edit/design-system/migrate')) {
+          const body = JSON.parse(init?.body ?? '{}');
+          window.__migrated = body;
+          const ask = { id: 7, agent: 'decklight', label: 'decklight', kind: 'migrate', title: 'migrate to acme 3.0.0', prompt: `decklight design-system migrate ${body.ref} engine.html`, startedAt: Date.now(), state: 'done', ok: true, changed: true, tail: 'roles    text-main → text-body' };
+          (window.__asks ??= []).push(ask);
+          return json({ ok: true, by: 'server', renamed: 3, version: '3.0.0', ask });
+        }
+        if (u.includes('/deck/edit/inspect')) return json({ ok: true, file: 'engine.html', lines: [1, 2], blocks: [], findings: [] });
+      }
       // The agent review (cli/agent-review.mjs): the POST answers how many parts
       // it will read, progress arrives as 'review' events, and the GET hands
       // back whatever findings the mode has put in window.__reviewFindings.
@@ -1009,6 +1032,21 @@
     // Check deck… (deckcheck): one slide per thing the open deck can find,
     // after the four clean ones, plus a crowded slide that says it is meant
     if (HARNESS_MODE === 'deckcheck') {
+      // what the edit server would have put in the head (DESIGN_SYSTEM_MIGRATIONS): the toast points at the panel's row
+      document.head.insertAdjacentHTML('beforeend', '<meta name="decklight-design-system-behind" data-ref="acme@acme-mkt" data-version="3.0.0" content="Acme Brand: written for acme 2.0.0, this machine serves 3.0.0: 3 renamed names (text-main → text-body, …). Migrate with the acme-migrate skill, or decklight design-system migrate acme@acme-mkt engine.html">');
+      // the file's half, as GET /deck/edit/check answers it: three deck-wide, one a slide's with a batchable
+      // fix, one the page also measures (dropped), one only the file can see (kept)
+      window.__fileFindings = [
+        { level: 'warn', rule: 'ds-behind', slide: null, title: 'head', message: 'acme@acme-mkt — written for acme 2.0.0, this machine serves 3.0.0: 3 renamed names (text-main → text-body, …). Migrate with the acme-migrate skill, or decklight design-system migrate acme@acme-mkt engine.html',
+          fix: { kind: 'migrate', ref: 'acme@acme-mkt', label: 'Migrate to acme 3.0.0 · 3 renames', skills: ['acme-migrate'] } },
+        { level: 'warn', rule: 'theme-off-brand', slide: null, title: 'head', message: '"theme": "aurora" is not one of the brand\'s themes (acme-dark, acme-light) — a deck held to its brand opens on acme-dark instead',
+          fix: { kind: 'theme', theme: 'acme-dark', label: 'Switch to acme-dark, the brand’s first theme' } },
+        { level: 'warn', rule: 'unaccounted-script', slide: null, title: 'head', message: 'line 3: unaccounted script block (120 B) — --no-trust --strict would strip this' },
+        { level: 'warn', rule: 'off-role', slide: 2, title: 'Two', message: '--acme-color-text-main (was renamed text-body in 3.0.0) is not one of the design system\'s roles',
+          fix: { kind: 'rename', slide: 2, batch: true, label: 'Rename text-main → text-body on slide 2' } },
+        { level: 'warn', rule: 'clicks-vs-builds', slide: 9, title: 'Two clicks, no builds', message: 'the file\'s reading, which the page\'s measurement replaces' },
+        { level: 'error', rule: 'missing-asset', slide: 10, title: 'Broken image', message: 'missing asset: no-such-image.png — <img src> points at nothing on disk' },
+      ];
       const li = (n) => Array.from({ length: n }, (_, i) => `<li>point ${i + 1}</li>`).join('');
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
         <section><h2>Seven points</h2><ul>${li(7)}</ul></section>
@@ -2679,13 +2717,14 @@
         // marks a clipped one, so decklight check reads it off the print view
         const secs = deck._sections;
         await until(() => secs[9].querySelector('img').complete);
+        await settle(); await settle();       // /deck/ping: write mode, and the behind toast
         r.cleanSlidesUnmarked = secs.slice(0, 4).every((x) => !x.hasAttribute('data-dense'));
         r.bulletsMarked = secs[4].getAttribute('data-dense') === '7 bullets';
         r.splitCountsPerColumn = secs[5].getAttribute('data-dense') === '6 bullets in one column';
         r.shrunkTypeMarked = secs[6].getAttribute('data-dense') === 'type shrunk to 0.85em';
         r.denseOkOptsOut = !secs[7].hasAttribute('data-dense');
 
-        // the same findings, as a list a headless probe can read
+        // the page's own findings, as a list a headless probe can read (the file's join once the panel has asked)
         const found = deck.check();
         const at = (n) => found.filter((f) => f.slide === n).map((f) => f.rule).join(',');
         r.checkFindsEach = at(5) === 'dense' && at(6) === 'dense' && at(7) === 'dense' && at(8) === ''
@@ -2694,27 +2733,82 @@
         r.missingNamesTheFile = /no-such-image\.png/.test(found.find((f) => f.slide === 10)?.message ?? '');
         r.levels = found.find((f) => f.rule === 'missing-media')?.level === 'error' && found.find((f) => f.rule === 'dense')?.level === 'warn';
 
+        // the behind toast is a POINTER (PRESENTING_EDITING): one line, and
+        // a button that opens the panel on the row for it
+        const Q = '.decklight-deckcheck';
+        const ask = [...document.querySelectorAll('.decklight-toast-ask')].find((x) => /behind/.test(x.textContent));
+        r.toastPointsAtThePanel = /Acme Brand: this deck is behind the version this machine serves — 1 problem with a fix/.test(ask?.querySelector('.toast-text')?.textContent ?? '')
+          && [...ask?.querySelectorAll('.toast-act') ?? []].map((b) => b.textContent).join(',') === 'Check deck…,Dismiss';
+        [...ask?.querySelectorAll('.toast-act') ?? []].find((b) => b.textContent === 'Check deck…')?.click();
+        await settle(); await settle();
+        const selectedRule = () => document.querySelector(`${Q} .dc-row.narr-sel`)?.dataset.rule;
+        r.toastOpensOnTheRow = !!document.querySelector(Q) && selectedRule() === 'ds-behind';
+        r.docksRightByDefault = document.querySelector(Q)?.dataset.dock === 'right';
+        r.hasTabs = [...document.querySelectorAll(`${Q} .dk-tab`)].map((t) => t.textContent).includes('Inspector');
+        r.escCloses = escapeUntilClosed(Q);
+
         // the palette row, first for its own words
         press('/');
         for (const ch of 'check deck') press(ch);
         r.paletteFindsIt = /Check deck…/.test(document.querySelector('.decklight-palette .pal-row')?.textContent ?? '');
         press('Enter');
-        await settle();
-        const Q = '.decklight-deckcheck';
-        const rows = [...document.querySelectorAll(`${Q} .dc-row`)];
+        await settle(); await settle();
+        const rows = () => [...document.querySelectorAll(`${Q} .dc-row`)];
+        const all = deck.check();
         r.panelOpens = !!document.querySelector(Q);
-        r.panelRowPerFinding = rows.length === found.length;
-        r.panelHeadCounts = document.querySelector(`${Q} .narr-head`)?.textContent === 'check · 5 issues on 5 slides · 1 error';
-        r.rowSaysSlideAndTitle = rows[0]?.querySelector('.dc-where')?.textContent === '5'
-          && rows[0]?.querySelector('.dc-title')?.textContent === 'Seven points'
-          && /^crowded: 7 bullets/.test(rows[0]?.querySelector('.dc-msg')?.textContent ?? '');
-        r.errorMarked = rows.at(-1)?.classList.contains('dc-error') && rows.at(-1)?.querySelector('.dc-mark')?.textContent === '✗';
-        r.footSaysTheFileHalf = /decklight check/.test(document.querySelector(`${Q} .dc-foot`)?.textContent ?? '');
-        // ↓ ↓ ⏎ goes to the third finding's slide and closes
-        press('ArrowDown'); press('ArrowDown'); press('Enter');
+        r.panelRowPerFinding = rows().length === all.length && all.length === 10;
+        // the file's half joined: three deck-wide rows first, a slide's with its fix, one only the file sees;
+        // the file's reading of a rule the page measured itself is dropped
+        r.deckRowsFirst = rows().slice(0, 3).every((x) => x.classList.contains('dc-deck') && x.querySelector('.dc-where')?.textContent === '—' && x.querySelector('.dc-title')?.textContent === 'the deck')
+          && rows().slice(0, 3).map((x) => x.dataset.rule).join(',') === 'ds-behind,theme-off-brand,unaccounted-script';
+        r.fileDuplicateDropped = rows().filter((x) => x.dataset.rule === 'clicks-vs-builds').length === 1
+          && /⟨CLICK⟩s in the notes/.test(rows().find((x) => x.dataset.rule === 'clicks-vs-builds')?.querySelector('.dc-msg')?.textContent ?? '');
+        r.fileOnlyKept = rows().some((x) => x.dataset.rule === 'missing-asset' && x.querySelector('.dc-where')?.textContent === '10');
+        r.panelHeadCounts = document.querySelector(`${Q} .dc-heading`)?.textContent === 'check · 10 issues on 6 slides and the deck · 2 errors · 3 with a fix';
+        // every row with a fix says what it will do; one without says so
+        const fixOf = (rule) => rows().find((x) => x.dataset.rule === rule)?.querySelector('.dc-fix')?.textContent ?? null;
+        r.fixLabelsSayWhat = fixOf('ds-behind') === 'Migrate to acme 3.0.0 · 3 renames' && fixOf('theme-off-brand') === 'Switch to acme-dark, the brand’s first theme'
+          && fixOf('off-role') === 'Rename text-main → text-body on slide 2';
+        r.noFixSaysSo = rows().find((x) => x.dataset.rule === 'unaccounted-script')?.querySelector('.dc-nofix')?.textContent === 'no quick fix'
+          && rows().find((x) => x.dataset.rule === 'dense')?.querySelector('.dc-nofix')?.textContent === 'no quick fix';
+        r.batchOffered = rows().find((x) => x.dataset.rule === 'off-role')?.querySelector('.dc-fix-all')?.textContent === 'every off-role (⇧F)';
+        const dense7 = rows().find((x) => x.dataset.rule === 'dense' && x.querySelector('.dc-where')?.textContent === '7');
+        r.rowSaysSlideAndTitle = dense7?.querySelector('.dc-title')?.textContent === 'Squeezed' && /^crowded: type shrunk/.test(dense7?.querySelector('.dc-msg')?.textContent ?? '');
+        r.errorMarked = rows().at(-1)?.classList.contains('dc-error') && rows().at(-1)?.querySelector('.dc-mark')?.textContent === '✗';
+        r.footSaysTheKeys = /f applies the row's fix · ⇧F every slide · the file's findings included/.test(document.querySelector(`${Q} .dc-foot`)?.textContent ?? '');
+        // ⏎ goes to the row's slide and the panel stays
+        for (let i = 0; i < rows().indexOf(dense7); i++) press('ArrowDown');
+        press('Enter');
         await settle();
-        r.enterGoesToTheSlide = !document.querySelector(Q) && deck.state.slide === 7;
+        r.enterGoesAndStays = !!document.querySelector(Q) && deck.state.slide === 7;
+        // ←/→ still move the deck under the panel
+        press('ArrowRight');
+        await settle();
+        r.arrowsDriveTheDeck = deck.state.slide === 8 && !!document.querySelector(Q);
+        // f on the off-role row: the server's fix, on that slide; ⇧F: every slide
+        while (selectedRule() !== 'off-role') press('ArrowUp');
+        press('f');
+        await settle(); await settle();
+        r.fPostsTheFix = JSON.stringify(window.__fixed?.at(-1)) === JSON.stringify({ rule: 'off-role', slide: 2, ref: null, all: false }) && deck.state.slide === 2;
+        r.fixIsSaid = [...document.querySelectorAll('.decklight-toast')].some((x) => /fixed off-role — .* undoes · logged in the agent panel/.test(x.textContent));
+        press('F', { shiftKey: true });
+        await settle(); await settle();
+        r.shiftFFixesAll = window.__fixed?.at(-1)?.all === true && window.__fixed.length === 2;
+        // f on the theme row: a deck-wide fix, no slide
+        while (selectedRule() !== 'theme-off-brand') press('ArrowUp');
+        press('f');
+        await settle(); await settle();
+        r.deckFixHasNoSlide = JSON.stringify(window.__fixed?.at(-1)) === JSON.stringify({ rule: 'theme-off-brand', slide: null, ref: null, all: false });
+        // f on ds-behind is Migrate: the server's run, shown in the agent panel, which takes the slot
+        while (selectedRule() !== 'ds-behind') press('ArrowUp');
+        press('f');
+        await settle(); await settle(); await settle();
+        r.migrateRuns = window.__migrated?.ref === 'acme@acme-mkt' && !document.querySelector(Q)
+          && /migrate to acme 3\.0\.0/.test(document.querySelector('.decklight-agent .agent-log')?.textContent ?? '')
+          && /fix: off-role/.test(document.querySelector('.decklight-agent .agent-log')?.textContent ?? '');
+        escapeUntilClosed('.decklight-agent');
         // the Inspector's Info tab says it for the slide on screen
+        deck.goto(7, 0);
         press('i');
         await settle();
         const dd = document.querySelector('.decklight-inspector dd[data-key="density"]');
@@ -2722,18 +2816,19 @@
           && dd?.querySelector('.ins-extra')?.textContent === 'type shrunk to 0.85em' && !!dd?.querySelector('.ins-warn');
         escapeUntilClosed('.decklight-inspector');
 
-        // a deck with nothing wrong says so
+        // a deck with nothing wrong says so, file included
         for (const x of secs.slice(4)) x.setAttribute('data-dense-ok', '');
         secs[8].querySelector('aside').remove();
         secs[9].remove();
+        window.__fileFindings = [];
         deck.sync();
         press('/');
         for (const ch of 'check deck') press(ch);
         press('Enter');
-        await settle();
-        r.cleanSaysSo = document.querySelector(`${Q} .dc-clean`)?.textContent === 'no issues: 9 slides checked'
-          && document.querySelector(`${Q} .narr-head`)?.textContent === 'check';
-        r.escCloses = escapeUntilClosed(Q);
+        await settle(); await settle();
+        r.cleanSaysSo = document.querySelector(`${Q} .dc-clean`)?.textContent === 'no issues: 9 slides checked, file included'
+          && document.querySelector(`${Q} .dc-heading`)?.textContent === 'check';
+        r.paletteTogglesIt = (press('/'), 'check deck'.split('').forEach((ch) => press(ch)), press('Enter'), await settle(), !document.querySelector(Q));
 
         // decklight check's diagram hint, asked of the open deck (cli/check.mjs)
         const shapes = '<rect width="9" height="9"/><rect x="20" width="9" height="9"/><path d="M0 0h9"/><text y="30">API</text>';
@@ -4788,7 +4883,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle(); await settle();
         r.saysDone = /agent review: 2 findings, in Check deck…/.test(said());
         r.opensCheckDeck = !!document.querySelector(Q);
-        const head = document.querySelector(`${Q} .narr-head`)?.textContent ?? '';
+        const head = document.querySelector(`${Q} .dc-heading`)?.textContent ?? '';
         r.headCountsThem = / · 2 from the agent$/.test(head);
         r.groupHead = document.querySelector(`${Q} .dc-agent-head`)?.textContent === 'agent review · 2 · f asks the agent to fix one';
         const rows = [...document.querySelectorAll(`${Q} .dc-row`)];
@@ -4803,7 +4898,10 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         const ask = CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).pop()?.body;
         r.fPostsTheFix = ask?.slide === 2 && ask?.prompt === window.__reviewFindings[0].prompt && ask?.message === 'review: title is a topic on slide 2';
-        r.fGoesAndCloses = !document.querySelector(Q) && deck.state.slide === 2;
+        // the ask is watched in the agent panel, which takes the slot the check panel held
+        r.fGoesAndCloses = !document.querySelector(Q) && deck.state.slide === 2 && !!document.querySelector('.decklight-agent');
+        r.rowOffersTheAgent = agentRows[0].querySelector('.dc-fix')?.textContent === 'Ask the agent to fix it';
+        escapeUntilClosed('.decklight-agent');
         // ⏎ on the second: goes to its slide, asks nothing
         const asked = CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).length;
         press('/');
@@ -4814,7 +4912,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         for (let i = 0; i < again.length - 1; i++) press('ArrowDown');
         press('Enter');
         await settle();
-        r.enterGoesOnly = deck.state.slide === 3 && CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).length === asked;
+        r.enterGoesOnly = deck.state.slide === 3 && !!document.querySelector(Q) && CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).length === asked;
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -5433,6 +5531,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           ['themepicker', () => press('t')],
           ['finder', () => press('g')],
           ['agent', () => press('a')],
+          ['check', () => paletteRun('check deck')],
           ['fonts', () => paletteRun('font…')],
           ['designsystems', () => paletteRun('design systems')],
           ['marketplaces', () => paletteRun('marketplaces')],

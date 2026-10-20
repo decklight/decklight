@@ -103,6 +103,7 @@ async function call(routes, key, { body, query = '' } = {}) {
 test('every hand-over route the server dispatches is registered here', () => {
   const { routes } = harness();
   assert.deepEqual([...routes.keys()].sort(), [
+    'GET /deck/edit/check',
     'GET /deck/edit/export/estimate',
     'GET /deck/edit/inspect',
     'GET /deck/edit/publish/plan',

@@ -1045,9 +1045,12 @@ export function createEditMode({
   // landed anyway, un-undoable from where the author stood. Agent runs are not
   // tracked: they can take minutes, and Z must not wait on one.
   const inflight = new Set();
+  // …and whoever shows the deck's state (Check deck…) hears that one landed,
+  // so a list of problems is read again after the write that may have fixed one
+  const writeListeners = new Set();
   function trackWrite(p) {
     inflight.add(p);
-    const done = () => inflight.delete(p);
+    const done = () => { inflight.delete(p); for (const fn of writeListeners) { try { fn(); } catch { /* a listener's own */ } } };
     p.then(done, done);
     return p;
   }
@@ -1175,7 +1178,7 @@ export function createEditMode({
     out.className = 'agent-ask-out';
     out.textContent = a.state === 'running'
       ? `working…${a.activity ? ` ${a.activity}` : ''}`
-      : [a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.changed ? (a.kind === 'migrate' ? 'migrated the deck' : 'edited the deck') : 'no changes',
+      : [a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.changed ? (a.kind === 'migrate' ? 'migrated the deck' : a.kind === 'fix' ? 'fixed the deck' : 'edited the deck') : 'no changes',
         (a.tail || '').trim()].filter(Boolean).join('\n');
     row.append(meta, said, out);
     return row;
@@ -3363,21 +3366,63 @@ export function createEditMode({
       if (d.ok) { await loadReview(); for (const fn of reviewListeners) fn(review); }
     }
   }
-  /** `f` on a finding: its prepared instruction, as an ordinary A edit (one undo entry, one commit). */
-  async function fixFinding(f) {
-    if (!editAvailable) { toast(cannot('fixing it'), 3200); return; }
-    if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return; }
+  /**
+   * An ask to the A agent prepared elsewhere — a review finding's instruction,
+   * a Check deck… judgement fix: an ordinary edit (one undo entry, one commit
+   * under `message`), watched in the agent panel, which opens docked on it
+   * the way Migrate's does. Answers whether it was sent.
+   */
+  async function askAgent({ prompt, slide, message }) {
+    if (!editAvailable) { toast(cannot('fixing it'), 3200); return false; }
+    if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return false; }
+    if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return false; }
     try {
       const res = await fetch(editBase + '/deck/edit/agent', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt: f.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}` }),
+        body: JSON.stringify({ prompt, slide, message, ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || res.status);
-      debugLog('review', `fix → ${j.agent}: slide ${f.slide} ${f.rule}`);
+      debugLog('agent', `${message ?? 'ask'} → ${j.agent}`);
       // progress lands as SSE 'agent' events, as for any ask; the reload follows the save
+      rememberAgentOpen(true);
+      if (!agentEl) toggleAgentAsk(); else paintAsks?.();
+      return true;
     } catch (e) {
       toast(`could not ask for the fix: ${String(e.message || e).slice(0, 60)}`, 2600);
+      return false;
+    }
+  }
+  /** `f` on an agent-review finding: its prepared instruction, as an ordinary A edit (one undo entry, one commit). */
+  const fixFinding = (f) => askAgent({ prompt: f.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}` });
+
+  /**
+   * A quick fix Check deck… offers for one of `decklight check`'s findings
+   * (PRESENTING_EDITING): applied by the server (`POST /deck/edit/check/fix`,
+   * cli/check-fixes.mjs) as one undo step and one commit, and recorded in the
+   * agent panel's log as an entry by decklight. `ds-behind` is Migrate. The
+   * answer is the route's, or null when nothing was done.
+   */
+  async function fixProblem({ rule, slide = null, ref = null, all = false }) {
+    if (!editAvailable) { toast(cannot('fixing it'), 3200); return null; }
+    if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return null; }
+    if (rule === 'ds-behind') return (await migrateDesignSystem(ref)) ? { ok: true } : null;
+    try {
+      const res = await writeFetch(editBase + '/deck/edit/check/fix', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ rule, slide, ref, all, ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) }),
+      });
+      const j = await res.json().catch(() => ({}));
+      // the server's own entry is over by its answer: listed even if its event has not landed yet
+      if (j.ask && !agentAsks.some((x) => x.id === j.ask.id)) { agentAsks.push(j.ask); paintAsks?.(); }
+      if (!res.ok || !j.ok) throw new Error(j.error || res.status);
+      debugLog('check', `fix ${rule}${slide ? ` on slide ${slide}` : all ? ' on every slide' : ''}: ${j.said}`);
+      toast(j.changed ? `${j.said} — ${UNDO_CHORD} undoes · logged in the agent panel` : j.said, 3200);
+      if (j.reload) location.reload();   // nothing in the deck changed, but what the page links did
+      return j;
+    } catch (e) {
+      toast(`could not fix ${rule} — ${String(e.message || e).slice(0, 120)}`, 5000);
+      return null;
     }
   }
 
@@ -3553,6 +3598,11 @@ export function createEditMode({
     reviewFindings: () => review.findings,
     fixFinding,
     onReview: (fn) => { reviewListeners.add(fn); },
+    /** Check deck…'s fixes: the server's own (`fixProblem`), and an ask to the A agent (`askAgent`); which agents there are; a word when a write lands. */
+    fixProblem,
+    askAgent,
+    agents: () => editAgents.slice(),
+    onWrite: (fn) => { writeListeners.add(fn); },
     /** The Publish row: the first call asks and arms, the second publishes. */
     publishDeck,
   };

@@ -538,6 +538,16 @@ export function init(userConfig = {}) {
   }
 
   /**
+   * A problem said as a POINTER to Check deck… (PRESENTING_EDITING): one
+   * line, and a button that opens the panel on the row for it — where the
+   * whole sentence and the fix are — instead of a toast carrying the message
+   * and expiring unread. `select` is the row: `{ rule, ref }`.
+   */
+  function problemToast(msg, select) {
+    return actionToast(msg, [['Check deck…', () => { deckCheck.open(select); }]]);
+  }
+
+  /**
    * A toast that STAYS, and rewrites itself — `{ update, done }`.
    *
    * For work long enough that a fixed sentence stops being true halfway
@@ -597,6 +607,8 @@ export function init(userConfig = {}) {
     root, config, params, toast, debugLog, overlays,
     deck: () => instance,
     editmode: () => editmode,
+    // a theme off the brand is a row in Check deck…, with its fix: the toast points there
+    problem: (msg, rule) => problemToast(msg, { rule }),
   });
   const { applyTheme, currentTheme, cycleTheme, cancelCyclePending, rollTheme, saveGeneratedTheme } = themes;
 
@@ -1139,8 +1151,8 @@ export function init(userConfig = {}) {
       { label: 'Comments…', cat: 'Review', hint: 'M', alias: 'feedback remarks reviewer notes critique review read', run: () => review.open() },
       { label: 'Leave a comment…', cat: 'Review', hint: '⇧M', alias: 'comment note remark feedback add write say', run: () => review.compose() },
       { label: 'Submit review…', cat: 'Review', alias: 'send review push comments submit feedback', run: () => review.submit() },
-      { label: 'Check deck…', cat: 'Review', alias: 'lint check issues problems errors warnings crowded dense density overflow clipped validate verify report health',
-        run: () => deckCheck.open() },
+      { label: 'Check deck…', cat: 'Review', alias: 'lint check issues problems errors warnings crowded dense density overflow clipped validate verify report health fix',
+        run: () => deckCheck.toggle() },
       // the agent reads the deck, read-only, and Check deck… lists what it found (cli/agent-review.mjs)
       write({ label: 'Review deck with agent…', cat: 'Review',
         alias: 'review improve critique feedback agent ai suggestions sources figures numbers voiceover notes titles diagram table better',
@@ -3067,9 +3079,13 @@ export function init(userConfig = {}) {
     const systems = [...document.querySelectorAll('meta[name="decklight-design-system-missing"]')].map((m) => m.content);
     const slides = instance._sections.map((s, i) => [i + 1, s.getAttribute('data-ds-missing')]).filter(([, why]) => why);
     if (!systems.length && !slides.length) return;
-    const said = systems.length ? `design ${systems.length === 1 ? 'system' : 'systems'} not on this machine: ${systems.join('; ')}`
-      : `slide ${slides[0][0]}: ${slides[0][1]}${slides.length > 1 ? ` (and ${slides.length - 1} more)` : ''} — shown as plain content`;
-    toast(said, 7000);
+    if (systems.length) {
+      // the row in Check deck… says the same, with the fix when a registered marketplace holds the update
+      problemToast(`design ${systems.length === 1 ? 'system' : 'systems'} not on this machine: ${systems.map((x) => x.split(' — ')[0]).join('; ')}`
+        + ` — ${systems.length === 1 ? '1 problem' : `${systems.length} problems`}`, { rule: 'ds-unresolved' });
+    } else {
+      toast(`slide ${slides[0][0]}: ${slides[0][1]}${slides.length > 1 ? ` (and ${slides.length - 1} more)` : ''} — shown as plain content`, 7000);
+    }
     for (const m of systems) debugLog('design-system', `missing ${m}`);
     for (const [n, why] of slides) debugLog('design-system', `slide ${n}: ${why}`);
   });
@@ -3077,9 +3093,11 @@ export function init(userConfig = {}) {
   // DESIGN_SYSTEM_MIGRATIONS): the server says so in a meta, with the renames
   // and what moves them; said once a session while authoring, like the
   // off-brand theme, because the slides only lose colours and say nothing.
-  // It stays up until the author dismisses it or presses Migrate, which runs
-  // in the agent panel; once migrated the deck records the version, the meta
-  // is gone, and so is the toast.
+  // The toast is a POINTER (PRESENTING_EDITING): the whole sentence, and
+  // Migrate, are Check deck…'s row for it, where every other problem is too,
+  // so it says there is one with a fix and opens the panel on that row. It
+  // stays up until the author dismisses it or goes; once migrated the deck
+  // records the version, the meta is gone, and so is the toast.
   editmode.settled?.().then(() => {
     if (!editmode.available() || printMode || params.has('embedded') || params.has('capture')) return;
     for (const m of document.querySelectorAll('meta[name="decklight-design-system-behind"]')) {
@@ -3087,7 +3105,8 @@ export function init(userConfig = {}) {
       const key = `decklight-design-system-behind:${location.pathname}:${m.content}`;
       try { if (sessionStorage.getItem(key)) continue; sessionStorage.setItem(key, '1'); } catch { /* no storage: say it each load */ }
       const ref = m.getAttribute('data-ref');
-      actionToast(m.content, ref ? [['Migrate', () => editmode.migrateDesignSystem(ref)]] : []);
+      const title = m.content.split(':')[0];
+      problemToast(`${title}: this deck is behind the version this machine serves — 1 problem with a fix`, { rule: 'ds-behind', ref });
     }
   });
 
@@ -3235,19 +3254,25 @@ export function init(userConfig = {}) {
     return sec.hasAttribute('data-overflow');
   }
   const deckCheck = createDeckCheck({
-    root, overlays, instance: () => instance,
+    root, overlays, toast, instance: () => instance,
     goto: (n) => instance.goto(n, 0),
     measureOverflow,
     slideTitle: (sec, i) => slideTitle(sec, i, slideBody(sec)),
-    // labels that recur in different colours: worth a concept, and ⏎ makes it one in write mode
+    // labels that recur in different colours: worth a concept, and its fix makes it one in write mode
     suggestions: () => conceptSuggestions(stage),
     accept: () => (editmode?.available() && conceptTools ? (s) => conceptTools.accept(s) : null),
-    // the agent review's findings (cli/agent-review.mjs), and `f` to have the A agent fix one
+    // the agent review's findings (cli/agent-review.mjs)
     agentFindings: () => editmode?.reviewFindings?.() ?? [],
-    fix: () => (editmode?.available() ? (f) => editmode.fixFinding(f) : null),
+    // the file's half of the check, and the two kinds of fix (PRESENTING_EDITING):
+    // the server's own, and an ask to the A agent when this machine has one
+    editmode: () => editmode,
+    quickFix: () => (editmode?.available() ? (q) => editmode.fixProblem(q) : null),
+    askAgent: () => (editmode?.available() && editmode.agents().length ? (a) => editmode.askAgent(a) : null),
   });
-  // a review just finished: show what it found
-  editmode.onReview?.((r) => { if (r.findings.length && reviewOpenWanted) { reviewOpenWanted = false; deckCheck.open(); } });
+  // a review just finished: show what it found; what the panel lists changed under it: read again
+  editmode.onReview?.((r) => { if (r.findings.length && reviewOpenWanted) { reviewOpenWanted = false; deckCheck.open(); } else deckCheck.refresh(); });
+  editmode.onWrite?.(() => deckCheck.refresh());
+  for (const ev of ['decklight:theme', 'decklight:concepts', 'decklight:layout']) root.addEventListener(ev, () => deckCheck.refresh());
   instance.check = () => deckCheck.check();
   instance._deckCheck = deckCheck;
 
