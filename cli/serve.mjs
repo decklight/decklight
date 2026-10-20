@@ -13,7 +13,7 @@
 
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync, createReadStream } from 'node:fs';
-import { resolve, extname, sep } from 'node:path';
+import { resolve, extname, sep, dirname, basename } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import { createInterface } from 'node:readline/promises';
@@ -283,7 +283,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     // is a page; everything else streams below.
     if (type === MIME['.html']) {
       const text = readFileSync(file).toString('utf8');
-      const body = Buffer.from(linkReferences(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text)), 'utf8');
+      const body = Buffer.from(linkReferences(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text), { dir: dirname(file), deck: basename(file) }), 'utf8');
       const want = rangeOf(req.headers.range, body.length);
       if (want && !want.satisfiable) {
         res.writeHead(416, { 'content-range': `bytes */${body.length}` });

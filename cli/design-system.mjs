@@ -446,41 +446,14 @@ async function migrateMain(args) {
   if (!ref) { console.error(`decklight design-system migrate: needs a design system and a deck\n\n${USAGE}`); return 1; }
   const d = readDeckArg('migrate', deck);
   if (!d) return 1;
-  const refs = await import('./design-system-refs.mjs');
-  const { markedSources } = await import('./theme-refs.mjs');
+  const { planMigration, migrationLines } = await import('./design-system-refs.mjs');
   const { writeFileAtomic } = await import('../tools/atomic-write.mjs');
-  const { applyRenames, RENAME_KINDS } = await import('../tools/design-system-migrations.mjs');
-  const { tokenPrefixOf } = await import('../tools/design-system-format.mjs');
-  const hit = refs.designSystemRefs(d.html).find((r) => r.ref === ref || r.name === ref);
-  if (!hit) { console.error(`decklight design-system migrate: ${deck} does not use ${ref}`); return 1; }
-  const r = refs.resolveDesignSystemRef(hit, undefined, { source: markedSources(d.html)[hit.marketplace] ?? null });
-  if (!r.dir) { console.error(`decklight design-system migrate: ${hit.ref} — ${r.missing}`); return 1; }
-  const verdict = checkDir(r.dir);
-  if (!verdict.ok) { console.error(`decklight design-system migrate: ${hit.ref} no longer passes its check — decklight design-system gate ${r.dir}`); return 1; }
-  const m = verdict.manifest;
-  const recorded = refs.deckDesignSystemVersions(d.html)[hit.ref] ?? null;
-  const sheets = refs.linkedStylesheets(d.html, dirname(d.path));
-  const status = refs.migrationStatus(m, recorded, [d.html, ...sheets.map((x) => x.text)]);
-  const prefix = tokenPrefixOf(m);
-
-  const deckOut = applyRenames(d.html, status.renames, prefix, { config: true });
-  const html = refs.setDesignSystemVersion(deckOut.text, hit.ref, m.version);
-  const sheetsOut = sheets.map((x) => ({ ...x, ...applyRenames(x.text, status.renames, prefix) }));
-  const renamed = deckOut.count + sheetsOut.reduce((n, x) => n + x.count, 0);
-  if (html === d.html && !renamed) { console.log(`${deck} is already on ${hit.ref} ${m.version} — nothing to migrate`); return 0; }
-
-  for (const x of sheetsOut) if (x.count) writeFileAtomic(x.path, x.text);
-  if (html !== d.html) writeFileAtomic(d.path, html);
-  console.log(`${deck}: ${hit.ref} ${recorded ?? '(no version recorded)'} → ${m.version}`);
-  if (renamed) {
-    const byKind = RENAME_KINDS.map((k) => [k, status.found.filter((f) => f.kind === k)]).filter(([, l]) => l.length);
-    for (const [kind, list] of byKind) console.log(`  ${kind.padEnd(8)} ${list.map((f) => `${f.from} → ${f.to}`).join(', ')}`);
-    console.log(`  ${renamed} rename${renamed === 1 ? '' : 's'} — in ${deck}${sheetsOut.filter((x) => x.count).map((x) => `, ${x.href}`).join('')}`);
-  } else console.log('  nothing it uses was renamed — recorded the new version');
-  if (status.skills.length) {
-    console.log(`  what a rename cannot decide (a name removed with no successor) is the ${status.skills.join(' and ')} skill's:`
-      + ` decklight library add skill ${status.skills[0]}, then ask your agent to finish the migration`);
-  }
+  const plan = planMigration(d.html, dirname(d.path), ref);
+  if (plan.error) { console.error(`decklight design-system migrate: ${plan.error.replace(/^the deck/, deck)}`); return 1; }
+  if (!plan.changed) { console.log(`${deck} is already on ${plan.ref} ${plan.version} — nothing to migrate`); return 0; }
+  for (const x of plan.sheets) writeFileAtomic(x.path, x.text);
+  if (plan.html !== d.html) writeFileAtomic(d.path, plan.html);
+  for (const line of migrationLines(plan, deck)) console.log(line);
   return 0;
 }
 

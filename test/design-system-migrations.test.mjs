@@ -168,7 +168,7 @@ test('the servers tell the page, in a meta the runtime toasts while authoring', 
   process.env.DECKLIGHT_HOME = env.DECKLIGHT_HOME;
   try {
     const out = linkDesignSystems(html, env.DECKLIGHT_HOME);
-    assert.match(out, /<meta name="decklight-design-system-behind" content="Acme Brand: written for acme 2\.0\.0, this machine serves 3\.0\.0/);
+    assert.match(out, /<meta name="decklight-design-system-behind" data-ref="acme@acme-mkt" data-version="3\.0\.0" content="Acme Brand: written for acme 2\.0\.0, this machine serves 3\.0\.0/);
     const now = linkDesignSystems(setDesignSystemVersion(html.replace(/text-main/g, 'text-body'), 'acme@acme-mkt', '3.0.0'), env.DECKLIGHT_HOME);
     assert.doesNotMatch(now, /decklight-design-system-behind/);
   } finally {

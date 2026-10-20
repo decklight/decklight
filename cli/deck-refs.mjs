@@ -35,9 +35,14 @@ export const REFERENCE_KINDS = [
   { kind: 'font', link: linkFonts, asset: fontAsset, namespace: inFontNamespace },
 ];
 
-/** Every reference kind linked into a served page, in the chain's order. */
-export function linkReferences(html, kinds = REFERENCE_KINDS) {
-  return kinds.reduce((out, k) => k.link(out), html);
+/**
+ * Every reference kind linked into a served page, in the chain's order.
+ * `dir` is the deck's folder and `deck` its file name, for what a kind reads
+ * beside it and says about it (a design system's behind check reads the
+ * stylesheets the deck links, and names the deck in its command).
+ */
+export function linkReferences(html, { dir = null, deck = undefined, kinds = REFERENCE_KINDS } = {}) {
+  return kinds.reduce((out, k) => k.link(out, undefined, { dir, deck }), html);
 }
 
 /**

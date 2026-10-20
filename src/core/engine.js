@@ -460,6 +460,12 @@ export function init(userConfig = {}) {
     if (msgLog.length > MSG_KEEP) msgLog.shift();
     if (msgListEl) renderMsgList();   // the log is open — keep it live
   }
+  // Beyond MSG_STACK the oldest goes early — never a toast that asks, which
+  // stays until it is answered.
+  function trimStack() {
+    const passing = [...msgEl.children].filter((c) => !c.classList.contains('decklight-toast-ask'));
+    while (passing.length && msgEl.children.length > MSG_STACK) passing.shift().remove();
+  }
   function toast(msg, ms = 3200) {
     logOnly(msg);
     if (printMode || captureMode) return;
@@ -473,12 +479,62 @@ export function init(userConfig = {}) {
     row.textContent = msg;
     msgEl.appendChild(row);
     requestAnimationFrame(() => row.classList.add('show'));
-    while (msgEl.children.length > MSG_STACK) msgEl.firstChild.remove();
+    trimStack();
     const drop = () => {
       row.classList.remove('show');
       setTimeout(() => row.remove(), 260); // after the fade
     };
     setTimeout(drop, ms);
+  }
+
+  /**
+   * A toast that STAYS until it is answered: `actions` are `[label, run]`
+   * buttons, and a × dismisses it. For what the author is asked to act on
+   * (a deck behind its design system) rather than told in passing — gone
+   * in nine seconds, it was read, never acted on. `run` returning false
+   * keeps it up (the action failed and said why). Returns `{ close }`.
+   */
+  function actionToast(msg, actions = []) {
+    logOnly(msg);
+    if (printMode || captureMode) return { close() {} };
+    if (!msgEl) {
+      msgEl = document.createElement('div');
+      msgEl.className = 'decklight-messages';
+      root.appendChild(msgEl);
+    }
+    const row = document.createElement('div');
+    row.className = 'decklight-toast decklight-toast-ask';
+    row.setAttribute('role', 'alert');
+    const text = document.createElement('div');
+    text.className = 'toast-text';
+    text.textContent = msg;
+    const bar = document.createElement('div');
+    bar.className = 'toast-actions';
+    const close = () => {
+      row.classList.remove('show');
+      setTimeout(() => row.remove(), 260); // after the fade
+    };
+    for (const [label, run] of actions) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'toast-act';
+      b.textContent = label;
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        if ((await run()) === false) b.disabled = false; else close();
+      });
+      bar.appendChild(b);
+    }
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'toast-act toast-dismiss';
+    x.textContent = 'Dismiss';
+    x.addEventListener('click', close);
+    bar.appendChild(x);
+    row.append(text, bar);
+    msgEl.appendChild(row);
+    requestAnimationFrame(() => row.classList.add('show'));
+    return { close };
   }
 
   /**
@@ -504,7 +560,7 @@ export function init(userConfig = {}) {
     row.textContent = msg;
     msgEl.appendChild(row);
     requestAnimationFrame(() => row.classList.add('show'));
-    while (msgEl.children.length > MSG_STACK) msgEl.firstChild.remove();
+    trimStack();
     let over = false;
     return {
       update(text) { if (!over) row.textContent = text; },
@@ -580,6 +636,8 @@ export function init(userConfig = {}) {
     root, toast,
     base: () => (editmode?.available() ? editmode.base() : null),
     onChanged: () => { themes.refreshOffered(); fonts.refreshOffered(); },
+    // a deck the update left behind its design system: Migrate, in the agent panel
+    migrate: (ref) => editmode?.migrateDesignSystem(ref),
     debugLog: (...a) => debugLog(...a),
   });
   overlays.register({ isOpen: marketplaces.isOpen, close: marketplaces.close, keydown: marketplaces.keydown });
@@ -3019,13 +3077,17 @@ export function init(userConfig = {}) {
   // DESIGN_SYSTEM_MIGRATIONS): the server says so in a meta, with the renames
   // and what moves them; said once a session while authoring, like the
   // off-brand theme, because the slides only lose colours and say nothing.
+  // It stays up until the author dismisses it or presses Migrate, which runs
+  // in the agent panel; once migrated the deck records the version, the meta
+  // is gone, and so is the toast.
   editmode.settled?.().then(() => {
     if (!editmode.available() || printMode || params.has('embedded') || params.has('capture')) return;
     for (const m of document.querySelectorAll('meta[name="decklight-design-system-behind"]')) {
       debugLog('design-system', `behind: ${m.content}`);
       const key = `decklight-design-system-behind:${location.pathname}:${m.content}`;
       try { if (sessionStorage.getItem(key)) continue; sessionStorage.setItem(key, '1'); } catch { /* no storage: say it each load */ }
-      toast(m.content, 9000);
+      const ref = m.getAttribute('data-ref');
+      actionToast(m.content, ref ? [['Migrate', () => editmode.migrateDesignSystem(ref)]] : []);
     }
   });
 

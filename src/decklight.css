@@ -797,6 +797,22 @@
   pointer-events: none;
 }
 .decklight-toast.show { opacity: 1; transform: none; }
+/* a toast that asks: it stays until answered, so its buttons take the pointer */
+.decklight-toast-ask { pointer-events: auto; }
+.decklight-toast-ask .toast-actions { display: flex; gap: 8px; margin-top: 8px; }
+.decklight-toast-ask .toast-act {
+  font: 600 16px/1.2 var(--font-mono, monospace);
+  color: #fff;
+  background: rgba(255, 255, 255, .14);
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.decklight-toast-ask .toast-act:first-child { background: var(--accent, #7ee787); border-color: transparent; color: #000; }
+.decklight-toast-ask .toast-act.toast-dismiss:first-child { background: rgba(255, 255, 255, .14); color: #fff; }
+.decklight-toast-ask .toast-act:disabled { opacity: .5; cursor: default; }
+.decklight-toast-ask .toast-act:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
 /* the log panel (`): Messages, every message with the time it arrived, and
    Events, the debug stream — one panel, two tabs (engine.js openLog) */

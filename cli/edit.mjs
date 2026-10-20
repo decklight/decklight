@@ -1044,6 +1044,7 @@ const WRITE_LABELS = {
   '/deck/edit/font/mark': 'font marked',
   '/deck/edit/design-system/apply': 'design system applied',
   '/deck/edit/design-system/mark': 'design system marked',
+  '/deck/edit/design-system/migrate': 'design system migrated',
   '/deck/edit/enhance': 'script enhanced',
   '/deck/edit/wizard': 'engine set up',
   '/deck/upstream/pull': 'git pull',
@@ -1062,13 +1063,22 @@ export function whatWrote(pathname) {
 export const RELOAD_WRITE_WINDOW_MS = 2000;
 export function describeReload({ write = null, agent = null, now = Date.now() } = {}) {
   if (write && now - write.at <= RELOAD_WRITE_WINDOW_MS) return { reload: write.what, from: write.from ?? null };
-  if (agent) return { reload: `${agent.agent}'s edit`, from: null };
+  // a job that names its own reason says it (a migration: "migrated to acme 6.0.0")
+  if (agent) return { reload: agent.reload ?? `${agent.agent}'s edit`, from: null };
   return { reload: 'changed on disk — an editor, git, or a tool outside this server', from: null };
 }
 
+/**
+ * Undo and redo, as snapshots of the deck. An entry is the deck's text, or
+ * `{ deck, files: { <path>: text } }` for one step that also wrote files
+ * beside it (a migration renames in the stylesheets the deck links), so one
+ * Z puts them all back. `current` may be a function of the entry being
+ * taken, for the caller to snapshot exactly the files that entry names.
+ */
 export function createHistory(limit = 200) {
   const past = [];
   const future = [];
+  const now = (current, entry) => (typeof current === 'function' ? current(entry) : current);
   return {
     record(before) {
       past.push(before);
@@ -1077,13 +1087,15 @@ export function createHistory(limit = 200) {
     },
     undo(current) {
       if (!past.length) return null;
-      future.push(current);
-      return past.pop();
+      const entry = past.pop();
+      future.push(now(current, entry));
+      return entry;
     },
     redo(current) {
       if (!future.length) return null;
-      past.push(current);
-      return future.pop();
+      const entry = future.pop();
+      past.push(now(current, entry));
+      return entry;
     },
     counts() { return { undo: past.length, redo: future.length }; },
   };
@@ -1430,7 +1442,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // does: a deck that is only data (#520) gets the runtime referenced on its
   // way out, and the audit above described the bytes WITHOUT it — which is
   // the point. `staticFiles` does this for every other page itself.
-  const serveAudited = (text) => linkReferences(linkRuntime(rewrite(text, deckPath)));
+  const serveAudited = (text) => linkReferences(linkRuntime(rewrite(text, deckPath)), { dir: dirname(deckPath), deck: basename(deckPath) });
   // The deck itself, in no-trust mode, is served from MEMORY — container and
   // plain HTML alike — from the bytes the audit read and the signature
   // covered. The label, the signature verdict and `strict` were all decided
@@ -1458,6 +1470,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
   const history = createHistory();
   const readDeck = () => readFileSync(deckPath, 'utf8');
+  /** Files beside the deck as they are now, `{ path: text }` — for an undo entry that covers them. */
+  const snapshotFiles = (paths) => Object.fromEntries(paths.flatMap((p) => { try { return [[p, readFileSync(p, 'utf8')]]; } catch { return []; } }));
   /**
    * The one door every mutation goes through: snapshot, then write — so Z
    * always works. Answers whether anything actually changed.
@@ -1558,10 +1572,11 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * this returns, which is the whole contract of autocommit — the subject is
    * an improvement that arrives late or not at all.
    */
-  function ownCommit(message) {
+  function ownCommit(message, also = []) {
+    const paths = { also: [...alsoNow().also, ...also] };
     const made = message === undefined
-      ? gitAutocommit(deckPath, root, undefined, alsoNow())
-      : gitAutocommit(deckPath, root, message, alsoNow());
+      ? gitAutocommit(deckPath, root, undefined, paths)
+      : gitAutocommit(deckPath, root, message, paths);
     if (!made) return false;
     pendingAttr = null;
     // Whatever wrote it — the overlay, an agent, a bookend — this stretch of
@@ -2221,12 +2236,20 @@ export async function editMain(args, { onListen = null, client } = {}) {
     }, 150);
   });
 
-  function runAgent(prompt, name, message, slide) {
+  /**
+   * Hand an ask to an agent. `files` are files beside the deck the job may
+   * also write (a migration's linked stylesheets): snapshotted with the deck,
+   * so one Z takes them all back, and committed with it. `reload` is the
+   * reason the reload its edit causes carries; `kind` and `title` label the
+   * ask in the panel.
+   */
+  function runAgent(prompt, name, message, slide, { files = [], reload = null, kind = null, title = null } = {}) {
     const cmd = agentCommand(name || agentPref, prompt, deckRel, { slide });
     if (!cmd) return null;
     const ask = {
       id: ++askSeq, agent: cmd.name, label: cmd.label, prompt,
       ...(Number.isInteger(slide) && slide > 0 ? { slide } : {}),
+      ...(kind ? { kind } : {}), ...(title ? { title } : {}),
       startedAt: Date.now(), state: 'running',
     };
     agentAsks.push(ask);
@@ -2238,11 +2261,12 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // under the agent's message, and a history that misattributes authorship is
     // worse than one that only says "autosave".
     if (gitOn && shouldCommit(gitMode, { kind: 'bookend' })
-        && ownCommit(`decklight: save before ${cmd.name} edits ${basename(deckPath)}`)) {
+        && ownCommit(`decklight: save before ${cmd.name} edits ${basename(deckPath)}`, files)) {
       console.log('  git: committed your outstanding changes first');
     }
     const before = readDeck();
-    agentJob = { agent: cmd.name, label: cmd.label, prompt, startedAt: ask.startedAt, id: ask.id, slide: ask.slide };
+    const filesBefore = snapshotFiles(files);
+    agentJob = { agent: cmd.name, label: cmd.label, prompt, startedAt: ask.startedAt, id: ask.id, slide: ask.slide, ...(reload ? { reload } : {}) };
     broadcast('agent', { state: 'start', ...agentJob });
     console.log(`  agent: ${cmd.name} ← "${prompt.slice(0, 80)}"`);
     const child = spawn(cmd.bin, cmd.args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -2307,14 +2331,17 @@ export async function editMain(args, { onListen = null, client } = {}) {
       clearTimeout(hard);
       agentStop = null;
       const after = readDeck();
-      const changed = after !== before;
-      if (changed) history.record(before); // Z takes the agent's edit back
+      const filesAfter = snapshotFiles(files);
+      const filesChanged = Object.keys(filesBefore).some((p) => filesAfter[p] !== filesBefore[p]);
+      const changed = after !== before || filesChanged;
+      // Z takes the agent's edit back — with the files beside the deck it wrote, in the same step
+      if (changed) history.record(filesChanged ? { deck: before, files: filesBefore } : before);
       // One commit per completed agent edit, carrying the agent's own summary
       // — the boundary and the message both come from the work, not a clock.
       // A failed run or one that changed nothing commits nothing.
       if (gitOn && shouldCommit(gitMode, { kind: 'agent', ok: code === 0, changed })) {
         const subject = commitSubject(message ?? prompt, `decklight: ${cmd.name} edited ${basename(deckPath)}`);
-        if (gitAutocommit(deckPath, root, subject, alsoNow())) { pendingAttr = null; console.log(`  git: committed "${subject}"`); }
+        if (gitAutocommit(deckPath, root, subject, { also: [...alsoNow().also, ...files] })) { pendingAttr = null; console.log(`  git: committed "${subject}"`); }
       }
       // Did the edit orphan, stale, or reshape a recording? A track is
       // minutes of somebody's own voice, and a whole-deck rewrite can drop the
@@ -2417,9 +2444,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
   function undoRedoRoute({ url, json }) {
     const dir = url.pathname.endsWith('undo') ? 'undo' : 'redo';
     const cur = readDeck();
-    const content = history[dir](cur);
+    // an entry that wrote files beside the deck is answered by those files as they are now
+    const content = history[dir]((e) => (typeof e === 'string' ? cur : { deck: cur, files: snapshotFiles(Object.keys(e.files ?? {})) }));
     if (content === null) return json(409, { ok: false, error: `nothing to ${dir}`, ...history.counts() });
-    writeDeck(content);
+    if (typeof content !== 'string') {
+      for (const [p, text] of Object.entries(content.files ?? {})) writeFileAtomic(p, text);
+    }
+    writeDeck(typeof content === 'string' ? content : content.deck);
     console.log(`  ${dir} → ${JSON.stringify(history.counts())}`);
     return json(200, { ok: true, ...history.counts() });
   }
@@ -2897,6 +2928,79 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return json(200, { ok: true, agent: cmd.name, label: cmd.label });
   }
 
+  /**
+   * `POST /deck/edit/design-system/migrate` `{ ref, agent? }` (SPEC
+   * DESIGN_SYSTEM_MIGRATIONS): Migrate, from the behind toast or the
+   * marketplace update's what's new. A job the author watches in the agent
+   * panel, not a silent rewrite. When the pending migrations name a skill
+   * and an agent is installed, it is an ask like any other: the agent runs
+   * `design-system migrate` for the declared renames, then the skill's
+   * checks and judgement calls, and its report is what the panel shows.
+   * Otherwise this server runs the migration itself and records it in the
+   * same panel: the renames by kind, the count, the version, and the skill
+   * named for what a rename cannot decide. Either way it is one undo step
+   * over the deck and the stylesheets it links, committed on its own like
+   * an agent edit, and the reload says what it was.
+   */
+  async function designSystemMigrateRoute({ body, json }) {
+    const { ref, agent } = JSON.parse(body || '{}');
+    if (typeof ref !== 'string' || !ref.trim()) throw new Error('bad payload');
+    if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
+    if (reviewing) return json(409, { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' });
+    const { planMigration, migrationLines, linkedStylesheets } = await import('./design-system-refs.mjs');
+    // read once: the plan, the undo entry and the stylesheets are all of these bytes
+    const before = readDeck();
+    const plan = planMigration(before, dirname(deckPath), ref.trim());
+    if (plan.error) return json(409, { ok: false, error: plan.error });
+    if (!plan.changed) return json(200, { ok: true, nothing: true, said: `already on ${plan.ref} ${plan.version} — nothing to migrate` });
+    const deckName = basename(deckPath);
+    const reload = `migrated to ${plan.name} ${plan.version}`;
+    const title = `migrate to ${plan.name} ${plan.version}`;
+    const subject = `decklight: migrate ${deckName} to ${plan.name} ${plan.version}`;
+    // every stylesheet it links from its folder, not only those the renames
+    // touch: the skill's judgement calls may reach the others
+    const sheets = linkedStylesheets(before, dirname(deckPath)).map((x) => x.path).filter((p) => p.startsWith(root + sep));
+    const skills = plan.status.skills;
+    if (skills.length) {
+      const prompt = `Migrate this deck from ${plan.name} ${plan.recorded ?? '(no version recorded)'} to ${plan.version} with the ${skills.join(' and ')} skill`
+        + ` (if it is not installed: decklight library add skill ${skills[0]}). First run \`decklight design-system migrate ${plan.ref} ${deckRel}\``
+        + ' for the renames the design system declares; then do what the skill says a rename cannot: its checks (renders before and after),'
+        + ' and its judgement calls (a name removed with no successor). Report the renames with their counts, each judgement call you made,'
+        + ' and anything you left alone.';
+      const cmd = runAgent(prompt, agent, subject, null, { files: sheets, reload, kind: 'migrate', title });
+      if (cmd) return json(200, { ok: true, by: 'agent', agent: cmd.name, label: cmd.label });
+    }
+
+    // No agent to run the skill, or no skill to run: this server applies the
+    // renames itself, and the panel records it as an entry like an ask.
+    const ask = {
+      id: ++askSeq, agent: 'decklight', label: 'decklight', kind: 'migrate', title,
+      prompt: `decklight design-system migrate ${plan.ref} ${deckRel}`, startedAt: Date.now(), state: 'running',
+    };
+    agentAsks.push(ask);
+    if (agentAsks.length > ASKS_KEPT) agentAsks.shift();
+    broadcast('agent', { state: 'start', agent: ask.agent, label: ask.label, prompt: ask.prompt, kind: ask.kind, title, startedAt: ask.startedAt, id: ask.id });
+    if (gitOn && shouldCommit(gitMode, { kind: 'bookend' })
+        && ownCommit(`decklight: save before migrating ${deckName}`, sheets)) {
+      console.log('  git: committed your outstanding changes first');
+    }
+    const filesBefore = snapshotFiles(plan.sheets.map((x) => x.path));
+    history.record(plan.sheets.length ? { deck: before, files: filesBefore } : before);
+    for (const x of plan.sheets) writeFileAtomic(x.path, x.text);
+    writeDeck(plan.html);
+    noteWrite(reload, lastWrite?.from ?? null);
+    if (gitOn && shouldCommit(gitMode, { kind: 'agent', ok: true, changed: true })
+        && gitAutocommit(deckPath, root, subject, { also: [...alsoNow().also, ...sheets] })) {
+      pendingAttr = null;
+      console.log(`  git: committed "${subject}"`);
+    }
+    const tail = migrationLines(plan, deckRel).join('\n');
+    Object.assign(ask, { state: 'done', finishedAt: Date.now(), ok: true, changed: true, code: 0, tail });
+    broadcast('agent', { state: 'done', id: ask.id, agent: ask.agent, ok: true, changed: true, code: 0, tail });
+    console.log(`  design system: ${reload} — ${plan.renamed} rename${plan.renamed === 1 ? '' : 's'}`);
+    return json(200, { ok: true, by: 'server', renamed: plan.renamed, version: plan.version, ask });
+  }
+
   // ── the route table ──────────────────────────────────────────────────────
   // Every `/deck/edit/*` surface, keyed `METHOD /path`. This was forty-four
   // `if (req.method === … && url.pathname === …)` arms in one eleven-hundred
@@ -2929,6 +3033,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'GET /deck/edit/narration/tracks': tracksRoute,
 
     'POST /deck/edit/agent': agentRoute,
+    'POST /deck/edit/design-system/migrate': designSystemMigrateRoute,
     'POST /deck/edit/agent/stop': agentStopRoute,
     'POST /deck/edit/agent/prefer': agentPreferRoute,
     'POST /deck/edit/enhance': enhanceRoute,

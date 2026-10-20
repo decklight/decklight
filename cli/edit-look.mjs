@@ -27,7 +27,7 @@
 
 import { readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
-import { dirname } from 'node:path';
+import { basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { oneline } from './git.mjs';
@@ -484,7 +484,9 @@ export function registerLookRoutes(routes, {
    * as they were. Answers with what the update changed (the `changes` the
    * command recorded: added, removed, versions moved) and which installs the
    * catalog now has newer, with the command that takes each — the screen's
-   * what's new. Nothing in the deck changes, so no undo entry and no reload.
+   * what's new — and `behind`, the design systems the open deck is now
+   * behind (`deckBehind`), which the screen offers to migrate. Nothing in
+   * the deck changes, so no undo entry and no reload.
    */
   async function marketplaceUpdateRoute({ body, json }) {
     const req = JSON.parse(body || '{}');
@@ -499,7 +501,15 @@ export function registerLookRoutes(routes, {
     const counts = {};
     for (const e of cat?.ok ? cat.manifest.entries : []) counts[e.type] = (counts[e.type] ?? 0) + 1;
     console.log(`  marketplace: updated ${name}${m.commit ? ` (${m.commit.slice(0, 7)})` : ''}`);
-    return json(200, { ok: true, name, commit: m.commit ?? null, changes: m.changes ?? null, counts, newer: newerThanInstalled(configHome(), name), said: out.said });
+    // What the update means for the deck that is open (SPEC
+    // DESIGN_SYSTEM_MIGRATIONS): the design systems it is now behind, read
+    // as `check` reads them — the page offers Migrate without a reload.
+    const { withMigrationHint, deckBehind } = await import('./design-system-refs.mjs');
+    const newer = newerThanInstalled(configHome(), name).map((n) => withMigrationHint(n, configHome()));
+    let behind = [];
+    try { if (deckPath) behind = deckBehind(readDeck(), dirname(deckPath), configHome(), { deck: basename(deckPath) }); } catch { /* the deck unreadable: nothing to offer */ }
+    for (const b of behind) console.log(`  design system: ${b.ref} — ${b.message}`);
+    return json(200, { ok: true, name, commit: m.commit ?? null, changes: m.changes ?? null, counts, newer, behind, said: out.said });
   }
 
   routes.set('POST /deck/edit/theme', themeRoute);

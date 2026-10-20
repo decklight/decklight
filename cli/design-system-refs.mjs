@@ -36,7 +36,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'n
 import { dirname, join, resolve, sep } from 'node:path';
 import { escapeHtml } from '../tools/escape.mjs';
 import { DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS, tokenPrefixOf } from '../tools/design-system-format.mjs';
-import { pendingMigrations, composeRenames, findRenamed, majorOf } from '../tools/design-system-migrations.mjs';
+import { pendingMigrations, composeRenames, findRenamed, majorOf, applyRenames, RENAME_KINDS } from '../tools/design-system-migrations.mjs';
 import { configBlock, isDeck } from './runtime-link.mjs';
 import { configHome, loadRegistry, loadCatalog, MarketplaceError, NAME_RE } from './marketplace.mjs';
 import {
@@ -120,6 +120,115 @@ export function migrationStatus(manifest, recorded, texts) {
     behind: major || found.length > 0, recorded: recorded ?? null, current, major, found,
     skills: [...new Set(pending.map((m) => m.skill).filter(Boolean))], renames,
   };
+}
+
+/**
+ * Every design system a deck is behind, from what `check` reads: the deck
+ * and the stylesheets it links from `dir` (SPEC DESIGN_SYSTEM_MIGRATIONS).
+ * `[{ ref, name, title, recorded, current, skills, message }]`, `message`
+ * the one sentence (`behindMessage`) with `deck` as the command's argument.
+ * A reference this machine cannot serve is not behind: it is missing, and
+ * said as that.
+ */
+export function deckBehind(html, dir, home = configHome(), { deck = '<deck.html>' } = {}) {
+  const refs = designSystemRefs(html);
+  if (!refs.length) return [];
+  const sources = markedSources(html);
+  const versions = deckDesignSystemVersions(html);
+  let texts = null;
+  const out = [];
+  for (const ref of refs) {
+    const r = resolveDesignSystemRef(ref, home, { source: sources[ref.marketplace] ?? null });
+    const verdict = r.dir ? packageVerdict(r.dir) : null;
+    if (!verdict?.ok) continue;
+    texts ??= [html, ...(dir ? linkedStylesheets(html, dir).map((x) => x.text) : [])];
+    const status = migrationStatus(verdict.manifest, versions[ref.ref] ?? null, texts);
+    if (!status.behind) continue;
+    out.push({
+      ref: ref.ref, name: ref.name, title: verdict.manifest.title || ref.name,
+      recorded: status.recorded, current: status.current, skills: status.skills,
+      message: behindMessage(ref.name, status, { ref: ref.ref, deck }),
+    });
+  }
+  return out;
+}
+
+/**
+ * A newer design system the catalog offers, said as what it means for the
+ * decks on it (SPEC DESIGN_SYSTEM_MIGRATIONS): one `newerThanInstalled` row
+ * with `note` (*major: decks that use it need migrating, with the acme-migrate
+ * skill*) and `how` (where to find them and what moves one) when the package
+ * this machine now has declares migrations since the version installed. Any
+ * other row comes back as it was.
+ */
+export function withMigrationHint(n, home = configHome()) {
+  if (n?.type !== 'design-system') return n;
+  const r = resolveDesignSystemRef(n.qualified, home);
+  const verdict = r.dir ? packageVerdict(r.dir) : null;
+  if (!verdict?.ok) return n;
+  const pending = pendingMigrations(verdict.manifest, n.from);
+  if (!pending.length) return n;
+  const skills = [...new Set(pending.map((m) => m.skill).filter(Boolean))];
+  const major = n.from === null || (majorOf(n.from) ?? 0) < (majorOf(n.to) ?? 0);
+  return {
+    ...n, migrations: pending.map((m) => m.version), skills,
+    note: `${major ? 'major: ' : ''}decks that use it need migrating${skills.length ? `, with the ${skills.join(' or ')} skill` : ''}`,
+    how: `decklight check finds them; decklight design-system migrate ${n.qualified} <deck.html> moves one`,
+  };
+}
+
+/**
+ * What `design-system migrate` does to a deck, worked out in memory and
+ * written by nobody (SPEC DESIGN_SYSTEM_MIGRATIONS): the command and the
+ * edit server's Migrate both apply it. `{ error }` when the deck does not
+ * use `ref` or this machine cannot serve it, else
+ *   `{ ref, name, title, recorded, version, status, html, sheets, renamed, byKind, changed }`
+ * — `html` the deck renamed and its version recorded, `sheets` the linked
+ * stylesheets a rename touched (`{ href, path, text, count }`), `byKind`
+ * `[[kind, found]]` for the report.
+ */
+export function planMigration(html, dir, ref, home = configHome()) {
+  const hit = designSystemRefs(html).find((r) => r.ref === ref || r.name === ref);
+  if (!hit) return { error: `the deck does not use ${ref}` };
+  const r = resolveDesignSystemRef(hit, home, { source: markedSources(html)[hit.marketplace] ?? null });
+  if (!r.dir) return { error: `${hit.ref} — ${r.missing}` };
+  const verdict = checkDir(r.dir);
+  if (!verdict.ok) return { error: `${hit.ref} no longer passes its check — decklight design-system gate ${r.dir}` };
+  const m = verdict.manifest;
+  const recorded = deckDesignSystemVersions(html)[hit.ref] ?? null;
+  const sheets = linkedStylesheets(html, dir);
+  const status = migrationStatus(m, recorded, [html, ...sheets.map((x) => x.text)]);
+  const prefix = tokenPrefixOf(m);
+  const deckOut = applyRenames(html, status.renames, prefix, { config: true });
+  const next = setDesignSystemVersion(deckOut.text, hit.ref, m.version);
+  const touched = sheets.map((x) => ({ ...x, ...applyRenames(x.text, status.renames, prefix) })).filter((x) => x.count);
+  const renamed = deckOut.count + touched.reduce((n, x) => n + x.count, 0);
+  return {
+    ref: hit.ref, name: hit.name, title: m.title || hit.name, recorded, version: m.version, status,
+    html: next, sheets: touched, renamed,
+    byKind: RENAME_KINDS.map((k) => [k, status.found.filter((f) => f.kind === k)]).filter(([, l]) => l.length),
+    changed: next !== html || renamed > 0,
+  };
+}
+
+/**
+ * A migration said in lines — what `design-system migrate` prints and what
+ * the agent panel records when the edit server runs one: the versions, the
+ * renames by kind, the count and where, and the skill named for what a
+ * rename cannot decide.
+ */
+export function migrationLines(plan, deck) {
+  const out = [`${deck}: ${plan.ref} ${plan.recorded ?? '(no version recorded)'} → ${plan.version}`];
+  if (plan.renamed) {
+    for (const [kind, list] of plan.byKind) out.push(`  ${kind.padEnd(8)} ${list.map((f) => `${f.from} → ${f.to}`).join(', ')}`);
+    out.push(`  ${plan.renamed} rename${plan.renamed === 1 ? '' : 's'} — in ${deck}${plan.sheets.map((x) => `, ${x.href}`).join('')}`);
+  } else out.push('  nothing it uses was renamed — recorded the new version');
+  const skills = plan.status.skills;
+  if (skills.length) {
+    out.push(`  what a rename cannot decide (a name removed with no successor) is the ${skills.join(' and ')} skill's:`
+      + ` decklight library add skill ${skills[0]}, then ask your agent to finish the migration`);
+  }
+  return out;
 }
 
 /**
@@ -290,14 +399,19 @@ export function brandTags(name, verdict) {
  * Nothing when the page already carries `<style data-design-system="<name>">`
  * (a bundle's own copy). An unresolvable reference, or a package that no
  * longer passes the check, becomes `<meta name="decklight-design-system-missing">`
- * naming it and why — never a silently short page.
+ * naming it and why — never a silently short page. A deck behind a
+ * package's major gets `<meta name="decklight-design-system-behind"
+ * data-ref data-version>`, its sentence the content; `dir` is the deck's
+ * folder, so the stylesheets it links are read as `check` reads them, and
+ * `deck` its file name, for the command the sentence ends on.
  */
-export function linkDesignSystems(html, home = configHome(), { log = null } = {}) {
+export function linkDesignSystems(html, home = configHome(), { log = null, dir = null, deck = '<deck.html>' } = {}) {
   if (!isDeck(html)) return html;
   const refs = designSystemRefs(html);
   if (!refs.length) return html;
   const sources = markedSources(html);
   const tags = [];
+  let texts = null;
   for (const ref of refs) {
     // a bundle's own copy (<style>), or a link this page already got
     const carried = new RegExp(`<(?:style|link)\\b[^>]*\\bdata-design-system\\s*=\\s*["']${ref.name}["']`, 'i');
@@ -312,8 +426,13 @@ export function linkDesignSystems(html, home = configHome(), { log = null } = {}
       tags.push(`<template data-design-system-templates="${name}">\n${verdict.templatesHtml.trim()}\n</template>`);
       tags.push(...brandTags(ref.name, verdict));
       // a deck behind the major this machine serves: said once, while authoring (SPEC DESIGN_SYSTEM_MIGRATIONS)
-      const status = migrationStatus(verdict.manifest, deckDesignSystemVersions(html)[ref.ref] ?? null, [html]);
-      if (status.behind) tags.push(`<meta name="decklight-design-system-behind" content="${escapeHtml(`${verdict.manifest.title || ref.name}: ${behindMessage(ref.name, status, { ref: ref.ref })}`)}">`);
+      // — read as `check` reads it: the deck and the stylesheets it links from `dir`
+      texts ??= [html, ...(dir ? linkedStylesheets(html, dir).map((x) => x.text) : [])];
+      const status = migrationStatus(verdict.manifest, deckDesignSystemVersions(html)[ref.ref] ?? null, texts);
+      if (status.behind) {
+        tags.push(`<meta name="decklight-design-system-behind" data-ref="${escapeHtml(ref.ref)}" data-version="${escapeHtml(status.current)}"`
+          + ` content="${escapeHtml(`${verdict.manifest.title || ref.name}: ${behindMessage(ref.name, status, { ref: ref.ref, deck })}`)}">`);
+      }
     } else {
       tags.push(`<meta name="decklight-design-system-missing" content="${escapeHtml(`${ref.ref} — ${r.missing}`)}">`);
       log?.(`design system ${ref.ref}: ${r.missing}`);

@@ -13,7 +13,9 @@
 // marketplace and U every one found behind (`decklight marketplace update`),
 // and an update opens WHAT'S NEW: the entries the catalog added, dropped or
 // moved to a new version, and which of your installs it now has newer, with
-// the command that takes each. W reopens it for the last update. ADD is the
+// the command that takes each — and, when the update left the open deck
+// behind one of its design systems, the sentence `check` says and M to
+// migrate it, in the agent panel. W reopens it for the last update. ADD is the
 // registration that used to be a card of its own: what `decklight
 // marketplace add` takes, a first ⏎ that only says what it would clone or
 // read, a second that does it. After an add or an update the pickers that
@@ -107,7 +109,7 @@ const isBehind = (m, check) => m.state !== 'fetched' || check?.state === 'behind
  * update, with the route's answer; `then` (given to `open`) is where the
  * person came from, reopened when the add they came for is done.
  */
-export function createMarketplaces({ root, base, toast, onChanged = () => {}, debugLog = () => {} }) {
+export function createMarketplaces({ root, base, toast, onChanged = () => {}, migrate = null, debugLog = () => {} }) {
   let el = null, view = 'list', then = null, busy = null;
   // the list
   let list = null, listError = null, sel = 0, rows = [];
@@ -117,6 +119,7 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
   let step = 'ask', spec = '', plan = null, addError = null;
   // what's new
   let news = null;
+  const behindAfter = new Map();   // name → the design systems the open deck was behind after its update
 
   const card = () => el?.querySelector('.narr-card');
 
@@ -195,7 +198,7 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
   }
 
   function renderNews(c) {
-    const { name, changes: ch, newer = [] } = news;
+    const { name, changes: ch, newer = [], behind = [] } = news;
     let html = `<div class="narr-head">what's new in ${escapeHtml(name)}</div>`;
     if (!ch) {
       html += '<div class="rec-line">No update recorded yet — ⏎ on its row updates it.</div>';
@@ -215,11 +218,30 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
       // an update refreshes the catalog; taking a newer version stays a command
       html += '<div class="narr-group">newer than what you installed</div>'
         + newer.map((n) => `<div class="rec-line mk-change mk-newer"><span class="mk-sign">↑</span> `
-          + `<span class="mk-name">${escapeHtml(n.qualified)}</span> <span class="mk-ver">${escapeHtml(`${n.from ?? 'unversioned'} → ${n.to}`)}</span>`
+          + `<span class="mk-name">${escapeHtml(n.qualified)}</span> <span class="mk-ver">${escapeHtml(`${n.from ?? 'unversioned'} → ${n.to}${n.note ? ` (${n.note})` : ''}`)}</span>`
           + `${n.how ? `<div class="narr-fix">${escapeHtml(n.how)}</div>` : ''}</div>`).join('');
     }
-    html += `<div class="rec-hint">${keys('Esc back to the marketplaces')}</div>`;
+    if (behind.length) {
+      // the deck that is open, after this update: the sentence `check` says,
+      // and Migrate, which runs in the agent panel (DESIGN_SYSTEM_MIGRATIONS)
+      html += '<div class="narr-group">this deck is now behind</div>'
+        + behind.map((b, i) => `<div class="rec-line mk-change mk-deck-behind"><span class="mk-sign">⚠</span> `
+          + `<span class="mk-name">${escapeHtml(b.title)}</span>`
+          + `<div class="narr-fix">${escapeHtml(b.message)}</div>`
+          + `${migrate ? `<button type="button" class="narr-prev-btn mk-migrate" data-i="${i}">Migrate</button>` : ''}</div>`).join('');
+    }
+    html += `<div class="rec-hint">${keys(`${behind.length && migrate ? 'M migrate · ' : ''}Esc back to the marketplaces`)}</div>`;
     c.innerHTML = html;
+    c.querySelectorAll('.mk-migrate').forEach((b) => b.addEventListener('click', () => migrateBehind(Number(b.dataset.i))));
+  }
+
+  /** M, or a Migrate button: the card closes so the agent panel it runs in is in view. */
+  function migrateBehind(i = 0) {
+    const b = news?.behind?.[i];
+    if (!b || !migrate) return;
+    debugLog('marketplace', `migrate ${b.ref} after updating ${news.name}`);
+    close();
+    migrate(b.ref);
   }
 
   function renderAdd(c) {
@@ -302,13 +324,15 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
       const j = await call('POST', '/deck/edit/marketplace/update', { name: m.name });
       debugLog('marketplace', `updated ${m.name}${j.commit ? ` to ${j.commit.slice(0, 7)}` : ''}`);
       checks.set(m.name, { name: m.name, state: 'current', commit: j.commit, local: m.local });
+      behindAfter.set(m.name, j.behind ?? []);
+      for (const b of j.behind ?? []) debugLog('marketplace', `the deck is now behind ${b.ref}: ${b.message}`);
       busy = busy?.all ? { all: true } : null;
       await load();
       onChanged(j);
       if (show) {
         const what = changesPhrase(j.changes);
         toast(`updated ${m.name}${what ? ` — ${what}` : j.changes?.first ? ` — ${offeredPhrase(j.counts) || 'fetched'}` : ' — nothing in the catalog changed'}`, 5000);
-        news = { name: m.name, changes: j.changes, newer: j.newer ?? [] };
+        news = { name: m.name, changes: j.changes, newer: j.newer ?? [], behind: j.behind ?? [] };
         view = 'news';
         render();
       }
@@ -337,7 +361,7 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
   function whatsNew() {
     const m = rows[sel]?.m;
     if (!m) return;
-    news = { name: m.name, changes: m.changes, newer: m.newer ?? [] };
+    news = { name: m.name, changes: m.changes, newer: m.newer ?? [], behind: behindAfter.get(m.name) ?? [] };
     view = 'news';
     render();
   }
@@ -441,7 +465,10 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
       if (e.key === 'Enter') { if (step === 'confirm') confirm(); else ask(); }
       return true;
     }
-    if (view === 'news') return true;
+    if (view === 'news') {
+      if (e.key === 'm' || e.key === 'M') migrateBehind(0);
+      return true;
+    }
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     if (k === 'ArrowDown') select(sel + 1);
     else if (k === 'ArrowUp') select(sel - 1);

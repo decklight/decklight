@@ -1122,7 +1122,9 @@ export function createEditMode({
     name: 'Agent',
     open: () => { if (!agentEl) toggleAgentAsk(); },
     close: () => { if (agentEl) toggleAgentAsk(); },
-    available: () => editAvailable && editAgents.length > 0,
+    // with no agent CLI it still opens when there is something to show: a
+    // migration decklight ran itself is recorded here (DESIGN_SYSTEM_MIGRATIONS)
+    available: () => editAvailable && (editAgents.length > 0 || agentAsks.length > 0),
   });
   // A DOCKED card stays open across the reload an agent's edit causes: the
   // author asked from beside the slide and is waiting beside it for the
@@ -1149,7 +1151,7 @@ export function createEditMode({
   function reopenAgentAsk() {
     let open = false;
     try { open = sessionStorage.getItem(AGENT_OPEN_KEY) === '1'; } catch { /* no storage */ }
-    if (open && !agentEl && !agentDock.isFloat() && editAgents.length) toggleAgentAsk();
+    if (open && !agentEl && !agentDock.isFloat() && (editAgents.length || agentAsks.length)) toggleAgentAsk();
   }
   /** One past ask, as the card lists it: where it was asked, what, and what came of it. */
   function askRow(a) {
@@ -1158,7 +1160,7 @@ export function createEditMode({
     const meta = document.createElement('div');
     meta.className = 'agent-ask-meta';
     const at = new Date(a.startedAt || Date.now());
-    meta.textContent = [a.slide ? `slide ${a.slide}` : null, a.agent,
+    meta.textContent = [a.slide ? `slide ${a.slide}` : null, a.title, a.agent,
       `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`].filter(Boolean).join(' · ');
     if (a.slide) {
       // the slide it was asked about is one click away
@@ -1173,7 +1175,7 @@ export function createEditMode({
     out.className = 'agent-ask-out';
     out.textContent = a.state === 'running'
       ? `working…${a.activity ? ` ${a.activity}` : ''}`
-      : [a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.changed ? 'edited the deck' : 'no changes',
+      : [a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.changed ? (a.kind === 'migrate' ? 'migrated the deck' : 'edited the deck') : 'no changes',
         (a.tail || '').trim()].filter(Boolean).join('\n');
     row.append(meta, said, out);
     return row;
@@ -1188,17 +1190,30 @@ export function createEditMode({
       toast(cannot('asking an agent'), 3200);
       return;
     }
-    if (!editAgents.length) {
+    if (!editAgents.length && !agentAsks.length) {
       toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600);
       return;
     }
+    const canAsk = editAgents.length > 0;
     const { el, card } = typingCard('agent', agentDock,
-      'ask an agent — edits the deck file · ⌘⏎ sends', toggleAgentAsk);
+      canAsk ? 'ask an agent — edits the deck file · ⌘⏎ sends' : 'what decklight ran — no agent CLI on this machine to ask', toggleAgentAsk);
     agentEl = el;
     // what was asked this session and what came of it — newest at the bottom,
     // right above where the next one is typed
     const log = document.createElement('div');
     log.className = 'agent-log';
+    if (!canAsk) {
+      // nothing to type to: the log alone, for what this server ran itself
+      paintAsks = () => {
+        log.replaceChildren(...agentAsks.map(askRow));
+        log.scrollTop = log.scrollHeight;
+      };
+      paintAsks();
+      card.append(log);
+      unmountAgent = mountTypingCard(el, agentDock);
+      if (!agentDock.isFloat()) rememberAgentOpen(true);
+      return;
+    }
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
     ta.placeholder = `e.g. "make slide ${instance.state.slide} a split layout with the diagram on the left"`;
@@ -1280,6 +1295,41 @@ export function createEditMode({
     unmountAgent = mountTypingCard(el, agentDock);
     if (!agentDock.isFloat()) rememberAgentOpen(true);
     setTimeout(() => ta.focus(), 0);
+  }
+
+  /**
+   * Migrate (DESIGN_SYSTEM_MIGRATIONS): move the deck onto the version of a
+   * design system this machine serves — from the behind toast, or the
+   * marketplace update's what's new. A job watched in the agent panel, which
+   * opens docked on it and stays open across the reload the migration
+   * causes: the agent's ask when the migration has a skill and an agent is
+   * installed, the server's own entry otherwise. Answers whether it started.
+   */
+  async function migrateDesignSystem(ref) {
+    if (!editAvailable) { toast(cannot('migrating a design system'), 3200); return false; }
+    if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return false; }
+    const wasOpen = !!agentEl;
+    rememberAgentOpen(true);   // before the request: the reload may beat its answer
+    try {
+      const res = await writeFetch(editBase + '/deck/edit/design-system/migrate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ref, ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) throw new Error(j.error || res.status);
+      debugLog('design-system', `migrate ${ref}: ${j.nothing ? 'nothing to do' : `by ${j.by}${j.agent ? ` (${j.agent})` : ''}`}`);
+      if (j.nothing) { if (!wasOpen) rememberAgentOpen(false); toast(j.said, 3200); return true; }
+      // the server's own run is over by its answer: listed even if its event has not landed yet
+      if (j.ask && !agentAsks.some((x) => x.id === j.ask.id)) agentAsks.push(j.ask);
+      if (!agentEl) toggleAgentAsk();
+      else paintAsks?.();
+      return true;
+    } catch (e) {
+      if (!wasOpen) rememberAgentOpen(false);
+      toast(`migrate failed — ${String(e.message || e).slice(0, 120)}`, 6000);
+      return false;
+    }
   }
 
   let editEl = null;
@@ -3418,6 +3468,8 @@ export function createEditMode({
     trackWrite,
     toggleEditor,
     toggleAgentAsk,
+    /** Migrate the deck onto a design system's new version, watched in the agent panel. */
+    migrateDesignSystem,
     /** E — arm/disarm the right-click element menu (#112). Refuses outside write mode. */
     /** Is editing on? The palette's own on/off label and the editing bar ask. */
     elementEditOn: () => elementEditOn,

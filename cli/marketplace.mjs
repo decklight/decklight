@@ -1345,11 +1345,14 @@ async function updateMain(args, home) {
     // What you installed from it that the catalog now has newer — and the
     // one command that takes each. Nothing is installed here: an update
     // refreshes the catalog, and taking a new version stays your call.
-    const newer = newerThanInstalled(home, name);
+    // A design system whose new version declares migrations says what that
+    // means for the decks on it, and what moves them, instead of a re-add.
+    const { withMigrationHint } = await import('./design-system-refs.mjs');
+    const newer = newerThanInstalled(home, name).map((n) => withMigrationHint(n, home));
     if (newer.length) {
       console.log(`  newer than what you installed:`);
       for (const n of newer) {
-        console.log(`    ${n.qualified}  ${n.from ?? 'unversioned'} → ${n.to}${n.how ? `  —  ${n.how}` : ''}`);
+        console.log(`    ${n.qualified}  ${n.from ?? 'unversioned'} → ${n.to}${n.note ? ` (${n.note})` : ''}${n.how ? `  —  ${n.how}` : ''}`);
       }
     }
     return 0;
