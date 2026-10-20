@@ -51,6 +51,9 @@ export function ago(iso, now = Date.now()) {
 
 const short = (c) => (c ? `@${c.slice(0, 7)}` : '');
 
+/** A hint's keys drawn as keycaps: "⏎ update · C check" → <kbd>⏎</kbd> update · <kbd>C</kbd> check. */
+const keys = (hint) => escapeHtml(hint).replace(/(^|· )(↑\/↓|⏎|Esc|[A-Z])(?= )/g, '$1<kbd>$2</kbd>');
+
 /**
  * What a row says about its marketplace: one mark, and the words beside it.
  * The listing's own state comes first (never fetched, unreadable), then the
@@ -120,8 +123,11 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
     rows = [];
     for (const m of list) {
       const st = busy?.name === m.name ? { mark: '…', cls: '', text: m.state === 'unfetched' ? 'fetching…' : 'updating…' } : marketplaceStatus(m, checks.get(m.name));
+      // the state is a word or two in a pill; what to do about it, if the
+      // text says, is the dimmer sentence after the dash
+      const [label, hint] = st.text.split(' — ');
       const offers = offeredPhrase(m.counts);
-      const where = `${m.source}${m.ref ? `  #${m.ref}` : ''}${m.commit ? `  ${short(m.commit)}` : ''}`;
+      const newer = m.newer?.length ? `${m.newer.length} of your installs ${m.newer.length === 1 ? 'has a' : 'have'} newer version${m.newer.length === 1 ? '' : 's'}` : '';
       const act = [
         st.cls === 'mk-current' ? '⏎ updates it anyway' : m.local ? '⏎ reads it again' : `⏎ ${m.state === 'unfetched' ? 'fetches' : 'updates'} it — a clone with your git credentials`,
         (m.changes || m.newer?.length) && 'W what\'s new',
@@ -129,24 +135,31 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
       html += `<div class="narr-row mk-row ${st.cls}" data-i="${rows.length}">`
         + `<span class="mk-mark" aria-hidden="true">${st.mark}</span>`
         + '<span class="narr-row-label">'
+        + '<span class="mk-head">'
         + `<span class="mk-name">${escapeHtml(m.name)}</span>`
-        + `${m.firstParty ? '<span class="narr-flavor">first-party</span>' : ''}`
-        + `<span class="mk-state">${escapeHtml(st.text)}</span>`
-        + `<span class="mk-src">${escapeHtml(where)}</span>`
-        + `${offers || m.newer?.length ? `<span class="mk-offers">${escapeHtml([offers && `offers ${offers}`, m.newer?.length && `${m.newer.length} of your installs ${m.newer.length === 1 ? 'has a' : 'have'} newer version${m.newer.length === 1 ? '' : 's'}`].filter(Boolean).join(' · '))}</span>` : ''}`
-        + `<span class="mk-act">${escapeHtml(act)}</span>`
+        + `${m.firstParty ? '<span class="mk-tag">first-party</span>' : ''}`
+        + `<span class="mk-state"><span class="mk-pill">${escapeHtml(label)}</span>${hint ? `<span class="mk-hint">${escapeHtml(hint)}</span>` : ''}</span>`
+        + '</span>'
+        + '<span class="mk-meta">'
+        + `<span class="mk-src">${escapeHtml(m.source)}${m.ref ? ` <span class="mk-ref">#${escapeHtml(m.ref)}</span>` : ''}${m.commit ? ` <span class="mk-ref">${short(m.commit)}</span>` : ''}</span>`
+        + `${offers ? `<span class="mk-offers">offers ${escapeHtml(offers)}</span>` : ''}`
+        + `${newer ? `<span class="mk-offers mk-newer-count">${escapeHtml(newer)}</span>` : ''}`
+        + '</span>'
+        + `<span class="mk-act">${keys(act)}</span>`
         + '</span></div>';
       rows.push({ m });
     }
     if (!list.length) html += '<div class="rec-line">No marketplace is registered.</div>';
     rows.push({ add: true });
     html += `<div class="narr-row mk-row mk-add" data-i="${rows.length - 1}"><span class="mk-mark" aria-hidden="true">+</span>`
-      + '<span class="narr-row-label">Add a marketplace… <span class="narr-flavor">owner/repo, a git URL, or a path</span></span></div>';
+      + '<span class="narr-row-label"><span class="mk-head"><span class="mk-name">Add a marketplace…</span><span class="narr-flavor">owner/repo, a git URL, or a path</span></span></span></div>';
     const behind = list.filter((m) => isBehind(m, checks.get(m.name))).length;
-    html += `<div class="rec-line mk-summary">${busy?.check ? 'asking each source where it is now…'
-      : checkedAt ? `checked ${ago(checkedAt)}: ${behind ? `${behind} of ${list.length} out of date` : 'all up to date'}`
-        : 'C asks each source whether it has moved — nothing is fetched'}</div>`;
-    html += `<div class="rec-hint">↑/↓ · ⏎ update · C check for updates${behind ? ' · U update all out of date' : ''} · A add · Esc closes</div>`;
+    html += '<div class="mk-foot">'
+      + `<div class="rec-line mk-summary${checkedAt && behind ? ' mk-summary-behind' : ''}">${busy?.check ? 'asking each source where it is now…'
+        : checkedAt ? `checked ${ago(checkedAt)}: ${behind ? `${behind} of ${list.length} out of date` : 'all up to date'}`
+          : 'C asks each source whether it has moved — nothing is fetched'}</div>`
+      + `<div class="rec-hint">${keys(`↑/↓ · ⏎ update · C check for updates${behind ? ' · U update all out of date' : ''} · A add · Esc closes`)}</div>`
+      + '</div>';
     c.innerHTML = html;
     c.querySelectorAll('.mk-row').forEach((r) => {
       r.addEventListener('mouseenter', () => select(Number(r.dataset.i)));
@@ -163,7 +176,7 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
     } else {
       html += `<div class="rec-line mk-when">${escapeHtml(`updated ${ago(ch.at)}${ch.from || ch.to ? ` · ${short(ch.from) || 'unrecorded'} → ${short(ch.to) || 'unrecorded'}` : ''}`)}</div>`;
       const item = (sign, e, rest = '') => `<div class="rec-line mk-change"><span class="mk-sign">${sign}</span> `
-        + `<span class="mk-name">${escapeHtml(`${e.name}@${name}`)}</span> ${escapeHtml(rest)} <span class="narr-flavor">${escapeHtml(e.type)}</span></div>`;
+        + `<span class="mk-name">${escapeHtml(`${e.name}@${name}`)}</span> <span class="mk-ver">${escapeHtml(rest)}</span> <span class="mk-tag">${escapeHtml(e.type)}</span></div>`;
       if (ch.first) html += `<div class="rec-line">The first fetch: ${ch.added.length} ${ch.added.length === 1 ? 'entry' : 'entries'}, with nothing before to compare.</div>`;
       else if (!ch.added.length && !ch.removed.length && !ch.changed.length) html += '<div class="rec-line">Nothing in the catalog changed.</div>';
       if (!ch.first) {
@@ -175,10 +188,11 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
     if (newer.length) {
       // an update refreshes the catalog; taking a newer version stays a command
       html += '<div class="narr-group">newer than what you installed</div>'
-        + newer.map((n) => `<div class="rec-line mk-newer"><span class="mk-name">${escapeHtml(n.qualified)}</span> ${escapeHtml(`${n.from ?? 'unversioned'} → ${n.to}`)}`
+        + newer.map((n) => `<div class="rec-line mk-change mk-newer"><span class="mk-sign">↑</span> `
+          + `<span class="mk-name">${escapeHtml(n.qualified)}</span> <span class="mk-ver">${escapeHtml(`${n.from ?? 'unversioned'} → ${n.to}`)}</span>`
           + `${n.how ? `<div class="narr-fix">${escapeHtml(n.how)}</div>` : ''}</div>`).join('');
     }
-    html += '<div class="rec-hint">Esc back to the marketplaces</div>';
+    html += `<div class="rec-hint">${keys('Esc back to the marketplaces')}</div>`;
     c.innerHTML = html;
   }
 
@@ -187,11 +201,11 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
     if (step === 'ask') {
       html += `<input class="narr-input mk-spec" type="text" placeholder="owner/repo, a git URL, or a path" aria-label="Marketplace source" spellcheck="false" autocomplete="off" value="${escapeHtml(spec)}">`;
       if (addError) html += `<div class="rec-line rec-warn mk-error">${escapeHtml(addError)}</div>`;
-      html += '<div class="rec-hint">the forms decklight marketplace add takes · ⏎ next · Esc back</div>';
+      html += `<div class="rec-hint">the forms decklight marketplace add takes · ${keys('⏎ next · Esc back')}</div>`;
     } else if (step === 'confirm') {
       html += `<div class="rec-line mk-does">${escapeHtml(plan.does[0].toUpperCase() + plan.does.slice(1))}</div>`;
       if (plan.registered) html += `<div class="rec-line">already registered as ${escapeHtml(plan.registered)} — this refreshes it</div>`;
-      html += `<div class="rec-hint">⏎ ${plan.url ? 'clone it' : 'register it'} · Esc back</div>`;
+      html += `<div class="rec-hint">${keys(`⏎ ${plan.url ? 'clone it' : 'register it'} · Esc back`)}</div>`;
     } else {
       html += `<div class="rec-line">${plan?.url ? `cloning ${escapeHtml(plan.url)}…` : 'registering…'}</div>`;
     }

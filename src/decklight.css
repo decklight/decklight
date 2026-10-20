@@ -1797,27 +1797,67 @@
 }
 .decklight-design-systems .ds-act { display: none; flex: 1 0 100%; font-size: .8em; opacity: .85; }
 .decklight-design-systems .ds-row.narr-sel .ds-act { display: block; }
-/* Marketplaces… (MARKETPLACES_SCREEN): one row per catalog, its state beside one mark */
-.decklight-marketplaces .narr-card { width: min(580px, 92vw); }
-.decklight-marketplaces .mk-row { align-items: flex-start; }
-.decklight-marketplaces .mk-mark { flex: none; width: 1.2em; line-height: 1.45; text-align: center; }
-.decklight-marketplaces .mk-row .narr-row-label { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; line-height: 1.45; min-width: 0; }
+/* Marketplaces… (MARKETPLACES_SCREEN): one row per catalog. The name line
+   carries its state as a pill on the right — one glance down the column says
+   which are behind — and one dim line beneath says where it comes from and
+   what it offers. What ⏎ would do appears under the selected row only. */
+.decklight-marketplaces .narr-card { width: min(600px, 92vw); }
+.decklight-marketplaces .mk-row { align-items: flex-start; padding: 8px 12px; }
+.decklight-marketplaces .mk-mark { flex: none; width: 1.2em; line-height: 1.5; text-align: center; opacity: .6; }
+.decklight-marketplaces .mk-row .narr-row-label { display: flex; flex-direction: column; gap: 2px; line-height: 1.5; min-width: 0; }
+.decklight-marketplaces .mk-head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 2px; min-width: 0; }
 .decklight-marketplaces .mk-name { font-weight: 600; }
-.decklight-marketplaces .mk-state { font-size: .85em; opacity: .8; }
-.decklight-marketplaces .mk-behind .mk-mark, .decklight-marketplaces .mk-behind .mk-state { color: #ffcf8b; opacity: 1; }
-.decklight-marketplaces .mk-current .mk-mark { color: #5fc98a; }
-.decklight-marketplaces .mk-warn .mk-state { color: #f0846f; opacity: 1; }
-.decklight-marketplaces .mk-src, .decklight-marketplaces .mk-offers {
-  flex: 1 0 100%; min-width: 0; font-size: .8em; opacity: .55;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.decklight-marketplaces .mk-tag {
+  font-size: .72em; letter-spacing: .06em; text-transform: uppercase; opacity: .55;
+  padding: 0 5px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 4px; line-height: 1.6;
 }
-.decklight-marketplaces .mk-src { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.decklight-marketplaces .mk-act { display: none; flex: 1 0 100%; font-size: .8em; opacity: .85; }
+.decklight-marketplaces .mk-state { margin-left: auto; display: flex; align-items: baseline; gap: 8px; font-size: .85em; min-width: 0; }
+.decklight-marketplaces .mk-pill {
+  padding: 1px 8px; border-radius: 999px; white-space: nowrap;
+  background: rgba(255, 255, 255, .08); color: rgba(232, 234, 238, .8);
+}
+.decklight-marketplaces .mk-hint { opacity: .5; white-space: nowrap; }
+.decklight-marketplaces .mk-behind .mk-pill { background: rgba(255, 207, 139, .14); color: #ffcf8b; }
+.decklight-marketplaces .mk-behind .mk-mark { color: #ffcf8b; opacity: 1; }
+.decklight-marketplaces .mk-current .mk-pill { background: rgba(95, 201, 138, .14); color: #5fc98a; }
+.decklight-marketplaces .mk-current .mk-mark { color: #5fc98a; opacity: 1; }
+.decklight-marketplaces .mk-warn .mk-pill { background: rgba(240, 132, 111, .14); color: #f0846f; }
+.decklight-marketplaces .mk-warn .mk-mark { color: #f0846f; opacity: 1; }
+.decklight-marketplaces .mk-meta {
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px;
+  font-size: .8em; opacity: .55; min-width: 0;
+}
+.decklight-marketplaces .mk-src { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.decklight-marketplaces .mk-ref { opacity: .75; }
+.decklight-marketplaces .mk-offers::before { content: '·'; margin-right: 6px; }
+.decklight-marketplaces .mk-offers { white-space: nowrap; }
+.decklight-marketplaces .mk-act { display: none; margin-top: 2px; font-size: .8em; opacity: .85; }
 .decklight-marketplaces .mk-row.narr-sel .mk-act { display: block; }
-.decklight-marketplaces .mk-summary { opacity: .7; font-size: .85em; }
+.decklight-marketplaces .mk-row.narr-sel .mk-mark { opacity: 1; }
+/* the last row is a door, not a catalog: set off from the list above it */
+.decklight-marketplaces .mk-add { margin-top: 6px; border-top: 1px solid rgba(255, 255, 255, .1); border-radius: 0 0 8px 8px; }
+.decklight-marketplaces .mk-add .mk-name { font-weight: 500; }
+.decklight-marketplaces .mk-add .narr-flavor { margin-left: 0; }
+/* the footer: the last check's answer, and the keys, under a rule */
+.decklight-marketplaces .mk-foot { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, .1); }
+.decklight-marketplaces .mk-summary { opacity: .6; font-size: .85em; }
+.decklight-marketplaces .mk-summary-behind { color: #ffcf8b; opacity: .9; }
+.decklight-marketplaces .rec-hint { padding-top: 6px; }
+.decklight-marketplaces kbd {
+  display: inline-block; padding: 0 5px; margin: 0 1px;
+  border: 1px solid rgba(255, 255, 255, .22); border-radius: 4px;
+  font: inherit; font-size: .92em; line-height: 1.5; opacity: .95;
+}
 .decklight-marketplaces .mk-error { white-space: pre-wrap; }
-.decklight-marketplaces .mk-sign { display: inline-block; width: 1.2em; text-align: center; font-weight: 600; }
-.decklight-marketplaces .mk-newer .narr-fix { margin-left: 0; }
+.decklight-marketplaces .mk-does { font-size: 1.05em; }
+/* what's new: a sign column, the entry, its versions, its kind */
+.decklight-marketplaces .mk-when { opacity: .6; font-size: .9em; }
+.decklight-marketplaces .mk-change { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; }
+.decklight-marketplaces .mk-sign { flex: none; width: 1.2em; text-align: center; font-weight: 600; opacity: .7; }
+.decklight-marketplaces .mk-ver { font-variant-numeric: tabular-nums; opacity: .85; }
+.decklight-marketplaces .mk-ver:empty { display: none; }
+.decklight-marketplaces .mk-change .mk-tag { margin-left: 2px; }
+.decklight-marketplaces .mk-newer .narr-fix { margin: 2px 0 2px calc(1.2em + 6px); flex-basis: 100%; }
 /* Concept colors… (SVG_DIAGRAMS): one row per concept, its six slots beside it */
 .decklight-concepts .narr-card { width: min(640px, 92vw); }
 .decklight-concepts .cc-row { display: flex; align-items: center; gap: 10px; }

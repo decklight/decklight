@@ -4702,7 +4702,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         r.everyOneListed = ['acme', 'decklight', 'northwind'].every((n) => !!row(n)) && !!document.querySelector(`${A} .mk-add`);
         r.listAsksNothing = posted('/deck/edit/marketplace/check').length === 0
-          && /not checked — C asks its source/.test(row('acme')?.textContent ?? '')
+          && /not checked.*C asks its source/.test(row('acme')?.textContent ?? '')
           && /C asks each source whether it has moved — nothing is fetched/.test(document.querySelector(`${A} .mk-summary`)?.textContent ?? '');
         r.unfetchedSaid = /not fetched yet/.test(row('decklight')?.textContent ?? '') && /first-party/.test(row('decklight')?.textContent ?? '');
         r.offersSaid = /offers 2 themes/.test(row('acme')?.textContent ?? '') && /acme\/decklight-themes\s+@aaaaaaa/.test(row('acme')?.querySelector('.mk-src')?.textContent ?? '');
