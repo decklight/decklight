@@ -616,6 +616,9 @@ export async function openMain(args) {
     // window worth having — so the banner waits on NAMES, not on a clock.
     waiting: new Set(run.map((svc) => svc.tag)),
   };
+  // which child reports the deck's URL, and whether it has yet (see settle)
+  const urlTag = editSvc?.tag ?? null;
+  let urlReported = false;
   if (portRow) banner.rows.set('port', portRow);
   for (const r of movedRows) banner.rows.set(r.key, { text: r.text, mark: 'warn' });
 
@@ -634,8 +637,18 @@ export async function openMain(args) {
     else banner.held.push(line);
   }
 
-  function flushBanner() {
+  function flushBanner({ force = false } = {}) {
     if (banner.done) return;
+    // Not before the deck server has said where it listens, the cap included:
+    // the url `open` planned is not one that answers yet — and with --port 0
+    // it never is. A slow git setup ahead of the listen (seconds on Windows
+    // CI) used to put http://127.0.0.1:0/ on the banner. Its exit forces it.
+    if (!force && urlTag && !urlReported) {
+      clearTimeout(banner.timer);
+      banner.timer = setTimeout(flushBanner, 250);
+      banner.timer.unref?.();
+      return;
+    }
     banner.done = true;
     clearTimeout(banner.timer);
     // Held output goes FIRST, and the banner closes. Everything in here is a
@@ -663,7 +676,12 @@ export async function openMain(args) {
    * short grace after that for the genuinely late — the review check fires
    * detached, after the deck server is already listening.
    */
-  function settle(tag) {
+  function settle(tag, { exited = false } = {}) {
+    // The deck server owes the URL, the one line the banner exists for. A row
+    // it reports first (`git`, set up before it listens) does not settle it:
+    // on a slow machine the grace timer then printed the PLANNED url — :0 for
+    // --port 0 — before the real one arrived (windows CI, clone-deck test).
+    if (tag === urlTag && !urlReported && !exited) return;
     banner.waiting.delete(tag);
     const delay = nextFlushDelay({
       waiting: banner.waiting.size,
@@ -678,7 +696,7 @@ export async function openMain(args) {
   }
 
   function collect(tag, fact) {
-    if (fact.url) banner.url = fact.url;
+    if (fact.url) { banner.url = fact.url; if (tag === urlTag) urlReported = true; }
     if (fact.keys) banner.keys = fact.keys;
     if (!fact.key || !fact.text) { if (fact.url) settle(tag); return; }
     if (banner.done) {
@@ -749,7 +767,7 @@ export async function openMain(args) {
       if (svc.name === 'edit') {
         // the deck server is the one service `open` cannot run without
         say(`${paint(svc.tag)} exited (${code}) — stopping decklight`);
-        flushBanner();
+        flushBanner({ force: true });
         shutdown(code ?? 1);
       } else {
         // A bridge that stood aside because its port already has one exits 0
@@ -761,7 +779,7 @@ export async function openMain(args) {
           if (banner.done) process.stderr.write(`${bannerRow({ key: svc.tag, ...row }, { color: tty })}\n`);
           else banner.rows.set(svc.tag, row);
         }
-        settle(svc.tag);   // settle() does the delete and the "is anyone left" itself
+        settle(svc.tag, { exited: true });   // settle() does the delete and the "is anyone left" itself
       }
     });
   }
