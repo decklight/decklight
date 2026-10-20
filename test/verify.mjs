@@ -175,12 +175,15 @@ const HARNESS_TIMEOUT_MS = Number(process.env.VERIFY_TIMEOUT_MS ?? 10 * 60 * 100
 // 180s) killed the group at 180s on the first run while every other group
 // finished in under 95s. 4× is the six modes' worst case laid end to end,
 // and still less than the 5× the whole 38-mode file used to carry.
-const BUDGET = { 'narration-render:record': 4 };
 // `record-render` is the other shape again: it runs on the REAL clock, because
-// an AudioContext cannot be fast-forwarded, so its cost is the wall time of the
-// take it records (~6s here) plus two cold browsers. Well inside the base cap —
-// listed here only so the next person adding a beat to its fixture knows the
-// number is a wall clock and not a page load.
+// an AudioContext cannot be fast-forwarded, so its cost is the wall time of
+// every take it records plus a cold browser per mode — a wall clock, not a
+// page load, and one that has grown with each beat and mode its fixture
+// gained (twenty-nine checks now). It took 97s on one Windows runner and was
+// killed at 180.7s on the next, HAVING PASSED: its log printed `PASS (176.8s)`
+// and the cap fell 0.7s later (#892). ×2 is that slow runner's figure with
+// room, and still names a hang inside six minutes.
+const BUDGET = { 'narration-render:record': 4, 'record-render': 2 };
 const budgetFor = (name) => HARNESS_TIMEOUT_MS * (BUDGET[name] ?? 1);
 
 /**
