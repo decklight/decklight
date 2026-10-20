@@ -1924,8 +1924,12 @@ test('/deck/edit/export runs one export at a time, and the deck is told which', 
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
-  // slow enough that the second request lands while the first still holds Chrome
-  const { base, waitFor } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_SLOW: '1200' } });
+  // Slow enough that the second request lands while the first still holds
+  // Chrome: the lock is held from the announce line (awaited below) to the
+  // end of the export, and a two-slide PowerPoint renders two stills, so the
+  // window is at least 2× this. 400ms is ample for a POST that leaves the
+  // moment the line is seen; 1200ms spent most of this test waiting on it.
+  const { base, waitFor } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_SLOW: '400' } });
 
   // Not two races fetches: the server ANNOUNCES the export before it starts,
   // so waiting for that line is a fact rather than a guess about scheduling.
