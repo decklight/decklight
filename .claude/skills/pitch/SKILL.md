@@ -1,1 +1,0 @@
-# Pitch — a skill that says pitch

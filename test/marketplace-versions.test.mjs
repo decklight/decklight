@@ -84,7 +84,8 @@ test('the demo: install, the catalog bumps, update names what is newer and how t
   writeFileSync(deckPath, '<!doctype html><html><head><title>T</title>\n'
     + '<script type="application/json" data-decklight-config>{"decklight":"0.9.0","theme":"aurora"}</script>\n'
     + '</head><body><div class="decklight"><section><h1>One</h1></section></div></body></html>\n');
-  const cli = (...args) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home } });
+  // the deck's folder as cwd: a skill install also copies into <cwd>/.claude/skills/ (#880)
+  const cli = (...args) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', cwd: dir, env: { ...process.env, DECKLIGHT_HOME: home } });
 
   assert.equal(cli('marketplace', 'add', repo).status, 0);
   const added = cli('theme', 'add', 'nord@acme', deckPath);
