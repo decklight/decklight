@@ -1419,8 +1419,9 @@ test('the skill says where installed marketplace skills live, and AGENTS.md list
     { name: 'migrate', description: 'migrating a deck to acme 6', path: '/lib/skills/migrate' },
     { name: 'bare', description: '', path: '/lib/skills/bare' },
   ] });
-  assert.match(listed, /- for migrating a deck to acme 6, read `\/lib\/skills\/migrate\/SKILL\.md`/);
-  assert.match(listed, /- for bare, read `\/lib\/skills\/bare\/SKILL\.md`/, 'no description: by name');
+  // the path as this OS writes it — backslashes on Windows
+  assert.ok(listed.includes(`- for migrating a deck to acme 6, read \`${path.join('/lib/skills/migrate', 'SKILL.md')}\``), listed);
+  assert.ok(listed.includes(`- for bare, read \`${path.join('/lib/skills/bare', 'SKILL.md')}\``), 'no description: by name');
 });
 
 test('the always-loaded skill tells agents to render and check for clipped slides', () => {
