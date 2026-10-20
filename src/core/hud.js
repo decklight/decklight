@@ -53,13 +53,29 @@ export function createHud({
     clockEl.innerHTML = '<span class="clk-time"></span><span class="clk-elapsed"></span>';
     root.appendChild(clockEl);
     updateClock();
-    clockTimer = setInterval(updateClock, 1000);
+    scheduleTick();
+  }
+  // One tick per second, ON the second: the next tick lands exactly where the
+  // elapsed figure rolls over (and before the talk starts, on the wall
+  // clock's second). A plain setInterval started when the clock was shown
+  // keeps its own phase, so after the first advance every tick read
+  // `1000·k − δ` ms with δ the time between showing the clock and advancing,
+  // floor() took a second off, and the readout lagged the talk by up to one
+  // second — which is also what made the render harness's `+00:02` check
+  // flip to `+00:01` on a slow runner. A timer re-aimed at each boundary
+  // cannot drift and cannot lag.
+  function scheduleTick() {
+    clearTimeout(clockTimer);
+    clockTimer = null;
+    if (!clockEl) return;
+    const since = talkStart == null ? Date.now() : Date.now() - talkStart;
+    clockTimer = setTimeout(() => { updateClock(); scheduleTick(); }, 1000 - (since % 1000));
   }
   function toggleClock() {
     clockOn = !clockOn;
     writePref(clockKey, clockOn ? '1' : '0');
     if (clockOn) showClock();
-    else { clearInterval(clockTimer); clockTimer = null; clockEl?.remove(); clockEl = null; }
+    else { clearTimeout(clockTimer); clockTimer = null; clockEl?.remove(); clockEl = null; }
     toast(`clock ${clockOn ? 'on' : 'off'}`);
     debugLog('nav', `clock ${clockOn ? 'on' : 'off'}`);
   }
@@ -70,6 +86,7 @@ export function createHud({
     if (!clockArmed || talkStart != null) return;
     talkStart = Date.now();
     updateClock();
+    scheduleTick(); // re-phase the tick to the talk's seconds, not the clock's
   };
   instance.on('slide', startTalk);
   instance.on('build', startTalk);
