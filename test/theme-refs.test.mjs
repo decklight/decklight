@@ -22,6 +22,8 @@ import {
   portableSource, setMarked, markedSources, refForDeck,
 } from '../cli/theme-refs.mjs';
 import { linkRuntime } from '../cli/runtime-link.mjs';
+import { setDesignSystem } from '../cli/design-system-refs.mjs';
+import { setFont } from '../cli/font-refs.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..');
@@ -269,6 +271,28 @@ test('a GitHub repo is one catalog whether it was added by SSH URL or as owner/r
     const out = linkAddedThemes(html, h);
     assert.match(out, /<link[^>]*data-theme="nord"/, `${recorded} against ${registered}: ${out}`);
     assert.doesNotMatch(out, /different catalog/);
+  }
+});
+
+test('a second entry from a catalog the deck records in another form keeps the deck\'s name for it (#874)', () => {
+  const kinds = [
+    ['theme', (html, ref, source) => setMarked(html, ref, true, { source }).html],
+    ['design system', (html, ref, source) => setDesignSystem(html, ref, true, { source }).html],
+    ['font', (html, ref, source) => setFont(html, ref, true, { source }).html],
+  ];
+  // what the deck recorded, and what this machine (calling it acme-here) has
+  for (const [recorded, here] of [
+    ['git@github.com:acme/decklight-themes', 'acme/decklight-themes'],
+    ['acme/decklight-themes', 'acme/decklight-themes'],
+    ['https://github.com/acme/decklight-themes.git', 'acme/decklight-themes'],
+  ]) {
+    for (const [kind, add] of kinds) {
+      const html = deck({ decklight: '0.9.0', markedThemes: ['nord@acme'], themeSources: { acme: recorded } });
+      const ref = refForDeck(html, 'other', 'acme-here', here);
+      assert.equal(ref, 'other@acme', `${kind}: ${recorded} recorded, ${here} here`);
+      assert.deepEqual(Object.keys(markedSources(add(html, ref, here))), ['acme'],
+        `${kind}: one catalog, one themeSources entry`);
+    }
   }
 });
 

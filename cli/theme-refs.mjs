@@ -474,7 +474,10 @@ export function withKey(inner, key, value) {
  * whatever each machine that marks from it happens to call it.
  */
 export function refForDeck(html, name, local, source) {
-  const known = source ? Object.entries(markedSources(html)).find(([, v]) => v === source)?.[0] : null;
+  // by portable identity, as resolving does: a deck that recorded the SSH
+  // form still means the catalog this machine registered as owner/repo (#874)
+  const wanted = portableSource(source) ?? source;
+  const known = source ? Object.entries(markedSources(html)).find(([, v]) => (portableSource(v) ?? v) === wanted)?.[0] : null;
   return `${name}@${known ?? local}`;
 }
 
