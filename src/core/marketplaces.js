@@ -26,6 +26,32 @@ import { closeOnBackdrop, selectInList } from './overlay.js';
 const KINDS = [['design-system', 'design system', 'design systems'], ['theme', 'theme', 'themes'], ['font', 'font', 'fonts']];
 
 /** "1 design system, 2 themes" — what the pickers will now show, or ''. */
+/**
+ * The forms the add field takes, one example of each — the CLI's own
+ * `--help` examples, so the field and the command agree.
+ */
+export const ADD_EXAMPLES = [
+  ['owner/repo', 'decklight/decklight-plugins-official', ''],
+  ['a git URL', 'git@github.com:acme/brand-kit.git', ''],
+  ['a branch or tag', 'acme/themes --branch v2.1.0', ''],
+  ['a path', '../my-marketplace', 'read from the deck\'s folder'],
+];
+
+/**
+ * What was typed, split the way `decklight marketplace add` reads it: the
+ * source, and the one option it takes, `--branch <ref>`, from anywhere on the
+ * line. `{ spec, ref }`, `ref` null when none was given — and '' when
+ * `--branch` was written with nothing after it, which the server refuses by
+ * name rather than quietly cloning the default branch.
+ */
+export function parseAddSpec(text) {
+  const words = String(text ?? '').trim().split(/\s+/).filter(Boolean);
+  const i = words.indexOf('--branch');
+  if (i < 0) return { spec: words.join(' '), ref: null };
+  const ref = words[i + 1] ?? '';
+  return { spec: [...words.slice(0, i), ...words.slice(i + 2)].join(' '), ref };
+}
+
 export function offeredPhrase(counts = {}) {
   return KINDS.filter(([k]) => counts[k] > 0)
     .map(([k, one, many]) => `${counts[k]} ${counts[k] === 1 ? one : many}`).join(', ');
@@ -201,7 +227,12 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
     if (step === 'ask') {
       html += `<input class="narr-input mk-spec" type="text" placeholder="owner/repo, a git URL, or a path" aria-label="Marketplace source" spellcheck="false" autocomplete="off" value="${escapeHtml(spec)}">`;
       if (addError) html += `<div class="rec-line rec-warn mk-error">${escapeHtml(addError)}</div>`;
-      html += `<div class="rec-hint">the forms decklight marketplace add takes · ${keys('⏎ next · Esc back')}</div>`;
+      // one example of each form, and a click puts it in the field to start from
+      html += '<div class="mk-examples"><div class="mk-examples-head">for example</div>'
+        + ADD_EXAMPLES.map(([form, example, note]) => `<div class="mk-example"><span class="mk-form">${escapeHtml(form)}</span>`
+          + `<code title="click to use it">${escapeHtml(example)}</code>${note ? `<span class="narr-flavor">${escapeHtml(note)}</span>` : ''}</div>`).join('')
+        + '</div>';
+      html += `<div class="rec-hint">${keys('⏎ next · Esc back')}</div>`;
     } else if (step === 'confirm') {
       html += `<div class="rec-line mk-does">${escapeHtml(plan.does[0].toUpperCase() + plan.does.slice(1))}</div>`;
       if (plan.registered) html += `<div class="rec-line">already registered as ${escapeHtml(plan.registered)} — this refreshes it</div>`;
@@ -219,6 +250,11 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
         if (e.key === 'Enter') { e.preventDefault(); ask(); } else if (e.key === 'Escape') { e.preventDefault(); back(); }
       });
       setTimeout(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }, 0);
+      c.querySelectorAll('.mk-example code').forEach((ex) => ex.addEventListener('click', () => {
+        spec = input.value = ex.textContent;
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }));
     }
   }
 
@@ -323,10 +359,12 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
   /** The first ⏎: what would this do? Nothing is fetched to answer it. */
   async function ask() {
     if (busy) return;
-    if (!spec.trim()) { addError = 'which marketplace? — owner/repo, a git URL, or a path'; return render(); }
+    const asked = parseAddSpec(spec);
+    if (!asked.spec) { addError = 'which marketplace? — owner/repo, a git URL, or a path'; return render(); }
+    if (asked.ref === '') { addError = '--branch takes a branch or tag name'; return render(); }
     busy = { add: true };
     try {
-      plan = (await call('POST', '/deck/edit/marketplace/add', { spec })).plan;
+      plan = (await call('POST', '/deck/edit/marketplace/add', asked)).plan;
       addError = null;
       step = 'confirm';
     } catch (e) {
@@ -342,7 +380,7 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, de
     step = 'working';
     render();
     try {
-      const j = await call('POST', '/deck/edit/marketplace/add', { spec: plan.spec, confirm: true });
+      const j = await call('POST', '/deck/edit/marketplace/add', { spec: plan.spec, ref: plan.ref ?? null, confirm: true });
       debugLog('marketplace', `${j.refreshed ? 'refreshed' : 'registered'} ${j.name} from ${j.spec}`);
       const offers = offeredPhrase(j.counts);
       toast(`${j.refreshed ? 'refreshed' : 'registered'} ${j.name ?? j.spec}${offers ? ` — ${offers}` : ' — it offers no design system, theme or font'}`, 6000);

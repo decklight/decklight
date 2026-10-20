@@ -677,10 +677,14 @@ export function classifySource(spec, { exists = existsSync } = {}) {
  * would mean something else from the next directory `update` runs in.
  * `registered` names the marketplace already registered from that source, if
  * any: adding it again re-clones it, as `add` does at the command line.
+ * `ref` is `--branch`: held to the same rule as the command line's, and
+ * refused on a local directory now rather than after the second ⏎.
  */
-export function planAdd(rawSpec, { base = process.cwd(), home = configHome(), exists = existsSync } = {}) {
+export function planAdd(rawSpec, { ref = null, base = process.cwd(), home = configHome(), exists = existsSync } = {}) {
   const raw = String(rawSpec ?? '').trim();
   if (!raw) throw new MarketplaceError('needs an owner/repo, a git url, or a path');
+  const bad = ref === null ? null : refProblem(String(ref));
+  if (bad) throw new MarketplaceError(`--branch ${JSON.stringify(String(ref))} ${bad}`);
   // it becomes one argument of `decklight marketplace add`: never an option,
   // never more than one line
   if (raw.startsWith('-') || /[\u0000-\u001f\u007f]/.test(raw) || raw.length > 2048) {
@@ -692,14 +696,15 @@ export function planAdd(rawSpec, { base = process.cwd(), home = configHome(), ex
     const root = resolve(base, raw);
     if (!exists(root)) throw new MarketplaceError(`no such directory: ${root}`);
     if (!exists(join(root, MANIFEST_PATH))) throw new MarketplaceError(`${root} has no ${MANIFEST_PATH} — is it a marketplace?`);
+    if (ref) throw new MarketplaceError(`${raw} is a local directory — --branch needs a repository to clone`);
     spec = root;
     does = `register ${root} — read in place, nothing is fetched`;
   } else {
-    does = `clone ${cloneUrl(src)} with your git credentials on this machine`;
+    does = `clone ${cloneUrl(src)}${ref ? ` at ${ref}` : ''} with your git credentials on this machine`;
   }
   const reg = loadRegistry(home).marketplaces ?? {};
   const registered = Object.keys(reg).find((n) => reg[n].source === spec) ?? null;
-  return { spec, kind: src.kind, url: src.kind === 'local' ? null : cloneUrl(src), path: src.kind === 'local' ? spec : null, does, registered };
+  return { spec, ref: ref ?? null, kind: src.kind, url: src.kind === 'local' ? null : cloneUrl(src), path: src.kind === 'local' ? spec : null, does, registered };
 }
 
 /** The URL git is handed for a remote source. */

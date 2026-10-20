@@ -374,7 +374,12 @@
         if (u.includes('/deck/edit/marketplace/add')) {
           const body = JSON.parse(init?.body ?? '{}');
           if (body.spec === './plain') return json({ ok: false, error: '/talks/plain has no .decklight/marketplace.json — is it a marketplace?' }, 400);
-          const plan = { spec: '/talks/northwind', kind: 'local', url: null, path: '/talks/northwind', does: 'register /talks/northwind — read in place, nothing is fetched', registered: null };
+          // a remote with a branch: the plan names the ref it would clone at
+          if (body.spec === 'acme/themes') {
+            return json({ ok: true, confirm: true, plan: { spec: 'acme/themes', ref: body.ref ?? null, kind: 'github', url: 'https://github.com/acme/themes.git', path: null,
+              does: `clone https://github.com/acme/themes.git${body.ref ? ` at ${body.ref}` : ''} with your git credentials on this machine`, registered: null } });
+          }
+          const plan = { spec: '/talks/northwind', ref: null, kind: 'local', url: null, path: '/talks/northwind', does: 'register /talks/northwind — read in place, nothing is fetched', registered: null };
           if (body.confirm !== true) return json({ ok: true, confirm: true, plan });
           window.__mkRegistered = true;
           return json({ ok: true, name: 'northwind', spec: plan.spec, refreshed: false, counts: { 'design-system': 1, theme: 1, font: 1 }, said: 'registered northwind from /talks/northwind — 3 entries' });
@@ -4667,6 +4672,22 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle(); await settle();
         r.adderOpens = !!document.querySelector(`${A} .mk-spec`) && !document.querySelector('.decklight-design-systems');
         r.fieldHasFocus = document.activeElement === document.querySelector(`${A} .mk-spec`);
+        // one example of each form under the field, a branch among them; a click fills the field
+        const examples = () => [...document.querySelectorAll(`${A} .mk-example`)];
+        const branchEx = examples().find((n) => /branch/.test(n.querySelector('.mk-form')?.textContent ?? ''))?.querySelector('code');
+        r.examplesShown = examples().length === 4 && examples().some((n) => /decklight\/decklight-plugins-official/.test(n.textContent))
+          && branchEx?.textContent === 'acme/themes --branch v2.1.0';
+        branchEx?.click();
+        await settle();
+        r.exampleFills = document.querySelector(`${A} .mk-spec`)?.value === 'acme/themes --branch v2.1.0';
+        // ⏎ sends the source and the ref apart, as the command reads them, and the plan names the ref
+        await typeSpec('acme/themes --branch v2.1.0');
+        const withRef = posted('/deck/edit/marketplace/add').pop()?.body;
+        r.branchSent = withRef?.spec === 'acme/themes' && withRef?.ref === 'v2.1.0' && withRef?.confirm !== true;
+        r.branchSaid = /at v2\.1\.0 with your git credentials/.test(document.querySelector(`${A} .mk-does`)?.textContent ?? '');
+        r.noExamplesOnConfirm = examples().length === 0;
+        press('Escape'); await settle();   // back to the field, nothing cloned
+        r.backToAsk = !!document.querySelector(`${A} .mk-spec`) && !window.__mkRegistered;
         // a path that is not a marketplace: a sentence, in the card, nothing run
         await typeSpec('./plain');
         r.refusalSaid = /has no \.decklight\/marketplace\.json — is it a marketplace\?/.test(document.querySelector(`${A} .mk-error`)?.textContent ?? '');

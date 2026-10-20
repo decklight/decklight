@@ -48,12 +48,13 @@ import { setDeckTheme, setDeckBrandThemesOnly } from './runtime-link.mjs';
  * variable, because the watcher in editMain reads and clears it.
  * `deckPath` is where a relative marketplace path is read from, and
  * `marketplace(args)` runs `decklight marketplace <args…>` (a test hands in
- * its own); `addMarketplace(spec)` is its `add`, kept apart because a test of
- * the add door replaces only that.
+ * its own); `addMarketplace(spec, ref)` is its `add` (with `--branch ref` when
+ * one is given), kept apart because a test of the add door replaces only that.
  */
 export function registerLookRoutes(routes, {
   readDeck, applyEdit, writeDeck, history, broadcast = () => {}, quiet = () => {},
-  deckPath = null, marketplace = runMarketplace, addMarketplace = (spec) => marketplace(['add', spec]),
+  deckPath = null, marketplace = runMarketplace,
+  addMarketplace = (spec, ref = null) => marketplace(['add', spec, ...(ref ? ['--branch', ref] : [])]),
 }) {
   // The deck's theme (PRESENTING): in write mode a pick is the deck's, not
   // the viewer's — written the way this deck carries it (setDeckTheme), quiet
@@ -388,9 +389,10 @@ export function registerLookRoutes(routes, {
     themeMarkRoute({ body: JSON.stringify({ ref: JSON.parse(body || '{}').ref, marked: true }), json });
 
   /**
-   * `POST /deck/edit/marketplace/add` `{ spec, confirm? }`: register a
-   * marketplace from inside the deck (SPEC DESIGN_SYSTEMS, PLATFORM
-   * MARKETPLACE_REGISTRY). Two steps, like publish. Without `confirm` it says
+   * `POST /deck/edit/marketplace/add` `{ spec, ref?, confirm? }`: register a
+   * marketplace from inside the deck (SPEC MARKETPLACES_SCREEN, PLATFORM
+   * MARKETPLACE_REGISTRY). `ref` is the command's `--branch`, a branch or a
+   * tag to pin the catalog to. Two steps, like publish. Without `confirm` it says
    * what it is about to do (`planAdd`: which URL it would clone, or which
    * directory it would read) and touches nothing. With it, it runs
    * `decklight marketplace add` itself, as a child process: the same command,
@@ -402,15 +404,16 @@ export function registerLookRoutes(routes, {
    */
   async function marketplaceAddRoute({ body, json }) {
     const req = JSON.parse(body || '{}');
+    if (req.ref != null && typeof req.ref !== 'string') return json(400, { ok: false, error: '--branch takes a branch or tag name' });
     const { planAdd, loadRegistry, loadCatalog, MarketplaceError, configHome } = await import('./marketplace.mjs');
     let plan;
-    try { plan = planAdd(req.spec, { base: deckPath ? dirname(deckPath) : process.cwd(), home: configHome() }); }
+    try { plan = planAdd(req.spec, { ref: req.ref?.trim() || null, base: deckPath ? dirname(deckPath) : process.cwd(), home: configHome() }); }
     catch (e) {
       if (e instanceof MarketplaceError) return json(400, { ok: false, error: e.message });
       throw e;
     }
     if (req.confirm !== true) return json(200, { ok: true, confirm: true, plan });
-    const out = await addMarketplace(plan.spec);
+    const out = await addMarketplace(plan.spec, plan.ref);
     if (!out.ok) return json(409, { ok: false, error: out.error, plan });
     const reg = loadRegistry(configHome()).marketplaces ?? {};
     const name = Object.keys(reg).find((n) => reg[n].source === plan.spec) ?? null;

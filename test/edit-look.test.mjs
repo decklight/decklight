@@ -317,6 +317,29 @@ test('POST /deck/edit/marketplace/add names the clone a remote source would make
   assert.match(r.body.plan.does, /^clone https:\/\/github\.com\/acme\/brand-kit\.git with your git credentials on this machine$/);
 });
 
+test('POST /deck/edit/marketplace/add takes --branch as the command does: the plan names the ref, a bad one is refused, a local path has none, and confirm passes it on', async (t) => {
+  let seen = null;
+  const { routes, dir } = harness(t, DECK, { addMarketplace: async (spec, ref) => { seen = [spec, ref]; return { ok: true }; } });
+  const r = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: 'acme/themes', ref: 'v2.1.0' } });
+  assert.equal(r.code, 200, JSON.stringify(r.body));
+  assert.equal(r.body.plan.ref, 'v2.1.0');
+  assert.match(r.body.plan.does, /^clone https:\/\/github\.com\/acme\/themes\.git at v2\.1\.0 with your git credentials on this machine$/);
+  assert.equal(seen, null, 'the first ⏎ runs nothing');
+  for (const [ref, why] of [['--upload-pack=x', /--branch "--upload-pack=x"/], ['a..b', /--branch "a\.\.b"/], [42, /--branch takes a branch or tag name/]]) {
+    const bad = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: 'acme/themes', ref, confirm: true } });
+    assert.equal(bad.code, 400, String(ref));
+    assert.match(bad.body.error, why, String(ref));
+  }
+  localMarketplace(dir, 'pinned-dir');
+  const local = await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: './pinned-dir', ref: 'v1' } });
+  assert.equal(local.code, 400);
+  assert.match(local.body.error, /is a local directory — --branch needs a repository to clone/);
+  await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: 'acme/themes', ref: 'v2.1.0', confirm: true } });
+  assert.deepEqual(seen, ['acme/themes', 'v2.1.0'], 'the second ⏎ runs add with --branch');
+  await call(routes, 'POST /deck/edit/marketplace/add', { body: { spec: 'acme/themes', confirm: true } });
+  assert.deepEqual(seen, ['acme/themes', null], 'and without one, no --branch');
+});
+
 test('POST /deck/edit/marketplace/add refuses what is not a source, in a sentence, before anything runs', async (t) => {
   const { routes, dir } = harness(t, DECK, { addMarketplace: async () => assert.fail('a refusal runs nothing') });
   for (const [spec, why] of [

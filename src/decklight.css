@@ -1849,6 +1849,14 @@
   font: inherit; font-size: .92em; line-height: 1.5; opacity: .95;
 }
 .decklight-marketplaces .mk-error { white-space: pre-wrap; }
+/* the add view: one example of each form under the field, a click fills it */
+.decklight-marketplaces .mk-examples { margin: 6px 12px 2px; font-size: .8em; opacity: .65; }
+.decklight-marketplaces .mk-examples-head { text-transform: uppercase; letter-spacing: .1em; font-size: .85em; opacity: .8; margin-bottom: 2px; }
+.decklight-marketplaces .mk-example { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; line-height: 1.6; }
+.decklight-marketplaces .mk-form { flex: none; width: 8em; }
+.decklight-marketplaces .mk-example code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; }
+.decklight-marketplaces .mk-example code:hover { text-decoration: underline; }
+.decklight-marketplaces .mk-example .narr-flavor { margin-left: 0; }
 .decklight-marketplaces .mk-does { font-size: 1.05em; }
 /* what's new: a sign column, the entry, its versions, its kind */
 .decklight-marketplaces .mk-when { opacity: .6; font-size: .9em; }

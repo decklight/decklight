@@ -126,7 +126,7 @@ what's new, and registers a new one without leaving the deck (SPEC
 process. Checking is the one network act that fetches nothing: `outdated` asks
 each remote where its ref points (`git ls-remote`) and compares a local
 directory's manifest with the cached copy, and it runs only when asked. Adding takes the
-same three forms, and the edit server runs **`decklight marketplace add`
+same three forms and `--branch`, and the edit server runs **`decklight marketplace add`
 itself**, as a child process: the same command, the caller's git credentials on
 this machine, the same refusals, so `marketplace list` cannot tell which door a
 marketplace came in by, and a failed add leaves nothing registered from either.
