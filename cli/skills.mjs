@@ -284,12 +284,26 @@ const claudeSkillsRoot = ({ dir = '.', global = false, env = process.env }) =>
  * in Claude's skills (the project's, or with `global` its config home's), and
  * a line in every AGENTS.md section. Returns the lines to print.
  */
-export function placeLibrarySkill(name, { dir = '.', global = false, env = process.env } = {}) {
+export function placeLibrarySkill(name, { dir = '.', global = false, dirNamed = false, env = process.env } = {}) {
   const skill = librarySkills().find((s) => s.name === name);
   if (!skill) return [];
-  const out = [copyLibrarySkill(skill, claudeSkillsRoot({ dir, global, env }), { update: true })];
+  const out = [];
+  // a project is a directory that already has an agent setup, or one named with
+  // --dir: run from ~ or a scratch folder, a stray .claude/ helps nobody
+  if (global || dirNamed || agentProject(dir)) out.push(copyLibrarySkill(skill, claudeSkillsRoot({ dir, global, env }), { update: true }));
   out.push(...refreshAgentsSections({ dir, env }));
+  if (!out.filter(Boolean).length) {
+    out.push(`not handed to an agent yet — ${display(path.resolve(dir))} has no .claude/ or Decklight AGENTS.md:`
+      + ` decklight skills in a project, or --dir <project> / --global`);
+  }
   return out.filter(Boolean);
+}
+
+/** Does `dir` already have an agent setup: a `.claude/`, or an AGENTS.md with the Decklight section? */
+function agentProject(dir) {
+  const root = path.resolve(dir);
+  if (fs.existsSync(path.join(root, '.claude'))) return true;
+  try { return fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8').includes(AGENTS_MARKER); } catch { return false; }
 }
 
 /**

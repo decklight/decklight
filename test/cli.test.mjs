@@ -1416,12 +1416,13 @@ test('the skill says where installed marketplace skills live, and AGENTS.md list
   assert.match(claudeSkillMd(), /~\/\.decklight\/skills\/<name>\/SKILL\.md/);
   assert.doesNotMatch(agentsSection(), /Installed marketplace skills/, 'nothing installed, no paragraph');
   const listed = agentsSection(undefined, { librarySkills: [
-    { name: 'migrate', description: 'migrating a deck to acme 6', path: '/lib/skills/migrate' },
+    { name: 'migrate', description: 'Migrate a deck to acme 6, or when asked to upgrade one.', path: '/lib/skills/migrate' },
     { name: 'bare', description: '', path: '/lib/skills/bare' },
   ] });
   // the path as this OS writes it — backslashes on Windows
-  assert.ok(listed.includes(`- for migrating a deck to acme 6, read \`${path.join('/lib/skills/migrate', 'SKILL.md')}\``), listed);
-  assert.ok(listed.includes(`- for bare, read \`${path.join('/lib/skills/bare', 'SKILL.md')}\``), 'no description: by name');
+  // a description is a sentence of its own: no stray `., ` after it
+  assert.ok(listed.includes(`- migrate: Migrate a deck to acme 6, or when asked to upgrade one. Read \`${path.join('/lib/skills/migrate', 'SKILL.md')}\`.`), listed);
+  assert.ok(listed.includes(`- bare: Read \`${path.join('/lib/skills/bare', 'SKILL.md')}\`.`), 'no description: the name alone');
 });
 
 test('the always-loaded skill tells agents to render and check for clipped slides', () => {

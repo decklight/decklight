@@ -152,9 +152,11 @@ into the library and therefore sits **alongside** the authoring skill
 `decklight skills` writes into a project, never replacing it. Its consumer is
 an agent, not a decklight command, and no agent reads `~/.decklight/skills/`,
 so `library add skill` also **hands it on** to the agents `decklight skills`
-writes for: a copy in `.claude/skills/<name>/` (the project's, `--dir` for
-another, `--global` for Claude's config home), and a line naming it and its
-`SKILL.md` in every AGENTS.md that carries the Decklight section. A copy
+writes for: a copy in `.claude/skills/<name>/` (the current directory's when
+it already has a `.claude/` or a Decklight AGENTS.md, `--dir` for a named
+project, `--global` for Claude's config home; run anywhere else, it copies
+nothing and says how to), and a line naming it and its `SKILL.md` in every
+AGENTS.md that carries the Decklight section. A copy
 carries a `.decklight-library` mark, and only a marked directory is ever
 replaced or removed, so a skill of the same name the author wrote is left
 alone. `library remove skill` takes both away; `decklight skills` and `init`

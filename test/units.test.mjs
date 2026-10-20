@@ -518,7 +518,7 @@ test('library add skill hands the skill to Claude and to every AGENTS.md section
     assert.equal(readFileSync(path.join(copy, 'SKILL.md'), 'utf8'), NOTE_SKILL, 'Claude indexes it where it reads skills');
     assert.ok(existsSync(path.join(copy, 'reference.md')), 'the whole skill, not only its SKILL.md');
     const agents = readFileSync(path.join(work, 'AGENTS.md'), 'utf8');
-    assert.match(agents, /for taking notes in a deck's speaker notes, read `[^`]*note-taking[/\\]SKILL\.md`/,
+    assert.match(agents, /- note-taking: taking notes in a deck's speaker notes\. Read `[^`]*note-taking[/\\]SKILL\.md`\./,
       'an AGENTS.md agent learns it from the one file it reads');
     assert.equal(agents.split('<!-- decklight:skill -->').length, 3, 'refreshed in place, not duplicated');
 
@@ -556,11 +556,28 @@ test('a skill the author wrote under the same name is never replaced or removed'
   } finally { rmTemp(work); m.cleanup(); }
 });
 
+test('outside a project, nothing is written into the folder — and the command says how to place it', () => {
+  const m = market();
+  const work = tmp('units-handon-bare');
+  const other = tmp('units-handon-named');
+  try {
+    const add = run(['library', 'add', 'skill', 'note-taking'], m.home, work);
+    assert.equal(add.code, 0, add.out);
+    assert.ok(!existsSync(path.join(work, '.claude')), 'no stray .claude/ in a folder with no agent setup');
+    assert.match(add.out, /not handed to an agent yet — .* has no \.claude\/ or Decklight AGENTS\.md/);
+    assert.doesNotMatch(add.out, /listed in the AGENTS\.md section/, 'it claims nothing it did not do');
+    assert.equal(run(['library', 'add', 'skill', 'note-taking', '--dir', other], m.home, work).code, 0);
+    assert.ok(existsSync(path.join(other, '.claude/skills/note-taking/SKILL.md')), '--dir names a project, and it gets the copy');
+  } finally { rmTemp(work); rmTemp(other); m.cleanup(); }
+});
+
 test('decklight skills drops a copy whose skill left the library, and adds a missing one', () => {
   const m = market();
   const work = tmp('units-handon-sync');
   try {
+    assert.equal(run(['skills', 'claude'], m.home, work).code, 0);
     assert.equal(run(['library', 'add', 'skill', 'note-taking'], m.home, work).code, 0);
+    assert.ok(existsSync(path.join(work, '.claude/skills/note-taking/SKILL.md')));
     removeUnit('skill', 'note-taking', m.home);   // gone from the library behind the copy's back
     assert.equal(run(['skills', 'claude'], m.home, work).code, 0);
     assert.ok(!existsSync(path.join(work, '.claude/skills/note-taking')));

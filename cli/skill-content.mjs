@@ -357,7 +357,9 @@ export function homePath(file) {
  */
 function librarySkillLines(skills) {
   if (!skills.length) return '';
-  const lines = skills.map((s) => `- for ${s.description || s.name}, read \`${homePath(path.join(s.path, 'SKILL.md'))}\``);
+  // `- <name>: <description> Read <path>.` — a description is a sentence of its own
+  const sentence = (d) => (d ? `${d.replace(/\s+/g, ' ').trim()}${/[.!?]$/.test(d.trim()) ? '' : '.'} ` : '');
+  const lines = skills.map((s) => `- ${s.name}: ${sentence(s.description)}Read \`${homePath(path.join(s.path, 'SKILL.md'))}\`.`);
   return `Installed marketplace skills (\`decklight library add skill\`). Before a task
 one of them describes, read its SKILL.md and follow it:
 ${lines.join('\n')}
