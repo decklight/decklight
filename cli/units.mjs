@@ -57,7 +57,7 @@ export const UNIT_TYPES = {
     files: ['SKILL.md'],
     optional: ['reference.md'],
     label: 'agent skill',
-    use: 'your coding agent — copied into .claude/skills/ and listed in the AGENTS.md section (decklight skills)',
+    use: 'your coding agent (decklight skills hands it to Claude Code and the AGENTS.md agents)',
     example: 'conference-cfp',
     required: [],
   },
@@ -440,9 +440,10 @@ export const unitUsage = (type) => {
   used by: ${t.use}${type === 'skill' ? `
 
   A skill is read by your coding agent, so \`add\` also copies it into
-  .claude/skills/<name>/ here (--dir <path> for another project, --global for
-  ~/.claude/skills/) and lists it in every AGENTS.md carrying the Decklight
-  section; \`remove\` takes both away again. \`decklight skills\` keeps them.` : ''}
+  .claude/skills/<name>/ of a project that already has a .claude/ or a
+  Decklight AGENTS.md (--dir <path> names one, --global uses ~/.claude/skills/)
+  and lists it in every AGENTS.md carrying the Decklight section; \`remove\`
+  takes both away again. \`decklight skills\` keeps them.` : ''}
 
   Registering a marketplace is not fetching it (SPEC MARKETPLACE_REGISTRY):
   \`list\` reads only the cache and works on a plane, and the network is touched
@@ -455,10 +456,10 @@ export const unitUsage = (type) => {
  * directory). Only a skill reads the scope — it is the one kind an agent reads.
  */
 function scopeArgs(args) {
-  const out = { names: [], global: false, dir: '.' };
+  const out = { names: [], global: false, dir: '.', dirNamed: false };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--global' || args[i] === '-g') out.global = true;
-    else if (args[i] === '--dir') out.dir = args[++i] ?? '.';
+    else if (args[i] === '--dir') { out.dir = args[++i] ?? '.'; out.dirNamed = true; }
     else if (!args[i].startsWith('-')) out.names.push(args[i]);
   }
   return out;
