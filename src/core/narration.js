@@ -3486,9 +3486,9 @@ export function createNarration({
     }
   }
   /** The done card's offer, when there is a server able to take it. */
-  function useTrackRow(dir) {
+  function useTrackRow(dir, label = 'Use this track in the deck') {
     return editBase() == null || !dir ? ''
-      : '<div class="narr-row narr-sel rec-use" role="button" tabindex="0">Use this track in the deck</div>';
+      : `<div class="narr-row narr-sel rec-use" role="button" tabindex="0">${label}</div>`;
   }
   /**
    * The card's not-yet-accepted "Use this track" row, or null.
@@ -3796,6 +3796,8 @@ export function createNarration({
     micMeter = null;
   }
 
+  /** How long a slide's PCM runs, in seconds: 16-bit mono, so two bytes a sample. */
+  const secsOf = (pcm, rate) => pcm.reduce((n, c) => n + c.byteLength, 0) / (rate * 2);
   /** `0:09` — the take's running time on the recording card, and where → cut it. */
   const clockText = (ms) => { const t = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
   let micTakeT0 = 0;         // when the take on the card began capturing
@@ -4527,19 +4529,87 @@ export function createNarration({
         <div class="rec-line">${data.files} file${data.files === 1 ? '' : 's'}</div>`;
       return;
     }
-    const { slides, files, dir, segmented, stopped } = data;
+    // Done is a review, not a receipt: each slide just recorded, with its
+    // length, what happened to it, a play button to hear it back and a redo
+    // that reopens the plan card on that slide; then the one thing worth
+    // doing next, pointing the deck at the folder; and, for a deck edited by
+    // hand, the line to add, behind a disclosure rather than in the way.
+    const { slides, files, dir, segmented, stopped, rows = [], secs = 0, left = 0 } = data;
     const where = dir
-      ? `saved to <code>${escapeHtml(dir)}/</code>, next to the deck`
+      ? `saved next to the deck in <code>${escapeHtml(dir)}/</code>`
       : `saved to your downloads — ${noServerReason()}`;
     const cfg = `narration: { files: '${escapeHtml(dir ?? 'voices/me')}', ext: 'wav'${segmented ? ', segments: true' : ''} }`;
+    const takeRows = rows.map((r) => {
+      const sec = instance._sections?.[r.sl - 1];
+      const title = sec ? slideTitle(sec, r.sl - 1, slideBody(sec)) : '';
+      const note = r.note ? `<span class="rec-take-note warn">${escapeHtml(r.note)}</span>`
+        : r.again ? '<span class="rec-take-note">recorded again · the last take kept</span>' : '<span class="rec-take-note"></span>';
+      return `<div class="rec-take"><span class="rec-slide-n">${r.sl}</span> <span class="rec-slide-t">${escapeHtml(title)}</span> ${note} `
+        + `<span class="rec-take-dur">${clockText(r.secs * 1000)}</span> `
+        + (dir ? `<button type="button" class="rec-play" data-play="${r.sl}" aria-label="play slide ${r.sl}">▶</button> ` : '')
+        + `<button type="button" class="rec-redo" data-redo="${r.sl}">redo</button></div>`;
+    }).join('');
+    const offer = useTrackRow(dir, 'Use my voice in this deck');
     card.innerHTML = `<div class="narr-head">${stopped ? 'recording stopped' : 'recording done'}</div>
-      <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${files} file${files === 1 ? '' : 's'} ${where}</div>
-      <div class="rec-line">Play it back with <code>${cfg}</code>${segmented
+      <div class="rec-line rec-done-sum">${slides} slide${slides === 1 ? '' : 's'} · ${files} file${files === 1 ? '' : 's'}${secs ? ` · ${durationText(secs)}` : ''} · ${where}</div>
+      ${left ? `<div class="rec-line rec-done-left">stopped early: ${left} slide${left === 1 ? '' : 's'} not reached, left as ${left === 1 ? 'it was' : 'they were'}</div>` : ''}
+      ${takeRows ? `<div class="rec-takes">${takeRows}</div>` : ''}
+      ${offer ? `<div class="rec-use-box">${offer}<div class="rec-use-why">The deck will play these files and turn its own pages in time with them: one edit to the deck file, which ${UNDO_CHORD} takes back.</div></div>` : ''}
+      <div class="rec-done-actions"><button type="button" class="rec-again">Record again from a slide…</button></div>
+      <button type="button" class="rec-how rec-cfg-toggle" aria-expanded="false"><span class="rec-chev" aria-hidden="true">›</span><span class="rec-how-sum">Editing the deck by hand instead? The line to add</span></button>
+      <div class="rec-line rec-cfg" hidden>Play it back with <code>${cfg}</code>${segmented
         ? ' — <strong>segments</strong> is what makes your voice step the builds.'
         : '.'}</div>
-      ${useTrackRow(dir)}
-      ${doneHint(dir)}`;
+      <div class="rec-hint">${offer ? '<kbd>Enter</kbd> uses it · <kbd>Esc</kbd> closes' : 'Enter or Esc to close'}</div>`;
     wireUseTrack(card, dir, { ext: 'wav', label: data.label, ...(segmented ? { segments: true } : {}) });
+    wirePlay(card, dir);
+    card.querySelectorAll('[data-redo]').forEach((b) => b.addEventListener('click', () => {
+      // the plan card again, on this slide: its own scope, its own start point
+      const sl = Number(b.dataset.redo);
+      closeMicRecorder();
+      recRange = String(sl);
+      openMicRecorder();
+    }));
+    card.querySelector('.rec-again')?.addEventListener('click', () => { closeMicRecorder(); openMicRecorder(); });
+    const toggle = card.querySelector('.rec-cfg-toggle');
+    toggle?.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') !== 'true';
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.querySelector('.rec-chev')?.classList.toggle('open', open);
+      const line = card.querySelector('.rec-cfg');
+      if (line) line.hidden = !open;
+    });
+  }
+  /** `9 min 12 s`, `48 s` — how long the slides of a take add up to. */
+  function durationText(secs) {
+    const t = Math.round(secs);
+    return t >= 60 ? `${Math.floor(t / 60)} min ${t % 60} s` : `${t} s`;
+  }
+  // Hearing a slide back from the done card: the whole-slide file the server
+  // just wrote, one at a time, ▶ turning into ■ while it plays.
+  let micPlayer = null;
+  function stopPlay() {
+    if (!micPlayer) return;
+    try { micPlayer.audio.pause(); } catch { /* already gone */ }
+    micPlayer.btn.textContent = '▶';
+    micPlayer = null;
+  }
+  function wirePlay(card, dir) {
+    if (!dir) return;
+    card.querySelectorAll('[data-play]').forEach((b) => b.addEventListener('click', () => {
+      const sl = Number(b.dataset.play);
+      if (micPlayer?.sl === sl) { stopPlay(); return; }
+      stopPlay();
+      const url = new URL(`${dir}/slide-${String(sl).padStart(2, '0')}.wav?t=${Date.now()}`, location.href).href;
+      const audio = new Audio(url);
+      micPlayer = { sl, audio, btn: b };
+      b.textContent = '■';
+      audio.addEventListener('ended', () => { if (micPlayer?.audio === audio) stopPlay(); });
+      audio.play().catch((e) => {
+        if (micPlayer?.audio === audio) stopPlay();
+        toast(`could not play slide ${sl}: ${String(e?.message ?? e)}`, 4000);
+      });
+    }));
   }
 
   /**
@@ -4662,6 +4732,8 @@ export function createNarration({
         ? `this slide has ${buildSteps(sl)} build${buildSteps(sl) === 1 ? '' : 's'} but no [click] in its notes`
           + ' — one take for the whole slide; add [click] between the beats to pace them'
         : null;
+      // …and the done card's shorter word for it, beside the slide's row
+      const noteShort = note ? `${buildSteps(sl)} build${buildSteps(sl) === 1 ? '' : 's'}, no [click]: one take, builds not paced` : null;
       const takes = [];
       const cuts = [];           // when → cut each beat of the take, for the card
       let back = false;
@@ -4732,9 +4804,10 @@ export function createNarration({
             redone.add(k);
           }
           pending.clear();
-          const whole = await saveRecording(sl, 'wav', stitchWav(plan.flatMap((_, k) => keep.pcm.get(k)), rate), dir);
+          const wholePcm = plan.flatMap((_, k) => keep.pcm.get(k));
+          const whole = await saveRecording(sl, 'wav', stitchWav(wholePcm, rate), dir);
           if (run !== micRun) return;
-          saved.set(sl, { files: redone.size + 1, segmented: true, toDisk: whole });
+          saved.set(sl, { files: redone.size + 1, segmented: true, toDisk: whole, secs: secsOf(wholePcm, rate), note: noteShort, again: saved.has(sl) });
           await saveMicManifest(sl, plan.map((b) => b.file));
           if (run !== micRun) return;
           continue;
@@ -4766,6 +4839,9 @@ export function createNarration({
       const chunks = takes.flatMap((t) => t.pcm);
       if (await saveRecording(sl, 'wav', stitchWav(chunks, rate), dir)) done.toDisk = true;
       done.files++;
+      done.secs = secsOf(chunks, rate);
+      done.note = noteShort;
+      done.again = saved.has(sl);
       if (run !== micRun) return;
       // …and one file per beat, which is what lets the recording step the
       // builds. Never carrying the slide's trailing pause: `advanceFrom`
@@ -4789,9 +4865,14 @@ export function createNarration({
     const files = all.reduce((n, d) => n + d.files, 0);
     const toDisk = all.some((d) => d.toDisk);
     const segmented = all.some((d) => d.segmented);
+    const rows = [...saved.entries()].sort((a, b) => a[0] - b[0]).map(([sl, d]) => ({ sl, secs: d.secs ?? 0, note: d.note ?? null, again: !!d.again }));
+    const left = stopped ? list.slice(s).filter((x) => !saved.has(x)).length : 0;
     closeMic();
     if (run !== micRun) return;
-    renderMicCard('done', { slides: slidesDone, files, dir: toDisk ? dir.name : null, segmented, stopped, label: target.label });
+    renderMicCard('done', {
+      slides: slidesDone, files, dir: toDisk ? dir.name : null, segmented, stopped, label: target.label,
+      rows, secs: rows.reduce((n, r) => n + r.secs, 0), left,
+    });
   }
 
   function openMicRecorder() {
@@ -4837,6 +4918,7 @@ export function createNarration({
     micEdit?.(null);           // …or the edit box it is waiting on
     closeMic();
     micPreviewStop();
+    stopPlay();
     micOnly = null;            // the "only…" scope is this card's; the range stays, as the V panel's
     micEl?.remove();
     micEl = null;

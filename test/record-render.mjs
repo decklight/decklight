@@ -263,6 +263,9 @@ const DECK = `<!doctype html>
         if (!r.escaped) await until(() => done());
         r.card = card()?.textContent ?? '';
         r.finished = done();
+        // the review: one row per slide recorded, with its length and a play button
+        r.doneRows = [...(card()?.querySelectorAll('.rec-take') ?? [])].map((e) => e.textContent.replace(/\\s+/g, ' ').trim());
+        r.donePlays = card()?.querySelectorAll('.rec-play').length ?? 0;
       }
       r.audioRan = window.__audioRan !== false;
       r.gum = window.__gum?.audio ?? null;
@@ -446,6 +449,12 @@ check('card', JSON.stringify(took.pastSeen) === JSON.stringify(['✓ Beat one.']
 check('done', took.finished === true && /takes\//.test(took.card ?? '')
   && /segments: true/.test(took.card ?? '') && /ext: 'wav'/.test(took.card ?? ''),
 `names the folder=${/takes\//.test(took.card ?? '')} · prints segments: true=${/segments: true/.test(took.card ?? '')}`);
+
+// The done card is a review: a row per slide recorded, its title and length,
+// a play button each (the server serves the file back), and the offer.
+check('review', JSON.stringify(took.doneRows?.map((t) => t.replace(/\d:\d\d/, 'M:SS'))) === JSON.stringify(['1 One M:SS ▶ redo', '2 Two M:SS ▶ redo'])
+  && took.donePlays === 2 && /Use my voice in this deck/.test(took.card ?? ''),
+`rows=${JSON.stringify(took.doneRows)} · play buttons=${took.donePlays}`);
 
 // ── run 2: the browser says no ─────────────────────────────────────────────
 const blocked = await run('blocked', 'denied');
