@@ -202,8 +202,10 @@ faster than the full browser. **Two harnesses are skipped there, by name.** Old
 headless refuses `fetch()` over `file://` whatever `--allow-file-access-from-
 files` says, and both are about exactly that: `player-render` loads its cast
 fixtures that way, and `shot-render` asserts that the danger it exists to
-contain *is real*, which on this binary it is not. Both run on Linux and Windows
-every PR.
+contain *is real*, which on this binary it is not. Both run on Linux on every
+PR, and on Windows on every push to `main` (`verify · windows` is the slowest
+job in CI and gates neither PRs nor the merge queue; `gh workflow run CI --ref
+<branch>` asks for it early on a PR that touches rendering).
 
 The two macOS jobs are complements, not alternatives: the hosted one catches a
 layout or font regression on the PR that causes it, and the self-hosted one

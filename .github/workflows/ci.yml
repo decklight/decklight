@@ -26,6 +26,28 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# WHICH JOBS RUN WHEN. A merge pays for CI twice — once on the PR, once more
+# when the queue retests it on a gh-readonly-queue/* ref — and each run is as
+# slow as its slowest job. On 2026-10-20 that was `verify · windows` at 11-16
+# minutes (the verify step alone takes ten on windows-latest, against five on
+# Ubuntu, and the runner itself can queue for five more), while every other job
+# was done inside seven. So:
+#
+#   pull_request   everything except `verify · windows`: Ubuntu build/test/
+#                  render, Windows unit tests, hosted-macOS render and soak,
+#                  Firefox + WebKit
+#   merge_group    the Ubuntu jobs only — `build · test · render` and
+#                  `cross-engine`. The PR already carried the platform jobs on
+#                  this very diff; what the queue re-checks is how it combines
+#                  with what landed ahead of it, and the Ubuntu jobs answer that
+#   push to main   everything, `verify · windows` included — the Windows render
+#                  answer still arrives on every commit, it just stops gating
+#                  the queue. A red run here is a red main, and claude-fix-ci
+#                  picks it up
+#   dispatch       everything, plus `verify · macos` on the self-hosted Mac
+#
+# A job skipped by its `if:` still reports — as skipped, which a required
+# check counts as passing — so the gates are on the jobs, not the triggers.
 jobs:
   test:
     name: build · test · render
@@ -93,6 +115,8 @@ jobs:
   # only ever checked by pretending.
   windows:
     name: test · windows
+    # not in the merge queue — see WHICH JOBS RUN WHEN at the top
+    if: github.event_name != 'merge_group'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -181,9 +205,27 @@ jobs:
   # decklight bug: `npm run verify` passes on a SELF-HOSTED Mac in ~155s and on a
   # developer's own machine in ~135s — see the `verify-macos` job below.
   verify-windows:
-    name: verify · windows
+    # ON MAIN AND ON DEMAND, not on every PR and not in the merge queue: this is
+    # the slowest job here by a wide margin (see WHICH JOBS RUN WHEN at the
+    # top), and the question it answers — does it LOOK right on Windows — is
+    # not one a PR has to wait on twice. Every commit on main still gets the
+    # answer; a PR that touches rendering can ask for it early:
+    #
+    #   gh workflow run CI --ref <branch>
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 30
+    # THREE SHARDS, because the verify step alone took 654s here against 300s on
+    # Ubuntu, and nothing in it parallelises within one runner (each harness
+    # owns the browser). `VERIFY_SHARD=i/3` deals the harness list out
+    # round-robin (test/verify-shard.mjs), which on the 2026-10-20 timings
+    # gives 170s, 266s and 217s: the longest shard is a third of the whole,
+    # and a hang still names itself inside its own budget.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    name: verify · windows ${{ matrix.shard }}/3
     steps:
       - uses: actions/checkout@v5
 
@@ -210,7 +252,7 @@ jobs:
         timeout-minutes: 5
         shell: bash
         run: |
-          node - <<'PROBE' 2>&1 | tee "probe-windows.log"
+          node - <<'PROBE' 2>&1 | tee "probe-windows-${{ matrix.shard }}.log"
           const { execFileSync } = require('child_process');
           const at = Date.now();
           try {
@@ -241,9 +283,10 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          npm run verify 2>&1 | tee "verify-windows.log"
+          npm run verify 2>&1 | tee "verify-windows-${{ matrix.shard }}.log"
         env:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          VERIFY_SHARD: ${{ matrix.shard }}/3
           # A hung harness names itself in three minutes rather than ten, so a
           # browser that stops working costs one round and not seventeen.
           VERIFY_TIMEOUT_MS: 180000
@@ -252,7 +295,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: verify-log-windows
+          name: verify-log-windows-${{ matrix.shard }}
           path: |
             verify-*.log
             probe-*.log
@@ -263,8 +306,9 @@ jobs:
       # tools/shot.mjs hands Chrome to execFile with no timeout of its own, so on
       # a machine where the browser never returns this is the step that runs out
       # the JOB's clock — and a cancelled job uploads nothing and keeps no log.
+      # one set of shots per run, not one per shard
       - name: screenshot the demo deck
-        if: always()
+        if: always() && matrix.shard == 1
         timeout-minutes: 5
         continue-on-error: true
         run: |
@@ -275,7 +319,7 @@ jobs:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
 
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: always() && matrix.shard == 1
         with:
           name: shots-windows
           path: .shots/
@@ -401,7 +445,7 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
-  # The release gate on every PR, on macOS: `npm run soak` packs the repo,
+  # The release gate on every PR (not the queue), on macOS: `npm run soak` packs the repo,
   # installs the tarball into a project whose path has a space, and drives the
   # installed bin through the journey (CONTRIBUTING). It ran by hand before a
   # release and nowhere else, which is how a step that moved under it went
@@ -410,6 +454,8 @@ jobs:
   # runner lacks (ffmpeg, a voice) the soak skips by name and says so.
   soak-macos-hosted:
     name: soak · macos-hosted
+    # not in the merge queue — see WHICH JOBS RUN WHEN at the top
+    if: github.event_name != 'merge_group'
     runs-on: macos-latest
     timeout-minutes: 25
     steps:
@@ -465,10 +511,12 @@ jobs:
   # refuses `fetch()` over `file://` whatever --allow-file-access-from-files
   # says, and both are about exactly that: player-render loads its cast fixtures
   # that way, and shot-render asserts that the danger it exists to contain is
-  # REAL — which on this binary it is not. Both run on Linux and Windows every
-  # PR, so nothing is uncovered; they are simply not askable here.
+  # REAL — which on this binary it is not. Both run on Linux every PR and on
+  # Windows on main, so nothing is uncovered; they are simply not askable here.
   verify-macos-hosted:
     name: verify · macos-hosted
+    # not in the merge queue — see WHICH JOBS RUN WHEN at the top
+    if: github.event_name != 'merge_group'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:

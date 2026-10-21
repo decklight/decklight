@@ -21,6 +21,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseShard, shardOf } from './verify-shard.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -230,7 +231,27 @@ for (const name of ONLY) {
     process.exit(2);
   }
 }
-const SELECTED = ONLY.length ? HARNESSES.filter((h) => ONLY.includes(h)) : HARNESSES;
+
+/**
+ * One shard of the suite — `VERIFY_SHARD=i/n`, the door CI's Windows matrix
+ * comes in by. Three of them finish in the time one of the slow harnesses used
+ * to take alone there. Like ONLY, a shard is NOT a full verify and its summary
+ * says so; unlike ONLY, the n shards together are the suite exactly, which
+ * test/verify-shard.test.mjs holds to. A malformed spec exits 2 before anything
+ * runs, for the same reason a typo in ONLY does.
+ */
+let SHARD = null;
+if (process.env.VERIFY_SHARD) {
+  try {
+    SHARD = parseShard(process.env.VERIFY_SHARD);
+  } catch (e) {
+    process.stdout.write(`verify: ${e.message}\n`);
+    process.exit(2);
+  }
+}
+const CHOSEN = ONLY.length ? HARNESSES.filter((h) => ONLY.includes(h)) : HARNESSES;
+const SELECTED = SHARD ? shardOf(CHOSEN, SHARD) : CHOSEN;
+const PARTIAL = ONLY.length ? 'SELECTION' : SHARD ? `SHARD ${SHARD.index}/${SHARD.count}` : '';
 
 const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
 // wide enough for the longest harness name, so the timings stay a column —
@@ -263,7 +284,7 @@ for (const name of SELECTED) {
 rmSync(HOME, { recursive: true, force: true });
 
 const failed = results.filter((r) => !r.ok);
-process.stdout.write(`\n─── verify${ONLY.length ? ' (SELECTION — not the whole suite)' : ''} ${'─'.repeat(56)}\n`);
+process.stdout.write(`\n─── verify${PARTIAL ? ` (${PARTIAL} — not the whole suite)` : ''} ${'─'.repeat(56)}\n`);
 // The timings are the report, not decoration: this suite runs on machines
 // nobody can attach to, and "which harness costs the time" is otherwise a
 // question only a cancelled log could have answered.
@@ -278,12 +299,12 @@ if (failed.length) {
   process.exit(1);
 }
 const ran = results.filter((r) => !r.skipped).length;
-// "all N passed" is a sentence about the SUITE, and under VERIFY_ONLY it would
-// be a sentence about a list somebody chose. Say which it is, and name what was
-// not run — a selection that reads like a full pass is how a green line comes
-// to mean less than the reader thinks.
-process.stdout.write(ONLY.length
-  ? `\nverify: ${ran} SELECTED harness${ran === 1 ? '' : 'es'} passed — `
+// "all N passed" is a sentence about the SUITE, and under VERIFY_ONLY or
+// VERIFY_SHARD it would be a sentence about a list somebody chose. Say which it
+// is, and name what was not run — a selection that reads like a full pass is
+// how a green line comes to mean less than the reader thinks.
+process.stdout.write(PARTIAL
+  ? `\nverify: ${ran} harness${ran === 1 ? '' : 'es'} of ${PARTIAL} passed — `
     + `${HARNESSES.length - results.length} not run (this is not a full verify)\n`
   : `\nverify: all ${ran} harnesses passed`
     + `${ran < results.length ? ` · ${results.length - ran} skipped by VERIFY_SKIP: ${[...SKIP].join(', ')}` : ''}\n`);
