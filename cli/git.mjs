@@ -162,6 +162,19 @@ export function commitSubject(raw, fallback) {
 }
 
 /**
+ * The untracked files under `dir` git does not ignore, relative to it, a
+ * wholly new directory said once as `name/` — what an agent run may leave
+ * beside the deck. Null when git cannot answer.
+ */
+export function untrackedFiles(dir) {
+  try {
+    const out = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '--directory', '-z', '--', '.'],
+      { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return out.split('\0').filter(Boolean).sort();
+  } catch { return null; }
+}
+
+/**
  * The sha of the commit `gitAutocommit` last made, or null.
  *
  * Kept beside the commit rather than returned in its place because every

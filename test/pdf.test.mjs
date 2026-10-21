@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -98,6 +99,18 @@ test('pdf without a deck, or with a missing one, fails with usage — not a stac
   const missing = spawnSync('node', [CLI, 'pdf', 'nope.html'], { encoding: 'utf8' });
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /no such deck/);
+});
+
+test('pdf refuses a dotfile deck with the reason, before Chrome: the render server never serves one, and Chrome would print a blank page (#893)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-pdf-dot-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const deck = path.join(dir, '.deck.before.html');
+  fs.writeFileSync(deck, '<div class="decklight"><section><h1>a</h1></section></div>');
+  const r = spawnSync('node', [CLI, 'pdf', deck, '-o', path.join(dir, 'out.pdf')], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\.deck\.before\.html is a dotfile/);
+  assert.match(r.stderr, /without the dot/);
+  assert.equal(fs.existsSync(path.join(dir, 'out.pdf')), false, 'no PDF written');
 });
 
 

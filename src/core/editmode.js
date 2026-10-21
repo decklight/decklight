@@ -1179,7 +1179,9 @@ export function createEditMode({
     out.textContent = a.state === 'running'
       ? `working…${a.activity ? ` ${a.activity}` : ''}`
       : [a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.changed ? (a.kind === 'migrate' ? 'migrated the deck' : a.kind === 'fix' ? 'fixed the deck' : 'edited the deck') : 'no changes',
-        (a.tail || '').trim()].filter(Boolean).join('\n');
+        (a.tail || '').trim(),
+        // what the run created beside the deck and left there, kept out of its commit
+        a.left?.length ? `left beside the deck, not committed: ${a.left.join(', ')}` : null].filter(Boolean).join('\n');
     row.append(meta, said, out);
     return row;
   }

@@ -149,6 +149,12 @@ export async function pdfMain(args = [], { signal = null } = {}) {
   if (!deck) { console.error(`decklight pdf: needs a deck\n\n${USAGE}`); return 1; }
   const src = resolve(deck);
   if (!existsSync(src)) { console.error(`decklight pdf: no such deck: ${deck}`); return 1; }
+  // The deck is served from its folder (below), and the render server never
+  // serves a dotfile: Chrome would print its 403 as one blank page
+  if (basename(src).startsWith('.')) {
+    console.error(`decklight pdf: ${basename(src)} is a dotfile, and a deck is rendered by serving it, which never serves a name that starts with a dot — copy or rename it without the dot`);
+    return 1;
+  }
 
   const variant = args.includes('--notes') ? 'notes' : args.includes('--handout') ? 'handout' : '';
   if (args.includes('--notes') && args.includes('--handout')) {
@@ -223,11 +229,18 @@ async function printDeck({ src, out, url, bin, shared, variant, theme, signal })
   }
   const buf = readFileSync(out);
   const pages = pdfPageCount(buf);
-  const want = slides ? expectedPages(slides, variant) : 0;
+  // No slides in the rendered page is no deck at all (a refused or broken
+  // load): held to the file's own count, so the mismatch below is said
+  let written = 0;
+  if (!slides) {
+    try { written = slideCount(readFileSync(src, 'utf8')); } catch { written = 0; }
+    if (written) console.error(`pdf: ⚠ the rendered page had no slides, the file has ${written}: the deck did not load`);
+  }
+  const want = slides || written ? expectedPages(slides || written, variant) : 0;
   const geometry = variant === 'handout' ? 'portrait, 3 slides a page' : variant === 'notes' ? 'slide + notes per page' : '1280×720 (16:9)';
   console.log(`${out} · ${pages || '?'} pages · ${geometry} · ${KB(buf.length)}`);
   if (want && pages && pages !== want) {
-    console.error(`pdf: ⚠ expected ${want} pages for ${slides} slides${variant ? ` (${variant})` : ''}, got ${pages}`);
+    console.error(`pdf: ⚠ expected ${want} pages for ${slides || written} slides${variant ? ` (${variant})` : ''}, got ${pages}`);
   }
   return 0;
 }

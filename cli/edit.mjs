@@ -1055,6 +1055,18 @@ export function whatWrote(pathname) {
 }
 
 /**
+ * What the agent panel shows of an agent's report: all of it up to `max`,
+ * and past that its start and its end with what was cut said between them.
+ * A report leads with what it did, so the start is never the part to lose.
+ */
+export function reportText(text, max = 4000) {
+  const s = String(text ?? '').trim();
+  if (s.length <= max) return s;
+  const end = Math.floor(max / 4);
+  return `${s.slice(0, max - end).trimEnd()}\n…\n${s.slice(-end).trimStart()}`;
+}
+
+/**
  * The reason a reload carries. A write of the server's own within the last
  * moments is that write; the file changing while an agent runs is the
  * agent's; anything else changed on disk by a hand this server never saw —
@@ -1106,7 +1118,7 @@ export function createHistory(limit = 200) {
 // The plumbing lives in git.mjs now; imported for editMain's use below and
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
-import { inGitRepo, gitAvailable, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteState } from './git.mjs';
+import { inGitRepo, gitAvailable, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, untrackedFiles, exitPushLine, oneline, remoteState } from './git.mjs';
 import {
   describeCommit, messagesLine,
 } from './commit-message.mjs';
@@ -1473,6 +1485,24 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const readDeck = () => readFileSync(deckPath, 'utf8');
   /** Files beside the deck as they are now, `{ path: text }` — for an undo entry that covers them. */
   const snapshotFiles = (paths) => Object.fromEntries(paths.flatMap((p) => { try { return [[p, readFileSync(p, 'utf8')]]; } catch { return []; } }));
+  /**
+   * What is beside the deck that no commit holds, relative to its folder: the
+   * untracked files git does not ignore, or with no git the folder's entries.
+   * Read before and after an agent run, so what the run left can be named.
+   */
+  const besideDeck = () => {
+    const dir = dirname(deckPath);
+    if (gitOn) return untrackedFiles(dir);
+    try { return readdirSync(dir, { withFileTypes: true }).map((e) => e.name + (e.isDirectory() ? '/' : '')).sort(); } catch { return null; }
+  };
+  /** HEAD's short sha when it holds `paths` exactly as they are on disk, else null. */
+  const cleanHead = (paths) => {
+    try {
+      const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (git('status', '--porcelain', '--', ...paths)) return null;
+      return git('rev-parse', '--short', 'HEAD') || null;
+    } catch { return null; }
+  };
   /**
    * The one door every mutation goes through: snapshot, then write — so Z
    * always works. Answers whether anything actually changed.
@@ -2265,10 +2295,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * also write (a migration's linked stylesheets): snapshotted with the deck,
    * so one Z takes them all back, and committed with it. `reload` is the
    * reason the reload its edit causes carries; `kind` and `title` label the
-   * ask in the panel.
+   * ask in the panel. `subject` is a commit subject this server built (a
+   * migration's), committed as given like the server's own path commits it:
+   * cut to an agent's 72 characters, its version is what fell off. `before`
+   * builds a closing sentence for the prompt from the commit that holds the
+   * deck as it was, once the outstanding work is committed, for a job whose
+   * checks compare against it (a migration's before and after renders).
    */
-  function runAgent(prompt, name, message, slide, { files = [], reload = null, kind = null, title = null } = {}) {
-    const cmd = agentCommand(name || agentPref, prompt, deckRel, { slide });
+  function runAgent(prompt, name, message, slide, { files = [], reload = null, kind = null, title = null, subject: given = null, before: beforeSay = null } = {}) {
+    let cmd = agentCommand(name || agentPref, prompt, deckRel, { slide });
     if (!cmd) return null;
     const ask = {
       id: ++askSeq, agent: cmd.name, label: cmd.label, prompt,
@@ -2288,8 +2323,18 @@ export async function editMain(args, { onListen = null, client } = {}) {
         && ownCommit(`decklight: save before ${cmd.name} edits ${basename(deckPath)}`, files)) {
       console.log('  git: committed your outstanding changes first');
     }
+    if (beforeSay && gitOn) {
+      const head = cleanHead([deckPath, ...files]);
+      if (head) {
+        prompt = `${prompt} ${beforeSay(head)}`;
+        ask.prompt = prompt;
+        cmd = agentCommand(cmd.name, prompt, deckRel, { slide }) ?? cmd;
+      }
+    }
     const before = readDeck();
     const filesBefore = snapshotFiles(files);
+    // what is already beside the deck, so what the run leaves there can be named
+    const leftBefore = new Set(besideDeck() ?? []);
     agentJob = { agent: cmd.name, label: cmd.label, prompt, startedAt: ask.startedAt, id: ask.id, slide: ask.slide, ...(reload ? { reload } : {}) };
     broadcast('agent', { state: 'start', ...agentJob });
     console.log(`  agent: ${cmd.name} ← "${prompt.slice(0, 80)}"`);
@@ -2364,7 +2409,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // — the boundary and the message both come from the work, not a clock.
       // A failed run or one that changed nothing commits nothing.
       if (gitOn && shouldCommit(gitMode, { kind: 'agent', ok: code === 0, changed })) {
-        const subject = commitSubject(message ?? prompt, `decklight: ${cmd.name} edited ${basename(deckPath)}`);
+        const subject = given ?? commitSubject(message ?? prompt, `decklight: ${cmd.name} edited ${basename(deckPath)}`);
         if (gitAutocommit(deckPath, root, subject, { also: [...alsoNow().also, ...files] })) { pendingAttr = null; console.log(`  git: committed "${subject}"`); }
       }
       // Did the edit orphan, stale, or reshape a recording? A track is
@@ -2389,10 +2434,17 @@ export async function editMain(args, { onListen = null, client } = {}) {
       agentJob = null;
       // the agent's own words when the stream carried them — raw stream-json
       // stdout is a wall of JSON nobody should be shown
-      const said = (resultText ?? tail.trim().split('\n').slice(-6).join('\n')).slice(-600);
-      finish({ ok: code === 0, changed, code, tail: said, ...(stopped ? { stopped } : {}) });
+      // — from its start: a report leads with what it did (a migration's
+      // renames and their counts), and the panel scrolls
+      const said = reportText(resultText ?? tail.trim().split('\n').slice(-6).join('\n'));
+      // Files the run created beside the deck and left there: never in the
+      // commit (it names its paths), and said, so the author can delete them
+      const left = (besideDeck() ?? []).filter((f) => !leftBefore.has(f));
+      if (left.length) console.log(`  agent: ${cmd.name} left ${left.join(', ')} beside the deck (not committed)`);
+      finish({ ok: code === 0, changed, code, tail: said, ...(left.length ? { left } : {}), ...(stopped ? { stopped } : {}) });
       broadcast('agent', {
         state: 'done', id: ask.id, agent: cmd.name, ok: code === 0, changed, code, tail: said,
+        ...(left.length ? { left } : {}),
         ...(stopped ? { stopped } : {}),
         ...(recordingWarning ? { recordingWarning } : {}),
       });
@@ -2971,7 +3023,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (typeof ref !== 'string' || !ref.trim()) throw new Error('bad payload');
     if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
     if (reviewing) return json(409, { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' });
-    const { planMigration, migrationLines, linkedStylesheets } = await import('./design-system-refs.mjs');
+    const { planMigration, migrationLines, linkedStylesheets, skillFile } = await import('./design-system-refs.mjs');
     // read once: the plan, the undo entry and the stylesheets are all of these bytes
     const before = readDeck();
     const plan = planMigration(before, dirname(deckPath), ref.trim());
@@ -2986,12 +3038,24 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const sheets = linkedStylesheets(before, dirname(deckPath)).map((x) => x.path).filter((p) => p.startsWith(root + sep));
     const skills = plan.status.skills;
     if (skills.length) {
+      // The skill where it already is on this machine (the library's copy, or
+      // the marketplace's checkout): read there, never installed into the
+      // project for one run, which is what left a stray .claude/ behind (#893)
+      const where = skills.map((s) => {
+        const file = skillFile(s, plan.marketplace);
+        return file ? `read ${file}` : `it is not on this machine (decklight library add skill ${s} --global puts it in your home, never in this project)`;
+      });
       const prompt = `Migrate this deck from ${plan.name} ${plan.recorded ?? '(no version recorded)'} to ${plan.version} with the ${skills.join(' and ')} skill`
-        + ` (if it is not installed: decklight library add skill ${skills[0]}). First run \`decklight design-system migrate ${plan.ref} ${deckRel}\``
+        + ` (${where.join('; ')}). First run \`decklight design-system migrate ${plan.ref} ${deckRel}\``
         + ' for the renames the design system declares; then do what the skill says a rename cannot: its checks (renders before and after),'
         + ' and its judgement calls (a name removed with no successor). Report the renames with their counts, each judgement call you made,'
-        + ' and anything you left alone.';
-      const cmd = runAgent(prompt, agent, subject, null, { files: sheets, reload, kind: 'migrate', title });
+        + ' and anything you left alone. Only the deck and its stylesheets change: leave no file you created (a copy, a render) in the project.';
+      const cmd = runAgent(prompt, agent, subject, null, {
+        files: sheets, reload, kind: 'migrate', title, subject,
+        // the skill renders "before" first, but the prompt has the renames run
+        // first: name the commit that holds the deck as it was
+        before: (sha) => `The deck as it was before this migration is commit ${sha}: \`git show ${sha}:./${deckRel.split(sep).join('/')}\`.`,
+      });
       if (cmd) return json(200, { ok: true, by: 'agent', agent: cmd.name, label: cmd.label });
     }
 

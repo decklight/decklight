@@ -16,9 +16,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmp as scratch, childEnv, writeFakeBin, stop, wait } from './helpers.mjs';
 import {
-  linkDesignSystems, deckBehind, withMigrationHint, planMigration, migrationLines, deckDesignSystemVersions,
+  linkDesignSystems, deckBehind, withMigrationHint, planMigration, migrationLines, deckDesignSystemVersions, skillFile,
 } from '../cli/design-system-refs.mjs';
-import { createHistory, describeReload } from '../cli/edit.mjs';
+import { createHistory, describeReload, reportText } from '../cli/edit.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -257,4 +257,85 @@ test('Migrate with a skill and an agent: it is the agent\'s ask, naming the skil
   if (GIT) assert.equal(subjects(dir)[0], 'decklight: migrate talk.html to acme 3.0.0');
   assert.equal((await post(base, '/deck/edit/undo')).status, 200);
   assert.equal(readFileSync(cssFile, 'utf8'), OLD_CSS, 'the agent\'s stylesheet edit is in the same undo');
+});
+
+test('Migrate by the agent (#893): the whole report from its start, the skill read where it is, the commit before named, the version kept in the subject, and what it left said and not committed', async (t) => {
+  const { dir, h, PATH, bin, repo } = project(t, 'ds-offer-agent-893');
+  // the skill is in the marketplace's checkout, and the catalog offers it
+  mkdirSync(path.join(repo, 'skills/acme-migrate'), { recursive: true });
+  writeFileSync(path.join(repo, 'skills/acme-migrate/SKILL.md'), '---\nname: acme-migrate\n---\n');
+  const cat = path.join(repo, '.decklight/marketplace.json');
+  const m = JSON.parse(readFileSync(cat, 'utf8'));
+  m.entries.push({ name: 'acme-migrate', type: 'skill', source: 'skills/acme-migrate' });
+  writeFileSync(cat, JSON.stringify(m));
+  execFileSync(process.execPath, [CLI, 'marketplace', 'update', 'acme-mkt'], { env: { ...process.env, DECKLIGHT_HOME: h }, stdio: 'ignore' });
+  // a long deck name: an agent's subject would lose the version off its end
+  const long = 'module-01-from-business-intelligence-to-ai.confluent.html';
+  if (GIT) execFileSync('git', ['mv', 'talk.html', long], { cwd: dir });
+  else execFileSync(process.execPath, ['-e', `require('fs').renameSync('talk.html', ${JSON.stringify(long)})`], { cwd: dir });
+  if (GIT) execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'rename'], { cwd: dir });
+  const report = `Renames: text-main → text-body (1), acme-tile → acme-card (1), --acme-pad → --acme-divider-pad (1).${' More.'.repeat(200)} Closing notes.`;
+  writeFakeBin(bin, 'claude', [
+    "import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';",
+    "mkdirSync('.agent-scratch', { recursive: true });",
+    "writeFileSync('.agent-scratch/prompt.txt', process.argv[process.argv.indexOf('-p') + 1] ?? '');",
+    "writeFileSync('before-tmp.html', 'a copy');",
+    `writeFileSync(${JSON.stringify(long)}, readFileSync(${JSON.stringify(long)}, 'utf8').replace('"2.0.0"', '"3.0.0"'));`,
+    `console.log(JSON.stringify({ type: 'result', result: ${JSON.stringify(report)} }));`,
+  ].join('\n'));
+  const child = spawn(process.execPath, [EDIT, long, '--port', '0'], { cwd: dir, env: childEnv({ DECKLIGHT_HOME: h, PATH }), stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => stop(child));
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  let base;
+  for (let i = 0; i < 400 && !base; i++) {
+    const mm = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
+    if (mm) base = `http://127.0.0.1:${mm[1]}`;
+    else await wait(25);
+  }
+  assert.ok(base, out);
+  const r = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt' })).json();
+  assert.equal(r.by, 'agent', JSON.stringify(r));
+  const ask = (await settled(base)).agentAsks.at(-1);
+  assert.match(ask.tail, /^Renames: text-main → text-body \(1\)/, 'the report from its start');
+  assert.match(ask.tail, /Closing notes\.$/, 'a report that fits is whole');
+  const prompt = readFileSync(path.join(dir, '.agent-scratch/prompt.txt'), 'utf8');
+  assert.ok(prompt.includes(`read ${path.join(repo, 'skills/acme-migrate/SKILL.md')}`) || prompt.includes(`read ${path.join(h, 'marketplaces')}`), prompt);
+  assert.doesNotMatch(prompt, /library add skill/, 'nothing is installed into the project');
+  assert.match(prompt, /leave no file you created/);
+  assert.deepEqual(ask.left?.includes('before-tmp.html'), true, JSON.stringify(ask));
+  if (GIT) {
+    assert.match(prompt, /The deck as it was before this migration is commit [0-9a-f]+: `git show [0-9a-f]+:\.\/module-01/);
+    assert.equal(subjects(dir)[0], `decklight: migrate ${long} to acme 3.0.0`, 'the subject keeps its version');
+    const tracked = execFileSync('git', ['ls-files'], { cwd: dir, encoding: 'utf8' });
+    assert.doesNotMatch(tracked, /before-tmp\.html/, 'what it left is not committed');
+  }
+});
+
+test('the panel shows an agent\'s report from its start: whole up to the cap, start and end past it', () => {
+  assert.equal(reportText('  short  '), 'short');
+  const long = `HEAD ${'x'.repeat(5000)} TAIL`;
+  const said = reportText(long);
+  assert.ok(said.length <= 4003, String(said.length));
+  assert.match(said, /^HEAD /);
+  assert.match(said, / TAIL$/);
+  assert.match(said, /\n…\n/);
+});
+
+test('skillFile: the library copy first, else the marketplace checkout, else null', (t) => {
+  const dir = scratch('ds-skill-file', t);
+  const { h, repo } = market(t, dir);
+  assert.equal(skillFile('acme-migrate', 'acme-mkt', h), null);
+  mkdirSync(path.join(repo, 'skills/acme-migrate'), { recursive: true });
+  writeFileSync(path.join(repo, 'skills/acme-migrate/SKILL.md'), 'x');
+  const cat = path.join(repo, '.decklight/marketplace.json');
+  const m = JSON.parse(readFileSync(cat, 'utf8'));
+  m.entries.push({ name: 'acme-migrate', type: 'skill', source: 'skills/acme-migrate' });
+  writeFileSync(cat, JSON.stringify(m));
+  execFileSync(process.execPath, [CLI, 'marketplace', 'update', 'acme-mkt'], { env: { ...process.env, DECKLIGHT_HOME: h }, stdio: 'ignore' });
+  assert.match(skillFile('acme-migrate', 'acme-mkt', h), /skills[\\/]acme-migrate[\\/]SKILL\.md$/);
+  mkdirSync(path.join(h, 'skills/acme-migrate'), { recursive: true });
+  writeFileSync(path.join(h, 'skills/acme-migrate/SKILL.md'), 'x');
+  assert.equal(skillFile('acme-migrate', 'acme-mkt', h), path.join(h, 'skills/acme-migrate/SKILL.md'));
 });

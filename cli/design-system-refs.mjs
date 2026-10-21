@@ -204,7 +204,7 @@ export function planMigration(html, dir, ref, home = configHome()) {
   const touched = sheets.map((x) => ({ ...x, ...applyRenames(x.text, status.renames, prefix) })).filter((x) => x.count);
   const renamed = deckOut.count + touched.reduce((n, x) => n + x.count, 0);
   return {
-    ref: hit.ref, name: hit.name, title: m.title || hit.name, recorded, version: m.version, status,
+    ref: hit.ref, name: hit.name, marketplace: hit.marketplace, title: m.title || hit.name, recorded, version: m.version, status,
     html: next, sheets: touched, renamed,
     byKind: RENAME_KINDS.map((k) => [k, status.found.filter((f) => f.kind === k)]).filter(([, l]) => l.length),
     changed: next !== html || renamed > 0,
@@ -229,6 +229,30 @@ export function migrationLines(plan, deck) {
       + ` decklight library add skill ${skills[0]}, then ask your agent to finish the migration`);
   }
   return out;
+}
+
+/**
+ * Where a skill's SKILL.md already is on this machine, or null: the library's
+ * copy (`~/.decklight/skills/<name>/`) when one is installed, else the
+ * catalog entry's source in its marketplace's checkout, `marketplace` first.
+ * What a migration's prompt points the agent at, so running one never
+ * installs anything into the project (#893).
+ */
+export function skillFile(name, marketplace = null, home = configHome()) {
+  const installed = join(home, 'skills', name, 'SKILL.md');
+  if (existsSync(installed)) return installed;
+  const markets = Object.keys(loadRegistry(home).marketplaces ?? {});
+  for (const market of [...(markets.includes(marketplace) ? [marketplace] : []), ...markets.filter((m) => m !== marketplace)]) {
+    let cat;
+    try { cat = loadCatalog(market, home); } catch { continue; }
+    const entry = cat?.ok ? cat.manifest.entries.find((e) => e.type === 'skill' && e.name === name) : null;
+    if (!entry?.source || /^https?:\/\//i.test(entry.source)) continue;
+    let base;
+    try { base = resolveSource(entry.source, { name: market, source: loadRegistry(home).marketplaces[market]?.source }, home); } catch { continue; }
+    const file = join(base, 'SKILL.md');
+    if (existsSync(file)) return file;
+  }
+  return null;
 }
 
 /**
