@@ -8,6 +8,7 @@
 //   decklight marketplace list
 //   decklight marketplace update <name> [--branch <ref>]
 //   decklight marketplace outdated [<name>] [--json]
+//   decklight marketplace auto-check [on|off]
 //   decklight marketplace remove <name>
 //
 // A marketplace is a git repo (or a local directory) with
@@ -1108,7 +1109,7 @@ function outdatedLine(r) {
 
 // ── the command ────────────────────────────────────────────────────────────
 
-const USAGE = `usage: decklight marketplace <add|list|update|outdated|remove> …
+const USAGE = `usage: decklight marketplace <add|list|update|outdated|auto-check|remove> …
 
   decklight marketplace add <owner/repo | git url | path> [--name <name>]
                                                           [--branch <ref>]
@@ -1149,11 +1150,18 @@ const USAGE = `usage: decklight marketplace <add|list|update|outdated|remove> �
     directory's manifest is compared with the cached copy. Each behind one is
     named with the update that takes it
 
+  decklight marketplace auto-check [on|off]
+    whether an edit server that starts runs outdated by itself, in the
+    background and at most once in 12 hours, and the deck offers to update
+    what it found behind. Off until you turn it on; it only ever offers, an
+    update is still yours. With no argument, says which it is
+
   decklight marketplace remove <name>
     unregister a marketplace and drop its cached manifest and checkout
 
   registering is not fetching: the network is touched only by an explicit add,
-  update or outdated, never when a deck loads or presents (SPEC MARKETPLACE_REGISTRY).
+  update or outdated (or the auto-check you turned on), never when a deck loads
+  or presents (SPEC MARKETPLACE_REGISTRY).
   DECKLIGHT_HOME overrides ~/.decklight/.`;
 
 const printManifestErrors = (cmd, spec, errors) => {
@@ -1244,7 +1252,7 @@ function versionNote(entry, installed) {
   return `  ${had} → ${entry.version}`;
 }
 
-function listMain(home) {
+async function listMain(home) {
   const installs = loadLedger(home).installs;
   const reg = loadRegistry(home);
   const names = Object.keys(reg.marketplaces).sort();
@@ -1252,6 +1260,7 @@ function listMain(home) {
     console.log('no marketplaces registered — decklight marketplace add <owner/repo | git url | path>');
     return 0;
   }
+  console.log(await autoCheckLine(reg, home));
   for (const name of names) {
     const m = reg.marketplaces[name];
     // The commit is what the manifest AND every entry's files came from — one
@@ -1290,6 +1299,30 @@ function listMain(home) {
       }
     }
   }
+  return 0;
+}
+
+// The auto-check (cli/marketplace-autocheck.mjs) imports this module, so the
+// commands that use it load it when they run.
+let autoCheckModule = null;
+const loadAutoCheck = async () => (autoCheckModule ??= await import('./marketplace-autocheck.mjs'));
+
+/** Whether an edit server checks for updates as it starts, and what it last found. */
+async function autoCheckLine(reg, home) {
+  if (reg.autoCheck !== true) return 'auto-check: off — decklight marketplace auto-check on checks for updates when decklight starts';
+  const { readCheckRecord, checkSummary } = await loadAutoCheck();
+  const rec = readCheckRecord(home);
+  return `auto-check: on — ${rec ? checkSummary(rec) : 'not checked yet: the next edit server to start asks'}`;
+}
+
+async function autoCheckMain(args, home) {
+  const [want] = args.filter((a) => !a.startsWith('-'));
+  if (want === undefined) { console.log(await autoCheckLine(loadRegistry(home), home)); return 0; }
+  if (want !== 'on' && want !== 'off') { console.error(`decklight marketplace auto-check: on or off, not "${want}"`); return 1; }
+  (await loadAutoCheck()).setAutoCheck(want === 'on', home);
+  console.log(want === 'on'
+    ? 'auto-check: on — an edit server that starts asks each source whether it has moved (nothing is fetched), at most once in 12 hours, and the deck offers what it finds'
+    : 'auto-check: off — nothing is asked until you press C on Marketplaces… or run decklight marketplace outdated');
   return 0;
 }
 
@@ -1334,6 +1367,8 @@ async function updateMain(args, home) {
       noteChanges(reg2.marketplaces[name], before, v.manifest, { from: m.commit, to: got.commit });
       saveRegistry(reg2, home);
     }
+    // the last check found this one behind: it no longer is, and nothing offers it
+    (await loadAutoCheck()).noteUpdated(name, got.commit ?? null, home);
     console.log(`${first ? 'fetched' : 'updated'} ${name}${ref ? ` at ${ref}` : ''} — ${entriesSummary(name, v.manifest.entries)}`);
     if (at) console.log(`  cloned to ${at}${got.commit ? ` (${got.commit.slice(0, 7)})` : ''}`);
     // What's new in the CATALOG — the first fetch has no "before" to hold it
@@ -1366,6 +1401,8 @@ async function outdatedMain(args, home) {
   const reg = loadRegistry(home);
   if (name && !reg.marketplaces[name]) { console.error(`decklight marketplace outdated: no marketplace "${name}" (decklight marketplace list)`); return 1; }
   const results = await checkMarketplaces(home, { only: name ?? null });
+  // the answer is kept: Marketplaces… starts from it, and the auto-check's window is measured from it
+  (await loadAutoCheck()).recordCheck(results, home, { all: !name });
   if (args.includes('--json')) { console.log(JSON.stringify({ marketplaces: results }, null, 2)); return 0; }
   if (!results.length) { console.log('no marketplaces registered — decklight marketplace add <owner/repo | git url | path>'); return 0; }
   for (const r of results) console.log(outdatedLine(r));
@@ -1395,10 +1432,11 @@ export async function marketplaceMain(args = []) {
   const home = configHome();
   try {
     if (sub === 'add') return await addMain(rest, home);
-    if (sub === 'list') return listMain(home);
+    if (sub === 'list') return await listMain(home);
     if (sub === 'update') return await updateMain(rest, home);
     if (sub === 'outdated') return await outdatedMain(rest, home);
     if (sub === 'remove') return removeMain(rest, home);
+    if (sub === 'auto-check') return await autoCheckMain(rest, home);
   } catch (e) {
     if (e instanceof MarketplaceError) { console.error(`decklight marketplace ${sub}: ${e.message}`); return 1; }
     throw e;

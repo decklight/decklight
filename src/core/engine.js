@@ -39,7 +39,7 @@ import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { createDesignSystemsPicker, createSlideTemplatePicker, createLookOffer } from './design-systems.js';
-import { createMarketplaces } from './marketplaces.js';
+import { createMarketplaces, autoCheckToastText } from './marketplaces.js';
 import { createConceptsEditor, conceptsOn, conceptSuggestions, markConceptHints } from './concepts.js';
 import { setupSlideTemplates, isTemplateRef, pageDesignSystems } from './design-system.js';
 import { createFonts } from './fonts.js';
@@ -492,9 +492,11 @@ export function init(userConfig = {}) {
    * buttons, and a × dismisses it. For what the author is asked to act on
    * (a deck behind its design system) rather than told in passing — gone
    * in nine seconds, it was read, never acted on. `run` returning false
-   * keeps it up (the action failed and said why). Returns `{ close }`.
+   * keeps it up (the action failed and said why). `onDismiss` runs on the
+   * Dismiss button alone, for an offer that remembers being turned down.
+   * Returns `{ close }`.
    */
-  function actionToast(msg, actions = []) {
+  function actionToast(msg, actions = [], { onDismiss = null } = {}) {
     logOnly(msg);
     if (printMode || captureMode) return { close() {} };
     if (!msgEl) {
@@ -529,7 +531,7 @@ export function init(userConfig = {}) {
     x.type = 'button';
     x.className = 'toast-act toast-dismiss';
     x.textContent = 'Dismiss';
-    x.addEventListener('click', close);
+    x.addEventListener('click', () => { close(); onDismiss?.(); });
     bar.appendChild(x);
     row.append(text, bar);
     msgEl.appendChild(row);
@@ -3108,7 +3110,36 @@ export function init(userConfig = {}) {
       const title = m.content.split(':')[0];
       problemToast(`${title}: this deck is behind the version this machine serves — 1 problem with a fix`, { rule: 'ds-behind', ref });
     }
+    offerMarketplaceUpdates();
   });
+  // The marketplace auto-check (SPEC MARKETPLACES_SCREEN), when the author
+  // turned it on: what it found behind, offered in ONE toast that stays.
+  // Update is ⏎ on that row of Marketplaces… (the update, then what's new
+  // and any Migrate it brings); Dismiss is remembered by the server at that
+  // commit, so the same update is not offered again. Once a session per
+  // offer, because every write reloads the page. Asked on load and again
+  // when a starting server's check lands; it never updates anything itself.
+  let offerToast = null;
+  async function offerMarketplaceUpdates() {
+    if (!editmode.available() || printMode || params.has('embedded') || params.has('capture')) return;
+    let offers = [];
+    try {
+      const j = await (await fetch(`${editmode.base()}/deck/edit/marketplace/auto-check`)).json();
+      offers = j?.ok ? j.offers ?? [] : [];
+    } catch { return; }
+    const key = `decklight-marketplace-offer:${offers.map((o) => `${o.name}@${o.remote}`).join(',')}`;
+    try { if (!offers.length || sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch { if (!offers.length) return; }
+    for (const o of offers) debugLog('marketplace', `offered: ${o.text}`);
+    offerToast?.close();
+    const dismiss = () => Promise.all(offers.map((o) => fetch(`${editmode.base()}/deck/edit/marketplace/auto-check`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dismiss: o.name, remote: o.remote }),
+    }).catch(() => {})));
+    offerToast = actionToast(autoCheckToastText(offers), [
+      ...(offers.length === 1 ? [['Update', () => { marketplaces.open({ update: offers[0].name }); }]] : []),
+      ['Marketplaces…', () => { marketplaces.open(); }],
+    ], { onDismiss: dismiss });
+  }
+  editmode.onMarketplaces?.(() => { offerMarketplaceUpdates(); });
 
   // The video export (PRESENTING): which slides, and how — voice, format,
   // quality, subtitles — on one card, then the door every export uses. A range

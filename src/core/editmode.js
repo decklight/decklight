@@ -797,6 +797,13 @@ export function createEditMode({
           es.addEventListener('review', (ev) => {
             try { reviewEvent(JSON.parse(ev.data)); } catch { /* malformed event */ }
           });
+          // The marketplace auto-check landed (MARKETPLACES_SCREEN): the deck offers what it found
+          es.addEventListener('marketplaces', (ev) => {
+            let d = {};
+            try { d = JSON.parse(ev.data); } catch { /* malformed event */ }
+            debugLog('marketplace', `auto-check: ${d.summary ?? 'answered'}`);
+            for (const fn of marketplaceListeners) fn(d);
+          });
           // Progress for a long export — the row that started it is still on
           // screen, so this rewrites that row rather than adding one per slide.
           es.addEventListener('export', (ev) => {
@@ -3326,6 +3333,8 @@ export function createEditMode({
   let reviewRun = null;
   let review = { reviewed: false, findings: [] };
   const reviewListeners = new Set();
+  // told when the marketplace auto-check a starting server ran lands
+  const marketplaceListeners = new Set();
   async function loadReview() {
     try {
       const j = await (await fetch(editBase + '/deck/edit/review')).json();
@@ -3598,6 +3607,8 @@ export function createEditMode({
     reviewFindings: () => review.findings,
     fixFinding,
     onReview: (fn) => { reviewListeners.add(fn); },
+    /** Be told when the marketplace auto-check's answer lands (MARKETPLACES_SCREEN). */
+    onMarketplaces: (fn) => { marketplaceListeners.add(fn); },
     /** Check deck…'s fixes: the server's own (`fixProblem`), and an ask to the A agent (`askAgent`); which agents there are; a word when a write lands. */
     fixProblem,
     askAgent,

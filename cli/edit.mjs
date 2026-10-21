@@ -116,7 +116,7 @@ import { registerSlideRoutes } from './edit-slides.mjs';
 // reason: the deck's look (themes, design systems, fonts), and handing the
 // deck over (export, publish, the inspector's read), and git (the commit
 // window, the deck's history, restore).
-import { registerLookRoutes, runMarketplace } from './edit-look.mjs';
+import { registerLookRoutes, runMarketplace, autoCheckInBackground } from './edit-look.mjs';
 import { registerHandoverRoutes } from './edit-handover.mjs';
 import { registerGitRoutes } from './edit-git.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
@@ -3484,6 +3484,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
         })
         .catch(() => {});
     }
+    // Are the marketplaces behind their sources? Only when the author turned
+    // the auto-check on (SPEC MARKETPLACES_SCREEN), at most once in its
+    // window, and the same detached shape: the deck is told when the answer
+    // lands and offers it; a source that does not answer is said on the
+    // screen, never here.
+    autoCheckInBackground({ broadcast }).then((rec) => {
+      const behind = rec?.marketplaces.filter((r) => r.state === 'behind') ?? [];
+      if (behind.length) startup('marketplaces', `${behind.map((r) => r.name).join(', ')} out of date`, `  marketplaces: ${behind.map((r) => r.name).join(', ')} out of date — / → Marketplaces… updates ${behind.length === 1 ? 'it' : 'them'}`);
+    });
   }
   return { port: actual, deckUrl, host, server };
 }

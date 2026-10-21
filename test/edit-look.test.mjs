@@ -106,6 +106,7 @@ test('every look route the server dispatches is registered here', () => {
   assert.deepEqual([...routes.keys()].sort(), [
     'GET /deck/edit/design-system/browse',
     'GET /deck/edit/font/browse',
+    'GET /deck/edit/marketplace/auto-check',
     'GET /deck/edit/marketplaces',
     'GET /deck/edit/theme/browse',
     'POST /deck/edit/brand-themes',
@@ -113,6 +114,7 @@ test('every look route the server dispatches is registered here', () => {
     'POST /deck/edit/design-system/mark',
     'POST /deck/edit/font/mark',
     'POST /deck/edit/marketplace/add',
+    'POST /deck/edit/marketplace/auto-check',
     'POST /deck/edit/marketplace/check',
     'POST /deck/edit/marketplace/update',
     'POST /deck/edit/theme',
@@ -410,6 +412,46 @@ test('POST /deck/edit/marketplace/check runs `decklight marketplace outdated`, a
   assert.equal(await state(), 'behind', 'a local catalog whose manifest moved on disk is behind its cached copy');
   const bad = await call(routes, 'POST /deck/edit/marketplace/check', { body: { name: '--upload-pack=x' } });
   assert.equal(bad.code, 400, 'a name is a name, never an option');
+});
+
+test('the auto-check (#894): the list starts from the recorded answer, O turns it on and runs a due check, the deck is offered what is behind, and a dismissal holds', async (t) => {
+  const { saveRegistry } = await import('../cli/marketplace.mjs');
+  const { recordCheck, readCheckRecord } = await import('../cli/marketplace-autocheck.mjs');
+  // a home of its own: this test's registry is two fake remotes nobody asks
+  const was = process.env.DECKLIGHT_HOME;
+  process.env.DECKLIGHT_HOME = tmp('edit-look-autocheck', t);
+  t.after(() => { process.env.DECKLIGHT_HOME = was; });
+  saveRegistry({ version: 1, marketplaces: { acme: { source: 'acme/themes', commit: 'a'.repeat(40) } } });
+  const ran = [];
+  const answer = { marketplaces: [{ name: 'acme', state: 'behind', commit: 'a'.repeat(40), remote: 'b'.repeat(40), local: false }] };
+  const { routes, sent } = harness(t, DECK.replace('"theme": "aurora"', '"theme": "aurora",\n  "fonts": ["inter@acme"]'), {
+    marketplace: async (args) => { ran.push(args); return { ok: true, stdout: JSON.stringify(answer) }; },
+  });
+
+  let list = (await call(routes, 'GET /deck/edit/marketplaces')).body;
+  assert.equal(list.checked, null, 'nothing checked yet');
+  assert.deepEqual(list.autoCheck, { on: false, ask: true }, 'off, and the screen may ask once');
+  assert.deepEqual((await call(routes, 'GET /deck/edit/marketplace/auto-check')).body.offers, [], 'off: nothing offered');
+
+  assert.equal((await call(routes, 'POST /deck/edit/marketplace/auto-check', { body: { on: 'yes' } })).code, 400);
+  const on = await call(routes, 'POST /deck/edit/marketplace/auto-check', { body: { on: true } });
+  assert.deepEqual(on.body, { ok: true, on: true });
+  for (let i = 0; i < 50 && !sent.some(([e]) => e === 'marketplaces'); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(ran, [['outdated', '--json']], 'turning it on runs the check that is due, as the command C runs');
+  assert.ok(sent.some(([e]) => e === 'marketplaces'), 'and tells the pages when it lands');
+  assert.equal(readCheckRecord().marketplaces[0].state, 'behind');
+
+  list = (await call(routes, 'GET /deck/edit/marketplaces')).body;
+  assert.deepEqual(list.autoCheck, { on: true, ask: false });
+  assert.equal(list.checked.marketplaces[0].state, 'behind', 'the list says it without a C');
+
+  const offers = (await call(routes, 'GET /deck/edit/marketplace/auto-check')).body.offers;
+  assert.deepEqual(offers.map((o) => o.text), ['acme has an update: this deck uses inter (font) from it']);
+  assert.equal((await call(routes, 'POST /deck/edit/marketplace/auto-check', { body: { dismiss: '-x' } })).code, 400);
+  await call(routes, 'POST /deck/edit/marketplace/auto-check', { body: { dismiss: 'acme', remote: offers[0].remote } });
+  assert.deepEqual((await call(routes, 'GET /deck/edit/marketplace/auto-check')).body.offers, [], 'dismissed at that commit');
+  recordCheck([{ ...answer.marketplaces[0], remote: 'c'.repeat(40) }]);
+  assert.equal((await call(routes, 'GET /deck/edit/marketplace/auto-check')).body.offers.length, 1, 'the next commit is offered again');
 });
 
 test('POST /deck/edit/marketplace/update runs `decklight marketplace update` and answers with what\'s new — remembered for the list', async (t) => {

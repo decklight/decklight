@@ -9,7 +9,9 @@
 // commit, what it offers. Whether a source has moved since is a question the
 // list never asks by itself — C asks it (`decklight marketplace outdated`,
 // which reads where each ref points and fetches nothing), and each row then
-// says up to date, behind, or why it could not tell. ⏎ updates the selected
+// says up to date, behind, or why it could not tell. O turns on the one
+// check that runs by itself: once when an edit server starts, at most twice a
+// day, and the list starts from the last answer whoever asked. ⏎ updates the selected
 // marketplace and U every one found behind (`decklight marketplace update`),
 // and an update opens WHAT'S NEW: the entries the catalog added, dropped or
 // moved to a new version, and which of your installs it now has newer, with
@@ -79,6 +81,19 @@ export function ago(iso, now = Date.now()) {
 
 const short = (c) => (c ? `@${c.slice(0, 7)}` : '');
 
+/**
+ * The auto-check's one toast, from the server's offers: one marketplace in
+ * the sentence the server made (what this deck uses from it), several named
+ * together. '' for none: with nothing out of date it says nothing.
+ */
+export function autoCheckToastText(offers = []) {
+  if (!offers.length) return '';
+  if (offers.length === 1) return offers[0].text;
+  const used = offers.filter((o) => o.uses?.length).map((o) => o.name);
+  return `${offers.length} marketplaces have updates: ${offers.map((o) => o.name).join(', ')}`
+    + `${used.length ? ` (this deck uses ${used.length === 1 ? used[0] : `${used.length} of them`})` : ''}`;
+}
+
 /** A hint's keys drawn as keycaps: "⏎ update · C check" → <kbd>⏎</kbd> update · <kbd>C</kbd> check. */
 const keys = (hint) => escapeHtml(hint).replace(/(^|· )(↑\/↓|⏎|Esc|[A-Z])(?= )/g, '$1<kbd>$2</kbd>');
 
@@ -113,8 +128,11 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, mi
   let el = null, view = 'list', then = null, busy = null;
   // the list
   let list = null, listError = null, sel = 0, rows = [];
-  const checks = new Map();   // name → the last check's answer, kept while the page lives
+  const checks = new Map();   // name → the last check's answer: the server's record, then C's
   let checkedAt = null;
+  // the auto-check: is it on, and is this the once the screen asks to turn it on
+  let autoCheck = { on: false, ask: false };
+  let asked = false;
   // the add view
   let step = 'ask', spec = '', plan = null, addError = null;
   // what's new
@@ -183,11 +201,15 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, mi
     html += `<div class="narr-row mk-row mk-add" data-i="${rows.length - 1}"><span class="mk-mark" aria-hidden="true">+</span>`
       + '<span class="narr-row-label"><span class="mk-head"><span class="mk-name">Add a marketplace…</span><span class="narr-flavor">owner/repo, a git URL, or a path</span></span></span></div>';
     const behind = list.filter((m) => isBehind(m, checks.get(m.name))).length;
+    // asked once per machine, while it is off: the server remembers it was
+    const ask = autoCheck.ask && !autoCheck.on;
+    if (ask && !asked) { asked = true; call('POST', '/deck/edit/marketplace/auto-check', { asked: true }).catch(() => {}); }
     html += '<div class="mk-foot">'
       + `<div class="rec-line mk-summary${checkedAt && behind ? ' mk-summary-behind' : ''}">${busy?.check ? 'asking each source where it is now…'
         : checkedAt ? `checked ${ago(checkedAt)}: ${behind ? `${behind} of ${list.length} out of date` : 'all up to date'}`
           : 'C asks each source whether it has moved — nothing is fetched'}</div>`
-      + `<div class="rec-hint">${keys(`↑/↓ · ⏎ update · C check for updates${behind ? ' · U update all out of date' : ''} · A add · Esc closes`)}</div>`
+      + `${ask ? `<div class="rec-line mk-auto-ask">${keys('Check automatically when decklight starts? · O turns it on')}</div>` : ''}`
+      + `<div class="rec-hint">${keys(`↑/↓ · ⏎ update · C check for updates${behind ? ' · U update all out of date' : ''} · A add · O ${autoCheck.on ? 'auto-check on' : 'auto-check off'} · Esc closes`)}</div>`
       + '</div>';
     c.innerHTML = html;
     c.querySelectorAll('.mk-row').forEach((r) => {
@@ -289,8 +311,16 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, mi
 
   async function load() {
     try {
-      list = (await call('GET', '/deck/edit/marketplaces')).marketplaces ?? [];
+      const j = await call('GET', '/deck/edit/marketplaces');
+      list = j.marketplaces ?? [];
       listError = null;
+      autoCheck = j.autoCheck ?? autoCheck;
+      // the last check's answer, whoever asked: C here, the command line, or
+      // the auto-check a starting server ran, so the rows say it without a C
+      if (j.checked && (!checkedAt || Date.parse(j.checked.at) >= Date.parse(checkedAt))) {
+        for (const r of j.checked.marketplaces ?? []) checks.set(r.name, r);
+        checkedAt = j.checked.at;
+      }
     } catch (e) {
       listError = `could not list the marketplaces — ${e.message ?? e}`;
     }
@@ -356,6 +386,21 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, mi
     busy = null;
     render();
     toast(`updated ${done} of ${due.length} marketplace${due.length === 1 ? '' : 's'}${done ? ' — W on a row says what\'s new' : ''}`, 5000);
+  }
+
+  /** O: check for updates when decklight starts, or stop. Said in a toast, and on the screen. */
+  async function toggleAutoCheck() {
+    if (busy || !list) return;
+    try {
+      const j = await call('POST', '/deck/edit/marketplace/auto-check', { on: !autoCheck.on });
+      autoCheck = { on: j.on, ask: false };
+      debugLog('marketplace', `auto-check ${j.on ? 'on' : 'off'}`);
+      toast(j.on ? 'checks the marketplaces for updates when decklight starts — at most twice a day, and only offers'
+        : 'no longer checks the marketplaces when decklight starts — C still does', 4200);
+    } catch (e) {
+      toast(`could not change the auto-check — ${e.message ?? e}`, 6000);
+    }
+    render();
   }
 
   function whatsNew() {
@@ -436,7 +481,11 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, mi
 
   // ── the card ───────────────────────────────────────────────────────────
 
-  function open({ view: start = 'list', then: backTo = null } = {}) {
+  /**
+   * `update` names a marketplace to update as soon as the list is in: the
+   * auto-check's toast, whose Update is ⏎ on that row, what's new and all.
+   */
+  function open({ view: start = 'list', then: backTo = null, update: name = null } = {}) {
     if (el) return;
     if (base() === null) { toast('marketplaces are managed in write mode — or decklight marketplace list', 3200); return; }
     el = document.createElement('div');
@@ -447,7 +496,10 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, mi
     then = backTo; list = null; listError = null; sel = 0; busy = null;
     view = 'list';
     if (start === 'add') openAdd(); else render();
-    load();
+    load().then(() => {
+      const m = name && list?.find((x) => x.name === name);
+      if (m && el) update(m);
+    });
   }
 
   function close() {
@@ -477,6 +529,7 @@ export function createMarketplaces({ root, base, toast, onChanged = () => {}, mi
     else if (k === 'u') updateAll();
     else if (k === 'w') whatsNew();
     else if (k === 'a') openAdd();
+    else if (k === 'o') toggleAutoCheck();
     return true;   // the card holds the keyboard while it is open
   }
 

@@ -108,7 +108,8 @@ fetched as written.
 **The invariant everything above serves: registering is not fetching.** The
 network is touched only by an explicit `add`, `update` or `outdated` of a
 remote source (and `outdated` only asks where a ref points; it fetches no
-file): never at registration, never when a deck loads, never while presenting. The
+file; the auto-check the author turned on is that same `outdated`): never at
+registration, never when a deck loads, never while presenting. The
 first-party marketplace is registered on first CLI run as a pure filesystem
 write; its first fetch happens at the first browse or `update`, so first run
 offline is silent and instant, and a deck on conference wifi, on a plane, or
@@ -125,7 +126,10 @@ what's new, and registers a new one without leaving the deck (SPEC
 `decklight marketplace` command (`outdated`, `update`, `add`) as a child
 process. Checking is the one network act that fetches nothing: `outdated` asks
 each remote where its ref points (`git ls-remote`) and compares a local
-directory's manifest with the cached copy, and it runs only when asked. Adding takes the
+directory's manifest with the cached copy, and it runs only when asked: C on
+the screen, or, once the author has turned on *Check for updates when decklight
+starts* (off until then), an edit server as it starts, at most twice a day.
+Either way it only ever offers; an update is still asked for. Adding takes the
 same three forms and `--branch`, and the edit server runs **`decklight marketplace add`
 itself**, as a child process: the same command, the caller's git credentials on
 this machine, the same refusals, so `marketplace list` cannot tell which door a

@@ -218,6 +218,7 @@ narrate, template, library, gate) are defined once in
 | `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide templates, served from the marketplace on this machine (`list`, `templates`, and `gate`, the gate a catalog runs) |
 | `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `gate`, the gate a catalog runs) |
 | `marketplace list` / `outdated` / `update <name>` | what each catalog offers; which are behind their source (asked, nothing fetched); and an update, which says what's new in the catalog and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it). In write mode, `/` → **Marketplaces…** does all of it, and adds one, from the deck |
+| `marketplace auto-check on\|off` | off until you turn it on: an edit server that starts asks whether a marketplace is behind (at most twice a day, nothing fetched), and the deck offers the update. It never takes one by itself. **O** on **Marketplaces…** is the same switch |
 | `library add <kind> <name>` | install into your own library: a `plugin` (presenter chrome over any deck you open, with or without trust; `bundle` never carries it), a `skill`, an `importer`, a `transform`, an `engine`, a `voice` or an `agent` (`remove`, `list [kind]`) |
 | `library gate <kind> <path>` | the marketplace admission gate for a `transform` or a `plugin` |
 

@@ -1877,6 +1877,8 @@
 .decklight-marketplaces .mk-foot { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, .1); }
 .decklight-marketplaces .mk-summary { opacity: .6; font-size: .85em; }
 .decklight-marketplaces .mk-summary-behind { color: #ffcf8b; opacity: .9; }
+/* the auto-check's one question, asked while it is off */
+.decklight-marketplaces .mk-auto-ask { font-size: .85em; opacity: .85; padding-top: 4px; }
 .decklight-marketplaces .rec-hint { padding-top: 6px; }
 .decklight-marketplaces kbd {
   display: inline-block; padding: 0 5px; margin: 0 1px;

@@ -457,7 +457,62 @@ export function registerLookRoutes(routes, {
         newer: newer.filter((n) => n.qualified.endsWith(`@${name}`)),
       };
     });
-    return json(200, { ok: true, marketplaces, cacheOnly: true });
+    // the last check's answer, whoever asked (C, the command line, or the
+    // auto-check a starting server ran), so the list says it without a C;
+    // and whether that auto-check is on, and if not, whether to ask once
+    const { readCheckRecord, autoCheckOn, autoCheckOffered } = await import('./marketplace-autocheck.mjs');
+    const rec = readCheckRecord(configHome());
+    const on = autoCheckOn(configHome());
+    return json(200, {
+      ok: true, marketplaces, cacheOnly: true,
+      checked: rec ? { at: new Date(rec.checkedAt).toISOString(), marketplaces: rec.marketplaces } : null,
+      autoCheck: { on, ask: !on && !autoCheckOffered(configHome()) },
+    });
+  }
+
+  /**
+   * `GET /deck/edit/marketplace/auto-check`: what the auto-check found that
+   * the open deck should offer (SPEC MARKETPLACES_SCREEN) — every marketplace
+   * the last check found behind, not dismissed at that commit, with what this
+   * deck uses from it. Read from the record; asks nothing. Empty while the
+   * switch is off.
+   */
+  async function autoCheckGetRoute({ json }) {
+    const { configHome } = await import('./marketplace.mjs');
+    const { readCheckRecord, autoCheckOn, autoCheckOffers } = await import('./marketplace-autocheck.mjs');
+    let html = null;
+    try { html = readDeck(); } catch { /* no deck to say what it uses */ }
+    const rec = readCheckRecord(configHome());
+    return json(200, {
+      ok: true, on: autoCheckOn(configHome()),
+      checkedAt: rec ? new Date(rec.checkedAt).toISOString() : null,
+      offers: await autoCheckOffers(html, configHome()),
+    });
+  }
+
+  /**
+   * `POST /deck/edit/marketplace/auto-check` `{ on } | { asked: true } |
+   * { dismiss, remote }`: turn the auto-check on or off (O on the screen; the
+   * file `decklight marketplace auto-check` writes), say the screen has asked
+   * its one question, or dismiss an offer at the commit it was made for.
+   * Turning it on is the consent, so a check that is due runs then, in the
+   * background, and the pages are told when its answer lands.
+   */
+  async function autoCheckPostRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const { configHome } = await import('./marketplace.mjs');
+    const ac = await import('./marketplace-autocheck.mjs');
+    if (typeof req.dismiss === 'string') {
+      if (!/^\w[\w-]*$/.test(req.dismiss)) return json(400, { ok: false, error: 'which marketplace? — its registered name' });
+      ac.dismissOffer(req.dismiss, typeof req.remote === 'string' ? req.remote : null, configHome());
+      return json(200, { ok: true, dismissed: req.dismiss });
+    }
+    if (req.asked === true) { ac.markAutoCheckOffered(configHome()); return json(200, { ok: true }); }
+    if (typeof req.on !== 'boolean') return json(400, { ok: false, error: 'on is true or false' });
+    const on = ac.setAutoCheck(req.on, configHome());
+    console.log(`  marketplaces: auto-check ${on ? 'on' : 'off'}`);
+    if (on) autoCheckInBackground({ run: marketplace, broadcast });
+    return json(200, { ok: true, on });
   }
 
   /**
@@ -526,7 +581,26 @@ export function registerLookRoutes(routes, {
   routes.set('GET /deck/edit/marketplaces', marketplacesRoute);
   routes.set('POST /deck/edit/marketplace/check', marketplaceCheckRoute);
   routes.set('POST /deck/edit/marketplace/update', marketplaceUpdateRoute);
+  routes.set('GET /deck/edit/marketplace/auto-check', autoCheckGetRoute);
+  routes.set('POST /deck/edit/marketplace/auto-check', autoCheckPostRoute);
   return routes;
+}
+
+/**
+ * The auto-check, if it is due (SPEC MARKETPLACES_SCREEN): `run` is
+ * `decklight marketplace <args…>`, and `broadcast` tells every page when the
+ * answer lands, so the deck offers it without a reload. Never awaited by a
+ * caller that matters, and silent on failure: resolves to the record, or null.
+ * The edit server calls it once as it starts; turning the switch on calls it too.
+ */
+export function autoCheckInBackground({ run = runMarketplace, broadcast = () => {} } = {}) {
+  return import('./marketplace-autocheck.mjs')
+    .then(({ runAutoCheck, checkSummary }) => runAutoCheck({ run }).then((rec) => {
+      if (!rec) return null;
+      broadcast('marketplaces', { checkedAt: rec.checkedAt, summary: checkSummary(rec) });
+      return rec;
+    }))
+    .catch(() => null);
 }
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
