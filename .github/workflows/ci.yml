@@ -225,7 +225,13 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
-    name: verify · windows ${{ matrix.shard }}/3
+    # A STATIC name, on purpose: GitHub appends the shard itself (`verify ·
+    # windows (2)`), and a job skipped by its `if:` is reported under the
+    # name as written — a matrix expression in it would be reported unexpanded
+    # (`verify · windows ${{ matrix.shard }}/3`), and a ruleset requiring
+    # `verify · windows` would then wait forever on a PR for a check that
+    # never reports under that name. This is what happened on #897.
+    name: verify · windows
     steps:
       - uses: actions/checkout@v5
 
