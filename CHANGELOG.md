@@ -5,6 +5,178 @@ Compiled at release time from the merged PR titles — not updated per PR (see
 number. Each release also has a [GitHub release](https://github.com/decklight/decklight/releases)
 carrying the same notes in prose.
 
+## 0.10.0
+
+Fifty-seven commits since 0.9.0, counting this one. 0.9.0 gave a deck a
+design system, a marketplace and a voice. This release is about what happens
+**the week after**: the design system ships a new major and the deck is
+**told, once, and migrated** by your agent; the marketplace moves and **one
+screen** says which catalogs are behind; and the voice is **yours**, recorded a
+slide at a time with a count-in, re-recorded a beat at a time, and checked
+against the notes it read. Under all three, **Check deck…** became the one
+problems panel, each finding with the fix it would apply.
+
+### Your own voice, recorded properly (SPEC `PRESENTING_VOICE`)
+
+`decklight narrate --mic` (or `V` → Record this deck… → With your voice) was a
+single card that asked everything at once. It is now three cards and a review.
+
+The **plan card** lists every slide with what the folder already holds for it
+(recorded, not recorded, notes or `[click]` moved since), scopes a take to the
+whole deck, only what is missing or changed, this slide or a range, and checks
+the microphone's level before the first slide rather than after it (#862). A
+start-at row picks any beat of any slide, and an end stepper stops the take
+there, so one fluffed sentence in the middle of a slide is redone on its own
+and the beats either side are kept byte for byte (#855, #868; `--slides N
+--beats k-l` from the command line).
+
+A **take is a whole slide** by default: counted in once, read straight
+through, `→` revealing the next build and cutting the beat file there while
+the recording runs on. `--takes beat` keeps the old stop-and-count at every
+`[click]` (#858). Every take is counted in, so the keystroke is never in the
+audio; the count-in is 3 s, 1 s or off (`--countdown N`), `←` re-records the
+slide before, and the card picks noise suppression and 48 kHz (#852, #857).
+The **recording card** keeps the words largest and lays the take out around
+them: REC and its clock, the level meter, the beats already read and when you
+cut each, the beats to come (#872). **`E`** opens the beat's words in a box,
+saves them to the deck's notes, and records the beat again (#863). The
+**phone remote** ends and retakes a beat, so recording needs no keyboard at
+all (#849). The **done card** is a review: every slide played back or redone,
+and the deck pointed at the folder in one edit (#876).
+
+Your voice records into **`voices/me`** by default, and recording again
+refreshes it rather than proposing `voices/me-2` (#854). It **keeps the script
+it read**: each slide's `[click]` split is written to the folder's manifest,
+and `V` and **`decklight narrate --check`** say which slides' notes or split
+moved on since, with the command that re-records them (#856). And it
+**exports**: a folder with no manifest renders off the disk, and the video
+card offers it as *My voice* (#853).
+
+### A design system's next major (SPEC `DESIGN_SYSTEM_MIGRATIONS`, `DESIGN_SYSTEMS`)
+
+A new SPEC section. A deck **records the version** of each design system it
+took (`designSystemVersions`), and a package **declares what each major
+renamed** (roles, tokens, classes, themes, and the skill that knows the rest),
+checked by the admission gate under a new `migration` rule (#883). A deck
+behind is told **once**, in one sentence everywhere: `check`'s `ds-behind`, a
+toast in write mode, and *this deck is now behind* in what's new after a
+marketplace update (#883, #891).
+
+**Migrate** is offered on all three, and runs in the agent panel: with the
+skill and an agent, the agent runs `design-system migrate` and then the
+skill's judgement calls; without, the server applies the renames itself. One
+commit, one undo for the deck and the stylesheets it links (#891). The agent's
+report shows from its start, the commit keeps the version, and nothing is left
+in the project (#895). A job that needs a **skill the agent lacks** offers to
+install it first, for every project or this one, and Migrate still reaches
+the skill where it is when you decline (#898).
+
+A diagram on a templated slide is picked, labelled and recoloured in place,
+no longer mistaken for the template's own decoration (#832).
+
+### Marketplaces… (SPEC `MARKETPLACES_SCREEN`)
+
+A new SPEC section. A marketplace **registers from inside the deck**, and the
+pickers list it at once (#839). That card became **one screen** for every
+catalog: `C` asks each source whether it moved (**`decklight marketplace
+outdated`**, a `git ls-remote`, nothing fetched), `⏎` or `U` updates, and
+**what's new** lists the entries added, gone and newer than what you installed
+(#877). It reads as a list with a state pill per row (#878), and the add view
+shows one example of each form and takes `--branch` (#879). An **opt-in check
+when decklight starts** (`decklight marketplace auto-check on`, or `O` on the
+screen) runs at most twice a day and offers what the open deck uses in one
+toast; nothing is ever updated by itself (#896).
+
+A GitHub repository is one catalog whether it was added by SSH URL or as
+`owner/repo` (#870), and a second entry from a catalog the deck records in
+SSH form keeps the deck's name for it (#875).
+
+### Skills reach the agents (PLATFORM `UNITS#REST`)
+
+`decklight library add skill` used to write a folder no agent reads. An
+installed skill is now copied into `.claude/skills/`, listed in each
+`AGENTS.md` that has the Decklight section, and named by the authoring skill
+(#882). It is copied only into a project that already has an agent setup, so
+no stray `.claude/` appears anywhere else (#885).
+
+### Check deck…: one problems panel (SPEC `PRESENTING_EDITING`)
+
+**Check deck…** docks like the other panels and lists **every** finding: the
+page's measurements, the file's half (head-level and deck-wide findings
+included, from the same rules as `check --json`) and the agent review's. Each
+row says what its fix will do. Deterministic fixes (Migrate, the brand's
+theme, a renamed role) are applied by the server; judgement fixes go to the
+agent as an ordinary ask. Either way: one undo entry, one commit (#892).
+
+### Editing
+
+- A **long job can be stopped** without stopping the server: a video, PDF or
+  PowerPoint export, an agent's edit, a script rewrite or a review. `/` →
+  **Stop …** (SPEC `PRESENTING_OUTPUT`, #866).
+- The video export card no longer starts the render on a range click; an
+  **Export video** button does (#865).
+- The **commit window** reads top to bottom, commit then tag then push, one
+  button each (#871).
+- A deck git has never seen **stays untracked until `K`**, instead of being
+  committed to whatever branch is checked out at startup (#829).
+- The notes card has a toolbar you can hit, an edit / changes switch, and the
+  agent's rewrite saves itself with its changes open (#864).
+- The Inspector opens **Concept colors…** from its colors and info tabs
+  (SPEC `SVG_DIAGRAMS`, #867).
+- The design systems picker: one `●` per row, a one-line description, and the
+  selected row says what Space will do (#861).
+
+### Bundle one chapter (SPEC `PRESENTING`)
+
+**`decklight bundle --module`** bundles one `data-module` chapter, with its
+narration renumbered to its slides rather than re-voiced (#828), and the
+in-deck bundle card offers the same choice (#842).
+
+### Runtime
+
+- The arrows, slide number, toasts and the welcome and help cards **shrink
+  with a small box**, down to half size, and never grow (#836).
+- A `<line>`, `<polyline>` or `<rect>` on a hidden slide **draws** instead of
+  fading on Chrome builds that refuse to measure it (`BUILD_ENTRANCES`, #833).
+- The elapsed talk timer ticks on the talk's own seconds, never one behind
+  (#887).
+- The messages log's key is called **the tilde key** (#859).
+
+### Smaller things
+
+`decklight cast` ends a step stopped with Ctrl-C as exit 130, so a server can
+be stopped on camera (`RECORDER_CLI`, #841), and a recording ends when the
+shell does rather than 1.5 s later (#890). The startup banner waits for the
+server's own URL instead of printing the planned one (#886). `decklight pdf`
+refuses a dotfile deck with the reason rather than one blank page (#895).
+
+### The showcase and the site
+
+`demo/showcase.html` is **one talk, from an empty folder to a published
+link**, in eleven slides of real recordings (#846), built on the material in
+`demo/northwind/` (an invented company's design system) and
+`demo/postmortem/` (the talk at every stage, and its casts) (#845). The
+published talk is served at decklight.io/postmortem.
+
+decklight.io leads with **five pillars** and shows instead of tells (#827).
+The diagram and theme tiles are a live Decklight deck and the import tile a
+real import (#830); the narration pillar is a recording of the showcase
+narrating a slide, its builds stepping with the voice (#834, #835, #847). The
+deploy publishes again after an apostrophe broke its shell quoting, and
+`npm test` now runs `bash -n` on every workflow step (#837).
+
+### Verification
+
+`npm test` went from 3m35s to 2m00s on four cores: a server-ready timeout
+nobody cleared kept 19 files idling after their last test (#884), and the cast
+tests from 32 s to 6 s (#890). Two Windows flakes were found and fixed at the
+cause rather than retried: the clock harness's one-second lag (#887) and the
+banner's planned port (#886, with #873 making the failure say why). A
+Ctrl-C test stops a one-process server so a busy machine cannot lose the
+interrupt (#844). In CI, the merge queue re-checks the Ubuntu jobs only, and
+`verify · windows` runs on `main` in three shards (`VERIFY_SHARD`), taking a
+queued merge from 11 to 16 minutes to about 7 (#897).
+
 ## 0.9.0
 
 Three hundred and thirteen commits since 0.8.1, and the release has a shape:

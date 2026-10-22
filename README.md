@@ -74,7 +74,7 @@ configuration block) and `decklight <deck>` adds the runtime as it serves it, in
 <head>
   <meta charset="utf-8">
   <script type="application/json" data-decklight-config>
-  { "decklight": "0.9.0", "theme": "aurora", "transition": "fade" }
+  { "decklight": "0.10.0", "theme": "aurora", "transition": "fade" }
   </script>
 </head>
 <body>

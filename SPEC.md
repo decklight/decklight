@@ -361,7 +361,7 @@ A theme travels as what it already is: **one CSS file**. There is no registry, a
 **A deck refers to a theme; it does not carry one.** A source deck is data (`DECK_ANATOMY`), and a theme from outside the shipped set is somebody else's kilobytes of CSS, so the deck records only *which* theme it uses, as a reference in its configuration block, and the CSS stays in its marketplace:
 
 ```json
-{ "decklight": "0.9.0", "theme": "acme",
+{ "decklight": "0.10.0", "theme": "acme",
   "markedThemes": ["acme@acme-themes"], "themeSources": { "acme-themes": "acme/decklight-themes" } }
 ```
 
@@ -1255,7 +1255,8 @@ decklight/
                  mode), pick.js (what a pointer means inside a diagram), style-clip.js (Copy style and Paste style),
                  concepts.js + concept-tools.js (the deck's concepts, and putting shapes into one, SVG_DIAGRAMS),
                  deckcheck.js (Check deck…) + density.js (SLIDE_DENSITY, measured), dock.js (the panel beside the
-                 slide), choice.js (one answer on a card), ranges.js (a slide range, picked), prefs.js (the deck's
+                 slide), choice.js (one answer on a card), marketplaces.js (the Marketplaces… screen, MARKETPLACES_SCREEN),
+                 stroke-geometry.js (a hidden shape's stroke length, for a draw build the browser will not measure), ranges.js (a slide range, picked), prefs.js (the deck's
                  memory, where localStorage may throw), undo-chord.js (the undo chord as this machine spells it)
                  — plus autoanimate, builds, print, svg, charts, media,
                  speaker, annotate, character, character-art, devmode, themegen, voicetrack
@@ -1276,7 +1277,8 @@ decklight/
                  theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides →
                  deck, JS_API), pdf.mjs (the print variants, PRESENTING) + pptx-export.mjs (deck → PowerPoint,
                  NON_GOALS), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY; entry versions and
-                 the install ledger, UNIT_VERSIONS), enhance.mjs (the notes rewritten by your agent: audio tags, or
+                 the install ledger, UNIT_VERSIONS) + marketplace-autocheck.mjs (the opt-in check when a server
+                 starts, MARKETPLACES_SCREEN), enhance.mjs (the notes rewritten by your agent: audio tags, or
                  written for the ear — checked before a byte is written), design-system.mjs (the design-system
                  admission gate, and add/remove/list/templates, DESIGN_SYSTEMS) + design-system-refs.mjs (a deck's
                  design systems: resolution, injection, and serving the package) + design-system-edit.mjs
@@ -1306,20 +1308,23 @@ decklight/
                  a tree built without the working tree), comments.mjs + review-store.mjs + review-ref.mjs +
                  review-routes.mjs + review-submit.mjs + review-remote.mjs (REVIEW: the comment store, a review
                  as a branch, its routes, sending it back and what is waiting), agent-review.mjs (Check deck…'s
-                 review by the local agent), bundle-audio.mjs (a bundle's narration audio), report-bug.mjs
+                 review by the local agent), bundle-audio.mjs (a bundle's narration audio) + bundle-module.mjs (one
+                 chapter as its own bundle, its narration renumbered), report-bug.mjs
   tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), atomic-write.mjs (a temp sibling and a rename, so a
-                 crash never truncates a deck), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge) + lipsync-engines.mjs (rhubarb, Wav2Lip, SadTalker, and preparing a photo or a film) + lipsync-config.mjs (the talking-head setup, saved once), visemes.mjs (timeline v1), design-system-format.mjs (the design-system package rules, pure, DESIGN_SYSTEMS) + font-format.mjs (the font package rules and the one @font-face writer, pure, FONTS) + semver.mjs (versions and their precedence, UNIT_VERSIONS), video.mjs (deck → narrated mp4, PRESENTING)
+                 crash never truncates a deck), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge) + lipsync-engines.mjs (rhubarb, Wav2Lip, SadTalker, and preparing a photo or a film) + lipsync-config.mjs (the talking-head setup, saved once), visemes.mjs (timeline v1), design-system-format.mjs (the design-system package rules, pure, DESIGN_SYSTEMS) + design-system-migrations.mjs (what a major renamed, and applying it, DESIGN_SYSTEM_MIGRATIONS) + font-format.mjs (the font package rules and the one @font-face writer, pure, FONTS) + semver.mjs (versions and their precedence, UNIT_VERSIONS), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        46 × <name>.css (the graded + reveal-compat sets; the homage packs moved to the
                  marketplace, THEME_DISTRIBUTION) + packs.json + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
   demo/          smoke.html (the render harnesses' deck — every feature, including deliberate regression
-                 fixtures) + intro.html, features.html, pitch.html, showcase.html + assets/
+                 fixtures) + intro.html, features.html, pitch.html, showcase.html + assets/ + northwind/ (an
+                 invented company's design system, as a local marketplace) + postmortem/ (the talk the showcase
+                 tells, at every stage, and its casts)
   test/          node:test units (ansi, builds, math, cast format, the CLI, the marketplace, the pieces lifted out
                  of engine.js), found by run.mjs rather than a shell glob + 30 headless-Chrome harnesses (render,
                  player, narration × 5 — live/picker/recorded/segments/record, engine × 8 — themes/palette/
                  narration/navigation/handover/sources/authoring/builds, record, review, character, pin,
                  overflow, split, strict, shot, plugin, extension-check, deckfile, pdf, pptx-render, import,
-                 theme-config) +
+                 theme-config) + verify-shard.mjs (VERIFY_SHARD=i/n: the harnesses dealt out, for CI) +
                  contrast.mjs and palette-rules.mjs (every shipped theme through tools/theme-check.mjs, and the house palette bar) + the two manual end-to-end scripts neither
                  blessed suite runs: soak.mjs (pack, install, walk the journey — the release gate) with its
                  soak-platform.mjs, and video-e2e.mjs (a real ffmpeg render)
