@@ -812,7 +812,9 @@ test('an agent ask offers Decklight\'s skill first when the agent has neither co
 
   const asked = await (await post(base, '/deck/edit/agent', { prompt: 'sign the deck', offer: true })).json();
   assert.deepEqual([asked.choose, asked.agent, asked.skills], ['skill', 'claude', ['decklight']], JSON.stringify(asked));
-  assert.equal(asked.places[0].global, path.join(claude, 'skills', 'decklight'));
+  // said as the author reads it: relative to the server's folder when it is inside it, as this temp one is
+  assert.ok(path.resolve(dir, asked.places[0].global) === path.join(claude, 'skills', 'decklight')
+    || asked.places[0].global.endsWith(path.join('claude-home', 'skills', 'decklight')), asked.places[0].global);
   assert.equal(asked.places[0].project, path.join('.claude', 'skills', 'decklight'));
   assert.equal(readFileSync(path.join(dir, 'deck.html'), 'utf8'), DECK, 'nothing ran before the answer');
 

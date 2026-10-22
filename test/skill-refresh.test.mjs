@@ -124,7 +124,8 @@ test('before an agent job: Decklight\'s skill is found where each agent reads it
   const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'claude'), CODEX_HOME: path.join(dir, 'codex'), DECKLIGHT_HOME: path.join(dir, 'dl') };
   for (const key of ['claude', 'codex']) assert.equal(placedDecklightSkill(key, { dir: project, env }), null, key);
   assert.deepEqual(placedDecklightSkill('gemini', { dir: project, env }), { scope: 'none', file: null }, 'no install for it: never offered');
-  assert.equal(decklightSkillPlaces('codex', { dir: project, env }).global, path.join(dir, 'codex', 'AGENTS.md'));
+  // said as the author reads it (relative, or under ~), so only its end is the fact
+  assert.ok(decklightSkillPlaces('codex', { dir: project, env }).global.endsWith(path.join('codex', 'AGENTS.md')));
 
   // an AGENTS.md without the section is not the skill
   fs.writeFileSync(path.join(project, 'AGENTS.md'), '# notes\n');
