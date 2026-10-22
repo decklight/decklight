@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { staleSkills, refreshSkills } from '../cli/skills.mjs';
+import { staleSkills, refreshSkills, placedDecklightSkill, decklightSkillPlaces, installDecklightSkill, skillOfferDeclined, declineSkillOffer } from '../cli/skills.mjs';
 import { offerSkillRefresh } from '../cli/open.mjs';
 import { PKG, AGENTS_MARKER, SKILL_STAMP, agentsSection, claudeSkillMd, skillVersionOf } from '../cli/skill-content.mjs';
 import { rmTemp } from './helpers.mjs';
@@ -114,4 +114,30 @@ test('offerSkillRefresh: ⏎ refreshes; n is remembered for this version, and no
     assert.match(lines.join('\n'), /installed the Decklight skill \(v/);
     assert.deepEqual(staleSkills({ dir, env }), []);
   } finally { rmTemp(root); }
+});
+
+test('before an agent job: Decklight\'s skill is found where each agent reads it, installed there, and a no is kept per project and agent', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-skill-offer-'));
+  t.after(() => rmTemp(dir));
+  const project = path.join(dir, 'talk');
+  fs.mkdirSync(project);
+  const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'claude'), CODEX_HOME: path.join(dir, 'codex'), DECKLIGHT_HOME: path.join(dir, 'dl') };
+  for (const key of ['claude', 'codex']) assert.equal(placedDecklightSkill(key, { dir: project, env }), null, key);
+  assert.deepEqual(placedDecklightSkill('gemini', { dir: project, env }), { scope: 'none', file: null }, 'no install for it: never offered');
+  assert.equal(decklightSkillPlaces('codex', { dir: project, env }).global, path.join(dir, 'codex', 'AGENTS.md'));
+
+  // an AGENTS.md without the section is not the skill
+  fs.writeFileSync(path.join(project, 'AGENTS.md'), '# notes\n');
+  assert.equal(placedDecklightSkill('codex', { dir: project, env }), null);
+  installDecklightSkill('codex', { global: false, dir: project, env });
+  assert.equal(placedDecklightSkill('codex', { dir: project, env }).scope, 'project');
+  installDecklightSkill('claude', { global: true, dir: project, env });
+  assert.deepEqual(placedDecklightSkill('claude', { dir: project, env }), { scope: 'global', file: path.join(dir, 'claude', 'skills', 'decklight', 'SKILL.md') });
+  assert.ok(!fs.existsSync(path.join(project, '.claude')), 'every project is the config home, not this one');
+
+  assert.equal(skillOfferDeclined('claude', { dir: project, env }), false);
+  declineSkillOffer('claude', { dir: project, env });
+  assert.equal(skillOfferDeclined('claude', { dir: project, env }), true);
+  assert.equal(skillOfferDeclined('codex', { dir: project, env }), false, 'per agent');
+  assert.equal(skillOfferDeclined('claude', { dir, env }), false, 'per project');
 });

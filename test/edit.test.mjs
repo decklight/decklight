@@ -275,6 +275,11 @@ test('agentCommand builds each agent\'s headless one-shot invocation', () => {
   assert.match(here.args[1], /do not call the commit route/);
   assert.doesNotMatch(claude.args[1], /The presenter is on slide/, 'no slide, no sentence');
 
+  // a folder outside the project the job must read: claude is given it, and only it
+  const skill = agentCommand('claude', 'migrate', 'deck.html', { hasBin: () => true, dirs: ['/home/me/.decklight/skills/acme-migrate'] });
+  assert.deepEqual(skill.args.slice(skill.args.indexOf('--add-dir'), skill.args.indexOf('--add-dir') + 2), ['--add-dir', '/home/me/.decklight/skills/acme-migrate']);
+  assert.ok(!claude.args.includes('--add-dir'), 'no dirs, no --add-dir');
+
   const codex = agentCommand('codex', 'x', 'deck.html', { hasBin: () => true });
   assert.deepEqual(codex.args.slice(0, 2), ['exec', '--full-auto']);
 
@@ -785,6 +790,61 @@ test('a repository decklight did not create never gets ignore rules', async (t) 
   assert.equal(existsSync(path.join(dir, '.gitignore')), false,
     'the repo-creation moment is the only time decklight touches ignore rules');
 });
+
+/** Until the agent job in flight is over. */
+async function agentSettled(base) {
+  for (let i = 0; i < 200; i++) {
+    const p = await (await fetch(base + '/deck/ping')).json();
+    if (!p.agentBusy && p.agentAsks?.at(-1)?.state === 'done') return p;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  return null;
+}
+
+test('an agent ask offers Decklight\'s skill first when the agent has neither copy, and a no is not asked again here', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  writeFakeBin(bin, 'claude', "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
+  const claude = path.join(dir, 'claude-home');
+  const { base } = await startEdit(t, dir, { env: { PATH: bin, CLAUDE_CONFIG_DIR: claude, DECKLIGHT_HOME: path.join(dir, 'home') } });
+
+  const asked = await (await post(base, '/deck/edit/agent', { prompt: 'sign the deck', offer: true })).json();
+  assert.deepEqual([asked.choose, asked.agent, asked.skills], ['skill', 'claude', ['decklight']], JSON.stringify(asked));
+  assert.equal(asked.places[0].global, path.join(claude, 'skills', 'decklight'));
+  assert.equal(asked.places[0].project, path.join('.claude', 'skills', 'decklight'));
+  assert.equal(readFileSync(path.join(dir, 'deck.html'), 'utf8'), DECK, 'nothing ran before the answer');
+
+  // a client that cannot ask (no offer) is never held up
+  assert.equal((await (await post(base, '/deck/edit/agent', { prompt: 'sign the deck' })).json()).agent, 'claude');
+  await agentSettled(base);
+
+  // not now: nothing installed, the ask runs, and the next one is not asked
+  assert.equal((await (await post(base, '/deck/edit/agent', { prompt: 'sign it', offer: true, place: 'none' })).json()).agent, 'claude');
+  await agentSettled(base);
+  assert.ok(!existsSync(path.join(claude, 'skills')) && !existsSync(path.join(dir, '.claude')), 'nothing installed');
+  const later = await (await post(base, '/deck/edit/agent', { prompt: 'sign it again', offer: true })).json();
+  assert.deepEqual([later.choose, later.agent], [undefined, 'claude'], JSON.stringify(later));
+  await agentSettled(base);
+});
+
+test('Decklight\'s skill installed from the offer: every project puts it in the agent\'s config home, and it is not offered again', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  writeFakeBin(bin, 'claude', "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
+  const claude = path.join(dir, 'claude-home');
+  const { base } = await startEdit(t, dir, { env: { PATH: bin, CLAUDE_CONFIG_DIR: claude, DECKLIGHT_HOME: path.join(dir, 'home') } });
+  assert.equal((await (await post(base, '/deck/edit/agent', { prompt: 'sign it', offer: true, place: 'global' })).json()).agent, 'claude');
+  await agentSettled(base);
+  assert.ok(existsSync(path.join(claude, 'skills', 'decklight', 'SKILL.md')), 'in Claude\'s config home');
+  assert.ok(!existsSync(path.join(dir, '.claude')), 'not in the project');
+  assert.equal((await (await post(base, '/deck/edit/agent', { prompt: 'again', offer: true })).json()).choose, undefined);
+  await agentSettled(base);
+});
+
 
 test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) => {
   const dir = tmp(t);

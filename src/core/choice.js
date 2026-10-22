@@ -13,9 +13,11 @@ export function createChoiceCard({ root, overlays }) {
   let el = null, rows = [], rowEls = [], sel = 0, want = null;
 
   function close() {
+    const cancel = want?.onCancel;   // closed without a pick: Esc, the backdrop, another card
     el?.remove();
     el = null;
     want = null;
+    cancel?.();
   }
   const pickable = (i) => rows[i] && !rows[i].blocked;
   /** Row `i`, or the next one that can be picked in the direction of travel. */
@@ -29,17 +31,19 @@ export function createChoiceCard({ root, overlays }) {
     if (!want || !pickable(i)) return;
     const { onPick } = want;
     const { value } = rows[i];
+    want = null;
     close();
     onPick(value);
   }
 
   /**
    * `rows`: [{ label, value, figure?, note?, blocked? (the reason) }];
-   * `current`: the value to start on.
+   * `current`: the value to start on; `onCancel` runs when the card closes
+   * without a pick.
    */
-  function open({ title, lines = [], rows: given, current = null, onPick }) {
+  function open({ title, lines = [], rows: given, current = null, onPick, onCancel = null }) {
     if (el) close();
-    want = { onPick };
+    want = { onPick, onCancel };
     rows = given;
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-choice';

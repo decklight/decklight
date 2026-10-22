@@ -439,9 +439,11 @@ export const unitUsage = (type) => {
 
   used by: ${t.use}${type === 'skill' ? `
 
-  A skill is read by your coding agent, so \`add\` also copies it into
-  .claude/skills/<name>/ of a project that already has a .claude/ or a
-  Decklight AGENTS.md (--dir <path> names one, --global uses ~/.claude/skills/)
+  A skill is read by your coding agent, so \`add\` also copies it where the
+  agent loads skills: on a terminal it asks, every project (~/.claude/skills/,
+  --global, recommended) or this one (.claude/skills/, --dir <path> names
+  another); otherwise into a project that already has a .claude/ or a
+  Decklight AGENTS.md
   and lists it in every AGENTS.md carrying the Decklight section; \`remove\`
   takes both away again. \`decklight skills\` keeps them.` : ''}
 
@@ -480,7 +482,21 @@ async function addMain(type, args, home) {
   // A skill's consumer is an agent, not a decklight command: hand it to the
   // agents `decklight skills` writes for, or it sits where nothing reads (#880).
   if (type === 'skill') {
-    const { placeLibrarySkill } = await import('./skills.mjs');
+    const { placeLibrarySkill, skillPlaces, skillPlaceAnswer, skillPlaceQuestion } = await import('./skills.mjs');
+    // No scope typed, on a terminal: ask where it goes, every project first,
+    // rather than guess from whether this folder has a .claude/ (#893)
+    if (!scope.global && !scope.dirNamed && process.stdin.isTTY && process.stdout.isTTY) {
+      const { createInterface } = await import('node:readline/promises');
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      let where;
+      try { where = skillPlaceAnswer(await rl.question(skillPlaceQuestion(done.name, skillPlaces(done.name, scope)))); } finally { rl.close(); }
+      if (!where) {
+        console.log(`  not handed to an agent: decklight library add skill ${done.name} --global (or --dir <project>) does it later`);
+        return 0;
+      }
+      if (where === 'global') scope.global = true;
+      else scope.dirNamed = true;
+    }
     for (const line of placeLibrarySkill(done.name, scope)) console.log(`  ${line}`);
   }
   return 0;

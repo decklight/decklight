@@ -215,9 +215,11 @@ export function planMigration(html, dir, ref, home = configHome()) {
  * A migration said in lines — what `design-system migrate` prints and what
  * the agent panel records when the edit server runs one: the versions, the
  * renames by kind, the count and where, and the skill named for what a
- * rename cannot decide.
+ * rename cannot decide. `placed(name)` says whether an agent already loads
+ * that skill (cli/skills.mjs `placedSkill`): the line then says so instead
+ * of how to install it.
  */
-export function migrationLines(plan, deck) {
+export function migrationLines(plan, deck, { placed = () => null } = {}) {
   const out = [`${deck}: ${plan.ref} ${plan.recorded ?? '(no version recorded)'} → ${plan.version}`];
   if (plan.renamed) {
     for (const [kind, list] of plan.byKind) out.push(`  ${kind.padEnd(8)} ${list.map((f) => `${f.from} → ${f.to}`).join(', ')}`);
@@ -225,8 +227,12 @@ export function migrationLines(plan, deck) {
   } else out.push('  nothing it uses was renamed — recorded the new version');
   const skills = plan.status.skills;
   if (skills.length) {
+    // where the agent finds it, or how to put it there: every project first
+    const missing = skills.filter((s) => !placed(s));
     out.push(`  what a rename cannot decide (a name removed with no successor) is the ${skills.join(' and ')} skill's:`
-      + ` decklight library add skill ${skills[0]}, then ask your agent to finish the migration`);
+      + (missing.length
+        ? ` decklight library add skill ${missing[0]} --global (every project; --dir . for this one only), then ask your agent to finish the migration`
+        : ' your agent has it, ask it to finish the migration'));
   }
   return out;
 }

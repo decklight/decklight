@@ -37,6 +37,7 @@ import {
 } from './skill-content.mjs';
 import { semverCompare } from '../tools/semver.mjs';
 import { librarySkills } from './units.mjs';
+import { configHome } from './marketplace.mjs';
 
 // The reference doc, relative to whatever dir carries it. Skills keep their
 // own copy next to SKILL.md; AGENTS.md agents keep one under .decklight/.
@@ -299,6 +300,64 @@ export function placeLibrarySkill(name, { dir = '.', global = false, dirNamed = 
   return out.filter(Boolean);
 }
 
+/**
+ * Where an agent already loads skill `name` from, or null: Claude's skills,
+ * its config home's (every project) before the project's under `dir`. A skill
+ * that is only in the library or a marketplace checkout is on no agent's
+ * path yet, and whatever needs it offers to put it there (#893).
+ */
+export function placedSkill(name, { dir = '.', env = process.env } = {}) {
+  for (const global of [true, false]) {
+    const file = path.join(claudeSkillsRoot({ dir, global, env }), name, 'SKILL.md');
+    if (fs.existsSync(file)) return { scope: global ? 'global' : 'project', file };
+  }
+  return null;
+}
+
+/** The two places an offer to install skill `name` names, as the author reads them. */
+export function skillPlaces(name, { dir = '.', env = process.env } = {}) {
+  return {
+    global: display(path.join(claudeSkillsRoot({ global: true, env }), name)),
+    project: display(path.join(claudeSkillsRoot({ dir, env }), name)),
+  };
+}
+
+/**
+ * The answer to that offer on a terminal: Enter (or g) is every project, the
+ * one recommended; p is this project only; anything else is not now (null).
+ */
+export function skillPlaceAnswer(text) {
+  const a = String(text ?? '').trim().toLowerCase();
+  if (a === '' || a.startsWith('g') || a.startsWith('y')) return 'global';
+  return a.startsWith('p') ? 'project' : null;
+}
+
+/** The question that offer asks on a terminal. */
+export const skillPlaceQuestion = (name, at) => `Install the ${name} skill for your agent?`
+  + ` [G] every project, ${at.global} (recommended) · [p] this project only, ${at.project} · [n] not now: `;
+
+/**
+ * Put skill `name` where the agent loads skills, as an offer was answered:
+ * `global` (Claude's config home, every project) or the project under `dir`.
+ * Not in the library yet, it is installed there first from `ref`, its
+ * catalog entry. Returns `{ file, lines }`: the SKILL.md the agent now
+ * finds, and what was done, to print.
+ */
+export async function placeSkill(name, { global = true, dir = '.', ref = name, env = process.env, home } = {}) {
+  const lines = [];
+  if (!librarySkills(home).some((s) => s.name === name)) {
+    const { installUnit } = await import('./units.mjs');
+    const done = await installUnit('skill', ref, home);
+    lines.push(`installed ${done.name}${done.entry.version ? ` ${done.entry.version}` : ''} from ${done.qualified}`);
+  }
+  const skill = librarySkills(home).find((s) => s.name === name);
+  if (skill) {
+    lines.push(copyLibrarySkill(skill, claudeSkillsRoot({ dir, global, env }), { update: true }));
+    lines.push(...refreshAgentsSections({ dir, env }));
+  }
+  return { file: placedSkill(name, { dir, env })?.file ?? null, lines: lines.filter(Boolean) };
+}
+
 /** Does `dir` already have an agent setup: a `.claude/`, or an AGENTS.md with the Decklight section? */
 function agentProject(dir) {
   const root = path.resolve(dir);
@@ -437,6 +496,68 @@ export function installGlobalSkill(targets, { env = process.env, force = false, 
   const written = installGlobal(targets, env, force);
   out.write(`installed the Decklight skill (v${PKG.version}) globally for ${targets.map((k) => TARGETS[k].label).join(', ')}\n`);
   for (const w of written) out.write(`  ${w}\n`);
+}
+
+// --- before an agent job: is Decklight's skill where this agent reads it? ----
+
+/**
+ * Where Decklight's own skill reaches the agent `key` (an agents.mjs name),
+ * its config home's before the project's under `dir`: `{ scope, file }`, or
+ * null when it reaches it from neither. An agent decklight has no install
+ * for (not in TARGETS) is never offered one, so it reads as having it.
+ */
+export function placedDecklightSkill(key, { dir = '.', env = process.env } = {}) {
+  const t = TARGETS[key];
+  if (!t) return { scope: 'none', file: null };
+  const at = (file) => {
+    if (!fs.existsSync(file)) return false;
+    if (t.kind === 'skill') return true;
+    try { return fs.readFileSync(file, 'utf8').includes(AGENTS_MARKER); } catch { return false; }
+  };
+  const global = t.kind === 'skill' ? path.join(t.home(env), 'skills', 'decklight', 'SKILL.md') : path.join(t.home(env), 'AGENTS.md');
+  if (at(global)) return { scope: 'global', file: global };
+  const root = path.resolve(dir);
+  const project = t.kind === 'skill' ? path.join(root, '.claude', 'skills', 'decklight', 'SKILL.md') : path.join(root, 'AGENTS.md');
+  return at(project) ? { scope: 'project', file: project } : null;
+}
+
+/** The two places an offer of Decklight's skill to agent `key` names, as the author reads them. */
+export function decklightSkillPlaces(key, { dir = '.', env = process.env } = {}) {
+  const t = TARGETS[key];
+  const root = path.resolve(dir);
+  return t.kind === 'skill'
+    ? { global: display(path.join(t.home(env), 'skills', 'decklight')), project: display(path.join(root, '.claude', 'skills', 'decklight')) }
+    : { global: display(path.join(t.home(env), 'AGENTS.md')), project: display(path.join(root, 'AGENTS.md')) };
+}
+
+/**
+ * Install Decklight's skill for agent `key`, as an offer was answered: in its
+ * config home (`global`, every project) or the project under `dir`. The same
+ * writers as `decklight skills [--global]`. Returns the lines it would print.
+ */
+export function installDecklightSkill(key, { global = true, dir = '.', env = process.env } = {}) {
+  return global ? installGlobal([key], env, false) : installProject([key], dir, false);
+}
+
+// A no to that offer, remembered per project and agent: the next ask goes
+// ahead without asking again, and `decklight skills` is still the way in.
+const declinedFile = (env) => path.join(configHome(env), 'skill-offer-declined.json');
+const readDeclined = (env) => { try { return JSON.parse(fs.readFileSync(declinedFile(env), 'utf8')); } catch { return {}; } };
+
+/** Did the author turn down Decklight's skill for agent `key` in the project under `dir`? */
+export function skillOfferDeclined(key, { dir = '.', env = process.env } = {}) {
+  return (readDeclined(env)[path.resolve(dir)] ?? []).includes(key);
+}
+
+/** Remember that no. */
+export function declineSkillOffer(key, { dir = '.', env = process.env } = {}) {
+  const all = readDeclined(env);
+  const root = path.resolve(dir);
+  all[root] = [...new Set([...(all[root] ?? []), key])];
+  try {
+    fs.mkdirSync(configHome(env), { recursive: true });
+    fs.writeFileSync(declinedFile(env), `${JSON.stringify(all, null, 2)}\n`);
+  } catch { /* not remembered: asked again next time */ }
 }
 
 /**

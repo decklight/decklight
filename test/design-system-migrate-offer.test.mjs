@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmp as scratch, childEnv, writeFakeBin, stop, wait } from './helpers.mjs';
@@ -19,6 +19,7 @@ import {
   linkDesignSystems, deckBehind, withMigrationHint, planMigration, migrationLines, deckDesignSystemVersions, skillFile,
 } from '../cli/design-system-refs.mjs';
 import { createHistory, describeReload, reportText } from '../cli/edit.mjs';
+import { placedSkill, skillPlaceAnswer } from '../cli/skills.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -174,12 +175,14 @@ function project(t, name) {
   mkdirSync(bin);
   if (GIT) {
     const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
-    writeFileSync(path.join(dir, '.gitignore'), 'home/\nacme-mkt/\nbin/\n');
+    writeFileSync(path.join(dir, '.gitignore'), 'home/\nacme-mkt/\nbin/\nclaude-home/\n');
     git('init', '-q');
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '.');
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'start');
   }
-  return { dir, bin, ...m, PATH: [bin, GIT].filter(Boolean).join(path.delimiter) };
+  // Claude's config home, where "every project" puts a skill: never the real one
+  const claude = path.join(dir, 'claude-home');
+  return { dir, bin, ...m, claude, PATH: [bin, GIT].filter(Boolean).join(path.delimiter) };
 }
 const subjects = (dir) => execFileSync('git', ['log', '--format=%s'], { cwd: dir, encoding: 'utf8' }).trim().split('\n');
 
@@ -233,7 +236,7 @@ test('Migrate with no agent: the server runs it, records it in the panel, and on
 });
 
 test('Migrate with a skill and an agent: it is the agent\'s ask, naming the skill and the command, and its edit is one undo over both files', async (t) => {
-  const { dir, h, PATH, bin } = project(t, 'ds-offer-agent');
+  const { dir, h, PATH, bin, claude } = project(t, 'ds-offer-agent');
   const cssFile = path.join(dir, 'course.css');
   // a fake agent: keeps the prompt, renames in the stylesheet, records the version in the deck
   writeFakeBin(bin, 'claude', [
@@ -243,8 +246,13 @@ test('Migrate with a skill and an agent: it is the agent\'s ask, naming the skil
     "writeFileSync('talk.html', readFileSync('talk.html', 'utf8').replace('\"2.0.0\"', '\"3.0.0\"'));",
     "console.log(JSON.stringify({ type: 'result', result: 'Renamed 3 names; one judgement call.' }));",
   ].join('\n'));
-  const { base } = await startEdit(t, dir, { DECKLIGHT_HOME: h, PATH });
-  const r = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt' })).json();
+  const { base } = await startEdit(t, dir, { DECKLIGHT_HOME: h, PATH, CLAUDE_CONFIG_DIR: claude });
+  // the agent does not have the skill: asked where it goes before anything runs
+  // only a page that can ask is asked; this one says so
+  const asked = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt', offer: true })).json();
+  assert.deepEqual([asked.ok, asked.choose, asked.skills], [true, 'skill', ['decklight', 'acme-migrate']], JSON.stringify(asked));
+  assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8').includes('"2.0.0"'), true, 'nothing ran yet');
+  const r = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt', place: 'none' })).json();
   assert.deepEqual([r.ok, r.by, r.agent], [true, 'agent', 'claude'], JSON.stringify(r));
   const p = await settled(base);
   const ask = p.agentAsks.at(-1);
@@ -260,7 +268,7 @@ test('Migrate with a skill and an agent: it is the agent\'s ask, naming the skil
 });
 
 test('Migrate by the agent (#893): the whole report from its start, the skill read where it is, the commit before named, the version kept in the subject, and what it left said and not committed', async (t) => {
-  const { dir, h, PATH, bin, repo } = project(t, 'ds-offer-agent-893');
+  const { dir, h, PATH, bin, repo, claude } = project(t, 'ds-offer-agent-893');
   // the skill is in the marketplace's checkout, and the catalog offers it
   mkdirSync(path.join(repo, 'skills/acme-migrate'), { recursive: true });
   writeFileSync(path.join(repo, 'skills/acme-migrate/SKILL.md'), '---\nname: acme-migrate\n---\n');
@@ -279,11 +287,12 @@ test('Migrate by the agent (#893): the whole report from its start, the skill re
     "import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';",
     "mkdirSync('.agent-scratch', { recursive: true });",
     "writeFileSync('.agent-scratch/prompt.txt', process.argv[process.argv.indexOf('-p') + 1] ?? '');",
+    "writeFileSync('.agent-scratch/add-dir.txt', process.argv.flatMap((a, i, all) => (all[i - 1] === '--add-dir' ? [a] : [])).join('\\n'));",
     "writeFileSync('before-tmp.html', 'a copy');",
     `writeFileSync(${JSON.stringify(long)}, readFileSync(${JSON.stringify(long)}, 'utf8').replace('"2.0.0"', '"3.0.0"'));`,
     `console.log(JSON.stringify({ type: 'result', result: ${JSON.stringify(report)} }));`,
   ].join('\n'));
-  const child = spawn(process.execPath, [EDIT, long, '--port', '0'], { cwd: dir, env: childEnv({ DECKLIGHT_HOME: h, PATH }), stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [EDIT, long, '--port', '0'], { cwd: dir, env: childEnv({ DECKLIGHT_HOME: h, PATH, CLAUDE_CONFIG_DIR: claude }), stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => stop(child));
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
@@ -295,14 +304,26 @@ test('Migrate by the agent (#893): the whole report from its start, the skill re
     else await wait(25);
   }
   assert.ok(base, out);
-  const r = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt' })).json();
+  const asked = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt', offer: true })).json();
+  assert.equal(asked.choose, 'skill', JSON.stringify(asked));
+  assert.deepEqual(asked.places.map((p) => [p.skill, p.project]), [
+    ['decklight', path.join('.claude', 'skills', 'decklight')], ['acme-migrate', path.join('.claude', 'skills', 'acme-migrate')]]);
+  // every project: the library takes it from the catalog, and Claude's config home gets the copy
+  const r = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt', place: 'global' })).json();
   assert.equal(r.by, 'agent', JSON.stringify(r));
   const ask = (await settled(base)).agentAsks.at(-1);
+  const placed = path.join(claude, 'skills', 'acme-migrate', 'SKILL.md');
+  assert.ok(existsSync(placed), 'in Claude\'s skills, for every project');
+  assert.ok(existsSync(path.join(h, 'skills', 'acme-migrate', 'SKILL.md')), 'and in the library it was copied from');
+  assert.ok(existsSync(path.join(claude, 'skills', 'decklight', 'SKILL.md')), 'Decklight\'s own skill with it');
+  assert.ok(!existsSync(path.join(dir, '.claude')), 'nothing in the project');
   assert.match(ask.tail, /^Renames: text-main → text-body \(1\)/, 'the report from its start');
   assert.match(ask.tail, /Closing notes\.$/, 'a report that fits is whole');
   const prompt = readFileSync(path.join(dir, '.agent-scratch/prompt.txt'), 'utf8');
-  assert.ok(prompt.includes(`read ${path.join(repo, 'skills/acme-migrate/SKILL.md')}`) || prompt.includes(`read ${path.join(h, 'marketplaces')}`), prompt);
+  assert.ok(prompt.includes(`read ${placed}`), prompt);
   assert.doesNotMatch(prompt, /library add skill/, 'nothing is installed into the project');
+  // installed where Claude loads skills: no folder outside the project is handed over
+  assert.equal(readFileSync(path.join(dir, '.agent-scratch/add-dir.txt'), 'utf8'), '');
   assert.match(prompt, /leave no file you created/);
   assert.deepEqual(ask.left?.includes('before-tmp.html'), true, JSON.stringify(ask));
   if (GIT) {
@@ -311,6 +332,84 @@ test('Migrate by the agent (#893): the whole report from its start, the skill re
     const tracked = execFileSync('git', ['ls-files'], { cwd: dir, encoding: 'utf8' });
     assert.doesNotMatch(tracked, /before-tmp\.html/, 'what it left is not committed');
   }
+});
+
+test('Migrate by the agent, not now: nothing installed, and the agent may read the skill where it is (#893: refused outside the project)', async (t) => {
+  const { dir, h, PATH, bin, repo, claude } = project(t, 'ds-offer-agent-none');
+  mkdirSync(path.join(repo, 'skills/acme-migrate'), { recursive: true });
+  writeFileSync(path.join(repo, 'skills/acme-migrate/SKILL.md'), '---\nname: acme-migrate\n---\n');
+  const cat = path.join(repo, '.decklight/marketplace.json');
+  const m = JSON.parse(readFileSync(cat, 'utf8'));
+  m.entries.push({ name: 'acme-migrate', type: 'skill', source: 'skills/acme-migrate' });
+  writeFileSync(cat, JSON.stringify(m));
+  execFileSync(process.execPath, [CLI, 'marketplace', 'update', 'acme-mkt'], { env: { ...process.env, DECKLIGHT_HOME: h }, stdio: 'ignore' });
+  writeFakeBin(bin, 'claude', [
+    "import { writeFileSync } from 'node:fs';",
+    "writeFileSync('prompt.txt', process.argv[process.argv.indexOf('-p') + 1] ?? '');",
+    "writeFileSync('add-dir.txt', process.argv.flatMap((a, i, all) => (all[i - 1] === '--add-dir' ? [a] : [])).join('\\n'));",
+    "console.log(JSON.stringify({ type: 'result', result: 'nothing to change' }));",
+  ].join('\n'));
+  if (GIT) writeFileSync(path.join(dir, '.gitignore'), 'home/\nacme-mkt/\nbin/\nclaude-home/\nprompt.txt\nadd-dir.txt\n');
+  const { base } = await startEdit(t, dir, { DECKLIGHT_HOME: h, PATH, CLAUDE_CONFIG_DIR: claude });
+  const r = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt', offer: true, place: 'none' })).json();
+  assert.equal(r.by, 'agent', JSON.stringify(r));
+  await settled(base);
+  assert.ok(!existsSync(path.join(claude, 'skills')) && !existsSync(path.join(dir, '.claude')), 'nothing installed');
+  const skillAt = readFileSync(path.join(dir, 'prompt.txt'), 'utf8').match(/read (\S+SKILL\.md)/)[1];
+  // read where it is: the marketplace's checkout (this fixture's is a local folder)
+  assert.ok(skillAt === path.join(repo, 'skills/acme-migrate/SKILL.md') || skillAt.startsWith(path.join(h, 'marketplaces')), skillAt);
+  assert.deepEqual(readFileSync(path.join(dir, 'add-dir.txt'), 'utf8').split('\n'), [path.dirname(skillAt)]);
+});
+
+test('Migrate by the agent, the skill put in this project: read from there, and a skill the agent has is never asked about again', async (t) => {
+  const { dir, h, PATH, bin, repo, claude } = project(t, 'ds-offer-agent-place');
+  mkdirSync(path.join(repo, 'skills/acme-migrate'), { recursive: true });
+  writeFileSync(path.join(repo, 'skills/acme-migrate/SKILL.md'), '---\nname: acme-migrate\n---\n');
+  const cat = path.join(repo, '.decklight/marketplace.json');
+  const m = JSON.parse(readFileSync(cat, 'utf8'));
+  m.entries.push({ name: 'acme-migrate', type: 'skill', source: 'skills/acme-migrate' });
+  writeFileSync(cat, JSON.stringify(m));
+  execFileSync(process.execPath, [CLI, 'marketplace', 'update', 'acme-mkt'], { env: { ...process.env, DECKLIGHT_HOME: h }, stdio: 'ignore' });
+  writeFakeBin(bin, 'claude', [
+    "import { writeFileSync } from 'node:fs';",
+    "writeFileSync('prompt.txt', process.argv[process.argv.indexOf('-p') + 1] ?? '');",
+    "writeFileSync('add-dir.txt', process.argv.flatMap((a, i, all) => (all[i - 1] === '--add-dir' ? [a] : [])).join('\\n'));",
+    "console.log(JSON.stringify({ type: 'result', result: 'nothing to change' }));",
+  ].join('\n'));
+  if (GIT) writeFileSync(path.join(dir, '.gitignore'), 'home/\nacme-mkt/\nbin/\nclaude-home/\nprompt.txt\nadd-dir.txt\n');
+  const { base } = await startEdit(t, dir, { DECKLIGHT_HOME: h, PATH, CLAUDE_CONFIG_DIR: claude });
+  const r = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt', place: 'project' })).json();
+  assert.equal(r.by, 'agent', JSON.stringify(r));
+  await settled(base);
+  const placed = path.join(dir, '.claude', 'skills', 'acme-migrate', 'SKILL.md');
+  assert.ok(existsSync(placed), 'in the project\'s skills, as asked');
+  assert.ok(!existsSync(path.join(claude, 'skills')), 'not in every project');
+  const said = readFileSync(path.join(dir, 'prompt.txt'), 'utf8');
+  assert.ok(said.includes(`read ${realpathSync(placed)}`) || said.includes(`read ${placed}`), said);
+  assert.equal(readFileSync(path.join(dir, 'add-dir.txt'), 'utf8'), '', 'in the project: nothing outside it to reach');
+  assert.ok(existsSync(path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md')), 'Decklight\'s own skill with it');
+  // the agent has both now: Migrate runs without asking
+  const again = await (await post(base, '/deck/edit/design-system/migrate', { ref: 'acme@acme-mkt', offer: true })).json();
+  assert.equal(again.choose, undefined, JSON.stringify(again));
+  assert.equal(again.by, 'agent');
+  await settled(base);
+});
+
+test('where a skill is offered: placedSkill finds the agent\'s copy, every project first, and a terminal answer defaults to every project', (t) => {
+  const dir = scratch('ds-offer-placed', t);
+  const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'claude-home') };
+  assert.equal(placedSkill('acme-migrate', { dir, env }), null);
+  mkdirSync(path.join(dir, '.claude/skills/acme-migrate'), { recursive: true });
+  writeFileSync(path.join(dir, '.claude/skills/acme-migrate/SKILL.md'), 'x');
+  assert.equal(placedSkill('acme-migrate', { dir, env }).scope, 'project');
+  mkdirSync(path.join(env.CLAUDE_CONFIG_DIR, 'skills/acme-migrate'), { recursive: true });
+  writeFileSync(path.join(env.CLAUDE_CONFIG_DIR, 'skills/acme-migrate/SKILL.md'), 'x');
+  assert.equal(placedSkill('acme-migrate', { dir, env }).scope, 'global');
+  assert.deepEqual(['', 'G', 'yes', 'p', 'n', 'later'].map(skillPlaceAnswer), ['global', 'global', 'global', 'project', null, null]);
+  // the line a migration prints: how to install it, every project first, until the agent has it
+  const plan = { ref: 'acme@acme-mkt', recorded: '2.0.0', version: '3.0.0', renamed: 0, byKind: [], sheets: [], status: { skills: ['acme-migrate'] } };
+  assert.match(migrationLines(plan, 'talk.html').at(-1), /decklight library add skill acme-migrate --global/);
+  assert.match(migrationLines(plan, 'talk.html', { placed: () => true }).at(-1), /your agent has it/);
 });
 
 test('the panel shows an agent\'s report from its start: whole up to the cap, start and end past it', () => {

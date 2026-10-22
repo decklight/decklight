@@ -34,7 +34,7 @@
 //   POST /deck/edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
 //   POST /deck/edit/undo            → step the deck file back through the edit history
 //   POST /deck/edit/redo            → step it forward again
-//   POST /deck/edit/agent           → { prompt, agent?, slide? } one-shot AI agent edit
+//   POST /deck/edit/agent           → { prompt, agent?, slide?, offer?, place? } one-shot AI agent edit, the skill offered first
 //   POST /deck/edit/agent/stop      → stop the agent job in flight: that edit, an enhancement or a review
 //   POST /deck/edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags') or written for the ear ('spoken')
 //   POST /deck/edit/enhance/text    → { text, agent?, kind? } → { text }   the same, for the notes editor's box (writes nothing)
@@ -2301,9 +2301,11 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * builds a closing sentence for the prompt from the commit that holds the
    * deck as it was, once the outstanding work is committed, for a job whose
    * checks compare against it (a migration's before and after renders).
+   * `dirs` are folders outside the project the agent must read (a
+   * migration's skill, where it is installed).
    */
-  function runAgent(prompt, name, message, slide, { files = [], reload = null, kind = null, title = null, subject: given = null, before: beforeSay = null } = {}) {
-    let cmd = agentCommand(name || agentPref, prompt, deckRel, { slide });
+  function runAgent(prompt, name, message, slide, { files = [], reload = null, kind = null, title = null, subject: given = null, before: beforeSay = null, dirs = [] } = {}) {
+    let cmd = agentCommand(name || agentPref, prompt, deckRel, { slide, dirs });
     if (!cmd) return null;
     const ask = {
       id: ++askSeq, agent: cmd.name, label: cmd.label, prompt,
@@ -2328,7 +2330,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (head) {
         prompt = `${prompt} ${beforeSay(head)}`;
         ask.prompt = prompt;
-        cmd = agentCommand(cmd.name, prompt, deckRel, { slide }) ?? cmd;
+        cmd = agentCommand(cmd.name, prompt, deckRel, { slide, dirs }) ?? cmd;
       }
     }
     const before = readDeck();
@@ -2994,18 +2996,57 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return json(200, { ok: true, stopping: what });
   }
 
-  function agentRoute({ body, json }) {
-    const { prompt, agent, message, slide } = JSON.parse(body);
+  /**
+   * What an agent edit needs installed before it runs: Decklight's own skill,
+   * which every edit's prompt sends the agent to, and `extra`, a migration's
+   * skills. One the agent does not load yet, from the project or its config
+   * home, is offered first, every project recommended. Asked only of a page
+   * that can answer (`offer`); with no `place` the answer is the offer
+   * (`{ choose: 'skill', skills, places }`), with one it is installed, or
+   * with `none` not, and a no to Decklight's skill is remembered for this
+   * project. Answers the offer, `{ error }`, or null to go ahead.
+   */
+  async function skillGate(agentName, { offer = false, place = null, extra = [], marketplace = null } = {}) {
+    if (!offer && !place) return null;
+    if (place !== null && !['global', 'project', 'none'].includes(place)) throw new Error('bad payload');
+    const name = agentCommand(agentName || agentPref, '', deckRel)?.name;
+    if (!name) return null;
+    const S = await import('./skills.mjs');
+    const missing = [
+      ...(S.TARGETS[name] && !S.placedDecklightSkill(name, { dir: root }) && !S.skillOfferDeclined(name, { dir: root })
+        ? [{ skill: 'decklight', ...S.decklightSkillPlaces(name, { dir: root }) }] : []),
+      ...extra.filter((x) => !S.placedSkill(x, { dir: root })).map((x) => ({ skill: x, ...S.skillPlaces(x, { dir: root }) })),
+    ];
+    if (!missing.length) return null;
+    if (!place) return { offer: { ok: true, choose: 'skill', agent: name, skills: missing.map((m) => m.skill), places: missing } };
+    for (const { skill } of missing) {
+      if (place === 'none') { if (skill === 'decklight') S.declineSkillOffer(name, { dir: root }); continue; }
+      const global = place === 'global';
+      try {
+        const lines = skill === 'decklight'
+          ? S.installDecklightSkill(name, { global, dir: root })
+          : (await S.placeSkill(skill, { global, dir: root, ref: marketplace ? `${skill}@${marketplace}` : skill })).lines;
+        for (const line of lines) console.log(`  skill: ${line}`);
+      } catch (e) { return { error: `could not install the ${skill} skill: ${e.message}` }; }
+    }
+    return null;
+  }
+
+  async function agentRoute({ body, json }) {
+    const { prompt, agent, message, slide, offer, place = null } = JSON.parse(body);
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
     if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
     if (reviewing) return json(409, { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' });
+    const gate = await skillGate(agent, { offer, place });
+    if (gate?.offer) return json(200, gate.offer);
+    if (gate?.error) return json(409, { ok: false, error: gate.error });
     const cmd = runAgent(prompt.trim(), agent, message, slide);
     if (!cmd) return json(400, { ok: false, error: agentUnavailable(agent ?? agentPref, agents) });
     return json(200, { ok: true, agent: cmd.name, label: cmd.label });
   }
 
   /**
-   * `POST /deck/edit/design-system/migrate` `{ ref, agent? }` (SPEC
+   * `POST /deck/edit/design-system/migrate` `{ ref, agent?, offer?, place? }` (SPEC
    * DESIGN_SYSTEM_MIGRATIONS): Migrate, from the behind toast or the
    * marketplace update's what's new. A job the author watches in the agent
    * panel, not a silent rewrite. When the pending migrations name a skill
@@ -3016,10 +3057,14 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * same panel: the renames by kind, the count, the version, and the skill
    * named for what a rename cannot decide. Either way it is one undo step
    * over the deck and the stylesheets it links, committed on its own like
-   * an agent edit, and the reload says what it was.
+   * an agent edit, and the reload says what it was. A skill the agent does
+   * not load yet is asked about first (`skillGate`): the answer is
+   * `{ choose: 'skill', places }`, and the page posts again with `place`:
+   * `global` (every project), `project`, or `none` (this run reads it where
+   * it is).
    */
   async function designSystemMigrateRoute({ body, json }) {
-    const { ref, agent } = JSON.parse(body || '{}');
+    const { ref, agent, offer, place = null } = JSON.parse(body || '{}');
     if (typeof ref !== 'string' || !ref.trim()) throw new Error('bad payload');
     if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
     if (reviewing) return json(409, { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' });
@@ -3037,21 +3082,32 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // touch: the skill's judgement calls may reach the others
     const sheets = linkedStylesheets(before, dirname(deckPath)).map((x) => x.path).filter((p) => p.startsWith(root + sep));
     const skills = plan.status.skills;
-    if (skills.length) {
-      // The skill where it already is on this machine (the library's copy, or
-      // the marketplace's checkout): read there, never installed into the
-      // project for one run, which is what left a stray .claude/ behind (#893)
-      const where = skills.map((s) => {
-        const file = skillFile(s, plan.marketplace);
-        return file ? `read ${file}` : `it is not on this machine (decklight library add skill ${s} --global puts it in your home, never in this project)`;
-      });
+    if (skills.length && agentCommand(agent || agentPref, '', deckRel)) {
+      // its skills and Decklight's, offered first when the agent has not
+      // got them: installed on the author's word, never for one run behind
+      // their back, which is what left a stray .claude/ (#893)
+      const gate = await skillGate(agent, { offer, place, extra: skills, marketplace: plan.marketplace });
+      if (gate?.offer) return json(200, gate.offer);
+      if (gate?.error) return json(409, { ok: false, error: gate.error });
+      const { placedSkill } = await import('./skills.mjs');
+      // The skill where the agent loads it, else (the author said not now)
+      // where it already is on this machine, the library's copy or the
+      // marketplace's checkout. Only that last folder is handed to the agent
+      // (`--add-dir`): one that reads only inside the project was refused the
+      // file the prompt named, and one installed for it needs no extra reach.
+      const placed = skills.map((s) => placedSkill(s, { dir: root })?.file ?? null);
+      const found = skills.map((s, i) => placed[i] ?? skillFile(s, plan.marketplace));
+      const where = skills.map((s, i) => (found[i]
+        ? `read ${found[i]}`
+        : `it is not on this machine (decklight library add skill ${s} --global puts it in your home, never in this project)`));
+      const dirs = [...new Set(found.filter((f, i) => f && !placed[i]).map((f) => dirname(f)))];
       const prompt = `Migrate this deck from ${plan.name} ${plan.recorded ?? '(no version recorded)'} to ${plan.version} with the ${skills.join(' and ')} skill`
         + ` (${where.join('; ')}). First run \`decklight design-system migrate ${plan.ref} ${deckRel}\``
         + ' for the renames the design system declares; then do what the skill says a rename cannot: its checks (renders before and after),'
         + ' and its judgement calls (a name removed with no successor). Report the renames with their counts, each judgement call you made,'
         + ' and anything you left alone. Only the deck and its stylesheets change: leave no file you created (a copy, a render) in the project.';
       const cmd = runAgent(prompt, agent, subject, null, {
-        files: sheets, reload, kind: 'migrate', title, subject,
+        files: sheets, reload, kind: 'migrate', title, subject, dirs,
         // the skill renders "before" first, but the prompt has the renames run
         // first: name the commit that holds the deck as it was
         before: (sha) => `The deck as it was before this migration is commit ${sha}: \`git show ${sha}:./${deckRel.split(sep).join('/')}\`.`,
@@ -3076,7 +3132,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
       pendingAttr = null;
       console.log(`  git: committed "${subject}"`);
     }
-    const tail = migrationLines(plan, deckRel).join('\n');
+    const { placedSkill } = await import('./skills.mjs');
+    const tail = migrationLines(plan, deckRel, { placed: (s) => placedSkill(s, { dir: root }) }).join('\n');
     ownDone(ask, { changed: true, tail });
     console.log(`  design system: ${reload} — ${plan.renamed} rename${plan.renamed === 1 ? '' : 's'}`);
     return json(200, { ok: true, by: 'server', renamed: plan.renamed, version: plan.version, ask });

@@ -453,7 +453,27 @@ async function migrateMain(args) {
   if (!plan.changed) { console.log(`${deck} is already on ${plan.ref} ${plan.version} — nothing to migrate`); return 0; }
   for (const x of plan.sheets) writeFileAtomic(x.path, x.text);
   if (plan.html !== d.html) writeFileAtomic(d.path, plan.html);
-  for (const line of migrationLines(plan, deck)) console.log(line);
+  const { placedSkill, placeSkill, skillPlaces, skillPlaceAnswer, skillPlaceQuestion } = await import('./skills.mjs');
+  const placed = (s) => placedSkill(s);
+  for (const line of migrationLines(plan, deck, { placed })) console.log(line);
+  // On a terminal, a skill the agent does not have yet is offered, every
+  // project first. An agent running this (the edit server's Migrate) has no
+  // TTY, and its server asked the author before it started (#893).
+  const missing = plan.status.skills.filter((s) => !placed(s));
+  if (missing.length && process.stdin.isTTY && process.stdout.isTTY) {
+    const { createInterface } = await import('node:readline/promises');
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      for (const s of missing) {
+        const where = skillPlaceAnswer(await rl.question(skillPlaceQuestion(s, skillPlaces(s))));
+        if (!where) continue;
+        try {
+          const { lines } = await placeSkill(s, { global: where === 'global', ref: plan.marketplace ? `${s}@${plan.marketplace}` : s });
+          for (const line of lines) console.log(`  ${line}`);
+        } catch (e) { console.error(`  could not install ${s}: ${e.message}`); }
+      }
+    } finally { rl.close(); }
+  }
   return 0;
 }
 

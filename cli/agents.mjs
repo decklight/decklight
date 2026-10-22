@@ -39,8 +39,12 @@ export const AGENTS = [
     // check nothing overflows before it is done. Only decklight's own CLI
     // is allowed; everything else still needs a permission it has no TTY
     // to ask for, which is the point.
-    args: (prompt) => ['-p', prompt, '--permission-mode', 'acceptEdits',
+    // --add-dir: claude reads only inside the project unless told, and a
+    // migration's skill lives in a marketplace checkout under ~/.decklight
+    // (#893): each folder a job must read is named, and nothing more.
+    args: (prompt, deck, { dirs = [] } = {}) => ['-p', prompt, '--permission-mode', 'acceptEdits',
       '--allowedTools', 'Bash(npx decklight:*)', 'Bash(decklight:*)',
+      ...dirs.flatMap((d) => ['--add-dir', d]),
       '--output-format', 'stream-json', '--verbose'],
     stream: 'claude-json',
     // no --permission-mode: an ASK is read-only by construction, and a
@@ -310,8 +314,10 @@ export function agentUnavailable(name, roster, home = configHome(),
 /**
  * The exact spawn for one editing task: `name` picks the agent (or the first
  * detected one when omitted), `instruction` is the user's ask, `deck` the
- * file it should edit. Returns { bin, args, label } or null when the agent
- * isn't available.
+ * file it should edit, `dirs` folders outside the project it must be able to
+ * read (an agent that confines its reads to the project is given them; one
+ * whose sandbox already reads anywhere ignores them). Returns { bin, args,
+ * label } or null when the agent isn't available.
  */
 /**
  * The same agent, asked a QUESTION rather than told to edit (SPEC `PRESENTING`).
@@ -348,7 +354,7 @@ export function agentAsk(name, prompt, { env = process.env, hasBin = canRun, hom
 /** 1 → first, 2 → second … for a sentence an agent reads. */
 const ordinal = (n) => (n === 1 ? 'first' : n === 2 ? 'second' : n === 3 ? 'third' : `${n}th`);
 
-export function agentCommand(name, instruction, deck, { env = process.env, hasBin = canRun, home, spec = spawnSpec, slide = null } = {}) {
+export function agentCommand(name, instruction, deck, { env = process.env, hasBin = canRun, home, spec = spawnSpec, slide = null, dirs = [] } = {}) {
   const roster = detectAgents({ env, hasBin, home });
   // Precedence, matching how every other saved choice resolves (PRESENTING):
   // an explicit name > the remembered preference > the first detected agent.
@@ -385,7 +391,7 @@ export function agentCommand(name, instruction, deck, { env = process.env, hasBi
   const how = spec(agent.bin, { env }) ?? { bin: agent.bin, prefix: [] };
   return {
     bin: how.bin,
-    args: [...how.prefix, ...agent.args(prompt, deck)],
+    args: [...how.prefix, ...agent.args(prompt, deck, { dirs })],
     label: agent.label,
     name: agent.name,
     // which stream dialect stdout speaks, if any — the server's activity

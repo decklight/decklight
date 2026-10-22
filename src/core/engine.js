@@ -3032,6 +3032,8 @@ export function init(userConfig = {}) {
   const editmode = createEditMode({
     root, config, params, printMode, toast, progress: progressToast, debugLog, debugReload, overlays, instance,
     notesSegs, notesDraft: notesDraftOf,
+    // a migration's skill the agent does not have yet: where it goes (#893)
+    choiceCard,
     // what an export renders in — the theme on screen, not the deck's default (#547)
     renderTheme: () => themes.renderTheme(),
     // what a preview frame looks like — the history's included — the same

@@ -39,6 +39,7 @@ export function createEditMode({
   notesSegs, notesDraft = (sl) => notesSegs(sl).join('\n\n⟨CLICK⟩\n\n'), renderTheme = () => ({}), previewQuery = () => '?embedded',
   knownConcepts = () => [],
   captionsOn = () => false, toggleCaptions = null,
+  choiceCard = null,
 }) {
   // ── write mode + live reload — SPEC PRESENTING ───────────────────────────────────
   // Served by the edit server: the deck subscribes to /deck/events and
@@ -1269,12 +1270,9 @@ export function createEditMode({
       if (!prompt) return;
       if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return; }
       try {
-        const res = await fetch(editBase + '/deck/edit/agent', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ prompt, agent: pickedAgent, slide: instance.state.slide }),
-        });
-        const j = await res.json().catch(() => ({}));
+        const sent = await postAgentJob(editBase + '/deck/edit/agent', { prompt, agent: pickedAgent, slide: instance.state.slide });
+        if (!sent) { ta.focus(); return; }   // the skill card closed: the ask stays typed
+        const { res, j } = sent;
         if (!res.ok) throw new Error(j.error || res.status);
         // Docked, the card stays: the ask joins its log and the answer lands
         // under it. Floating, it is a modal in the way of the slide — it goes.
@@ -1315,7 +1313,8 @@ export function createEditMode({
    * marketplace update's what's new. A job watched in the agent panel, which
    * opens docked on it and stays open across the reload the migration
    * causes: the agent's ask when the migration has a skill and an agent is
-   * installed, the server's own entry otherwise. Answers whether it started.
+   * installed, the server's own entry otherwise. A skill the agent does not
+   * have yet is offered first (`postAgentJob`). Answers whether it started.
    */
   async function migrateDesignSystem(ref) {
     if (!editAvailable) { toast(cannot('migrating a design system'), 3200); return false; }
@@ -1323,12 +1322,10 @@ export function createEditMode({
     const wasOpen = !!agentEl;
     rememberAgentOpen(true);   // before the request: the reload may beat its answer
     try {
-      const res = await writeFetch(editBase + '/deck/edit/design-system/migrate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ref, ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) }),
-      });
-      const j = await res.json().catch(() => ({}));
+      const sent = await postAgentJob(editBase + '/deck/edit/design-system/migrate',
+        { ref, ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) }, writeFetch);
+      if (!sent) { if (!wasOpen) rememberAgentOpen(false); return false; }
+      const { res, j } = sent;
       if (!res.ok || !j.ok) throw new Error(j.error || res.status);
       debugLog('design-system', `migrate ${ref}: ${j.nothing ? 'nothing to do' : `by ${j.by}${j.agent ? ` (${j.agent})` : ''}`}`);
       if (j.nothing) { if (!wasOpen) rememberAgentOpen(false); toast(j.said, 3200); return true; }
@@ -1342,6 +1339,55 @@ export function createEditMode({
       toast(`migrate failed — ${String(e.message || e).slice(0, 120)}`, 6000);
       return false;
     }
+  }
+
+  /**
+   * Where the skills an agent job needs go, when the agent does not have
+   * them yet (#893): every project (the one recommended), this project, or
+   * not now, and the job goes ahead with what the agent has. Resolves to the
+   * answer, or null when the card was closed without one.
+   */
+  function chooseSkillPlace({ agent = null, skills = [], places = [] }) {
+    if (!choiceCard) return Promise.resolve('none');
+    const who = editAgents.find((a) => a.name === agent)?.label ?? agent ?? 'your agent';
+    const names = skills.map((x) => (x === 'decklight' ? 'Decklight’s skill' : `the ${x} skill`)).join(' and ');
+    const at = (k) => places.map((p) => p[k]).join(', ');
+    return new Promise((done) => {
+      choiceCard.open({
+        title: `install ${names} for ${who}?`,
+        lines: [`${who} reads ${skills.length === 1 ? 'it' : 'them'} for this, and does not have ${skills.length === 1 ? 'it' : 'them'} yet`],
+        rows: [
+          { value: 'global', label: 'Every project', note: `${at('global')} · recommended` },
+          { value: 'project', label: 'This project only', note: at('project') },
+          { value: 'none', label: 'Not now', note: 'nothing is installed, and this goes ahead without it' },
+        ],
+        current: 'global',
+        onPick: done,
+        onCancel: () => done(null),
+      });
+    });
+  }
+
+  /**
+   * POST an agent job with the skills it needs offered first: the server
+   * answers `choose: 'skill'` when the agent lacks one (only to a page that
+   * says it can ask, `offer`), the card asks where it goes, and the job is
+   * posted again with the answer. Resolves to `{ res, j }`, or null when the
+   * card was closed and nothing was sent.
+   */
+  async function postAgentJob(url, body, send = fetch) {
+    const post = (extra) => send(url, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, ...extra }),
+    });
+    let res = await post({ offer: true });
+    let j = await res.json().catch(() => ({}));
+    if (res.ok && j.choose === 'skill') {
+      const place = await chooseSkillPlace(j);
+      if (!place) return null;
+      res = await post({ place });
+      j = await res.json().catch(() => ({}));
+    }
+    return { res, j };
   }
 
   let editEl = null;
@@ -3388,11 +3434,10 @@ export function createEditMode({
     if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return false; }
     if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return false; }
     try {
-      const res = await fetch(editBase + '/deck/edit/agent', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt, slide, message, ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) }),
-      });
-      const j = await res.json().catch(() => ({}));
+      const sent = await postAgentJob(editBase + '/deck/edit/agent',
+        { prompt, slide, message, ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) });
+      if (!sent) return false;
+      const { res, j } = sent;
       if (!res.ok) throw new Error(j.error || res.status);
       debugLog('agent', `${message ?? 'ask'} → ${j.agent}`);
       // progress lands as SSE 'agent' events, as for any ask; the reload follows the save
