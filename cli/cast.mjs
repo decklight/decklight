@@ -36,7 +36,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
-import { makeFail, runMain, wrongRecorder } from './util.mjs';
+import { CommandError, makeFail, runMain, wrongRecorder } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 
 const require = createRequire(import.meta.url);
@@ -84,7 +84,7 @@ function resolveSecret(v, env) {
   const m = v.match(/^\$([A-Za-z_][A-Za-z0-9_]*)/);
   if (!m) return v;
   const val = env[m[1]];
-  if (val === undefined) throw new Error(`secret env var ${m[1]} is not set`);
+  if (val === undefined) fail(`secret env var ${m[1]} is not set`);
   return val + v.slice(m[0].length);
 }
 
@@ -104,6 +104,32 @@ function clampIdle(events, maxIdle) {
     ev.t = round3(ev.t - shift);
   }
   return events;
+}
+
+/**
+ * Refuse a malformed step before anything runs. Checked inside the step loop,
+ * a bad step 5 was only noticed after steps 1–4 had already run, and maybe
+ * changed things. A step is a `cmd:` (a YAML scalar is coerced: `cmd: false`
+ * parses as a boolean), or a `sleep:` in seconds on its own.
+ */
+export function checkSteps(steps) {
+  const shape = 'each step is a cmd: to run, or a sleep: in seconds';
+  for (const [idx, step] of (steps || []).entries()) {
+    const n = idx + 1;
+    if (!step || typeof step !== 'object' || Array.isArray(step)) {
+      fail(`step ${n} is ${JSON.stringify(step)}, not a mapping: ${shape}`);
+    }
+    if (typeof step.cmd === 'boolean' || typeof step.cmd === 'number') step.cmd = String(step.cmd);
+    if (typeof step.cmd === 'string') continue;
+    if (step.cmd !== undefined && step.cmd !== null) fail(`step ${n} has a "cmd" that is not a command line: ${shape}`);
+    if ('sleep' in step && step.cmd === undefined) {
+      if (typeof step.sleep === 'number') continue;
+      fail(`step ${n} has a "sleep" that is not a number of seconds: ${shape}`);
+    }
+    const keys = Object.keys(step).filter(k => k !== 'cmd');
+    const has = keys.length ? ` (it has ${keys.map(k => `"${k}"`).join(', ')})` : '';
+    fail(`step ${n} has no "cmd"${has}: ${shape}`);
+  }
 }
 
 function shellArgs(shellPath) {
@@ -148,15 +174,16 @@ function setupLine(shellBase) {
  * (without allowFail) non-zero exits.
  */
 export async function recordScript(script, { scriptDir, allowFail = false, log = () => {} }) {
+  checkSteps(script.steps);
   const { pty } = loadDeps();
   const shellName = script.shell || path.basename(process.env.SHELL || 'zsh');
   const shellPath = shellName.includes('/') ? shellName : `/bin/${shellName}`;
-  if (!fs.existsSync(shellPath)) throw new Error(`shell not found: ${shellPath}`);
+  if (!fs.existsSync(shellPath)) fail(`shell not found: ${shellPath}`);
   const cols = script.cols ?? 100;
   const rows = script.rows ?? 28;
   const base = scriptDir || process.cwd();
   const cwd = script.cwd ? path.resolve(base, expandHome(script.cwd)) : base;
-  if (!fs.existsSync(cwd)) throw new Error(`cwd not found: ${cwd}`);
+  if (!fs.existsSync(cwd)) fail(`cwd not found: ${cwd}`);
 
   const redactions = (script.redact || []).map(r => new RegExp(r, 'g'));
   const redact = s => redactions.reduce((acc, re) => acc.replace(re, '▓▓▓'), s);
@@ -186,14 +213,20 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
   term.onData(d => { buffer += d; if (onChunk) onChunk(d); });
   term.onExit(() => { shellDead = true; if (onExitCb) onExitCb(); });
 
-  const waitFor = (test, timeoutMs, what, isCancelled) => new Promise((resolve, reject) => {
+  // A timeout is the script's fault when it is waiting on the script (a step,
+  // an expect, a wait_for: its own `timeout:` ran out), and decklight's when
+  // it is waiting on the shell setup. The shell dying is always decklight's.
+  const waitFor = (test, timeoutMs, what, { isCancelled, setup = false } = {}) => new Promise((resolve, reject) => {
     const started = Date.now();
     const tick = () => {
       const m = test();
       if (m) return resolve(m);
       if (isCancelled?.()) return reject(new Error('cancelled'));
       if (shellDead) return reject(new Error(`shell died while waiting for ${what}`));
-      if (Date.now() - started > timeoutMs) return reject(new Error(`timeout waiting for ${what}`));
+      if (Date.now() - started > timeoutMs) {
+        const msg = `timeout waiting for ${what}`;
+        return reject(setup ? new Error(msg) : new CommandError(msg, 'cast'));
+      }
       setTimeout(tick, 15);
     };
     tick();
@@ -202,7 +235,7 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
   try {
     // --- setup phase: silence echo & prompts, then discard everything so far
     term.write(setupLine(path.basename(shellPath)));
-    await waitFor(() => buffer.includes(READY_MARK), 10_000, 'shell setup');
+    await waitFor(() => buffer.includes(READY_MARK), 10_000, 'shell setup', { setup: true });
     buffer = '';
 
     const sessionEnv = { ...process.env, ...scriptEnv };
@@ -211,15 +244,12 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
     for (const [idx, step] of (script.steps || []).entries()) {
       // Pure pause step: sleeps for real (session truthfulness — background
       // state may be advancing) and records a timing marker.
-      if (step && typeof step.sleep === 'number' && step.cmd === undefined) {
+      if (step.cmd === undefined) {
         await new Promise(r => setTimeout(r, step.sleep * 1000));
         steps.push({ sleep: round3(step.sleep) });
         log(`  ✓ (sleep ${step.sleep}s)`);
         continue;
       }
-      // YAML gotcha: `cmd: false` / `cmd: 42` parse as scalars — coerce.
-      if (step && (typeof step.cmd === 'boolean' || typeof step.cmd === 'number')) step.cmd = String(step.cmd);
-      if (!step || typeof step.cmd !== 'string') throw new Error(`step ${idx + 1}: missing "cmd"`);
       const timeoutMs = (step.timeout ?? 60) * 1000;
       const chunks = [];
       const t0 = process.hrtime.bigint();
@@ -254,7 +284,7 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
               const found = await waitFor(() => {
                 const mm = collected.slice(searchFrom).match(re);
                 return mm ? { end: searchFrom + mm.index + mm[0].length } : null;
-              }, timeoutMs, `expect /${it.expect}/ in step ${idx + 1} (${step.cmd})`, () => interactState.cancelled);
+              }, timeoutMs, `expect /${it.expect}/ in step ${idx + 1} (${step.cmd})`, { isCancelled: () => interactState.cancelled });
               searchFrom = found.end;
               let text, display;
               if (it.send && typeof it.send === 'object' && 'secret' in it.send) {
@@ -291,7 +321,7 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
       if (interactState.error) throw interactState.error;
       if (!interactState.done && interactState.pending) {
         const err = `step ${idx + 1} exited before expect /${interactState.pending}/ matched: ${step.cmd}`;
-        if (!allowFail) throw new Error(err);
+        if (!allowFail) fail(err);
         log(`  ⚠ ${err}`);
       }
       const exit = parseInt(m[1], 10);
@@ -332,7 +362,7 @@ export async function recordScript(script, { scriptDir, allowFail = false, log =
       // 130 is how a command ends when the script itself pressed Ctrl-C:
       // that is the step working (a server stopped), not failing
       if (exit !== 0 && !(exit === 130 && interactState.interrupted) && !allowFail) {
-        throw new Error(`step ${idx + 1} exited ${exit}: ${step.cmd}  (use --allow-fail to record failures as content)`);
+        fail(`step ${idx + 1} exited ${exit}: ${step.cmd}  (use --allow-fail to record failures as content)`);
       }
     }
     finished = true;
@@ -578,6 +608,7 @@ export async function castMain(argv = process.argv.slice(2)) {
 
   const script = yaml.load(fs.readFileSync(scriptPath, 'utf8'));
   if (!script || !Array.isArray(script.steps) || !script.steps.length) fail('script has no steps');
+  checkSteps(script.steps);
 
   const shellName = script.shell || path.basename(process.env.SHELL || 'zsh');
   if (!quiet) console.log(`recording ${script.steps.length} step${script.steps.length === 1 ? '' : 's'} in ${shellName}…`);

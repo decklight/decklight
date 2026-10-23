@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 // js-yaml — both optional deps. Skip it when they're absent (e.g. CI installs
 // with --omit=optional) rather than fail on a missing native toolchain.
 import { optionalDepSkip as recSkip } from './helpers.mjs';
+import { checkSteps } from '../cli/cast.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(here, '..', 'cli', 'cast.mjs');
@@ -92,7 +93,9 @@ test('non-zero exit aborts without --allow-fail, records with it', () => {
   const script = path.join(dir, 'fail.term.yaml');
   fs.writeFileSync(script, [`shell: ${SHELL}`, 'steps:', '  - cmd: false', '  - cmd: echo after'].join('\n'));
 
-  assert.match(runExpectFail([script, '--quiet']), /exited 1/);
+  const err = runExpectFail([script, '--quiet']);
+  assert.match(err, /exited 1/);
+  assert.doesNotMatch(err, /bug/, 'a failing script is not a decklight bug');
 
   run([script, '--quiet', '--allow-fail']);
   const cast = JSON.parse(fs.readFileSync(path.join(dir, 'fail.cast.json'), 'utf8'));
@@ -104,7 +107,49 @@ test('timeout aborts with a step-identifying error', () => {
   const dir = tmpdir();
   const script = path.join(dir, 'slow.term.yaml');
   fs.writeFileSync(script, [`shell: ${SHELL}`, 'steps:', '  - cmd: sleep 5', '    timeout: 1'].join('\n'));
-  assert.match(runExpectFail([script, '--quiet']), /timeout waiting for step 1/);
+  const err = runExpectFail([script, '--quiet']);
+  assert.match(err, /timeout waiting for step 1/);
+  assert.doesNotMatch(err, /bug/, 'a step outrunning its timeout is not a decklight bug');
+});
+
+baseTest('checkSteps: a step is a cmd: (any YAML scalar) or a sleep: on its own', () => {
+  const ok = [{ cmd: 'ls' }, { cmd: false }, { cmd: 42 }, { sleep: 1.5 }, { cmd: 'ls', sleep: 'x' }];
+  checkSteps(ok);
+  assert.equal(ok[1].cmd, 'false', 'a scalar cmd is coerced to text');
+  const refused = (steps, re) => assert.throws(() => checkSteps(steps), e => e.name === 'CommandError' && re.test(e.message));
+  refused([{ cmd: 'ls' }, { run: 'ls', note: 'x' }], /^step 2 has no "cmd" \(it has "run", "note"\)/);
+  refused([{}], /^step 1 has no "cmd": each step/);
+  refused(['echo hi'], /^step 1 is "echo hi", not a mapping/);
+  refused([{ sleep: '2' }], /^step 1 has a "sleep" that is not a number/);
+  refused([{ cmd: ['ls'] }], /^step 1 has a "cmd" that is not a command line/);
+});
+
+test('a malformed step is refused before any step runs, naming the keys it has', () => {
+  const dir = tmpdir();
+  const script = path.join(dir, 'bad.term.yaml');
+  fs.writeFileSync(script, [`shell: ${SHELL}`, 'steps:', '  - cmd: touch ran', '  - run: echo hi'].join('\n'));
+  const err = runExpectFail([script, '--quiet']);
+  assert.equal(err.trim(),
+    'decklight cast: step 2 has no "cmd" (it has "run"): each step is a cmd: to run, or a sleep: in seconds');
+  assert.ok(!fs.existsSync(path.join(dir, 'ran')), 'step 1 never ran');
+});
+
+test('unset secrets, a missing shell and a missing cwd are script errors, not bugs', () => {
+  const dir = tmpdir();
+  const cases = {
+    secret: [`shell: ${SHELL}`, 'steps:', '  - cmd: sleep 0.5', '    interact:',
+      '      - expect: ""', '        send: { secret: "$DECKLIGHT_TEST_NOT_SET\\n" }'],
+    shell: ['shell: /no/such/shell', 'steps:', '  - cmd: echo hi'],
+    cwd: [`shell: ${SHELL}`, 'cwd: /no/such/dir', 'steps:', '  - cmd: echo hi'],
+  };
+  const want = { secret: /secret env var DECKLIGHT_TEST_NOT_SET is not set/, shell: /shell not found/, cwd: /cwd not found/ };
+  for (const [name, lines] of Object.entries(cases)) {
+    const script = path.join(dir, `${name}.term.yaml`);
+    fs.writeFileSync(script, lines.join('\n'));
+    const err = runExpectFail([script, '--quiet']);
+    assert.match(err, want[name]);
+    assert.doesNotMatch(err, /bug/, `${name}: not a decklight bug`);
+  }
 });
 
 test('refresh: idempotent when output is stable, rewrites on drift', () => {
@@ -231,7 +276,9 @@ test('interact: command exiting before an expect matches aborts (unless --allow-
     '      - expect: "Password: "',
     '        send: "x\\n"',
   ].join('\n'));
-  assert.match(runExpectFail([script, '--quiet']), /exited before expect \/Password: \//);
+  const err = runExpectFail([script, '--quiet']);
+  assert.match(err, /exited before expect \/Password: \//);
+  assert.doesNotMatch(err, /bug/, 'an unmatched expect is not a decklight bug');
   run([script, '--quiet', '--allow-fail']); // records instead of failing
 });
 
