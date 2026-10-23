@@ -44,7 +44,9 @@
  * agent-review finding — handed to the A agent as an ordinary ask, whose
  * prompt carries the finding and its rule, watched in the agent panel.
  * Either way it is one undo entry and one commit, and the row goes when the
- * finding does. `⇧F` fixes every row of a rule whose fix is safe to batch
+ * finding does. Both are REVIEWED first (#907, fixreview.js): the fix is held
+ * as a candidate, shown beside the deck as it is, and lands only as far as
+ * the author approves it; Settings → Review quick fixes turns that off. `⇧F` fixes every row of a rule whose fix is safe to batch
  * (renamed roles). A row with neither says so.
  *
  * The panel DOCKS like the others (dock.js: float, left, right, bottom, one
@@ -230,7 +232,7 @@ export function createDeckCheck({
       const ref = f.fix.ref ?? f.fix.name ?? null;
       return {
         label: f.fix.label, batch: !!f.fix.batch, agent: false,
-        run: (all = false) => quick({ rule: f.rule, slide: f.slide, ref, all: all && !!f.fix.batch }),
+        run: (all = false) => quick({ rule: f.rule, slide: f.slide, ref, all: all && !!f.fix.batch, review: true }),
       };
     }
     const take = f.suggestion && accept();
@@ -239,11 +241,11 @@ export function createDeckCheck({
     if (!ask) return null;
     if (f.agentFinding) {
       return { label: 'Ask the agent to fix it', batch: false, agent: true,
-        run: () => ask({ prompt: f.agentFinding.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}` }) };
+        run: () => ask({ prompt: f.agentFinding.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}`, review: true, rule: f.rule }) };
     }
     if (NOT_FOR_AGENT.has(f.rule)) return null;
     return { label: 'Ask the agent to fix it', batch: false, agent: true,
-      run: () => ask({ prompt: agentPrompt(f), slide: f.slide ?? undefined, message: fixSubject(f) }) };
+      run: () => ask({ prompt: agentPrompt(f), slide: f.slide ?? undefined, message: fixSubject(f), review: true, rule: f.rule }) };
   }
 
   /** The palette row: open it, or close it when it is up. */

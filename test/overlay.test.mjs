@@ -119,6 +119,18 @@ test('the first registered overlay that is open owns the keyboard', () => {
   assert.equal(overlays.active(), a, 'registration order is priority');
 });
 
+test('an overlay registered first: true outranks every one registered before it', () => {
+  // the fix review (#907) is drawn over the agent panel the ask docked open,
+  // and the panel, registered earlier, must not keep the arrows
+  const overlays = createOverlays();
+  const panel = overlays.register(overlay({ panel: true, modal: false }));
+  const review = overlays.register(overlay({ first: true }));
+  panel.open = true;
+  assert.equal(overlays.active(), panel);
+  review.open = true;
+  assert.equal(overlays.active(), review);
+});
+
 test('opening() clears the pickers and leaves every other overlay alone', () => {
   // A picker has no business under whatever opens next; a typing surface has
   // every business staying — ⌘K reaches the commit window from inside the notes

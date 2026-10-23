@@ -29,6 +29,7 @@ import { createDock, reopenPanel } from './dock.js';
 import { thinking } from './thinking.js';
 import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
 import { wordDiff, diffCounts } from './worddiff.js';
+import { createFixReview, fixReviewOn, setFixReview } from './fixreview.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
 import { UNDO_CHORD } from './undo-chord.js';
@@ -189,7 +190,7 @@ export function createEditMode({
   let commitEl = null;
   let commitAsking = false;
   function closeCommit() { commitEl?.remove(); commitEl = null; commitAsking = false; }
-  async function openCommit() {
+  async function openCommit({ draft = null } = {}) {
     if (commitEl) return closeCommit();
     if (!editAvailable) { toast(cannot('committing'), 3200); return; }
     const state = (await refreshCommit()) ?? commitNow;
@@ -492,7 +493,9 @@ export function createEditMode({
       }
     };
     write.addEventListener('click', ask);
-    if (state.messages && who && state.dirty) ask();   // drafted on open only with --commit-messages
+    // a reviewed fix drafted its own message (#907): offered, editable, not committed
+    if (draft && state.dirty) { input.value = draft; input.rows = Math.min(8, Math.max(3, draft.split('\n').length)); }
+    else if (state.messages && who && state.dirty) ask();   // drafted on open only with --commit-messages
 
     // After a commit the window stays when there is somewhere to push it —
     // commit, then push, is one visit — and closes when there is not.
@@ -745,6 +748,10 @@ export function createEditMode({
               if (d.from !== PAGE_ID && d.concepts && typeof d.concepts === 'object') root.dispatchEvent(new CustomEvent('decklight:concepts', { detail: { concepts: d.concepts } }));
             } catch { /* malformed: the next reload settles it */ }
           });
+          // a quick fix under review was adjusted by the agent (#907)
+          es.addEventListener('candidate', (ev) => {
+            try { fixReview.update(JSON.parse(ev.data)); } catch { /* malformed: Esc and fix again */ }
+          });
           es.addEventListener('notes', (ev) => {
             try { const { slide, aside, from } = JSON.parse(ev.data); patchNotes(slide, aside, from); } catch { /* malformed: the next reload settles it */ }
           });
@@ -774,7 +781,13 @@ export function createEditMode({
                 if (ask) Object.assign(ask, d, { finishedAt: Date.now() });
                 paintAgentChip();
                 const status = d.ok ? '' : d.error ? ` — ${d.error}` : ` (exit ${d.code})`;
-                toast(d.stopped ? `🤖 ${d.agent} stopped${d.changed ? ` — what it had written stays, ${UNDO_CHORD} undoes` : ' — no changes'}`
+                // a fix held for review (#907): nothing landed, the review opens on it
+                if (d.candidate) {
+                  if (!d.candidate.adjusted) {
+                    toast(`🤖 ${d.agent} proposed a fix — review it before it lands${status}`, 3000);
+                    fixReview.open(d.candidate.id);
+                  }
+                } else toast(d.stopped ? `🤖 ${d.agent} stopped${d.changed ? ` — what it had written stays, ${UNDO_CHORD} undoes` : ' — no changes'}`
                   : d.changed ? `🤖 ${d.agent} edited the deck — ${UNDO_CHORD} undoes${status}`
                     : `🤖 ${d.agent} finished — no changes${status}`, d.stopped && d.changed ? 5200 : 3000);
                 debugLog('agent', `${d.agent} done ok=${d.ok} changed=${d.changed}${status}`);
@@ -824,6 +837,9 @@ export function createEditMode({
           probeSettled();
           resumeHandover();
           enhanceSummaryAfterReload();
+          // a quick fix waiting for review when this page loaded: back to it (#907)
+          if (j.candidate?.id) fixReview.open(j.candidate.id);
+          else commitDraftAfterReload();
           loadReview().then((r) => { for (const fn of reviewListeners) fn(r); });
           return;
         } catch { /* not served by the edit server */ }
@@ -1067,6 +1083,28 @@ export function createEditMode({
   // Z hostage forever, and its own catch path (the "save failed" toast) would
   // never run — see boundedFetch.
   const writeFetch = (url, init) => trackWrite(boundedFetch(url, init));
+
+  // ── a quick fix, reviewed before it lands (#907, fixreview.js) ───────────
+  // Check deck…'s fixes are held by the server as a candidate; this is the
+  // two-pane view that walks it, decides it slide by slide and applies it.
+  const fixReview = createFixReview({
+    root, overlays, toast, base: () => editBase, previewQuery, captionsOn, toggleCaptions, writeFetch,
+  });
+  const FIX_COMMIT_KEY = 'decklight-fix-commit:' + location.pathname;
+  /** The page a reviewed apply reloaded: the commit window, its message drafted. */
+  function commitDraftAfterReload() {
+    let kept = null;
+    try { kept = JSON.parse(sessionStorage.getItem(FIX_COMMIT_KEY) || 'null'); sessionStorage.removeItem(FIX_COMMIT_KEY); } catch { /* nothing kept */ }
+    if (!kept?.subject || Date.now() - kept.at > 30000) return;
+    debugLog('check', `reviewed fix applied — ${kept.said ?? kept.subject}`);
+    if (!commitNow?.canWrite) return;   // no git in this session: the toast before the reload said it all
+    openCommit({ draft: kept.body ? `${kept.subject}\n\n${kept.body}` : kept.subject });
+  }
+  function toggleFixReview() {
+    const on = !fixReviewOn();
+    setFixReview(on);
+    toast(on ? 'quick fixes: reviewed side by side before they land' : 'quick fixes: land at once, as one undo entry and one commit', 2800);
+  }
 
   // undo/redo (Z / ⇧Z) — the dev server's edit history: layout picks, notes
   // saves, and agent runs all snapshot into ONE stack, wholly independent of
@@ -3439,13 +3477,15 @@ export function createEditMode({
    * under `message`), watched in the agent panel, which opens docked on it
    * the way Migrate's does. Answers whether it was sent.
    */
-  async function askAgent({ prompt, slide, message }) {
+  async function askAgent({ prompt, slide, message, review = false, rule = null }) {
     if (!editAvailable) { toast(cannot('fixing it'), 3200); return false; }
     if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return false; }
     if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return false; }
     try {
+      // a quick fix is held for the review view unless Settings turned that off (#907)
+      const held = review && fixReviewOn();
       const sent = await postAgentJob(editBase + '/deck/edit/agent',
-        { prompt, slide, message, ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) });
+        { prompt, slide, message, ...(held ? { review: true, rule } : {}), ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) });
       if (!sent) return false;
       const { res, j } = sent;
       if (!res.ok) throw new Error(j.error || res.status);
@@ -3459,8 +3499,8 @@ export function createEditMode({
       return false;
     }
   }
-  /** `f` on an agent-review finding: its prepared instruction, as an ordinary A edit (one undo entry, one commit). */
-  const fixFinding = (f) => askAgent({ prompt: f.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}` });
+  /** `f` on an agent-review finding: its prepared instruction, as an A edit held for the review first (#907). */
+  const fixFinding = (f) => askAgent({ prompt: f.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}`, review: true, rule: f.rule ?? null });
 
   /**
    * A quick fix Check deck… offers for one of `decklight check`'s findings
@@ -3469,16 +3509,22 @@ export function createEditMode({
    * agent panel's log as an entry by decklight. `ds-behind` is Migrate. The
    * answer is the route's, or null when nothing was done.
    */
-  async function fixProblem({ rule, slide = null, ref = null, all = false }) {
+  async function fixProblem({ rule, slide = null, ref = null, all = false, review = false }) {
     if (!editAvailable) { toast(cannot('fixing it'), 3200); return null; }
     if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return null; }
     if (rule === 'ds-behind') return (await migrateDesignSystem(ref)) ? { ok: true } : null;
     try {
       const res = await writeFetch(editBase + '/deck/edit/check/fix', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ rule, slide, ref, all, ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) }),
+        body: JSON.stringify({ rule, slide, ref, all, ...(review && fixReviewOn() ? { review: true } : {}), ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) }),
       });
       const j = await res.json().catch(() => ({}));
+      // held for review (#907): nothing was written, the review opens on it
+      if (res.ok && j.ok && j.held) {
+        debugLog('check', `fix ${rule} held for review: ${j.said}`);
+        fixReview.open(j.candidate.id);
+        return j;
+      }
       // the server's own entry is over by its answer: listed even if its event has not landed yet
       if (j.ask && !agentAsks.some((x) => x.id === j.ask.id)) { agentAsks.push(j.ask); paintAsks?.(); }
       if (!res.ok || !j.ok) throw new Error(j.error || res.status);
@@ -3669,6 +3715,10 @@ export function createEditMode({
     /** Check deck…'s fixes: the server's own (`fixProblem`), and an ask to the A agent (`askAgent`); which agents there are; a word when a write lands. */
     fixProblem,
     askAgent,
+    /** The review a quick fix opens (#907): its state for a probe, and Settings → Review quick fixes. */
+    fixReview,
+    reviewFixes: fixReviewOn,
+    toggleFixReview,
     agents: () => editAgents.slice(),
     onWrite: (fn) => { writeListeners.add(fn); },
     /** The Publish row: the first call asks and arms, the second publishes. */

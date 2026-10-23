@@ -171,6 +171,18 @@ test('POST /deck/edit/commit commits the deck under the author\'s subject, clear
   assert.equal(g('rev-list', '--count', 'HEAD'), '3');
 });
 
+test('POST /deck/edit/commit keeps what follows a blank line as the body — a reviewed fix\'s rejections (#907)', async (t) => {
+  const { routes, g, deck } = harness(t);
+  writeFileSync(deck, V2.replace('Gamma', 'Gamma, fixed'));
+  const r = await call(routes, 'POST /deck/edit/commit', {
+    body: { message: 'fix: off-role on slides 2 and 3\n\nRejected in review:\n- slide 4: keep the stroke   \n' },
+  });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.subject, 'fix: off-role on slides 2 and 3', 'the answer names the subject alone');
+  assert.equal(g('log', '-1', '--format=%s'), 'fix: off-role on slides 2 and 3');
+  assert.equal(g('log', '-1', '--format=%b').trim(), 'Rejected in review:\n- slide 4: keep the stroke');
+});
+
 test('POST /deck/edit/commit refuses a message-less commit, an option-shaped one is made safe, and git off is 409', async (t) => {
   const { routes, g, deck, book } = harness(t);
   writeFileSync(deck, V1);

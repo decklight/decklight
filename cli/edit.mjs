@@ -35,6 +35,11 @@
 //   POST /deck/edit/undo            → step the deck file back through the edit history
 //   POST /deck/edit/redo            → step it forward again
 //   POST /deck/edit/agent           → { prompt, agent?, slide?, offer?, place? } one-shot AI agent edit, the skill offered first
+//   GET  /deck/edit/candidate       → the quick fix held for review (#907): its changes, slide by slide
+//   GET  /deck/edit/candidate/at    → ?id=&side=before|after  either side of it, as a page
+//   POST /deck/edit/candidate/apply → { id, take, rejected }  the approved slides, one undo entry
+//   POST /deck/edit/candidate/adjust → { id, key, comment }   one slide of it back to the agent
+//   POST /deck/edit/candidate/discard → { id }  drop it; the deck was never touched
 //   POST /deck/edit/agent/stop      → stop the agent job in flight: that edit, an enhancement or a review
 //   POST /deck/edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags') or written for the ear ('spoken')
 //   POST /deck/edit/enhance/text    → { text, agent?, kind? } → { text }   the same, for the notes editor's box (writes nothing)
@@ -119,6 +124,7 @@ import { registerSlideRoutes } from './edit-slides.mjs';
 import { registerLookRoutes, runMarketplace, autoCheckInBackground } from './edit-look.mjs';
 import { registerHandoverRoutes } from './edit-handover.mjs';
 import { registerGitRoutes } from './edit-git.mjs';
+import { registerFixReviewRoutes, adjustPrompt } from './fix-review.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
 import { classifyScripts, auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
@@ -1046,6 +1052,7 @@ const WRITE_LABELS = {
   '/deck/edit/design-system/mark': 'design system marked',
   '/deck/edit/design-system/migrate': 'design system migrated',
   '/deck/edit/check/fix': 'problem fixed',
+  '/deck/edit/candidate/apply': 'reviewed fix applied',
   '/deck/edit/enhance': 'script enhanced',
   '/deck/edit/wizard': 'engine set up',
   '/deck/upstream/pull': 'git pull',
@@ -1934,6 +1941,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // modes. What the probe carries beyond the mode is `extras`, computed on
   // every ping like everything else on it: the toast is threshold-driven,
   // not live.
+  // The quick fix held for review (#907, cli/fix-review.mjs): set with the route table below.
+  let fixReview = null;
   const deck = createDeckRoutes(deckPath, {
     noTrust,
     locked: () => noTrust || locked,
@@ -1963,6 +1972,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
       enhanceBusy: !!enhancing,
       reviewBusy: !!reviewing,
       agentAsks,
+      // a quick fix waiting for review: a page that loads mid-review opens it again
+      candidate: fixReview?.held() ? { id: fixReview.held().id } : null,
       wizards: await configurableEngines(),
       // What is uncommitted, so a deck that loads mid-session shows the
       // chip without waiting for the next tick to broadcast one.
@@ -2229,6 +2240,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
   let pending = null;
   let quietWrite = null; // the bytes of a write that updates the page itself (themeMarkRoute, cli/edit-look.mjs)
+  // An agent working on a fix held for review (#907) edits the deck file in
+  // place, and the file goes back to what it was when it is done: no page
+  // reloads for any of it, because nothing it wrote has landed.
+  let holding = false;
   // The DIRECTORY, not the file. A path watch follows the inode, and an
   // atomic write — temp file + rename, which is how an agent's editor and
   // most careful tools save — replaces the inode: the watcher then sits deaf
@@ -2244,6 +2259,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // changed underneath it is not reloaded, because that would be new
       // bytes under the old label. A pull re-audits.
       if (noTrust) return;
+      if (holding) return;
       // A QUIET write is one the pages update themselves in place, which must
       // not reload: a theme marked from the open picker (a reload closes the
       // picker the author is still choosing in), or a notes save, whose new
@@ -2303,8 +2319,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * checks compare against it (a migration's before and after renders).
    * `dirs` are folders outside the project the agent must read (a
    * migration's skill, where it is installed).
+   *
+   * `hold` makes it a fix held for review (#907): `{ start?, done(after) }`.
+   * The agent edits the deck file as it always does (from `start`, a held
+   * candidate it is adjusting, when given), with every reload held; when it
+   * exits the file is put back exactly as it was, and what it wrote goes to
+   * `done` instead of the history and git. Nothing is committed, before or
+   * after. `done` answers what the `done` event carries for the review.
    */
-  function runAgent(prompt, name, message, slide, { files = [], reload = null, kind = null, title = null, subject: given = null, before: beforeSay = null, dirs = [] } = {}) {
+  function runAgent(prompt, name, message, slide, { files = [], reload = null, kind = null, title = null, subject: given = null, before: beforeSay = null, dirs = [], hold = null } = {}) {
     let cmd = agentCommand(name || agentPref, prompt, deckRel, { slide, dirs });
     if (!cmd) return null;
     const ask = {
@@ -2321,7 +2344,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // commit honest: otherwise a hand edit made just before pressing A lands
     // under the agent's message, and a history that misattributes authorship is
     // worse than one that only says "autosave".
-    if (gitOn && shouldCommit(gitMode, { kind: 'bookend' })
+    if (!hold && gitOn && shouldCommit(gitMode, { kind: 'bookend' })
         && ownCommit(`decklight: save before ${cmd.name} edits ${basename(deckPath)}`, files)) {
       console.log('  git: committed your outstanding changes first');
     }
@@ -2333,6 +2356,20 @@ export async function editMain(args, { onListen = null, client } = {}) {
         cmd = agentCommand(cmd.name, prompt, deckRel, { slide, dirs }) ?? cmd;
       }
     }
+    // held: the deck as it really is, put back when the agent is done
+    const kept = hold ? readDeck() : null;
+    if (hold) {
+      holding = true;
+      if (typeof hold.start === 'string' && hold.start !== kept) writeFileAtomic(deckPath, hold.start);
+    }
+    /** The deck file as it was before a held run, again; no reload for the trip. */
+    const putBack = () => {
+      if (!hold) return;
+      let now = null;
+      try { now = readDeck(); } catch { /* gone: written back below */ }
+      if (now !== kept) { quietWrite = kept; writeFileAtomic(deckPath, kept); }
+      holding = false;
+    };
     const before = readDeck();
     const filesBefore = snapshotFiles(files);
     // what is already beside the deck, so what the run leaves there can be named
@@ -2392,6 +2429,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
     child.on('error', (e) => {
       clearTimeout(timeout);
       clearTimeout(hard);
+      putBack();
+      hold?.done(null);
       agentJob = null;
       agentStop = null;
       finish({ ok: false, changed: false, error: String(e.message || e) });
@@ -2405,12 +2444,17 @@ export async function editMain(args, { onListen = null, client } = {}) {
       const filesAfter = snapshotFiles(files);
       const filesChanged = Object.keys(filesBefore).some((p) => filesAfter[p] !== filesBefore[p]);
       const changed = after !== before || filesChanged;
+      // held for review: the deck goes back, the edit becomes the candidate
+      putBack();
+      const held = hold ? hold.done(changed ? after : null, { ok: code === 0 && !stopped }) : null;
+      // a first run the review could not hold lands as it always did, never lost
+      if (hold && changed && !held && hold.start === undefined) { history.record(kept); writeDeck(after); }
       // Z takes the agent's edit back — with the files beside the deck it wrote, in the same step
-      if (changed) history.record(filesChanged ? { deck: before, files: filesBefore } : before);
+      if (changed && !hold) history.record(filesChanged ? { deck: before, files: filesBefore } : before);
       // One commit per completed agent edit, carrying the agent's own summary
       // — the boundary and the message both come from the work, not a clock.
       // A failed run or one that changed nothing commits nothing.
-      if (gitOn && shouldCommit(gitMode, { kind: 'agent', ok: code === 0, changed })) {
+      if (!hold && gitOn && shouldCommit(gitMode, { kind: 'agent', ok: code === 0, changed })) {
         const subject = given ?? commitSubject(message ?? prompt, `decklight: ${cmd.name} edited ${basename(deckPath)}`);
         if (gitAutocommit(deckPath, root, subject, { also: [...alsoNow().also, ...files] })) { pendingAttr = null; console.log(`  git: committed "${subject}"`); }
       }
@@ -2421,7 +2465,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // word is said. A warning, never a block: the file is already written,
       // Z takes it back, and the audio never left the disk.
       let recordingWarning = null;
-      if (changed) {
+      if (changed && !hold) {
         try {
           const impact = recordingImpact(before, after, {
             dirsOf: configuredTrackDirs,
@@ -2443,14 +2487,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // commit (it names its paths), and said, so the author can delete them
       const left = (besideDeck() ?? []).filter((f) => !leftBefore.has(f));
       if (left.length) console.log(`  agent: ${cmd.name} left ${left.join(', ')} beside the deck (not committed)`);
-      finish({ ok: code === 0, changed, code, tail: said, ...(left.length ? { left } : {}), ...(stopped ? { stopped } : {}) });
+      finish({ ok: code === 0, changed, code, tail: said, ...(left.length ? { left } : {}), ...(stopped ? { stopped } : {}), ...(held ? { held: true } : {}) });
       broadcast('agent', {
         state: 'done', id: ask.id, agent: cmd.name, ok: code === 0, changed, code, tail: said,
         ...(left.length ? { left } : {}),
         ...(stopped ? { stopped } : {}),
+        ...(held ? { candidate: held } : {}),
         ...(recordingWarning ? { recordingWarning } : {}),
       });
-      console.log(`  agent: ${cmd.name} ${stopped ? 'stopped' : `exited (${code})`} — deck ${changed ? 'changed' : 'unchanged'}`);
+      console.log(`  agent: ${cmd.name} ${stopped ? 'stopped' : `exited (${code})`} — deck ${!changed ? 'unchanged' : hold ? 'changed, held for review' : 'changed'}`);
       if (recordingWarning) console.log(`  ${recordingWarning}`);
     });
     return cmd;
@@ -3032,15 +3077,29 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return null;
   }
 
+  /**
+   * `review: true` (a Check deck… quick fix, #907) holds what the agent
+   * writes for the review view instead of landing it: `rule` names the
+   * finding, for the commit the review drafts.
+   */
   async function agentRoute({ body, json }) {
-    const { prompt, agent, message, slide, offer, place = null } = JSON.parse(body);
+    const { prompt, agent, message, slide, offer, place = null, review = false, rule = null } = JSON.parse(body);
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
     if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
     if (reviewing) return json(409, { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' });
     const gate = await skillGate(agent, { offer, place });
     if (gate?.offer) return json(200, gate.offer);
     if (gate?.error) return json(409, { ok: false, error: gate.error });
-    const cmd = runAgent(prompt.trim(), agent, message, slide);
+    const what = typeof message === 'string' && message.trim() ? message.trim() : commitSubject(prompt, 'fix');
+    const hold = review ? {
+      done: (after, { ok = true } = {}) => {
+        if (after === null) return null;
+        const h = fixReview.hold({ before: readDeck(), after, what, rule: typeof rule === 'string' ? rule : null, slide, agent: agentJob?.agent ?? null });
+        if (!h.ok) console.log(`  fix: ${h.error}`);
+        return h.ok ? { id: h.id, units: h.units.length, ok } : null;
+      },
+    } : null;
+    const cmd = runAgent(prompt.trim(), agent, message, slide, hold ? { hold } : {});
     if (!cmd) return json(400, { ok: false, error: agentUnavailable(agent ?? agentPref, agents) });
     return json(200, { ok: true, agent: cmd.name, label: cmd.label });
   }
@@ -3151,7 +3210,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * the A agent as an ordinary ask.
    */
   async function checkFixRoute({ body, json }) {
-    const { rule, slide, all, ref, agent } = JSON.parse(body || '{}');
+    const { rule, slide, all, ref, agent, review = false } = JSON.parse(body || '{}');
     if (typeof rule !== 'string' || !/^[a-z][a-z-]*$/.test(rule)) throw new Error('bad payload');
     if (slide != null && !(Number.isInteger(slide) && slide > 0)) throw new Error('bad payload');
     if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
@@ -3166,6 +3225,12 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const before = readDeck();
     /** The deck rewritten in one step, committed as the fix, and said in the panel. */
     const land = (next, { said, tail, prompt }) => {
+      // reviewed first (#907): held, and nothing written until the author applies it
+      if (review) {
+        const h = fixReview.hold({ before, after: next, what: subject, rule, slide: where });
+        if (!h.ok) return json(409, h);
+        return json(200, { ok: true, changed: false, held: true, said, candidate: h });
+      }
       const ask = ownAsk({ kind: 'fix', title: subject, prompt, slide: where ?? undefined });
       if (gitOn && shouldCommit(gitMode, { kind: 'bookend' }) && ownCommit(`decklight: save before fixing ${rule}`)) {
         console.log('  git: committed your outstanding changes first');
@@ -3285,6 +3350,32 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // a notes save updates every page in place: no reload for that write
     quiet: (html) => { quietWrite = html; },
     broadcast: (event, data) => clients.broadcast(event, data),
+  });
+
+  // A quick fix reviewed before it lands (#907, cli/fix-review.mjs): the
+  // candidate, its two sides as pages, and the apply that writes the slides
+  // the author approved as one undo entry. An adjustment is the agent again,
+  // held, working on the candidate rather than on the deck.
+  fixReview = registerFixReviewRoutes(routes, {
+    readDeck, applyEdit, broadcast,
+    saveBefore: (what) => {
+      if (gitOn && shouldCommit(gitMode, { kind: 'bookend' }) && ownCommit(`decklight: save before applying the reviewed ${what}`)) {
+        console.log('  git: committed your outstanding changes first');
+      }
+    },
+    adjust: async ({ candidate, unit, comment }) => {
+      if (agentJob) return { ok: false, error: `${agentJob.agent} is already running` };
+      if (reviewing) return { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' };
+      const cmd = runAgent(adjustPrompt(unit, comment, candidate.what), candidate.agent ?? undefined, null, unit.slide, {
+        kind: 'fix', title: `adjust ${candidate.what} on slide ${unit.slide}`,
+        hold: {
+          start: candidate.after,
+          done: (after) => { fixReview.adjusted(candidate.id, after, unit.key); return { id: candidate.id, adjusted: unit.key }; },
+        },
+      });
+      if (!cmd) return { ok: false, code: 400, error: agentUnavailable(candidate.agent ?? agentPref, agents) };
+      return { ok: true, agent: cmd.name };
+    },
   });
 
   // The deck's look is a file of its own too (cli/edit-look.mjs): the theme
@@ -3472,6 +3563,12 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // stops, which write nothing and end a job started before the lock
       if (locked && req.method === 'POST' && url.pathname.startsWith('/deck/edit/') && !UNLOCKED_POSTS.has(url.pathname)) {
         return json(423, { ok: false, locked: true, error: 'the deck is locked — unlock it from the palette or the lock chip' });
+      }
+      // an agent is working on a fix held for review: the file is its until it
+      // is put back, and a write made now would be undone by that (#907)
+      if (holding && req.method === 'POST' && url.pathname.startsWith('/deck/edit/') && !UNLOCKED_POSTS.has(url.pathname)
+          && url.pathname !== '/deck/edit/candidate/discard') {
+        return json(409, { ok: false, error: 'a fix is being prepared for review — wait for it, or stop the agent' });
       }
       const key = `${req.method} ${url.pathname}`;
       const prefixed = routes.has(key) ? null

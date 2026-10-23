@@ -345,6 +345,18 @@ export function slideChanges(before, after) {
  * Pure; 1-based like `state.slide`.
  */
 export function slideDiff(before, after) {
+  const stops = slideOps(before, after).filter((o) => o.kind !== 'same');
+  const count = (k) => stops.filter((s) => s.kind === k).length;
+  return { changed: count('changed'), added: count('added'), removed: count('removed'), stops };
+}
+
+/**
+ * slideDiff's stops with the slides that did not change between them, `{
+ * kind: 'same', slide, was }`: the whole alignment, every slide of both
+ * versions once, in reading order. What a reviewed fix merges by
+ * (cli/fix-review.mjs). Pure.
+ */
+export function slideOps(before, after) {
   const a = slideSources(before);
   const b = slideSources(after);
   // LCS over whole slides; decks are tens of slides, so n×m is nothing
@@ -372,15 +384,14 @@ export function slideDiff(before, after) {
   };
   let i = 0, j = 0;
   while (i < n && j < m) {
-    if (a[i] === b[j]) { close(); i++; j++; }
+    if (a[i] === b[j]) { close(); stops.push({ kind: 'same', slide: j + 1, was: i + 1 }); i++; j++; }
     else if (L[i + 1][j] >= L[i][j + 1]) gapOld.push(i++);
     else gapNew.push(j++);
   }
   while (i < n) gapOld.push(i++);
   while (j < m) gapNew.push(j++);
   close();
-  const count = (k) => stops.filter((s) => s.kind === k).length;
-  return { changed: count('changed'), added: count('added'), removed: count('removed'), stops };
+  return stops;
 }
 
 /**

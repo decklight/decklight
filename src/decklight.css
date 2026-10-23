@@ -684,6 +684,121 @@
   opacity: 0.6;
 }
 
+/* A quick fix under review (#907, fixreview.js): the deck as it is and as
+   the fix would make it, side by side at the same slide and step, the notes'
+   word diff under them, and one bar of decisions. The panes keep the deck's
+   ratio, so a slide reads as a slide rather than as whatever box was left. */
+.decklight-fixreview {
+  position: absolute;
+  inset: 0;
+  /* over the docked panels (70): the agent panel the ask opened stays up beneath it */
+  z-index: 80;
+  background: rgba(0, 0, 0, .6);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.decklight-fixreview:focus { outline: none; }
+.decklight-fixreview .fr-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(1400px, 96vw);
+  max-height: 94vh;
+  box-sizing: border-box;
+  background: #16181d;
+  color: #e8eaee;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .55);
+  font: 14px/1.4 system-ui, sans-serif;
+  overflow: auto;
+}
+.decklight-fixreview .fr-head { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; }
+.decklight-fixreview .fr-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.decklight-fixreview .fr-pos { font-variant-numeric: tabular-nums; opacity: .75; white-space: nowrap; }
+.decklight-fixreview .fr-panes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+.decklight-fixreview .fr-pane { position: relative; margin: 0; min-width: 0; }
+.decklight-fixreview .fr-label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; opacity: .6; margin-bottom: 4px; }
+.decklight-fixreview .fr-after .fr-label { color: #4ec98a; opacity: .9; }
+.decklight-fixreview .fr-pane iframe {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 6px;
+  background: #000;
+  /* looked at, not driven: a click in a pane would hand the keys to its deck */
+  pointer-events: none;
+}
+.decklight-fixreview .fr-gone {
+  position: absolute;
+  inset: 22px 0 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 12px;
+  border: 1px dashed rgba(255, 255, 255, .25);
+  border-radius: 6px;
+  opacity: .7;
+}
+.decklight-fixreview .fr-notes {
+  max-height: 22vh;
+  overflow: auto;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+}
+.decklight-fixreview .fr-notes-head { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; opacity: .6; margin-bottom: 6px; }
+.decklight-fixreview .fr-notes-body { white-space: pre-wrap; word-break: break-word; }
+.decklight-fixreview .fr-code { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.decklight-fixreview .fr-notes del { background: rgba(229, 83, 61, .22); color: #ffb4a8; text-decoration: line-through; }
+.decklight-fixreview .fr-notes ins { background: rgba(80, 200, 120, .22); color: #b6f5c8; text-decoration: none; }
+.decklight-fixreview .fr-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.decklight-fixreview .fr-gap { flex: 1 1 auto; }
+.decklight-fixreview .fr-btn {
+  padding: 5px 12px;
+  border: 1px solid rgba(128, 128, 128, .35);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.decklight-fixreview .fr-btn:hover:not(:disabled) { background: rgba(128, 128, 128, .18); }
+.decklight-fixreview .fr-btn:disabled { opacity: .35; cursor: default; }
+.decklight-fixreview .fr-prev,
+.decklight-fixreview .fr-next { font-size: 16px; line-height: 1; padding: 4px 10px; }
+.decklight-fixreview .fr-cc { font-size: 10px; font-weight: 600; letter-spacing: .04em; opacity: .6; }
+.decklight-fixreview .fr-cc[aria-pressed="true"] { opacity: 1; background: rgba(128, 128, 128, .22); }
+.decklight-fixreview .fr-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+.decklight-fixreview .fr-primary:hover:not(:disabled) { background: #2f6fd8; }
+.decklight-fixreview .fr-approve { color: #4ec98a; border-color: rgba(78, 201, 138, .5); }
+.decklight-fixreview .fr-reject { color: #f2777a; border-color: rgba(242, 119, 122, .5); }
+.decklight-fixreview .fr-state { font-size: 12px; opacity: .8; margin: 0 6px; max-width: 40ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.decklight-fixreview .fr-state[data-state="approved"] { color: #4ec98a; }
+.decklight-fixreview .fr-state[data-state="rejected"] { color: #f2777a; }
+.decklight-fixreview .fr-box { display: flex; gap: 6px; align-items: flex-start; }
+.decklight-fixreview .fr-box textarea {
+  flex: 1 1 auto;
+  resize: vertical;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, .15);
+  background: rgba(255, 255, 255, .06);
+  color: inherit;
+  font: inherit;
+}
+.decklight-fixreview .fr-foot { font-size: 12px; opacity: .55; }
+/* their display is set above, which would otherwise outrank [hidden] */
+.decklight-fixreview [hidden] { display: none; }
+@media (max-width: 760px) {
+  .decklight-fixreview .fr-panes { grid-template-columns: 1fr; }
+}
+
 /* All slides / changes (D): the same toggle shape as CC, with words, because
    which of the two you are walking is the thing to know at a glance. The
    stop's kind beside the position, in the commit window's three colours. */

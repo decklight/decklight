@@ -1633,6 +1633,47 @@ const gitRepoWithDeck = (t) => {
   return dir;
 };
 
+test('a quick fix asked for review is held: the deck is not written or committed, a hand edit waits, and apply lands it as one undo entry (#907)', async (t) => {
+  const dir = gitRepoWithDeck(t);
+  const deck = path.join(dir, 'deck.html');
+  const before = readFileSync(deck, 'utf8');
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  // slow enough that a write can be tried while it works
+  writeFakeBin(bin, 'claude', "import { readFileSync, writeFileSync } from 'node:fs';\n"
+    + "await new Promise((r) => setTimeout(r, 700));\n"
+    + "writeFileSync('deck.html', readFileSync('deck.html', 'utf8').replace('<h2>Beta</h2>', '<h2>Beta, fixed</h2>'));\n");
+  const { base, log } = await startEdit(t, dir, { extraArgs: ['--git'], env: { PATH: `${bin}${path.delimiter}${process.env.PATH}`, DECKLIGHT_HOME: path.join(dir, 'home') } });
+  const commits = () => git(['rev-list', '--count', 'HEAD'], dir);
+  const was = commits();
+
+  const started = await (await post(base, '/deck/edit/agent', { prompt: 'fix slide 2', message: 'fix: off-role on slide 2', slide: 2, review: true, rule: 'off-role' })).json();
+  assert.equal(started.agent, 'claude');
+  const meanwhile = await post(base, '/deck/edit/slide/notes', { slide: 1, text: 'typed while the agent works' });
+  assert.equal(meanwhile.status, 409, 'the put-back would undo a hand edit made now');
+  const p = await agentSettled(base);
+  assert.ok(p, 'the agent finished');
+  assert.equal(readFileSync(deck, 'utf8'), before, 'the deck file is exactly as it was');
+  assert.equal(p.undo, 0, 'nothing landed, so nothing to undo');
+  assert.equal(commits(), was, 'nothing committed, before or after');
+  assert.ok(p.candidate?.id, 'the ping says a fix waits for review');
+  assert.doesNotMatch(log(), /reload × [1-9]/, 'no page reloaded for any of it');
+
+  const c = await (await fetch(`${base}/deck/edit/candidate`)).json();
+  assert.deepEqual(c.units.map((u) => [u.key, u.kind, u.title]), [['s2', 'changed', 'Beta, fixed']]);
+  const after = await (await fetch(`${base}/deck/edit/candidate/at?id=${c.id}&side=after`)).text();
+  assert.match(after, /Beta, fixed/);
+
+  const applied = await (await post(base, '/deck/edit/candidate/apply', { id: c.id, take: ['s2'] })).json();
+  assert.equal(applied.ok, true, JSON.stringify(applied));
+  assert.deepEqual(applied.commit, { subject: 'fix: off-role on slide 2', body: '' });
+  assert.match(readFileSync(deck, 'utf8'), /Beta, fixed/);
+  const now = await (await fetch(base + '/deck/ping')).json();
+  assert.equal(now.undo, 1, 'one undo entry for the whole apply');
+  assert.equal(now.candidate, null);
+  assert.equal(commits(), was, 'applied is not committed: the commit window offers that');
+});
+
 test('/deck/edit/history lists the deck history, newest first', async (t) => {
   const dir = gitRepoWithDeck(t);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });

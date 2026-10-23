@@ -99,7 +99,10 @@ export function typeaheadKeydown(e, { query = '', onMove, onCommit, onType, onBa
 export function createOverlays() {
   const entries = [];
   return {
-    register(entry) { entries.push(entry); return entry; },
+    // `first: true` puts an overlay ahead of everything registered before it:
+    // one drawn over every other (the fix review, #907) owns the keyboard
+    // while a docked panel registered earlier stays open beneath it
+    register(entry) { if (entry.first) entries.unshift(entry); else entries.push(entry); return entry; },
     /** The overlay that currently owns the keyboard, if any. */
     active: () => entries.find((o) => o.isOpen()),
     /** An overlay is opening: take every open picker (but `keep`) off the stage. */

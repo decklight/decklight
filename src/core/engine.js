@@ -1362,6 +1362,10 @@ export function init(userConfig = {}) {
       // server has
       ...(editmode?.available() ? [{ label: 'Push tags', value: editmode.pushTags() ? 'with the branch' : 'off',
         hint: '⏎ switches', stays: true, run: () => editmode.setPushTags(!editmode.pushTags()) }] : []),
+      // write mode only: a quick fix from Check deck… is reviewed side by side
+      // before it lands, unless this is off (#907)
+      ...(editmode?.available() ? [{ label: 'Review quick fixes', value: editmode.reviewFixes() ? 'before they land' : 'off — they land at once',
+        hint: '⏎ switches', stays: true, run: () => editmode.toggleFixReview() }] : []),
       // write mode only: the notes card writes itself this long after the
       // typing stops; ⏎ walks the steps, off last
       ...(editmode?.available() ? [{ label: 'Notes autosave', value: editmode.notesQuietLabel(),
@@ -3314,6 +3318,8 @@ export function init(userConfig = {}) {
   for (const ev of ['decklight:theme', 'decklight:concepts', 'decklight:layout']) root.addEventListener(ev, () => deckCheck.refresh());
   instance.check = () => deckCheck.check();
   instance._deckCheck = deckCheck;
+  // the review a quick fix opens (#907): its candidate, stops and decisions, for a headless probe
+  instance._fixReview = editmode.fixReview;
 
   // the element menu's Inspect, Colors… and Type… (PRESENTING): select what
   // the menu was opened on, then show it in the inspector on that tab

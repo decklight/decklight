@@ -92,10 +92,15 @@ export function registerGitRoutes(routes, {
     let msg = '';
     try { msg = String(JSON.parse(body || '{}').message ?? '').trim(); } catch { /* below */ }
     if (!msg) return json(400, { ok: false, error: 'a commit needs a message' });
-    const subject = commitSubject(msg, `decklight: autosave ${basename(deckPath)}`);
+    // A blank line starts a BODY, as git writes one: a reviewed fix drafts
+    // the slides it rejected there (#907). Without one the message is a
+    // subject, its lines run together, as it always was.
+    const cut = msg.search(/\n[ \t]*\n/);
+    const subject = commitSubject(cut < 0 ? msg : msg.slice(0, cut), `decklight: autosave ${basename(deckPath)}`);
+    const text = cut < 0 ? '' : msg.slice(cut).trim().split('\n').map((l) => l.trimEnd()).join('\n').slice(0, 4000);
     // gitAutocommit reports false for "nothing to commit", which is not an
     // error: it is the answer to pressing K twice.
-    const made = gitAutocommit(deckPath, root, subject, alsoNow());
+    const made = gitAutocommit(deckPath, root, text ? `${subject}\n\n${text}` : subject, alsoNow());
     if (!made) return json(200, { ok: true, committed: false, ...commitState() });
     clearPendingAttr();
     resetEpisode();

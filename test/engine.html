@@ -399,6 +399,13 @@
       // server's own run. No agent on this machine: a judgement row has no fix.
       if (HARNESS_MODE === 'deckcheck') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], agentAsks: window.__asks ?? [] });
+        // a fix held for review (#907): the candidate, and its discard
+        if (u.includes('/deck/edit/candidate/discard')) { window.__discarded = JSON.parse(init?.body ?? '{}'); return json({ ok: true, discarded: true }); }
+        if (u.includes('/deck/edit/candidate')) return json({ ok: true, ...window.__candidate });
+        if (u.includes('/deck/edit/check/fix') && window.__candidate) {
+          (window.__fixed ??= []).push(JSON.parse(init?.body ?? '{}'));
+          return json({ ok: true, changed: false, held: true, said: 'renamed', candidate: { ok: true, ...window.__candidate } });
+        }
         if (u.includes('/deck/edit/check/fix')) {
           const body = JSON.parse(init?.body ?? '{}');
           (window.__fixed ??= []).push(body);
@@ -2789,7 +2796,8 @@
         while (selectedRule() !== 'off-role') press('ArrowUp');
         press('f');
         await settle(); await settle();
-        r.fPostsTheFix = JSON.stringify(window.__fixed?.at(-1)) === JSON.stringify({ rule: 'off-role', slide: 2, ref: null, all: false }) && deck.state.slide === 2;
+        // asked for review (#907); this server lands it at once, as one with the review off would
+        r.fPostsTheFix = JSON.stringify(window.__fixed?.at(-1)) === JSON.stringify({ rule: 'off-role', slide: 2, ref: null, all: false, review: true }) && deck.state.slide === 2;
         r.fixIsSaid = [...document.querySelectorAll('.decklight-toast')].some((x) => /fixed off-role — .* undoes · logged in the agent panel/.test(x.textContent));
         press('F', { shiftKey: true });
         await settle(); await settle();
@@ -2798,7 +2806,24 @@
         while (selectedRule() !== 'theme-off-brand') press('ArrowUp');
         press('f');
         await settle(); await settle();
-        r.deckFixHasNoSlide = JSON.stringify(window.__fixed?.at(-1)) === JSON.stringify({ rule: 'theme-off-brand', slide: null, ref: null, all: false });
+        r.deckFixHasNoSlide = JSON.stringify(window.__fixed?.at(-1)) === JSON.stringify({ rule: 'theme-off-brand', slide: null, ref: null, all: false, review: true });
+        // a server that HOLDS the fix: nothing lands, the review view opens on
+        // it — the deck as it is beside the candidate — and Esc discards it
+        window.__candidate = { id: 'c9', rev: 1, what: 'fix: off-role on slide 2', units: [
+          { key: 's2', kind: 'changed', slide: 2, was: 2, title: 'Two', notes: { before: 'one way', after: 'the other way' } }] };
+        while (selectedRule() !== 'off-role') press('ArrowDown');
+        press('f');
+        await settle(); await settle();
+        const fr = document.querySelector('.decklight-fixreview');
+        const panes = [...(fr?.querySelectorAll('.fr-pane iframe') ?? [])].map((f) => f.getAttribute('src') ?? '');
+        r.heldOpensTheReview = !!fr && /fix: off-role on slide 2/.test(fr.querySelector('.fr-title')?.textContent ?? '')
+          && panes.length === 2 && /candidate\/at\?id=c9&side=before/.test(panes[0]) && /candidate\/at\?id=c9&side=after/.test(panes[1])
+          && !!fr.querySelector('.fr-apply-all');
+        press('Escape');
+        await settle();
+        r.escDiscardsIt = !document.querySelector('.decklight-fixreview') && window.__discarded?.id === 'c9'
+          && [...document.querySelectorAll('.decklight-toast')].some((x) => /fix discarded — the deck is unchanged/.test(x.textContent));
+        window.__candidate = null;
         // f on ds-behind is Migrate: the server's run, shown in the agent panel, which takes the slot
         while (selectedRule() !== 'ds-behind') press('ArrowUp');
         press('f');
