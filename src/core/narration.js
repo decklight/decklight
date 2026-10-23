@@ -16,6 +16,7 @@
 
 import { createCharacter, concatTimelines } from './character.js';
 import { createFilmRecorder, cameraUnavailable } from './film.js';
+import { BROWSER_ENGINE, browserPing, speakSentence } from './browser-voice.js';
 import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, writtenMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { slideTitle, slideBody } from './finder.js';
@@ -683,8 +684,16 @@ export function createNarration({
   // like the roster is: a presenter who exported a key and restarted the bridge
   // must see that on the next open, not the answer from before they fixed it.
   let liveMenu = null;
+  // The browser's own synthesizer, when it has one — the engine of last resort
+  // (SPEC PRESENTING_BROWSER_VOICE)
+  const browserSynth = () => (typeof speechSynthesis !== 'undefined' ? speechSynthesis : null);
+  const onBrowser = () => liveEngine === BROWSER_ENGINE;
   function probeLive() {
     livePing ??= askBridge()
+      // no bridge: the browser speaks, if it can — never instead of a bridge
+      .then((p) => p ?? browserPing(browserSynth(), {
+        deckLang: (document.documentElement.lang || '').toLowerCase().split('-')[0] || null,
+      }))
       .then(async (p) => {
         if (!p) return null;
         liveFound = true;
@@ -717,7 +726,8 @@ export function createNarration({
    * what the bridge has.
    */
   async function askBridge() {
-    const want = narrSet?.live ? liveCfg.engine : null;
+    // a voice saved on the browser's engine is not one to ask a bridge for
+    const want = narrSet?.live && liveCfg.engine !== BROWSER_ENGINE ? liveCfg.engine : null;
     try {
       const r = await fetch(forEngine(PING_URL, want));
       if (r.ok) return await r.json();
@@ -872,6 +882,12 @@ export function createNarration({
     // Counted once per clip, for the recording this call belongs to: a hit
     // here never reaches the bridge, so it is reuse; a miss is classified
     // when the bridge answers, by the header it sends.
+    // The browser's voice has no clip to fetch: the sentence IS the clip, and
+    // playLive speaks it. Nothing is billed and nothing can be stitched.
+    if (onBrowser()) {
+      if (!liveCache.has(key)) liveCache.set(key, Promise.resolve({ speech: text }));
+      return liveCache.get(key);
+    }
     const tally = recTally;
     const counts = tally && !tally.seen.has(key);
     if (counts) tally.seen.add(key);
@@ -1088,7 +1104,7 @@ export function createNarration({
           // the character's lip-sync data prefetches through the SAME
           // window: hand the sentence's audio promise to the controller so
           // visemes/video for the next 10 sentences warm alongside the voice
-          if (character.mode !== 'off') {
+          if (character.mode !== 'off' && !onBrowser()) {
             character.prefetchSentence(key, liveCache.get(key), stripAudioTags(sentences[i] ?? ''));
           }
         } catch {
@@ -1117,6 +1133,11 @@ export function createNarration({
     narrPaused = !narrPaused;
     if (narrPaused) {
       narrAudio?.pause();
+      if (onBrowser()) browserSynth()?.pause();
+      // Chrome stays paused even with nothing speaking — the next sentence
+      // would queue silent — so resuming always resumes, then re-arms as usual
+    } else if (onBrowser() && (browserSynth()?.resume(), browserSynth()?.speaking)) {
+      // mid-sentence: the chain is still waiting on this utterance
     } else if (narrAudio?.src && narrAudio.paused && !narrAudio.ended && narrAudio.currentTime > 0) {
       narrAudio.play().catch(() => { /* autoplay policy */ }); // resume mid-sentence
     } else if (!chainActive) {
@@ -1198,6 +1219,9 @@ export function createNarration({
   async function playLive() {
     const sl = instance.state.slide, step = instance.state.step;
     const gen = ++segGen;
+    // a sentence from the position we just left is still in the speakers:
+    // the clip path replaces its src, the browser has to be told
+    if (onBrowser()) browserSynth()?.cancel();
     fillLiveBuffer(); // (re-)arm the lookahead from the new position
     if (!notesText(sl)) {
       if (narrationHolds(sl)) { debugLog('narr', `hold on slide ${sl} — manual advance`); return; }
@@ -1257,30 +1281,46 @@ export function createNarration({
         if (!clip) continue;
         const said = stripAudioTags(sentences[i]);
         setCaption(said); // captions follow the voice, not the notes — and a tag is not a word
-        narrAudio ??= new Audio();
-        // character is strictly opt-in: with mode 'off' narration runs with
-        // zero lip-sync footprint. When on, begin* is fire-and-forget —
-        // audio never waits on lip-sync; a late timeline lands mid-sentence
-        // and the fallback animates until it does.
-        if (character.mode !== 'off') {
-          character.attachAudio(narrAudio);
-          character.beginSentence(sentenceKey(sl, step, i, sentences[i]), clip, said);
-        }
-        // Both handlers cleared BEFORE the src moves: narrAudio is one shared
-        // element across live and recorded playback, and a handler left behind
-        // by the other mode fires against this mode's audio. The recorded
-        // path's onerror surviving into a live sentence would report a bridge
-        // clip as a missing file; a stale onended is a promise resolved by an
-        // ending it was never waiting for.
-        narrAudio.onended = null;
-        narrAudio.onerror = null;
-        narrAudio.src = clip.url;
-        narrAudio.playbackRate = narrRate;
         let blocked = false;
-        await new Promise((done) => {
-          narrAudio.onended = done;
-          narrAudio.play().catch(() => { blocked = true; done(); });
-        });
+        if (clip.speech != null) {
+          // The browser's own voice: no clip and no element, the sentence goes
+          // straight to the speakers — and there is no sound for lip-sync to read
+          try {
+            await speakSentence(browserSynth(), SpeechSynthesisUtterance, { text: clip.speech, voice: liveCfg.voice, rate: narrRate });
+          } catch (err) {
+            if (!String(err?.message ?? err).endsWith('not-allowed')) {
+              debugLog('narr', `browser voice failed (slide ${sl} seg ${step} #${i + 1}) — narration stopped`);
+              stopNarration(liveFailure(err));
+              return;
+            }
+            blocked = true;
+          }
+          if (stale()) return;
+        } else {
+          narrAudio ??= new Audio();
+          // character is strictly opt-in: with mode 'off' narration runs with
+          // zero lip-sync footprint. When on, begin* is fire-and-forget —
+          // audio never waits on lip-sync; a late timeline lands mid-sentence
+          // and the fallback animates until it does.
+          if (character.mode !== 'off') {
+            character.attachAudio(narrAudio);
+            character.beginSentence(sentenceKey(sl, step, i, sentences[i]), clip, said);
+          }
+          // Both handlers cleared BEFORE the src moves: narrAudio is one shared
+          // element across live and recorded playback, and a handler left behind
+          // by the other mode fires against this mode's audio. The recorded
+          // path's onerror surviving into a live sentence would report a bridge
+          // clip as a missing file; a stale onended is a promise resolved by an
+          // ending it was never waiting for.
+          narrAudio.onended = null;
+          narrAudio.onerror = null;
+          narrAudio.src = clip.url;
+          narrAudio.playbackRate = narrRate;
+          await new Promise((done) => {
+            narrAudio.onended = done;
+            narrAudio.play().catch(() => { blocked = true; done(); });
+          });
+        }
         if (blocked) {
           // the browser refused to play unprompted — the audio exists, so this
           // is one click away, and the deck waits rather than running on mute
@@ -1316,6 +1356,9 @@ export function createNarration({
   // bridge throws the HTTP status; a dead bridge throws a TypeError from fetch.
   function liveFailure(err) {
     const s = String(err?.message ?? err);
+    if (s.startsWith('browser:')) {
+      return `🔇 the browser's voice failed (${s.slice(9).trim()}) — auto-advance stopped · press the tilde key for messages`;
+    }
     if (s.startsWith('429')) {
       return '🔇 voice quota exceeded (429) — auto-advance stopped · a free engine: decklight <deck> --tts-engine chirp';
     }
@@ -1749,6 +1792,7 @@ export function createNarration({
     bufferGen++;  // stop the lookahead loop
     narrPaused = false;
     narrAudio?.pause();
+    if (onBrowser()) browserSynth()?.cancel();
     character.stop();
     // The live voice OWNS the caption bar while it speaks (updateCaption blanks
     // it and the sentence chain fills it) — so when the voice goes, for any
@@ -2172,6 +2216,14 @@ export function createNarration({
   function previewClip({ voice, style = '', prefetch }, btn) {
     const text = previewText.trim();
     if (!text) return;
+    if (onBrowser()) {
+      // nothing to fetch or warm: the browser speaks the audition itself
+      browserSynth()?.cancel();
+      speakSentence(browserSynth(), SpeechSynthesisUtterance, { text, voice })
+        .catch(() => toast('the browser could not speak that voice'));
+      debugLog('narr', `preview ${voice} · browser`);
+      return;
+    }
     const cache = previewCacheFor(text);
     if (btn) btn.textContent = '…';
     ensurePreviewIn(cache, voice, text, style).then((url) => {
@@ -3543,6 +3595,11 @@ export function createNarration({
   }
 
   async function startRecording() {
+    // the browser speaks to the speakers and gives no audio back: nothing to stitch
+    if (onBrowser()) {
+      toast("the browser's voice cannot be recorded — start a bridge: decklight <deck.html>", 5000);
+      return;
+    }
     const list = slidesWithNotes();
     const run = ++recRun;
     const t0 = Date.now();
