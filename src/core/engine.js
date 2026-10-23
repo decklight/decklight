@@ -49,13 +49,19 @@ import { markDensity } from './density.js';
 import { createDeckCheck } from './deckcheck.js';
 import { IS_MAC, UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
 
+// The chords the palette names beside a row (and beside its letter, when it
+// has one too), spelled the way this machine spells them, as undo is.
+const COMMIT_CHORD = IS_MAC ? '⌘K' : 'Ctrl+K';
+const PRESENT_CHORD = IS_MAC ? '⌘⏎' : 'Ctrl+Enter';
+const SPEAKER_CHORD = IS_MAC ? '⌥⏎' : 'Alt+Enter';
+const MESSAGES_CHORD = IS_MAC ? '⌃`' : 'Ctrl+`';
+
 /**
  * ⌘Z on a Mac, Ctrl+Z everywhere else — and ⇧ with it for redo: the undo
  * every editor has trained, and the only one since bare Z stopped undoing
  * (undo-chord.js). One platform's chord only, so Ctrl+Z on a Mac stays
  * whatever the Mac makes it, as ⌘Z on Windows does.
  */
-
 const isUndoChord = (e) => (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)
   && !e.altKey && (e.key === 'z' || e.key === 'Z');
 
@@ -1129,8 +1135,8 @@ export function init(userConfig = {}) {
         alias: 'spoken conversational natural sentences rewrite all slides whole deck notes voiceover script say aloud human speakable ear',
         run: () => editmode.enhanceScript('all', { kind: 'spoken' }) }),
       // ── Present ─────────────────────────────────────────────────────────
-      { label: 'Speaker view — second window', cat: 'Present', hint: '⌥⏎', alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
-      { label: 'Fullscreen', cat: 'Present', hint: 'F', run: () => toggleFullscreen() },
+      { label: 'Speaker view — second window', cat: 'Present', hint: SPEAKER_CHORD, alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
+      { label: 'Fullscreen', cat: 'Present', hint: 'F · ' + PRESENT_CHORD, run: () => toggleFullscreen() },
       { label: `${fsChromeHidden() ? 'Show' : 'Hide'} arrows and slide number in fullscreen`, cat: 'Present', hint: '⇧F',
         alias: 'chevrons controls prev next counter page number chrome clean distraction free', run: () => setFsChrome(!fsChromeHidden()) },
       { label: 'Blackout', cat: 'Present', hint: 'B', run: toggleBlackout },
@@ -1163,7 +1169,7 @@ export function init(userConfig = {}) {
       // Not "version": that word is what somebody types to find out WHICH
       // decklight this is (Settings), and it landed here first.
       write({ label: 'History…', cat: 'Git', hint: 'H', alias: 'restore previous earlier rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() }),
-      write({ label: 'Commit…', cat: 'Git', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() }),
+      write({ label: 'Commit…', cat: 'Git', hint: 'K · ' + COMMIT_CHORD, alias: 'git save commit message history', run: () => editmode.commit.open() }),
       // ── Share ───────────────────────────────────────────────────────────
       // The print rows open a print VIEW in a tab: the same pages, not a file
       // anybody can be sent. The export rows write the file, by asking the
@@ -1197,7 +1203,7 @@ export function init(userConfig = {}) {
       { label: 'Print handout (three per page, new tab)', cat: 'Share', alias: 'pdf print handout thumbnails audience note-taking lines', run: () => window.open(location.pathname + '?print=handout') },
       // ── Help ────────────────────────────────────────────────────────────
       { label: 'Keyboard help', cat: 'Help', hint: '?', alias: 'keys keyboard shortcuts', run: toggleHelp },
-      { label: 'Messages', cat: 'Help', hint: '`', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
+      { label: 'Messages', cat: 'Help', hint: '` · ' + MESSAGES_CHORD, alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
       { label: 'Debug log', cat: 'Help', alias: 'console events state', run: toggleDebug },
       { label: 'Welcome to Decklight', cat: 'Help', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
       write({ label: 'Editing tour', cat: 'Help', alias: 'onboarding intro getting started first run tour how do I edit write mode gestures', run: onboarding.showEditingTour }),

@@ -51,8 +51,10 @@ function paletteRows() {
   const body = SRC.slice(from, SRC.indexOf('\n  }', from));
   const rows = [];
   for (const m of body.matchAll(/\{\s*label:\s*(`[^`]*`|'[^']*')([^}]*?)\}/gs)) {
-    const hint = /hint:\s*'([^']*)'/.exec(m[2]);
-    rows.push({ label: m[1].slice(1, -1), hint: hint ? hint[1] : null });
+    // a hint may be a literal or a platform chord added to one ('K · ' + COMMIT_CHORD)
+    const hint = /hint:\s*('([^']*)'|[A-Z_]+)/.exec(m[2]);
+    const run = /run:\s*(?:\(\)\s*=>\s*)?([\w.?]+(?:\([^()]*\))?)/.exec(m[2]);
+    rows.push({ label: m[1].slice(1, -1), hint: hint ? hint[2] ?? hint[1] : null, run: run ? run[1] : null });
   }
   assert.ok(rows.length > 20, `only ${rows.length} palette rows parsed`);
   return rows;
@@ -119,10 +121,13 @@ test('every palette hint names a key that exists', () => {
   const wrong = [];
   for (const { label, hint } of paletteRows()) {
     if (!hint) continue;
-    const bare = hint.replace(/^[⇧⌃⌘]+/, '');
-    if (!/^[A-Za-z]$/.test(bare)) continue;            // ⎵, ⏎, Home, `, [ · ] …
-    if (!bound.has(bare.toLowerCase()) && !bound.has(bare.toUpperCase())) {
-      wrong.push(`${label} → ${hint}`);
+    // 'K · ⌘K', ', · .': every key a hint names is checked
+    for (const name of hint.split('·').map((s) => s.trim())) {
+      const bare = name.replace(/^[⇧⌃⌘]+/, '');
+      if (!/^[A-Za-z]$/.test(bare)) continue;          // ⎵, ⏎, Home, `, [ · ] …
+      if (!bound.has(bare.toLowerCase()) && !bound.has(bare.toUpperCase())) {
+        wrong.push(`${label} → ${hint}`);
+      }
     }
   }
   assert.deepEqual(wrong, [], `palette hints naming unbound keys: ${wrong.join(' · ')}`);
@@ -182,4 +187,25 @@ test('the help says which keys answer only in a context', () => {
 test('⇧F shows and hides the arrows and the slide number in fullscreen, and the help says so', () => {
   assert.match(SRC, /case 'f': case 'F': if \(e\.shiftKey\) setFsChrome\(/, '⇧F is not the fullscreen-chrome toggle');
   assert.ok(helpRows().some((r) => r.key === '⇧F' && /arrows and the slide number in fullscreen/.test(r.what)), 'no ⇧F row in the help');
+});
+
+test('a palette row whose command has a key shows the key', () => {
+  // The palette is where a key is learned: a row that does what O does and
+  // does not say O teaches nothing. Each bare key in onKey that makes one
+  // call is matched to the rows that make the same call.
+  const at = SRC.indexOf('function onKey(');
+  const from = SRC.indexOf('switch (e.key) {', at);
+  const body = SRC.slice(from, SRC.indexOf('\n    }', from));
+  const keyed = new Map();
+  for (const m of body.matchAll(/((?:case '[^']+':\s*)+)([\w.?]+\([^()]*\));\s*break;/g)) {
+    keyed.set(m[2].replace(/\(\)$/, ''), [...m[1].matchAll(/case '([^']+)'/g)].map((c) => c[1]));
+  }
+  assert.ok(keyed.size > 15, `only ${keyed.size} keyed calls parsed`);
+  const bare = [];
+  for (const { label, hint, run } of paletteRows()) {
+    if (!run || hint) continue;
+    const keys = keyed.get(run.replace(/\(\)$/, ''));
+    if (keys) bare.push(`${label} (${keys.join(' ')})`);
+  }
+  assert.deepEqual(bare, [], `palette rows with a key and no hint: ${bare.join(' · ')}`);
 });
