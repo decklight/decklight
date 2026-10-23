@@ -293,7 +293,7 @@ export function ask(cmd, cwd, timeoutMs, signal = null) {
     const finish = (v) => { if (!settled) { settled = true; done(v); } };
     let child;
     try {
-      child = execFile(cmd.bin, cmd.args, { cwd, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], ...(signal ? { signal } : {}) },
+      child = execFile(cmd.bin, cmd.args, { cwd, env: cmd.env, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], ...(signal ? { signal } : {}) },
         (err, stdout) => finish(err && (!stdout || err.name === 'AbortError') ? null : String(stdout ?? '')));
     } catch { return finish(null); }
     child.on('error', () => finish(null));

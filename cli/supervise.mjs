@@ -33,6 +33,20 @@ export const onLeash = (env = process.env) => env[LEASH] === '1';
 export const leashEnv = (env = process.env) => ({ ...env, [LEASH]: '1' });
 
 /**
+ * The environment for a process that is NOT on `open`'s leash: an agent the
+ * edit server starts, or a tool it runs. Without this they inherit the
+ * server's own, and every `decklight` command an agent runs arms a leash on
+ * its shell's stdin, which is at EOF at once: `decklight pdf` exits 0 while
+ * Chrome is still launching, and DECKLIGHT_BANNER has hidden even the version
+ * line, so nothing at all is printed (#901). The leash never tracked the
+ * server from there anyway: that stdin is the agent's, not `open`'s pipe.
+ */
+export function unleashedEnv(env = process.env) {
+  const { [LEASH]: _leash, DECKLIGHT_BANNER: _banner, ...rest } = env;
+  return rest;
+}
+
+/**
  * Exit when the supervising parent goes away. A no-op when unsupervised, so
  * the dispatcher can call it unconditionally. Returns whether it armed.
  *

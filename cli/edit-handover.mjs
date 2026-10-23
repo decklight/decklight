@@ -30,6 +30,7 @@ import { EXPORT_KINDS, alreadyOneFile, videoExportProblem } from './edit.mjs';
 import { oneline, remoteLine, remoteState } from './git.mjs';
 import { configTheme } from './runtime-link.mjs';
 import { CommandError } from './util.mjs';
+import { unleashedEnv } from './supervise.mjs';
 import { THEME_NAME, GEN_THEME } from '../tools/render-theme.mjs';
 import { locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
 
@@ -286,7 +287,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
     const script = fileURLToPath(new URL(`../tools/${name}.mjs`, import.meta.url));
     const cwd = deckPath.startsWith(process.cwd() + sep) ? process.cwd() : dirname(deckPath);
     return new Promise((done) => {
-      const child = spawn(process.execPath, [script, ...argv], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, [script, ...argv], { cwd, env: unleashedEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
       let hard = null;
       const stop = () => {
         child.kill('SIGTERM');

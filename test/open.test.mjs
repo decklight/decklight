@@ -16,8 +16,8 @@ import { rmTemp, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { planServices, inGitRepo, voiceSetupOffer, moveBridgesOffStrangers, waitForBridgePorts, noAgentRow } from '../cli/open.mjs';
-import { AGENTS } from '../cli/agents.mjs';
-import { LEASH, onLeash, leashEnv, exitWhenOrphaned } from '../cli/supervise.mjs';
+import { AGENTS, agentAsk, agentCommand } from '../cli/agents.mjs';
+import { LEASH, onLeash, leashEnv, unleashedEnv, exitWhenOrphaned } from '../cli/supervise.mjs';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { DECK_URL_RE } from '../cli/banner.mjs';
 
@@ -432,6 +432,45 @@ test('a supervised child exits 0 the moment the pipe closes, however it closes',
 
 test('leashEnv adds the flag and keeps the rest of the environment', () => {
   assert.deepEqual(leashEnv({ PATH: '/bin' }), { PATH: '/bin', [LEASH]: '1' });
+});
+
+test('an agent the edit server starts is spawned off the leash, banner flag and all (#901)', () => {
+  // What the edit server's own environment holds under `open`.
+  const server = { PATH: '/bin', HOME: '/home/x', [LEASH]: '1', DECKLIGHT_BANNER: '1' };
+  assert.deepEqual(unleashedEnv(server), { PATH: '/bin', HOME: '/home/x' });
+  assert.equal(server[LEASH], '1', 'the server keeps its own leash');
+
+  const opts = { env: server, hasBin: (b) => b === 'claude', home: path.join(here, 'no-such-home') };
+  for (const cmd of [agentCommand('claude', 'x', 'deck.html', opts), agentAsk('claude', 'x', opts)]) {
+    assert.ok(cmd.env, 'the command carries the environment to spawn it with');
+    assert.equal(cmd.env[LEASH], undefined, 'every decklight command the agent runs would exit at once');
+    assert.equal(cmd.env.DECKLIGHT_BANNER, undefined, 'and print nothing on its way out');
+    assert.equal(cmd.env.PATH, '/bin');
+  }
+});
+
+test('a command started the way an agent runs it, stdin at EOF, finishes its work (#901)', () => {
+  // The race in miniature: arm the leash the way cli/decklight.mjs does, then
+  // take a while, as `pdf` does launching Chrome. Leashed, it is gone first.
+  const script = `import(${JSON.stringify(new URL('../cli/supervise.mjs', import.meta.url).href)})` +
+    '.then((m) => { m.exitWhenOrphaned(); setTimeout(() => console.log("rendered"), 300); });';
+  const run = (env) => spawnSync(process.execPath, ['-e', script], { env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
+  const server = leashEnv({ ...process.env, DECKLIGHT_BANNER: '1' });
+  assert.equal(run(server).stdout, '', 'the bug: a leashed command with stdin at EOF exits silently');
+  const agent = agentCommand('claude', 'x', 'deck.html', { env: server, hasBin: () => true, home: path.join(here, 'no-such-home') });
+  assert.equal(run(agent.env).stdout.trim(), 'rendered');
+});
+
+test('claude may run every form of decklight its instructions name (#901)', () => {
+  const claude = AGENTS.find((a) => a.name === 'claude');
+  const args = claude.args('x', 'deck.html');
+  const rules = args.filter((a) => a.startsWith('Bash('));
+  // a rule is a prefix of whole words: `npx decklight` does not match
+  // `npx decklight@latest`, which is what the skill and AGENTS.md say
+  const allows = (rule, run) => run.startsWith(`${rule.slice('Bash('.length, -':*)'.length)} `);
+  for (const run of ['npx decklight@latest pdf deck.html', 'npx decklight pdf deck.html', 'decklight pdf deck.html']) {
+    assert.ok(rules.some((r) => allows(r, run)), `${run} is allowed`);
+  }
 });
 
 test('a real child on a real pipe exits when the pipe closes, and lets go of its port', async (t) => {

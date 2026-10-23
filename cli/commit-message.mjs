@@ -271,6 +271,7 @@ export function ask(cmd, cwd, timeoutMs) {
     try {
       child = execFile(cmd.bin, cmd.args, {
         cwd,
+        env: cmd.env,
         timeout: timeoutMs,
         maxBuffer: 4 * 1024 * 1024,
         // The agent is being asked a question about a diff it is given in the

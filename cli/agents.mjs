@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path, { dirname, join } from 'node:path';
 import { configHome } from './marketplace.mjs';
 import { listUnits } from './units.mjs';
+import { unleashedEnv } from './supervise.mjs';
 
 export const AGENTS = [
   {
@@ -35,15 +36,17 @@ export const AGENTS = [
     // call is a line — so the deck's chip can say WHAT the agent is doing
     // instead of only how long it has been doing it.
     // --allowedTools: acceptEdits covers the file, not the shell, and the
-    // skill asks the agent to render the deck (`npx decklight pdf …`) to
+    // skill asks the agent to render the deck (`npx decklight@latest pdf …`) to
     // check nothing overflows before it is done. Only decklight's own CLI
-    // is allowed; everything else still needs a permission it has no TTY
-    // to ask for, which is the point.
+    // is allowed, in each form the skill and AGENTS.md name (a rule is a
+    // prefix, so `npx decklight` does not cover `npx decklight@latest`,
+    // #901); everything else still needs a permission it has no TTY to ask
+    // for, which is the point.
     // --add-dir: claude reads only inside the project unless told, and a
     // migration's skill lives in a marketplace checkout under ~/.decklight
     // (#893): each folder a job must read is named, and nothing more.
     args: (prompt, deck, { dirs = [] } = {}) => ['-p', prompt, '--permission-mode', 'acceptEdits',
-      '--allowedTools', 'Bash(npx decklight:*)', 'Bash(decklight:*)',
+      '--allowedTools', 'Bash(npx decklight:*)', 'Bash(npx decklight@latest:*)', 'Bash(decklight:*)',
       ...dirs.flatMap((d) => ['--add-dir', d]),
       '--output-format', 'stream-json', '--verbose'],
     stream: 'claude-json',
@@ -348,6 +351,7 @@ export function agentAsk(name, prompt, { env = process.env, hasBin = canRun, hom
     label: agent.label,
     name: agent.name,
     readOnly: !!agent.ask,
+    env: unleashedEnv(env),
   };
 }
 
@@ -398,6 +402,9 @@ export function agentCommand(name, instruction, deck, { env = process.env, hasBi
     // parser keys off it, and agents without one still get the generic
     // last-line clue
     stream: agent.stream ?? null,
+    // what to spawn it with: the server's environment minus `open`'s leash,
+    // or every decklight command the agent runs exits at once (#901)
+    env: unleashedEnv(env),
   };
 }
 

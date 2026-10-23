@@ -266,7 +266,7 @@ test('agentCommand builds each agent\'s headless one-shot invocation', () => {
   assert.match(claude.args[1], /deck\.html/, 'the prompt names the file');
   assert.match(claude.args[1], /center slide 2/, 'the prompt carries the instruction');
   assert.deepEqual(claude.args.slice(2),
-    ['--permission-mode', 'acceptEdits', '--allowedTools', 'Bash(npx decklight:*)', 'Bash(decklight:*)', '--output-format', 'stream-json', '--verbose'],
+    ['--permission-mode', 'acceptEdits', '--allowedTools', 'Bash(npx decklight:*)', 'Bash(npx decklight@latest:*)', 'Bash(decklight:*)', '--output-format', 'stream-json', '--verbose'],
     'acceptEdits, decklight\'s own CLI in the shell, and the stream that narrates the run');
   // "this slide" means the one on screen: the prompt names it, and says the
   // commit is decklight's — an agent started by A never calls the route

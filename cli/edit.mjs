@@ -2340,7 +2340,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     agentJob = { agent: cmd.name, label: cmd.label, prompt, startedAt: ask.startedAt, id: ask.id, slide: ask.slide, ...(reload ? { reload } : {}) };
     broadcast('agent', { state: 'start', ...agentJob });
     console.log(`  agent: ${cmd.name} ← "${prompt.slice(0, 80)}"`);
-    const child = spawn(cmd.bin, cmd.args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd.bin, cmd.args, { cwd: root, env: cmd.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let tail = '';
     const keep = (chunk) => { tail = (tail + chunk).slice(-4000); };
     // The clue the chip shows. An agent run used to be a timer and nothing
