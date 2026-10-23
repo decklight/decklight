@@ -142,15 +142,22 @@ export function registerGitRoutes(routes, {
     if (subjectsOff) {
       return json(403, { ok: false, error: 'commit subjects are off in this session — it was started with --no-commit-messages' });
     }
-    const { work, commits } = await planWorking({
+    const { work, commits, unread } = await planWorking({
       cwd: root, deckPath, deckRel, also: alsoRels(), agent: agentPref(),
+      template: `decklight: autosave ${basename(deckPath)}`,
     });
     if (!work) return json(409, { ok: false, code: 'FIRST', error: 'the first commit is one commit — write its message' });
     if (!commits) return json(200, { ok: true, base: work.base, units: [], commits: [] });
     if (!describer() && work.units.some((u) => u.file === deckRel)) {
       return json(409, { ok: false, error: 'no agent is installed on this machine to write one — decklight doctor lists the ones it can use' });
     }
-    return json(200, { ok: true, base: work.base, units: work.units.map(unitSummary), commits });
+    // `unread`: the agent was asked, and neither the plan nor the one-line
+    // subject could be read from what it said — not the same as nothing to describe
+    if (unread) console.log(`  git: couldn't read the agent's plan — ${JSON.stringify(unread.answer.slice(0, 200))}`);
+    return json(200, {
+      ok: true, base: work.base, units: work.units.map(unitSummary), commits,
+      ...(unread ? { unread: true, answer: unread.answer } : {}),
+    });
   }
 
   // The proposed commits, as the author left them: each subject theirs now,

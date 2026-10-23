@@ -25,7 +25,7 @@ import { execFileSync } from 'node:child_process';
 import {
   MAX_DIFF, MAX_SLIDES_NAMED, amendSubject, amendable, changeDiff, changedSlides,
   deckOutline, deckTitle, describeCommit, messagePrompt, messagesLine, parseHunks,
-  subjectFrom, reviewSubject, describeWorking } from '../cli/commit-message.mjs';
+  subjectFrom, reviewSubject, describeWorking, ask } from '../cli/commit-message.mjs';
 import { AGENTS, agentAsk } from '../cli/agents.mjs';
 
 // ── reading the agent's answer ───────────────────────────────────────────
@@ -456,3 +456,11 @@ test('the startup line names the agent and that diffs leave the machine', () => 
 // default became yes for the QUESTION, not for the feature. Everything below
 // is about that distinction — nobody is opted in without answering.
 
+
+test('ask closes the agent\'s stdin, so a CLI that waits on it reads EOF at once (#908)', async () => {
+  // a stand-in for `claude -p`: answers only once its stdin is closed
+  const cmd = { bin: process.execPath, args: ['-e', 'process.stdin.resume(); process.stdin.on("end", () => console.log("1 | done"))'], env: process.env };
+  const t0 = Date.now();
+  assert.equal(await ask(cmd, process.cwd(), 5000), '1 | done\n');
+  assert.ok(Date.now() - t0 < 3000, 'the agent was left waiting on stdin');
+});

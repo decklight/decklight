@@ -281,6 +281,10 @@ export function ask(cmd, cwd, timeoutMs) {
       }, (err, stdout) => finish(err && !stdout ? null : String(stdout ?? '')));
     } catch { return finish(null); }
     child.on('error', () => finish(null));
+    // execFile pipes stdin whatever `stdio` says, and `claude -p` waits 3 s on
+    // an open pipe nobody writes to (#908): closed, it reads EOF at once.
+    child.stdin?.on('error', () => {});
+    child.stdin?.end();
   });
 }
 

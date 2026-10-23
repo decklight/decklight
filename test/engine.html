@@ -214,6 +214,11 @@
               commits: [{ subject: 'shorten the agent slide', units: [1] }, { subject: 'recolour the tools box', units: [2, 3] },
                 { subject: 'review: resolve 1 comment', units: [4] }] });
           }
+          // an answer the server could not read (#908), or a tree with nothing to describe
+          if (window.__plan === 'unread' || window.__plan === 'empty') {
+            return json({ ok: true, base: 'b0', units: [{ id: 1, where: 'slide 3' }], commits: [{ subject: '', units: [1] }],
+              ...(window.__plan === 'unread' ? { unread: true, answer: 'banana' } : {}) });
+          }
           await new Promise((ok) => setTimeout(ok, 1500));
           return json({ ok: true, base: 'b0', units: [{ id: 1, where: 'slide 3' }], commits: [{ subject: 'split the crowded video slides', units: [1] }] });
         }
@@ -5236,6 +5241,18 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         window.__commitMessages = false;
         await new Promise((ok) => setTimeout(ok, 1600));   // let that draft finish before the next window
 
+        // An answer that could not be read says so, never "nothing to say"
+        // (#908); that label is for a plan with nothing to describe.
+        for (const [kind, key, label] of [['unread', 'unreadSaysSo', "couldn't read the agent's answer"], ['empty', 'emptySaysNothing', 'nothing to say about it']]) {
+          window.__plan = kind;
+          press('k');
+          await settle();
+          document.querySelector('.cm-write').click();
+          await settle(); await settle();
+          r[key] = document.querySelector('.cm-write')?.textContent === label && document.querySelector('.cm-input')?.value === '';
+          escapeUntilClosed(O);
+        }
+
         // Several commits proposed: a row each, the subject editable, where it
         // lands beside it, and one button that commits them all — with the
         // units each took and the plan's base, so the server can refuse a plan
@@ -5399,7 +5416,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.ctrlKopens && r.cmdEnterCommits && r.closesAfterCommitting
           && r.defaultOffersIt && r.tooltipNamesTheAgent && r.nothingSentOnOpen && r.draftsOnOpenWhenAsked
           && r.noAgentSaysSo && r.noAgentExplains && r.offSaysOff && r.offExplains && r.offAsksNothing
-          && r.saysItIsThinking && r.itMoves && r.asciiOnly && r.subjectLands && r.stopsThinking && r.staysStopped
+          && r.saysItIsThinking && r.itMoves && r.asciiOnly && r.subjectLands && r.stopsThinking && r.staysStopped && r.unreadSaysSo && r.emptySaysNothing
           && r.planShowsEachCommit && r.planSaysWhere && r.planHidesTheBox && r.commitAllCounts && r.oneCommitSetsItAside
           && r.commitAllSendsThePlan && r.staysToPush && r.pushSaysWhatIsAhead
           && r.tagSendsTheName && r.tagShowsOnHead && r.tagLeftTheWindowOpen && r.pushSaysItIsPushing && r.pushLands

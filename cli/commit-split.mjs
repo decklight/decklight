@@ -31,9 +31,9 @@ import { execFileSync, execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve as resolvePath } from 'node:path';
+import { basename, join, resolve as resolvePath } from 'node:path';
 import { agentAsk } from './agents.mjs';
-import { ASK_TIMEOUT_MS, ask, deckOutline, deckTitle, reviewSubject } from './commit-message.mjs';
+import { ASK_TIMEOUT_MS, ask, deckOutline, deckTitle, describeWorking, reviewSubject } from './commit-message.mjs';
 import { GIT_MAX_BUFFER, classifyRemoteError, commitSubject, isIdentityError, noPromptEnv, oneline, remoteState } from './git.mjs';
 
 /** Past this many hunks, the hunks of one slide travel together. */
@@ -207,13 +207,28 @@ export function planPrompt({ deck, title = null, units, max = 24 * 1024 }) {
   ].join('\n');
 }
 
-/** `[{ units: [ids], subject }]` from the agent's lines. Pure. */
+/** One change number, or a range of them: `4`, `1-10`, `1–10`, `1..4`, `1 to 4`. */
+const PLAN_ID = String.raw`\d+(?:\s*(?:-|–|—|\.\.\.?|to)\s*\d+)?`;
+const PLAN_LINE = new RegExp(String.raw`^\s*[-*]?\s*\[?(${PLAN_ID}(?:(?:\s*,\s*|\s+)${PLAN_ID})*)\]?\s*[|:]\s*(.+?)\s*$`);
+
+/**
+ * `[{ units: [ids], subject }]` from the agent's lines. Pure. The prompt asks
+ * for a comma list, but a model grouping consecutive changes writes a range
+ * (#908), so `1-10` and `1, 3-5, 8` read as the numbers they name. A range
+ * wider than any deck has changes is not a plan, and is dropped.
+ */
 export function parsePlan(answer) {
   const out = [];
   for (const line of String(answer ?? '').split('\n')) {
-    const m = /^\s*[-*]?\s*\[?((?:\d+\s*,?\s*)+)\]?\s*[|:]\s*(.+?)\s*$/.exec(line);
+    const m = PLAN_LINE.exec(line);
     if (!m) continue;
-    const ids = m[1].split(/[\s,]+/).filter(Boolean).map(Number).filter(Number.isInteger);
+    const ids = [];
+    for (const [, a, b] of m[1].matchAll(/(\d+)(?:\s*(?:-|–|—|\.\.\.?|to)\s*(\d+))?/g)) {
+      const lo = Math.min(Number(a), Number(b ?? a));
+      const hi = Math.max(Number(a), Number(b ?? a));
+      if (hi - lo > 1000) continue;
+      for (let id = lo; id <= hi; id++) ids.push(id);
+    }
     if (ids.length && m[2]) out.push({ units: ids, subject: m[2].replace(/^["'`]|["'`]$/g, '') });
   }
   return out;
@@ -260,35 +275,50 @@ const addedLines = (f) => {
  * sidecar's records say what they are (reviewSubject), so they are one commit
  * of their own with that subject, and a .gitattributes decklight wrote goes
  * with them. Only the deck's hunks are sent to the agent, and only on the
- * click that asked for it. An agent that answers nothing usable leaves the
- * deck as one commit with an empty subject, for the author to write.
+ * click that asked for it. An answer with no line `parsePlan` reads is asked
+ * again as one subject (describeWorking), the deck as one commit; with still
+ * no subject, `unread` carries what the agent said, so the window can tell
+ * "couldn't read the answer" from "nothing to say" (#908).
  */
 export async function planWorking({
   cwd, deckPath, deckRel, also = [], agent = null, env = process.env,
   timeoutMs = ASK_TIMEOUT_MS, exec = ask, resolve = agentAsk, read = readFileSync,
+  template = `decklight: autosave ${basename(deckRel)}`, describe = describeWorking,
 }) {
   const work = workingUnits({ cwd, deckRel, also });
   if (!work || !work.units.length) return { work, commits: null };
   const deckUnits = work.units.filter((u) => u.file === deckRel);
   const rest = work.units.filter((u) => u.file !== deckRel);
   const commits = [];
+  let unread = null;
   if (deckUnits.length) {
     let groups = [];
+    let answer = null;
     let html = '';
     try { html = read(deckPath, 'utf8'); } catch { /* the title is optional */ }
     const spawned = resolve(agent, planPrompt({ deck: deckRel, title: deckTitle(html), units: deckUnits }), { env });
     if (spawned) {
-      let answer = null;
       try { answer = await exec(spawned, cwd, timeoutMs); } catch { answer = null; }
       groups = parsePlan(answer);
     }
-    commits.push(...normalizePlan(groups, deckUnits).map((g) => ({ subject: g.subject, units: g.units })));
+    const deckCommits = normalizePlan(groups, deckUnits).map((g) => ({ subject: g.subject, units: g.units }));
+    if (spawned && !groups.length) {
+      let subject = null;
+      try {
+        subject = await describe({
+          cwd, deckPath, deckRel, template, agent, env, timeoutMs, exec, resolve, read,
+        });
+      } catch { subject = null; }
+      if (subject) deckCommits[0].subject = subject;
+      else unread = { answer: String(answer ?? '').slice(0, 2000) };
+    }
+    commits.push(...deckCommits);
   }
   if (rest.length) {
     const side = rest.map((u) => reviewSubject(addedLines(work.files[u.file]))).find(Boolean);
     commits.push({ subject: side ?? '', units: rest.map((u) => u.id) });
   }
-  return { work, commits };
+  return { work, commits, unread };
 }
 
 /** A unit as the window shows it: no hunk bodies, which can be large. */

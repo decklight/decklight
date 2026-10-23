@@ -469,6 +469,7 @@ export function createEditMode({
         if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
         if (!commitEl) return;
         const commits = Array.isArray(j.commits) ? j.commits : [];
+        if (j.unread) debugLog('git', `couldn't read the agent's answer: ${JSON.stringify(String(j.answer ?? ''))}`);
         if (commits.length > 1) {
           showPlan({ base: j.base, units: j.units ?? [], commits: commits.map((c) => ({ subject: String(c.subject ?? ''), units: c.units ?? [] })) });
           write.textContent = '✨ write it again';
@@ -476,7 +477,9 @@ export function createEditMode({
           showPlan(null);
           const subject = commits[0]?.subject;
           if (subject && !input.value.trim()) input.value = subject;
-          write.textContent = subject ? '✨ write it again' : 'nothing to say about it';
+          // "nothing to say" is for a tree with nothing to describe; an answer
+          // the server could not read says so (#908)
+          write.textContent = subject ? '✨ write it again' : j.unread ? "couldn't read the agent's answer" : 'nothing to say about it';
         }
       } catch (e) {
         // the whole sentence, where there is room for it — a reason cut at forty

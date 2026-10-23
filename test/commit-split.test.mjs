@@ -118,6 +118,43 @@ test('the agent\'s lines are read whatever their dressing, and every unit lands 
   assert.deepEqual(normalizePlan([{ subject: 'x', units: [9] }, { subject: 'y', units: [1, 2, 3, 4] }], units), [{ subject: 'y', units: [1, 2, 3, 4] }], 'an empty commit is dropped');
 });
 
+test('a range names every change in it: hyphen, en dash, dots, "to", and mixed with a list (#908)', () => {
+  const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  assert.deepEqual(parsePlan("1-10 | rewrite the real-time data module's voiceover"), [
+    { units: ten, subject: "rewrite the real-time data module's voiceover" },
+  ]);
+  assert.deepEqual(parsePlan('1–10 | one idea'), [{ units: ten, subject: 'one idea' }]);
+  assert.deepEqual(parsePlan('1..4 | dots'), [{ units: [1, 2, 3, 4], subject: 'dots' }]);
+  assert.deepEqual(parsePlan('1 to 4 | words'), [{ units: [1, 2, 3, 4], subject: 'words' }]);
+  assert.deepEqual(parsePlan('- [1, 3-5, 8] : mixed\n2, 6–7 | the rest'), [
+    { units: [1, 3, 4, 5, 8], subject: 'mixed' },
+    { units: [2, 6, 7], subject: 'the rest' },
+  ]);
+  assert.deepEqual(parsePlan('the changes are all one idea, really'), [], 'nothing that reads as a plan');
+  assert.deepEqual(parsePlan(`${'1'.repeat(40)} x`), [], 'a long run of digits fails at once, not after the regex tries every split of it');
+  const units = ten.map((id) => ({ id }));
+  assert.deepEqual(normalizePlan(parsePlan('1-10 | one idea'), units), [{ subject: 'one idea', units: ten }], 'one range, one commit with its subject');
+});
+
+test('an answer that does not read as a plan is asked again as one subject; with none, the plan says it was unread (#908)', async (t) => {
+  const dir = repo(t);
+  writeFileSync(path.join(dir, 'deck.html'), deck(['ONE', 'two', 'THREE', 'four']));
+  const base = { cwd: dir, deckPath: path.join(dir, 'deck.html'), deckRel: 'deck.html', resolve: (_a, prompt) => ({ prompt }) };
+  const asked = [];
+  const answered = await planWorking({
+    ...base, exec: async (cmd) => (asked.push(cmd.prompt), /Group them/.test(cmd.prompt) ? 'Here is my plan!' : 'shout the first and third points'),
+  });
+  assert.equal(asked.length, 2, 'the plan, then the one-line subject');
+  assert.deepEqual(answered.commits, [{ subject: 'shout the first and third points', units: [1, 2] }]);
+  assert.equal(answered.unread, null);
+
+  const nonsense = await planWorking({ ...base, exec: async () => '' });
+  assert.deepEqual(nonsense.commits, [{ subject: '', units: [1, 2] }]);
+  assert.deepEqual(nonsense.unread, { answer: '' });
+  const garbled = await planWorking({ ...base, exec: async () => 'banana', describe: async () => null });
+  assert.deepEqual(garbled.unread, { answer: 'banana' }, 'what the agent said rides along for the debug log');
+});
+
 test('the prompt numbers each change by its slide and spells out the reply format', () => {
   const p = planPrompt({ deck: 'deck.html', title: 'Pace', units: [
     { id: 1, where: 'slide 2', file: 'deck.html', diff: '@@ -9 +9 @@\n-<p>two</p>\n+<p>TWO</p>' },
