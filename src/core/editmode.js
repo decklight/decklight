@@ -32,6 +32,7 @@ import { wordDiff, diffCounts } from './worddiff.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
 import { UNDO_CHORD } from './undo-chord.js';
+import { markdownNodes } from './mdtext.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
@@ -1184,12 +1185,21 @@ export function createEditMode({
     said.textContent = a.prompt;   // textContent: the user's words are not markup
     const out = document.createElement('div');
     out.className = 'agent-ask-out';
-    out.textContent = a.state === 'running'
-      ? `working…${a.activity ? ` ${a.activity}` : ''}`
-      : [a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.changed ? (a.kind === 'migrate' ? 'migrated the deck' : a.kind === 'fix' ? 'fixed the deck' : 'edited the deck') : 'no changes',
-        (a.tail || '').trim(),
-        // what the run created beside the deck and left there, kept out of its commit
-        a.left?.length ? `left beside the deck, not committed: ${a.left.join(', ')}` : null].filter(Boolean).join('\n');
+    if (a.state === 'running') out.textContent = `working…${a.activity ? ` ${a.activity}` : ''}`;
+    else {
+      out.textContent = a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.changed ? (a.kind === 'migrate' ? 'migrated the deck' : a.kind === 'fix' ? 'fixed the deck' : 'edited the deck') : 'no changes';
+      // what the agent said, in the markdown it said it in: **bold** shown
+      // bold, never as asterisks (mdtext.js builds nodes, never markup)
+      const tail = (a.tail || '').trim();
+      if (tail) {
+        const md = document.createElement('div');
+        md.className = 'agent-ask-md';
+        md.append(...markdownNodes(tail));
+        out.append(md);
+      }
+      // what the run created beside the deck and left there, kept out of its commit
+      if (a.left?.length) out.append(Object.assign(document.createElement('div'), { textContent: `left beside the deck, not committed: ${a.left.join(', ')}` }));
+    }
     row.append(meta, said, out);
     return row;
   }
