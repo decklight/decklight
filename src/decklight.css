@@ -656,28 +656,68 @@
 }
 .decklight-history .hs-btn:hover:not(:disabled) { background: rgba(128, 128, 128, .18); }
 .decklight-history .hs-btn:disabled { opacity: 0.3; cursor: default; }
-/* CC and details close the transport row. CC is the deck's closed captions,
-   shown in the preview; details is a word rather than an icon (it was once
-   "CC" itself, when the preview had no captions to show). Lit when on, the
-   way a pressed toggle looks everywhere else. */
-.decklight-history .hs-cc,
-.decklight-history .hs-details {
-  width: auto;
-  padding: 0 6px;
-  margin-left: 0.6em;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: .04em;
-  opacity: .6;
+/* What you see of the version, on a row of its own under the transport:
+   changed slides only (D), captions (C), more info (I). A switch is a box and
+   a label that never changes — the box says whether it is on — so the words
+   always name the thing, never the state of the thing. It wraps rather than
+   widening the preview column on a narrow panel. */
+.decklight-history .hs-view {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(128, 128, 128, .2);
 }
-.decklight-history .hs-cc[aria-pressed="true"],
-.decklight-history .hs-details[aria-pressed="true"] {
-  opacity: 1;
-  background: rgba(128, 128, 128, .22);
+.decklight-history .hs-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid rgba(128, 128, 128, .28);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: .65;
+}
+.decklight-history .hs-switch:hover { background: rgba(128, 128, 128, .18); }
+.decklight-history .hs-switch[aria-checked="true"] { opacity: 1; background: rgba(128, 128, 128, .14); }
+.decklight-history .hs-box {
+  position: relative;
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+.decklight-history .hs-switch[aria-checked="true"] .hs-box::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0;
+  width: 3px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.decklight-history .hs-switch kbd {
+  font: inherit;
+  font-size: 10px;
+  padding: 0 4px;
+  border: 1px solid rgba(128, 128, 128, .3);
+  border-radius: 3px;
+  opacity: .7;
 }
 .decklight-history .hs-pos {
   min-width: 4.5em;
+  white-space: nowrap;
   text-align: center;
   font-size: 0.82em;
   font-variant-numeric: tabular-nums;
@@ -799,23 +839,9 @@
   .decklight-fixreview .fr-panes { grid-template-columns: 1fr; }
 }
 
-/* All slides / changes (D): the same toggle shape as CC, with words, because
-   which of the two you are walking is the thing to know at a glance. The
-   stop's kind beside the position, in the commit window's three colours. */
-.decklight-history .hs-only {
-  width: auto;
-  padding: 0 8px;
-  margin-left: 0.6em;
-  font-size: 11px;
-  line-height: 1;
-  opacity: .6;
-  white-space: nowrap;
-}
-.decklight-history .hs-only[aria-pressed="true"] { opacity: 1; background: rgba(128, 128, 128, .22); }
-.decklight-history .hs-only + .hs-cc,
-.decklight-history .hs-only + .hs-details,
-.decklight-history .hs-cc + .hs-details { margin-left: 0.35em; }
-.decklight-history .hs-kind { font-size: 0.82em; white-space: nowrap; }
+/* Walking only the changes (D), the stop's kind under the position, in the
+   commit window's three colours. */
+.decklight-history .hs-kind { font-size: 0.82em; white-space: nowrap; text-align: center; }
 .decklight-history .hs-kind[hidden] { display: none; }
 .decklight-history .hs-k-changed { color: #f2c46d; }
 .decklight-history .hs-k-added { color: #7cd6a3; }

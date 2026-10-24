@@ -2444,6 +2444,10 @@ export function createEditMode({
   // feel broken. `?embedded` decks accept a `goto` from their parent (the same
   // one the slide finder uses), so once the frame is up we only ever message it.
   let previewSlide = 1;
+  // The build on that slide, and how many it has. Only the frame knows the
+  // count — it reports it after every move (engine.js `_reportToParent`) — so
+  // it is null from the moment the preview leaves a slide until it hears.
+  let previewStep = 0, previewSteps = null;
   let previewDoc = null; // the commit the preview frame is showing, by hash
   let previewEntry = null; // the ROW the preview belongs to (a removed slide shows its parent)
   const preview = createPreview({
@@ -2455,9 +2459,32 @@ export function createEditMode({
     // mattered while every version opened on slide 1 — but a slide the
     // version REMOVED is shown from the one before it, at its old number
     srcFor: (t) => `${editBase}/deck/edit/history/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}`
-      + `${captionsOn() ? '&captions' : ''}#/${t.slide || 1}`,
-    messageFor: (t) => ({ __decklightPreview: { goto: [t.slide, 0] } }),
+      + `${captionsOn() ? '&captions' : ''}#/${t.slide || 1}/${t.step || 0}`,
+    messageFor: (t) => ({ __decklightPreview: { goto: [t.slide, t.step || 0] } }),
   });
+  // "Its last build" without knowing how many there are: the deck clamps a
+  // step to the slide's own count, so asking for more than any slide has lands
+  // on the final one, and the frame's report says which that was.
+  const LAST_BUILD = 9999;
+  /** Point the preview at build `step` of `slide` of `doc`. */
+  function aim(doc, slide, step) {
+    if (doc !== previewDoc || slide !== previewSlide) previewSteps = null;
+    previewDoc = doc;
+    previewSlide = slide;
+    previewStep = step;
+    const frame = restoreEl?.querySelector('iframe');
+    if (frame && doc) preview.show(frame, { doc, slide, step });
+    renderNav();
+  }
+  /** The frame saying where it is. A report from a slide it has since been sent away from is stale. */
+  function onPreviewState(e) {
+    const m = e.data?.__decklightPreviewState;
+    const frame = restoreEl?.querySelector('iframe');
+    if (!m || !frame || e.source !== frame.contentWindow || m.slide !== previewSlide) return;
+    previewStep = m.step;
+    previewSteps = m.steps;
+    renderNav();
+  }
   // Armed, not fired. `⏎` on a row used to restore it on the spot, and a CLICK
   // did too — which is a keystroke and a half between browsing your history and
   // rewriting the deck on disk. Restoring is recoverable (it only ever adds a
@@ -2478,7 +2505,7 @@ export function createEditMode({
     writePref(PUSH_TAGS_KEY, on ? null : 'off');
     toast(on ? 'push: the branch and its tags' : 'push: the branch only — tags stay on this machine', 2600);
   }
-  // The details line under the preview — hash · age · subject · counts — is
+  // The more-info line under the preview — hash · age · subject · counts — is
   // the selected row said again in a sentence: off until asked for, since it
   // repeats a row you can read, right under the slide you are judging. Per
   // BROWSER, not per deck. It used to be "captions", a CC button on C: the
@@ -2493,8 +2520,8 @@ export function createEditMode({
     const on = historyDetailsOn();
     restoreEl.querySelector('.tp-caption').hidden = !on;
     const b = restoreEl.querySelector('.hs-details');
-    b.setAttribute('aria-pressed', String(on));
-    b.title = `${on ? 'hide' : 'show'} the selected version in a sentence — hash, age, subject, slide and line counts (I)`;
+    b.setAttribute('aria-checked', String(on));
+    b.title = `the selected version in a sentence under the preview — hash, age, subject, slide and line counts (I ${on ? 'hides' : 'shows'} it)`;
   }
   // Closed captions, for real this time: the version's own notes for the slide
   // on screen, in the preview's caption bar. Not a setting of the history's:
@@ -2506,8 +2533,8 @@ export function createEditMode({
     const b = restoreEl.querySelector('.hs-cc');
     if (!b) return;
     const on = captionsOn();
-    b.setAttribute('aria-pressed', String(on));
-    b.title = on ? 'captions: this version\'s notes under the slide (C hides them)' : 'captions: show this version\'s notes under the slide (C)';
+    b.setAttribute('aria-checked', String(on));
+    b.title = `this version's notes under the slide (C ${on ? 'hides' : 'shows'} them)`;
   }
   function toggleHistoryCaptions() {
     if (!toggleCaptions) return;
@@ -2551,45 +2578,42 @@ export function createEditMode({
     const b = restoreEl?.querySelector('.hs-only');
     if (!b) return;
     const on = historyChangesOn();
-    b.setAttribute('aria-pressed', String(on));
-    b.textContent = on ? 'changes' : 'all slides';
-    b.title = on ? 'showing only the slides this version changed, added or removed — D shows all of them'
-      : 'showing every slide — D shows only the ones this version changed, added or removed';
+    b.setAttribute('aria-checked', String(on));
+    b.title = `walk only the slides this version changed, added or removed (D ${on ? 'shows every slide' : 'turns it on'})`;
   }
   function toggleHistoryChanges() {
     writePref(HISTORY_CHANGES_KEY, historyChangesOn() ? '0' : '1');
     applyHistoryChanges();
     const frame = restoreEl?.querySelector('iframe');
-    if (frame) { stopAt = 0; previewSlide = 1; restorePreview(frame, restoreRows[restoreSel], { force: true }); }
+    if (frame) { stopAt = 0; previewSlide = 1; previewStep = 0; restorePreview(frame, restoreRows[restoreSel], { force: true }); }
   }
-  /** Show stop `i` of the selected version's changes. */
-  function showStop(i) {
+  /** Show stop `i` of the selected version's changes, on its first build (or its last). */
+  function showStop(i, { atEnd = false, step } = {}) {
     const c = currentChanges();
-    const frame = restoreEl?.querySelector('iframe');
-    if (!c || !frame) return;
+    if (!c || !restoreEl?.querySelector('iframe')) return;
     const entry = restoreRows[restoreSel];
     stopAt = Math.max(0, Math.min(i, c.stops.length - 1));
     const stop = c.stops[stopAt];
     // a slide this version removed is only in the one before it
     const doc = stop?.kind === 'removed' && c.parent ? c.parent : entry.hash;
-    previewSlide = stop ? (stop.kind === 'removed' ? stop.was : stop.slide) : 1;
-    previewDoc = doc;
-    preview.show(frame, { doc, slide: previewSlide });
-    renderNav();
+    aim(doc, stop ? (stop.kind === 'removed' ? stop.was : stop.slide) : 1, step ?? (atEnd ? LAST_BUILD : 0));
   }
 
   // Stroke icons in the shape of the transport controls everyone already
   // knows. Constant markup, so innerHTML is the same call the touch chrome
   // makes for its own icons — nothing here comes from the deck or from git.
+  // Single chevrons step a build, doubles skip a slide, barred ones go to an end.
   const NAV_ICON = {
     first: '<path d="M17 6l-6 6 6 6"/><path d="M7 6v12"/>',
+    prevSlide: '<path d="M12 6l-6 6 6 6"/><path d="M19 6l-6 6 6 6"/>',
     prev: '<path d="M15 6l-6 6 6 6"/>',
     next: '<path d="M9 6l6 6-6 6"/>',
+    nextSlide: '<path d="M5 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/>',
     last: '<path d="M7 6l6 6-6 6"/><path d="M17 6v12"/>',
   };
   const NAV_LABEL = {
-    first: 'first slide (Home)', prev: 'previous slide (←)',
-    next: 'next slide (→)', last: 'last slide (End)',
+    first: 'first slide (Home)', prevSlide: 'previous slide (⇧←)', prev: 'previous build (←)',
+    next: 'next build (→)', nextSlide: 'next slide (⇧→)', last: 'last slide (End)',
   };
   const navSvg = (d) => '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"'
     + ' stroke="currentColor" stroke-width="2" stroke-linecap="round"'
@@ -2598,57 +2622,71 @@ export function createEditMode({
   /** Slides in the selected version, or 0 when this row is past STAT_DEPTH. */
   const previewTotal = () => Number(restoreRows[restoreSel]?.slides) || 0;
 
-  function previewGoto(n) {
-    if (currentChanges()) return showStop(n - 1);
+  function previewGoto(n, { atEnd = false } = {}) {
+    if (currentChanges()) return showStop(n - 1, { atEnd });
     const total = previewTotal();
-    previewSlide = Math.max(1, total ? Math.min(n, total) : n);
-    const frame = restoreEl?.querySelector('iframe');
-    if (frame && previewDoc) preview.show(frame, { doc: previewDoc, slide: previewSlide });
-    renderNav();
+    aim(previewDoc, Math.max(1, total ? Math.min(n, total) : n), atEnd ? LAST_BUILD : 0);
   }
   function renderNav() {
     const nav = restoreEl?.querySelector('.hs-nav');
     if (!nav) return;
-    const kind = nav.querySelector('.hs-kind');
+    const kind = restoreEl.querySelector('.hs-kind');
     const c = currentChanges();
-    if (c) {
-      const n = c.stops.length;
-      const stop = c.stops[stopAt];
-      nav.querySelector('.hs-pos').textContent = n ? `${stopAt + 1} / ${n}` : 'no slide changed';
-      kind.hidden = !stop;
-      kind.className = `hs-kind${stop ? ` hs-k-${stop.kind}` : ''}`;
-      kind.textContent = !stop ? '' : stop.kind === 'removed' ? `slide ${stop.was} removed`
-        : `slide ${stop.slide} ${stop.kind}`;
-      for (const b of nav.querySelectorAll('.hs-btn[data-go]')) {
-        const at = b.dataset.go;
-        b.disabled = !n || (stopAt <= 0 && (at === 'first' || at === 'prev'))
-          || (stopAt >= n - 1 && (at === 'next' || at === 'last'));
-      }
-      return;
-    }
-    kind.hidden = true;
     const total = previewTotal();
+    const n = c ? c.stops.length : 0;
+    const stop = c?.stops[stopAt];
     // With no slide count for this row (past the stat depth) the buttons still
     // work — they just cannot know where the end is, so none of them is greyed
     // out. Guessing a limit would strand somebody one slide short of it.
-    nav.querySelector('.hs-pos').textContent = total ? `${previewSlide} / ${total}` : `${previewSlide}`;
+    const atStart = c ? stopAt <= 0 : previewSlide <= 1;
+    const atEnd = c ? stopAt >= n - 1 : !!total && previewSlide >= total;
+    // the builds only once the frame has said how many: before that a count
+    // would be a guess, and a slide with none has nothing to step
+    const builds = previewSteps ? ` · build ${Math.min(previewStep, previewSteps)} / ${previewSteps}` : '';
+    nav.querySelector('.hs-pos').textContent = c
+      ? (n ? `change ${stopAt + 1} / ${n}${builds}` : 'no slide changed')
+      : `slide ${previewSlide}${total ? ` / ${total}` : ''}${builds}`;
+    kind.hidden = !stop;
+    kind.className = `hs-kind${stop ? ` hs-k-${stop.kind}` : ''}`;
+    kind.textContent = !stop ? '' : stop.kind === 'removed' ? `slide ${stop.was} removed`
+      : `slide ${stop.slide} ${stop.kind}`;
+    const lastBuild = previewSteps != null && previewStep >= previewSteps;
     for (const b of nav.querySelectorAll('.hs-btn[data-go]')) {
       const at = b.dataset.go;
-      b.disabled = (previewSlide <= 1 && (at === 'first' || at === 'prev'))
-        || (!!total && previewSlide >= total && (at === 'next' || at === 'last'));
+      b.disabled = (!!c && !n)
+        || (atStart && (at === 'first' || at === 'prevSlide' || (at === 'prev' && previewStep <= 0)))
+        || (atEnd && (at === 'last' || at === 'nextSlide' || (at === 'next' && lastBuild)));
     }
   }
-  function navTo(where) {
+  /** The next or previous slide (or change), on its first build — or its last, walking back. */
+  function slideBy(d, { atEnd = false } = {}) {
     const c = currentChanges();
     if (c) {
-      if (where === 'first') return showStop(0);
-      if (where === 'prev') return showStop(stopAt - 1);
-      if (where === 'next') return showStop(stopAt + 1);
-      return showStop(c.stops.length - 1);
+      if (stopAt + d >= 0 && stopAt + d < c.stops.length) showStop(stopAt + d, { atEnd });
+      return;
     }
+    const total = previewTotal();
+    if (previewSlide + d >= 1 && (!total || previewSlide + d <= total)) previewGoto(previewSlide + d, { atEnd });
+  }
+  /**
+   * One build, the way → and ← step a talk: through the slide's builds, then on
+   * to the next slide's first — or back to the previous one's last.
+   */
+  function stepBy(d) {
+    if (d > 0 && previewSteps != null && previewStep < previewSteps) return aim(previewDoc, previewSlide, previewStep + 1);
+    if (d < 0 && previewStep > 0) {
+      return aim(previewDoc, previewSlide, Math.min(previewStep, previewSteps ?? previewStep) - 1);
+    }
+    slideBy(d, { atEnd: d < 0 });
+  }
+  function navTo(where) {
+    if (where === 'prev') return stepBy(-1);
+    if (where === 'next') return stepBy(+1);
+    if (where === 'prevSlide') return slideBy(-1);
+    if (where === 'nextSlide') return slideBy(+1);
+    const c = currentChanges();
+    if (c) return showStop(where === 'first' ? 0 : c.stops.length - 1);
     if (where === 'first') return previewGoto(1);
-    if (where === 'prev') return previewGoto(previewSlide - 1);
-    if (where === 'next') return previewGoto(previewSlide + 1);
     return previewGoto(previewTotal() || previewSlide + 1);
   }
 
@@ -2660,16 +2698,14 @@ export function createEditMode({
       const c = await loadChanges(entry);
       // the row moved on while the answer was on its way
       if (restoreRows[restoreSel] !== entry || !restoreEl) return;
-      if (c) return showStop(fresh ? 0 : stopAt);
+      if (c) return fresh ? showStop(0) : showStop(stopAt, { step: previewStep });
       // no answer (git could not say): fall back to every slide, quietly
     }
     previewEntry = entry.hash;
     // a row re-selected is a message, not a reload — the same short-circuit the
     // finder and the pickers have always had
-    if (entry.hash !== previewDoc) previewSlide = 1;
-    previewDoc = entry.hash;
-    preview.show(frame, { doc: previewDoc, slide: previewSlide });
-    renderNav();
+    const same = entry.hash === previewDoc;
+    aim(entry.hash, same ? previewSlide : 1, same ? previewStep : 0);
   }
   function selectRestoreRow(i, immediate) {
     const rows = [...restoreEl.querySelectorAll('.tp-row')];
@@ -2729,22 +2765,30 @@ export function createEditMode({
         '<div class="hs-confirm" hidden></div></div>' +
         '<div class="tp-preview"><iframe title="Version preview"></iframe>' +
         '<div class="hs-nav" role="group" aria-label="Preview navigation">' +
-          ['first', 'prev'].map((k) => navBtn(k)).join('') +
+          ['first', 'prevSlide', 'prev'].map((k) => navBtn(k)).join('') +
           '<span class="hs-pos" aria-live="polite"></span>' +
-          ['next', 'last'].map((k) => navBtn(k)).join('') +
-          '<span class="hs-kind" hidden></span>' +
-          '<button type="button" class="hs-btn hs-only" aria-label="only the slides this version changed (D)"></button>' +
-          (toggleCaptions ? '<button type="button" class="hs-btn hs-cc" aria-label="captions (C)">CC</button>' : '') +
-          '<button type="button" class="hs-btn hs-details" aria-label="version details (I)">details</button>' +
+          ['next', 'nextSlide', 'last'].map((k) => navBtn(k)).join('') +
         '</div>' +
-        '<div class="tp-caption"></div></div></div>';
+        '<div class="hs-kind" hidden></div>' +
+        '<div class="tp-caption"></div>' +
+        // Two rows, because they are two kinds of control: the transport moves
+        // through the version, these change what you see of it. Each switch
+        // keeps ONE label and shows its state in the box: "all slides" that
+        // turned into "changes" when pressed read as a state to some and as
+        // an action to others, and "CC" and "details" said too little.
+        '<div class="hs-view" role="group" aria-label="View">' +
+          viewSwitch('hs-only', 'changed slides only', 'D') +
+          (toggleCaptions ? viewSwitch('hs-cc', 'captions', 'C') : '') +
+          viewSwitch('hs-details', 'more info', 'I') +
+        '</div></div></div>';
     // textContent for both: a branch name is arbitrary text, and the title is
     // built from a mode rather than pasted in.
     // Short on purpose. This bar is `white-space: nowrap`, so its text is the
     // rail's min-content width — the long version of this string is literally
     // what collapsed the preview to 57px. The keys it drops are all on screen:
-    // the transport draws ←→, and ⏎/Esc are in the confirmation card.
-    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ browse · ←→ preview · ⏎ restore · C\u00a0captions · I\u00a0details';
+    // the transport draws ←→, the switches name D, C and I, and ⏎/Esc are in
+    // the confirmation card.
+    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ browse · ←→ build · ⇧←→ slide · ⏎ restore';
     const remoteEl = restoreEl.querySelector('.hs-remote');
     // The server sends the sentence ready-made — cli/git.mjs spawns git and the
     // runtime cannot import it, so the words live in one place on that side.
@@ -2806,7 +2850,12 @@ export function createEditMode({
     });
     closeOnBackdrop(restoreEl, closeRestore);
     root.appendChild(restoreEl);
+    window.addEventListener('message', onPreviewState);
     selectRestoreRow(0, true);
+  }
+  function viewSwitch(cls, label, key) {
+    return `<button type="button" role="switch" aria-checked="false" class="hs-switch ${cls}">`
+      + `<span class="hs-box" aria-hidden="true"></span>${label}<kbd>${key}</kbd></button>`;
   }
   function navBtn(k) {
     return `<button type="button" class="hs-btn" data-go="${k}" title="${NAV_LABEL[k]}"`
@@ -2847,11 +2896,14 @@ export function createEditMode({
   }
   function closeRestore() {
     clearTimeout(restoreDebounce);
+    window.removeEventListener('message', onPreviewState);
     restoreEl?.remove();
     restoreEl = null;
     restoreArmed = false;
     previewDoc = null;
     previewEntry = null;
+    previewStep = 0;
+    previewSteps = null;
   }
 
   /**
@@ -2949,11 +3001,12 @@ export function createEditMode({
         // ←→ and Home/End drive the PREVIEW, which has no chrome of its own.
         // They used to fall through to the deck behind the overlay, which
         // moved a presentation nobody could see.
-        case 'ArrowLeft': navTo('prev'); break;
-        case 'ArrowRight': navTo('next'); break;
+        // ←→ a build at a time, as in the talk; ⇧ for a whole slide
+        case 'ArrowLeft': navTo(e.shiftKey ? 'prevSlide' : 'prev'); break;
+        case 'ArrowRight': navTo(e.shiftKey ? 'nextSlide' : 'next'); break;
         case 'Home': navTo('first'); break;
         case 'End': navTo('last'); break;
-        // I, as in information; C is the deck's closed captions, which the
+        // I, as in more info; C is the deck's closed captions, which the
         // preview now shows: the version's own notes under its slide
         case 'i': case 'I': toggleHistoryDetails(); break;
         case 'c': case 'C': toggleHistoryCaptions(); break;

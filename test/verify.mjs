@@ -79,7 +79,7 @@ const ENGINE_GROUPS = {
   themes: ['decktheme', 'themepicker', 'markedread', 'dsrecommended', 'fonts', 'fontslegacy', 'fontswrite', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard'],
   palette: ['palette', 'palettecategories', 'paletteplain', 'settings', 'deckcheck', 'display', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'agentreview', 'designsystems', 'marketplaces', 'skeys', 'skeys&nosrv'],
   narration: ['narration', 'nonarration', 'panel'],
-  navigation: ['overviewedit', 'overviewplain', 'restore', 'historydetails', 'historycaptions', 'historychanges', 'escapeall', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist', 'pinch', 'chromescale'],
+  navigation: ['overviewedit', 'overviewplain', 'restore', 'historydetails', 'historycaptions', 'historychanges', 'historybuilds', 'escapeall', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist', 'pinch', 'chromescale'],
   handover: ['exportpptx', 'exportfail', 'exportvideo', 'exportmodule', 'publish'],
   sources: ['inspector', 'sourcesedit'],
   authoring: ['lockmode', 'notrustmode', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesauto', 'notesautofail', 'debugreload', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'concepts', 'conceptsfind', 'typingdock', 'editingtour', 'editingtourwelcome'],

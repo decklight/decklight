@@ -1962,6 +1962,7 @@ export function init(userConfig = {}) {
 
     _notify() {
       if (this.__notifySpeaker) this.__notifySpeaker();
+      this._reportToParent?.();
     },
   };
 
@@ -3400,6 +3401,17 @@ export function init(userConfig = {}) {
     activeInstance = instance;
     instance._emit('ready', { slides: instance.state.totalSlides, print: true });
     return instance;
+  }
+
+  // An embedded preview says where it is, after every move and every rescan:
+  // the panel around it steps the builds (the history's ◀ ▶), and only the
+  // deck knows how many a slide has — a late build provider can still grow it.
+  if (params.has('embedded') && window.parent !== window) {
+    instance._reportToParent = () => {
+      const { slide, step, totalSlides: total } = instance.state;
+      const steps = instance._records[slide - 1]?.groups.length ?? 0;
+      window.parent.postMessage({ __decklightPreviewState: { slide, step, steps, total } }, '*');
+    };
   }
 
   const target = (config.hash && parseHash(location.hash)) || { slide: 1, step: 0 };

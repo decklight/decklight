@@ -29,7 +29,7 @@ export const MODES = [
   'palette', 'settings', 'deckcheck', 'display', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'agentreview', 'designsystems', 'marketplaces', 'skeys', 'skeys&nosrv',
   'narration', 'nonarration', 'panel',
   'chromescale',
-  'restore', 'historydetails', 'historycaptions', 'historychanges', 'escapeall', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
+  'restore', 'historydetails', 'historycaptions', 'historychanges', 'historybuilds', 'escapeall', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'exportmodule', 'publish',
   'inspector', 'sourcesedit',
   'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'pinch', 'debugreload', 'lockmode', 'notrustmode', 'editingtour', 'editingtourwelcome',

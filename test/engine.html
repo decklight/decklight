@@ -164,7 +164,7 @@
         return json({ ok: true });
       }
       if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historydetails' || HARNESS_MODE === 'historychanges'
-        || HARNESS_MODE === 'historycaptions') {
+        || HARNESS_MODE === 'historycaptions' || HARNESS_MODE === 'historybuilds') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/history/changes')) {
           const ref = new URL(u, location.href).searchParams.get('ref');
@@ -760,6 +760,11 @@
       const s = document.querySelectorAll('.decklight > section');
       s[0].insertAdjacentHTML('beforeend', '<aside class="notes"><p>Welcome to the first slide.</p></aside>');
       s[1].insertAdjacentHTML('beforeend', '<aside class="notes"><p>The second slide speaks.</p></aside>');
+    }
+    // buildchild, the history's preview frame for historybuilds: two builds
+    // on slide 2, none on slide 1 or 3
+    if (HARNESS_MODE === 'buildchild') {
+      document.querySelectorAll('.decklight > section')[1].innerHTML = '<h2>Two</h2><ul data-build><li>first</li><li>second</li></ul>';
     }
     // skeys: a slide with two builds and notes in three beats, for S to open
     if (HARNESS_MODE === 'skeys') {
@@ -5439,7 +5444,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.opens = !!document.querySelector(O);
         const frameSrc = document.querySelector(`${O} iframe`)?.getAttribute('src') ?? '';
         r.previewInTheThemeOnScreen = /\/deck\/edit\/history\/at\?ref=[^&]+&embedded&theme=ember(?:&|#|$)/.test(frameSrc)
-          && /#\/1$/.test(frameSrc);   // the slide rides the URL
+          && /#\/1\/0$/.test(frameSrc);   // the slide and build ride the URL
         const a = selectedIndex(O, ROW, SEL);
         r.listsEveryCommit = a.count === 3;
         r.hasSelection = a.i === 0;           // newest first, newest selected
@@ -5501,26 +5506,28 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         press('h');
         await settle(); await settle();
         r.opens = !!document.querySelector(O);
-        r.allByDefault = only()?.getAttribute('aria-pressed') === 'false' && only()?.textContent === 'all slides'
+        // a switch: its words never change, its box says whether it is on
+        r.allByDefault = only()?.getAttribute('aria-checked') === 'false' && /^changed slides only/.test(only()?.textContent ?? '')
           && kind()?.hidden === true && !(window.__changesAsked?.length);
         press('d');
         await settle(); await settle();
-        r.dTurnsItOn = only()?.getAttribute('aria-pressed') === 'true' && only()?.textContent === 'changes'
+        r.dTurnsItOn = only()?.getAttribute('aria-checked') === 'true' && /^changed slides only/.test(only()?.textContent ?? '')
           && localStorage.getItem(KEY) === '1';
         r.asksForTheRow = window.__changesAsked?.includes('aaaaaaa');
-        r.firstStop = pos() === '1 / 3' && kind()?.textContent === 'slide 2 changed' && kind()?.classList.contains('hs-k-changed')
+        r.firstStop = pos() === 'change 1 / 3' && kind()?.textContent === 'slide 2 changed' && kind()?.classList.contains('hs-k-changed')
           && frameRef() === 'aaaaaaa';
         press('ArrowRight');
         await settle(); await settle();
-        r.removedShownFromTheParent = pos() === '2 / 3' && kind()?.textContent === 'slide 3 removed'
+        r.removedShownFromTheParent = pos() === 'change 2 / 3' && kind()?.textContent === 'slide 3 removed'
           && kind()?.classList.contains('hs-k-removed') && frameRef() === 'bbbbbbb'
           // and AT the slide it was: a new document opens where the URL says,
           // not on slide 1 waiting to be told
-          && new URL(document.querySelector(`${O} iframe`).src).hash === '#/3';
+          && new URL(document.querySelector(`${O} iframe`).src).hash === '#/3/0';
         press('End');
         await settle(); await settle();
-        r.endIsTheLastChange = pos() === '3 / 3' && kind()?.textContent === 'slide 4 added' && frameRef() === 'aaaaaaa'
-          && document.querySelector(`${O} .hs-btn[data-go="next"]`)?.disabled === true;
+        r.endIsTheLastChange = pos() === 'change 3 / 3' && kind()?.textContent === 'slide 4 added' && frameRef() === 'aaaaaaa'
+          && document.querySelector(`${O} .hs-btn[data-go="nextSlide"]`)?.disabled === true
+          && document.querySelector(`${O} .hs-btn[data-go="last"]`)?.disabled === true;
         // a version that touched no slide says so
         press('ArrowDown');
         await settle(); await settle();
@@ -5528,11 +5535,11 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && document.querySelector(`${O} .hs-btn[data-go="prev"]`)?.disabled === true;
         press('ArrowUp');
         await settle(); await settle();
-        r.backOnTheFirstStop = pos() === '1 / 3' && window.__changesAsked.filter((x) => x === 'aaaaaaa').length === 1;
+        r.backOnTheFirstStop = pos() === 'change 1 / 3' && window.__changesAsked.filter((x) => x === 'aaaaaaa').length === 1;
         // and back to every slide
         only()?.click();
         await settle(); await settle();
-        r.backToAll = only()?.textContent === 'all slides' && kind()?.hidden === true && /^1( \/ \d+)?$/.test(pos())
+        r.backToAll = only()?.getAttribute('aria-checked') === 'false' && kind()?.hidden === true && /^slide 1( \/ \d+)?$/.test(pos())
           && localStorage.getItem(KEY) === '0';
         escapeUntilClosed(O);
         try { localStorage.removeItem(KEY); } catch {}
@@ -5659,6 +5666,66 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         return;
       }
 
+      // the history's preview frame for historybuilds: a deck, embedded, that
+      // reports where it is — nothing to drive
+      if (mode === 'buildchild') return;
+
+      if (mode === 'historybuilds') {
+        // The history's preview walks every build, as the talk does: → through
+        // a slide's builds and on, ← back onto the previous slide's LAST build,
+        // ⇧←→ a whole slide. The build count is the frame's to say: the
+        // embedded deck reports its position after every move.
+        const O = '.decklight-history';
+        const pos = () => document.querySelector(`${O} .hs-pos`)?.textContent ?? '';
+        const go = (k) => document.querySelector(`${O} .hs-btn[data-go="${k}"]`);
+        await settle();
+        press('h');
+        await settle(); await settle();
+        r.opens = !!document.querySelector(O);
+        r.sixButtons = ['first', 'prevSlide', 'prev', 'next', 'nextSlide', 'last'].every((k) => !!go(k))
+          && /previous build/.test(go('prev')?.title ?? '') && /⇧→/.test(go('nextSlide')?.title ?? '');
+        r.threeSwitches = [...document.querySelectorAll(`${O} .hs-view [role="switch"]`)].length >= 2
+          && !!document.querySelector(`${O} .hs-view .hs-only`) && !!document.querySelector(`${O} .hs-view .hs-details`);
+        r.hintNamesTheSteps = /←→ build · ⇧←→ slide/.test(document.querySelector(`${O} .tp-filter`)?.textContent ?? '');
+        // The real frame would be the version at the edit server; this harness
+        // has none, so the frame is pointed at a deck that is here. Its window
+        // is the frame's window either way, which is what the panel listens to.
+        const frame = document.querySelector(`${O} iframe`);
+        const reports = [];
+        window.addEventListener('message', (e) => { if (e.source === frame.contentWindow && e.data?.__decklightPreviewState) reports.push(e.data.__decklightPreviewState); });
+        // Re-attached, not just re-pointed: a frame that has been to another
+        // origin will not navigate to a file:// page, but a fresh one will.
+        frame.src = 'engine.html?mode=buildchild&embedded#/1/0';
+        { const at = frame.parentNode, next = frame.nextSibling; frame.remove(); at.insertBefore(frame, next); }
+        await until(() => reports.length > 0, 80);
+        r.frameReports = reports.at(-1)?.slide === 1 && reports.at(-1)?.steps === 0 && reports.at(-1)?.total >= 3;
+        const step = async (k, opts, want) => {
+          const n = reports.length;
+          press(k, opts);
+          await until(() => reports.length > n && pos() === want);
+          return pos() === want;
+        };
+        r.noBuildsNoCount = pos() === 'slide 1';
+        r.rightToSlide2 = await step('ArrowRight', {}, 'slide 2 · build 0 / 2');
+        r.rightRevealsOne = await step('ArrowRight', {}, 'slide 2 · build 1 / 2');
+        r.rightRevealsTwo = await step('ArrowRight', {}, 'slide 2 · build 2 / 2');
+        r.frameAgrees = reports.at(-1)?.slide === 2 && reports.at(-1)?.step === 2;
+        r.rightMovesOn = await step('ArrowRight', {}, 'slide 3');
+        r.leftLandsOnTheLastBuild = await step('ArrowLeft', {}, 'slide 2 · build 2 / 2');
+        r.leftStepsBack = await step('ArrowLeft', {}, 'slide 2 · build 1 / 2');
+        r.shiftLeftSkipsTheSlide = await step('ArrowLeft', { shiftKey: true }, 'slide 1');
+        r.firstIsGreyedAtTheStart = go('first')?.disabled === true && go('prevSlide')?.disabled === true && go('prev')?.disabled === true;
+        r.shiftRightOnItsFirstBuild = await step('ArrowRight', { shiftKey: true }, 'slide 2 · build 0 / 2');
+        go('nextSlide')?.click();
+        await until(() => pos() === 'slide 3');
+        r.nextSlideButton = pos() === 'slide 3';
+        go('prev')?.click();
+        await until(() => pos() === 'slide 2 · build 2 / 2');
+        r.prevButtonSteps = pos() === 'slide 2 · build 2 / 2';
+        escapeUntilClosed(O);
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+      }
+
       if (mode === 'captionchild') {
         // The history's preview frame, run for historycaptions: it answers a
         // probe with whether its caption bar is up and what it says.
@@ -5686,18 +5753,18 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();                       // let /deck/edit/history resolve
         await until(() => src());
         r.opens = !!document.querySelector(O);
-        r.ccButton = cc()?.textContent === 'CC' && cc()?.getAttribute('aria-pressed') === 'false';
-        r.hintNamesC = /C\scaptions/.test(document.querySelector(`${O} .tp-filter`)?.textContent ?? '');
+        r.ccButton = /^captions/.test(cc()?.textContent ?? '') && cc()?.getAttribute('aria-checked') === 'false';
+        r.hintNamesC = cc()?.querySelector('kbd')?.textContent === 'C';
         r.srcWithout = !!src() && !/&captions/.test(src());
         press('c');
         r.cTurnsDeckCaptionsOn = localStorage.getItem(KEY) === '1' && !!document.querySelector('.decklight-captions');
-        r.buttonOn = cc()?.getAttribute('aria-pressed') === 'true';
+        r.buttonOn = cc()?.getAttribute('aria-checked') === 'true';
         r.staysOpen = !!document.querySelector(O);
         press('ArrowDown');
         await until(() => /&captions#/.test(src()));
         r.nextVersionAsks = /&captions#/.test(src());
         cc()?.click();
-        r.buttonTurnsOff = localStorage.getItem(KEY) === '0' && cc()?.getAttribute('aria-pressed') === 'false';
+        r.buttonTurnsOff = localStorage.getItem(KEY) === '0' && cc()?.getAttribute('aria-checked') === 'false';
         press('ArrowUp');
         await until(() => src() && !/&captions/.test(src()));
         r.offAsksNot = !/&captions/.test(src());
@@ -5738,8 +5805,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
       }
 
       if (mode === 'historydetails') {
-        // The details line under the history preview is off until asked for,
-        // I or the details button turns it on, and the choice outlives the
+        // The more-info line under the history preview is off until asked for,
+        // I or its switch turns it on, and the choice outlives the
         // overlay. Not C and not CC: those are the closed captions (historycaptions).
         const O = '.decklight-history', KEY = 'decklight-history-details';
         const caption = () => document.querySelector(`${O} .tp-caption`);
@@ -5752,15 +5819,15 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.opens = !!document.querySelector(O);
         r.hiddenByDefault = !!caption() && !shown();
         r.stillWritten = /aaaaaaa/.test(caption()?.textContent ?? '');
-        r.buttonSaysOff = cc()?.getAttribute('aria-pressed') === 'false';
-        r.hintNamesKey = /I\sdetails/.test(document.querySelector(`${O} .tp-filter`)?.textContent ?? '');
-        r.buttonSaysDetails = cc()?.textContent === 'details';
+        r.buttonSaysOff = cc()?.getAttribute('aria-checked') === 'false';
+        r.hintNamesKey = cc()?.querySelector('kbd')?.textContent === 'I';
+        r.buttonSaysDetails = /^more info/.test(cc()?.textContent ?? '');
         press('c');
         r.cIsNotIt = !shown() && !!document.querySelector(O);   // C means closed captions, which this is not
         press('c');                           // …and back off, so the rest of the mode is about details
         press('i');
         r.keyShows = shown();
-        r.buttonSaysOn = cc()?.getAttribute('aria-pressed') === 'true';
+        r.buttonSaysOn = cc()?.getAttribute('aria-checked') === 'true';
         r.keyStaysInOverlay = !!document.querySelector(O);
         press('i');
         r.keyHides = !shown();
@@ -5770,7 +5837,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.escapeCloses = escapeUntilClosed(O);
         press('h');
         await settle();
-        r.reopensShown = shown() && cc()?.getAttribute('aria-pressed') === 'true';
+        r.reopensShown = shown() && cc()?.getAttribute('aria-checked') === 'true';
         cc()?.click();
         r.buttonHides = !shown();
         escapeUntilClosed(O);
