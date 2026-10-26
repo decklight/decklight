@@ -304,7 +304,7 @@ Commands:
            you open uses them
            EXAMPLE: decklight setup voice   (which engine, what it needs, one test sentence)
            EXAMPLE: decklight setup face --portrait me=me.jpg --wav2lip-dir ~/Wav2Lip --wav2lip-ckpt …
-  video    render the deck to ONE narrated mp4 — a still per slide, held for its narration audio
+  video    render the deck to ONE narrated mp4 — each slide held for its narration audio, moving where it moves
            EXAMPLE: decklight video deck.html -o deck.mp4   (add --voiceover to synthesize first)
            EXAMPLE: decklight video deck.html --slides 5-9 --voiceover   (just those slides, voiced)
            EXAMPLE: decklight video deck.html --format webm --quality high --subtitles file

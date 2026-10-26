@@ -115,6 +115,30 @@ try {
 
   console.log(`video-e2e: OK — ${out} is ${duration.toFixed(2)}s of playable mp4`);
 
+  // A slide that MOVES is filmed moving (#914): a dot crossing an SVG under
+  // SMIL is at a different place half a second in — two frames that hash alike
+  // are a still looped, which is what every slide was before — and the segment
+  // is exactly as long as the still would have been.
+  const moverDeck = join(dir, 'mover.html');
+  writeFileSync(moverDeck, `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../dist/decklight.css"></head><body>
+<div class="decklight"><section><svg width="600" height="200"><circle r="30" cy="100" fill="#f43f5e">
+  <animate attributeName="cx" from="30" to="570" dur="1s" repeatCount="indefinite"/></circle></svg></section></div>
+<script src="../dist/decklight.js"></script><script>Decklight.init({ transition: 'none' });</script>
+</body></html>`);
+  const mover = join(tmpdir(), `deck-e2e-${process.pid}-mover.mp4`);
+  try {
+    const moved = execFileSync(process.execPath,
+      [join(root, 'cli', 'decklight.mjs'), 'video', moverDeck, '-o', mover, '--hold', '1', '--fps', '10'],
+      { encoding: 'utf8', cwd: root });
+    assert.match(moved, /slide 01: 1\.0s \(silence\) · moving 1\.0s/, moved);
+    const frameHash = (t) => execFileSync('ffmpeg', ['-v', 'error', '-ss', String(t), '-i', mover, '-frames:v', '1', '-f', 'md5', '-'], { encoding: 'utf8' }).trim();
+    assert.notEqual(frameHash(0.1), frameHash(0.6), 'the dot moved between 0.1s and 0.6s');
+    const len = Number(execFileSync('ffprobe', ffprobeArgs(mover), { encoding: 'utf8' }).trim());
+    assert.ok(Math.abs(len - 1) < 0.1, `a moving slide holds what a still would (1s), got ${len}s`);
+    console.log('video-e2e: OK — an SMIL slide is filmed moving, at its hold');
+  } finally { rmSync(mover, { force: true }); }
+
   // Formats and subtitles, with ffprobe as the judge. Slide two gets a voice —
   // a generated tone and the script beside it, which is all a voiceover folder
   // is to this command — and the deck renders as a WebM with its subtitles as a

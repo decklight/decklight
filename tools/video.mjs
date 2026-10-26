@@ -8,8 +8,8 @@
 //                   [--narration <dir>] [--size 1280x720] [--fps 30] [--hold 5]
 //                   [--build-hold <s>] [--theme <name> | --gen <b64url>] [--slides a-b] [--voiceover]
 //
-// A still per FRAME — a narrated slide is one still, fully built, held for its
-// audio; a silent slide builds as it goes, one still per step — muxed with the
+// A picture per FRAME — a narrated slide is one frame, fully built, held for its
+// audio; a silent slide builds as it goes, one frame per step — muxed with the
 // audio into one mp4, so a deck becomes a watchable, shareable video in one
 // command. Every frame of a silent slide holds --hold, builds included, so a
 // build lands at the pace the deck moves at; --build-hold paces the build-up
@@ -19,26 +19,39 @@
 // section). Silent slides still carry a silent audio segment (anullsrc) so the
 // concatenated audio track stays continuous.
 //
-// Capture is the tools/shot.mjs mechanism: one one-shot headless Chrome per
-// frame against the deck served over http://127.0.0.1 at #/n/999 (an oversized
-// step clamps to the last build, so every slide renders fully built). The deck
+// A frame is a still unless the slide moves. Capture of a still is the
+// tools/shot.mjs mechanism: one one-shot headless Chrome per frame against the
+// deck served over http://127.0.0.1 at #/n/999 (an oversized step clamps to
+// the last build, so every slide renders fully built). The deck
 // is served under the `--no-trust` CSP, NOT opened over file:// with
 // --allow-file-access-from-files (#229): that flag let a deck's own JS read any
 // local file and exfiltrate it, and video renders decks you may not have
-// vetted. No puppeteer, no CDP, no new deps — which is also the honest limit:
-// frames are stills, so the character overlay appears but frozen and a build
-// CUTS rather than animating (animated capture needs a CDP screencast — a
-// Node ≥22 follow-up). How far each slide builds is asked of the deck itself,
-// in one extra load, because the grouping is the runtime's and a second counter
-// written here would be a copy that drifts.
+// vetted. No puppeteer, no new deps.
+//
+// A slide that MOVES (an SVG <animate*>, a CSS animation, a build that
+// transitions in) is captured as a frame sequence at --fps instead (#914):
+// tools/cdp.mjs holds one page open over Node ≥22's own WebSocket, pauses every
+// animation, and sets the clock by hand, tick by tick — so the frames are
+// exactly 1/fps apart and a loop starts from its beginning when the slide
+// appears, not mid-cycle from page load. Chrome's screencast would give
+// whatever rate it paints at; a hand-set clock gives the rate asked for, the
+// same every run. A build's own transition plays in the first MOTION_WINDOW_S
+// of its frame (the rest is its last picture held), so audio timing never
+// moves: the segment lasts exactly as long as the still would have. Below
+// Node 22 a moving slide renders as a still, said once. Animation the page
+// drives from script (the character overlay, a terminal typing) is not on that
+// clock and stays still, and a cut between slides stays a cut. How far each slide builds, and whether it moves, is asked of the
+// deck itself in one extra load, because the grouping is the runtime's and a
+// second counter written here would be a copy that drifts.
 
 import { execFile, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { chromeBin, chromeArgs } from './chrome.mjs';
+import { openPage } from './cdp.mjs';
 import { argReader, isMain } from './args.mjs';
 import { renderThemeParams } from './render-theme.mjs';
 import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
@@ -97,9 +110,13 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first —
                        over the --slides range only, when one is given
 
-Every slide BUILDS, one frame per step. A narrated slide takes its timing from
-its own audio: [click] in the speaker notes splits the narration, and segment k
-is spoken over build step k — the same rule the live player follows. Without
+Every slide BUILDS, one frame per step, and each build fades or slides in as it
+does in the deck. A slide that animates (an SVG <animate>, a looping CSS
+animation) plays at --fps for its whole hold, from the start of its loop; a
+slide with no motion stays a cheap still. Moving capture needs Node 22+.
+A narrated slide takes its timing from its own audio: [click] in the speaker
+notes splits the narration, and segment k is spoken over build step k — the
+same rule the live player follows. Without
 markers it holds fully built for the audio's real duration. A silent slide holds
 --hold seconds, --build-hold per step. Either way the audio track is continuous
 and the finished slide gets a ${TAIL_SECONDS}s breath before the cut — plus
@@ -275,6 +292,9 @@ export function extractPauses(html) {
  */
 export const LAST_STEP = 999;
 
+/** A build's own transition plays in this long; the rest of its frame is its last picture, held. */
+export const MOTION_WINDOW_S = 1;
+
 const round = (s) => Math.round(s * 1000) / 1000;
 
 /**
@@ -396,7 +416,7 @@ const VP9 = { draft: { crf: '40', deadline: 'realtime', cpu: '8' }, standard: { 
 const AUDIO_KBPS = { draft: '96k', standard: '128k', high: '192k' };
 const H264 = {
   faststart: true, subtitleCodec: 'mov_text', subtitleExt: 'srt', sampleRate: 44100,
-  video: (q) => ['-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p', '-preset', X264[q].preset, '-crf', X264[q].crf],
+  video: (q, moving = false) => ['-c:v', 'libx264', ...(moving ? [] : ['-tune', 'stillimage']), '-pix_fmt', 'yuv420p', '-preset', X264[q].preset, '-crf', X264[q].crf],
   audio: (q) => ['-c:a', 'aac', '-b:a', AUDIO_KBPS[q], '-ar', '44100', '-ac', '2'],
 };
 export const ENCODINGS = {
@@ -412,21 +432,28 @@ export const ENCODINGS = {
 
 /**
  * ffmpeg argv for one slide's segment: the still looped at --fps under its
- * audio. Narrated slides pad the audio with `pad` — the tail, plus whatever
+ * audio, or a moving frame's sequence (`frames`) with its last picture held. Narrated slides pad the audio with `pad` — the tail, plus whatever
  * beat the slide asked for (`data-narration-pause`) — and stop there; silent
  * slides synthesize the same stereo/44.1k silence (anullsrc), so every segment
  * carries an audio stream and the concat-demuxer's `-c copy` audio track never
  * goes discontinuous. -t bounds both the infinite loop and the infinite
  * anullsrc (-shortest can't end a segment whose streams are both endless).
  */
-export function segmentArgs({ frame, audio, duration, fps, out, pad = TAIL_SECONDS, format = 'mp4', quality = 'standard' }) {
+export function segmentArgs({ frame, frames = null, audio, duration, fps, out, pad = TAIL_SECONDS, format = 'mp4', quality = 'standard' }) {
   const enc = ENCODINGS[format];
+  // A moving segment reads a numbered sequence (`frames: { pattern, count }`)
+  // and holds its last picture for whatever the sequence does not cover, so
+  // the segment is as long as the still would have been.
+  const rest = frames ? Math.max(0, duration - frames.count / fps) : 0;
   return [
-    '-y', '-loop', '1', '-framerate', String(fps), '-i', frame,
+    '-y', ...(frames
+      ? ['-framerate', String(fps), '-i', frames.pattern]
+      : ['-loop', '1', '-framerate', String(fps), '-i', frame]),
     ...(audio
       ? ['-i', audio, '-af', `apad=pad_dur=${pad}`]
       : ['-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=${enc.sampleRate}`]),
-    ...enc.video(quality), ...enc.audio(quality),
+    ...(rest > 0 ? ['-vf', `tpad=stop_mode=clone:stop_duration=${rest.toFixed(3)}`] : []),
+    ...enc.video(quality, !!frames), ...enc.audio(quality),
     '-t', Number(duration).toFixed(3), ...(enc.faststart ? ['-movflags', '+faststart'] : []), out,
   ];
 }
@@ -709,13 +736,29 @@ const have = (bin) => {
  */
 const STEP_PROBE = `<script>
 (function () {
+  // 0 still · 1 only its builds move · 2 it animates (SMIL, or a CSS animation
+  // that loops or outlasts a build's window). The slide's own entry animation
+  // is on the section itself and does not count: a cut between slides stays a cut.
+  function motion(d, i) {
+    var sec = d._sections[i - 1];
+    var inside = function (a) { var t = a.effect && a.effect.target; return t && t !== sec && sec.contains(t); };
+    var long = function (a) { return !(a instanceof CSSTransition) && a.effect.getComputedTiming().endTime > ${MOTION_WINDOW_S * 1000}; };
+    if (sec.querySelector('animate, animateMotion, animateTransform, set') || document.getAnimations().filter(inside).some(long)) return 2;
+    d.goto(i, 0);
+    document.getAnimations().forEach(function (a) { try { a.finish(); } catch (e) {} });
+    d.goto(i, 1);
+    return d.state.step > 0 && document.getAnimations().some(inside) ? 1 : 0;
+  }
   function report() {
-    var d = window.__decklightProbe, out = [];
+    var d = window.__decklightProbe, out = [], moves = [];
     try {
       for (var i = 1; i <= d.state.totalSlides; i++) { d.goto(i, ${LAST_STEP}); out.push(d.state.step); }
     } catch (e) { out = ['err', String(e && e.message)]; }
+    try {
+      for (var j = 1; j <= d.state.totalSlides; j++) { d.goto(j, ${LAST_STEP}); moves.push(motion(d, j)); }
+    } catch (e) { moves = []; }
     var pre = document.createElement('pre');
-    pre.textContent = 'DECKLIGHT-BUILD-STEPS ' + JSON.stringify(out);
+    pre.textContent = 'DECKLIGHT-BUILD-STEPS ' + JSON.stringify(out) + '\\nDECKLIGHT-MOTION ' + JSON.stringify(moves);
     document.body.appendChild(pre);
   }
   if (document.readyState === 'complete') setTimeout(report, 30);
@@ -743,6 +786,89 @@ export function parseBuildSteps(dom, slides) {
   try { counts = JSON.parse(m[1]); } catch { return null; }
   if (!Array.isArray(counts) || counts.some((c) => !Number.isInteger(c) || c < 0)) return null;
   return counts.length === slides ? counts : null;
+}
+
+/**
+ * Parse the probe's per-slide motion out of a dumped DOM: 0 still, 1 only its
+ * builds move, 2 it animates. Null when the deck did not report — every slide
+ * then keeps the still path it had before animated capture.
+ */
+export function parseMotion(dom, slides) {
+  const m = /DECKLIGHT-MOTION (\[[^\]]*\])/.exec(dom);
+  if (!m) return null;
+  let kinds;
+  try { kinds = JSON.parse(m[1]); } catch { return null; }
+  if (!Array.isArray(kinds) || kinds.some((k) => ![0, 1, 2].includes(k))) return null;
+  return kinds.length === slides ? kinds : null;
+}
+
+/**
+ * How many frames of a plan entry are captured moving (0 ⇒ the cheap still).
+ * An animating slide (2) moves for the whole hold; a slide that only builds (1)
+ * moves just in the first MOTION_WINDOW_S of a frame that a build led into —
+ * `entered` — and every other frame of it is a still.
+ */
+export function motionFrames(kind, { duration, fps, entered }) {
+  if (kind === 2) return Math.ceil(duration * fps);
+  if (kind === 1 && entered) return Math.min(Math.ceil(duration * fps), Math.ceil(MOTION_WINDOW_S * fps));
+  return 0;
+}
+
+/**
+ * The motion of every plan entry: how many frames to capture moving (`count`,
+ * 0 ⇒ a still), the step the page shows first when a build leads into it
+ * (`from`), and how long the slide has been on screen when it starts
+ * (`offset`). `kinds` is parseMotion's answer, or null for an all-still render.
+ */
+export function motionPlan(plan, kinds, fps) {
+  let offset = 0;
+  return plan.map((p, i) => {
+    const prev = plan[i - 1];
+    const same = prev?.slide === p.slide;
+    offset = same ? offset + prev.duration : 0;
+    const from = same ? prev.step : null;
+    return { count: motionFrames(kinds?.[p.slide - 1] ?? 0, { duration: p.duration, fps, entered: same }), from, offset: round(offset) };
+  });
+}
+
+/**
+ * Photograph a moving frame: one page, every animation paused, the clock set by
+ * hand to 0, 1/fps, 2/fps… — so frames are exactly a tick apart whatever the
+ * machine's speed, and a loop starts from its beginning. SMIL has its own clock
+ * (`setCurrentTime` on the svg); CSS animations and transitions share the
+ * document's (`getAnimations`). `from` is the build step shown first: the page
+ * then moves to `to`, and that transition is what the frames show — from its
+ * own start, while whatever was already moving carries on from `offset`, the
+ * seconds the slide has been on screen, so a loop does not restart at a build.
+ * A slide's own entry animation (on the section) is finished, never played: a
+ * still cuts between slides, and so does this.
+ */
+export async function captureMotion(page, { url, slide, from = null, to, offset = 0, count, fps, frameAt }) {
+  // about:blank first: a URL that differs only in its hash is a same-document
+  // navigation, which never fires load — and every capture wants a fresh page
+  await page.navigate('about:blank');
+  await page.navigate(`${url}#/${slide}/${from ?? to}`);
+  await page.evaluate('(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => new Promise((r) => setTimeout(r, 400)))');
+  await page.evaluate(`window.__dlBefore = new Set(document.getAnimations()); window.__dlSeek = (t, offset) => {
+    const own = (el) => el && el.tagName === 'SECTION' && !el.parentElement.closest('section');
+    for (const s of document.querySelectorAll('svg')) { try { s.pauseAnimations(); s.setCurrentTime(t + offset); } catch {} }
+    for (const a of document.getAnimations()) {
+      try {
+        if (own(a.effect && a.effect.target)) { a.finish(); continue; }
+        a.pause();
+        a.currentTime = (window.__dlBefore.has(a) ? t + offset : t) * 1000;
+      } catch {}
+    }
+  }`);
+  // The build steps through the deck itself, the way a presenter's click does:
+  // a hash change is a jump, and a jump applies its builds without animating.
+  if (from != null) {
+    await page.evaluate(`new Promise((r) => { document.querySelector('.decklight').__decklight.goto(${slide}, ${to}); requestAnimationFrame(() => setTimeout(r, 0)); })`);
+  }
+  for (let i = 0; i < count; i++) {
+    await page.evaluate(`window.__dlSeek(${i / fps}, ${offset})`);
+    await frameAt(i, await page.screenshot());
+  }
 }
 
 export async function videoMain(argv, { exec: execRaw = run, log = console.log } = {}) {
@@ -910,15 +1036,18 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       // command did before builds had frames of their own.
       probing = true;
       let steps = null;
+      let kinds = null;
       try {
         const dom = await exec(chrome, chromeArgs(
           '--hide-scrollbars', `--window-size=${w},${h}`,
           '--virtual-time-budget=2500', '--dump-dom', `${server.origin}${deckPath}${renderQuery}`,
         ), { maxBuffer: 64 * 1024 * 1024 });
         steps = parseBuildSteps(dom.stdout, holds.length);
+        kinds = parseMotion(dom.stdout, holds.length);
       } catch { /* fall through to one frame per slide */ }
       probing = false;
       if (!steps) console.warn('  builds: the deck did not report its build steps — one still per slide');
+      else if (!kinds) console.warn('  motion: the deck did not report which slides move — every frame a still');
 
       plan = planTimeline(narration?.slides ?? null, durations, holds, range,
         { steps, buildHold, pauses, marks: pauseMarks(html, steps), onWarn: (w) => console.warn(`  ${w}`) });
@@ -929,31 +1058,60 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
         + (narration ? ` (${narration.dir})` : ' (silent)'));
 
       const segments = [];
-      let f = 0;
-      for (const p of plan) {
-        const nn = String(p.slide).padStart(2, '0');
-        const id = `${nn}-${String(f++).padStart(3, '0')}`;
-        const frame = join(work, `frame-${id}.png`);
-        // one one-shot Chrome per frame; LAST_STEP clamps to the last build.
-        // `?capture` says it is a render: every frame is a fresh load, and
-        // without it each one greeted the viewer with the voice-over hint (#548)
-        await exec(chrome, chromeArgs(
-          '--hide-scrollbars',
-          '--autoplay-policy=no-user-gesture-required',
-          `--window-size=${w},${h}`,
-          '--virtual-time-budget=1500',
-          `--screenshot=${frame}`,
-          `${server.origin}${deckPath}${renderQuery}#/${p.slide}/${p.step}`,
-        ));
-        if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
-        const seg = join(work, `seg-${id}.${ENCODINGS[format].ext}`);
-        await exec('ffmpeg', segmentArgs({
-          frame, duration: p.duration, pad: p.pad, fps, out: seg, format, quality,
-          audio: p.audio ? join(narration.dir, p.audio) : null,
-        }));
-        segments.push(seg);
-        const where = p.step === LAST_STEP ? '' : ` · build ${p.step}`;
-        log(`  slide ${nn}${where}: ${p.duration.toFixed(1)}s ${p.audio ?? '(silence)'}`);
+      const motion = motionPlan(plan, kinds, fps);
+      let page = null;   // the one CDP page every moving frame shares, opened on first need
+      let stillsOnly = false;
+      try {
+        for (const [f, p] of plan.entries()) {
+          const nn = String(p.slide).padStart(2, '0');
+          const id = `${nn}-${String(f).padStart(3, '0')}`;
+          const m = motion[f];
+          let frame = null; let frames = null;
+          // A page that will not open (Node < 22 has no WebSocket) is not an
+          // error: the slide is a still, as every slide was before #914.
+          if (m.count && !page && !stillsOnly) {
+            try { page = await openPage(chrome, { w, h, signal: stopping.signal }); } catch (e) {
+              if (stopping.signal.aborted) throw e;
+              stillsOnly = true;
+              console.warn(`  motion: ${e.message} — moving slides render as stills`);
+            }
+          }
+          if (m.count && page) {
+            const dir = join(work, `frames-${id}`);
+            mkdirSync(dir);
+            await captureMotion(page, {
+              url: `${server.origin}${deckPath}${renderQuery}`, slide: p.slide, from: m.from, to: p.step,
+              offset: m.offset, count: m.count, fps,
+              frameAt: (i, png) => writeFileSync(join(dir, `${String(i).padStart(5, '0')}.png`), png),
+            });
+            frames = { pattern: join(dir, '%05d.png'), count: m.count };
+          } else {
+            frame = join(work, `frame-${id}.png`);
+            // one one-shot Chrome per still; LAST_STEP clamps to the last build.
+            // `?capture` says it is a render: every frame is a fresh load, and
+            // without it each one greeted the viewer with the voice-over hint (#548)
+            await exec(chrome, chromeArgs(
+              '--hide-scrollbars',
+              '--autoplay-policy=no-user-gesture-required',
+              `--window-size=${w},${h}`,
+              '--virtual-time-budget=1500',
+              `--screenshot=${frame}`,
+              `${server.origin}${deckPath}${renderQuery}#/${p.slide}/${p.step}`,
+            ));
+            if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
+          }
+          const seg = join(work, `seg-${id}.${ENCODINGS[format].ext}`);
+          await exec('ffmpeg', segmentArgs({
+            frame, frames, duration: p.duration, pad: p.pad, fps, out: seg, format, quality,
+            audio: p.audio ? join(narration.dir, p.audio) : null,
+          }));
+          segments.push(seg);
+          const where = p.step === LAST_STEP ? '' : ` · build ${p.step}`;
+          const moving = frames ? ` · moving ${(m.count / fps).toFixed(1)}s` : '';
+          log(`  slide ${nn}${where}: ${p.duration.toFixed(1)}s ${p.audio ?? '(silence)'}${moving}`);
+        }
+      } finally {
+        await page?.close();
       }
 
       // Subtitles are the words the audio speaks: the script voiceover wrote

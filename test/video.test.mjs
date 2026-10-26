@@ -20,7 +20,7 @@ import {
   TAIL_SECONDS, LAST_STEP, SLIDE_PAUSE_DEFAULT, parseSize, parseSlideRange, extractHolds, extractPauses, planTimeline,
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, folderNarration, parseBuildSteps, voiceoverArgs,
   videoOut, videoProgress, voiceoverProgress, ENCODINGS, videoOptions, subtitleCues, toSrt, toVtt, subtitlesOut,
-  pauseMarks,
+  pauseMarks, parseMotion, motionFrames, motionPlan, MOTION_WINDOW_S,
 } from '../tools/video.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
@@ -465,6 +465,53 @@ test('the build-step probe is read strictly, or not at all', () => {
   assert.equal(parseBuildSteps('DECKLIGHT-BUILD-STEPS [0,3]', 3), null, 'a count for the wrong slide count');
   assert.equal(parseBuildSteps('DECKLIGHT-BUILD-STEPS ["err","boom"]', 2), null, 'the probe reporting a failure');
   assert.equal(parseBuildSteps('DECKLIGHT-BUILD-STEPS [1,-2]', 2), null, 'a negative count');
+});
+
+// ── slides that move are filmed moving (#914) ──────────────────────────────
+
+test('parseMotion: one kind per slide from the probe, and null for anything else', () => {
+  const dom = 'DECKLIGHT-BUILD-STEPS [0,2,0]\nDECKLIGHT-MOTION [0,1,2]';
+  assert.deepEqual(parseMotion(dom, 3), [0, 1, 2]);
+  assert.equal(parseMotion('DECKLIGHT-BUILD-STEPS [0]', 1), null, 'a deck from before the probe asked');
+  assert.equal(parseMotion('DECKLIGHT-MOTION []', 2), null, 'the probe failing part-way reports nothing');
+  assert.equal(parseMotion('DECKLIGHT-MOTION [0,3]', 2), null, 'a kind it does not know');
+});
+
+test('motionFrames: an animating slide moves its whole hold, a build only its first window', () => {
+  assert.equal(motionFrames(0, { duration: 5, fps: 30, entered: true }), 0, 'a still stays a still');
+  assert.equal(motionFrames(2, { duration: 2.5, fps: 30, entered: false }), 75);
+  assert.equal(motionFrames(1, { duration: 5, fps: 30, entered: false }), 0, 'the bare slide has no build to play');
+  assert.equal(motionFrames(1, { duration: 5, fps: 30, entered: true }), MOTION_WINDOW_S * 30);
+  assert.equal(motionFrames(1, { duration: 0.5, fps: 30, entered: true }), 15, 'never longer than the frame itself');
+});
+
+test('motionPlan: a build plays from the step before it, and a loop keeps the slide\'s clock', () => {
+  const plan = [
+    { slide: 1, step: LAST_STEP, duration: 3 },
+    { slide: 2, step: 0, duration: 2 },
+    { slide: 2, step: 1, duration: 1.5 },
+    { slide: 2, step: LAST_STEP, duration: 4 },
+    { slide: 3, step: 0, duration: 2 },
+    { slide: 3, step: LAST_STEP, duration: 2 },
+  ];
+  const m = motionPlan(plan, [0, 2, 1], 10);
+  assert.deepEqual(m.map((x) => x.count), [0, 20, 15, 40, 0, 10]);
+  assert.deepEqual(m.map((x) => x.from), [null, null, 0, 1, null, 0]);
+  assert.deepEqual(m.map((x) => x.offset), [0, 0, 2, 3.5, 0, 2], 'seconds the slide has been on screen');
+  assert.deepEqual(motionPlan(plan, null, 10).map((x) => x.count), [0, 0, 0, 0, 0, 0], 'no answer ⇒ every frame a still');
+});
+
+test('segmentArgs: a moving segment reads its frames and holds the last one, and is not tuned for stills', () => {
+  const still = segmentArgs({ frame: 'f.png', audio: null, duration: 3, fps: 30, out: 'o.mp4' });
+  assert.ok(still.includes('stillimage') && still.includes('-loop'));
+  const moving = segmentArgs({ frames: { pattern: 'd/%05d.png', count: 30 }, audio: null, duration: 3, fps: 30, out: 'o.mp4' });
+  assert.ok(!moving.includes('stillimage') && !moving.includes('-loop'));
+  assert.equal(moving[moving.indexOf('-i') + 1], 'd/%05d.png');
+  assert.equal(moving[moving.indexOf('-vf') + 1], 'tpad=stop_mode=clone:stop_duration=2.000', 'the 2s the sequence does not cover');
+  assert.ok(moving.indexOf('-vf') > moving.lastIndexOf('-i'), 'a filter is an output option, after every input');
+  assert.equal(moving[moving.indexOf('-t') + 1], '3.000', 'exactly as long as the still would have been');
+  const whole = segmentArgs({ frames: { pattern: 'd/%05d.png', count: 90 }, audio: null, duration: 3, fps: 30, out: 'o.mp4' });
+  assert.ok(!whole.includes('-vf'), 'a sequence that covers the hold needs no padding');
 });
 
 // ── narrated slides build too, when their notes say where (#310) ───────────
