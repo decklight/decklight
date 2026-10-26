@@ -147,3 +147,28 @@ export function versionLine(version, info) {
   if (info.commits === 0 && !info.dirty) return `decklight ${version}`;
   return `decklight ${version}+${info.commits}.g${info.commit}${info.dirty ? '.dirty' : ''}`;
 }
+
+/**
+ * Calls `fn(code, signal)` once a child has exited AND its output has been
+ * read to the end — or `graceMs` after the exit, whichever comes first.
+ *
+ * WHY NOT `exit`. Node fires 'exit' when the process is gone, which can be
+ * before the last of what it wrote has come through its pipes: an agent that
+ * prints its result line and quits at once was finalised with that line still
+ * in flight, and the panel showed an empty report (a CI flake, then a real
+ * one on a loaded machine). WHY NOT `close`, which waits for the pipes: a
+ * child that leaves a grandchild holding its stdout (an agent's background
+ * shell, an MCP server) never closes them, and the run would sit "busy" until
+ * its ten-minute timeout. So: the exit, then the pipes, with a bound.
+ */
+export function afterOutput(child, fn, graceMs = 2000) {
+  const ended = (s) => (!s || s.readableEnded || s.destroyed
+    ? Promise.resolve()
+    : new Promise((ok) => { s.once('end', ok); s.once('close', ok); }));
+  const drained = Promise.all([ended(child.stdout), ended(child.stderr)]);
+  child.once('exit', (code, signal) => {
+    let timer;
+    const grace = new Promise((ok) => { timer = setTimeout(ok, graceMs); });
+    Promise.race([drained, grace]).then(() => { clearTimeout(timer); fn(code, signal); });
+  });
+}

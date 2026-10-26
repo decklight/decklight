@@ -92,7 +92,7 @@ const startup = (key, text, human, mark) => {
   else console.log(human);
 };
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
-import { runMain } from './util.mjs';
+import { runMain, afterOutput } from './util.mjs';
 import { PKG, AGENTS_MARKER, skillVersionOf } from './skill-content.mjs';
 import { selfCommand } from './pkg.mjs';
 import { slidesSinceHead } from './commit-split.mjs';
@@ -2394,17 +2394,23 @@ export async function editMain(args, { onListen = null, client } = {}) {
       broadcast('agent', { state: 'activity', agent: cmd.name, text });
       console.log(`  agent: ${text}`);
     };
+    // the stream's last line, if it ended without a newline: read at the end
+    let flushStream = () => {};
     if (cmd.stream === 'claude-json') {
       let buf = '';
+      const read = (line) => {
+        const clue = claudeActivity(line);
+        if (clue?.activity) say(clue.activity);
+        else if (clue?.result != null) resultText = clue.result;
+      };
       child.stdout.on('data', (chunk) => {
         buf += chunk;
         for (let nl = buf.indexOf('\n'); nl !== -1; nl = buf.indexOf('\n')) {
           const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-          const clue = claudeActivity(line);
-          if (clue?.activity) say(clue.activity);
-          else if (clue?.result != null) resultText = clue.result;
+          read(line);
         }
       });
+      flushStream = () => { if (buf.trim()) read(buf); buf = ''; };
       child.stderr.on('data', keep);
     } else {
       child.stdout.on('data', (chunk) => {
@@ -2436,10 +2442,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
       finish({ ok: false, changed: false, error: String(e.message || e) });
       broadcast('agent', { state: 'done', id: ask.id, agent: cmd.name, ok: false, changed: false, error: String(e.message || e) });
     });
-    child.on('exit', (code) => {
+    // after its output, not at its exit: a result line still in the pipe
+    // when the process went was a report lost (see afterOutput)
+    afterOutput(child, (code) => {
       clearTimeout(timeout);
       clearTimeout(hard);
       agentStop = null;
+      flushStream();
       const after = readDeck();
       const filesAfter = snapshotFiles(files);
       const filesChanged = Object.keys(filesBefore).some((p) => filesAfter[p] !== filesBefore[p]);
