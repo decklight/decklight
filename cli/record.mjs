@@ -51,7 +51,7 @@ const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir v
                also start from any beat: ← → pick it before you press Enter
   --takes slide|beat  one take per slide, read straight through, or per beat,
                each counted in and retaken on its own
-               [the recorder card's one take choice: per slide, remembered]
+               [per slide, every visit: the card's choice lasts the visit]
   --countdown N  seconds of count-in before each take, 0 for none (0-9)
                [the recorder card's count-in: 3 s, 1 s or off, remembered]
   --remote     the phone remote too, so recording needs no keyboard: its next

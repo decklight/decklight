@@ -103,6 +103,9 @@ const DECK = `<!doctype html>
   try {
     localStorage.setItem('decklight-onboarded', '1');
     localStorage.setItem('decklight-onboarded-tour', '1');   // nor the editing tour: it takes the first key
+    // ?storedtakes: what an older recorder left behind after a "per beat"
+    // click, which must no longer outlive the visit
+    if (params.has('storedtakes')) localStorage.setItem('decklight-mic', JSON.stringify({ takes: params.get('storedtakes') }));
   } catch (e) { /* private mode */ }
 </script>
 <script src="decklight.js"></script>
@@ -121,7 +124,7 @@ const DECK = `<!doctype html>
   const status = () => document.querySelector('.decklight-mic .rec-status');
   const phase = () => status()?.dataset.phase ?? null;
   // ?keys=R,L,…: what to answer each beat the deck puts up (R → or the
-  // phone's next, L ←, B ⌫, X E: edit the words to ?words=); past the end of the list, R
+  // phone's next, L ←, B ⌫, S ⇧⌫, X E: edit the words to ?words=); past the end of the list, R
   const KEYS = (params.get('keys') || '').split(',').filter(Boolean);
   const press = (key, opts = {}) => document.body.dispatchEvent(
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts }));
@@ -171,8 +174,18 @@ const DECK = `<!doctype html>
       for (let k = 0; k < Number(params.get('from') ?? 0); k++) { press('ArrowRight'); await wait(50); }
       // ?to=N: pull the end of the take N beats in with ⇧← before Enter
       for (let k = 0; k < Number(params.get('to') ?? 0); k++) { press('ArrowLeft', { shiftKey: true }); await wait(50); }
+      // ?pickbeat=K: click beat K (0-based) of the start slide, ⇧ with ?pickshift
+      if (params.has('pickbeat')) {
+        card()?.querySelector('[data-beat="' + params.get('pickbeat') + '"]')
+          ?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: params.has('pickshift') }));
+        await wait(50);
+      }
       r.fromLine = card()?.querySelector('.rec-from')?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
-      r.beatsLine = card()?.querySelector('.rec-beats')?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
+      // the beats this take reads, lit among the start slide's
+      r.beatsLine = [...(card()?.querySelectorAll('.rec-beats .rec-beat.on') ?? [])]
+        .map((b) => b.textContent.replace(/\\s+/g, ' ').trim()).join(' ') || null;
+      r.beatsListed = card()?.querySelectorAll('.rec-beats .rec-beat').length ?? 0;
+      r.howSum = card()?.querySelector('.rec-how-sum')?.textContent ?? null;
       r.folder = (await until(() => card()?.querySelector('.rec-dir'), 5000))?.value ?? null;
       r.clash = !!card()?.querySelector('.rec-warn');
       r.warnText = [...(card()?.querySelectorAll('.rec-warn') ?? [])].map((w) => w.textContent).join(' | ');
@@ -255,6 +268,7 @@ const DECK = `<!doctype html>
           }
           if ((KEYS[i] ?? 'R') === 'L') press('ArrowLeft');
           else if ((KEYS[i] ?? 'R') === 'B') press('Backspace');
+          else if ((KEYS[i] ?? 'R') === 'S') press('Backspace', { shiftKey: true });
           else if (VIA === 'phone') await tap('next');
           else press('ArrowRight');
           const moved = await until(() => status() !== el || done(), 15000);
@@ -264,8 +278,21 @@ const DECK = `<!doctype html>
         r.card = card()?.textContent ?? '';
         r.finished = done();
         // the review: one row per slide recorded, with its length and a play button
-        r.doneRows = [...(card()?.querySelectorAll('.rec-take') ?? [])].map((e) => e.textContent.replace(/\\s+/g, ' ').trim());
-        r.donePlays = card()?.querySelectorAll('.rec-play').length ?? 0;
+        r.doneRows = [...(card()?.querySelectorAll('.rec-take:not(.rec-take-beat)') ?? [])].map((e) => e.textContent.replace(/\\s+/g, ' ').trim());
+        r.donePlays = card()?.querySelectorAll('.rec-take:not(.rec-take-beat) .rec-play').length ?? 0;
+        // …and a slide's beats folded under it, opened, each heard and redone alone
+        card()?.querySelector('[data-beats="1"]')?.click();
+        r.doneBeatRows = [...(card()?.querySelectorAll('.rec-take-beat:not([hidden])') ?? [])]
+          .map((e) => e.textContent.replace(/\\s+/g, ' ').trim());
+        r.doneBeatPlays = card()?.querySelectorAll('.rec-take-beat .rec-play').length ?? 0;
+        // ?redobeat=K: that beat's redo reopens the plan card on it alone
+        if (params.has('redobeat')) {
+          card()?.querySelector('[data-redo="1"][data-redo-beat="' + params.get('redobeat') + '"]')?.click();
+          await until(() => card()?.querySelector('.rec-from'), 5000);
+          r.redoFromLine = card()?.querySelector('.rec-from')?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
+          r.redoBeatsLine = [...(card()?.querySelectorAll('.rec-beats .rec-beat.on') ?? [])]
+            .map((b) => b.textContent.replace(/\\s+/g, ' ').trim()).join(' ') || null;
+        }
       }
       r.audioRan = window.__audioRan !== false;
       r.gum = window.__gum?.audio ?? null;
@@ -380,7 +407,9 @@ async function run(mic, dir, via = 'keys', extra = '') {
 
 // ── run 1: a take, start to finish ─────────────────────────────────────────
 const t0 = Date.now();
-const took = await run('tone', 'takes');
+// …and after it, slide 1's second beat redone from the done card (run 1's
+// last act: the plan card it reopens is what is read)
+const took = await run('tone', 'takes', 'keys', '&redobeat=1');
 const outDir = path.join(tmp, 'takes');
 // the audio; the manifest and the slide-NN.txt scripts beside it are #850's, checked below
 const wavs = (d) => (existsSync(d) ? readdirSync(d).filter((f) => f.endsWith('.wav')).sort() : []);
@@ -452,9 +481,19 @@ check('done', took.finished === true && /takes\//.test(took.card ?? '')
 
 // The done card is a review: a row per slide recorded, its title and length,
 // a play button each (the server serves the file back), and the offer.
-check('review', JSON.stringify(took.doneRows?.map((t) => t.replace(/\d:\d\d/, 'M:SS'))) === JSON.stringify(['1 One M:SS ▶ redo', '2 Two M:SS ▶ redo'])
+check('review', JSON.stringify(took.doneRows?.map((t) => t.replace(/\d:\d\d/, 'M:SS'))) === JSON.stringify(['1 One 3 beats › M:SS ▶ redo', '2 Two M:SS ▶ redo'])
   && took.donePlays === 2 && /Use my voice in this deck/.test(took.card ?? ''),
 `rows=${JSON.stringify(took.doneRows)} · play buttons=${took.donePlays}`);
+
+// A slide of several beats folds them under its row: opened, each is heard
+// and redone alone, and a beat's redo reopens the plan card on that beat
+// only, every other beat of the slide kept
+check('beat redo', JSON.stringify(took.doneBeatRows?.map((t) => t.replace(/\d:\d\d/, 'M:SS'))) === JSON.stringify(
+  ['1.1 Beat one. M:SS ▶ redo', '1.2 Beat two. M:SS ▶ redo', '1.3 Beat three. M:SS ▶ redo'])
+  && took.doneBeatPlays === 3
+  && /slide 1 · beat 2 of 3/.test(took.redoFromLine ?? '') && /beat 2 of 3 only/.test(took.redoFromLine ?? '')
+  && /beat 1 and beat 3 kept/.test(took.redoFromLine ?? '') && /^2 Beat two\.$/.test(took.redoBeatsLine ?? ''),
+`beats=${JSON.stringify(took.doneBeatRows)} · plays=${took.doneBeatPlays} · redo opened "${took.redoFromLine}" lit "${took.redoBeatsLine}"`);
 
 // ── run 2: the browser says no ─────────────────────────────────────────────
 const blocked = await run('blocked', 'denied');
@@ -596,7 +635,7 @@ const mid = Object.fromEntries(files.map((f) => [f, { b: bytes(f), t: mtime(f) }
 const ranged = await run('tone', 'takes', 'keys', '&from=1&to=1&countdown=0');
 check('to beat', /slide 1 · beat 2 of 3/.test(ranged.fromLine ?? '') && /beat 2 of 3 only/.test(ranged.fromLine ?? '')
   && /beat 1 and beat 3 kept/.test(ranged.fromLine ?? '') && /stops after beat 2/.test(ranged.fromLine ?? '')
-  && /^2 Beat two\./.test(ranged.beatsLine ?? '')
+  && /^2 Beat two\.$/.test(ranged.beatsLine ?? '') && ranged.beatsListed === 3
   && JSON.stringify(ranged.steps) === JSON.stringify(['1.1']) && ranged.finished === true
   && Buffer.compare(mid['slide-01-01.wav'].b, bytes('slide-01-01.wav')) === 0 && mid['slide-01-01.wav'].t === mtime('slide-01-01.wav')
   && Buffer.compare(mid['slide-01-03.wav'].b, bytes('slide-01-03.wav')) === 0 && mid['slide-01-03.wav'].t === mtime('slide-01-03.wav')
@@ -616,6 +655,33 @@ check('per slide', JSON.stringify(rolled.steps) === JSON.stringify(
   && JSON.stringify(rolledFiles) === JSON.stringify(files),
 `read ${rolled.steps.join(' ')} · counted ${rolled.counted.map((c) => c ?? '·').join('')}`
   + ` · wrote ${rolledFiles.join(' ') || '(nothing)'}`);
+
+// ── per slide: ⇧⌫ redoes the beat being read, and only it ─────────────────
+// ⇧⌫ on slide 1's beat two counts that beat in again and the take runs on
+// from it; beat one is never read twice, and the slide's files are the same
+// five, its whole file still the sum of its beats
+const beatAgain = await run('tone', 'again', 'keys', '&keys=R,S,R,R&countdown=1');
+const againDir = path.join(tmp, 'again');
+const againLen = (f) => readFileSync(path.join(againDir, f)).length - 44;
+check('beat again', JSON.stringify(beatAgain.steps) === JSON.stringify(['1.0', '1.1', '1.1', '1.2', '2.0'])
+  && JSON.stringify(beatAgain.counted) === JSON.stringify(['1', null, '1', null, '1'])
+  && beatAgain.finished === true && JSON.stringify(wavs(againDir)) === JSON.stringify(files)
+  && againLen('slide-01.wav') === againLen('slide-01-01.wav') + againLen('slide-01-02.wav') + againLen('slide-01-03.wav'),
+`read ${beatAgain.steps.join(' ')} · counted ${(beatAgain.counted ?? []).map((c) => c ?? '·').join('')} · wrote ${wavs(againDir).join(' ') || '(nothing)'}`);
+
+// ── per slide every visit: a "per beat" an older recorder stored is ignored ──
+const fresh = await run('tone', '', 'keys', '&storedtakes=beat&introonly');
+check('default', /^One take per slide/.test(fresh.howSum ?? ''), `the card says "${fresh.howSum}"`);
+
+// ── the plan card's beats are buttons: a click picks one alone ──────────────
+// the same take the row's ← → ⇧← ⇧→ gave above, by its words; ⇧click runs
+// the pick from the start to the beat clicked
+const clicked = await run('tone', 'takes', 'keys', '&pickbeat=1&introonly');
+const shifted = await run('tone', 'takes', 'keys', '&from=1&pickbeat=2&pickshift&introonly');
+check('click beat', /slide 1 · beat 2 of 3/.test(clicked.fromLine ?? '') && /beat 2 of 3 only/.test(clicked.fromLine ?? '')
+  && /^2 Beat two\.$/.test(clicked.beatsLine ?? '') && clicked.beatsListed === 3
+  && /^2 Beat two\. 3 Beat three\.$/.test(shifted.beatsLine ?? '') && /beat 1 of slide 1 kept/.test(shifted.fromLine ?? ''),
+`click "${clicked.beatsLine}" · ⇧click "${shifted.beatsLine}"`);
 
 // ── #850: the take kept its script, and V says when the notes move on ────────
 const takeManifest = JSON.parse(readFileSync(path.join(outDir, 'manifest.json'), 'utf8'));

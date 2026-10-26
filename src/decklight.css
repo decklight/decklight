@@ -2322,9 +2322,15 @@
 .decklight-mic .rec-from .rec-seg button { opacity: 1; padding: 1px 9px; font-size: 14px; }
 .decklight-mic .rec-from-why { font-size: 12px; opacity: .6; }
 .decklight-mic .rec-to { white-space: nowrap; }
-/* the beats a part-of-a-slide take will read, by their opening words */
-.decklight-mic .rec-beats { display: flex; flex-direction: column; gap: 2px; padding-top: 0; font-size: 12px; opacity: .75; }
-.decklight-mic .rec-beat { display: flex; gap: 8px; }
+/* the start slide's beats by their opening words, the ones this take reads
+   lit; each is a button that picks it alone */
+.decklight-mic .rec-beats { display: flex; flex-direction: column; gap: 2px; padding-top: 0; font-size: 12px; }
+.decklight-mic .rec-beat {
+  display: flex; gap: 8px; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  padding: 2px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; opacity: .5;
+}
+.decklight-mic .rec-beat:hover { opacity: .85; border-color: rgba(255, 255, 255, .15); }
+.decklight-mic .rec-beat.on { opacity: 1; background: color-mix(in srgb, var(--accent, #6af) 12%, transparent); }
 .decklight-mic .rec-beat-n { flex: none; width: 18px; text-align: right; opacity: .6; font-variant-numeric: tabular-nums; }
 
 /* before a take, 3-2-1 in amber; during one, the red dot. The words to read
@@ -2386,6 +2392,11 @@
   font: inherit; font-size: 10px; color: inherit; cursor: pointer;
   border: 1px solid rgba(255, 255, 255, .2); border-radius: 6px; background: transparent;
 }
+/* a slide's beats, folded under its row on the done card */
+.decklight-mic .rec-beats-toggle { flex: none; font: inherit; font-size: 12px; color: inherit; opacity: .7; cursor: pointer; border: 0; background: transparent; padding: 0 2px; white-space: nowrap; }
+.decklight-mic .rec-take-beat { padding-left: 22px; font-size: 12px; background: rgba(255, 255, 255, .025); }
+.decklight-mic .rec-take-beat .rec-slide-n { width: 30px; }
+.decklight-mic .rec-take-beat[hidden] { display: none; }
 .decklight-mic .rec-redo { flex: none; font: inherit; font-size: 12px; color: var(--accent, #6af); cursor: pointer; border: 0; background: transparent; padding: 0 2px; }
 .decklight-mic .rec-use-box { margin: 12px 12px 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--accent, #6af) 35%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--accent, #6af) 6%, transparent); }
 .decklight-mic .rec-use-box .rec-use { margin: 0; display: inline-flex; border-radius: 8px; padding: 8px 16px; font-weight: 600; color: #16181d; background: var(--accent, #6af); }
