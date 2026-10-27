@@ -14,7 +14,7 @@ import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 import {
   applyHunks, commitPlan, headTags, normalizePlan, parsePlan, parseZeroHunks, planPrompt, planWorking,
-  pushBlocked, pushBranch, pushError, slideChanges, slideDiff, tagHead, whereLabel, workingUnits,
+  pushBlocked, pushBranch, pushError, slideChanges, slideDiff, slideRenumber, tagHead, whereLabel, workingUnits,
 } from '../cli/commit-split.mjs';
 import { remoteState } from '../cli/git.mjs';
 
@@ -100,6 +100,19 @@ test('the diff names each slide it touched, in reading order, numbered in the ve
   assert.deepEqual(slideDiff('', plain(['one', 'two'])), {
     changed: 0, added: 2, removed: 0, stops: [{ kind: 'added', slide: 1 }, { kind: 'added', slide: 2 }],
   });
+});
+
+test('slideRenumber: where each old slide is after an edit that rewrote the deck at once (#920)', () => {
+  const titled = (slides) => `<div class="decklight">\n${slides.map(([h, p]) => `<section>\n<h2>${h}</h2>\n<p>${p}</p>\n<p>more</p>\n</section>\n`).join('')}</div>\n`;
+  const d = titled([['A', 'a'], ['B', 'b'], ['C', 'c'], ['D', 'd'], ['E', 'e']]);
+  assert.deepEqual(slideRenumber(d, d), []);
+  // slide 2 split: edited, and a new slide after it
+  assert.deepEqual(slideRenumber(d, titled([['A', 'a'], ['B', 'b2'], ['X', 'x'], ['C', 'c'], ['D', 'd'], ['E', 'e']])), [[3, 4], [4, 5], [5, 6]]);
+  assert.deepEqual(slideRenumber(d, titled([['A', 'a'], ['C', 'c'], ['D', 'd'], ['E', 'e']])), [[2, null], [3, 2], [4, 3], [5, 4]]);
+  assert.deepEqual(slideRenumber(d, titled([['A', 'a'], ['C', 'c'], ['B', 'b'], ['D', 'd'], ['E', 'e']])), [[2, 3], [3, 2]], 'a swap');
+  assert.deepEqual(slideRenumber(d, titled([['B', 'b'], ['C', 'c'], ['D', 'd'], ['E', 'e'], ['A', 'a']])), [[1, 5], [2, 1], [3, 2], [4, 3], [5, 4]], 'a move across the deck');
+  // rewritten past recognition, heading and all: still that slide, its take kept on it
+  assert.deepEqual(slideRenumber(d, titled([['A', 'a'], ['Z', 'zz'], ['C', 'c'], ['D', 'd'], ['E', 'e']])), []);
 });
 
 // ── the plan ────────────────────────────────────────────────────────────────

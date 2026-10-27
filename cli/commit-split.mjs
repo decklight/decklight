@@ -425,6 +425,49 @@ export function slideOps(before, after) {
 }
 
 /**
+ * Where each slide of `before` is in `after`, from the alignment of the
+ * sections (slideOps): `[[was, now | null]]` for every old slide whose number
+ * changed, or that went (null). What the voice folders follow after an edit
+ * that rewrote the deck at once — an agent's (#920). Read off the deck, never
+ * the audio, so it holds for a stale recording and a slide with no notes.
+ *
+ * A slide unchanged or edited keeps its alignment. One removed here and added,
+ * word for word, there was moved. What is left of one gap — the old and new
+ * slides between the same two unchanged ones — pairs up in order: a slide
+ * rewritten past recognition is still that slide, its recording kept on it
+ * (and flagged stale by its words), not thrown away. The rest went. Pure.
+ */
+export function slideRenumber(before, after) {
+  const a = slideSources(before);
+  const b = slideSources(after);
+  const ops = slideOps(before, after);
+  const now = new Map();
+  const taken = new Set();
+  const gaps = [[]];
+  for (const o of ops) {
+    if (o.kind === 'same') { now.set(o.was, o.slide); gaps.push([]); continue; }
+    gaps.at(-1).push(o);
+    if (o.kind === 'changed') now.set(o.was, o.slide);
+  }
+  const added = ops.filter((o) => o.kind === 'added');
+  for (const r of ops.filter((o) => o.kind === 'removed')) {
+    const to = added.find((o) => !taken.has(o.slide) && a[r.was - 1] === b[o.slide - 1]);
+    if (to) { now.set(r.was, to.slide); taken.add(to.slide); }
+  }
+  for (const g of gaps) {
+    const out = g.filter((o) => o.kind === 'removed' && !now.has(o.was));
+    const into = g.filter((o) => o.kind === 'added' && !taken.has(o.slide));
+    out.forEach((r, i) => { if (into[i]) { now.set(r.was, into[i].slide); taken.add(into[i].slide); } });
+  }
+  const pairs = [];
+  for (let k = 1; k <= a.length; k++) {
+    const n = now.get(k) ?? null;
+    if (n !== k) pairs.push([k, n]);
+  }
+  return pairs;
+}
+
+/**
  * The deck's slides against HEAD, `{ changed, added, removed }`; with no HEAD
  * every slide is added. Null when the deck cannot be read.
  */

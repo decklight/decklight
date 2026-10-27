@@ -81,3 +81,14 @@ test('an edit that leaves the recordings alone says nothing', () => {
   const empty = recordingImpact(before, deck('{}'), { dirsOf: configuredTrackDirs, recordedSlides: () => [] });
   assert.equal(hasImpact(empty), false);
 });
+
+test('a track whose files followed the edit (#920) is read where each take went: no reshape, only the slide whose notes changed', () => {
+  const before = deck(CFG_ME, 'one and two', 'three', 'four');
+  const after = deck(CFG_ME, 'one', 'two', 'three', 'four');
+  const recordedSlides = (dir) => (dir === 'voices/me' ? [1, 2, 3] : []);
+  const plain = recordingImpact(before, after, { dirsOf: configuredTrackDirs, recordedSlides });
+  assert.equal(plain.reshaped.length, 1, 'without it, the count change reads as a shift');
+  const renumber = new Map([['voices/me', (k) => (k >= 2 ? k + 1 : k)]]);
+  const followed = recordingImpact(before, after, { dirsOf: configuredTrackDirs, recordedSlides, renumber });
+  assert.deepEqual(followed, { orphaned: [], stale: [{ dir: 'voices/me', slides: [1] }], reshaped: [] });
+});

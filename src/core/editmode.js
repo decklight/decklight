@@ -797,9 +797,13 @@ export function createEditMode({
                 // A recording the edit orphaned or staled — held longer and on
                 // its own line, because it is the one thing here you might act
                 // on and it is easy to miss behind the ordinary "edited" toast.
-                if (typeof d.recordingWarning === 'string') {
-                  toast(d.recordingWarning, 9000);
-                  debugLog('agent', d.recordingWarning);
+                // The voice folders that followed the slides it added, removed
+                // or moved (#920), or could not, are said with it.
+                const voiceLines = [d.voicesStuck, d.voicesFollowed && `🎙 ${d.voicesFollowed}`, d.recordingWarning]
+                  .filter((l) => typeof l === 'string' && l);
+                if (voiceLines.length) {
+                  toast(voiceLines.join(' · '), 9000);
+                  for (const l of voiceLines) debugLog('agent', l);
                 }
               }
               paintAsks?.();

@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import path from 'node:path';
 import {
   slideOpRenumber, voiceFolders, planFolder, applyPlans, planMoves,
-  realignMoves, realignSaid, movesRenumber,
+  realignMoves, realignSaid, movesRenumber, followedSaid,
 } from '../tools/voice-renumber.mjs';
 import { slideBeats, slideTexts, trackDrift } from '../tools/narration-manifest.mjs';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
@@ -255,6 +255,59 @@ test('realignMoves: a hashed track is placed by its hash, a swap is found, and a
   [swapped[1], swapped[2]] = [swapped[2], swapped[1]];
   assert.deepEqual(realignMoves(manifest, deckOf(swapped)).moves, [[2, 3], [3, 2]]);
   assert.equal(realignSaid([[2, 3], [3, 2]]), '2 recordings look out of place, from slide 2');
+});
+
+// ── stale takes across an insert (#920) ────────────────────────────────────
+
+const TALK = [
+  'Welcome to the course on agents.',
+  'An agent reads its tools before acting.',
+  'Planning means choosing the next step.',
+  'Memory keeps what the agent learned.',
+  'Evaluation tells good runs from bad ones.',
+  'Costs grow with every extra call.',
+  'Safety limits what a tool may touch.',
+  'Thanks for watching, see you soon.',
+];
+
+test('realignMoves: a run of stale takes across an insert follows its saved scripts, the takes after it move too', async () => {
+  const { manifestHash } = await import('../tools/narration-manifest.mjs');
+  const header = { engine: 'elevenlabs', model: 'm', voice: 'chris', style: '' };
+  const texts = slideTexts(deckOf(TALK));
+  const manifest = { ...header, slides: texts.map((x, i) => ({ file: `slide-0${i + 1}.wav`, hash: manifestHash(header, x) })) };
+  // a slide put in at 4, and slides 4–6 reworded since they were voiced
+  const now = [...TALK.slice(0, 3), 'A brand new slide about graphics.', ...TALK.slice(3)];
+  for (const k of [4, 5, 6]) now[k] = now[k].replace('.', ', really.');
+  const scripts = new Map(texts.map((x, i) => [i + 1, x]));
+  const { moves, said, unplaced } = realignMoves(manifest, deckOf(now), { scripts });
+  assert.deepEqual(moves, [[4, 5], [5, 6], [6, 7], [7, 8], [8, 9]], 'the stale ones move with the rest');
+  assert.deepEqual(unplaced, []);
+  assert.equal(said, '5 recordings look shifted by one from slide 4');
+  // with nothing to read them by, the run stays — and is named, never silently left
+  const blind = realignMoves(manifest, deckOf(now));
+  assert.deepEqual(blind.moves, [[7, 8], [8, 9]]);
+  assert.deepEqual(blind.unplaced, [4, 5, 6]);
+  assert.equal(blind.said, '2 recordings look shifted by one from slide 7; slides 4–6 could not be placed (their notes changed): check them');
+});
+
+test('realignMoves: a stale take is placed loosely by its saved script when its neighbours disagree', async () => {
+  const { manifestHash } = await import('../tools/narration-manifest.mjs');
+  const header = { engine: 'say', model: 'S', voice: 'S', style: '' };
+  const texts = slideTexts(deckOf(TALK));
+  const manifest = { ...header, slides: texts.map((x, i) => ({ file: `slide-0${i + 1}.wav`, hash: manifestHash(header, x) })) };
+  // slide 2 put in, and the old slide 2 (now 3) reworded: its take finds it by its words
+  const now = [TALK[0], 'Something new entirely here.', TALK[1].replace('.', ' first.'), ...TALK.slice(2)];
+  const { moves } = realignMoves(manifest, deckOf(now), { scripts: new Map(texts.map((x, i) => [i + 1, x])) });
+  assert.deepEqual(moves, [[2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9]]);
+});
+
+test('followedSaid: the line an edit\'s renumbering is said in', () => {
+  const plan = { dir: 'voices/me', moves: [['slide-03.wav', 'slide-04.wav'], ['slide-03.txt', 'slide-04.txt'], ['slide-04.wav', 'slide-05.wav']] };
+  assert.equal(followedSaid(plan, [[3, 4], [4, 5]], 4, 5), 'voices/me: 2 recordings moved with the new slide 3');
+  const del = { dir: 'v', moves: [['slide-02.wav', '.trash/x/slide-02.wav'], ['slide-03.wav', 'slide-02.wav']] };
+  assert.equal(followedSaid(del, [[2, null], [3, 2]], 3, 2), 'v: 1 recording moved as slide 2 went; slide 2\'s set aside in .trash/');
+  assert.equal(followedSaid({ dir: 'v', moves: [['slide-01.wav', 'slide-02.wav'], ['slide-02.wav', 'slide-01.wav']] }, [[1, 2], [2, 1]], 2, 2),
+    'v: 2 recordings moved with the slides that moved');
 });
 
 // ── the slide routes carry it out ───────────────────────────────────────────

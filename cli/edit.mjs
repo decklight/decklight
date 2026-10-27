@@ -95,7 +95,7 @@ import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools
 import { runMain, afterOutput } from './util.mjs';
 import { PKG, AGENTS_MARKER, skillVersionOf } from './skill-content.mjs';
 import { selfCommand } from './pkg.mjs';
-import { slidesSinceHead } from './commit-split.mjs';
+import { slidesSinceHead, slideRenumber } from './commit-split.mjs';
 import { semverCompare } from '../tools/semver.mjs';
 
 // The flags that take a value, so the deck can be found past them. `--git-mode`
@@ -108,7 +108,7 @@ import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkReferences } from './deck-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides, trackDrift } from '../tools/narration-manifest.mjs';
-import { applyPlans, voiceFolders, realignMoves, planFolder, planMoves } from '../tools/voice-renumber.mjs';
+import { applyPlans, voiceFolders, realignMoves, planFolder, planMoves, planSteps, movesRenumber, trackScripts, followedSaid } from '../tools/voice-renumber.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
 // pure transforms — is a deliberate static cycle and not a dynamic one: this
@@ -1128,7 +1128,7 @@ export function createHistory(limit = 200) {
 // where edit grew it.
 import { inGitRepo, gitAvailable, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, untrackedFiles, exitPushLine, oneline, remoteState } from './git.mjs';
 import {
-  describeCommit, messagesLine,
+  describeCommit, messagesLine, deckOutline,
 } from './commit-message.mjs';
 import { WIP_REF, deckDirty, nagText, planNag, snapshotWip, wipLine } from './commit-flow.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
@@ -1555,6 +1555,35 @@ export async function editMain(args, { onListen = null, client } = {}) {
     history.record(also ? { deck: before, ...also } : before);
     writeDeck(next);
     return true;
+  };
+
+  /**
+   * The voice folders follow an edit that rewrote the deck at once — an
+   * agent's (#920) — as a slide op's do (#916): where each slide went is read
+   * off the sections before and after (slideRenumber), never off the audio,
+   * so a stale take moves with its slide too. The deck is already written, so
+   * nothing here can refuse it: a folder that cannot follow is left exactly
+   * as it was and said, and realign is still there for it.
+   *
+   * `null` when no slide moved; else `{ voices, said, renumber }`: the steps
+   * that undo the moves (for the edit's undo entry), one line per folder, and
+   * Map dir → renumbering for the folders that moved — or `{ error }`.
+   */
+  const followSlides = (before, after) => {
+    const pairs = slideRenumber(before, after);
+    if (!pairs.length) return null;
+    const deckDir = dirname(deckPath);
+    const dirs = voiceFolders(deckPath, [...configuredTrackDirs(before), ...configuredTrackDirs(after)]);
+    const r = planSteps(deckDir, dirs.map((dir) => ({ dir, pairs })));
+    if (r.error) return { error: `${r.error} — they were left where they were; realign them from the narration panel` };
+    if (!r.plans.length) return null;
+    try { applyPlans(deckDir, r.plans); } catch (e) {
+      return { error: `the recordings could not follow the slides — ${oneline(e)} — they were left where they were` };
+    }
+    const was = deckOutline(before).length, now = deckOutline(after).length;
+    const said = r.plans.map((p) => followedSaid(p, pairs, was, now)).filter(Boolean);
+    const renumber = new Map(r.plans.map((p) => [p.dir, movesRenumber(pairs)]));
+    return { voices: r.plans.map((p) => p.inverse), said, renumber };
   };
 
   // Declared before the git block below, which reads it to hold the cadence
@@ -2475,10 +2504,26 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // held for review: the deck goes back, the edit becomes the candidate
       putBack();
       const held = hold ? hold.done(changed ? after : null, { ok: code === 0 && !stopped }) : null;
+      // the voice folders follow the slides the edit added, removed or moved
+      // (#920), before the impact is read and the commit made
+      const landed = !hold ? (changed && after !== before ? before : null)
+        : (changed && !held && hold.start === undefined && after !== kept ? kept : null);
+      let followed = null;
+      if (landed !== null) {
+        try { followed = followSlides(landed, after); } catch (e) { followed = { error: oneline(e) }; }
+      }
+      // what an undo entry carries beside the deck: its files, and the folders' steps back
+      const also = (deck, files) => (files || followed?.voices
+        ? { deck, ...(files ? { files } : {}), ...(followed?.voices ? { voices: followed.voices } : {}) }
+        : deck);
       // a first run the review could not hold lands as it always did, never lost
-      if (hold && changed && !held && hold.start === undefined) { history.record(kept); writeDeck(after); }
+      if (hold && changed && !held && hold.start === undefined) { history.record(also(kept)); writeDeck(after); }
       // Z takes the agent's edit back — with the files beside the deck it wrote, in the same step
-      if (changed && !hold) history.record(filesChanged ? { deck: before, files: filesBefore } : before);
+      if (changed && !hold) history.record(also(before, filesChanged ? filesBefore : null));
+      const voicesFollowed = followed?.said?.length ? followed.said.join('; ') : null;
+      const voicesStuck = followed?.error ? `🎙 ${followed.error}` : null;
+      for (const line of followed?.said ?? []) console.log(`  narration: ${line}`);
+      if (voicesStuck) console.log(`  narration: ${followed.error}`);
       // One commit per completed agent edit, carrying the agent's own summary
       // — the boundary and the message both come from the work, not a clock.
       // A failed run or one that changed nothing commits nothing.
@@ -2495,12 +2540,22 @@ export async function editMain(args, { onListen = null, client } = {}) {
       let recordingWarning = null;
       if (changed && !hold) {
         try {
+          // the folders that followed are read where each take went, and as
+          // they are now — which is already numbered like `after`
+          const renumber = followed?.renumber ?? null;
+          const back = (dir) => {
+            const f = renumber?.get(String(dir).replace(/^\.\//, '').replace(/\/+$/, ''));
+            return f ? (n) => { for (let k = 1; k <= n + 64; k++) if (f(k) === n) return k; return null; } : null;
+          };
           const impact = recordingImpact(before, after, {
             dirsOf: configuredTrackDirs,
             recordedSlides: (dir) => {
-              try { return slidesFromFiles(readdirSync(resolve(dirname(deckPath), dir))); }
-              catch { return []; }
+              let now = [];
+              try { now = slidesFromFiles(readdirSync(resolve(dirname(deckPath), dir))); } catch { return []; }
+              const was = back(dir);
+              return was ? now.map(was).filter((k) => k != null) : now;
             },
+            renumber,
           });
           recordingWarning = impactWarning(impact);
         } catch { recordingWarning = null; }   // a warning that throws is worse than none
@@ -2515,13 +2570,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // commit (it names its paths), and said, so the author can delete them
       const left = (besideDeck() ?? []).filter((f) => !leftBefore.has(f));
       if (left.length) console.log(`  agent: ${cmd.name} left ${left.join(', ')} beside the deck (not committed)`);
-      finish({ ok: code === 0, changed, code, tail: said, ...(left.length ? { left } : {}), ...(stopped ? { stopped } : {}), ...(held ? { held: true } : {}) });
+      finish({ ok: code === 0, changed, code, tail: said, ...(left.length ? { left } : {}), ...(stopped ? { stopped } : {}), ...(held ? { held: true } : {}), ...(voicesFollowed ? { voicesFollowed } : {}) });
       broadcast('agent', {
         state: 'done', id: ask.id, agent: cmd.name, ok: code === 0, changed, code, tail: said,
         ...(left.length ? { left } : {}),
         ...(stopped ? { stopped } : {}),
         ...(held ? { candidate: held } : {}),
         ...(recordingWarning ? { recordingWarning } : {}),
+        ...(voicesFollowed ? { voicesFollowed } : {}),
+        ...(voicesStuck ? { voicesStuck } : {}),
       });
       console.log(`  agent: ${cmd.name} ${stopped ? 'stopped' : `exited (${code})`} — deck ${!changed ? 'unchanged' : hold ? 'changed, held for review' : 'changed'}`);
       if (recordingWarning) console.log(`  ${recordingWarning}`);
@@ -2894,7 +2951,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
             // …and whether those recordings are only in the wrong place (#916):
             // the deck was reordered outside the slide ops, and each one's
             // stored words say which slide it belongs to now
-            realign = realignMoves(m, deck);
+            realign = realignMoves(m, deck, { scripts: trackScripts(resolve(root2, rel)) });
           }
         } catch { /* a folder recorded by hand has no manifest, and needs none */ }
         seen.push({
@@ -2958,7 +3015,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     try { m = JSON.parse(readFileSync(resolve(deckDir, rel, 'manifest.json'), 'utf8')); } catch { /* said below */ }
     if (!Array.isArray(m?.slides)) return json(409, { ok: false, error: `${rel}/ has no manifest — nothing records which slide each take was read from` });
     const cur = readDeck();
-    const { moves, said } = realignMoves(m, cur);
+    const { moves, said } = realignMoves(m, cur, { scripts: trackScripts(resolve(deckDir, rel)) });
     if (!moves.length) return json(200, { ok: true, moved: 0, said: 'every recording is already on its slide', ...history.counts() });
     const plan = planFolder(deckDir, { dir: rel, pairs: moves });
     if (plan.conflicts.length) return json(409, { ok: false, error: `${plan.conflicts[0]} — nothing was moved` });

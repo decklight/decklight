@@ -2859,6 +2859,79 @@ test('a slide inserted moves the recordings with their slides, Z and ⇧Z move t
   assert.equal((await post(base, '/deck/edit/narration/realign', { dir: 'voices/nope' })).status, 404);
 });
 
+// ── an agent's edit renumbers the voice folders too (#920) ─────────────────
+test('an agent that puts a slide in moves the recordings with their slides in the same undo step, and says so', async (t) => {
+  const dir = tmp(t);
+  const words = ['One says this, and then two more lines.', 'Two says this.', 'Three says this.'];
+  const deckOf = (list) => DECK.replace(/<section>[\s\S]*<\/section>/, list.map((w, i) => `<section><h2>S${i + 1}</h2><aside class="notes">${w}</aside></section>`).join('\n    '));
+  const deckPath = path.join(dir, 'deck.html');
+  const start = deckOf(words);
+  writeFileSync(deckPath, start);
+  const { slideBeats } = await import('../tools/narration-manifest.mjs');
+  const me = path.join(dir, 'voices', 'me');
+  mkdirSync(me, { recursive: true });
+  const beats = slideBeats(start);
+  beats.forEach((_, i) => writeFileSync(path.join(me, `slide-0${i + 1}.wav`), `take ${i + 1}`));
+  writeFileSync(path.join(me, 'manifest.json'), JSON.stringify({ recorder: 'mic', slides: beats.map((b, i) => ({ file: `slide-0${i + 1}.wav`, beats: b })) }, null, 2) + '\n');
+  // the agent splits slide 1: its last lines go to a new slide after it
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  writeFakeBin(bin, 'claude', [
+    "import { readFileSync, writeFileSync } from 'node:fs';",
+    "const d = readFileSync('deck.html', 'utf8');",
+    "writeFileSync('deck.html', d.replace('One says this, and then two more lines.</aside></section>', 'One says this.</aside></section>\\n    <section><h2>New</h2><aside class=\"notes\">And then two more lines.</aside></section>'));",
+  ].join('\n'));
+  const { base, waitFor } = await startEdit(t, dir, { env: { PATH: bin, CLAUDE_CONFIG_DIR: path.join(dir, 'claude-home'), DECKLIGHT_HOME: path.join(dir, 'home') } });
+  const take = (n) => readFileSync(path.join(me, `slide-0${n}.wav`), 'utf8');
+  const track = async () => (await (await fetch(base + '/deck/edit/narration/tracks')).json()).tracks.find((x) => x.dir === 'voices/me');
+
+  await post(base, '/deck/edit/agent', { prompt: 'move the last two lines to a new slide after this one', slide: 1 });
+  const p = await agentSettled(base);
+  assert.equal(p.agentAsks.at(-1).changed, true);
+  assert.equal(p.agentAsks.at(-1).voicesFollowed, 'voices/me: 2 recordings moved with the new slide 2');
+  await waitFor(/narration: voices\/me: 2 recordings moved with the new slide 2/);
+  assert.equal(take(1), 'take 1');
+  assert.equal(existsSync(path.join(me, 'slide-02.wav')), false, 'the new slide has nothing recorded');
+  assert.equal(take(3), 'take 2');
+  assert.equal(take(4), 'take 3');
+  assert.deepEqual((await track()).drift.map((d) => d.slide), [1], 'only the slide whose words changed');
+  assert.equal((await track()).realign, undefined, 'nothing reads as shifted');
+
+  assert.equal((await (await post(base, '/deck/edit/undo')).json()).ok, true);
+  assert.equal(readFileSync(deckPath, 'utf8'), start, 'Z puts the deck back…');
+  assert.equal(take(2), 'take 2', '…and the folder with it');
+  assert.equal(existsSync(path.join(me, 'slide-04.wav')), false);
+  assert.equal((await (await post(base, '/deck/edit/redo')).json()).ok, true);
+  assert.equal(take(4), 'take 3', '⇧Z moves it forward again');
+});
+
+test('an agent edit whose recordings cannot follow leaves the folder as it was and says so', async (t) => {
+  const dir = tmp(t);
+  const deckOf = (list) => DECK.replace(/<section>[\s\S]*<\/section>/, list.map((w, i) => `<section><h2>S${i + 1}</h2><aside class="notes">${w}</aside></section>`).join('\n    '));
+  writeFileSync(path.join(dir, 'deck.html'), deckOf(['One.', 'Two.']));
+  const me = path.join(dir, 'voices', 'me');
+  mkdirSync(me, { recursive: true });
+  writeFileSync(path.join(me, 'slide-01.wav'), 'take 1');
+  writeFileSync(path.join(me, 'slide-02.wav'), 'take 2');
+  writeFileSync(path.join(me, 'slide-03.wav'), 'a stray take past the deck');
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  writeFakeBin(bin, 'claude', [
+    "import { readFileSync, writeFileSync } from 'node:fs';",
+    "const d = readFileSync('deck.html', 'utf8');",
+    "writeFileSync('deck.html', d.replace('<section><h2>S1</h2>', '<section><h2>New</h2><aside class=\"notes\">Zero.</aside></section>\\n    <section><h2>S1</h2>'));",
+  ].join('\n'));
+  const { base } = await startEdit(t, dir, { env: { PATH: bin, CLAUDE_CONFIG_DIR: path.join(dir, 'claude-home'), DECKLIGHT_HOME: path.join(dir, 'home') } });
+  await post(base, '/deck/edit/agent', { prompt: 'put a slide first' });
+  const p = await agentSettled(base);
+  assert.equal(p.agentAsks.at(-1).changed, true, 'the edit stands');
+  assert.equal(p.agentAsks.at(-1).voicesFollowed, undefined);
+  assert.equal(readFileSync(path.join(me, 'slide-01.wav'), 'utf8'), 'take 1', 'nothing moved');
+  assert.equal(readFileSync(path.join(me, 'slide-03.wav'), 'utf8'), 'a stray take past the deck', 'nothing overwritten');
+  assert.equal((await (await post(base, '/deck/edit/undo')).json()).ok, true);
+  assert.equal(readFileSync(path.join(dir, 'deck.html'), 'utf8'), deckOf(['One.', 'Two.']));
+});
+
 // ── a track recorded from older notes is named, and refused unless allowed (#536) ──
 test('/deck/edit/export refuses a narration recorded from other notes, names the slides, and renders it when the card says so', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');

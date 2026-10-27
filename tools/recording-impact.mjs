@@ -47,8 +47,11 @@ function notesPerSlide(html) {
  * entry has no local dir and is not one). `recordedSlides(dir)` → the 1-based
  * slide numbers with audio in that dir, `[]` for a dir with none. Both are
  * injected so this stays testable without a filesystem or the init walkers.
+ * `renumber`, a Map dir → (old slide → new slide | null), names the tracks
+ * whose files were renumbered with the edit: those are read slide by slide
+ * against where each recording went, never as reshaped.
  */
-export function recordingImpact(before, after, { dirsOf, recordedSlides }) {
+export function recordingImpact(before, after, { dirsOf, recordedSlides, renumber = null }) {
   const beforeDirs = dirsOf(before);
   const afterDirs = new Set(dirsOf(after));
   const nb = notesPerSlide(before);
@@ -61,6 +64,18 @@ export function recordingImpact(before, after, { dirsOf, recordedSlides }) {
     const recorded = recordedSlides(dir);
     if (!recorded.length) continue;   // nothing on disk → nothing to lose
     if (!afterDirs.has(dir)) { orphaned.push({ dir, slides: recorded.length }); continue; }
+    // its recordings followed their slides (#920): each is read against the
+    // slide it is on now, and a count that changed is no longer a shift
+    const follow = renumber?.get?.(String(dir).replace(/^\.\//, '').replace(/\/+$/, ''));
+    if (follow) {
+      const slides = [];
+      for (const k of recorded) {
+        const n = follow(k);
+        if (n != null && n <= na.length && nb[k - 1] !== na[n - 1]) slides.push(n);
+      }
+      if (slides.length) stale.push({ dir, slides: slides.sort((x, y) => x - y) });
+      continue;
+    }
     // still configured — did the slides move or change under it?
     if (nb.length !== na.length) { reshaped.push({ dir, before: nb.length, after: na.length }); continue; }
     const has = new Set(recorded);

@@ -195,7 +195,7 @@ export function manifestTracks(deckDir) {
 async function checkMain(plan, argv) {
   if (!plan.deck || !existsSync(plan.deck)) { console.error(`decklight narrate: ${plan.deck ? `no deck at ${plan.deck}` : 'name the deck'}`); return 1; }
   const { trackDrift, rerecordLine } = await import('../tools/narration-manifest.mjs');
-  const { realignMoves, planFolder, applyPlans } = await import('../tools/voice-renumber.mjs');
+  const { realignMoves, planFolder, applyPlans, trackScripts } = await import('../tools/voice-renumber.mjs');
   const realign = argv.includes('--realign');
   const html = readFileSync(plan.deck, 'utf8');
   const deckDir = dirname(resolve(plan.deck));
@@ -211,7 +211,7 @@ async function checkMain(plan, argv) {
     const who = mine ? 'your voice' : [m.voice, m.engine].filter(Boolean).join(' · ') || 'recorded';
     let { drift, unknown } = trackDrift(m, html);
     // only in the wrong place (#916): said, and with --realign, moved
-    const { moves, said } = realignMoves(m, html);
+    const { moves, said } = realignMoves(m, html, { scripts: trackScripts(join(deckDir, dir)) });
     if (moves.length && realign) {
       const plan = planFolder(deckDir, { dir, pairs: moves });
       if (plan.conflicts.length) { console.log(`${dir}/  ${said}, but ${plan.conflicts[0]} — nothing was moved`); out = 1; continue; }
