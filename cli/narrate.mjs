@@ -87,6 +87,10 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
                  a recording cannot follow; each with the command that fixes it.
                  Exits 1 when something is out of step
     --dir NAME   only this folder
+    --realign    a track whose recordings are only in the wrong place (slides
+                 inserted, moved or deleted outside decklight's own slide ops) is
+                 moved back onto the slides they were read from; nothing is
+                 deleted, and a rename onto a file outside the plan stops it
     EXAMPLE: decklight narrate talk.html --check
 
   the deck plays the folder back with
@@ -191,6 +195,8 @@ export function manifestTracks(deckDir) {
 async function checkMain(plan, argv) {
   if (!plan.deck || !existsSync(plan.deck)) { console.error(`decklight narrate: ${plan.deck ? `no deck at ${plan.deck}` : 'name the deck'}`); return 1; }
   const { trackDrift, rerecordLine } = await import('../tools/narration-manifest.mjs');
+  const { realignMoves, planFolder, applyPlans } = await import('../tools/voice-renumber.mjs');
+  const realign = argv.includes('--realign');
   const html = readFileSync(plan.deck, 'utf8');
   const deckDir = dirname(resolve(plan.deck));
   const dirAt = argv.indexOf('--dir');
@@ -203,7 +209,19 @@ async function checkMain(plan, argv) {
     if (!Array.isArray(m?.slides)) { console.log(`${dir}/  no manifest: recorded before decklight kept one, not checked`); continue; }
     const mine = m.recorder === 'mic';
     const who = mine ? 'your voice' : [m.voice, m.engine].filter(Boolean).join(' · ') || 'recorded';
-    const { drift, unknown } = trackDrift(m, html);
+    let { drift, unknown } = trackDrift(m, html);
+    // only in the wrong place (#916): said, and with --realign, moved
+    const { moves, said } = realignMoves(m, html);
+    if (moves.length && realign) {
+      const plan = planFolder(deckDir, { dir, pairs: moves });
+      if (plan.conflicts.length) { console.log(`${dir}/  ${said}, but ${plan.conflicts[0]} — nothing was moved`); out = 1; continue; }
+      try { applyPlans(deckDir, [plan]); } catch (e) { console.log(`${dir}/  ${said}, but the move failed (${e.message}) — the folder is as it was`); out = 1; continue; }
+      console.log(`${dir}/  ${said}: moved back onto their slides`);
+      m = JSON.parse(readFileSync(join(deckDir, dir, 'manifest.json'), 'utf8'));
+      ({ drift, unknown } = trackDrift(m, html));
+    } else if (moves.length) {
+      console.log(`${dir}/  ${said} — move them: decklight narrate ${plan.deck} --realign --dir ${dir}`);
+    }
     const note = unknown ? ` (${unknown} slide${unknown === 1 ? '' : 's'} recorded before the script was kept: not checked)` : '';
     if (!drift.length) { console.log(`${dir}/  ${who}: in step with the notes${note}`); continue; }
     out = 1;
@@ -226,7 +244,7 @@ export async function narrateMain(argv = []) {
     return argv.length ? 0 : 1;
   }
   const plan = narratePlan(argv);
-  if (argv.includes('--check')) return checkMain(plan, argv);
+  if (argv.includes('--check') || argv.includes('--realign')) return checkMain(plan, argv);
   if (argv.includes('--face')) return faceMain(plan, argv);
   // a terminal script is `cast`'s, whichever way it was meant to be narrated
   const mixedUp = wrongRecorder('narrate', plan.deck);

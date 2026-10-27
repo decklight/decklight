@@ -50,10 +50,10 @@ function harness(t, html = DECK, deps = {}) {
   writeFileSync(deck, html);
   const history = createHistory();
   const readDeck = () => readFileSync(deck, 'utf8');
-  const applyEdit = (change, before = readDeck()) => {
+  const applyEdit = (change, before = readDeck(), also = null) => {
     const next = typeof change === 'function' ? change(before) : change;
     if (next === before) return false;
-    history.record(before);
+    history.record(also ? { deck: before, ...also } : before);
     writeFileSync(deck, next);
     return true;
   };

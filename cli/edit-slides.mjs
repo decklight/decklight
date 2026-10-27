@@ -32,13 +32,13 @@
 // request arrives.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { basename, resolve, sep } from 'node:path';
+import { basename, dirname, resolve, sep } from 'node:path';
 
 import {
   notesTextToAside, setSlideNotes,
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden,
-  upsertNarrationTrack,
+  upsertNarrationTrack, configuredTrackDirs,
   locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
@@ -52,6 +52,11 @@ import { setDeckConcepts } from './runtime-link.mjs';
 import {
   sectionBodies, insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertImage,
 } from '../tools/deck-html.mjs';
+// A slide op moves the deck's recordings with their slides (#916): Node-only
+// file moves, which is what tools/ is for.
+import {
+  voiceFolders, planSteps, applyPlans,
+} from '../tools/voice-renumber.mjs';
 
 /**
  * Put the slide-mutation routes into `routes`, the table cli/edit.mjs
@@ -173,13 +178,18 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       def = r.layout;
     } else if (insert) return json(400, { ok: false, error: 'insert needs a template' });
     let report = null;
+    // a slide inserted is every later recording one slide on (#916)
+    const voices = insert ? voicePlans(html, 'insert', slide) : { plans: [] };
+    if (voices.error) return json(409, { ok: false, error: voices.error });
     try {
-      const changed = applyEdit((deck) => {
+      const done = editWithVoices((deck) => {
         if (insert) return insertSlideTemplateSlide(deck, slide, def);
         const out = applySlideTemplate(deck, slide, def);
         report = out;
         return out.html;
-      });
+      }, html, voices.plans);
+      if (done.error) return json(409, { ok: false, error: done.error });
+      const { changed } = done;
       const said = insert ? `a new ${def.ref} slide after slide ${slide}` : describeTemplateChange(report, def?.ref ?? '');
       if (changed) console.log(`  slide template: slide ${slide} — ${said}`);
       return json(200, {
@@ -433,6 +443,46 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
 
   // ── whole slides: the slide bar's new · duplicate · delete · reorder ──────
 
+  /**
+   * The deck's voice folders, each planned for one slide op (#916): manifest
+   * entry n is slide n and its files are slide-NN…, so a slide inserted at 30
+   * would otherwise leave every later recording one slide off — out of step
+   * though not a word of it changed. `{ plans }` to carry out with the deck,
+   * or `{ error }` when a rename would overwrite a file outside the plan, in
+   * which case NOTHING is done: not the folders, not the deck.
+   */
+  function voicePlans(html, op, slide, to) {
+    const steps = voiceFolders(deckPath, configuredTrackDirs(html))
+      .map((dir) => ({ dir, op, slide, ...(to === undefined ? {} : { to }) }));
+    const r = planSteps(dirname(deckPath), steps);
+    return r.error ? { error: `${r.error} — nothing was changed` } : r;
+  }
+
+  /**
+   * Write the deck and move its recordings as ONE undo entry: the steps that
+   * undo the moves ride into the history beside the deck, so Z puts both
+   * back. The folders move FIRST — a folder that cannot is put back as it was
+   * and the op refused before the deck is touched — and are put back again if
+   * the deck then cannot be written. `{ changed }` or `{ error }`.
+   */
+  function editWithVoices(change, before, plans) {
+    const next = typeof change === 'function' ? change(before) : change;
+    if (next === before || !plans.length) return { changed: applyEdit(next, before) };
+    const deckDir = dirname(deckPath);
+    let moved;
+    try { ({ moved } = applyPlans(deckDir, plans)); } catch (e) {
+      return { error: `the recordings could not follow the slides — ${oneline(e)} — nothing was changed` };
+    }
+    try {
+      applyEdit(next, before, { voices: plans.map((p) => p.inverse) });
+    } catch (e) {
+      try { applyPlans(deckDir, planSteps(deckDir, plans.map((p) => p.inverse)).plans, { aside: true }); } catch { /* the deck error below is the one to say */ }
+      throw e;
+    }
+    console.log(`  recordings followed their slides: ${moved} file${moved === 1 ? '' : 's'} in ${plans.map((p) => `${p.dir}/`).join(', ')}`);
+    return { changed: true };
+  }
+
   const SLIDE_OPS = new Set(['new', 'duplicate', 'delete', 'up', 'down', 'move']);
 
   /**
@@ -464,6 +514,11 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    *
    * Numbering is by SOURCE ORDER, hidden slides counted (DECK_ANATOMY), which
    * is how comments, review anchors and history already number them.
+   *
+   * The deck's recordings are numbered the same way, so they move in the same
+   * step (#916): a new or duplicated slide has nothing recorded, a deleted
+   * one's files go to its folder's `.trash/`, and the same undo entry holds
+   * the moves.
    */
   function slideRoute({ body, json }) {
     const { op, slide, to } = JSON.parse(body || '{}');
@@ -491,7 +546,10 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       down: slide + 1,
       move: to,
     }[op];
-    applyEdit((html) => {
+    // every recording goes where its slide goes, in the same step (#916)
+    const voices = voicePlans(before, op, slide, to);
+    if (voices.error) return json(409, { ok: false, error: voices.error });
+    const done = editWithVoices((html) => {
       switch (op) {
         case 'new': return insertBlankSlide(html, slide);
         case 'duplicate': return duplicateSlide(html, slide);
@@ -500,7 +558,8 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
         case 'move': return moveSlide(html, slide, to);
         default: return swapSlides(html, slide, slide + 1);
       }
-    }, before);
+    }, before, voices.plans);
+    if (done.error) return json(409, { ok: false, error: done.error });
     console.log(`  slide ${op}: ${slide}${op === 'move' ? ` → ${to}` : ''} → ${after} slide${after === 1 ? '' : 's'}`);
     return json(200, { ok: true, slide: show, total: after, ...history.counts() });
   }

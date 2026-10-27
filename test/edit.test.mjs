@@ -2810,6 +2810,52 @@ test('your own voice\'s manifest records the beats as read, keeps the slides alr
   assert.deepEqual((await tracks()).drift, []);
 });
 
+// ── a voice folder follows its slides (#916) ────────────────────────────────
+test('a slide inserted moves the recordings with their slides, Z and ⇧Z move them back and forth, and a hand reorder is offered a realign', async (t) => {
+  const dir = tmp(t);
+  const words = ['One says this.', 'Two says this.', 'Three says this.'];
+  const deckOf = (list) => DECK.replace(/<section>[\s\S]*<\/section>/, list.map((w, i) => `<section><h2>S${i + 1}</h2><aside class="notes">${w}</aside></section>`).join('\n    '));
+  const deckPath = path.join(dir, 'deck.html');
+  writeFileSync(deckPath, deckOf(words));
+  const { slideBeats } = await import('../tools/narration-manifest.mjs');
+  const me = path.join(dir, 'voices', 'me');
+  mkdirSync(me, { recursive: true });
+  const beats = slideBeats(deckOf(words));
+  beats.forEach((_, i) => writeFileSync(path.join(me, `slide-0${i + 1}.wav`), `take ${i + 1}`));
+  const manifest = { engine: null, model: null, voice: null, style: null, recorder: 'mic', slides: beats.map((b, i) => ({ file: `slide-0${i + 1}.wav`, beats: b })) };
+  writeFileSync(path.join(me, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const take = (n) => readFileSync(path.join(me, `slide-0${n}.wav`), 'utf8');
+  const track = async () => (await (await fetch(base + '/deck/edit/narration/tracks')).json()).tracks.find((x) => x.dir === 'voices/me');
+
+  assert.equal((await post(base, '/deck/edit/slide', { op: 'new', slide: 1 })).status, 200);
+  assert.equal(take(3), 'take 2', 'slide 2\'s take is slide 3\'s now');
+  assert.equal(existsSync(path.join(me, 'slide-02.wav')), false, 'the new slide has nothing recorded');
+  assert.deepEqual((await track()).drift, [], 'an insert flags nothing');
+  assert.equal((await (await post(base, '/deck/edit/undo')).json()).ok, true);
+  assert.equal(take(2), 'take 2', 'Z moved the folder back with the deck');
+  assert.equal(existsSync(path.join(me, 'slide-04.wav')), false);
+  assert.equal((await (await post(base, '/deck/edit/redo')).json()).ok, true);
+  assert.equal(take(4), 'take 3', '⇧Z moved it forward again');
+  assert.equal((await post(base, '/deck/edit/undo')).status, 200);
+
+  // a slide pasted in by an editor: positions are off, the words say where each belongs
+  writeFileSync(deckPath, deckOf(['Pasted in.', ...words]));
+  const t2 = await track();
+  assert.equal(t2.drift.length, 3);
+  assert.deepEqual(t2.realign, { moves: [[1, 2], [2, 3], [3, 4]], said: '3 recordings look shifted by one from slide 1' });
+  const r = await (await post(base, '/deck/edit/narration/realign', { dir: 'voices/me' })).json();
+  assert.equal(r.ok, true);
+  assert.equal(r.moved, 3);
+  assert.equal(take(2), 'take 1');
+  assert.deepEqual((await track()).drift, []);
+  assert.equal((await track()).realign, undefined);
+  assert.equal((await (await post(base, '/deck/edit/undo')).json()).ok, true);
+  assert.equal(take(1), 'take 1', 'Z takes a realign back too');
+  assert.equal((await post(base, '/deck/edit/narration/realign', { dir: '../x' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/narration/realign', { dir: 'voices/nope' })).status, 404);
+});
+
 // ── a track recorded from older notes is named, and refused unless allowed (#536) ──
 test('/deck/edit/export refuses a narration recorded from other notes, names the slides, and renders it when the card says so', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');

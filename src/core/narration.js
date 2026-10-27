@@ -2334,6 +2334,17 @@ export function createNarration({
         w.innerHTML = warn;
         card.appendChild(w);
       }
+      // recordings that are only in the wrong place (#916): the deck was
+      // reordered outside the slide ops, and the server read from each one's
+      // words which slide it belongs to — offered, never done unasked
+      for (const d of narrDrift.values()) {
+        if (!d.realign?.moves?.length) continue;
+        narrRows.push({
+          text: `↔ ${d.realign.said} — move them?`,
+          flavor: `${d.dir}/ · ${UNDO_CHORD} puts them back`,
+          commit: () => realignTrack(d.dir),
+        });
+      }
       // OFF first, and checked on a deck nobody has chosen for. It is the
       // state the deck arrives in, so it reads as the top of a list of
       // choices rather than an escape hatch at the bottom of one — and it is
@@ -3515,6 +3526,27 @@ export function createNarration({
    * absent exactly where it could not work anyway — no edit server means no
    * write, and the card falls back to printing the line.
    */
+  /** Move a track's recordings back onto the slides they were read from (#916). */
+  async function realignTrack(dir) {
+    const base = editBase();
+    if (base == null) return;
+    try {
+      const r = await fetch(`${base}/deck/edit/narration/realign`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir }),
+      });
+      const out = await r.json();
+      if (!out?.ok) throw new Error(out?.error || `HTTP ${r.status}`);
+      toast(`↔ ${dir}/: ${out.moved ? `${out.moved} recording${out.moved === 1 ? '' : 's'} back on their slides — ${UNDO_CHORD} undoes it` : out.said}`, 4000);
+      debugLog('narr', `realign ${dir} → ${out.moved} moved`);
+    } catch (e) {
+      toast(`↔ ${dir}/ was not realigned — ${String(e.message ?? e)}`, 7000);
+    }
+    const tracks = await knownTracks();
+    narrDrift = new Map(tracks.filter((t) => t.drift?.length).map((t) => [t.dir, t]));
+    if (narrEl && narrView === 'tracks') renderNarr('tracks');
+  }
   async function useRecordedTrack(btn, dir, cfg) {
     const base = editBase();
     if (base == null) return;

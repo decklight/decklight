@@ -108,6 +108,7 @@ import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkReferences } from './deck-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides, trackDrift } from '../tools/narration-manifest.mjs';
+import { applyPlans, voiceFolders, realignMoves, planFolder, planMoves } from '../tools/voice-renumber.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
 // pure transforms — is a deliberate static cycle and not a dynamic one: this
@@ -1540,10 +1541,12 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (ctx?.body) { try { const f = JSON.parse(ctx.body).from; if (typeof f === 'string') from = f.slice(0, 64); } catch { /* not json, or no page named */ } }
     noteWrite(whatWrote(ctx?.route), from);
   };
-  const applyEdit = (change, before = readDeck()) => {
+  // `also` rides into the undo entry beside the deck: `{ voices }`, the voice
+  // folders a slide op renumbered (#916), which Z moves back with it
+  const applyEdit = (change, before = readDeck(), also = null) => {
     const next = typeof change === 'function' ? change(before) : change;
     if (next === before) return false;
-    history.record(before);
+    history.record(also ? { deck: before, ...also } : before);
     writeDeck(next);
     return true;
   };
@@ -2577,10 +2580,31 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const dir = url.pathname.endsWith('undo') ? 'undo' : 'redo';
     const cur = readDeck();
     // an entry that wrote files beside the deck is answered by those files as they are now
-    const content = history[dir]((e) => (typeof e === 'string' ? cur : { deck: cur, files: snapshotFiles(Object.keys(e.files ?? {})) }));
+    // …and one that renumbered voice folders (#916) by its steps, planned
+    // against the folders as they are now: a take recorded since is carried
+    // along, not written over, and redo gets the steps that undo this
+    const deckDir = dirname(deckPath);
+    let plans = null;
+    const content = history[dir]((e) => {
+      if (typeof e === 'string') return cur;
+      plans = e.voices ? e.voices.map((step) => planFolder(deckDir, step)) : null;
+      return {
+        deck: cur,
+        files: snapshotFiles(Object.keys(e.files ?? {})),
+        ...(plans ? { voices: plans.map((p) => p.inverse) } : {}),
+      };
+    });
     if (content === null) return json(409, { ok: false, error: `nothing to ${dir}`, ...history.counts() });
     if (typeof content !== 'string') {
       for (const [p, text] of Object.entries(content.files ?? {})) writeFileAtomic(p, text);
+      if (plans) {
+        // a file in the way is set aside in the folder's .trash/, never written over
+        try {
+          const { moved, setAside } = applyPlans(deckDir, plans.filter(planMoves), { aside: true });
+          if (moved) console.log(`  ${dir}: ${moved} recording file${moved === 1 ? '' : 's'} moved with the slides`);
+          for (const p of setAside) console.log(`  ${dir}: ${p} was in the way, set aside rather than overwritten`);
+        } catch (e) { console.log(`  ${dir}: the voice folders could not follow — ${oneline(e)}; they are as they were`); }
+      }
     }
     writeDeck(typeof content === 'string' ? content : content.deck);
     console.log(`  ${dir} → ${JSON.stringify(history.counts())}`);
@@ -2840,6 +2864,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (wav.length) {
         let engine = null; let voice = null; let manifest = false; let stale = 0; let mine = false;
         let drift = [];
+        let realign = null;
         try {
           const m = JSON.parse(readFileSync(resolve(root2, rel, 'manifest.json'), 'utf8'));
           engine = m.engine ?? null; voice = m.voice ?? null; manifest = true; mine = m.recorder === 'mic';
@@ -2850,6 +2875,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
             // …and which, and how (#850): the V panel and narrate --check
             // say "the [click] moved" rather than only "different notes"
             drift = trackDrift(m, deck).drift;
+            // …and whether those recordings are only in the wrong place (#916):
+            // the deck was reordered outside the slide ops, and each one's
+            // stored words say which slide it belongs to now
+            realign = realignMoves(m, deck);
           }
         } catch { /* a folder recorded by hand has no manifest, and needs none */ }
         seen.push({
@@ -2868,6 +2897,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
           manifest,
           mine,
           drift,
+          ...(realign?.moves.length ? { realign: { moves: realign.moves, said: realign.said } } : {}),
           // what `decklight video` can render from: a manifest, or a
           // whole-slide file to read off the disk, which is what your own
           // voice leaves (folderNarration). Beats alone render nothing.
@@ -2886,6 +2916,42 @@ export async function editMain(args, { onListen = null, client } = {}) {
       }
     }
     return json(200, { ok: true, tracks: seen });
+  }
+
+  /**
+   * `POST /deck/edit/narration/realign` — `{ dir }`: move a track's recordings
+   * back onto the slides they were recorded from (#916), after a reorder this
+   * server did not make (an agent, an editor, a hand-pasted section). The
+   * moves are worked out here, from the manifest and the deck as they are
+   * now, never taken from the page. One undo entry, the deck unchanged in
+   * it, so Z puts the folder back. A rename that would overwrite a file
+   * outside the plan refuses the whole realign and says which.
+   */
+  function realignRoute({ body, json }) {
+    const { dir: want } = JSON.parse(body || '{}');
+    if (typeof want !== 'string' || !want.trim() || want.length > 200 || /^[/\\]/.test(want)
+        || /^[a-zA-Z]:/.test(want) || want.split(/[/\\]/).includes('..')) {
+      return json(400, { ok: false, error: 'bad narration folder' });
+    }
+    const deckDir = dirname(deckPath);
+    const rel = want.trim().replace(/^\.\//, '').replace(/\/+$/, '');
+    if (!voiceFolders(deckPath, configuredTrackDirs(readDeck())).includes(rel)) {
+      return json(404, { ok: false, error: `${rel}/ is not one of this deck's voice folders` });
+    }
+    let m = null;
+    try { m = JSON.parse(readFileSync(resolve(deckDir, rel, 'manifest.json'), 'utf8')); } catch { /* said below */ }
+    if (!Array.isArray(m?.slides)) return json(409, { ok: false, error: `${rel}/ has no manifest — nothing records which slide each take was read from` });
+    const cur = readDeck();
+    const { moves, said } = realignMoves(m, cur);
+    if (!moves.length) return json(200, { ok: true, moved: 0, said: 'every recording is already on its slide', ...history.counts() });
+    const plan = planFolder(deckDir, { dir: rel, pairs: moves });
+    if (plan.conflicts.length) return json(409, { ok: false, error: `${plan.conflicts[0]} — nothing was moved` });
+    if (!planMoves(plan)) return json(200, { ok: true, moved: 0, said: 'every recording is already on its slide', ...history.counts() });
+    // the folder first, the undo entry once it has moved: a failed move is put back, and leaves nothing to undo
+    try { applyPlans(deckDir, [plan]); } catch (e) { return json(409, { ok: false, error: oneline(e), ...history.counts() }); }
+    history.record({ deck: cur, voices: [plan.inverse] });
+    console.log(`  narration: ${rel}/ realigned — ${said}`);
+    return json(200, { ok: true, moved: moves.filter(([, t]) => t !== null).length, said, ...history.counts() });
   }
 
   // ── AI agents — the one-shot editing task behind A ───────────────────────
@@ -3335,6 +3401,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
     'POST /deck/edit/narration/record': recordRoute,
     'GET /deck/edit/narration/tracks': tracksRoute,
+    'POST /deck/edit/narration/realign': realignRoute,
 
     'POST /deck/edit/agent': agentRoute,
     'POST /deck/edit/design-system/migrate': designSystemMigrateRoute,
