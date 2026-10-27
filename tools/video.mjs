@@ -64,6 +64,7 @@ import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs'
 import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } from './tts-engines.mjs';
 import { loadTtsConfig } from './tts-setup.mjs';
 import { createTtsCache } from './tts-cache.mjs';
+import { faceLayout } from './face-layout.mjs';
 
 const run = promisify(execFile);
 
@@ -109,6 +110,10 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --slides <a-b>       only this slide range (1-based, inclusive)
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first —
                        over the --slides range only, when one is given
+  --no-face            leave out the face you filmed while recording the
+                       narration. By default it shows the way each slide says
+                       (data-face: the corner medallion, hidden, or full
+                       screen at a zoom), in time with your voice
 
 Every slide BUILDS, one frame per step, and each build fades or slides in as it
 does in the deck. A slide that animates (an SVG <animate>, a looping CSS
@@ -224,6 +229,31 @@ export function voiceoverProgress(onSlide) {
 export function voiceoverArgs(deck, { narration, slides } = {}) {
   return [fileURLToPath(new URL('./voiceover.mjs', import.meta.url)), deck,
     ...(narration ? ['-o', resolve(narration)] : []), ...(slides ? ['--slides', slides] : [])];
+}
+
+/** Per-slide `data-face` (FACE_LAYOUT), read off the open tag like extractHolds; null where there is none. */
+export function extractFaces(html) {
+  return sectionBodies(html).map((sec) => {
+    const tag = sec.slice(0, sec.indexOf('>'));
+    return tag.match(/\sdata-face="([^"]*)"/)?.[1] ?? null;
+  });
+}
+
+/** The medallion in the frame: the deck's own size and corner margin (CSS px, and a frame is a window of them). */
+export const FACE_CORNER_PX = { size: 220, margin: 28 };
+
+/**
+ * The filmed face for one planned frame, or null: the clip beside its audio
+ * (slide-NN-KK.mp4 beside slide-NN-KK.wav), on a slide whose manifest entry
+ * says it was filmed, placed as the slide's `data-face` says for that beat.
+ */
+export function faceFor(p, { narration, faces, exists = existsSync }) {
+  if (!p.audio || !narration?.slides?.[p.slide - 1]?.face) return null;
+  const clip = join(narration.dir, p.audio.replace(/\.[^.]+$/, '.mp4'));
+  if (!exists(clip)) return null;
+  const beat = Number(/^slide-\d+-(\d+)\./.exec(basename(p.audio))?.[1] ?? 1);
+  const at = faceLayout(faces?.[p.slide - 1], beat);
+  return at.kind === 'hide' ? null : { clip, ...at };
 }
 
 /** Per-slide hold seconds: data-video-hold="8" on the section, else the default. */
@@ -439,12 +469,13 @@ export const ENCODINGS = {
  * goes discontinuous. -t bounds both the infinite loop and the infinite
  * anullsrc (-shortest can't end a segment whose streams are both endless).
  */
-export function segmentArgs({ frame, frames = null, audio, duration, fps, out, pad = TAIL_SECONDS, format = 'mp4', quality = 'standard' }) {
+export function segmentArgs({ frame, frames = null, audio, duration, fps, out, pad = TAIL_SECONDS, format = 'mp4', quality = 'standard', face = null, size = null }) {
   const enc = ENCODINGS[format];
   // A moving segment reads a numbered sequence (`frames: { pattern, count }`)
   // and holds its last picture for whatever the sequence does not cover, so
   // the segment is as long as the still would have been.
   const rest = frames ? Math.max(0, duration - frames.count / fps) : 0;
+  if (face && audio && size) return faceSegmentArgs({ frame, frames, rest, audio, duration, fps, out, pad, enc, quality, face, size });
   return [
     '-y', ...(frames
       ? ['-framerate', String(fps), '-i', frames.pattern]
@@ -454,6 +485,43 @@ export function segmentArgs({ frame, frames = null, audio, duration, fps, out, p
       : ['-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=${enc.sampleRate}`]),
     ...(rest > 0 ? ['-vf', `tpad=stop_mode=clone:stop_duration=${rest.toFixed(3)}`] : []),
     ...enc.video(quality, !!frames), ...enc.audio(quality),
+    '-t', Number(duration).toFixed(3), ...(enc.faststart ? ['-movflags', '+faststart'] : []), out,
+  ];
+}
+
+/**
+ * segmentArgs with your face in it: the medallion over the still, cut round
+ * in the corner (`corner`), or the face alone over the whole frame, cropped
+ * to fill it and zoomed on itself the way the deck's `transform-origin: 50%
+ * 40%` zooms it (`full`). The clip is exactly as long as the audio (the
+ * recorder made it so); it holds its last frame through the slide's breath,
+ * as the deck holds it between beats. Same encoder, frame rate and size as
+ * every other segment, so the concat's `-c copy` still joins them.
+ */
+function faceSegmentArgs({ frame, frames, rest, audio, duration, fps, out, pad, enc, quality, face, size }) {
+  const { w, h } = size;
+  const hold = `tpad=stop_mode=clone:stop_duration=${Number(pad + 1).toFixed(3)}`;
+  let graph;
+  if (face.kind === 'full') {
+    const zw = Math.ceil((w * face.zoom) / 2) * 2;
+    const zh = Math.ceil((h * face.zoom) / 2) * 2;
+    graph = `[2:v]fps=${fps},scale=${zw}:${zh}:force_original_aspect_ratio=increase,`
+      + `crop=${w}:${h}:(iw-${w})/2:(ih-${h})*0.4,setsar=1,${hold},format=yuv420p[v]`;
+  } else {
+    const d = FACE_CORNER_PX.size;
+    const m = FACE_CORNER_PX.margin;
+    graph = `[2:v]fps=${fps},scale=${d}:${d}:force_original_aspect_ratio=increase,crop=${d}:${d},setsar=1,${hold},format=yuva420p,`
+      + `geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lte(hypot(X-${d / 2},Y-${d / 2}),${d / 2}),255,0)'[f];`
+      + `[0:v]${rest > 0 ? `tpad=stop_mode=clone:stop_duration=${rest.toFixed(3)},` : ''}setsar=1[s];[s][f]overlay=${w - d - m}:${h - d - m}:eof_action=repeat,format=yuv420p[v]`;
+  }
+  return [
+    '-y', ...(frames
+      ? ['-framerate', String(fps), '-i', frames.pattern]
+      : ['-loop', '1', '-framerate', String(fps), '-i', frame]),
+    '-i', audio, '-i', face.clip,
+    '-filter_complex', `${graph};[1:a]apad=pad_dur=${pad}[a]`,
+    '-map', '[v]', '-map', '[a]', '-r', String(fps),
+    ...enc.video(quality, true), ...enc.audio(quality),
     '-t', Number(duration).toFixed(3), ...(enc.faststart ? ['-movflags', '+faststart'] : []), out,
   ];
 }
@@ -1057,6 +1125,10 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
         + (plan.length > slideCount ? `, ${plan.length} frames` : '')
         + (narration ? ` (${narration.dir})` : ' (silent)'));
 
+      // your face, where you filmed it, unless --no-face
+      const faces = argv.includes('--no-face') ? null : extractFaces(html);
+      const filmed = faces ? plan.filter((p) => faceFor(p, { narration, faces })).length : 0;
+      if (filmed) log(`  your face: on ${filmed} frame${filmed === 1 ? '' : 's'} (--no-face leaves it out)`);
       const segments = [];
       const motion = motionPlan(plan, kinds, fps);
       let page = null;   // the one CDP page every moving frame shares, opened on first need
@@ -1101,9 +1173,11 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
             if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
           }
           const seg = join(work, `seg-${id}.${ENCODINGS[format].ext}`);
+          const face = faces ? faceFor(p, { narration, faces }) : null;
           await exec('ffmpeg', segmentArgs({
             frame, frames, duration: p.duration, pad: p.pad, fps, out: seg, format, quality,
             audio: p.audio ? join(narration.dir, p.audio) : null,
+            face, size: { w, h },
           }));
           segments.push(seg);
           const where = p.step === LAST_STEP ? '' : ` · build ${p.step}`;

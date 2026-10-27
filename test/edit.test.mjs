@@ -1350,6 +1350,86 @@ test('POST /deck/edit/narration/record?seg writes slide-NN-KK.wav — and refuse
   assert.equal(readFileSync(path.join(dir, 'voiceover', 'slide-04-02.visemes.json'), 'utf8'), tl);
 });
 
+// ── the Camera option: your face, filmed with every beat ─────────────────
+/** A 16-bit mono WAV of `secs` of silence. */
+const silentWav = (secs, rate = 24000) => {
+  const data = Math.round(secs * rate) * 2;
+  const b = Buffer.alloc(44 + data);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + data, 4); b.write('WAVE', 8);
+  b.write('fmt ', 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(rate, 24); b.writeUInt32LE(rate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write('data', 36); b.writeUInt32LE(data, 40);
+  return b;
+};
+const ffmpegDir = (() => { try { return path.dirname(execFileSync('which', ['ffmpeg'], { encoding: 'utf8' }).trim()); } catch { return null; } })();
+
+test('POST /deck/edit/narration/record?kind=face makes each beat\'s clip, joins the slide\'s, and a missing beat takes the slide\'s away', { skip: !ffmpegDir || process.platform === 'win32' }, async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: `${ffmpegDir}:${dir}` } });
+  const take = (secs) => execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=30', '-t', String(secs), '-c:v', 'libvpx', '-f', 'webm', '-'], { maxBuffer: 1 << 26 });
+  const post = (qs, body) => fetch(`${base}/deck/edit/narration/record?${qs}&dir=voices%2Fme`, { method: 'POST', ...(body ? { body } : {}) }).then((r) => r.json());
+  const me = (f) => path.join(dir, 'voices', 'me', f);
+
+  // the WAV first, then the beat's film: the clip comes out as long as the WAV
+  await post('slide=3&kind=wav&seg=1', silentWav(1.2));
+  assert.deepEqual(await post('slide=3&kind=face&seg=1', take(2)), { ok: true, dir: 'voices/me', file: 'slide-03-01.mp4' });
+  await post('slide=3&kind=wav&seg=2', silentWav(0.8));
+  assert.equal((await post('slide=3&kind=face&seg=2', take(0.5))).ok, true);
+  const j = await post('slide=3&kind=face-join&segs=1,2');
+  assert.deepEqual(j, { ok: true, dir: 'voices/me', file: 'slide-03.mp4' });
+  const secs = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', me('slide-03.mp4')]).toString());
+  assert.ok(Math.abs(secs - 2) <= 0.081, `the slide's face runs as long as its voice: ${secs}`);
+  assert.ok(!readdirSync(path.join(dir, 'voices', 'me')).some((f) => /\.(take|tmp\.mp4|list\.txt)$/.test(f)), 'no scratch left beside the clips');
+
+  // a beat of the slide recorded without the camera: the slide's clip would
+  // show a face saying something else, so it goes, and the answer says which
+  const miss = await post('slide=3&kind=face-join&segs=1,2,3');
+  assert.deepEqual(miss, { ok: false, dir: 'voices/me', missing: [3] });
+  assert.equal(existsSync(me('slide-03.mp4')), false);
+
+  // and the shape is checked, like seg's
+  for (const bad of ['segs=', 'segs=0', 'segs=1,x', 'segs=1000']) {
+    assert.equal((await fetch(`${base}/deck/edit/narration/record?slide=3&kind=face-join&${bad}&dir=voices%2Fme`, { method: 'POST' })).status, 400, bad);
+  }
+});
+
+test('POST /deck/edit/narration/record?kind=face without ffmpeg says so, and writes nothing', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const r = await fetch(`${base}/deck/edit/narration/record?slide=1&kind=face&dir=voices%2Fme`, { method: 'POST', body: 'webm' });
+  assert.equal(r.status, 501);
+  assert.match((await r.json()).error, /ffmpeg/);
+  assert.equal(existsSync(path.join(dir, 'voices', 'me', 'slide-01.mp4')), false);
+});
+
+test('a slide filmed, then recorded again without the camera, loses its face, and only the face it was filmed with', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const me = path.join(dir, 'voices', 'me');
+  mkdirSync(me, { recursive: true });
+  const manifest = (slides) => fetch(`${base}/deck/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fme`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mine: true, range: [1, 1], slides }),
+  }).then((r) => r.json());
+
+  for (const f of ['slide-01.mp4', 'slide-01-01.mp4', 'slide-01-02.mp4']) writeFileSync(path.join(me, f), 'clip');
+  assert.equal((await manifest({ 1: { segments: [1, 2], face: true } })).ok, true);
+  assert.equal(JSON.parse(readFileSync(path.join(me, 'manifest.json'), 'utf8')).slides[0].face, true);
+  assert.equal(readdirSync(me).filter((f) => f.endsWith('.mp4')).length, 3, 'filmed: kept');
+
+  await manifest({ 1: { segments: [1, 2] } });
+  assert.deepEqual(readdirSync(me).filter((f) => f.endsWith('.mp4')), [], 'recorded again voice only: its face goes');
+  assert.equal('face' in JSON.parse(readFileSync(path.join(me, 'manifest.json'), 'utf8')).slides[0], false);
+
+  // a talking head `decklight lipsync` rendered is not the recorder's to take
+  writeFileSync(path.join(me, 'slide-01.mp4'), 'rendered');
+  await manifest({ 1: { segments: [1, 2] } });
+  assert.equal(readFileSync(path.join(me, 'slide-01.mp4'), 'utf8'), 'rendered');
+});
+
 test('POST /deck/edit/narration/record names the folder only — never the file, and never one outside the deck', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);

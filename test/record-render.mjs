@@ -27,10 +27,10 @@
 // one thing a headless machine has no honest version of — a person and a
 // microphone. The refusal path gets its own run, where getUserMedia rejects.
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import http from 'node:http';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, rmSync, existsSync, statSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, rmSync, existsSync, statSync, symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -73,6 +73,25 @@ const DECK = `<!doctype html>
       Object.assign(new DOMException('Permission denied', 'NotAllowedError')));
   } else if (mode !== 'real') {
     navigator.mediaDevices.getUserMedia = async (constraints) => {
+      // ── the camera (?cam): a canvas, for the reason the microphone is an
+      // oscillator. A REAL MediaStream of REAL frames, so MediaRecorder, the
+      // upload and ffmpeg on the server are all the shipping path. ?cam=blocked
+      // refuses it, the way a browser does when the camera is not allowed.
+      if (constraints?.video) {
+        if (params.get('cam') === 'blocked') throw new DOMException('Permission denied', 'NotAllowedError');
+        const c = document.createElement('canvas');
+        c.width = 320; c.height = 240;
+        const g = c.getContext('2d');
+        let n = 0;
+        window.__camTimer = setInterval(() => {
+          g.fillStyle = 'hsl(' + ((n++ * 7) % 360) + ', 70%, 50%)';
+          g.fillRect(0, 0, 320, 240);
+          g.fillStyle = '#fff';
+          g.fillRect(140 + (n % 40), 100, 40, 40);
+        }, 40);
+        window.__camAsked = constraints.video;
+        return c.captureStream(25);
+      }
       window.__gum = constraints;   // what the recorder asked the microphone for
       const ctx = new AudioContext();
       if (ctx.state === 'suspended') await ctx.resume();
@@ -99,6 +118,16 @@ const DECK = `<!doctype html>
       window.__micCtx = ctx;   // kept alive: a collected context stops the tone
       return dest.stream;
     };
+  }
+  // a camera in the device list, before it is allowed, as a browser lists one
+  if (params.has('cam')) {
+    navigator.mediaDevices.enumerateDevices = async () => [
+      { kind: 'audioinput', deviceId: 'mic', label: '', groupId: 'a' },
+      { kind: 'videoinput', deviceId: 'cam', label: '', groupId: 'b' },
+    ];
+  } else if (params.has('nocam')) {
+    // …and none, whatever this machine has plugged in
+    navigator.mediaDevices.enumerateDevices = async () => [{ kind: 'audioinput', deviceId: 'mic', label: '', groupId: 'a' }];
   }
   try {
     localStorage.setItem('decklight-onboarded', '1');
@@ -190,6 +219,16 @@ const DECK = `<!doctype html>
       r.clash = !!card()?.querySelector('.rec-warn');
       r.warnText = [...(card()?.querySelectorAll('.rec-warn') ?? [])].map((w) => w.textContent).join(' | ');
       r.canStart = !!card()?.querySelector('.narr-row');
+      // ?cam: the Camera row, on (?camera turned it on for this visit) with its preview
+      if (params.has('cam')) {
+        r.camRow = !!(await until(() => card()?.querySelector('.rec-cam-row'), 5000));
+        r.camOn = card()?.querySelector('.rec-cam-row [data-face="on"]')?.classList.contains('on') ?? null;
+        r.camPreview = !!(await until(() => card()?.querySelector('.rec-cam-slot video'), 3000));
+        r.camSays = card()?.querySelector('.rec-cam-says')?.textContent ?? null;
+      } else {
+        await wait(300);
+        r.camRow = !!card()?.querySelector('.rec-cam-row');
+      }
       if (params.has('introonly')) throw 'introonly';
       r.introOpts = [...(card()?.querySelectorAll('.rec-opts .rec-seg button.on') ?? [])].map((b) => b.textContent);
       r.introWhy = card()?.querySelector('.rec-rate-says')?.textContent ?? '';
@@ -224,6 +263,8 @@ const DECK = `<!doctype html>
             r.cutLine = document.querySelector('.decklight-mic .rec-cut')?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
             r.progress = [...document.querySelectorAll('.decklight-mic .rec-progress span')].map((e) => e.className).join(',');
             r.clock = document.querySelector('.decklight-mic .rec-clock')?.textContent ?? null;
+            // you, as the camera films you, beside the words
+            r.camMini = !!document.querySelector('.decklight-mic .rec-cam-mini video');
           }
           if (i === 0 && params.has('early')) {
             // → during the 3-2-1 waits for the take, it does not skip the beat
@@ -280,6 +321,10 @@ const DECK = `<!doctype html>
         // the review: one row per slide recorded, with its length and a play button
         r.doneRows = [...(card()?.querySelectorAll('.rec-take:not(.rec-take-beat)') ?? [])].map((e) => e.textContent.replace(/\\s+/g, ' ').trim());
         r.donePlays = card()?.querySelectorAll('.rec-take:not(.rec-take-beat) .rec-play').length ?? 0;
+        r.faceLine = card()?.querySelector('.rec-done-face')?.textContent ?? null;
+        r.faceRows = card()?.querySelectorAll('.rec-take-face').length ?? 0;
+        r.doneWarn = [...(card()?.querySelectorAll('.rec-warn') ?? [])].map((w) => w.textContent).join(' | ');
+        try { r.charMode = JSON.parse(localStorage.getItem('decklight-character:' + location.pathname) || 'null')?.mode ?? null; } catch (e) { r.charMode = null; }
         // …and a slide's beats folded under it, opened, each heard and redone alone
         card()?.querySelector('[data-beats="1"]')?.click();
         r.doneBeatRows = [...(card()?.querySelectorAll('.rec-take-beat:not([hidden])') ?? [])]
@@ -342,6 +387,14 @@ process.on('exit', () => {
 if (!existsSync(path.join(root, 'dist', 'decklight.js'))) fail('dist/decklight.js is missing — run npm run build');
 writeFileSync(path.join(tmp, 'deck.html'), DECK);
 for (const f of ['decklight.js', 'decklight.css']) copyFileSync(path.join(root, 'dist', f), path.join(tmp, f));
+
+// ffmpeg beside the deck, the one binary the narrowed PATH lets through: the
+// server makes the filmed face into clips with it. Without one, the face
+// checks are skipped, said as such, never passed.
+const which = (bin) => { try { return execFileSync('which', [bin], { encoding: 'utf8' }).trim() || null; } catch { return null; } };
+const FFMPEG = process.platform === 'win32' ? null : which('ffmpeg');
+const FFPROBE = FFMPEG ? which('ffprobe') : null;
+if (FFMPEG) symlinkSync(FFMPEG, path.join(tmp, 'ffmpeg'));
 
 // --remote: the QR on the recorder's card is only offered when the remote is
 // on. The phone's taps go over loopback, which answers either way.
@@ -670,8 +723,10 @@ check('beat again', JSON.stringify(beatAgain.steps) === JSON.stringify(['1.0', '
 `read ${beatAgain.steps.join(' ')} · counted ${(beatAgain.counted ?? []).map((c) => c ?? '·').join('')} · wrote ${wavs(againDir).join(' ') || '(nothing)'}`);
 
 // ── per slide every visit: a "per beat" an older recorder stored is ignored ──
-const fresh = await run('tone', '', 'keys', '&storedtakes=beat&introonly');
+const fresh = await run('tone', '', 'keys', '&storedtakes=beat&introonly&nocam');
 check('default', /^One take per slide/.test(fresh.howSum ?? ''), `the card says "${fresh.howSum}"`);
+// no camera in the device list, no Camera row
+check('no camera', fresh.camRow === false, `a machine with no camera is not offered one: row=${fresh.camRow}`);
 
 // ── the plan card's beats are buttons: a click picks one alone ──────────────
 // the same take the row's ← → ⇧← ⇧→ gave above, by its words; ⇧click runs
@@ -719,6 +774,41 @@ check('edit', edited.editBox === 'Beat two.'
   && JSON.parse(readFileSync(path.join(tmp, 'edited', 'manifest.json'), 'utf8')).slides[0]?.beats?.[1] === 'Beat two, and then some.',
 `box held "${edited.editBox}" · read ${edited.beats.join(' | ')} at ${edited.steps.join(' ')}`
   + ` · counted ${(edited.counted ?? []).map((c) => c ?? '·').join('')} · notes on disk: ${slide1Notes.replace(/\s+/g, ' ').trim()}`);
+
+// ── the Camera option: your face, filmed with every beat ─────────────────
+// ?camera turns it on for the visit, as narrate --mic --camera does. Per
+// slide, ⇧⌫ on slide 1's beat two drops that beat's film with its audio, so
+// every beat ends with one clip, as long as its WAV, and the slide's is
+// joined from them.
+if (!FFMPEG || !FFPROBE) {
+  skip('face', 'no ffmpeg on this machine: the server cannot make the clips it saves');
+} else {
+  const filmed = await run('tone', 'filmed', 'keys', '&cam&camera&keys=R,S,R,R&countdown=0');
+  const fDir = path.join(tmp, 'filmed');
+  const mp4s = existsSync(fDir) ? readdirSync(fDir).filter((f) => f.endsWith('.mp4')).sort() : [];
+  const secs = (f) => Number(execFileSync(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path.join(fDir, f)]).toString());
+  const wavSecs = (f) => (readFileSync(path.join(fDir, f)).length - 44) / 48000;
+  const drift = mp4s.map((f) => Math.abs(secs(f) - wavSecs(f.replace('.mp4', '.wav'))));
+  const fManifest = existsSync(path.join(fDir, 'manifest.json')) ? JSON.parse(readFileSync(path.join(fDir, 'manifest.json'), 'utf8')) : {};
+  check('face card', filmed.camRow === true && filmed.camOn === true && filmed.camPreview === true && filmed.camMini === true,
+    `row=${filmed.camRow} · on=${filmed.camOn} · preview on the plan=${filmed.camPreview} · and beside the words=${filmed.camMini}`);
+  check('face files', JSON.stringify(mp4s) === JSON.stringify(['slide-01-01.mp4', 'slide-01-02.mp4', 'slide-01-03.mp4', 'slide-01.mp4', 'slide-02.mp4'])
+    && JSON.stringify(wavs(fDir)) === JSON.stringify(files),
+  `beside the audio: ${mp4s.join(' ') || '(nothing)'}`);
+  // a frame is 1/25 s; the slide's clip is three beats' worth of rounding
+  check('face sync', drift.length > 0 && drift.every((d) => d <= 0.125),
+    `each clip as long as its WAV: ${mp4s.map((f, k) => `${f.replace('slide-0', '')}±${drift[k].toFixed(3)}`).join(' ')}`);
+  check('face done', fManifest.slides?.[0]?.face === true && fManifest.slides?.[1]?.face === true && !fManifest.slides?.[2]
+    && /your face on 2 slides/.test(filmed.faceLine ?? '') && filmed.faceRows === 2 && filmed.charMode === 'video',
+  `manifest face=${fManifest.slides?.map((e) => e?.face ?? '-').join(',')} · card "${filmed.faceLine}" · character ${filmed.charMode}`);
+
+  // a camera refused costs the face, never the take: the voice is recorded, and the card says why
+  const refused = await run('tone', 'refused', 'keys', '&cam=blocked&camera&countdown=0');
+  const rDir = path.join(tmp, 'refused');
+  check('face refused', refused.finished === true && JSON.stringify(wavs(rDir)) === JSON.stringify(files)
+    && !readdirSync(rDir).some((f) => f.endsWith('.mp4')) && /refused/.test(refused.camSays ?? '') && /not filmed/.test(refused.doneWarn ?? ''),
+  `the voice: ${wavs(rDir).length} files · the card: "${refused.camSays}" · done: "${refused.doneWarn}"`);
+}
 
 if (bad) fail(`${bad} check${bad === 1 ? '' : 's'} failed`);
 console.log(`record-render: PASS (${((Date.now() - t0) / 1000).toFixed(1)}s)`

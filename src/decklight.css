@@ -2357,6 +2357,14 @@
 .decklight-mic .rec-strip .rec-where { flex: 1 1 auto; text-align: center; }
 .decklight-mic .rec-clock { font-weight: 500; letter-spacing: 0; color: #e8eaee; font-variant-numeric: tabular-nums; }
 .decklight-mic .rec-meter { display: flex; align-items: center; gap: 8px; min-width: 150px; justify-content: flex-end; opacity: .85; }
+/* the Camera option: you, as the camera films you, mirrored as a face
+   expects (the film is not). A thumbnail on the plan card, a smaller one in
+   the strip beside REC while you read */
+.decklight-mic .rec-cam-slot:empty { display: none; }
+.decklight-mic .rec-cam-row .rec-cam-slot { width: 192px; aspect-ratio: 16 / 9; margin: 4px 12px 2px; border-radius: 8px; overflow: hidden; background: #000; }
+.decklight-mic .rec-cam-row .rec-cam-says { padding: 0 12px; }
+.decklight-mic .rec-strip .rec-cam-mini { flex: none; width: 64px; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #000; }
+.decklight-mic .rec-cam-view { display: block; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 .decklight-mic .rec-meter .rec-level { width: 120px; margin: 0; }
 .decklight-mic .rec-progress { display: flex; gap: 3px; margin: 0 12px 8px; }
 .decklight-mic .rec-progress span { flex: 1 1 0; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .12); }
@@ -2806,6 +2814,30 @@
 .decklight-character.mode-video .still.missing { visibility: hidden; }
 .decklight-character.mode-video video { opacity: 0; transition: opacity .12s; }
 .decklight-character.mode-video video.live { opacity: 1; }
+/* where a filmed face shows (FACE_LAYOUT): data-face="hide" puts the overlay
+   away for the beat (the voice plays on); data-face="full 1.4" gives it the
+   whole deck, the slide stepped aside the way solo does it, the face cropped
+   to fill the frame and zoomed on itself. Above solo in the cascade, so a
+   full-screen beat in a solo deck is full screen. */
+.decklight-character.face-hide { visibility: hidden; }
+.decklight.decklight-face-full .decklight-stage,
+.decklight.decklight-face-full .decklight-progress,
+.decklight.decklight-face-full .decklight-slide-number { visibility: hidden; }
+.decklight .decklight-character.face-full {
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  filter: none;
+  background: #000;
+}
+.decklight-character.face-full.mode-video .still { display: none; }
+.decklight-character.face-full.mode-video video {
+  border-radius: 0;
+  transform: scale(var(--face-zoom, 1));
+  transform-origin: 50% 40%;
+}
 .decklight-character [data-mouth] { visibility: hidden; }
 .decklight-character[data-viseme="A"] [data-mouth="A"],
 .decklight-character[data-viseme="B"] [data-mouth="B"],

@@ -31,7 +31,7 @@ import { createChoiceCard } from './choice.js';
 import { createConceptTools } from './concept-tools.js';
 import { createStyleClip } from './style-clip.js';
 import { brandSnapper } from './colorpicker.js';
-import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES } from '../../tools/video-options.mjs';
+import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE } from '../../tools/video-options.mjs';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
 import { createDebugLog, stashDebug, unstashDebug } from './debuglog.js';
@@ -3177,12 +3177,13 @@ export function init(userConfig = {}) {
         { key: 'format', name: 'Format', options: VIDEO_FORMATS, index: at(VIDEO_FORMATS, prefs.format, 'mp4') },
         { key: 'quality', name: 'Quality', options: VIDEO_QUALITIES, index: at(VIDEO_QUALITIES, prefs.quality, 'standard') },
         { key: 'subtitles', name: 'Subtitles', options: VIDEO_SUBTITLES, index: at(VIDEO_SUBTITLES, prefs.subtitles, 'none') },
+        { key: 'face', name: 'Face', options: VIDEO_FACE, index: at(VIDEO_FACE, prefs.face, 'on') },
       ],
-      onPick: (slides, { voice: v, format, quality, subtitles }) => {
+      onPick: (slides, { voice: v, format, quality, subtitles, face }) => {
         // Remembered here and not per deck: a format is a habit of the person
         // exporting, and the voice is not remembered at all — it follows V.
-        writeJson(VIDEO_PREFS, { format, quality, subtitles });   // private mode: not remembered
-        editmode.exportDeck('video', { slides, voice: v, format, quality, subtitles });
+        writeJson(VIDEO_PREFS, { format, quality, subtitles, face });   // private mode: not remembered
+        editmode.exportDeck('video', { slides, voice: v, format, quality, subtitles, face });
       },
     });
   }

@@ -1938,9 +1938,10 @@
         r.startsOnTheRecordedTrack = /Samantha · say — voiceover\//.test(settingRow('Voice'));
         r.ownTakeNotOffered = !/voices\/beatsonly/.test(card()?.textContent ?? '');
         r.defaultsAreMp4Standard = /MP4/.test(settingRow('Format')) && /Standard/.test(settingRow('Quality'))
-          && /None/.test(settingRow('Subtitles'));
+          && /None/.test(settingRow('Subtitles')) && /Your face/.test(settingRow('Face'));
         press('ArrowRight');           // on the button, ← → change nothing
         r.arrowsLeaveRangesAlone = /MP4/.test(settingRow('Format')) && /Samantha/.test(settingRow('Voice'));
+        press('ArrowUp');              // Face, left on
         press('ArrowUp');              // Subtitles
         press('ArrowRight');           // → in the video
         press('ArrowUp');              // Quality
@@ -1991,7 +1992,7 @@
         r.postsTheRange = sent?.kind === 'video' && sent.slides === '2-3' && !('narration' in sent)
           && sent.synthesize?.engine === 'piper' && sent.synthesize.model === 'en_US-ryan-high'
           && sent.synthesize.voice === 'en_US-ryan-high' && sent.synthesize.dir === 'voices/en-us-ryan-high'
-          && sent.format === 'mov' && sent.quality === 'standard' && sent.subtitles === 'embed';
+          && sent.format === 'mov' && sent.quality === 'standard' && sent.subtitles === 'embed' && sent.face === 'on';
         r.toldTheTheme = sent?.theme === 'eclipse';
         r.remembersTheFormat = /"format":"mov"/.test(localStorage.getItem('decklight:video-export') ?? '');
         r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t) && /its voice is in voices\/en-us-ryan-high\//.test(t));

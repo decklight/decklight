@@ -18,7 +18,7 @@ import { closeOnBackdrop } from './overlay.js';
 import { thinking } from './thinking.js';
 
 /** What to ask MediaRecorder for, best first: mp4 is what every tool reads; webm is Chrome's own. */
-const TYPES = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+export const TYPES = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
 
 /** Why this browser cannot film, in the words of the thing to do about it — null when it can. */
 export function cameraUnavailable(win = globalThis) {
@@ -30,7 +30,7 @@ export function cameraUnavailable(win = globalThis) {
 }
 
 /** The browser's refusal, said as what to do about it. */
-function refusal(e) {
+export function refusal(e) {
   const n = e?.name;
   if (n === 'NotAllowedError' || n === 'SecurityError') return 'the camera was refused — allow it for this page (the camera icon in the address bar), then try again';
   if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'no camera found on this machine';

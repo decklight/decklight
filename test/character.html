@@ -188,6 +188,63 @@ try {
     window.fetch = realFetch;
   }
 
+  // ── your face, filmed with the recording (FACE_LAYOUT) ───────────────────
+  // A filmed track has a clip per beat beside each beat's audio: the head
+  // plays THAT one, never the bridge, and the slide's data-face places it,
+  // beat by beat: hidden, full screen at a zoom, the corner again.
+  {
+    const realFetch = window.fetch;
+    const asked = [];
+    window.fetch = async (url, init = {}) => {
+      const u = String(url);
+      asked.push(u);
+      if (/voices\/filmed\/slide-02(-0\d)?\.mp4$/.test(u)) return new Response('mp4', { status: 200 });
+      if (/\.mp4$/.test(u)) return new Response('nope', { status: 404 });
+      if (u.endsWith('/ping')) return new Response(JSON.stringify({ ok: true, engines: { viseme: false, video: ['wav2lip'] } }), { status: 200 });
+      return realFetch(url, init);
+    };
+    const faceRoot = document.createElement('div');
+    document.body.appendChild(faceRoot);
+    const rec = createCharacter({
+      root: faceRoot, config: { narration: { character: { bridgeUrl: 'http://bridge.test' } } }, debugLog: () => {}, toast: () => {},
+      faceOf: (sl) => (sl === 2 ? 'hide 2:full 1.5 3:corner' : null),
+    });
+    rec.setMode('video', { engine: 'wav2lip', portrait: 'default' });
+    rec.attachAudio({ paused: true, ended: false, currentTime: 0, playbackRate: 1, addEventListener() {} });
+    const el = () => faceRoot.querySelector('.decklight-character');
+    const v = () => faceRoot.querySelector('.decklight-character video');
+    const until = async (pred, ms = 5000) => { const t0 = Date.now(); while (!pred() && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 20)); return pred(); };
+    const at = () => [el().classList.contains('face-hide') ? 'hide' : el().classList.contains('face-full') ? 'full' : 'corner',
+      faceRoot.classList.contains('decklight-face-full'), el().style.getPropertyValue('--face-zoom')].join(' ');
+
+    rec.beginSlide({ dir: 'voices/filmed' }, 2, 1, 'voices/filmed/slide-02-01.wav');
+    results.faceBeatClip = await until(() => /voices\/filmed\/slide-02-01\.mp4$/.test(v()?.getAttribute('src') ?? ''));
+    results.faceFilmedNoBridge = !asked.some((u) => u.includes('/video?')) && v()?.dataset.filmed === '1';
+    results.faceBeat1 = at();
+    // between beats, a filmed face holds its last frame rather than blinking out
+    v().dispatchEvent(new Event('playing'));
+    v().dispatchEvent(new Event('ended'));
+    results.faceHoldsLastFrame = v().classList.contains('live');
+    rec.beginSlide({ dir: 'voices/filmed' }, 2, 2, 'voices/filmed/slide-02-02.wav');
+    await until(() => /slide-02-02\.mp4$/.test(v()?.getAttribute('src') ?? ''));
+    results.faceBeat2 = at();
+    rec.beginSlide({ dir: 'voices/filmed' }, 2, 3, 'voices/filmed/slide-02-03.wav');
+    await until(() => /slide-02-03\.mp4$/.test(v()?.getAttribute('src') ?? ''));
+    results.faceBeat3 = at();
+    rec.beginSlide({ dir: 'voices/filmed' }, 2, 2, 'voices/filmed/slide-02-02.wav');
+    await until(() => /slide-02-02\.mp4$/.test(v()?.getAttribute('src') ?? ''));
+    rec.stop();
+    results.faceStopClears = !faceRoot.classList.contains('decklight-face-full') && !el().classList.contains('face-full');
+    // the live voice is always the medallion: data-face is a recorded track's
+    rec.beginSlide({ dir: 'voices/filmed' }, 2, 2, 'voices/filmed/slide-02-02.wav');
+    await until(() => el().classList.contains('face-full'));
+    rec.beginSentence('live|1', null, 'Hi.');
+    results.faceLiveIsCorner = !el().classList.contains('face-full') && !faceRoot.classList.contains('decklight-face-full');
+    rec.stop();
+    faceRoot.remove();
+    window.fetch = realFetch;
+  }
+
   // ── film yourself (src/core/film.js) ─────────────────────────────────────
   // A canvas is the camera (headless has none) and a stand-in MediaRecorder
   // hands back one chunk on stop; the bridge is a stubbed fetch. What is
@@ -279,6 +336,9 @@ try {
     && results.soloDroppedWhenStopped
     && results.recClipFromTheBridge && results.recClipIsThatFile && results.recWarmsAheadOnce
     && results.recNextBeatFromCache && results.recSidecarStillWins
+    && results.faceBeatClip && results.faceFilmedNoBridge
+    && results.faceBeat1 === 'hide false 1' && results.faceBeat2 === 'full true 1.5' && results.faceBeat3 === 'corner false 1'
+    && results.faceStopClears && results.faceLiveIsCorner && results.faceHoldsLastFrame
     && results.filmRefusalSaid && results.filmAskedNoMic && results.filmLivePreview && results.filmTipsShown
     && results.filmReviewPlaysTheTake && results.filmRetakeBackToReady && results.filmBridgeRefusalSaid
     && results.filmPosted && results.filmUsed && results.filmCameraReleased && results.filmOverlayGone;

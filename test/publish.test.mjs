@@ -46,8 +46,10 @@ test('pagesUrl answers null for anything that is not GitHub', () => {
 
 // --- integration fixture ------------------------------------------------------
 
+// maxBuffer: `git show gh-pages:index.html` prints a whole bundled deck, and
+// the runtime inlined in it is past execFileSync's 1 MB default
 const gitIn = (dir) => (...args) =>
-  execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  execFileSync('git', args, { cwd: dir, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim();
 
 /** A working repo with a real deck (runtime + theme copied from this repo,
  *  so the bundler has something to inline) and a bare origin next to it. */

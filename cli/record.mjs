@@ -30,7 +30,7 @@ import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
-const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voices/me] [--slides a-b [--beats k-l]] [--takes slide|beat] [--countdown N] [--remote] [--no-open]
+const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir voices/me] [--slides a-b [--beats k-l]] [--takes slide|beat] [--countdown N] [--camera] [--remote] [--no-open]
   serves the deck over http://127.0.0.1 and opens it with the voice recorder up
 
   the deck reads you its notes one [click] beat at a time; → ends a beat, which
@@ -54,6 +54,12 @@ const USAGE = `usage: decklight narrate --mic <deck.html> [--port 8788] [--dir v
                [per slide, every visit: the card's choice lasts the visit]
   --countdown N  seconds of count-in before each take, 0 for none (0-9)
                [the recorder card's count-in: 3 s, 1 s or off, remembered]
+  --camera     film your face too, beat by beat, beside the audio (the
+               recorder card's Camera option, for this visit; it is offered
+               only when the browser finds a camera). The deck plays it in the
+               character's medallion with your voice, or full screen where a
+               slide says data-face="full 1.4"; decklight video shows it too.
+               Needs ffmpeg to save it                [the card's choice, remembered]
   --remote     the phone remote too, so recording needs no keyboard: its next
                ends a beat and its retake redoes one, and a tap is not in the
                take the way a keystroke is. The recorder's card shows the QR;
@@ -100,13 +106,14 @@ export function dirProblem(name) {
  * record against the slides your audience will see, at the build they will see
  * them at.
  */
-export function recordUrl(port, deckUrl, dir, slides, beats, countdown, takes) {
+export function recordUrl(port, deckUrl, dir, slides, beats, countdown, takes, camera = false) {
   const q = ['record',
     ...(dir ? [`dir=${encodeURIComponent(dir)}`] : []),
     ...(slides ? [`slides=${encodeURIComponent(slides)}`] : []),
     ...(beats ? [`beats=${encodeURIComponent(beats)}`] : []),
     ...(countdown != null ? [`countdown=${countdown}`] : []),
-    ...(takes ? [`takes=${takes}`] : [])].join('&');
+    ...(takes ? [`takes=${takes}`] : []),
+    ...(camera ? ['camera'] : [])].join('&');
   return `http://127.0.0.1:${port}${deckUrl}?${q}`;
 }
 
@@ -198,10 +205,11 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   // missing or outside the served root — say nothing on top of it.
   if (!started) return process.exitCode ?? 1;
 
-  const url = recordUrl(started.port, started.deckUrl, dir, slides, beats, countdown == null ? null : Number(countdown), takes);
+  const url = recordUrl(started.port, started.deckUrl, dir, slides, beats, countdown == null ? null : Number(countdown), takes, args.includes('--camera'));
   out.write(`decklight narrate --mic on ${url}\n`);
   out.write('  V → Record this deck… → With your voice… opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
   if (remote) out.write('  the phone remote is on: scan the QR on the recorder\'s card; next ends a beat, retake redoes it\n');
+  if (args.includes('--camera')) out.write('  the camera is on: your face is filmed with every beat, beside its audio\n');
   out.write(`  files land in ${dir ?? 'voices/me'}, next to the deck.`
     + `${dir ? '' : ' Recording again refreshes it.'}`
     + `${slides ? ` Only slide${/-/.test(slides) ? 's' : ''} ${slides}${beats ? `, beat${/-/.test(beats) ? 's' : ''} ${beats}` : ''}.` : ''}`

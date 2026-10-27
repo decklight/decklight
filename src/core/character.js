@@ -29,6 +29,7 @@
 
 import { DEFAULT_CHARACTER_SVG, VISEMES } from './character-art.js';
 import { readJson, writeJson } from './prefs.js';
+import { faceLayout, FACE_CORNER } from '../../tools/face-layout.mjs';
 
 // ── pure core (unit-tested; no DOM) ─────────────────────────────────────────
 
@@ -83,7 +84,7 @@ export function lipCorrection(d, rate = 1) {
   return { seek: false, rate };
 }
 
-export function createCharacter({ root, config, debugLog, toast }) {
+export function createCharacter({ root, config, debugLog, toast, faceOf = () => null }) {
   const cfg = config.narration?.character ?? {};
   // Same origin by convention (#520), like the voice bridge: `open` proxies
   // `/deck/lipsync/*` to the lip-sync bridge it started; from disk, the bridge's
@@ -129,6 +130,31 @@ export function createCharacter({ root, config, debugLog, toast }) {
   function applySolo() {
     root.classList.toggle('decklight-solo',
       solo && mode !== 'off' && !!el?.classList.contains('show'));
+    applyFace();
+  }
+
+  // ── where a filmed face shows (FACE_LAYOUT) ─────────────────────────────
+  // `data-face` on a slide: the medallion (corner), nothing (hide), or the
+  // face over the whole stage with the slide stepped aside (full, at a zoom).
+  // Per beat, from the beat a value names until the next. It is the clip's
+  // place, so it holds only while a recorded track plays in video mode: the
+  // live voice, the 2D character and a stopped narration are always the
+  // corner. Full is a class on the ROOT, like solo, so the stage can step
+  // aside; and like solo it is only ever set while the face is on screen.
+  let face = FACE_CORNER;
+  function applyFace() {
+    const on = mode === 'video' && !!el?.classList.contains('show');
+    const at = on ? face : FACE_CORNER;
+    el?.classList.toggle('face-full', at.kind === 'full');
+    el?.classList.toggle('face-hide', at.kind === 'hide');
+    el?.style.setProperty('--face-zoom', String(at.zoom));
+    root.classList.toggle('decklight-face-full', at.kind === 'full');
+  }
+  function setFace(next) {
+    if (next.kind === face.kind && next.zoom === face.zoom) return;
+    face = next;
+    applyFace();
+    debugLog('lipsync', `face ${face.kind}${face.kind === 'full' && face.zoom !== 1 ? ` ×${face.zoom}` : ''}`);
   }
   function warnOnce() {
     if (warned) return;
@@ -173,7 +199,11 @@ export function createCharacter({ root, config, debugLog, toast }) {
       videoEl.playsInline = true;
       videoEl.preload = 'auto';
       videoEl.addEventListener('playing', () => videoEl?.classList.add('live'));
-      for (const ev of ['ended', 'emptied', 'error']) videoEl.addEventListener(ev, () => videoEl?.classList.remove('live'));
+      // A filmed face holds its last frame between beats: the photo under it
+      // is somebody's portrait, or nothing, and a face that blinked out
+      // after every sentence would be the opposite of you, talking.
+      videoEl.addEventListener('ended', () => { if (!videoEl?.dataset.filmed) videoEl?.classList.remove('live'); });
+      for (const ev of ['emptied', 'error']) videoEl.addEventListener(ev, () => videoEl?.classList.remove('live'));
       el.appendChild(videoEl);
     } else if (cfg.sprites) {
       el.innerHTML = '';
@@ -208,8 +238,11 @@ export function createCharacter({ root, config, debugLog, toast }) {
     if (timer) { clearInterval(timer); timer = 0; }
     el?.classList.remove('show');
     videoEl?.pause();
+    if (videoEl) delete videoEl.dataset.filmed;
+    videoEl?.classList.remove('live');
     timeline = null;
     currentKey = null;
+    face = FACE_CORNER;
     setViseme('X');
     applySolo();
   }
@@ -354,6 +387,8 @@ export function createCharacter({ root, config, debugLog, toast }) {
     if (mode === 'off') return;
     show();
     currentKey = key;
+    setFace(FACE_CORNER);
+    if (videoEl) delete videoEl.dataset.filmed;
     if (mode === 'viseme') {
       timeline = null;
       ensureTimeline(key, Promise.resolve(clip), text)
@@ -454,13 +489,21 @@ export function createCharacter({ root, config, debugLog, toast }) {
         .then((tl) => { if (currentKey === key) timeline = tl; })
         .catch(() => { /* no sidecar for this beat — fallback animates */ });
     } else if (videoEl) {
-      // Video stays per SLIDE. A talking head is minutes of GPU time a clip,
-      // and the element mirrors the audio's transport rather than seeking to a
-      // timeline, so cutting it per beat would cost a great deal to fix a
-      // smaller error than the visemes had.
-      const src = `${set.dir}/slide-${nn}.mp4`;
-      hasSidecar(src).then(async (ok) => {
+      setFace(faceLayout(faceOf(slideNo), seg ?? 1));
+      // A RENDERED talking head stays per SLIDE: it is minutes of GPU time a
+      // clip, and the element mirrors the audio's transport rather than
+      // seeking to a timeline, so cutting it per beat would cost a great deal
+      // to fix a smaller error than the visemes had. A FILMED face is per beat
+      // for free (the recorder cut it at the same → as the audio), and it is
+      // played per beat: slide-NN-KK.mp4 beside slide-NN-KK.wav, exactly as
+      // long, so the face cannot drift from the voice across a slide.
+      const slideSrc = `${set.dir}/slide-${nn}.mp4`;
+      const beatSrc = seg == null ? null : `${set.dir}/${stem}.mp4`;
+      (beatSrc ? hasSidecar(beatSrc) : Promise.resolve(false)).then(async (filmed) => {
+        const src = filmed ? beatSrc : slideSrc;
+        const ok = filmed || await hasSidecar(slideSrc);
         if (currentKey !== key || mode !== 'video') return;
+        if (filmed) videoEl.dataset.filmed = '1'; else delete videoEl.dataset.filmed;
         if (ok || !audioUrl) {
           // The WHOLE path, not the `/slide-NN.mp4` suffix: every track names its
           // files the same way, so a suffix match said "already playing" when the

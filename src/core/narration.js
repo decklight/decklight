@@ -15,7 +15,8 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
-import { createFilmRecorder, cameraUnavailable } from './film.js';
+import { createFilmRecorder, cameraUnavailable, refusal as cameraRefusal } from './film.js';
+import { createFaceCam, hasCamera } from './facecam.js';
 import { BROWSER_ENGINE, browserPing, speakSentence } from './browser-voice.js';
 import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, writtenMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
@@ -832,7 +833,11 @@ export function createNarration({
   // the narration. Live mode rides the sentence pipeline below (prefetch in
   // the lookahead worker, beginSentence per clip); recorded mode loads
   // slide-NN sidecar files. Configured in the V picker ("Character…").
-  const character = createCharacter({ root, config, debugLog, toast });
+  const character = createCharacter({
+    root, config, debugLog, toast,
+    // where a filmed face shows, slide by slide and beat by beat (FACE_LAYOUT)
+    faceOf: (sl) => instance._sections?.[sl - 1]?.getAttribute('data-face') ?? null,
+  });
   // Film yourself (V → Character): a few seconds from the camera become the
   // talking head's portrait, prepared and kept by the lip-sync bridge.
   const film = createFilmRecorder({
@@ -3779,6 +3784,12 @@ export function createNarration({
   let micCount = null;       // the countdown's interval
   let micEdit = null;        // the edit box's answer: its text, or null for unchanged
   let micCanEdit = false;    // E is offered: the server is there to write the notes
+  // the Camera option: your face, filmed with every beat (facecam.js)
+  let micCam = null;         // the camera, open from the card's preview to the last take
+  let micCamView = null;     // its mirrored preview, moved into whichever card is up
+  let micCamHas = false;     // a camera is there to offer (asked of the device list)
+  let micCamWhy = null;      // why it could not be opened, said on the card
+  let micTakeFace = null;    // the beat just finished: its clip, as a promise
 
   /** Why this browser cannot record, in the words of the thing to do about it. */
   function micUnavailable() {
@@ -3835,6 +3846,7 @@ export function createNarration({
   const TAKES = ['slide', 'beat'];
   let takesAsked = TAKES.includes(params?.get?.('takes')) ? params.get('takes') : null;
   let takesThisVisit = null;
+  let cameraAsked = params?.has?.('camera') ? params.get('camera') !== '0' : null;
   function micPrefs() {
     const p = readJson(MIC_PREFS, {});
     return {
@@ -3844,6 +3856,11 @@ export function createNarration({
       takes: takesAsked ?? takesThisVisit ?? TAKES[0],
       // the microphone picked on the card, by its id; '' is the browser's default
       device: typeof p.device === 'string' ? p.device : '',
+      // film your face too (the Camera option): off until turned on, then
+      // remembered for every deck, like the microphone's choices.
+      // `?camera` (`narrate --mic --camera`) turns it on for this visit.
+      face: cameraAsked ?? p.face === true,
+      camera: typeof p.camera === 'string' ? p.camera : '',
     };
   }
   /** `deviceId` for getUserMedia: asked for, never demanded, so an unplugged one falls back. */
@@ -3882,6 +3899,7 @@ export function createNarration({
     debugLog('narr', `mic open at ${micCtx.sampleRate} Hz, noise suppression ${noise ? 'on' : 'off'}`);
   }
   function closeMic() {
+    camClose();
     try { micNode?.disconnect(); micSource?.disconnect(); } catch { /* already gone */ }
     if (micNode) micNode.onaudioprocess = null;
     micStream?.getTracks().forEach((t) => t.stop());
@@ -3903,6 +3921,8 @@ export function createNarration({
     // beat's chunks, at the cut, and keeps the clock running
     if (!micChunks) micTakeT0 = Date.now();
     micChunks ??= [];
+    // the face, from the same moment (a rolling take is already filming it)
+    micCam?.start();
     micPeak = 0;
     micPhase = 'rec';
     paintMicStatus();
@@ -3937,6 +3957,8 @@ export function createNarration({
     clearInterval(micCount);
     micCount = null;
     micTake = micChunks ?? [];
+    // …and its film, cut at the same keystroke, the next beat's started with it
+    micTakeFace = micCam ? micCam.cut(how === 'next' && micRolling) : Promise.resolve(null);
     // Cut here, not stopped: the next beat's audio starts in the same
     // callback's stead, so nothing said across the → is lost
     micChunks = how === 'next' && micRolling ? [] : null;
@@ -4417,7 +4439,7 @@ export function createNarration({
         // older recorder wrote is dropped here
         const stored = readJson(MIC_PREFS, {});
         writeJson(MIC_PREFS, {
-          noise: p.noise, rate: p.rate, device: p.device,
+          noise: p.noise, rate: p.rate, device: p.device, face: stored.face === true, camera: p.camera,
           countIn: b.dataset.count ? p.countIn : stored.countIn,
         });
         card.querySelectorAll('.rec-opts .rec-seg button').forEach((o) => {
@@ -4522,6 +4544,87 @@ export function createNarration({
       micPreviewStart();
     });
   }
+
+  // ── the camera: your face, filmed with every beat ─────────────────────────
+  // Offered only where there is one to film with: the device list names a
+  // camera before it is allowed, so the row shows without asking for it, and
+  // the camera opens only once the row is turned on. Then its mirrored
+  // preview sits on the card, from the plan to the last take, so you see how
+  // you are framed before you start and while you read.
+  const camAvailable = () => micCamHas && !cameraUnavailable(window);
+  async function camProbe() {
+    micCamHas = await hasCamera(window);
+    if (micCamHas && micEl && micView === 'intro') repaintCamRow();
+  }
+  async function camOpen() {
+    if (micCam?.stream) return true;
+    micCam ??= createFaceCam({ debugLog });
+    try {
+      await micCam.open(micPrefs().camera);
+      micCamWhy = null;
+    } catch (e) {
+      micCam = null;
+      micCamWhy = cameraRefusal(e);
+      debugLog('narr', `camera: ${micCamWhy}`);
+      return false;
+    }
+    if (!micCamView) {
+      micCamView = document.createElement('video');
+      micCamView.className = 'rec-cam-view';
+      micCamView.muted = true;
+      micCamView.playsInline = true;
+      micCamView.autoplay = true;
+    }
+    micCamView.srcObject = micCam.stream;
+    micCamView.play?.()?.catch?.(() => { /* muted: it plays */ });
+    return true;
+  }
+  function camClose() {
+    micCam?.close();
+    micCam = null;
+    if (micCamView) { micCamView.srcObject = null; micCamView.remove(); }
+  }
+  /** The preview, into the card that is up: the element is kept, so the picture never restarts. */
+  function mountCamView(card) {
+    const slot = card?.querySelector('.rec-cam-slot');
+    if (slot && micCamView && micCam?.stream) slot.appendChild(micCamView);
+  }
+  function camRow() {
+    if (!camAvailable()) return '';
+    const { face } = micPrefs();
+    const seg = (v, label, on) => `<button type="button" tabindex="-1" data-face="${v}" aria-pressed="${on}" class="${on ? 'on' : ''}">${label}</button>`;
+    const says = micCamWhy
+      ? `<span class="rec-check-why">${escapeHtml(micCamWhy)}: your voice is recorded without it</span>`
+      : face
+        ? 'Your face is filmed with every beat and plays in the character\'s medallion with your voice, or full screen where a slide says <code>data-face="full"</code>.'
+        : 'Film your face too, while you read: it plays with your voice in the deck and in its exported video.';
+    return `<div class="rec-cam-row"><div class="rec-line"><span class="rec-seg" role="group" aria-label="film my face">${
+      seg('on', '📹 film me too', face)}${seg('off', 'voice only', !face)}</span></div>
+      <div class="rec-cam-slot"></div>
+      <div class="rec-opt-why rec-cam-says">${says}</div></div>`;
+  }
+  function repaintCamRow() {
+    const card = micEl?.querySelector('.narr-card');
+    const row = card?.querySelector('.rec-cam-row');
+    if (row) row.outerHTML = camRow();
+    else if (micView === 'intro') { repaintIntro(); return; }
+    wireCamera(card);
+  }
+  function wireCamera(card) {
+    card?.querySelectorAll('.rec-cam-row [data-face]').forEach((b) => {
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', async () => {
+        const on = b.dataset.face === 'on';
+        cameraAsked = null;   // a click is newer than ?camera
+        writeJson(MIC_PREFS, { ...readJson(MIC_PREFS, {}), face: on });
+        micCamWhy = null;
+        if (on) await camOpen(); else camClose();
+        if (micEl && micView === 'intro') repaintCamRow();
+      });
+    });
+    mountCamView(card);
+  }
+
   function renderMicCard(view, data = {}) {
     micView = view;
     micBeat = view === 'capture' ? { slide: data.sl, beat: data.i + 1, of: data.of } : null;
@@ -4559,6 +4662,7 @@ export function createNarration({
         ${data.target ? `<div class="rec-sect">Where</div>${folderRow(data.target)}` : ''}
         <div class="rec-sect">Microphone</div>
         ${micCheckRow()}
+        ${camAvailable() ? `<div class="rec-sect">Camera</div>${camRow()}` : ''}
         ${beats === 0 ? '' : phoneRow()}
         ${warn ? `<div class="rec-line rec-warn">${warn}</div>` : ''}
         <div class="rec-foot">${canStart ? `<button type="button" class="narr-row narr-sel rec-start">${escapeHtml(startLabel)} <span aria-hidden="true">→</span></button>` : ''}
@@ -4575,6 +4679,7 @@ export function createNarration({
       wireMicOpts(card);
       wireFromRow(card);
       wireDevice(card);
+      wireCamera(card);
       card.querySelector('.rec-start')?.addEventListener('click', () => startMicRecording());
       // the row the take starts on, in view: a scope change can move it off the list's window
       card.querySelector('.rec-slide.on')?.scrollIntoView?.({ block: 'nearest' });
@@ -4618,6 +4723,7 @@ export function createNarration({
       card.innerHTML = `<div class="rec-strip">
           <div class="rec-status"></div>
           <div class="rec-where">slide ${sl} · beat ${i + 1} of ${of}</div>
+          ${micCam?.stream ? '<div class="rec-cam-slot rec-cam-mini" title="you, as the camera films you"></div>' : ''}
           <div class="rec-meter"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5" stroke="currentColor" stroke-width="1.4" fill="none"></rect><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg>${micBar(0)}</div>
         </div>
         <div class="rec-progress" role="img" aria-label="slide ${nth} of ${slides} in this take">${segs}</div>
@@ -4628,6 +4734,7 @@ export function createNarration({
         <div class="rec-keys rec-keys-rec">${keysRec}</div>
         <div class="rec-keys rec-keys-count">${keysCount}</div>`;
       card.dataset.phase = micPhase ?? '';
+      mountCamView(card);
       card.querySelector('.rec-read')?.scrollIntoView?.({ block: 'nearest' });
       return;
     }
@@ -4660,7 +4767,7 @@ export function createNarration({
     // that reopens the plan card on that slide; then the one thing worth
     // doing next, pointing the deck at the folder; and, for a deck edited by
     // hand, the line to add, behind a disclosure rather than in the way.
-    const { slides, files, dir, segmented, stopped, rows = [], secs = 0, left = 0 } = data;
+    const { slides, files, dir, segmented, stopped, rows = [], secs = 0, left = 0, faces = 0, faceWhy = null } = data;
     const where = dir
       ? `saved next to the deck in <code>${escapeHtml(dir)}/</code>`
       : `saved to your downloads — ${noServerReason()}`;
@@ -4680,6 +4787,7 @@ export function createNarration({
         + (dir && b.file != null ? `<button type="button" class="rec-play" data-play="${r.sl}" data-play-beat="${b.file}" aria-label="play slide ${r.sl} beat ${k + 1}">▶</button> ` : '')
         + `<button type="button" class="rec-redo" data-redo="${r.sl}" data-redo-beat="${k}" aria-label="redo slide ${r.sl} beat ${k + 1}">redo</button></div>`).join('');
       return `<div class="rec-take"><span class="rec-slide-n">${r.sl}</span> <span class="rec-slide-t">${escapeHtml(title)}</span> ${note} `
+        + (r.face ? '<span class="rec-take-face" title="your face was filmed">📹</span> ' : '')
         + beats
         + `<span class="rec-take-dur">${clockText(r.secs * 1000)}</span> `
         + (dir ? `<button type="button" class="rec-play" data-play="${r.sl}" aria-label="play slide ${r.sl}">▶</button> ` : '')
@@ -4688,6 +4796,8 @@ export function createNarration({
     const offer = useTrackRow(dir, 'Use my voice in this deck');
     card.innerHTML = `<div class="narr-head">${stopped ? 'recording stopped' : 'recording done'}</div>
       <div class="rec-line rec-done-sum">${slides} slide${slides === 1 ? '' : 's'} · ${files} file${files === 1 ? '' : 's'}${secs ? ` · ${durationText(secs)}` : ''} · ${where}</div>
+      ${faces ? `<div class="rec-line rec-done-face">📹 your face on ${faces} slide${faces === 1 ? '' : 's'}: the character shows it with your voice whenever this track plays, in the corner, or full screen where a slide says <code>data-face="full"</code></div>` : ''}
+      ${faceWhy ? `<div class="rec-line rec-warn">${escapeHtml(faceWhy)}</div>` : ''}
       ${left ? `<div class="rec-line rec-done-left">stopped early: ${left} slide${left === 1 ? '' : 's'} not reached, left as ${left === 1 ? 'it was' : 'they were'}</div>` : ''}
       ${takeRows ? `<div class="rec-takes">${takeRows}</div>` : ''}
       ${offer ? `<div class="rec-use-box">${offer}<div class="rec-use-why">The deck will play these files and turn its own pages in time with them: one edit to the deck file, which ${UNDO_CHORD} takes back.</div></div>` : ''}
@@ -4834,6 +4944,18 @@ export function createNarration({
       renderMicCard('intro', { why: micWhy(e) });
       return;
     }
+    // The face, when the Camera option is on: only into a folder the server
+    // writes (the clips are made there, beside the WAVs), and a camera that
+    // will not open costs the face, never the take.
+    let filming = false;
+    let faceWhy = null;
+    if (camAvailable() && micPrefs().face) {
+      if (!dir) faceWhy = 'your face was not filmed: it is saved beside the deck, which needs the server';
+      else if (await camOpen()) filming = true;
+      else faceWhy = `your face was not filmed: ${micCamWhy}`;
+      if (run !== micRun) return;
+    }
+    if (!filming) camClose();
     // The meter is the answer to "is it even hearing me" BEFORE twenty slides
     // are recorded silent. Decays on its own so a peak reads as a peak.
     micMeter = setInterval(() => {
@@ -4854,15 +4976,40 @@ export function createNarration({
     // the server records the beats as they read now, which is what tells a
     // moved ⟨CLICK⟩ from changed words later, and hashes the notes the way
     // `decklight video` checks them. Best-effort: the audio is what matters.
-    const saveMicManifest = async (sl, segments) => {
+    const saveMicManifest = async (sl, segments, face = false) => {
       if (!dir) return;
       try {
         await fetch(`${dir.base}/deck/edit/narration/record?slide=${sl}&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ mine: true, range: [sl, sl], slides: { [sl]: { segments } } }),
+          body: JSON.stringify({ mine: true, range: [sl, sl], slides: { [sl]: { segments, ...(face ? { face: true } : {}) } } }),
         });
       } catch { /* the take is on disk; the next slide's write tries again */ }
+    };
+    // A slide's face: each beat's clip after its WAV (the server makes it as
+    // long as the WAV), then the slide's own joined from every beat's. True
+    // when the slide has a face from its first word to its last.
+    const saveFace = async (sl, plan, clips) => {
+      if (!filming) return false;
+      const post = async (q, body) => {
+        try {
+          const r = await fetch(`${dir.base}/deck/edit/narration/record?slide=${sl}&${q}&dir=${encodeURIComponent(dir.name)}`, { method: 'POST', ...(body ? { body } : {}) });
+          const j = await r.json().catch(() => ({}));
+          if (!j.ok && j.error) faceWhy = `your face was not saved: ${j.error}`;
+          return j;
+        } catch (e) { faceWhy = `your face was not saved: ${String(e?.message ?? e)}`; return {}; }
+      };
+      if (plan.length === 1 && plan[0].file == null) {
+        const blob = await clips.get(0);
+        return !!blob && !!(await post('kind=face', blob)).ok;
+      }
+      for (const [k, clip] of clips) {
+        const blob = await clip;
+        if (blob) await post(`kind=face&seg=${plan[k].file}`, blob);
+      }
+      const j = await post(`kind=face-join&segs=${plan.map((b) => b.file).join(',')}`);
+      if (j.missing?.length) faceWhy = `slide ${sl} has no face: beat${j.missing.length === 1 ? '' : 's'} ${j.missing.join(', ')} ${j.missing.length === 1 ? 'was' : 'were'} recorded without the camera`;
+      return !!j.ok;
     };
     // a slide's beats for the done card, each with its file and its length,
     // so one can be heard and redone alone; none for a slide of one beat
@@ -4893,6 +5040,7 @@ export function createNarration({
       const last = s === from.s && lastI != null ? Math.min(lastI, plan.length - 1) : plan.length - 1;
       const redone = new Set();   // the partial slide's beats written this run
       const pending = new Map();  // …and those taken but not yet written: a take runs on
+      const pendingFace = new Map();   // …and their film
       let countAgain = false;     // per slide, a take resumed after an edit is counted in
       for (let i = first; i <= last; i++) {
         const beat = plan[i];
@@ -4926,7 +5074,7 @@ export function createNarration({
         }
         if (how === 'retake') {
           // per slide, the whole take again from its first beat; per beat, the same beat
-          if (bySlide) { takes.length = 0; cuts.length = 0; pending.clear(); i = first - 1; } else i--;
+          if (bySlide) { takes.length = 0; cuts.length = 0; pending.clear(); pendingFace.clear(); i = first - 1; } else i--;
           continue;   // the for's i++ lands where it should
         }
         if (how === 'beat-again') {
@@ -4936,6 +5084,7 @@ export function createNarration({
           // the take runs on from it. Per beat, it is ⌫.
           delete cuts[i];
           pending.delete(i);
+          pendingFace.delete(i);
           countAgain = true;
           i--;
           continue;
@@ -4957,6 +5106,7 @@ export function createNarration({
           // Per slide, once the take ends: a write mid-take would stall the
           // capture it is part of.
           pending.set(i, micTake);
+          pendingFace.set(i, micTakeFace);
           if (bySlide && i < last) continue;
           const rate = micCtx?.sampleRate ?? keep.rate;
           for (const [k, pcm] of pending) {
@@ -4969,12 +5119,15 @@ export function createNarration({
           const wholePcm = plan.flatMap((_, k) => keep.pcm.get(k));
           const whole = await saveRecording(sl, 'wav', stitchWav(wholePcm, rate), dir);
           if (run !== micRun) return;
-          saved.set(sl, { files: redone.size + 1, segmented: true, toDisk: whole, secs: secsOf(wholePcm, rate), note: noteShort, again: saved.has(sl), beats: beatsOf(plan, keep.pcm, rate) });
-          await saveMicManifest(sl, plan.map((b) => b.file));
+          const face = await saveFace(sl, plan, new Map(pendingFace));
+          pendingFace.clear();
+          if (run !== micRun) return;
+          saved.set(sl, { files: redone.size + 1, segmented: true, toDisk: whole, secs: secsOf(wholePcm, rate), note: noteShort, again: saved.has(sl), beats: beatsOf(plan, keep.pcm, rate), face });
+          await saveMicManifest(sl, plan.map((b) => b.file), face);
           if (run !== micRun) return;
           continue;
         }
-        takes.push({ file: beat.file, pcm: micTake });
+        takes.push({ file: beat.file, pcm: micTake, face: micTakeFace });
       }
       if (back) {
         let p = s - 1;
@@ -5017,8 +5170,10 @@ export function createNarration({
         done.files++;
         done.segmented = true;
       }
+      done.face = await saveFace(sl, plan, new Map(takes.map((t, k) => [k, t.face])));
+      if (run !== micRun) return;
       saved.set(sl, done);
-      await saveMicManifest(sl, takes.map((t) => t.file).filter((f) => f != null));
+      await saveMicManifest(sl, takes.map((t) => t.file).filter((f) => f != null), done.face);
       if (run !== micRun) return;
       if (endsHere) break;
       s++;
@@ -5028,13 +5183,16 @@ export function createNarration({
     const files = all.reduce((n, d) => n + d.files, 0);
     const toDisk = all.some((d) => d.toDisk);
     const segmented = all.some((d) => d.segmented);
-    const rows = [...saved.entries()].sort((a, b) => a[0] - b[0]).map(([sl, d]) => ({ sl, secs: d.secs ?? 0, note: d.note ?? null, again: !!d.again, beats: d.beats ?? [] }));
+    const rows = [...saved.entries()].sort((a, b) => a[0] - b[0]).map(([sl, d]) => ({ sl, secs: d.secs ?? 0, note: d.note ?? null, again: !!d.again, beats: d.beats ?? [], face: !!d.face }));
+    const faces = all.filter((d) => d.face).length;
+    // filmed: the character shows it, in the medallion, the moment the track plays
+    if (faces && character.mode !== 'video') character.setMode('video');
     const left = stopped ? list.slice(s).filter((x) => !saved.has(x)).length : 0;
     closeMic();
     if (run !== micRun) return;
     renderMicCard('done', {
       slides: slidesDone, files, dir: toDisk ? dir.name : null, segmented, stopped, label: target.label,
-      rows, secs: rows.reduce((n, r) => n + r.secs, 0), left,
+      rows, secs: rows.reduce((n, r) => n + r.secs, 0), left, faces, faceWhy,
     });
   }
 
@@ -5059,6 +5217,12 @@ export function createNarration({
     // the level, while you read the card: a muted microphone is found here
     // and not after the first slide
     micPreviewStart();
+    // …and the camera, when there is one: its row, and its picture if it is on
+    micCamWhy = null;
+    camProbe().then(async () => {
+      if (micEl && micView === 'intro' && camAvailable() && micPrefs().face && await camOpen()) repaintCamRow();
+      else if (micEl && micView === 'intro' && micCamWhy) repaintCamRow();
+    });
     // ONE deferred render, not two: the target and the no-server warning both
     // arrive after the probe, and two independent re-renders meant whichever
     // landed second erased the other. Where the files will land is said

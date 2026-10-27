@@ -64,13 +64,13 @@
 // `decklight <deck>` asks interactively before passing --git down.
 
 import { createServer, request as httpRequest } from 'node:http';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, watch, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, watch, existsSync, rmSync } from 'node:fs';
 // Every write of the DECK goes through this rather than writeFileSync: the
 // edit server rewrites the whole file on every small edit, and a truncate
 // that is interrupted leaves a prefix of a talk where the talk was.
 import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import { resolve, relative, dirname, sep, basename } from 'node:path';
-import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from '../tools/video-options.mjs';
+import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { agentAsk, agentCommand, agentModel, applyModelFlags, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, setAgentModel, takesModel, MODEL_ENV, claudeActivity } from './agents.mjs';
@@ -319,7 +319,8 @@ export function previewError(why) {
  * page, so every one is checked before anything runs.
  *
  * - `slides` is the command's own `--slides` spelling; `format`, `quality` and
- *   `subtitles` its `--format`, `--quality` and `--subtitles`.
+ *   `subtitles` its `--format`, `--quality` and `--subtitles`; `face: 'off'`
+ *   its `--no-face`.
  * - The voice is ONE of three: `narration` names a recorded folder (inside the
  *   deck's directory, holding a manifest or whole-slide audio — a render that cannot find its audio
  *   should refuse, not come out silent); `synthesize` asks for the live voice
@@ -330,10 +331,10 @@ export function previewError(why) {
  *   engine and this voice; anything else — a manifest for another voice, or
  *   audio with no manifest at all, which is what your own voice leaves — refuses.
  */
-export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles, allowStale } = {}, deckDir) {
+export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles, face, allowStale } = {}, deckDir) {
   if (allowStale != null && typeof allowStale !== 'boolean') return 'allowStale is yes or no';
   // the card's rows and the command's flags read one list (src/core/video-options.js)
-  for (const [field, value, list] of [['format', format, VIDEO_FORMATS], ['quality', quality, VIDEO_QUALITIES], ['subtitles', subtitles, VIDEO_SUBTITLES]]) {
+  for (const [field, value, list] of [['format', format, VIDEO_FORMATS], ['quality', quality, VIDEO_QUALITIES], ['subtitles', subtitles, VIDEO_SUBTITLES], ['face', face, VIDEO_FACE]]) {
     if (value != null && !valuesOf(list).includes(value)) return `${field} must be ${valuesOf(list).join(', ')}`;
   }
   if (slides != null && slides !== '' && !(typeof slides === 'string' && /^\d+(?:-\d+)?$/.test(slides))) {
@@ -2768,7 +2769,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const slide = Number(url.searchParams.get('slide'));
     const kind = url.searchParams.get('kind');
     if (!Number.isInteger(slide) || slide < 1 || slide > 9999) return json(400, { ok: false, error: 'bad slide' });
-    if (kind !== 'wav' && kind !== 'visemes' && kind !== 'manifest') return json(400, { ok: false, error: 'bad kind' });
+    if (!['wav', 'visemes', 'manifest', 'face', 'face-join'].includes(kind)) return json(400, { ok: false, error: 'bad kind' });
     // `seg` is the per-⟨CLICK⟩ file number — the audio that lets a recording
     // step the builds (slide-NN-KK.wav) and the viseme timeline cut to
     // match it (slide-NN-KK.visemes.json). Absent means the whole slide.
@@ -2793,9 +2794,34 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (!dir || (!dir.startsWith(root + sep) && dir !== root)) {
       return json(400, { ok: false, error: 'the recording folder must sit inside the deck\'s own directory' });
     }
-    const name = `slide-${String(slide).padStart(2, '0')}`
-      + (seg === null ? '' : `-${String(seg).padStart(2, '0')}`)
-      + `.${kind === 'wav' ? 'wav' : 'visemes.json'}`;
+    const stem = `slide-${String(slide).padStart(2, '0')}`
+      + (seg === null ? '' : `-${String(seg).padStart(2, '0')}`);
+    const name = `${stem}.${kind === 'wav' ? 'wav' : kind === 'face' ? 'mp4' : 'visemes.json'}`;
+    // Your face, filmed with the beat (PRESENTING, the your-voice recorder):
+    // made into a clip exactly as long as the beat's WAV, which is uploaded
+    // first, so the face cannot drift from the voice across a slide
+    // (tools/face-clip.mjs). Then `face-join` makes the slide's clip from its
+    // beats', the way the runtime stitches the whole-slide WAV from them. A
+    // beat with no clip (recorded before the camera was on) cannot be joined:
+    // the slide's old clip is taken away rather than left to play over audio
+    // it was not filmed with, and the answer names what is missing.
+    if (kind === 'face-join') {
+      const segs = String(url.searchParams.get('segs') ?? '').split(',').filter(Boolean).map(Number);
+      if (!segs.length || segs.some((k) => !Number.isInteger(k) || k < 1 || k > 999)) return json(400, { ok: false, error: 'bad segs' });
+      const nn = String(slide).padStart(2, '0');
+      const parts = segs.map((k) => resolve(dir, `slide-${nn}-${String(k).padStart(2, '0')}.mp4`));
+      const missing = segs.filter((_, i) => !existsSync(parts[i]));
+      const out = resolve(dir, `slide-${nn}.mp4`);
+      if (missing.length) {
+        rmSync(out, { force: true });
+        return json(200, { ok: false, dir: want, missing });
+      }
+      const { joinFaceClips, hasFfmpeg } = await import('../tools/face-clip.mjs');
+      if (!(await hasFfmpeg())) return json(501, { ok: false, error: 'the face needs ffmpeg to be saved: install it (brew install ffmpeg / apt install ffmpeg)' });
+      try { await joinFaceClips({ parts, out }); } catch (e) { rmSync(out, { force: true }); return json(500, { ok: false, error: oneline(e) }); }
+      console.log(`  filmed ${want}/slide-${nn}.mp4 (${segs.length} beat${segs.length === 1 ? '' : 's'})`);
+      return json(200, { ok: true, dir: want, file: `slide-${nn}.mp4` });
+    }
     const chunks = [];
     let size = 0;
     for await (const chunk of req) {
@@ -2828,7 +2854,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       for (const [k, v] of Object.entries(req2.slides ?? {})) {
         const n = Number(k);
         if (!Number.isInteger(n) || n < from || n > to) continue;
-        recorded[n] = { segments: Array.isArray(v?.segments) ? v.segments.map(Number) : [] };
+        recorded[n] = { segments: Array.isArray(v?.segments) ? v.segments.map(Number) : [], ...(v?.face === true ? { face: true } : {}) };
       }
       const { recorderManifest, slideTexts, slideBeats } = await import('../tools/narration-manifest.mjs');
       let prev = null;
@@ -2846,6 +2872,22 @@ export async function editMain(args, { onListen = null, client } = {}) {
         prev: Array.isArray(prev?.slides) ? prev : null, header, texts: slideTexts(deckNow), range: { from, to }, recorded,
         ...(mine ? { recorder: 'mic', beats: slideBeats(deckNow) } : {}),
       });
+      // A slide recorded again without the camera (or whose beats could not
+      // all be filmed): its clips show a face saying what was said before.
+      // A beat's clip is only ever filmed, so it goes; the slide's goes when
+      // the manifest said it was filmed, never one `decklight lipsync` made.
+      if (mine) {
+        let names = [];
+        try { names = readdirSync(dir); } catch { /* no folder, nothing filmed */ }
+        for (const n of Object.keys(recorded)) {
+          if (recorded[n].face) continue;
+          const nn = String(n).padStart(2, '0');
+          const filmed = !!prev?.slides?.[n - 1]?.face;
+          for (const f of names) {
+            if (new RegExp(`^slide-${nn}-\\d+\\.mp4$`).test(f) || (filmed && f === `slide-${nn}.mp4`)) rmSync(resolve(dir, f), { force: true });
+          }
+        }
+      }
       try {
         mkdirSync(dir, { recursive: true });
         writeFileSync(resolve(dir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
@@ -2854,6 +2896,16 @@ export async function editMain(args, { onListen = null, client } = {}) {
         for (const n of Object.keys(recorded)) writeFileSync(resolve(dir, `slide-${String(n).padStart(2, '0')}.txt`), texts[n - 1] ?? '');
       } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
       return json(200, { ok: true, dir: want, file: 'manifest.json', slides: manifest.slides.filter(Boolean).length });
+    }
+    if (kind === 'face') {
+      const { writeFaceClip, hasFfmpeg } = await import('../tools/face-clip.mjs');
+      if (!(await hasFfmpeg())) return json(501, { ok: false, error: 'the face needs ffmpeg to be saved: install it (brew install ffmpeg / apt install ffmpeg)' });
+      try {
+        mkdirSync(dir, { recursive: true });
+        await writeFaceClip({ bytes: Buffer.concat(chunks), out: resolve(dir, name), wav: resolve(dir, `${stem}.wav`) });
+      } catch (e) { rmSync(resolve(dir, name), { force: true }); return json(500, { ok: false, error: oneline(e) }); }
+      console.log(`  filmed ${want}/${name} (${Math.round(size / 1024)} kB)`);
+      return json(200, { ok: true, dir: want, file: name });
     }
     try {
       mkdirSync(dir, { recursive: true });

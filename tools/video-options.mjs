@@ -30,5 +30,11 @@ export const VIDEO_SUBTITLES = [
   { value: 'file', label: 'Beside the video — .srt (.vtt for WebM)' },
 ];
 
+// your face, filmed while you recorded the narration (`--no-face` leaves it out)
+export const VIDEO_FACE = [
+  { value: 'on', label: 'Your face, where you filmed it — as each slide places it' },
+  { value: 'off', label: 'Leave it out' },
+];
+
 /** The values alone, as a flag's error message lists them. */
 export const valuesOf = (list) => list.map((o) => o.value);

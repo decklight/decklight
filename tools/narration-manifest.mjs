@@ -263,6 +263,9 @@ export function recorderManifest({ prev, header, texts, range, recorded, recorde
     // your own voice: the beats as you read them, which is what tells a moved
     // ⟨CLICK⟩ from changed words (scriptDrift)
     if (beats) entry.beats = beats[i] ?? [];
+    // …and filmed with it: slide-NN.mp4 (and one per beat) is your face, which
+    // `decklight lipsync` must not render over and `decklight video` shows
+    if (take.face) entry.face = true;
     slides.push(entry);
   }
   const { engine, model, voice, style } = header;

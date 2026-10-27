@@ -116,6 +116,15 @@ if (!stems.length) { console.error(`${dir}: no slide-NN.wav/.m4a files`); proces
 console.log(`${basename(dir)}: ${slides.length} slides with audio`
   + (beats.length ? ` · ${beats.length} [click] beats` : ''));
 
+// Slides you filmed while you recorded them (the manifest says `face`): their
+// slide-NN.mp4 is your own face, and a talking head rendered over it would
+// throw the real thing away for a likeness of it.
+const filmed = new Set();
+try {
+  const m = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+  (m.slides ?? []).forEach((e, i) => { if (e?.face) filmed.add(`slide-${String(i + 1).padStart(2, '0')}`); });
+} catch { /* no manifest: nothing was filmed by the recorder */ }
+
 // incremental state — its own file so voiceover.mjs reruns can't clobber it
 const statePath = join(dir, 'lipsync.json');
 let state = {};
@@ -156,7 +165,8 @@ for (const stem of stems) {
   const st = (state[stem] ??= {});
   const jobs = [];
   if (doVisemes) jobs.push('visemes');
-  if (doVideo && !isBeat) jobs.push('video');
+  if (doVideo && !isBeat && filmed.has(stem)) console.log(`  ${stem}: video filmed with the recording — kept`);
+  else if (doVideo && !isBeat) jobs.push('video');
 
   for (const job of jobs) {
     const outFile = join(dir, job === 'visemes' ? `${stem}.visemes.json` : `${stem}.mp4`);

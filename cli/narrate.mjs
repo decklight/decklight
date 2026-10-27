@@ -64,6 +64,7 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
     --countdown N  seconds of count-in before each take, 0 for none
     --remote     the phone remote too: its next ends a beat, its retake redoes one,
                  so no keystroke gets into the take
+    --camera     film your face too, beat by beat; the deck and decklight video show it
     --port N, --no-open
     EXAMPLE: decklight narrate talk.html --mic
 

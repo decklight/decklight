@@ -176,6 +176,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
             ...(req.format ? ['--format', req.format] : []),
             ...(req.quality ? ['--quality', req.quality] : []),
             ...(req.subtitles ? ['--subtitles', req.subtitles] : []),
+            ...(req.face === 'off' ? ['--no-face'] : []),
             ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : req.silent ? ['--no-narration'] : []),
             // the card showed the track as recorded from older notes and it was picked anyway (#536)
             ...(req.allowStale === true ? ['--allow-stale'] : [])],
