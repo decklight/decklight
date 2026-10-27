@@ -30,7 +30,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { agentAsk, agentUnavailable, detectAgents } from './agents.mjs';
+import { agentAsk, agentUnavailable, applyModelFlags, detectAgents } from './agents.mjs';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain } from './util.mjs';
 import { NOTES_ASIDE, cleanNotes, readNotes, sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
@@ -412,8 +412,8 @@ export function parseSlides(s, total) {
 const USAGE = `decklight enhance — add ElevenLabs v4 audio tags to the voiceover script
 
 Usage:
-  decklight enhance <deck.html> --slides <n | a-b | a,b,c> [--agent <name>] [--dry-run]
-  decklight enhance <deck.html> --all [--agent <name>] [--dry-run]
+  decklight enhance <deck.html> --slides <n | a-b | a,b,c> [--agent <name>] [--agent-model <id>] [--dry-run]
+  decklight enhance <deck.html> --all [--agent <name>] [--agent-model <id>] [--dry-run]
   decklight enhance <deck.html> --spoken --slides … | --all   write it for the ear instead
 
 Asks the AI agent installed on this machine (claude, codex, …) to add audio
@@ -428,6 +428,8 @@ ElevenLabs v4/v3 and left out by every other voice.
   --slides   the slides to enhance
   --all      every slide with notes
   --agent    which agent to ask (default: your remembered one, else the first found)
+  --agent-model  the model it answers on, this run only (also --agent-ask-model,
+             DECKLIGHT_AGENT_MODEL; default: the remembered one, else its own)
   --dry-run  print each enhanced script; write nothing
   --spoken   rewrite terse notes as sentences a person would say out loud
              ("Fluffed a line? Backspace retakes it." → "And if you fluff a
@@ -440,7 +442,8 @@ Note: the notes are sent to that agent, and most agents are cloud services.`;
 export async function enhanceMain(args = []) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return 0; }
   const { opt } = argReader(args);
-  const deck = firstPositional(args, ['--slides', '--agent']);
+  applyModelFlags(opt);
+  const deck = firstPositional(args, ['--slides', '--agent', '--agent-model', '--agent-ask-model']);
   if (!deck) { console.error(`decklight enhance: needs a deck\n\n${USAGE}`); return 1; }
   const path = resolve(deck);
   if (!existsSync(path)) { console.error(`decklight enhance: no such deck: ${deck}`); return 1; }

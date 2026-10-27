@@ -863,10 +863,13 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   // cmd.exe is not an option.
   writeFakeBin(bin, 'claude',
     "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
-  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
+  // its own home: a model remembered on this machine is not the test's
+  const { base } = await startEdit(t, dir, { env: { PATH: bin, DECKLIGHT_HOME: path.join(dir, 'home') } });
 
   const ping = await (await fetch(base + '/deck/ping')).json();
-  assert.deepEqual(ping.agents, [{ name: 'claude', label: 'Claude Code' }]);
+  // with the model it runs on (#918): none set, so its own default, and no flag
+  assert.deepEqual(ping.agents, [{ name: 'claude', label: 'Claude Code', model: null, modelSource: null, takesModel: true,
+    suggest: ['opus', 'sonnet', 'haiku'] }]);
 
   const started = await (await post(base, '/deck/edit/agent', { prompt: 'sign the deck' })).json();
   assert.deepEqual({ ok: started.ok, agent: started.agent }, { ok: true, agent: 'claude' });

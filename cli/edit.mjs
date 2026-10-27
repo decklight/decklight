@@ -73,7 +73,7 @@ import { resolve, relative, dirname, sep, basename } from 'node:path';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { agentAsk, agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, claudeActivity } from './agents.mjs';
+import { agentAsk, agentCommand, agentModel, applyModelFlags, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, setAgentModel, takesModel, MODEL_ENV, claudeActivity } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 import { readyLine } from './banner.mjs';
 
@@ -101,7 +101,7 @@ import { semverCompare } from '../tools/semver.mjs';
 // The flags that take a value, so the deck can be found past them. `--git-mode`
 // was missing, so `edit.mjs --git-mode agent deck.html` refused a deck called
 // "agent". (`decklight <deck>` builds this argv itself and was never affected.)
-const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port',
+const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--agent-model', '--agent-ask-model', '--git-mode', '--tts-port', '--lipsync-port',
   '--host', '--root', '--branch', '--into', '--upstream-every'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
@@ -1289,6 +1289,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
                    timer  the old five-minute cadence, bookends included
                    off    never commit                                  [agent]
   --agent <name>   preferred AI agent for A (default: first one detected)
+  --agent-model <id>  the model that agent runs on, this run only (the remembered one
+                   otherwise; set it from A's card). Also DECKLIGHT_AGENT_MODEL
+  --agent-ask-model <id>  the model for its quick questions (commit subjects, the
+                   commit plan, enhance) when it should differ. DECKLIGHT_AGENT_ASK_MODEL
   the server binds 127.0.0.1 unless --remote asks for the LAN`);
     return;
   }
@@ -1303,6 +1307,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // know, and commit-messages on (only that path reads `agentPref`), which is
   // why adding a SECOND deck to a repo was the way to find it.
   let agentPref = opt('--agent') ?? preferredAgent();
+  // this run's model (#918): into the env every agent spawn resolves it from
+  applyModelFlags(opt);
   const port = parsePort(opt('--port', 8788));
   if (port === null) { console.error(`decklight: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
   const fail = (msg) => { console.error(`decklight: ${msg}`); process.exitCode = 1; return 1; };
@@ -1830,7 +1836,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // route with the rest of the write family, and a roster line under the
   // ingredients label would promise a capability that mode does not have.
   if (agents.length && !noTrust) {
-    const mark = (a) => a.name + (a.name === agentPref ? ' (preferred)' : '') + (a.installed ? ' (installed)' : '');
+    const mark = (a) => a.name + (a.name === agentPref ? ' (preferred)' : '') + (a.installed ? ' (installed)' : '')
+      + (agentModel(a.name).model ? ` · ${agentModel(a.name).model}` : '');
     startup('agents', agents.map(mark).join(', '),
       `  agents: ${agents.map(mark).join(', ')} — “Ask agent” (A) is live`, 'ok');
   }
@@ -1838,6 +1845,12 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // rather than discovered at the moment someone presses A mid-talk.
   if (!noTrust && agentPref && !agents.some((a) => a.name === agentPref)) {
     console.log(`  agent: ${agentUnavailable(agentPref, agents)}`);
+  }
+  // A model set for an agent whose CLI cannot take one is said too (#918):
+  // it is not applied, and a setting that silently did nothing is the bug.
+  for (const a of noTrust ? [] : agents) {
+    const m = agentModel(a.name).model;
+    if (m && !takesModel(a)) console.log(`  agent: ${a.name} takes no model flag — "${m}" is not applied, it runs on its own default`);
   }
   // A deck that EMBEDS a runtime older than this install is served as it is
   // (the file is the author's), and that runtime probes routes this server
@@ -1962,11 +1975,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // What the player's one push nudge reads. Computed once, like everything
       // else on ping: the toast is threshold-driven, not live.
       remote: gitOn ? remoteState(root) : null,
-      agents: agents.map((a) => ({ name: a.name, label: a.label })),
+      // with the model each runs on (#918): null for the agent's own default,
+      // `takesModel: false` for one whose CLI has no flag for it
+      agents: agents.map((a) => ({ name: a.name, label: a.label, ...agentModelState(a) })),
       // which one A reaches for, so the picker opens on it rather than
       // defaulting to the first detected agent every session (#125)
       preferredAgent: agentPref ?? null,
-      agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt, id: agentJob.id },
+      agentBusy: agentJob && { agent: agentJob.agent, label: agentJob.label, model: agentJob.model, prompt: agentJob.prompt, startedAt: agentJob.startedAt, id: agentJob.id },
       // the long jobs a page that loads mid-run can still stop
       exportBusy: exportJob,
       enhanceBusy: !!enhancing,
@@ -2332,6 +2347,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (!cmd) return null;
     const ask = {
       id: ++askSeq, agent: cmd.name, label: cmd.label, prompt,
+      ...(cmd.model ? { model: cmd.model } : {}),
       ...(Number.isInteger(slide) && slide > 0 ? { slide } : {}),
       ...(kind ? { kind } : {}), ...(title ? { title } : {}),
       startedAt: Date.now(), state: 'running',
@@ -2374,9 +2390,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const filesBefore = snapshotFiles(files);
     // what is already beside the deck, so what the run leaves there can be named
     const leftBefore = new Set(besideDeck() ?? []);
-    agentJob = { agent: cmd.name, label: cmd.label, prompt, startedAt: ask.startedAt, id: ask.id, slide: ask.slide, ...(reload ? { reload } : {}) };
+    agentJob = { agent: cmd.name, label: cmd.label, ...(cmd.model ? { model: cmd.model } : {}), prompt, startedAt: ask.startedAt, id: ask.id, slide: ask.slide, ...(reload ? { reload } : {}) };
     broadcast('agent', { state: 'start', ...agentJob });
-    console.log(`  agent: ${cmd.name} ← "${prompt.slice(0, 80)}"`);
+    console.log(`  agent: ${cmd.name}${cmd.model ? ` (${cmd.model})` : ''} ← "${prompt.slice(0, 80)}"`);
     const child = spawn(cmd.bin, cmd.args, { cwd: root, env: cmd.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let tail = '';
     const keep = (chunk) => { tail = (tail + chunk).slice(-4000); };
@@ -2905,6 +2921,29 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return json(200, { ok: true, preferredAgent: agent ?? null });
   }
 
+  /** What the card shows for `agent`'s model: the one it runs on, where that came from, whether it can take one. */
+  function agentModelState(agent) {
+    const { model, source } = agentModel(agent.name);
+    return { model, modelSource: source, takesModel: takesModel(agent), suggest: agent.models ?? [] };
+  }
+
+  // Remember the model an agent runs on (#918): beside the preference, in
+  // agent.json, for decklight's runs only. Picking one here is this session's
+  // latest word, so it also replaces a --agent-model this run was started with.
+  function agentModelRoute({ body, json }) {
+    const { agent, model, task: asked } = JSON.parse(body);
+    const task = asked === 'ask' ? 'ask' : 'edit';
+    if (typeof agent !== 'string' || (model !== null && typeof model !== 'string')) throw new Error('bad payload');
+    const entry = agents.find((a) => a.name === agent);
+    if (!entry) return json(400, { ok: false, error: agentUnavailable(agent, agents) });
+    if (!takesModel(entry)) return json(400, { ok: false, error: `${entry.label} takes no model flag — it runs on its own default` });
+    setAgentModel(agent, model, { task });
+    delete process.env[MODEL_ENV[task]];
+    const now = agentModel(agent, { task }).model;
+    console.log(`  agent: ${agent}${task === 'ask' ? ' (questions)' : ''} → ${now ?? 'its own default model'}`);
+    return json(200, { ok: true, agent, task, model: now });
+  }
+
   // The voiceover script, given ElevenLabs v4's audio tags (cli/enhance.mjs):
   // the agent drafts, read-only, a few slides at a time; decklight checks each
   // answer kept the words and beats, and writes them in ONE edit so Z takes
@@ -3341,6 +3380,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'POST /deck/edit/check/fix': checkFixRoute,
     'POST /deck/edit/agent/stop': agentStopRoute,
     'POST /deck/edit/agent/prefer': agentPreferRoute,
+    'POST /deck/edit/agent/model': agentModelRoute,
     'POST /deck/edit/enhance': enhanceRoute,
     'POST /deck/edit/enhance/text': enhanceTextRoute,
     'POST /deck/edit/review': reviewRoute,

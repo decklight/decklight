@@ -101,9 +101,13 @@ export function agentChipText(job, now = Date.now()) {
   // the caller renders it with textContent, never markup.
   const doing = typeof job.activity === 'string' && job.activity.trim()
     ? ` — ${job.activity.trim().slice(0, 60)}` : '';
+  // Which agent, and on which model when decklight chose one (#918): "Claude
+  // Code · sonnet". The label when the server sent one, else the name.
+  const name = typeof job.label === 'string' && job.label.trim() ? job.label.trim() : job.agent;
+  const who = typeof job.model === 'string' && job.model.trim() ? `${name} · ${job.model.trim().slice(0, 40)}` : name;
   const started = Number(job.startedAt);
-  if (!Number.isFinite(started) || started <= 0 || started > now) return `${job.agent}${doing}`;
-  return `${job.agent} · ${elapsedLabel(now - started)}${doing}`;
+  if (!Number.isFinite(started) || started <= 0 || started > now) return `${who}${doing}`;
+  return `${who} · ${elapsedLabel(now - started)}${doing}`;
 }
 
 // ── "you have not pushed any of this" ─────────────────────────────────────

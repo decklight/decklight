@@ -2874,6 +2874,13 @@
   opacity: .85;
 }
 .decklight-editor .narr-prev-btn:disabled { opacity: .35; cursor: default; }
+/* A's model field (#918): a button's height beside the agent picker, not the
+   full-width notes input it borrows its look from */
+.decklight-editor .narr-input.agent-model {
+  width: 10em; flex: 0 1 10em; min-width: 6em; margin: 0;
+  padding: 6px 10px; min-height: 32px; font-size: 13px;
+}
+.decklight-editor .narr-input.agent-model:disabled { opacity: .45; cursor: not-allowed; }
 /* a switch, not two buttons: the lit half is the view on screen */
 .decklight-editor .notes-views { display: inline-flex; }
 .decklight-editor .notes-views .notes-btn { border-radius: 0; }

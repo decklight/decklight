@@ -70,6 +70,9 @@ const USAGE = `usage: decklight <deck.html | git url> [--no-trust | --trust] [--
   --git / --no-git  keep the deck in git (snapshots, K commits) / never touch git
                     (no repository and no flag: decklight asks whether to create one)
   --agent <name>    preferred AI agent for A (default: first detected)
+  --agent-model <id>  the model that agent runs on, this run only (default: the
+                    one remembered from A's card, else the agent's own). Also
+                    DECKLIGHT_AGENT_MODEL; --agent-ask-model for its quick questions
   --no-plugins      play without your presenter plugins (decklight library add plugin)
   --remote          also listen on the LAN for the phone remote
   --no-tts          don't start the voice bridge
@@ -123,6 +126,9 @@ const USAGE_ALL = `usage: decklight <deck.html | git url> [--no-trust] [--port 8
                     way the deck's changes go to the agent installed on this
                     machine, which may pass them to its provider
   --agent <name>    preferred AI agent for A (default: first detected)
+  --agent-model <id>  the model that agent runs on, this run only (default: the
+                    one remembered from A's card, else the agent's own). Also
+                    DECKLIGHT_AGENT_MODEL; --agent-ask-model for its quick questions
 
   --no-trust       the same server in no-trust mode: the deck is served from
                     its own directory under a Content-Security-Policy header,
@@ -155,7 +161,7 @@ const USAGE_ALL = `usage: decklight <deck.html | git url> [--no-trust] [--port 8
 
 // flags that take a value (so the deck argument can be found past them)
 const VALUE_FLAGS = new Set([
-  '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--commit-every', '--agent', '--git-mode',
+  '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--commit-every', '--agent', '--agent-model', '--agent-ask-model', '--git-mode',
   '--branch', '--into', '--host',
 ]);
 
@@ -229,7 +235,7 @@ export function planServices({
     entry: EDIT,
     args: [deck, '--port', editPort,
       ...(has('--git') ? ['--git'] : []), ...(has('--no-git') ? ['--no-git'] : []),
-      ...pass('--commit-every'), ...pass('--agent'), ...pass('--git-mode'),
+      ...pass('--commit-every'), ...pass('--agent'), ...pass('--agent-model'), ...pass('--agent-ask-model'), ...pass('--git-mode'),
       // the deck reaches both bridges on the edit server's own origin (#520):
       // `/tts` and `/lipsync/*` are proxied to the ports the bridges below take
       ...pass('--tts-port'), ...pass('--lipsync-port'),

@@ -1306,6 +1306,7 @@ export function createEditMode({
       sel.addEventListener('change', () => {
         pickedAgent = sel.value;
         preferredAgent = sel.value;
+        paintModel();
         fetch(editBase + '/deck/edit/agent/prefer', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -1316,6 +1317,60 @@ export function createEditMode({
       sel.addEventListener('keydown', (e) => e.stopPropagation());
       actions.appendChild(sel);
     }
+    // The model it runs on (#918), remembered per agent beside the preference
+    // and for decklight's runs only: empty is the agent's own default. An
+    // agent whose CLI has no model flag shows the field disabled and says so,
+    // rather than taking a value it would ignore.
+    const model = document.createElement('input');
+    model.className = 'narr-input agent-model';
+    model.spellcheck = false;
+    model.size = 12;
+    model.setAttribute('aria-label', 'model');
+    const suggest = document.createElement('datalist');
+    suggest.id = 'decklight-agent-models';
+    model.setAttribute('list', suggest.id);
+    function paintModel() {
+      const a = editAgents.find((x) => x.name === pickedAgent);
+      const can = a?.takesModel !== false;
+      model.disabled = !can;
+      model.value = can && typeof a?.model === 'string' ? a.model : '';
+      model.placeholder = can ? 'default model' : 'no model flag';
+      model.title = can
+        ? `the model ${a?.label ?? 'the agent'} runs on for decklight — empty for its own default`
+        : `${a?.label ?? 'this agent'} takes no model flag: it runs on its own default`;
+      suggest.replaceChildren(...(Array.isArray(a?.suggest) ? a.suggest : []).map((m) => {
+        const o = document.createElement('option');
+        o.value = m;
+        return o;
+      }));
+    }
+    model.addEventListener('change', async () => {
+      const a = editAgents.find((x) => x.name === pickedAgent);
+      if (!a || a.takesModel === false) return;
+      const wanted = model.value.trim() || null;
+      try {
+        const res = await fetch(editBase + '/deck/edit/agent/model', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ agent: a.name, model: wanted }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.error || res.status);
+        a.model = j.model ?? null;
+        toast(`${a.label}: ${a.model ? `runs on ${a.model}` : 'its own default model'}`, 1800);
+        debugLog('agent', `${a.name} model → ${a.model ?? 'default'}`);
+      } catch (e) {
+        toast(`model not saved: ${String(e.message || e).slice(0, 60)}`, 2200);
+      }
+      paintModel();
+    });
+    model.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { model.blur(); e.preventDefault(); }
+      else if (e.key === 'Escape') { toggleAgentAsk(); e.preventDefault(); }
+      e.stopPropagation();
+    });
+    paintModel();
+    actions.append(model, suggest);
     const send = async () => {
       const prompt = ta.value.trim();
       if (!prompt) return;

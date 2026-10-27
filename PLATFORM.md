@@ -632,6 +632,23 @@ extend it, but an agent unit is a **descriptor, never code**:
   preference > the first detected agent. Choosing one in the `A` dialog
   persists it (`POST /deck/edit/agent/prefer`); it is a fact about the machine, so
   it is written beside the unit library and **never into the deck**.
+- **So is the model it runs on, per agent, for decklight alone.** The same
+  file holds `models` (an edit's) and `askModels` (a question's: the commit
+  subject, the commit plan, enhance), e.g. `{ "preferred": "claude", "models":
+  { "claude": "sonnet" } }`, set from the model field beside the `A` dialog's
+  agent picker (`POST /deck/edit/agent/model { agent, model, task? }`). It is
+  passed as that agent's own model flag (each roster entry says which:
+  `--model`, `-m`; a unit's descriptor may add `"model": ["--model",
+  "{model}"]`), so the user's own default (`"model"` in a Claude Code
+  settings file) is untouched and a plain `claude` in the same folder opens on
+  it as before. Precedence: this run (`--agent-model` / `DECKLIGHT_AGENT_MODEL`,
+  and `--agent-ask-model` / `DECKLIGHT_AGENT_ASK_MODEL` for questions) > the
+  remembered one, a question falling back to the edit's model > nothing at all,
+  when no flag is passed and the agent's own default applies. An agent whose CLI
+  takes no model flag (IBM Bob, Goose) shows the field disabled and is named at
+  startup if one is set for it, never handed a flag it would reject or a
+  setting it would ignore. A model the agent rejects fails the run with the
+  agent's own error; decklight never retries on another one.
 - **A remembered agent that is missing is named, never substituted.** Which
   agent edits your deck is not an interchangeable detail, so an unavailable
   preference does not quietly fall back to another one: the edit server says

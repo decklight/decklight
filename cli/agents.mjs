@@ -53,6 +53,12 @@ export const AGENTS = [
     // no --permission-mode: an ASK is read-only by construction, and a
     // commit-message call has no business being able to edit the deck.
     ask: (prompt) => ['-p', prompt],
+    // How each CLI takes a model (#918): appended after the rest, which every
+    // parser here accepts. `model: null` is a CLI with no flag for it, said
+    // as such rather than a setting quietly dropped.
+    model: (id) => ['--model', id],
+    // what the card's model field offers; any other id can still be typed
+    models: ['opus', 'sonnet', 'haiku'],
   },
   {
     name: 'codex', label: 'Codex CLI', bin: 'codex',
@@ -60,6 +66,7 @@ export const AGENTS = [
     // the workspace sandbox while allowing file writes.
     args: (prompt) => ['exec', '--full-auto', prompt],
     ask: (prompt) => ['exec', '--sandbox', 'read-only', prompt],
+    model: (id) => ['-m', id],
   },
   {
     name: 'bob', label: 'IBM Bob', bin: 'bob',
@@ -67,26 +74,33 @@ export const AGENTS = [
     // it from hanging on the license prompt when there is no TTY.
     args: (prompt) => ['-p', prompt, '--accept-license'],
     ask: (prompt) => ['-p', prompt, '--accept-license'],
+    model: null,
   },
   {
     name: 'gemini', label: 'Gemini CLI', bin: 'gemini',
     args: (prompt) => ['--yolo', '-p', prompt],
     ask: (prompt) => ['-p', prompt],
+    model: (id) => ['-m', id],
   },
   {
     name: 'copilot', label: 'GitHub Copilot CLI', bin: 'copilot',
     args: (prompt) => ['-p', prompt, '--allow-all-tools'],
     ask: (prompt) => ['-p', prompt],
+    model: (id) => ['--model', id],
   },
   {
     name: 'opencode', label: 'OpenCode', bin: 'opencode',
     args: (prompt) => ['run', prompt],
     ask: (prompt) => ['run', prompt],
+    // provider/model, e.g. anthropic/claude-sonnet-4
+    model: (id) => ['-m', id],
   },
   {
     name: 'goose', label: 'Goose', bin: 'goose',
     args: (prompt) => ['run', '-t', prompt],
     ask: (prompt) => ['run', '-t', prompt],
+    // goose reads its model from its own config (GOOSE_MODEL), not argv
+    model: null,
   },
   {
     name: 'aider', label: 'Aider', bin: 'aider',
@@ -95,16 +109,19 @@ export const AGENTS = [
     args: (prompt, deck) => ['--yes-always', '--no-auto-commits', '--message', prompt, deck],
     // no deck on the command line either: aider edits what it is given
     ask: (prompt) => ['--yes-always', '--no-auto-commits', '--message', prompt],
+    model: (id) => ['--model', id],
   },
   {
     name: 'cursor', label: 'Cursor CLI', bin: 'cursor-agent',
     args: (prompt) => ['-p', prompt, '--force'],
     ask: (prompt) => ['-p', prompt],
+    model: (id) => ['--model', id],
   },
   {
     name: 'qwen', label: 'Qwen Code', bin: 'qwen',
     args: (prompt) => ['--yolo', '-p', prompt],
     ask: (prompt) => ['-p', prompt],
+    model: (id) => ['-m', id],
   },
 ];
 
@@ -142,6 +159,9 @@ export function installedAgents(home = configHome()) {
         bin: d.bin,
         installed: true,
         args: (prompt, deck) => expandArgs(d.args, prompt, deck),
+        // optional: `"model": ["--model", "{model}"]`, a template like `args`
+        model: Array.isArray(d.model) && d.model.every((a) => typeof a === 'string')
+          ? (id) => d.model.map((a) => a.replaceAll('{model}', id)) : null,
       });
     } catch { /* a descriptor we cannot read is one agent, not the roster */ }
   }
@@ -270,21 +290,105 @@ export function detectAgents({ env = process.env, hasBin = canRun, home } = {}) 
 /** Where the preferred agent is remembered — beside the unit library. */
 export const agentConfigPath = (home = configHome()) => join(home, 'agent.json');
 
-/** The remembered agent's name, or null. A missing file is first-run. */
-export function preferredAgent(home = configHome()) {
+/** What agent.json holds, `{}` when there is none (first run) or it is unreadable. */
+function readAgentConfig(home) {
   try {
     const saved = JSON.parse(readFileSync(agentConfigPath(home), 'utf8'));
-    return typeof saved?.preferred === 'string' ? saved.preferred : null;
-  } catch { return null; }
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  } catch { return {}; }
+}
+
+/** Write agent.json; each setter changes its own key and keeps the others. */
+function writeAgentConfig(change, home) {
+  const file = agentConfigPath(home);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify({ ...readAgentConfig(home), ...change }, null, 2)}\n`);
+  return file;
+}
+
+/** The remembered agent's name, or null. A missing file is first-run. */
+export function preferredAgent(home = configHome()) {
+  const saved = readAgentConfig(home);
+  return typeof saved.preferred === 'string' ? saved.preferred : null;
 }
 
 /** Remember `name` as the agent `A` reaches for; `null` forgets it. */
 export function setPreferredAgent(name, home = configHome()) {
-  const file = agentConfigPath(home);
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify({ preferred: name ?? null }, null, 2)}\n`);
-  return file;
+  return writeAgentConfig({ preferred: name ?? null }, home);
 }
+
+// ── the model it runs on (#918) ─────────────────────────────────────────────
+// Decklight's own choice, for decklight's runs only: passed as the agent's
+// model flag, so the user's own default (`"model"` in ~/.claude/settings.json)
+// stays what a plain `claude` opens on. Nothing set means no flag at all, and
+// the agent's own default applies exactly as it always did.
+
+/** The two kinds of run: an edit (`args`) and a question (`ask`). */
+const MODEL_KEYS = { edit: 'models', ask: 'askModels' };
+/** The per-run override for each kind; `--agent-model` and `--agent-ask-model` set them. */
+export const MODEL_ENV = { edit: 'DECKLIGHT_AGENT_MODEL', ask: 'DECKLIGHT_AGENT_ASK_MODEL' };
+
+const modelId = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+/** The models remembered for `name`: `{ edit, ask }`, each an id or null. */
+export function rememberedModels(name, home = configHome()) {
+  const saved = readAgentConfig(home);
+  const pick = (key) => modelId(saved[key]?.[name]);
+  return { edit: pick(MODEL_KEYS.edit), ask: pick(MODEL_KEYS.ask) };
+}
+
+/** Remember `model` for `name`'s `task` (edit | ask); `null` forgets it. */
+export function setAgentModel(name, model, { task = 'edit', home = configHome() } = {}) {
+  const key = MODEL_KEYS[task];
+  if (!key) throw new Error(`no such task: ${task}`);
+  const all = { ...(readAgentConfig(home)[key] ?? {}) };
+  const id = modelId(model);
+  if (id) all[name] = id; else delete all[name];
+  return writeAgentConfig({ [key]: all }, home);
+}
+
+/**
+ * Which model `name` runs `task` on, and where that came from: `{ model,
+ * source }`, `source` one of 'run' (the flag or env var), 'saved' or null.
+ *
+ * The same precedence as the agent itself — this run's choice, then the
+ * remembered one, then the agent's own default — with one step more for a
+ * question: its own setting first, then the edit's, so `--agent-model haiku`
+ * alone moves a run's commit subjects too. A run's choice of either kind beats
+ * a remembered one of either kind: it was made later, for this run.
+ */
+export function agentModel(name, { task = 'edit', env = process.env, home = configHome() } = {}) {
+  const saved = rememberedModels(name, home);
+  const order = task === 'ask'
+    ? [[env[MODEL_ENV.ask], 'run'], [env[MODEL_ENV.edit], 'run'], [saved.ask, 'saved'], [saved.edit, 'saved']]
+    : [[env[MODEL_ENV.edit], 'run'], [saved.edit, 'saved']];
+  for (const [v, source] of order) if (modelId(v)) return { model: modelId(v), source };
+  return { model: null, source: null };
+}
+
+/**
+ * The argv tail that puts `agent` on its model, and what the run reports:
+ * `{ flag, model, unsupported }`. An agent whose CLI takes no model flag gets
+ * no flag and says which model it could not take, so the caller can show the
+ * setting as unavailable instead of pretending it applied.
+ */
+function modelFlag(agent, task, { env, home, model }) {
+  const id = model !== undefined ? modelId(model) : agentModel(agent.name, { task, env, home }).model;
+  if (!id) return { flag: [], model: null, unsupported: null };
+  if (typeof agent.model !== 'function') return { flag: [], model: null, unsupported: id };
+  return { flag: agent.model(id), model: id, unsupported: null };
+}
+
+/** Put `--agent-model` / `--agent-ask-model` into `env` for every agent this process starts. */
+export function applyModelFlags(opt, env = process.env) {
+  for (const [task, flag] of [['edit', '--agent-model'], ['ask', '--agent-ask-model']]) {
+    const v = opt(flag);
+    if (typeof v === 'string' && v.trim()) env[MODEL_ENV[task]] = v.trim();
+  }
+}
+
+/** Can `agent` be told a model at all? */
+export const takesModel = (agent) => typeof agent?.model === 'function';
 
 /**
  * Why `name` cannot be run, as a line naming the way out (#125).
@@ -338,18 +442,21 @@ export function agentUnavailable(name, roster, home = configHome(),
  * whose unit declares one template and cannot be asked for a second — noted
  * rather than hidden, since it is the one path here that stays writable.
  */
-export function agentAsk(name, prompt, { env = process.env, hasBin = canRun, home, spec = spawnSpec } = {}) {
+export function agentAsk(name, prompt, { env = process.env, hasBin = canRun, home, spec = spawnSpec, model } = {}) {
   const roster = detectAgents({ env, hasBin, home });
   const wanted = name ?? preferredAgent(home);
   const agent = wanted ? roster.find((a) => a.name === wanted) : roster[0];
   if (!agent) return null;
   const how = spec(agent.bin, { env }) ?? { bin: agent.bin, prefix: [] };
   const build = agent.ask ?? agent.args;
+  const m = modelFlag(agent, 'ask', { env, home, model });
   return {
     bin: how.bin,
-    args: [...how.prefix, ...build(prompt)],
+    args: [...how.prefix, ...build(prompt), ...m.flag],
     label: agent.label,
     name: agent.name,
+    model: m.model,
+    modelUnsupported: m.unsupported,
     readOnly: !!agent.ask,
     env: unleashedEnv(env),
   };
@@ -358,7 +465,7 @@ export function agentAsk(name, prompt, { env = process.env, hasBin = canRun, hom
 /** 1 → first, 2 → second … for a sentence an agent reads. */
 const ordinal = (n) => (n === 1 ? 'first' : n === 2 ? 'second' : n === 3 ? 'third' : `${n}th`);
 
-export function agentCommand(name, instruction, deck, { env = process.env, hasBin = canRun, home, spec = spawnSpec, slide = null, dirs = [] } = {}) {
+export function agentCommand(name, instruction, deck, { env = process.env, hasBin = canRun, home, spec = spawnSpec, slide = null, dirs = [], model } = {}) {
   const roster = detectAgents({ env, hasBin, home });
   // Precedence, matching how every other saved choice resolves (PRESENTING):
   // an explicit name > the remembered preference > the first detected agent.
@@ -393,11 +500,17 @@ export function agentCommand(name, instruction, deck, { env = process.env, hasBi
   // arguments below to stay arguments (#307). On POSIX it is empty and this is
   // the same command it always was.
   const how = spec(agent.bin, { env }) ?? { bin: agent.bin, prefix: [] };
+  // the model (#918): `model` given wins, else this run's, else the remembered one
+  const m = modelFlag(agent, 'edit', { env, home, model });
   return {
     bin: how.bin,
-    args: [...how.prefix, ...agent.args(prompt, deck, { dirs })],
+    args: [...how.prefix, ...agent.args(prompt, deck, { dirs }), ...m.flag],
     label: agent.label,
     name: agent.name,
+    // the model it was told to run on, or null for its own default; and one
+    // it was set to but cannot take (no model flag), for the caller to say so
+    model: m.model,
+    modelUnsupported: m.unsupported,
     // which stream dialect stdout speaks, if any — the server's activity
     // parser keys off it, and agents without one still get the generic
     // last-line clue
