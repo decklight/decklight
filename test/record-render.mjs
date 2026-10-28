@@ -178,9 +178,14 @@ const DECK = `<!doctype html>
       if (params.has('vpanel')) {
         await wait(1500);   // the probe, then the track list the panel asks for
         press('v');
-        const warn = await until(() => document.querySelector('.decklight-narr .narr-warn'), 6000);
+        // #919: no banner — the voice's row says it, on the button that opens its card
+        const warn = await until(() => document.querySelector('.decklight-narr .narr-manage.narr-warn-status'), 6000);
         r.vWarn = warn?.textContent ?? null;
         r.vRows = [...document.querySelectorAll('.decklight-narr .narr-row')].map((n) => n.textContent).join(' | ');
+        r.vBanner = !!document.querySelector('.decklight-narr .narr-warn');
+        warn?.click();
+        await wait(50);
+        r.vCard = document.querySelector('.decklight-narr .narr-card')?.textContent ?? null;
         throw 'introonly';
       }
       // ?record opened it — no keystroke, which is the command's whole promise
@@ -555,7 +560,7 @@ check('refusal', /microphone was blocked/.test(blocked.card ?? '')
   // narration panel now, so the refusal has to name the route that exists —
   // a card that tells you to press a freed key is worse than one that says
   // nothing, because it reads as a bug in the microphone.
-  && /Record this deck/.test(blocked.card ?? '')
+  && /open the recorder again from the V panel/.test(blocked.card ?? '')
   && blocked.recordedNothing === true && !existsSync(path.join(tmp, 'denied')),
 `explains and offers a retry=${/microphone was blocked/.test(blocked.card ?? '')}`
   + ` · wrote nothing=${!existsSync(path.join(tmp, 'denied'))}`);
@@ -751,10 +756,13 @@ writeFileSync(deckFile, DECK.replace('Beat two. ⟨CLICK⟩ Beat three.', 'Beat 
 const moved = await run('tone', '', 'keys', '&cfg=takes&vpanel');
 writeFileSync(deckFile, DECK);
 const steady = await run('tone', '', 'keys', '&cfg=takes&vpanel');
-check('drift', /Slide 1's \[click\] moved since it was recorded \(3 beats → 2\)/.test(moved.vWarn ?? '')
-  && /cannot move a build/.test(moved.vWarn ?? '') && /decklight narrate deck\.html --mic --slides 1 --dir takes/.test(moved.vWarn ?? '')
-  && /build split changed — re-record slide 1/.test(moved.vRows ?? '') && steady.vWarn === null,
-`V says: "${moved.vWarn}" · put back, says nothing=${steady.vWarn === null}`);
+// #919: the row says it once, on the button that opens the card, and the
+// card's first row IS the fix — no banner above, and no command to paste
+check('drift', /⚠ slide 1 to re-record/.test(moved.vWarn ?? '') && moved.vBanner === false
+  && /Re-record slide 1/.test(moved.vCard ?? '') && /the \[click\] moved \(3 beats → 2\)/.test(moved.vCard ?? '')
+  && /read those beats again/.test(moved.vCard ?? '') && !/decklight narrate/.test(moved.vCard ?? '')
+  && steady.vWarn === null,
+`V says: "${moved.vWarn}" · card "${moved.vCard}" · put back, says nothing=${steady.vWarn === null}`);
 
 // ── the words, edited mid-take ───────────────────────────────────────────
 // E on slide 1's beat two: the box holds that beat's words, Enter writes them

@@ -4439,47 +4439,51 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.vOpensPanel = !!card;
         const rowText = () => [...document.querySelectorAll('.decklight-narr .narr-row')]
           .map((n) => n.textContent);
-        r.panelOffersRecording = rowText().some((t) => /Record this deck/.test(t));
+        r.panelOffersRecording = rowText().some((t) => /Add a voice/.test(t));
         r.panelOffersCaptions = rowText().some((t) => /Captions/.test(t));
         r.panelOffersSpeed = rowText().some((t) => /Speed/.test(t));
-        // the record row drills into its own view, with both recorders
-        const rec = [...document.querySelectorAll('.decklight-narr .narr-row')]
-          .find((n) => /Record this deck/.test(n.textContent));
-        rec.click();
+        // #919: who speaks is one list, Silent first, and a voice row has two
+        // targets: the row selects it, the button at its right opens its card
+        const voices = () => [...document.querySelectorAll('.decklight-narr .narr-row.narr-voice')];
+        r.silentFirst = /🔇 Silent/.test(voices()[0]?.textContent ?? '');
+        const live = () => voices().find((n) => /⚡/.test(n.textContent));
+        r.liveHasManage = !!live()?.querySelector('.narr-manage');
+        // → on the live voice opens its card, ← comes back
+        live()?.dispatchEvent(new MouseEvent('mouseenter'));   // rows select on hover
+        press('ArrowRight');
         await settle();
-        r.recordViewLists = rowText().some((t) => /With your voice/.test(t))
-          && rowText().some((t) => /synthesized voice/.test(t));
-        // Which slides comes first, since both recorders walk it. The picker
-        // opens ON TOP of the panel, owns the keys while it is up, and hands
-        // back to a panel whose row now says what was picked.
-        const slidesRow = () => [...document.querySelectorAll('.decklight-narr:not(.decklight-range) .narr-row')]
-          .find((n) => /Slides —/.test(n.textContent));
-        r.recordAsksWhichSlides = /Slides — all slides/.test(slidesRow()?.textContent ?? '');
-        slidesRow()?.click();
+        r.arrowOpensCard = rowText().some((t) => /Change voice/.test(t)) && rowText().some((t) => /Save a live voice as a track/.test(t));
+        press('ArrowLeft');
         await settle();
-        r.rangePickerOnTop = !!document.querySelector('.decklight-range');
-        press('ArrowDown');
-        press('Enter');
+        r.arrowComesBack = rowText().some((t) => /Add a voice/.test(t));
+        // Add a voice drills into its own view, with every way to start one
+        const add = [...document.querySelectorAll('.decklight-narr .narr-row')]
+          .find((n) => /Add a voice/.test(n.textContent));
+        add.click();
         await settle();
-        r.rangeKeptThePanel = !document.querySelector('.decklight-range')
-          && !!document.querySelector('.decklight-narr .narr-card');
-        r.rangeRowSaysSlide = /Slides — slide \d+/.test(slidesRow()?.textContent ?? '');
+        r.recordViewLists = rowText().some((t) => /Record yourself/.test(t))
+          && rowText().some((t) => /A live voice/.test(t))
+          && rowText().some((t) => /Save a live voice as a track/.test(t));
         // The synthesized row is BLOCKED here — this deck has no live voice —
         // and a blocked row must refuse in place, with its reason, rather than
         // closing the panel and refusing afterwards. `commitNarrRow` fires any
         // commit it is handed, so the guard has to be in the row itself.
         const synth = [...document.querySelectorAll('.decklight-narr .narr-row')]
-          .find((n) => /synthesized voice/.test(n.textContent));
+          .find((n) => /Save a live voice as a track/.test(n.textContent));
+        // (with no bridge here the browser's own voice is the live one, and it
+        // is that, not the lack of a voice, that cannot be recorded)
         r.blockedRowSaysWhy = !!synth && /narr-blocked/.test(synth.className)
-          && /pick a live voice first/.test(synth.textContent);
+          && /pick a live voice first|the browser's voice cannot be recorded/.test(synth.textContent);
         synth.click();
         await settle();
         r.blockedRowKeptThePanel = !!document.querySelector('.decklight-narr')
           && !document.querySelector('.decklight-record');
-        // Esc walks back to the tracks view rather than closing outright
+        // no row anywhere offers a command to paste (#919)
+        r.noCommands = !/decklight narrate/.test(document.querySelector('.decklight-narr')?.textContent ?? '');
+        // Esc walks back to the voices rather than closing outright
         press('Escape');
         await settle();
-        r.escapeGoesBack = rowText().some((t) => /Record this deck/.test(t));
+        r.escapeGoesBack = rowText().some((t) => /Add a voice/.test(t));
         // V closes it — the key that opened it
         press('v');
         await settle();
@@ -4489,10 +4493,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         r.nDoesNothing = !document.querySelector('.decklight-narr');
         r.PASS = r.vOpensPanel && r.panelOffersRecording && r.panelOffersCaptions
-          && r.panelOffersSpeed && r.recordViewLists && r.blockedRowSaysWhy
-          && r.blockedRowKeptThePanel && r.escapeGoesBack
-          && r.recordAsksWhichSlides && r.rangePickerOnTop && r.rangeKeptThePanel && r.rangeRowSaysSlide
-          && r.vCloses && r.nDoesNothing;
+          && r.panelOffersSpeed && r.silentFirst && r.liveHasManage && r.arrowOpensCard && r.arrowComesBack
+          && r.recordViewLists && r.blockedRowSaysWhy && r.blockedRowKeptThePanel && r.noCommands
+          && r.escapeGoesBack && r.vCloses && r.nDoesNothing;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

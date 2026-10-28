@@ -446,7 +446,7 @@ test('silencePcm is exactly `seconds` of 16-bit mono at `rate`, and it is silent
 });
 
 test('micWhy names the fix for each way a microphone refuses, and escapes the rest', () => {
-  const panel = /V → Record this deck…/;
+  const panel = /open the recorder again from the V panel/;
   assert.match(micWhy({ name: 'NotAllowedError' }), /blocked/);
   assert.match(micWhy({ name: 'NotAllowedError' }), panel);
   assert.match(micWhy({ name: 'SecurityError' }), /blocked/);

@@ -2012,7 +2012,7 @@ test('narrate --mic serves the deck and prints the URL the browser is sent to', 
       // writes, and resolving on the URL alone then asserting the hint is a
       // race the test loses on a slow runner — Windows CI lost it for real.
       const m = out.match(/decklight narrate --mic on (\S+)/);
-      if (m && /With your voice… opens the recorder/.test(out)) { clearInterval(scan); clearTimeout(bell); resolve(m[1]); }
+      if (m && /opens the recorder again/.test(out)) { clearInterval(scan); clearTimeout(bell); resolve(m[1]); }
     }, 25);
     child.on('exit', () => { clearInterval(scan); clearTimeout(bell); reject(new Error('record exited early:\n' + out)); });
     const bell = setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 15000);
@@ -2020,7 +2020,7 @@ test('narrate --mic serves the deck and prints the URL the browser is sent to', 
   assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/talk\.html\?record&dir=takes$/);
   // ?record is what arms the recorder, and --dir rides along so the files land
   // where the command was told to put them rather than where the deck guesses
-  assert.match(out, /With your voice… opens the recorder/);
+  assert.match(out, /opens the recorder again/);
   // …and the server really is serving that deck
   const res = await fetch(url.replace(/\?.*/, ''));
   assert.equal(res.status, 200);
@@ -2078,7 +2078,7 @@ test('narrate --check says which slides drifted from the notes, how, and the lin
   fs.writeFileSync(path.join(dir, 'talk.html'), deck('One. [click] Two. Three.', 'Four, said differently.'));
   r = check();
   assert.equal(r.status, 1, 'out of step exits 1');
-  assert.match(r.stdout, /voices\/me\/ {2}your voice: 2 slides out of step/);
+  assert.match(r.stdout, /voices\/me\/ {2}your voice: 2 slides to re-record/);
   assert.match(r.stdout, /slide 1: the \[click\] split moved, the words did not — a recorded beat is cut where you pressed →, so the marker alone cannot move a build/);
   assert.match(r.stdout, /decklight narrate talk\.html --mic --slides 1 --dir voices\/me/);
   assert.match(r.stdout, /slide 2: the notes changed since it was recorded/);

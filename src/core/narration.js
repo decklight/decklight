@@ -585,13 +585,13 @@ export const silencePcm = (rate, seconds) => new Uint8Array(2 * Math.round(rate 
 export function micWhy(e) {
   const n = e?.name ?? '';
   if (n === 'NotAllowedError' || n === 'SecurityError') {
-    return 'the microphone was blocked. Allow it for this page (the ⚙ or 🎤 in the address bar), then open it again from V → Record this deck…';
+    return 'the microphone was blocked. Allow it for this page (the ⚙ or 🎤 in the address bar), then open the recorder again from the V panel (your voice\'s ⋯, or ＋ Add a voice…)';
   }
   if (n === 'NotFoundError' || n === 'OverconstrainedError') {
-    return 'no microphone was found. Plug one in, or pick one as the system input, then open it again from V → Record this deck…';
+    return 'no microphone was found. Plug one in, or pick one as the system input, then open the recorder again from the V panel (your voice\'s ⋯, or ＋ Add a voice…)';
   }
   if (n === 'NotReadableError') {
-    return 'the microphone is busy — another app (a call, a recorder) is holding it. Close it and open it again from V → Record this deck…';
+    return 'the microphone is busy — another app (a call, a recorder) is holding it. Close it and open the recorder again from the V panel (your voice\'s ⋯, or ＋ Add a voice…)';
   }
   return `the microphone could not be opened (${escapeHtml(String(e?.message || n || e))}).`;
 }
@@ -2094,7 +2094,9 @@ export function createNarration({
     else if (narrView === 'tones') renderNarr('voices');
     else if (narrView === 'engines' || narrView === 'langs' || narrView === 'library') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('character');
-    else if (narrView === 'record' || narrView === 'enhance' || narrView === 'spoken') renderNarr('tracks');
+    else if (narrView === 'card' && narrConfirm) { narrConfirm = null; narrSel = 0; renderNarr('card'); }
+    else if (narrView === 'enhance' || narrView === 'spoken') renderNarr('script');
+    else if (narrView === 'card' || narrView === 'add' || narrView === 'script') renderNarr('tracks');
     else if (narrView === 'voices' || narrView === 'character') renderNarr('tracks');
     else closeNarrPicker();
   }
@@ -2284,38 +2286,131 @@ export function createNarration({
     }
   }
   /**
-   * A track's slides out of step with the notes (#850), as the V panel says
-   * them: the slide you are on first, and how it moved. A moved ⟨CLICK⟩ in
-   * your own voice gets the sentence that explains why the build did not
-   * follow it, and every message ends in the command that fixes it.
+   * What the server knows of each track beside the deck (cli/edit.mjs
+   * tracksRoute): who voiced it, which slides it holds, and which of them are
+   * out of step with the notes (#850). Asked on every open of the panel.
    */
-  let narrDrift = new Map();   // track dir → { drift, mine }
-  function driftOf(t) {
-    const d = t?.dir ? narrDrift.get(String(t.dir).replace(/^\.\//, '').replace(/\/+$/, '')) : null;
-    if (!d) return null;
-    const here = d.drift.find((x) => x.slide === instance.state.slide) ?? null;
-    return { ...d, here };
+  let narrKnown = new Map();   // track dir → { dir, engine, voice, style, mine, drift, slides, … }
+  const dirKey = (dir) => String(dir ?? '').replace(/^\.\//, '').replace(/\/+$/, '');
+  const knownOf = (t) => (t?.dir ? narrKnown.get(dirKey(t.dir)) ?? null : null);
+  /** Your own voice: the recorder says so in the manifest; `voices/me` before one is read. */
+  const isMine = (t) => (knownOf(t) ? knownOf(t).mine === true : dirKey(t?.dir) === 'voices/me');
+  /** A track's slides out of step with the notes, in slide order. */
+  const driftOf = (t) => knownOf(t)?.drift ?? [];
+  /**
+   * The fix, named for what it costs (#919): your own voice is RE-RECORDED,
+   * which is you at the microphone; a synthesized track is RE-VOICED, which
+   * is an engine paid per character. The two never share a word.
+   */
+  const fixVerb = (t) => (isMine(t) ? 're-record' : 're-voice');
+  /** `slide 32`, `slides 29, 30, 32`, and past six, how many more. */
+  function slidesSaid(list) {
+    if (list.length === 1) return `slide ${list[0]}`;
+    const shown = list.slice(0, 6).join(', ');
+    return `slides ${shown}${list.length > 6 ? ` and ${list.length - 6} more` : ''}`;
   }
-  function driftFlavor(t) {
-    const d = driftOf(t);
-    if (!d) return null;
-    if (d.here) return `⚠ slide ${d.here.slide}: ${d.here.why === 'clicks' ? 'build split changed' : 'notes changed'} — re-record slide ${d.here.slide}`;
-    const n = d.drift.length;
-    return `⚠ ${n} slide${n === 1 ? '' : 's'} out of sync: ${d.drift.map((x) => x.slide).join(', ')}`;
+  /** Why each slide drifted, said once: what a fix row's flavor reads. */
+  function driftWhy(t, drift) {
+    const clicks = drift.filter((d) => d.why === 'clicks');
+    const words = drift.length - clicks.length;
+    const parts = [];
+    if (words) parts.push(words === drift.length ? 'the notes changed' : `${words} with new notes`);
+    if (clicks.length) {
+      const one = clicks.length === 1 && clicks[0].was !== clicks[0].now ? ` (${clicks[0].was} beats → ${clicks[0].now})` : '';
+      parts.push(`${clicks.length === drift.length ? 'the [click] moved' : `${clicks.length} with a moved [click]`}${one}`);
+      // A recorded beat is cut where you pressed →: the marker alone cannot move a build
+      if (isMine(t)) parts.push('read those beats again');
+    }
+    return parts.join(' · ');
   }
-  function driftWarning(t) {
-    const d = driftOf(t);
-    if (!d?.here) return null;
-    const { slide, why, was, now } = d.here;
-    const cmd = `decklight narrate ${deckFileName()}${d.mine ? ' --mic' : ''} --slides ${slide} --dir ${t.dir}`;
-    const what = why === 'clicks'
-      ? `Slide ${slide}'s [click] moved since it was recorded${was !== now ? ` (${was} beat${was === 1 ? '' : 's'} → ${now})` : ''}.`
-        + (d.mine ? ' A recorded beat is cut where you pressed →, so the marker alone cannot move a build: read those beats again.' : '')
-      : `Slide ${slide}'s notes changed since it was recorded.`;
-    return `${escapeHtml(what)} <code>${escapeHtml(cmd)}</code>`;
+  /** The characters a re-voice of `slides` sends, roughly: their notes as spoken. */
+  const voiceChars = (slides) => slides.reduce((n, sl) => n + (notesText(sl) ?? '').length, 0);
+  /** A voice row's status: what is wrong with it, else what it is. */
+  function voiceStatus(t) {
+    const drift = driftOf(t);
+    if (drift.length) {
+      const n = drift.length;
+      return { text: `⚠ ${n === 1 ? `slide ${drift[0].slide}` : `${n} slides`} to ${fixVerb(t)}`, warn: true };
+    }
+    if (t.manifest) return { text: manifestFlavor(t) };
+    const k = knownOf(t);
+    return { text: k ? `${k.slides?.length ?? k.files} slide${(k.slides?.length ?? k.files) === 1 ? '' : 's'}` : '' };
+  }
+  let narrCardOf = null;     // the voice whose card is open: a track, or LIVE_TRACK
+  let narrConfirm = null;    // a re-voice waiting for its yes: { t, slides }
+  /**
+   * A recording of your own voice is already among the voices the panel
+   * lists. Only those: a take on disk the deck does not play has no row, so
+   * hiding "Record yourself" for it would leave no way to reach it.
+   */
+  const hasMyVoice = () => narrSets.some((t) => isMine(t));
+  /** Make `t` the voice that plays — the row's ⏎ — and, asked to, start it. */
+  function useVoice(t, { play = false } = {}) {
+    narrSet = t;
+    persistNarr();
+    closeNarrPicker();
+    toast(t.live ? `⚡ live voice: ${liveCfg.voice}` : `🔊 track: ${t.label}`);
+    // switching voices mid-narration: a track may need its manifest first
+    if (narrating) {
+      if (t.live) playSlideFile();
+      else ensureTrack().then((ok) => { if (ok) playSlideFile(); });
+    } else if (play) playPause();
+  }
+  function openVoiceCard(t) {
+    narrCardOf = t;
+    narrConfirm = null;
+    renderNarr('card');
+  }
+  /** Why `t` cannot be re-voiced here, or null: it has to say who voiced it, and a bridge has to speak. */
+  function revoiceWhy(t) {
+    const k = knownOf(t);
+    if (!k) return editBase() == null ? 'needs write mode — it writes the track' : 'reading the track…';
+    if (!k.engine) return 'this track does not say which voice made it';
+    if (onBrowser()) return "the browser's voice cannot be recorded — re-voicing needs the voice bridge";
+    return null;
+  }
+  function armRevoice(t, slides) {
+    narrCardOf = t;
+    narrConfirm = { t, slides };
+    narrSel = 0;   // the yes, first
+    renderNarr('card');
+  }
+  /** The live voice into a folder: the synthesized recorder, offered where a voice is added or kept. */
+  function saveLiveRow() {
+    const why = onBrowser() ? "the browser's voice cannot be recorded — it needs the voice bridge"
+      : liveEngine ? null : 'pick a live voice first — ⚡ A live voice';
+    return {
+      text: '💾 Save a live voice as a track…',
+      flavor: why ? '' : `${liveCfg.voice} → a folder beside the deck, so it plays without a bridge`,
+      blocked: why,
+      commit: () => {
+        if (why) return toast(why, 5000);
+        closeNarrPicker();
+        openRecordDialog();
+      },
+    };
+  }
+  /** The rows every voice's card ends with: hear it from here, and choose it. */
+  function voiceTail(t) {
+    narrRows.push({
+      text: `▶ Listen from slide ${instance.state.slide}`,
+      commit: () => useVoice(t, { play: true }),
+    });
+    if (t !== narrSet) {
+      narrRows.push({
+        text: '◉ Use this voice',
+        flavor: narrSet ? `${narrSet.live ? liveCfg.voice : narrSet.label} plays now` : 'nothing plays now',
+        commit: () => useVoice(t),
+      });
+    }
   }
   function renderNarr(view) {
     const cameFrom = narrView;
+    // The same view again — an answer from the server or the bridge, or a
+    // toggle — keeps the row you were on: a late answer that put the
+    // highlight back on the current voice would send your next → to the
+    // wrong card.
+    const keepSel = cameFrom === view && (view === 'tracks' || view === 'card' || view === 'add') ? narrSel : -1;
     narrView = view;
     // ARRIVING here means you are looking for something, so the box takes the
     // keyboard. Re-rendering because you typed does not re-decide that — it is
@@ -2329,20 +2424,19 @@ export function createNarration({
     card.appendChild(head);
     narrRows = [];
     if (view === 'tracks') {
-      head.textContent = 'narration';
-      // the track V plays, else any track out of step here: a deck nobody
-      // has picked a voice for still has a recording to be wrong about
-      const warn = driftWarning(narrSet?.dir ? narrSet : narrSets.find((t) => driftOf(t)?.here));
-      if (warn) {
-        const w = document.createElement('div');
-        w.className = 'narr-warn';
-        w.innerHTML = warn;
-        card.appendChild(w);
-      }
+      // WHO SPEAKS, first, as one list (#919): your own recording, a
+      // synthesized one and the live voice are the same kind of thing — a
+      // voice — and the panel used to show them as three different shapes in
+      // three different places. Each voice row has two targets: the row
+      // selects it (⏎, a click), the button at its right opens its card (→, a
+      // click), and that button carries what is wrong with it. The banner that
+      // said it a third time, with a command to paste, is gone: the card's
+      // first row IS the fix.
+      head.textContent = `narration · slide ${instance.state.slide}`;
       // recordings that are only in the wrong place (#916): the deck was
       // reordered outside the slide ops, and the server read from each one's
       // words which slide it belongs to — offered, never done unasked
-      for (const d of narrDrift.values()) {
+      for (const d of narrKnown.values()) {
         if (!d.realign?.moves?.length) continue;
         narrRows.push({
           text: `↔ ${d.realign.said} — move them?`,
@@ -2350,13 +2444,16 @@ export function createNarration({
           commit: () => realignTrack(d.dir),
         });
       }
-      // OFF first, and checked on a deck nobody has chosen for. It is the
+      const WHO = 'who speaks';
+      // SILENT first, and checked on a deck nobody has chosen for. It is the
       // state the deck arrives in, so it reads as the top of a list of
       // choices rather than an escape hatch at the bottom of one — and it is
       // the row that hands ⎵ back to the deck (see voiceInPlay).
       narrRows.push({
-        text: '🔇 Off — no voice',
-        flavor: narrSets.length || liveFound ? '⎵ advances the deck' : '',
+        group: WHO,
+        voice: true,
+        text: '🔇 Silent',
+        status: { text: narrSets.length || liveFound ? '⎵ advances the deck' : '' },
         cur: !narrSet,
         commit: () => {
           const spoke = narrating || narrPaused;
@@ -2370,69 +2467,206 @@ export function createNarration({
         },
       });
       narrSets.forEach((t) => narrRows.push({
+        group: WHO,
+        voice: true,
         // ☁ says the audio is not in this deck's folder; the countdown says
         // how long that will keep being true. Both come from the manifest
         // only once it has been loaded — before that, the row is honest
         // about knowing only where to look.
-        text: t.manifest ? `☁ ${t.label}` : `🔊 ${t.label} (${t.dir}/)`,
-        flavor: driftFlavor(t) ?? (t.manifest ? manifestFlavor(t) : ''),
+        text: `${t.manifest ? '☁' : isMine(t) ? '🎤' : '🔊'} ${t.label}`,
+        dir: t.manifest ? '' : `${dirKey(t.dir)}/`,
+        status: voiceStatus(t),
         cur: t === narrSet,
-        commit: () => {
-          narrSet = t; persistNarr(); closeNarrPicker(); toast(`🔊 track: ${t.label}`);
-          // switching tracks mid-narration: the new one may need its manifest
-          if (narrating) ensureTrack().then((ok) => { if (ok) playSlideFile(); });
-        },
+        commit: () => useVoice(t),
+        manage: () => openVoiceCard(t),
       }));
+      // The live voice is a voice like the others. Before a bridge has said
+      // what it speaks, its name would be a guess, so the row says what it is
+      // instead; picking it then goes to the roster to choose one.
+      const named = !!(liveEngine || narrSet?.live || onBrowser());
       narrRows.push({
-        text: '⚡ Live voice — synthesize on the fly…',
-        // which engine and voice it is, once a bridge has said
-        flavor: liveEngine ? `${liveEngine} · ${liveCfg.voice}` : '',
-        cur: narrSet?.live,
-        commit: () => renderNarr('voices'),
+        group: WHO,
+        voice: true,
+        text: named ? `⚡ ${liveCfg.voice}` : '⚡ Live voice',
+        dir: 'live',
+        status: { text: liveEngine ?? (onBrowser() ? "the browser's voice" : 'synthesized as you present') },
+        cur: !!narrSet?.live,
+        commit: () => (named ? useVoice(LIVE_TRACK) : renderNarr('voices')),
+        manage: () => openVoiceCard(LIVE_TRACK),
       });
       narrRows.push({
-        text: '🧑 Character — animated narrator…',
+        group: WHO,
+        text: '＋ Add a voice…',
+        flavor: hasMyVoice() ? 'a live voice, or one saved as a track' : 'record yourself · a live voice',
+        commit: () => renderNarr('add'),
+      });
+      const AROUND = 'around the voice';
+      // The script the voice reads: given ElevenLabs v4's audio tags, or
+      // written for the ear. It writes the deck, so it needs the edit server;
+      // said in place.
+      narrRows.push({
+        group: AROUND,
+        text: '✨ Script…',
+        flavor: enhanceScript() ? 'audio tags · write for the ear' : '',
+        blocked: enhanceScript() ? null : 'needs write mode — it writes the notes',
+        commit: () => (enhanceScript() ? renderNarr('script') : toast('the script tools need write mode — they write the notes', 4000)),
+      });
+      narrRows.push({
+        group: AROUND,
+        text: '🧑 Character…',
+        flavor: character.mode === 'off' ? 'an animated narrator' : character.mode === 'video' ? 'neural video · on' : '2D · on',
         cur: character.mode !== 'off',
         commit: () => renderNarr('character'),
-      });
-      // Recording used to be two shortcuts nobody found — the synthesized recorder and the your-voice recorder, one of
-      // which was not even in the keyboard help. It is a thing you do TO this
-      // deck's narration, so it belongs beside the track it produces.
-      // The script the voice reads, given ElevenLabs v4's audio tags — the
-      // agent drafts, decklight checks no word or beat moved (cli/enhance.mjs).
-      // It writes the deck, so it needs the edit server; said in place.
-      narrRows.push({
-        text: '✨ Enhance the script — ElevenLabs audio tags…',
-        flavor: enhanceScript() ? 'your agent adds them, nothing reworded' : '',
-        blocked: enhanceScript() ? null : 'needs write mode — it writes the notes',
-        commit: () => (enhanceScript() ? renderNarr('enhance') : toast('enhancing the script needs write mode — it writes the notes', 4000)),
-      });
-      // …and written for the ear: terse notes as sentences a person would say
-      narrRows.push({
-        text: '🗣 Write the script for the ear…',
-        flavor: enhanceScript() ? 'terse notes become sentences a person would say' : '',
-        blocked: enhanceScript() ? null : 'needs write mode — it writes the notes',
-        commit: () => (enhanceScript() ? renderNarr('spoken') : toast('rewriting the script needs write mode — it writes the notes', 4000)),
-      });
-      narrRows.push({
-        text: '🎙 Record this deck…',
-        flavor: narrSets.some((t) => !t.live) ? 're-record, or add another take' : 'write the audio to a folder',
-        commit: () => renderNarr('record'),
       });
       // The two knobs that used to be keys and nothing else. They stay keys —
       // C and < / > still work — but a panel that claims to hold everything
       // about the voice cannot leave them out of it.
       narrRows.push({
+        group: AROUND,
         text: `${captionsOn ? '☑' : '☐'} Captions — follow the voice on screen`,
         flavor: 'C',
-        toggle: true,
         commit: () => { toggleCaptions(); renderNarr('tracks'); },
       });
       narrRows.push({
+        group: AROUND,
         text: `⏩ Speed — ${narrRate}×`,
         flavor: '< slower · > faster',
-        toggle: true,
         commit: () => { changeNarrRate(narrRate >= 2 ? -1.75 : 0.25); renderNarr('tracks'); },
+      });
+    } else if (view === 'card' && narrConfirm) {
+      // A re-voice is paid per character, so it asks once, inside the card,
+      // with the figure — and Esc or Cancel leaves without spending anything.
+      const { t, slides } = narrConfirm;
+      const k = knownOf(t);
+      head.textContent = `re-voice ${slidesSaid(slides)} as ${k?.voice ?? t.label}?`;
+      narrRows.push({
+        text: `🔊 Re-voice ${slidesSaid(slides)}`,
+        flavor: `about ${voiceChars(slides).toLocaleString()} characters on ${k?.engine ?? 'its engine'} · only ${slides.length === 1 ? 'that slide is' : 'those slides are'} replaced`,
+        commit: () => { narrConfirm = null; closeNarrPicker(); revoiceTrack(t, slides); },
+      });
+      narrRows.push({
+        text: 'Cancel',
+        flavor: 'Esc',
+        commit: () => { narrConfirm = null; narrSel = 0; renderNarr('card'); },
+      });
+    } else if (view === 'card' && narrCardOf === LIVE_TRACK) {
+      head.textContent = `⚡ live voice · ${liveEngine ? `${liveEngine} · ${liveCfg.voice}` : 'no bridge has answered yet'}`;
+      narrRows.push({
+        text: '🗣 Change voice…',
+        flavor: liveEngine ? liveCfg.voice : 'pick an engine and a voice',
+        commit: () => renderNarr('voices'),
+      });
+      if (liveEngine && liveStylable) {
+        narrRows.push({
+          text: '🎭 Change tone…',
+          flavor: liveCfg.tone,
+          commit: () => { liveDraft = liveCfg.voice; renderNarr('tones'); },
+        });
+      }
+      narrRows.push(saveLiveRow());
+      voiceTail(LIVE_TRACK);
+    } else if (view === 'card' && narrCardOf) {
+      const t = narrCardOf;
+      const k = knownOf(t);
+      const mine = isMine(t);
+      const drift = driftOf(t);
+      const slides = drift.map((d) => d.slide);
+      const facts = [dirKey(t.dir) + '/', k?.slides ? `${k.slides.length} slides` : null,
+        drift.length ? `${drift.length} out of date` : null].filter(Boolean).join(' · ');
+      head.textContent = `${mine ? '🎤' : t.manifest ? '☁' : '🔊'} ${t.label} · ${facts}`;
+      // The fix, first, and only when there is one to make
+      if (drift.length && mine) {
+        narrRows.push({
+          text: `🎙 Re-record ${slidesSaid(slides)}`,
+          flavor: driftWhy(t, drift),
+          blocked: micUnavailable() || null,
+          commit: () => {
+            const why = micUnavailable();
+            if (why) return toast(why, 5000);
+            closeNarrPicker();
+            openMicRecorder({ dir: dirKey(t.dir), label: t.label, only: slides });
+          },
+        });
+      } else if (drift.length) {
+        const why = revoiceWhy(t);
+        narrRows.push({
+          text: `🔊 Re-voice ${slidesSaid(slides)}`,
+          flavor: why ? '' : `~${voiceChars(slides).toLocaleString()} characters · ${driftWhy(t, drift)}`,
+          blocked: why,
+          commit: () => (why ? toast(why, 5000) : armRevoice(t, slides)),
+        });
+      }
+      if (mine) {
+        narrRows.push({
+          text: '🎙 Record other slides…',
+          flavor: 'the whole deck, a range, or this slide',
+          commit: () => {
+            const why = micUnavailable();
+            if (why) return toast(why, 5000);
+            closeNarrPicker();
+            openMicRecorder({ dir: dirKey(t.dir), label: t.label });
+          },
+        });
+      } else if (!t.manifest && rangePicker) {
+        const why = revoiceWhy(t);
+        narrRows.push({
+          text: '🔊 Re-voice other slides…',
+          flavor: why ? '' : 'pick a range',
+          blocked: why,
+          commit: () => (why ? toast(why, 5000) : rangePicker.open({
+            title: 're-voice which slides?',
+            total: instance.state.totalSlides, slide: instance.state.slide, chapters: chapters(),
+            current: null,
+            onPick: (range) => {
+              const m = /^(\d+)(?:-(\d+))?$/.exec(range ?? '');
+              const from = m ? Number(m[1]) : 1;
+              const to = m ? Number(m[2] ?? m[1]) : instance.state.totalSlides;
+              const picked = [];
+              for (let sl = from; sl <= to; sl++) if (notesText(sl)) picked.push(sl);
+              if (picked.length && narrEl) armRevoice(t, picked);
+            },
+          })),
+        });
+      }
+      voiceTail(t);
+    } else if (view === 'add') {
+      head.textContent = 'add a voice';
+      // Your own voice, only while there is none: once it exists, recording
+      // more of it is its card's business, and a second row here would be
+      // two doors to one room.
+      if (!hasMyVoice()) {
+        const micWhy = micUnavailable();
+        narrRows.push({
+          text: '🎤 Record yourself',
+          flavor: micWhy ? '' : 'voices/me · read it aloud, the deck turns pages as you speak',
+          blocked: micWhy || null,
+          commit: () => {
+            if (micWhy) return toast(micWhy, 5000);
+            closeNarrPicker();
+            openMicRecorder();
+          },
+        });
+      }
+      narrRows.push({
+        text: '⚡ A live voice…',
+        flavor: 'synthesized as you present · nothing is written',
+        commit: () => renderNarr('voices'),
+      });
+      narrRows.push(saveLiveRow());
+    } else if (view === 'script') {
+      head.textContent = 'script — the words the voice reads';
+      // ElevenLabs v4's audio tags — the agent drafts, decklight checks no
+      // word or beat moved (cli/enhance.mjs)
+      narrRows.push({
+        text: '✨ Enhance the script — ElevenLabs audio tags…',
+        flavor: 'your agent adds them, nothing reworded',
+        commit: () => renderNarr('enhance'),
+      });
+      // …and written for the ear: terse notes as sentences a person would say
+      narrRows.push({
+        text: '🗣 Write the script for the ear…',
+        flavor: 'terse notes become sentences a person would say',
+        commit: () => renderNarr('spoken'),
       });
     } else if (view === 'enhance' || view === 'spoken') {
       const kind = view === 'spoken' ? 'spoken' : 'tags';
@@ -2458,54 +2692,6 @@ export function createNarration({
         text: 'Every slide with notes',
         flavor: 'a few at a time — the agent is asked once per slide',
         commit: () => run('all'),
-      });
-    } else if (view === 'record') {
-      head.textContent = 'record this deck — writes wav files beside it';
-      // Which slides, first: both recorders below walk this range, so it is
-      // chosen before either is. Redoing one chapter used to mean quitting to
-      // a terminal for `decklight narrate --mic --slides`.
-      if (rangePicker) {
-        narrRows.push({
-          text: `📑 Slides — ${rangeLabel(recRange)}`,
-          flavor: recRange ? 'only these are recorded — the rest are left alone' : 'or just part of the deck…',
-          cur: !!recRange,
-          commit: () => rangePicker.open({
-            title: 'record which slides?',
-            total: instance.state.totalSlides, slide: instance.state.slide, chapters: chapters(),
-            current: recRange,
-            onPick: (slides) => { recRange = slides; if (narrEl && narrView === 'record') renderNarr('record'); },
-          }),
-        });
-      }
-      // Each row carries its own reason for being unavailable rather than
-      // toasting one after the fact: the synthesized recorder used to refuse AFTER you pressed it.
-      // A blocked row REFUSES IN PLACE. `blocked` dims the label and prints the
-      // reason, but `commitNarrRow` fires whatever commit it is given — the
-      // convention in this file is that each commit guards itself (switchEngine
-      // does the same for a bridge that is not ready). Without the guard these
-      // would close the picker and only then refuse, which is exactly the
-      // after-the-fact toast that moving recording in here was meant to end.
-      const micWhy = micUnavailable();
-      narrRows.push({
-        text: '🎤 With your voice — read it aloud, beat by beat',
-        flavor: micWhy ? '' : 'the deck turns pages as you speak',
-        blocked: micWhy || null,
-        commit: () => {
-          if (micWhy) return toast(micWhy, 5000);
-          closeNarrPicker();
-          openMicRecorder();
-        },
-      });
-      const liveWhy = narrSet?.live ? null : 'pick a live voice first — ⚡ Live voice, above';
-      narrRows.push({
-        text: '🔊 With the synthesized voice — unattended',
-        flavor: liveWhy ? '' : `speaks every slide as ${liveCfg.voice}`,
-        blocked: liveWhy,
-        commit: () => {
-          if (liveWhy) return toast(liveWhy, 5000);
-          closeNarrPicker();
-          openRecordDialog();
-        },
       });
     } else if (view === 'character') {
       head.textContent = 'character — an animated narrator lip-syncs the voice';
@@ -2972,6 +3158,39 @@ export function createNarration({
         card.insertBefore(el, head.nextSibling);
         return;
       }
+      if (row.voice) {
+        // ○ 🎤 My voice voices/me ………… [ ⚠ 3 slides to re-record ⋯ ]
+        // Two targets on one row (#919): the row selects the voice, the
+        // button at its right manages it. The button is the full height of
+        // the row, so the status it carries is also the way to its fix.
+        el.className = 'narr-row narr-voice' + (row.cur ? ' narr-cur' : '');
+        el.setAttribute('role', 'option');
+        el.setAttribute('aria-selected', String(!!row.cur));
+        const pick = Object.assign(document.createElement('span'), { className: 'narr-pick' });
+        pick.appendChild(Object.assign(document.createElement('span'), { className: 'narr-radio' }));
+        const label = Object.assign(document.createElement('span'), { className: 'narr-row-label', textContent: row.text });
+        if (row.dir) label.appendChild(Object.assign(document.createElement('span'), { className: 'narr-dir', textContent: row.dir }));
+        pick.appendChild(label);
+        el.appendChild(pick);
+        const status = row.status?.text ?? '';
+        if (row.manage) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.tabIndex = -1;   // the panel's keys reach it: → on the row
+          btn.className = 'narr-manage' + (row.status?.warn ? ' narr-warn-status' : '');
+          btn.setAttribute('aria-label', `manage ${row.text.replace(/^\S+\s/, '')}${status ? ` — ${status}` : ''}`);
+          if (status) btn.appendChild(Object.assign(document.createElement('span'), { textContent: status }));
+          btn.appendChild(Object.assign(document.createElement('span'), { className: 'narr-dots', textContent: '⋯' }));
+          btn.addEventListener('click', (e) => { e.stopPropagation(); selectNarrRow(i); row.manage(); });
+          el.appendChild(btn);
+        } else if (status) {
+          el.appendChild(Object.assign(document.createElement('span'), { className: 'narr-status', textContent: status }));
+        }
+        el.addEventListener('mouseenter', () => selectNarrRow(i));
+        el.addEventListener('click', () => { selectNarrRow(i); commitNarrRow(); });
+        card.appendChild(el);
+        return;
+      }
       el.className = 'narr-row' + (row.cur ? ' narr-cur' : '')
         + (row.toggle ? ' narr-toggle' : '')
         + (row.blocked || row.blocked === '' ? ' narr-blocked' : '');
@@ -3029,7 +3248,7 @@ export function createNarration({
     // Opening on the current row means opening SCROLLED to it — a saved voice
     // 90 rows down is otherwise a picker that looks like it forgot.
     const cur = narrRows.findIndex((r) => r.cur);
-    selectNarrRow(Math.max(0, cur), { scroll: true });
+    selectNarrRow(keepSel >= 0 && keepSel < narrRows.length ? keepSel : Math.max(0, cur), { scroll: true });
     // Last, because selectNarrRow scrolls and a focus() before it would be
     // undone. The caret goes to the END: this input is rebuilt on every
     // keystroke, and a caret that reset to 0 would type the query backwards.
@@ -3095,17 +3314,35 @@ export function createNarration({
     // straight to the voice roster when the list was empty, which made sense
     // when the view WAS the list — but it now holds the live voice, the
     // character, recording, captions and speed, and a deck with no track yet is
-    // exactly the deck whose owner needs to find "Record this deck…".
-    renderNarr(view ?? 'tracks');
-    // which tracks are out of step with the notes (#850), from the server
-    // that can read their manifests; repainted only if there is news
+    // exactly the deck whose owner needs to find "＋ Add a voice…".
+    // `record` (the palette's Record this deck…) is a route, not a view: the
+    // card of your own voice when there is one, else the place to add it.
+    const route = () => {
+      if (view !== 'record') return view ?? 'tracks';
+      const me = narrSets.find((t) => isMine(t));
+      if (!me) return 'add';
+      narrCardOf = me;
+      return 'card';
+    };
+    narrConfirm = null;
+    renderNarr(route());
+    // who voiced each track and which slides are out of step with the notes
+    // (#850), from the server that can read their manifests; repainted only
+    // if there is news, and only on the views that show it
     knownTracks().then((tracks) => {
-      narrDrift = new Map(tracks.filter((t) => t.drift?.length).map((t) => [t.dir, t]));
-      if (narrDrift.size && narrEl && narrView === 'tracks') renderNarr('tracks');
+      const had = narrKnown.size;
+      narrKnown = new Map(tracks.map((t) => [dirKey(t.dir), t]));
+      if (!narrEl || !(had || narrKnown.size)) return;
+      if (view === 'record' && narrView !== 'card' && narrView !== 'add') return;
+      if (view === 'record') renderNarr(route());
+      else if (narrView === 'tracks' || narrView === 'card' || narrView === 'add') renderNarr(narrView);
     });
     // ask the bridge what it can speak, and repaint if the answer changes the
     // list under the user — but only while they are still looking at it
-    probeLive().then((p) => { if (p && narrEl && narrView === 'voices') renderNarr('voices'); });
+    probeLive().then((p) => {
+      if (!p || !narrEl) return;
+      if (narrView === 'voices' || narrView === 'tracks' || narrView === 'add' || (narrView === 'card' && !narrConfirm)) renderNarr(narrView);
+    });
   }
   function closeNarrPicker() {
     stopBusyRows();
@@ -3117,6 +3354,7 @@ export function createNarration({
     langDefaulted = false;
     libArmed = null;
     charProbed = false; // next open re-probes the lipsync bridge
+    narrConfirm = null; // nothing is spent behind a closed panel
   }
 
   // the synthesized recorder: batch-record the whole deck offline with the current live voice/tone.
@@ -3129,11 +3367,16 @@ export function createNarration({
   // followed by an immediate re-record can't resurrect the old loop.
   let recEl = null, recView = 'confirm', recRun = 0, recTarget = null;
   // The range both recorders walk: `?slides=a-b` when `decklight narrate --mic --slides`
-  // opened the deck, and whatever V → Record this deck… → Slides picks after that.
+  // opened the deck, and whatever the mic recorder's Slides… picks after that.
   let recRange = /^\d+(?:-\d+)?$/.test(params?.get?.('slides') ?? '') ? params.get('slides') : null;
+  // …or exactly these slides, not a span: a re-voice of the ones that drifted
+  // (29, 30 and 32 leaves 31 alone). Set for one run and cleared after it.
+  let recSlides = null;
+  let recHead = null;   // the card's heading for that run: "re-voice Chris"
+
   /**
    * The slides a recorder walks: every one that has something to say, narrowed
-   * by the range picked in V → Record this deck… → Slides, which starts as
+   * by the range picked on the mic recorder's Slides…, which starts as
    * `?slides=a-b` when `decklight narrate --mic --slides` asked for one.
    *
    * The range exists because recording starts at slide 1 and there is no way
@@ -3145,6 +3388,7 @@ export function createNarration({
   function slidesWithNotes() {
     const out = [];
     for (let sl = 1; sl <= instance.state.totalSlides; sl++) if (notesText(sl)) out.push(sl);
+    if (recSlides) return out.filter((sl) => recSlides.has(sl));
     const m = /^(\d+)(?:-(\d+))?$/.exec(recRange ?? '');
     if (!m) return out;
     const from = Number(m[1]);
@@ -3169,7 +3413,7 @@ export function createNarration({
       const { done, total, elapsedMs } = data;
       const pct = total ? Math.round((done / total) * 100) : 0;
       const eta = done ? fmtTime((elapsedMs / done) * (total - done)) : '…';
-      card.innerHTML = `<div class="narr-head">recording…</div>
+      card.innerHTML = `<div class="narr-head">${recHead ? `${escapeHtml(recHead)}…` : 'recording…'}</div>
         <div class="rec-bar"><div class="rec-bar-fill" style="width:${pct}%"></div></div>
         <div class="rec-line">${done} / ${total} slides · ${fmtTime(elapsedMs)} elapsed · ~${eta} left</div>
         <div class="rec-hint">Esc to cancel</div>`;
@@ -3549,7 +3793,7 @@ export function createNarration({
       toast(`↔ ${dir}/ was not realigned — ${String(e.message ?? e)}`, 7000);
     }
     const tracks = await knownTracks();
-    narrDrift = new Map(tracks.filter((t) => t.drift?.length).map((t) => [t.dir, t]));
+    narrKnown = new Map(tracks.map((t) => [dirKey(t.dir), t]));
     if (narrEl && narrView === 'tracks') renderNarr('tracks');
   }
   async function useRecordedTrack(btn, dir, cfg) {
@@ -3664,13 +3908,20 @@ export function createNarration({
       const m = /^(\d+)(?:-(\d+))?$/.exec(recRange ?? '');
       return m ? [Number(m[1]), m[2] ? Number(m[2]) : Number(m[1])] : [1, instance.state.totalSlides];
     })();
-    const saveManifest = async () => {
+    // A list of slides is written one slide at a time: the server keeps every
+    // slide outside the range it is sent, and a span would null the slides
+    // between them that this run never voiced.
+    const only = !!recSlides;
+    const saveManifest = async (sl) => {
       if (!dir) return;
       try {
         await fetch(`${dir.base}/deck/edit/narration/record?slide=1&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveCfg.style, range, slides: recorded }),
+          body: JSON.stringify({
+            engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveCfg.style,
+            range: only ? [sl, sl] : range, slides: only ? { [sl]: recorded[sl] } : recorded,
+          }),
         });
       } catch { /* the files are on disk; the manifest is the next slide's to retry */ }
     };
@@ -3709,7 +3960,7 @@ export function createNarration({
               new Blob([JSON.stringify(beat.timeline)], { type: 'application/json' }), dir, beat.file);
             if (run !== recRun) return;
           }
-          await saveManifest();
+          await saveManifest(sl);
           if (run !== recRun) return;
         }
       } catch {
@@ -3727,7 +3978,7 @@ export function createNarration({
     }
   }
   function openRecordDialog() {
-    if (!narrSet?.live) { toast('live voice only — pick a voice with N first'); return; }
+    if (!narrSet?.live && !liveEngine) { toast('pick a live voice first — V → ＋ Add a voice… → A live voice'); return; }
     if (recEl) return;
     recEl = document.createElement('div');
     recEl.className = 'decklight-narr decklight-record';
@@ -3749,6 +4000,38 @@ export function createNarration({
     recTally = null;   // …and its tally: a cancelled take has nothing to report
     recEl?.remove();
     recEl = null;
+  }
+  /**
+   * Re-voice `slides` of a synthesized track, as THAT track's voice (#919):
+   * the engine, voice and style its manifest records, whatever the live voice
+   * is set to now. The synthesized recorder does the work; for one run it
+   * speaks as the track, writes into the track's folder and walks only those
+   * slides, and then everything it borrowed is put back.
+   */
+  async function revoiceTrack(t, slides) {
+    const k = knownOf(t);
+    if (!k?.engine || recEl) return;
+    const was = { cfg: liveCfg, engine: liveEngine, model: liveModel };
+    liveCfg = { voice: k.voice ?? liveCfg.voice, tone: 'as recorded', style: k.style ?? '' };
+    liveEngine = k.engine;
+    liveModel = k.model ?? (k.engine === was.engine ? liveModel : null);
+    recSlides = new Set(slides);
+    recHead = `re-voicing ${t.label}`;
+    recTarget = { dir: dirKey(t.dir), label: t.label, why: 'refresh', clash: k };
+    recEl = document.createElement('div');
+    recEl.className = 'decklight-narr decklight-record';
+    recEl.innerHTML = '<div class="narr-card" role="dialog" aria-label="Re-voice a track"></div>';
+    closeOnBackdrop(recEl, closeRecordDialog);
+    root.appendChild(recEl);
+    try {
+      await startRecording();
+    } finally {
+      liveCfg = was.cfg;
+      liveEngine = was.engine;
+      liveModel = was.model;
+      recSlides = null;
+      recHead = null;
+    }
   }
 
 
@@ -3774,6 +4057,7 @@ export function createNarration({
   // blob:. A ScriptProcessorNode is deprecated and universally shipped, and
   // works under that policy today.
   let micEl = null, micView = 'intro', micRun = 0, micTarget = null;
+  let micHead = 'record my voice';   // re-record, when a voice's card opened it on its drifted slides
   let micCtx = null, micStream = null, micNode = null, micSource = null;
   let micChunks = null;      // the beat being captured, or null between beats
   let micRolling = false;    // → cuts the beat and the take runs on into the next (per slide)
@@ -4634,7 +4918,7 @@ export function createNarration({
     if (view === 'intro') {
       const { beats, why } = data;
       if (why) {
-        card.innerHTML = `<div class="narr-head">record my voice</div>
+        card.innerHTML = `<div class="narr-head">${micHead}</div>
           <div class="rec-line">${why}</div>
           <div class="rec-hint">Esc to close</div>`;
         return;
@@ -4645,7 +4929,7 @@ export function createNarration({
       const canStart = beats > 0 && !bad;
       const startSl = micList[micFrom.s];
       const startLabel = `Start at slide ${startSl}${micFrom.i > 0 ? ` · beat ${micFrom.i + 1}` : ''}`;
-      card.innerHTML = `<div class="narr-head">record my voice</div>
+      card.innerHTML = `<div class="narr-head">${micHead}</div>
         <p class="rec-lede">You read your notes aloud while the deck shows them to you, one beat at a time.
           Where the notes say <span class="rec-click">[click]</span>, press <kbd>→</kbd>: the next build appears and the
           audio is cut there, so afterwards the deck turns its own pages in time with your voice.</p>
@@ -5196,8 +5480,14 @@ export function createNarration({
     });
   }
 
-  function openMicRecorder() {
+  /**
+   * `dir`: the folder the take goes into, chosen on a voice's card (#919),
+   * rather than the one targetFor would propose. `only`: the slides to walk
+   * — a card's "re-record" opens on exactly the slides that drifted.
+   */
+  function openMicRecorder({ dir = null, label = null, only = null } = {}) {
     if (micEl) return;
+    micHead = only ? 're-record my voice' : 'record my voice';
     micEl = document.createElement('div');
     micEl.className = 'decklight-narr decklight-record decklight-mic';
     micEl.innerHTML = '<div class="narr-card" role="dialog" aria-label="Record your voice"></div>';
@@ -5206,7 +5496,7 @@ export function createNarration({
     const why = micUnavailable();
     micTarget = null;
     micTracks = [];
-    micOnly = null;
+    micOnly = only ? new Set(only) : null;
     micProbed = false;
     micHowOpen = false;
     micList = [];
@@ -5235,7 +5525,9 @@ export function createNarration({
         if (!micEl || micView !== 'intro') return;
         micTracks = tracks;
         micProbed = true;
-        micTarget = editBase() == null ? null : targetFor({ mine: true }, tracks);
+        micTarget = editBase() == null ? null
+          : dir ? { dir, label: label ?? 'My voice', why: 'asked', clash: tracks.find((x) => dirKey(x.dir) === dir) ?? null }
+            : targetFor({ mine: true }, tracks);
         repaintIntro();
       });
   }
@@ -5320,6 +5612,17 @@ export function createNarration({
         case 'ArrowDown': selectNarrRow(narrSel + 1, { scroll: true }); break;
         case 'ArrowUp': selectNarrRow(narrSel - 1, { scroll: true }); break;
         case 'Enter': commitNarrRow(); break;
+        // → opens the selected voice's card, ← comes back: the row's two
+        // targets, by key (#919). In a text box they stay the caret's.
+        case 'ArrowRight':
+          if (/^(input|textarea)$/i.test(e.target?.tagName ?? '')) return false;
+          if (!narrRows[narrSel]?.manage) return false;
+          narrRows[narrSel].manage();
+          break;
+        case 'ArrowLeft':
+          if (/^(input|textarea)$/i.test(e.target?.tagName ?? '') || narrView === 'tracks') return false;
+          narrBack();
+          break;
         case 'Escape': narrBack(); break;
         case 'v': case 'V': closeNarrPicker(); break;   // the key that opened it
         default: return false;

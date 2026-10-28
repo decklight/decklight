@@ -124,7 +124,7 @@ export async function ttsMain(args) {
           --tts-stability creative|natural|robust — how hard v3 follows a tag (v3 only;
           refused on any other model rather than silently doing nothing).
           --tts-format mp3 if your plan has no PCM output (costs you the panel's
-          Record this deck… and lip-sync, both of which read WAV).
+          Save a live voice as a track and lip-sync, both of which read WAV).
 
   <installed>  any engine from a marketplace (decklight library add engine <name>) — --engine
           takes its name like any of the six above, and the picker treats it the same.

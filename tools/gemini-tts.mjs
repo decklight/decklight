@@ -69,7 +69,7 @@ function estimateCost(model, usage) {
 /**
  * Wrap headerless 16-bit mono PCM in a RIFF/WAVE header. Every engine that
  * gets raw samples back lands here (Gemini's audio/L16, ElevenLabs' pcm_24000)
- * — WAV is what the deck's recorder (V → Record this deck…) stitching and the lip-sync bridge both read.
+ * — WAV is what the deck's recorder (V → Save a live voice as a track) stitching and the lip-sync bridge both read.
  */
 export function wavFromPcm(pcm, rate) {
   const h = Buffer.alloc(44);

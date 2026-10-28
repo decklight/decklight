@@ -7,7 +7,7 @@
 //   decklight narrate --mic <deck.html> [--port 8788] [--dir voices/me] [--no-open]
 //
 // WHY THIS IS A COMMAND AND NOT JUST A KEY. The recorder itself lives in the
-// deck (V → Record this deck… → With your voice…): it has to, because the notes, the builds and the microphone are
+// deck (V → ＋ Add a voice… → Record yourself, or your voice's card): it has to, because the notes, the builds and the microphone are
 // all in the browser. But a browser will not open a microphone for a page it
 // loaded from `file://` — getUserMedia needs a secure context, and a local file
 // is not one, no matter how many times you click Allow. `http://127.0.0.1` IS
@@ -207,7 +207,7 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
 
   const url = recordUrl(started.port, started.deckUrl, dir, slides, beats, countdown == null ? null : Number(countdown), takes, args.includes('--camera'));
   out.write(`decklight narrate --mic on ${url}\n`);
-  out.write('  V → Record this deck… → With your voice… opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
+  out.write('  V → your voice\'s ⋯ (or ＋ Add a voice…) opens the recorder again · → ends a beat and reveals the next build · Esc stops\n');
   if (remote) out.write('  the phone remote is on: scan the QR on the recorder\'s card; next ends a beat, retake redoes it\n');
   if (args.includes('--camera')) out.write('  the camera is on: your face is filmed with every beat, beside its audio\n');
   out.write(`  files land in ${dir ?? 'voices/me'}, next to the deck.`

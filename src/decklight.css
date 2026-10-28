@@ -2224,13 +2224,32 @@
 }
 .decklight-mic .rec-level.hot .rec-level-fill { background: #e5533d; }
 
-/* a track out of step with the notes (#850): what moved, and the command
-   that fixes it, under the panel's head */
-.decklight-narr .narr-warn {
-  margin: 2px 12px 8px; padding: 7px 10px; border-radius: 6px;
-  color: #ffcf8b; background: rgba(255, 207, 139, .1); font-size: 13px; line-height: 1.45;
+/* A voice row (#919): the row selects the voice (a radio, its name, its
+   folder) and the full-height button at its right opens the voice's card.
+   The button carries the voice's status, so a track out of step with the
+   notes (#850) shows it in amber exactly where its fix is. */
+.decklight-narr .narr-row.narr-voice { align-items: stretch; padding: 0; gap: 0; }
+.decklight-narr .narr-row.narr-voice.narr-cur::after { content: none; }
+.decklight-narr .narr-voice .narr-pick { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 12px; }
+.decklight-narr .narr-voice .narr-radio {
+  flex: 0 0 auto; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, .45);
 }
-.decklight-narr .narr-warn code { display: block; margin-top: 4px; font-size: .92em; user-select: all; }
+.decklight-narr .narr-voice.narr-cur .narr-radio {
+  border-color: var(--accent, #6af);
+  background: radial-gradient(circle, var(--accent, #6af) 0 3.5px, transparent 4px);
+}
+.decklight-narr .narr-voice .narr-dir { opacity: .45; font-size: .85em; margin-left: 6px; }
+.decklight-narr .narr-voice .narr-status { margin-left: auto; padding: 6px 12px; font-size: .85em; opacity: .55; white-space: nowrap; align-self: center; }
+.decklight-narr .narr-manage {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 12px;
+  font: inherit; font-size: .85em; white-space: nowrap; cursor: pointer;
+  color: rgba(232, 234, 238, .6); background: none; border: 0;
+  border-left: 1px solid rgba(255, 255, 255, .08); border-radius: 0 8px 8px 0;
+}
+.decklight-narr .narr-manage:hover { background: rgba(255, 255, 255, .12); color: #e8eaee; }
+.decklight-narr .narr-manage.narr-warn-status { color: #ffcf8b; }
+.decklight-narr .narr-manage .narr-dots { font-size: 1.15em; letter-spacing: 1px; opacity: .7; }
 
 /* The plan card (V → Record my voice): what to record, how, where, and the
    microphone, as sections. Taller than any other card, so it takes more of

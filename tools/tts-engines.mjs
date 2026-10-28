@@ -536,7 +536,7 @@ function buildEngine({
       caveat: isV3
         ? 'eleven_v3: higher latency, more variable consistency, and ElevenLabs '
           + 'recommends prompts over ~250 characters — a live decklight sentence is '
-          + 'shorter than that, so delivery may vary more than a recorded take (V → Record this deck…).'
+          + 'shorter than that, so delivery may vary more than a recorded take (V → Save a live voice as a track).'
         : undefined,
       // the real roster arrives from the account; until it does the picker has
       // nothing truthful to show, which is better than thirty names it cannot say

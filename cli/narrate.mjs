@@ -226,7 +226,8 @@ async function checkMain(plan, argv) {
     const note = unknown ? ` (${unknown} slide${unknown === 1 ? '' : 's'} recorded before the script was kept: not checked)` : '';
     if (!drift.length) { console.log(`${dir}/  ${who}: in step with the notes${note}`); continue; }
     out = 1;
-    console.log(`${dir}/  ${who}: ${drift.length} slide${drift.length === 1 ? '' : 's'} out of step${note}`);
+    // your own voice is re-recorded, an engine's track re-voiced (#919)
+    console.log(`${dir}/  ${who}: ${drift.length} slide${drift.length === 1 ? '' : 's'} to ${mine ? 're-record' : 're-voice'}${note}`);
     for (const d of drift) {
       console.log(d.why === 'clicks'
         ? `  slide ${d.slide}: the [click] split moved${d.was !== d.now ? ` (${d.was} beats → ${d.now})` : ''}, the words did not`

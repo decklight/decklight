@@ -1046,9 +1046,12 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       if (stale.length) {
         const which = stale.length === 1 ? `slide ${stale[0]}` : `slides ${stale.join(', ')}`;
         if (!argv.includes('--allow-stale')) {
+          // the two fixes have two names (#919): your own voice is
+          // re-recorded at the microphone, an engine's track is re-voiced
+          const fix = narration.engine ? 're-voice' : 're-record';
           throw new Error(`the narration in ${narration.dir} was recorded from older notes on ${which}`
             + `${unrevoiced ? ` and cannot be re-voiced here: ${unrevoiced}` : ''} — `
-            + `re-record those slides (V → Record this deck… → slides ${stale[0]}-${stale[stale.length - 1]}) or pass --allow-stale`);
+            + `${fix} ${stale.length === 1 ? 'it' : 'them'} from the deck (V, then ⋯ on ${basename(narration.dir)}) or pass --allow-stale`);
         }
         console.warn(`  --allow-stale: rendering ${which} with the older narration`);
       }

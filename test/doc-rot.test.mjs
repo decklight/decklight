@@ -130,7 +130,7 @@ test('no doc or deck claims a theme count the repo does not have', () => {
 
 test('no shipped file still names a key that was retired', () => {
   // ⇧V (the synthesized recorder) and ⇧R (the your-voice recorder) stopped
-  // being keys in #421: both live in V's panel as `Record this deck…`. The
+  // being keys in #421: both live in V's panel (＋ Add a voice…, and each voice's card). The
   // keymap test keeps the HELP TABLE honest, but a retired key survives just
   // as well in a --help string, an error a tool prints, or a comment the next
   // person reads as fact — thirteen of them did, one of them in the line

@@ -373,7 +373,7 @@ export function videoExportProblem({ slides, narration, synthesize, silent, form
   let audio = false;
   try { audio = readdirSync(resolve(deckDir, narration)).some((f) => /^slide-\d+\.(wav|m4a|mp3)$/.test(f)); } catch { /* no folder */ }
   if (!audio && !existsSync(resolve(deckDir, narration, 'manifest.json'))) {
-    return `no recorded narration in ${narration}/ — record the deck first (V → Record this deck…)`;
+    return `no recorded narration in ${narration}/ — record the deck first (V → ＋ Add a voice…)`;
   }
   return null;
 }
@@ -2810,7 +2810,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return json(200, { ok: true, forgotten: had });
   }
 
-  // ── the recorder's offline recordings — V → Record this deck… (PRESENTING) ───────────────────────────────
+  // ── the recorder's offline recordings — V → Save a live voice as a track, or your voice (PRESENTING) ───────────────────────────────
   // The player used to hand every stitched slide to the browser's DOWNLOAD
   // path, which is why a deck's voice arrived as thirty slide-NN.wav in
   // whatever folder the OS calls Downloads — never the deck's, and on
@@ -2987,12 +2987,15 @@ export async function editMain(args, { onListen = null, client } = {}) {
       try { entries = readdirSync(resolve(root2, rel), { withFileTypes: true }); } catch { return; }
       const wav = entries.filter((e) => e.isFile() && /^slide-\d+(-\d+)?\.(wav|m4a|mp3)$/.test(e.name));
       if (wav.length) {
-        let engine = null; let voice = null; let manifest = false; let stale = 0; let mine = false;
+        let engine = null; let voice = null; let model = null; let style = null; let manifest = false; let stale = 0; let mine = false;
         let drift = [];
         let realign = null;
         try {
           const m = JSON.parse(readFileSync(resolve(root2, rel, 'manifest.json'), 'utf8'));
           engine = m.engine ?? null; voice = m.voice ?? null; manifest = true; mine = m.recorder === 'mic';
+          // …and the rest of who voiced it, so the V panel re-voices a
+          // synthesized track as itself rather than as the live voice (#919)
+          model = m.model ?? null; style = m.style ?? null;
           // how many of its slides were voiced from other notes than the deck
           // has now — the export card marks the track with it (#536)
           if (Array.isArray(m.slides)) {
@@ -3019,6 +3022,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
           ext: (wav[0].name.split('.').pop()),
           engine,
           voice,
+          model,
+          style,
           manifest,
           mine,
           drift,

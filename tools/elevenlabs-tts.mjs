@@ -184,8 +184,8 @@ export function synthError(status, body, { format = 'pcm' } = {}) {
   }
   if (format === 'pcm' && /output_format|pcm|tier|subscription/i.test(text)) {
     return 'ElevenLabs will not serve pcm_24000 on this plan (PCM output is a paid tier). '
-      + 'Pass --tts-format mp3 to use mp3 instead — the deck plays it fine, but the panel\'s Record this deck… offline '
-      + 'recording and the lip-sync bridge both need WAV and will not work with it.';
+      + 'Pass --tts-format mp3 to use mp3 instead — the deck plays it fine, but the panel\'s Save a live voice as a track '
+      + 'and the lip-sync bridge both need WAV and will not work with it.';
   }
   if (status === 429) return 'ElevenLabs rate limit (429) — the lookahead buffer is bursty; try a smaller deck or wait';
   return `${status} ${text}`;

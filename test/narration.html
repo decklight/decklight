@@ -1073,14 +1073,14 @@
           // folder — never the deck's, and `bundle` reads no other. With an
           // edit server up, every file must go through it instead.
           //
-          // Opened the way a person now reaches it: V → Record this deck… →
-          // the synthesized voice. It had its own shortcut (⇧V) and nobody
+          // Opened the way a person now reaches it: V → ＋ Add a voice… →
+          // Save a live voice as a track (the palette's Record this deck… route). It had its own shortcut (⇧V) and nobody
           // found it; the keys were rationalised and the shortcut went.
           await new Promise((ok) => setTimeout(ok, 400));   // /deck/ping answers
           deck.narration.openPicker('record');
           await new Promise((ok) => setTimeout(ok, 100));
           [...document.querySelectorAll('.decklight-narr .narr-row')]
-            .find((n) => /synthesized voice/.test(n.textContent))?.click();
+            .find((n) => /Save a live voice as a track/.test(n.textContent))?.click();
           await new Promise((ok) => setTimeout(ok, 100));
           r.dialogOpens = !!document.querySelector('.decklight-record');
           // the target lands asynchronously (the server is asked what exists),
@@ -1124,7 +1124,7 @@
             deck.narration.openPicker('record');
             await new Promise((ok) => setTimeout(ok, 100));
             [...document.querySelectorAll('.decklight-narr .narr-row')]
-              .find((n) => /synthesized voice/.test(n.textContent))?.click();
+              .find((n) => /Save a live voice as a track/.test(n.textContent))?.click();
             await until(() => document.querySelector('.decklight-record .rec-dir'), 3000);
             document.querySelector('.decklight-record .narr-card .narr-row')?.click();
             const card2 = document.querySelector('.decklight-record .narr-card');

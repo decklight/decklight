@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Lip-sync generator for RECORDED narration: sidecar files for every
 // slide-NN audio clip in a voiceover directory (tools/voiceover.mjs or a
-// deck-recorded set — V → Record this deck…), so a deck plays back with an animated character and no
+// deck-recorded set — V → Save a live voice as a track), so a deck plays back with an animated character and no
 // bridge running. Fully offline, like everything else here.
 //
 //   node tools/lipsync.mjs <voiceover-dir> [--visemes] [--video]
