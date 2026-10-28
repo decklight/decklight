@@ -31,7 +31,7 @@
 // both sides is a hoisted function declaration, and nothing is read until a
 // request arrives.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve, sep } from 'node:path';
 
 import {
@@ -209,6 +209,17 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     return json(200, { ok: true, changed, ...history.counts() });
   }
 
+  // Whether a track folder plays by beats is a fact about the FOLDER, not
+  // about the take that just finished (#926): one slide re-recorded with no
+  // ⟨CLICK⟩ writes only its whole-slide file, and the client's per-take guess
+  // then read as "this track has no segments". Any `slide-NN-KK` file says it
+  // does — the same test the tracks route reports.
+  const beatsIn = (dir) => {
+    try {
+      return readdirSync(resolve(dirname(deckPath), dir)).some((f) => /^slide-\d+-\d+\.(wav|m4a|mp3)$/.test(f));
+    } catch { return false; }
+  };
+
   function narrationRoute({ body, json }) {
     const { files, ext, segments } = JSON.parse(body || '{}');
     // The same three shapes /deck/edit/narration/record refuses for a folder, refused
@@ -238,7 +249,8 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       label: label || files.trim(),
       dir: files.trim(),
       ...(ext === undefined ? {} : { ext }),
-      ...(segments === undefined ? {} : { segments }),
+      // an explicit `false` still turns a track's beats off; silence never does
+      ...(segments !== undefined ? { segments } : beatsIn(files.trim()) ? { segments: true } : {}),
     });
     if (next === null) {
       // Not a failure of this server — a deck whose config is built

@@ -801,6 +801,31 @@ function arrayEntries(arr) {
   return out;
 }
 
+/**
+ * An entry literal with `track`'s keys written into it and every other key
+ * left exactly as it was typed (#926). Each key is set in place where the
+ * entry already has it, and appended where it does not — so `segments: true`,
+ * a label, a comment, anything the author added by hand, survives an update
+ * that did not mention it.
+ */
+function mergeLiteral(entry, track) {
+  let out = entry;
+  for (const [k, v] of Object.entries(track)) {
+    if (v === undefined || v === null) continue;
+    const val = narrationLiteral({ [k]: v }).slice(2 + k.length + 2, -2);
+    const span = objectKey(out, k);
+    if (span) {
+      const old = out.slice(span.valueFrom, span.to);
+      out = out.slice(0, span.valueFrom) + ` ${val}${/\s*$/.exec(old)[0]}` + out.slice(span.to);
+    } else {
+      const close = out.lastIndexOf('}');
+      const head = out.slice(0, close).replace(/[\s,]*$/, '');
+      out = `${head}${head.endsWith('{') ? ' ' : ', '}${k}: ${val} ${out.slice(close)}`;
+    }
+  }
+  return out;
+}
+
 /** `{ files: 'voiceover', ext: 'wav', segments: true }`, as a person writes it. */
 export function narrationLiteral(cfg) {
   const parts = [];
@@ -909,10 +934,14 @@ export function upsertNarrationTrack(html, track) {
       // the one-string form becomes the first entry, ext/segments moving into it
       const kept = { label: narr.files, dir: narr.files };
       for (const k of ['ext', 'segments']) if (narr[k] !== undefined) { kept[k] = narr[k]; delete narr[k]; }
-      list = kept.dir === track.dir ? [] : [kept];
+      list = [kept];
     } else list = [];
     const same = list.findIndex((e) => (typeof e === 'string' ? e : e?.dir) === track.dir);
-    if (same >= 0) list[same] = entry; else list.push(entry);
+    // MERGED into, never replaced (#926): a key the update does not mention —
+    // `segments`, a label, anything added by hand — is not a key to delete
+    const was = list[same];
+    if (same >= 0) list[same] = was && typeof was === 'object' ? { ...was, ...entry } : entry;
+    else list.push(entry);
     narr.files = list;
     const indent = /(?:^|\n)([ \t]*)[^\n]*$/.exec(html.slice(0, block.start))?.[1] ?? '';
     const json = JSON.stringify(cfg, null, 2).split('\n').map((l) => indent + l).join('\n');
@@ -963,7 +992,7 @@ export function upsertNarrationTrack(html, track) {
       const m = /\bdir\s*:\s*(['"`])([^'"`]*)\1/.exec(fval.slice(e.from, e.to));
       return m && m[2] === track.dir;
     });
-    if (same) return splice(fvalStart + same.from, fvalStart + same.to, one);
+    if (same) return splice(fvalStart + same.from, fvalStart + same.to, mergeLiteral(fval.slice(same.from, same.to), track));
     const closeAt = fval.lastIndexOf(']');
     const body = entries.length ? `,\n    ${one}\n  ` : one;
     return splice(fvalStart + closeAt, fvalStart + closeAt, body);
@@ -979,7 +1008,7 @@ export function upsertNarrationTrack(html, track) {
     const v = nval.slice(found.valueFrom, found.to).trim();
     kept[k] = v === 'true' ? true : v === 'false' ? false : v.replace(/^['"`]|['"`]$/g, '');
   }
-  const list = kept.dir === track.dir ? [one] : [narrationLiteral(kept), one];
+  const list = kept.dir === track.dir ? [narrationLiteral({ ...kept, ...track })] : [narrationLiteral(kept), one];
   // the sibling ext/segments moved INTO the entry they described, so they must
   // not stay behind saying it about every track
   const rest = [];

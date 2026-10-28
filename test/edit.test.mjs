@@ -1268,6 +1268,54 @@ test('a second voice is ADDED to the deck, never written over the first', async 
   assert.equal(html.match(/dir: 'voices\//g).length, 3, 'three tracks, still');
 });
 
+test('updating a track keeps the keys the update does not mention (#926)', () => {
+  // A take with no ⟨CLICK⟩ sends no `segments`; replacing the entry wholesale
+  // read that as "segments off", and a folder of per-beat files went back to
+  // playing whole slides.
+  const UPDATE = { label: 'My voice', dir: 'voices/me', ext: 'wav' };
+  const lit = initOf(upsertNarrationTrack(boot("Decklight.init({ narration: { files: ["
+    + "{ label: 'Old', dir: 'voices/me', ext: 'wav', segments: true, rate: 1.1 }, { dir: 'voices/adam' }] } });"), UPDATE));
+  assert.match(lit, /\{ label: 'My voice', dir: 'voices\/me', ext: 'wav', segments: true, rate: 1\.1 \}/);
+  assert.match(lit, /\{ dir: 'voices\/adam' \}/, 'the other track is untouched');
+  // a key the entry did not have is added beside the ones it did
+  assert.match(initOf(upsertNarrationTrack(boot("Decklight.init({ narration: { files: [{ dir: 'voices/me' }] } });"),
+    { ...UPDATE, segments: true })), /\{ dir: 'voices\/me', label: 'My voice', ext: 'wav', segments: true \}/);
+  // the one-string form naming the same folder carries its `segments` across
+  assert.match(initOf(upsertNarrationTrack(boot("Decklight.init({ narration: { files: 'voices/me', segments: true } });"), UPDATE)),
+    /\{ label: 'My voice', dir: 'voices\/me', segments: true, ext: 'wav' \}/);
+
+  // …and a deck as data merges the same way
+  const json = (cfg) => '<!doctype html><div class="decklight"><section><h1>x</h1></section></div>\n'
+    + `<script type="application/json" data-decklight-config>${JSON.stringify(cfg)}</script>\n`;
+  const read = (html) => JSON.parse(/data-decklight-config>([\s\S]*?)<\/script>/.exec(html)[1]);
+  assert.deepEqual(read(upsertNarrationTrack(json({ narration: { files: [
+    { label: 'Old', dir: 'voices/me', ext: 'wav', segments: true, note: 'by hand' }] } }), UPDATE)).narration.files,
+  [{ label: 'My voice', dir: 'voices/me', ext: 'wav', segments: true, note: 'by hand' }]);
+  assert.deepEqual(read(upsertNarrationTrack(json({ narration: { files: 'voices/me', segments: true } }), UPDATE)).narration.files,
+    [{ label: 'My voice', dir: 'voices/me', segments: true, ext: 'wav' }]);
+});
+
+test('POST /deck/edit/narration reads `segments` off the folder, not the take (#926)', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, BOOT_DECK('Decklight.init({});'));
+  mkdirSync(path.join(dir, 'voices', 'me'), { recursive: true });
+  for (const f of ['slide-01-01.wav', 'slide-01-02.wav', 'slide-02.wav']) writeFileSync(path.join(dir, 'voices', 'me', f), 'RIFF');
+  mkdirSync(path.join(dir, 'voices', 'whole'), { recursive: true });
+  writeFileSync(path.join(dir, 'voices', 'whole', 'slide-01.wav'), 'RIFF');
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  // a beat-less take into a folder of beats still plays by beats
+  await post(base, '/deck/edit/narration', { files: 'voices/me', ext: 'wav', label: 'My voice' });
+  assert.match(readFileSync(deck, 'utf8'), /dir: 'voices\/me', ext: 'wav', segments: true/);
+  // a folder of whole slides is not opted in
+  await post(base, '/deck/edit/narration', { files: 'voices/whole', ext: 'wav', label: 'Whole' });
+  assert.match(readFileSync(deck, 'utf8'), /\{ label: 'Whole', dir: 'voices\/whole', ext: 'wav' \}/);
+  // and an explicit `false` still turns a track's beats off
+  await post(base, '/deck/edit/narration', { files: 'voices/me', ext: 'wav', segments: false, label: 'My voice' });
+  assert.match(readFileSync(deck, 'utf8'), /dir: 'voices\/me', ext: 'wav', segments: false/);
+});
+
 test('POST /deck/edit/narration says WHY when a deck builds its config elsewhere', async (t) => {
   // Not a failure of this server — a deck whose config is not a literal at the
   // call site. Naming that is the difference between "paste this line" and
