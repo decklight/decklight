@@ -34,6 +34,7 @@
     const SEG_MISSING = (new URLSearchParams(location.search).get('mode') === 'segmiss')
       ? ['slide-05-01', 'slide-06-02'] : [];
     window.__audioSrcs = [];   // every URL the deck actually asked for
+    window.__plays = [];       // every URL play() was called on — what was HEARD
     // Which files 404. slide-02 was never generated (no notes) and slide-03 is
     // missing — a real <audio> reports both as an `error` event, never as a
     // rejected play(). The segment modes name their own gaps: see SEG_MISSING.
@@ -41,7 +42,8 @@
     // How long a clip takes. 10ms is enough to sequence a chain; segnav needs a
     // clip long enough to interrupt, because the bug it guards is what happens
     // to an advance armed by audio the presenter walked away from.
-    const CLIP_MS = () => (mode === 'segnav' ? 300 : 10);
+    // The pause modes need one too: ⎵ has to land while a file is still playing.
+    const CLIP_MS = () => (['segnav', 'plainpause', 'segpause'].includes(mode) ? 300 : 10);
     window.Audio = class {
       constructor() {
         this.onended = null; this.onerror = null; this.paused = true; this.ended = false;
@@ -53,12 +55,15 @@
         // no `ended`, no `error`. The mock has to as well, or a clip the
         // presenter skipped past still fires its handler and the deck under
         // test advances for a reason the browser would never have given it.
+        // …and stops: the load algorithm leaves a real element paused.
         clearTimeout(this._timer); this._timer = null;
-        this._src = v; this.ended = false; window.__audioSrcs.push(v);
+        this._src = v; this.ended = false; this.paused = true; this.currentTime = 0; window.__audioSrcs.push(v);
       }
       play() {
         this.paused = false;
         const src = this._src;
+        window.__plays.push(src);
+        this._from = Date.now();
         if (MISSING().some((m) => src.includes(m))) {
           this._timer = setTimeout(() => { if (this._src === src) this.onerror?.(new Event('error')); }, 5);
           return Promise.resolve();
@@ -69,7 +74,11 @@
         }, CLIP_MS());
         return Promise.resolve();
       }
-      pause() { this.paused = true; clearTimeout(this._timer); this._timer = null; }
+      pause() {
+        // a clip paused mid-way has played SOMETHING — the resume path reads it
+        if (!this.paused && this._from) this.currentTime += (Date.now() - this._from) / 1000;
+        this.paused = true; clearTimeout(this._timer); this._timer = null;
+      }
       addEventListener() {}
       removeEventListener() {}
     };
@@ -381,9 +390,9 @@
     const manifestDeck = mode === 'manifest' || mode === 'expired' || segManifest;
     // The tracks whose files pace the deck — and `plainrec`, the same slides on
     // a track that did NOT opt in, which must behave exactly as it always has.
-    const segmentModes = ['segments', 'segfold', 'segmiss', 'segnav', 'beatpause'];
+    const segmentModes = ['segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'segpause'];
     const segmentDeck = segmentModes.includes(mode);
-    const plainDeck = mode === 'plainrec';
+    const plainDeck = mode === 'plainrec' || mode === 'plainpause';
     // `off` ships a recorded track and deliberately chooses NOTHING — it is the
     // only mode that leaves localStorage alone, because the default is the
     // thing under test.
@@ -714,6 +723,53 @@
           await wait(20);
           window.__audioSrcs.length = 0;    // the goto itself plays nothing — narration is off
           deck.toggleNarration();           // V
+
+          // #925: navigating while paused stays paused, on every kind of track,
+          // and ⎵ then starts what is ON SCREEN — never the file you left.
+          const space = () => document.dispatchEvent(
+            new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+          const heard = () => window.__plays.slice();
+          if (mode === 'plainpause') {
+            await wait(60);                 // slide-05 is playing (300ms clips)
+            space();                        // ⏸
+            await wait(20);
+            window.__plays.length = 0;
+            deck.goto(6, 0);
+            await wait(200);
+            r.heldOnNav = heard().length === 0 && deck.narration.status().narrating;
+            space();                        // ▶
+            await wait(20);
+            r.resumedHere = heard().join('|') === `${V}slide-06.m4a`;
+            r.heard = heard();
+            r.PASS = r.heldOnNav && r.resumedHere;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
+          if (mode === 'segpause') {
+            await wait(60);                 // 05-01 is playing
+            space();                        // ⏸
+            await wait(20);
+            window.__plays.length = 0;
+            deck.next();                    // a build while paused
+            await wait(400);
+            r.heldOnBuild = heard().length === 0 && deck.state.step === 1;
+            space();                        // ▶ — 05-02, not the rest of 05-01
+            await wait(250);
+            r.resumedTheBeat = heard().join('|') === `${V}slide-05-02.m4a`;
+            space();                        // ⏸ mid 05-02
+            await wait(20);
+            window.__plays.length = 0;
+            deck.goto(6, 0);                // a slide recorded whole, while paused
+            await wait(400);
+            r.heldOnSlide = heard().length === 0 && deck.state.slide === 6;
+            space();                        // ▶
+            await wait(20);
+            r.resumedTheSlide = heard().join('|') === `${V}slide-06.m4a`;
+            r.heard = heard();
+            r.PASS = r.heldOnBuild && r.resumedTheBeat && r.heldOnSlide && r.resumedTheSlide;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
 
           if (plainDeck) {
             // The regression. A track that did not opt in must behave exactly

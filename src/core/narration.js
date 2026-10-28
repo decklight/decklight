@@ -1133,6 +1133,15 @@ export function createNarration({
   let narrPaused = false;     // P — freezes audio, captions and auto-advance
   let chainActive = false; // a chain (sentences or segment files) is running for chainGen
   let chainGen = 0;
+  // Which position the shared element's src was loaded FOR: the chain
+  // generation and the slide. A paused element is only resumed mid-file when
+  // it still belongs to what is on screen — after navigating while paused it
+  // holds the slide you LEFT, and resuming it would play that file before the
+  // new position's chain swaps it out (#925). The generation covers every
+  // chain (each step bumps it); the slide covers a whole-slide track, whose
+  // file spans the slide's builds and whose navigation bumps nothing.
+  let narrAudioAt = null;
+  const positionKey = () => `${segGen}:${instance.state.slide}`;
   function toggleNarrPause() {
     if (!narrating) { toast('narration is off — ⎵ starts it'); return; }
     narrPaused = !narrPaused;
@@ -1143,10 +1152,13 @@ export function createNarration({
       // would queue silent — so resuming always resumes, then re-arms as usual
     } else if (onBrowser() && (browserSynth()?.resume(), browserSynth()?.speaking)) {
       // mid-sentence: the chain is still waiting on this utterance
-    } else if (narrAudio?.src && narrAudio.paused && !narrAudio.ended && narrAudio.currentTime > 0) {
-      narrAudio.play().catch(() => { /* autoplay policy */ }); // resume mid-sentence
+    } else if (narrAudio?.src && narrAudio.paused && !narrAudio.ended && narrAudioAt === positionKey()) {
+      // resume mid-sentence — or start a file parked by navigating while paused
+      narrAudio.play().catch(() => { /* autoplay policy */ });
     } else if (!chainActive) {
-      playLive(); // nothing parked (e.g. paused on a silent beat) — re-arm
+      // nothing parked for this position (paused on a silent beat, or the
+      // element still holds the slide you left) — re-arm whichever track is on
+      playSlideFile();
     } // else: the parked chain's pause-gate resumes on its own
     toast(narrPaused ? '⏸ narration paused — ⎵ resumes' : '▶ narration resumed');
     debugLog('narr', narrPaused ? 'paused' : 'resumed');
@@ -1320,6 +1332,7 @@ export function createNarration({
           narrAudio.onended = null;
           narrAudio.onerror = null;
           narrAudio.src = clip.url;
+          narrAudioAt = positionKey();
           narrAudio.playbackRate = narrRate;
           await new Promise((done) => {
             narrAudio.onended = done;
@@ -1629,6 +1642,7 @@ export function createNarration({
     narrAudio.onended = null;
     narrAudio.onerror = null;
     narrAudio.src = file;
+    narrAudioAt = positionKey();
     narrAudio.playbackRate = narrRate;
     if (character.mode !== 'off') {
       character.attachAudio(narrAudio);
@@ -1650,6 +1664,9 @@ export function createNarration({
     // dedupe keeps one failure from toasting twice.
     let saidFailed = false;
     narrAudio.onerror = () => { saidFailed = true; fileFailed(sl, file); };
+    // Navigating while paused stays paused: the file is parked on the new
+    // slide, and ⎵ starts it (#925). The other two paths hold at their gates.
+    if (narrPaused) return;
     narrAudio.play().catch((e) => {
       if (e?.name === 'NotAllowedError') toast('🔇 the browser blocked audio — click the deck once, then V');
       else if (!saidFailed) fileFailed(sl, file);
@@ -1747,6 +1764,7 @@ export function createNarration({
         narrAudio.onended = null;
         narrAudio.onerror = null;
         narrAudio.src = files[i].url;
+        narrAudioAt = positionKey();
         narrAudio.playbackRate = narrRate;
         const how = await new Promise((done) => {
           narrAudio.onended = () => done('ended');
