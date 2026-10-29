@@ -628,7 +628,7 @@ export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
   openedMidTalk = false, rangePicker = null, chapters = () => [],
   syncSoundBtn, updateDebugState, downloadFromUrl, editBase = () => null,
-  editReady = () => Promise.resolve(), enhanceScript = () => null, moduleOf = () => null,
+  editReady = () => Promise.resolve(), openWriting = () => null,
   editNotes = () => null,
 }) {
   // estimated $ across live-bridge calls (the x-tts-cost response header);
@@ -2141,8 +2141,7 @@ export function createNarration({
     else if (narrView === 'engines' || narrView === 'langs' || narrView === 'library') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('character');
     else if (narrView === 'card' && narrConfirm) { narrConfirm = null; narrSel = 0; renderNarr('card'); }
-    else if (narrView === 'enhance' || narrView === 'spoken') renderNarr('script');
-    else if (narrView === 'card' || narrView === 'add' || narrView === 'script') renderNarr('tracks');
+    else if (narrView === 'card' || narrView === 'add') renderNarr('tracks');
     else if (narrView === 'voices' || narrView === 'character') renderNarr('tracks');
     else closeNarrPicker();
   }
@@ -2552,10 +2551,10 @@ export function createNarration({
       // said in place.
       narrRows.push({
         group: AROUND,
-        text: '✨ Script…',
-        flavor: enhanceScript() ? 'audio tags · write for the ear' : '',
-        blocked: enhanceScript() ? null : 'needs write mode — it writes the notes',
-        commit: () => (enhanceScript() ? renderNarr('script') : toast('the script tools need write mode — they write the notes', 4000)),
+        text: '✍ Writing…',
+        flavor: openWriting() ? 'audio tags · write for the ear' : '',
+        blocked: openWriting() ? null : 'needs write mode — it writes the notes',
+        commit: () => { const go = openWriting(); if (!go) { toast('the writing tools need write mode — they write the notes', 4000); return; } closeNarrPicker(); go(); },
       });
       narrRows.push({
         group: AROUND,
@@ -2699,46 +2698,6 @@ export function createNarration({
         commit: () => renderNarr('voices'),
       });
       narrRows.push(saveLiveRow());
-    } else if (view === 'script') {
-      head.textContent = 'script — the words the voice reads';
-      // ElevenLabs v4's audio tags — the agent drafts, decklight checks no
-      // word or beat moved (cli/enhance.mjs)
-      narrRows.push({
-        text: '✨ Enhance the script — ElevenLabs audio tags…',
-        flavor: 'your agent adds them, nothing reworded',
-        commit: () => renderNarr('enhance'),
-      });
-      // …and written for the ear: terse notes as sentences a person would say
-      narrRows.push({
-        text: '🗣 Write the script for the ear…',
-        flavor: 'terse notes become sentences a person would say',
-        commit: () => renderNarr('spoken'),
-      });
-    } else if (view === 'enhance' || view === 'spoken') {
-      const kind = view === 'spoken' ? 'spoken' : 'tags';
-      head.textContent = kind === 'spoken'
-        ? 'write the script for the ear — sentences a person would say'
-        : 'enhance the script — audio tags ElevenLabs v4 performs';
-      // Three scopes, the ones the palette and the notes editor offer too. Z takes any back.
-      const run = (scope) => { const go = enhanceScript(); closeNarrPicker(); go?.(scope, { kind }); };
-      const mod = moduleOf(instance.state.slide);
-      narrRows.push({
-        text: `This slide — ${instance.state.slide}`,
-        flavor: kind === 'spoken' ? 'its notes, reworded to be said aloud' : 'its notes, with tags added where they help',
-        commit: () => run('slide'),
-      });
-      if (mod) {
-        narrRows.push({
-          text: `This module — “${mod.title}”`,
-          flavor: `slides ${mod.from}–${mod.to}`,
-          commit: () => run('module'),
-        });
-      }
-      narrRows.push({
-        text: 'Every slide with notes',
-        flavor: 'a few at a time — the agent is asked once per slide',
-        commit: () => run('all'),
-      });
     } else if (view === 'character') {
       head.textContent = 'character — an animated narrator lip-syncs the voice';
       // availability comes from the lipsync bridge; probe once per picker

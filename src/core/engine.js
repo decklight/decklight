@@ -1126,27 +1126,18 @@ export function init(userConfig = {}) {
         alias: 'engine wizard setup api key credential token marketplace',
         run: () => editmode.wizard(w.qualified),
       })),
-      // the voiceover script, given ElevenLabs v4's audio tags: the agent
-      // drafts, decklight checks no word or beat moved (cli/enhance.mjs)
-      write({ label: 'Enhance this slide\'s voiceover script…', cat: 'Voice',
-        alias: 'enhance elevenlabs v4 audio tags expressive emotion notes narration voice script improve direction',
-        run: () => editmode.enhanceScript('slide') }),
-      write({ label: 'Enhance this module\'s voiceover script…', cat: 'Voice',
-        alias: 'enhance module chapter section elevenlabs v4 audio tags expressive emotion notes narration voice script',
-        run: () => editmode.enhanceScript('module') }),
-      write({ label: 'Enhance every slide\'s voiceover script…', cat: 'Voice',
-        alias: 'enhance all slides whole deck elevenlabs v4 audio tags expressive emotion notes narration voice script',
-        run: () => editmode.enhanceScript('all') }),
-      // …and written for the ear: terse notes as sentences a person would say
-      write({ label: 'Write this slide\'s notes for the ear…', cat: 'Voice',
-        alias: 'spoken conversational natural sentences rewrite notes voiceover script say aloud human speakable ear',
-        run: () => editmode.enhanceScript('slide', { kind: 'spoken' }) }),
-      write({ label: 'Write this module\'s notes for the ear…', cat: 'Voice',
-        alias: 'spoken conversational natural sentences rewrite module chapter notes voiceover script say aloud human speakable ear',
-        run: () => editmode.enhanceScript('module', { kind: 'spoken' }) }),
-      write({ label: 'Write every slide\'s notes for the ear…', cat: 'Voice',
-        alias: 'spoken conversational natural sentences rewrite all slides whole deck notes voiceover script say aloud human speakable ear',
-        run: () => editmode.enhanceScript('all', { kind: 'spoken' }) }),
+      // the writing tools (src/core/writing.js): one picker asks which tool
+      // and which slides; a tool's own row opens it on the slides step. The
+      // agent drafts, decklight checks, the review decides (cli/enhance.mjs)
+      write({ label: 'Writing tools…', cat: 'Voice',
+        alias: 'writing rewrite enhance script notes voiceover agent tools picker',
+        run: () => editmode.openWriting() }),
+      write({ label: 'Add audio tags to the script…', cat: 'Voice',
+        alias: 'enhance elevenlabs v4 audio tags expressive emotion notes narration voice script improve direction this slide module every',
+        run: () => editmode.openWriting({ tool: 'tags' }) }),
+      write({ label: 'Write the script for the ear…', cat: 'Voice',
+        alias: 'spoken conversational natural sentences rewrite notes voiceover script say aloud human speakable ear this slide module every',
+        run: () => editmode.openWriting({ tool: 'spoken' }) }),
       // ── Present ─────────────────────────────────────────────────────────
       { label: 'Speaker view — second window', cat: 'Present', hint: SPEAKER_CHORD, alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
       { label: 'Fullscreen', cat: 'Present', hint: 'F · ' + PRESENT_CHORD, run: () => toggleFullscreen() },
@@ -2987,11 +2978,10 @@ export function init(userConfig = {}) {
     // AFTER this resolves. The recorder awaits it rather than guessing early.
     editReady: () => editmode?.settled?.() ?? Promise.resolve(),
     // V → Enhance the script…: write mode only, like every row that writes the deck
-    enhanceScript: () => (editmode?.available() ? editmode.enhanceScript : null),
+    openWriting: () => (editmode?.available() ? editmode.openWriting : null),
     // the recorder's Fix the notes: the notes card, write mode only (#929)
     editNotes: () => (editmode?.available() ? editmode.notesFor : null),
     // the data-module chapter a slide is in, for the rewrite scopes
-    moduleOf: (n) => editmode?.moduleOf?.(n) ?? null,
   });
   const {
     character, toggleNarration, toggleNarrPause, changeNarrRate, toggleCaptions,

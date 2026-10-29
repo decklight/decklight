@@ -30,6 +30,7 @@ import { thinking } from './thinking.js';
 import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
 import { wordDiff, diffCounts } from './worddiff.js';
 import { createFixReview, fixReviewOn, setFixReview, askReviewOn, setAskReview } from './fixreview.js';
+import { createWritingPicker, WRITING_TOOLS } from './writing.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
 import { UNDO_CHORD } from './undo-chord.js';
@@ -1838,69 +1839,25 @@ export function createEditMode({
     actions.append(tools);
     showDiff(false);
     syncChanged();
-    // Two rewrites by the agent (cli/enhance.mjs), each for this slide, its
-    // module, or the whole deck:
-    //   ✨ add audio tags — the tags ElevenLabs v4 performs, same words;
-    //   🗣 write it for the ear — terse notes as sentences a person would say.
-    // Whatever the scope, the answer is HELD for review (#907): the box is
-    // saved first, so the agent reads the notes as the file holds them, and
-    // the review opens on what came back; nothing lands until it is applied.
+    // The writing tools (src/core/writing.js, cli/enhance.mjs): one button,
+    // the picker asks which tool and which slides. The box is saved first,
+    // so the agent reads the notes as the file holds them, and the answer is
+    // HELD for review (#907): the review opens over the card, and nothing
+    // lands until it is applied.
     if (editAgents.length) {
       const agent = editAgents.find((a) => a.name === preferredAgent) ?? editAgents[0];
-      const REWRITE_BUTTONS = [
-        { kind: 'tags', label: '✨ add audio tags', drafting: 'drafting',
-          title: `${agent.label} drafts ElevenLabs v4 audio tags ([thoughtful], [sighs]) into the notes, `
-            + 'with the prompt ElevenLabs publishes for it. Every word, [click] and [pause] must survive, or nothing changes.',
-          none: 'found nothing to add', landed: 'audio tags added' },
-        { kind: 'spoken', label: '🗣 write it for the ear', drafting: 'rewriting',
-          title: `${agent.label} rewrites terse notes as sentences a person would say out loud — `
-            + '"Fluffed a line? Backspace retakes it." becomes "And if you fluff a line, just press Backspace to take it again." '
-            + 'Every [click] and [pause] must survive, and the length stay in proportion, or nothing changes.',
-          none: 'found nothing to rewrite', landed: 'rewritten for the ear' },
-      ];
-      // which slides: this one, its module, or the whole deck. The box is
-      // saved first in every case: the agent is asked about the notes as the
-      // file holds them, and the candidate is merged against that file.
-      const chooseScope = (b) => {
-        const mod = moduleOf(sl);
-        const row = document.createElement('div');
-        row.className = 'tr-actions notes-scope';
-        const opt = (text, title, go) => {
-          const o = document.createElement('button');
-          o.type = 'button';
-          o.className = 'narr-prev-btn';
-          o.textContent = text;
-          if (title) o.title = title;
-          o.addEventListener('click', () => { row.remove(); actions.hidden = false; go(); });
-          row.appendChild(o);
-          return o;
-        };
-        const go = (scope) => async () => {
-          if (scope === 'slide' && !ta.value.trim()) { toast('nothing to rewrite — the notes are empty'); return; }
-          if (ta.value !== loaded) await save();
-          if (ta.value !== loaded) return;   // the save failed, and said so
-          enhanceScript(scope, { kind: b.kind });
-        };
-        opt(`this slide`, 'the notes above, saved first — the rewrite is held for review before it lands', go('slide')).classList.add('narr-sel');
-        if (mod) opt(`module “${mod.title}” · ${mod.to - mod.from + 1}`, `slides ${mod.from}–${mod.to} — held for review before they land`, go('module'));
-        opt(`whole deck · ${instance.state.totalSlides}`, 'every slide with notes — held for review before they land', go('all'));
-        opt('✕', 'never mind', () => {});
-        const hint = document.createElement('span');
-        hint.className = 'notes-scope-what';
-        hint.textContent = `${b.label} —`;
-        row.prepend(hint);
-        actions.hidden = true;
-        actions.after(row);
-        row.querySelector('.narr-sel')?.focus();
-      };
       const rewrites = document.createElement('div');
       rewrites.className = 'notes-rewrites';
-      for (const b of REWRITE_BUTTONS) {
-        const btn = button(`notes-${b.kind === 'tags' ? 'enhance' : 'spoken'}`, b.label,
-          `${b.title} The notes are sent to that agent, which may pass them to its provider.`);
-        btn.addEventListener('click', () => chooseScope(b));
-        rewrites.appendChild(btn);
-      }
+      const btn = button('notes-writing', '✍ Writing…',
+        `${agent.label} rewrites the notes: audio tags ElevenLabs v4 performs, or terse notes as sentences a person would say. `
+        + 'The box is saved first; what comes back is reviewed before it lands. The notes are sent to that agent, which may pass them to its provider.');
+      btn.addEventListener('click', () => openWriting({
+        before: async () => {
+          if (ta.value !== loaded) await save();
+          return ta.value === loaded;   // a save that failed said so
+        },
+      }));
+      rewrites.appendChild(btn);
       actions.appendChild(rewrites);
     }
     card.append(ta, diffEl, actions);
@@ -2021,6 +1978,7 @@ export function createEditMode({
       rows.push({ label: 'Delete this slide', run: () => { closeElementMenu(); slideOp('delete'); } });
     } else if (menuTarget.index === null) {
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
+      if (editAgents.length) rows.push({ label: 'Writing…', run: () => { closeElementMenu(); openWriting(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     } else {
       const nested = menuTarget.node && menuTarget.node !== menuTarget.top;
@@ -3460,6 +3418,20 @@ export function createEditMode({
     for (let i = from; i < secs.length; i++) if (secs[i].hasAttribute('data-module')) { to = i; break; }
     return { title, from, to };
   }
+  // The Writing picker: which tool, which slides, then the run (writing.js)
+  const writing = createWritingPicker({
+    root, overlays, toast,
+    tools: () => (editAvailable && editAgents.length ? WRITING_TOOLS : []),
+    where: () => ({ slide: instance.state.slide, total: instance.state.totalSlides, module: moduleOf(instance.state.slide) }),
+    agent: () => { const a = editAgents.find((x) => x.name === preferredAgent) ?? editAgents[0]; return a ? { label: a.label, model: a.model ?? null } : null; },
+    run: (tool, scope) => enhanceScript(scope, { kind: tool.kind }),
+  });
+  /** The picker, from any entry point: the notes editor, the V panel, the palette, the slide's menu. */
+  function openWriting(opts = {}) {
+    if (!editAvailable) { toast(cannot('rewriting the notes'), 3200); return; }
+    if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
+    writing.open(opts);
+  }
   async function enhanceScript(scope = 'slide', { kind = 'tags' } = {}) {
     if (!editAvailable) { toast(cannot(kind === 'spoken' ? 'rewriting the notes' : 'enhancing the script'), 3200); return; }
     if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
@@ -3796,6 +3768,7 @@ export function createEditMode({
     exportDeck,
     bundleEstimate,
     enhanceScript,
+    openWriting,
     moduleOf,
     /** The agent review: run it, its findings that still hold, a fix for one, and a word when they change. */
     reviewDeck,

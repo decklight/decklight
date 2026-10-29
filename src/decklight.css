@@ -1791,6 +1791,8 @@
 .decklight-narr .narr-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
 .decklight-narr .narr-group { margin: 10px 12px 2px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .12); font-size: .68em; letter-spacing: .14em; text-transform: uppercase; opacity: .55; }
 .decklight-narr .narr-group:first-of-type { border-top: none; padding-top: 0; }
+/* the Writing picker (writing.js): the tools in their groups, then the scopes */
+.decklight-writing .narr-foot { margin: 10px 12px 4px; font-size: .78em; opacity: .55; }
 /* the engine bar at the top of the voices view: the one choice that decides
    every voice below it, drawn as a control of its own rather than a line
    among the voices (where it got lost) */
