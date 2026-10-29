@@ -21,6 +21,21 @@
  * works on the candidate; the right pane comes back with the new version, the
  * other slides' decisions stay, and the adjusted one is undecided again.
  *
+ * THE SLIDE LIST down the left side is every slide the candidate changes,
+ * with its state (undecided, approved, rejected, adjusting), and after them
+ * the slides the job looked at and LEFT AS THEY WERE (an answer that failed
+ * its check, a slide edited while the agent thought), with why: ↑/↓ or a
+ * click jumps to a slide, ←/→ still walk the changes in order.
+ *
+ * TWO MODES, ONE PANEL. A change the slides can show (a layout fix, an ask)
+ * opens on the two live renders; a change that is ONLY the notes (a script
+ * rewrite: the server marks the unit `notesOnly`) opens in TEXT mode, the
+ * slide's whole script with the words that changed marked, the proposed
+ * render kept small for context, and P plays the proposed script in the
+ * deck's live voice, the one check two identical renders cannot give. D
+ * cycles the view — the inline diff, the two scripts side by side, the two
+ * slides — in either mode; the text-mode choice is remembered.
+ *
  * **Apply validated only** writes the approved slides; **Apply all** writes
  * every change but the rejected ones. Either is one write and one undo entry,
  * and the commit window opens on the page that reloads, its message drafted
@@ -94,16 +109,31 @@ export function changedSteps(before, after) {
   return out.length ? out : [0];
 }
 
+/**
+ * Which mode a candidate opens in: `text` when every change is a slide whose
+ * notes are the whole of it (the server's `notesOnly`), `slide` otherwise —
+ * a head, an added or removed slide, or any slide that looks different.
+ * Pure.
+ */
+export function reviewMode(units) {
+  return units?.length && units.every((u) => u.kind === 'changed' && u.notesOnly) ? 'text' : 'slide';
+}
+
+/** The three views D cycles, from the one on screen. */
+export const VIEWS = ['diff', 'side', 'slides'];
+export const nextView = (view) => VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length];
+
 const PREF = 'decklight-fix-review';
+const VIEW_PREF = 'decklight-review-view';
 
 export function createFixReview({
   root, overlays, toast = () => {}, base = () => '', previewQuery = () => '?embedded',
-  captionsOn = () => false, toggleCaptions = null, writeFetch = fetch,
+  captionsOn = () => false, toggleCaptions = null, writeFetch = fetch, speak = null,
   // the commit window, opened with a draft, on the page the apply's reload brings up
   commitKey = 'decklight-fix-commit:' + location.pathname,
 }) {
   let el = null;
-  let cand = null;           // the server's summary: { id, rev, what, units, … }
+  let cand = null;           // the server's summary: { id, rev, what, kind, units, left, … }
   let decisions = new Map(); // unit key → { state: 'approved' | 'rejected', comment }
   let stops = [];            // { key, kind, left: {slide, step} | null, right: …, steps }
   let at = 0;
@@ -111,6 +141,8 @@ export function createFixReview({
   let adjusting = null;      // the unit key the agent is working on
   let box = null;            // the comment box: { mode: 'reject' | 'adjust', key }
   let loadSeq = 0;
+  let mode = 'slide';        // 'text' when the notes are the whole change (reviewMode)
+  let view = 'slides';       // what the main area shows: 'diff' | 'side' | 'slides'
 
   const unitOf = (key) => cand?.units.find((u) => u.key === key) ?? null;
   const node = (tag, cls, text) => {
@@ -167,6 +199,12 @@ export function createFixReview({
     return out;
   }
 
+  /** Text mode's stops: one per slide, at its first step — the script is read whole. */
+  const textStops = () => cand.units.map((u) => ({
+    key: u.key, kind: u.kind, steps: 0, step: 0,
+    left: { slide: u.was, step: 0 }, right: { slide: u.slide, step: 0 },
+  }));
+
   /** Open the review of candidate `id` (or whichever the server holds). */
   async function open(id = null) {
     if (el && cand?.id === id) return;
@@ -181,32 +219,57 @@ export function createFixReview({
     decisions = new Map();
     adjusting = j.adjusting ?? null;
     at = 0;
+    mode = reviewMode(cand.units);
+    // text mode remembers how you read a script; the slides are the slides
+    view = mode === 'text' ? (readPref(VIEW_PREF) === 'side' ? 'side' : 'diff') : 'slides';
     overlays.opening();
     build();
     await reload({ left: true });
   }
 
-  /** (Re)load the panes — both, or the candidate's alone after an adjustment — then the stops. */
+  /**
+   * (Re)load the panes — both, or the candidate's alone after an adjustment —
+   * then the stops. In text mode the stops are the slides and the script is
+   * on screen at once; the panes come up behind it for the thumbnail and D.
+   */
   async function reload({ left = false, focus = null } = {}) {
     const seq = ++loadSeq;
     const [lf, rf] = frames();
-    say('loading both versions…');
     const first = cand.units[0];
     const pos = first ? { slide: first.slide ?? first.was ?? 1, step: 0 } : null;
+    const land = (list) => {
+      if (seq !== loadSeq || !el) return;
+      stops = list;
+      const i = focus ? stops.findIndex((s) => s.key === focus) : -1;
+      show(i >= 0 ? i : Math.min(at, Math.max(0, stops.length - 1)));
+    };
+    if (mode === 'text') {
+      land(textStops());
+      Promise.all([left ? load(lf, 'before', pos) : instanceOf(lf), load(rf, 'after', pos)]).then(() => {
+        if (seq === loadSeq && el) show(at);   // the panes are up: point them at the slide
+      });
+      return;
+    }
+    say('loading both versions…');
     const [li, ri] = await Promise.all([left ? load(lf, 'before', pos) : instanceOf(lf), load(rf, 'after', pos)]);
     if (seq !== loadSeq || !el) return;
-    stops = computeStops(li, ri);
-    const i = focus ? stops.findIndex((s) => s.key === focus) : -1;
-    show(i >= 0 ? i : Math.min(at, Math.max(0, stops.length - 1)));
+    land(computeStops(li, ri));
   }
 
   function build() {
     el = node('div', 'decklight-fixreview');
     el.setAttribute('role', 'dialog');
     el.setAttribute('aria-label', 'Review the change');
+    el.dataset.mode = mode;
+    el.dataset.view = view;
     const panel = node('div', 'fr-panel');
     const head = node('div', 'fr-head');
-    head.append(node('span', 'fr-title', `Review · ${cand.what}`), node('span', 'fr-pos'));
+    const n = cand.units.length;
+    head.append(node('span', 'fr-title', `Review · ${cand.what} · ${n} ${n === 1 ? 'change' : 'changes'}`), node('span', 'fr-pos'));
+    const body = node('div', 'fr-body');
+    const rail = node('nav', 'fr-rail');
+    rail.setAttribute('aria-label', 'Slides');
+    const main = node('div', 'fr-main');
     const panes = node('div', 'fr-panes');
     for (const [side, label] of [['before', 'current'], ['after', 'proposed']]) {
       const pane = node('figure', `fr-pane fr-${side}`);
@@ -216,10 +279,14 @@ export function createFixReview({
       const gone = node('div', 'fr-gone');
       gone.hidden = true;
       pane.append(cap, frame, gone);
+      // the small proposed render in text mode: a click brings both slides up
+      pane.addEventListener('click', () => { if (view !== 'slides') setView('slides'); });
       panes.append(pane);
     }
     const notes = node('div', 'fr-notes');
     notes.hidden = true;
+    main.append(panes, notes);
+    body.append(rail, main);
     const bar = node('div', 'fr-bar');
     const btn = (cls, text, title, run) => {
       const b = node('button', `fr-btn ${cls}`, text);
@@ -231,6 +298,7 @@ export function createFixReview({
     bar.append(
       btn('fr-prev', '‹', 'previous change (← or [)', () => show(at - 1)),
       btn('fr-next', '›', 'next change (→ or ])', () => show(at + 1)),
+      btn('fr-view', '', 'what the review shows: the words that changed, the two scripts side by side, or the two slides (D)', () => setView(nextView(view))),
       ...(toggleCaptions ? [btn('fr-cc', 'CC', 'captions in both panes (C)', flipCaptions)] : []),
       node('span', 'fr-state'),
       btn('fr-approve', 'Approve', 'take this slide from the proposal (A)', () => decide('approved')),
@@ -252,8 +320,9 @@ export function createFixReview({
       e.stopPropagation();
     });
     boxEl.append(ta, boxGo, boxNo);
-    const foot = node('div', 'fr-foot', '←/→ changes · A approve · X reject · E adjust · C captions · ⇧⏎ apply validated · ⌘⏎ apply all · Esc discards it all');
-    panel.append(head, panes, notes, bar, boxEl, foot);
+    const foot = node('div', 'fr-foot', '←/→ changes · ↑/↓ slides · A approve · X reject · E adjust · D view'
+      + (speak ? ' · P hear it' : '') + ' · C captions · ⇧⏎ apply validated · ⌘⏎ apply all · Esc discards it all');
+    panel.append(head, body, bar, boxEl, foot);
     el.append(panel);
     root.appendChild(el);
     // the keys are the review's: a box left focused under it (the agent
@@ -261,6 +330,8 @@ export function createFixReview({
     el.tabIndex = -1;
     el.focus({ preventScroll: true });
     paintCaptions();
+    paintView();
+    paintRail();
   }
 
   function say(text) { const p = el?.querySelector('.fr-pos'); if (p) p.textContent = text; }
@@ -275,7 +346,7 @@ export function createFixReview({
 
   function show(i) {
     if (!el) return;
-    if (!stops.length) { say('the proposal changes nothing the review can show'); paintDecision(); return; }
+    if (!stops.length) { say('the proposal changes nothing the review can show'); paintDecision(); paintRail(); return; }
     at = Math.max(0, Math.min(i, stops.length - 1));
     const s = stops[at];
     const [lf, rf] = frames();
@@ -286,14 +357,78 @@ export function createFixReview({
       frame.style.visibility = pos ? '' : 'hidden';
       if (pos) frame.contentWindow?.postMessage({ __decklightPreview: { goto: [pos.slide, pos.step] } }, '*');
     }
-    say(`change ${at + 1} of ${stops.length} · ${where(s)}`);
+    const u = unitOf(s.key);
+    say(mode === 'text' ? `slide ${u?.slide ?? s.right.slide}${u?.title ? ` · ${u.title}` : ''} · ${at + 1} of ${stops.length}`
+      : `change ${at + 1} of ${stops.length} · ${where(s)}`);
     paintNotes(s);
     paintDecision();
+    paintRail();
+  }
+
+  /** The first stop of the unit before / after the one on screen. */
+  function stepUnit(dir) {
+    const s = stops[at];
+    if (!s) return;
+    const keys = [...new Set(stops.map((x) => x.key))];
+    const k = keys[keys.indexOf(s.key) + dir];
+    if (k !== undefined) show(stops.findIndex((x) => x.key === k));
   }
 
   /**
-   * Under the panes: the notes' word diff when the slide's notes changed, or
-   * for the head (whose slides look alike) the lines of it that changed.
+   * The slides down the left: every unit with its state, then what the job
+   * left as it was, with why. The row on screen is marked; a click goes there.
+   */
+  function paintRail() {
+    const rail = el?.querySelector('.fr-rail');
+    if (!rail) return;
+    rail.replaceChildren();
+    const cur = stops[at]?.key ?? null;
+    const glyph = { approved: '✓', rejected: '✗', adjusting: '⟲', left: '⊘', open: '' };
+    const row = (state, n, title, why, run) => {
+      const r = node('div', 'fr-row');
+      r.dataset.state = state;
+      if (run) { r.tabIndex = -1; r.addEventListener('click', run); }
+      r.append(node('span', 'fr-row-state', glyph[state]), node('span', 'fr-row-n', n), node('span', 'fr-row-title', title));
+      if (why) { r.title = why; r.append(node('span', 'fr-row-why', why)); }
+      return r;
+    };
+    rail.append(node('div', 'fr-rail-head', 'slides'));
+    for (const u of cand.units) {
+      const d = decisions.get(u.key);
+      const state = adjusting === u.key ? 'adjusting' : d?.state ?? 'open';
+      const n = u.kind === 'head' ? '—' : String(u.slide ?? u.was);
+      const title = u.kind === 'head' ? 'the deck' : `${u.title ?? ''}${u.kind === 'added' ? ' (added)' : u.kind === 'removed' ? ' (removed)' : ''}`.trim() || `slide ${n}`;
+      const r = row(state, n, title, d?.comment || null, () => { const i = stops.findIndex((s) => s.key === u.key); if (i >= 0) show(i); });
+      if (u.key === cur) r.setAttribute('aria-current', 'true');
+      rail.append(r);
+    }
+    const left = Array.isArray(cand.left) ? cand.left : [];
+    if (left.length) {
+      rail.append(node('div', 'fr-rail-head', 'left as they were'));
+      for (const l of left) rail.append(row('left', String(l.slide), `slide ${l.slide}`, l.why, () => say(`slide ${l.slide} left as it was — ${l.why}`)));
+    }
+    rail.querySelector('[aria-current]')?.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  /** The view: the panes big or small, the notes as a diff, side by side, or hidden behind the slides. */
+  function setView(v) {
+    view = v;
+    if (mode === 'text' && v !== 'slides') writePref(VIEW_PREF, v === 'side' ? 'side' : null);
+    paintView();
+    const s = stops[at];
+    if (s) paintNotes(s);
+  }
+  function paintView() {
+    if (!el) return;
+    el.dataset.view = view;
+    const b = el.querySelector('.fr-view');
+    if (b) b.textContent = view === 'diff' ? 'words' : view === 'side' ? 'side by side' : 'slides';
+  }
+
+  /**
+   * Under the panes — or, reading a script, in their place: the notes' word
+   * diff when the slide's notes changed, inline or as two columns; for the
+   * head (whose slides look alike) the lines of it that changed.
    */
   function paintNotes(s) {
     const box = el.querySelector('.fr-notes');
@@ -304,11 +439,37 @@ export function createFixReview({
     if (!n) return;
     const runs = wordDiff(n.before, n.after);
     const { removed, added } = diffCounts(runs);
-    const body = node('div', `fr-notes-body${u.kind === 'head' ? ' fr-code' : ''}`);
+    const code = u.kind === 'head' ? ' fr-code' : '';
     // built as nodes: the notes are the deck's text, and the agent wrote half of them
-    for (const r of runs) body.append(node(r.op === '-' ? 'del' : r.op === '+' ? 'ins' : 'span', '', r.text));
+    const mark = (r) => node(r.op === '-' ? 'del' : r.op === '+' ? 'ins' : 'span', '', r.text);
+    let body;
+    if (view === 'side') {
+      body = node('div', `fr-side${code}`);
+      const before = node('div', 'fr-side-before'), after = node('div', 'fr-side-after');
+      for (const r of runs) { if (r.op !== '+') before.append(mark(r)); if (r.op !== '-') after.append(mark(r)); }
+      body.append(before, after);
+    } else {
+      body = node('div', `fr-notes-body${code}`);
+      for (const r of runs) body.append(mark(r));
+    }
     const what = u.kind === 'head' ? 'outside the slides' : 'notes';
-    box.append(node('div', 'fr-notes-head', `${what} · −${removed} +${added} word${added === 1 ? '' : 's'}`), body);
+    const headEl = node('div', 'fr-notes-head');
+    headEl.append(node('span', '', `${what} · −${removed} +${added} word${added === 1 ? '' : 's'}`));
+    if (speak && u.kind !== 'head' && n.after) {
+      const hear = node('button', 'fr-btn fr-hear', '▶ hear the proposed script');
+      hear.type = 'button';
+      hear.title = 'the proposed notes, in the deck\'s live voice (P)';
+      hear.addEventListener('click', () => hearProposed());
+      headEl.append(hear);
+    }
+    box.append(headEl, body);
+  }
+
+  /** P: the proposed script of the slide on screen, said in the live voice. */
+  function hearProposed() {
+    const u = unitOf(stops[at]?.key);
+    if (!speak || !u?.notes?.after) return;
+    speak(u.notes.after, el?.querySelector('.fr-hear') ?? null);
   }
 
   function paintDecision() {
@@ -341,7 +502,7 @@ export function createFixReview({
     decisions.set(s.key, { state, comment });
     // a decision covers the slide: on to the first stop of the next one
     const next = stops.findIndex((x, i) => i > at && x.key !== s.key);
-    if (next >= 0) show(next); else paintDecision();
+    if (next >= 0) show(next); else { paintDecision(); paintRail(); }
   }
 
   function openBox(mode) {
@@ -368,14 +529,15 @@ export function createFixReview({
   async function submitBox() {
     if (!box) return;
     const text = el.querySelector('.fr-comment').value.trim();
-    const { mode, key } = box;
-    if (mode === 'reject') { closeBox(); decide('rejected', text); return; }
+    const { mode: boxMode, key } = box;
+    if (boxMode === 'reject') { closeBox(); decide('rejected', text); return; }
     if (!text) { el.querySelector('.fr-comment').focus(); return; }
     closeBox();
     // marked before the ask goes out: a quick agent's `candidate` event can
     // arrive before this request's own answer, and must find it to clear
     adjusting = key;
     paintDecision();
+    paintRail();
     try {
       const r = await writeFetch(`${base()}/deck/edit/candidate/adjust`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -387,7 +549,7 @@ export function createFixReview({
     } catch (e) {
       if (adjusting === key) adjusting = null;
       toast(`could not ask for the change — ${String(e.message || e).slice(0, 100)}`, 4000);
-    } finally { if (el) paintDecision(); }
+    } finally { if (el) { paintDecision(); paintRail(); } }
   }
 
   /**
@@ -398,7 +560,7 @@ export function createFixReview({
     if (!el || !cand || d?.id !== cand.id) return;
     const key = d.adjusted ?? adjusting;
     adjusting = null;
-    if (!d.ok) { toast(`the agent left ${placeOf(key)} as it was`, 3000); paintDecision(); return; }
+    if (!d.ok) { toast(`the agent left ${placeOf(key)} as it was`, 3000); paintDecision(); paintRail(); return; }
     try {
       const r = await fetch(`${base()}/deck/edit/candidate?id=${encodeURIComponent(cand.id)}`);
       const j = await r.json();
@@ -452,7 +614,7 @@ export function createFixReview({
       await writeFetch(`${base()}/deck/edit/candidate/discard`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.id }),
       });
-    } catch { /* the next fix replaces it anyway */ }
+    } catch { /* the next proposal replaces it anyway */ }
     toast('discarded — the deck is unchanged', 2600);
   }
 
@@ -482,12 +644,16 @@ export function createFixReview({
     switch (e.key) {
       case 'ArrowLeft': case '[': show(at - 1); return true;
       case 'ArrowRight': case ']': show(at + 1); return true;
+      case 'ArrowUp': stepUnit(-1); return true;
+      case 'ArrowDown': stepUnit(1); return true;
       case 'Home': show(0); return true;
       case 'End': show(stops.length - 1); return true;
       case 'a': case 'A': decide('approved'); return true;
       case 'x': case 'X': openBox('reject'); return true;
       case 'e': case 'E': openBox('adjust'); return true;
       case 'c': case 'C': flipCaptions(); return true;
+      case 'd': case 'D': setView(nextView(view)); return true;
+      case 'p': case 'P': hearProposed(); return true;
       case 'Escape': discard(); return true;
       default: return true;   // modal: nothing reaches the deck behind it
     }
@@ -500,7 +666,7 @@ export function createFixReview({
   return {
     open, update, isOpen: () => !!el,
     /** The candidate under review and the decisions so far, for a headless probe. */
-    state: () => (cand ? { id: cand.id, units: cand.units, stops: stops.map((s) => ({ ...s })), at, decisions: Object.fromEntries(decisions), adjusting } : null),
+    state: () => (cand ? { id: cand.id, units: cand.units, left: cand.left ?? [], stops: stops.map((s) => ({ ...s })), at, decisions: Object.fromEntries(decisions), adjusting, mode, view } : null),
     discard, apply,
   };
 }

@@ -42,6 +42,7 @@ export function createEditMode({
   knownConcepts = () => [],
   captionsOn = () => false, toggleCaptions = null,
   choiceCard = null,
+  speak = null,
 }) {
   // ── write mode + live reload — SPEC PRESENTING ───────────────────────────────────
   // Served by the edit server: the deck subscribes to /deck/events and
@@ -1094,7 +1095,7 @@ export function createEditMode({
   // Check deck…'s fixes are held by the server as a candidate; this is the
   // two-pane view that walks it, decides it slide by slide and applies it.
   const fixReview = createFixReview({
-    root, overlays, toast, base: () => editBase, previewQuery, captionsOn, toggleCaptions, writeFetch,
+    root, overlays, toast, base: () => editBase, previewQuery, captionsOn, toggleCaptions, writeFetch, speak,
   });
   const FIX_COMMIT_KEY = 'decklight-fix-commit:' + location.pathname;
   /** The page a reviewed apply reloaded: the commit window, its message drafted. */

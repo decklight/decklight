@@ -14,7 +14,7 @@ import {
   deckParts, candidateUnits, mergeCandidate, commitDraft, notesText, changedLines, registerFixReviewRoutes, adjustPrompt,
 } from '../cli/fix-review.mjs';
 import { createHistory } from '../cli/edit.mjs';
-import { changedSteps } from '../src/core/fixreview.js';
+import { changedSteps, reviewMode, nextView } from '../src/core/fixreview.js';
 import { tmp } from './helpers.mjs';
 
 const DECK = `<!doctype html>
@@ -286,4 +286,24 @@ test('changedSteps stops only at the build steps whose render differs', () => {
   assert.deepEqual(changedSteps(['x', 'y'], ['X', 'Y']), [0, 1]);
   assert.deepEqual(changedSteps(['a'], ['a']), [0], 'a change the renders cannot see still gets one stop');
   assert.deepEqual(changedSteps(null, ['a']), [0]);
+});
+
+test('a slide whose notes are the whole change is marked notesOnly; one that also looks different is not', () => {
+  const deck = (body, notes) => `<!doctype html><div class="decklight">\n<section>\n<h2>One</h2>\n<p>${body}</p>\n<aside class="notes"><p>${notes}</p></aside>\n</section>\n<section>\n<h2>Two</h2>\n</section>\n</div>`;
+  const before = deck('A point.', 'Terse.');
+  const notes = candidateUnits(before, deck('A point.', 'And now, said out loud.'));
+  assert.deepEqual(notes.map((u) => [u.key, u.notesOnly === true, u.notes.after]), [['s1', true, 'And now, said out loud.']]);
+  const both = candidateUnits(before, deck('A tighter point.', 'And now, said out loud.'));
+  assert.deepEqual(both.map((u) => [u.key, u.notesOnly === true]), [['s1', false]]);
+  const look = candidateUnits(before, deck('A tighter point.', 'Terse.'));
+  assert.equal(look[0].notes, undefined, 'no notes diff when the notes did not change');
+  assert.equal(look[0].notesOnly, undefined);
+});
+
+test('reviewMode: text when every unit is a notes-only slide, the slides otherwise; D cycles the three views', () => {
+  assert.equal(reviewMode([{ kind: 'changed', notesOnly: true }, { kind: 'changed', notesOnly: true }]), 'text');
+  assert.equal(reviewMode([{ kind: 'changed', notesOnly: true }, { kind: 'changed' }]), 'slide');
+  assert.equal(reviewMode([{ kind: 'head' }]), 'slide');
+  assert.equal(reviewMode([]), 'slide');
+  assert.deepEqual(['diff', 'side', 'slides'].map(nextView), ['side', 'slides', 'diff']);
 });

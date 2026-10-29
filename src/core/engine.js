@@ -3074,6 +3074,8 @@ export function init(userConfig = {}) {
     previewQuery: () => themes.previewQuery(),
     // the deck's captions, which the history's preview follows (C there flips them)
     captionsOn: () => narration.status().captionsOn, toggleCaptions,
+    // a reviewed script, heard in the live voice (fixreview.js)
+    speak: (text, btn) => narration.hear(text, btn),
     // the names the menu's Concept ▸ offers: the deck's, as its diagrams and its configuration know them (#718)
     knownConcepts: () => conceptsOn(stage, config.concepts ?? {}).map((c) => c.name),
   });

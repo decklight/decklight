@@ -402,6 +402,14 @@
       // the whole deck, each finding with the fix the server would apply; a
       // fix is recorded (window.__fixed) and answered as done; Migrate is the
       // server's own run. No agent on this machine: a judgement row has no fix.
+      // The review of a held change (src/core/fixreview.js), opened on a
+      // script candidate the harness hands it: the slide list, text mode, D, P.
+      if (HARNESS_MODE === 'reviewpanel') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
+        if (u.includes('/deck/edit/candidate/discard')) { window.__discarded = JSON.parse(init?.body ?? '{}'); return json({ ok: true, discarded: true }); }
+        if (u.includes('/deck/edit/candidate/apply')) { window.__applied = JSON.parse(init?.body ?? '{}'); return json({ ok: true, changed: true, said: 'applied 1 of 2 · 1 rejected', commit: { subject: 'script: written for the ear on slide 2', body: '' } }); }
+        if (u.includes('/deck/edit/candidate')) return json({ ok: true, ...window.__candidate });
+      }
       if (HARNESS_MODE === 'deckcheck') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], agentAsks: window.__asks ?? [] });
         // a fix held for review (#907): the candidate, and its discard
@@ -5095,6 +5103,82 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.reviewOverTheCard && r.cardStays && r.spokenButton && r.unsavedSavedFirst
           && r.idleWhenUnchanged && r.diffShown && r.diffAfterSave && r.backToEditing && r.resetToSaved
           && r.earModuleRow && r.sentModuleSpoken && r.saysWritingForTheEar && r.saysWrote;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'reviewpanel') {
+        // A script rewrite held for review: every unit is notes-only, so the
+        // review opens in TEXT mode — the script with its changed words marked,
+        // the slide list down the left with what was left as it was, ↑/↓
+        // between slides, D through the views, P to hear it, A/X per slide,
+        // and ⇧⏎ applies the approved slides only.
+        const FR = '.decklight-fixreview';
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((e) => e.textContent).join(' | ');
+        const rows = () => [...document.querySelectorAll(`${FR} .fr-row`)].map((r) => ({ state: r.dataset.state, n: r.querySelector('.fr-row-n')?.textContent, title: r.querySelector('.fr-row-title')?.textContent, cur: r.getAttribute('aria-current') === 'true', why: r.title }));
+        const view = () => document.querySelector(FR)?.dataset.view;
+        window.__candidate = { id: 'c1', rev: 1, what: 'script: written for the ear', kind: 'script', units: [
+          { key: 's2', kind: 'changed', slide: 2, was: 2, title: 'Two', notesOnly: true, notes: { before: 'Terse.\n[click]\nBackspace retakes.', after: 'And now, said out loud.\n[click]\nAnd if you fluff a line, just press Backspace.' } },
+          { key: 's4', kind: 'changed', slide: 4, was: 4, title: 'Four', notesOnly: true, notes: { before: 'Short.', after: 'A little longer, said.' } },
+        ], left: [{ slide: 3, why: 'the agent changed the words — the prompt allows only tags and emphasis' }] };
+        await settle();
+        deck._fixReview.open('c1');
+        await settle(); await settle();
+        const fr = document.querySelector(FR);
+        r.opensInTextMode = fr?.dataset.mode === 'text' && view() === 'diff' && deck._fixReview.state()?.mode === 'text';
+        r.titleCountsTheChanges = /script: written for the ear · 2 changes/.test(fr?.querySelector('.fr-title')?.textContent ?? '');
+        r.railListsTheSlides = JSON.stringify(rows().map((x) => [x.state, x.n, x.title, x.cur])) === JSON.stringify([['open', '2', 'Two', true], ['open', '4', 'Four', false], ['left', '3', 'slide 3', false]]);
+        r.leftRowSaysWhy = /changed the words/.test(rows()[2]?.why ?? '');
+        r.railHeads = [...fr.querySelectorAll('.fr-rail-head')].map((h) => h.textContent).join('|') === 'slides|left as they were';
+        // the script, whole, with the words that changed marked; the proposed render small beside it
+        const notes = fr.querySelector('.fr-notes');
+        r.scriptOnScreen = !!notes && !notes.hidden && [...notes.querySelectorAll('ins')].some((n) => /said out loud/.test(n.textContent))
+          && [...notes.querySelectorAll('del')].some((n) => /Terse/.test(n.textContent)) && /\[click\]/.test(notes.textContent);
+        r.beforePaneHidden = getComputedStyle(fr.querySelector('.fr-before')).display === 'none' && getComputedStyle(fr.querySelector('.fr-after')).display !== 'none';
+        r.posSaysTheSlide = /slide 2 · Two · 1 of 2/.test(fr.querySelector('.fr-pos')?.textContent ?? '');
+        r.hearButton = fr.querySelector('.fr-hear')?.textContent === '▶ hear the proposed script';
+        // D: side by side (two columns), then the slides, then the words again
+        press('d');
+        await settle();
+        r.dSideBySide = view() === 'side' && !!fr.querySelector('.fr-side-before') && /Terse/.test(fr.querySelector('.fr-side-before').textContent)
+          && /said out loud/.test(fr.querySelector('.fr-side-after').textContent) && !/said out loud/.test(fr.querySelector('.fr-side-before').textContent);
+        r.sideRemembered = localStorage.getItem('decklight-review-view') === 'side';
+        press('d');
+        await settle();
+        r.dSlides = view() === 'slides' && getComputedStyle(fr.querySelector('.fr-before')).display !== 'none';
+        press('d');
+        await settle();
+        r.dBackToWords = view() === 'diff' && !!fr.querySelector('.fr-notes-body');
+        // P: the proposed script, in the live voice — none here, and it says so
+        press('p');
+        await settle();
+        r.pReachesTheVoice = /no live voice to hear it with/.test(said());
+        // ↓ moves to the next slide; A approves this one and moves on
+        press('ArrowDown');
+        await settle();
+        r.downMovesToFour = rows()[1]?.cur === true && /slide 4 · Four/.test(fr.querySelector('.fr-pos')?.textContent ?? '');
+        press('ArrowUp');
+        await settle();
+        press('a');
+        await settle();
+        r.aApprovesAndMoves = rows()[0]?.state === 'approved' && rows()[1]?.cur === true;
+        press('x');
+        await settle();
+        const ta = fr.querySelector('.fr-comment');
+        if (ta) { ta.value = 'too long'; ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
+        await settle();
+        r.xRejectsWithAComment = rows()[1]?.state === 'rejected' && rows()[1]?.why === 'too long';
+        r.leftRowClickSays = (() => { fr.querySelectorAll('.fr-row')[2]?.click(); return /slide 3 left as it was — the agent changed the words/.test(fr.querySelector('.fr-pos')?.textContent ?? ''); })();
+        // ⇧⏎: the approved slide only; the rejection rides with its comment
+        press('Enter', { shiftKey: true });
+        await settle(); await settle();
+        r.applyValidatedOnly = JSON.stringify(window.__applied) === JSON.stringify({ id: 'c1', take: ['s2'], rejected: [{ key: 's4', comment: 'too long' }] })
+          && !document.querySelector(FR);
+        window.__candidate = null;
+        r.PASS = r.opensInTextMode && r.titleCountsTheChanges && r.railListsTheSlides && r.leftRowSaysWhy && r.railHeads
+          && r.scriptOnScreen && r.beforePaneHidden && r.posSaysTheSlide && r.hearButton
+          && r.dSideBySide && r.sideRemembered && r.dSlides && r.dBackToWords && r.pReachesTheVoice
+          && r.downMovesToFour && r.aApprovesAndMoves && r.xRejectsWithAComment && r.leftRowClickSays && r.applyValidatedOnly;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

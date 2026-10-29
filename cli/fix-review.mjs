@@ -100,6 +100,9 @@ export function notesText(slideSrc) {
     .trim();
 }
 
+/** A slide's source with its notes aside taken out, whitespace around the cut set aside. Pure. */
+const sansNotes = (src) => String(src ?? '').replace(/\s*<aside\b[^>]*class\s*=\s*["'][^"']*\bnotes\b[^"']*["'][^>]*>[\s\S]*?<\/aside\s*>\s*/i, '');
+
 /** A slide's title, as the outline reads it (its first h1/h2), or null. */
 const titleOf = (src) => deckOutline(src)[0]?.heading ?? null;
 
@@ -130,6 +133,9 @@ export function candidateUnits(before, after) {
     };
     const nb = was === null ? '' : notesText(was), na = now === null ? '' : notesText(now);
     if (nb !== na) unit.notes = { before: nb, after: na };
+    // the notes are the whole change: the slide looks the same, and the
+    // review reads the two scripts rather than two identical renders
+    if (op.kind === 'changed' && unit.notes && sansNotes(was) === sansNotes(now)) unit.notesOnly = true;
     units.push(unit);
   }
   return units;

@@ -5876,6 +5876,17 @@ export function createNarration({
     openRecordDialog,
     openMicRecorder,
     applySolo,
+    /**
+     * Say `text` in the deck's live voice, once: what a review of a script an
+     * agent proposed (fixreview.js) plays on P, the one check two identical
+     * slide renders cannot give. The V panel's audition, with other words.
+     */
+    hear(text, btn = null) {
+      if (!liveFound && !onBrowser()) { toast('no live voice to hear it with — open the deck with: decklight <deck.html>', 3200); return; }
+      const was = previewText;
+      previewText = String(text ?? '');
+      try { previewClip({ voice: liveCfg.voice, style: liveCfg.style ?? '' }, btn); } finally { previewText = was; }
+    },
     notesSegs, notesDraftOf,
     /** Everything the engine's chrome, palette and debug panel read back. */
     status: () => ({
