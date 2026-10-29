@@ -42,6 +42,7 @@
 //   POST /deck/edit/candidate/discard → { id }  drop it; the deck was never touched
 //   POST /deck/edit/agent/stop      → stop the agent job in flight: that edit, an enhancement or a review
 //   POST /deck/edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags') or written for the ear ('spoken'), held for review
+//   POST /deck/edit/rewrite         → { slides: [n…]|'all', tool, instruction?, agent? } the slide's own text: tighten, typos, match, custom (cli/rewrite.mjs), held for review
 //   POST /deck/edit/review          → { agent? } the agent reads the deck, read-only, for Check deck…'s agent review (writes nothing)
 //   GET  /deck/edit/review          → the last review's findings that still hold, each with the prompt that fixes it
 //   POST /deck/edit/shutdown        → final autocommit, then exit — same as Ctrl-C, so a
@@ -3220,6 +3221,69 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return json(200, { ok: true, of, agent: cmd.name, label: cmd.label, kind });
   }
 
+  /**
+   * The slide's own text, rewritten by a tool (cli/rewrite.mjs, SPEC
+   * PRESENTING_WRITING): `{ slides, tool, instruction? }`. Runs like an
+   * enhance, one ask per slide, and is HELD the same way: the passing slides
+   * make the candidate, the review decides, nothing is written here.
+   */
+  async function rewriteRoute({ body, json }) {
+    const { slides, agent, tool, instruction = '' } = JSON.parse(body);
+    const { rewriteDeck, applyRewritten, rewritable, TOOLS } = await import('./rewrite.mjs');
+    if (!TOOLS[tool]) throw new Error('bad payload');
+    if (tool === 'custom' && (typeof instruction !== 'string' || !instruction.trim())) return json(400, { ok: false, error: 'say what to change — the custom tool needs an instruction' });
+    const which = slides === 'all' ? null
+      : Array.isArray(slides) && slides.length && slides.every((n) => Number.isInteger(n) && n > 0) ? slides : undefined;
+    if (which === undefined) throw new Error('bad payload');
+    if (enhancing) return json(409, { ok: false, error: `already rewriting — ${enhancing.done} of ${enhancing.of} slides done` });
+    if (reviewing) return json(409, { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' });
+    if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is editing the deck — wait for it to finish` });
+    const name = agent ?? agentPref ?? null;
+    const cmd = agentAsk(name, 'x');
+    if (!cmd) return json(400, { ok: false, error: agentUnavailable(name, agents) });
+    const html = readDeck();
+    const of = rewritable(html, which).length;
+    if (!of) return json(422, { ok: false, error: which?.length === 1 ? `slide ${which[0]} has no text to rewrite` : 'no slide text to rewrite' });
+    const stop = new AbortController();
+    enhancing = { of, done: 0, stop: () => stop.abort() };
+    broadcast('enhance', { state: 'start', of, agent: cmd.name, kind: tool });
+    console.log(`  rewrite: ${TOOLS[tool].label} on ${of} slide${of === 1 ? '' : 's'} ← ${cmd.name} (read-only)`);
+    rewriteDeck(html, tool, which, {
+      instruction: String(instruction).slice(0, 1000), agent: name, cwd: dirname(deckPath), signal: stop.signal,
+      onSlide: (r) => {
+        enhancing.done = r.done;
+        broadcast('enhance', { state: 'slide', ...r, kind: tool });
+        console.log(`  rewrite: slide ${r.slide} ${r.ok ? (r.changed ? TOOLS[tool].done : 'unchanged') : `left as it was — ${r.why}`}`);
+      },
+    }).then(({ answers, results }) => {
+      if (stop.signal.aborted) {
+        enhancing = null;
+        broadcast('enhance', { state: 'done', ok: false, stopped: true, kind: tool });
+        console.log('  rewrite: stopped — nothing written');
+        return;
+      }
+      const cur = readDeck();
+      const { html: next, stale } = applyRewritten(cur, answers);
+      const changed = results.filter((r) => r.changed && !stale.includes(r.slide)).map((r) => r.slide);
+      const failed = results.filter((r) => !r.ok).map(({ slide, why }) => ({ slide, why }));
+      const left = [...failed, ...stale.map((slide) => ({ slide, why: 'edited while the agent thought — kept as edited' }))].sort((a, b) => a.slide - b.slide);
+      let candidate = null;
+      if (next !== cur) {
+        const what = tool === 'custom' ? `text: ${String(instruction).trim().slice(0, 60)}` : TOOLS[tool].what;
+        const h = fixReview.hold({ before: cur, after: next, what, kind: 'text', agent: cmd.name, left });
+        if (h.ok) candidate = { id: h.id, units: h.units.length };
+        else { console.log(`  rewrite: ${h.error} — written as one edit instead`); applyEdit(next, cur); }
+      }
+      enhancing = null;
+      broadcast('enhance', { state: 'done', ok: true, changed, failed, stale, kind: tool, candidate });
+      console.log(`  rewrite: done — ${changed.length} ${TOOLS[tool].done}${failed.length ? `, ${failed.length} left as they were` : ''}${candidate ? ', held for review' : ''}`);
+    }).catch((e) => {
+      enhancing = null;
+      broadcast('enhance', { state: 'done', ok: false, error: oneline(e), kind: tool });
+    });
+    return json(200, { ok: true, of, agent: cmd.name, label: cmd.label, kind: tool });
+  }
+
   // The agent review (cli/agent-review.mjs): the agent reads the deck,
   // read-only, a few slides at a time, against the rules in REVIEW_RULES;
   // every answer is checked before it is kept. Nothing here writes: a finding
@@ -3583,6 +3647,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     'POST /deck/edit/agent/prefer': agentPreferRoute,
     'POST /deck/edit/agent/model': agentModelRoute,
     'POST /deck/edit/enhance': enhanceRoute,
+    'POST /deck/edit/rewrite': rewriteRoute,
     'POST /deck/edit/review': reviewRoute,
     'GET /deck/edit/review': reviewFindingsRoute,
   }));

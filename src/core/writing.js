@@ -23,10 +23,19 @@
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
 
-/** The tools, in the order the card lists them. */
+/**
+ * The tools, in the order the card lists them. The `script` ones rewrite
+ * the speaker notes (cli/enhance.mjs); the `text` ones the slide's own
+ * words, run by run (cli/rewrite.mjs, PRESENTING_WRITING). `asks` marks a
+ * tool that wants a line from the author first.
+ */
 export const WRITING_TOOLS = [
   { id: 'tags', group: 'script', label: '✨ add audio tags', flavor: 'same words, the tags ElevenLabs v4 performs', kind: 'tags' },
   { id: 'spoken', group: 'script', label: '🗣 write it for the ear', flavor: 'terse notes as sentences a person would say', kind: 'spoken' },
+  { id: 'tighten', group: 'text', label: '✂ tighten', flavor: 'shorter, same meaning, same structure', kind: 'tighten' },
+  { id: 'typos', group: 'text', label: '✓ fix typos and grammar', flavor: 'spelling, grammar, punctuation; nothing reworded', kind: 'typos' },
+  { id: 'match', group: 'text', label: '⇄ match the script', flavor: 'the slide agrees with what the notes say', kind: 'match' },
+  { id: 'custom', group: 'text', label: '… custom instruction', flavor: 'one line of yours, e.g. “British spelling”', kind: 'custom', asks: 'what should change on the slide text?' },
 ];
 const GROUPS = { script: 'script — the speaker notes', text: 'slide text — the words on the slide' };
 
@@ -35,9 +44,9 @@ const GROUPS = { script: 'script — the speaker notes', text: 'slide text — t
  * null): `[{ scope, label, flavor }]`. Pure.
  */
 export function scopeRows(n, total, mod) {
-  const rows = [{ scope: 'slide', label: `this slide · ${n}`, flavor: 'its notes' }];
+  const rows = [{ scope: 'slide', label: `this slide · ${n}`, flavor: 'this one' }];
   if (mod) rows.push({ scope: 'module', label: `module “${mod.title}” · ${mod.to - mod.from + 1}`, flavor: `slides ${mod.from}–${mod.to}` });
-  rows.push({ scope: 'all', label: `whole deck · ${total}`, flavor: 'every slide with notes — the agent is asked once per slide' });
+  rows.push({ scope: 'all', label: `whole deck · ${total}`, flavor: 'every slide — the agent is asked once per slide' });
   return rows;
 }
 
@@ -49,6 +58,8 @@ export function scopeRows(n, total, mod) {
 export function createWritingPicker({ root, overlays, toast = () => {}, tools = () => WRITING_TOOLS, where, agent = () => null, run }) {
   let el = null, rows = [], rowEls = [], sel = 0;
   let tool = null;      // the tool picked; null while the tools are listed
+  let instruction = ''; // the author's line, for a tool that asks for one
+  let asking = false;   // the line is being typed
   let before = null;    // what the caller wants done first (the notes box saved)
 
   const node = (tag, cls, text) => {
@@ -62,6 +73,8 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
     el?.remove();
     el = null;
     tool = null;
+    asking = false;
+    instruction = '';
     before = null;
   }
 
@@ -71,8 +84,24 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
     card.replaceChildren();
     rows = [];
     rowEls = [];
-    const head = node('div', 'narr-head', tool ? `${tool.label} — which slides?` : 'writing');
+    const head = node('div', 'narr-head', asking ? `${tool.label} — ${tool.asks}` : tool ? `${tool.label} — which slides?` : 'writing');
     card.append(head);
+    if (asking) {
+      // one line of the author's: ⏎ keeps it and goes on to the slides
+      const box = node('input', 'narr-filter writing-ask');
+      box.type = 'text';
+      box.placeholder = 'e.g. use British spelling · ⏎ next · Esc back';
+      box.value = instruction;
+      box.addEventListener('input', () => { instruction = box.value; });
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (instruction.trim()) { asking = false; sel = 0; render(); } return; }
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); back(); return; }
+        e.stopPropagation();
+      });
+      card.append(box, node('div', 'narr-foot', '⏎ next · Esc back'));
+      box.focus();
+      return;
+    }
     const row = (r, cls = '') => {
       const x = node('div', `narr-row ${cls}`.trim());
       x.setAttribute('role', 'option');
@@ -104,19 +133,21 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
   }
 
   async function pick() {
+    if (asking) return;
     const r = rows[sel];
     if (!r) return;
-    if (!tool) { tool = r; sel = 0; render(); return; }
-    const t = tool, scope = r.scope, first = before;
+    if (!tool) { tool = r; sel = 0; asking = !!r.asks; render(); return; }
+    const t = tool, scope = r.scope, first = before, line = instruction.trim();
     close();
     if (first && (await first()) === false) return;
-    run(t, scope);
+    run(t, scope, { instruction: line });
   }
 
   function back() {
     if (!tool) { close(); return; }
     const was = tool;
     tool = null;
+    asking = false;
     sel = Math.max(0, tools().indexOf(was));
     render();
   }
@@ -132,7 +163,9 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
     const list = tools();
     if (!list.length) { toast('no writing tool here — they need write mode and an agent CLI on the dev machine', 3200); return; }
     before = first;
+    instruction = '';
     tool = id ? list.find((t) => t.id === id) ?? null : null;
+    asking = !!tool?.asks;
     sel = group && !tool ? Math.max(0, list.findIndex((t) => t.group === group)) : 0;
     el = node('div', 'decklight-narr decklight-writing');
     const card = node('div', 'narr-card');
@@ -163,5 +196,5 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
   // first: opened over a docked panel (the notes card), it owns the keys
   overlays.register({ isOpen: () => !!el, close, keydown, modal: true, transient: true, first: true });
 
-  return { open, close, isOpen: () => !!el, state: () => ({ tool: tool?.id ?? null, rows: rows.map((r) => r.label), sel }) };
+  return { open, close, isOpen: () => !!el, state: () => ({ tool: tool?.id ?? null, asking, rows: rows.map((r) => r.label), sel }) };
 }

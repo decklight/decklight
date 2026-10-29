@@ -457,9 +457,9 @@
         // a rewrite held for review (#907): the candidate, and its discard
         if (u.includes('/deck/edit/candidate/discard')) { window.__discarded = JSON.parse(init?.body ?? '{}'); return json({ ok: true, discarded: true }); }
         if (u.includes('/deck/edit/candidate')) return json({ ok: true, ...window.__candidate });
-        if (u.includes('/deck/edit/enhance')) {
+        if (u.includes('/deck/edit/enhance') || u.includes('/deck/edit/rewrite')) {
           const body = JSON.parse(init?.body ?? '{}');
-          return json({ ok: true, of: body.slides === 'all' ? 3 : 1, agent: 'claude', label: 'Claude Code' });
+          return json({ ok: true, of: body.slides === 'all' ? 3 : 1, agent: 'claude', label: 'Claude Code', kind: body.tool ?? body.kind });
         }
       }
       // S opens the notes editor, which needs an edit server behind it
@@ -5007,8 +5007,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // the palette: Writing tools… opens the picker on the tools, in groups
         r.paletteRow = await paletteRun('writing', /Writing tools…/);
         r.picksTheTool = !!document.querySelector(W) && wHead() === 'writing'
-          && JSON.stringify(wRows()) === JSON.stringify(['✨ add audio tags', '🗣 write it for the ear'])
-          && /script — the speaker notes/.test(document.querySelector(`${W} .narr-group`)?.textContent ?? '');
+          && JSON.stringify(wRows()) === JSON.stringify(['✨ add audio tags', '🗣 write it for the ear', '✂ tighten', '✓ fix typos and grammar', '⇄ match the script', '… custom instruction'])
+          && JSON.stringify([...document.querySelectorAll(`${W} .narr-group`)].map((g) => g.textContent)) === JSON.stringify(['script — the speaker notes', 'slide text — the words on the slide']);
         r.footNamesTheAgent = /Claude Code/.test(document.querySelector(`${W} .narr-foot`)?.textContent ?? '');
         await pickRow(/add audio tags/);
         r.thenTheSlides = /add audio tags — which slides\?/.test(wHead())
@@ -5059,6 +5059,30 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle(); await settle();
         r.saysWrote = /wrote 2 slides for the ear — review it before it lands/.test(said());
         press('Escape');
+        await settle();
+        // the slide's own words (PRESENTING_WRITING): a tool's palette row,
+        // this slide, and the run posts the rewrite route with the tool
+        const lastRewrite = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/rewrite')).pop()?.body;
+        r.tightenRow = await paletteRun('tighten', /Tighten the slide text…/);
+        r.tightenOnSlides = /✂ tighten — which slides\?/.test(wHead());
+        await pickRow(/this slide/);
+        r.tightenPosted = JSON.stringify(lastRewrite()?.slides) === '[2]' && lastRewrite()?.tool === 'tighten' && !document.querySelector(W);
+        r.saysTightening = /tightening: slide 2's text/.test(said());
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [2], failed: [], stale: [], kind: 'tighten', candidate: held('c5', 'text: tightened', [unit(2)]) });
+        await settle(); await settle();
+        r.saysTightened = /tightened slide 2 — review it before it lands/.test(said()) && !!review();
+        press('Escape');
+        await settle();
+        // the custom tool asks for a line first, then the slides
+        await paletteRun('instruction', /Rewrite the slide text with an instruction…/);
+        const ask = document.querySelector(`${W} .writing-ask`);
+        r.customAsks = !!ask && /custom instruction — what should change/.test(wHead());
+        if (ask) { ask.value = 'use British spelling'; ask.dispatchEvent(new Event('input', { bubbles: true })); ask.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
+        await settle();
+        r.customThenSlides = /custom instruction — which slides\?/.test(wHead());
+        await pickRow(/whole deck/);
+        r.customPosted = lastRewrite()?.slides === 'all' && lastRewrite()?.tool === 'custom' && lastRewrite()?.instruction === 'use British spelling';
+        window.__es.emit('enhance', { state: 'done', ok: false, stopped: true, kind: 'custom' });
         await settle();
         // the V panel: ✍ Writing… opens the same picker
         press('v');
@@ -5129,7 +5153,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.heldOpensTheReview && r.escDiscardsIt && r.sentAll && r.saysWhatWasLeft
           && r.earRow && r.sentModuleSpoken && r.saysWritingForTheEar && r.saysWrote && r.vPanelOpensIt
           && r.editorButton && r.tooltipNamesTheAgent && r.editorOpensThePicker && r.boxSavedFirst && r.boxAskedForTags
-          && r.reviewOverTheCard && r.cardStays && r.idleWhenUnchanged && r.diffShown && r.resetToSaved && r.menuOpensIt;
+          && r.reviewOverTheCard && r.cardStays && r.idleWhenUnchanged && r.diffShown && r.resetToSaved && r.menuOpensIt
+          && r.tightenRow && r.tightenOnSlides && r.tightenPosted && r.saysTightening && r.saysTightened
+          && r.customAsks && r.customThenSlides && r.customPosted;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -6908,7 +6934,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // right-click ON an element → the full menu
         rightClick(h1);
         r.opensOnElement = !!document.querySelector(M);
-        r.fullMenuRows = JSON.stringify(rowsText())
+        // Writing… sits after Edit content when an agent is on the machine (none here)
+        r.fullMenuRows = JSON.stringify(rowsText().filter((t) => t !== 'Writing…'))
           === JSON.stringify(['Inspect', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Copy style', 'Add text effect ▸', 'Slide ▸']);
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;

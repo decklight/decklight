@@ -1793,6 +1793,7 @@
 .decklight-narr .narr-group:first-of-type { border-top: none; padding-top: 0; }
 /* the Writing picker (writing.js): the tools in their groups, then the scopes */
 .decklight-writing .narr-foot { margin: 10px 12px 4px; font-size: .78em; opacity: .55; }
+.decklight-writing .writing-ask { display: block; width: calc(100% - 24px); margin: 8px 12px 0; padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .15); background: rgba(255, 255, 255, .06); color: inherit; font: inherit; }
 /* the engine bar at the top of the voices view: the one choice that decides
    every voice below it, drawn as a control of its own rather than a line
    among the voices (where it got lost) */

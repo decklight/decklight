@@ -1054,6 +1054,53 @@ test('POST /deck/edit/enhance { kind: "spoken" }: the notes written for the ear,
   assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes it back');
 });
 
+test('POST /deck/edit/rewrite: the slide text, tightened by the agent run by run, HELD for review, then applied in ONE undo', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  // a fake agent: answers the numbered runs back, "Alpha" tightened to "A";
+  // on the slide with "Beta" it answers with markup, which the check refuses
+  writeFakeBin(bin, 'claude', [
+    "const prompt = process.argv[process.argv.indexOf('-p') + 1] ?? '';",
+    "const runs = prompt.split('# Runs\\n\\n')[1] ?? '';",
+    "console.log(runs.includes('Beta') ? runs.replace('Beta', '<b>Beta</b>') : runs.replace('Alpha', 'A'));",
+  ].join('\n'));
+  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
+
+  assert.equal((await post(base, '/deck/edit/rewrite', { slides: 'all', tool: 'nope' })).status, 400, 'an unknown tool is refused');
+  assert.equal((await post(base, '/deck/edit/rewrite', { slides: 'all', tool: 'custom' })).status, 400, 'custom needs an instruction');
+  const started = await (await post(base, '/deck/edit/rewrite', { slides: 'all', tool: 'tighten' })).json();
+  assert.deepEqual({ ok: started.ok, of: started.of, agent: started.agent, kind: started.kind }, { ok: true, of: 2, agent: 'claude', kind: 'tighten' });
+  assert.equal((await post(base, '/deck/edit/rewrite', { slides: 'all', tool: 'tighten' })).status, 409, 'one run at a time');
+
+  let p = null;
+  for (let i = 0; i < 200; i++) {
+    p = await (await fetch(base + '/deck/ping')).json();
+    if (p.candidate?.id) break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  assert.ok(p?.candidate?.id, 'held for review');
+  assert.equal(readFileSync(deck, 'utf8'), DECK, 'nothing written');
+  const c = await (await fetch(`${base}/deck/edit/candidate`)).json();
+  assert.equal(c.what, 'text: tightened');
+  assert.equal(c.kind, 'text');
+  assert.deepEqual(c.units.map((u) => [u.key, u.kind, u.notesOnly ?? false]), [['s1', 'changed', false]], 'the slide text changed, so the slide looks different');
+  assert.deepEqual(c.left.map((l) => l.slide), [2]);
+  assert.match(c.left[0].why, /markup/);
+  const after = await (await fetch(`${base}/deck/edit/candidate/at?id=${c.id}&side=after`)).text();
+  assert.match(after, /<h2>A<\/h2>/);
+
+  const applied = await (await post(base, '/deck/edit/candidate/apply', { id: c.id, take: ['s1'] })).json();
+  assert.equal(applied.ok, true, JSON.stringify(applied));
+  assert.equal(applied.commit.subject, 'text: tightened on slide 1');
+  assert.match(readFileSync(deck, 'utf8'), /<h2>A<\/h2>/);
+  assert.match(readFileSync(deck, 'utf8'), /<h2>Beta<\/h2>/, 'the refused slide is as it was');
+  await post(base, '/deck/edit/undo');
+  assert.equal(readFileSync(deck, 'utf8'), DECK, 'Z takes the apply back');
+});
+
 test('POST /deck/edit/enhance with no agent on the machine is a 400 that says so', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK.replace('<h2>Beta</h2>', '<h2>Beta</h2><aside class="notes"><p>Words.</p></aside>'));

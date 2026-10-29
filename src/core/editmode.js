@@ -1990,6 +1990,7 @@ export function createEditMode({
       rows.push({ label: nested ? `Remove this ${menuTarget.node.tagName.toLowerCase()}` : 'Remove element', run: () => commitRemove() });
       if (nested) rows.push({ label: `Remove the whole ${menuTarget.top.tagName.toLowerCase()}`, run: () => commitRemove(menuTarget, { whole: true }) });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
+      if (editAgents.length) rows.push({ label: 'Writing…', run: () => { closeElementMenu(); openWriting({ group: 'text' }); } });
       rows.push({ label: 'Colors…', run: () => openInspect('colors') });
       rows.push({ label: 'Type…', run: () => openInspect('type') });
       // the format painter: this shape's look onto another (style-clip.js)
@@ -3403,6 +3404,11 @@ export function createEditMode({
   const REWRITES = {
     tags: { doing: 'enhancing', with: ' with ElevenLabs audio tags', drafting: 'drafting audio tags', done: (x) => `enhanced ${x}` },
     spoken: { doing: 'writing for the ear', with: '', drafting: 'rewriting it as spoken sentences', done: (x) => `wrote ${x} for the ear` },
+    // the slide's own text (cli/rewrite.mjs, PRESENTING_WRITING)
+    tighten: { doing: 'tightening', with: '', drafting: 'tightening the slide text', done: (x) => `tightened ${x}`, text: true },
+    typos: { doing: 'fixing typos and grammar', with: '', drafting: 'reading the slide text', done: (x) => `fixed ${x}`, text: true },
+    match: { doing: 'matching the slide text to the script', with: '', drafting: 'reading the notes', done: (x) => `matched ${x} to the script`, text: true },
+    custom: { doing: 'rewriting the slide text', with: '', drafting: 'rewriting the slide text', done: (x) => `rewrote ${x}`, text: true },
   };
   /**
    * The chapter slide `n` is in — `{ title, from, to }` from the deck's
@@ -3424,7 +3430,7 @@ export function createEditMode({
     tools: () => (editAvailable && editAgents.length ? WRITING_TOOLS : []),
     where: () => ({ slide: instance.state.slide, total: instance.state.totalSlides, module: moduleOf(instance.state.slide) }),
     agent: () => { const a = editAgents.find((x) => x.name === preferredAgent) ?? editAgents[0]; return a ? { label: a.label, model: a.model ?? null } : null; },
-    run: (tool, scope) => enhanceScript(scope, { kind: tool.kind }),
+    run: (tool, scope, { instruction = '' } = {}) => enhanceScript(scope, { kind: tool.kind, instruction }),
   });
   /** The picker, from any entry point: the notes editor, the V panel, the palette, the slide's menu. */
   function openWriting(opts = {}) {
@@ -3432,24 +3438,31 @@ export function createEditMode({
     if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
     writing.open(opts);
   }
-  async function enhanceScript(scope = 'slide', { kind = 'tags' } = {}) {
-    if (!editAvailable) { toast(cannot(kind === 'spoken' ? 'rewriting the notes' : 'enhancing the script'), 3200); return; }
-    if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
-    if (enhanceRun) { toast('the agent is already rewriting the script — one run at a time'); return; }
+  /**
+   * A writing tool, run: the notes (`tags`, `spoken` → /deck/edit/enhance) or
+   * the slide's own text (`tighten`, `typos`, `match`, `custom` →
+   * /deck/edit/rewrite), over this slide, its module or the deck. Either way
+   * the answer is held for review (#907); the run itself only reports.
+   */
+  async function enhanceScript(scope = 'slide', { kind = 'tags', instruction = '' } = {}) {
     const k = REWRITES[kind] ?? REWRITES.tags;
+    if (!editAvailable) { toast(cannot(k.text ? 'rewriting the slide text' : kind === 'spoken' ? 'rewriting the notes' : 'enhancing the script'), 3200); return; }
+    if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
+    if (enhanceRun) { toast('the agent is already rewriting — one run at a time'); return; }
     const slide = instance.state.slide;
     const mod = scope === 'module' ? moduleOf(slide) : null;
     if (scope === 'module' && !mod) { toast('this slide is not in a module — the deck marks none before it (data-module)', 4000); return; }
     const slides = scope === 'all' ? 'all'
       : mod ? Array.from({ length: mod.to - mod.from + 1 }, (_, i) => mod.from + i) : [slide];
-    const what = scope === 'all' ? 'every slide\'s script'
-      : mod ? `the “${mod.title}” module (slides ${mod.from}–${mod.to})` : `slide ${slide}'s script`;
+    const noun = k.text ? 'text' : 'script';
+    const what = scope === 'all' ? `every slide's ${noun}`
+      : mod ? `the “${mod.title}” module (slides ${mod.from}–${mod.to})` : `slide ${slide}'s ${noun}`;
     const run = progress(`${k.doing}: ${what}${k.with} — asking the agent… (${STOP_HOW})`);
     enhanceRun = { run, what, kind };
     try {
-      const r = await fetch(editBase + '/deck/edit/enhance', {
+      const r = await fetch(editBase + (k.text ? '/deck/edit/rewrite' : '/deck/edit/enhance'), {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ slides, kind }),
+        body: JSON.stringify(k.text ? { slides, tool: kind, instruction } : { slides, kind }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
