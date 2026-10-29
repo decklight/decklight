@@ -1078,7 +1078,8 @@
         <section style="font-size:0.85em"><h2>Squeezed</h2><p>Short.</p></section>
         <section data-dense-ok><h2>Reference</h2><ul>${li(6)}</ul></section>
         <section><h2>Two clicks, no builds</h2><p>Nothing builds here.</p><aside class="notes"><p>One</p><p>[click]</p><p>Two</p><p>[click]</p><p>Three</p></aside></section>
-        <section><h2>Broken image</h2><img src="no-such-image.png" alt=""></section>`);
+        <section><h2>Broken image</h2><img src="no-such-image.png" alt=""></section>
+        <section data-template="x/module-title"><p data-slot="number">01</p><p data-slot="eyebrow">Module 01</p><h2 data-slot="title">The AI Gap</h2><p data-slot="subtitle">Why systems fall short</p></section>`);
     }
     if (HARNESS_MODE.startsWith('chapters') || HARNESS_MODE === 'enhance' || HARNESS_MODE === 'exportmodule') {
       const secs = document.querySelectorAll('.decklight > section');
@@ -2748,6 +2749,7 @@
         r.splitCountsPerColumn = secs[5].getAttribute('data-dense') === '6 bullets in one column';
         r.shrunkTypeMarked = secs[6].getAttribute('data-dense') === 'type shrunk to 0.85em';
         r.denseOkOptsOut = !secs[7].hasAttribute('data-dense');
+        r.titleCompanionsNotParagraphs = !secs[10].hasAttribute('data-dense');
 
         // the page's own findings, as a list a headless probe can read (the file's join once the panel has asked)
         const found = deck.check();

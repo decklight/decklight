@@ -41,6 +41,9 @@ export const DENSITY = Object.freeze({
 const NOT_PROSE = 'aside, script, style, template, pre, svg, canvas, .chart, .terminal, table, '
   + '.slide-bg, .decklight-hero-logo, h1, h2, h3, h4, h5, h6, .pin-title';
 
+const TITLE_COMPANION = '.subtitle, .pin-subtitle, '
+  + '[data-slot="number"], [data-slot="eyebrow"], [data-slot="subtitle"]';
+
 const words = (text) => (String(text ?? '').match(/[\p{L}\p{N}][\p{L}\p{N}'’.-]*/gu) ?? []).length;
 const outsideProse = (el, top) => {
   for (let n = el; n && n !== top; n = n.parentElement) if (n.matches?.(NOT_PROSE)) return true;
@@ -65,8 +68,9 @@ function measureColumn(col, halves = 1) {
   const paras = all('p').filter((p) => !p.closest('li'));
   return {
     bullets,
-    // the subtitle is the title's second line, not one of the slide's paragraphs
-    paragraphs: paras.filter((p) => !p.matches('.subtitle, .pin-subtitle')).length,
+    // the subtitle is the title's second line, and a template's number and
+    // eyebrow sit with the title too: none is one of the slide's paragraphs
+    paragraphs: paras.filter((p) => !p.matches(TITLE_COMPANION)).length,
     longest: paras.reduce((m, p) => Math.max(m, words(p.textContent)), 0),
     words: Math.ceil(proseWords(col) / halves),
   };
