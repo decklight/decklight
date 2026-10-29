@@ -2293,6 +2293,30 @@
   color: #16181d; background: var(--accent, #6af); border-radius: 10px; padding: 1px 8px;
 }
 .decklight-mic .rec-slides-hint { font-size: 12px; opacity: .5; }
+/* slides whose [click] markers do not match their builds (#929): one row
+   each, the two numbers and the likely cause, then its three ways on */
+.decklight-mic .rec-offstep {
+  margin: 2px 12px 0; border: 1px solid rgba(255, 207, 139, .35); border-radius: 8px;
+  background: rgba(255, 207, 139, .06);
+}
+.decklight-mic .rec-off {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, .06); font-size: 13px;
+}
+.decklight-mic .rec-off:last-child { border-bottom: 0; }
+.decklight-mic .rec-off-t { flex: 1 1 220px; min-width: 0; color: #ffcf8b; }
+.decklight-mic .rec-off.decided .rec-off-t { color: inherit; opacity: .7; }
+.decklight-mic .rec-off-why { opacity: .75; }
+.decklight-mic .rec-off-acts { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.decklight-mic .rec-off-acts button {
+  font: inherit; font-size: 12px; color: inherit; cursor: pointer;
+  padding: 2px 10px; border: 1px solid rgba(255, 255, 255, .2); border-radius: 14px; background: transparent;
+}
+.decklight-mic .rec-off-acts button[data-off-fix] { border-color: var(--accent, #6af); background: color-mix(in srgb, var(--accent, #6af) 16%, transparent); }
+.decklight-mic .rec-off-acts button[data-off-undo] { border: 0; padding: 0 2px; color: var(--accent, #6af); }
+.decklight-mic .rec-off-chose { font-size: 12px; opacity: .7; }
+.decklight-mic .rec-off-hint { font-size: 12px; opacity: .7; }
+.decklight-mic .rec-where-off { color: #ffcf8b; }
 /* HOW: one line that says the choices, and the choices behind it */
 .decklight-mic .rec-how {
   display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;

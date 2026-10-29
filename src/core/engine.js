@@ -14,7 +14,8 @@ import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
 import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown } from './overlay.js';
 import { createThemes } from './themes.js';
-import { createNarration, narrationTracks } from './narration.js';
+import { createNarration, narrationTracks, slideClickMatch } from './narration.js';
+import { stampClickMismatch } from '../../tools/click-match.mjs';
 import { buildPrintPages } from './print.js';
 import { createHud } from './hud.js';
 import { setupMedia } from './media.js';
@@ -125,6 +126,18 @@ export function registerBuildProvider(el, provider) {
 function outOfFlow(el) {
   const pos = getComputedStyle(el).position;
   return pos === 'absolute' || pos === 'fixed';
+}
+
+/**
+ * For `decklight check`, which reads the print view's DOM the way it reads
+ * `data-overflow`: `data-click-mismatch="<markers> <clicks> <cause>"` on a
+ * slide whose [click] markers and build clicks disagree, counted by the
+ * engine, so a provider's steps are in it (#929).
+ */
+function markClickMismatch(section, record) {
+  const m = slideClickMatch(section, record);
+  if (m) section.setAttribute('data-click-mismatch', stampClickMismatch(m));
+  else section.removeAttribute('data-click-mismatch');
 }
 
 function leadingHeading(section) {
@@ -1731,6 +1744,7 @@ export function init(userConfig = {}) {
       markDensity(this._sections);           // after split — it counts per column (SLIDE_DENSITY)
       if (printMode) markConceptHints(root, stage);   // for decklight check: labels that recur in two colours
       this._records = this._sections.map((s) => scanSlide(s));
+      if (printMode) this._sections.forEach((s, i) => markClickMismatch(s, this._records[i]));
       this.state.totalSlides = this._sections.length;
       this.state.slide = Math.min(this.state.slide, this.state.totalSlides || 1);
       const rec = this._records[this.state.slide - 1];
@@ -1746,7 +1760,11 @@ export function init(userConfig = {}) {
       const idx = this._sections.indexOf(section);
       if (idx === -1) return;
       this._records[idx] = scanSlide(section);
-      if (printMode) { applyBuildState(this._records[idx], this._records[idx].groups.length); return; }
+      if (printMode) {
+        markClickMismatch(section, this._records[idx]);   // a provider registered late: its steps count now
+        applyBuildState(this._records[idx], this._records[idx].groups.length);
+        return;
+      }
       if (idx === this.state.slide - 1) {
         // a late-registering provider grew this slide's step count: honor the
         // originally requested (deep-linked) step, then retire the request
@@ -2967,6 +2985,8 @@ export function init(userConfig = {}) {
     editReady: () => editmode?.settled?.() ?? Promise.resolve(),
     // V → Enhance the script…: write mode only, like every row that writes the deck
     enhanceScript: () => (editmode?.available() ? editmode.enhanceScript : null),
+    // the recorder's Fix the notes: the notes card, write mode only (#929)
+    editNotes: () => (editmode?.available() ? editmode.notesFor : null),
     // the data-module chapter a slide is in, for the rewrite scopes
     moduleOf: (n) => editmode?.moduleOf?.(n) ?? null,
   });

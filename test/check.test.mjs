@@ -117,9 +117,9 @@ test('⟨CLICK⟩ segments and build steps: agreement is silent, disagreement na
   const found = only(staticFindings(drift, everything), 'clicks-vs-builds');
   assert.equal(found.length, 1);
   assert.equal(found[0].level, 'warn', 'a count that disagrees is worth saying, not worth failing on');
-  assert.match(found[0].message, /3 \[click\] segments but 4 build clicks/);
-  assert.match(found[0].message, /4 clicks take 4 \[click\] markers in the notes \(5 segments: one before the first click, one per click\), and this slide has 2/,
-    'it says what the count should be, and why');
+  assert.match(found[0].message, /^2 \[click\] markers, 4 build clicks: the notes want 4 \[click\]s, one per build click/,
+    'the two numbers by the names the author knows them by, then what the count should be (#929)');
+  assert.doesNotMatch(found[0].message, /segment/, 'segments are the runtime\'s word, and read as markers');
 
   // notes without a single ⟨CLICK⟩ make no claim about the builds at all
   const quiet = deck(`  <section>
@@ -185,7 +185,7 @@ test('steps tied by data-build-order are one click — the count the presenter w
   // four segments still warn, and the number printed is the click count, with the tie explained
   const found = only(staticFindings(tied('<p>a</p><p>⟨CLICK⟩</p><p>b</p><p>⟨CLICK⟩</p><p>c</p><p>⟨CLICK⟩</p><p>d</p>'), everything), 'clicks-vs-builds');
   assert.equal(found.length, 1);
-  assert.match(found[0].message, /4 \[click\] segments but 2 build clicks \(3 build steps, tied by data-build-order\)/);
+  assert.match(found[0].message, /^3 \[click\] markers, 2 build clicks \(3 build steps, tied by data-build-order\)/);
   // auto steps never merge, even at equal keys (computeGroups' own rule)
   assert.equal(buildClicks(parseTree('<ul data-build><li>a</li><li>b</li></ul><p data-build>c</p>')), 3);
   // explicit keys reorder as well as tie: a container child and a leaf sharing one key are one click
@@ -343,7 +343,7 @@ test('findings print grouped by slide, each line saying error or warn, with a co
   ];
   const lines = formatFindings(findings, { slides: 2 });
   assert.equal(lines[0], 'slide 1  "B"', 'the heading names the slide the way the finder does');
-  assert.match(lines[1], /^ {2}warn {2} 2 \[click\] segments/);
+  assert.match(lines[1], /^ {2}warn {2} 1 \[click\] marker, 3 build clicks/);
   assert.ok(lines.some((l) => l === 'slide 2  "B"'));
   assert.ok(lines.some((l) => /^ {2}error {2}content is clipped/.test(l)));
   assert.equal(lines.at(-1), '1 error, 1 warning');
@@ -452,4 +452,84 @@ test('an SVG diagram with no build is a hint; a built one, a drawn one, a chart,
   assert.ok(found.every((f) => f.level === 'hint'));
   assert.match(found[1].message, /^2 SVG diagrams with no build/, 'one hint per slide, counting its still diagrams');
   assert.match(found[0].message, /data-static-ok/);
+});
+
+test('the likely cause of a [click] count that is out of step is named: an empty build group, a lead [click] (#929)', () => {
+  // slide 7 of the deck that prompted this: a graphic removed, its <g> left behind
+  const emptyGroup = deck(`  <section>
+    <h2>Agents</h2>
+    <svg viewBox="0 0 10 10"><g data-build data-build-order="1"><rect width="1" height="1"/></g><g data-build data-build-order="2"></g></svg>
+    <aside class="notes">Arrive. [click] The box.</aside>
+  </section>`);
+  const [seven] = only(staticFindings(emptyGroup, everything), 'clicks-vs-builds');
+  assert.match(seven.message, /^1 \[click\] marker, 2 build clicks/);
+  assert.match(seven.message, /likely an empty build group/);
+
+  // slide 56: notes that open on a [click], so the first beat says nothing
+  const lead = deck(`  <section>
+    <h2>Steps</h2>
+    <ul data-build><li>a</li><li>b</li></ul>
+    <aside class="notes">[click] A. [click] B. [click] And then.</aside>
+  </section>`);
+  const [fiftySix] = only(staticFindings(lead, everything), 'clicks-vs-builds');
+  assert.match(fiftySix.message, /^3 \[click\] markers, 2 build clicks/);
+  assert.match(fiftySix.message, /likely a \[click\] with nothing before it/);
+
+  // a [click] waiting on a slide with no builds at all is a mismatch too
+  const none = deck(`  <section>
+    <h2>Quote</h2>
+    <blockquote>Said once.</blockquote>
+    <aside class="notes">One. [click] Two.</aside>
+  </section>`);
+  const [quote] = only(staticFindings(none, everything), 'clicks-vs-builds');
+  assert.match(quote.message, /^1 \[click\] marker, 0 build clicks: there is no build for a \[click\] to reveal/);
+
+  // and a title with neither says nothing
+  const title = deck(`  <section>
+    <h1>Title</h1>
+    <aside class="notes">Welcome.</aside>
+  </section>`);
+  assert.deepEqual(only(staticFindings(title, everything), 'clicks-vs-builds'), []);
+});
+
+test('the render half reports the [click] count the engine stamped, providers included (#929)', () => {
+  const found = renderFindings('<section><h2>Fine</h2></section>'
+    + '<section data-click-mismatch="2 3 empty-build"><h2>Code</h2><pre data-lines="1|2|3"></pre></section>', { slides: 2 });
+  const clicks = found.filter((f) => f.rule === 'clicks-vs-builds');
+  assert.equal(clicks.length, 1);
+  assert.equal(clicks[0].slide, 2);
+  assert.equal(clicks[0].level, 'warn');
+  assert.match(clicks[0].message, /^2 \[click\] markers, 3 build clicks.*likely an empty build group/);
+  assert.deepEqual(renderFindings('<section data-click-mismatch="3 3"></section>').filter((f) => f.rule === 'clicks-vs-builds'), [],
+    'a stamp that agrees with itself is no finding');
+});
+
+test('in Chrome, the [click] count is the browser\'s: a provider counts, and the file\'s estimate is replaced (#929)', async (t) => {
+  const { mkdtempSync, writeFileSync, existsSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join, resolve } = await import('node:path');
+  const { findChrome } = await import('../tools/chrome.mjs');
+  const dist = resolve(import.meta.dirname, '..', 'dist');
+  if (!findChrome() || !existsSync(join(dist, 'decklight.js'))) { t.skip('needs Chrome and a built dist/'); return; }
+  const dir = mkdtempSync(join(tmpdir(), 'dl-clicks-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'deck.html');
+  writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="${join(dist, 'decklight.css')}"></head><body><div class="decklight">
+  <section><h1>Title</h1><aside class="notes">Welcome.</aside></section>
+  <section><h2>Forty-three</h2><ul data-build><li>a</li><li>b</li><li>c</li></ul>
+    <aside class="notes">Intro. [click] A. [click] B.</aside></section>
+  <section><h2>Code</h2><pre data-lines="1|2|3"><code>one
+two
+three</code></pre>
+    <aside class="notes">Code. [click] Line two.</aside></section>
+</div><script src="${join(dist, 'decklight.js')}"></script><script>Decklight.init({});</script></body></html>`);
+  const json = async (args) => JSON.parse((await run([file, '--json', ...args])).out)
+    .filter((f) => f.rule === 'clicks-vs-builds').map((f) => `${f.slide}: ${f.message.split(':')[0]}`);
+  const rendered = await json([]);
+  assert.equal(rendered.length, 2, `one finding a slide, not the file's and the browser's both: ${JSON.stringify(rendered)}`);
+  assert.equal(rendered[0], '2: 2 [click] markers, 3 build clicks');
+  assert.match(rendered[1], /^3: 1 \[click\] marker, \d+ build clicks$/, 'code stepping counted by the runtime');
+  assert.deepEqual(await json(['--no-render']), ['2: 2 [click] markers, 3 build clicks'],
+    'from the file alone, a provider\'s steps cannot be counted, so that slide is left out');
 });

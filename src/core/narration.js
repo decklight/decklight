@@ -29,6 +29,7 @@ import {
   manifestSegmentUrl, manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
 } from './voicetrack.js';
 import { UNDO_CHORD } from './undo-chord.js';
+import { clickMismatch, clickCounts, clickCountsShort, clickCause } from '../../tools/click-match.mjs';
 
 /**
  * Should the "this deck has a voice-over" pill show on this load?
@@ -454,6 +455,32 @@ export function notesSegsOf(aside) {
   return segs;
 }
 
+// What visible content is, for a build step: words, or anything that paints.
+const PAINTS = 'img, picture, video, canvas, iframe, object, embed, '
+  + 'path, rect, circle, ellipse, line, polyline, polygon, text, image, use, foreignObject';
+const paintsNothing = (el) => !el.textContent.trim() && !el.matches(PAINTS) && !el.querySelector(PAINTS);
+
+/**
+ * Do this slide's [click] markers match its build clicks, counted from the
+ * live deck: `{ markers, clicks, cause }` when they disagree, else null
+ * (tools/click-match.mjs has the rule and the sentence, #929).
+ *
+ * The clicks are the engine's own `record.groups`, so a provider's steps
+ * (code stepping, a terminal, a chart, a staged stroke) count as they will be
+ * presented, which no reading of the file can do. The likely cause is named
+ * when it is one of the two that occur: a group whose every step paints
+ * nothing, or a marker with nothing said before it.
+ */
+export function slideClickMatch(sec, record) {
+  const segs = notesSegsOf(sec?.querySelector(':scope > aside.notes'));
+  if (!segs.some(hasWords)) return null;
+  const groups = record?.groups ?? [];
+  const steps = record?.steps ?? [];
+  const empty = groups.some((g) => g.length && g.every((k) => steps[k]?.kind === 'dom' && steps[k].el && paintsNothing(steps[k].el)));
+  const lead = segs.length > 1 && !hasWords(segs[0]);
+  return clickMismatch({ markers: segs.length - 1, clicks: groups.length, cause: empty ? 'empty-build' : lead ? 'lead-click' : null });
+}
+
 /**
  * A notes element's text with every marker in its canonical form — what
  * `textContent` would say, if `textContent` could see a marker ELEMENT.
@@ -602,6 +629,7 @@ export function createNarration({
   openedMidTalk = false, rangePicker = null, chapters = () => [],
   syncSoundBtn, updateDebugState, downloadFromUrl, editBase = () => null,
   editReady = () => Promise.resolve(), enhanceScript = () => null, moduleOf = () => null,
+  editNotes = () => null,
 }) {
   // estimated $ across live-bridge calls (the x-tts-cost response header);
   // the D panel reads it back through status()
@@ -4493,11 +4521,112 @@ export function createNarration({
   let micTracks = [];         // the folders beside the deck, from the edit server
   let micProbed = false;      // …once the server answered (or there is none)
   let micPreview = null;      // the microphone check before Start
+  let micDecide = new Map();  // an out-of-step slide's choice on this card: 'skip' or 'anyway' (#929)
 
-  /** The slides this recorder walks: slidesWithNotes(), narrowed by the "only…" scope. */
-  function micSlides() {
+  /** The slides in scope: slidesWithNotes(), narrowed by the "only…" scope. */
+  function micScoped() {
     const list = slidesWithNotes();
     return micOnly ? list.filter((sl) => micOnly.has(sl)) : list;
+  }
+  /** The slides this recorder walks: the scope, less the out-of-step slides skipped on the card. */
+  const micSlides = () => micScoped().filter((sl) => micDecide.get(sl) !== 'skip');
+  /** This slide's [click] markers against its build clicks, by the live count: a mismatch, or null. */
+  const micMismatch = (sl) => slideClickMatch(instance._sections?.[sl - 1], instance._records?.[sl - 1]);
+  /**
+   * The out-of-step slides this take would record, decided or not: from the
+   * start slide on, or the start slide alone when the take ends there. Each
+   * is listed on the card with the two numbers and its three ways on (#929).
+   */
+  function micOffStep() {
+    const startSl = micList[micFrom.s] ?? 0;
+    const endsThere = micEndFor(micFrom) != null;
+    return micScoped().filter((sl) => (endsThere ? sl === startSl : sl >= startSl))
+      .map((sl) => ({ sl, m: micMismatch(sl) })).filter((x) => x.m);
+  }
+  /** …and those with no choice made yet: while there is one, nothing starts. */
+  const micUndecided = () => micOffStep().filter((x) => !micDecide.has(x.sl));
+  /**
+   * The Out of step block: each slide whose [click] markers do not match its
+   * build clicks, with the likely cause, and Fix the notes (the notes card on
+   * that slide, write mode only), Skip it (the rest is recorded) or Record
+   * anyway (a choice the slide's row keeps saying).
+   */
+  function offStepBlock() {
+    const off = micOffStep();
+    if (!off.length) return '';
+    const fix = editNotes();
+    const btn = (k, sl, label) => `<button type="button" tabindex="-1" data-off-${k}="${sl}">${label}</button>`;
+    const rows = off.map(({ sl, m }) => {
+      const chose = micDecide.get(sl);
+      const cause = clickCause(m);
+      const acts = chose
+        ? `<span class="rec-off-chose">${chose === 'skip' ? 'skipped' : 'recording anyway'}</span>${btn('undo', sl, 'change')}`
+        : `${fix ? btn('fix', sl, 'Fix the notes') : ''}${btn('skip', sl, 'Skip it')}${btn('anyway', sl, 'Record anyway')}`;
+      return `<div class="rec-off${chose ? ' decided' : ''}" data-off="${sl}"><span class="rec-off-t">slide ${sl}: ${escapeHtml(clickCounts(m))}`
+        + `${cause ? `<span class="rec-off-why"> · likely ${escapeHtml(cause)}</span>` : ''}</span><span class="rec-off-acts">${acts}</span></div>`;
+    }).join('');
+    const left = off.filter((x) => !micDecide.has(x.sl)).length;
+    const why = left
+      ? `Recorded as written, ${left === 1 ? 'this slide plays' : 'these slides play'} out of step with ${left === 1 ? 'its' : 'their'} builds, and the video shows ${left === 1 ? 'it' : 'each'} as one fully built still.`
+      : '';
+    const noFix = fix ? '' : ' Fixing the notes needs write mode: open the deck with <code>decklight &lt;deck&gt;</code>.';
+    return `<div class="rec-sect">Out of step</div>
+      <div class="rec-offstep" role="group" aria-label="slides whose [click] markers do not match their builds">${rows}</div>
+      ${why || noFix ? `<div class="rec-line rec-off-hint">${why}${left ? noFix : ''}</div>` : ''}`;
+  }
+  function wireOffStep(card) {
+    card.querySelectorAll('.rec-offstep button').forEach((b) => {
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => {
+        const { offFix, offSkip, offAnyway, offUndo } = b.dataset;
+        if (offFix) { micFixNotes(Number(offFix)); return; }
+        if (offSkip) micDecide.set(Number(offSkip), 'skip');
+        else if (offAnyway) micDecide.set(Number(offAnyway), 'anyway');
+        else if (offUndo) micDecide.delete(Number(offUndo));
+        repaintIntro();
+      });
+    });
+  }
+  // Fix the notes is a round trip: the recorder closes, the notes card opens
+  // on the slide, and the recorder comes back on the same scope and choices
+  // when the card closes. A save reloads the deck, so the way back is kept
+  // for the tab (and read again below, once the page has loaded).
+  const MIC_RESUME_KEY = 'decklight-record-resume:' + location.pathname;
+  function micFixNotes(sl) {
+    const notes = editNotes();
+    if (!notes) return;
+    const back = {
+      range: recRange, only: micOnly ? [...micOnly] : null, decide: [...micDecide],
+      dir: micTarget?.why === 'asked' ? micTarget.dir : null, label: micTarget?.label ?? null, t: Date.now(),
+    };
+    try { sessionStorage.setItem(MIC_RESUME_KEY, JSON.stringify(back)); } catch { /* no storage: back without a reload only */ }
+    closeMicRecorder();
+    notes.open(sl);
+    notes.onClose(() => micResume(back));
+  }
+  function micResume(fallback = null) {
+    let back = fallback;
+    try {
+      back = JSON.parse(sessionStorage.getItem(MIC_RESUME_KEY) ?? 'null') ?? fallback;
+      sessionStorage.removeItem(MIC_RESUME_KEY);
+    } catch { /* no storage */ }
+    // half an hour is a fix; anything older is a different sitting
+    if (!back || Date.now() - back.t > 30 * 60000 || micEl) return;
+    recRange = back.range ?? null;
+    openMicRecorder({ dir: back.dir, label: back.label, only: back.only, decide: back.decide });
+  }
+  // deferred: editmode is built after this module, so it cannot be asked yet
+  if (!printMode) {
+    setTimeout(() => editReady().then(() => setTimeout(() => {
+      let pending = false;
+      try { pending = !!sessionStorage.getItem(MIC_RESUME_KEY); } catch { /* no storage */ }
+      if (!pending) return;
+      const notes = editNotes();
+      if (!notes) { try { sessionStorage.removeItem(MIC_RESUME_KEY); } catch { /* no storage */ } return; }
+      // the notes card the save reloaded is open again: the recorder waits for it
+      if (notes.isOpen()) notes.onClose(() => micResume());
+      else micResume();
+    }, 0)));
   }
   /** The track already in the folder the take goes into, if any. */
   const micTrack = () => micTarget?.clash ?? null;
@@ -4628,7 +4757,11 @@ export function createNarration({
       const plan = notes ? recordPlan(notesSegs(sl), buildSteps(sl)) : [];
       const builds = buildSteps(sl);
       let status = 'not recorded', tone = '';
+      const off = notes ? micMismatch(sl) : null;
       if (!notes) [status, tone] = ['no notes · skipped', 'dim'];
+      else if (off && micDecide.get(sl) === 'skip') [status, tone] = ['skipped · out of step', 'dim'];
+      else if (off && micDecide.get(sl) === 'anyway') [status, tone] = [`recording anyway · ${clickCountsShort(off)}`, 'warn'];
+      else if (off) [status, tone] = [`out of step · ${clickCountsShort(off)}`, 'warn'];
       else if (drift.has(sl)) [status, tone] = [drift.get(sl).why === 'clicks' ? '[click] moved since recorded' : 'notes changed since recorded', 'warn'];
       else if (plan.length === 1 && builds > 0) [status, tone] = [`${builds} build${builds === 1 ? '' : 's'}, no [click] in the notes`, 'warn'];
       else if (have.has(sl)) [status, tone] = ['recorded', 'ok'];
@@ -4637,7 +4770,7 @@ export function createNarration({
       rows += `<button type="button" tabindex="-1" data-slide="${sl}" class="rec-slide${isStart ? ' on' : ''}${can ? '' : ' off'}"${can ? '' : ' disabled'}>`
         + `<span class="rec-slide-n">${sl}</span><span class="rec-slide-t">${escapeHtml(title)}</span>`
         + `<span class="rec-slide-b">${notes ? `${plan.length} beat${plan.length === 1 ? '' : 's'}` : ''}</span>`
-        + `<span class="rec-slide-s${tone ? ` ${tone}` : ''}">${escapeHtml(status)}</span>`
+        + `<span class="rec-slide-s${tone ? ` ${tone}` : ''}"${off ? ` title="${escapeHtml(clickCounts(off))}"` : ''}>${escapeHtml(status)}</span>`
         + `${isStart ? `<span class="rec-pill">${pill}</span>` : ''}</button>`;
     }
     return `<div class="rec-slides" role="group" aria-label="slides">${rows}</div>`;
@@ -4944,7 +5077,8 @@ export function createNarration({
       const { range } = data;
       const bad = beats === 0 ? null : fromProblem();
       const warn = bad ?? data.warn;
-      const canStart = beats > 0 && !bad;
+      const undecided = micUndecided().length;
+      const canStart = beats > 0 && !bad && !undecided;
       const startSl = micList[micFrom.s];
       const startLabel = `Start at slide ${startSl}${micFrom.i > 0 ? ` · beat ${micFrom.i + 1}` : ''}`;
       card.innerHTML = `<div class="narr-head">${micHead}</div>
@@ -4956,8 +5090,9 @@ export function createNarration({
         <div class="rec-line rec-estimate">${beats === 0
     ? `Nothing to record${range ? ` in ${rangeLabel(range)}` : ''} — no slide there has notes to read.`
     : micEstimate() + (range ? ` <strong>(${escapeHtml(rangeLabel(range))} only — everything else is left alone)</strong>` : '')}</div>
+        ${offStepBlock()}
         ${slideRows()}
-        ${canStart ? fromRow() : ''}
+        ${beats > 0 && !bad ? fromRow() : ''}
         <div class="rec-line rec-slides-hint">Click a slide to start there: the slides before it keep their recording. Slides without notes are skipped.</div>
         <div class="rec-sect">How</div>
         ${howRow()}
@@ -4968,7 +5103,8 @@ export function createNarration({
         ${beats === 0 ? '' : phoneRow()}
         ${warn ? `<div class="rec-line rec-warn">${warn}</div>` : ''}
         <div class="rec-foot">${canStart ? `<button type="button" class="narr-row narr-sel rec-start">${escapeHtml(startLabel)} <span aria-hidden="true">→</span></button>` : ''}
-          <span class="rec-hint">${canStart ? 'Enter starts · Esc closes' : 'Esc to close'}</span></div>`;
+          <span class="rec-hint">${canStart ? 'Enter starts · Esc closes'
+    : undecided ? `decide the ${undecided === 1 ? 'slide' : `${undecided} slides`} out of step above to start · Esc closes` : 'Esc to close'}</span></div>`;
       wireFolderRow(card, (t) => {
         // the folder typed is the folder listed: its slides, its drift
         micTarget = { ...t, clash: micTracks.find((x) => x.dir === t.dir) ?? null, why: 'asked' };
@@ -4976,6 +5112,7 @@ export function createNarration({
         if (rows) { rows.outerHTML = slideRows(); wireSlides(card); }
       });
       wireScope(card);
+      wireOffStep(card);
       wireSlides(card);
       wireHow(card);
       wireMicOpts(card);
@@ -4988,7 +5125,7 @@ export function createNarration({
       return;
     }
     if (view === 'capture') {
-      const { sl, nth, slides, beat, i, of, note, ahead = [], past = [], cuts = [], bySlide } = data;
+      const { sl, nth, slides, beat, i, of, note, ahead = [], past = [], cuts = [], bySlide, offStep = null } = data;
       const first = data.first ?? 0;
       micCanEdit = !!data.canEdit;
       // The card is a teleprompter: the words to read are the largest thing on
@@ -5024,7 +5161,8 @@ export function createNarration({
       ].join('');
       card.innerHTML = `<div class="rec-strip">
           <div class="rec-status"></div>
-          <div class="rec-where">slide ${sl} · beat ${i + 1} of ${of}</div>
+          <div class="rec-where">slide ${sl} · beat ${i + 1} of ${of}${offStep
+  ? `<span class="rec-where-off" title="recorded anyway: the take plays out of step with the builds"> · out of step: ${escapeHtml(offStep)}</span>` : ''}</div>
           ${micCam?.stream ? '<div class="rec-cam-slot rec-cam-mini" title="you, as the camera films you"></div>' : ''}
           <div class="rec-meter"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5" stroke="currentColor" stroke-width="1.4" fill="none"></rect><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg>${micBar(0)}</div>
         </div>
@@ -5208,6 +5346,7 @@ export function createNarration({
   }
 
   async function startMicRecording() {
+    if (micUndecided().length) return;   // the card says which, and what to do about each
     const run = ++micRun;
     const list = micSlides();
     await editReady();          // see startRecording — never sampled early
@@ -5332,8 +5471,11 @@ export function createNarration({
         ? `this slide has ${buildSteps(sl)} build${buildSteps(sl) === 1 ? '' : 's'} but no [click] in its notes`
           + ' — one take for the whole slide; add [click] between the beats to pace them'
         : null;
-      // …and the done card's shorter word for it, beside the slide's row
-      const noteShort = note ? `${buildSteps(sl)} build${buildSteps(sl) === 1 ? '' : 's'}, no [click]: one take, builds not paced` : null;
+      // …and the done card's shorter word for it, beside the slide's row; a
+      // slide recorded anyway out of step says so there too (#929)
+      const off = micMismatch(sl);
+      const noteShort = off ? `recorded anyway · ${clickCounts(off)}`
+        : note ? `${buildSteps(sl)} build${buildSteps(sl) === 1 ? '' : 's'}, no [click]: one take, builds not paced` : null;
       const takes = [];
       const cuts = [];           // when → cut each beat of the take, for the card
       let back = false;
@@ -5348,7 +5490,7 @@ export function createNarration({
         const beat = plan[i];
         instance.goto(sl, beat.step);
         renderMicCard('capture', {
-          sl, nth: s + 1, slides: list.length, beat, i, of: plan.length, note, first,
+          sl, nth: s + 1, slides: list.length, beat, i, of: plan.length, note, first, offStep: off ? clickCounts(off) : null,
           bySlide, ahead: plan.slice(i + 1, last + 1), past: plan.slice(first, i), cuts, canEdit: !!dir,
         });
         // per slide, only the take's first beat is counted in: the ones after
@@ -5503,7 +5645,7 @@ export function createNarration({
    * rather than the one targetFor would propose. `only`: the slides to walk
    * — a card's "re-record" opens on exactly the slides that drifted.
    */
-  function openMicRecorder({ dir = null, label = null, only = null } = {}) {
+  function openMicRecorder({ dir = null, label = null, only = null, decide = null } = {}) {
     if (micEl) return;
     micHead = only ? 're-record my voice' : 'record my voice';
     micEl = document.createElement('div');
@@ -5515,6 +5657,7 @@ export function createNarration({
     micTarget = null;
     micTracks = [];
     micOnly = only ? new Set(only) : null;
+    micDecide = new Map(decide ?? []);
     micProbed = false;
     micHowOpen = false;
     micList = [];
@@ -5592,6 +5735,8 @@ export function createNarration({
       else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && micView === 'intro' && micEl?.querySelector('[data-from]')) {
         (e.shiftKey ? moveTo : moveFrom)(e.key === 'ArrowLeft' ? -1 : 1);
       } else if (e.key === 'Enter') {
+        // an out-of-step slide still undecided: Enter neither starts nor closes
+        if (micView === 'intro' && !micUnavailable() && micUndecided().length) return true;
         if (micView === 'intro' && !micUnavailable() && micEl?.querySelector('.narr-row')) startMicRecording();
         else if (pendingUseTrack(micEl)) pendingUseTrack(micEl).click();
         else if (micView !== 'saving') closeMicRecorder();

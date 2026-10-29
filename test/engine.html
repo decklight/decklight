@@ -2747,7 +2747,7 @@
         const at = (n) => found.filter((f) => f.slide === n).map((f) => f.rule).join(',');
         r.checkFindsEach = at(5) === 'dense' && at(6) === 'dense' && at(7) === 'dense' && at(8) === ''
           && at(9) === 'clicks-vs-builds' && at(10) === 'missing-media' && [1, 2, 3, 4].every((n) => at(n) === '');
-        r.clicksSaysTheCounts = /2 ⟨CLICK⟩s in the notes for 0 build steps/.test(found.find((f) => f.slide === 9)?.message ?? '');
+        r.clicksSaysTheCounts = /^2 \[click\] markers, 0 build clicks: there is no build for a \[click\] to reveal/.test(found.find((f) => f.slide === 9)?.message ?? '');
         r.missingNamesTheFile = /no-such-image\.png/.test(found.find((f) => f.slide === 10)?.message ?? '');
         r.levels = found.find((f) => f.rule === 'missing-media')?.level === 'error' && found.find((f) => f.rule === 'dense')?.level === 'warn';
 
@@ -2780,7 +2780,7 @@
         r.deckRowsFirst = rows().slice(0, 3).every((x) => x.classList.contains('dc-deck') && x.querySelector('.dc-where')?.textContent === '—' && x.querySelector('.dc-title')?.textContent === 'the deck')
           && rows().slice(0, 3).map((x) => x.dataset.rule).join(',') === 'ds-behind,theme-off-brand,unaccounted-script';
         r.fileDuplicateDropped = rows().filter((x) => x.dataset.rule === 'clicks-vs-builds').length === 1
-          && /⟨CLICK⟩s in the notes/.test(rows().find((x) => x.dataset.rule === 'clicks-vs-builds')?.querySelector('.dc-msg')?.textContent ?? '');
+          && /\[click\] markers, 0 build clicks/.test(rows().find((x) => x.dataset.rule === 'clicks-vs-builds')?.querySelector('.dc-msg')?.textContent ?? '');
         r.fileOnlyKept = rows().some((x) => x.dataset.rule === 'missing-asset' && x.querySelector('.dc-where')?.textContent === '10');
         r.panelHeadCounts = document.querySelector(`${Q} .dc-heading`)?.textContent === 'check · 10 issues on 6 slides and the deck · 2 errors · 3 with a fix';
         // every row with a fix says what it will do; one without says so

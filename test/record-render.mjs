@@ -192,6 +192,21 @@ const DECK = `<!doctype html>
       r.autoOpened = !!(await until(() => card()));
       // the beat count is read off the notes before a single sample is captured
       r.introLine = card()?.querySelector('.rec-line')?.textContent ?? '';
+      // ?offstep (#929): slide 2's notes carry a [click] it has no build for.
+      // The card says so before a take, Fix the notes goes to that slide's
+      // notes and comes back when they close, and Record anyway lets it start
+      if (params.has('offstep')) {
+        const off = await until(() => card()?.querySelector('.rec-offstep'), 5000);
+        r.offListed = off?.textContent.replace(/\\s+/g, ' ').trim() ?? null;
+        r.offBlocked = !card()?.querySelector('.rec-start');
+        card()?.querySelector('[data-off-fix="2"]')?.click();
+        const notes = await until(() => document.querySelector('.decklight-notes textarea.edit-notes'), 5000);
+        r.fixOpenedNotes = !!notes && deck.state.slide === 2 && !card();
+        notes?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        r.fixCameBack = !!(await until(() => card()?.querySelector('.rec-offstep'), 5000));
+        card()?.querySelector('[data-off-anyway="2"]')?.click();
+        r.offStarts = !!(await until(() => card()?.querySelector('.rec-start'), 2000));
+      }
       // the choices sit under HOW, behind one line: open it, as a person
       // changing them would (the card keeps it open through its re-renders)
       (await until(() => card()?.querySelector('.rec-how'), 5000))?.click();
@@ -258,6 +273,8 @@ const DECK = `<!doctype html>
           // the build the beat is filmed at — the claim that → both ends a file
           // AND reveals the next build has to be visible from outside
           r.steps.push(deck.state.slide + '.' + deck.state.step);
+          // the header's out-of-step note, on a slide recorded anyway (#929)
+          (r.whereOff ??= []).push(document.querySelector('.decklight-mic .rec-where-off')?.textContent.trim() ?? null);
           // every take is counted in, from the count-in asked for, and nothing
           // is captured while it counts: the first number seen, or null for none
           r.counted.push(phase() === 'countdown' ? ((status()?.textContent ?? '').match(/\\d/)?.[0] ?? '?') : null);
@@ -782,6 +799,22 @@ check('edit', edited.editBox === 'Beat two.'
   && JSON.parse(readFileSync(path.join(tmp, 'edited', 'manifest.json'), 'utf8')).slides[0]?.beats?.[1] === 'Beat two, and then some.',
 `box held "${edited.editBox}" · read ${edited.beats.join(' | ')} at ${edited.steps.join(' ')}`
   + ` · counted ${(edited.counted ?? []).map((c) => c ?? '·').join('')} · notes on disk: ${slide1Notes.replace(/\s+/g, ' ').trim()}`);
+
+// ── #929: a slide out of step, caught on the plan card ───────────────────
+// Slide 2's one breath gets a [click] it has no build for. The take does not
+// start until it is decided: Fix the notes opens its notes card and comes back
+// when it closes, Record anyway starts it and the header keeps saying so.
+writeFileSync(deckFile, DECK.replace('Slide two, all in one breath.', 'Slide two, ⟨CLICK⟩ all in one breath.'));
+const outOfStep = await run('tone', 'offstep', 'keys', '&offstep&countdown=0');
+writeFileSync(deckFile, DECK);
+check('offstep', /slide 2: 1 \[click\] marker, 0 build clicks/.test(outOfStep.offListed ?? '')
+  && !/slide 1:/.test(outOfStep.offListed ?? '') && outOfStep.offBlocked === true
+  && outOfStep.fixOpenedNotes === true && outOfStep.fixCameBack === true && outOfStep.offStarts === true
+  && outOfStep.finished === true
+  && (outOfStep.whereOff ?? []).every((w, k) => (outOfStep.steps[k]?.startsWith('2.') ? /out of step: 1 \[click\] marker, 0 build clicks/.test(w ?? '') : w === null))
+  && outOfStep.doneRows?.some((row) => /recorded anyway · 1 \[click\] marker, 0 build clicks/.test(row)),
+`listed "${outOfStep.offListed}" · held=${outOfStep.offBlocked} · fix opened slide 2's notes=${outOfStep.fixOpenedNotes} and came back=${outOfStep.fixCameBack}`
+  + ` · anyway starts=${outOfStep.offStarts} · header ${JSON.stringify(outOfStep.whereOff)} · done ${JSON.stringify(outOfStep.doneRows)}`);
 
 // ── the Camera option: your face, filmed with every beat ─────────────────
 // ?camera turns it on for the visit, as narrate --mic --camera does. Per

@@ -47,6 +47,7 @@ import {
   sectionInner, slideHeading, splitOpenTag,
 } from '../tools/deck-html.mjs';
 import { CLICK_MARK } from '../tools/sentences.mjs';
+import { clickMismatch, clickMismatchText, readClickMismatch } from '../tools/click-match.mjs';
 import { isTemplateRef, parseTemplateRef } from '../tools/design-system-format.mjs';
 import { auditDeck } from './audit.mjs';
 import {
@@ -95,7 +96,9 @@ const IMPLIED_CLOSE = {
 const TAG = /<!--[\s\S]*?-->|<(\/)?([a-zA-Z][\w:.-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
 
 /**
- * `html` as a tree of `{ tag, attrs, start, children }`, best-effort.
+ * `html` as a tree of `{ tag, attrs, start, end, children }`, best-effort:
+ * `end` is where the node's content stops (its close tag, or the end of the
+ * document for one never closed), so its text is `html.slice(start, end)`.
  *
  * Best-effort is the contract: this reads a file somebody is mid-edit on, so a
  * stray `</div>` is ignored rather than thrown on, and an unclosed tag simply
@@ -113,19 +116,22 @@ export function parseTree(html) {
     const tag = rawName.toLowerCase();
     if (closing) {
       const at = stack.findLastIndex((n) => n.tag === tag);
-      if (at > 0) stack.length = at;   // a close with no open is somebody's typo, not a nesting level
+      if (at > 0) {   // a close with no open is somebody's typo, not a nesting level
+        for (const open of stack.slice(at)) open.end = m.index;
+        stack.length = at;
+      }
       continue;
     }
     const selfClosed = /\/\s*$/.test(rawAttrs);
-    const node = { tag, attrs: rawAttrs.replace(/\/\s*$/, ''), start: m.index, children: [] };
+    const node = { tag, attrs: rawAttrs.replace(/\/\s*$/, ''), start: m.index, end: html.length, children: [] };
     for (const implied of IMPLIED_CLOSE[tag] ?? []) {
       if (stack.at(-1).tag === implied) stack.pop();
     }
     stack.at(-1).children.push(node);
-    if (selfClosed || VOID_ELEMENTS.has(tag)) continue;
+    if (selfClosed || VOID_ELEMENTS.has(tag)) { node.end = re.lastIndex; continue; }
     if (OPAQUE_ELEMENTS.has(tag)) {
       const close = indexOfCI(html, `</${tag}`, re.lastIndex);
-      re.lastIndex = close === -1 ? html.length : close;
+      re.lastIndex = node.end = close === -1 ? html.length : close;
       continue;
     }
     stack.push(node);
@@ -231,7 +237,7 @@ function assetReferences(tree) {
   return out;
 }
 
-// ── ⟨CLICK⟩ segments vs build steps ──────────────────────────────────────────
+// ── [click] markers vs build clicks ──────────────────────────────────────────
 
 const SVG_SKIP = new Set(['defs', 'title', 'desc', 'style', 'metadata']);
 const CONTAINER_TAGS = new Set(['ul', 'ol', 'table', 'tbody', 'dl', 'svg']);
@@ -273,6 +279,8 @@ function stepSource(node) {
  * read a cast or parsed `data-lines`, and no file reader can count those.
  * `hasProvider` below is why the caller does not compare on such a slide at
  * all: a guess against a number nobody can know is a warning about nothing.
+ * The render half counts them (engine.js `markClickMismatch`), and when it
+ * runs its answer replaces this one (#929).
  */
 export function buildSteps(node) {
   return buildItems(node).length;
@@ -288,17 +296,17 @@ export function buildSteps(node) {
 function buildItems(node) {
   const items = [];
   let auto = 0;
-  const push = (orderAttr) => { items.push(orderItem(orderAttr, auto)); auto++; };
+  const push = (orderAttr, n) => { items.push({ ...orderItem(orderAttr, auto), node: n }); auto++; };
   const stops = (n) => parseDrawStops(readAttrs(n.attrs)['data-draw-stops']).length;
   const stepsOf = (n) => {
     const attrs = readAttrs(n.attrs);
     if ('data-draw-stops' in attrs && stops(n)) {
       // its stops count up from its data-build-order, when it has one (#524)
       const base = parseInt(attrs['data-build-order'] ?? '', 10);
-      for (let i = 0; i < stops(n); i++) push(Number.isFinite(base) ? String(base + i) : null);
+      for (let i = 0; i < stops(n); i++) push(Number.isFinite(base) ? String(base + i) : null, n);
       return;
     }
-    push(attrs['data-build-order']);
+    push(attrs['data-build-order'], n);
   };
   const walk = (parent) => {
     for (const child of parent.children) {
@@ -326,6 +334,23 @@ function buildItems(node) {
  */
 export function buildClicks(node) {
   return computeGroups(buildItems(node)).length;
+}
+
+// What paints, for a build step read from the file: words, or one of these.
+const PAINTS = new Set(['img', 'picture', 'video', 'canvas', 'iframe', 'object', 'embed', 'path', 'rect', 'circle',
+  'ellipse', 'line', 'polyline', 'polygon', 'text', 'image', 'use', 'foreignobject']);
+
+/**
+ * Is one click of this slide's builds a reveal of nothing: a group whose every
+ * step has no words and nothing that paints? The commonest cause of a
+ * [click] count that is one short (#929): a `<g data-build-order>` left
+ * behind when its graphic was removed. `html` is the text `node` was parsed from.
+ */
+export function emptyBuildClick(node, html) {
+  const items = buildItems(node);
+  const blank = (n) => !PAINTS.has(n.tag) && ![...descendants(n)].some((d) => PAINTS.has(d.tag))
+    && !html.slice(n.start, n.end).replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;/g, ' ').trim();
+  return computeGroups(items).some((g) => g.length && g.every((k) => blank(items[k].node)));
 }
 
 /** The stop count a `data-draw-stops` attribute declares (the runtime's `parseDrawStops`, without a length to clamp to). */
@@ -725,18 +750,19 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       designSystemFindings(attrs['data-template'], tree, systems, configured.map((r) => r.ref),
         (rule, message) => out.push(finding('warn', rule, slide, head, message)));
     }
-    const segments = clickSegments(NOTES_ASIDE.exec(inner)?.[1]);
-    const steps = buildSteps(tree);
-    const clicks = buildClicks(tree);
-    // segments = clicks + 1, so a slide with one segment has no ⟨CLICK⟩ at all
-    // and is making no claim about the builds.
-    if (segments > 1 && segments - 1 !== clicks && !hasProvider(tree)) {
-      const tied = clicks !== steps ? ` (${steps} build steps, tied by data-build-order)` : '';
-      out.push(finding('warn', 'clicks-vs-builds', slide, head,
-        `${segments} [click] segment${segments === 1 ? '' : 's'} but ${clicks} build click${clicks === 1 ? '' : 's'}${tied}`
-        + ` — ${clicks} click${clicks === 1 ? '' : 's'} take${clicks === 1 ? 's' : ''} ${clicks} [click] marker${clicks === 1 ? '' : 's'}`
-        + ` in the notes (${clicks + 1} segments: one before the first click, one per click), and this slide has`
-        + ` ${segments - 1}, so the narration and the builds drift apart here`));
+    // ⟨CLICK⟩ markers against build clicks (tools/click-match.mjs, #929), as
+    // far as the file can count them: a provider's steps exist only once the
+    // runtime has read them, so such a slide is left to the render half,
+    // which counts them in the browser and replaces this estimate when it runs.
+    const notesHtml = NOTES_ASIDE.exec(inner)?.[1];
+    const segments = clickSegments(notesHtml);
+    if (segments > 1 && !hasProvider(tree)) {
+      const lead = !cleanNotes(readNotes(notesHtml).split(CLICK_MARK)[0]);
+      const m = clickMismatch({
+        markers: segments - 1, clicks: buildClicks(tree),
+        cause: emptyBuildClick(tree, inner) ? 'empty-build' : lead ? 'lead-click' : null,
+      });
+      if (m) out.push(finding('warn', 'clicks-vs-builds', slide, head, clickMismatchText(m, { steps: buildSteps(tree) })));
     }
 
 
@@ -853,6 +879,10 @@ export function renderFindings(domHtml, { slides = 0 } = {}) {
         `crowded: ${attrs['data-dense']} (~3–4 bullets or ~2 short paragraphs per column, SPEC SLIDE_DENSITY)`
         + ' — split the slide rather than shrink it, or mark it data-dense-ok if it is meant'));
     }
+    // [click] markers against build clicks, counted by the engine itself
+    // (engine.js markClickMismatch): providers included, which the file cannot do
+    const clicks = readClickMismatch(attrs['data-click-mismatch']);
+    if (clicks) out.push(finding('warn', 'clicks-vs-builds', slide, head, clickMismatchText(clicks)));
     if ('data-split-conflict' in attrs) {
       out.push(finding('warn', 'split-conflict', slide, head,
         'data-layout="split" is fighting this slide\'s own column flexbox — two layout systems, '
@@ -915,14 +945,17 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
   what it reports
     from the file     a <section> that is never closed · an image, video, cast
                       or stylesheet that is not on disk · a data-markdown slide
-                      (removed in 0.3.0) · [click] segments that do not line up
-                      with the slide's build steps · script blocks and inline
-                      handlers --no-trust --strict would strip
+                      (removed in 0.3.0) · script blocks and inline handlers
+                      --no-trust --strict would strip
     from a render     slides the overflow guardrail measured as clipped, slides
                       crowded past SLIDE_DENSITY (~3–4 bullets or ~2 short
                       paragraphs per column; a warning, and data-dense-ok on a
                       section says it is meant), split layouts fighting their
-                      own flexbox, and a deck whose runtime never mounted
+                      own flexbox, [click] markers that do not match the
+                      slide's build clicks (counted by the runtime, code
+                      stepping and terminals included; from the file alone
+                      under --no-render, which skips those), and a deck whose
+                      runtime never mounted
     hints             the same words on boxes on several slides in different
                       colours: one idea, worth one concept (SVG_DIAGRAMS) · an
                       SVG diagram with no build, landing all at once
@@ -966,7 +999,13 @@ export async function checkMain(args = []) {
         encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: CODEC_MS,
         why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach',
       });
-      findings.push(...renderFindings(dom, { slides }));
+      // the browser counted the [click]s against the builds, providers and
+      // all: its answer replaces the file's estimate rather than joining it
+      const rendered = renderFindings(dom, { slides });
+      if (!rendered.some((f) => f.rule === 'not-rendered')) {
+        findings.splice(0, findings.length, ...findings.filter((f) => f.rule !== 'clicks-vs-builds'));
+      }
+      findings.push(...rendered);
     } catch (e) {
       findings.push(finding('error', 'render-failed', null, 'head',
         `the deck could not be rendered — ${String(e.message ?? e).split('\n')[0]}`));

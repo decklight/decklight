@@ -411,13 +411,15 @@
     //   6 — notes with no ⟨CLICK⟩ at all: recorded whole, inside a track whose
     //       other slides are segmented. It must still advance itself.
     //   7 — no notes: nothing was ever recorded, and that is not a failure.
-    if (segmentDeck || plainDeck || segManifest || mode === 'recordseg' || mode === 'micwarn') {
+    if (segmentDeck || plainDeck || segManifest || mode === 'recordseg' || mode === 'micwarn' || mode === 'micoffstep') {
       // `recordseg&pause` (#560): a hold ending beat one, and one opening beat
       // three — the recorder must bake each into its own beat's file
       const beats = mode === 'recordseg' && params.has('pause')
         ? 'Beat one. ⟨PAUSE⟩ ⟨CLICK⟩ Beat two. ⟨CLICK⟩ ⟨PAUSE⟩ Beat three.'
         : 'Beat one. ⟨CLICK⟩ Beat two. ⟨CLICK⟩ Beat three.';
-      const builds = mode === 'segfold'
+      // `micoffstep` (#929): the same three beats over one build, so slide 5's
+      // two [click] markers wait on one build click
+      const builds = mode === 'segfold' || mode === 'micoffstep'
         ? '<p data-build>Only one build here.</p>'
         : '<ul data-build><li>First</li><li>Second</li></ul>';
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
@@ -606,6 +608,46 @@
           await new Promise((ok) => setTimeout(ok, 400));
           r.otherSlidePlaysItsPath = window.__audioSrcs.includes('voices/slide-03.m4a');
           r.PASS = r.playedTheCarriedCopy && r.sameBytes && r.otherSlidePlaysItsPath;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'micoffstep') {
+          // #929: the plan card catches a slide whose [click] markers do not
+          // match its builds BEFORE the first take, and nothing starts until
+          // it has a choice: fix the notes, skip it, or record it anyway
+          const card = (await until(() => document.querySelector('.decklight-mic .narr-card .rec-offstep'), 4000))
+            ?.closest('.narr-card');
+          const text = () => card?.textContent ?? '';
+          const offRows = () => [...(card?.querySelectorAll('.rec-off') ?? [])];
+          const status = (sl) => card?.querySelector(`.rec-slide[data-slide="${sl}"] .rec-slide-s`)?.textContent ?? '';
+          r.listed = offRows().map((o) => o.querySelector('.rec-off-t')?.textContent ?? '');
+          r.namedBothNumbers = r.listed.length === 1 && /^slide 5: 2 \[click\] markers, 1 build click/.test(r.listed[0]);
+          r.titlesAndQuotesQuiet = !r.listed.some((t) => /slide [1-4]\b|slide 6/.test(t));
+          r.rowSaysSo = status(5) === 'out of step · 2 [click], 1 build';
+          r.blocked = !card?.querySelector('.rec-start') && /decide the slide out of step above to start/.test(text());
+          // Enter neither starts nor closes while it is undecided
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          await new Promise((ok) => setTimeout(ok, 50));
+          r.enterHeld = !!document.querySelector('.decklight-mic') && !card.querySelector('.rec-start');
+          // no edit server answers here: no Fix button, and the card says why
+          r.noFixWithoutServer = !card.querySelector('[data-off-fix]') && /needs write mode/.test(text());
+          card.querySelector('[data-off-anyway="5"]')?.click();
+          await new Promise((ok) => setTimeout(ok, 30));
+          r.anywayStarts = !!card.querySelector('.rec-start');
+          r.anywayStaysVisible = status(5) === 'recording anyway · 2 [click], 1 build'
+            && /recording anyway/.test(card.querySelector('.rec-off')?.textContent ?? '');
+          card.querySelector('[data-off-undo="5"]')?.click();
+          await new Promise((ok) => setTimeout(ok, 30));
+          r.changeBlocksAgain = !card.querySelector('.rec-start');
+          const before = /(\d+) slides? ·/.exec(card.querySelector('.rec-estimate')?.textContent ?? '')?.[1];
+          card.querySelector('[data-off-skip="5"]')?.click();
+          await new Promise((ok) => setTimeout(ok, 30));
+          const after = /(\d+) slides? ·/.exec(card.querySelector('.rec-estimate')?.textContent ?? '')?.[1];
+          r.skipRecordsTheRest = !!card.querySelector('.rec-start') && Number(after) === Number(before) - 1
+            && status(5) === 'skipped · out of step';
+          r.PASS = r.namedBothNumbers && r.titlesAndQuotesQuiet && r.rowSaysSo && r.blocked && r.enterHeld
+            && r.noFixWithoutServer && r.anywayStarts && r.anywayStaysVisible && r.changeBlocksAgain && r.skipRecordsTheRest;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

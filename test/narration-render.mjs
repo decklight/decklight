@@ -146,7 +146,7 @@ const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'audiotags', 'audiotagsv4', 'reccount', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss', 'stalebridge', 'foreignport', 'askingbridge', 'enginebar', 'voicelangs', 'endoftalk', 'filmrow',
   'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'plainpause', 'segpause', 'segmanifest', 'segsigned', 'bundledaudio', 'off',
-  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'realsay'];
+  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'micoffstep&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
   const [m, extra] = mode.split('&');
   let bridge = null;
@@ -421,6 +421,14 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} un-opted track unchanged:`
       + ` one file for the slide=${r.playedTheWholeSlide} · did not auto-advance=${r.didNotAdvance}`
       + ` · → did not restart it=${r.steppedWithoutRestarting}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (m === 'micoffstep') {
+    if (!ok) console.error('   ', JSON.stringify(r));
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} a slide out of step, on the plan card:`
+      + ` named both numbers=${r.namedBothNumbers} · titles quiet=${r.titlesAndQuotesQuiet} · Start held=${r.blocked && r.enterHeld}`
+      + ` · anyway stays visible=${r.anywayStaysVisible} · skip records the rest=${r.skipRecordsTheRest}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

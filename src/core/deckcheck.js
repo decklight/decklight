@@ -20,7 +20,7 @@
  *   overflow          content clipped (measured now, every slide)
  *   dense             crowded past SLIDE_DENSITY (density.js, the same count)
  *   split-conflict    data-layout="split" fighting a flex shell
- *   clicks-vs-builds  ⟨CLICK⟩ markers that do not match the build steps
+ *   clicks-vs-builds  [click] markers that do not match the build clicks (the engine's count)
  *   missing-media     an image or a video that did not load
  *   markdown-slide    a data-markdown slide, which comes up empty
  *   static-diagram    (hint) an SVG diagram with no build, landing all at once
@@ -59,7 +59,8 @@
 import { selectInList } from './overlay.js';
 import { createDock } from './dock.js';
 import { slideDensity } from './density.js';
-import { notesSegments } from './speaker.js';
+import { slideClickMatch } from './narration.js';
+import { clickMismatchText } from '../../tools/click-match.mjs';
 import { injectedIn } from './pick.js';
 
 /** One finding, shaped like the CLI's (`--json`), so the two read alike. */
@@ -168,12 +169,9 @@ export function createDeckCheck({
       if (sec.hasAttribute('data-split-conflict')) {
         add('warn', 'split-conflict', 'data-layout="split" is fighting its own column flexbox: drop one');
       }
-      const notes = sec.querySelector(':scope > aside.notes');
-      const clicks = notes ? notesSegments(notes.innerHTML).length - 1 : 0;
-      const steps = inst._records?.[i]?.groups.length ?? 0;
-      if (clicks > 0 && clicks !== steps) {
-        add('warn', 'clicks-vs-builds', `${plural(clicks, '⟨CLICK⟩', '⟨CLICK⟩s')} in the notes for ${plural(steps, 'build step')}: narration and builds drift apart`);
-      }
+      // the engine's own count, providers included (tools/click-match.mjs, #929)
+      const clicks = slideClickMatch(sec, inst._records?.[i]);
+      if (clicks) add('warn', 'clicks-vs-builds', clickMismatchText(clicks));
       // built is what the engine built: a step on the svg, or on anything in it
       if (!sec.hasAttribute('data-static-ok')) {
         const built = (inst._records?.[i]?.steps ?? []).map((st) => st.el).filter(Boolean);
@@ -202,6 +200,8 @@ export function createDeckCheck({
     for (const f of file?.findings ?? []) {
       if (f.slide != null && (f.slide < 1 || f.slide > sections.length)) continue;
       if (measured.has(`${f.rule}:${f.slide}`)) continue;
+      // the file can only estimate a slide's clicks; the page counted them, and silence there is an answer too
+      if (f.rule === 'clicks-vs-builds') continue;
       const slide = f.slide ?? null;
       out.push({
         ...finding(f.level, f.rule, slide, slide ? slideTitle(sections[slide - 1], slide - 1) : 'the deck', f.message),

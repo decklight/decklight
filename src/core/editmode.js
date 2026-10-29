@@ -1569,6 +1569,15 @@ export function createEditMode({
   // Docked, the deck stays navigable beside the notes card, so the card
   // follows the slide, once anything unsaved in it is written.
   instance.on('slide', () => notesFollow?.());
+  // Who is waiting for the notes card to close: the recorder, which sent the
+  // author here to fix a slide's [click]s and reopens once they are done (#929).
+  const notesClosed = new Set();
+  /** The notes card on slide `sl`: the deck goes there, and a card already open follows it. */
+  function editNotesFor(sl) {
+    instance.goto(sl, 0);
+    if (!editEl) toggleEditor();
+    editEl?.querySelector('textarea.edit-notes')?.focus();
+  }
   function toggleEditor() {
     if (editEl) {
       // A card holding edits saves them on the way out, and closes once they
@@ -1580,6 +1589,7 @@ export function createEditMode({
         return;
       }
       unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; notesRefresh = null; notesDirty = null; forgetNotesOpen();
+      for (const fn of [...notesClosed]) { notesClosed.delete(fn); fn(); }
       return;
     }
     // With no edit server behind the deck — without trust, a file —
@@ -3739,6 +3749,8 @@ export function createEditMode({
     /** Hold undo/redo until this write lands — the gestures in authoring.js post outside this module. */
     trackWrite,
     toggleEditor,
+    /** The notes card for another module: open it on a slide, ask if it is open, be told once it closes. */
+    notesFor: { open: editNotesFor, isOpen: () => !!editEl, onClose: (fn) => { notesClosed.add(fn); } },
     toggleAgentAsk,
     /** Migrate the deck onto a design system's new version, watched in the agent panel. */
     migrateDesignSystem,

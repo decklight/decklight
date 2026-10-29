@@ -58,7 +58,7 @@ const NARRATION_GROUPS = {
   picker: ['roster', 'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'off', 'realsay'],
   recorded: ['recorded', 'manifest', 'expired', 'plainrec', 'plainpause', 'segmanifest', 'segsigned', 'bundledaudio'],
   segments: ['segoverflow', 'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'segpause'],
-  record: ['record', 'record&dir', 'record&nosrv', 'reccount', 'recordseg', 'recordseg&pause', 'recordseg&badconfig', 'micwarn&record'],
+  record: ['record', 'record&dir', 'record&nosrv', 'reccount', 'recordseg', 'recordseg&pause', 'recordseg&badconfig', 'micwarn&record', 'micoffstep&record'],
 };
 const NARRATION_HARNESSES = Object.keys(NARRATION_GROUPS).map((g) => `narration-render:${g}`);
 
