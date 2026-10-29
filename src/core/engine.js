@@ -3341,6 +3341,7 @@ export function init(userConfig = {}) {
     editmode: () => editmode,
     quickFix: () => (editmode?.available() ? (q) => editmode.fixProblem(q) : null),
     askAgent: () => (editmode?.available() && editmode.agents().length ? (a) => editmode.askAgent(a) : null),
+    explainAgent: () => (editmode?.available() && editmode.agents().length ? (a) => editmode.explainAgent(a) : null),
   });
   // a review just finished: show what it found; what the panel lists changed under it: read again
   editmode.onReview?.((r) => { if (r.findings.length && reviewOpenWanted) { reviewOpenWanted = false; deckCheck.open(); } else deckCheck.refresh(); });

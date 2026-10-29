@@ -35,6 +35,7 @@ import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
 import { UNDO_CHORD } from './undo-chord.js';
 import { markdownNodes } from './mdtext.js';
+import { aiIcon } from './aiicon.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
@@ -262,8 +263,10 @@ export function createEditMode({
     // rather than offering what the server can only refuse, and the reason
     // (which does not fit on a button) goes on the hint line when pressed.
     const who = state.describer;
-    const write = button('cm-write cm-quiet', who ? '✨ write it for me'
-      : state.subjectsOff ? '✨ write it for me — off' : '✨ write it for me — no agent');
+    const write = button('cm-write cm-quiet', '');
+    // the AI sparkle, then the words: textContent would take the icon away
+    const writeLabel = (text) => write.replaceChildren(aiIcon(), text);
+    writeLabel(who ? 'write it for me' : state.subjectsOff ? 'write it for me — off' : 'write it for me — no agent');
     if (!who) write.classList.add('cm-off');
     if (who) {
       write.title = `Sends the deck's uncommitted changes to ${who.name} (${who.label}), the agent installed`
@@ -474,14 +477,14 @@ export function createEditMode({
         if (j.unread) debugLog('git', `couldn't read the agent's answer: ${JSON.stringify(String(j.answer ?? ''))}`);
         if (commits.length > 1) {
           showPlan({ base: j.base, units: j.units ?? [], commits: commits.map((c) => ({ subject: String(c.subject ?? ''), units: c.units ?? [] })) });
-          write.textContent = '✨ write it again';
+          writeLabel('write it again');
         } else {
           showPlan(null);
           const subject = commits[0]?.subject;
           if (subject && !input.value.trim()) input.value = subject;
           // "nothing to say" is for a tree with nothing to describe; an answer
           // the server could not read says so (#908)
-          write.textContent = subject ? '✨ write it again' : j.unread ? "couldn't read the agent's answer" : 'nothing to say about it';
+          if (subject) writeLabel('write it again'); else write.textContent = j.unread ? "couldn't read the agent's answer" : 'nothing to say about it';
         }
       } catch (e) {
         // the whole sentence, where there is room for it — a reason cut at forty
@@ -516,7 +519,7 @@ export function createEditMode({
       input.value = '';
       paintWhat();
       showPlan(j.left ? { base: j.left.base, units: j.left.units ?? [], commits: j.left.commits.map((c) => ({ subject: String(c.subject ?? ''), units: c.units ?? [] })) } : null);
-      if (more && !j.left) write.textContent = '✨ write it again';
+      if (more && !j.left) writeLabel('write it again');
       what.textContent = more ? `${text} · the rest is still uncommitted` : text;
       paintTagsAndPush();
       setTimeout(() => (more ? (planEl.querySelector('.cm-plan-subject') ?? input) : pushGo).focus(), 0);
@@ -547,7 +550,7 @@ export function createEditMode({
         const j = await r.json();
         if (!j?.ok) {
           // the work moved while the agent was thinking: its plan is for other work
-          if (j?.code === 'STALE') { showPlan(null); write.textContent = '✨ write it again'; }
+          if (j?.code === 'STALE') { showPlan(null); writeLabel('write it again'); }
           throw new Error(j?.error || `HTTP ${r.status}`);
         }
         if (!j.committed) { closeCommit(); toast('nothing to commit', 2600); return; }
@@ -1238,7 +1241,7 @@ export function createEditMode({
     out.className = 'agent-ask-out';
     if (a.state === 'running') out.textContent = `working…${a.activity ? ` ${a.activity}` : ''}`;
     else {
-      out.textContent = a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.changed ? (a.kind === 'migrate' ? 'migrated the deck' : a.kind === 'fix' ? 'fixed the deck' : 'edited the deck') : 'no changes';
+      out.textContent = a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.kind === 'explain' ? 'explained — nothing changed' : a.changed ? (a.kind === 'migrate' ? 'migrated the deck' : a.kind === 'fix' ? 'fixed the deck' : 'edited the deck') : 'no changes';
       // what the agent said, in the markdown it said it in: **bold** shown
       // bold, never as asterisks (mdtext.js builds nodes, never markup)
       const tail = (a.tail || '').trim();
@@ -1247,6 +1250,16 @@ export function createEditMode({
         md.className = 'agent-ask-md';
         md.append(...markdownNodes(tail));
         out.append(md);
+      }
+      // the way on from an explanation: the fix, one click away
+      if (a.kind === 'explain' && a.ok && a.follow) {
+        const fix = document.createElement('button');
+        fix.type = 'button';
+        fix.className = 'agent-ask-fix';
+        fix.append(aiIcon(), 'Fix it');
+        fix.title = 'the agent makes the fix: one edit, one undo entry, one commit';
+        fix.addEventListener('click', () => askAgent({ ...a.follow, review: true }));
+        out.append(fix);
       }
       // what the run created beside the deck and left there, kept out of its commit
       if (a.left?.length) out.append(Object.assign(document.createElement('div'), { textContent: `left beside the deck, not committed: ${a.left.join(', ')}` }));
@@ -3580,6 +3593,31 @@ export function createEditMode({
       return false;
     }
   }
+  /**
+   * Check deck…'s Explain further: the same agent, asked read-only (the server's
+   * `explain`), answering in the agent panel. Nothing is written, no undo entry,
+   * no commit. `follow` is the fix the panel offers once the answer is in.
+   * Answers whether it was sent.
+   */
+  async function explainAgent({ prompt, slide, message, follow = null }) {
+    if (!editAvailable) { toast(cannot('explaining it'), 3200); return false; }
+    if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return false; }
+    if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return false; }
+    try {
+      const sent = await postAgentJob(editBase + '/deck/edit/agent',
+        { prompt, slide, message, explain: true, ...(follow ? { follow } : {}), ...(preferredAgent && editAgents.some((a) => a.name === preferredAgent) ? { agent: preferredAgent } : {}) });
+      if (!sent) return false;
+      const { res, j } = sent;
+      if (!res.ok) throw new Error(j.error || res.status);
+      debugLog('agent', `${message ?? 'explain'} → ${j.agent} (read-only)`);
+      rememberAgentOpen(true);
+      if (!agentEl) toggleAgentAsk(); else paintAsks?.();
+      return true;
+    } catch (e) {
+      toast(`could not ask for the explanation: ${String(e.message || e).slice(0, 60)}`, 2600);
+      return false;
+    }
+  }
   /** `f` on an agent-review finding: its prepared instruction, as an A edit held for the review first (#907). */
   const fixFinding = (f) => askAgent({ prompt: f.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}`, review: true, rule: f.rule ?? null });
 
@@ -3793,6 +3831,7 @@ export function createEditMode({
     /** Check deck…'s fixes: the server's own (`fixProblem`), and an ask to the A agent (`askAgent`); which agents there are; a word when a write lands. */
     fixProblem,
     askAgent,
+    explainAgent,
     /** The review a quick fix opens (#907): its state for a probe, and Settings → Review quick fixes. */
     fixReview,
     reviewFixes: fixReviewOn,

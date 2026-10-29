@@ -16,6 +16,7 @@ import { createPreview } from './preview.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
 import { pageDesignSystems } from './design-system.js';
 import { UNDO_CHORD } from './undo-chord.js';
+import { aiIcon } from './aiicon.js';
 
 /**
  * Wire the theme system to a deck.
@@ -761,8 +762,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       + (o ? '&from=' + encodeURIComponent(o.marketplace) : '') + hash;
   }
   function genRowLabel(row) {
-    row.textContent = pickerCandidate
-      ? `✨ ${pickerCandidate.name} — ⌃T re-rolls` : '✨ Generate new…';
+    row.replaceChildren(aiIcon(), pickerCandidate ? `${pickerCandidate.name} — ⌃T re-rolls` : 'Generate new…');
   }
   function rollPickerCandidate() {
     pickerCandidate = generateTheme();

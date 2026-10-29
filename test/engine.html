@@ -4931,7 +4931,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.opensCheckDeck = !!document.querySelector(Q);
         const head = document.querySelector(`${Q} .dc-heading`)?.textContent ?? '';
         r.headCountsThem = / · 2 from the agent$/.test(head);
-        r.groupHead = document.querySelector(`${Q} .dc-agent-head`)?.textContent === 'agent review · 2 · f asks the agent to fix one';
+        r.groupHead = document.querySelector(`${Q} .dc-agent-head`)?.textContent === 'agent review · 2 · f fixes one · e explains it';
         const rows = [...document.querySelectorAll(`${Q} .dc-row`)];
         const agentRows = rows.filter((x) => x.classList.contains('dc-agent'));
         r.rowPerFinding = agentRows.length === 2 && agentRows[0].querySelector('.dc-mark')?.textContent === '✦'
@@ -4946,7 +4946,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.fPostsTheFix = ask?.slide === 2 && ask?.prompt === window.__reviewFindings[0].prompt && ask?.message === 'review: title is a topic on slide 2';
         // the ask is watched in the agent panel, which takes the slot the check panel held
         r.fGoesAndCloses = !document.querySelector(Q) && deck.state.slide === 2 && !!document.querySelector('.decklight-agent');
-        r.rowOffersTheAgent = agentRows[0].querySelector('.dc-fix')?.textContent === 'Ask the agent to fix it';
+        r.rowOffersTheAgent = agentRows[0].querySelector('.dc-fix')?.textContent === 'Fix it';
         escapeUntilClosed('.decklight-agent');
         // ⏎ on the second: goes to its slide, asks nothing
         const asked = CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).length;
@@ -5007,7 +5007,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // the palette: Writing tools… opens the picker on the tools, in groups
         r.paletteRow = await paletteRun('writing', /Writing tools…/);
         r.picksTheTool = !!document.querySelector(W) && wHead() === 'writing'
-          && JSON.stringify(wRows()) === JSON.stringify(['✨ add audio tags', '🗣 write it for the ear', '✂ tighten', '✓ fix typos and grammar', '⇄ match the script', '… custom instruction'])
+          && JSON.stringify(wRows()) === JSON.stringify(['add audio tags', '🗣 write it for the ear', '✂ tighten', '✓ fix typos and grammar', '⇄ match the script', '… custom instruction'])
           && JSON.stringify([...document.querySelectorAll(`${W} .narr-group`)].map((g) => g.textContent)) === JSON.stringify(['script — the speaker notes', 'slide text — the words on the slide']);
         r.footNamesTheAgent = /Claude Code/.test(document.querySelector(`${W} .narr-foot`)?.textContent ?? '');
         await pickRow(/add audio tags/);
@@ -5016,7 +5016,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // ← goes back to the tools; Esc there closes
         press('ArrowLeft');
         await settle();
-        r.leftGoesBack = wHead() === 'writing' && document.querySelector(`${W} .narr-sel .narr-text`)?.textContent === '✨ add audio tags';
+        r.leftGoesBack = wHead() === 'writing' && document.querySelector(`${W} .narr-sel .narr-text`)?.textContent === 'add audio tags';
         press('Escape');
         await settle();
         r.escCloses = !document.querySelector(W);
@@ -5344,7 +5344,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         press('k');
         await settle();
         const dflt = document.querySelector('.cm-write');
-        r.defaultOffersIt = dflt?.textContent === '✨ write it for me';
+        r.defaultOffersIt = dflt?.textContent === 'write it for me';
         r.tooltipNamesTheAgent = /Sends the deck's uncommitted changes to claude \(Claude Code\), the agent installed on this machine, which may pass them to its provider\./
           .test(dflt?.getAttribute('title') ?? '');
         r.nothingSentOnOpen = subjectAsks() === 0;
@@ -5397,7 +5397,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.asciiOnly = /^[\x20-\x7e]+$/.test(a + b);
         await new Promise((ok) => setTimeout(ok, 1000));
         r.subjectLands = box2.value === 'split the crowded video slides';
-        r.stopsThinking = write.textContent === '✨ write it again' && box2.placeholder === idle
+        r.stopsThinking = write.textContent === 'write it again' && box2.placeholder === idle
           && !write.classList.contains('cm-thinking');
         const later = write.textContent;
         await new Promise((ok) => setTimeout(ok, 300));

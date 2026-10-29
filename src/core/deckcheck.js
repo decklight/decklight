@@ -62,6 +62,7 @@ import { slideDensity } from './density.js';
 import { slideClickMatch } from './narration.js';
 import { clickMismatchText } from '../../tools/click-match.mjs';
 import { injectedIn } from './pick.js';
+import { aiIcon } from './aiicon.js';
 
 /** One finding, shaped like the CLI's (`--json`), so the two read alike. */
 const finding = (level, rule, slide, title, message) => ({ level, rule, slide, title, message });
@@ -98,6 +99,14 @@ export const agentPrompt = (f) => `${f.slide ? `On slide ${f.slide} ("${f.title}
   + ` (rule ${f.rule}) and nothing else. The problem: ${f.message}`
   + (f.fix?.skills?.length ? ` Use the ${f.fix.skills.join(' and ')} skill.` : '');
 
+/**
+ * The question Explain further hands the agent, read-only: the finding in
+ * full, and what to say about it. The server adds the slide's source.
+ */
+export const explainPrompt = (f) => `${f.slide ? `On slide ${f.slide} ("${f.title}"), ` : 'In this deck, '}decklight check found this problem`
+  + ` (rule ${f.rule}, ${f.level === 'agent' ? 'from the agent review' : f.level}): ${f.message}`
+  + ' Explain it. What is wrong here, why it matters, and the ways to fix it. Be brief and concrete. This is a question: change no file.';
+
 /** `fix: <rule> on slide N`, or `fix: <rule>` for the deck — the commit a fix makes. */
 const fixSubject = (f) => `fix: ${f.rule}${f.slide ? ` on slide ${f.slide}` : ''}`;
 
@@ -108,7 +117,7 @@ export function createDeckCheck({
   // the edit server behind the page: `available()` and `base()` for the
   // file's findings; `quickFix()` and `askAgent()` answer the fixer when the
   // page can write (and, for the agent, has one), else null
-  editmode = () => null, quickFix = () => null, askAgent = () => null,
+  editmode = () => null, quickFix = () => null, askAgent = () => null, explainAgent = () => null,
 }) {
   let el = null, sel = 0, rows = [], onResize = null, busy = false;
   // the file's half, from the server: `at` is the fetch that holds, so a
@@ -221,7 +230,9 @@ export function createDeckCheck({
   }
 
   /**
-   * What would clear a row, or null: `{ label, run(all), batch, agent }`.
+   * What would clear a row, or null: `{ label, run(all), batch, agent, explain }`.
+   * `explain()` is the agent's read-only account of the finding, on any row
+   * the agent could be asked about.
    * The server's own fix first (it wrote what it will do on the finding),
    * then a concept suggestion's accept, then the agent for anything a
    * reader's judgement can mend.
@@ -240,12 +251,40 @@ export function createDeckCheck({
     const ask = askAgent();
     if (!ask) return null;
     if (f.agentFinding) {
-      return { label: 'Ask the agent to fix it', batch: false, agent: true,
+      return { label: 'Fix it', batch: false, agent: true,
         run: () => ask({ prompt: f.agentFinding.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}`, review: true, rule: f.rule }) };
     }
     if (NOT_FOR_AGENT.has(f.rule)) return null;
-    return { label: 'Ask the agent to fix it', batch: false, agent: true,
+    return { label: 'Fix it', batch: false, agent: true,
       run: () => ask({ prompt: agentPrompt(f), slide: f.slide ?? undefined, message: fixSubject(f), review: true, rule: f.rule }) };
+  }
+
+  /** Explain further on a row: read-only, answered in the agent panel, ending in the row's own Fix it when it has one. */
+  function explainOf(f) {
+    const explain = explainAgent();
+    if (!explain) return null;
+    const q = fixOf(f);
+    const follow = q?.agent
+      ? (f.agentFinding
+        ? { prompt: f.agentFinding.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}`, rule: f.rule }
+        : { prompt: agentPrompt(f), slide: f.slide ?? undefined, message: fixSubject(f), rule: f.rule })
+      : null;
+    return () => explain({ prompt: f.agentFinding ? `${explainPrompt(f)} The review's own instruction was: ${f.agentFinding.prompt}` : explainPrompt(f),
+      slide: f.slide ?? undefined, message: `explain: ${f.rule}${f.slide ? ` on slide ${f.slide}` : ''}`, follow });
+  }
+
+  const explainPill = (i) => aiPill('Explain further', 'the agent explains what is wrong, why it matters and how to fix it, read-only: nothing is written · e', () => runExplain(i), 'dc-fix dc-fix-agent dc-explain');
+
+  /** A pill with the AI sparkle before its label. */
+  function aiPill(label, title, onClick, className) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = className;
+    b.append(aiIcon(), label);
+    b.title = title;
+    b.disabled = busy;
+    b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    return b;
   }
 
   /** The palette row: open it, or close it when it is up. */
@@ -323,7 +362,7 @@ export function createDeckCheck({
       if (f.level === 'agent' && (i === 0 || found[i - 1].level !== 'agent')) {
         const sub = document.createElement('div');
         sub.className = 'narr-group dc-agent-head';
-        sub.textContent = `agent review · ${fromAgent}${askAgent() ? ' · f asks the agent to fix one' : ''}`;
+        sub.textContent = `agent review · ${fromAgent}${askAgent() ? ' · f fixes one · e explains it' : ''}`;
         list.appendChild(sub);
       }
       const row = document.createElement('div');
@@ -355,14 +394,19 @@ export function createDeckCheck({
       const q = fixes[i];
       const act = document.createElement('span');
       act.className = 'dc-act';
+      const canExplain = !!explainOf(f);
       if (q) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = `dc-fix${q.agent ? ' dc-fix-agent' : ''}`;
-        b.textContent = q.label;
-        b.title = q.agent ? 'an ask to the agent, watched in the agent panel' : 'applied by decklight, logged in the agent panel · f';
-        b.disabled = busy;
-        b.addEventListener('click', (e) => { e.stopPropagation(); runFix(i); });
+        let b;
+        if (q.agent) b = aiPill(q.label, 'the agent makes the fix: one edit, one undo entry, one commit, watched in the agent panel · f', () => runFix(i), 'dc-fix dc-fix-agent');
+        else {
+          b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'dc-fix';
+          b.textContent = q.label;
+          b.title = 'applied by decklight, logged in the agent panel · f';
+          b.disabled = busy;
+          b.addEventListener('click', (e) => { e.stopPropagation(); runFix(i); });
+        }
         act.append(b);
         if (q.batch) {
           const all = document.createElement('button');
@@ -374,9 +418,11 @@ export function createDeckCheck({
           all.addEventListener('click', (e) => { e.stopPropagation(); runFix(i, true); });
           act.append(all);
         }
+        if (q.agent && canExplain) act.append(explainPill(i));
       } else {
         act.className += ' dc-nofix';
-        act.textContent = 'no quick fix';
+        act.append('no quick fix');
+        if (canExplain) act.append(explainPill(i));
       }
       text.append(act);
       row.append(mark, where, text);
@@ -387,7 +433,7 @@ export function createDeckCheck({
     const foot = document.createElement('div');
     foot.className = 'narr-foot dc-foot';
     foot.textContent = served
-      ? `⏎ goes to the slide · f applies the row's fix${fixes.some((x) => x?.batch) ? ' · ⇧F every slide' : ''} · the file's findings included`
+      ? `⏎ goes to the slide · f applies the row's fix${fixes.some((x) => x?.batch) ? ' · ⇧F every slide' : ''}${explainAgent() ? ' · e explains it' : ''} · the file's findings included`
       : served === false
         ? '⏎ goes to the slide · the file\'s own findings (missing files, scripts) need write mode: decklight check <deck> reads them too'
         : '⏎ goes to the slide · reading the file…';
@@ -423,6 +469,18 @@ export function createDeckCheck({
     if (el) refresh();
     return true;
   }
+  /** `e` on a row: the agent explains it, read-only; the answer lands in the agent panel. */
+  async function runExplain(i) {
+    const f = rows[i];
+    const go = f ? explainOf(f) : null;
+    if (!go) { toast(f ? 'no agent CLI on this machine to explain it' : 'nothing selected', 2600); return false; }
+    if (busy) { toast('a fix is still landing', 1600); return true; }
+    if (f.slide) goto(f.slide);
+    busy = true;
+    paint();
+    try { await go(); } finally { busy = false; if (el) paint(); }
+    return true;
+  }
   function close() {
     if (!el) return;
     el.remove();
@@ -440,6 +498,7 @@ export function createDeckCheck({
       case 'Escape': close(); return true;
       case 'f': runFix(sel); return true;
       case 'F': runFix(sel, e.shiftKey); return true;
+      case 'e': runExplain(sel); return true;
       default: return false;   // the deck's: a panel beside the slide
     }
   }

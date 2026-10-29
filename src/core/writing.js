@@ -22,6 +22,7 @@
  */
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { aiIcon } from './aiicon.js';
 
 /**
  * The tools, in the order the card lists them. The `script` ones rewrite
@@ -30,7 +31,7 @@ import { closeOnBackdrop, selectInList } from './overlay.js';
  * tool that wants a line from the author first.
  */
 export const WRITING_TOOLS = [
-  { id: 'tags', group: 'script', label: '✨ add audio tags', flavor: 'same words, the tags ElevenLabs v4 performs', kind: 'tags' },
+  { id: 'tags', group: 'script', label: 'add audio tags', ai: true, flavor: 'same words, the tags ElevenLabs v4 performs', kind: 'tags' },
   { id: 'spoken', group: 'script', label: '🗣 write it for the ear', flavor: 'terse notes as sentences a person would say', kind: 'spoken' },
   { id: 'tighten', group: 'text', label: '✂ tighten', flavor: 'shorter, same meaning, same structure', kind: 'tighten' },
   { id: 'typos', group: 'text', label: '✓ fix typos and grammar', flavor: 'spelling, grammar, punctuation; nothing reworded', kind: 'typos' },
@@ -106,6 +107,7 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
       const x = node('div', `narr-row ${cls}`.trim());
       x.setAttribute('role', 'option');
       const text = node('div', 'narr-text', r.label);
+      if (r.ai) text.prepend(aiIcon());
       x.append(text);
       if (r.flavor) x.append(node('div', 'narr-flavor', r.flavor));
       x.addEventListener('mouseenter', () => { sel = selectInList(rowEls, rows.length ? rowEls.indexOf(x) : 0, 'narr-sel'); });

@@ -2404,14 +2404,18 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * `done` instead of the history and git. Nothing is committed, before or
    * after. `done` answers what the `done` event carries for the review.
    */
-  function runAgent(prompt, name, message, slide, { files = [], reload = null, kind = null, title = null, subject: given = null, before: beforeSay = null, dirs = [], hold = null } = {}) {
-    let cmd = agentCommand(name || agentPref, prompt, deckRel, { slide, dirs });
+  function runAgent(prompt, name, message, slide, { files = [], reload = null, kind = null, title = null, subject: given = null, before: beforeSay = null, dirs = [], hold = null, explain = null } = {}) {
+    // explain: a question, not an edit. The agent's read-only `ask` argv, the
+    // prompt verbatim; no undo entry, no commit, no review. `explain.follow`
+    // is the fix the panel offers once the answer is in.
+    let cmd = explain ? agentAsk(name || agentPref, prompt) : agentCommand(name || agentPref, prompt, deckRel, { slide, dirs });
     if (!cmd) return null;
     const ask = {
       id: ++askSeq, agent: cmd.name, label: cmd.label, prompt,
       ...(cmd.model ? { model: cmd.model } : {}),
       ...(Number.isInteger(slide) && slide > 0 ? { slide } : {}),
       ...(kind ? { kind } : {}), ...(title ? { title } : {}),
+      ...(explain ? { kind: 'explain', ...(explain.follow ? { follow: explain.follow } : {}) } : {}),
       startedAt: Date.now(), state: 'running',
     };
     agentAsks.push(ask);
@@ -2422,7 +2426,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // commit honest: otherwise a hand edit made just before pressing A lands
     // under the agent's message, and a history that misattributes authorship is
     // worse than one that only says "autosave".
-    if (!hold && gitOn && shouldCommit(gitMode, { kind: 'bookend' })
+    if (!hold && !explain && gitOn && shouldCommit(gitMode, { kind: 'bookend' })
         && ownCommit(`decklight: save before ${cmd.name} edits ${basename(deckPath)}`, files)) {
       console.log('  git: committed your outstanding changes first');
     }
@@ -2431,7 +2435,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (head) {
         prompt = `${prompt} ${beforeSay(head)}`;
         ask.prompt = prompt;
-        cmd = agentCommand(cmd.name, prompt, deckRel, { slide, dirs }) ?? cmd;
+        cmd = (explain ? agentAsk(cmd.name, prompt) : agentCommand(cmd.name, prompt, deckRel, { slide, dirs })) ?? cmd;
       }
     }
     // held: the deck as it really is, put back when the agent is done
@@ -2530,13 +2534,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
       const after = readDeck();
       const filesAfter = snapshotFiles(files);
       const filesChanged = Object.keys(filesBefore).some((p) => filesAfter[p] !== filesBefore[p]);
-      const changed = after !== before || filesChanged;
+      const changed = !explain && (after !== before || filesChanged);
       // held for review: the deck goes back, the edit becomes the candidate
       putBack();
       const held = hold ? hold.done(changed ? after : null, { ok: code === 0 && !stopped }) : null;
       // the voice folders follow the slides the edit added, removed or moved
       // (#920), before the impact is read and the commit made
-      const landed = !hold ? (changed && after !== before ? before : null)
+      const landed = explain ? null : !hold ? (changed && after !== before ? before : null)
         : (changed && !held && hold.start === undefined && after !== kept ? kept : null);
       let followed = null;
       if (landed !== null) {
@@ -2557,7 +2561,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // One commit per completed agent edit, carrying the agent's own summary
       // — the boundary and the message both come from the work, not a clock.
       // A failed run or one that changed nothing commits nothing.
-      if (!hold && gitOn && shouldCommit(gitMode, { kind: 'agent', ok: code === 0, changed })) {
+      if (!hold && !explain && gitOn && shouldCommit(gitMode, { kind: 'agent', ok: code === 0, changed })) {
         const subject = given ?? commitSubject(message ?? prompt, `decklight: ${cmd.name} edited ${basename(deckPath)}`);
         if (gitAutocommit(deckPath, root, subject, { also: [...alsoNow().also, ...files] })) { pendingAttr = null; console.log(`  git: committed "${subject}"`); }
       }
@@ -2568,7 +2572,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // word is said. A warning, never a block: the file is already written,
       // Z takes it back, and the audio never left the disk.
       let recordingWarning = null;
-      if (changed && !hold) {
+      if (changed && !hold && !explain) {
         try {
           // the folders that followed are read where each take went, and as
           // they are now — which is already numbered like `after`
@@ -2595,7 +2599,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // stdout is a wall of JSON nobody should be shown
       // — from its start: a report leads with what it did (a migration's
       // renames and their counts), and the panel scrolls
-      const said = reportText(resultText ?? tail.trim().split('\n').slice(-6).join('\n'));
+      const said = reportText(resultText ?? (explain ? tail : tail.trim().split('\n').slice(-6).join('\n')));
       // Files the run created beside the deck and left there: never in the
       // commit (it names its paths), and said, so the author can delete them
       const left = (besideDeck() ?? []).filter((f) => !leftBefore.has(f));
@@ -3395,10 +3399,25 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * finding, for the commit the review drafts.
    */
   async function agentRoute({ body, json }) {
-    const { prompt, agent, message, slide, offer, place = null, review = false, rule = null } = JSON.parse(body);
+    const { prompt, agent, message, slide, offer, place = null, review = false, rule = null, explain = false, follow = null } = JSON.parse(body);
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
     if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
     if (reviewing) return json(409, { ok: false, error: 'the agent is reviewing the deck — wait for it to finish' });
+    if (explain) {
+      // read-only: no skill offer (nothing is edited), no hold, no commit
+      const ok = follow && typeof follow.prompt === 'string' && follow.prompt.trim();
+      // that slide's source, fresh from the file: the question is about what is written there
+      let source = '';
+      if (Number.isInteger(slide) && slide > 0) {
+        const { sectionBodies } = await import('../tools/deck-html.mjs');
+        const body = sectionBodies(readDeck())[slide - 1];
+        if (body) source = `\n\nSlide ${slide}'s source:\n\n${body}`;
+      }
+      const cmd = runAgent(prompt.trim() + source, agent, message, slide, { explain: { follow: ok
+        ? { prompt: follow.prompt, slide: follow.slide, message: follow.message, rule: follow.rule ?? null } : null } });
+      if (!cmd) return json(400, { ok: false, error: agentUnavailable(agent ?? agentPref, agents) });
+      return json(200, { ok: true, agent: cmd.name, label: cmd.label, readOnly: true });
+    }
     const gate = await skillGate(agent, { offer, place });
     if (gate?.offer) return json(200, gate.offer);
     if (gate?.error) return json(409, { ok: false, error: gate.error });
