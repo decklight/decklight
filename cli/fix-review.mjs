@@ -212,15 +212,23 @@ export function registerFixReviewRoutes(routes, {
   let seq = 0;
 
   const summary = (c) => ({
-    id: c.id, rev: c.rev, what: c.what, rule: c.rule ?? null, slide: c.slide ?? null, agent: c.agent ?? null,
-    units: c.units, adjusting: c.adjusting ?? null,
+    id: c.id, rev: c.rev, what: c.what, kind: c.kind, rule: c.rule ?? null, slide: c.slide ?? null, agent: c.agent ?? null,
+    units: c.units, left: c.left, adjusting: c.adjusting ?? null,
   });
 
-  function hold({ before, after, what, rule = null, slide = null, agent = null }) {
+  /**
+   * `kind` says what made the candidate, for the review's words: a `fix`
+   * (Check deck…), a `script` rewrite (the writing tools, PRESENTING_VOICE),
+   * or an `ask` (A). `left` lists the slides the job looked at and left as
+   * they were, `[{ slide, why }]`: an answer that failed its check, a slide
+   * edited while the agent thought. They are not units (nothing changed
+   * there), but the review says so rather than leaving the author to guess.
+   */
+  function hold({ before, after, what, kind = 'fix', rule = null, slide = null, agent = null, left = [] }) {
     const units = candidateUnits(before, after);
-    if (!units) return { ok: false, error: 'this deck puts two slides on one line — a fix to it cannot be reviewed slide by slide' };
-    candidate = { id: `c${++seq}`, rev: 1, before, after, what, rule, slide, agent, units, at: Date.now() };
-    console.log(`  fix: "${what}" held for review — ${units.length} change${units.length === 1 ? '' : 's'}, nothing written`);
+    if (!units) return { ok: false, error: 'this deck puts two slides on one line — a change to it cannot be reviewed slide by slide' };
+    candidate = { id: `c${++seq}`, rev: 1, before, after, what, kind, rule, slide, agent, units, left, at: Date.now() };
+    console.log(`  ${kind}: "${what}" held for review — ${units.length} change${units.length === 1 ? '' : 's'}, nothing written`);
     return { ok: true, ...summary(candidate) };
   }
 

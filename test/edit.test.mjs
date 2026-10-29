@@ -960,7 +960,7 @@ test('the asks of a session are kept on the server — slide, prompt and outcome
   assert.equal(p.agentAsks[1].slide, undefined, 'a slide that is not a slide number is left out');
 });
 
-test('POST /deck/edit/enhance: the agent drafts tags read-only, decklight writes the slides that kept their words — in ONE undo', async (t) => {
+test('POST /deck/edit/enhance: the agent drafts tags read-only, the slides that kept their words are HELD for review, then applied in ONE undo', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const withNotes = DECK
@@ -984,16 +984,33 @@ test('POST /deck/edit/enhance: the agent drafts tags read-only, decklight writes
   const again = await post(base, '/deck/edit/enhance', { slides: 'all' });
   assert.equal(again.status, 409, 'one run at a time');
 
+  // HELD for review (#907): the deck is untouched, the ping names the candidate
+  let p = null;
   for (let i = 0; i < 200; i++) {
-    if ((await (await fetch(base + '/deck/ping')).json()).undo === 1) break;
+    p = await (await fetch(base + '/deck/ping')).json();
+    if (p.candidate?.id) break;
     await new Promise((res) => setTimeout(res, 50));
   }
+  assert.ok(p?.candidate?.id, 'the ping says a rewrite waits for review');
+  assert.equal(readFileSync(deck, 'utf8'), withNotes, 'nothing written');
+  assert.equal(p.undo, 0, 'nothing landed, so nothing to undo');
+  const c = await (await fetch(`${base}/deck/edit/candidate`)).json();
+  assert.equal(c.what, 'script: audio tags');
+  assert.equal(c.kind, 'script');
+  assert.deepEqual(c.units.map((u) => [u.key, u.kind, u.notes.after]), [['s1', 'changed', '[warm] Hello there!\n\n[click]\n\nNext beat.']],
+    'only the slide whose answer passed is a change');
+  assert.deepEqual(c.left, [{ slide: 2, why: c.left[0]?.why }], 'the slide whose answer failed is listed, with why');
+  assert.match(c.left[0].why, /changed the words/);
+
+  const applied = await (await post(base, '/deck/edit/candidate/apply', { id: c.id, take: ['s1'] })).json();
+  assert.equal(applied.ok, true, JSON.stringify(applied));
+  assert.equal(applied.commit.subject, 'script: audio tags on slide 1');
   const after = readFileSync(deck, 'utf8');
   assert.match(after, /<p>\[warm\] Hello there!<\/p>\s*<p>\[click\]<\/p>\s*<p>Next beat\.<\/p>/);
   assert.match(after, /Keep my words\./, 'the reworded answer was not written');
   assert.doesNotMatch(after, /Change my words/);
   await post(base, '/deck/edit/undo');
-  assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes the whole run back');
+  assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes the whole apply back');
 
   const none = await post(base, '/deck/edit/enhance', { slides: [2] });
   assert.equal(none.status, 200, 'slide 2 has notes');
@@ -1004,28 +1021,7 @@ test('POST /deck/edit/enhance: the agent drafts tags read-only, decklight writes
   }
 });
 
-test('POST /deck/edit/enhance/text: the notes editor\'s box comes back tagged — and nothing is written', async (t) => {
-  const dir = tmp(t);
-  const deck = path.join(dir, 'deck.html');
-  writeFileSync(deck, DECK);
-  const bin = path.join(dir, 'bin');
-  mkdirSync(bin);
-  writeFakeBin(bin, 'claude', [
-    "const prompt = process.argv[process.argv.indexOf('-p') + 1] ?? '';",
-    "const script = prompt.split('# Script\\n\\n')[1] ?? '';",
-    "console.log(script.includes('REWORD') ? 'something else' : script.replace('Hello.', '[warm] Hello!'));",
-  ].join('\n'));
-  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
-  const ok = await (await post(base, '/deck/edit/enhance/text', { text: 'Hello.\n\n[click]\n\nNext.' })).json();
-  assert.deepEqual({ ok: ok.ok, text: ok.text, changed: ok.changed }, { ok: true, text: '[warm] Hello!\n\n[click]\n\nNext.', changed: true });
-  assert.equal(readFileSync(deck, 'utf8'), DECK, 'the file is the author\'s to save');
-  const bad = await post(base, '/deck/edit/enhance/text', { text: 'REWORD me.' });
-  assert.equal(bad.status, 422);
-  assert.match((await bad.json()).error, /changed the words/);
-  assert.equal((await post(base, '/deck/edit/enhance/text', { text: '  ' })).status, 422);
-});
-
-test('POST /deck/edit/enhance { kind: "spoken" }: the notes written for the ear, in ONE undo — the box, and the deck', async (t) => {
+test('POST /deck/edit/enhance { kind: "spoken" }: the notes written for the ear, held, then applied as ONE undo', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   const withNotes = DECK
@@ -1040,15 +1036,19 @@ test('POST /deck/edit/enhance { kind: "spoken" }: the notes written for the ear,
     "console.log(prompt.includes('writing for the ear') ? script.replace('Fluffed a line? Backspace retakes it.', 'And if you fluff a line, just press Backspace to take it again.') : script);",
   ].join('\n'));
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
-  const box = await (await post(base, '/deck/edit/enhance/text', { text: 'Fluffed a line? Backspace retakes it.', kind: 'spoken' })).json();
-  assert.equal(box.text, 'And if you fluff a line, just press Backspace to take it again.');
-  assert.equal(readFileSync(deck, 'utf8'), withNotes, 'the box writes nothing');
   const started = await (await post(base, '/deck/edit/enhance', { slides: [1], kind: 'spoken' })).json();
   assert.deepEqual({ ok: started.ok, of: started.of, kind: started.kind }, { ok: true, of: 1, kind: 'spoken' });
+  let p = null;
   for (let i = 0; i < 200; i++) {
-    if ((await (await fetch(base + '/deck/ping')).json()).undo === 1) break;
+    p = await (await fetch(base + '/deck/ping')).json();
+    if (p.candidate?.id) break;
     await new Promise((res) => setTimeout(res, 50));
   }
+  assert.ok(p?.candidate?.id, 'held for review');
+  assert.equal(readFileSync(deck, 'utf8'), withNotes, 'the rewrite writes nothing');
+  const c = await (await fetch(`${base}/deck/edit/candidate`)).json();
+  assert.equal(c.what, 'script: written for the ear');
+  await post(base, '/deck/edit/candidate/apply', { id: c.id, take: c.units.map((u) => u.key) });
   assert.match(readFileSync(deck, 'utf8'), /<p>And if you fluff a line, just press Backspace to take it again\.<\/p>/);
   await post(base, '/deck/edit/undo');
   assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes it back');

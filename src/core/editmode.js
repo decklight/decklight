@@ -29,7 +29,7 @@ import { createDock, reopenPanel } from './dock.js';
 import { thinking } from './thinking.js';
 import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
 import { wordDiff, diffCounts } from './worddiff.js';
-import { createFixReview, fixReviewOn, setFixReview } from './fixreview.js';
+import { createFixReview, fixReviewOn, setFixReview, askReviewOn, setAskReview } from './fixreview.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
 import { UNDO_CHORD } from './undo-chord.js';
@@ -787,7 +787,7 @@ export function createEditMode({
                 // a fix held for review (#907): nothing landed, the review opens on it
                 if (d.candidate) {
                   if (!d.candidate.adjusted) {
-                    toast(`🤖 ${d.agent} proposed a fix — review it before it lands${status}`, 3000);
+                    toast(`🤖 ${d.agent} proposed an edit — review it before it lands${status}`, 3000);
                     fixReview.open(d.candidate.id);
                   }
                 } else toast(d.stopped ? `🤖 ${d.agent} stopped${d.changed ? ` — what it had written stays, ${UNDO_CHORD} undoes` : ' — no changes'}`
@@ -843,7 +843,6 @@ export function createEditMode({
             + (editAgents.length ? ` · agents: ${editAgents.map((a) => a.name).join(', ')}` : ''));
           probeSettled();
           resumeHandover();
-          enhanceSummaryAfterReload();
           // a quick fix waiting for review when this page loaded: back to it (#907)
           if (j.candidate?.id) fixReview.open(j.candidate.id);
           else commitDraftAfterReload();
@@ -1111,6 +1110,11 @@ export function createEditMode({
     const on = !fixReviewOn();
     setFixReview(on);
     toast(on ? 'quick fixes: reviewed side by side before they land' : 'quick fixes: land at once, as one undo entry and one commit', 2800);
+  }
+  function toggleAskReview() {
+    const on = !askReviewOn();
+    setAskReview(on);
+    toast(on ? 'agent asks: reviewed side by side before they land' : 'agent asks: land at once, as one undo entry and one commit', 2800);
   }
 
   // undo/redo (Z / ⇧Z) — the dev server's edit history: layout picks, notes
@@ -1380,7 +1384,8 @@ export function createEditMode({
       if (!prompt) return;
       if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return; }
       try {
-        const sent = await postAgentJob(editBase + '/deck/edit/agent', { prompt, agent: pickedAgent, slide: instance.state.slide });
+        // held for review unless Settings → Review agent asks is off (#907)
+        const sent = await postAgentJob(editBase + '/deck/edit/agent', { prompt, agent: pickedAgent, slide: instance.state.slide, ...(askReviewOn() ? { review: true } : {}) });
         if (!sent) { ta.focus(); return; }   // the skill card closed: the ask stays typed
         const { res, j } = sent;
         if (!res.ok) throw new Error(j.error || res.status);
@@ -1836,9 +1841,9 @@ export function createEditMode({
     // module, or the whole deck:
     //   ✨ add audio tags — the tags ElevenLabs v4 performs, same words;
     //   🗣 write it for the ear — terse notes as sentences a person would say.
-    // THIS SLIDE lands in the box and saves itself, like typing, with the
-    // changes on screen: ↺ reset (or Z) takes it back. A module or the deck
-    // is rewritten in the file in one edit, which Z takes back.
+    // Whatever the scope, the answer is HELD for review (#907): the box is
+    // saved first, so the agent reads the notes as the file holds them, and
+    // the review opens on what came back; nothing lands until it is applied.
     if (editAgents.length) {
       const agent = editAgents.find((a) => a.name === preferredAgent) ?? editAgents[0];
       const REWRITE_BUTTONS = [
@@ -1852,43 +1857,10 @@ export function createEditMode({
             + 'Every [click] and [pause] must survive, and the length stay in proportion, or nothing changes.',
           none: 'found nothing to rewrite', landed: 'rewritten for the ear' },
       ];
-      // the box, rewritten in place — the one scope that writes nothing
-      const rewriteBox = async (b, btn) => {
-        const text = ta.value;
-        if (!text.trim()) { toast('nothing to rewrite — the notes are empty'); return; }
-        btn.disabled = true;
-        ta.readOnly = true;   // the answer is to THIS text; typing meanwhile would be overwritten
-        const stop = thinking((t) => { btn.textContent = `${b.label.split(' ')[0]} ${t}`; }, { label: b.drafting });
-        try {
-          const r = await fetch(editBase + '/deck/edit/enhance/text', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text, kind: b.kind }),
-          });
-          const j = await r.json().catch(() => ({}));
-          if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
-          if (!j.changed) toast(`${j.label || j.agent} ${b.none}`, 3200);
-          else {
-            ta.value = j.text;
-            syncChanged();
-            // what changed, on screen the moment it lands, and written like
-            // any other edit: it was asked for, and ↺ reset undoes it
-            showDiff(true);
-            save({ auto: true });
-            toast(`${b.landed} and saved — ✎ edit to change it · ↺ reset puts the notes back`, 6000);
-          }
-          debugLog('enhance', `notes editor (${b.kind}): ${j.changed ? 'drafted' : 'nothing to change'}`);
-        } catch (e) {
-          toast(`nothing changed — ${String(e.message || e)}`, 6000);
-        } finally {
-          stop();
-          btn.textContent = b.label;
-          btn.disabled = false;
-          ta.readOnly = false;
-          if (diffEl.hidden) ta.focus();
-        }
-      };
-      // which slides: this one (the box), its module, or the whole deck
-      const chooseScope = (b, btn) => {
+      // which slides: this one, its module, or the whole deck. The box is
+      // saved first in every case: the agent is asked about the notes as the
+      // file holds them, and the candidate is merged against that file.
+      const chooseScope = (b) => {
         const mod = moduleOf(sl);
         const row = document.createElement('div');
         row.className = 'tr-actions notes-scope';
@@ -1902,14 +1874,15 @@ export function createEditMode({
           row.appendChild(o);
           return o;
         };
-        const writesFile = (scope) => () => {
-          if (ta.value !== loaded) { toast('save or leave this slide\'s edits first (⌘⏎ saves, Esc leaves) — this rewrites the file', 5000); return; }
-          toggleEditor();
+        const go = (scope) => async () => {
+          if (scope === 'slide' && !ta.value.trim()) { toast('nothing to rewrite — the notes are empty'); return; }
+          if (ta.value !== loaded) await save();
+          if (ta.value !== loaded) return;   // the save failed, and said so
           enhanceScript(scope, { kind: b.kind });
         };
-        opt(`this slide`, 'into the box above, saved as it lands — ↺ reset puts it back', () => rewriteBox(b, btn)).classList.add('narr-sel');
-        if (mod) opt(`module “${mod.title}” · ${mod.to - mod.from + 1}`, `slides ${mod.from}–${mod.to}, in the file — ${UNDO_CHORD} undoes`, writesFile('module'));
-        opt(`whole deck · ${instance.state.totalSlides}`, `every slide with notes, in the file — ${UNDO_CHORD} undoes`, writesFile('all'));
+        opt(`this slide`, 'the notes above, saved first — the rewrite is held for review before it lands', go('slide')).classList.add('narr-sel');
+        if (mod) opt(`module “${mod.title}” · ${mod.to - mod.from + 1}`, `slides ${mod.from}–${mod.to} — held for review before they land`, go('module'));
+        opt(`whole deck · ${instance.state.totalSlides}`, 'every slide with notes — held for review before they land', go('all'));
         opt('✕', 'never mind', () => {});
         const hint = document.createElement('span');
         hint.className = 'notes-scope-what';
@@ -1924,7 +1897,7 @@ export function createEditMode({
       for (const b of REWRITE_BUTTONS) {
         const btn = button(`notes-${b.kind === 'tags' ? 'enhance' : 'spoken'}`, b.label,
           `${b.title} The notes are sent to that agent, which may pass them to its provider.`);
-        btn.addEventListener('click', () => chooseScope(b, btn));
+        btn.addEventListener('click', () => chooseScope(b));
         rewrites.appendChild(btn);
       }
       actions.appendChild(rewrites);
@@ -3468,7 +3441,6 @@ export function createEditMode({
   // (read-only), decklight checks and writes. One run at a time; `scope` is
   // 'slide', 'module' (the data-module chapter this slide is in) or 'all'.
   let enhanceRun = null;
-  const ENHANCE_DONE_KEY = 'decklight-enhance-done:' + location.pathname;
   const REWRITES = {
     tags: { doing: 'enhancing', with: ' with ElevenLabs audio tags', drafting: 'drafting audio tags', done: (x) => `enhanced ${x}` },
     spoken: { doing: 'writing for the ear', with: '', drafting: 'rewriting it as spoken sentences', done: (x) => `wrote ${x} for the ear` },
@@ -3522,7 +3494,7 @@ export function createEditMode({
     if (d.stopped) return 'stopped — the script is as it was';
     if (!d.ok) return `could not rewrite the script — ${d.error}`;
     const n = d.changed.length;
-    const parts = [n ? `${k.done(n === 1 ? `slide ${d.changed[0]}` : `${n} slides`)} — ${UNDO_CHORD} undoes` : 'no slide changed'];
+    const parts = [n ? `${k.done(n === 1 ? `slide ${d.changed[0]}` : `${n} slides`)} — ${d.candidate ? 'review it before it lands' : `${UNDO_CHORD} undoes`}` : 'no slide changed'];
     if (d.failed.length) {
       parts.push(d.failed.length === 1 ? `slide ${d.failed[0].slide} left as it was: ${d.failed[0].why}`
         : `${d.failed.length} left as they were (the agent's answer did not pass the check)`);
@@ -3540,10 +3512,8 @@ export function createEditMode({
       if (enhanceRun) enhanceRun.run.done(line, 6000); else toast(line, 6000);
       enhanceRun = null;
       debugLog('enhance', line);
-      // a write reloads the page a moment from now — say it again there
-      if (d.ok && d.changed.length) {
-        try { sessionStorage.setItem(ENHANCE_DONE_KEY, JSON.stringify({ line, at: Date.now() })); } catch { /* said once */ }
-      }
+      // held for review (#907): nothing landed, the review opens on it
+      if (d.candidate?.id) fixReview.open(d.candidate.id);
     }
   }
   // ── the agent review (Check deck…, SPEC PRESENTING) ────────────────────────
@@ -3661,12 +3631,6 @@ export function createEditMode({
       toast(`could not fix ${rule} — ${String(e.message || e).slice(0, 120)}`, 5000);
       return null;
     }
-  }
-
-  function enhanceSummaryAfterReload() {
-    let kept = null;
-    try { kept = JSON.parse(sessionStorage.getItem(ENHANCE_DONE_KEY) || 'null'); sessionStorage.removeItem(ENHANCE_DONE_KEY); } catch { /* nothing kept */ }
-    if (kept && Date.now() - kept.at < 15000) toast(kept.line, 6000);
   }
 
   // ── publishing: the one row that reaches off this machine ────────────────
@@ -3845,6 +3809,8 @@ export function createEditMode({
     /** The review a quick fix opens (#907): its state for a probe, and Settings → Review quick fixes. */
     fixReview,
     reviewFixes: fixReviewOn,
+    reviewAsks: askReviewOn,
+    toggleAskReview,
     toggleFixReview,
     agents: () => editAgents.slice(),
     onWrite: (fn) => { writeListeners.add(fn); },

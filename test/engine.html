@@ -444,12 +444,11 @@
       // slides it will ask about; the rest arrives as 'enhance' events.
       if (HARNESS_MODE === 'enhance') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
-        if (u.includes('/deck/edit/enhance/text')) {
-          const { text } = JSON.parse(init?.body ?? '{}');
-          return json({ ok: true, changed: true, text: `[warm] ${text}`, agent: 'claude', label: 'Claude Code' });
-        }
-        // the box's rewrite saves itself, like typing
+        // the notes editor saves its box before a rewrite is asked for
         if (u.includes('/deck/edit/slide/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+        // a rewrite held for review (#907): the candidate, and its discard
+        if (u.includes('/deck/edit/candidate/discard')) { window.__discarded = JSON.parse(init?.body ?? '{}'); return json({ ok: true, discarded: true }); }
+        if (u.includes('/deck/edit/candidate')) return json({ ok: true, ...window.__candidate });
         if (u.includes('/deck/edit/enhance')) {
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, of: body.slides === 'all' ? 3 : 1, agent: 'claude', label: 'Claude Code' });
@@ -2833,7 +2832,7 @@
         press('Escape');
         await settle();
         r.escDiscardsIt = !document.querySelector('.decklight-fixreview') && window.__discarded?.id === 'c9'
-          && [...document.querySelectorAll('.decklight-toast')].some((x) => /fix discarded — the deck is unchanged/.test(x.textContent));
+          && [...document.querySelectorAll('.decklight-toast')].some((x) => /discarded — the deck is unchanged/.test(x.textContent));
         window.__candidate = null;
         // f on ds-behind is Migrate: the server's run, shown in the agent panel, which takes the slot
         while (selectedRule() !== 'ds-behind') press('ArrowUp');
@@ -4960,6 +4959,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
       if (mode === 'enhance') {
         // Two palette rows — this slide, every slide — post the scope; the row
         // rewrites itself per slide and ends on what was done and what was not.
+        // What came back is HELD (#907): the review opens on it, nothing landed.
         const Q = '.decklight-palette', ROW = '.pal-row';
         const run = async (typed, want) => {
           if (document.querySelector(Q)) press('Escape');
@@ -4974,33 +4974,53 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           return !!found;
         };
         const said = () => [...document.querySelectorAll('.decklight-toast')].map((e) => e.textContent).join(' | ');
+        const review = () => document.querySelector('.decklight-fixreview');
+        // the server's word on a finished run: the candidate it holds
+        const held = (id, what, units) => {
+          window.__candidate = { id, rev: 1, what, kind: 'script', units, left: [] };
+          return { id, units: units.length };
+        };
+        const unit = (n) => ({ key: `s${n}`, kind: 'changed', slide: n, was: n, title: `Slide ${n}`, notes: { before: 'one way', after: '[warm] one way' } });
+        const lastEnhance = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).pop()?.body;
         await settle();
         deck.goto(2, 0);
         r.slideRow = await run('enhance', /Enhance this slide's voiceover script/);
-        r.sentSlide = JSON.stringify(CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).pop()?.body?.slides);
+        r.sentSlide = JSON.stringify(lastEnhance()?.slides);
         r.saysDrafting = /Claude Code is drafting audio tags \(read-only\)/.test(said());
         window.__es.emit('enhance', { state: 'slide', slide: 2, ok: true, changed: true, done: 1, of: 1 });
         await settle();
         r.counts = /1 of 1 slide/.test(said());
-        window.__es.emit('enhance', { state: 'done', ok: true, changed: [2], failed: [], stale: [] });
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [2], failed: [], stale: [], candidate: held('c1', 'script: audio tags', [unit(2)]) });
+        await settle(); await settle();
+        r.saysDone = /enhanced slide 2 — review it before it lands/.test(said());
+        // nothing landed: the review opens on the candidate, the deck as it is beside it
+        const panes = [...(review()?.querySelectorAll('.fr-pane iframe') ?? [])].map((f) => f.getAttribute('src') ?? '');
+        r.heldOpensTheReview = !!review() && /script: audio tags/.test(review().querySelector('.fr-title')?.textContent ?? '')
+          && panes.length === 2 && /candidate\/at\?id=c1&side=before/.test(panes[0]) && /candidate\/at\?id=c1&side=after/.test(panes[1]);
+        press('Escape');
         await settle();
-        r.saysDone = /enhanced slide 2 — (⌘Z|Ctrl\+Z) undoes/.test(said());
+        r.escDiscardsIt = !review() && window.__discarded?.id === 'c1' && /discarded — the deck is unchanged/.test(said());
         r.allRow = await run('enhance', /Enhance every slide's voiceover script/);
-        r.sentAll = CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).pop()?.body?.slides === 'all';
-        window.__es.emit('enhance', { state: 'done', ok: true, changed: [1, 3], failed: [{ slide: 2, why: 'the agent changed the words — the prompt allows only tags and emphasis' }], stale: [] });
+        r.sentAll = lastEnhance()?.slides === 'all';
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [1, 3], failed: [{ slide: 2, why: 'the agent changed the words — the prompt allows only tags and emphasis' }], stale: [],
+          candidate: held('c2', 'script: audio tags', [unit(1), unit(3)]) });
+        await settle(); await settle();
+        r.saysWhatWasLeft = /enhanced 2 slides — review it before it lands · slide 2 left as it was: the agent changed the words/.test(said());
+        press('Escape');
         await settle();
-        r.saysWhatWasLeft = /enhanced 2 slides — (⌘Z|Ctrl\+Z) undoes · slide 2 left as it was: the agent changed the words/.test(said());
         // written for the ear, for the MODULE this slide is in (slide 2 opens
         // "Foundations", which runs to slide 3 — slide 4 opens "Operations")
         r.earModuleRow = await run('ear', /Write this module's notes for the ear/);
-        const earBody = CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).pop()?.body;
+        const earBody = lastEnhance();
         r.sentModuleSpoken = JSON.stringify(earBody?.slides) === '[2,3]' && earBody?.kind === 'spoken';
         r.saysWritingForTheEar = /writing for the ear: the “Foundations” module \(slides 2–3\)/.test(said());
-        window.__es.emit('enhance', { state: 'done', ok: true, changed: [2, 3], failed: [], stale: [], kind: 'spoken' });
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [2, 3], failed: [], stale: [], kind: 'spoken', candidate: held('c3', 'script: written for the ear', [unit(2), unit(3)]) });
+        await settle(); await settle();
+        r.saysWrote = /wrote 2 slides for the ear — review it before it lands/.test(said());
+        press('Escape');
         await settle();
-        r.saysWrote = /wrote 2 slides for the ear — (⌘Z|Ctrl\+Z) undoes/.test(said());
-        // …and the notes editor's own button: the rewrite lands IN THE BOX,
-        // saves itself like typing, and its changes are on screen at once
+        // …and the notes editor's own button: the box is SAVED first, the
+        // rewrite of this slide asked for, and the review opens over the card
         if (document.querySelector(Q)) press('Escape');
         await settle();
         deck.goto(2, 0);
@@ -5014,9 +5034,11 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const before = box?.value;
         const notesPosts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/notes')).length;
         const posted = notesPosts();
+        const enhancePosts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).length;
+        const asked = enhancePosts();
         r.editorButton = !!document.querySelector('.decklight-editor .notes-enhance');
         r.tooltipNamesTheAgent = /Claude Code drafts ElevenLabs v4 audio tags/.test(document.querySelector('.decklight-editor .notes-enhance')?.title ?? '');
-        // it asks which slides first: this one (the box), or the whole deck
+        // it asks which slides first: this one, its module, or the whole deck
         document.querySelector('.decklight-editor .notes-enhance')?.click();
         await settle();
         const scopes = () => [...document.querySelectorAll('.decklight-editor .notes-scope button')].map((b) => b.textContent);
@@ -5024,48 +5046,53 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         [...document.querySelectorAll('.decklight-editor .notes-scope button')].find((b) => b.textContent === 'this slide')?.click();
         await settle(); await settle();
         await settle();
-        r.draftInTheBox = !!before && box?.value === `[warm] ${before}`;
         const lastNotes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/notes')).pop()?.body;
-        r.draftSaved = notesPosts() === posted + 1 && lastNotes()?.text === `[warm] ${before}`;
+        r.boxSavedFirst = notesPosts() === posted + 1 && lastNotes()?.text === before && lastNotes()?.slide === 2;
+        r.boxAskedForTags = enhancePosts() === asked + 1 && JSON.stringify(lastEnhance()?.slides) === '[2]' && lastEnhance()?.kind === 'tags';
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [2], failed: [], stale: [], candidate: held('c4', 'script: audio tags', [unit(2)]) });
+        await settle(); await settle();
+        r.reviewOverTheCard = !!review() && !!document.querySelector('.decklight-editor');
+        press('Escape');
+        await settle();
+        r.cardStays = !review() && !!document.querySelector('.decklight-editor') && box?.value === before;
         // ⇄ changes, on screen without a click: the notes as the card opened,
         // against the box, word by word; the switch lights the view shown
+        btnOf('notes-compare')?.click();
+        await settle();
         const diff = document.querySelector('.decklight-editor .notes-diff');
         r.diffShown = !!diff && !diff.hidden && box.hidden
           && btnOf('notes-compare')?.classList.contains('narr-sel') && !btnOf('notes-edit')?.classList.contains('narr-sel')
-          && [...diff.querySelectorAll('ins')].some((n) => n.textContent.includes('[warm]'))
           && [...diff.querySelectorAll('ins')].some((n) => n.textContent.includes('An unsaved line.'))
           && /since this card opened · −\d+ \+\d+ words/.test(diff.querySelector('.notes-diff-head')?.textContent ?? '');
         // …and it stays there once saved: against the card's opening, not the last save
         r.diffAfterSave = !btnOf('notes-compare')?.disabled;
         btnOf('notes-edit')?.click();   // ✎ edit
         await settle();
-        r.backToEditing = diff.hidden && !box.hidden && box.value === `[warm] ${before}`
+        r.backToEditing = diff.hidden && !box.hidden && box.value === before
           && btnOf('notes-edit')?.classList.contains('narr-sel');
-        // ↺ reset: back to the notes as the card opened — the rewrite AND the
-        // typing go, and the file is written back
+        // ↺ reset: back to the notes as the card opened — the typing goes,
+        // and the file is written back
         btnOf('notes-reset')?.click();
         await settle(); await settle();
         r.resetToSaved = box.value === saved && !!btnOf('notes-reset')?.disabled
           && notesPosts() === posted + 2 && lastNotes()?.text === saved;
-        r.boxAskedForTags = CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance/text')).pop()?.body?.kind === 'tags';
-        // 🗣 write it for the ear: the same choice; the whole deck is written in the file
+        // 🗣 write it for the ear: the same choice; an unsaved edit in the box
+        // is saved first, then the whole deck is asked about
         const spoken = document.querySelector('.decklight-editor .notes-spoken');
         r.spokenButton = spoken?.textContent === '🗣 write it for the ear' && /sentences a person would say out loud/.test(spoken.title);
-        if (box) box.value = before;   // nothing unsaved: the deck is about to be rewritten
-        const loadedAgain = box?.value;
+        if (box) box.value = `${saved} edited`;
         spoken?.click();
         await settle();
         const deckRow = [...document.querySelectorAll('.decklight-editor .notes-scope button')].find((b) => /^whole deck/.test(b.textContent));
-        // an unsaved edit in the box stops a whole-deck rewrite, and says why
-        if (box) box.value = `${loadedAgain} edited`;
         deckRow?.click();
-        await settle();
-        r.unsavedStops = /save or leave this slide's edits first/.test(said());
-        if (box) box.value = loadedAgain;
+        await settle(); await settle(); await settle();
+        r.unsavedSavedFirst = notesPosts() === posted + 3 && lastNotes()?.text === `${saved} edited`
+          && lastEnhance()?.slides === 'all' && lastEnhance()?.kind === 'spoken';
         r.PASS = r.slideRow && r.sentSlide === '[2]' && r.saysDrafting && r.counts && r.saysDone
+          && r.heldOpensTheReview && r.escDiscardsIt
           && r.allRow && r.sentAll && r.saysWhatWasLeft
-          && r.editorButton && r.tooltipNamesTheAgent && r.asksWhichSlides && r.draftInTheBox && r.draftSaved
-          && r.boxAskedForTags && r.spokenButton && r.unsavedStops
+          && r.editorButton && r.tooltipNamesTheAgent && r.asksWhichSlides && r.boxSavedFirst && r.boxAskedForTags
+          && r.reviewOverTheCard && r.cardStays && r.spokenButton && r.unsavedSavedFirst
           && r.idleWhenUnchanged && r.diffShown && r.diffAfterSave && r.backToEditing && r.resetToSaved
           && r.earModuleRow && r.sentModuleSpoken && r.saysWritingForTheEar && r.saysWrote;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);

@@ -2,15 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * A quick fix, reviewed before it lands (SPEC PRESENTING_EDITING, #907).
+ * A change proposed by an agent, reviewed before it lands (SPEC
+ * PRESENTING_EDITING, #907).
  *
- * Check deck…'s quick fixes are held by the edit server as a CANDIDATE
- * (cli/fix-review.mjs): the deck on disk is untouched, nothing is committed,
- * no page reloads. This view shows the deck as it is on the left and as the
- * fix would make it on the right, both at the same slide and build step, and
- * walks only the places they differ: every build step of a changed slide whose
- * render differs, an added or a removed slide, and the deck's head (styles,
- * the config) when the fix touched it.
+ * Check deck…'s quick fixes, the script rewrites (PRESENTING_VOICE) and an A
+ * ask are held by the edit server as a CANDIDATE (cli/fix-review.mjs): the
+ * deck on disk is untouched, nothing is committed, no page reloads. This view
+ * shows the deck as it is on the left and as the change would make it on the
+ * right, both at the same slide and build step, and walks only the places
+ * they differ: every build step of a changed slide whose render differs, an
+ * added or a removed slide, and the deck's head (styles, the config) when the
+ * change touched it.
  *
  * A SLIDE IS DECIDED, A STEP IS SHOWN. Approve (A) or reject (X, with an
  * optional comment) covers every changed step of that slide, because a slide
@@ -174,7 +176,7 @@ export function createFixReview({
       const r = await fetch(`${base()}/deck/edit/candidate${id ? `?id=${encodeURIComponent(id)}` : ''}`);
       j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || r.status);
-    } catch (e) { toast(`no fix to review — ${String(e.message || e).slice(0, 80)}`, 3000); return; }
+    } catch (e) { toast(`nothing to review — ${String(e.message || e).slice(0, 80)}`, 3000); return; }
     cand = j;
     decisions = new Map();
     adjusting = j.adjusting ?? null;
@@ -201,16 +203,16 @@ export function createFixReview({
   function build() {
     el = node('div', 'decklight-fixreview');
     el.setAttribute('role', 'dialog');
-    el.setAttribute('aria-label', 'Review the fix');
+    el.setAttribute('aria-label', 'Review the change');
     const panel = node('div', 'fr-panel');
     const head = node('div', 'fr-head');
-    head.append(node('span', 'fr-title', `Review the fix · ${cand.what}`), node('span', 'fr-pos'));
+    head.append(node('span', 'fr-title', `Review · ${cand.what}`), node('span', 'fr-pos'));
     const panes = node('div', 'fr-panes');
-    for (const [side, label] of [['before', 'current'], ['after', 'with the fix']]) {
+    for (const [side, label] of [['before', 'current'], ['after', 'proposed']]) {
       const pane = node('figure', `fr-pane fr-${side}`);
       const cap = node('figcaption', 'fr-label', label);
       const frame = node('iframe');
-      frame.title = side === 'before' ? 'The deck as it is' : 'The deck with the fix';
+      frame.title = side === 'before' ? 'The deck as it is' : 'The deck with the change';
       const gone = node('div', 'fr-gone');
       gone.hidden = true;
       pane.append(cap, frame, gone);
@@ -231,9 +233,9 @@ export function createFixReview({
       btn('fr-next', '›', 'next change (→ or ])', () => show(at + 1)),
       ...(toggleCaptions ? [btn('fr-cc', 'CC', 'captions in both panes (C)', flipCaptions)] : []),
       node('span', 'fr-state'),
-      btn('fr-approve', 'Approve', 'take this slide from the fix (A)', () => decide('approved')),
+      btn('fr-approve', 'Approve', 'take this slide from the proposal (A)', () => decide('approved')),
       btn('fr-reject', 'Reject…', 'keep this slide as it is, with a comment if you like (X)', () => openBox('reject')),
-      btn('fr-adjust', 'Adjust…', 'ask the agent to change this slide of the fix (E)', () => openBox('adjust')),
+      btn('fr-adjust', 'Adjust…', 'ask the agent to change this slide of the proposal (E)', () => openBox('adjust')),
       node('span', 'fr-gap'),
       btn('fr-apply', 'Apply validated only', 'write the approved slides — one undo entry (⇧⏎)', () => apply(false)),
       btn('fr-apply-all fr-primary', 'Apply all', 'write every change but the rejected ones — one undo entry (⌘⏎)', () => apply(true)),
@@ -250,7 +252,7 @@ export function createFixReview({
       e.stopPropagation();
     });
     boxEl.append(ta, boxGo, boxNo);
-    const foot = node('div', 'fr-foot', '←/→ changes · A approve · X reject · E adjust · C captions · ⇧⏎ apply validated · ⌘⏎ apply all · Esc discards the fix');
+    const foot = node('div', 'fr-foot', '←/→ changes · A approve · X reject · E adjust · C captions · ⇧⏎ apply validated · ⌘⏎ apply all · Esc discards it all');
     panel.append(head, panes, notes, bar, boxEl, foot);
     el.append(panel);
     root.appendChild(el);
@@ -273,11 +275,11 @@ export function createFixReview({
 
   function show(i) {
     if (!el) return;
-    if (!stops.length) { say('the fix changes nothing the review can show'); paintDecision(); return; }
+    if (!stops.length) { say('the proposal changes nothing the review can show'); paintDecision(); return; }
     at = Math.max(0, Math.min(i, stops.length - 1));
     const s = stops[at];
     const [lf, rf] = frames();
-    for (const [frame, pos, why] of [[lf, s.left, 'not in the deck as it is — the fix adds this slide'], [rf, s.right, 'the fix removes this slide']]) {
+    for (const [frame, pos, why] of [[lf, s.left, 'not in the deck as it is — the proposal adds this slide'], [rf, s.right, 'the proposal removes this slide']]) {
       const gone = frame.parentElement.querySelector('.fr-gone');
       gone.hidden = !!pos;
       gone.textContent = pos ? '' : why;
@@ -402,7 +404,7 @@ export function createFixReview({
       const j = await r.json();
       if (!j.ok) throw new Error(j.error);
       cand = j;
-    } catch { toast('the adjusted fix could not be read — Esc discards it', 4000); return; }
+    } catch { toast('the adjusted proposal could not be read — Esc discards it', 4000); return; }
     decisions.delete(key);
     // a decision on a slide the adjustment took away goes with it
     for (const k of [...decisions.keys()]) if (!unitOf(k)) decisions.delete(k);
@@ -416,7 +418,7 @@ export function createFixReview({
       const d = decisions.get(u.key);
       return all ? d?.state !== 'rejected' : d?.state === 'approved';
     }).map((u) => u.key);
-    if (!take.length) { toast(all ? 'every change is rejected — Esc discards the fix' : 'nothing approved yet — A approves a slide', 2600); return; }
+    if (!take.length) { toast(all ? 'every change is rejected — Esc discards it all' : 'nothing approved yet — A approves a slide', 2600); return; }
     const rejected = [...decisions].filter(([, d]) => d.state === 'rejected').map(([key, d]) => ({ key, comment: d.comment }));
     busy = true;
     paintDecision();
@@ -437,7 +439,7 @@ export function createFixReview({
     } catch (e) {
       busy = false;
       if (el) paintDecision();
-      toast(`could not apply the fix — ${String(e.message || e).slice(0, 120)}`, 5000);
+      toast(`could not apply it — ${String(e.message || e).slice(0, 120)}`, 5000);
     }
   }
 
@@ -451,7 +453,7 @@ export function createFixReview({
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.id }),
       });
     } catch { /* the next fix replaces it anyway */ }
-    toast('fix discarded — the deck is unchanged', 2600);
+    toast('discarded — the deck is unchanged', 2600);
   }
 
   function teardown() {
@@ -504,9 +506,13 @@ export function createFixReview({
 }
 
 /**
- * Settings → Review quick fixes: on unless the author turned it off, per
- * browser (how you like to work, not a fact about a deck). Off, a quick fix
- * lands at once, as it did before the review existed.
+ * Settings → Review quick fixes, and Review agent asks: each on unless the
+ * author turned it off, per browser (how you like to work, not a fact about
+ * a deck). Off, the fix or the ask lands at once, as it did before the review
+ * existed. A script rewrite has no switch: the review is how it arrives.
  */
 export const fixReviewOn = () => readPref(PREF) !== 'off';
 export const setFixReview = (on) => writePref(PREF, on ? null : 'off');
+const ASK_PREF = 'decklight-ask-review';
+export const askReviewOn = () => readPref(ASK_PREF) !== 'off';
+export const setAskReview = (on) => writePref(ASK_PREF, on ? null : 'off');

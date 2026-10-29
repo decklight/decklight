@@ -1379,6 +1379,9 @@ export function init(userConfig = {}) {
       // before it lands, unless this is off (#907)
       ...(editmode?.available() ? [{ label: 'Review quick fixes', value: editmode.reviewFixes() ? 'before they land' : 'off — they land at once',
         hint: '⏎ switches', stays: true, run: () => editmode.toggleFixReview() }] : []),
+      // …and an A ask the same way; a script rewrite always is
+      ...(editmode?.available() ? [{ label: 'Review agent asks', value: editmode.reviewAsks() ? 'before they land' : 'off — they land at once',
+        hint: '⏎ switches', stays: true, run: () => editmode.toggleAskReview() }] : []),
       // write mode only: the notes card writes itself this long after the
       // typing stops; ⏎ walks the steps, off last
       ...(editmode?.available() ? [{ label: 'Notes autosave', value: editmode.notesQuietLabel(),
