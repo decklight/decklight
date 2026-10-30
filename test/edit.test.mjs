@@ -1054,6 +1054,38 @@ test('POST /deck/edit/enhance { kind: "spoken" }: the notes written for the ear,
   assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes it back');
 });
 
+test('POST /deck/edit/enhance { kind: "match-slide" }: the notes reworded to the slide, sent the slide\'s text, held for review', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const withNotes = DECK
+    .replace('<ul><li>one</li></ul>', '<ul><li>one</li></ul>\n      <aside class="notes"><p>Here is the first point.</p></aside>');
+  writeFileSync(deck, withNotes);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  // a fake agent that names the slide's item only when it was shown the slide
+  writeFakeBin(bin, 'claude', [
+    "const prompt = process.argv[process.argv.indexOf('-p') + 1] ?? '';",
+    "const script = prompt.split('# Script\\n\\n')[1] ?? '';",
+    "const slide = (prompt.split('# Slide\\n\\n')[1] ?? '').split('\\n\\n# Script')[0];",
+    "console.log(slide.split('\\n').includes('one') ? script.replace('the first point', 'point one') : script);",
+  ].join('\n'));
+  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
+  const started = await (await post(base, '/deck/edit/enhance', { slides: [1], kind: 'match-slide' })).json();
+  assert.deepEqual({ ok: started.ok, kind: started.kind }, { ok: true, kind: 'match-slide' });
+  let p = null;
+  for (let i = 0; i < 200; i++) {
+    p = await (await fetch(base + '/deck/ping')).json();
+    if (p.candidate?.id) break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  assert.ok(p?.candidate?.id, 'held for review');
+  assert.equal(readFileSync(deck, 'utf8'), withNotes, 'the rewrite writes nothing');
+  const c = await (await fetch(`${base}/deck/edit/candidate`)).json();
+  assert.equal(c.what, 'script: matched to the slide');
+  await post(base, '/deck/edit/candidate/apply', { id: c.id, take: c.units.map((u) => u.key) });
+  assert.match(readFileSync(deck, 'utf8'), /<p>Here is point one\.<\/p>/);
+});
+
 test('POST /deck/edit/rewrite: the slide text, tightened by the agent run by run, HELD for review, then applied in ONE undo', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');

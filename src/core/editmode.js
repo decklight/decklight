@@ -3408,15 +3408,17 @@ export function createEditMode({
   }
 
   // ── the voiceover script, rewritten by the agent ──────────────────────────
-  // Two rewrites (cli/enhance.mjs, SPEC PRESENTING): `tags` gives it the audio
+  // Three rewrites (cli/enhance.mjs, SPEC PRESENTING): `tags` gives it the audio
   // tags ElevenLabs v4 performs, same words; `spoken` writes it for the ear —
-  // terse notes turned into sentences a person would say. The agent drafts
+  // terse notes turned into sentences a person would say; `match-slide`
+  // rewords it to agree with what the slide shows. The agent drafts
   // (read-only), decklight checks and writes. One run at a time; `scope` is
   // 'slide', 'module' (the data-module chapter this slide is in) or 'all'.
   let enhanceRun = null;
   const REWRITES = {
     tags: { doing: 'enhancing', with: ' with ElevenLabs audio tags', drafting: 'drafting audio tags', done: (x) => `enhanced ${x}` },
     spoken: { doing: 'writing for the ear', with: '', drafting: 'rewriting it as spoken sentences', done: (x) => `wrote ${x} for the ear` },
+    'match-slide': { doing: 'matching the script to the slide', with: '', drafting: 'reading the slide', done: (x) => `matched ${x} to the slide` },
     // the slide's own text (cli/rewrite.mjs, PRESENTING_WRITING)
     tighten: { doing: 'tightening', with: '', drafting: 'tightening the slide text', done: (x) => `tightened ${x}`, text: true },
     typos: { doing: 'fixing typos and grammar', with: '', drafting: 'reading the slide text', done: (x) => `fixed ${x}`, text: true },
@@ -3459,7 +3461,7 @@ export function createEditMode({
    */
   async function enhanceScript(scope = 'slide', { kind = 'tags', instruction = '' } = {}) {
     const k = REWRITES[kind] ?? REWRITES.tags;
-    if (!editAvailable) { toast(cannot(k.text ? 'rewriting the slide text' : kind === 'spoken' ? 'rewriting the notes' : 'enhancing the script'), 3200); return; }
+    if (!editAvailable) { toast(cannot(k.text ? 'rewriting the slide text' : kind !== 'tags' ? 'rewriting the notes' : 'enhancing the script'), 3200); return; }
     if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
     if (enhanceRun) { toast('the agent is already rewriting — one run at a time'); return; }
     const slide = instance.state.slide;

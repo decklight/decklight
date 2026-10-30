@@ -202,6 +202,7 @@ narrate, template, library, gate) are defined once in
 | `video deck.html` | a narrated video: mp4, mov or webm, with subtitles in it or beside it (`--format`, `--quality`, `--subtitles`; `--slides 5-9` for part of it, `--voiceover` synthesizes first; also **Export a video…** in the deck's palette, which can voice it with the live voice first) |
 | `enhance deck.html --slides 3` | add ElevenLabs v4 audio tags to the notes with the prompt ElevenLabs publishes: your agent drafts, decklight checks no word changed (`--all`, `--dry-run`) |
 | `enhance deck.html --spoken --slides 3` | write terse notes for the ear, as sentences a person would say: your agent rewrites, decklight checks every `[click]` and `[pause]` survived |
+| `enhance deck.html --match-slide --slides 3` | reword the notes to agree with what the slide shows, its terms, numbers and order: checked like `--spoken` |
 
 | Keeping track | |
 |---|---|

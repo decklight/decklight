@@ -261,7 +261,9 @@ loud — "And if you fluff a line, just press Backspace to take it again", not
 "Fluffed a line? Backspace retakes it." — and say symbols as words ("Command",
 not "⌘"). To rewrite terse notes that way when asked, \`decklight enhance
 deck.html --spoken --slides 3\` does it with the same checks on the beats and
-the pauses.
+the pauses. Notes that drifted from their slide (another name for a term, a
+number the slide gives differently) are brought back in line with
+\`decklight enhance deck.html --match-slide --slides 3\`, the same checks again.
 
 **Installed marketplace skills sit beside this one.** \`decklight library add
 skill <name>\` installs a skill from a marketplace into

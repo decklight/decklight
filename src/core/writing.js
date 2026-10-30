@@ -12,7 +12,7 @@
  * with the counts the notes editor used to show.
  *
  * A tool is `{ id, group, label, flavor, kind }`; the groups are `script` (the
- * speaker notes: audio tags, written for the ear) and, later, `text` (the
+ * speaker notes: audio tags, written for the ear, matched to the slide) and `text` (the
  * slide's own words). Picking a tool moves to the scope rows; picking a scope
  * closes the card and runs the tool. What a run does with its answer is the
  * caller's: a script rewrite is held for review (cli/enhance.mjs, #907).
@@ -33,6 +33,7 @@ import { aiIcon } from './aiicon.js';
 export const WRITING_TOOLS = [
   { id: 'tags', group: 'script', label: 'add audio tags', ai: true, flavor: 'same words, the tags ElevenLabs v4 performs', kind: 'tags' },
   { id: 'spoken', group: 'script', label: '🗣 write it for the ear', flavor: 'terse notes as sentences a person would say', kind: 'spoken' },
+  { id: 'match-slide', group: 'script', label: '⇄ match the slide', flavor: 'the notes agree with what the slide shows', kind: 'match-slide' },
   { id: 'tighten', group: 'text', label: '✂ tighten', flavor: 'shorter, same meaning, same structure', kind: 'tighten' },
   { id: 'typos', group: 'text', label: '✓ fix typos and grammar', flavor: 'spelling, grammar, punctuation; nothing reworded', kind: 'typos' },
   { id: 'match', group: 'text', label: '⇄ match the script', flavor: 'the slide agrees with what the notes say', kind: 'match' },

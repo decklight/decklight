@@ -11,6 +11,7 @@ import {
   ELEVENLABS_ENHANCE_PROMPT, ENHANCE_SOURCE, enhancePrompt, slideScript, enhanceProblem, unwrapAnswer,
   parseSlides, enhanceable, enhanceDeck, applyEnhanced, enhanceMain,
   SPOKEN_PROMPT, spokenPrompt, spokenProblem, enhanceText, KINDS,
+  MATCH_SLIDE_PROMPT, matchSlidePrompt, slideTextOf,
 } from '../cli/enhance.mjs';
 
 const deck = (...notes) => `<div class="decklight">\n${notes.map((n, i) => `    <section><h2>S${i + 1}</h2>${
@@ -150,7 +151,7 @@ test('written for the ear: its own prompt — the example it was asked for — t
   assert.match(p, /\[click\] — on a line of its own/, 'the beats are still decklight\'s');
   assert.match(p, /Reply with the rewritten script ONLY/);
   assert.ok(p.endsWith('# Script\n\nFluffed a line? Backspace retakes it.'));
-  assert.deepEqual(Object.keys(KINDS), ['tags', 'spoken']);
+  assert.deepEqual(Object.keys(KINDS), ['tags', 'spoken', 'match-slide']);
 });
 
 test('written for the ear may reword — but never the beats, a pause, a whole beat, or the length out of proportion', () => {
@@ -175,4 +176,37 @@ test('enhanceText({ kind: "spoken" }) asks the spoken prompt and checks with the
   assert.deepEqual(r, { ok: true, text: 'And if you fluff a line, just press Backspace to take it again.', changed: true });
   const tags = await enhanceText('Fluffed a line? Backspace retakes it.', { resolveAgent, exec });
   assert.equal(tags.ok, false, 'the default is still the tags, which keep every word');
+});
+
+// ── matched to the slide (--match-slide) ────────────────────────────────────
+
+test('matched to the slide: its own prompt, decklight\'s markers, the slide\'s text, then the script', () => {
+  const p = matchSlidePrompt('We cut costs by a third.', { slideText: 'Costs down 40%\nSince March' });
+  assert.ok(p.startsWith(MATCH_SLIDE_PROMPT));
+  assert.match(MATCH_SLIDE_PROMPT, /agrees with what the slide shows/);
+  assert.match(MATCH_SLIDE_PROMPT, /the slide wins/);
+  assert.match(p, /\[click\] — on a line of its own/);
+  assert.match(p, /Reply with the rewritten script ONLY/);
+  assert.ok(p.endsWith('# Slide\n\nCosts down 40%\nSince March\n\n# Script\n\nWe cut costs by a third.'));
+  assert.match(matchSlidePrompt('Hi.'), /# Slide\n\n\(the slide shows no text\)/);
+  assert.equal(KINDS['match-slide'].problem, spokenProblem, 'it rewords, so it is checked like the spoken rewrite');
+});
+
+test('slideTextOf: the slide\'s visible text, a run per line, never the notes, code or the section tag', () => {
+  const body = '<section data-module="Setup"><h2>Costs &amp; savings</h2><ul><li>Down <b>40%</b></li></ul>'
+    + '<pre><code>npm run x</code></pre><aside class="notes"><p>We cut costs.</p></aside></section>';
+  assert.equal(slideTextOf(body), 'Costs & savings\nDown\n40%');
+});
+
+test('enhanceDeck({ kind: "match-slide" }) sends each slide\'s own text with its script', async () => {
+  const html = '<div class="decklight">\n    <section><h2>Costs down 40%</h2>\n      <aside class="notes"><p>We cut costs by a third.</p></aside>\n    </section>\n'
+    + '    <section><h2>Hiring paused</h2>\n      <aside class="notes"><p>We stopped hiring.</p></aside>\n    </section>\n</div>';
+  const asked = [];
+  const resolveAgent = (_a, prompt) => { asked.push(prompt); return { bin: 'x', args: [], name: 'claude' }; };
+  const exec = async (cmd) => 'We cut costs by forty percent.';
+  const { results } = await enhanceDeck(html, [1], { kind: 'match-slide', resolveAgent, exec });
+  const prompt = asked.find((p) => p.includes('# Script'));
+  assert.match(prompt, /# Slide\n\nCosts down 40%\n\n# Script\n\nWe cut costs by a third\.$/);
+  assert.doesNotMatch(prompt, /Hiring paused/, 'a slide is asked with its own text, not its neighbour\'s');
+  assert.deepEqual(results, [{ slide: 1, ok: true, changed: true }]);
 });

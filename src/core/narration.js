@@ -2547,12 +2547,12 @@ export function createNarration({
       });
       const AROUND = 'around the voice';
       // The script the voice reads: given ElevenLabs v4's audio tags, or
-      // written for the ear. It writes the deck, so it needs the edit server;
+      // written for the ear, or matched to the slide. It writes the deck, so it needs the edit server;
       // said in place.
       narrRows.push({
         group: AROUND,
         text: '✍ Writing…',
-        flavor: openWriting() ? 'audio tags · write for the ear' : '',
+        flavor: openWriting() ? 'audio tags · write for the ear · match the slide' : '',
         blocked: openWriting() ? null : 'needs write mode — it writes the notes',
         commit: () => { const go = openWriting(); if (!go) { toast('the writing tools need write mode — they write the notes', 4000); return; } closeNarrPicker(); go(); },
       });

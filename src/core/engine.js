@@ -1151,6 +1151,9 @@ export function init(userConfig = {}) {
       write({ label: 'Write the script for the ear…', cat: 'Voice',
         alias: 'spoken conversational natural sentences rewrite notes voiceover script say aloud human speakable ear this slide module every',
         run: () => editmode.openWriting({ tool: 'spoken' }) }),
+      write({ label: 'Match the script to the slide…', cat: 'Voice',
+        alias: 'match agree align consistent slide text notes voiceover script rewrite terms what the slide says shows this slide module every',
+        run: () => editmode.openWriting({ tool: 'match-slide' }) }),
       // ── Present ─────────────────────────────────────────────────────────
       { label: 'Speaker view — second window', cat: 'Present', hint: SPEAKER_CHORD, alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
       { label: 'Fullscreen', cat: 'Present', hint: 'F · ' + PRESENT_CHORD, run: () => toggleFullscreen() },

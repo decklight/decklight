@@ -41,7 +41,7 @@
 //   POST /deck/edit/candidate/adjust → { id, key, comment }   one slide of it back to the agent
 //   POST /deck/edit/candidate/discard → { id }  drop it; the deck was never touched
 //   POST /deck/edit/agent/stop      → stop the agent job in flight: that edit, an enhancement or a review
-//   POST /deck/edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags') or written for the ear ('spoken'), held for review
+//   POST /deck/edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags'), written for the ear ('spoken') or matched to the slide ('match-slide'), held for review
 //   POST /deck/edit/rewrite         → { slides: [n…]|'all', tool, instruction?, agent? } the slide's own text: tighten, typos, match, custom (cli/rewrite.mjs), held for review
 //   POST /deck/edit/review          → { agent? } the agent reads the deck, read-only, for Check deck…'s agent review (writes nothing)
 //   GET  /deck/edit/review          → the last review's findings that still hold, each with the prompt that fixes it
@@ -3163,7 +3163,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // the whole run back. Progress rides the SSE channel as 'enhance' events.
   async function enhanceRoute({ body, json }) {
     const { slides, agent, kind: asked } = JSON.parse(body);
-    const kind = asked === 'spoken' ? 'spoken' : 'tags';
+    const { enhanceDeck, applyEnhanced, enhanceable, KINDS } = await import('./enhance.mjs');
+    const kind = Object.hasOwn(KINDS, asked ?? '') ? asked : 'tags';
     const which = slides === 'all' ? null
       : Array.isArray(slides) && slides.length && slides.every((n) => Number.isInteger(n) && n > 0) ? slides : undefined;
     if (which === undefined) throw new Error('bad payload');
@@ -3173,7 +3174,6 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const name = agent ?? agentPref ?? null;
     const cmd = agentAsk(name, 'x');
     if (!cmd) return json(400, { ok: false, error: agentUnavailable(name, agents) });
-    const { enhanceDeck, applyEnhanced, enhanceable, KINDS } = await import('./enhance.mjs');
     const verb = KINDS[kind].done;
     const html = readDeck();
     const of = enhanceable(html, which).length;
@@ -3181,7 +3181,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const stop = new AbortController();
     enhancing = { of, done: 0, stop: () => stop.abort() };
     broadcast('enhance', { state: 'start', of, agent: cmd.name, kind });
-    console.log(`  enhance: ${of} slide${of === 1 ? '' : 's'}${kind === 'spoken' ? ', written for the ear' : ''} ← ${cmd.name} (read-only)`);
+    console.log(`  enhance: ${of} slide${of === 1 ? '' : 's'}${KINDS[kind].doing ?? ''} ← ${cmd.name} (read-only)`);
     enhanceDeck(html, which, {
       kind, agent: name, cwd: dirname(deckPath), signal: stop.signal,
       onSlide: (r) => {
@@ -3210,8 +3210,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // cut lands as it used to, as one edit the undo chord takes back.
       let candidate = null;
       if (next !== cur) {
-        const what = kind === 'spoken' ? 'script: written for the ear' : 'script: audio tags';
-        const h = fixReview.hold({ before: cur, after: next, what, kind: 'script', agent: cmd.name, left });
+        const h = fixReview.hold({ before: cur, after: next, what: KINDS[kind].what, kind: 'script', agent: cmd.name, left });
         if (h.ok) candidate = { id: h.id, units: h.units.length };
         else { console.log(`  enhance: ${h.error} — written as one edit instead`); applyEdit(next, cur); }
       }

@@ -10,7 +10,7 @@ import { WRITING_TOOLS, scopeRows } from '../src/core/writing.js';
 
 test('the tools are listed in groups, the script ones first, each with the kind the server knows', () => {
   assert.deepEqual(WRITING_TOOLS.map((t) => [t.id, t.group, t.kind]),
-    [['tags', 'script', 'tags'], ['spoken', 'script', 'spoken'], ['tighten', 'text', 'tighten'], ['typos', 'text', 'typos'], ['match', 'text', 'match'], ['custom', 'text', 'custom']]);
+    [['tags', 'script', 'tags'], ['spoken', 'script', 'spoken'], ['match-slide', 'script', 'match-slide'], ['tighten', 'text', 'tighten'], ['typos', 'text', 'typos'], ['match', 'text', 'match'], ['custom', 'text', 'custom']]);
   for (const t of WRITING_TOOLS) assert.ok(t.label && t.flavor, `${t.id} has a label and a flavor`);
   assert.ok(WRITING_TOOLS.find((t) => t.id === 'custom').asks, 'the custom tool asks for a line first');
   assert.ok(WRITING_TOOLS.filter((t) => t.id !== 'custom').every((t) => !t.asks));

@@ -5013,7 +5013,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // the palette: Writing tools… opens the picker on the tools, in groups
         r.paletteRow = await paletteRun('writing', /Writing tools…/);
         r.picksTheTool = !!document.querySelector(W) && wHead() === 'writing'
-          && JSON.stringify(wRows()) === JSON.stringify(['add audio tags', '🗣 write it for the ear', '✂ tighten', '✓ fix typos and grammar', '⇄ match the script', '… custom instruction'])
+          && JSON.stringify(wRows()) === JSON.stringify(['add audio tags', '🗣 write it for the ear', '⇄ match the slide', '✂ tighten', '✓ fix typos and grammar', '⇄ match the script', '… custom instruction'])
           && JSON.stringify([...document.querySelectorAll(`${W} .narr-group`)].map((g) => g.textContent)) === JSON.stringify(['script — the speaker notes', 'slide text — the words on the slide']);
         r.footNamesTheAgent = /Claude Code/.test(document.querySelector(`${W} .narr-foot`)?.textContent ?? '');
         await pickRow(/add audio tags/);
@@ -5064,6 +5064,17 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         window.__es.emit('enhance', { state: 'done', ok: true, changed: [2, 3], failed: [], stale: [], kind: 'spoken', candidate: held('c3', 'script: written for the ear', [unit(2), unit(3)]) });
         await settle(); await settle();
         r.saysWrote = /wrote 2 slides for the ear — review it before it lands/.test(said());
+        press('Escape');
+        await settle();
+        // the script matched to what the slide shows: its own row, this slide
+        r.matchSlideRow = await paletteRun('match the script to the slide', /Match the script to the slide…/)
+          && /⇄ match the slide — which slides/.test(wHead());
+        await pickRow(/this slide/);
+        r.sentMatchSlide = JSON.stringify(lastEnhance()?.slides) === '[2]' && lastEnhance()?.kind === 'match-slide';
+        r.saysMatchingToTheSlide = /matching the script to the slide: slide 2's script/.test(said());
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [2], failed: [], stale: [], kind: 'match-slide', candidate: held('c3m', 'script: matched to the slide', [unit(2)]) });
+        await settle(); await settle();
+        r.saysMatched = /matched slide 2 to the slide — review it before it lands/.test(said());
         press('Escape');
         await settle();
         // the slide's own words (PRESENTING_WRITING): a tool's palette row,
@@ -5154,7 +5165,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.menuOpensIt = !!menuRow && !!document.querySelector(W);
         press('Escape');
         await settle();
-        r.PASS = r.paletteRow && r.picksTheTool && r.footNamesTheAgent && r.thenTheSlides && r.leftGoesBack && r.escCloses
+        r.PASS = r.paletteRow && r.picksTheTool && r.matchSlideRow && r.sentMatchSlide && r.saysMatchingToTheSlide && r.saysMatched && r.footNamesTheAgent && r.thenTheSlides && r.leftGoesBack && r.escCloses
           && r.toolRow && r.toolRowOnSlides && r.sentSlide && r.saysDrafting && r.counts && r.saysDone
           && r.heldOpensTheReview && r.escDiscardsIt && r.sentAll && r.saysWhatWasLeft
           && r.earRow && r.sentModuleSpoken && r.saysWritingForTheEar && r.saysWrote && r.vPanelOpensIt

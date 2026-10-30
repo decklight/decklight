@@ -25,6 +25,10 @@
  * `--spoken` is the other rewrite (KINDS): the notes WRITTEN FOR THE EAR —
  * terse notes turned into sentences a person would say. It rewords, so its
  * check is the deck's structure instead of the words (`spokenProblem`).
+ *
+ * `--match-slide` is the third: the notes reworded to agree with what the
+ * slide SHOWS, its text runs (cli/rewrite.mjs) sent along. The mirror of the
+ * slide-text tool *match the script*; it rewords too, so the same check.
  */
 
 import { execFile } from 'node:child_process';
@@ -36,6 +40,9 @@ import { runMain } from './util.mjs';
 import { NOTES_ASIDE, cleanNotes, readNotes, sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
 import { canonMarks, captioned, writtenMarks, CLICK_MARK, PAUSE_MARK } from '../tools/sentences.mjs';
 import { notesTextToAside, setSlideNotes } from './edit.mjs';
+// a cycle (rewrite.mjs reads this file's ask and timeouts), safe because
+// neither module touches the other's bindings while it loads
+import { textRuns } from './rewrite.mjs';
 
 /** Where the prompt below comes from — said in the prompt's own header and in SPEC. */
 export const ENHANCE_SOURCE = 'https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices#prompting-eleven-v4';
@@ -252,6 +259,33 @@ Rewritten: And if you fluff a line, just press Backspace to take it again. When 
 export const spokenPrompt = (script) =>
   `${SPOKEN_PROMPT}\n\n${DECKLIGHT_ADDENDUM.replace('the enhanced script', 'the rewritten script')}\n\n# Script\n\n${script}`;
 
+// ── matched to the slide ────────────────────────────────────────────────────
+// The notes reworded to agree with the slide on screen: its terms, names and
+// numbers, the order it shows its points in. The slide's text runs go along
+// under # Slide. It rewords, so it is checked like the spoken rewrite.
+
+export const MATCH_SLIDE_PROMPT = `# Instructions
+
+You are rewriting the speaker-notes script of one presentation slide so that it agrees with what the slide shows. The slide's own text, the words the audience reads while the presenter speaks, is given under # Slide, one stretch of text per line in reading order.
+
+* Use the slide's terms, names and numbers: where the script calls something by another name, or gives a figure the slide gives differently, say it the slide's way.
+* Follow the slide's order of ideas, and speak to every point the slide makes. Where the slide shows something the script never mentions, add a short sentence about it; where the script and the slide disagree, the slide wins.
+* Keep what the script adds beyond the slide (examples, reasons, transitions) unless it contradicts the slide.
+* It stays a script, written for the ear: say the slide's points in sentences, do not read its bullets out word for word.
+* Keep it about as long as it was. Keep the language of the original, and any audio tag in square brackets (such as [thoughtful]) with the sentence it belongs to.
+* Each [click] starts a build: what comes after it is said while the slide's next part appears. Keep the beats about the parts they are about.
+* A script that already agrees with the slide stays exactly as it is.`;
+
+/** The whole ask for one slide's script, matched to `slideText` (the slide's runs, one per line). */
+export const matchSlidePrompt = (script, { slideText = '' } = {}) =>
+  `${MATCH_SLIDE_PROMPT}\n\n${DECKLIGHT_ADDENDUM.replace('the enhanced script', 'the rewritten script')}\n\n# Slide\n\n${slideText || '(the slide shows no text)'}\n\n# Script\n\n${script}`;
+
+/** A section body's visible text, one run per line, as the match-slide prompt shows it. Pure. */
+export function slideTextOf(body) {
+  const open = body.indexOf('>');
+  return textRuns(open < 0 ? body : body.slice(open + 1)).map((r) => r.text.replace(/\s*\n\s*/g, ' ')).join('\n');
+}
+
 const wordCount = (text) => wordsOf(text).split(' ').filter(Boolean).length;
 
 /**
@@ -276,13 +310,16 @@ export function spokenProblem(before, after) {
 }
 
 /**
- * The two rewrites the notes get, by name: `tags` (ElevenLabs v4 audio tags,
- * same words) and `spoken` (written for the ear, reworded). Each is a prompt
- * and the check its answer must pass before a byte of the deck changes.
+ * The rewrites the notes get, by name: `tags` (ElevenLabs v4 audio tags,
+ * same words), `spoken` (written for the ear, reworded) and `match-slide`
+ * (reworded to agree with the slide). Each is a prompt, the check its answer
+ * must pass before a byte of the deck changes, and the words the run and the
+ * review say it with.
  */
 export const KINDS = {
-  tags: { prompt: enhancePrompt, problem: enhanceProblem, done: 'enhanced' },
-  spoken: { prompt: spokenPrompt, problem: spokenProblem, done: 'rewritten for the ear' },
+  tags: { prompt: enhancePrompt, problem: enhanceProblem, done: 'enhanced', what: 'script: audio tags' },
+  spoken: { prompt: spokenPrompt, problem: spokenProblem, done: 'rewritten for the ear', what: 'script: written for the ear', doing: ', written for the ear' },
+  'match-slide': { prompt: matchSlidePrompt, problem: spokenProblem, done: 'matched to the slide', what: 'script: matched to the slide', doing: ', matched to the slide' },
 };
 const kindOf = (kind) => KINDS[kind] ?? KINDS.tags;
 
@@ -306,7 +343,7 @@ export const ENHANCE_TIMEOUT_MS = 120_000;
 export const ENHANCE_CONCURRENCY = 3;
 
 /**
- * The slides of `html` that can be enhanced, as `{ slide, inner, script }`:
+ * The slides of `html` that can be enhanced, as `{ slide, script, slideText }`:
  * a visible slide with an `<aside class="notes">` that says something.
  * `only` (1-based slide numbers) narrows it.
  */
@@ -318,7 +355,7 @@ export function enhanceable(html, only = null) {
     if (isHiddenSection(body)) return [];
     const aside = NOTES_ASIDE.exec(body);
     const script = aside ? slideScript(aside[1]) : null;
-    return script ? [{ slide, script }] : [];
+    return script ? [{ slide, script, slideText: slideTextOf(body) }] : [];
   });
 }
 
@@ -328,11 +365,11 @@ export function enhanceable(html, only = null) {
  * shares, from the notes editor's one box to a whole deck.
  */
 export async function enhanceText(script, {
-  kind = 'tags', agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
+  kind = 'tags', slideText = '', agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
   resolveAgent = agentAsk, exec = ask, signal = null,
 } = {}) {
   const k = kindOf(kind);
-  const cmd = resolveAgent(agent, k.prompt(script), { env });
+  const cmd = resolveAgent(agent, k.prompt(script, { slideText }), { env });
   if (!cmd) return { ok: false, why: agentUnavailable(agent, detectAgents({ env })) };
   const out = await exec(cmd, cwd, timeoutMs, signal);
   if (signal?.aborted) return { ok: false, why: 'stopped' };
@@ -380,8 +417,8 @@ export async function enhanceDeck(html, slides = null, {
   let next = 0, finished = 0;
   const worker = async () => {
     while (next < todo.length && !signal?.aborted) {
-      const { slide, script } = todo[next++];
-      const a = await enhanceText(script, { kind, agent, cwd, env, timeoutMs, resolveAgent, exec, signal });
+      const { slide, script, slideText } = todo[next++];
+      const a = await enhanceText(script, { kind, slideText, agent, cwd, env, timeoutMs, resolveAgent, exec, signal });
       const r = { slide, ok: a.ok, changed: a.ok && a.text !== script, ...(a.ok ? {} : { why: a.why }) };
       answers.push({ ...r, before: script, text: a.text ?? null });
       onSlide({ ...r, done: ++finished, of: todo.length });
@@ -415,6 +452,7 @@ Usage:
   decklight enhance <deck.html> --slides <n | a-b | a,b,c> [--agent <name>] [--agent-model <id>] [--dry-run]
   decklight enhance <deck.html> --all [--agent <name>] [--agent-model <id>] [--dry-run]
   decklight enhance <deck.html> --spoken --slides … | --all   write it for the ear instead
+  decklight enhance <deck.html> --match-slide --slides … | --all   match it to the slide instead
 
 Asks the AI agent installed on this machine (claude, codex, …) to add audio
 tags — [thoughtful], [sighs], [excited] — to each slide's speaker notes, with
@@ -436,6 +474,9 @@ ElevenLabs v4/v3 and left out by every other voice.
              line, just press Backspace to take it again."). This one DOES
              reword; decklight checks the [click] beats and [pause]s survive
              and the length stays in proportion.
+  --match-slide  reword the notes to agree with what the slide shows: its
+             terms, names and numbers, its order, every point it makes. The
+             slide's text is sent along; checked like --spoken.
 
 Note: the notes are sent to that agent, and most agents are cloud services.`;
 
@@ -458,13 +499,13 @@ export async function enhanceMain(args = []) {
   try { slides = all ? null : parseSlides(which, sectionBodies(html).length); }
   catch (e) { console.error(`decklight enhance: ${e.message}`); return 1; }
   const dry = args.includes('--dry-run');
-  const kind = args.includes('--spoken') ? 'spoken' : 'tags';
+  const kind = args.includes('--match-slide') ? 'match-slide' : args.includes('--spoken') ? 'spoken' : 'tags';
   const verb = KINDS[kind].done;
   let res;
   try {
     const n = enhanceable(html, slides).length;
     if (!n) { console.log('decklight enhance: no notes to enhance on those slides'); return 0; }
-    console.log(`enhance: ${n} slide${n === 1 ? '' : 's'}${kind === 'spoken' ? ', written for the ear' : ''} — asking the agent (read-only), a few at a time…`);
+    console.log(`enhance: ${n} slide${n === 1 ? '' : 's'}${KINDS[kind].doing ?? ''} — asking the agent (read-only), a few at a time…`);
     res = await enhanceDeck(html, slides, {
       kind, agent: opt('--agent') ?? null, cwd: dirname(path),
       onSlide: (r) => console.log(`  slide ${r.slide}: ${r.ok ? (r.changed ? verb : 'already as it would be') : `left as it was — ${r.why}`}`
