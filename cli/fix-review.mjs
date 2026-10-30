@@ -103,6 +103,15 @@ export function notesText(slideSrc) {
 /** A slide's source with its notes aside taken out, whitespace around the cut set aside. Pure. */
 const sansNotes = (src) => String(src ?? '').replace(/\s*<aside\b[^>]*class\s*=\s*["'][^"']*\bnotes\b[^"']*["'][^>]*>[\s\S]*?<\/aside\s*>\s*/i, '');
 
+/**
+ * Whether `a` → `b` changes nothing but punctuation and spacing. The page's
+ * own test (src/core/worddiff.js) restated: src/ does not ship. Pure.
+ */
+const punctuationOnly = (a, b) => {
+  const bare = (s) => String(s ?? '').replace(/[\s\p{P}\p{S}]+/gu, '');
+  return String(a ?? '') !== String(b ?? '') && bare(a) === bare(b);
+};
+
 /** A slide's title, as the outline reads it (its first h1/h2), or null. */
 const titleOf = (src) => deckOutline(src)[0]?.heading ?? null;
 
@@ -111,7 +120,8 @@ const titleOf = (src) => deckOutline(src)[0]?.heading ?? null;
  * order: `{ key, kind, slide?, was?, title, notes? }`. `kind` is `head`,
  * `changed`, `added` or `removed`; `slide` numbers the slide in the
  * candidate, `was` in the deck as it is. `notes: { before, after }` when the
- * slide's notes differ. Null when the deck cannot be cut (deckParts). Pure.
+ * slide's notes differ; `punctuationOnly` when the slide's source changed
+ * only in punctuation and spacing, a change to look at closely. Null when the deck cannot be cut (deckParts). Pure.
  */
 export function candidateUnits(before, after) {
   const pb = deckParts(before), pa = deckParts(after);
@@ -136,6 +146,7 @@ export function candidateUnits(before, after) {
     // the notes are the whole change: the slide looks the same, and the
     // review reads the two scripts rather than two identical renders
     if (op.kind === 'changed' && unit.notes && sansNotes(was) === sansNotes(now)) unit.notesOnly = true;
+    if (op.kind === 'changed' && punctuationOnly(was, now)) unit.punctuationOnly = true;
     units.push(unit);
   }
   return units;

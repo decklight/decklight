@@ -826,6 +826,12 @@
 .decklight-fixreview .fr-code { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .decklight-fixreview .fr-notes del { background: rgba(229, 83, 61, .22); color: #ffb4a8; text-decoration: line-through; }
 .decklight-fixreview .fr-notes ins { background: rgba(80, 200, 120, .22); color: #b6f5c8; text-decoration: none; }
+/* room around a change of one letter or one comma, so it can be seen */
+.decklight-fixreview .fr-notes :is(del, ins) { padding: 0 .1em; border-radius: 3px; }
+/* the slide's text, a line a change: where, what it was, what it would be */
+.decklight-fixreview .fr-hunks { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 2px; }
+.decklight-fixreview .fr-hunk-place, .decklight-fixreview .fr-hunk-small { opacity: .6; }
+.decklight-fixreview .fr-quote { white-space: pre-wrap; }
 .decklight-fixreview .fr-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .decklight-fixreview .fr-gap { flex: 1 1 auto; }
 .decklight-fixreview .fr-btn {

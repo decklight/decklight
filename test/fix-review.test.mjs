@@ -300,6 +300,17 @@ test('a slide whose notes are the whole change is marked notesOnly; one that als
   assert.equal(look[0].notesOnly, undefined);
 });
 
+test('a slide that changed only in punctuation says so; a changed letter does not', () => {
+  const deck = (body) => `<!doctype html><div class="decklight">\n<section>\n<ul><li>${body}</li></ul>\n</section>\n</div>`;
+  const before = deck("Data freshness is not a nice-to-have, it's a requirement");
+  const [semi] = candidateUnits(before, deck("Data freshness is not a nice-to-have; it's a requirement"));
+  assert.equal(semi.punctuationOnly, true);
+  const [typo] = candidateUnits(before, deck("Data freshness is not a nice-to-have, its a requirement"));
+  assert.equal(typo.punctuationOnly, true, 'a dropped apostrophe is punctuation');
+  const [word] = candidateUnits(before, deck("Data freshness is not a nice-to-have, it's the requirement"));
+  assert.equal(word.punctuationOnly, undefined);
+});
+
 test('reviewMode: text when every unit is a notes-only slide, the slides otherwise; D cycles the three views', () => {
   assert.equal(reviewMode([{ kind: 'changed', notesOnly: true }, { kind: 'changed', notesOnly: true }]), 'text');
   assert.equal(reviewMode([{ kind: 'changed', notesOnly: true }, { kind: 'changed' }]), 'slide');

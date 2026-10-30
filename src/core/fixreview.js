@@ -36,6 +36,14 @@
  * cycles the view — the inline diff, the two scripts side by side, the two
  * slides — in either mode; the text-mode choice is remembered.
  *
+ * THE WORDS ON THE SLIDE are marked where they sit (#940): what a change
+ * takes out is marked in the current pane, what it puts in in the proposed
+ * one, down to the letter when a word only changed a little (a comma for a
+ * semicolon). Under the panes each such change is said in words, and the
+ * words view reads the slide's text the way it reads a script. A slide that
+ * changed only in punctuation says so, since that is the change easiest to
+ * miss.
+ *
  * **Apply validated only** writes the approved slides; **Apply all** writes
  * every change but the rejected ones. Either is one write and one undo entry,
  * and the commit window opens on the page that reloads, its message drafted
@@ -48,7 +56,7 @@
  * step's caption; two versions differ at a step when those differ.
  */
 
-import { wordDiff, diffCounts } from './worddiff.js';
+import { wordDiff, diffCounts, refineRuns, diffHunks, punctuationOnly } from './worddiff.js';
 import { notesSegments } from './speaker.js';
 import { readPref, writePref } from './prefs.js';
 
@@ -123,6 +131,137 @@ export function reviewMode(units) {
 export const VIEWS = ['diff', 'side', 'slides'];
 export const nextView = (view) => VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length];
 
+// elements whose text runs on in the line; anything else starts a new one
+const INLINE = new Set(['A', 'ABBR', 'B', 'BDI', 'BDO', 'CITE', 'CODE', 'DATA', 'DEL', 'DFN', 'EM', 'I', 'INS',
+  'KBD', 'MARK', 'Q', 'S', 'SAMP', 'SMALL', 'SPAN', 'STRONG', 'SUB', 'SUP', 'TIME', 'U', 'VAR']);
+// text a reader never sees as words, or where a <mark> would not render
+const UNREAD = 'aside.notes, script, style, template, textarea, svg, math, .katex-mathml';
+
+/**
+ * A slide's words as one text — each run of whitespace one space, a line per
+ * block — with, for every character, the text node and offset it came from
+ * (`null` for a line break between blocks) and the block it is in. Read off
+ * the live section, so it is what the pane shows.
+ */
+export function slideText(sec) {
+  const text = [], at = [], blocks = [];
+  if (!sec) return { text: '', at, blocks };
+  const doc = sec.ownerDocument;
+  const walk = doc.createTreeWalker(sec, 4 /* NodeFilter.SHOW_TEXT */);
+  let block = null;
+  for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+    const p = t.parentElement;
+    if (!p || p.closest(UNREAD)) continue;
+    let b = p;
+    while (b !== sec && INLINE.has(b.tagName)) b = b.parentElement;
+    if (b !== block && text.length && /\S/.test(t.data)) {
+      if (text[text.length - 1] === ' ') { text[text.length - 1] = '\n'; blocks[blocks.length - 1] = b; }
+      else if (text[text.length - 1] !== '\n') { text.push('\n'); at.push(null); blocks.push(b); }
+    }
+    if (/\S/.test(t.data)) block = b;
+    for (let i = 0; i < t.data.length; i++) {
+      const c = t.data[i];
+      if (/\s/.test(c)) {
+        if (!text.length || /\s/.test(text[text.length - 1])) continue;
+        text.push(' ');
+      } else text.push(c);
+      at.push([t, i]);
+      blocks.push(b);
+    }
+  }
+  while (text.length && /\s/.test(text[text.length - 1])) { text.pop(); at.pop(); blocks.pop(); }
+  return { text: text.join(''), at, blocks };
+}
+
+/**
+ * Where a piece of a slide's text sits, in words: `bullet 3`, `the title`,
+ * `a cell`, or null when a block has no better name than its words.
+ */
+export function placeIn(sec, block) {
+  if (!block || !sec) return null;
+  const li = block.closest('li');
+  if (li && sec.contains(li)) return `bullet ${[...sec.querySelectorAll('li')].indexOf(li) + 1}`;
+  if (/^H[12]$/.test(block.tagName)) return 'the title';
+  if (/^H[3-6]$/.test(block.tagName)) return 'a heading';
+  if (block.closest('td, th')) return 'a cell';
+  if (block.closest('figcaption')) return 'the caption';
+  if (block.closest('blockquote')) return 'the quote';
+  return null;
+}
+
+/** The pane's marks taken out again, its text as it was. */
+function unmark(doc) {
+  for (const m of doc?.querySelectorAll('mark.fr-chg') ?? []) {
+    const p = m.parentNode;
+    m.replaceWith(...m.childNodes);
+    p.normalize();
+  }
+}
+
+// the padding and its negative margin cancel: a wider tint on the same line
+const MARK_CSS = 'mark.fr-chg{color:inherit;border-radius:.15em;padding:0 .12em;margin:0 -.12em;'
+  + 'background:color-mix(in srgb,var(--accent,#3b82f6) 32%,transparent);box-shadow:0 0 0 .1em color-mix(in srgb,var(--accent,#3b82f6) 70%,transparent)}'
+  + 'mark.fr-chg-gone{background:rgba(229,83,61,.3);box-shadow:0 0 0 .1em rgba(229,83,61,.75);text-decoration:line-through;text-decoration-color:rgba(229,83,61,.9)}';
+
+/**
+ * Mark, in a pane's own copy of the slide, the characters `runs` of op `op`
+ * cover ('-' in the current pane, '+' in the proposed). Only the pane's
+ * document is touched, never the deck; nothing is added to the layout but a
+ * tint behind the letters.
+ */
+function markText(info, runs, op) {
+  const ranges = [];
+  let pos = 0;
+  for (const r of runs) {
+    if (r.op !== '=' && r.op !== op) continue;
+    if (r.op === op && /\S/.test(r.text)) ranges.push([pos, pos + r.text.length]);
+    pos += r.text.length;
+  }
+  // a range as pieces of single text nodes, wrapped last first so the
+  // offsets of the earlier pieces of the same node still hold
+  const pieces = [];
+  for (const [from, to] of ranges) {
+    let cur = null;
+    for (let i = from; i < to; i++) {
+      const a = info.at[i];
+      if (!a) { cur = null; continue; }
+      if (cur && cur.node === a[0] && cur.end === a[1]) cur.end = a[1] + 1;
+      else { cur = { node: a[0], start: a[1], end: a[1] + 1 }; pieces.push(cur); }
+    }
+  }
+  const doc = info.at.find(Boolean)?.[0].ownerDocument;
+  if (!doc || !pieces.length) return;
+  if (!doc.getElementById('fr-chg-style')) {
+    const st = doc.createElement('style');
+    st.id = 'fr-chg-style';
+    st.textContent = MARK_CSS;
+    doc.head.append(st);
+  }
+  for (const pc of pieces.reverse()) {
+    // a space on its own between two changed words is no change to see
+    if (!/\S/.test(pc.node.data.slice(pc.start, pc.end))) continue;
+    const range = doc.createRange();
+    range.setStart(pc.node, pc.start);
+    range.setEnd(pc.node, pc.end);
+    const m = doc.createElement('mark');
+    m.className = op === '-' ? 'fr-chg fr-chg-gone' : 'fr-chg';
+    range.surroundContents(m);
+  }
+}
+
+/** Where offset `pos` of the before text lands in the after text, by the word runs. */
+function afterAt(runs, pos) {
+  let a = 0, b = 0;
+  for (const r of runs) {
+    const len = r.text.length;
+    if (r.op === '+') { if (a >= pos) return b; b += len; continue; }
+    if (a + len > pos) return r.op === '=' ? b + (pos - a) : b;
+    a += len;
+    if (r.op === '=') b += len;
+  }
+  return b;
+}
+
 const PREF = 'decklight-fix-review';
 const VIEW_PREF = 'decklight-review-view';
 
@@ -143,6 +282,8 @@ export function createFixReview({
   let loadSeq = 0;
   let mode = 'slide';        // 'text' when the notes are the whole change (reviewMode)
   let view = 'slides';       // what the main area shows: 'diff' | 'side' | 'slides'
+  let decks = null;          // the two panes' deck instances, once a slide-mode load is in
+  let texts = new Map();     // unit key → its slide text's diff (textOf)
 
   const unitOf = (key) => cand?.units.find((u) => u.key === key) ?? null;
   const node = (tag, cls, text) => {
@@ -235,6 +376,10 @@ export function createFixReview({
   async function reload({ left = false, focus = null } = {}) {
     const seq = ++loadSeq;
     const [lf, rf] = frames();
+    decks = null;
+    texts = new Map();
+    // the marks are the review's, not the deck's: out before the steps are compared
+    for (const f of frames()) { try { unmark(f.contentDocument); } catch { /* not this origin */ } }
     const first = cand.units[0];
     const pos = first ? { slide: first.slide ?? first.was ?? 1, step: 0 } : null;
     const land = (list) => {
@@ -253,6 +398,7 @@ export function createFixReview({
     say('loading both versions…');
     const [li, ri] = await Promise.all([left ? load(lf, 'before', pos) : instanceOf(lf), load(rf, 'after', pos)]);
     if (seq !== loadSeq || !el) return;
+    decks = { before: li, after: ri };
     land(computeStops(li, ri));
   }
 
@@ -358,8 +504,10 @@ export function createFixReview({
       if (pos) frame.contentWindow?.postMessage({ __decklightPreview: { goto: [pos.slide, pos.step] } }, '*');
     }
     const u = unitOf(s.key);
-    say(mode === 'text' ? `slide ${u?.slide ?? s.right.slide}${u?.title ? ` · ${u.title}` : ''} · ${at + 1} of ${stops.length}`
-      : `change ${at + 1} of ${stops.length} · ${where(s)}`);
+    const small = u?.punctuationOnly ? ' · punctuation only' : '';
+    say(mode === 'text' ? `slide ${u?.slide ?? s.right.slide}${u?.title ? ` · ${u.title}` : ''} · ${at + 1} of ${stops.length}${small}`
+      : `change ${at + 1} of ${stops.length} · ${where(s)}${small}`);
+    paintMarks(s);
     paintNotes(s);
     paintDecision();
     paintRail();
@@ -426,43 +574,115 @@ export function createFixReview({
   }
 
   /**
-   * Under the panes — or, reading a script, in their place: the notes' word
-   * diff when the slide's notes changed, inline or as two columns; for the
-   * head (whose slides look alike) the lines of it that changed.
+   * The slide text of stop `s`'s unit, before and after, and what changed in
+   * it: `{ before, after, runs, hunks }` (`before`/`after` from slideText),
+   * or null when the words on the slide are the same or the panes are not in.
+   */
+  function textOf(s) {
+    if (!decks || s.kind !== 'changed') return null;
+    if (texts.has(s.key)) return texts.get(s.key);
+    const u = unitOf(s.key);
+    const bs = decks.before?._sections?.[u.was - 1], as = decks.after?._sections?.[u.slide - 1];
+    let t = null;
+    if (bs && as) {
+      const before = slideText(bs), after = slideText(as);
+      if (before.text !== after.text) {
+        const words = wordDiff(before.text, after.text);
+        t = { before, after, bs, as, words, runs: refineRuns(words), hunks: diffHunks(words) };
+      }
+    }
+    texts.set(s.key, t);
+    return t;
+  }
+
+  /** The changed words of the slide on screen, marked in both panes' copies of it. */
+  function paintMarks(s) {
+    for (const f of frames()) { try { unmark(f.contentDocument); } catch { /* not this origin */ } }
+    // unmarking merges the text nodes a reading pointed into, and marking
+    // splits them again: each reads the slide afresh
+    texts.delete(s.key);
+    const t = textOf(s);
+    if (!t) return;
+    markText(t.before, t.runs, '-');
+    markText(t.after, t.runs, '+');
+    texts.delete(s.key);
+  }
+
+  /**
+   * Under the panes — or, reading a script, in their place: what changed in
+   * the words on the slide, a line a change under the slides and the whole
+   * text in the words views; then the notes' word diff when the slide's notes
+   * changed, inline or as two columns; for the head (whose slides look alike)
+   * the lines of it that changed.
    */
   function paintNotes(s) {
     const box = el.querySelector('.fr-notes');
     const u = unitOf(s.key);
-    const n = u?.kind === 'head' ? u.lines : u?.notes;
-    box.hidden = !n;
     box.replaceChildren();
-    if (!n) return;
-    const runs = wordDiff(n.before, n.after);
-    const { removed, added } = diffCounts(runs);
-    const code = u.kind === 'head' ? ' fr-code' : '';
-    // built as nodes: the notes are the deck's text, and the agent wrote half of them
+    // built as nodes: the text is the deck's, and the agent wrote half of it
     const mark = (r) => node(r.op === '-' ? 'del' : r.op === '+' ? 'ins' : 'span', '', r.text);
-    let body;
-    if (view === 'side') {
-      body = node('div', `fr-side${code}`);
-      const before = node('div', 'fr-side-before'), after = node('div', 'fr-side-after');
-      for (const r of runs) { if (r.op !== '+') before.append(mark(r)); if (r.op !== '-') after.append(mark(r)); }
-      body.append(before, after);
-    } else {
-      body = node('div', `fr-notes-body${code}`);
+    const diffBody = (runs, code) => {
+      if (view === 'side') {
+        const body = node('div', `fr-side${code}`);
+        const before = node('div', 'fr-side-before'), after = node('div', 'fr-side-after');
+        for (const r of runs) { if (r.op !== '+') before.append(mark(r)); if (r.op !== '-') after.append(mark(r)); }
+        body.append(before, after);
+        return body;
+      }
+      const body = node('div', `fr-notes-body${code}`);
       for (const r of runs) body.append(mark(r));
+      return body;
+    };
+    const count = (runs) => {
+      const { removed, added } = diffCounts(runs);
+      return `−${removed} +${added} word${added === 1 ? '' : 's'}`;
+    };
+    const t = u ? textOf(s) : null;
+    if (t) {
+      const headEl = node('div', 'fr-notes-head');
+      headEl.append(node('span', '', `slide text · ${count(t.words)}${punctuationOnly(t.before.text, t.after.text) ? ' · punctuation only' : ''}`));
+      box.append(headEl);
+      if (view === 'slides') {
+        const list = node('ul', 'fr-hunks');
+        for (const h of t.hunks) {
+          const li = node('li', 'fr-hunk');
+          // where it is, read off the block its first changed letter is in
+          const place = h.before ? placeIn(t.bs, t.before.blocks[h.at]) : placeIn(t.as, t.after.blocks[afterAt(t.words, h.at)]);
+          if (place) li.append(node('span', 'fr-hunk-place', `${place} · `));
+          const runs = refineRuns(wordDiff(h.before, h.after));
+          const quote = (op) => {
+            const q = node('span', 'fr-quote');
+            q.append('“');
+            for (const r of runs) if (r.op === '=' || r.op === op) q.append(mark(r));
+            q.append('”');
+            return q;
+          };
+          if (h.before && h.after) li.append(quote('-'), ' → ', quote('+'));
+          else if (h.before) li.append('removed ', quote('-'));
+          else li.append('added ', quote('+'));
+          if (h.before && h.after && punctuationOnly(h.before, h.after)) li.append(node('span', 'fr-hunk-small', ' · punctuation only'));
+          list.append(li);
+        }
+        box.append(list);
+      } else box.append(diffBody(t.runs, ''));
     }
-    const what = u.kind === 'head' ? 'outside the slides' : 'notes';
-    const headEl = node('div', 'fr-notes-head');
-    headEl.append(node('span', '', `${what} · −${removed} +${added} word${added === 1 ? '' : 's'}`));
-    if (speak && u.kind !== 'head' && n.after) {
-      const hear = node('button', 'fr-btn fr-hear', '▶ hear the proposed script');
-      hear.type = 'button';
-      hear.title = 'the proposed notes, in the deck\'s live voice (P)';
-      hear.addEventListener('click', () => hearProposed());
-      headEl.append(hear);
+    const n = u?.kind === 'head' ? u.lines : u?.notes;
+    if (n) {
+      const words = wordDiff(n.before, n.after);
+      const code = u.kind === 'head' ? ' fr-code' : '';
+      const what = u.kind === 'head' ? 'outside the slides' : 'notes';
+      const headEl = node('div', 'fr-notes-head');
+      headEl.append(node('span', '', `${what} · ${count(words)}`));
+      if (speak && u.kind !== 'head' && n.after) {
+        const hear = node('button', 'fr-btn fr-hear', '▶ hear the proposed script');
+        hear.type = 'button';
+        hear.title = 'the proposed notes, in the deck\'s live voice (P)';
+        hear.addEventListener('click', () => hearProposed());
+        headEl.append(hear);
+      }
+      box.append(headEl, diffBody(u.kind === 'head' ? words : refineRuns(words), code));
     }
-    box.append(headEl, body);
+    box.hidden = !box.childElementCount;
   }
 
   /** P: the proposed script of the slide on screen, said in the live voice. */
@@ -620,6 +840,8 @@ export function createFixReview({
 
   function teardown() {
     loadSeq += 1;
+    decks = null;
+    texts = new Map();
     el?.remove();
     el = null;
     box = null;
