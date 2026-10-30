@@ -739,6 +739,12 @@
     const mode = params.get('mode') ?? 'themepicker';
     // `hidden`: slide 2 is hidden BEFORE init, the way an author would mark it
     if (mode === 'hidden') document.querySelectorAll('.decklight > section')[1].setAttribute('data-hidden', '');
+    // `shiftarrows`: two builds on slide 1, slide 2 hidden, for ⇧→ to skip both
+    if (mode === 'shiftarrows') {
+      const secs = document.querySelectorAll('.decklight > section');
+      secs[0].innerHTML = '<h1>One</h1><ul data-build><li>first</li><li>second</li></ul>';
+      secs[1].setAttribute('data-hidden', '');
+    }
 
     // This harness drives overlays and keys, not onboarding: mark the welcome
     // seen so the card never intercepts the first keystroke below (SPEC
@@ -4366,6 +4372,28 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         escapeUntilClosed('.decklight-palette');
         r.PASS = r.total === 4 && r.nextSkips && r.prevSkips && r.jumpLandsAfter && r.jumpBackLandsBefore
           && r.overviewCells === 4 && r.overviewMarks === 1 && r.paletteRow;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'shiftarrows') {
+        // ←/→ a build at a time, ⇧←/⇧→ a whole slide whatever builds are left,
+        // stepping over a hidden one like → does (PRESENTING)
+        await settle();
+        const at = () => [deck.state.slide, deck.state.step].join('/');
+        deck.goto(1, 0); await settle();
+        press('ArrowRight'); await settle();
+        r.arrowSteps = at() === '1/1';
+        press('ArrowRight', { shiftKey: true }); await settle();
+        r.shiftSkipsBuildsAndHidden = at() === '3/0';
+        press('ArrowRight', { shiftKey: true }); await settle();
+        r.shiftNext = at() === '4/0';
+        press('ArrowLeft', { shiftKey: true }); await settle();
+        press('ArrowLeft', { shiftKey: true }); await settle();
+        r.shiftBackLandsOnStart = at() === '1/0';
+        deck.goto(3, 0); await settle();
+        press('ArrowLeft'); await settle();
+        r.arrowBackFullyBuilt = at() === '1/2';
+        r.PASS = r.arrowSteps && r.shiftSkipsBuildsAndHidden && r.shiftNext && r.shiftBackLandsOnStart && r.arrowBackFullyBuilt;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

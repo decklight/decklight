@@ -165,6 +165,29 @@ export function changedSteps(before, after) {
 }
 
 /**
+ * The review's stop for unit `u`, one a slide, from its two versions' step
+ * renders (`before` / `after`, null for a side it is not on). `step` is the
+ * build it opens on, `steps` its last, `changed` the builds that differ, and
+ * `built` that it opens fully built: an added or removed slide has nothing
+ * to compare build by build, and a change no build shows is seen whole. Pure.
+ */
+export function slideStop(u, before, after) {
+  if (u.kind === 'head') return { key: u.key, kind: u.kind, left: { slide: 1, step: 0 }, right: { slide: 1, step: 0 }, steps: 0, step: 0, changed: [] };
+  const lastL = (before?.length ?? 1) - 1, lastR = (after?.length ?? 1) - 1;
+  if (u.kind === 'added') return { key: u.key, kind: u.kind, left: null, right: { slide: u.slide, step: 0 }, steps: lastR, lastR, step: 0, changed: [], built: true };
+  if (u.kind === 'removed') return { key: u.key, kind: u.kind, left: { slide: u.was, step: 0 }, right: null, steps: lastL, lastL, step: 0, changed: [], built: true };
+  const steps = Math.max(lastL, lastR);
+  const changed = changedSteps(before, after);
+  // nothing the render shows differs: open it fully built, and say so
+  const unseen = !changed.length;
+  return {
+    key: u.key, kind: u.kind, steps, lastL, lastR, unseen, changed,
+    left: { slide: u.was, step: 0 }, right: { slide: u.slide, step: 0 },
+    step: unseen ? steps : changed[0], built: unseen,
+  };
+}
+
+/**
  * The build step at which element `el` of slide `n` first shows: the step
  * after the last build group that holds it or an ancestor of it, 0 when no
  * build hides it. Pure over the instance it is handed.
@@ -389,30 +412,9 @@ export function createFixReview({
   function computeStops(left, right) {
     const out = [];
     for (const u of cand.units) {
-      if (u.kind === 'head') out.push({ key: u.key, kind: u.kind, left: { slide: 1, step: 0 }, right: { slide: 1, step: 0 }, steps: 0 });
-      else if (u.kind === 'added') {
-        const lastR = (stepRenders(right, u.slide)?.length ?? 1) - 1;
-        out.push({ key: u.key, kind: u.kind, left: null, right: { slide: u.slide, step: 0 }, steps: lastR, lastR, step: 0 });
-      } else if (u.kind === 'removed') {
-        const lastL = (stepRenders(left, u.was)?.length ?? 1) - 1;
-        out.push({ key: u.key, kind: u.kind, left: { slide: u.was, step: 0 }, right: null, steps: lastL, lastL, step: 0 });
-      }
-      else {
-        const b = stepRenders(left, u.was), a = stepRenders(right, u.slide);
-        const lastL = (b?.length ?? 1) - 1, lastR = (a?.length ?? 1) - 1;
-        const steps = Math.max(lastL, lastR);
-        const ks = changedSteps(b, a);
-        // nothing the render shows differs: open it fully built, and say so
-        const unseen = !ks.length;
-        for (const k of unseen ? [steps] : ks) {
-          out.push({
-            key: u.key, kind: u.kind, steps, lastL, lastR, unseen,
-            left: { slide: u.was, step: Math.min(k, lastL) },
-            right: { slide: u.slide, step: Math.min(k, lastR) },
-            step: k,
-          });
-        }
-      }
+      const b = u.kind === 'added' || u.kind === 'head' ? null : stepRenders(left, u.was);
+      const a = u.kind === 'removed' || u.kind === 'head' ? null : stepRenders(right, u.slide);
+      out.push(slideStop(u, b, a));
     }
     return out;
   }
@@ -486,9 +488,27 @@ export function createFixReview({
     el.dataset.mode = mode;
     el.dataset.view = view;
     const panel = node('div', 'fr-panel');
+    const btn = (cls, text, title, run) => {
+      const b = node('button', `fr-btn ${cls}`, text);
+      b.type = 'button';
+      b.title = title;
+      b.addEventListener('click', run);
+      return b;
+    };
     const head = node('div', 'fr-head');
     const n = cand.units.length;
-    head.append(node('span', 'fr-title', `Review · ${cand.what} · ${n} ${n === 1 ? 'change' : 'changes'}`), node('span', 'fr-pos'));
+    // the builds of the slide on screen, there to be seen and clicked, not only known as keys
+    const builds = node('span', 'fr-builds');
+    builds.hidden = true;
+    builds.append(
+      btn('fr-build-prev', '‹', 'previous build (←)', () => stepBuild(-1)),
+      node('span', 'fr-build-at'),
+      btn('fr-build-next', '›', 'next build (→)', () => stepBuild(1)),
+      btn('fr-built', 'fully built', 'both panes fully built, and back (B)', () => toggleBuilt()),
+    );
+    const where = node('span', 'fr-where');
+    where.append(node('span', 'fr-pos'), builds);
+    head.append(node('span', 'fr-title', `Review · ${cand.what} · ${n} ${n === 1 ? 'change' : 'changes'}`), where);
     const body = node('div', 'fr-body');
     const rail = node('nav', 'fr-rail');
     rail.setAttribute('aria-label', 'Slides');
@@ -502,8 +522,9 @@ export function createFixReview({
       const gone = node('div', 'fr-gone');
       gone.hidden = true;
       pane.append(cap, frame, gone);
-      // the small proposed render in text mode: a click brings both slides up
-      pane.addEventListener('click', () => { if (view !== 'slides') setView('slides'); });
+      // the small proposed render in text mode: a click brings both slides up;
+      // on the slides, a click steps both a build within the slide (⇧-click back)
+      pane.addEventListener('click', (e) => { if (view !== 'slides') setView('slides'); else stepBuild(e.shiftKey ? -1 : 1); });
       panes.append(pane);
     }
     const notes = node('div', 'fr-notes');
@@ -511,16 +532,9 @@ export function createFixReview({
     main.append(panes, notes);
     body.append(rail, main);
     const bar = node('div', 'fr-bar');
-    const btn = (cls, text, title, run) => {
-      const b = node('button', `fr-btn ${cls}`, text);
-      b.type = 'button';
-      b.title = title;
-      b.addEventListener('click', run);
-      return b;
-    };
     bar.append(
-      btn('fr-prev', '‹', 'previous change (← or [)', () => show(at - 1)),
-      btn('fr-next', '›', 'next change (→ or ])', () => show(at + 1)),
+      btn('fr-prev', '‹', 'previous slide (⇧← or [)', () => show(at - 1)),
+      btn('fr-next', '›', 'next slide (⇧→ or ])', () => show(at + 1)),
       btn('fr-view', '', 'what the review shows: the words that changed, the two scripts side by side, or the two slides (D)', () => setView(nextView(view))),
       ...(toggleCaptions ? [btn('fr-cc', 'CC', 'captions in both panes (C)', flipCaptions)] : []),
       node('span', 'fr-state'),
@@ -543,7 +557,7 @@ export function createFixReview({
       e.stopPropagation();
     });
     boxEl.append(ta, boxGo, boxNo);
-    const foot = node('div', 'fr-foot', '←/→ changes · ↑/↓ slides · ,/. builds · B fully built · A approve · X reject · E adjust · D view'
+    const foot = node('div', 'fr-foot', '←/→ builds · ⇧←/⇧→ slides · B fully built · A approve · X reject · E adjust · D view'
       + (speak ? ' · P hear it' : '') + ' · C captions · ⇧⏎ apply validated · ⌘⏎ apply all · Esc discards it all');
     panel.append(head, body, bar, boxEl, foot);
     el.append(panel);
@@ -559,14 +573,12 @@ export function createFixReview({
 
   function say(text) { const p = el?.querySelector('.fr-pos'); if (p) p.textContent = text; }
 
-  /** Where stop `s` is, in words: `slide 24, build 2`, `slide 5 (added)`, `the deck`. */
+  /** Where stop `s` is, in words: `slide 24`, `slide 5 (added)`, `the deck`. The build is the header's control. */
   function where(s) {
     if (s.kind === 'head') return 'the deck';
-    const k = shownStep(s);
-    const build = !s.steps ? '' : `, ${k >= s.steps ? 'fully built' : `build ${k} of ${s.steps}`}`;
-    if (s.kind === 'added') return `slide ${s.right.slide} (added)${build}`;
-    if (s.kind === 'removed') return `slide ${s.left.slide} (removed)${build}`;
-    return `slide ${s.right.slide}${build}`;
+    if (s.kind === 'added') return `slide ${s.right.slide} (added)`;
+    if (s.kind === 'removed') return `slide ${s.left.slide} (removed)`;
+    return `slide ${s.right.slide}`;
   }
 
   /** The build both panes show at stop `s`: the stop's own, or the one stepped to in place. */
@@ -591,15 +603,37 @@ export function createFixReview({
     const small = u?.punctuationOnly ? ' · punctuation only' : '';
     say(mode === 'text' ? `slide ${u?.slide ?? s.right.slide}${u?.title ? ` · ${u.title}` : ''} · ${at + 1} of ${stops.length}${small}`
       : `change ${at + 1} of ${stops.length} · ${where(s)}${small}`);
+    paintBuilds(s);
   }
 
-  function show(i) {
+  /** The header's build control: ‹ build 2 of 4 › and fully built, on a slide in slide mode that has builds. */
+  function paintBuilds(s) {
+    const c = el?.querySelector('.fr-builds');
+    if (!c) return;
+    const on = mode === 'slide' && s.kind !== 'head' && !!s.steps;
+    c.hidden = !on;
+    el.dataset.builds = on ? 'on' : '';
+    if (!on) return;
+    const k = shownStep(s);
+    const changed = s.changed?.some((x) => (k >= s.steps ? x >= k : x === k)) ? ' · changed' : '';
+    c.querySelector('.fr-build-at').textContent = `${k >= s.steps ? 'fully built' : `build ${k} of ${s.steps}`}${changed}`;
+    c.querySelector('.fr-build-prev').disabled = k <= 0;
+    c.querySelector('.fr-build-next').disabled = k >= s.steps;
+    c.querySelector('.fr-built').setAttribute('aria-pressed', String(built));
+  }
+
+  /**
+   * Slide `i`, on the build it opens on (an added or removed slide, and one
+   * no build shows differently, fully built), or with `end` fully built:
+   * ← back from a slide's first build lands on the one before, all of it.
+   */
+  function show(i, { end = false } = {}) {
     if (!el) return;
     if (!stops.length) { say('the proposal changes nothing the review can show'); paintDecision(); paintRail(); return; }
     at = Math.max(0, Math.min(i, stops.length - 1));
     peek = null;
-    built = false;
     const s = stops[at];
+    built = !!s.built || (end && !!s.steps);
     placePanes(s);
     paintPos(s);
     paintMarks(s);
@@ -610,8 +644,9 @@ export function createFixReview({
 
   /**
    * The builds of the slide on screen, stepped in both panes together without
-   * leaving the change: `,` / `.` (or ⇧← / ⇧→) one build, B fully built and
-   * back. `to` is a build to go to, from the text diff's "from build k".
+   * leaving it: the header's ‹ ›, and ← / → until the slide runs out (nextBuild),
+   * B fully built and back. `to` is a build to go to, from the text diff's
+   * "from build k".
    */
   function stepBuild(dir, to = null) {
     const s = stops[at];
@@ -627,19 +662,25 @@ export function createFixReview({
     const s = stops[at];
     if (!s?.steps) return;
     built = !built;
-    if (!built && peek === null) peek = s.step;
+    // back from fully built: to the stop's own build, or the start of one that opened built
+    if (!built && peek === null) peek = s.built ? 0 : s.step;
     placePanes(s);
     paintPos(s);
     paintNotes(s);
   }
 
-  /** The first stop of the unit before / after the one on screen. */
-  function stepUnit(dir) {
+  /**
+   * ← / →, as in the talk: a build at a time, and past the slide's last (or
+   * before its first) on to the next slide, or back to the previous one fully
+   * built. ⇧← / ⇧→ go a whole slide (show).
+   */
+  function nextBuild(dir) {
     const s = stops[at];
     if (!s) return;
-    const keys = [...new Set(stops.map((x) => x.key))];
-    const k = keys[keys.indexOf(s.key) + dir];
-    if (k !== undefined) show(stops.findIndex((x) => x.key === k));
+    const k = shownStep(s);
+    if (s.steps && (dir > 0 ? k < s.steps : k > 0)) { stepBuild(dir); return; }
+    if (dir > 0) { if (at < stops.length - 1) show(at + 1); }
+    else if (at > 0) show(at - 1, { end: true });
   }
 
   /**
@@ -1001,16 +1042,15 @@ export function createFixReview({
     if (box) return false;   // the comment box has its own keys
     if (e.key === 'Enter' && e.shiftKey) { apply(false); return true; }
     if (e.metaKey || e.ctrlKey || e.altKey) return false;
-    if (e.shiftKey && e.key === 'ArrowLeft') { stepBuild(-1); return true; }
-    if (e.shiftKey && e.key === 'ArrowRight') { stepBuild(1); return true; }
+    // ←/→ a build at a time, as in the talk; ⇧ for a whole slide
+    if (e.shiftKey && e.key === 'ArrowLeft') { show(at - 1); return true; }
+    if (e.shiftKey && e.key === 'ArrowRight') { show(at + 1); return true; }
     switch (e.key) {
-      case ',': stepBuild(-1); return true;
-      case '.': stepBuild(1); return true;
       case 'b': case 'B': toggleBuilt(); return true;
-      case 'ArrowLeft': case '[': show(at - 1); return true;
-      case 'ArrowRight': case ']': show(at + 1); return true;
-      case 'ArrowUp': stepUnit(-1); return true;
-      case 'ArrowDown': stepUnit(1); return true;
+      case 'ArrowLeft': nextBuild(-1); return true;
+      case 'ArrowRight': nextBuild(1); return true;
+      case 'ArrowUp': case '[': show(at - 1); return true;
+      case 'ArrowDown': case ']': show(at + 1); return true;
       case 'Home': show(0); return true;
       case 'End': show(stops.length - 1); return true;
       case 'a': case 'A': decide('approved'); return true;

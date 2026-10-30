@@ -758,6 +758,13 @@
 .decklight-fixreview .fr-head { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; }
 .decklight-fixreview .fr-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .decklight-fixreview .fr-pos { font-variant-numeric: tabular-nums; opacity: .75; white-space: nowrap; }
+/* the slide on screen, and its builds: ‹ build 2 of 4 › and fully built, to click */
+.decklight-fixreview .fr-where { display: flex; gap: 10px; align-items: baseline; flex: none; }
+.decklight-fixreview .fr-builds { display: inline-flex; gap: 4px; align-items: baseline; }
+.decklight-fixreview .fr-builds[hidden] { display: none; }
+.decklight-fixreview .fr-builds .fr-btn { font-size: 12px; padding: 0 7px; }
+.decklight-fixreview .fr-build-at { font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 7.5em; text-align: center; }
+.decklight-fixreview .fr-built[aria-pressed="true"] { background: rgba(128, 128, 128, .22); }
 .decklight-fixreview .fr-body { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 14px; min-height: 0; }
 /* the slides down the left: every change with its state, then what was left as it was */
 .decklight-fixreview .fr-rail { overflow: auto; max-height: 70vh; font-size: 12px; border-right: 1px solid rgba(255, 255, 255, .08); padding-right: 8px; }
@@ -789,6 +796,8 @@
 .decklight-fixreview .fr-hear { font-size: 11px; padding: 2px 8px; text-transform: none; letter-spacing: 0; }
 .decklight-fixreview .fr-view { min-width: 7em; font-size: 12px; }
 .decklight-fixreview .fr-pane { position: relative; margin: 0; min-width: 0; }
+/* a click on a slide steps both a build, as it does a presented one */
+.decklight-fixreview[data-view="slides"][data-builds="on"] .fr-pane { cursor: pointer; }
 .decklight-fixreview .fr-label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; opacity: .6; margin-bottom: 4px; }
 .decklight-fixreview .fr-after .fr-label { color: #4ec98a; opacity: .9; }
 .decklight-fixreview .fr-pane iframe {

@@ -1823,6 +1823,17 @@ export function init(userConfig = {}) {
       if (to) this.goto(to, this._records[to - 1].groups.length, { direction: 'back' });
       else gotoModule(-1); // playlist chaining; no-op on the first module
     },
+    /** ⇧→ / ⇧←: a whole slide, to the start of the next or previous shown one, whatever builds are left. */
+    nextSlide() {
+      const to = this._visibleFrom(this.state.slide + 1, +1);
+      if (to) this.goto(to, 0, { direction: 'fwd' });
+      else gotoModule(1);
+    },
+    prevSlide() {
+      const to = this._visibleFrom(this.state.slide - 1, -1);
+      if (to) this.goto(to, 0, { direction: 'back' });
+      else gotoModule(-1);
+    },
 
     goto(slide, step = 0, opts = {}) {
       slide = Math.max(1, Math.min(slide, this.state.totalSlides));
@@ -2400,6 +2411,7 @@ export function init(userConfig = {}) {
       <tr><td>→ / PageDown</td><td>next build / slide (← and → also while a panel beside the slide has the keyboard; a text field keeps them)</td></tr>
       <tr><td>⎵</td><td>pause / resume the voice while it is speaking — otherwise it advances</td></tr>
       <tr><td>← / PageUp</td><td>previous</td></tr>
+      <tr><td>⇧→ / ⇧←</td><td>next / previous slide, whatever builds are left</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
       <tr><td>S</td><td>this slide's speaker notes — editable in write mode, read-only elsewhere</td></tr>
@@ -2606,8 +2618,10 @@ export function init(userConfig = {}) {
     // the arrows did used to depend on which panel it was and how it was docked
     // (ROADMAP section 3). A text field keeps them for its caret: the typing
     // guard above has already returned for one.
-    if (top?.panel && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-      if (e.key === 'ArrowRight') instance.next(); else instance.prev();
+    // ⇧ for a whole slide, as everywhere else.
+    if (top?.panel && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      if (e.shiftKey) { if (e.key === 'ArrowRight') instance.nextSlide(); else instance.prevSlide(); }
+      else if (e.key === 'ArrowRight') instance.next(); else instance.prev();
       e.preventDefault();
       return;
     }
@@ -2668,8 +2682,11 @@ export function init(userConfig = {}) {
         if (narration.status().voiceInPlay) narration.playPause();
         else instance.next();
         break;
-      case 'ArrowRight': case 'PageDown': instance.next(); break;
-      case 'ArrowLeft': case 'PageUp': instance.prev(); break;
+      // ←/→ a build at a time; ⇧ for a whole slide, whatever builds are left
+      case 'ArrowRight': if (e.shiftKey) instance.nextSlide(); else instance.next(); break;
+      case 'ArrowLeft': if (e.shiftKey) instance.prevSlide(); else instance.prev(); break;
+      case 'PageDown': instance.next(); break;
+      case 'PageUp': instance.prev(); break;
       case 'Home': instance.goto(1, 0); break;
       case 'End': instance.goto(instance.state.totalSlides, 0); break;
       case 'o': case 'O': toggleOverview(); break;

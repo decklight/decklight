@@ -96,6 +96,8 @@ export function openSpeakerView(instance) {
     getState: () => speakerState(instance, deckUrl()),
     next: () => instance.next(),
     prev: () => instance.prev(),
+    nextSlide: () => instance.nextSlide(),
+    prevSlide: () => instance.prevSlide(),
     // the script view: every slide's notes, and a slide to go to from it
     transcript: () => instance.transcript?.data?.() ?? [],
     goto: (n) => instance.goto(n, 0, { force: true }),
@@ -159,8 +161,8 @@ export function openSpeakerView(instance) {
   <span id="timer">00:00</span>
   <button id="resetTimer">reset</button>
   <span id="pos"></span>
-  <button id="prev">◀ prev</button>
-  <button id="next">next ▶</button>
+  <button id="prev" title="previous build (←); ⇧← the previous slide">◀ prev</button>
+  <button id="next" title="next build (→); ⇧→ the next slide">next ▶</button>
   <button id="mode" title="S or ⌥⏎ toggles rehearse mode (cue cards instead of prose)">speak</button>
   <button id="script" title="the whole deck's notes, the slide on screen lit; a slide's title goes there">script</button>
   <button id="rec" title="record how long each slide takes, then save the timings onto the deck">⏱ rehearse timings</button>
@@ -269,8 +271,11 @@ export function openSpeakerView(instance) {
   }
   $('#qr').onclick = () => $('#qr').classList.toggle('big');
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowRight' || e.key === ' ') api && api.next();
-    if (e.key === 'ArrowLeft') api && api.prev();
+    // ←/→ a build at a time, as in the deck; ⇧ for a whole slide
+    if (e.key === 'ArrowRight' && e.shiftKey) api && api.nextSlide && api.nextSlide();
+    else if (e.key === 'ArrowRight' || e.key === ' ') api && api.next();
+    if (e.key === 'ArrowLeft' && e.shiftKey) api && api.prevSlide && api.prevSlide();
+    else if (e.key === 'ArrowLeft') api && api.prev();
     // S here, or the same ⌥⏎ that opened this window: speak ⇄ rehearse
     if (e.key === 's' || e.key === 'S' || (e.altKey && e.key === 'Enter')) { window.__decklightSpeakerToggle(); e.preventDefault(); }
   });

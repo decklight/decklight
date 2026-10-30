@@ -14,7 +14,7 @@ import {
   deckParts, candidateUnits, mergeCandidate, commitDraft, notesText, changedLines, registerFixReviewRoutes, adjustPrompt,
 } from '../cli/fix-review.mjs';
 import { createHistory } from '../cli/edit.mjs';
-import { changedSteps, reviewMode, nextView, attrChanges } from '../src/core/fixreview.js';
+import { changedSteps, reviewMode, nextView, attrChanges, slideStop } from '../src/core/fixreview.js';
 import { tmp } from './helpers.mjs';
 
 const DECK = `<!doctype html>
@@ -286,6 +286,24 @@ test('changedSteps stops only at the build steps whose render differs', () => {
   assert.deepEqual(changedSteps(['x', 'y'], ['X', 'Y']), [0, 1]);
   assert.deepEqual(changedSteps(['a', 'b'], ['a', 'b']), [], 'a change no build shows has no step of its own: it opens fully built');
   assert.deepEqual(changedSteps(null, ['a']), [0]);
+});
+
+test('the review stops once a slide: a changed one on its first changed build, an added or removed one fully built', () => {
+  const changed = slideStop({ key: 's2', kind: 'changed', slide: 2, was: 2 }, ['a', 'b', 'c'], ['a', 'B', 'C']);
+  assert.equal(changed.step, 1, 'opens where the two first look different');
+  assert.deepEqual(changed.changed, [1, 2]);
+  assert.equal(changed.steps, 2);
+  assert.ok(!changed.built);
+  const unseen = slideStop({ key: 's3', kind: 'changed', slide: 3, was: 3 }, ['a', 'b'], ['a', 'b']);
+  assert.ok(unseen.unseen && unseen.built && unseen.step === 1, 'no build looks different: seen whole');
+  const added = slideStop({ key: 'a', kind: 'added', slide: 63 }, null, ['t', 'tc', 'tcp']);
+  assert.ok(added.built, 'nothing to compare build by build: the whole new slide first');
+  assert.equal(added.steps, 2);
+  assert.equal(added.left, null);
+  const removed = slideStop({ key: 'r', kind: 'removed', was: 5 }, ['x', 'xy'], null);
+  assert.ok(removed.built && removed.steps === 1 && removed.right === null);
+  const head = slideStop({ key: 'head', kind: 'head' }, null, null);
+  assert.equal(head.steps, 0);
 });
 
 test('a slide\'s own settings that changed are said in words, a line each', () => {
