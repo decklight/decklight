@@ -14,7 +14,7 @@ import {
   deckParts, candidateUnits, mergeCandidate, commitDraft, notesText, changedLines, registerFixReviewRoutes, adjustPrompt,
 } from '../cli/fix-review.mjs';
 import { createHistory } from '../cli/edit.mjs';
-import { changedSteps, reviewMode, nextView } from '../src/core/fixreview.js';
+import { changedSteps, reviewMode, nextView, attrChanges } from '../src/core/fixreview.js';
 import { tmp } from './helpers.mjs';
 
 const DECK = `<!doctype html>
@@ -284,8 +284,20 @@ test('changedSteps stops only at the build steps whose render differs', () => {
   assert.deepEqual(changedSteps(['a', 'b', 'c'], ['a', 'B', 'c']), [1]);
   assert.deepEqual(changedSteps(['a', 'b'], ['a', 'b', 'c']), [2], 'a step only one version has is a change');
   assert.deepEqual(changedSteps(['x', 'y'], ['X', 'Y']), [0, 1]);
-  assert.deepEqual(changedSteps(['a'], ['a']), [0], 'a change the renders cannot see still gets one stop');
+  assert.deepEqual(changedSteps(['a', 'b'], ['a', 'b']), [], 'a change no build shows has no step of its own: it opens fully built');
   assert.deepEqual(changedSteps(null, ['a']), [0]);
+});
+
+test('a slide\'s own settings that changed are said in words, a line each', () => {
+  const none = { 'data-layout': null, style: null };
+  assert.deepEqual(attrChanges({ ...none, style: 'font-size: 0.75em' }, none), ['slide style: font-size 0.75em removed']);
+  assert.deepEqual(attrChanges({ ...none, 'data-layout': 'split' }, none), ['data-layout split → none']);
+  assert.deepEqual(attrChanges({ ...none, style: 'font-size:.75em; color: red' }, { ...none, style: 'font-size: .9em; gap: 2px' }),
+    ['slide style: font-size .75em → .9em', 'slide style: color red removed', 'slide style: gap 2px added']);
+  assert.deepEqual(attrChanges({ ...none, style: 'font-size: 1em' }, { ...none, style: 'font-size:1em;' }), [], 'the same declarations spelt differently');
+  assert.deepEqual(attrChanges(none, null), []);
+  assert.deepEqual(attrChanges({ ...none, style: 'font-size: .75em; --pin-y: 99px' }, { ...none, style: '--pin-y: 120px' }),
+    ['slide style: font-size .75em removed'], 'the engine\'s own layout variables are not the author\'s');
 });
 
 test('a slide whose notes are the whole change is marked notesOnly; one that also looks different is not', () => {

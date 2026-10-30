@@ -72,13 +72,16 @@ const pathOf = (root, el) => {
 const atPath = (root, path) => path.reduce((n, i) => n?.children[i] ?? null, root);
 
 /** What a slide's section says about itself, the attributes an author writes. */
-const AUTHORED = ['data-layout', 'data-template', 'data-hidden', 'data-auto-animate', 'data-bleed'];
+const AUTHORED = ['data-layout', 'data-template', 'data-hidden', 'data-auto-animate', 'data-bleed', 'style'];
 
 /**
  * Slide `n`'s render at each build step, `[step0, step1, …]`, as text two
  * versions can be compared by: the section without the builds not yet shown
- * (nor the engine's own marks), and that step's caption. Null when the deck
- * has no such slide. Pure over the instance it is handed.
+ * (nor the engine's own marks), and that step's caption. The section's own
+ * attributes are not in it (slideAttrs: they hold at every step, and saying
+ * them once beats a stop at a step that looks the same), and neither is the
+ * source's spacing, which an agent re-indents and nobody sees. Null when the
+ * deck has no such slide. Pure over the instance it is handed.
  */
 export function stepRenders(inst, n) {
   const sec = inst?._sections?.[n - 1];
@@ -88,7 +91,6 @@ export function stepRenders(inst, n) {
   const paths = (rec.steps ?? []).map((s) => (s.kind === 'dom' && s.el && sec.contains(s.el) ? pathOf(sec, s.el) : null));
   const aside = sec.querySelector(':scope > aside.notes');
   const segs = aside ? notesSegments(aside.innerHTML) : [];
-  const attrs = AUTHORED.map((a) => `${a}=${sec.getAttribute(a) ?? ''}`).join(' ');
   const out = [];
   for (let k = 0; k <= groups.length; k++) {
     const shown = new Set();
@@ -98,15 +100,60 @@ export function stepRenders(inst, n) {
     for (const el of hide) el.remove();
     clone.querySelector(':scope > aside.notes')?.remove();
     for (const el of clone.querySelectorAll('[data-build-state]')) el.removeAttribute('data-build-state');
-    out.push(`${attrs}\u0000${clone.innerHTML}\u0000${segs[k] ?? ''}`);
+    // spacing inside <pre> is what the slide shows; elsewhere a run is one space
+    const keep = [...clone.querySelectorAll('pre')].map((el) => el.innerHTML);
+    clone.querySelectorAll('pre').forEach((el, i) => { el.textContent = `\u0001${i}\u0001`; });
+    const html = clone.innerHTML.replace(/\s+/g, ' ').replace(/> </g, '><').trim()
+      .replace(/\u0001(\d+)\u0001/g, (_, i) => keep[i]);
+    out.push(`${html}\u0000${segs[k] ?? ''}`);
+  }
+  return out;
+}
+
+/** Slide `n`'s authored attributes, `{ name: value | null }`; null without the slide. */
+export function slideAttrs(inst, n) {
+  const sec = inst?._sections?.[n - 1];
+  return sec ? Object.fromEntries(AUTHORED.map((a) => [a, sec.getAttribute(a)])) : null;
+}
+
+/**
+ * A style attribute as `[[property, value]]`, in order, without the custom
+ * properties: the engine writes its own there as it lays a slide out (where a
+ * pinned title sits), and they differ whenever anything above them moves.
+ */
+const declarations = (style) => String(style ?? '').split(';')
+  .map((d) => d.split(/:(.*)/s).map((x) => x?.trim() ?? ''))
+  .filter(([p, v]) => p && v && !p.startsWith('--'))
+  .map(([p, v]) => [p.toLowerCase(), v]);
+
+/**
+ * What changed in a slide's own attributes, in words, a line each:
+ * `slide style: font-size 0.75em removed`, `data-layout split → none`.
+ * Empty when nothing did. Pure.
+ */
+export function attrChanges(before, after) {
+  if (!before || !after) return [];
+  const out = [];
+  const val = (v) => (v === null || v === undefined ? 'none' : v === '' ? 'on' : v);
+  for (const name of AUTHORED) {
+    const b = before[name] ?? null, a = after[name] ?? null;
+    if (b === a) continue;
+    if (name !== 'style') { out.push(`${name} ${val(b)} → ${val(a)}`); continue; }
+    const db = new Map(declarations(b)), da = new Map(declarations(a));
+    for (const [p, v] of db) {
+      if (!da.has(p)) out.push(`slide style: ${p} ${v} removed`);
+      else if (da.get(p) !== v) out.push(`slide style: ${p} ${v} → ${da.get(p)}`);
+    }
+    for (const [p, v] of da) if (!db.has(p)) out.push(`slide style: ${p} ${v} added`);
   }
   return out;
 }
 
 /**
- * The stops of one changed slide: every step `k` where the two renders
- * differ, a version with fewer steps held on its last. At least one stop, at
- * step 0, when nothing measurable differs (a change the renders cannot see).
+ * The steps of one changed slide where the two renders differ, a version
+ * with fewer steps held on its last. Empty when nothing the render shows
+ * differs (a change the renders cannot see: the caller opens it fully
+ * built and says so); `[0]` when a version could not be read.
  */
 export function changedSteps(before, after) {
   if (!before || !after) return [0];
@@ -114,7 +161,25 @@ export function changedSteps(before, after) {
   const at = (r, k) => r[Math.min(k, r.length - 1)];
   const out = [];
   for (let k = 0; k < n; k++) if (at(before, k) !== at(after, k)) out.push(k);
-  return out.length ? out : [0];
+  return out;
+}
+
+/**
+ * The build step at which element `el` of slide `n` first shows: the step
+ * after the last build group that holds it or an ancestor of it, 0 when no
+ * build hides it. Pure over the instance it is handed.
+ */
+export function buildOf(inst, n, el) {
+  const rec = inst?._records?.[n - 1];
+  if (!rec || !el) return 0;
+  let k = 0;
+  (rec.groups ?? []).forEach((g, gi) => {
+    for (const i of g) {
+      const st = rec.steps?.[i];
+      if (st?.kind === 'dom' && st.el?.contains?.(el)) k = Math.max(k, gi + 1);
+    }
+  });
+  return k;
 }
 
 /**
@@ -153,7 +218,8 @@ export function slideText(sec) {
     const p = t.parentElement;
     if (!p || p.closest(UNREAD)) continue;
     let b = p;
-    while (b !== sec && INLINE.has(b.tagName)) b = b.parentElement;
+    // a highlighted code line is a span, and still a line of its own
+    while (b !== sec && INLINE.has(b.tagName) && !b.classList.contains('code-line')) b = b.parentElement;
     if (b !== block && text.length && /\S/.test(t.data)) {
       if (text[text.length - 1] === ' ') { text[text.length - 1] = '\n'; blocks[blocks.length - 1] = b; }
       else if (text[text.length - 1] !== '\n') { text.push('\n'); at.push(null); blocks.push(b); }
@@ -284,6 +350,8 @@ export function createFixReview({
   let view = 'slides';       // what the main area shows: 'diff' | 'side' | 'slides'
   let decks = null;          // the two panes' deck instances, once a slide-mode load is in
   let texts = new Map();     // unit key → its slide text's diff (textOf)
+  let peek = null;           // the build stepped to in place (, and .), null: the stop's own
+  let built = false;         // B: both panes fully built
 
   const unitOf = (key) => cand?.units.find((u) => u.key === key) ?? null;
   const node = (tag, cls, text) => {
@@ -322,16 +390,25 @@ export function createFixReview({
     const out = [];
     for (const u of cand.units) {
       if (u.kind === 'head') out.push({ key: u.key, kind: u.kind, left: { slide: 1, step: 0 }, right: { slide: 1, step: 0 }, steps: 0 });
-      else if (u.kind === 'added') out.push({ key: u.key, kind: u.kind, left: null, right: { slide: u.slide, step: 0 }, steps: 0 });
-      else if (u.kind === 'removed') out.push({ key: u.key, kind: u.kind, left: { slide: u.was, step: 0 }, right: null, steps: 0 });
+      else if (u.kind === 'added') {
+        const lastR = (stepRenders(right, u.slide)?.length ?? 1) - 1;
+        out.push({ key: u.key, kind: u.kind, left: null, right: { slide: u.slide, step: 0 }, steps: lastR, lastR, step: 0 });
+      } else if (u.kind === 'removed') {
+        const lastL = (stepRenders(left, u.was)?.length ?? 1) - 1;
+        out.push({ key: u.key, kind: u.kind, left: { slide: u.was, step: 0 }, right: null, steps: lastL, lastL, step: 0 });
+      }
       else {
         const b = stepRenders(left, u.was), a = stepRenders(right, u.slide);
-        const steps = Math.max((b?.length ?? 1), (a?.length ?? 1)) - 1;
-        for (const k of changedSteps(b, a)) {
+        const lastL = (b?.length ?? 1) - 1, lastR = (a?.length ?? 1) - 1;
+        const steps = Math.max(lastL, lastR);
+        const ks = changedSteps(b, a);
+        // nothing the render shows differs: open it fully built, and say so
+        const unseen = !ks.length;
+        for (const k of unseen ? [steps] : ks) {
           out.push({
-            key: u.key, kind: u.kind, steps,
-            left: { slide: u.was, step: Math.min(k, (b?.length ?? 1) - 1) },
-            right: { slide: u.slide, step: Math.min(k, (a?.length ?? 1) - 1) },
+            key: u.key, kind: u.kind, steps, lastL, lastR, unseen,
+            left: { slide: u.was, step: Math.min(k, lastL) },
+            right: { slide: u.slide, step: Math.min(k, lastR) },
             step: k,
           });
         }
@@ -466,7 +543,7 @@ export function createFixReview({
       e.stopPropagation();
     });
     boxEl.append(ta, boxGo, boxNo);
-    const foot = node('div', 'fr-foot', '←/→ changes · ↑/↓ slides · A approve · X reject · E adjust · D view'
+    const foot = node('div', 'fr-foot', '←/→ changes · ↑/↓ slides · ,/. builds · B fully built · A approve · X reject · E adjust · D view'
       + (speak ? ' · P hear it' : '') + ' · C captions · ⇧⏎ apply validated · ⌘⏎ apply all · Esc discards it all');
     panel.append(head, body, bar, boxEl, foot);
     el.append(panel);
@@ -485,32 +562,75 @@ export function createFixReview({
   /** Where stop `s` is, in words: `slide 24, build 2`, `slide 5 (added)`, `the deck`. */
   function where(s) {
     if (s.kind === 'head') return 'the deck';
-    if (s.kind === 'added') return `slide ${s.right.slide} (added)`;
-    if (s.kind === 'removed') return `slide ${s.left.slide} (removed)`;
-    return `slide ${s.right.slide}${s.steps ? `, build ${s.step}` : ''}`;
+    const k = shownStep(s);
+    const build = !s.steps ? '' : `, ${k >= s.steps ? 'fully built' : `build ${k} of ${s.steps}`}`;
+    if (s.kind === 'added') return `slide ${s.right.slide} (added)${build}`;
+    if (s.kind === 'removed') return `slide ${s.left.slide} (removed)${build}`;
+    return `slide ${s.right.slide}${build}`;
+  }
+
+  /** The build both panes show at stop `s`: the stop's own, or the one stepped to in place. */
+  const shownStep = (s) => (built ? s.steps : peek ?? s.step);
+
+  /** Stop `s` in both panes at the build on show, a version with fewer builds held on its last. */
+  function placePanes(s) {
+    const [lf, rf] = frames();
+    const k = shownStep(s);
+    const pos = (p, last) => (p ? { slide: p.slide, step: Math.min(k, last ?? p.step) } : null);
+    for (const [frame, p, why] of [[lf, pos(s.left, s.lastL), 'not in the deck as it is — the proposal adds this slide'], [rf, pos(s.right, s.lastR), 'the proposal removes this slide']]) {
+      const gone = frame.parentElement.querySelector('.fr-gone');
+      gone.hidden = !!p;
+      gone.textContent = p ? '' : why;
+      frame.style.visibility = p ? '' : 'hidden';
+      if (p) frame.contentWindow?.postMessage({ __decklightPreview: { goto: [p.slide, p.step] } }, '*');
+    }
+  }
+
+  function paintPos(s) {
+    const u = unitOf(s.key);
+    const small = u?.punctuationOnly ? ' · punctuation only' : '';
+    say(mode === 'text' ? `slide ${u?.slide ?? s.right.slide}${u?.title ? ` · ${u.title}` : ''} · ${at + 1} of ${stops.length}${small}`
+      : `change ${at + 1} of ${stops.length} · ${where(s)}${small}`);
   }
 
   function show(i) {
     if (!el) return;
     if (!stops.length) { say('the proposal changes nothing the review can show'); paintDecision(); paintRail(); return; }
     at = Math.max(0, Math.min(i, stops.length - 1));
+    peek = null;
+    built = false;
     const s = stops[at];
-    const [lf, rf] = frames();
-    for (const [frame, pos, why] of [[lf, s.left, 'not in the deck as it is — the proposal adds this slide'], [rf, s.right, 'the proposal removes this slide']]) {
-      const gone = frame.parentElement.querySelector('.fr-gone');
-      gone.hidden = !!pos;
-      gone.textContent = pos ? '' : why;
-      frame.style.visibility = pos ? '' : 'hidden';
-      if (pos) frame.contentWindow?.postMessage({ __decklightPreview: { goto: [pos.slide, pos.step] } }, '*');
-    }
-    const u = unitOf(s.key);
-    const small = u?.punctuationOnly ? ' · punctuation only' : '';
-    say(mode === 'text' ? `slide ${u?.slide ?? s.right.slide}${u?.title ? ` · ${u.title}` : ''} · ${at + 1} of ${stops.length}${small}`
-      : `change ${at + 1} of ${stops.length} · ${where(s)}${small}`);
+    placePanes(s);
+    paintPos(s);
     paintMarks(s);
     paintNotes(s);
     paintDecision();
     paintRail();
+  }
+
+  /**
+   * The builds of the slide on screen, stepped in both panes together without
+   * leaving the change: `,` / `.` (or ⇧← / ⇧→) one build, B fully built and
+   * back. `to` is a build to go to, from the text diff's "from build k".
+   */
+  function stepBuild(dir, to = null) {
+    const s = stops[at];
+    if (!s?.steps) return;
+    const k = to ?? shownStep(s) + dir;
+    peek = Math.max(0, Math.min(s.steps, k));
+    built = false;
+    placePanes(s);
+    paintPos(s);
+    paintNotes(s);
+  }
+  function toggleBuilt() {
+    const s = stops[at];
+    if (!s?.steps) return;
+    built = !built;
+    if (!built && peek === null) peek = s.step;
+    placePanes(s);
+    paintPos(s);
+    paintNotes(s);
   }
 
   /** The first stop of the unit before / after the one on screen. */
@@ -637,6 +757,14 @@ export function createFixReview({
       const { removed, added } = diffCounts(runs);
       return `−${removed} +${added} word${added === 1 ? '' : 's'}`;
     };
+    // the slide's own attributes, said once a slide, and a change no build shows, said why
+    const attrs = decks && s.kind === 'changed' ? attrChanges(slideAttrs(decks.before, u.was), slideAttrs(decks.after, u.slide)) : [];
+    if (s.unseen) {
+      box.append(node('div', 'fr-notes-head fr-unseen', attrs.length
+        ? 'fully built · no build looks different: the change is the slide\'s own settings'
+        : 'fully built · no build looks different: the change is one the render cannot show'));
+    }
+    for (const line of attrs) box.append(node('div', 'fr-attr', line));
     const t = u ? textOf(s) : null;
     if (t) {
       const headEl = node('div', 'fr-notes-head');
@@ -647,8 +775,11 @@ export function createFixReview({
         for (const h of t.hunks) {
           const li = node('li', 'fr-hunk');
           // where it is, read off the block its first changed letter is in
-          const place = h.before ? placeIn(t.bs, t.before.blocks[h.at]) : placeIn(t.as, t.after.blocks[afterAt(t.words, h.at)]);
+          const blockB = t.before.blocks[h.at], blockA = t.after.blocks[afterAt(t.words, h.at)];
+          const place = h.before ? placeIn(t.bs, blockB) : placeIn(t.as, blockA);
           if (place) li.append(node('span', 'fr-hunk-place', `${place} · `));
+          // and when: words a later build brings in are not on screen yet
+          const from = h.after ? buildOf(decks.after, u.slide, blockA) : buildOf(decks.before, u.was, blockB);
           const runs = refineRuns(wordDiff(h.before, h.after));
           const quote = (op) => {
             const q = node('span', 'fr-quote');
@@ -661,6 +792,13 @@ export function createFixReview({
           else if (h.before) li.append('removed ', quote('-'));
           else li.append('added ', quote('+'));
           if (h.before && h.after && punctuationOnly(h.before, h.after)) li.append(node('span', 'fr-hunk-small', ' · punctuation only'));
+          if (from > shownStep(s)) {
+            const go = node('button', 'fr-btn fr-from', `from build ${from}`);
+            go.type = 'button';
+            go.title = 'show both panes at that build';
+            go.addEventListener('click', () => stepBuild(0, from));
+            li.append(' · ', go);
+          }
           list.append(li);
         }
         box.append(list);
@@ -863,7 +1001,12 @@ export function createFixReview({
     if (box) return false;   // the comment box has its own keys
     if (e.key === 'Enter' && e.shiftKey) { apply(false); return true; }
     if (e.metaKey || e.ctrlKey || e.altKey) return false;
+    if (e.shiftKey && e.key === 'ArrowLeft') { stepBuild(-1); return true; }
+    if (e.shiftKey && e.key === 'ArrowRight') { stepBuild(1); return true; }
     switch (e.key) {
+      case ',': stepBuild(-1); return true;
+      case '.': stepBuild(1); return true;
+      case 'b': case 'B': toggleBuilt(); return true;
       case 'ArrowLeft': case '[': show(at - 1); return true;
       case 'ArrowRight': case ']': show(at + 1); return true;
       case 'ArrowUp': stepUnit(-1); return true;
