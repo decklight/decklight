@@ -4316,16 +4316,20 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const before = document.querySelectorAll('.draw-mask').length;
         deck.sync(); await settle();
         r.rescanIdempotent = document.querySelectorAll('.draw-mask').length === before && before === 3 && deck._records[4].groups.length === 6;
-        // the overview's clone shows the dashed stroke whole: its mask (an id the live slide also holds) is off
+        // the overview's clone shows the dashed stroke whole: its mask is off, and the id it names is the clone's own
         press('o'); await settle();
         const ov = document.querySelector('.ov-clone .dd-curve');
-        r.overviewWhole = !!ov && ov.getAttribute('mask') === curve.getAttribute('mask') && getComputedStyle(ov).mask === 'none';
+        r.overviewWhole = !!ov && ov.getAttribute('mask') !== curve.getAttribute('mask') && getComputedStyle(ov).mask === 'none';
+        // every url(#id) in a thumbnail resolves inside that thumbnail, not to the hidden stage copy (markers, masks, clips)
+        const refs = [...document.querySelectorAll('.ov-clone svg *')].flatMap((el) => ['marker-start', 'marker-mid', 'marker-end', 'mask', 'clip-path', 'filter', 'fill', 'stroke']
+          .map((a) => [el, (el.getAttribute(a) || '').match(/url\(['"]?#([^'")]+)/)?.[1]]).filter(([, id]) => id));
+        r.overviewIdsOwn = refs.length > 0 && refs.every(([el, id]) => el.closest('.ov-clone').contains(document.getElementById(id)));
         press('Escape'); await settle();
         r.maskBackOnStage = /url\(/.test(getComputedStyle(curve).mask);
         r.samples = `${c1.n}/${s1.n}/${b1.n}/${b2.n}/${c2.n}`;
         r.PASS = r.masked && r.ownIds && r.dashesAuthored && r.solidUntouched && r.lineHasRegion && r.boxKeepsFill && r.headBuilt
           && r.steps && r.pendingHidden && r.drawsDashed && r.headRides && r.curveDone && r.stageDashed && r.stage2 && r.boxDashed
-          && r.retractsDashed && r.curveRetracts && r.deepLink && r.rescanIdempotent && r.overviewWhole && r.maskBackOnStage;
+          && r.retractsDashed && r.curveRetracts && r.deepLink && r.rescanIdempotent && r.overviewWhole && r.overviewIdsOwn && r.maskBackOnStage;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

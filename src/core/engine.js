@@ -5,7 +5,7 @@
 // scaling, print. SPEC BUILD_SEMANTICS, SLIDE_TRANSITIONS, PRESENTING, JS_API.
 
 import { scanSlide, applyBuildState, stepLabels, registerProvider } from './builds.js';
-import { namespaceSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf } from './svg.js';
+import { namespaceSvgIds, rescopeSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf } from './svg.js';
 import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
@@ -2237,6 +2237,7 @@ export function init(userConfig = {}) {
         inp.disabled = true;
       });
       frame.appendChild(clone);
+      rescopeSvgIds(clone, `ov${i}-`);   // else url(#…) resolves to the hidden stage copy
       applyNesting(clone);   // a clone of a slide never shown has not had its fills nested yet
       cell.appendChild(frame);
       const num = document.createElement('span');

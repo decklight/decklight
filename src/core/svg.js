@@ -116,32 +116,44 @@ const REF_ATTRS = [
 ];
 
 export function namespaceSvgIds(root) {
-  root.querySelectorAll('svg').forEach((svg, n) => {
-    const prefix = `svg${n}-`;
-    const map = new Map();
-    svg.querySelectorAll('[id]').forEach((el) => {
-      const old = el.id;
-      map.set(old, prefix + old);
-      el.id = prefix + old;
-    });
-    if (map.size === 0) return;
+  root.querySelectorAll('svg').forEach((svg, n) => prefixSvgIds(svg, `svg${n}-`));
+}
 
-    const rewriteUrl = (value) =>
-      value.replace(/url\(['"]?#([^'")]+)['"]?\)/g, (m, id) =>
-        map.has(id) ? `url(#${map.get(id)})` : m);
+/**
+ * Re-scope the already-namespaced ids of a DOM clone (an overview thumbnail)
+ * so its `url(#…)` references resolve inside the clone. Left alone they
+ * resolve to the FIRST element with that id in the document: the stage copy,
+ * which is hidden while the overview is open, so markers, gradients and clips
+ * would paint nothing.
+ */
+export function rescopeSvgIds(root, tag) {
+  root.querySelectorAll('svg').forEach((svg, n) => prefixSvgIds(svg, `${tag}${n}-`));
+}
 
-    svg.querySelectorAll('*').forEach((el) => {
-      for (const attr of REF_ATTRS) {
-        const v = el.getAttribute(attr);
-        if (v && v.includes('url(#')) el.setAttribute(attr, rewriteUrl(v));
+function prefixSvgIds(svg, prefix) {
+  const map = new Map();
+  svg.querySelectorAll('[id]').forEach((el) => {
+    const old = el.id;
+    map.set(old, prefix + old);
+    el.id = prefix + old;
+  });
+  if (map.size === 0) return;
+
+  const rewriteUrl = (value) =>
+    value.replace(/url\(['"]?#([^'")]+)['"]?\)/g, (m, id) =>
+      map.has(id) ? `url(#${map.get(id)})` : m);
+
+  svg.querySelectorAll('*').forEach((el) => {
+    for (const attr of REF_ATTRS) {
+      const v = el.getAttribute(attr);
+      if (v && v.includes('url(#')) el.setAttribute(attr, rewriteUrl(v));
+    }
+    for (const attr of ['href', 'xlink:href']) {
+      const v = el.getAttribute(attr);
+      if (v && v.startsWith('#') && map.has(v.slice(1))) {
+        el.setAttribute(attr, '#' + map.get(v.slice(1)));
       }
-      for (const attr of ['href', 'xlink:href']) {
-        const v = el.getAttribute(attr);
-        if (v && v.startsWith('#') && map.has(v.slice(1))) {
-          el.setAttribute(attr, '#' + map.get(v.slice(1)));
-        }
-      }
-    });
+    }
   });
 }
 
