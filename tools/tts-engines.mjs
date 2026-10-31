@@ -27,7 +27,7 @@
 //            Needs $ELEVENLABS_API_KEY (never saved to disk). Metered in
 //            characters against a plan allowance we cannot see, so it reports
 //            characters and no dollar estimate. Style reaches only the tag
-//            models — eleven_v4 (the default), eleven_v4_turbo, eleven_v3 —
+//            models — eleven_v4_turbo (the default), eleven_v4, eleven_v3 —
 //            whose delivery channel is bracketed audio tags read as direction,
 //            not words; so `stylable` and `audioTags` here depend on the model
 //            chosen, not just the engine.

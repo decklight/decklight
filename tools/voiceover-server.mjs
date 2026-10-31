@@ -116,9 +116,9 @@ export async function ttsMain(args) {
   piper   local neural TTS — offline, unlimited, no credentials, no cost.
   elevenlabs  your ElevenLabs account's own voices — the ones you cloned included, listed
           first in the picker. Needs $ELEVENLABS_API_KEY (never written to disk).
-          --tts-model eleven_v4 (default) reads a script's audio tags ([whispers],
+          --tts-model eleven_v4_turbo (default) reads a script's audio tags ([whispers],
           [laughs], [long pause]) as direction, and the picker's tone step appears
-          for it / eleven_v4_turbo for latency / eleven_v3, the first tag model —
+          for it / eleven_v4 for quality over latency / eleven_v3, the first tag model —
           higher latency, more variable / eleven_multilingual_v2, no tags (a tag
           in the notes is taken out rather than read aloud).
           --tts-stability creative|natural|robust — how hard v3 follows a tag (v3 only;
