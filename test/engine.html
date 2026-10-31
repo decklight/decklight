@@ -580,7 +580,7 @@
         }
       }
       // notes saved IN PLACE: no reload; every page is sent the new notes
-      if (HARNESS_MODE === 'notesinplace' || HARNESS_MODE === 'notesauto') {
+      if (HARNESS_MODE === 'notesinplace' || HARNESS_MODE === 'notesauto' || HARNESS_MODE === 'notesbuilds') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/slide/notes')) {
           // slowed when the mode asks, so the "autosaving…" mark can be seen
@@ -779,8 +779,15 @@
     if (HARNESS_MODE === 'buildchild') {
       document.querySelectorAll('.decklight > section')[1].innerHTML = '<h2>Two</h2><ul data-build><li>first</li><li>second</li></ul>';
     }
-    // skeys: a slide with two builds and notes in three beats, for S to open
-    if (HARNESS_MODE === 'skeys') {
+    // skeys: a slide with two builds and notes in three beats, for S to open;
+    // notesbuilds: the same slide for the per-build view, and slide 4 with
+    // two builds and no [click] in its notes
+    if (HARNESS_MODE === 'notesbuilds') {
+      document.querySelectorAll('.decklight > section')[3].innerHTML = `<h2>Four</h2>
+        <ul data-build><li>first</li><li>second</li></ul>
+        <aside class="notes"><p>All in one go.</p></aside>`;
+    }
+    if (HARNESS_MODE === 'skeys' || HARNESS_MODE === 'notesbuilds') {
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>
         <ul data-build><li>first</li><li>second</li></ul>
         <aside class="notes"><p>Intro [whispers] here.</p><p>[click]</p><p>First item. [pause] Held.</p><p>[click]</p><p>Second.</p></aside>`;
@@ -3246,6 +3253,67 @@
         r.otherSlidesUpdate = /Slide three, updated\./.test(asideOf(3)?.textContent ?? '') && box().value === 'My own unsaved draft.';
         press('Escape');
         r.PASS = r.saveSaysWhichPage && r.ownSaveStaysPut && r.ownEchoLeavesTheBox && r.cleanCardFollows && r.draftIsKept && r.otherSlidesUpdate;
+      }
+
+      if (mode === 'notesbuilds') {
+        // Whole slide or per build (PRESENTING): per build, the card holds
+        // the part of the notes the [click] lines give the build on screen,
+        // follows → to the next one, and saves a part back in its place.
+        try { localStorage.removeItem('decklight-notes-view'); } catch {}
+        await settle();   // the ping: authoring
+        deck.goto(3, 0); await settle();
+        press('s'); await settle();
+        const E = '.decklight-editor.decklight-notes';
+        const box = () => document.querySelector(`${E} textarea.edit-notes`);
+        const head = () => document.querySelector(`${E} .ed-heading`)?.textContent ?? '';
+        const btn = (c) => document.querySelector(`${E} .${c}`);
+        const lit = (c) => btn(c)?.classList.contains('narr-sel') && btn(c)?.getAttribute('aria-pressed') === 'true';
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/notes')).map((c) => c.body);
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((t) => t.textContent).join(' | ');
+        const echo = (n) => { const b = posts().pop(); window.__es.emit('notes', { slide: n, aside: b.text.split(/\n\n/).map((p) => `<p>${p}</p>`).join(''), from: b.from }); };
+        r.wholeByDefault = lit('notes-whole') && !lit('notes-per-build') && /\[click\]/.test(box()?.value ?? '') && !/build/.test(head());
+        btn('notes-per-build')?.click(); await settle();
+        r.perBuildShowsThePart = lit('notes-per-build') && box().value === 'Intro [whispers] here.' && /before the first build/.test(head());
+        r.remembered = localStorage.getItem('decklight-notes-view') === 'build';
+        // → steps the build, and the card follows to its part
+        deck.next(); await settle();
+        r.followsTheBuild = box().value === 'First item. [pause] Held.' && /build 1 of 2/.test(head());
+        // an edit to this part goes back in its place, every [click] kept
+        box().value = 'First item, reworded.';
+        box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        r.savesThePartInPlace = posts().pop()?.text === 'Intro [whispers] here.\n\n[click]\n\nFirst item, reworded.\n\n[click]\n\nSecond.';
+        // the next part, saved before the server's echo of the first: built on the card's own save
+        deck.next(); await settle();
+        r.nextPart = box().value === 'Second.' && /build 2 of 2/.test(head());
+        box().value = 'Second, reworded.';
+        box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        r.keepsTheEarlierSave = posts().pop()?.text === 'Intro [whispers] here.\n\n[click]\n\nFirst item, reworded.\n\n[click]\n\nSecond, reworded.';
+        echo(3); await settle();
+        // ← back: the part as saved
+        deck.prev(); await settle();
+        r.backShowsTheSaved = box().value === 'First item, reworded.';
+        // a [click] typed into a part moves the split: the whole slide shows
+        box().value = 'First item.\n[click]\nA new build.';
+        box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        r.clickShowsTheWhole = lit('notes-whole') && (box().value.match(/\[click\]/g) ?? []).length === 3
+          && /moved the split/.test(said()) && localStorage.getItem('decklight-notes-view') === 'build';
+        echo(3); await settle();
+        // a slide with builds and no [click]: the whole slide, and why
+        btn('notes-per-build')?.click(); await settle();
+        deck.goto(4, 0); await settle();
+        r.unsplitSaysWhy = box().value === 'All in one go.' && /whole slide: 2 builds, no \[click\] to split the notes/.test(head());
+        // switching with edits in the box saves them first, in the view they were typed in
+        box().value = 'All in one go, edited.';
+        box().dispatchEvent(new Event('input', { bubbles: true }));
+        const before = posts().length;
+        btn('notes-whole')?.click(); await settle(); await settle();
+        r.switchSavesFirst = posts().length === before + 1 && posts().pop()?.text === 'All in one go, edited.' && lit('notes-whole');
+        press('Escape');
+        r.PASS = r.wholeByDefault && r.perBuildShowsThePart && r.remembered && r.followsTheBuild && r.savesThePartInPlace
+          && r.nextPart && r.keepsTheEarlierSave && r.backShowsTheSaved && r.clickShowsTheWhole && r.unsplitSaysWhy && r.switchSavesFirst;
       }
 
       if (mode === 'notessave') {
