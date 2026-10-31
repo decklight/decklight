@@ -12,6 +12,7 @@ import {
   parseSlides, enhanceable, enhanceDeck, applyEnhanced, enhanceMain,
   SPOKEN_PROMPT, spokenPrompt, spokenProblem, enhanceText, KINDS,
   MATCH_SLIDE_PROMPT, matchSlidePrompt, slideTextOf,
+  REWRITE_PROMPT, rewritePrompt, passagePrompt, findPassage, PASSAGE_NOTE,
 } from '../cli/enhance.mjs';
 
 const deck = (...notes) => `<div class="decklight">\n${notes.map((n, i) => `    <section><h2>S${i + 1}</h2>${
@@ -151,7 +152,7 @@ test('written for the ear: its own prompt — the example it was asked for — t
   assert.match(p, /\[click\] — on a line of its own/, 'the beats are still decklight\'s');
   assert.match(p, /Reply with the rewritten script ONLY/);
   assert.ok(p.endsWith('# Script\n\nFluffed a line? Backspace retakes it.'));
-  assert.deepEqual(Object.keys(KINDS), ['tags', 'spoken', 'match-slide']);
+  assert.deepEqual(Object.keys(KINDS), ['tags', 'spoken', 'match-slide', 'rewrite']);
 });
 
 test('written for the ear may reword — but never the beats, a pause, a whole beat, or the length out of proportion', () => {
@@ -176,6 +177,51 @@ test('enhanceText({ kind: "spoken" }) asks the spoken prompt and checks with the
   assert.deepEqual(r, { ok: true, text: 'And if you fluff a line, just press Backspace to take it again.', changed: true });
   const tags = await enhanceText('Fluffed a line? Backspace retakes it.', { resolveAgent, exec });
   assert.equal(tags.ok, false, 'the default is still the tags, which keep every word');
+});
+
+// ── rewritten (--rewrite), and a passage ────────────────────────────────────
+
+test('rewritten: its own prompt, decklight\'s markers, then the script; checked like the spoken rewrite', () => {
+  const p = rewritePrompt('The cache it pays off later.');
+  assert.ok(p.startsWith(REWRITE_PROMPT));
+  assert.match(REWRITE_PROMPT, /says the same thing more clearly/);
+  assert.match(p, /\[click\] — on a line of its own/);
+  assert.ok(p.endsWith('# Script\n\nThe cache it pays off later.'));
+  assert.equal(KINDS.rewrite.problem, spokenProblem);
+  assert.deepEqual(Object.keys(KINDS).filter((k) => KINDS[k].passage), ['tags', 'spoken', 'rewrite'], 'matching the slide is whole-slide only');
+});
+
+test('passagePrompt marks the passage in the whole script and asks for it alone', () => {
+  const script = 'Keep this. Change this part.\n\n[click]\n\nAnd this stays.';
+  const p = passagePrompt('rewrite', script, { from: 11, to: 28 });
+  assert.match(p, /# Script\n\nKeep this\. ⟦Change this part\.⟧\n\n\[click\]\n\nAnd this stays\./);
+  assert.ok(p.endsWith(PASSAGE_NOTE));
+});
+
+test('findPassage: the offsets when they still point at the words, else the words found once, else null', () => {
+  const script = 'One two.\n\n[click]\n\nThree four. Two.';
+  assert.deepEqual(findPassage(script, { from: 0, to: 8, text: 'One two.' }), { from: 0, to: 8 });
+  assert.deepEqual(findPassage(script, { from: 0, to: 3, text: 'Three four.' }), { from: 19, to: 30 }, 'offsets off: the text decides');
+  assert.deepEqual(findPassage(script, { from: 18, to: 31, text: 'Three four.' }), { from: 19, to: 30 }, 'whitespace around a selection is not part of it');
+  assert.equal(findPassage(script, { text: 'wo' }), null, 'twice: ambiguous');
+  assert.equal(findPassage(script, { text: 'five' }), null);
+  assert.equal(findPassage(script, { text: '  ' }), null);
+});
+
+test('enhanceText with a passage: the answer goes back in place, checked as a passage and as the script', async () => {
+  const script = 'Keep this. Change this part.\n\n[click]\n\nAnd this stays.';
+  let asked = '';
+  const resolveAgent = (_a, prompt) => { asked = prompt; return { bin: 'x', args: [], name: 'claude' }; };
+  const answer = (out) => ({ resolveAgent, exec: async () => out, kind: 'rewrite', passage: { from: 11, to: 28 } });
+  const r = await enhanceText(script, answer('⟦This part, changed.⟧'));
+  assert.match(asked, /⟦Change this part\.⟧/);
+  assert.deepEqual(r, { ok: true, text: 'Keep this. This part, changed.\n\n[click]\n\nAnd this stays.', changed: true });
+  const split = await enhanceText(script, answer('This part.\n[click]\nChanged.'));
+  assert.equal(split.ok, false);
+  assert.match(split.why, /changed the \[click\] beats \(1 → 2\).*\(in the passage\)/);
+  const match = await enhanceText(script, { ...answer('x'), kind: 'match-slide' });
+  assert.doesNotMatch(asked, /⟦/, 'a kind with no passage asks about the whole script');
+  assert.equal(match.ok, false);
 });
 
 // ── matched to the slide (--match-slide) ────────────────────────────────────

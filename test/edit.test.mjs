@@ -1054,6 +1054,48 @@ test('POST /deck/edit/enhance { kind: "spoken" }: the notes written for the ear,
   assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes it back');
 });
 
+test('POST /deck/edit/enhance { kind: "rewrite", passage }: only the selected words are asked about, put back in place, held for review', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const withNotes = DECK
+    .replace('<ul><li>one</li></ul>', '<ul><li>one</li></ul>\n      <aside class="notes"><p>Keep this sentence. The cache it pays off later.</p><p>[click]</p><p>Second beat stays.</p></aside>');
+  writeFileSync(deck, withNotes);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  // a fake agent: it answers the marked passage, reworded, and records what it was shown
+  writeFakeBin(bin, 'claude', [
+    "import { writeFileSync } from 'node:fs';",
+    "const prompt = process.argv[process.argv.indexOf('-p') + 1] ?? '';",
+    "writeFileSync('asked.txt', prompt);",
+    "const m = /⟦([\\s\\S]*?)⟧/.exec(prompt);",
+    "console.log(m ? 'Later on, the cache pays off.' : 'whole script');",
+  ].join('\n'));
+  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
+  // matching the slide reads the whole script: no passage
+  const whole = await post(base, '/deck/edit/enhance', { slides: [1], kind: 'match-slide', passage: { text: 'The cache' } });
+  assert.equal(whole.status, 400);
+  // words that are not in the notes are refused before the agent is asked
+  const gone = await post(base, '/deck/edit/enhance', { slides: [1], kind: 'rewrite', passage: { text: 'not in the notes' } });
+  assert.equal(gone.status, 422);
+  assert.match((await gone.json()).error, /select them again/);
+  const started = await (await post(base, '/deck/edit/enhance', { slides: [1], kind: 'rewrite', passage: { from: 0, to: 4, text: 'The cache it pays off later.' } })).json();
+  assert.deepEqual({ ok: started.ok, kind: started.kind, passage: started.passage }, { ok: true, kind: 'rewrite', passage: true });
+  let p = null;
+  for (let i = 0; i < 200; i++) {
+    p = await (await fetch(base + '/deck/ping')).json();
+    if (p.candidate?.id) break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  assert.ok(p?.candidate?.id, 'held for review');
+  const asked = readFileSync(path.join(dir, 'asked.txt'), 'utf8');
+  assert.match(asked, /Keep this sentence\. ⟦The cache it pays off later\.⟧/, 'the whole script, the passage marked');
+  assert.match(asked, /Change ONLY the passage/);
+  const c = await (await fetch(`${base}/deck/edit/candidate`)).json();
+  assert.equal(c.what, 'script: rewritten');
+  assert.deepEqual(c.units.map((u) => u.notes.after), ['Keep this sentence. Later on, the cache pays off.\n\n[click]\n\nSecond beat stays.'],
+    'the passage in its place, the rest as it was');
+});
+
 test('POST /deck/edit/enhance { kind: "match-slide" }: the notes reworded to the slide, sent the slide\'s text, held for review', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');

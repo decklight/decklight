@@ -2551,7 +2551,7 @@ export function createNarration({
       // said in place.
       narrRows.push({
         group: AROUND,
-        text: '✍ Writing…',
+        text: '✍ Writing tools…',
         flavor: openWriting() ? 'audio tags · write for the ear · match the slide' : '',
         blocked: openWriting() ? null : 'needs write mode — it writes the notes',
         commit: () => { const go = openWriting(); if (!go) { toast('the writing tools need write mode — they write the notes', 4000); return; } closeNarrPicker(); go(); },

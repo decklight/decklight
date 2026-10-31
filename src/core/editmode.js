@@ -1578,6 +1578,7 @@ export function createEditMode({
   let unmountEditor = null;
   let notesFollow = null;   // re-points a clean notes card at the slide on screen
   let notesCaughtUp = null; // this page's notes now show the card's last save
+  let notesPassage = null;  // the open card's selection or build part, for a tool that takes a passage
   let notesReadOnly = false; // the card opened with no edit server behind it
   // A DRAWER, not a dialog: the notes open docked along the bottom, the deck
   // stays navigable above them, and they save themselves (below). The dock
@@ -1692,8 +1693,37 @@ export function createEditMode({
       opened = loaded = ta.value = notesText();
       title.textContent = heading();
       syncChanged();
+      syncQuickView();
     };
     let syncView = () => {};   // the whole slide / per build switch, once it exists
+    let syncQuickView = () => {};   // the quick actions' labels, which follow what the box shows
+    let unmountQuick = () => {};
+    // What the quick actions and the picker can rewrite short of the whole
+    // slide: the words selected in the box, else (per build) the build's
+    // part. `at`/`length` are in the box, `from`/`to` in the slide's whole
+    // script; the server finds the words by their text, the offsets a hint.
+    notesPassage = () => {
+      if (ta.hidden) return null;   // the changes view is up
+      const v = ta.value;
+      const lead = v.length - v.trimStart().length;
+      // where the box's first word sits in the slide's whole script
+      const base = shown.part == null ? lead
+        : withPart(notesParts(draftNow()), shown.part, '\u0000').indexOf('\u0000');
+      const inScript = (i) => base + (i - lead);
+      const raw = v.slice(ta.selectionStart, ta.selectionEnd);
+      const text = raw.trim();
+      if (text) {
+        const at = ta.selectionStart + raw.length - raw.trimStart().length;
+        const words = text.split(/\s+/).length;
+        return { scope: 'selection', slide: sl, text, at, length: text.length, from: inScript(at), to: inScript(at) + text.length,
+          label: `the selection · ${words} word${words === 1 ? '' : 's'}`,
+          flavor: `“${text.length > 40 ? `${text.slice(0, 38).trimEnd()}…` : text}”` };
+      }
+      if (shown.part == null || !v.trim()) return null;
+      const part = v.trim();
+      return { scope: 'build', slide: sl, text: part, at: lead, length: part.length, from: inScript(lead), to: inScript(lead) + part.length,
+        label: `this build · ${partLabel(shown.part, shown.count)}`, flavor: 'its part of the notes, the rest as it is' };
+    };
     // Whole slide or per build. Edits in the box go first, into the view they
     // were typed in; a save that fails leaves the card as it was.
     async function setView(build, { remember = true } = {}) {
@@ -1708,6 +1738,7 @@ export function createEditMode({
       title.textContent = heading();
       syncView();
       syncChanged();
+      syncQuickView();
       ta.focus();
     }
     // the box as the slide's whole script: per build, its part put back in
@@ -1943,30 +1974,82 @@ export function createEditMode({
     showDiff(false);
     syncView();
     syncChanged();
-    // The writing tools (src/core/writing.js, cli/enhance.mjs): one button,
-    // the picker asks which tool and which slides. The box is saved first,
-    // so the agent reads the notes as the file holds them, and the answer is
-    // HELD for review (#907): the review opens over the card, and nothing
-    // lands until it is applied.
+    // The writing tools (src/core/writing.js, cli/enhance.mjs): two quick
+    // actions that run at once on what the card shows, and Writing tools…,
+    // the picker, for every tool and scope. The box is saved first, so the
+    // agent reads the notes as the file holds them, and the answer is HELD
+    // for review (#907): the review opens over the card, and nothing lands
+    // until it is applied.
+    //
+    // Rewrite follows the box: with words selected it rewrites only them
+    // (and says so, on the button and while it runs); per build, with none
+    // selected, only the build's part; otherwise the slide's notes.
+    // Match slide always reads the whole slide's notes against the slide.
     if (editAgents.length) {
       const agent = editAgents.find((a) => a.name === preferredAgent) ?? editAgents[0];
       const rewrites = document.createElement('div');
       rewrites.className = 'notes-rewrites';
-      const btn = button('notes-writing', '✍ Writing…',
-        `${agent.label} rewrites the notes: audio tags ElevenLabs v4 performs, or terse notes as sentences a person would say. `
-        + 'The box is saved first; what comes back is reviewed before it lands. The notes are sent to that agent, which may pass them to its provider.');
-      btn.addEventListener('click', () => openWriting({
-        before: async () => {
-          if (ta.value !== loaded) await save();
-          return ta.value === loaded;   // a save that failed said so
-        },
-      }));
-      rewrites.appendChild(btn);
+      const sends = 'The box is saved first; what comes back is reviewed before it lands. '
+        + `The notes are sent to ${agent.label}, which may pass them to its provider.`;
+      const quick = (cls, text, tip) => {
+        const b = button(`notes-quick ${cls}`, '', tip);
+        const label = Object.assign(document.createElement('span'), { className: 'notes-quick-label', textContent: text });
+        b.append(aiIcon(), label);
+        return { b, label };
+      };
+      const rewrite = quick('notes-rewrite', 'Rewrite', '');
+      const match = quick('notes-match-slide', 'Match slide', '');
+      const btn = button('notes-writing', 'Writing tools…',
+        `every writing tool, and which slides it runs on: ${agent.label} rewrites the notes (or the slide's text). ${sends}`);
+      // what the box is rewriting while a run goes: the selection's words, or the build
+      const running = Object.assign(document.createElement('span'), { className: 'notes-running', hidden: true });
+      const syncQuick = () => {
+        const p = notesPassage?.();
+        const busy = !running.hidden;
+        rewrite.label.textContent = p?.scope === 'selection' ? 'Rewrite selection' : 'Rewrite';
+        rewrite.b.title = `${p?.scope === 'selection' ? 'rewrites only the selected words, the notes around them as they are'
+          : p?.scope === 'build' ? `rewrites ${partLabel(shown.part, shown.count)} only, the rest of the slide's notes as they are`
+            : 'rewrites this slide\'s notes'}: the same meaning, said more clearly. ${sends}`;
+        match.b.title = `rewords this slide's notes to agree with what the slide shows: its terms, names, numbers and order. `
+          + `Always the whole slide's notes${p ? ', whatever is selected or shown' : ''}. ${sends}`;
+        rewrite.b.disabled = match.b.disabled = busy;
+      };
+      const firstSave = async () => {
+        if (ta.value !== loaded) await save();
+        return ta.value === loaded;   // a save that failed said so
+      };
+      rewrite.b.addEventListener('click', async () => {
+        const p = notesPassage?.();
+        if (!(await firstSave())) return;
+        // the selection stays lit while the box has the focus, and the mark says what is being rewritten
+        if (p?.scope === 'selection') { ta.focus(); ta.setSelectionRange(p.at, p.at + p.length); }
+        await enhanceScript(p ? p.scope : 'slide', { kind: 'rewrite', passage: p });
+        // started (not refused, nor another run's): the mark says what is being rewritten until it ends
+        if (p && enhanceRun?.passage === p) {
+          running.textContent = `rewriting ${p.scope === 'selection' ? `the selection: ${p.flavor}` : partLabel(shown.part, shown.count)}…`;
+          running.hidden = false;
+          syncQuick();
+        }
+      });
+      match.b.addEventListener('click', async () => {
+        if (await firstSave()) enhanceScript('slide', { kind: 'match-slide' });
+      });
+      btn.addEventListener('click', () => openWriting({ before: firstSave }));
+      const onRunEnd = () => { running.hidden = true; syncQuick(); };
+      enhanceEnded.add(onRunEnd);
+      unmountQuick = () => { enhanceEnded.delete(onRunEnd); document.removeEventListener('selectionchange', syncQuick); };
+      // the label follows the selection as it is made
+      document.addEventListener('selectionchange', syncQuick);
+      for (const ev of ['select', 'input', 'keyup', 'mouseup']) ta.addEventListener(ev, syncQuick);
+      const sep = Object.assign(document.createElement('span'), { className: 'notes-sep', textContent: '·' });
+      rewrites.append(rewrite.b, match.b, sep, btn, running);
       actions.appendChild(rewrites);
+      syncQuickView = syncQuick;
+      syncQuick();
     }
     card.append(ta, diffEl, actions);
     const unmountCard = mountTypingCard(el, notesDock);
-    unmountEditor = () => { unmountCard(); unmountLeaving(); };
+    unmountEditor = () => { unmountCard(); unmountLeaving(); unmountQuick(); notesPassage = null; };
     setTimeout(() => ta.focus(), 0);
   }
 
@@ -2082,7 +2165,7 @@ export function createEditMode({
       rows.push({ label: 'Delete this slide', run: () => { closeElementMenu(); slideOp('delete'); } });
     } else if (menuTarget.index === null) {
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
-      if (editAgents.length) rows.push({ label: 'Writing…', run: () => { closeElementMenu(); openWriting(); } });
+      if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     } else {
       const nested = menuTarget.node && menuTarget.node !== menuTarget.top;
@@ -2094,7 +2177,7 @@ export function createEditMode({
       rows.push({ label: nested ? `Remove this ${menuTarget.node.tagName.toLowerCase()}` : 'Remove element', run: () => commitRemove() });
       if (nested) rows.push({ label: `Remove the whole ${menuTarget.top.tagName.toLowerCase()}`, run: () => commitRemove(menuTarget, { whole: true }) });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
-      if (editAgents.length) rows.push({ label: 'Writing…', run: () => { closeElementMenu(); openWriting({ group: 'text' }); } });
+      if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting({ group: 'text' }); } });
       rows.push({ label: 'Colors…', run: () => openInspect('colors') });
       rows.push({ label: 'Type…', run: () => openInspect('type') });
       // the format painter: this shape's look onto another (style-clip.js)
@@ -3506,7 +3589,10 @@ export function createEditMode({
   // (read-only), decklight checks and writes. One run at a time; `scope` is
   // 'slide', 'module' (the data-module chapter this slide is in) or 'all'.
   let enhanceRun = null;
+  const enhanceEnded = new Set();   // told when a run ends, however it ends: the notes card's "rewriting…" mark
+  const endEnhance = () => { enhanceRun = null; for (const fn of [...enhanceEnded]) fn(); };
   const REWRITES = {
+    rewrite: { doing: 'rewriting', with: '', drafting: 'rewriting it', done: (x) => `rewrote ${x}` },
     tags: { doing: 'enhancing', with: ' with ElevenLabs audio tags', drafting: 'drafting audio tags', done: (x) => `enhanced ${x}` },
     spoken: { doing: 'writing for the ear', with: '', drafting: 'rewriting it as spoken sentences', done: (x) => `wrote ${x} for the ear` },
     'match-slide': { doing: 'matching the script to the slide', with: '', drafting: 'reading the slide', done: (x) => `matched ${x} to the slide` },
@@ -3534,9 +3620,10 @@ export function createEditMode({
   const writing = createWritingPicker({
     root, overlays, toast,
     tools: () => (editAvailable && editAgents.length ? WRITING_TOOLS : []),
-    where: () => ({ slide: instance.state.slide, total: instance.state.totalSlides, module: moduleOf(instance.state.slide) }),
+    // the open notes card's selection or build part leads the scopes, for a tool that takes one
+    where: () => ({ slide: instance.state.slide, total: instance.state.totalSlides, module: moduleOf(instance.state.slide), passage: notesPassage?.() ?? null }),
     agent: () => { const a = editAgents.find((x) => x.name === preferredAgent) ?? editAgents[0]; return a ? { label: a.label, model: a.model ?? null } : null; },
-    run: (tool, scope, { instruction = '' } = {}) => enhanceScript(scope, { kind: tool.kind, instruction }),
+    run: (tool, scope, { instruction = '', passage = null } = {}) => enhanceScript(scope, { kind: tool.kind, instruction, passage }),
   });
   /** The picker, from any entry point: the notes editor, the V panel, the palette, the slide's menu. */
   function openWriting(opts = {}) {
@@ -3550,25 +3637,29 @@ export function createEditMode({
    * /deck/edit/rewrite), over this slide, its module or the deck. Either way
    * the answer is held for review (#907); the run itself only reports.
    */
-  async function enhanceScript(scope = 'slide', { kind = 'tags', instruction = '' } = {}) {
+  async function enhanceScript(scope = 'slide', { kind = 'tags', instruction = '', passage = null } = {}) {
     const k = REWRITES[kind] ?? REWRITES.tags;
     if (!editAvailable) { toast(cannot(k.text ? 'rewriting the slide text' : kind !== 'tags' ? 'rewriting the notes' : 'enhancing the script'), 3200); return; }
     if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
     if (enhanceRun) { toast('the agent is already rewriting — one run at a time'); return; }
-    const slide = instance.state.slide;
+    // a passage (the notes card's selection, or a build's part) is of its own slide
+    const part = (scope === 'selection' || scope === 'build') && passage ? passage : null;
+    const slide = part?.slide ?? instance.state.slide;
     const mod = scope === 'module' ? moduleOf(slide) : null;
     if (scope === 'module' && !mod) { toast('this slide is not in a module — the deck marks none before it (data-module)', 4000); return; }
     const slides = scope === 'all' ? 'all'
       : mod ? Array.from({ length: mod.to - mod.from + 1 }, (_, i) => mod.from + i) : [slide];
     const noun = k.text ? 'text' : 'script';
-    const what = scope === 'all' ? `every slide's ${noun}`
-      : mod ? `the “${mod.title}” module (slides ${mod.from}–${mod.to})` : `slide ${slide}'s ${noun}`;
+    const what = part ? `${part.scope === 'selection' ? 'the selection in' : `${part.label.replace('this build · ', '')} of`} slide ${slide}'s ${noun}`
+      : scope === 'all' ? `every slide's ${noun}`
+        : mod ? `the “${mod.title}” module (slides ${mod.from}–${mod.to})` : `slide ${slide}'s ${noun}`;
     const run = progress(`${k.doing}: ${what}${k.with} — asking the agent… (${STOP_HOW})`);
-    enhanceRun = { run, what, kind };
+    enhanceRun = { run, what, kind, passage: part };
     try {
       const r = await fetch(editBase + (k.text ? '/deck/edit/rewrite' : '/deck/edit/enhance'), {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(k.text ? { slides, tool: kind, instruction } : { slides, kind }),
+        body: JSON.stringify(k.text ? { slides, tool: kind, instruction }
+          : { slides, kind, ...(part ? { passage: { from: part.from, to: part.to, text: part.text } } : {}) }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
@@ -3577,7 +3668,7 @@ export function createEditMode({
       debugLog('enhance', `${kind}: ${j.of} slide(s) → ${j.agent}`);
     } catch (e) {
       run.done(`could not rewrite ${what} — ${e.message}`, 5200);
-      enhanceRun = null;
+      endEnhance();
     }
   }
   /** What a finished run says, in one line. */
@@ -3602,7 +3693,7 @@ export function createEditMode({
     } else if (d.state === 'done') {
       const line = enhanceSummary(d);
       if (enhanceRun) enhanceRun.run.done(line, 6000); else toast(line, 6000);
-      enhanceRun = null;
+      endEnhance();
       debugLog('enhance', line);
       // held for review (#907): nothing landed, the review opens on it
       if (d.candidate?.id) fixReview.open(d.candidate.id);

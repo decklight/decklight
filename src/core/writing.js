@@ -17,6 +17,10 @@
  * closes the card and runs the tool. What a run does with its answer is the
  * caller's: a script rewrite is held for review (cli/enhance.mjs, #907).
  *
+ * A tool marked `part` can also work on a passage of the notes: opened from
+ * the notes card with words selected, or on one build's part, the scope rows
+ * start with *the selection* or *this build*, and that is the row selected.
+ *
  * Keys: ↑/↓ choose, ⏎ picks, ← (or Esc on the scope rows) goes back to the
  * tools, Esc closes. A click on a row picks it.
  */
@@ -28,11 +32,13 @@ import { aiIcon } from './aiicon.js';
  * The tools, in the order the card lists them. The `script` ones rewrite
  * the speaker notes (cli/enhance.mjs); the `text` ones the slide's own
  * words, run by run (cli/rewrite.mjs, PRESENTING_WRITING). `asks` marks a
- * tool that wants a line from the author first.
+ * tool that wants a line from the author first; `part` one that can rewrite
+ * a passage of the notes rather than the whole slide's.
  */
 export const WRITING_TOOLS = [
-  { id: 'tags', group: 'script', label: 'add audio tags', ai: true, flavor: 'same words, the tags ElevenLabs v4 performs', kind: 'tags' },
-  { id: 'spoken', group: 'script', label: '🗣 write it for the ear', flavor: 'terse notes as sentences a person would say', kind: 'spoken' },
+  { id: 'rewrite', group: 'script', label: 'rewrite', ai: true, flavor: 'the same meaning, said more clearly', kind: 'rewrite', part: true },
+  { id: 'tags', group: 'script', label: 'add audio tags', ai: true, flavor: 'same words, the tags ElevenLabs v4 performs', kind: 'tags', part: true },
+  { id: 'spoken', group: 'script', label: '🗣 write it for the ear', flavor: 'terse notes as sentences a person would say', kind: 'spoken', part: true },
   { id: 'match-slide', group: 'script', label: '⇄ match the slide', flavor: 'the notes agree with what the slide shows', kind: 'match-slide' },
   { id: 'tighten', group: 'text', label: '✂ tighten', flavor: 'shorter, same meaning, same structure', kind: 'tighten' },
   { id: 'typos', group: 'text', label: '✓ fix typos and grammar', flavor: 'spelling, grammar, punctuation; nothing reworded', kind: 'typos' },
@@ -43,10 +49,12 @@ const GROUPS = { script: 'script — the speaker notes', text: 'slide text — t
 
 /**
  * The scope rows for slide `n` of `total`, given the module it is in (or
- * null): `[{ scope, label, flavor }]`. Pure.
+ * null): `[{ scope, label, flavor }]`, led by `passage` (the notes card's
+ * selection or build part, `{ scope, label, flavor }`) when there is one. Pure.
  */
-export function scopeRows(n, total, mod) {
-  const rows = [{ scope: 'slide', label: `this slide · ${n}`, flavor: 'this one' }];
+export function scopeRows(n, total, mod, passage = null) {
+  const rows = passage ? [{ scope: passage.scope, label: passage.label, flavor: passage.flavor, passage }] : [];
+  rows.push({ scope: 'slide', label: `this slide · ${n}`, flavor: passage ? 'all of its notes' : 'this one' });
   if (mod) rows.push({ scope: 'module', label: `module “${mod.title}” · ${mod.to - mod.from + 1}`, flavor: `slides ${mod.from}–${mod.to}` });
   rows.push({ scope: 'all', label: `whole deck · ${total}`, flavor: 'every slide — the agent is asked once per slide' });
   return rows;
@@ -54,7 +62,7 @@ export function scopeRows(n, total, mod) {
 
 /**
  * `tools()` answers the tools on offer (WRITING_TOOLS, or fewer); `where()`
- * answers `{ slide, total, module }` for the scope rows; `agent()` the agent
+ * answers `{ slide, total, module, passage? }` for the scope rows; `agent()` the agent
  * that will be asked, `{ label, model? }` or null; `run(tool, scope)` does it.
  */
 export function createWritingPicker({ root, overlays, toast = () => {}, tools = () => WRITING_TOOLS, where, agent = () => null, run }) {
@@ -86,7 +94,7 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
     card.replaceChildren();
     rows = [];
     rowEls = [];
-    const head = node('div', 'narr-head', asking ? `${tool.label} — ${tool.asks}` : tool ? `${tool.label} — which slides?` : 'writing');
+    const head = node('div', 'narr-head', asking ? `${tool.label} — ${tool.asks}` : tool ? `${tool.label} — which slides?` : 'writing tools');
     card.append(head);
     if (asking) {
       // one line of the author's: ⏎ keeps it and goes on to the slides
@@ -125,7 +133,7 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
       }
     } else {
       const w = where();
-      for (const r of scopeRows(w.slide, w.total, w.module)) row(r);
+      for (const r of scopeRows(w.slide, w.total, w.module, tool.part ? w.passage ?? null : null)) row(r);
     }
     const a = agent();
     const foot = node('div', 'narr-foot', tool
@@ -140,10 +148,10 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
     const r = rows[sel];
     if (!r) return;
     if (!tool) { tool = r; sel = 0; asking = !!r.asks; render(); return; }
-    const t = tool, scope = r.scope, first = before, line = instruction.trim();
+    const t = tool, scope = r.scope, first = before, line = instruction.trim(), passage = r.passage ?? null;
     close();
     if (first && (await first()) === false) return;
-    run(t, scope, { instruction: line });
+    run(t, scope, { instruction: line, passage });
   }
 
   function back() {
@@ -173,7 +181,7 @@ export function createWritingPicker({ root, overlays, toast = () => {}, tools = 
     el = node('div', 'decklight-narr decklight-writing');
     const card = node('div', 'narr-card');
     card.setAttribute('role', 'listbox');
-    card.setAttribute('aria-label', 'Writing');
+    card.setAttribute('aria-label', 'Writing tools');
     el.append(card);
     closeOnBackdrop(el, close);
     root.appendChild(el);

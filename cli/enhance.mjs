@@ -29,6 +29,12 @@
  * `--match-slide` is the third: the notes reworded to agree with what the
  * slide SHOWS, its text runs (cli/rewrite.mjs) sent along. The mirror of the
  * slide-text tool *match the script*; it rewords too, so the same check.
+ *
+ * `--rewrite` is the plain one: the same meaning, said more clearly. It and
+ * the tags and the spoken rewrite can work on a PASSAGE of the notes (the
+ * notes card's selection, or one build's part): the agent is shown the whole
+ * script with the passage marked and answers the passage alone, which
+ * decklight puts back in its place and checks both ways (`enhanceText`).
  */
 
 import { execFile } from 'node:child_process';
@@ -309,10 +315,64 @@ export function spokenProblem(before, after) {
   return null;
 }
 
+// ── rewritten ───────────────────────────────────────────────────────────────
+// The plain rewrite: the same points, worded more clearly and more naturally
+// to say. It rewords, so it is checked like the spoken rewrite.
+
+export const REWRITE_PROMPT = `# Instructions
+
+You are rewriting the speaker-notes script of one presentation slide so that it says the same thing more clearly and more naturally. A narrator will read your text aloud, word for word.
+
+* Keep the meaning: every fact, instruction, number, name and technical term stays, and nothing new is added (no claims, examples, jokes or opinions).
+* Make it clearer and smoother to say: simpler sentences, plain words, better flow from one idea to the next, no repetition.
+* Keep the presenter's voice and register, and the language of the original.
+* Keep it about as long as it was.
+* Keep any audio tag in square brackets (such as [thoughtful]) attached to the sentence it belongs to.`;
+
+/** The whole ask for one slide's script, rewritten. */
+export const rewritePrompt = (script) =>
+  `${REWRITE_PROMPT}\n\n${DECKLIGHT_ADDENDUM.replace('the enhanced script', 'the rewritten script')}\n\n# Script\n\n${script}`;
+
+// ── a passage ───────────────────────────────────────────────────────────────
+// A rewrite of part of the notes: the script goes whole, so the agent sees
+// what the passage sits in, with the passage between two marks no script
+// contains, and the answer is the passage alone.
+
+const OPEN = '⟦', CLOSE = '⟧';
+export const PASSAGE_NOTE = `# The passage
+
+Change ONLY the passage between ${OPEN} and ${CLOSE} in the script above; everything outside it is context, and stays as it is. Reply with the rewritten passage ONLY, without the ${OPEN} ${CLOSE} marks and without any of the script around it. The passage may start or end mid-sentence: your answer must fit back in its place.`;
+
+/** `kind`'s prompt for `script` with `script.slice(from, to)` marked as the passage to change. */
+export function passagePrompt(kind, script, { from, to }, opts = {}) {
+  const marked = `${script.slice(0, from)}${OPEN}${script.slice(from, to)}${CLOSE}${script.slice(to)}`;
+  return `${kindOf(kind).prompt(marked, opts)}\n\n${PASSAGE_NOTE}`;
+}
+
+/**
+ * Where the passage the page asked about sits in the notes as the server
+ * reads them: `{ from, to }`, or null when it is not there (once). The page
+ * sends its own offsets and the passage's text; the notes it measured them
+ * against can differ from the file in whitespace, so the text decides, the
+ * offsets only when they still point at it. Pure.
+ */
+export function findPassage(script, { from, to, text } = {}) {
+  const want = String(text ?? '').trim();
+  if (!want) return null;
+  if (Number.isInteger(from) && Number.isInteger(to) && script.slice(from, to).trim() === want) {
+    const lead = script.slice(from, to).length - script.slice(from, to).trimStart().length;
+    return { from: from + lead, to: from + lead + want.length };
+  }
+  const at = script.indexOf(want);
+  if (at < 0 || script.indexOf(want, at + 1) >= 0) return null;
+  return { from: at, to: at + want.length };
+}
+
 /**
  * The rewrites the notes get, by name: `tags` (ElevenLabs v4 audio tags,
  * same words), `spoken` (written for the ear, reworded) and `match-slide`
- * (reworded to agree with the slide). Each is a prompt, the check its answer
+ * (reworded to agree with the slide) and `rewrite` (the same meaning, said
+ * more clearly). Each is a prompt, the check its answer
  * must pass before a byte of the deck changes, and the words the run and the
  * review say it with.
  */
@@ -320,7 +380,12 @@ export const KINDS = {
   tags: { prompt: enhancePrompt, problem: enhanceProblem, done: 'enhanced', what: 'script: audio tags' },
   spoken: { prompt: spokenPrompt, problem: spokenProblem, done: 'rewritten for the ear', what: 'script: written for the ear', doing: ', written for the ear' },
   'match-slide': { prompt: matchSlidePrompt, problem: spokenProblem, done: 'matched to the slide', what: 'script: matched to the slide', doing: ', matched to the slide' },
+  rewrite: { prompt: rewritePrompt, problem: spokenProblem, done: 'rewritten', what: 'script: rewritten', doing: ', rewritten', passage: true },
 };
+// the tags and the spoken rewrite work on a passage too; matching the slide
+// reads the whole script against the whole slide, so it never does
+KINDS.tags.passage = true;
+KINDS.spoken.passage = true;
 const kindOf = (kind) => KINDS[kind] ?? KINDS.tags;
 
 /** Run a read-only agent ask; resolves to its stdout, or null — null too when `signal` stops it. */
@@ -363,18 +428,30 @@ export function enhanceable(html, only = null) {
  * One script, enhanced: the agent is asked, its answer unwrapped and checked.
  * Resolves to `{ ok, text }` or `{ ok: false, why }` — the unit every caller
  * shares, from the notes editor's one box to a whole deck.
+ *
+ * `passage` (`{ from, to }` in `script`, for a kind that takes one) narrows
+ * it: the answer is that passage, put back in its place, and checked as a
+ * passage (its own beats and pauses) and then as the script it makes.
  */
 export async function enhanceText(script, {
   kind = 'tags', slideText = '', agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
-  resolveAgent = agentAsk, exec = ask, signal = null,
+  resolveAgent = agentAsk, exec = ask, signal = null, passage = null,
 } = {}) {
   const k = kindOf(kind);
-  const cmd = resolveAgent(agent, k.prompt(script, { slideText }), { env });
+  const part = passage && k.passage ? passage : null;
+  const cmd = resolveAgent(agent, part ? passagePrompt(kind, script, part, { slideText }) : k.prompt(script, { slideText }), { env });
   if (!cmd) return { ok: false, why: agentUnavailable(agent, detectAgents({ env })) };
   const out = await exec(cmd, cwd, timeoutMs, signal);
   if (signal?.aborted) return { ok: false, why: 'stopped' };
   if (out == null) return { ok: false, why: 'the agent did not answer in time' };
-  const text = unwrapAnswer(out);
+  let text = unwrapAnswer(out);
+  if (part) {
+    const was = script.slice(part.from, part.to);
+    const answer = text.replaceAll(OPEN, '').replaceAll(CLOSE, '').trim();
+    const why = k.problem(was, answer);
+    if (why) return { ok: false, why: `${why} (in the passage)` };
+    text = `${script.slice(0, part.from)}${answer}${script.slice(part.to)}`;
+  }
   const why = k.problem(script, text);
   return why ? { ok: false, why } : { ok: true, text, changed: text !== script.trim() };
 }
@@ -410,15 +487,18 @@ export function applyEnhanced(html, answers) {
 export async function enhanceDeck(html, slides = null, {
   kind = 'tags', agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
   concurrency = ENHANCE_CONCURRENCY, resolveAgent = agentAsk, exec = ask, onSlide = () => {}, signal = null,
+  passage = null,
 } = {}) {
   if (!resolveAgent(agent, 'x', { env })) throw new Error(agentUnavailable(agent, detectAgents({ env })));
   const todo = enhanceable(html, slides);
+  // a passage is of ONE slide's notes, as they read when it was found
+  if (passage && todo.length !== 1) throw new Error('a passage is part of one slide\'s notes');
   const answers = [];
   let next = 0, finished = 0;
   const worker = async () => {
     while (next < todo.length && !signal?.aborted) {
       const { slide, script, slideText } = todo[next++];
-      const a = await enhanceText(script, { kind, slideText, agent, cwd, env, timeoutMs, resolveAgent, exec, signal });
+      const a = await enhanceText(script, { kind, slideText, agent, cwd, env, timeoutMs, resolveAgent, exec, signal, passage });
       const r = { slide, ok: a.ok, changed: a.ok && a.text !== script, ...(a.ok ? {} : { why: a.why }) };
       answers.push({ ...r, before: script, text: a.text ?? null });
       onSlide({ ...r, done: ++finished, of: todo.length });
@@ -453,6 +533,7 @@ Usage:
   decklight enhance <deck.html> --all [--agent <name>] [--agent-model <id>] [--dry-run]
   decklight enhance <deck.html> --spoken --slides … | --all   write it for the ear instead
   decklight enhance <deck.html> --match-slide --slides … | --all   match it to the slide instead
+  decklight enhance <deck.html> --rewrite --slides … | --all   say the same thing more clearly instead
 
 Asks the AI agent installed on this machine (claude, codex, …) to add audio
 tags — [thoughtful], [sighs], [excited] — to each slide's speaker notes, with
@@ -477,6 +558,8 @@ ElevenLabs v4/v3 and left out by every other voice.
   --match-slide  reword the notes to agree with what the slide shows: its
              terms, names and numbers, its order, every point it makes. The
              slide's text is sent along; checked like --spoken.
+  --rewrite  the same meaning, worded more clearly and more naturally to
+             say; nothing added, nothing dropped. Checked like --spoken.
 
 Note: the notes are sent to that agent, and most agents are cloud services.`;
 
@@ -499,7 +582,8 @@ export async function enhanceMain(args = []) {
   try { slides = all ? null : parseSlides(which, sectionBodies(html).length); }
   catch (e) { console.error(`decklight enhance: ${e.message}`); return 1; }
   const dry = args.includes('--dry-run');
-  const kind = args.includes('--match-slide') ? 'match-slide' : args.includes('--spoken') ? 'spoken' : 'tags';
+  const kind = args.includes('--match-slide') ? 'match-slide' : args.includes('--rewrite') ? 'rewrite'
+    : args.includes('--spoken') ? 'spoken' : 'tags';
   const verb = KINDS[kind].done;
   let res;
   try {
