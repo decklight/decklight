@@ -32,6 +32,7 @@ import { wordDiff, diffCounts } from './worddiff.js';
 import { createFixReview, fixReviewOn, setFixReview, askReviewOn, setAskReview } from './fixreview.js';
 import { createWritingPicker, WRITING_TOOLS } from './writing.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
+import { notesParts, withPart, hasClick, partFor, partLabel, wholeWhy } from './notesparts.js';
 import { hljs } from '../code/code.js';
 import { UNDO_CHORD } from './undo-chord.js';
 import { markdownNodes } from './mdtext.js';
@@ -1541,6 +1542,7 @@ export function createEditMode({
       sec.appendChild(aside);
     }
     aside.innerHTML = asideInner;
+    notesCaughtUp?.(slide);
     // the page that saved keeps its box exactly as typed: only the others follow
     if (from !== PAGE_ID) notesRefresh?.(slide);
     instance._notify();
@@ -1568,8 +1570,14 @@ export function createEditMode({
     return next;
   }
   const forgetNotesOpen = () => { try { sessionStorage.removeItem(NOTES_OPEN_KEY); } catch { /* no storage */ } };
+  // Whole slide or per build: what the card shows (PRESENTING). Per build,
+  // only the part of the notes the [click] lines give the build on screen.
+  // A preference of the person editing, so per browser, like the quiet time.
+  const NOTES_VIEW_KEY = 'decklight-notes-view';
+  const notesPerBuild = () => readPref(NOTES_VIEW_KEY) === 'build';
   let unmountEditor = null;
   let notesFollow = null;   // re-points a clean notes card at the slide on screen
+  let notesCaughtUp = null; // this page's notes now show the card's last save
   let notesReadOnly = false; // the card opened with no edit server behind it
   // A DRAWER, not a dialog: the notes open docked along the bottom, the deck
   // stays navigable above them, and they save themselves (below). The dock
@@ -1589,6 +1597,8 @@ export function createEditMode({
   // Docked, the deck stays navigable beside the notes card, so the card
   // follows the slide, once anything unsaved in it is written.
   instance.on('slide', () => notesFollow?.());
+  // …and, per build, the build: each one has its own part of the notes
+  instance.on('build', () => notesFollow?.());
   // Who is waiting for the notes card to close: the recorder, which sent the
   // author here to fix a slide's [click]s and reopens once they are done (#929).
   const notesClosed = new Set();
@@ -1608,7 +1618,7 @@ export function createEditMode({
         notesSave().then(() => { notesClosing = false; if (editEl && !notesDirty?.()) toggleEditor(); });
         return;
       }
-      unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; notesRefresh = null; notesDirty = null; forgetNotesOpen();
+      unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesCaughtUp = null; notesSave = null; notesRefresh = null; notesDirty = null; forgetNotesOpen();
       for (const fn of [...notesClosed]) { notesClosed.delete(fn); fn(); }
       return;
     }
@@ -1617,17 +1627,45 @@ export function createEditMode({
     // and nothing that could look like it saves. `decklight <deck>` edits them.
     const notesRO = notesReadOnly = !editAvailable;
     let sl = instance.state.slide;
-    const heading = () => (notesRO
-      ? `notes — slide ${sl} · read-only (write mode edits them)`
-      : `notes — slide ${sl} · saves itself`);
+    // Per build, the box holds one part of the notes (`shown.part`), and a
+    // save writes it back into its place; null is the whole slide. Which part
+    // is fixed when the box is filled, not read off the deck at save time:
+    // the build may have moved on by then, and the words belong where they
+    // were written.
+    let perBuild = !notesRO && notesPerBuild();
+    let shown = { part: null, why: 'none', count: 1, step: 0, builds: 0 };
+    // The slide's script as this card last saved it, until the page's own
+    // notes show it (the server sends them back a moment after the save
+    // answers): a part saved, then the next build's part filled and saved
+    // in that moment, must not write the first one back as it was.
+    let pending = null;
+    notesCaughtUp = (slide) => { if (pending?.sl === slide) pending = null; };
+    const draftNow = () => (pending?.sl === sl ? pending.script : writtenMarks(notesDraft(sl)));
+    const where = () => {
+      const parts = notesParts(draftNow());
+      const builds = instance._records?.[sl - 1]?.groups.length ?? 0;
+      const step = sl === instance.state.slide ? instance.state.step : 0;
+      const at = perBuild ? partFor(step, builds, parts.length) : { part: null, why: 'whole' };
+      return { ...at, parts, count: parts.length, step, builds };
+    };
+    const heading = () => {
+      if (notesRO) return `notes — slide ${sl} · read-only (write mode edits them)`;
+      const why = perBuild && shown.part == null ? wholeWhy(shown.why, shown) : '';
+      const which = shown.part != null ? ` · ${partLabel(shown.part, shown.count)}` : why ? ` · whole slide: ${why}` : '';
+      return `notes — slide ${sl}${which} · saves itself`;
+    };
     const { el, card, title } = typingCard('notes', notesDock, heading(), toggleEditor);
     editEl = el;
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
     // the markers as the author writes them — [click], [pause] — never ⟨…⟩ —
     // and the paragraphs as the author laid them out, a blank line apart
-    const notesText = () => writtenMarks(notesDraft(sl));
+    const notesText = () => {
+      shown = where();
+      return shown.part == null ? draftNow() : shown.parts[shown.part];
+    };
     let loaded = ta.value = notesText();
+    title.textContent = heading();
     // …and as the card opened on this slide: what ↺ reset goes back to. Not
     // the last save — the card writes itself whenever the typing stops, so
     // the box IS the last save most of the time, and a reset against it
@@ -1642,7 +1680,7 @@ export function createEditMode({
     let justSaved = 0;            // an autosave that landed: the mark says so for a moment, in place of a toast
     if (!notesRO) notesDirty = () => ta.value !== loaded;
     notesFollow = () => {
-      if (instance.state.slide === sl) return;
+      if (instance.state.slide === sl && (!perBuild || where().part === shown.part)) return;
       // Edits go to the slide they were written for, and the card moves on
       // once they are written. A save that fails leaves it where it was,
       // marked unsaved, with the slide it belongs to in its heading.
@@ -1655,6 +1693,27 @@ export function createEditMode({
       title.textContent = heading();
       syncChanged();
     };
+    let syncView = () => {};   // the whole slide / per build switch, once it exists
+    // Whole slide or per build. Edits in the box go first, into the view they
+    // were typed in; a save that fails leaves the card as it was.
+    async function setView(build, { remember = true } = {}) {
+      if (remember) writePref(NOTES_VIEW_KEY, build ? 'build' : null);
+      if (build === perBuild) return;
+      if (ta.value !== loaded) {
+        if (!saving) await save();
+        if (ta.value !== loaded) return;
+      }
+      perBuild = build;
+      opened = loaded = ta.value = notesText();
+      title.textContent = heading();
+      syncView();
+      syncChanged();
+      ta.focus();
+    }
+    // the box as the slide's whole script: per build, its part put back in
+    // place among the notes as they are now, every [click] around it kept
+    const scriptOf = (text) => (shown.part == null ? text
+      : withPart(notesParts(draftNow()), shown.part, text));
     // this slide's notes changed under the card (saved from another tab):
     // follow them, unless the box holds edits of its own
     notesRefresh = (slide) => {
@@ -1673,11 +1732,14 @@ export function createEditMode({
       // reset) meanwhile, the box differs from the file once it lands, and
       // the quiet time writes it again
       const text = ta.value;
+      const script = scriptOf(text);
+      const split = shown.part != null && hasClick(text);   // a [click] typed into one build's part
+      pending = { sl, script };
       try {
         const res = await writeFetch(editBase + '/deck/edit/slide/notes', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ slide: sl, text, from: PAGE_ID }),
+          body: JSON.stringify({ slide: sl, text: script, from: PAGE_ID }),
         });
         if (!res.ok) throw new Error(await res.text());
         const j = await res.json().catch(() => ({}));
@@ -1685,6 +1747,7 @@ export function createEditMode({
         // reload is coming: say so, rather than "reloading" forever (#646)
         if (j.changed === false) {
           forgetNotesOpen();   // no reload is coming
+          pending = null;      // …nor any notes sent back
           saving = false;
           loaded = text;
           syncChanged();
@@ -1704,11 +1767,18 @@ export function createEditMode({
           clearTimeout(justSaved);
           justSaved = setTimeout(() => { justSaved = 0; syncChanged(); }, 1600);
         } else toast(j.inPlace ? 'notes saved' : 'notes saved — reloading', 1800);
+        // a [click] typed into a build's part moved the split: the whole
+        // slide, so the author sees where the builds now fall
+        if (split && ta.value === loaded) {
+          setView(false, { remember: false });
+          toast('a [click] moved the split: the whole slide, to see where the builds fall', 3200);
+        }
         syncChanged();
         if (ta.value !== loaded) armAutosave();
       } catch (e) {
         // long enough to read: the save did NOT happen, and the box still holds the text
         forgetNotesOpen();
+        pending = null;
         saving = false;
         syncChanged();   // still unsaved, and the mark says so
         toast(`save failed: ${String(e.message || e).slice(0, 90)}`, 6000);
@@ -1842,15 +1912,36 @@ export function createEditMode({
     });
     editBtn.addEventListener('click', () => showDiff(false));
     diffBtn.addEventListener('click', () => showDiff(true));
+    // Whole slide / per build: a switch like the one beside it, the lit half
+    // what the box holds. Per build follows the build on screen (→ steps it),
+    // and is remembered for the next card; a switch made with edits in the
+    // box saves them first, into the view they were typed in.
+    const scopes = document.createElement('div');
+    scopes.className = 'notes-views notes-scope';
+    scopes.setAttribute('role', 'group');
+    scopes.setAttribute('aria-label', 'notes for');
+    const wholeBtn = button('notes-whole', 'whole slide', 'all of this slide\'s notes, every [click] line in them');
+    const buildBtn = button('notes-per-build', 'per build',
+      'only the part of the notes for the build on screen: the [click] lines decide what belongs to which build, and → / ← step it');
+    scopes.append(wholeBtn, buildBtn);
+    syncView = () => {
+      wholeBtn.classList.toggle('narr-sel', !perBuild);
+      buildBtn.classList.toggle('narr-sel', perBuild);
+      wholeBtn.setAttribute('aria-pressed', String(!perBuild));
+      buildBtn.setAttribute('aria-pressed', String(perBuild));
+    };
+    wholeBtn.addEventListener('click', () => setView(false));
+    buildBtn.addEventListener('click', () => setView(true));
     diffEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { save(); e.preventDefault(); }
       else if (e.key === 'Escape') { showDiff(false); e.preventDefault(); }
       e.stopPropagation();
     });
     ta.addEventListener('input', () => { syncChanged(); armAutosave(); });
-    tools.append(views, resetBtn);
+    tools.append(views, scopes, resetBtn);
     actions.append(tools);
     showDiff(false);
+    syncView();
     syncChanged();
     // The writing tools (src/core/writing.js, cli/enhance.mjs): one button,
     // the picker asks which tool and which slides. The box is saved first,
