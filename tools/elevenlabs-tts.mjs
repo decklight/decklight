@@ -21,13 +21,13 @@ import { wavFromPcm } from './gemini-tts.mjs';
 export const KEY_ENV = 'ELEVENLABS_API_KEY';
 const API = 'https://api.elevenlabs.io/v1';
 
-// eleven_v4 is the default: it reads the audio tags a script is written with
-// ([whispers], [laughs], [long pause]) as direction, follows them more
-// reliably than v3, and answers sooner. --tts-model eleven_v4_turbo trades a
-// little quality for latency; eleven_multilingual_v2 is the pre-tag voice.
+// eleven_v4_turbo is the default: it reads the audio tags a script is written
+// with ([whispers], [laughs], [long pause]) as direction, follows them more
+// reliably than v3, and answers soonest. --tts-model eleven_v4 trades that
+// latency for a little more quality; eleven_multilingual_v2 is the pre-tag voice.
 // A track already recorded keeps the model its manifest names — voiceover
 // reads it back — so changing this default re-voices nothing.
-export const DEFAULT_MODEL = 'eleven_v4';
+export const DEFAULT_MODEL = 'eleven_v4_turbo';
 
 // v3 was the first ElevenLabs model to read bracketed audio tags as
 // performance direction instead of words to pronounce; v4 follows them more

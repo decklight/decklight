@@ -285,7 +285,7 @@ test('createEngine hands back the shape every engine has', () => {
   assert.equal(e.name, 'elevenlabs');
   assert.equal(e.model, DEFAULT_MODEL);
   assert.equal(e.needsProject, false, 'no GCP project — a key is the whole prerequisite');
-  assert.equal(DEFAULT_MODEL, 'eleven_v4', 'v4 by default: it reads [whispers]-style tags');
+  assert.equal(DEFAULT_MODEL, 'eleven_v4_turbo', 'v4 turbo by default: it reads [whispers]-style tags and answers soonest');
   assert.equal(e.stylable, true, 'v4 is told HOW to say it by a tag, so the picker offers tones');
   assert.equal(e.audioTags, true, 'and tags written in the notes are sent, not taken out');
   assert.equal(e.caveat, undefined, 'v4 has none of v3\'s trade-offs to name');
