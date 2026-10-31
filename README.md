@@ -203,6 +203,7 @@ narrate, template, library, gate) are defined once in
 | `enhance deck.html --slides 3` | add ElevenLabs v4 audio tags to the notes with the prompt ElevenLabs publishes: your agent drafts, decklight checks no word changed (`--all`, `--dry-run`) |
 | `enhance deck.html --spoken --slides 3` | write terse notes for the ear, as sentences a person would say: your agent rewrites, decklight checks every `[click]` and `[pause]` survived |
 | `enhance deck.html --match-slide --slides 3` | reword the notes to agree with what the slide shows, its terms, numbers and order: checked like `--spoken` |
+| `enhance deck.html --rewrite --slides 3` | say the same thing more clearly, nothing added or dropped: checked like `--spoken` |
 
 | Keeping track | |
 |---|---|

@@ -3162,8 +3162,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // answer kept the words and beats, and writes them in ONE edit so Z takes
   // the whole run back. Progress rides the SSE channel as 'enhance' events.
   async function enhanceRoute({ body, json }) {
-    const { slides, agent, kind: asked } = JSON.parse(body);
-    const { enhanceDeck, applyEnhanced, enhanceable, KINDS } = await import('./enhance.mjs');
+    const { slides, agent, kind: asked, passage: asking = null } = JSON.parse(body);
+    const { enhanceDeck, applyEnhanced, enhanceable, findPassage, KINDS } = await import('./enhance.mjs');
     const kind = Object.hasOwn(KINDS, asked ?? '') ? asked : 'tags';
     const which = slides === 'all' ? null
       : Array.isArray(slides) && slides.length && slides.every((n) => Number.isInteger(n) && n > 0) ? slides : undefined;
@@ -3178,12 +3178,21 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const html = readDeck();
     const of = enhanceable(html, which).length;
     if (!of) return json(422, { ok: false, error: which?.length === 1 ? `slide ${which[0]} has no notes to enhance` : 'no notes to enhance' });
+    // part of one slide's notes (the card's selection, or a build's part):
+    // found in the notes as the file has them, or refused before anyone is asked
+    let passage = null;
+    if (asking) {
+      if (!KINDS[kind].passage) return json(400, { ok: false, error: `${KINDS[kind].what.replace('script: ', '')} works on the whole slide, not a selection` });
+      if (which?.length !== 1 || typeof asking.text !== 'string') throw new Error('bad payload');
+      passage = findPassage(enhanceable(html, which)[0].script, asking);
+      if (!passage) return json(422, { ok: false, error: 'the selected words are not in the saved notes once, as written — select them again' });
+    }
     const stop = new AbortController();
     enhancing = { of, done: 0, stop: () => stop.abort() };
     broadcast('enhance', { state: 'start', of, agent: cmd.name, kind });
-    console.log(`  enhance: ${of} slide${of === 1 ? '' : 's'}${KINDS[kind].doing ?? ''} ← ${cmd.name} (read-only)`);
+    console.log(`  enhance: ${of} slide${of === 1 ? '' : 's'}${passage ? ' (a passage)' : ''}${KINDS[kind].doing ?? ''} ← ${cmd.name} (read-only)`);
     enhanceDeck(html, which, {
-      kind, agent: name, cwd: dirname(deckPath), signal: stop.signal,
+      kind, agent: name, cwd: dirname(deckPath), signal: stop.signal, passage,
       onSlide: (r) => {
         enhancing.done = r.done;
         broadcast('enhance', { state: 'slide', ...r });
@@ -3221,7 +3230,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       enhancing = null;
       broadcast('enhance', { state: 'done', ok: false, error: oneline(e), kind });
     });
-    return json(200, { ok: true, of, agent: cmd.name, label: cmd.label, kind });
+    return json(200, { ok: true, of, agent: cmd.name, label: cmd.label, kind, passage: !!passage });
   }
 
   /**

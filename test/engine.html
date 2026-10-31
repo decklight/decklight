@@ -580,6 +580,13 @@
         }
       }
       // notes saved IN PLACE: no reload; every page is sent the new notes
+      if (HARNESS_MODE === 'notesbuilds') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
+        if (u.includes('/deck/edit/enhance')) {
+          const body = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, of: 1, agent: 'claude', label: 'Claude Code', kind: body.kind, passage: !!body.passage });
+        }
+      }
       if (HARNESS_MODE === 'notesinplace' || HARNESS_MODE === 'notesauto' || HARNESS_MODE === 'notesbuilds') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/slide/notes')) {
@@ -3278,6 +3285,19 @@
         // → steps the build, and the card follows to its part
         deck.next(); await settle();
         r.followsTheBuild = box().value === 'First item. [pause] Held.' && /build 1 of 2/.test(head());
+        // Rewrite, per build and nothing selected: this build's part only
+        box().setSelectionRange(0, 0);
+        box().dispatchEvent(new Event('select', { bubbles: true }));
+        await settle();
+        r.rewriteSaysTheBuild = btn('notes-rewrite')?.textContent === 'Rewrite' && /rewrites build 1 of 2 only/.test(btn('notes-rewrite')?.title ?? '');
+        btn('notes-rewrite')?.click();
+        await settle(); await settle();
+        const asked = CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).pop()?.body;
+        r.rewritesThePart = asked?.kind === 'rewrite' && asked.passage?.text === 'First item. [pause] Held.'
+          && asked.passage.from === 'Intro [whispers] here.\n\n[click]\n\n'.length && JSON.stringify(asked.slides) === '[3]';
+        r.markSaysTheBuild = /rewriting build 1 of 2…/.test(document.querySelector(`${E} .notes-running`)?.textContent ?? '');
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [], failed: [], stale: [], kind: 'rewrite' });
+        await settle();
         // an edit to this part goes back in its place, every [click] kept
         box().value = 'First item, reworded.';
         box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
@@ -3313,6 +3333,7 @@
         r.switchSavesFirst = posts().length === before + 1 && posts().pop()?.text === 'All in one go, edited.' && lit('notes-whole');
         press('Escape');
         r.PASS = r.wholeByDefault && r.perBuildShowsThePart && r.remembered && r.followsTheBuild && r.savesThePartInPlace
+          && r.rewriteSaysTheBuild && r.rewritesThePart && r.markSaysTheBuild
           && r.nextPart && r.keepsTheEarlierSave && r.backShowsTheSaved && r.clickShowsTheWhole && r.unsplitSaysWhy && r.switchSavesFirst;
       }
 
@@ -5108,8 +5129,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         deck.goto(2, 0);
         // the palette: Writing tools… opens the picker on the tools, in groups
         r.paletteRow = await paletteRun('writing', /Writing tools…/);
-        r.picksTheTool = !!document.querySelector(W) && wHead() === 'writing'
-          && JSON.stringify(wRows()) === JSON.stringify(['add audio tags', '🗣 write it for the ear', '⇄ match the slide', '✂ tighten', '✓ fix typos and grammar', '⇄ match the script', '… custom instruction'])
+        r.picksTheTool = !!document.querySelector(W) && wHead() === 'writing tools'
+          && JSON.stringify(wRows()) === JSON.stringify(['rewrite', 'add audio tags', '🗣 write it for the ear', '⇄ match the slide', '✂ tighten', '✓ fix typos and grammar', '⇄ match the script', '… custom instruction'])
           && JSON.stringify([...document.querySelectorAll(`${W} .narr-group`)].map((g) => g.textContent)) === JSON.stringify(['script — the speaker notes', 'slide text — the words on the slide']);
         r.footNamesTheAgent = /Claude Code/.test(document.querySelector(`${W} .narr-foot`)?.textContent ?? '');
         await pickRow(/add audio tags/);
@@ -5118,7 +5139,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // ← goes back to the tools; Esc there closes
         press('ArrowLeft');
         await settle();
-        r.leftGoesBack = wHead() === 'writing' && document.querySelector(`${W} .narr-sel .narr-text`)?.textContent === 'add audio tags';
+        r.leftGoesBack = wHead() === 'writing tools' && document.querySelector(`${W} .narr-sel .narr-text`)?.textContent === 'add audio tags';
         press('Escape');
         await settle();
         r.escCloses = !document.querySelector(W);
@@ -5197,13 +5218,13 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.customPosted = lastRewrite()?.slides === 'all' && lastRewrite()?.tool === 'custom' && lastRewrite()?.instruction === 'use British spelling';
         window.__es.emit('enhance', { state: 'done', ok: false, stopped: true, kind: 'custom' });
         await settle();
-        // the V panel: ✍ Writing… opens the same picker
+        // the V panel: ✍ Writing tools… opens the same picker
         press('v');
         await settle();
-        const vRow = [...document.querySelectorAll('.decklight-narr .narr-row')].find((n) => /✍ Writing…/.test(n.textContent));
+        const vRow = [...document.querySelectorAll('.decklight-narr .narr-row')].find((n) => /✍ Writing tools…/.test(n.textContent));
         vRow?.click();
         await settle();
-        r.vPanelOpensIt = !!vRow && !!document.querySelector(W) && wHead() === 'writing';
+        r.vPanelOpensIt = !!vRow && !!document.querySelector(W) && wHead() === 'writing tools';
         press('Escape');
         await settle();
         // …and the notes editor's own button: the box is SAVED first, the
@@ -5222,11 +5243,11 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const posted = notesPosts();
         const enhancePosts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/enhance')).length;
         const asked = enhancePosts();
-        r.editorButton = btnOf('notes-writing')?.textContent === '✍ Writing…';
+        r.editorButton = btnOf('notes-writing')?.textContent === 'Writing tools…';
         r.tooltipNamesTheAgent = /Claude Code rewrites the notes/.test(btnOf('notes-writing')?.title ?? '');
         btnOf('notes-writing')?.click();
         await settle();
-        r.editorOpensThePicker = !!document.querySelector(W) && wHead() === 'writing';
+        r.editorOpensThePicker = !!document.querySelector(W) && wHead() === 'writing tools';
         await pickRow(/add audio tags/);
         await pickRow(/this slide/);
         await settle(); await settle();
@@ -5251,11 +5272,56 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle(); await settle();
         r.resetToSaved = box.value === saved && !!btnOf('notes-reset')?.disabled
           && notesPosts() === posted + 2 && lastNotes()?.text === saved;
+        // the quick actions: Rewrite and Match slide, each with the AI mark,
+        // then Writing tools…; Rewrite follows the selection
+        const quickLabel = (c) => btnOf(c)?.querySelector('.notes-quick-label')?.textContent;
+        r.quickActions = quickLabel('notes-rewrite') === 'Rewrite' && quickLabel('notes-match-slide') === 'Match slide'
+          && !!btnOf('notes-rewrite')?.querySelector('.ai-icon') && !!btnOf('notes-match-slide')?.querySelector('.ai-icon')
+          && [...document.querySelectorAll('.decklight-editor .notes-rewrites > button')].map((b) => b.className.match(/notes-(rewrite|match-slide|writing)\b/)?.[1]).join() === 'rewrite,match-slide,writing';
+        box.value = 'Keep this. The cache it pays off later. And this.';
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        box.focus();
+        box.setSelectionRange(10, 40);   // " The cache it pays off later." with its leading space
+        box.dispatchEvent(new Event('select', { bubbles: true }));
+        await settle();
+        r.labelSaysSelection = quickLabel('notes-rewrite') === 'Rewrite selection' && /only the selected words/.test(btnOf('notes-rewrite')?.title ?? '')
+          && /Always the whole slide's notes, whatever is selected/.test(btnOf('notes-match-slide')?.title ?? '');
+        const savedBefore = notesPosts();
+        btnOf('notes-rewrite')?.click();
+        await settle(); await settle();
+        const sel = lastEnhance();
+        r.rewritesTheSelection = notesPosts() === savedBefore + 1 && sel?.kind === 'rewrite' && JSON.stringify(sel?.slides) === '[2]'
+          && sel?.passage?.text === 'The cache it pays off later.' && sel.passage.from === 11 && sel.passage.to === 39;
+        const runMark = document.querySelector('.decklight-editor .notes-running');
+        r.saysWhatItRewrites = !!runMark && !runMark.hidden && /rewriting the selection: “The cache it pays off later\.”/.test(runMark.textContent)
+          && /rewriting: the selection in slide 2's script/.test(said()) && box.selectionStart === 11 && box.selectionEnd === 39;
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [], failed: [], stale: [], kind: 'rewrite' });
+        await settle();
+        r.markGoesWhenDone = runMark.hidden;
+        // the picker, opened with words selected: the selection leads the scopes for Rewrite
+        box.setSelectionRange(11, 20);
+        box.dispatchEvent(new Event('select', { bubbles: true }));
+        btnOf('notes-writing')?.click();
+        await settle();
+        await pickRow(/^rewrite/);
+        r.pickerOffersTheSelection = JSON.stringify(wRows()) === JSON.stringify(['the selection · 2 words', 'this slide · 2', 'module “Foundations” · 2', `whole deck · ${deck.state.totalSlides}`])
+          && document.querySelector(`${W} .narr-sel .narr-text`)?.textContent === 'the selection · 2 words';
+        await pickRow(/the selection/);
+        await settle(); await settle();
+        r.pickerSendsTheSelection = lastEnhance()?.passage?.text === 'The cache';
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [], failed: [], stale: [], kind: 'rewrite' });
+        await settle();
+        // Match slide: always the whole slide's notes
+        btnOf('notes-match-slide')?.click();
+        await settle(); await settle();
+        r.matchSlideIsWhole = lastEnhance()?.kind === 'match-slide' && !lastEnhance()?.passage && JSON.stringify(lastEnhance()?.slides) === '[2]';
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [], failed: [], stale: [], kind: 'match-slide' });
+        await settle();
         // the slide's own menu (the background right-click) offers it too
         const sec = deck._sections?.[1] ?? document.querySelector('.decklight section');
         sec?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
         await settle();
-        const menuRow = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === 'Writing…');
+        const menuRow = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === 'Writing tools…');
         menuRow?.click();
         await settle();
         r.menuOpensIt = !!menuRow && !!document.querySelector(W);
@@ -5268,7 +5334,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.editorButton && r.tooltipNamesTheAgent && r.editorOpensThePicker && r.boxSavedFirst && r.boxAskedForTags
           && r.reviewOverTheCard && r.cardStays && r.idleWhenUnchanged && r.diffShown && r.resetToSaved && r.menuOpensIt
           && r.tightenRow && r.tightenOnSlides && r.tightenPosted && r.saysTightening && r.saysTightened
-          && r.customAsks && r.customThenSlides && r.customPosted;
+          && r.customAsks && r.customThenSlides && r.customPosted
+          && r.quickActions && r.labelSaysSelection && r.rewritesTheSelection && r.saysWhatItRewrites && r.markGoesWhenDone
+          && r.pickerOffersTheSelection && r.pickerSendsTheSelection && r.matchSlideIsWhole;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -7047,8 +7115,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // right-click ON an element → the full menu
         rightClick(h1);
         r.opensOnElement = !!document.querySelector(M);
-        // Writing… sits after Edit content when an agent is on the machine (none here)
-        r.fullMenuRows = JSON.stringify(rowsText().filter((t) => t !== 'Writing…'))
+        // Writing tools… sits after Edit content when an agent is on the machine (none here)
+        r.fullMenuRows = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…'))
           === JSON.stringify(['Inspect', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Copy style', 'Add text effect ▸', 'Slide ▸']);
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;
@@ -7063,7 +7131,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         rightClick(sections[0]);
         r.opensOnBackground = !!document.querySelector(M);
         // the background has no element to act on, so the slide itself is what is offered
-        r.backgroundOnlyNotes = JSON.stringify(rowsText().filter((t) => t !== 'Writing…')) === JSON.stringify(['Edit speaker notes', 'Slide ▸']);
+        r.backgroundOnlyNotes = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…')) === JSON.stringify(['Edit speaker notes', 'Slide ▸']);
         press('Escape');
 
         // "Add text effect ▸" drills into a submenu — the 7 SPEC entrance

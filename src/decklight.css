@@ -3000,6 +3000,10 @@
 .decklight-editor .notes-bar { justify-content: space-between; align-items: center; }
 .decklight-editor .notes-tools,
 .decklight-editor .notes-rewrites { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* the quick actions, then Writing tools…; while a Rewrite of part of the
+   notes runs, the mark after them says which words */
+.decklight-editor .notes-sep { opacity: .4; }
+.decklight-editor .notes-running { font-size: 12px; opacity: .75; max-width: 28em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .decklight-editor .narr-prev-btn,
 .decklight-editor .notes-btn {
   font-size: 13px;
