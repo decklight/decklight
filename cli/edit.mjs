@@ -1126,31 +1126,98 @@ export function describeReload({ write = null, agent = null, now = Date.now() } 
  * Z puts them all back. `current` may be a function of the entry being
  * taken, for the caller to snapshot exactly the files that entry names.
  */
-export function createHistory(limit = 200) {
+/**
+ * Each entry also carries what it was, `{ what, slide }`, so an undo can say
+ * what it took back and the page can go to it (PRESENTING_EDITING). `describe`
+ * names an entry recorded without one (the route doing the writing, below).
+ *
+ * A STRETCH is several writes that are one change to the person making them:
+ * the notes card saves itself at every pause in the typing, and one undo per
+ * pause took a paragraph back a phrase at a time. A record whose `stretch`
+ * matches the newest entry's, made within `STRETCH_MS` of the last one and
+ * straight on from what that one wrote (`after`), joins it instead of adding
+ * one: the entry keeps the text from before the stretch began.
+ */
+export const STRETCH_MS = 60_000;
+export function createHistory(limit = 200, { describe = () => null, clock = Date.now } = {}) {
   const past = [];
   const future = [];
   const now = (current, entry) => (typeof current === 'function' ? current(entry) : current);
   return {
-    record(before) {
-      past.push(before);
+    record(before, meta = describe(), after = undefined) {
+      const at = clock();
+      const top = past.at(-1);
+      if (meta?.stretch && top?.meta?.stretch === meta.stretch && !future.length
+        && at - top.at <= STRETCH_MS && typeof before === 'string' && before === top.after) {
+        top.at = at;
+        top.after = after;
+        return;
+      }
+      past.push({ entry: before, meta: meta ?? null, at, after });
       if (past.length > limit) past.shift();
       future.length = 0;
     },
     undo(current) {
       if (!past.length) return null;
-      const entry = past.pop();
-      future.push(now(current, entry));
-      return entry;
+      const it = past.pop();
+      future.push({ ...it, entry: now(current, it.entry), after: undefined });
+      return it.entry;
     },
     redo(current) {
       if (!future.length) return null;
-      const entry = future.pop();
-      past.push(now(current, entry));
-      return entry;
+      const it = future.pop();
+      past.push({ ...it, entry: now(current, it.entry), after: undefined });
+      return it.entry;
+    },
+    /** What the next undo (or redo) takes back, `{ what, slide }`, or null when it was not said. */
+    next(dir) {
+      const meta = (dir === 'redo' ? future : past).at(-1)?.meta;
+      return meta ? { what: meta.what ?? null, slide: meta.slide ?? null } : null;
     },
     counts() { return { undo: past.length, redo: future.length }; },
   };
 }
+
+/**
+ * What an undo names, by the route that wrote it: "Undid: notes on slide 7".
+ * Short nouns, not the reload's past tense ("notes saved"); a route not
+ * named here says what the reload says.
+ */
+const UNDO_LABELS = {
+  '/deck/edit/slide/notes': 'notes',
+  '/deck/edit/slide/sources': 'sources',
+  '/deck/edit/timings': 'rehearsal timings',
+  '/deck/edit/slide/layout': 'layout',
+  '/deck/edit/slide/template': 'template',
+  '/deck/edit/slide/hidden': 'hiding the slide',
+  '/deck/edit/slide': 'slide change',
+  '/deck/edit/element/remove': 'removed element',
+  '/deck/edit/element/content': 'text edit',
+  '/deck/edit/element/effect': 'build effect',
+  '/deck/edit/element/style': 'colours',
+  '/deck/edit/element/concept': 'concept',
+  '/deck/edit/element/text': 'label edit',
+  '/deck/edit/element/image': 'picture',
+  '/deck/edit/concepts': 'concept colours',
+  '/deck/edit/restore': 'restore from git',
+  '/deck/edit/theme': 'theme',
+  '/deck/edit/check/fix': 'quick fix',
+  '/deck/edit/candidate/apply': 'reviewed fix',
+};
+/**
+ * The `{ what, slide, stretch }` of a write, from its route and its JSON body:
+ * the slide it names, when it names one, and for a notes save the stretch it
+ * belongs to (one slide, one page).
+ */
+export function undoMeta(route, body = '') {
+  let b = null;
+  try { b = body ? JSON.parse(body) : null; } catch { /* not json */ }
+  const slide = Number.isInteger(b?.slide) && b.slide > 0 ? b.slide : null;
+  const what = UNDO_LABELS[route] ?? whatWrote(route);
+  const stretch = route === '/deck/edit/slide/notes' && slide ? `notes:${slide}:${typeof b?.from === 'string' ? b.from : ''}` : null;
+  return { what, slide, ...(stretch ? { stretch } : {}) };
+}
+
 
 // ── git: the durable record (the history above is the fast loop) ──────────
 // The plumbing lives in git.mjs now; imported for editMain's use below and
@@ -1525,7 +1592,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return resolve(root, '.' + rel) === deckPath;
   };
 
-  const history = createHistory();
+  // every entry says what wrote it: the route in flight (`writing`, below)
+  const history = createHistory(200, {
+    describe: () => { const ctx = writing.getStore(); return ctx?.route ? undoMeta(ctx.route, ctx.body) : null; },
+  });
   const readDeck = () => readFileSync(deckPath, 'utf8');
   /** Files beside the deck as they are now, `{ path: text }` — for an undo entry that covers them. */
   const snapshotFiles = (paths) => Object.fromEntries(paths.flatMap((p) => { try { return [[p, readFileSync(p, 'utf8')]]; } catch { return []; } }));
@@ -1579,6 +1649,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const writeDeck = (next) => {
     writeFileAtomic(deckPath, next);
     knownDeck = next;
+    // an agent running: this server's own write is the author's, and the
+    // agent's undo point moves past it (see `agentBase`)
+    if (agentBase) agentBase.deck = next;
     const ctx = writing.getStore();
     let from = null;
     if (ctx?.body) { try { const f = JSON.parse(ctx.body).from; if (typeof f === 'string') from = f.slice(0, 64); } catch { /* not json, or no page named */ } }
@@ -1589,7 +1662,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const applyEdit = (change, before = readDeck(), also = null) => {
     const next = typeof change === 'function' ? change(before) : change;
     if (next === before) return false;
-    history.record(also ? { deck: before, ...also } : before);
+    history.record(also ? { deck: before, ...also } : before, undefined, next);
     writeDeck(next);
     return true;
   };
@@ -1652,6 +1725,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // Declared before the git block below, which reads it to hold the cadence
   // back while a job is in flight.
   let agentJob = null; // { name, prompt, startedAt } — strictly one at a time
+  // The deck an agent's edit is undone back to. It starts as the deck when
+  // the run began, and every write THIS server makes meanwhile (the author
+  // typing notes, fixing a word) moves it on: the agent writes the file
+  // itself, so the last write that was not the agent's is the nearest thing
+  // to "just before the agent wrote". Undoing the agent used to put the deck
+  // back to the start of the run, and the author's own edits went with it.
+  let agentBase = null;
   let agentStop = null; // stops it (POST /deck/edit/agent/stop) — set while it runs
   // The asks of this session, oldest first, with what came of each — what the
   // docked agent panel shows. An agent's edit reloads every browser, so the
@@ -2491,6 +2571,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       holding = false;
     };
     const before = readDeck();
+    if (!hold && !explain) agentBase = { deck: before };
     const filesBefore = snapshotFiles(files);
     // what is already beside the deck, so what the run leaves there can be named
     const leftBefore = new Set(besideDeck() ?? []);
@@ -2559,6 +2640,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       hold?.done(null);
       try { knownDeck = readDeck(); } catch { /* gone: the watch says so */ }
       agentJob = null;
+      agentBase = null;
       agentStop = null;
       finish({ ok: false, changed: false, error: String(e.message || e) });
       broadcast('agent', { state: 'done', id: ask.id, agent: cmd.name, ok: false, changed: false, error: String(e.message || e) });
@@ -2571,15 +2653,19 @@ export async function editMain(args, { onListen = null, client } = {}) {
       agentStop = null;
       flushStream();
       const after = readDeck();
+      // what the agent's edit is measured from, and undone back to: the run's
+      // start, moved on past every write the author made meanwhile
+      const base = agentBase?.deck ?? before;
+      agentBase = null;
       const filesAfter = snapshotFiles(files);
       const filesChanged = Object.keys(filesBefore).some((p) => filesAfter[p] !== filesBefore[p]);
-      const changed = !explain && (after !== before || filesChanged);
+      const changed = !explain && (after !== base || filesChanged);
       // held for review: the deck goes back, the edit becomes the candidate
       putBack();
       const held = hold ? hold.done(changed ? after : null, { ok: code === 0 && !stopped }) : null;
       // the voice folders follow the slides the edit added, removed or moved
       // (#920), before the impact is read and the commit made
-      const landed = explain ? null : !hold ? (changed && after !== before ? before : null)
+      const landed = explain ? null : !hold ? (changed && after !== base ? base : null)
         : (changed && !held && hold.start === undefined && after !== kept ? kept : null);
       let followed = null;
       if (landed !== null) {
@@ -2590,9 +2676,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
         ? { deck, ...(files ? { files } : {}), ...(followed?.voices ? { voices: followed.voices } : {}) }
         : deck);
       // a first run the review could not hold lands as it always did, never lost
-      if (hold && changed && !held && hold.start === undefined) { history.record(also(kept)); writeDeck(after); }
+      const agentSaid = { what: `${cmd.label ?? cmd.name}'s edit`, slide: null };
+      if (hold && changed && !held && hold.start === undefined) { history.record(also(kept), agentSaid); writeDeck(after); }
       // Z takes the agent's edit back — with the files beside the deck it wrote, in the same step
-      if (changed && !hold) history.record(also(before, filesChanged ? filesBefore : null));
+      if (changed && !hold) history.record(also(base, filesChanged ? filesBefore : null), agentSaid);
       // the run has followed its own slides: the file watch's next look must not again
       try { knownDeck = readDeck(); } catch { /* gone: the watch says so */ }
       const voicesFollowed = followed?.said?.length ? followed.said.join('; ') : null;
@@ -2622,7 +2709,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
             const f = renumber?.get(String(dir).replace(/^\.\//, '').replace(/\/+$/, ''));
             return f ? (n) => { for (let k = 1; k <= n + 64; k++) if (f(k) === n) return k; return null; } : null;
           };
-          const impact = recordingImpact(before, after, {
+          const impact = recordingImpact(base, after, {
             dirsOf: configuredTrackDirs,
             recordedSlides: (dir) => {
               let now = [];
@@ -2727,6 +2814,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
   function undoRedoRoute({ url, json }) {
     const dir = url.pathname.endsWith('undo') ? 'undo' : 'redo';
     const cur = readDeck();
+    // what this step takes back, read before it moves: the page says it and goes there
+    const said = history.next(dir);
     // an entry that wrote files beside the deck is answered by those files as they are now
     // …and one that renumbered voice folders (#916) by its steps, planned
     // against the folders as they are now: a take recorded since is carried
@@ -2755,8 +2844,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
       }
     }
     writeDeck(typeof content === 'string' ? content : content.deck);
-    console.log(`  ${dir} → ${JSON.stringify(history.counts())}`);
-    return json(200, { ok: true, ...history.counts() });
+    console.log(`  ${dir} → ${JSON.stringify(history.counts())}${said?.what ? ` — ${said.what}${said.slide ? ` on slide ${said.slide}` : ''}` : ''}`);
+    return json(200, { ok: true, ...history.counts(), ...(said ? { what: said.what, slide: said.slide } : {}) });
   }
 
   // ── review comments (SPEC REVIEW) ─────────────────────────────
