@@ -196,7 +196,7 @@ narrate, template, library, gate) are defined once in
 |---|---|
 | `<deck> --no-trust` | open a deck you didn't write in no-trust mode: every edit route refuses, it is served under a CSP, and what it will execute is listed first (`--audit` prints that label and exits; a repository URL clones it first, into the same clone write mode uses). Comments (`M`) work here too; a `.decklight` is without trust by nature |
 | `bundle deck.html` | one self-contained HTML file (`--all` merges a playlist, `--module` takes one chapter with its narration, `--sign`, `--deck`) |
-| `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder |
+| `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder (`--audio` carries the narration inside the page) |
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
 | `pptx deck.html` | a PowerPoint file, every slide a picture, notes as notes |
 | `video deck.html` | a narrated video: mp4, mov or webm, with subtitles in it or beside it (`--format`, `--quality`, `--subtitles`; `--slides 5-9` for part of it, `--voiceover` synthesizes first; also **Export a video…** in the deck's palette, which can voice it with the live voice first) |
