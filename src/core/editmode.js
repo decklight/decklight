@@ -227,7 +227,7 @@ export function createEditMode({
       sec.append(el('div', 'cm-label', name));
       return sec;
     };
-    // a typing surface: the deck must not advance under it, but ⌘K still
+    // a typing surface: the deck must not advance under it, but ⌥⌘K still
     // reaches the deck so the shortcut that opened the window closes it
     // Esc closes the window from inside a box too: the deck's key handler
     // never hears a key typed into a field, so a box that swallows Esc is a
@@ -235,7 +235,7 @@ export function createEditMode({
     const typing = (box, onSubmit) => box.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); closeCommit(); return; }
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSubmit(); }
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) return;
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.code === 'KeyK') return;   // the commit chord: the deck's, to close
       e.stopPropagation();
     });
 
@@ -589,7 +589,7 @@ export function createEditMode({
     tagInput.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); closeCommit(); return; }
       if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); tag(); return; }
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) return;
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.code === 'KeyK') return;   // the commit chord: the deck's, to close
       e.stopPropagation();
     });
 
