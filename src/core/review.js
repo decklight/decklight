@@ -23,6 +23,7 @@
 // clicking away from one closes it everywhere else in this codebase.
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { createDock } from './dock.js';
+import { holdDraft } from './drafts.js';
 import { readJson, writeJson } from './prefs.js';
 // The anchor lives in tools/ because the CLI needs it too and src/ is not in
 // the published package. Re-exported here so a browser-side caller has one
@@ -411,6 +412,8 @@ export function createReview({
       });
       box.append(on, input, send);
       draft = { box, on, input };
+      // kept across closes, and so across nothing else: the reload waits for it (drafts.js)
+      holdDraft(() => (input.value.trim() ? 'your comment in the review panel' : null));
     }
     paintOn();
     return draft.box;
@@ -631,7 +634,8 @@ export function createReview({
    * grouping M uses, filtered to this slide.
    */
   let composeEl = null;
-  function closeCompose() { composeEl?.remove(); composeEl = null; }
+  let composeHold = null;   // the card's comment, typed and not left, said to the reload (drafts.js)
+  function closeCompose() { composeEl?.remove(); composeEl = null; composeHold?.(); composeHold = null; }
   async function openCompose() {
     if (composeEl) return closeCompose();
     // The panel is up and can write: its own box is the place, not a second card
@@ -677,6 +681,7 @@ export function createReview({
       e.stopPropagation();         // the deck must not advance while somebody types
     });
     card.append(input, send);
+    composeHold = holdDraft(() => (input.value.trim() ? `your comment on slide ${here}` : null));
     card.append(el_('div', 'rec-hint', '⌘⏎ leaves it · Esc closes · M reads them all'));
     setTimeout(() => input.focus(), 0);
 

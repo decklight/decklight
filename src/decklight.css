@@ -1440,6 +1440,29 @@
    corner and steps down while the chip is up (`has-commit-chip`).
    Clickable, because a statement you can act on should be actionable where it
    is, and the deck's own keyboard help is one key away. */
+/* a reload held for unsaved work, and the edit server gone (editmode.js):
+   top centre, above the slide and every panel, until they are over */
+.decklight-alerts {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 60;
+  display: flex; flex-direction: column; gap: 8px;
+  width: max-content; max-width: calc(100% - 32px);
+}
+.decklight-held, .decklight-offline {
+  display: flex; align-items: center; gap: 12px; max-width: 80ch;
+  background: rgba(0, 0, 0, .86); color: #fff;
+  font: 500 14px/1.4 system-ui, sans-serif;
+  padding: 9px 14px; border-radius: 10px;
+  border-left: 4px solid var(--accent, #7ee787);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
+}
+.decklight-offline { border-left-color: #f85149; }
+.decklight-held .held-now {
+  flex: none; font: 600 13px/1.2 system-ui, sans-serif; color: #fff; cursor: pointer;
+  background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 6px; padding: 5px 10px;
+}
+.decklight-held .held-now:hover { background: rgba(255, 255, 255, .24); }
+.decklight-held .held-now:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* the lock (editmode.js): a statement at the other corner, while changes are off */
 .decklight-lock-chip {
   position: absolute; left: 16px; bottom: 16px; z-index: 42;
@@ -3611,6 +3634,14 @@
   border-radius: 2px;
   cursor: text;
 }
+.decklight .dl-editing.dl-unsaved { outline-style: solid; }
+/* a save that failed (authoring.js): the words stay, marked, until saved or given up */
+.decklight .dl-unsaved {
+  outline: 2px dashed #f85149;
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.decklight svg text.dl-unsaved, .decklight svg tspan.dl-unsaved { text-decoration: underline wavy #f85149; }
 /* a diagram label being typed (SVG text takes no contenteditable): a box laid
    over the hidden label, in its font and ink, the shape under it showing */
 .decklight .dl-label-edit {

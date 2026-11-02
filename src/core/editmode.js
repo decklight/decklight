@@ -18,6 +18,7 @@
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { reloadLine } from './debuglog.js';
+import { holdDraft, unsavedDrafts, draftList, heldReloadText } from './drafts.js';
 import { conceptOf, pathFrom } from './colorpicker.js';
 import { pickNode } from './pick.js';
 import { rangeLabel } from './ranges.js';
@@ -715,7 +716,11 @@ export function createEditMode({
           reopenPanel(root);       // …and whichever other panel held the slot (the inspector)
           const es = new EventSource(base + '/deck/events');
           // the server says what wrote the file; the debug log keeps it across the reload
-          es.onmessage = (ev) => { debugReload(reloadLine(ev.data, PAGE_ID)); location.reload(); };
+          es.onmessage = (ev) => reloadWhenSafe(reloadLine(ev.data, PAGE_ID));
+          // the server gone (stopped, crashed, the laptop asleep): said at once,
+          // because every save from here fails until it is back
+          es.onerror = () => { if (!offline && !offlineTimer) offlineTimer = setTimeout(() => { offlineTimer = 0; setOffline(true); }, OFFLINE_GRACE_MS); };
+          es.onopen = () => { clearTimeout(offlineTimer); offlineTimer = 0; if (offline) setOffline(false); };
           // the lock turned, in this tab or another: every page follows
           es.addEventListener('lock', (ev) => {
             try { setLocked(JSON.parse(ev.data).locked === true); } catch { /* malformed */ }
@@ -736,12 +741,12 @@ export function createEditMode({
           // colours or type picked in another page's inspector, written in
           // place there: this page has the old ones, and reloads for the new
           es.addEventListener('styles', (ev) => {
-            try { if (JSON.parse(ev.data).from !== PAGE_ID) location.reload(); } catch { /* malformed: the next reload settles it */ }
+            try { if (JSON.parse(ev.data).from !== PAGE_ID) reloadWhenSafe('colours or type picked in another tab'); } catch { /* malformed: the next reload settles it */ }
           });
           // text, code or a label saved in place on another page: this page
           // has the old words, and reloads for the new
           es.addEventListener('content', (ev) => {
-            try { if (JSON.parse(ev.data).from !== PAGE_ID) location.reload(); } catch { /* malformed: the next reload settles it */ }
+            try { if (JSON.parse(ev.data).from !== PAGE_ID) reloadWhenSafe('text saved in another tab'); } catch { /* malformed: the next reload settles it */ }
           });
           // a layout picked on another page: put it on the slide here, no reload
           es.addEventListener('layout', (ev) => {
@@ -1058,6 +1063,96 @@ export function createEditMode({
     postPos();
   }
 
+  // ── a reload that waits for what is typed (drafts.js) ────────────────────
+  // The file changed, so the page reloads; but not over a sentence half typed
+  // into the notes, the HTML editor, a comment or the agent prompt. While
+  // anything is held, a bar says the deck changed and what it waits on, and
+  // the page reloads by itself the moment that is saved or closed. Reload now
+  // is there for the author who would rather have the new deck.
+  // the two notices (held, disconnected) share one stack at the top centre
+  let alertsEl = null;
+  function showAlert(el) {
+    if (!alertsEl) {
+      alertsEl = document.createElement('div');
+      alertsEl.className = 'decklight-alerts';
+      root.appendChild(alertsEl);
+    }
+    alertsEl.appendChild(el);
+  }
+  function dropAlert(el) {
+    el?.remove();
+    if (alertsEl && !alertsEl.childElementCount) { alertsEl.remove(); alertsEl = null; }
+  }
+  let heldEl = null;
+  let heldTimer = 0;
+  let heldWhy = '';
+  function reloadWhenSafe(why) {
+    heldWhy = why;
+    const drafts = unsavedDrafts();
+    if (!drafts.length) { reloadHeld(); return; }
+    if (!heldTimer) {
+      debugLog('edit', `reload held — ${why} · waiting on ${draftList(drafts)}`);
+      heldTimer = setInterval(() => { if (unsavedDrafts().length) paintHeld(); else reloadHeld(); }, 400);
+    }
+    paintHeld();
+  }
+  function paintHeld() {
+    if (!heldEl) {
+      heldEl = document.createElement('div');
+      heldEl.className = 'decklight-held';
+      heldEl.setAttribute('role', 'alert');
+      const text = document.createElement('span');
+      text.className = 'held-text';
+      const now = document.createElement('button');
+      now.type = 'button';
+      now.className = 'held-now';
+      now.textContent = 'Reload now';
+      now.title = 'reload at once: what is not saved yet is lost';
+      now.addEventListener('click', () => { debugLog('edit', 'reload now — unsaved work dropped'); reloadHeld(); });
+      heldEl.append(text, now);
+      showAlert(heldEl);
+    }
+    heldEl.querySelector('.held-text').textContent = heldReloadText(unsavedDrafts());
+  }
+  function reloadHeld() {
+    clearInterval(heldTimer);
+    heldTimer = 0;
+    dropAlert(heldEl);
+    heldEl = null;
+    debugReload(heldWhy);
+    // cancelable, for whatever has to see the reload without having it (the
+    // engine harness, which a real reload would end)
+    if (root.dispatchEvent(new CustomEvent('decklight:reload', { cancelable: true, detail: { why: heldWhy } }))) location.reload();
+  }
+
+  // ── the edit server gone ─────────────────────────────────────────────────
+  // The live-reload stream is the page's line to the server: when it drops
+  // and does not come straight back, nothing typed here can be saved, and the
+  // author hears that now rather than from the first save that fails. The
+  // browser keeps retrying; the sign goes once it reconnects.
+  const OFFLINE_GRACE_MS = 1500;   // a blip (a server restarting) is not worth a sign
+  let offline = false;
+  let offlineTimer = 0;
+  let offlineEl = null;
+  function setOffline(on) {
+    offline = on;
+    if (on) {
+      if (!offlineEl) {
+        offlineEl = document.createElement('div');
+        offlineEl.className = 'decklight-offline';
+        offlineEl.setAttribute('role', 'alert');
+        offlineEl.textContent = '⚠ disconnected: the edit server is not answering, so nothing can be saved until it is back';
+        showAlert(offlineEl);
+      }
+      debugLog('edit', 'disconnected from the edit server');
+    } else {
+      dropAlert(offlineEl);
+      offlineEl = null;
+      debugLog('edit', 'reconnected to the edit server');
+      toast('reconnected: edits save again', 2400);
+    }
+  }
+
   async function wireRemote(base, j) {
     try {
       // H in no-trust mode. The routes only exist when the deck is a tracked
@@ -1181,6 +1276,7 @@ export function createEditMode({
   // and the server snapshots first so Z takes the agent's edit back.
   let agentEl = null;
   let unmountAgent = null;
+  let agentHold = null;   // an ask typed and not sent, said to the reload (drafts.js)
   const agentDock = createDock({
     root,
     reflow: () => instance._reflow?.(),
@@ -1270,6 +1366,7 @@ export function createEditMode({
   }
   function toggleAgentAsk() {
     if (agentEl) {
+      agentHold?.(); agentHold = null;
       unmountAgent(); agentEl = null; unmountAgent = null; paintAsks = null;
       rememberAgentOpen(false);
       return;
@@ -1433,6 +1530,7 @@ export function createEditMode({
     };
     paintAsks();
     card.append(log, ta, actions);
+    agentHold = holdDraft(() => (ta.value.trim() ? 'your message to the agent' : null));
     unmountAgent = mountTypingCard(el, agentDock);
     if (!agentDock.isFloat()) rememberAgentOpen(true);
     setTimeout(() => ta.focus(), 0);
@@ -1594,6 +1692,7 @@ export function createEditMode({
     close: () => { if (editEl) toggleEditor(); },
   });
   let notesDirty = null;     // does the open card hold edits the file does not have?
+  let notesHold = null;      // …said to the reload, which waits for them (drafts.js)
   let notesClosing = false;  // a close that is saving first
   // Docked, the deck stays navigable beside the notes card, so the card
   // follows the slide, once anything unsaved in it is written.
@@ -1619,6 +1718,7 @@ export function createEditMode({
         notesSave().then(() => { notesClosing = false; if (editEl && !notesDirty?.()) toggleEditor(); });
         return;
       }
+      notesHold?.(); notesHold = null;
       unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesCaughtUp = null; notesSave = null; notesRefresh = null; notesDirty = null; forgetNotesOpen();
       for (const fn of [...notesClosed]) { notesClosed.delete(fn); fn(); }
       return;
@@ -1680,6 +1780,7 @@ export function createEditMode({
     let autosaving = false;       // …and it is the quiet time's own: "autosaving…"
     let justSaved = 0;            // an autosave that landed: the mark says so for a moment, in place of a toast
     if (!notesRO) notesDirty = () => ta.value !== loaded;
+    if (!notesRO) notesHold = holdDraft(() => (ta.value !== loaded ? `the notes on slide ${sl}` : null));
     notesFollow = () => {
       if (instance.state.slide === sl && (!perBuild || where().part === shown.part)) return;
       // Edits go to the slide they were written for, and the card moves on
@@ -2421,6 +2522,7 @@ export function createEditMode({
   // FILE (never the live DOM: the engine mutates elements in place, so what
   // the player sees is not what a Save should write back over).
   let contentEl = null;
+  let contentHold = null;   // the open editor's draft, said to the reload (drafts.js)
   let inspectorOpen = null;   // set by the engine: back to the inspector from here
   let contentTarget = null;   // the element on the slide, outlined while its source is open
   let onEditorResize = null;
@@ -2454,6 +2556,7 @@ export function createEditMode({
   }
   function closeContentEditor() {
     forgetEditorOpen();
+    contentHold?.(); contentHold = null;
     contentEl?.remove(); contentEl = null;
     contentTarget?.classList.remove('dl-editing'); contentTarget = null;
     if (onEditorResize) { window.removeEventListener('resize', onEditorResize); onEditorResize = null; }
@@ -2502,6 +2605,11 @@ export function createEditMode({
     ta.disabled = true;
     ta.spellcheck = false;
     wrap.append(pre, ta);
+    // the source as the file has it, once read: the box differing from it is
+    // a draft, and the reload waits for it (drafts.js)
+    let sourceWas = null;
+    contentHold?.();
+    contentHold = holdDraft(() => (sourceWas !== null && ta.value !== sourceWas ? `the HTML of element ${index} on slide ${slide}` : null));
 
     // The highlighter is the one already bundled for code slides (13 languages,
     // xml aliased to html) — so this costs no bytes. A trailing newline gets a
@@ -2523,6 +2631,10 @@ export function createEditMode({
       pre.scrollLeft = ta.scrollLeft;
     });
     const save = async () => {
+      // what goes is the file's from here, so the reload this save causes is
+      // not held for it; a save that fails makes it a draft again
+      const was = sourceWas;
+      sourceWas = ta.value;
       try {
         try { sessionStorage.setItem(EDITOR_OPEN_KEY, JSON.stringify({ slide, index, t: Date.now() })); } catch { /* no storage: the reload closes it, as before */ }
         const res = await writeFetch(editBase + '/deck/edit/element/content', {
@@ -2533,7 +2645,8 @@ export function createEditMode({
         toast('element content saved — reloading');
       } catch (e) {
         forgetEditorOpen();   // no reload is coming
-        toast(`save failed: ${String(e.message || e).slice(0, 60)}`);
+        sourceWas = was;
+        toast(`save failed${offline ? ': the edit server is not answering' : `: ${String(e.message || e).slice(0, 60)}`} — your HTML is still in the box`, 6000);
       }
     };
     ta.addEventListener('keydown', (e) => {
@@ -2571,7 +2684,7 @@ export function createEditMode({
         // depth it happened to sit at in the file. Never re-indented: adding a
         // line break between inline elements adds a visible space, and this
         // editor writes straight back over the deck (SPEC `DECK_ANATOMY`).
-        ta.value = dedentHtml(j.html);
+        ta.value = sourceWas = dedentHtml(j.html);
         ta.disabled = false;
         repaint();
         syncGutter();
@@ -3920,6 +4033,8 @@ export function createEditMode({
     cycleNotesQuiet,
     /** Hold undo/redo until this write lands — the gestures in authoring.js post outside this module. */
     trackWrite,
+    /** Has the line to the edit server dropped? A failed save says so rather than a status code. */
+    offline: () => offline,
     toggleEditor,
     /** The notes card for another module: open it on a slide, ask if it is open, be told once it closes. */
     notesFor: { open: editNotesFor, isOpen: () => !!editEl, onClose: (fn) => { notesClosed.add(fn); } },
