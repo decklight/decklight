@@ -3064,7 +3064,7 @@
   outline: none;
 }
 .decklight-editor .notes-diff-head { font: 11px/1.4 system-ui, sans-serif; letter-spacing: .04em; opacity: .6; margin-bottom: 8px; text-transform: uppercase; }
-.decklight-editor .notes-diff-body { white-space: pre-wrap; word-break: break-word; }
+.decklight-editor .notes-diff-body { white-space: pre-wrap; word-break: break-word; font-size: var(--notes-px, 13px); }
 .decklight-editor .notes-diff del { background: rgba(229, 83, 61, .22); color: #ffb4a8; text-decoration: line-through; }
 .decklight-editor .notes-diff ins { background: rgba(80, 200, 120, .22); color: #b6f5c8; text-decoration: none; }
 /* the notes editor and the agent ask dock the same way: their plain textarea
@@ -3123,8 +3123,12 @@
   resize: vertical;
   line-height: 1.6;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: var(--notes-px, 13px);
 }
+/* A− / A+ in the notes card's header: the notes' type size (--notes-px) */
+.decklight-editor .notes-size { display: flex; gap: 2px; flex: none; pointer-events: auto; }
+.decklight-editor .notes-size .notes-size-btn { font-size: 12px; font-weight: 600; }
+.decklight-editor .notes-size .notes-size-btn:disabled { opacity: .2; cursor: default; background: transparent; }
 
 /* editing's right-click menu (editing is on in write mode; right-click a slide
    element — #112). The first CURSOR-ANCHORED overlay: every other one dims

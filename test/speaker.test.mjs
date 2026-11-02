@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { speakerState, notesSegments, speakerKeyAction } from '../src/core/speaker.js';
+import { speakerState, notesSegments, speakerKeyAction, stepFontSize, storedFontSize, FONT_SIZES } from '../src/core/speaker.js';
 
 // A deck stripped to what speakerState reads. `_sections: []` keeps it free of
 // the DOM: the optional chain on the missing section yields no notes aside,
@@ -93,4 +93,29 @@ test('the speaker window sends on every key a clicker sends, and keeps S for its
   assert.equal(speakerKeyAction({ key: 'x' }), null);
   // the popup carries it as source: it must stand alone
   assert.equal(new Function(`return (${speakerKeyAction.toString()})`)()({ key: 'PageDown' }), 'deck');
+});
+
+test('A− / A+ step the notes\' type size along the ladder, held at either end', () => {
+  assert.equal(stepFontSize(FONT_SIZES, 16, 1), 18);
+  assert.equal(stepFontSize(FONT_SIZES, 16, -1), 14);
+  assert.equal(stepFontSize(FONT_SIZES, 48, 1), 48, 'the biggest stays the biggest');
+  assert.equal(stepFontSize(FONT_SIZES, 11, -1), 11, 'the smallest stays the smallest');
+  assert.equal(stepFontSize(FONT_SIZES, 15, 1), 16, 'off the ladder: to the neighbour that way');
+  assert.equal(stepFontSize(FONT_SIZES, 15, -1), 14);
+  assert.equal(stepFontSize(FONT_SIZES, 'junk', 1, 13), 14, 'unreadable starts from the fallback');
+  // the popup carries it as source: it must close over nothing
+  assert.equal(new Function(`return (${stepFontSize.toString()})`)()([10, 20], 10, 1), 20);
+});
+
+test('a remembered size is used only when the ladder could have made it', () => {
+  assert.equal(storedFontSize('24', 16), 24);
+  assert.equal(storedFontSize(null, 16), 16);
+  assert.equal(storedFontSize('900', 16), 16);
+  assert.equal(storedFontSize('abc', 13), 13);
+});
+
+test('+ and − in the speaker window size the notes, never reach the deck', () => {
+  for (const key of ['+', '=']) assert.equal(speakerKeyAction({ key }), 'bigger', key);
+  for (const key of ['-', '_']) assert.equal(speakerKeyAction({ key }), 'smaller', key);
+  assert.equal(speakerKeyAction({ key: '=', metaKey: true }), null, '⌘= stays the browser\'s zoom');
 });
