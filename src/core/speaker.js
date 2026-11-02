@@ -122,6 +122,7 @@ export function installSpeakerBridge(instance) {
     subscribe(cb, win = null) {
       instance.__speakerCb = cb;
       if (win) instance.__speakerWin = win;
+      instance.__onSpeakerWin?.();
     },
     /**
      * The rehearsal's result, onto the deck: into the file through the author

@@ -57,11 +57,15 @@
    the theme's colour. A slide that bleeds its art (Bleed) still fills the
    screen: the stage goes transparent so the art behind it shows through. */
 .decklight:fullscreen { background: #000; }
-/* ⇧F (Settings, palette): a fullscreen talk with nothing but the slides — the
+/* ⇧F (Settings, palette): a talk with nothing but the slides — in fullscreen,
+   and while the speaker view is open (the talk is driven from there), the
    arrows and both slide numbers (the player's and write mode's) leave */
 .decklight.fs-chrome-hidden:fullscreen .decklight-controls,
 .decklight.fs-chrome-hidden:fullscreen .decklight-slide-number,
-.decklight.fs-chrome-hidden:fullscreen .decklight-slide-num { display: none; }
+.decklight.fs-chrome-hidden:fullscreen .decklight-slide-num,
+.decklight.fs-chrome-hidden.speaker-open .decklight-controls,
+.decklight.fs-chrome-hidden.speaker-open .decklight-slide-number,
+.decklight.fs-chrome-hidden.speaker-open .decklight-slide-num { display: none; }
 .decklight:fullscreen::before { content: none; }
 .decklight:fullscreen > .decklight-stage {
   background: var(--bg, #111);
