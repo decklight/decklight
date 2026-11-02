@@ -48,6 +48,77 @@ export function notesSegments(notesHtml) {
     .replaceAll(PAUSE_MARK, '<span class="cue">PAUSE</span>'));
 }
 
+/**
+ * What a key pressed in the speaker window asks for (PRESENTING): `'toggle'`
+ * (speak ⇄ rehearse: S, or the ⌥⏎ that opened it), `'deck'` (the deck's
+ * own key, sent on to it), or null. A clicker plugged into the laptop types
+ * into whichever window has focus, and at a lectern that is this one: so
+ * every key a clicker sends (→ ← ⎵ PageDown PageUp Home End, B and . for a
+ * black screen) does here exactly what it does in the deck, by being the
+ * deck's key. Self-contained: the popup's script carries it as source.
+ */
+export function speakerKeyAction({ key, shiftKey = false, altKey = false, metaKey = false, ctrlKey = false }) {
+  if (metaKey || ctrlKey) return null;
+  if (key === 's' || key === 'S' || (altKey && key === 'Enter')) return 'toggle';
+  if (altKey) return null;
+  const deckKeys = ['ArrowRight', 'ArrowLeft', ' ', 'PageDown', 'PageUp', 'Home', 'End', 'b', 'B', '.'];
+  return deckKeys.includes(key) ? 'deck' : null;
+}
+
+/**
+ * The deck's side of the speaker view: what the popup reads and drives,
+ * installed on the deck's window. On every load, not only when the popup is
+ * opened: a deck that reloads (write mode's live reload) installs it again,
+ * and the popup that was open finds the new one and carries on, where it
+ * used to go on showing the slide from before the reload.
+ */
+export function installSpeakerBridge(instance) {
+  const deckUrl = () => {
+    const u = new URL(location.href);
+    u.searchParams.set('embedded', '');
+    u.hash = '';
+    return u.href;
+  };
+  window.__decklightBridge = {
+    // the popup says which window it is, so the deck can bring it forward
+    // again after a reload it did not open it in
+    subscribe(cb, win = null) {
+      instance.__speakerCb = cb;
+      if (win) instance.__speakerWin = win;
+    },
+    /**
+     * The rehearsal's result, onto the deck: into the file through the author
+     * server when one owns it, else into this browser — and the speaker view
+     * is told which, because "saved" means two different things.
+     */
+    async saveTimings(seconds) {
+      const timings = seconds.map((s, i) => ({ slide: i + 1, seconds: Math.round(s || 0) })).filter((t) => t.seconds > 0);
+      if (instance.__saveTimings) { await instance.__saveTimings(timings); return 'deck'; }
+      writeJson(timingsKey(), seconds.map((s) => Math.round(s || 0)));
+      return 'browser';
+    },
+    getState: () => speakerState(instance, deckUrl()),
+    next: () => instance.next(),
+    prev: () => instance.prev(),
+    nextSlide: () => instance.nextSlide(),
+    prevSlide: () => instance.prevSlide(),
+    // a key the speaker window sends on (speakerKeyAction): the deck's own
+    // handler takes it, so blackout, ⎵ and the voice behave as they do here
+    press: ({ key, shiftKey = false }) => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }));
+    },
+    // the script view: every slide's notes, and a slide to go to from it
+    transcript: () => instance.transcript?.data?.() ?? [],
+    goto: (n) => instance.goto(n, 0, { force: true }),
+  };
+  instance.__notifySpeaker = () => {
+    const w = instance.__speakerWin;
+    if (!instance.__speakerCb || !w || w.closed) return;
+    try { instance.__speakerCb(speakerState(instance, deckUrl())); } catch { /* a popup mid-close */ }
+  };
+  return deckUrl;
+}
+
 export function openSpeakerView(instance) {
   const FEATURES = 'width=1100,height=700';
   let win = window.open('', 'decklight-speaker', FEATURES);
@@ -69,42 +140,12 @@ export function openSpeakerView(instance) {
     try { void win.document; } catch { return null; } // still blocked — give up cleanly
   }
 
-  const deckUrl = () => {
-    const u = new URL(location.href);
-    u.searchParams.set('embedded', '');
-    u.hash = '';
-    return u.href;
-  };
-
   // Bridge lives on the opener. Install it BEFORE writing the popup —
   // document.write parsing runs the popup's script synchronously, so
   // assigning afterwards is a race the popup loses on http (it happened to
   // win on file://). The popup also polls as a second line of defense.
-  window.__decklightBridge = {
-    subscribe(cb) { instance.__speakerCb = cb; },
-    /**
-     * The rehearsal's result, onto the deck: into the file through the author
-     * server when one owns it, else into this browser — and the speaker view
-     * is told which, because "saved" means two different things.
-     */
-    async saveTimings(seconds) {
-      const timings = seconds.map((s, i) => ({ slide: i + 1, seconds: Math.round(s || 0) })).filter((t) => t.seconds > 0);
-      if (instance.__saveTimings) { await instance.__saveTimings(timings); return 'deck'; }
-      writeJson(timingsKey(), seconds.map((s) => Math.round(s || 0)));
-      return 'browser';
-    },
-    getState: () => speakerState(instance, deckUrl()),
-    next: () => instance.next(),
-    prev: () => instance.prev(),
-    nextSlide: () => instance.nextSlide(),
-    prevSlide: () => instance.prevSlide(),
-    // the script view: every slide's notes, and a slide to go to from it
-    transcript: () => instance.transcript?.data?.() ?? [],
-    goto: (n) => instance.goto(n, 0, { force: true }),
-  };
-  instance.__notifySpeaker = () => {
-    if (instance.__speakerCb && !win.closed) instance.__speakerCb(speakerState(instance, deckUrl()));
-  };
+  installSpeakerBridge(instance);
+  instance.__speakerWin = win;
 
   const ar = `${instance.config.width} / ${instance.config.height}`;
   win.document.write(`<!doctype html><html><head><meta charset="utf-8">
@@ -128,6 +169,7 @@ export function openSpeakerView(instance) {
   #rec.on { background:#e5484d; color:#fff; }
   #pos { color:#999; }
   button { background:#333; color:#eee; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  #lost { color:#ffb4b4; background:#4a1d1d; border-radius:6px; padding:3px 10px; font-size:12px; }
   #mode { margin-left:auto; text-transform:uppercase; font-size:11px; letter-spacing:.09em; }
   #mode.on { background:#5c4d00; color:#ffe38a; }
   /* rehearse mode: cue cards, not prose — one cue per line, same type size */
@@ -164,6 +206,7 @@ export function openSpeakerView(instance) {
   <button id="prev" title="previous build (←); ⇧← the previous slide">◀ prev</button>
   <button id="next" title="next build (→); ⇧→ the next slide">next ▶</button>
   <button id="mode" title="S or ⌥⏎ toggles rehearse mode (cue cards instead of prose)">speak</button>
+  <span id="lost" hidden></span>
   <button id="script" title="the whole deck's notes, the slide on screen lit; a slide's title goes there">script</button>
   <button id="rec" title="record how long each slide takes, then save the timings onto the deck">⏱ rehearse timings</button>
   <span id="pace" class="pace"></span>
@@ -270,14 +313,19 @@ export function openSpeakerView(instance) {
     if (now) now.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
   $('#qr').onclick = () => $('#qr').classList.toggle('big');
+  // The deck's keys, here too: a clicker types into this window at a lectern.
+  // S here, or the same ⌥⏎ that opened this window: speak ⇄ rehearse.
+  const speakerKeyAction = ${speakerKeyAction.toString()};
   document.addEventListener('keydown', (e) => {
-    // ←/→ a build at a time, as in the deck; ⇧ for a whole slide
-    if (e.key === 'ArrowRight' && e.shiftKey) api && api.nextSlide && api.nextSlide();
-    else if (e.key === 'ArrowRight' || e.key === ' ') api && api.next();
-    if (e.key === 'ArrowLeft' && e.shiftKey) api && api.prevSlide && api.prevSlide();
-    else if (e.key === 'ArrowLeft') api && api.prev();
-    // S here, or the same ⌥⏎ that opened this window: speak ⇄ rehearse
-    if (e.key === 's' || e.key === 'S' || (e.altKey && e.key === 'Enter')) { window.__decklightSpeakerToggle(); e.preventDefault(); }
+    const act = speakerKeyAction(e);
+    if (act === 'toggle') { window.__decklightSpeakerToggle(); e.preventDefault(); }
+    else if (act === 'deck' && api) {
+      if (api.press) api.press({ key: e.key, shiftKey: e.shiftKey });
+      // a deck from before the bridge took keys: the arrows it always had
+      else if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') (e.shiftKey && api.nextSlide ? api.nextSlide() : api.next());
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') (e.shiftKey && api.prevSlide ? api.prevSlide() : api.prev());
+      e.preventDefault();
+    }
   });
   let last = { slide: -1, step: -1, nextHash: '' };
   function render(st) {
@@ -323,13 +371,32 @@ export function openSpeakerView(instance) {
   // The opener assigns the bridge around the same moment this script runs
   // (document.write parsing is synchronous) — poll briefly instead of
   // deciding on a single racy read.
+  // A lost deck is SAID, in the header, never shown as the slide it was on.
+  const lost = (why) => { $('#lost').textContent = why; $('#lost').hidden = false; };
+  const found = () => { $('#lost').hidden = true; };
   function connect(tries) {
     api = opener && !opener.closed && opener.__decklightBridge;
-    if (api) { api.subscribe(render); render(api.getState()); return; }
+    if (api) { api.subscribe(render, window); render(api.getState()); return; }
     if (tries > 0) return setTimeout(() => connect(tries - 1), 100);
-    document.body.innerHTML = '<p style="padding:2em">Lost connection to the deck window.</p>';
+    lost('not connected to the deck window');
   }
   connect(30);
+  // The deck reloaded (write mode reloads it whenever the file changes): its
+  // new page installs a new bridge, and this window picks it up and goes on,
+  // rather than staying on the slide it last heard about. On file://, a
+  // reloaded deck is out of reach for good, and that is said instead.
+  setInterval(() => {
+    let b = null;
+    try {
+      if (!opener || opener.closed) { lost('the deck window was closed'); return; }
+      b = opener.__decklightBridge;
+    } catch { lost('the deck reloaded and this window cannot reach it: press S in the deck for a fresh one'); return; }
+    if (!b) { lost('the deck is reloading…'); return; }
+    if (b !== api) {
+      api = b;
+      try { api.subscribe(render, window); render(api.getState()); found(); } catch { lost('could not reconnect to the deck'); }
+    } else found();
+  }, 1000);
 </script>
 </body></html>`);
   win.document.close();

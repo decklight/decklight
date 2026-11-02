@@ -11,7 +11,7 @@ import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
-import { openSpeakerView } from './speaker.js';
+import { openSpeakerView, installSpeakerBridge } from './speaker.js';
 import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown } from './overlay.js';
 import { createThemes } from './themes.js';
 import { createNarration, narrationTracks, slideClickMatch } from './narration.js';
@@ -638,11 +638,16 @@ export function init(userConfig = {}) {
   // Where a slide got what it says (SLIDE_SOURCES). Not author-only and not
   // presenter-only: notes are for the person talking, and where to read more is
   // for the person listening — so this ships in the deck a reader is handed.
-  // ⌥⏎ — the speaker view: first press opens it, the next toggles speak ⇄ rehearse
+  // ⌥⏎ — the speaker view: the first press opens it, and a press while it
+  // is open brings it to the front: behind the deck, or on the other screen
+  // under another window, is exactly when it is pressed again. Speak ⇄
+  // rehearse is S (or ⌥⏎) in the speaker window itself.
   function speakerView() {
     const w = instance.__speakerWin;
-    if (w && !w.closed) w.__decklightSpeakerToggle?.();
-    else instance.__speakerWin = openSpeakerView(instance);
+    if (w && !w.closed) {
+      try { w.focus(); } catch { /* out of reach: the open below replaces it */ return void (instance.__speakerWin = openSpeakerView(instance)); }
+      toast('speaker view brought to the front — S there switches speak ⇄ rehearse', 2600);
+    } else instance.__speakerWin = openSpeakerView(instance);
   }
   const sources = createSources({
     root, overlays, toast,
@@ -2780,6 +2785,10 @@ export function init(userConfig = {}) {
     e.preventDefault();
   }
   if (!printMode) document.addEventListener('keydown', onKey);
+  // The speaker view's bridge, on every load and not only once the view is
+  // opened: a speaker window open across a reload finds the new page's and
+  // reconnects (speaker.js). Not in a preview frame, which has no view of its own.
+  if (!printMode && !params.has('embedded')) installSpeakerBridge(instance);
 
   // A click or a tap on the slide is "next" (PRESENTING_NAVIGATION), as the
   // spec and the welcome card have always said and the deck did not do. Not
