@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { speakerState, notesSegments } from '../src/core/speaker.js';
+import { speakerState, notesSegments, speakerKeyAction } from '../src/core/speaker.js';
 
 // A deck stripped to what speakerState reads. `_sections: []` keeps it free of
 // the DOM: the optional chain on the missing section yields no notes aside,
@@ -80,4 +80,17 @@ test('the transcript is read in the speaker view, not in a card over the slides'
   assert.match(speaker, /goto: \(n\) => instance\.goto\(n, 0/, 'and a slide to go to from it');
   assert.doesNotMatch(src('hud.js'), /decklight-transcript/, 'the card over the slides is gone');
   assert.match(src('engine.js'), /label: 'Download the transcript \(\.md\)'/, 'export needs no second window');
+});
+
+test('the speaker window sends on every key a clicker sends, and keeps S for its own mode', () => {
+  for (const key of ['ArrowRight', 'ArrowLeft', ' ', 'PageDown', 'PageUp', 'Home', 'End', 'b', 'B', '.']) {
+    assert.equal(speakerKeyAction({ key }), 'deck', key);
+  }
+  assert.equal(speakerKeyAction({ key: 'ArrowRight', shiftKey: true }), 'deck', '⇧→ is the deck\'s too');
+  assert.equal(speakerKeyAction({ key: 's' }), 'toggle');
+  assert.equal(speakerKeyAction({ key: 'Enter', altKey: true }), 'toggle');
+  assert.equal(speakerKeyAction({ key: 'r', metaKey: true }), null, 'the browser keeps its chords');
+  assert.equal(speakerKeyAction({ key: 'x' }), null);
+  // the popup carries it as source: it must stand alone
+  assert.equal(new Function(`return (${speakerKeyAction.toString()})`)()({ key: 'PageDown' }), 'deck');
 });
