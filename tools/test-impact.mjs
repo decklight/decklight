@@ -50,7 +50,7 @@ export const ALL = [
   'render', 'player-render',
   'narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record',
   'record-render', 'review-render',
-  'character-render', 'engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:sources', 'engine-render:authoring', 'engine-render:builds', 'pin-render', 'overflow-render', 'split-render',
+  'character-render', 'engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:sources', 'engine-render:authoring', 'engine-render:builds', 'pin-render', 'overflow-render', 'split-render', 'fit-render',
   'strict-render', 'shot-render', 'plugin-render', 'extension-check-render',
   'deckfile-render', 'pdf-render', 'pptx-render', 'import-render', 'theme-config-render', 'edit-e2e', 'contrast', 'palette-rules',
 ];
@@ -99,6 +99,7 @@ const RULES = [
   [/^src\/core\/hud\.js$/, ENGINE, 'clock and progress live on the engine'],
   [/^src\/core\/finder\.js$/, [...ENGINE, 'review-render'], 'slide titles: the finder names them, review anchors by them'],
   [/^src\/terminal\//, ['player-render'], 'the cast player'],
+  [/^src\/code\/fit\.js$/, ['fit-render', 'pdf-render'], 'data-fit, and the print view pdf reads it from'],
   [/^src\/code\//, ['render'], 'code blocks render in the smoke deck'],
   [/^src\/core\//, BROWSER, 'an unmapped core module — assume every harness'],
 
@@ -231,7 +232,7 @@ const COST = {
   'engine-render:themes': 6, 'engine-render:palette': 5, 'engine-render:narration': 4,
   'engine-render:navigation': 4, 'engine-render:handover': 4,
   'engine-render:sources': 3, 'engine-render:authoring': 3, 'engine-render:builds': 3,
-  'pdf-render': 10, 'split-render': 9, 'review-render': 8, 'pin-render': 7, 'record-render': 7,
+  'pdf-render': 10, 'split-render': 9, 'fit-render': 8, 'review-render': 8, 'pin-render': 7, 'record-render': 7,
   'strict-render': 6, 'overflow-render': 6, 'plugin-render': 6, 'deckfile-render': 4,
   'shot-render': 4, 'pptx-render': 6, 'edit-e2e': 30, 'player-render': 3, 'character-render': 2, 'import-render': 2, 'theme-config-render': 3,
   contrast: 1, 'palette-rules': 1,
