@@ -768,6 +768,8 @@
     const mode = params.get('mode') ?? 'themepicker';
     // `hidden`: slide 2 is hidden BEFORE init, the way an author would mark it
     if (mode === 'hidden') document.querySelectorAll('.decklight > section')[1].setAttribute('data-hidden', '');
+    // `presenterkeys`: a link on slide 1, for a click that must not advance
+    if (mode === 'presenterkeys') document.querySelector('.decklight > section').insertAdjacentHTML('beforeend', '<p><a href="#nowhere" class="pk-link">a link</a></p>');
     // `shiftarrows`: two builds on slide 1, slide 2 hidden, for ⇧→ to skip both
     if (mode === 'shiftarrows') {
       const secs = document.querySelectorAll('.decklight > section');
@@ -1255,7 +1257,8 @@
         await settle();   // the ping: write mode
         const themePosts = () => CALLS.post.filter((c) => /\/deck\/edit\/theme$/.test(c.u));
         const before = deck.currentTheme();
-        const step = async () => { press('.'); await settle(); if ([...document.querySelectorAll('.decklight-toast')].some((n) => /pack next/.test(n.textContent))) { press('.'); await settle(); } };
+        // the palette's Cycle theme row: . is a clicker's blackout now
+        const step = async () => { runRow('cycle theme'); await settle(); if ([...document.querySelectorAll('.decklight-toast')].some((n) => /pack next/.test(n.textContent))) { runRow('cycle theme'); await settle(); } };
         // three presses in a row: the screen follows each one, the file is written once, after they stop
         await step(); await step(); await step();
         r.cycleChangedTheTheme = deck.currentTheme() !== before;
@@ -2958,6 +2961,61 @@
         return;
       }
 
+      if (mode === 'presenterkeys') {
+        // The keys a presenter's hands and clicker send (PRESENTING_NAVIGATION).
+        // No edit server: the deck as a viewer and a presenter have it.
+        await settle();
+        const opened = [];
+        window.open = (...a) => { opened.push(a); return null; };   // the speaker view's popup
+        deck.goto(1, 0); await settle();
+        const sec = () => document.querySelector('.decklight-stage > section.active');
+        const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+        // a click on the slide is next
+        click(sec().querySelector('h1'));
+        await settle();
+        r.clickAdvances = deck.state.slide === 2 || deck.state.step === 1;
+        deck.goto(1, 0); await settle();
+        // …but not on a link
+        const link = sec().querySelector('.pk-link');
+        link.addEventListener('click', (e) => e.preventDefault());
+        click(link);
+        await settle();
+        r.linkClickDoesNot = deck.state.slide === 1 && deck.state.step === 0;
+        // . is a clicker's blackout; the → that ends it does not also move the deck
+        press('.');
+        r.dotBlacksOut = !!document.querySelector('.decklight-blackout');
+        press('ArrowRight');
+        r.anyKeyEndsBlackout = !document.querySelector('.decklight-blackout');
+        r.endingDoesNotMove = deck.state.slide === 1 && deck.state.step === 0;
+        press('b');
+        click(document.querySelector('.decklight-blackout'));
+        await settle();
+        r.aClickEndsIt = !document.querySelector('.decklight-blackout') && deck.state.slide === 1 && deck.state.step === 0;
+        // help is modal: the deck holds still behind it
+        press('?');
+        r.helpOpens = !!document.querySelector('.decklight-help');
+        press('ArrowRight'); press('o');
+        r.deckHoldsBehindHelp = deck.state.slide === 1 && deck.state.step === 0 && !document.querySelector('.decklight-overview');
+        const helpText = document.querySelector('.decklight-help')?.textContent ?? '';
+        r.helpNamesTheNewKeys = /B \/ \./.test(helpText) && /click/.test(helpText);
+        press('Escape');
+        r.escClosesHelp = !document.querySelector('.decklight-help');
+        // ⌘K / Ctrl+K is the palette, not a commit error
+        press('k', { metaKey: true });
+        await settle();
+        r.cmdKOpensThePalette = !!document.querySelector('.decklight-palette')
+          && ![...document.querySelectorAll('.decklight-toast')].some((n) => /commit/i.test(n.textContent));
+        press('Escape');
+        // S is the speaker view without write mode, never notes on the projected screen
+        press('s');
+        await settle();
+        r.sOpensTheSpeakerView = opened.length === 1 && !document.querySelector('.decklight-editor');
+        r.PASS = r.clickAdvances && r.linkClickDoesNot && r.dotBlacksOut && r.anyKeyEndsBlackout && r.endingDoesNotMove && r.aClickEndsIt
+          && r.helpOpens && r.deckHoldsBehindHelp && r.helpNamesTheNewKeys && r.escClosesHelp && r.cmdKOpensThePalette && r.sOpensTheSpeakerView;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'heldreload') {
         // A reload waits for what is typed (drafts.js, PRESENTING_EDITING):
         // the file changing under a half-typed note, HTML edit or ask holds
@@ -3290,7 +3348,7 @@
         // a panel beside the slide (the notes card) is no reason not to zoom
         // the slide — and a pinch over the panel itself zooms nothing, while
         // still never zooming the page
-        press('s'); await settle();
+        runRow('speaker notes (read'); await settle();   // S is the speaker view without write mode
         const card = document.querySelector('.decklight-editor');
         r.notesCardOpen = !!card;
         const overCard = card.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -60, ctrlKey: true, clientX: 10, clientY: 10 }));
@@ -5683,7 +5741,12 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
         if (nosrv) {
-          // present / review / a file: the same card, read-only
+          // present / review / a file: S is the speaker view — notes on the
+          // projected screen are the one thing never to show the room
+          r.sOpensTheSpeakerView = opened.length === 1 && !document.querySelector(E);
+          // …and the palette still has the same card, read-only
+          runRow('speaker notes (read');
+          await settle();
           const box = document.querySelector(`${E} textarea`);
           r.opensReadOnly = !!box && box.readOnly === true;
           r.showsTheNotes = /First item\. \[pause\] Held\./.test(box?.value ?? '');
@@ -5706,9 +5769,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         }
         document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', altKey: true, bubbles: true, cancelable: true }));
         await settle();
-        r.altEnterOpensSpeakerView = opened.length === 1;
+        r.altEnterOpensSpeakerView = opened.length === (nosrv ? 2 : 1);
         r.PASS = nosrv
-          ? r.opensReadOnly && r.showsTheNotes && r.headingSaysReadOnly && r.nothingToSave && r.deckStillMoves && r.escCloses && r.altEnterOpensSpeakerView
+          ? r.sOpensTheSpeakerView && r.opensReadOnly && r.showsTheNotes && r.headingSaysReadOnly && r.nothingToSave && r.deckStillMoves && r.escCloses && r.altEnterOpensSpeakerView
           : r.sOpensTheEditor && r.onThisSlide && r.showsTheNotes && r.noSpeakerWindow && r.escCloses && r.altEnterOpensSpeakerView;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -5742,8 +5805,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && !document.querySelector(`${O} .cm-sl-added`)?.classList.contains('cm-sl-zero');
         r.bareKtoggles = (press('k'), await settle(), !document.querySelector(O));
 
-        // ⌘K — the alias, from closed
-        press('k', { metaKey: true });
+        // ⌥⌘K — the alias, from closed (⌘K alone is the palette's); by code,
+        // because ⌥ turns the K into another letter
+        press('˚', { metaKey: true, altKey: true, code: 'KeyK' });
         await settle();
         r.metaKopens = !!document.querySelector(`${O} .narr-card`);
         // …and it reaches the deck FROM INSIDE the message box, so the shortcut
@@ -5752,12 +5816,12 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // this asserts against.
         document.querySelector('.cm-input')?.focus();
         document.querySelector('.cm-input')
-          ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true }));
+          ?.dispatchEvent(new KeyboardEvent('keydown', { key: '˚', code: 'KeyK', metaKey: true, altKey: true, bubbles: true, cancelable: true }));
         await settle();
         r.metaKclosesFromTheBox = !document.querySelector(O);
 
-        // ⌃K — the same alias for Windows and Linux
-        press('k', { ctrlKey: true });
+        // Ctrl+Alt+K — the same alias for Windows and Linux
+        press('k', { ctrlKey: true, altKey: true, code: 'KeyK' });
         await settle();
         r.ctrlKopens = !!document.querySelector(`${O} .narr-card`);
 
@@ -6669,11 +6733,11 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.brandThemeApplies = cs().getPropertyValue('--accent').trim().length > 0 && /var\(--acme-orange-500/.test(document.querySelector('style[data-theme="acme-dark"]').textContent)
           && document.querySelector('style[data-theme="acme-dark"]').media !== 'not all';
         r.pickWrittenToTheDeck = posts('/deck/edit/theme').some((c) => c.body.theme === 'acme-dark');
-        // the cycle keys stay on the brand
-        press('.');
+        // the cycle stays on the brand
+        runRow('cycle theme');
         await settle();
         r.cycleStaysOnBrand = document.querySelector('style[data-theme="acme-light"]').media !== 'not all';
-        press(',');
+        runRow('cycle theme');
         // ⌃T: no generated theme on a deck held to its brand
         press('t', { ctrlKey: true });
         r.generateRefused = toastSays(/keeps to Acme Brand's themes/) && !document.querySelector('style[data-theme^="gen-"]');
@@ -6736,7 +6800,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         press('t'); await settle();
         press('Enter'); await settle();
         const dark = look();
-        press('.'); await settle();
+        runRow('cycle theme'); await settle();
         const light = look();
         r.themeSetsTheRoles = /var\(--acme-orange-500/.test(document.querySelector('style[data-theme="acme-dark"]').textContent.match(/--acme-color-text-accent:[^;]*/)?.[0] ?? '');
         r.tRecoloursEveryRole = dark.h !== light.h && dark.b !== light.b && dark.card !== light.card && dark.fill !== light.fill;

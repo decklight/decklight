@@ -448,7 +448,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     return name;
   }
   // Crossing into a different pack while cycling needs a confirmation: the
-  // same key again applies, the opposite key or Esc cancels, 4s times out.
+  // same step again applies, the opposite one or Esc cancels, 4s times out.
   let cyclePending = null;
   function cancelCyclePending(silent = false) {
     if (!cyclePending) return false;
@@ -473,10 +473,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const i = Math.max(0, list.indexOf(cur));
     const next = list[(i + dir + list.length) % list.length];
     if (PACKS && packOf(next) !== packOf(cur)) {
-      const key = dir > 0 ? '.' : ',';
-      const opp = dir > 0 ? ',' : '.';
       cyclePending = { dir, name: next, timer: setTimeout(() => { cyclePending = null; }, 4000) };
-      toast(`⤳ ${packLabel(packOf(next))} pack next (${next}) — ${key} confirms · ${opp} or Esc cancels`, 4000);
+      toast(`⤳ ${packLabel(packOf(next))} pack next (${next}) — Cycle theme again confirms · Esc cancels`, 4000);
       return;
     }
     applyTheme(next, false, { deck: 'later' });

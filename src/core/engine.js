@@ -52,7 +52,9 @@ import { IS_MAC, UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
 
 // The chords the palette names beside a row (and beside its letter, when it
 // has one too), spelled the way this machine spells them, as undo is.
-const COMMIT_CHORD = IS_MAC ? '⌘K' : 'Ctrl+K';
+// ⌘K is the palette's, as in nearly every app; commit keeps a chord with ⌥ in it
+const COMMIT_CHORD = IS_MAC ? '⌥⌘K' : 'Ctrl+Alt+K';
+const PALETTE_CHORD = IS_MAC ? '⌘K' : 'Ctrl+K';
 const PRESENT_CHORD = IS_MAC ? '⌘⏎' : 'Ctrl+Enter';
 const SPEAKER_CHORD = IS_MAC ? '⌥⏎' : 'Alt+Enter';
 const MESSAGES_CHORD = IS_MAC ? '⌃`' : 'Ctrl+`';
@@ -1048,7 +1050,7 @@ export function init(userConfig = {}) {
       { label: 'First slide', cat: 'Go to', hint: 'Home', run: () => instance.goto(1, 0) },
       { label: 'Last slide', cat: 'Go to', hint: 'End', run: () => instance.goto(instance.state.totalSlides, 0) },
       // ── Slide: the one on screen ────────────────────────────────────────
-      { label: editmode.available() ? 'Edit speaker notes…' : 'Speaker notes (read-only)…', cat: 'Slide', hint: 'S', alias: 'edit mode notes write script read right-click background', run: toggleEditor },
+      { label: editmode.available() ? 'Edit speaker notes…' : 'Speaker notes (read-only)…', cat: 'Slide', hint: editmode.available() ? 'S' : null, alias: 'edit mode notes write script read right-click background', run: toggleEditor },
       // the slide's own words, rewritten by a writing tool (cli/rewrite.mjs, PRESENTING_WRITING)
       write({ label: 'Tighten the slide text…', cat: 'Slide',
         alias: 'writing tighten shorten concise shorter fewer words slide text agent rewrite',
@@ -1104,7 +1106,7 @@ export function init(userConfig = {}) {
         alias: 'lock unlock read only readonly protect freeze avoid changes by mistake editing off', run: () => editmode.toggleLock() },
       // ── Look ────────────────────────────────────────────────────────────
       { label: 'Theme…', cat: 'Look', hint: 'T', alias: 'colours colors palette', run: themes.openPicker },
-      { label: 'Cycle theme', cat: 'Look', hint: ', · .', run: () => cycleTheme(1) },
+      { label: 'Cycle theme', cat: 'Look', run: () => cycleTheme(1) },
       !themes.brandLocked() && { label: 'Generate a theme', cat: 'Look', hint: '⌃T', run: rollTheme },
       themes.hasGenerated() && { label: 'Save the generated theme…', cat: 'Look', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
       // marketplace themes are listed only while authoring (THEME_BROWSE#UI)
@@ -1158,7 +1160,7 @@ export function init(userConfig = {}) {
         alias: 'match agree align consistent slide text notes voiceover script rewrite terms what the slide says shows this slide module every',
         run: () => editmode.openWriting({ tool: 'match-slide' }) }),
       // ── Present ─────────────────────────────────────────────────────────
-      { label: 'Speaker view — second window', cat: 'Present', hint: SPEAKER_CHORD, alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
+      { label: 'Speaker view — second window', cat: 'Present', hint: editmode.available() ? SPEAKER_CHORD : `S · ${SPEAKER_CHORD}`, alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
       { label: 'Fullscreen', cat: 'Present', hint: 'F · ' + PRESENT_CHORD, run: () => toggleFullscreen() },
       { label: `${fsChromeHidden() ? 'Show' : 'Hide'} arrows and slide number in fullscreen`, cat: 'Present', hint: '⇧F',
         alias: 'chevrons controls prev next counter page number chrome clean distraction free', run: () => setFsChrome(!fsChromeHidden()) },
@@ -2273,12 +2275,26 @@ export function init(userConfig = {}) {
   }
 
   // ----- blackout (B) --------------------------------------------------------
+  // B, or a clicker's black-screen button (it sends .). The voice pauses with
+  // the screen and takes up again with it: a black screen that keeps talking
+  // has not held the room. Any key or a click brings it back (onKey).
   let blackoutEl = null;
+  let blackoutPausedVoice = false;
   function toggleBlackout() {
-    if (blackoutEl) { blackoutEl.remove(); blackoutEl = null; return; }
+    if (blackoutEl) {
+      blackoutEl.remove();
+      blackoutEl = null;
+      if (blackoutPausedVoice && narration.status().paused) narration.playPause();
+      blackoutPausedVoice = false;
+      return;
+    }
     blackoutEl = document.createElement('div');
     blackoutEl.className = 'decklight-blackout';
+    blackoutEl.addEventListener('click', (e) => { e.stopPropagation(); toggleBlackout(); });
     root.appendChild(blackoutEl);
+    const n = narration.status();
+    blackoutPausedVoice = !!n.narrating && !n.paused;
+    if (blackoutPausedVoice) narration.playPause();
   }
 
   let helpEl = null;
@@ -2414,33 +2430,32 @@ export function init(userConfig = {}) {
     helpEl = document.createElement('div');
     helpEl.className = 'decklight-help';
     helpEl.innerHTML = `<div class="help-card"><h3>Keyboard</h3><table>
-      <tr><td>→ / PageDown</td><td>next build / slide (← and → also while a panel beside the slide has the keyboard; a text field keeps them)</td></tr>
+      <tr><td>→ / PageDown / click</td><td>next build / slide — a click or tap on the slide too, except in write mode, where a click selects (← and → also while a panel beside the slide has the keyboard; a text field keeps them)</td></tr>
       <tr><td>⎵</td><td>pause / resume the voice while it is speaking — otherwise it advances</td></tr>
       <tr><td>← / PageUp</td><td>previous</td></tr>
       <tr><td>⇧→ / ⇧←</td><td>next / previous slide, whatever builds are left</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
-      <tr><td>S</td><td>this slide's speaker notes — editable in write mode, read-only elsewhere</td></tr>
-      <tr><td>⌥⏎ / Alt+Enter</td><td>speaker view — a second window with notes, next slide, timer (again: rehearse mode)</td></tr>
+      <tr><td>S</td><td>speaker view — a second window with notes, next slide, timer; in write mode, this slide's notes to edit</td></tr>
+      <tr><td>⌥⏎ / Alt+Enter</td><td>speaker view, in write mode too (again: rehearse mode)</td></tr>
       <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
       <tr><td>I</td><td>inspector — all about this slide, or the element selected on it: layout, builds, notes, fit, contrast, sources; its colours and type; ⬚ picks an element</td></tr>
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
-      <tr><td>B</td><td>blackout</td></tr>
+      <tr><td>B / .</td><td>blackout — any key or a click brings the slide back, and the voice pauses with it</td></tr>
       <tr><td>pinch · 0</td><td>zoom the slide (trackpad pinch, or two fingers; scroll pans) · 0, Esc or a slide change fits it again</td></tr>
       <tr><td>&#96;</td><td>the log, on its messages tab (the events tab beside it is the debug stream) — the tilde key; ⌃&#96; / ⌥&#96; also works while editing notes</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>W</td><td>pen — draw on the slide (⌫ clears)</td></tr>
       <tr><td>⇧W</td><td>laser pointer</td></tr>
-      <tr><td>K</td><td>commit — what changed, and what to call it (⌘K / ⌃K also works while typing)</td></tr>
+      <tr><td>K</td><td>commit — what changed, and what to call it (${COMMIT_CHORD} also works while typing)</td></tr>
       <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (write mode)</td></tr>
       <tr><td>M</td><td>comments — yours and every review's, grouped by who said them, ⏎ jumps</td></tr>
       <tr><td>⇧M</td><td>leave a comment on the slide you are looking at</td></tr>
       <tr><td>F / ⌘⏎ / Ctrl+Enter</td><td>fullscreen (⌘⏎ is the present chord; the bar and the commit chip leave with it)</td></tr>
       <tr><td>⇧F</td><td>show / hide the arrows and the slide number in fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
-      <tr><td>/</td><td>command palette — find, themes, everything (“Welcome to Decklight” reopens the intro)</td></tr>
+      <tr><td>/ · ${PALETTE_CHORD}</td><td>command palette — find, themes, everything (“Welcome to Decklight” reopens the intro)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
-      <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
       <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a selected shape's style: colours, border, type (write mode)</td></tr>
       <tr><td>${UNDO_CHORD} / ${REDO_CHORD}</td><td>undo / redo deck edits (write mode)</td></tr>
@@ -2557,25 +2572,45 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
-    // ⌘K / ⌃K — commit. The alias for the bare K below, and it earns its place
-    // ABOVE the typing guard for the same reason the messages key does: the
-    // moment you most want to commit is the moment you have just finished
-    // typing, and a notes editor swallowing the shortcut would send you hunting
-    // for the mouse. Inside the commit window's own box it toggles the window,
-    // which is what K does everywhere else.
+    // ⌥⌘K / Ctrl+Alt+K — commit. The alias for the bare K below, and it earns
+    // its place ABOVE the typing guard for the same reason the messages key
+    // does: the moment you most want to commit is the moment you have just
+    // finished typing, and a notes editor swallowing the shortcut would send
+    // you hunting for the mouse. Inside the commit window's own box it toggles
+    // the window, which is what K does everywhere else.
     //
-    // ⌘K is the shortcut JetBrains has meant by "commit" for twenty years, and
-    // the browser's own ⌘K (focus the search bar) is exactly what preventDefault
-    // is for. Shift is excluded rather than ignored: ⌘⇧K is the web console in
-    // Firefox, and taking a devtools key from someone debugging a deck would be
-    // a poor trade for an alias.
-    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+    // It was ⌘K, until that turned out to be the chord almost every other app
+    // opens its command palette with: a viewer pressing it got an error about
+    // committing. ⌘K is the palette's now (below), and commit keeps ⌥ with it,
+    // matched by code because ⌥ turns the K into another letter. Shift is
+    // still excluded: ⌘⇧K is the web console in Firefox.
+    if ((e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey && e.code === 'KeyK') {
       editmode.commit.open();
       e.preventDefault();
       return;
     }
     // a READ-ONLY box is not typing — the notes card under present/review lets → move the deck
     if ((/^(input|textarea|select)$/i.test(e.target.tagName) && !e.target.readOnly) || e.target.isContentEditable || authoring.editing()) return;
+    // Blackout HOLDS the room (PRESENTING_NAVIGATION): any key ends it and
+    // does nothing else, so the → that brings the screen back does not also
+    // move the deck on underneath. ⌘/Ctrl chords are the browser's and pass.
+    if (blackoutEl && !e.metaKey && !e.ctrlKey && !['Shift', 'Alt', 'Control', 'Meta', 'CapsLock'].includes(e.key)) {
+      toggleBlackout();
+      e.preventDefault();
+      return;
+    }
+    // Help is a modal card: the deck does not move behind it. ? and Esc close
+    // it; every other key is left to the card (its own scrolling) and to nothing else.
+    if (helpEl && !e.metaKey && !e.ctrlKey) {
+      if (e.key === '?' || e.key === 'Escape') { toggleHelp(); e.preventDefault(); }
+      return;
+    }
+    // ⌘K / Ctrl+K — the palette. Below the typing guard, so a text box keeps the chord.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+      openPalette();
+      e.preventDefault();
+      return;
+    }
     // ⌃T generates, ⌃⇧T saves — both must precede the modifier early-return
     // (macOS tab shortcuts are ⌘-based, so Ctrl reaches the page; on
     // Windows/Linux the browser owns Ctrl+T and these can't be intercepted).
@@ -2696,7 +2731,7 @@ export function init(userConfig = {}) {
       case 'Home': instance.goto(1, 0); break;
       case 'End': instance.goto(instance.state.totalSlides, 0); break;
       case 'o': case 'O': toggleOverview(); break;
-      case 'b': case 'B': toggleBlackout(); break;
+      case 'b': case 'B': case '.': toggleBlackout(); break;
       case 'c': case 'C': toggleCaptions(); break;
       case 'k': case 'K': editmode.commit.open(); break;
       case 'h': case 'H': editmode.history.open(); break;
@@ -2711,13 +2746,12 @@ export function init(userConfig = {}) {
       case 'f': case 'F': if (e.shiftKey) setFsChrome(!fsChromeHidden()); else toggleFullscreen(); break;
       case 'v': case 'V': narration.openPicker(); break;   // everything about the voice
       case 'i': case 'I': inspector?.open(); break;        // (I)nspector: all about this slide, or the selection
-      // S — this slide's speaker notes, in the notes editor (write mode); the
-      // speaker view, a second window for presenting, is ⌥⏎ above
-      case 's': case 'S': toggleEditor(); break;
+      // S — this slide's speaker notes, in the notes editor, in write mode.
+      // Anywhere else S is the speaker view: notes on the projected screen are
+      // the one thing a presenter must never show the room.
+      case 's': case 'S': if (editmode.available()) toggleEditor(); else speakerView(); break;
       case 't': case 'T': themes.openPicker(); break;
       case '/': openPalette(); break;
-      case '.': cycleTheme(1); break;
-      case ',': cycleTheme(-1); break;
       case '>': changeNarrRate(+0.25); break;  // youtube's ⇧>
       case '<': changeNarrRate(-0.25); break;  // youtube's ⇧<
       case ']': cycleFont(1); break;
@@ -2746,6 +2780,23 @@ export function init(userConfig = {}) {
     e.preventDefault();
   }
   if (!printMode) document.addEventListener('keydown', onKey);
+
+  // A click or a tap on the slide is "next" (PRESENTING_NAVIGATION), as the
+  // spec and the welcome card have always said and the deck did not do. Not
+  // in write mode, where a click selects; not on anything the click belongs
+  // to (a link, a control, a terminal, a video); not while a selection is
+  // being made, a panel is up, the pen is down or the slide is zoomed.
+  const OWN_CLICKS = 'a, button, input, textarea, select, label, summary, details, video, audio, iframe, [contenteditable], [tabindex], .terminal, [data-no-advance]';
+  root.addEventListener('click', (e) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.defaultPrevented) return;
+    const sec = e.target?.closest?.('section');
+    if (!sec || !sec.closest('.decklight-stage') || sec.closest('.decklight-overview')) return;
+    if (e.target.closest(OWN_CLICKS)) return;
+    if (editmode.elementEditOn() || overlays.active() || overviewEl || helpEl || blackoutEl) return;
+    if (hud.annotator?.active || zoom.k !== 1) return;
+    if (String(window.getSelection?.() ?? '').trim()) return;
+    instance.next();
+  });
 
   let touchX = null;
   root.addEventListener('touchstart', (e) => { touchX = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });

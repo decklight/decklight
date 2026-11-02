@@ -91,7 +91,7 @@ export function typeaheadKeydown(e, { query = '', onMove, onCommit, onType, onBa
  * and that has no business sitting under whatever opens next. `opening()` is
  * what a dialog calls as it opens, and it clears exactly those. It never
  * touches a typing surface (the notes editor, a compose card, the commit
- * window), because ⌘K reaches the commit window from inside the editor, and
+ * window), because ⌥⌘K reaches the commit window from inside the editor, and
  * the sentence in the editor has to still be there when the commit is done.
  * Four modules used to be handed their own `dismissOthers` closure by the
  * engine, each naming a different subset of the pickers by hand.
