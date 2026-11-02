@@ -247,7 +247,7 @@ the CLI only.
 | `⎵` | play / pause the voice once one is chosen; otherwise it advances |
 | `V` | everything about the voice: tracks, live voice, character, record, captions, speed |
 | `M` | review comments: `⏎` jumps to the slide, `R` marks one done and again reopens it, `D` hides the done ones, `⌫` deletes one of yours; `⇧M` writes one |
-| `K` | commit what you changed, with a message; `⌘Z` / `Ctrl+Z` undoes an edit; `⌘⏎` / `Ctrl+Enter` fullscreen, `⇧F` hides the arrows and slide number there |
+| `K` | commit what you changed, with a message; `⌘Z` / `Ctrl+Z` undoes an edit; `⌘⏎` / `Ctrl+Enter` fullscreen, `⇧F` hides the arrows and slide number there and while the speaker view is open |
 | `H` | the deck's history, every version previewed live, `⏎` restores one |
 | `I` | the inspector: everything about this slide, or the selected shape's colours and type; its sources |
 | `/` | command palette: every action at the root, named `Category: Action` (`Voice: Live voice…`), filtered by any words you type; *Preferences: Settings…* holds the knobs (clock, progress bar, captions, voice speed, the editing bar). `G` finds a slide, `O` rearranges them, `A` asks the agent |

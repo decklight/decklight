@@ -58,7 +58,7 @@ PDF…`), filtered as you type. The palette does a thing.
 
 **Settings.** The palette's *Preferences: Settings…*: how the deck is set
 up to show itself (clock, progress bar, captions, voice speed, the editing
-bar, the arrows and slide number in fullscreen), each row read back from
+bar, the arrows and slide number in fullscreen and speaker view), each row read back from
 what the deck remembers and changed with `⏎`.
 
 ## Voice

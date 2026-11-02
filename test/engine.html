@@ -1875,10 +1875,10 @@
         for (let i = 0; i < 5; i++) { knob('Voice speed').run(); speeds.push(knob('Voice speed').value); }
         r.voiceSpeedCycles = speeds.join(' ') === '1.25× 1.5× 2× 0.75× 1×';
 
-        // ⇧F (Settings, palette): the arrows and the slide number in fullscreen
+        // ⇧F (Settings, palette): the arrows and the slide number in fullscreen and speaker view
         const rootEl = document.querySelector('.decklight');
         const fsKey = 'decklight-fs-chrome:' + location.pathname;
-        const fsRow = () => knob('Arrows and slide number in fullscreen');
+        const fsRow = () => knob('Arrows and slide number in fullscreen and speaker view');
         r.fsChromeShownByDefault = fsRow()?.value === 'shown' && !rootEl.classList.contains('fs-chrome-hidden');
         press('F', { shiftKey: true });
         r.shiftFHides = rootEl.classList.contains('fs-chrome-hidden') && fsRow()?.value === 'hidden' && localStorage.getItem(fsKey) === 'hidden';
@@ -1888,11 +1888,20 @@
         // the CSS: hidden only in fullscreen, never in the window
         rootEl.classList.add('fs-chrome-hidden');
         r.windowKeepsTheArrows = !document.querySelector('.decklight-controls') || getComputedStyle(document.querySelector('.decklight-controls')).display !== 'none';
+        // ...and hidden while a speaker window is open, back when it closes
+        const bridge = window.__decklightBridge;
+        const fakeSpeaker = { closed: false };
+        bridge.subscribe(() => {}, fakeSpeaker);
+        const controlsHidden = () => !!document.querySelector('.decklight-controls') && getComputedStyle(document.querySelector('.decklight-controls')).display === 'none';
+        r.speakerViewHidesTheArrows = rootEl.classList.contains('speaker-open') && (controlsHidden() || !document.querySelector('.decklight-controls'));
+        fakeSpeaker.closed = true;
+        deck.__onSpeakerWin();
+        r.speakerClosedShowsThem = !rootEl.classList.contains('speaker-open') && !controlsHidden();
         rootEl.classList.remove('fs-chrome-hidden');
         r.paletteHasFsChrome = (() => { press('/'); for (const ch of 'arrows') press(ch);
-          const ok = palNames().some((t) => /^Hide arrows and slide number in fullscreen/.test(t)); escapeUntilClosed('.decklight-palette'); return ok; })();
+          const ok = palNames().some((t) => /^Hide arrows and slide number in fullscreen and speaker view/.test(t)); escapeUntilClosed('.decklight-palette'); return ok; })();
 
-        r.PASS = r.fsChromeShownByDefault && r.shiftFHides && r.shiftFDidNotGoFullscreen && r.settingsRowShows && r.windowKeepsTheArrows && r.paletteHasFsChrome
+        r.PASS = r.fsChromeShownByDefault && r.shiftFHides && r.shiftFDidNotGoFullscreen && r.settingsRowShows && r.windowKeepsTheArrows && r.speakerViewHidesTheArrows && r.speakerClosedShowsThem && r.paletteHasFsChrome
           && r.knobsListed && r.clockKnobSwitches && r.voiceSpeedCycles && r.settingsIsFirstMatch && r.versionFindsSettingsFirst && r.opens && r.hasRows && r.showsVersionRow && r.saysEnterCopies
           && r.versionIsReal && r.versionMatchesApi && r.apiRowsMatch
           && r.enterCopiesTheVersion && r.saysItCopied && r.closesAfterCopying && r.refusedCopyStillShowsIt

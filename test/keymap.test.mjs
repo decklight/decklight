@@ -184,9 +184,9 @@ test('the help says which keys answer only in a context', () => {
   }
 });
 
-test('⇧F shows and hides the arrows and the slide number in fullscreen, and the help says so', () => {
+test('⇧F shows and hides the arrows and the slide number in fullscreen and the speaker view, and the help says so', () => {
   assert.match(SRC, /case 'f': case 'F': if \(e\.shiftKey\) setFsChrome\(/, '⇧F is not the fullscreen-chrome toggle');
-  assert.ok(helpRows().some((r) => r.key === '⇧F' && /arrows and the slide number in fullscreen/.test(r.what)), 'no ⇧F row in the help');
+  assert.ok(helpRows().some((r) => r.key === '⇧F' && /arrows and the slide number in fullscreen and while the speaker view is open/.test(r.what)), 'no ⇧F row in the help');
 });
 
 test('a palette row whose command has a key shows the key', () => {
