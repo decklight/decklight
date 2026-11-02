@@ -90,6 +90,18 @@ export function imageFiles(list) {
 }
 
 /**
+ * What a drop says about the files it did not add: not pictures (named, the
+ * first few), or, with no edit server behind the deck, that pictures are
+ * added in write mode.
+ */
+export function droppedNotAdded(files, { writeMode = true } = {}) {
+  if (!writeMode) return 'dropping a picture adds it in write mode: open the deck with decklight <deck.html>';
+  const names = Array.from(files ?? []).map((f) => f.name).filter(Boolean);
+  const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ');
+  return `${shown || 'that'} ${names.length > 1 ? 'are not pictures' : 'is not a picture'}: only PNG, JPEG, GIF, WebP, SVG or AVIF can be added`;
+}
+
+/**
  * The text element under a double-click that may be edited, or null.
  * `sec` is the slide it must belong to; a click on the stage between slides,
  * on an aside, or inside generated content edits nothing.
@@ -560,11 +572,16 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   });
 
   // ── drop a picture onto the slide ─────────────────────────────────────────
+  // A file dropped on the deck is ALWAYS caught, picture or not, write mode or
+  // not: one the page let through, the browser opened in the deck's place,
+  // and the talk was gone from the tab. What is not added is said.
+  const carriesFiles = (e) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
   root.addEventListener('dragover', (e) => {
     // mid-drag the browser withholds the files themselves; the TYPES say whether
     // any are coming, and the drop below is where images are told from the rest
-    if (!available() || !Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
+    if (!carriesFiles(e)) return;
     e.preventDefault();
+    if (!available()) { e.dataTransfer.dropEffect = 'none'; return; }
     e.dataTransfer.dropEffect = 'copy';
     root.classList.add('dl-dropping');
   });
@@ -573,10 +590,14 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   });
   root.addEventListener('drop', async (e) => {
     root.classList.remove('dl-dropping');
-    if (!available()) return;
-    const files = imageFiles(e.dataTransfer?.files);
-    if (!files.length) return;
+    if (!carriesFiles(e)) return;
     e.preventDefault();
+    const dropped = Array.from(e.dataTransfer?.files ?? []);
+    if (!available()) { toast(droppedNotAdded(dropped, { writeMode: false }), 3600); return; }
+    const files = imageFiles(dropped);
+    const rest = dropped.filter((f) => !files.includes(f));
+    if (rest.length) toast(droppedNotAdded(rest), 4200);
+    if (!files.length) return;
     const where = sectionOf(document.elementFromPoint(e.clientX, e.clientY))
       ?? sectionOf(instance._sections[instance.state.slide - 1]);
     if (!where) return;

@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EDITABLE, NOT_EDITABLE, altFromName, childPath, editableTarget, imageFiles, nodeAtPath,
+  EDITABLE, NOT_EDITABLE, altFromName, childPath, droppedNotAdded, editableTarget, imageFiles, nodeAtPath,
 } from '../src/core/authoring.js';
 
 /** A duck-typed element tree: tag, children, and the two traversal methods used. */
@@ -90,4 +90,10 @@ test('only image files are uploaded; a stray PDF in the same drop is left alone'
   assert.deepEqual(imageFiles(files).map((f) => f.name), ['a.png', 'c.svg'],
     'the server accepts exactly these types; asking it about the others would only earn a 415');
   assert.deepEqual(imageFiles(null), []);
+});
+
+test('a drop says what it left out: the files that are not pictures, or that pictures need write mode', () => {
+  assert.equal(droppedNotAdded([{ name: 'notes.txt' }]), 'notes.txt is not a picture: only PNG, JPEG, GIF, WebP, SVG or AVIF can be added');
+  assert.match(droppedNotAdded(['a.txt', 'b.pdf', 'c.zip', 'd.doc', 'e.md'].map((name) => ({ name }))), /^a\.txt, b\.pdf, c\.zip and 2 more are not pictures/);
+  assert.match(droppedNotAdded([{ name: 'x.png' }], { writeMode: false }), /adds it in write mode/);
 });

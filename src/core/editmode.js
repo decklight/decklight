@@ -1276,7 +1276,12 @@ export function createEditMode({
   // and the server snapshots first so Z takes the agent's edit back.
   let agentEl = null;
   let unmountAgent = null;
-  let agentHold = null;   // an ask typed and not sent, said to the reload (drafts.js)
+  // An ask typed and not sent outlives the card (PRESENTING_EDITING): Esc,
+  // ×, or another tab taking the slot keeps it, and the card opens on it
+  // again. The reload waits for it, open or kept (drafts.js).
+  let agentText = () => '';
+  let agentKept = '';
+  holdDraft(() => ((agentEl ? agentText() : agentKept).trim() ? 'your message to the agent' : null));
   const agentDock = createDock({
     root,
     reflow: () => instance._reflow?.(),
@@ -1366,7 +1371,8 @@ export function createEditMode({
   }
   function toggleAgentAsk() {
     if (agentEl) {
-      agentHold?.(); agentHold = null;
+      agentKept = agentText();
+      agentText = () => '';
       unmountAgent(); agentEl = null; unmountAgent = null; paintAsks = null;
       rememberAgentOpen(false);
       return;
@@ -1504,7 +1510,7 @@ export function createEditMode({
         if (!res.ok) throw new Error(j.error || res.status);
         // Docked, the card stays: the ask joins its log and the answer lands
         // under it. Floating, it is a modal in the way of the slide — it goes.
-        if (agentDock.isFloat()) toggleAgentAsk();
+        if (agentDock.isFloat()) { ta.value = ''; toggleAgentAsk(); }   // sent: nothing to keep
         else { ta.value = ''; rememberAgentOpen(true); }
         // progress lands as SSE 'agent' events → toasts and the log; the reload follows the save
       } catch (e) {
@@ -1530,7 +1536,8 @@ export function createEditMode({
     };
     paintAsks();
     card.append(log, ta, actions);
-    agentHold = holdDraft(() => (ta.value.trim() ? 'your message to the agent' : null));
+    if (agentKept) { ta.value = agentKept; agentKept = ''; }
+    agentText = () => ta.value;
     unmountAgent = mountTypingCard(el, agentDock);
     if (!agentDock.isFloat()) rememberAgentOpen(true);
     setTimeout(() => ta.focus(), 0);
@@ -2523,6 +2530,12 @@ export function createEditMode({
   // the player sees is not what a Save should write back over).
   let contentEl = null;
   let contentHold = null;   // the open editor's draft, said to the reload (drafts.js)
+  let contentDraft = null;  // the open editor's draft as it stands: { slide, index, text, was }
+  // Esc, ×, or another tab taking the slot never throws the draft away
+  // (PRESENTING_EDITING): closed with changes, it is KEPT, and opening that
+  // element's HTML again puts it back. The reload waits for it meanwhile.
+  let keptHtml = null;
+  holdDraft(() => (keptHtml ? `the HTML of element ${keptHtml.index} on slide ${keptHtml.slide}` : null));
   let inspectorOpen = null;   // set by the engine: back to the inspector from here
   let contentTarget = null;   // the element on the slide, outlined while its source is open
   let onEditorResize = null;
@@ -2556,6 +2569,12 @@ export function createEditMode({
   }
   function closeContentEditor() {
     forgetEditorOpen();
+    const d = contentDraft?.();
+    contentDraft = null;
+    if (d && d.was !== null && d.text !== d.was) {
+      keptHtml = d;
+      toast(`your HTML edit is kept: open element ${d.index}'s HTML on slide ${d.slide} again to finish it`, 4200);
+    }
     contentHold?.(); contentHold = null;
     contentEl?.remove(); contentEl = null;
     contentTarget?.classList.remove('dl-editing'); contentTarget = null;
@@ -2610,6 +2629,7 @@ export function createEditMode({
     let sourceWas = null;
     contentHold?.();
     contentHold = holdDraft(() => (sourceWas !== null && ta.value !== sourceWas ? `the HTML of element ${index} on slide ${slide}` : null));
+    contentDraft = () => ({ slide, index, text: ta.value, was: sourceWas });
 
     // The highlighter is the one already bundled for code slides (13 languages,
     // xml aliased to html) — so this costs no bytes. A trailing newline gets a
@@ -2685,6 +2705,14 @@ export function createEditMode({
         // line break between inline elements adds a visible space, and this
         // editor writes straight back over the deck (SPEC `DECK_ANATOMY`).
         ta.value = sourceWas = dedentHtml(j.html);
+        // the draft this element's editor was closed on, back where it was
+        if (keptHtml && keptHtml.slide === slide && keptHtml.index === index) {
+          const stale = keptHtml.was !== sourceWas;
+          ta.value = keptHtml.text;
+          keptHtml = null;
+          toast(stale ? 'your unsaved HTML edit is back, but the element changed since: saving writes your version over it'
+            : 'your unsaved HTML edit is back', stale ? 6000 : 2400);
+        }
         ta.disabled = false;
         repaint();
         syncGutter();

@@ -634,8 +634,24 @@ export function createReview({
    * grouping M uses, filtered to this slide.
    */
   let composeEl = null;
-  let composeHold = null;   // the card's comment, typed and not left, said to the reload (drafts.js)
-  function closeCompose() { composeEl?.remove(); composeEl = null; composeHold?.(); composeHold = null; }
+  // A comment typed and not left outlives the card (PRESENTING_EDITING): Esc
+  // or a click outside keeps it, and ⇧M on that slide opens the card on it
+  // again. The reload waits for it, open or kept (drafts.js).
+  let composeText = () => null;     // the open card's { slide, text }
+  let composeKept = null;           // …kept when it closed unsent
+  holdDraft(() => {
+    const d = composeEl ? composeText() : composeKept;
+    return d?.text.trim() ? `your comment on slide ${d.slide}` : null;
+  });
+  function closeCompose() {
+    const d = composeEl ? composeText() : null;
+    if (d?.text.trim()) {
+      composeKept = d;
+      toast(`your comment on slide ${d.slide} is kept: ⇧M there opens it again`, 3600);
+    }
+    composeText = () => null;
+    composeEl?.remove(); composeEl = null;
+  }
   async function openCompose() {
     if (composeEl) return closeCompose();
     // The panel is up and can write: its own box is the place, not a second card
@@ -667,7 +683,8 @@ export function createReview({
     send.tabIndex = 0;
     const post = async () => {
       if (!input.value.trim()) { input.focus(); return; }
-      await submit(input.value, here, slides[here - 1]);
+      // left, there is nothing to keep; not left, the words stay kept for another go
+      if (await submit(input.value, here, slides[here - 1])) input.value = '';
       closeCompose();
     };
     send.addEventListener('click', post);
@@ -681,8 +698,9 @@ export function createReview({
       e.stopPropagation();         // the deck must not advance while somebody types
     });
     card.append(input, send);
-    composeHold = holdDraft(() => (input.value.trim() ? `your comment on slide ${here}` : null));
-    card.append(el_('div', 'rec-hint', '⌘⏎ leaves it · Esc closes · M reads them all'));
+    if (composeKept?.slide === here) { input.value = composeKept.text; composeKept = null; }
+    composeText = () => ({ slide: here, text: input.value });
+    card.append(el_('div', 'rec-hint', '⌘⏎ leaves it · Esc closes, keeping it · M reads them all'));
     setTimeout(() => input.focus(), 0);
 
     // …and what is already said about THIS slide, so a point is not made twice.
