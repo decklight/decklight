@@ -26,6 +26,7 @@ import { agentChipText, boundedFetch, commitChipParts, commitChipText, commitChi
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { readPref, writePref } from './prefs.js';
+import { FONT_SIZES, NOTES_FONT_KEY, stepFontSize, storedFontSize } from './speaker.js';
 import { createDock, reopenPanel } from './dock.js';
 import { thinking } from './thinking.js';
 import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
@@ -1778,6 +1779,32 @@ export function createEditMode({
     };
     const { el, card, title } = typingCard('notes', notesDock, heading(), toggleEditor);
     editEl = el;
+    // A− / A+: the notes' type size, read-only or not (a presenter reads them
+    // here too), per browser like the speaker view's own
+    {
+      let px = storedFontSize(readPref(NOTES_FONT_KEY), 13);
+      const sizes = document.createElement('div');
+      sizes.className = 'notes-size';
+      sizes.setAttribute('role', 'group');
+      sizes.setAttribute('aria-label', 'notes text size');
+      const sizeBtn = (text, dir, label) => {
+        const b = Object.assign(document.createElement('button'), { type: 'button', className: 'dk-btn notes-size-btn', textContent: text, title: label });
+        b.setAttribute('aria-label', label);
+        b.addEventListener('click', () => { px = stepFontSize(FONT_SIZES, px, dir, 13); writePref(NOTES_FONT_KEY, px); apply(); });
+        return b;
+      };
+      const smaller = sizeBtn('A−', -1, 'smaller notes text');
+      const bigger = sizeBtn('A+', 1, 'bigger notes text');
+      const apply = () => {
+        el.style.setProperty('--notes-px', px + 'px');
+        smaller.disabled = px <= FONT_SIZES[0];
+        bigger.disabled = px >= FONT_SIZES[FONT_SIZES.length - 1];
+      };
+      sizes.append(smaller, bigger);
+      const head = title.parentNode;
+      head.insertBefore(sizes, head.querySelector('.dk-ctl'));
+      apply();
+    }
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
     // the markers as the author writes them — [click], [pause] — never ⟨…⟩ —

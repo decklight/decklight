@@ -6,7 +6,7 @@
 // file:// too — no server needed). Thumbnails are iframes of the same deck
 // in ?embedded mode, driven by src hash.
 
-import { readJson, writeJson } from './prefs.js';
+import { readJson, writeJson, readPref, writePref } from './prefs.js';
 import { notesMarks, markAudioTags, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 
 /** Where a deck's rehearsal lives when no edit server can write it into the file. */
@@ -21,6 +21,36 @@ export function plannedTimings(sections, stored = null) {
   const own = sections.map((s) => { const n = Number(s?.dataset?.timing); return Number.isFinite(n) && n > 0 ? n : null; });
   if (own.some((n) => n != null) || !stored) return own;
   return sections.map((_, i) => { const n = Number(stored[i]); return Number.isFinite(n) && n > 0 ? n : null; });
+}
+
+/**
+ * The notes' type sizes, in px, that A− / A+ step through: the speaker view's
+ * notes and the notes card both. A presenter's eyes, not the deck's, so the
+ * size is kept per browser (`SPEAKER_FONT_KEY`, `NOTES_FONT_KEY`).
+ */
+export const FONT_SIZES = [11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48];
+export const SPEAKER_FONT_KEY = 'decklight-speaker-font';
+export const NOTES_FONT_KEY = 'decklight-notes-font';
+
+/**
+ * The next size on `sizes` (ascending, FONT_SIZES) from `size` in `dir` (+1
+ * bigger, -1 smaller), held at either end. A size off the ladder (an old or
+ * hand-set one) steps to its nearest neighbour that way; anything unreadable
+ * is `fallback`. Self-contained, the ladder passed in: the popup's script
+ * carries it as source, and a minified build renames anything it closes over.
+ */
+export function stepFontSize(sizes, size, dir, fallback = 16) {
+  const n = Number(size);
+  const cur = Number.isFinite(n) && n > 0 ? n : fallback;
+  if (dir > 0) return sizes.find((s) => s > cur) ?? sizes[sizes.length - 1];
+  if (dir < 0) return [...sizes].reverse().find((s) => s < cur) ?? sizes[0];
+  return cur;
+}
+
+/** A remembered size, if it is one the ladder could have produced; else `fallback`. */
+export function storedFontSize(stored, fallback) {
+  const n = Number(stored);
+  return Number.isFinite(n) && n >= FONT_SIZES[0] && n <= FONT_SIZES[FONT_SIZES.length - 1] ? n : fallback;
 }
 
 /** `mm:ss` — the presenter's clock, never a decimal. */
@@ -50,8 +80,9 @@ export function notesSegments(notesHtml) {
 
 /**
  * What a key pressed in the speaker window asks for (PRESENTING): `'toggle'`
- * (speak ⇄ rehearse: S, or the ⌥⏎ that opened it), `'deck'` (the deck's
- * own key, sent on to it), or null. A clicker plugged into the laptop types
+ * (speak ⇄ rehearse: S, or the ⌥⏎ that opened it), `'bigger'` / `'smaller'`
+ * (the notes' type size: + and −), `'deck'` (the deck's own key, sent on to
+ * it), or null. A clicker plugged into the laptop types
  * into whichever window has focus, and at a lectern that is this one: so
  * every key a clicker sends (→ ← ⎵ PageDown PageUp Home End, B and . for a
  * black screen) does here exactly what it does in the deck, by being the
@@ -61,6 +92,9 @@ export function speakerKeyAction({ key, shiftKey = false, altKey = false, metaKe
   if (metaKey || ctrlKey) return null;
   if (key === 's' || key === 'S' || (altKey && key === 'Enter')) return 'toggle';
   if (altKey) return null;
+  // the notes' type size, as A+ / A− do: + (or =, its unshifted key) and −
+  if (key === '+' || key === '=') return 'bigger';
+  if (key === '-' || key === '_') return 'smaller';
   const deckKeys = ['ArrowRight', 'ArrowLeft', ' ', 'PageDown', 'PageUp', 'Home', 'End', 'b', 'B', '.'];
   return deckKeys.includes(key) ? 'deck' : null;
 }
@@ -98,6 +132,9 @@ export function installSpeakerBridge(instance) {
       return 'browser';
     },
     getState: () => speakerState(instance, deckUrl()),
+    // the notes' type size, kept on the deck's side: on file:// the popup's
+    // own storage may be out of reach, the deck's is the one the next popup reads
+    saveFontSize: (px) => { writePref(SPEAKER_FONT_KEY, px); },
     next: () => instance.next(),
     prev: () => instance.prev(),
     nextSlide: () => instance.nextSlide(),
@@ -148,6 +185,7 @@ export function openSpeakerView(instance) {
   instance.__speakerWin = win;
 
   const ar = `${instance.config.width} / ${instance.config.height}`;
+  const fontPx = storedFontSize(readPref(SPEAKER_FONT_KEY), 16);
   win.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <title>Decklight — speaker view</title>
 <style>
@@ -181,11 +219,17 @@ export function openSpeakerView(instance) {
   .thumb { width:min(100%, calc(42vh * (${ar}))); aspect-ratio:${ar}; border:1px solid #333; border-radius:8px; overflow:hidden; position:relative; }
   .thumb .tag { position:absolute; top:6px; left:8px; z-index:2; background:#0009; padding:1px 8px; border-radius:4px; font-size:11px; }
   iframe { width:100%; height:100%; border:0; background:#000; }
-  aside { grid-column:1/3; overflow:auto; background:#1b1b1b; border-radius:8px; padding:14px 16px; font-size:16px; line-height:1.65; }
+  aside { grid-column:1/3; overflow:auto; background:#1b1b1b; border-radius:8px; padding:14px 16px; font-size:var(--notes-px, 16px); line-height:1.65; }
+  /* A− / A+: the notes' type size, the rest of the view stays put */
+  .size { display:inline-flex; }
+  .size button { border-radius:0; padding:6px 10px; }
+  .size button:first-child { border-radius:6px 0 0 6px; border-right:1px solid #222; }
+  .size button:last-child { border-radius:0 6px 6px 0; }
+  .size button:disabled { opacity:.4; cursor:default; }
   aside .seg { opacity:.45; }
   aside .seg.now { opacity:1; background:#2d2d00; outline:2px solid #665; border-radius:4px; }
   aside .seg.said { opacity:.8; }
-  .cue { display:inline-block; background:#553; color:#ffc; font-size:11px; border-radius:4px; padding:0 6px; margin:0 4px; }
+  .cue { display:inline-block; background:#553; color:#ffc; font-size:max(11px, .65em); border-radius:4px; padding:0 6px; margin:0 4px; }
   .cue.tag { background:#354; color:#dfe; font-style:italic; }
   /* the script view (SPEC PRESENTING_CHROME, the transcript): the whole deck's
      notes in the notes pane, the slide on screen lit and kept in view */
@@ -207,6 +251,7 @@ export function openSpeakerView(instance) {
   <button id="next" title="next build (→); ⇧→ the next slide">next ▶</button>
   <button id="mode" title="S or ⌥⏎ toggles rehearse mode (cue cards instead of prose)">speak</button>
   <span id="lost" hidden></span>
+  <span class="size" role="group" aria-label="notes text size"><button id="smaller" title="smaller notes text (−)" aria-label="smaller notes text">A−</button><button id="bigger" title="bigger notes text (+)" aria-label="bigger notes text">A+</button></span>
   <button id="script" title="the whole deck's notes, the slide on screen lit; a slide's title goes there">script</button>
   <button id="rec" title="record how long each slide takes, then save the timings onto the deck">⏱ rehearse timings</button>
   <span id="pace" class="pace"></span>
@@ -313,12 +358,33 @@ export function openSpeakerView(instance) {
     if (now) now.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
   $('#qr').onclick = () => $('#qr').classList.toggle('big');
+  // the notes' type size: A− / A+, or − / + from the keyboard; remembered on
+  // the deck's side (api.saveFontSize) so the next speaker view opens at it
+  const FONT_SIZES = ${JSON.stringify(FONT_SIZES)};
+  const stepFontSize = ${stepFontSize.toString()};
+  let fontPx = ${fontPx};
+  const applyFont = () => {
+    document.body.style.setProperty('--notes-px', fontPx + 'px');
+    $('#smaller').disabled = fontPx <= FONT_SIZES[0];
+    $('#bigger').disabled = fontPx >= FONT_SIZES[FONT_SIZES.length - 1];
+  };
+  const resize = (dir) => {
+    fontPx = stepFontSize(FONT_SIZES, fontPx, dir);
+    applyFont();
+    try { if (api && api.saveFontSize) api.saveFontSize(fontPx); } catch { /* a deck mid-reload: the size still holds here */ }
+    const now = $('#notes .seg.now, #notes .sc-slide.now');
+    if (now) now.scrollIntoView({ block: 'nearest' });
+  };
+  $('#smaller').onclick = () => resize(-1);
+  $('#bigger').onclick = () => resize(1);
+  applyFont();
   // The deck's keys, here too: a clicker types into this window at a lectern.
   // S here, or the same ⌥⏎ that opened this window: speak ⇄ rehearse.
   const speakerKeyAction = ${speakerKeyAction.toString()};
   document.addEventListener('keydown', (e) => {
     const act = speakerKeyAction(e);
     if (act === 'toggle') { window.__decklightSpeakerToggle(); e.preventDefault(); }
+    else if (act === 'bigger' || act === 'smaller') { resize(act === 'bigger' ? 1 : -1); e.preventDefault(); }
     else if (act === 'deck' && api) {
       if (api.press) api.press({ key: e.key, shiftKey: e.shiftKey });
       // a deck from before the bridge took keys: the arrows it always had
