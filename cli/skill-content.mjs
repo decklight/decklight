@@ -286,6 +286,13 @@ A subject for THAT change, never "updated the deck". It commits only the deck
 and is a no-op when nothing changed. Nothing listening on the port: skip it
 silently, and never start a server yourself.
 
+**Recorded voice tracks follow the slides only while a server is running.**
+With one up, the voice folders are renumbered as soon as you add, remove or
+move a slide. With none, run \`decklight narrate --check deck.html --realign\`
+straight after the structural edit, while the moved slides' notes still match
+what was recorded: once the notes are reworded, the takes can no longer be
+placed, and every recording after the edit plays the slide next to its own.
+
 **That history is readable, and it is how a bad edit is undone.** \`decklight
 history deck.html\` lists every commit that touched the deck and marks the ones
 that exist only on this machine; \`decklight restore deck.html <hash>\` puts the
@@ -341,6 +348,11 @@ change you finish rather than leaving it to the timer's generic \`autosave\`:
 \`curl -sf -X POST localhost:8788/deck/edit/commit -H 'content-type: application/json'
 -d '{"message":"what this change did"}'\`. No server listening means no
 authoring session — skip it and carry on.
+
+With no server running, after adding, removing or moving slides on a deck with
+recorded voice tracks, run \`decklight narrate --check deck.html --realign\`
+straight away, while the moved slides' notes still match their recordings
+(a running server moves the recordings with the slides itself).
 
 ${librarySkillLines(librarySkills)}Hit a Decklight bug? Run \`npx decklight@latest report-bug\` for the environment
 facts, then ask the user what happened, what they expected, and the smallest
