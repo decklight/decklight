@@ -28,6 +28,7 @@
 
 import { createDock } from './dock.js';
 import { UNDO_CHORD } from './undo-chord.js';
+import { holdDraft } from './drafts.js';
 
 /** The facts and links a section carries, or null when it carries none. */
 export function sourcesOf(section) {
@@ -67,9 +68,12 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
   // The editor is a DRAFT, not the slide: nothing is written until ⏎, so
   // wandering into it and pressing esc leaves the deck exactly as it was.
   let draft = null;
+  let draftWas = '';   // the draft as it opened: differing from it, it holds the reload (drafts.js)
+  let draftAt = 0;
   let busy = false;
   let onResize = null;
   const editing = () => !!draft;
+  holdDraft(() => (draft && JSON.stringify(draft) !== draftWas ? `the sources of slide ${draftAt}` : null));
   const canEdit = () => editmode?.()?.available() === true;
 
   const isOpen = () => !!el;
@@ -194,6 +198,8 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
       links: data.links.map((l) => ({ ...l })),
     };
     if (!draft.facts.length && !draft.links.length) draft.links.push({ title: '', href: '', note: '' });
+    draftWas = JSON.stringify(draft);
+    draftAt = slideOf();
     if (!el) { renderShell(); }
     renderEdit();
   }
@@ -217,7 +223,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
       toast((j.changed ? `sources saved on slide ${at} — ${UNDO_CHORD} takes it back` : 'nothing changed') + refused,
         refused ? 6000 : 3000);
     } catch (e) {
-      toast(`could not save — ${e.message}`);
+      toast(`could not save${editmode()?.offline?.() ? ': the edit server is not answering' : ` — ${e.message}`}. The sources are still here: ⏎ tries again`, 6000);
     } finally {
       busy = false;
     }

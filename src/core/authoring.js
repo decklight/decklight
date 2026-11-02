@@ -23,6 +23,7 @@ import { authoredTop, authoredIndex } from './design-system.js';
 import { boundedFetch } from './devmode.js';
 import { pathFrom } from './colorpicker.js';
 import { injectedIn } from './pick.js';
+import { holdDraft } from './drafts.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -132,6 +133,34 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   // ── double-click to edit text ─────────────────────────────────────────────
   let editing = null; // { el, original, slide, index, path }
 
+  // ── a save that failed (PRESENTING_EDITING) ───────────────────────────────
+  // The words stay where they were typed, marked unsaved, instead of the old
+  // ones coming back: the server being away is no reason to lose them. A
+  // double-click picks the edit up again, its original still the file's, so
+  // ⏎ tries the save again and Esc puts the file's words back. Until then the
+  // reload waits for them (drafts.js).
+  const stranded = new Map();   // element → the edit whose save failed
+  const strand = (cur) => {
+    stranded.set(cur.el, cur);
+    cur.el.classList.add('dl-unsaved');
+    cur.el.setAttribute('data-dl-unsaved', 'not saved: double-click to try again');
+  };
+  const unstrand = (el) => {
+    stranded.delete(el);
+    el.classList.remove('dl-unsaved');
+    el.removeAttribute('data-dl-unsaved');
+  };
+  const notSaved = (what, e) => `${what} not saved${editmode.offline?.() ? ': the edit server is not answering'
+    : `: ${String(e?.message || e).slice(0, 80)}`}. Your words stay on the slide, marked: double-click to try again (Esc there puts the old ones back)`;
+  const changedNow = (cur) => (cur.svg ? cur.input.value.replace(/\s+/g, ' ').trim() !== cur.was.replace(/\s+/g, ' ').trim()
+    : cur.code ? cur.el.textContent.replace(/\n$/, '') !== cur.text
+      : cur.el.innerHTML !== cur.original);
+  holdDraft(() => {
+    if (editing && (stranded.has(editing.el) || changedNow(editing))) return `your edit on slide ${editing.slide}`;
+    const left = [...stranded.values()].find((c) => c.el.isConnected);
+    return left ? `your unsaved text on slide ${left.slide}` : null;
+  });
+
   async function saveInlineNow() {
     const cur = editing;
     if (!cur) return;
@@ -142,7 +171,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
     const inner = cur.el.innerHTML;
-    if (inner === cur.original) return; // nothing changed: nothing written, no reload
+    if (inner === cur.original) { unstrand(cur.el); return; } // nothing changed: nothing written, no reload
     try {
       const src = await boundedFetch(`${base()}/deck/edit/element/source?slide=${cur.slide}&index=${cur.index}`);
       const j = await src.json().catch(() => ({}));
@@ -156,11 +185,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       if (!node) throw new Error('the source has no element where the click landed');
       node.innerHTML = inner;
       await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML, ...inPlace() });
+      unstrand(cur.el);
       toast('saved', 1200);
       announce(cur.slide, cur.index, cur.el);
     } catch (e) {
-      cur.el.innerHTML = cur.original;
-      toast(`could not save the text: ${String(e.message || e).slice(0, 80)}`, 3000);
+      strand(cur);
+      toast(notSaved('the text', e), 7000);
     }
   }
 
@@ -178,7 +208,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!cur) return;
     editing = null;
     placePill();
-    if (cur.svg) { endLabel(cur); return; }
+    if (cur.svg) {
+      endLabel(cur);
+      if (stranded.has(cur.el)) { cur.el.textContent = cur.was; unstrand(cur.el); }
+      return;
+    }
+    unstrand(cur.el);
     if (cur.code) {
       cur.el.removeAttribute('contenteditable');
       cur.el.classList.remove('dl-editing');
@@ -301,6 +336,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
 
   async function beginCode(codeEl, { sec, slide }) {
     if (editing) await saveInline();
+    // a save that failed: the typed text is still in the block, as text
+    const was = stranded.get(codeEl);
+    if (was) { editing = was; editCode(codeEl); return; }
     const top = topLevelChild(sec, codeEl);
     if (!top) return;
     const index = authoredIndex(sec, top);
@@ -320,6 +358,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     while (codeEl.firstChild) kept.appendChild(codeEl.firstChild);
     codeEl.textContent = text;
     editing = { el: codeEl, code: true, kept, text, slide, index, path };
+    editCode(codeEl);
+    debugLog('info', `editing slide ${slide} element #${index}'s code`);
+  }
+
+  function editCode(codeEl) {
     // plaintext-only: typing and pasting stay text, Enter is a real newline
     codeEl.setAttribute('contenteditable', 'plaintext-only');
     if (codeEl.contentEditable !== 'plaintext-only') codeEl.setAttribute('contenteditable', 'true');
@@ -332,7 +375,6 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
-    debugLog('info', `editing slide ${slide} element #${index}'s code`);
   }
 
   async function saveCode(cur) {
@@ -342,7 +384,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     el.removeAttribute('contenteditable');
     el.classList.remove('dl-editing');
     const text = (plain ? el.textContent : el.innerText).replace(/\n$/, '');
-    if (text === cur.text) { putBack(cur); return; }   // nothing changed: nothing written
+    if (text === cur.text) { unstrand(el); putBack(cur); return; }   // nothing changed: nothing written
     try {
       const { top, node } = await codeSource(cur.slide, cur.index, cur.path);
       // keep the file's own layout around the code, and let textContent escape
@@ -354,13 +396,15 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       // the block is re-rendered from its new source, highlighted and lined
       // as the first render did it: the plain text the author typed into
       // the block is the file's, never what stays on screen
+      unstrand(el);
       const fresh = node.closest('pre') ?? node;
       const shown = el.closest('pre') ?? el;
       shown.replaceWith(fresh);
       announce(cur.slide, cur.index, fresh, true);
     } catch (e) {
-      putBack(cur);
-      toast(`could not save the code: ${String(e.message || e).slice(0, 80)}`, 3000);
+      // the typed code stays in the block, as text, until it is saved or given up
+      strand(cur);
+      toast(notSaved('the code', e), 7000);
     }
   }
 
@@ -410,7 +454,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     input.className = 'dl-label-edit';
     input.value = el.textContent.replace(/\s+/g, ' ').trim();
     input.setAttribute('aria-label', 'diagram label');
-    const cur = { svg: true, el, input, was: el.textContent, vis: el.style.visibility, slide, index, path, tag: el.tagName.toLowerCase() };
+    // a label whose save failed shows the typed words; the file still has `was`
+    const cur = { svg: true, el, input, was: stranded.get(el)?.was ?? el.textContent, vis: el.style.visibility, slide, index, path, tag: el.tagName.toLowerCase() };
     editing = cur;
     root.appendChild(input);
     placeLabel(cur);
@@ -437,16 +482,17 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     editing = null;
     const text = cur.input.value.replace(/\s+/g, ' ').trim();
     endLabel(cur);
-    if (text === cur.was.replace(/\s+/g, ' ').trim()) return; // nothing changed: nothing written
+    if (text === cur.was.replace(/\s+/g, ' ').trim()) { if (stranded.has(cur.el)) { cur.el.textContent = cur.was; unstrand(cur.el); } return; } // nothing changed: nothing written
     if (!text) { toast('kept the label: an empty one could not be clicked again (remove the shape instead)', 3200); return; }
     cur.el.textContent = text;
     try {
       await post('/deck/edit/element/text', { slide: cur.slide, index: cur.index, path: cur.path, tag: cur.tag, was: cur.was, text, ...inPlace() });
+      unstrand(cur.el);
       toast('saved', 1200);
       announce(cur.slide, cur.index, cur.el);
     } catch (e) {
-      cur.el.textContent = cur.was;
-      toast(`could not save the label: ${String(e.message || e).slice(0, 80)}`, 3000);
+      strand(cur);
+      toast(notSaved('the label', e), 7000);
     }
   }
 
@@ -457,7 +503,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const index = authoredIndex(sec, top);
     const path = childPath(top, el);
     if (path === null) return;
-    editing = { el, original: el.innerHTML, slide, index, path };
+    // picked up again after a save that failed: the file still has the original
+    editing = { el, original: stranded.get(el)?.original ?? el.innerHTML, slide, index, path };
     el.setAttribute('contenteditable', 'true');
     el.classList.add('dl-editing');
     el.focus();

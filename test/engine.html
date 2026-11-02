@@ -595,6 +595,22 @@
           return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
         }
       }
+      // a reload while something is typed (heldreload): notes that save in
+      // place, and an HTML editor with a source to load
+      if (HARNESS_MODE === 'heldreload') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/slide/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
+      // an in-place save that fails (savefail): the server is away until the
+      // mode says it is back
+      if (HARNESS_MODE === 'savefail') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (!window.__serverBack && u.includes('/deck/edit/')) throw new TypeError('Failed to fetch');
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       // a save that fails: the drawer must keep what was typed rather than close on it
       if (HARNESS_MODE === 'notesautofail') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -2568,19 +2584,23 @@
         typeIn('refused');
         key('Enter');
         await settle(); await settle();
-        r.refusedPutsItBack = writes().length === 3 && label.textContent === 'Producer & consumer' && !box();
+        // refused, the words stay, marked unsaved, for another try (PRESENTING_EDITING)
+        r.refusedKeepsTheWords = writes().length === 3 && label.textContent === 'refused' && label.classList.contains('dl-unsaved') && !box();
 
-        // the bar's way in: click selects, ⏎ edits the label clicked
+        // the bar's way in: click selects, ⏎ edits the label clicked — the
+        // unsaved words, and Esc there puts the file's back
         label.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         await settle();
         press('Enter');
         await settle();
-        r.selectThenEnterEdits = !!box() && box().value === 'Producer & consumer';
+        r.selectThenEnterEdits = !!box() && box().value === 'refused';
         if (box()) key('Escape');
+        await settle();
+        r.escapePutsTheFilesBack = label.textContent === 'Producer & consumer' && !label.classList.contains('dl-unsaved');
 
         r.PASS = r.boxOverTheLabel && r.inTheLabelsType && r.labelHiddenUnderIt && r.boxGrowsAroundTheMiddle && r.deckKeysStandAside
           && r.enterSendsTheWords && r.labelShowsItAndTheBoxGoes && r.escapeWritesNothing && r.unchangedWritesNothing
-          && r.twoLinesAskForOne && r.leavingSavesTheLine && r.refusedPutsItBack && r.selectThenEnterEdits;
+          && r.twoLinesAskForOne && r.leavingSavesTheLine && r.refusedKeepsTheWords && r.selectThenEnterEdits && r.escapePutsTheFilesBack;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -2909,6 +2929,131 @@
           && hints('static-diagram')[0].level === 'hint';
 
         r.PASS = Object.values(r).every((v) => v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'heldreload') {
+        // A reload waits for what is typed (drafts.js, PRESENTING_EDITING):
+        // the file changing under a half-typed note, HTML edit or ask holds
+        // it, a bar says what for, and it goes the moment that is saved.
+        await settle();
+        try { localStorage.setItem('decklight-notes-quiet', '0'); } catch { /* fine */ }
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const fileChanged = () => window.__es.onmessage({ data: JSON.stringify({ reload: 'agent edited the deck' }) });
+        const bar = () => document.querySelector('.decklight-held');
+        const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+        fileChanged();
+        r.nothingTypedReloadsAtOnce = reloads === 1 && !bar();
+        deck.goto(2, 0); await settle();
+        press('s'); await settle();
+        const box = () => document.querySelector('.decklight-editor textarea.edit-notes');
+        box().focus();
+        box().value = 'Half a sentence';
+        box().dispatchEvent(new Event('input', { bubbles: true }));
+        fileChanged();
+        await wait(900);
+        r.typedNotesHoldTheReload = reloads === 1 && !!bar() && /notes on slide 2/.test(bar().textContent) && box().value === 'Half a sentence';
+        // saved (⌘⏎), the draft is the file's: the reload goes by itself
+        box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true }));
+        await wait(700);
+        r.savedItReloads = reloads === 2 && !bar();
+        // Reload now: the author would rather have the new deck
+        box().value = 'Another half';
+        box().dispatchEvent(new Event('input', { bubbles: true }));
+        fileChanged();
+        await settle();
+        bar()?.querySelector('.held-now')?.click();
+        r.reloadNowReloads = reloads === 3 && !bar();
+        box().value = '';   // nothing left to hold the rest
+        box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true }));
+        await wait(200);
+        press('Escape'); await settle();
+        // the HTML editor holds its draft too, and its own save lets the reload by
+        deck.goto(1, 0); await settle();
+        const h1 = document.querySelector('.decklight-stage > section.active h1');
+        h1.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        await settle();
+        [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === 'Edit content (HTML)')?.click();
+        await wait(200);
+        const ta = document.querySelector('.decklight-editor .edit-code textarea');
+        r.htmlEditorOpens = !!ta && ta.value === '<h1>One</h1>';
+        if (ta) {
+          fileChanged();
+          r.untouchedHtmlDoesNotHold = reloads === 4;
+          ta.value = '<h1>One, half</h1>';
+          ta.dispatchEvent(new Event('input', { bubbles: true }));
+          fileChanged();
+          await wait(500);
+          r.typedHtmlHolds = reloads === 4 && /HTML of element 0 on slide 1/.test(bar()?.textContent ?? '');
+          ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true }));
+          await wait(600);
+          r.savedHtmlLetsItGo = reloads === 5 && !bar();
+        }
+        // the server gone: a sign, after a moment's grace, and gone again on reconnecting
+        window.__es.onerror?.();
+        await wait(300);
+        r.aBlipIsNotASign = !document.querySelector('.decklight-offline');
+        await wait(1500);
+        r.disconnectedIsSaid = /disconnected/.test(document.querySelector('.decklight-offline')?.textContent ?? '');
+        window.__es.onopen?.();
+        await settle();
+        r.reconnectedClearsIt = !document.querySelector('.decklight-offline')
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /reconnected/.test(n.textContent));
+        r.PASS = r.nothingTypedReloadsAtOnce && r.typedNotesHoldTheReload && r.savedItReloads && r.reloadNowReloads
+          && r.htmlEditorOpens && r.untouchedHtmlDoesNotHold && r.typedHtmlHolds && r.savedHtmlLetsItGo
+          && r.aBlipIsNotASign && r.disconnectedIsSaid && r.reconnectedClearsIt;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'savefail') {
+        // A text edit whose save fails keeps the words (PRESENTING_EDITING):
+        // they stay on the slide, marked, a double-click picks the edit up
+        // again, and the reload waits for them meanwhile.
+        await settle();
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+        deck.goto(1, 0); await settle();
+        const h1 = document.querySelector('.decklight-stage > section.active h1');
+        const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const enter = (key = 'Enter') => h1.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+        dbl(h1);
+        h1.textContent = 'One, kept';
+        enter();
+        await wait(300);
+        r.theWordsStay = h1.textContent === 'One, kept' && h1.classList.contains('dl-unsaved') && !h1.isContentEditable;
+        r.itSaysSo = [...document.querySelectorAll('.decklight-toast')].some((n) => /the text not saved.*double-click to try again/.test(n.textContent));
+        r.deckKeysStillWork = (() => { press('ArrowRight'); const moved = deck.state.slide === 2 || deck.state.step > 0; deck.goto(1, 0); return moved; })();
+        await settle();
+        window.__es.onmessage({ data: JSON.stringify({ reload: 'agent edited the deck' }) });
+        await wait(500);
+        r.theyHoldTheReload = reloads === 0 && /unsaved text on slide 1/.test(document.querySelector('.decklight-held')?.textContent ?? '');
+        // the server back: a double-click and ⏎ save them, against the file's words
+        window.__serverBack = true;
+        dbl(h1);
+        r.pickedUpAgain = h1.isContentEditable && h1.textContent === 'One, kept';
+        enter();
+        await wait(600);
+        const saved = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content'));
+        r.retrySaves = saved.length === 1 && saved[0].body.html === '<h1>One, kept</h1>' && !h1.classList.contains('dl-unsaved');
+        r.thenTheReloadGoes = reloads === 1 && !document.querySelector('.decklight-held');
+        // away again: Esc on the picked-up edit puts the file's words back
+        window.__serverBack = false;
+        dbl(h1);
+        h1.textContent = 'junk';
+        enter();
+        await wait(300);
+        dbl(h1);
+        enter('Escape');
+        await settle();
+        r.escapeGivesItUp = h1.textContent === 'One, kept' && !h1.classList.contains('dl-unsaved') && !h1.isContentEditable;
+        r.PASS = r.theWordsStay && r.itSaysSo && r.deckKeysStillWork && r.theyHoldTheReload && r.pickedUpAgain
+          && r.retrySaves && r.thenTheReloadGoes && r.escapeGivesItUp;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
