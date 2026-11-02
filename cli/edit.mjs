@@ -1569,9 +1569,16 @@ export async function editMain(args, { onListen = null, client } = {}) {
   const writing = new AsyncLocalStorage();
   let lastWrite = null;   // { at, what, from } — the server's latest write of the deck, for the watcher
   const noteWrite = (what, from = null) => { lastWrite = { at: Date.now(), what, from }; };
+  // The deck as this server last read or wrote it: what an edit from outside
+  // the server is measured against when the voice folders follow it (#954).
+  // Not git HEAD — an outside edit can land between two commits, or two of
+  // them between two reloads.
+  let knownDeck = null;
+  try { knownDeck = readDeck(); } catch { /* not there yet: the first edit is not a move */ }
   /** The one write of the deck file: atomic, and remembered for the reload it causes. */
   const writeDeck = (next) => {
     writeFileAtomic(deckPath, next);
+    knownDeck = next;
     const ctx = writing.getStore();
     let from = null;
     if (ctx?.body) { try { const f = JSON.parse(ctx.body).from; if (typeof f === 'string') from = f.slice(0, 64); } catch { /* not json, or no page named */ } }
@@ -1614,6 +1621,32 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const said = r.plans.map((p) => followedSaid(p, pairs, was, now)).filter(Boolean);
     const renumber = new Map(r.plans.map((p) => [p.dir, movesRenumber(pairs)]));
     return { voices: r.plans.map((p) => p.inverse), said, renumber };
+  };
+
+  /**
+   * The voice folders follow an edit made OUTSIDE this server (#954) — a
+   * terminal agent, a text editor — as they follow an `A`-panel agent's: read
+   * against the last deck the server knew, on the file watch and before an
+   * outside commit. The move is an undo entry, so Z puts the files back with
+   * the deck; an edit that moved no slide records nothing and moves nothing.
+   * Skipped while a held fix or an agent of this server's own is writing:
+   * that run follows the slides itself when it is done.
+   *
+   * Answers what followSlides does, or null when there was nothing to follow.
+   */
+  const followOutside = () => {
+    if (noTrust || holding || agentJob) return null;
+    let now;
+    try { now = readDeck(); } catch { return null; }
+    const was = knownDeck;
+    knownDeck = now;
+    if (was === null || was === now) return null;
+    let followed = null;
+    try { followed = followSlides(was, now); } catch (e) { followed = { error: oneline(e) }; }
+    if (followed?.voices) history.record({ deck: was, voices: followed.voices });
+    for (const line of followed?.said ?? []) console.log(`  narration: ${line}`);
+    if (followed?.error) console.log(`  narration: ${followed.error}`);
+    return followed;
   };
 
   // Declared before the git block below, which reads it to hold the cadence
@@ -2337,6 +2370,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // bytes under the old label. A pull re-audits.
       if (noTrust) return;
       if (holding) return;
+      // an edit from outside the server moves the recordings with its slides
+      // (#954); one the server wrote itself reads as no change here
+      const followed = followOutside();
+      const voices = followed?.error ? `🎙 ${followed.error}` : followed?.said?.length ? `🎙 ${followed.said.join('; ')}` : null;
       // A QUIET write is one the pages update themselves in place, which must
       // not reload: a theme marked from the open picker (a reload closes the
       // picker the author is still choosing in), or a notes save, whose new
@@ -2354,6 +2391,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // stashes it with its debug log and says it first thing after the
       // reload. An older page reloads on any message, as it always did.
       const why = describeReload({ write: lastWrite, agent: agentJob });
+      if (voices) why.reload += ` — ${voices}`;
       lastWrite = null;
       clients.raw(`data: ${JSON.stringify(why)}\n\n`);
       console.log(`  changed → reload × ${clients.size} — ${why.reload}${why.from ? ` (page ${why.from})` : ''}`);
@@ -2519,6 +2557,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       clearTimeout(hard);
       putBack();
       hold?.done(null);
+      try { knownDeck = readDeck(); } catch { /* gone: the watch says so */ }
       agentJob = null;
       agentStop = null;
       finish({ ok: false, changed: false, error: String(e.message || e) });
@@ -2554,6 +2593,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (hold && changed && !held && hold.start === undefined) { history.record(also(kept)); writeDeck(after); }
       // Z takes the agent's edit back — with the files beside the deck it wrote, in the same step
       if (changed && !hold) history.record(also(before, filesChanged ? filesBefore : null));
+      // the run has followed its own slides: the file watch's next look must not again
+      try { knownDeck = readDeck(); } catch { /* gone: the watch says so */ }
       const voicesFollowed = followed?.said?.length ? followed.said.join('; ') : null;
       const voicesStuck = followed?.error ? `🎙 ${followed.error}` : null;
       for (const line of followed?.said ?? []) console.log(`  narration: ${line}`);
@@ -3753,6 +3794,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     pendingAttr: () => pendingAttr,
     clearPendingAttr: () => { pendingAttr = null; },
     dismissNag: () => { nagDismissed = true; },
+    followOutside,
   });
 
   // The routes that run BEFORE the shared body read, and the only reason the

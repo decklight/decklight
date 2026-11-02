@@ -1412,6 +1412,14 @@ test('the AGENTS.md section carries the same instruction for agents that read it
   assert.match(agentsSection(), /No server listening means no\n?authoring/);
 });
 
+test('with no server running, the skill and AGENTS.md say to realign recorded tracks after a structural edit (#954)', () => {
+  for (const text of [claudeSkillMd(), agentsSection()]) {
+    assert.match(text, /decklight narrate --check deck\.html --realign/);
+    assert.match(text, /straight\s+(?:after|away)/);
+    assert.match(text, /still\s+match/);
+  }
+});
+
 test('the skill says where installed marketplace skills live, and AGENTS.md lists them (#880)', () => {
   assert.match(claudeSkillMd(), /~\/\.decklight\/skills\/<name>\/SKILL\.md/);
   assert.doesNotMatch(agentsSection(), /Installed marketplace skills/, 'nothing installed, no paragraph');

@@ -3063,7 +3063,7 @@ test('your own voice\'s manifest records the beats as read, keeps the slides alr
 });
 
 // ── a voice folder follows its slides (#916) ────────────────────────────────
-test('a slide inserted moves the recordings with their slides, Z and ⇧Z move them back and forth, and a hand reorder is offered a realign', async (t) => {
+test('a slide inserted moves the recordings with their slides, and Z and ⇧Z move them back and forth', async (t) => {
   const dir = tmp(t);
   const words = ['One says this.', 'Two says this.', 'Three says this.'];
   const deckOf = (list) => DECK.replace(/<section>[\s\S]*<\/section>/, list.map((w, i) => `<section><h2>S${i + 1}</h2><aside class="notes">${w}</aside></section>`).join('\n    '));
@@ -3089,10 +3089,24 @@ test('a slide inserted moves the recordings with their slides, Z and ⇧Z move t
   assert.equal(existsSync(path.join(me, 'slide-04.wav')), false);
   assert.equal((await (await post(base, '/deck/edit/redo')).json()).ok, true);
   assert.equal(take(4), 'take 3', '⇧Z moved it forward again');
-  assert.equal((await post(base, '/deck/edit/undo')).status, 200);
+});
 
-  // a slide pasted in by an editor: positions are off, the words say where each belongs
-  writeFileSync(deckPath, deckOf(['Pasted in.', ...words]));
+// ── an edit made with no server running is offered a realign ────────────────
+test('a slide pasted in while no server ran is offered a realign, which Z takes back', async (t) => {
+  const dir = tmp(t);
+  const words = ['One says this.', 'Two says this.', 'Three says this.'];
+  const deckOf = (list) => DECK.replace(/<section>[\s\S]*<\/section>/, list.map((w, i) => `<section><h2>S${i + 1}</h2><aside class="notes">${w}</aside></section>`).join('\n    '));
+  const { slideBeats } = await import('../tools/narration-manifest.mjs');
+  const me = path.join(dir, 'voices', 'me');
+  mkdirSync(me, { recursive: true });
+  const beats = slideBeats(deckOf(words));
+  beats.forEach((_, i) => writeFileSync(path.join(me, `slide-0${i + 1}.wav`), `take ${i + 1}`));
+  writeFileSync(path.join(me, 'manifest.json'), JSON.stringify({ recorder: 'mic', slides: beats.map((b, i) => ({ file: `slide-0${i + 1}.wav`, beats: b })) }, null, 2) + '\n');
+  // a slide pasted in by an editor before the server started: positions are off, the words say where each belongs
+  writeFileSync(path.join(dir, 'deck.html'), deckOf(['Pasted in.', ...words]));
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const take = (n) => readFileSync(path.join(me, `slide-0${n}.wav`), 'utf8');
+  const track = async () => (await (await fetch(base + '/deck/edit/narration/tracks')).json()).tracks.find((x) => x.dir === 'voices/me');
   const t2 = await track();
   assert.equal(t2.drift.length, 3);
   assert.deepEqual(t2.realign, { moves: [[1, 2], [2, 3], [3, 4]], said: '3 recordings look shifted by one from slide 1' });
@@ -3106,6 +3120,82 @@ test('a slide inserted moves the recordings with their slides, Z and ⇧Z move t
   assert.equal(take(1), 'take 1', 'Z takes a realign back too');
   assert.equal((await post(base, '/deck/edit/narration/realign', { dir: '../x' })).status, 400);
   assert.equal((await post(base, '/deck/edit/narration/realign', { dir: 'voices/nope' })).status, 404);
+});
+
+// ── an edit from outside the server renumbers them too (#954) ───────────────
+test('a slide put in or taken out of the file by hand moves the recordings with their slides, and Z moves them back', async (t) => {
+  const dir = tmp(t);
+  const words = ['One says this.', 'Two says this.', 'Three says this.'];
+  const deckOf = (list) => DECK.replace(/<section>[\s\S]*<\/section>/, list.map((w) => `<section><h2>${w.split(' ')[0]}</h2><aside class="notes">${w}</aside></section>`).join('\n    '));
+  const deckPath = path.join(dir, 'deck.html');
+  const start = deckOf(words);
+  writeFileSync(deckPath, start);
+  const { slideBeats } = await import('../tools/narration-manifest.mjs');
+  const me = path.join(dir, 'voices', 'me');
+  mkdirSync(me, { recursive: true });
+  const beats = slideBeats(start);
+  beats.forEach((_, i) => writeFileSync(path.join(me, `slide-0${i + 1}.wav`), `take ${i + 1}`));
+  writeFileSync(path.join(me, 'manifest.json'), JSON.stringify({ recorder: 'mic', slides: beats.map((b, i) => ({ file: `slide-0${i + 1}.wav`, beats: b })) }, null, 2) + '\n');
+  const { base, waitFor, log } = await startEdit(t, dir, { env: { PATH: dir } });
+  const take = (n) => readFileSync(path.join(me, `slide-0${n}.wav`), 'utf8');
+  const manifest = () => JSON.parse(readFileSync(path.join(me, 'manifest.json'), 'utf8')).slides.map((x) => x?.file ?? null);
+  const track = async () => (await (await fetch(base + '/deck/edit/narration/tracks')).json()).tracks.find((x) => x.dir === 'voices/me');
+  const reloads = () => (log().match(/changed → reload/g) ?? []).length;
+
+  // an editor puts a slide in before slide 2
+  writeFileSync(deckPath, deckOf([words[0], 'New says this.', words[1], words[2]]));
+  await waitFor(/narration: voices\/me: 2 recordings moved with the new slide 2/);
+  assert.equal(take(1), 'take 1');
+  assert.equal(existsSync(path.join(me, 'slide-02.wav')), false, 'the new slide has nothing recorded');
+  assert.equal(take(3), 'take 2');
+  assert.equal(take(4), 'take 3');
+  assert.deepEqual(manifest(), ['slide-01.wav', null, 'slide-03.wav', 'slide-04.wav'], 'the manifest moved with the files');
+  assert.deepEqual((await track()).drift, [], 'nothing reads as out of step');
+  assert.equal((await track()).realign, undefined);
+  // Z puts the deck back, and the folder with it — and that write is not followed a second time
+  const before = reloads();
+  assert.equal((await (await post(base, '/deck/edit/undo')).json()).ok, true);
+  assert.equal(readFileSync(deckPath, 'utf8'), start);
+  assert.equal(take(2), 'take 2');
+  assert.equal(existsSync(path.join(me, 'slide-04.wav')), false);
+  await waitFor(new RegExp(`(?:changed → reload[\\s\\S]*){${before + 1}}`));
+  assert.equal(take(2), 'take 2', 'the server\'s own write moved nothing again');
+
+  // an editor takes slide 2 out: its take goes to .trash/, the rest shift down
+  writeFileSync(deckPath, deckOf([words[0], words[2]]));
+  await waitFor(/narration: voices\/me: 1 recording moved as slide 2 went; slide 2's set aside in \.trash\//);
+  assert.equal(take(1), 'take 1');
+  assert.equal(take(2), 'take 3');
+  assert.equal(existsSync(path.join(me, 'slide-03.wav')), false);
+  assert.ok(readdirSync(path.join(me, '.trash')).length, 'the deleted slide\'s take is set aside, not lost');
+  assert.equal((await (await post(base, '/deck/edit/undo')).json()).ok, true);
+  assert.equal(take(2), 'take 2', 'Z brings it back');
+  assert.equal(take(3), 'take 3');
+
+  // notes reworded, no slide moved: nothing renumbers, and nothing new to undo
+  const { undo } = await (await fetch(base + '/deck/ping')).json();
+  const n = reloads();
+  writeFileSync(deckPath, deckOf([words[0], 'Two says something else.', words[2]]));
+  await waitFor(new RegExp(`(?:changed → reload[\\s\\S]*){${n + 1}}`));
+  assert.equal(take(2), 'take 2');
+  assert.equal(take(3), 'take 3');
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).undo, undo);
+});
+
+test('an outside agent\'s commit moves the recordings first, even before the file watch looks', async (t) => {
+  const dir = tmp(t);
+  const deckOf = (list) => DECK.replace(/<section>[\s\S]*<\/section>/, list.map((w) => `<section><h2>${w}</h2><aside class="notes">${w} says this.</aside></section>`).join('\n    '));
+  const deckPath = path.join(dir, 'deck.html');
+  writeFileSync(deckPath, deckOf(['One', 'Two']));
+  const me = path.join(dir, 'voices', 'me');
+  mkdirSync(me, { recursive: true });
+  writeFileSync(path.join(me, 'slide-01.wav'), 'take 1');
+  writeFileSync(path.join(me, 'slide-02.wav'), 'take 2');
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  writeFileSync(deckPath, deckOf(['Zero', 'One', 'Two']));
+  await post(base, '/deck/edit/commit', { message: 'put a slide first' });
+  assert.equal(readFileSync(path.join(me, 'slide-02.wav'), 'utf8'), 'take 1');
+  assert.equal(readFileSync(path.join(me, 'slide-03.wav'), 'utf8'), 'take 2');
 });
 
 // ── an agent's edit renumbers the voice folders too (#920) ─────────────────

@@ -57,6 +57,7 @@ export function registerGitRoutes(routes, {
   readDeck, history, broadcast = () => {}, deckPath, deckRel, root,
   gitOn, agentPref, subjectsOff, describer,
   commitState, measureDirty, resetEpisode, alsoNow, alsoRels, attrRel, pendingAttr, clearPendingAttr, dismissNag,
+  followOutside = () => null,
 }) {
   // ── committing on the author's word (SPEC PRESENTING) ─────────────────
   // What is uncommitted, right now. The overlay opens on this rather than
@@ -88,6 +89,10 @@ export function registerGitRoutes(routes, {
   // `describeCommit`'s amend is for messages decklight authored, and this
   // one has an author.
   function commitRoute({ body, json }) {
+    // An outside agent commits its own edit here, sooner than the file watch
+    // may have looked: the voice folders follow its slides first (#954), so
+    // the commit is of a deck whose recordings are where its slides are.
+    followOutside();
     if (!gitOn()) return json(409, { ok: false, error: 'this session is not committing — open the deck with --git' });
     let msg = '';
     try { msg = String(JSON.parse(body || '{}').message ?? '').trim(); } catch { /* below */ }
