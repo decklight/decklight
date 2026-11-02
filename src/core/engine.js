@@ -613,6 +613,9 @@ export function init(userConfig = {}) {
   // accessor, exactly as the theme picker below does.
   const onboarding = createOnboarding({
     root, printMode, params, toast, debugLog, overlays, deck: () => instance,
+    // ? and / on a card: the help and the palette it names
+    openHelp: () => { if (!helpEl) toggleHelp(); },
+    openPalette: () => { if (!palEl) openPalette(); },
   });
 
   // ----- theme switching (themes.js) ----------------------------------------

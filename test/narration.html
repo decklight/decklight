@@ -435,7 +435,9 @@
     // `off` is the ONE mode that seeds no choice: it is testing what a deck
     // does for somebody who has never picked, so writing a track here would
     // erase the whole question.
-    if (offDeck) localStorage.removeItem(key);
+    // …and the plain `hint` mode seeds none either: the pill is for somebody
+    // who has never picked, and its click has to play the deck's voice for them
+    if (offDeck || (mode === 'hint' && !params.has('print') && !params.has('capture') && !params.has('midtalk'))) localStorage.removeItem(key);
     else localStorage.setItem(key, JSON.stringify(
       manifestDeck ? { track: MANIFEST_PATH }
         // `switch` STARTS live and swaps to the recorded track mid-sentence —
