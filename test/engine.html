@@ -2814,6 +2814,10 @@
         const secs = deck._sections;
         await until(() => secs[9].querySelector('img').complete);
         await settle(); await settle();       // /deck/ping: write mode, and the behind toast
+        // ⌘⏎ with nothing to save, in write mode, is not fullscreen: it says so
+        const saysNow = (re) => [...document.querySelectorAll('.decklight-toast')].some((x) => re.test(x.textContent));
+        press('Enter', { metaKey: true, ctrlKey: true });
+        r.cmdEnterWithNothingToSaveStays = !document.fullscreenElement && saysNow(/nothing to save here — F is fullscreen/);
         r.cleanSlidesUnmarked = secs.slice(0, 4).every((x) => !x.hasAttribute('data-dense'));
         r.bulletsMarked = secs[4].getAttribute('data-dense') === '7 bullets';
         r.splitCountsPerColumn = secs[5].getAttribute('data-dense') === '6 bullets in one column';
@@ -2868,11 +2872,11 @@
           && fixOf('off-role') === 'Rename text-main → text-body on slide 2';
         r.noFixSaysSo = rows().find((x) => x.dataset.rule === 'unaccounted-script')?.querySelector('.dc-nofix')?.textContent === 'no quick fix'
           && rows().find((x) => x.dataset.rule === 'dense')?.querySelector('.dc-nofix')?.textContent === 'no quick fix';
-        r.batchOffered = rows().find((x) => x.dataset.rule === 'off-role')?.querySelector('.dc-fix-all')?.textContent === 'every off-role (⇧F)';
+        r.batchOffered = rows().find((x) => x.dataset.rule === 'off-role')?.querySelector('.dc-fix-all')?.textContent?.match(/^every off-role \((⌘⇧⏎|Ctrl\+⇧Enter)\)$/) != null;
         const dense7 = rows().find((x) => x.dataset.rule === 'dense' && x.querySelector('.dc-where')?.textContent === '7');
         r.rowSaysSlideAndTitle = dense7?.querySelector('.dc-title')?.textContent === 'Squeezed' && /^crowded: type shrunk/.test(dense7?.querySelector('.dc-msg')?.textContent ?? '');
         r.errorMarked = rows().at(-1)?.classList.contains('dc-error') && rows().at(-1)?.querySelector('.dc-mark')?.textContent === '✗';
-        r.footSaysTheKeys = /f applies the row's fix · ⇧F every slide · the file's findings included/.test(document.querySelector(`${Q} .dc-foot`)?.textContent ?? '');
+        r.footSaysTheKeys = /(⌘⏎|Ctrl\+Enter) applies the row's fix · (⌘⇧⏎|Ctrl\+⇧Enter) every slide · the file's findings included/.test(document.querySelector(`${Q} .dc-foot`)?.textContent ?? '');
         // ⏎ goes to the row's slide and the panel stays
         for (let i = 0; i < rows().indexOf(dense7); i++) press('ArrowDown');
         press('Enter');
@@ -2882,19 +2886,24 @@
         press('ArrowRight');
         await settle();
         r.arrowsDriveTheDeck = deck.state.slide === 8 && !!document.querySelector(Q);
-        // f on the off-role row: the server's fix, on that slide; ⇧F: every slide
+        // ⌘⏎ on the off-role row: the server's fix, on that slide; ⌘⇧⏎: every slide
         while (selectedRule() !== 'off-role') press('ArrowUp');
-        press('f');
+        // a bare f or F writes nothing and goes nowhere: it says where the fix went
+        const fixedBefore = window.__fixed?.length ?? 0;
+        press('f'); press('F', { shiftKey: true });
+        await settle();
+        r.bareFWritesNothing = (window.__fixed?.length ?? 0) === fixedBefore && saysNow(/applies the row's fix/) && !document.fullscreenElement;
+        press('Enter', { metaKey: true, ctrlKey: true });   // ⌘⏎ / Ctrl+Enter: a fix is a deliberate chord
         await settle(); await settle();
         // asked for review (#907); this server lands it at once, as one with the review off would
         r.fPostsTheFix = JSON.stringify(window.__fixed?.at(-1)) === JSON.stringify({ rule: 'off-role', slide: 2, ref: null, all: false, review: true }) && deck.state.slide === 2;
         r.fixIsSaid = [...document.querySelectorAll('.decklight-toast')].some((x) => /fixed off-role — .* undoes · logged in the agent panel/.test(x.textContent));
-        press('F', { shiftKey: true });
+        press('Enter', { metaKey: true, ctrlKey: true, shiftKey: true });   // ⌘⇧⏎: every slide
         await settle(); await settle();
         r.shiftFFixesAll = window.__fixed?.at(-1)?.all === true && window.__fixed.length === 2;
         // f on the theme row: a deck-wide fix, no slide
         while (selectedRule() !== 'theme-off-brand') press('ArrowUp');
-        press('f');
+        press('Enter', { metaKey: true, ctrlKey: true });   // ⌘⏎ / Ctrl+Enter: a fix is a deliberate chord
         await settle(); await settle();
         r.deckFixHasNoSlide = JSON.stringify(window.__fixed?.at(-1)) === JSON.stringify({ rule: 'theme-off-brand', slide: null, ref: null, all: false, review: true });
         // a server that HOLDS the fix: nothing lands, the review view opens on
@@ -2902,7 +2911,7 @@
         window.__candidate = { id: 'c9', rev: 1, what: 'fix: off-role on slide 2', units: [
           { key: 's2', kind: 'changed', slide: 2, was: 2, title: 'Two', notes: { before: 'one way', after: 'the other way' } }] };
         while (selectedRule() !== 'off-role') press('ArrowDown');
-        press('f');
+        press('Enter', { metaKey: true, ctrlKey: true });   // ⌘⏎ / Ctrl+Enter: a fix is a deliberate chord
         await settle(); await settle();
         const fr = document.querySelector('.decklight-fixreview');
         const panes = [...(fr?.querySelectorAll('.fr-pane iframe') ?? [])].map((f) => f.getAttribute('src') ?? '');
@@ -2916,7 +2925,7 @@
         window.__candidate = null;
         // f on ds-behind is Migrate: the server's run, shown in the agent panel, which takes the slot
         while (selectedRule() !== 'ds-behind') press('ArrowUp');
-        press('f');
+        press('Enter', { metaKey: true, ctrlKey: true });   // ⌘⏎ / Ctrl+Enter: a fix is a deliberate chord
         await settle(); await settle(); await settle();
         r.migrateRuns = window.__migrated?.ref === 'acme@acme-mkt' && !document.querySelector(Q)
           && /migrate to acme 3\.0\.0/.test(document.querySelector('.decklight-agent .agent-log')?.textContent ?? '')
@@ -3008,12 +3017,17 @@
         r.cmdKOpensThePalette = !!document.querySelector('.decklight-palette')
           && ![...document.querySelectorAll('.decklight-toast')].some((n) => /commit/i.test(n.textContent));
         press('Escape');
+        // ⌘⏎ is still the present chord here, with no write mode to save in
+        let askedFs = 0;
+        document.querySelector('.decklight').requestFullscreen = () => { askedFs += 1; return Promise.resolve(); };
+        press('Enter', { metaKey: true });
+        r.presentChordOutsideWriteMode = askedFs === 1;
         // S is the speaker view without write mode, never notes on the projected screen
         press('s');
         await settle();
         r.sOpensTheSpeakerView = opened.length === 1 && !document.querySelector('.decklight-editor');
         r.PASS = r.clickAdvances && r.linkClickDoesNot && r.dotBlacksOut && r.anyKeyEndsBlackout && r.endingDoesNotMove && r.aClickEndsIt
-          && r.helpOpens && r.deckHoldsBehindHelp && r.helpNamesTheNewKeys && r.escClosesHelp && r.cmdKOpensThePalette && r.sOpensTheSpeakerView;
+          && r.helpOpens && r.deckHoldsBehindHelp && r.helpNamesTheNewKeys && r.escClosesHelp && r.cmdKOpensThePalette && r.presentChordOutsideWriteMode && r.sOpensTheSpeakerView;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -3755,11 +3769,12 @@
         document.dispatchEvent(new Event('fullscreenchange'));
         await settle();
         r.chipBackAfter = !!chip();
-        // ⌘⏎ is the present chord: it asks for fullscreen when no card is open
+        // ⌘⏎ is the present chord, but in write mode it means save: with no
+        // card open it asks for nothing, says so, and leaves the bar where it is
         let asked = 0;
         document.querySelector('.decklight').requestFullscreen = () => { asked += 1; return Promise.resolve(); };
         press('Enter', { metaKey: true });
-        r.presentChordAsksFullscreen = asked === 1;
+        r.presentChordStaysInWriteMode = asked === 0 && [...document.querySelectorAll('.decklight-toast')].some((n) => /nothing to save here/.test(n.textContent));
         // a click selects: outlined, with a ⋯ handle at its corner
         click(h1());
         r.clickSelects = h1().classList.contains('dl-selected') && !!document.querySelector('.dl-handle');
@@ -3843,7 +3858,7 @@
         r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(palName(n)));
         press('Escape');
         r.PASS = r.bareLWritesNothing && r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
-          && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordAsksFullscreen && r.clickSelects
+          && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordStaysInWriteMode && r.clickSelects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
           && r.layoutButtonCycles && r.layoutWriteIsQuiet && r.layoutFromElsewhereLands && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
@@ -5375,7 +5390,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.opensCheckDeck = !!document.querySelector(Q);
         const head = document.querySelector(`${Q} .dc-heading`)?.textContent ?? '';
         r.headCountsThem = / · 2 from the agent$/.test(head);
-        r.groupHead = document.querySelector(`${Q} .dc-agent-head`)?.textContent === 'agent review · 2 · f fixes one · e explains it';
+        r.groupHead = document.querySelector(`${Q} .dc-agent-head`)?.textContent?.match(/^agent review · 2 · (⌘⏎|Ctrl\+Enter) fixes one · e explains it$/) != null;
         const rows = [...document.querySelectorAll(`${Q} .dc-row`)];
         const agentRows = rows.filter((x) => x.classList.contains('dc-agent'));
         r.rowPerFinding = agentRows.length === 2 && agentRows[0].querySelector('.dc-mark')?.textContent === '✦'
@@ -5384,7 +5399,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.agentRowsLast = rows.indexOf(agentRows[0]) === rows.length - 2;
         // f on the first agent finding: the A agent is asked, on that slide, with its prepared instruction
         for (let i = 0; i < rows.indexOf(agentRows[0]); i++) press('ArrowDown');
-        press('f');
+        press('Enter', { metaKey: true, ctrlKey: true });   // ⌘⏎ / Ctrl+Enter: a fix is a deliberate chord
         await settle();
         const ask = CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).pop()?.body;
         r.fPostsTheFix = ask?.slide === 2 && ask?.prompt === window.__reviewFindings[0].prompt && ask?.message === 'review: title is a topic on slide 2';

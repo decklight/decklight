@@ -2459,7 +2459,7 @@ export function init(userConfig = {}) {
       <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (write mode)</td></tr>
       <tr><td>M</td><td>comments — yours and every review's, grouped by who said them, ⏎ jumps</td></tr>
       <tr><td>⇧M</td><td>leave a comment on the slide you are looking at</td></tr>
-      <tr><td>F / ⌘⏎ / Ctrl+Enter</td><td>fullscreen (⌘⏎ is the present chord; the bar and the commit chip leave with it)</td></tr>
+      <tr><td>F / ⌘⏎ / Ctrl+Enter</td><td>fullscreen (⌘⏎ is the present chord, outside write mode, where it saves; the bar and the commit chip leave with it)</td></tr>
       <tr><td>⇧F</td><td>show / hide the arrows and the slide number in fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/ · ${PALETTE_CHORD}</td><td>command palette — find, themes, everything (“Welcome to Decklight” reopens the intro)</td></tr>
@@ -2633,16 +2633,22 @@ export function init(userConfig = {}) {
     // slide beside it (#646). Below the typing guard, so a box's own ⌘⏎ (the
     // agent ask, the commit window, the content editor) is the one you get,
     // and before the modifier early-return below, which swallowed it.
-    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter' && overlays.active()?.save?.()) {
+    // The overlay is handed the event, for the one that reads ⇧ (Check
+    // deck…: ⌘⏎ fixes the row, ⌘⇧⏎ every slide with it).
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key === 'Enter' && overlays.active()?.save?.(e)) {
       e.preventDefault();
       return;
     }
     // ⌘⏎ / Ctrl+Enter — fullscreen: the present chord Google Slides taught a
     // Mac, and the one a browser leaves free (F5 is reload). Below the save
     // above, so a card that is open keeps its ⌘⏎; the deck gets it otherwise.
+    // Not in write mode: there ⌘⏎ is "save" everywhere, and one pressed with
+    // nothing to save hid the editing bar behind a fullscreen nobody asked
+    // for. F is fullscreen there, and the message says so.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter') {
       e.preventDefault();
-      toggleFullscreen();
+      if (editmode.available()) toast('nothing to save here — F is fullscreen', 1800);
+      else toggleFullscreen();
       return;
     }
     // The undo chord is the one modifier combination that goes on: BELOW the

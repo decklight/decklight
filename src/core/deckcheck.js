@@ -37,7 +37,7 @@
  *
  * EVERY ROW WITH A FIX SHOWS IT, as what pressing it will do (*Migrate to
  * acme 6.0.0 · 62 renames*, *Switch to acme-dark*, *Rename text-main →
- * text-body on slide 4*); `f` or the button applies it. Two kinds (#889):
+ * text-body on slide 4*); ⌘⏎ / Ctrl+Enter or the button applies it. Two kinds (#889):
  * a DETERMINISTIC fix the server applies itself (`POST /deck/edit/check/fix`,
  * cli/check-fixes.mjs), recorded in the agent panel's log as an entry by
  * decklight; and a JUDGEMENT fix — a clipped slide, a ⟨CLICK⟩ mismatch, an
@@ -46,7 +46,7 @@
  * Either way it is one undo entry and one commit, and the row goes when the
  * finding does. Both are REVIEWED first (#907, fixreview.js): the fix is held
  * as a candidate, shown beside the deck as it is, and lands only as far as
- * the author approves it; Settings → Review quick fixes turns that off. `⇧F` fixes every row of a rule whose fix is safe to batch
+ * the author approves it; Settings → Review quick fixes turns that off. ⌘⇧⏎ fixes every row of a rule whose fix is safe to batch
  * (renamed roles). A row with neither says so.
  *
  * The panel DOCKS like the others (dock.js: float, left, right, bottom, one
@@ -63,6 +63,10 @@ import { slideClickMatch } from './narration.js';
 import { clickMismatchText } from '../../tools/click-match.mjs';
 import { injectedIn } from './pick.js';
 import { aiIcon } from './aiicon.js';
+import { IS_MAC } from './undo-chord.js';
+
+const FIX_CHORD = IS_MAC ? '⌘⏎' : 'Ctrl+Enter';
+const FIX_ALL_CHORD = IS_MAC ? '⌘⇧⏎' : 'Ctrl+⇧Enter';
 
 /** One finding, shaped like the CLI's (`--json`), so the two read alike. */
 const finding = (level, rule, slide, title, message) => ({ level, rule, slide, title, message });
@@ -362,7 +366,7 @@ export function createDeckCheck({
       if (f.level === 'agent' && (i === 0 || found[i - 1].level !== 'agent')) {
         const sub = document.createElement('div');
         sub.className = 'narr-group dc-agent-head';
-        sub.textContent = `agent review · ${fromAgent}${askAgent() ? ' · f fixes one · e explains it' : ''}`;
+        sub.textContent = `agent review · ${fromAgent}${askAgent() ? ` · ${FIX_CHORD} fixes one · e explains it` : ''}`;
         list.appendChild(sub);
       }
       const row = document.createElement('div');
@@ -397,13 +401,13 @@ export function createDeckCheck({
       const canExplain = !!explainOf(f);
       if (q) {
         let b;
-        if (q.agent) b = aiPill(q.label, 'the agent makes the fix: one edit, one undo entry, one commit, watched in the agent panel · f', () => runFix(i), 'dc-fix dc-fix-agent');
+        if (q.agent) b = aiPill(q.label, `the agent makes the fix: one edit, one undo entry, one commit, watched in the agent panel · ${FIX_CHORD}`, () => runFix(i), 'dc-fix dc-fix-agent');
         else {
           b = document.createElement('button');
           b.type = 'button';
           b.className = 'dc-fix';
           b.textContent = q.label;
-          b.title = 'applied by decklight, logged in the agent panel · f';
+          b.title = `applied by decklight, logged in the agent panel · ${FIX_CHORD}`;
           b.disabled = busy;
           b.addEventListener('click', (e) => { e.stopPropagation(); runFix(i); });
         }
@@ -412,7 +416,7 @@ export function createDeckCheck({
           const all = document.createElement('button');
           all.type = 'button';
           all.className = 'dc-fix dc-fix-all';
-          all.textContent = `every ${f.rule} (⇧F)`;
+          all.textContent = `every ${f.rule} (${FIX_ALL_CHORD})`;
           all.title = `the same fix on every slide with one, as one undo step`;
           all.disabled = busy;
           all.addEventListener('click', (e) => { e.stopPropagation(); runFix(i, true); });
@@ -433,7 +437,7 @@ export function createDeckCheck({
     const foot = document.createElement('div');
     foot.className = 'narr-foot dc-foot';
     foot.textContent = served
-      ? `⏎ goes to the slide · f applies the row's fix${fixes.some((x) => x?.batch) ? ' · ⇧F every slide' : ''}${explainAgent() ? ' · e explains it' : ''} · the file's findings included`
+      ? `⏎ goes to the slide · ${FIX_CHORD} applies the row's fix${fixes.some((x) => x?.batch) ? ` · ${FIX_ALL_CHORD} every slide` : ''}${explainAgent() ? ' · e explains it' : ''} · the file's findings included`
       : served === false
         ? '⏎ goes to the slide · the file\'s own findings (missing files, scripts) need write mode: decklight check <deck> reads them too'
         : '⏎ goes to the slide · reading the file…';
@@ -489,6 +493,11 @@ export function createDeckCheck({
     dock.release();
   }
 
+  // A fix writes the file, so it is a deliberate chord (PRESENTING_EDITING):
+  // ⌘⏎ / Ctrl+Enter the selected row, with ⇧ every slide with the same
+  // finding (the engine hands ⌘⏎ to the open panel's `save`). Bare f used to
+  // do it, in a panel the deck's keys pass through, so F could fix a row and
+  // go fullscreen in one press. f and F now say where the fix went.
   function keydown(e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return false;
     switch (e.key) {
@@ -496,14 +505,14 @@ export function createDeckCheck({
       case 'ArrowUp': select(sel - 1); return true;
       case 'Enter': run(sel); return true;
       case 'Escape': close(); return true;
-      case 'f': runFix(sel); return true;
-      case 'F': runFix(sel, e.shiftKey); return true;
+      case 'f': case 'F': toast(`${FIX_CHORD} applies the row's fix${e.shiftKey ? `, ${FIX_ALL_CHORD} every slide` : ''}`, 2400); return true;
       case 'e': runExplain(sel); return true;
       default: return false;   // the deck's: a panel beside the slide
     }
   }
+  const save = (e) => { if (!rows[sel]) return false; runFix(sel, !!e?.shiftKey); return true; };
 
-  overlays.register({ isOpen: () => !!el, close, keydown, modal: false, panel: true });
+  overlays.register({ isOpen: () => !!el, close, keydown, save, modal: false, panel: true });
 
   return { open, toggle, close, check, refresh, isOpen: () => !!el };
 }
