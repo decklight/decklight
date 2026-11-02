@@ -810,6 +810,12 @@
         <ul data-build><li>first</li><li>second</li></ul>
         <aside class="notes"><p>All in one go.</p></aside>`;
     }
+    // reviewpanel: slide 3's title, its three bullet builds and their captions, compared build by build
+    if (HARNESS_MODE === 'reviewpanel') {
+      document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>
+        <ul data-build><li>first</li><li>second</li><li>third</li></ul>
+        <aside class="notes"><p>Intro.</p><p>[click]</p><p>One.</p><p>[click]</p><p>Two.</p><p>[click]</p><p>Three.</p></aside>`;
+    }
     if (HARNESS_MODE === 'skeys' || HARNESS_MODE === 'notesbuilds') {
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>
         <ul data-build><li>first</li><li>second</li></ul>
@@ -5548,13 +5554,30 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         r.xRejectsWithAComment = rows()[1]?.state === 'rejected' && rows()[1]?.why === 'too long';
         r.leftRowClickSays = (() => { fr.querySelectorAll('.fr-row')[2]?.click(); return /slide 3 left as it was — the agent changed the words/.test(fr.querySelector('.fr-pos')?.textContent ?? ''); })();
+        // W: ← → walk every build, said and remembered per browser; W again, the changed ones
+        press('w');
+        r.wWalksEveryBuild = localStorage.getItem('decklight-review-all-builds') === 'on' && /walk every build/.test(said());
+        press('w');
+        r.wBackToChanged = localStorage.getItem('decklight-review-all-builds') === null && /only the builds the change shows/.test(said());
         // ⇧⏎: the approved slide only; the rejection rides with its comment
         press('Enter', { shiftKey: true });
         await settle(); await settle();
         r.applyValidatedOnly = JSON.stringify(window.__applied) === JSON.stringify({ id: 'c1', take: ['s2'], rejected: [{ key: 's4', comment: 'too long' }] })
           && !document.querySelector(FR);
+        // what each build reveals (#956): a title is a change at build 0 only,
+        // a bullet at its own build, and so is a caption
+        const sec3 = deck._sections[2];
+        const differ = (b, a) => b.map((x, k) => (x !== a[k] ? k : -1)).filter((k) => k >= 0);
+        const before3 = deck._fixReview.reveals(deck, 3);
+        sec3.querySelector('h2').textContent = 'Three, retitled';
+        sec3.querySelectorAll('li')[1].textContent = 'second, reworded';
+        const after3 = deck._fixReview.reveals(deck, 3);
+        r.revealsPerBuild = before3?.length === 4 && JSON.stringify(differ(before3, after3)) === '[0,2]';
+        sec3.querySelectorAll('aside.notes p')[2].textContent = 'One, said again.';
+        r.captionAtItsBuild = JSON.stringify(differ(after3, deck._fixReview.reveals(deck, 3))) === '[1]';
         window.__candidate = null;
-        r.PASS = r.opensInTextMode && r.titleCountsTheChanges && r.railListsTheSlides && r.leftRowSaysWhy && r.railHeads
+        r.PASS = r.revealsPerBuild && r.captionAtItsBuild && r.wWalksEveryBuild && r.wBackToChanged
+          && r.opensInTextMode && r.titleCountsTheChanges && r.railListsTheSlides && r.leftRowSaysWhy && r.railHeads
           && r.scriptOnScreen && r.beforePaneHidden && r.posSaysTheSlide && r.hearButton
           && r.dSideBySide && r.sideRemembered && r.dSlides && r.dBackToWords && r.pReachesTheVoice
           && r.downMovesToFour && r.aApprovesAndMoves && r.xRejectsWithAComment && r.leftRowClickSays && r.applyValidatedOnly;

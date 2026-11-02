@@ -14,7 +14,7 @@ import {
   deckParts, candidateUnits, mergeCandidate, commitDraft, notesText, changedLines, registerFixReviewRoutes, adjustPrompt,
 } from '../cli/fix-review.mjs';
 import { createHistory } from '../cli/edit.mjs';
-import { changedSteps, reviewMode, nextView, attrChanges, slideStop } from '../src/core/fixreview.js';
+import { changedSteps, reviewMode, nextView, attrChanges, slideStop, arrowBuild, entryBuild } from '../src/core/fixreview.js';
 import { tmp } from './helpers.mjs';
 
 const DECK = `<!doctype html>
@@ -304,6 +304,36 @@ test('the review stops once a slide: a changed one on its first changed build, a
   assert.ok(removed.built && removed.steps === 1 && removed.right === null);
   const head = slideStop({ key: 'head', kind: 'head' }, null, null);
   assert.equal(head.steps, 0);
+});
+
+test('← → step only the builds a change shows, then on to the next slide; W walks every one (#956)', () => {
+  // a title (build 0) and the second of three bullets (build 2) reworded
+  const s = slideStop({ key: 's2', kind: 'changed', slide: 2, was: 2 }, ['T', 'a', 'b', 'c'], ['T2', 'a', 'B', 'c']);
+  assert.deepEqual(s.changed, [0, 2]);
+  assert.equal(s.step, 0);
+  assert.equal(arrowBuild(s, 0, 1), 2, '→ jumps straight to the reworded bullet');
+  assert.equal(arrowBuild(s, 2, 1), null, 'and past it, on to the next slide');
+  assert.equal(arrowBuild(s, 2, -1), 0);
+  assert.equal(arrowBuild(s, 0, -1), null, 'back from the first changed build, to the previous slide');
+  assert.equal(arrowBuild(s, 1, 1), 2, 'from a build stepped to in place, the next changed one');
+  assert.equal(arrowBuild(s, 3, -1), 2, 'fully built (B), ← goes back to the last changed build');
+  assert.equal(arrowBuild(s, 3, 1), null);
+  assert.equal(entryBuild(s), 2, 'entering from the next slide: its last changed build');
+  // W: every build, and back into a slide fully built, as before
+  assert.equal(arrowBuild(s, 0, 1, true), 1);
+  assert.equal(arrowBuild(s, 3, 1, true), null);
+  assert.equal(arrowBuild(s, 0, -1, true), null);
+  assert.equal(entryBuild(s, true), null);
+  // a slide with no build of its own to compare walks every build, opened and entered fully built
+  const unseen = slideStop({ key: 's3', kind: 'changed', slide: 3, was: 3 }, ['a', 'b', 'c'], ['a', 'b', 'c']);
+  assert.equal(arrowBuild(unseen, 2, -1), 1);
+  assert.equal(arrowBuild(unseen, 2, 1), null);
+  assert.equal(entryBuild(unseen), null);
+  const added = slideStop({ key: 'a', kind: 'added', slide: 6 }, null, ['t', 'tc']);
+  assert.equal(arrowBuild(added, 1, -1), 0);
+  assert.equal(entryBuild(added), null);
+  const head = slideStop({ key: 'head', kind: 'head' }, null, null);
+  assert.equal(arrowBuild(head, 0, 1), null);
 });
 
 test('a slide\'s own settings that changed are said in words, a line each', () => {

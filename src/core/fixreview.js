@@ -10,8 +10,8 @@
  * deck on disk is untouched, nothing is committed, no page reloads. This view
  * shows the deck as it is on the left and as the change would make it on the
  * right, both at the same slide and build step, and walks only the places
- * they differ: every build step of a changed slide whose render differs, an
- * added or a removed slide, and the deck's head (styles, the config) when the
+ * they differ: every build step of a changed slide whose reveal differs (what
+ * that build brings on, stepReveals), an added or a removed slide, and the deck's head (styles, the config) when the
  * change touched it.
  *
  * A SLIDE IS DECIDED, A STEP IS SHOWN. Approve (A) or reject (X, with an
@@ -75,39 +75,51 @@ const atPath = (root, path) => path.reduce((n, i) => n?.children[i] ?? null, roo
 const AUTHORED = ['data-layout', 'data-template', 'data-hidden', 'data-auto-animate', 'data-bleed', 'style'];
 
 /**
- * Slide `n`'s render at each build step, `[step0, step1, …]`, as text two
- * versions can be compared by: the section without the builds not yet shown
- * (nor the engine's own marks), and that step's caption. The section's own
- * attributes are not in it (slideAttrs: they hold at every step, and saying
- * them once beats a stop at a step that looks the same), and neither is the
+ * What each build step of slide `n` reveals, `[step0, step1, …]`, as text two
+ * versions can be compared by (#956): step 0 is the section with every built
+ * element taken out, step k only the elements of build group k-1, each without
+ * the builds nested inside it, and each step carries its caption. So a change
+ * to something every build shows (a title, a box that is always there) is a
+ * change at step 0 alone, not at every step after it, and a reworded bullet is
+ * a change at its own build. Neither the engine's own marks nor the section's
+ * attributes are in it (slideAttrs: they hold at every step, and saying them
+ * once beats a stop at a step that looks the same), and neither is the
  * source's spacing, which an agent re-indents and nobody sees. Null when the
  * deck has no such slide. Pure over the instance it is handed.
  */
-export function stepRenders(inst, n) {
+export function stepReveals(inst, n) {
   const sec = inst?._sections?.[n - 1];
   if (!sec) return null;
   const rec = inst._records?.[n - 1] ?? { groups: [], steps: [] };
   const groups = rec.groups ?? [];
-  const paths = (rec.steps ?? []).map((s) => (s.kind === 'dom' && s.el && sec.contains(s.el) ? pathOf(sec, s.el) : null));
+  const els = (rec.steps ?? []).map((s) => (s.kind === 'dom' && s.el && sec.contains(s.el) ? s.el : null));
+  const built = els.filter(Boolean);
   const aside = sec.querySelector(':scope > aside.notes');
   const segs = aside ? notesSegments(aside.innerHTML) : [];
+  /** A copy of `el` with the built elements under it taken out (and, for the section, its notes). */
+  const without = (el) => {
+    const clone = el.cloneNode(true);
+    const gone = built.filter((b) => b !== el && el.contains(b)).map((b) => atPath(clone, pathOf(el, b))).filter(Boolean);
+    for (const b of gone) b.remove();
+    if (el === sec) clone.querySelector(':scope > aside.notes')?.remove();
+    return clone;
+  };
   const out = [];
   for (let k = 0; k <= groups.length; k++) {
-    const shown = new Set();
-    groups.forEach((g, gi) => { if (gi < k) for (const i of g) shown.add(i); });
-    const clone = sec.cloneNode(true);
-    const hide = paths.map((p, i) => (p && !shown.has(i) ? atPath(clone, p) : null)).filter(Boolean);
-    for (const el of hide) el.remove();
-    clone.querySelector(':scope > aside.notes')?.remove();
-    for (const el of clone.querySelectorAll('[data-build-state]')) el.removeAttribute('data-build-state');
-    // spacing inside <pre> is what the slide shows; elsewhere a run is one space
-    const keep = [...clone.querySelectorAll('pre')].map((el) => el.innerHTML);
-    clone.querySelectorAll('pre').forEach((el, i) => { el.textContent = `\u0001${i}\u0001`; });
-    const html = clone.innerHTML.replace(/\s+/g, ' ').replace(/> </g, '><').trim()
-      .replace(/\u0001(\d+)\u0001/g, (_, i) => keep[i]);
-    out.push(`${html}\u0000${segs[k] ?? ''}`);
+    const box = k ? document.createElement('div') : without(sec);
+    if (k) for (const i of groups[k - 1]) if (els[i]) box.append(without(els[i]));
+    out.push(`${flatten(box)}\u0000${segs[k] ?? ''}`);
   }
   return out;
+}
+
+/** `box`'s content as one line: no engine marks, a run of spacing one space except inside <pre>, which the slide shows. */
+function flatten(box) {
+  for (const el of box.querySelectorAll('[data-build-state]')) el.removeAttribute('data-build-state');
+  const keep = [...box.querySelectorAll('pre')].map((el) => el.innerHTML);
+  box.querySelectorAll('pre').forEach((el, i) => { el.textContent = `\u0001${i}\u0001`; });
+  return box.innerHTML.replace(/\s+/g, ' ').replace(/> </g, '><').trim()
+    .replace(/\u0001(\d+)\u0001/g, (_, i) => keep[i]);
 }
 
 /** Slide `n`'s authored attributes, `{ name: value | null }`; null without the slide. */
@@ -150,10 +162,11 @@ export function attrChanges(before, after) {
 }
 
 /**
- * The steps of one changed slide where the two renders differ, a version
- * with fewer steps held on its last. Empty when nothing the render shows
- * differs (a change the renders cannot see: the caller opens it fully
- * built and says so); `[0]` when a version could not be read.
+ * The steps of one changed slide where the two versions' reveals differ
+ * (stepReveals), a version with fewer steps held on its last: a build only
+ * one version has is a change. Empty when nothing the slide shows differs (a
+ * change no build can see: the caller opens it fully built and says so);
+ * `[0]` when a version could not be read.
  */
 export function changedSteps(before, after) {
   if (!before || !after) return [0];
@@ -166,7 +179,7 @@ export function changedSteps(before, after) {
 
 /**
  * The review's stop for unit `u`, one a slide, from its two versions' step
- * renders (`before` / `after`, null for a side it is not on). `step` is the
+ * reveals (`before` / `after`, null for a side it is not on). `step` is the
  * build it opens on, `steps` its last, `changed` the builds that differ, and
  * `built` that it opens fully built: an added or removed slide has nothing
  * to compare build by build, and a change no build shows is seen whole. Pure.
@@ -186,6 +199,25 @@ export function slideStop(u, before, after) {
     step: unseen ? steps : changed[0], built: unseen,
   };
 }
+
+/** The builds ← / → stop at on stop `s`: its changed ones, or null for every one (`all`, W, or none to go by). */
+const walked = (s, all) => (all || s.built || !s.changed?.length ? null : s.changed);
+
+/**
+ * The build ← / → go to from build `k` of stop `s` (`dir` ±1), null when the
+ * slide has run out and the arrow goes on to the next or the previous one:
+ * the next or the previous changed build, or with `all` (W) the next or the
+ * previous build. A stop with no build to compare by (added, removed, a change
+ * no build shows) walks every build. Pure.
+ */
+export function arrowBuild(s, k, dir, all = false) {
+  const only = walked(s, all);
+  if (only) return (dir > 0 ? only.find((x) => x > k) : only.findLast((x) => x < k)) ?? null;
+  return s.steps && (dir > 0 ? k < s.steps : k > 0) ? k + dir : null;
+}
+
+/** The build ← lands on, back from the next slide: stop `s`'s last changed one, or null for fully built (`all`, or none to go by). Pure. */
+export const entryBuild = (s, all = false) => walked(s, all)?.at(-1) ?? null;
 
 /**
  * The build step at which element `el` of slide `n` first shows: the step
@@ -353,6 +385,8 @@ function afterAt(runs, pos) {
 
 const PREF = 'decklight-fix-review';
 const VIEW_PREF = 'decklight-review-view';
+// W: ← / → walk every build of a changed slide, not only the ones the change shows
+const ALL_BUILDS_PREF = 'decklight-review-all-builds';
 
 export function createFixReview({
   root, overlays, toast = () => {}, base = () => '', previewQuery = () => '?embedded',
@@ -412,8 +446,8 @@ export function createFixReview({
   function computeStops(left, right) {
     const out = [];
     for (const u of cand.units) {
-      const b = u.kind === 'added' || u.kind === 'head' ? null : stepRenders(left, u.was);
-      const a = u.kind === 'removed' || u.kind === 'head' ? null : stepRenders(right, u.slide);
+      const b = u.kind === 'added' || u.kind === 'head' ? null : stepReveals(left, u.was);
+      const a = u.kind === 'removed' || u.kind === 'head' ? null : stepReveals(right, u.slide);
       out.push(slideStop(u, b, a));
     }
     return out;
@@ -501,9 +535,9 @@ export function createFixReview({
     const builds = node('span', 'fr-builds');
     builds.hidden = true;
     builds.append(
-      btn('fr-build-prev', '‹', 'previous build (←)', () => stepBuild(-1)),
+      btn('fr-build-prev', '‹', 'previous build (← steps the changed ones, W every one)', () => stepBuild(-1)),
       node('span', 'fr-build-at'),
-      btn('fr-build-next', '›', 'next build (→)', () => stepBuild(1)),
+      btn('fr-build-next', '›', 'next build (→ steps the changed ones, W every one)', () => stepBuild(1)),
       btn('fr-built', 'fully built', 'both panes fully built, and back (B)', () => toggleBuilt()),
     );
     const where = node('span', 'fr-where');
@@ -624,16 +658,17 @@ export function createFixReview({
 
   /**
    * Slide `i`, on the build it opens on (an added or removed slide, and one
-   * no build shows differently, fully built), or with `end` fully built:
-   * ← back from a slide's first build lands on the one before, all of it.
+   * no build shows differently, fully built), or with `end` where ← back from
+   * the next slide lands: its last changed build, or with W fully built.
    */
   function show(i, { end = false } = {}) {
     if (!el) return;
     if (!stops.length) { say('the proposal changes nothing the review can show'); paintDecision(); paintRail(); return; }
     at = Math.max(0, Math.min(i, stops.length - 1));
-    peek = null;
     const s = stops[at];
-    built = !!s.built || (end && !!s.steps);
+    const last = end ? entryBuild(s, allBuilds()) : null;
+    peek = last;
+    built = !!s.built || (end && !!s.steps && last === null);
     placePanes(s);
     paintPos(s);
     paintMarks(s);
@@ -670,15 +705,18 @@ export function createFixReview({
   }
 
   /**
-   * ← / →, as in the talk: a build at a time, and past the slide's last (or
-   * before its first) on to the next slide, or back to the previous one fully
-   * built. ⇧← / ⇧→ go a whole slide (show).
+   * ← / →: from one changed build of the slide to the next, and past its last
+   * (or before its first) on to the next slide, or back to the previous one's
+   * last changed build (#956). With W, as in the talk: every build, and back
+   * to the previous slide fully built. A slide with no build of its own to
+   * compare (added, removed, a change no build shows) walks every build.
+   * ⇧← / ⇧→ go a whole slide (show).
    */
   function nextBuild(dir) {
     const s = stops[at];
     if (!s) return;
-    const k = shownStep(s);
-    if (s.steps && (dir > 0 ? k < s.steps : k > 0)) { stepBuild(dir); return; }
+    const to = arrowBuild(s, shownStep(s), dir, allBuilds());
+    if (to !== null) { stepBuild(0, to); return; }
     if (dir > 0) { if (at < stops.length - 1) show(at + 1); }
     else if (at > 0) show(at - 1, { end: true });
   }
@@ -1038,6 +1076,13 @@ export function createFixReview({
     paintCaptions();
   }
 
+  const allBuilds = () => readPref(ALL_BUILDS_PREF) === 'on';
+  function flipAllBuilds() {
+    const on = !allBuilds();
+    writePref(ALL_BUILDS_PREF, on ? 'on' : null);
+    toast(on ? '← → walk every build' : '← → step only the builds the change shows', 2200);
+  }
+
   function keydown(e) {
     if (box) return false;   // the comment box has its own keys
     if (e.key === 'Enter' && e.shiftKey) { apply(false); return true; }
@@ -1047,6 +1092,7 @@ export function createFixReview({
     if (e.shiftKey && e.key === 'ArrowRight') { show(at + 1); return true; }
     switch (e.key) {
       case 'b': case 'B': toggleBuilt(); return true;
+      case 'w': case 'W': flipAllBuilds(); return true;
       case 'ArrowLeft': nextBuild(-1); return true;
       case 'ArrowRight': nextBuild(1); return true;
       case 'ArrowUp': case '[': show(at - 1); return true;
@@ -1073,6 +1119,8 @@ export function createFixReview({
     /** The candidate under review and the decisions so far, for a headless probe. */
     state: () => (cand ? { id: cand.id, units: cand.units, left: cand.left ?? [], stops: stops.map((s) => ({ ...s })), at, decisions: Object.fromEntries(decisions), adjusting, mode, view } : null),
     discard, apply,
+    /** What each build of slide `n` of deck `inst` reveals, as the review compares it (stepReveals), for a headless probe. */
+    reveals: stepReveals,
   };
 }
 
