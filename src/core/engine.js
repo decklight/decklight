@@ -11,6 +11,7 @@ import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
+import { fitCode } from '../code/fit.js';
 import { openSpeakerView } from './speaker.js';
 import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown } from './overlay.js';
 import { createThemes } from './themes.js';
@@ -333,6 +334,9 @@ function checkSplitConflict(sec, content, slideNo) {
  */
 function checkOverflow(section, slideNo) {
   if (!section) return;
+  // data-fit code is sized first, so the guardrail judges the fitted slide:
+  // every re-check is a layout change the fit must follow (SPEC CODE_AND_MATH)
+  fitCode(section);
   // Terminals scroll internally by design (SPEC TERMINAL_PLAYER scrollback viewport);
   // any other intentional scroller can opt out with data-scroll-ok.
   const clipped = [section, ...section.querySelectorAll('pre, table, svg, ul, ol, blockquote')]

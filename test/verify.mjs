@@ -114,6 +114,7 @@ const HARNESSES = [
   'pin-render',
   'overflow-render',
   'split-render',
+  'fit-render',
   'strict-render',
   'shot-render',
   'plugin-render',

@@ -194,6 +194,14 @@ COMPARISON_SLIDES has the markup. The engine marks the mixed state
 same \`decklight pdf\` run above names such slides — one render check catches
 both.
 
+**On a code slide, mark the block \`data-fit\` — never hand-tune its size.**
+\`<pre data-fit>\` sizes the code to the room the slide gives it, up to the
+deck's normal code size, and does it again when the slide changes: a caption
+removed, ten lines added, another theme. A \`font-size\` set by hand on the
+section or the \`<pre>\` is right for one layout and clipped or tiny after the
+next edit. Several blocks that should match go in one \`<div data-fit>\`
+(CODE_AND_MATH in the reference).
+
 **A diagram line that draws is one stroke, with everything on it.** A
 \`data-build="draw"\` container draws its strokes in; an arrowhead is a
 \`<marker>\` on the stroke's \`marker-end\` (it rides the tip), a dashed line is
