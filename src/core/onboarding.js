@@ -54,7 +54,7 @@ const write = (key, value) => { writePref(key, value); };
  * else can be up on a fresh load, but the rule that settles a tie should be
  * the obvious one rather than an accident of construction order.
  */
-export function createOnboarding({ root, printMode, params, toast, debugLog, overlays, deck }) {
+export function createOnboarding({ root, printMode, params, toast, debugLog, overlays, deck, openHelp = () => {}, openPalette = () => {} }) {
   const embedded = params.has('embedded');
   // a preview, a printout and a render (`?capture`, #548) teach nobody
   const quiet = printMode || embedded || params.has('capture');
@@ -74,18 +74,21 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     if (cardEl || printMode) return;
     cardEl = document.createElement('div');
     cardEl.className = 'decklight-welcome';
+    // For whoever is WATCHING the deck: how to move through it and where
+    // everything else is. Write mode, agents and undo are the author's, and
+    // the author gets the editing tour instead (startEditingTour).
     cardEl.innerHTML = `<div class="wel-card">
       <h3>Welcome to Decklight</h3>
-      <p class="wel-lead">This deck is a single HTML file — no build step, authored by you or an AI agent, and provable by a headless render.</p>
+      <p class="wel-lead">A deck in one HTML file. Here is how to get around it.</p>
       <table>
-        <tr><td>/</td><td><b>Command palette</b> — every command, type to filter. Start here.</td></tr>
-        <tr><td>?</td><td>All keyboard shortcuts.</td></tr>
-        <tr><td>${GENERATE ? 'T · ⌃T' : 'T'}</td><td>Browse themes with a live preview${GENERATE ? '; <b>⌃T</b> generates a brand-new one' : ''}.</td></tr>
-        <tr><td>⌥⏎ · V</td><td>Speaker view with notes &amp; timer (<b>S</b> edits the notes); <b>V</b> narrates the deck aloud.</td></tr>
-        <tr><td>A · ${UNDO_CHORD}</td><td><b>Write mode</b> (<code>decklight &lt;deck.html&gt;</code>): live-reload editing — ask an AI agent to change the deck, edit any element, undo.</td></tr>
+        <tr><td>→ · click</td><td><b>Next</b> (a swipe or a tap on a phone); <b>←</b> goes back.</td></tr>
+        <tr><td>/</td><td><b>Every command</b>, type to filter.</td></tr>
+        <tr><td>?</td><td><b>Every key.</b></td></tr>
+        <tr><td>V</td><td><b>The voice</b>: hear the deck read aloud, when it has one.</td></tr>
+        <tr><td>${GENERATE ? 'T · ⌃T' : 'T'}</td><td><b>Themes</b> with a live preview${GENERATE ? '; <b>⌃T</b> generates a new one' : ''}.</td></tr>
       </table>
       <div class="wel-foot">
-        <span>Press any key to dismiss — reopen anytime from the <code>/</code> palette.</span>
+        <span><b>?</b> for every key, <b>/</b> for every command, any other key to start.</span>
         <button type="button" class="wel-go">Got it</button>
       </div>
     </div>`;
@@ -112,6 +115,8 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     tourEl.remove();
     tourEl = null;
     write(TOUR_SEEN_KEY, '1');
+    // the tour says where / and ? are too: an author is not welcomed again later
+    write(SEEN_KEY, '1');
     debugLog?.('nav', 'editing tour dismissed');
   }
   function showEditingTour() {
@@ -130,7 +135,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
         <tr><td>K · /</td><td><b>K</b> commits what changed (the chip at the corner keeps count); <b>/</b> lists everything else.</td></tr>
       </table>
       <div class="wel-foot">
-        <span>Press any key to dismiss — reopen anytime from the <code>/</code> palette (Editing tour).</span>
+        <span><b>?</b> for every key, <b>/</b> for every command (Editing tour reopens this), any other key to start.</span>
         <button type="button" class="wel-go">Got it</button>
       </div>
     </div>`;
@@ -146,16 +151,34 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
    */
   /** Both cards, for the advance that retires whichever is up. */
   function dismissCards() { dismissWelcome(); dismissEditingTour(); }
+  // The author comes FIRST (PRESENTING): the welcome is about watching a
+  // deck and told the author to run the command they had just run, while the
+  // tour, the one card about their deck, waited for a second visit. So on a
+  // write-mode load the tour takes the welcome's place, even after the welcome
+  // went up while the edit server was still being asked.
   function startEditingTour(target) {
-    if (quiet || cardEl || tourEl) return;
+    if (quiet || tourEl) return;
     if (target.slide !== 1 || target.step !== 0) return;
     if (read(TOUR_SEEN_KEY) === '1') return;
+    if (cardEl) {
+      cardEl.remove();
+      cardEl = null;
+      debugLog?.('nav', 'welcome makes way for the editing tour');
+    }
     showEditingTour();
   }
+  // ? and / on either card do what they say on it: the card goes, and help or
+  // the palette opens. Any other key only clears the card (below).
+  const cardKey = (dismiss) => (e) => {
+    dismiss();
+    if (e?.key === '?') openHelp();
+    else if (e?.key === '/') openPalette();
+    return true;
+  };
   overlays.register({
     isOpen: () => !!tourEl,
     close: dismissEditingTour,
-    keydown: () => (dismissEditingTour(), true),
+    keydown: cardKey(dismissEditingTour),
   });
 
   // The card owns the keyboard while it is up, and spends it on one job: the
@@ -165,7 +188,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
   overlays.register({
     isOpen: () => !!cardEl,
     close: dismissWelcome,
-    keydown: () => (dismissWelcome(), true),
+    keydown: cardKey(dismissWelcome),
   });
 
   /**

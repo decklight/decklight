@@ -2849,7 +2849,7 @@
 }
 .decklight-captions.show { display: block; }
 
-/* the voice-over hint — "this deck has a voice-over, V plays it".
+/* the voice-over hint — "this deck has a voice-over, click to hear it".
    Shares the captions' corner, which is why the two never show at once, and
    the toast's visual language (dark pill, mono, accent) because it is the
    same kind of thing: the deck telling you something, briefly. A real

@@ -1896,6 +1896,12 @@ export function createNarration({
    * state, and the 🔇 Off row hands ⎵ back.
    */
   const voiceInPlay = () => narrating || narrPaused || !!narrSet;
+  /** The deck's own voice, for a gesture that is itself the choice (playDefault, below; the hint). */
+  function playDefaultVoice() {
+    if (narrating) return toggleNarration();   // the button stops it too
+    if (!narrSet) narrSet = narrSets[0] ?? (liveFound ? LIVE_TRACK : null);
+    if (narrSet) toggleNarration();
+  }
   async function toggleNarration() {
     // V is the picker now, so a deck with nothing chosen says so rather than
     // silently opening a different overlay than the key advertises.
@@ -2020,7 +2026,7 @@ export function createNarration({
   // fades in bottom-center, fades out on its own, and never comes back once
   // the voice has been used here — per deck path, the same shape as every
   // other narration preference.
-  const HINT_TEXT = '🔊 this deck has a voice-over — V plays it';
+  const HINT_TEXT = '🔊 this deck has a voice-over — click to hear it, V for the voices';
   const HINT_AFTER = 900;    // let the slide land first; the pill is an aside
   const HINT_FOR = 12000;    // read it twice over, then it leaves
   const narrUsedKey = 'decklight-narr-used:' + location.pathname;
@@ -2049,10 +2055,13 @@ export function createNarration({
     el.setAttribute('aria-label', 'Play this deck’s voice-over');
     const kbd = document.createElement('kbd');
     kbd.textContent = 'V';
-    el.append('🔊 this deck has a voice-over — ', kbd, ' plays it');
-    // clicking is itself the user gesture, so the audio that follows is not
-    // subject to the autoplay policy the ?voiceover arm exists to satisfy
-    el.addEventListener('click', () => { dismissHint(); toggleNarration(); });
+    el.append('🔊 this deck has a voice-over — click to hear it, ', kbd, ' for the voices');
+    // Clicking is itself the user gesture, so the audio that follows is not
+    // subject to the autoplay policy the ?voiceover arm exists to satisfy.
+    // And clicking is CHOOSING, like the touch sound button: the deck's own
+    // voice plays, where the plain toggle said "no voice chosen" to the one
+    // person who had just asked for it.
+    el.addEventListener('click', () => { dismissHint(); playDefaultVoice(); });
     hintEl = el;
     root.appendChild(el);
     // Reading a layout property flushes the pending style with opacity:0, which
@@ -5776,11 +5785,7 @@ export function createNarration({
      * viewer followed must not opt their own copy of the deck into talking
      * every time they open it afterwards, and the button is one tap to repeat.
      */
-    playDefault() {
-      if (narrating) return toggleNarration();   // the button stops it too
-      if (!narrSet) narrSet = narrSets[0] ?? (liveFound ? LIVE_TRACK : null);
-      if (narrSet) toggleNarration();
-    },
+    playDefault: () => playDefaultVoice(),
     toggleNarration,
     toggleNarrPause,
     changeNarrRate,

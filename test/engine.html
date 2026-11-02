@@ -787,6 +787,8 @@
       localStorage.setItem('decklight-onboarded-tour', '1');
       // agentlog: the agent card docked right, as the author left it
       if (mode === 'agentlog') localStorage.setItem('decklight-panel-dock:' + location.pathname, JSON.stringify({ mode: 'right' }));
+      // a first run, for real: nothing seen before the deck loads
+      if (mode === 'editingtourwelcome' || mode === 'welcomekeys') { localStorage.removeItem('decklight-onboarded'); localStorage.removeItem('decklight-onboarded-tour'); }
       sessionStorage.clear();
     } catch { /* ignore */ }
 
@@ -3933,16 +3935,17 @@
         const card = () => document.querySelector('.decklight-welcome.wel-tour');
         const welcome = () => document.querySelector('.decklight-welcome:not(.wel-tour)');
         if (mode === 'editingtourwelcome') {
-          // the welcome itself is due: one card a load, and it is the welcome
-          localStorage.removeItem(SEEN); localStorage.removeItem(TOUR);
-          deck.showWelcome();
+          // A first run in write mode, both flags clear before the load: the
+          // author's card comes first. The welcome goes up at once, the edit
+          // server answers, and the tour takes its place (one card a load).
           await settle(); await settle();
-          r.welcomeIsUp = !!welcome();
-          r.tourWaitsItsTurn = !card();
-          press('ArrowRight');
-          r.keyDismissesOnlyTheWelcome = !welcome() && !card() && deck.state.slide === 1;
-          r.tourStillDue = localStorage.getItem(TOUR) !== '1';
-          r.PASS = r.welcomeIsUp && r.tourWaitsItsTurn && r.keyDismissesOnlyTheWelcome && r.tourStillDue;
+          r.tourTakesTheWelcomesPlace = !!card() && !welcome();
+          // ? on it opens the help it names, and nothing else happens
+          press('?');
+          r.questionOpensHelp = !card() && !!document.querySelector('.decklight-help') && deck.state.slide === 1;
+          press('Escape');
+          r.bothRemembered = localStorage.getItem(TOUR) === '1' && localStorage.getItem(SEEN) === '1';
+          r.PASS = r.tourTakesTheWelcomesPlace && r.questionOpensHelp && r.bothRemembered;
           sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
           return;
         }
@@ -3969,6 +3972,31 @@
         r.buttonCloses = !card();
         r.PASS = r.cardShows && r.namesTheGestures && r.saysWhereToReopen
           && r.anyKeyDismissesAndDoesNothingElse && r.remembered && r.paletteReopensIt && r.buttonCloses;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'welcomekeys') {
+        // A viewer's first run (no edit server): a short card about getting
+        // around, nothing about write mode; ? and / on it open what they name.
+        await settle(); await settle();
+        const welcome = () => document.querySelector('.decklight-welcome:not(.wel-tour)');
+        const text = welcome()?.textContent ?? '';
+        r.welcomeShows = !!welcome() && !document.querySelector('.wel-tour');
+        r.aboutGettingAround = /Next/.test(text) && /Every command/.test(text) && /Every key/.test(text) && /voice/.test(text);
+        r.noAuthorPitch = !/write mode|agent|decklight &lt;|decklight <deck/i.test(text);
+        press('?');
+        r.questionOpensHelp = !welcome() && !!document.querySelector('.decklight-help') && deck.state.slide === 1;
+        press('Escape');
+        deck.showWelcome();
+        press('/');
+        await settle();
+        r.slashOpensThePalette = !welcome() && !!document.querySelector('.decklight-palette');
+        press('Escape');
+        deck.showWelcome();
+        press('ArrowRight');
+        r.otherKeysOnlyDismiss = !welcome() && deck.state.slide === 1 && deck.state.step === 0;
+        r.PASS = r.welcomeShows && r.aboutGettingAround && r.noAuthorPitch && r.questionOpensHelp && r.slashOpensThePalette && r.otherKeysOnlyDismiss;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
