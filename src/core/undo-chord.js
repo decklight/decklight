@@ -22,3 +22,14 @@ export const IS_MAC = typeof navigator !== 'undefined'
   && isApplePlatform(navigator.userAgentData?.platform ?? navigator.platform);
 export const UNDO_CHORD = IS_MAC ? '⌘Z' : 'Ctrl+Z';
 export const REDO_CHORD = IS_MAC ? '⌘⇧Z' : 'Ctrl+⇧Z';
+
+/**
+ * What the page says for an undo or redo, from what the server said the step
+ * was (`{ what, slide }`): "Undid: notes on slide 7". A server too old to say
+ * gets the plain words.
+ */
+export function undoSaid(dir, meta) {
+  const verb = dir === 'redo' ? 'Redid' : 'Undid';
+  if (!meta?.what) return `${verb} the last edit`;
+  return `${verb}: ${meta.what}${Number.isInteger(meta.slide) ? ` on slide ${meta.slide}` : ''}`;
+}

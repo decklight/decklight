@@ -35,7 +35,7 @@ import { createWritingPicker, WRITING_TOOLS } from './writing.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { notesParts, withPart, hasClick, partFor, partLabel, wholeWhy } from './notesparts.js';
 import { hljs } from '../code/code.js';
-import { UNDO_CHORD } from './undo-chord.js';
+import { UNDO_CHORD, undoSaid } from './undo-chord.js';
 import { markdownNodes } from './mdtext.js';
 import { aiIcon } from './aiicon.js';
 
@@ -854,6 +854,7 @@ export function createEditMode({
             + (editAgents.length ? ` · agents: ${editAgents.map((a) => a.name).join(', ')}` : ''));
           probeSettled();
           resumeHandover();
+          sayAfterReload();
           // a quick fix waiting for review when this page loaded: back to it (#907)
           if (j.candidate?.id) fixReview.open(j.candidate.id);
           else commitDraftAfterReload();
@@ -1222,6 +1223,13 @@ export function createEditMode({
   // saves, and agent runs all snapshot into ONE stack, wholly independent of
   // the git autocommits. The server writes the restored file; its watcher
   // then reloads every browser (the hash keeps the position).
+  // an undo's words, kept across the reload it causes
+  const SAID_KEY = 'decklight-undo-said:' + location.pathname;
+  function sayAfterReload() {
+    let kept = null;
+    try { kept = JSON.parse(sessionStorage.getItem(SAID_KEY) || 'null'); sessionStorage.removeItem(SAID_KEY); } catch { /* nothing kept */ }
+    if (kept?.said && Date.now() - kept.t < 10000) toast(kept.said, 3200);
+  }
   async function deckHistory(dir) {
     if (!editAvailable) {
       toast(cannot(dir), 3200);
@@ -1232,8 +1240,14 @@ export function createEditMode({
       const res = await fetch(editBase + '/deck/edit/' + dir, { method: 'POST' });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) { toast(j.error || `${dir} failed`); return; }
-      toast(`${dir} — ${j.undo} back · ${j.redo} forward`);
-      debugLog('edit', `${dir} → ${j.undo} back, ${j.redo} forward`);
+      // Said by what it took back, and on its slide: "Undid: notes on slide
+      // 7", the deck going there. The file changed, so the page reloads; the
+      // words are kept for the page that loads next, which says them again.
+      const said = undoSaid(dir, j);
+      if (Number.isInteger(j.slide) && j.slide >= 1 && j.slide <= instance.state.totalSlides && j.slide !== instance.state.slide) instance.goto(j.slide, 0);
+      toast(said, 3200);
+      try { sessionStorage.setItem(SAID_KEY, JSON.stringify({ said, t: Date.now() })); } catch { /* no storage: said here only */ }
+      debugLog('edit', `${dir} → ${said} · ${j.undo} back, ${j.redo} forward`);
     } catch {
       toast(`${dir} failed — is the dev server still up?`, 2200);
     }

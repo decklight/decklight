@@ -19,7 +19,7 @@ import http from 'node:http';
 
 import {
   upsertNarrationTrack, narrationLiteral, initArgument, configuredTrackDirs,
-  setSlideLayout, setSlideTiming, setSlideHidden, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
+  setSlideLayout, setSlideTiming, setSlideHidden, createHistory, undoMeta, STRETCH_MS, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS,
 } from '../cli/edit.mjs';
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
@@ -240,6 +240,45 @@ test('history is capped — the oldest snapshots fall off, not the newest', () =
   assert.equal(h.undo('d'), 'c');
   assert.equal(h.undo('c'), 'b'); // 'a' fell off
   assert.equal(h.undo('b'), null);
+});
+
+test('history: every entry says what it was and where, for the undo to say it', () => {
+  const h = createHistory(200, { describe: () => ({ what: 'layout', slide: 4 }) });
+  assert.equal(h.next('undo'), null, 'nothing yet');
+  h.record('v1');
+  h.record('v2', { what: "Claude Code's edit", slide: null });
+  assert.deepEqual(h.next('undo'), { what: "Claude Code's edit", slide: null });
+  h.undo('v3');
+  assert.deepEqual(h.next('undo'), { what: 'layout', slide: 4 });
+  assert.deepEqual(h.next('redo'), { what: "Claude Code's edit", slide: null }, 'redo says what it puts back');
+});
+
+test('history: a stretch of note typing is one undo, back to before it began', () => {
+  let t = 0;
+  const h = createHistory(200, { clock: () => t });
+  const notes = { what: 'notes', slide: 2, stretch: 'notes:2:page' };
+  h.record('a', notes, 'ab');
+  t += 500; h.record('ab', notes, 'abc');
+  t += 500; h.record('abc', notes, 'abcd');
+  assert.deepEqual(h.counts(), { undo: 1, redo: 0 });
+  assert.equal(h.undo('abcd'), 'a', 'the whole stretch, in one step');
+  // broken by another slide, by a pause past the window, or by a write in between
+  h.record('a', notes, 'ab');
+  h.record('ab', { ...notes, stretch: 'notes:3:page', slide: 3 }, 'abX');
+  t += 500; h.record('abX', notes, 'abXc');
+  assert.equal(h.counts().undo, 3);
+  t += STRETCH_MS + 1; h.record('abXc', notes, 'abXcd');
+  assert.equal(h.counts().undo, 4);
+  t += 500; h.record('changed outside', notes, 'abXcde');
+  assert.equal(h.counts().undo, 5, 'the file moved under it: a new step');
+});
+
+test('undoMeta names the write by its route and its slide, and the notes stretch by slide and page', () => {
+  assert.deepEqual(undoMeta('/deck/edit/slide/notes', JSON.stringify({ slide: 7, text: 'x', from: 'p1' })),
+    { what: 'notes', slide: 7, stretch: 'notes:7:p1' });
+  assert.deepEqual(undoMeta('/deck/edit/element/content', JSON.stringify({ slide: 2, index: 0 })), { what: 'text edit', slide: 2 });
+  assert.deepEqual(undoMeta('/deck/edit/theme', JSON.stringify({ theme: 'nord' })), { what: 'theme', slide: null });
+  assert.deepEqual(undoMeta('/deck/edit/slide/layout', 'not json'), { what: 'layout', slide: null });
 });
 
 // ── the agent roster ───────────────────────────────────────────────────────
@@ -888,6 +927,39 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   // asking for an agent that isn't there is a clean 400
   const missing = await post(base, '/deck/edit/agent', { prompt: 'x', agent: 'codex' });
   assert.equal(missing.status, 400);
+});
+
+test('undoing an agent keeps what the author wrote while it ran, and says what it undid', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  // waits for the author to have written, then makes its own edit
+  writeFakeBin(bin, 'claude',
+    "import { appendFileSync, existsSync } from 'node:fs';\n"
+    + "const wait = () => existsSync('go') ? appendFileSync('deck.html', '<!-- agent-was-here -->') : setTimeout(wait, 25);\nwait();\n");
+  const { base } = await startEdit(t, dir, { env: { PATH: bin, DECKLIGHT_HOME: path.join(dir, 'home') } });
+  await post(base, '/deck/edit/agent', { prompt: 'sign the deck' });
+  // the author types notes while it runs
+  const saved = await post(base, '/deck/edit/slide/notes', { slide: 1, text: 'Said while the agent ran.', from: 'page' });
+  assert.equal(saved.status, 200);
+  const authored = readFileSync(deck, 'utf8');
+  assert.match(authored, /Said while the agent ran\./);
+  writeFileSync(path.join(dir, 'go'), '');
+  let p;
+  for (let i = 0; i < 200; i++) {
+    p = await (await fetch(base + '/deck/ping')).json();
+    if (p.undo === 2 && !p.agentBusy) break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  assert.match(readFileSync(deck, 'utf8'), /agent-was-here/);
+  const undone = await (await post(base, '/deck/edit/undo')).json();
+  assert.equal(readFileSync(deck, 'utf8'), authored, "the agent's edit goes, the author's notes stay");
+  assert.deepEqual({ what: undone.what, slide: undone.slide }, { what: "Claude Code's edit", slide: null });
+  const again = await (await post(base, '/deck/edit/undo')).json();
+  assert.deepEqual({ what: again.what, slide: again.slide }, { what: 'notes', slide: 1 }, 'the next undo names the notes and their slide');
+  assert.equal(readFileSync(deck, 'utf8'), DECK);
 });
 
 test('an agent run can be stopped — locked or not — and what it wrote by then is one undo away', async (t) => {

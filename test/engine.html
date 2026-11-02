@@ -553,7 +553,8 @@
           CALLS.post.push({ u: 'LANDED slide op', body: {} });
           return json({ ok: true, slide: b.op === 'delete' ? b.slide : b.slide + 1, total: 5, undo: 1, redo: 0 });
         }
-        if (u.includes('/deck/edit/undo')) return json({ ok: true, undo: 0, redo: 1 });
+        // the server says what each undo took back, and where (PRESENTING_EDITING)
+        if (u.includes('/deck/edit/undo')) return json({ ok: true, undo: 0, redo: 1, what: 'notes', slide: 2 });
         if (u.includes('/deck/edit/redo')) return json({ ok: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'editor') {
@@ -2726,6 +2727,9 @@
         chord();
         await new Promise((ok) => setTimeout(ok, 300));
         r.chordUndoes = undos() === u0 + 1;
+        // …saying what it took back, on its slide, and keeping the words for the reload it causes
+        r.undoSaysWhatAndGoesThere = [...document.querySelectorAll('.decklight-toast')].some((n) => n.textContent === 'Undid: notes on slide 2')
+          && deck.state.slide === 2 && /Undid: notes on slide 2/.test(sessionStorage.getItem('decklight-undo-said:' + location.pathname) ?? '');
         const u1 = undos();
         press('z', mac ? { ctrlKey: true } : { metaKey: true });
         await new Promise((ok) => setTimeout(ok, 300));
@@ -2746,7 +2750,7 @@
         const help = (() => { press('?'); const t = document.querySelector('.help-card')?.textContent ?? ''; press('?'); return t; })();
         r.helpNamesTheChord = help.includes(mac ? '⌘Z' : 'Ctrl+Z');
 
-        r.PASS = r.chordUndoes && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes && r.bareZWritesNothing
+        r.PASS = r.chordUndoes && r.undoSaysWhatAndGoesThere && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes && r.bareZWritesNothing
           && r.chordInTextIsTheBrowsers && r.helpNamesTheChord
           && r.undoWaitsForTheTextSave && r.undoWaitsForTheSlideOp
           && r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource

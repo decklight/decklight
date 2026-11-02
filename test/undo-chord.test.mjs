@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isApplePlatform } from '../src/core/undo-chord.js';
+import { isApplePlatform, undoSaid } from '../src/core/undo-chord.js';
 
 test('Chrome on a Mac says macOS, and that is a Mac', () => {
   // navigator.userAgentData.platform is read first, and Chrome spells it
@@ -20,4 +20,10 @@ test('Windows, Linux and nothing at all are not', () => {
   for (const p of ['Windows', 'Win32', 'Linux x86_64', 'Linux', 'Android', '', null, undefined]) {
     assert.equal(isApplePlatform(p), false, String(p));
   }
+});
+
+test('an undo says what it took back and where; an older server gets plain words', () => {
+  assert.equal(undoSaid('undo', { what: 'notes', slide: 7 }), 'Undid: notes on slide 7');
+  assert.equal(undoSaid('redo', { what: "Claude Code's edit", slide: null }), "Redid: Claude Code's edit");
+  assert.equal(undoSaid('undo', { undo: 0, redo: 1 }), 'Undid the last edit');
 });
