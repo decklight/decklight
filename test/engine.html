@@ -595,6 +595,11 @@
           return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
         }
       }
+      // Esc keeps drafts (esckeeps): an agent to ask, an element to edit
+      if (HARNESS_MODE === 'esckeeps') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+      }
       // a reload while something is typed (heldreload): notes that save in
       // place, and an HTML editor with a source to load
       if (HARNESS_MODE === 'heldreload') {
@@ -2454,6 +2459,16 @@
         press('s');                           // would open the speaker notes
         r.typingDoesNotReachTheDeck = deck.state.slide === before && !!document.querySelector(P);
 
+        // Esc closes and KEEPS the draft (PRESENTING_EDITING): nothing written,
+        // and the editor opens on it again on this slide
+        press('Escape');
+        await settle();
+        r.escapeKeepsTheDraft = !document.querySelector(P) && !CALLS.post.some((c) => c.u.includes('/deck/edit/slide/sources'))
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /sources edit for slide 2 is kept/.test(n.textContent));
+        press('i'); await settle();
+        press('e'); await settle();
+        r.reopensOnTheDraft = fields().includes('docs-team');
+
         press('Enter');
         await settle();
         await settle();
@@ -2466,7 +2481,7 @@
         r.saysItSaved = said.some((t) => /sources saved on slide 2/.test(t) && /(⌘Z|Ctrl\+Z) takes it back/.test(t));
 
         r.PASS = r.inspectorOffersEditing && r.inspectorMakesWay && r.opensEmptyForAuthoring && r.startsWithOneLinkRow && r.escapeWroteNothing
-          && r.readsFirst && r.editSeedsFromTheSlide && r.typingDoesNotReachTheDeck
+          && r.readsFirst && r.editSeedsFromTheSlide && r.typingDoesNotReachTheDeck && r.escapeKeepsTheDraft && r.reopensOnTheDraft
           && r.enterSaves && r.sentTheEditedFact && r.closesOnSave && r.saysItSaved;
       }
 
@@ -3011,6 +3026,71 @@
         r.PASS = r.nothingTypedReloadsAtOnce && r.typedNotesHoldTheReload && r.savedItReloads && r.reloadNowReloads
           && r.htmlEditorOpens && r.untouchedHtmlDoesNotHold && r.typedHtmlHolds && r.savedHtmlLetsItGo
           && r.aBlipIsNotASign && r.disconnectedIsSaid && r.reconnectedClearsIt;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'esckeeps') {
+        // Esc never throws a draft away (PRESENTING_EDITING): the agent prompt
+        // and the HTML editor keep what was typed when they close, open on it
+        // again, and the reload waits for it meanwhile. A dropped file that is
+        // not a picture is caught and named, never opened in the deck's place.
+        await settle();
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+        const said = (re) => [...document.querySelectorAll('.decklight-toast')].some((n) => re.test(n.textContent));
+        deck.goto(1, 0); await settle();
+        // ── the agent prompt ──
+        press('a'); await settle();
+        const ask = () => document.querySelector('.decklight-agent textarea');
+        ask().value = 'make it pop';
+        ask().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        r.agentCloses = !document.querySelector('.decklight-agent');
+        window.__es.onmessage({ data: JSON.stringify({ reload: 'x' }) });
+        await wait(500);
+        r.keptAskHoldsTheReload = reloads === 0 && /your message to the agent/.test(document.querySelector('.decklight-held')?.textContent ?? '');
+        press('a'); await settle();
+        r.agentReopensOnIt = ask()?.value === 'make it pop';
+        ask().value = '';
+        await wait(500);
+        r.emptiedItLetsTheReloadGo = reloads === 1;
+        ask().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        // ── the HTML editor ──
+        const h1 = document.querySelector('.decklight-stage > section.active h1');
+        const openHtml = async () => {
+          h1.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+          await settle();
+          [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === 'Edit content (HTML)')?.click();
+          await wait(200);
+          return document.querySelector('.decklight-editor .edit-code textarea');
+        };
+        let ta = await openHtml();
+        ta.value = '<h1>One, half done</h1>';
+        ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        r.htmlCloses = !document.querySelector('.decklight-editor .edit-code') && said(/HTML edit is kept/);
+        ta = await openHtml();
+        r.htmlReopensOnIt = ta?.value === '<h1>One, half done</h1>' && said(/unsaved HTML edit is back/);
+        ta.value = '<h1>One</h1>';
+        ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        // ── a dropped file that is not a picture ──
+        const dt = new DataTransfer();
+        dt.items.add(new File(['hello'], 'notes.txt', { type: 'text/plain' }));
+        const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt });
+        h1.dispatchEvent(over);
+        const drop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt });
+        h1.dispatchEvent(drop);
+        await settle();
+        r.dropIsCaught = over.defaultPrevented && drop.defaultPrevented;
+        r.dropSaysNotAPicture = said(/notes\.txt is not a picture/);
+        r.nothingUploaded = !CALLS.post.some((c) => c.u.includes('/deck/edit/asset'));
+        r.PASS = r.agentCloses && r.keptAskHoldsTheReload && r.agentReopensOnIt && r.emptiedItLetsTheReloadGo
+          && r.htmlCloses && r.htmlReopensOnIt && r.dropIsCaught && r.dropSaysNotAPicture && r.nothingUploaded;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

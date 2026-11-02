@@ -67,17 +67,25 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
   let el = null;
   // The editor is a DRAFT, not the slide: nothing is written until ⏎, so
   // wandering into it and pressing esc leaves the deck exactly as it was.
+  // Nor does esc throw the draft away (PRESENTING_EDITING): closed with
+  // changes, it is KEPT, and the editor opens on it again on that slide.
   let draft = null;
+  let kept = null;   // { draft, was, at }: closed unsaved, waiting to be opened again
   let draftWas = '';   // the draft as it opened: differing from it, it holds the reload (drafts.js)
   let draftAt = 0;
   let busy = false;
   let onResize = null;
   const editing = () => !!draft;
-  holdDraft(() => (draft && JSON.stringify(draft) !== draftWas ? `the sources of slide ${draftAt}` : null));
+  holdDraft(() => (draft && JSON.stringify(draft) !== draftWas ? `the sources of slide ${draftAt}`
+    : kept ? `the sources of slide ${kept.at}` : null));
   const canEdit = () => editmode?.()?.available() === true;
 
   const isOpen = () => !!el;
-  const close = () => {
+  const close = ({ keep = true } = {}) => {
+    if (keep && draft && JSON.stringify(draft) !== draftWas) {
+      kept = { draft, was: draftWas, at: draftAt };
+      toast(`your sources edit for slide ${draftAt} is kept: open the sources there again to finish it`, 4200);
+    }
     el?.remove();
     el = null;
     draft = null;
@@ -175,7 +183,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
 
     const foot = document.createElement('div');
     foot.className = 'narr-head';
-    foot.textContent = '⏎ saves · esc leaves it as it was';
+    foot.textContent = '⏎ saves · esc closes, keeping what you typed';
     card.append(foot);
     // the first empty field, so adding a row puts the caret in it
     card.querySelector('.src-field[value=""], .src-field:placeholder-shown')?.focus();
@@ -192,14 +200,20 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
 
   function startEditing() {
     if (!canEdit()) { toast('sources are written in write mode — decklight <deck.html>'); return; }
-    const data = read() ?? { facts: [], links: [] };
-    draft = {
-      facts: data.facts.map(([k, v]) => [k, v]),
-      links: data.links.map((l) => ({ ...l })),
-    };
-    if (!draft.facts.length && !draft.links.length) draft.links.push({ title: '', href: '', note: '' });
-    draftWas = JSON.stringify(draft);
-    draftAt = slideOf();
+    if (kept && kept.at === slideOf()) {
+      ({ draft, was: draftWas, at: draftAt } = kept);
+      kept = null;
+      toast('your unsaved sources edit is back', 2400);
+    } else {
+      const data = read() ?? { facts: [], links: [] };
+      draft = {
+        facts: data.facts.map(([k, v]) => [k, v]),
+        links: data.links.map((l) => ({ ...l })),
+      };
+      if (!draft.facts.length && !draft.links.length) draft.links.push({ title: '', href: '', note: '' });
+      draftWas = JSON.stringify(draft);
+      draftAt = slideOf();
+    }
     if (!el) { renderShell(); }
     renderEdit();
   }
@@ -216,7 +230,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the edit server said ${r.status}`);
-      close();
+      close({ keep: false });
       const refused = j.dropped?.length
         ? `. ${j.dropped.join(', ')} was not written — a reference is a link somebody can follow, not something that runs`
         : '';
