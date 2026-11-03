@@ -36,6 +36,7 @@ const BUTTONS = [
   { id: 'text', label: 'Text', key: '⏎', title: 'select some text and press Enter, or double-click it' },
   { id: 'picture', label: 'Picture', key: '', title: 'add a picture (or drop one onto the slide)' },
   { id: 'layout', label: 'Layout', key: '', title: 'cycle this slide\'s layout (⇧-click backwards)' },
+  { id: 'build', label: 'Build ▾', key: '', title: 'how the selected element arrives: fade, zoom, draw… (select it first)' },
   { id: 'notes', label: 'Notes', key: 'S', title: 'edit the speaker notes' },
   { id: 'slide', label: 'Slide ▾', key: '', title: 'new, duplicate, move or delete this slide' },
   { id: 'undo', label: 'Undo', key: UNDO_CHORD, title: 'take the last edit back' },
@@ -224,6 +225,14 @@ export function createEditBar({
       case 'picture': fileInput?.click(); break;
       case 'layout': cycleLayout(e?.shiftKey ? -1 : 1); refresh(); break;
       case 'notes': toggleEditor(); break;
+      // the effects were behind a right-click and a submenu; the bar says
+      // they exist, and the menu ticks the one the element has
+      case 'build': {
+        if (!selected?.top) { toast('select an element first: Build sets how it arrives', 2600); break; }
+        const r = btn.getBoundingClientRect();
+        editmode.openElementMenuAt(r.left, r.top - 8, { ...selected, fromBar: true }, 'effects', { above: true });
+        break;
+      }
       case 'slide': {
         const r = btn.getBoundingClientRect();
         const target = { sec: instance._sections[instance.state.slide - 1], slide: instance.state.slide, index: null, top: null, clicked: null, fromBar: true };

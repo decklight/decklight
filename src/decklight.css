@@ -1623,6 +1623,16 @@
   pointer-events: none;                 /* never in the way of a slide click */
   white-space: nowrap;
 }
+/* …except its Stop, the one part of it that is a control */
+.decklight-agent-chip .agent-chip-stop {
+  pointer-events: auto; cursor: pointer;
+  font: 600 12px/1 system-ui, sans-serif; color: #fff;
+  background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 999px; padding: 4px 10px; margin-left: 2px;
+}
+.decklight-agent-chip .agent-chip-stop:hover { background: rgba(248, 81, 73, .35); }
+.decklight-agent-chip .agent-chip-stop:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.decklight-agent-chip .agent-chip-stop:disabled { opacity: .5; cursor: default; }
 .decklight-agent-chip::before {
   content: '';
   width: 7px;

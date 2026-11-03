@@ -101,11 +101,23 @@ export function createEditMode({
       // must not interrupt what is being read.
       agentChip.setAttribute('role', 'status');
       agentChip.setAttribute('aria-live', 'polite');
+      const said = document.createElement('span');
+      said.className = 'agent-chip-text';
+      // Stop where the run is watched (PRESENTING_EDITING): it was a palette
+      // row and nothing else, so an agent going the wrong way was stopped by
+      // typing while it worked
+      const stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'agent-chip-stop';
+      stop.textContent = 'Stop';
+      stop.title = 'stop the agent: what it has written so far stays, and one undo takes it back';
+      stop.addEventListener('click', (e) => { e.stopPropagation(); stop.disabled = true; stopRunning(); });
+      agentChip.append(said, stop);
       root.appendChild(agentChip);
     }
     // textContent, never innerHTML: `agent` is a name from the server and
     // `prompt` is the user's own words, and neither is markup.
-    agentChip.textContent = `🤖 ${text}`;
+    agentChip.querySelector('.agent-chip-text').textContent = `🤖 ${text}`;
     agentChip.title = agentBusy.prompt ? `asked: ${agentBusy.prompt}` : '';
     if (!agentTick) agentTick = setInterval(paintAgentChip, 1000);
   }
@@ -1356,7 +1368,19 @@ export function createEditMode({
     said.textContent = a.prompt;   // textContent: the user's words are not markup
     const out = document.createElement('div');
     out.className = 'agent-ask-out';
-    if (a.state === 'running') out.textContent = `working…${a.activity ? ` ${a.activity}` : ''}`;
+    if (a.state === 'running') {
+      out.textContent = `working…${a.activity ? ` ${a.activity}` : ''}`;
+      // the run this page can stop, stopped from its own row
+      if (agentBusy && (a.id == null || a.id === agentBusy.id)) {
+        const stop = document.createElement('button');
+        stop.type = 'button';
+        stop.className = 'narr-prev-btn agent-ask-stop';
+        stop.textContent = 'Stop';
+        stop.title = 'stop the agent: what it has written so far stays, and one undo takes it back';
+        stop.addEventListener('click', (e) => { e.stopPropagation(); stop.disabled = true; stopRunning(); });
+        out.append(' ', stop);
+      }
+    }
     else {
       out.textContent = a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.kind === 'explain' ? 'explained — nothing changed' : a.changed ? (a.kind === 'migrate' ? 'migrated the deck' : a.kind === 'fix' ? 'fixed the deck' : 'edited the deck') : 'no changes';
       // what the agent said, in the markdown it said it in: **bold** shown
@@ -2217,6 +2241,8 @@ export function createEditMode({
   // .decklight-ctxmenu in decklight.css. closeOnBackdrop/selectInList still
   // apply unchanged: nothing about them assumes a dimmed, centered overlay.
   const TEXT_EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight'];
+  /** The build effect the menu's element carries: its `data-build`, '' for the default, null for none. */
+  const currentEffect = (t) => (t?.top?.hasAttribute?.('data-build') ? t.top.getAttribute('data-build') : null);
   let elementEditOn = false;
   let menuEl = null, menuRows = [], menuSel = 0, menuView = 'main', menuTarget = null;
   // who wants to know when E turns editing on or off: the editing bar (editbar.js)
@@ -2287,12 +2313,16 @@ export function createEditMode({
     list.textContent = '';
     const rows = [];
     if (menuView === 'effects') {
-      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
-      for (const fx of TEXT_EFFECTS) rows.push({ label: fx, run: () => commitEffect(fx) });
+      // The effect the element has is ticked (PRESENTING_EDITING): the menu
+      // used to list them all alike, so nobody could tell what was set.
+      const cur = currentEffect(menuTarget);
+      const tick = (fx, label = fx) => ({ label: `${fx === cur ? '✓ ' : ''}${label}`, current: fx === cur, run: () => commitEffect(fx) });
+      if (!menuTarget.fromBar) rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      for (const fx of TEXT_EFFECTS) rows.push(tick(fx));
       // 'none' is a real, explicit build step (still one more advance reveals
       // the element) — distinct from "remove effect", which strips data-build.
-      rows.push({ label: 'none (instant)', run: () => commitEffect('none') });
-      rows.push({ label: 'remove effect', run: () => commitEffect(null) });
+      rows.push(tick('none', 'none (instant)'));
+      if (cur !== null) rows.push({ label: cur === '' ? '✓ the default build — remove it' : 'remove effect', run: () => commitEffect(null) });
     } else if (menuView === 'concept') {
       // Concept ▸ (SPEC SVG_DIAGRAMS, #718): the shape's data-concept — one of
       // the names the deck already uses, a new one, or none
@@ -2336,7 +2366,8 @@ export function createEditMode({
         if (styleClip.has()) rows.push({ label: 'Paste style', key: styleClip.keys.paste, run: () => { closeElementMenu(); styleClip.paste(target); } });
       }
       if (conceptOf(menuTarget.top, menuTarget.clicked)) rows.push({ label: 'Concept ▸', run: () => { menuView = 'concept'; renderElementMenu(); } });
-      rows.push({ label: 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
+      const fx = currentEffect(menuTarget);
+      rows.push({ label: fx ? `Build: ${fx} ▸` : fx === '' ? 'Build: the default ▸' : 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     }
     menuRows = rows;
