@@ -87,6 +87,9 @@ export function createReview({
   let context = null;      // {id, data} — an orphan's "what it said", unfolded
   let probed = null;       // the no-trust mode's base, '' for same-origin, null for none
   let engaged = false;     // last surface the user touched: the panel, or the deck
+  // …and said on the panel: R, S, A and D act on comments only while it has
+  // the keyboard, and nothing showed when that was (PRESENTING_EDITING)
+  const setEngaged = (on) => { engaged = on; el?.classList.toggle('dl-has-keys', on && !dock.isFloat()); };
   let onResize = null;     // the viewport listener that re-sizes the gutter
   let onSurface = null;    // pointerdown/focusin router for `engaged`
   let writable = false;    // can anything here take a comment? asked on open
@@ -421,7 +424,7 @@ export function createReview({
   /** ⇧M with the panel up: into the box, and the panel owns the keyboard. */
   function focusDraft() {
     if (!draft?.box.isConnected) return false;
-    engaged = true;
+    setEngaged(true);
     draft.input.focus();
     return true;
   }
@@ -735,10 +738,12 @@ export function createReview({
     root.appendChild(el);
     // Which surface the keyboard belongs to follows the last thing you touched:
     // a click (or focus) inside the panel makes its list keys live; one on the
-    // deck hands the arrows back to the slides. Float opens focused, so start
-    // engaged there; a docked panel opens with the deck still in charge.
-    engaged = dock.isFloat();
-    onSurface = (e2) => { engaged = !!el && el.contains(e2.target); };
+    // deck hands the arrows back to the slides. It opens with the keyboard,
+    // docked or not: M was asking for it, and since every panel opens docked
+    // (dock.js) a docked panel that did not would ignore its own keys until
+    // clicked. The ring and its "keys here" say which surface has them.
+    setEngaged(true);
+    onSurface = (e2) => { setEngaged(!!el && el.contains(e2.target)); };
     document.addEventListener('pointerdown', onSurface, true);
     document.addEventListener('focusin', onSurface, true);
     onResize = () => dock.reserveGutter();
@@ -759,7 +764,7 @@ export function createReview({
     armedAnchor = null;
     armedDelete = null;
     context = null;
-    engaged = false;
+    setEngaged(false);
     // Hand the stage back this panel's gutter (and only this panel's) and refit.
     dock.release();
     if (onResize) window.removeEventListener('resize', onResize), onResize = null;

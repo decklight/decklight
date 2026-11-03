@@ -32,6 +32,7 @@ import { readJson, writeJson } from './prefs.js';
 const GLYPH = { float: '❏', left: '◧', right: '◨', bottom: '⬓', window: '⧉' };
 const MODES = ['float', 'left', 'right', 'bottom'];
 const SIDES = ['left', 'right', 'bottom'];
+const DEFAULT_MODE = 'right';   // where every panel opens until one is moved
 
 // Every docked panel on a root CLAIMS its side, and the root's gutter on each
 // side is the widest claim there. Each panel used to write all three --dock-*
@@ -195,11 +196,15 @@ export function createDock({
   // element, so there is nothing for a tab to open it on).
   name = null, open = null, close = null, available = () => true, tab = true,
 }) {
-  // ONE placement per deck for every panel. `defaultMode` is where a panel
-  // opens before anyone has chosen: a drawer (the notes) belongs at the
-  // bottom, a tool card afloat.
+  // ONE placement per deck for every panel, and one default before anyone
+  // has chosen: docked right, beside the slide (PRESENTING_EDITING). Each
+  // panel used to have its own (the notes at the bottom, the inspector and
+  // the check on the right, the rest afloat), so switching tabs before a
+  // choice was made threw the panel from one place to another. `defaultMode`
+  // is kept for a caller that still names one, and no longer read.
+  void defaultMode;
   const key = 'decklight-panel-dock:' + (typeof location !== 'undefined' ? location.pathname : '');
-  const dock = { mode: MODES.includes(defaultMode) ? defaultMode : 'float', x: null, y: null };
+  const dock = { mode: DEFAULT_MODE, x: null, y: null };
   const load = () => {
     // first run, or storage denied — either way the default placement is fine
     const s = readJson(key);

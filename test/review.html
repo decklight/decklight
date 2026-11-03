@@ -241,8 +241,12 @@
           const frame = document.querySelector('.decklight-review');
           const stage = document.querySelector('.decklight-stage');
 
-          // opens floating (no dimming backdrop over the slide), not a modal
-          r.defaultFloat = frame.dataset.dock === 'float';
+          // opens docked right, where every panel opens until one is moved
+          // (PRESENTING_EDITING), with no dimming backdrop over the slide
+          r.defaultFloat = frame.dataset.dock === 'right';
+          // floated first, so docking it has somewhere to move it from
+          card.querySelector('.dk-btn[data-mode="float"]').click();
+          await wait(50);
           r.noBackdrop = getComputedStyle(frame).backgroundColor === 'rgba(0, 0, 0, 0)'
             || getComputedStyle(frame).backgroundImage === 'none' && !/blur/.test(getComputedStyle(frame).backdropFilter || '');
           const transformBefore = stage.style.transform;
