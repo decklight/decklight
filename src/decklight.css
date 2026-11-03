@@ -1623,6 +1623,16 @@
   pointer-events: none;                 /* never in the way of a slide click */
   white-space: nowrap;
 }
+/* …except its Stop, the one part of it that is a control */
+.decklight-agent-chip .agent-chip-stop {
+  pointer-events: auto; cursor: pointer;
+  font: 600 12px/1 system-ui, sans-serif; color: #fff;
+  background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 999px; padding: 4px 10px; margin-left: 2px;
+}
+.decklight-agent-chip .agent-chip-stop:hover { background: rgba(248, 81, 73, .35); }
+.decklight-agent-chip .agent-chip-stop:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.decklight-agent-chip .agent-chip-stop:disabled { opacity: .5; cursor: default; }
 .decklight-agent-chip::before {
   content: '';
   width: 7px;
@@ -3796,6 +3806,13 @@
 }
 .decklight-editbar .eb-lock { margin-left: 4px; border-left: 1px solid rgba(255, 255, 255, .14); border-radius: 0 10px 10px 0; }
 .decklight-editbar .eb-file { display: none; }
+/* never wider than the window: on a narrow one the key hints go (the
+   buttons' titles and the help still name them) and the buttons tighten */
+.decklight-editbar { max-width: calc(100% - 16px); box-sizing: border-box; }
+@media (max-width: 960px) {
+  .decklight-editbar .eb-key { display: none; }
+  .decklight-editbar .eb-btn { padding: 8px 8px; }
+}
 /* while editing: what the pointer is over, and what was chosen */
 .decklight.dl-editmode .decklight-stage section .dl-hover:not(.dl-selected):not(.dl-editing) { outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 4px; border-radius: 2px; }
 .decklight .dl-selected { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }

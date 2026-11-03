@@ -3802,7 +3802,7 @@
         const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
         const sec1 = document.querySelector('.decklight-stage > section');
         r.barAtOnce = !!bar() && document.querySelector('.decklight').classList.contains('dl-editmode');
-        r.barNamesEveryDoor = labels().join('|') === 'Text|Picture|Layout · auto|Notes|Slide ▾|Undo|Redo|Lock';
+        r.barNamesEveryDoor = labels().join('|') === 'Text|Picture|Layout · auto|Build ▾|Notes|Slide ▾|Undo|Redo|Lock';
         r.barShowsTheKeys = ['⏎', 'S'].every((k) => keys().includes(k)) && keys().some((k) => /^(⌘Z|Ctrl\+Z)$/.test(k)) && !keys().includes('L') && !keys().includes('Z');
         // the grip: the bar moves, the place is remembered, a double-click puts it back
         const grip = () => bar().querySelector('.eb-grip');
@@ -3867,8 +3867,19 @@
         press('Enter', { metaKey: true });
         r.presentChordStaysInWriteMode = asked === 0 && [...document.querySelectorAll('.decklight-toast')].some((n) => /nothing to save here/.test(n.textContent));
         // a click selects: outlined, with a ⋯ handle at its corner
+        // Build with nothing selected says what to do
+        bar().querySelector('.eb-build').click();
+        r.buildWantsASelection = [...document.querySelectorAll('.decklight-toast')].some((n) => /select an element first: Build/.test(n.textContent))
+          && !document.querySelector('.decklight-ctxmenu');
         click(h1());
         r.clickSelects = h1().classList.contains('dl-selected') && !!document.querySelector('.dl-handle');
+        // Build on the selection opens its effects, the one it has ticked
+        h1().setAttribute('data-build', 'zoom');
+        bar().querySelector('.eb-build').click();
+        const fxRows = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
+        r.buildOpensTheEffects = fxRows.includes('✓ zoom') && fxRows.includes('fade') && fxRows.includes('remove effect') && !fxRows.includes('← back');
+        press('Escape');
+        h1().removeAttribute('data-build');
         // moving on lets the selection go, and the arrows still move
         press('ArrowRight');
         await settle();
@@ -3949,7 +3960,7 @@
         r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /^Unlock deck|^Lock deck/.test(palName(n)));
         press('Escape');
         r.PASS = r.bareLWritesNothing && r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
-          && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordStaysInWriteMode && r.clickSelects
+          && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordStaysInWriteMode && r.buildWantsASelection && r.clickSelects && r.buildOpensTheEffects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
           && r.layoutButtonCycles && r.layoutWriteIsQuiet && r.layoutFromElsewhereLands && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
@@ -5083,6 +5094,13 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         window.__es.emit('agent', { state: 'activity', id: 2, agent: 'claude', text: 'Reading deck.html' });
         await settle();
         r.running = document.querySelector(`${A} .agent-ask-running`)?.textContent ?? '';
+        // Stop where the run is watched: on its row, and on the chip
+        r.stopOnTheRow = !!document.querySelector(`${A} .agent-ask-running .agent-ask-stop`);
+        const chipStop = document.querySelector('.decklight-agent-chip .agent-chip-stop');
+        r.stopOnTheChip = !!chipStop && /Stop/.test(chipStop.textContent);
+        chipStop?.click();
+        await settle();
+        r.stopPostsTheStop = CALLS.post.some((c) => c.u.includes('/deck/edit/agent/stop'));
         r.sendLocked = document.querySelector(`${A} .tr-actions button`)?.disabled === true;
         window.__es.emit('agent', { state: 'done', id: 2, agent: 'claude', ok: true, changed: false, tail: 'Nothing to change.' });
         await settle();
@@ -5095,7 +5113,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.closeForgets = !document.querySelector(A)
           && sessionStorage.getItem('decklight-agent-open:' + location.pathname) === null;
         r.PASS = r.docked && r.pastAskShown && r.sentSlide === 2 && r.stayedOpen && r.cleared && r.remembered
-          && /Reading deck\.html/.test(r.running) && r.sendLocked
+          && /Reading deck\.html/.test(r.running) && r.sendLocked && r.stopOnTheRow && r.stopOnTheChip && r.stopPostsTheStop
           && rows.length === 2 && /slide 2/.test(r.last) && /no changes/.test(r.last) && /Nothing to change\./.test(r.last)
           && r.noMarkup && r.sendFree;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
@@ -7590,8 +7608,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         rightClick(h1);
         clickRow('Add text effect ▸');
         const fx = rowsText();
+        // no effect yet: nothing ticked, and no "remove effect" to offer
         r.submenuShape = fx[0] === '← back' && fx.includes('fade-up') && fx.includes('highlight')
-          && fx.includes('none (instant)') && fx.includes('remove effect') && fx.length === 10;
+          && fx.includes('none (instant)') && !fx.includes('remove effect') && !fx.some((t) => t.startsWith('✓')) && fx.length === 9;
         clickRow('fade-up');
         await settle();
         const fxPost = CALLS.post.find((c) => c.u.includes('/deck/edit/element/effect'));
