@@ -1768,7 +1768,7 @@
         r.palettePrintsHandout = printRows.some((t) => /Print handout/.test(t));
         r.paletteRehearses = labels('rehearse').some((t) => /Rehearse timings/.test(t));
         const hiddenRows = labels('hidden');
-        r.paletteNoHiddenRowWhenNoneHidden = !hiddenRows.some((t) => /Hidden slides/.test(t));
+        r.paletteNoHiddenRowWhenNoneHidden = !hiddenRows.some((t) => /hidden slides/i.test(t));
         r.paletteNoHideRowWithoutServer = !hiddenRows.some((t) => /Hide this slide/.test(t));
         // …and none of the hand-over rows either: it is the edit server that
         // runs `decklight pptx` and `decklight pdf`, so on a deck opened from a
@@ -3074,6 +3074,53 @@
         return;
       }
 
+      if (mode === 'paletteinput') {
+        // The palette and the finder take what a text box takes (PRESENTING_CHROME):
+        // the browser types into a real input, so a paste, an accented letter
+        // and a phone's keyboard all land; with nothing typed, groups are headings.
+        await settle();
+        deck.goto(1, 0); await settle();
+        press('/');
+        const box = () => document.querySelector('.decklight-palette input.pal-input');
+        r.paletteHasATextBox = !!box() && document.activeElement === box();
+        const heads = () => [...document.querySelectorAll('.decklight-palette .pal-group')].map((n) => n.textContent);
+        r.groupHeadingsWhenEmpty = heads().length >= 4 && heads()[0] === 'Go to'
+          && !!document.querySelector('.decklight-palette .pal-list.pal-grouped');
+        const type = (el, text) => { el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); };
+        const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+        // a paste is an input event like any other; so is é typed through ⌥ or AltGr
+        type(box(), 'thème');
+        r.accentedLetterLands = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /thème/.test(n.textContent));
+        r.noHeadingsWhenTyped = heads().length === 0;
+        type(box(), 'goto 3');
+        key(box(), 'Enter');
+        await settle();
+        r.enterInTheBoxRuns = deck.state.slide === 3 && !document.querySelector('.decklight-palette');
+        // Esc in the box: clears, then closes
+        press('/');
+        type(box(), 'xyz');
+        key(box(), 'Escape');
+        r.escClearsFirst = !!box() && box().value === '';
+        key(box(), 'Escape');
+        r.thenCloses = !document.querySelector('.decklight-palette');
+        // keys sent at the page still type, and the box follows
+        press('/'); press('o'); press('v');
+        r.pageKeysStillType = box()?.value === 'ov';
+        press('Escape'); press('Escape');
+        // the finder: the same box
+        press('g'); await settle();
+        const fbox = document.querySelector('.decklight-finder input.tp-filter');
+        r.finderHasATextBox = !!fbox && document.activeElement === fbox;
+        type(fbox, 'Two');
+        key(fbox, 'Enter');
+        await settle();
+        r.finderBoxFinds = deck.state.slide === 2 && !document.querySelector('.decklight-finder');
+        r.PASS = r.paletteHasATextBox && r.groupHeadingsWhenEmpty && r.accentedLetterLands && r.noHeadingsWhenTyped && r.enterInTheBoxRuns
+          && r.escClearsFirst && r.thenCloses && r.pageKeysStillType && r.finderHasATextBox && r.finderBoxFinds;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'heldreload') {
         // A reload waits for what is typed (drafts.js, PRESENTING_EDITING):
         // the file changing under a half-typed note, HTML edit or ask holds
@@ -4099,7 +4146,7 @@
         // the author rows are gone from the palette, the unlock row is there
         press('/');
         const locked = rows();
-        r.writeRowsGone = !locked.some((t) => /^Export |^Delete this slide|^Undo deck edit/.test(t)) && locked.some((t) => /^Unlock deck/.test(t));
+        r.writeRowsGone = !locked.some((t) => /^Export |^Delete this slide|^Undo\b/.test(t)) && locked.some((t) => /^Unlock deck/.test(t));
         press('Escape');
         // another tab turned it off: the channel says so, the chip goes, the bar is back
         window.__es.emit('lock', { locked: false });
@@ -4458,7 +4505,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.chapterRowsAreStyledAsModules = rows()[1].classList.contains('tp-module')
           && rows()[2].classList.contains('tp-module') && !rows()[0].classList.contains('tp-module');
         r.placeholderSaysModule = /type to find a slide or module…/.test(
-          document.querySelector(`${F} .tp-filter`).textContent);
+          document.querySelector(`${F} .tp-filter`).placeholder);   // a real text box now
         rows()[1].dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
         r.captionSaysWhereItGoes = /module — Foundations \(slide 2 of this deck\)/.test(
           document.querySelector(`${F} .tp-caption`).textContent);
@@ -4835,7 +4882,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // are skipped, skip them when `?all` shows them
         press('/'); for (const ch of 'hidden') press(ch);
         const rows = [...document.querySelectorAll('.decklight-palette .pal-row')].map((n) => n.textContent);
-        r.paletteRow = rows.some((t) => (all ? /Hidden slides skip/ : /Hidden slides show/).test(t));
+        r.paletteRow = rows.some((t) => (all ? /Skip hidden slides/ : /Show hidden slides/).test(t));
         escapeUntilClosed('.decklight-palette');
         r.PASS = r.total === 4 && r.nextSkips && r.prevSkips && r.jumpLandsAfter && r.jumpBackLandsBefore
           && r.overviewCells === 4 && r.overviewMarks === 1 && r.paletteRow;
@@ -4914,9 +4961,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         r.trackChosen = !!deck.narration.status().track;
 
-        // 4 · start it deliberately — the palette's Narration play, the
+        // 4 · start it deliberately — the palette's Play the voice, the
         //     unconditional verb — and only THEN does ⎵ belong to the voice
-        runRow('narration play');
+        runRow('play the voice');
         await settle();
         await new Promise((ok) => setTimeout(ok, 300));
         r.playRowStartsTheVoice = !!deck.narration.status().narrating;
