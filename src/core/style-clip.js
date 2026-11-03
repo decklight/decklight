@@ -255,7 +255,7 @@ export function createStyleClip({ save, toast, repaint = () => {}, snap = () => 
       }
       if (holder) { if (was) holder.setAttribute('data-concept', was); else holder.removeAttribute('data-concept'); }
       if (concept) repaint();
-      toast(`style not pasted: ${String(e?.message || e).slice(0, 90)}`, 3400);
+      toast(`style not pasted: ${String(e?.message || e)}`, 6000);
       return false;
     }
     if (concept) repaint();

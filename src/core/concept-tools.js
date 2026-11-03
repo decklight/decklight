@@ -55,7 +55,7 @@ export function createConceptTools({ stage, editmode, choiceCard, toast, repaint
     try {
       await em.writeConcepts(targets, name);
     } catch (e) {
-      toast(`concept not saved: ${String(e.message || e).slice(0, 90)}`, 3400);
+      toast(`concept not saved: ${String(e.message || e)}`, 6000);
       return 0;
     }
     for (const t of targets) {

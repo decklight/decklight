@@ -734,3 +734,32 @@ test('POST /deck/edit/element/image refuses a bad payload with 400 and an absent
   const noChild = await call(routes, 'POST /deck/edit/element/image', { body: { slide: 2, index: 7, src: 'a.png', alt: '' } });
   assert.equal(noChild.code, 404, 'an index the slide does not have is not found, not a crash');
 });
+
+test('a slide op asked for in place is a quiet write that hands back the new slide, and other pages hear it (PRESENTING_EDITING)', async (t) => {
+  const quiet = [];
+  const told = [];
+  const { routes, readDeck } = harness(t, THREE, { quiet: (html) => quiet.push(html), broadcast: (event, data) => told.push({ event, data }) });
+  const made = await call(routes, 'POST /deck/edit/slide', { body: { op: 'new', slide: 1, quiet: true, from: 'page-a' } });
+  assert.equal(made.body.inPlace, true);
+  assert.equal(quiet.at(-1), readDeck(), 'the watcher skips exactly what this write put there');
+  assert.match(made.body.section, /^<section[\s\S]*New slide[\s\S]*<\/section>$/, 'the new slide as the file has it, for the page to put in');
+  assert.deepEqual(told.at(-1), { event: 'content', data: { from: 'page-a', slide: 2 } });
+  // a move in place has no markup to hand back; and one not asked for is the reload it always was
+  const moved = await call(routes, 'POST /deck/edit/slide', { body: { op: 'down', slide: 1, quiet: true } });
+  assert.equal(moved.body.inPlace, true);
+  assert.equal(moved.body.section, undefined);
+  const loud = await call(routes, 'POST /deck/edit/slide', { body: { op: 'up', slide: 2 } });
+  assert.equal(loud.body.inPlace, false);
+  assert.equal(quiet.length, 2, 'only the two asked for were quiet');
+});
+
+test('the pictures of one drop are placed quietly until the last, so the reload cannot cut the drop short', async (t) => {
+  const quiet = [];
+  const { routes, readDeck } = harness(t, THREE, { quiet: (html) => quiet.push(html) });
+  await call(routes, 'POST /deck/edit/element/image', { body: { slide: 1, src: 'a.png', alt: 'a', more: true } });
+  assert.equal(quiet.length, 1);
+  assert.equal(quiet[0], readDeck());
+  await call(routes, 'POST /deck/edit/element/image', { body: { slide: 1, src: 'b.png', alt: 'b' } });
+  assert.equal(quiet.length, 1, 'the last one reloads, all of them in');
+  assert.match(readDeck(), /a\.png[\s\S]*b\.png/);
+});

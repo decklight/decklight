@@ -533,7 +533,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * the moves.
    */
   function slideRoute({ body, json }) {
-    const { op, slide, to } = JSON.parse(body || '{}');
+    const { op, slide, to, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
     if (!SLIDE_OPS.has(op) || !Number.isInteger(slide) || slide < 1) {
       return json(400, { ok: false, error: 'bad payload' });
     }
@@ -573,7 +573,26 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     }, before, voices.plans);
     if (done.error) return json(409, { ok: false, error: done.error });
     console.log(`  slide ${op}: ${slide}${op === 'move' ? ` → ${to}` : ''} → ${after} slide${after === 1 ? '' : 's'}`);
-    return json(200, { ok: true, slide: show, total: after, ...history.counts() });
+    // Asked for IN PLACE (PRESENTING_EDITING), and no recording moved with
+    // it: the page that asked makes the same change itself, so the write is
+    // quiet (no reload there, its selection and scroll kept) and every other
+    // page hears it as content changed elsewhere. A new slide's own markup
+    // goes back with the answer, so the page puts in exactly what the file
+    // has. Recordings that moved need the voice reloaded with them: that
+    // stays a reload.
+    const quietly = inPlace && done.changed && !voices.plans.length;
+    let section;
+    if (quietly) {
+      const now = readDeck();
+      quiet(now);
+      broadcast('content', { from: typeof from === 'string' ? from.slice(0, 64) : null, slide: show });
+      if (op === 'new') {
+        const b = sectionBodies(now)[slide] ?? '';
+        const end = b.lastIndexOf('</section>');
+        if (end >= 0) section = `<section${b.slice(0, end + '</section>'.length)}`;
+      }
+    }
+    return json(200, { ok: true, slide: show, total: after, inPlace: quietly, ...(section ? { section } : {}), ...history.counts() });
   }
 
   // ── an image dropped on the stage ────────────────────────────────────────
@@ -710,7 +729,9 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * element edit mode on what it just made.
    */
   function imageRoute({ body, json }) {
-    const { slide, index = null, src, alt } = JSON.parse(body || '{}');
+    // `more: true` — another picture of the same drop follows: no reload yet,
+    // or the reload this write causes cut the drop off after its first file
+    const { slide, index = null, src, alt, more = false } = JSON.parse(body || '{}');
     const text = alt == null ? '' : alt;
     if (!Number.isInteger(slide) || slide < 1 || typeof text !== 'string'
         || (index !== null && (!Number.isInteger(index) || index < 0))) {
@@ -727,7 +748,8 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
         return out.html;
       });
     } catch (e) { return json(404, { ok: false, error: oneline(e) }); }
-    console.log(`  image added: slide ${slide} #${at} → ${src}`);
+    if (more) quiet(readDeck());
+    console.log(`  image added: slide ${slide} #${at} → ${src}${more ? ' (more to come)' : ''}`);
     return json(200, { ok: true, index: at, ...history.counts() });
   }
 

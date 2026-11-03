@@ -3087,6 +3087,13 @@ export function init(userConfig = {}) {
   // Docked overlays call this after changing a `--dock-*` var: it is the same
   // refit the ResizeObserver runs, but a var change is not a resize.
   instance._reflow = () => { if (!printMode) rescale(); };
+  // A slide op made in place (editmode.js): not in a deck of chapters, whose
+  // outline is built once; and an overview that is open is drawn again.
+  instance._slideOpsInPlace = () => !hasMarkersDOM && !playlist;
+  instance._afterSlideOp = () => {
+    try { sessionStorage.removeItem(OVERVIEW_OPEN_KEY); } catch { /* nothing kept */ }
+    if (overviewEl) { toggleOverview(); toggleOverview(); }
+  };
   if (!printMode) {
     new ResizeObserver(rescale).observe(root);
     rescale();
@@ -3287,7 +3294,7 @@ export function init(userConfig = {}) {
   // the deck. Built here, last, because it wants the instance and narration's
   // notes segmentation; it registers its own three overlays.
   const editmode = createEditMode({
-    root, config, params, printMode, toast, progress: progressToast, debugLog, debugReload, overlays, instance,
+    root, config, params, printMode, toast, actionToast, progress: progressToast, debugLog, debugReload, overlays, instance,
     notesSegs, notesDraft: notesDraftOf,
     // a migration's skill the agent does not have yet: where it goes (#893)
     choiceCard,

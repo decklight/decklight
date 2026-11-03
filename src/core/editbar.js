@@ -109,6 +109,7 @@ export function createEditBar({
       btn.addEventListener('click', (e) => { e.stopPropagation(); run(b.id, btn, e); });
       bar.append(btn);
     }
+    paintHistory();
     root.appendChild(bar);
     placeBar(readPlace());
     fileInput = document.createElement('input');
@@ -378,6 +379,18 @@ export function createEditBar({
     root.classList.toggle('dl-editmode', editingOn());
   }
   editmode.onElementEditChange(sync);
+  // Undo and Redo greyed out when there is nothing to take back or put back
+  // (PRESENTING_EDITING); before the server has said, both are live
+  function paintHistory() {
+    const c = editmode.historyCounts?.();
+    for (const [id, n] of [['undo', c?.undo], ['redo', c?.redo]]) {
+      const btn = bar?.querySelector(`.eb-${id}`);
+      if (!btn) continue;
+      btn.disabled = n === 0;
+      btn.title = n === 0 ? `nothing to ${id}` : BUTTONS.find((b) => b.id === id).title;
+    }
+  }
+  editmode.onHistoryCounts?.(paintHistory);
 
   return {
     sync, keydown, refresh, selected: () => selected, isOpen: () => !!bar,

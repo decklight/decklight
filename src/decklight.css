@@ -3841,6 +3841,9 @@
 }
 .decklight-editbar .eb-btn:hover { background: rgba(255, 255, 255, .12); }
 .decklight-editbar .eb-btn:active { background: rgba(255, 255, 255, .2); }
+/* nothing to undo or redo (editbar.js): said by the button, greyed out */
+.decklight-editbar .eb-btn:disabled { opacity: .38; cursor: default; }
+.decklight-editbar .eb-btn:disabled:hover, .decklight-editbar .eb-btn:disabled:active { background: none; }
 .decklight-editbar .eb-key {
   font: 600 10px/1 system-ui, sans-serif;
   padding: 3px 5px; border-radius: 5px;

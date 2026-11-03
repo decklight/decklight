@@ -42,13 +42,22 @@ import { aiIcon } from './aiicon.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
-  root, config, params, printMode, toast, progress, debugLog, debugReload = () => {}, overlays, instance,
+  root, config, params, printMode, toast, actionToast = null, progress, debugLog, debugReload = () => {}, overlays, instance,
   notesSegs, notesDraft = (sl) => notesSegs(sl).join('\n\n⟨CLICK⟩\n\n'), renderTheme = () => ({}), previewQuery = () => '?embedded',
   knownConcepts = () => [],
   captionsOn = () => false, toggleCaptions = null,
   choiceCard = null,
   speak = null,
 }) {
+  // An error, said in full (PRESENTING_EDITING): every failure message here
+  // used to be cut at sixty or eighty characters, mid-sentence, which is
+  // usually just before the part that says what to do. Whitespace collapsed,
+  // and a cap only against a whole page of server output.
+  const errText = (e) => {
+    const t = String(e?.message ?? e ?? '').replace(/\s+/g, ' ').trim();
+    return t.length > 600 ? `${t.slice(0, 600)}…` : t;
+  };
+
   // ── write mode + live reload — SPEC PRESENTING ───────────────────────────────────
   // Served by the edit server: the deck subscribes to /deck/events and
   // reloads whenever the file changes on disk (any editor works — the
@@ -687,6 +696,7 @@ export function createEditMode({
           }
           served = true;
           editBase = base;
+          noteHistory(j);
           locked = j.locked === true;
           editAvailable = !locked;
           paintLockChip();
@@ -1203,7 +1213,24 @@ export function createEditMode({
   // Bounded: a write queued behind a saturated socket pool would otherwise hold
   // Z hostage forever, and its own catch path (the "save failed" toast) would
   // never run — see boundedFetch.
-  const writeFetch = (url, init) => trackWrite(boundedFetch(url, init));
+  const writeFetch = (url, init) => {
+    const p = boundedFetch(url, init);
+    // every write's answer carries the undo stack's counts: kept, for the bar
+    p.then((res) => res.clone().json().then(noteHistory, () => {}), () => {});
+    return trackWrite(p);
+  };
+  // ── how much there is to undo and redo ───────────────────────────────────
+  // The bar's Undo and Redo were never greyed out, so they offered to undo
+  // when there was nothing to undo. The server says the counts with the ping,
+  // every write and every undo; whoever shows them is told when they change.
+  let histCounts = null;
+  const histListeners = new Set();
+  function noteHistory(j) {
+    if (!j || !Number.isInteger(j.undo) || !Number.isInteger(j.redo)) return;
+    if (histCounts && histCounts.undo === j.undo && histCounts.redo === j.redo) return;
+    histCounts = { undo: j.undo, redo: j.redo };
+    for (const fn of histListeners) { try { fn(histCounts); } catch { /* a listener's own */ } }
+  }
 
   // ── a quick fix, reviewed before it lands (#907, fixreview.js) ───────────
   // Check deck…'s fixes are held by the server as a candidate; this is the
@@ -1241,7 +1268,10 @@ export function createEditMode({
   function sayAfterReload() {
     let kept = null;
     try { kept = JSON.parse(sessionStorage.getItem(SAID_KEY) || 'null'); sessionStorage.removeItem(SAID_KEY); } catch { /* nothing kept */ }
-    if (kept?.said && Date.now() - kept.t < 10000) toast(kept.said, 3200);
+    if (kept?.said && Date.now() - kept.t < 10000) {
+      // a removal says it with its Undo button, on the page the reload brought
+      if (kept.undo) undoToast(kept.said); else toast(kept.said, 3200);
+    }
   }
   async function deckHistory(dir) {
     if (!editAvailable) {
@@ -1252,6 +1282,7 @@ export function createEditMode({
     try {
       const res = await fetch(editBase + '/deck/edit/' + dir, { method: 'POST' });
       const j = await res.json().catch(() => ({}));
+      noteHistory(j);
       if (!res.ok) { toast(j.error || `${dir} failed`); return; }
       // Said by what it took back, and on its slide: "Undid: notes on slide
       // 7", the deck going there. The file changed, so the page reloads; the
@@ -1526,7 +1557,7 @@ export function createEditMode({
         toast(`${a.label}: ${a.model ? `runs on ${a.model}` : 'its own default model'}`, 1800);
         debugLog('agent', `${a.name} model → ${a.model ?? 'default'}`);
       } catch (e) {
-        toast(`model not saved: ${String(e.message || e).slice(0, 60)}`, 2200);
+        toast(`model not saved: ${String(e.message || e)}`, 6000);
       }
       paintModel();
     });
@@ -1553,7 +1584,7 @@ export function createEditMode({
         else { ta.value = ''; rememberAgentOpen(true); }
         // progress lands as SSE 'agent' events → toasts and the log; the reload follows the save
       } catch (e) {
-        toast(`ask failed: ${String(e.message || e).slice(0, 60)}`, 2200);
+        toast(`ask failed: ${String(e.message || e)}`, 6000);
       }
     };
     ta.addEventListener('keydown', (e) => {
@@ -1611,7 +1642,7 @@ export function createEditMode({
       return true;
     } catch (e) {
       if (!wasOpen) rememberAgentOpen(false);
-      toast(`migrate failed — ${String(e.message || e).slice(0, 120)}`, 6000);
+      toast(`migrate failed — ${String(e.message || e)}`, 6000);
       return false;
     }
   }
@@ -1985,7 +2016,7 @@ export function createEditMode({
         pending = null;
         saving = false;
         syncChanged();   // still unsaved, and the mark says so
-        toast(`save failed: ${String(e.message || e).slice(0, 90)}`, 6000);
+        toast(`save failed: ${String(e.message || e)}`, 6000);
       }
     };
     if (!notesRO) notesSave = save;
@@ -2424,29 +2455,95 @@ export function createEditMode({
    * answers with the slide to be on afterwards, and the hash is moved there
    * before the file watcher's reload lands, so the reload opens on it.
    */
+  // ── a slide op, in place (PRESENTING_EDITING) ────────────────────────────
+  // Adding, duplicating, moving or deleting a slide reloaded the whole page,
+  // losing the selection, the scroll and the panel's place. The page now
+  // makes the same change itself, asks the server for a quiet write, and
+  // re-reads its slides (instance.sync). Where that cannot be trusted, it is
+  // still a reload: a deck of chapters (their outline is built once), a
+  // duplicate of a slide with something live on it (a terminal, a video, a
+  // frame: a copy of the page would be a dead copy), or recordings that moved
+  // with the slides (the server says so, and the voice reloads with them).
+  const LIVE = '.terminal, video, audio, iframe, canvas';
+  function canDoInPlace(op, slide) {
+    if (!instance.sync || instance._slideOpsInPlace?.() === false) return false;
+    if (op === 'duplicate' && instance._sections[slide - 1]?.querySelector(LIVE)) return false;
+    return true;
+  }
+  function applySlideOp(op, slide, to, j) {
+    const secs = instance._sections;
+    const at = (n) => secs[n - 1];
+    switch (op) {
+      case 'delete': at(slide).remove(); break;
+      case 'up': at(slide - 1).before(at(slide)); break;
+      case 'down': at(slide + 1).after(at(slide)); break;
+      case 'move': {
+        const node = at(slide);
+        const rest = secs.filter((x) => x !== node);
+        if (to > rest.length) rest.at(-1).after(node); else rest[to - 1].before(node);
+        break;
+      }
+      case 'duplicate': {
+        const copy = at(slide).cloneNode(true);
+        copy.classList.remove('active', 'prev', 'next', 'leaving', 'entering');
+        at(slide).after(copy);
+        break;
+      }
+      case 'new': {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = j.section ?? '';
+        const fresh = tpl.content.querySelector('section');
+        if (!fresh) throw new Error('no slide came back');
+        at(slide).after(fresh);
+        break;
+      }
+      default: throw new Error(`no in-place ${op}`);
+    }
+    instance.sync();
+    if (instance.state.totalSlides !== j.total) throw new Error(`the page has ${instance.state.totalSlides} slides, the file ${j.total}`);
+    instance.goto(j.slide, 0, { force: true });
+    instance._afterSlideOp?.();
+  }
   async function slideOp(op, { slide = instance.state.slide, to = null } = {}) {
     if (!editAvailable) { toast(cannot('editing slides'), 3200); return; }
+    const inPlace = canDoInPlace(op, slide);
     try {
       const res = await writeFetch(editBase + '/deck/edit/slide', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ op, slide, ...(op === 'move' ? { to } : {}) }),
+        body: JSON.stringify({ op, slide, ...(op === 'move' ? { to } : {}), ...(inPlace ? { quiet: true, from: PAGE_ID } : {}) }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || String(res.status));
       const said = {
         new: `new slide added after ${slide}`,
         duplicate: `slide ${slide} duplicated`,
-        delete: `slide ${slide} deleted — ${UNDO_CHORD} takes it back`,
+        delete: `slide ${slide} deleted`,
         up: `slide ${slide} moved up`,
         down: `slide ${slide} moved down`,
         move: `slide ${slide} moved to ${to}`,
       }[op] ?? 'done';
-      toast(`${said} — reloading`, 2000);
-      if (Number.isInteger(j.slide)) location.hash = `#/${j.slide}/0`;
+      let placed = false;
+      if (j.inPlace) {
+        try { applySlideOp(op, slide, to, j); placed = true; } catch (e) {
+          // the page could not follow: the file is right, so the page reloads to it
+          debugLog('edit', `slide ${op} in place failed (${String(e.message || e)}) — reloading`);
+          if (Number.isInteger(j.slide)) location.hash = `#/${j.slide}/0`;
+          reloadWhenSafe(`slide ${op} — the page could not follow it in place`);
+        }
+      } else if (Number.isInteger(j.slide)) location.hash = `#/${j.slide}/0`;
+      // a delete says how to take it back with a button, not in words
+      if (op === 'delete') undoToast(said);
+      else toast(placed || !j.inPlace ? (placed ? said : `${said} — reloading`) : said, 2000);
     } catch (e) {
-      toast(`could not ${op === 'new' ? 'add a slide' : `${op} the slide`}: ${String(e.message || e).slice(0, 80)}`, 3000);
+      toast(`could not ${op === 'new' ? 'add a slide' : `${op} the slide`}: ${errText(e)}`, 6000);
       throw e;
     }
+  }
+  /** A message about something just removed, with an Undo button on it, gone on its own after a while. */
+  function undoToast(said, ms = 9000) {
+    if (!actionToast) { toast(`${said} — ${UNDO_CHORD} takes it back`, 4000); return; }
+    const t = actionToast(said, [[`Undo (${UNDO_CHORD})`, () => { deckHistory('undo'); }]]);
+    setTimeout(() => t.close?.(), ms);
   }
 
   async function commitRemove(target = menuTarget, { whole = false } = {}) {
@@ -2464,9 +2561,12 @@ export function createEditMode({
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || res.status);
-      toast(j.changed ? 'element removed — reloading' : 'nothing to remove');
+      if (j.changed) {
+        toast('element removed — reloading', 1600);
+        try { sessionStorage.setItem(SAID_KEY, JSON.stringify({ said: `element removed from slide ${slide}`, undo: true, t: Date.now() })); } catch { /* said here only */ }
+      } else toast('nothing to remove');
     } catch (e) {
-      toast(`remove failed: ${String(e.message || e).slice(0, 60)}`, 2200);
+      toast(`remove failed: ${String(e.message || e)}`, 6000);
     }
   }
 
@@ -2482,7 +2582,7 @@ export function createEditMode({
       if (!res.ok) throw new Error(j.error || res.status);
       toast(effect === null ? 'effect removed — reloading' : `effect: ${effect} — reloading`);
     } catch (e) {
-      toast(`effect save failed: ${String(e.message || e).slice(0, 60)}`, 2200);
+      toast(`effect save failed: ${String(e.message || e)}`, 6000);
     }
   }
 
@@ -2548,7 +2648,7 @@ export function createEditMode({
       if (!res.ok) throw new Error(j.error || res.status);
       toast(!j.changed ? 'concept unchanged' : name === null ? `detached from its concept — reloading · ${UNDO_CHORD} takes it back` : `now the “${name}” concept — reloading · ${UNDO_CHORD} takes it back`);
     } catch (e) {
-      toast(`concept not saved: ${String(e.message || e).slice(0, 90)}`, 3400);
+      toast(`concept not saved: ${String(e.message || e)}`, 6000);
     }
   }
   /** "New concept…": a name typed into the menu itself; ⏎ sets it, Esc goes back. */
@@ -2738,7 +2838,7 @@ export function createEditMode({
       } catch (e) {
         forgetEditorOpen();   // no reload is coming
         sourceWas = was;
-        toast(`save failed${offline ? ': the edit server is not answering' : `: ${String(e.message || e).slice(0, 60)}`} — your HTML is still in the box`, 6000);
+        toast(`save failed${offline ? ': the edit server is not answering' : `: ${String(e.message || e)}`} — your HTML is still in the box`, 6000);
       }
     };
     ta.addEventListener('keydown', (e) => {
@@ -2796,7 +2896,7 @@ export function createEditMode({
         pre.scrollTop = 0;
       } catch (e) {
         ta.value = '';
-        toast(`could not read the element's source: ${String(e.message || e).slice(0, 60)}`, 2600);
+        toast(`could not read the element's source: ${String(e.message || e)}`, 6000);
       }
     })();
   }
@@ -3566,7 +3666,7 @@ export function createEditMode({
         closeWizard();
         toast(`${schema.title} configured`, 2200);
       } catch (e) {
-        status.textContent = `could not reach the edit server — ${String(e.message || e).slice(0, 50)}`;
+        status.textContent = `could not reach the edit server — ${String(e.message || e)}`;
         save.disabled = false;
       }
     }
@@ -3986,7 +4086,7 @@ export function createEditMode({
       if (!agentEl) toggleAgentAsk(); else paintAsks?.();
       return true;
     } catch (e) {
-      toast(`could not ask for the fix: ${String(e.message || e).slice(0, 60)}`, 2600);
+      toast(`could not ask for the fix: ${String(e.message || e)}`, 6000);
       return false;
     }
   }
@@ -4011,7 +4111,7 @@ export function createEditMode({
       if (!agentEl) toggleAgentAsk(); else paintAsks?.();
       return true;
     } catch (e) {
-      toast(`could not ask for the explanation: ${String(e.message || e).slice(0, 60)}`, 2600);
+      toast(`could not ask for the explanation: ${String(e.message || e)}`, 6000);
       return false;
     }
   }
@@ -4049,7 +4149,7 @@ export function createEditMode({
       if (j.reload) location.reload();   // nothing in the deck changed, but what the page links did
       return j;
     } catch (e) {
-      toast(`could not fix ${rule} — ${String(e.message || e).slice(0, 120)}`, 5000);
+      toast(`could not fix ${rule} — ${String(e.message || e)}`, 5000);
       return null;
     }
   }
@@ -4133,6 +4233,10 @@ export function createEditMode({
     cycleNotesQuiet,
     /** Hold undo/redo until this write lands — the gestures in authoring.js post outside this module. */
     trackWrite,
+    /** What there is to undo and redo, `{ undo, redo }`, or null before the server has said; and who wants to hear when it changes. */
+    historyCounts: () => histCounts,
+    noteHistory,
+    onHistoryCounts: (fn) => { histListeners.add(fn); },
     /** Has the line to the edit server dropped? A failed save says so rather than a status code. */
     offline: () => offline,
     toggleEditor,

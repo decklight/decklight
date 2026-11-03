@@ -468,7 +468,7 @@ export function createFixReview({
       const r = await fetch(`${base()}/deck/edit/candidate${id ? `?id=${encodeURIComponent(id)}` : ''}`);
       j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || r.status);
-    } catch (e) { toast(`nothing to review — ${String(e.message || e).slice(0, 80)}`, 3000); return; }
+    } catch (e) { toast(`nothing to review — ${String(e.message || e)}`, 3000); return; }
     cand = j;
     decisions = new Map();
     adjusting = j.adjusting ?? null;
@@ -985,7 +985,7 @@ export function createFixReview({
       if (adjusting === key) toast(`🤖 ${j.agent} is adjusting ${placeOf(key)}…`, 2400);
     } catch (e) {
       if (adjusting === key) adjusting = null;
-      toast(`could not ask for the change — ${String(e.message || e).slice(0, 100)}`, 4000);
+      toast(`could not ask for the change — ${String(e.message || e)}`, 6000);
     } finally { if (el) { paintDecision(); paintRail(); } }
   }
 
@@ -1038,7 +1038,7 @@ export function createFixReview({
     } catch (e) {
       busy = false;
       if (el) paintDecision();
-      toast(`could not apply it — ${String(e.message || e).slice(0, 120)}`, 5000);
+      toast(`could not apply it — ${String(e.message || e)}`, 5000);
     }
   }
 

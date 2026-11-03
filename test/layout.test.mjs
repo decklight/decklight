@@ -137,7 +137,7 @@ test('a slide template is not the ring\'s to cycle — L says so and changes not
   h.cycler.cycle(1);
   assert.equal(h.sections[0].attrs['data-template'], 'acme/section-divider', 'the reference is never overwritten');
   assert.equal(h.sections[0].attrs['data-layout'], undefined, 'and no built-in layout is written beside it');
-  assert.match(h.toasts[0], /this slide is the acme\/section-divider template — the design system lays it out; L does not cycle it/);
+  assert.match(h.toasts[0], /this slide is the acme\/section-divider template — the design system lays it out; Layout does not cycle it/);
   h.tick();
   assert.deepEqual(h.posted, [], 'and nothing is written to the file');
 });

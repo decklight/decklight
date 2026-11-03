@@ -1071,8 +1071,8 @@ const WRITE_LABELS = {
   '/deck/edit/element/image': 'image placed',
   '/deck/edit/concepts': 'concept colours saved',
   '/deck/edit/asset': 'asset added',
-  '/deck/edit/undo': 'undo (Z)',
-  '/deck/edit/redo': 'redo (⇧Z)',
+  '/deck/edit/undo': 'undo',
+  '/deck/edit/redo': 'redo',
   '/deck/edit/restore': 'restored from git',
   '/deck/edit/theme': 'theme picked',
   '/deck/edit/brand-themes': 'brand themes set',
@@ -4132,7 +4132,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       url: `http://127.0.0.1:${actual}${deckUrl}`,
       keys: 'Ctrl-C stops',
     }));
-  } else console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — editing on, L layouts, Z undo, A agent. Ctrl-C stops`);
+  } else console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — editing on, ${process.platform === 'darwin' ? '⌘Z' : 'Ctrl+Z'} undo, A agent, / everything else. Ctrl-C stops`);
   if (token) {
     console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/deck/remote?t=${token}`);
     console.log('  off this machine ONLY /deck/remote/* answers, with that token — the deck itself does not');

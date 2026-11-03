@@ -244,7 +244,7 @@ export function createLookOffer({ root, base, toast, preview, restore, keep, deb
       if (!r.ok || !j.ok) throw new Error(j.error || `the edit server answered ${r.status}`);
       keep(j.look ?? offer);
       shut();
-      toast(`${offer.title || offer.ref}'s look applied${j.look?.phrase ? ` — ${j.look.phrase}` : ''} · Z puts the old look back`, 4200);
+      toast(`${offer.title || offer.ref}'s look applied${j.look?.phrase ? ` — ${j.look.phrase}` : ''} · ${UNDO_CHORD} puts the old look back`, 4200);
       debugLog('design-system', `applied ${offer.ref}'s look`);
     } catch (e) {
       restore(was);

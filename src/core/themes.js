@@ -225,7 +225,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `the server said ${r.status}`);
     } catch (e) {
-      toast(`the theme is on screen but not in the file — ${String(e.message || e).slice(0, 100)}`, 4000);
+      toast(`the theme is on screen but not in the file — ${String(e.message || e)}`, 6000);
     }
   }
   // The cycle keys browse: the theme on screen changes on every press, and
@@ -1027,7 +1027,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
     } catch (e) {
-      toast(`not changed — ${String(e.message || e).slice(0, 100)}`, 4000);
+      toast(`not changed — ${String(e.message || e)}`, 6000);
       return;
     }
     brandOnly = only;
