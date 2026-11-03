@@ -34,7 +34,7 @@ import { deckBehind, designSystemRefs, marketplaceDesignSystems, planMigration }
 import { configHome, loadRegistry } from './marketplace.mjs';
 import { applyRenames, composeRenames, findRenamed, migrationsOf } from '../tools/design-system-migrations.mjs';
 import { tokenPrefixOf } from '../tools/design-system-format.mjs';
-import { locateSlide, sectionBodies } from '../tools/deck-html.mjs';
+import { locateSlide, sectionBodies, slideName } from '../tools/deck-html.mjs';
 
 /** The rules whose fix is deterministic and safe to apply to every slide at once. */
 export const BATCH_RULES = ['off-role'];
@@ -157,7 +157,7 @@ export function quickFixes(findings, html, dir, { home = configHome(), deck = 'd
         if (!found.length) return null;
         return {
           kind: 'rename', slide: f.slide, batch: true,
-          label: `Rename ${found.length === 1 ? `${found[0].from} → ${found[0].to}` : `${found.length} roles to their successors`} on slide ${f.slide}`,
+          label: `Rename ${found.length === 1 ? `${found[0].from} → ${found[0].to}` : `${found.length} roles to their successors`} on ${slideName(sectionBodies(html)[f.slide - 1])}`,
         };
       }
       case 'ds-unresolved': {
@@ -182,5 +182,13 @@ export function quickFixes(findings, html, dir, { home = configHome(), deck = 'd
   });
 }
 
-/** `fix: <rule> on slide N`, or `fix: <rule>` for the deck — the commit a quick fix makes. */
-export const fixSubject = (rule, slide = null) => `fix: ${rule}${slide ? ` on slide ${slide}` : ''}`;
+/**
+ * `fix: <rule> on "Slide Title"`, or `fix: <rule>` for the deck — the commit a
+ * quick fix makes. `slide` is the slide's number, named from `html` the way
+ * every subject decklight writes names one (`slideName`), never by the number.
+ */
+export const fixSubject = (rule, slide = null, html = '') => {
+  const body = slide ? sectionBodies(String(html ?? ''))[slide - 1] : undefined;
+  const name = body === undefined ? null : slideName(body);
+  return `fix: ${rule}${name ? ` on ${name}` : ''}`;
+};

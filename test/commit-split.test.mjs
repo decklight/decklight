@@ -54,6 +54,10 @@ test('a unit is named by the slides it touches', () => {
   assert.equal(whereLabel([3]), 'slide 3');
   assert.equal(whereLabel([3, 4]), 'slides 3-4');
   assert.equal(whereLabel([2, 5]), 'slides 2, 5');
+  const names = ['"One"', '"Two"', '"Three"', '"Four"', 'the split slide'];
+  assert.equal(whereLabel([3], names), 'slide 3 — "Three"', 'the agent is shown what to call it');
+  assert.equal(whereLabel([3, 4], names), 'slides 3-4 — "Three" and "Four"');
+  assert.equal(whereLabel([2, 5], names), 'slides 2, 5 — "Two" and the split slide');
 });
 
 test('slides changed, added and removed are counted the way a diff counts lines', () => {
@@ -188,7 +192,7 @@ test('three edits on three slides, grouped two and one by the agent, land as two
     resolve: (_a, prompt) => ({ prompt }), exec: async () => answer,
   });
   assert.equal(w.units.length, 3);
-  assert.deepEqual(w.units.map((u) => u.where), ['slide 1', 'slide 3', 'slide 4']);
+  assert.deepEqual(w.units.map((u) => u.where), ['slide 1 — "Slide 1"', 'slide 3 — "Slide 3"', 'slide 4 — "Slide 4"']);
   assert.deepEqual(commits, [{ subject: 'shout the first and last points', units: [1, 3] }, { subject: 'shout the third point', units: [2] }]);
 
   const before = g(dir, 'rev-parse', 'HEAD');
@@ -275,7 +279,7 @@ test('an unticked commit stays uncommitted: the others land without it, and it c
   // what was left out comes back as a plan for the new HEAD, subject and all
   assert.ok(made.left, 'the remainder was not handed back');
   assert.deepEqual(made.left.commits, [{ subject: 'shout the third point', units: [1] }]);
-  assert.deepEqual(made.left.units.map((u) => u.where), ['slide 3']);
+  assert.deepEqual(made.left.units.map((u) => u.where), ['slide 3 — "Slide 3"']);
   const rest = commitPlan({
     cwd: dir, deckRel: 'deck.html', base: made.left.base, template: 't',
     commits: made.left.commits.map((c) => ({ message: c.subject, units: c.units })),

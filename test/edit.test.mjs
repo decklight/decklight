@@ -312,6 +312,7 @@ test('agentCommand builds each agent\'s headless one-shot invocation', () => {
   const here = agentCommand('claude', 'add a basic svg on this slide', 'deck.html', { hasBin: () => true, slide: 2 });
   assert.match(here.args[1], /The presenter is on slide 2, the second top-level <section>/);
   assert.match(here.args[1], /do not call the commit route/);
+  assert.match(here.args[1], /name a slide by its title, or by a few words describing it when it has none, never by its number/, 'the summary is the subject');
   assert.doesNotMatch(claude.args[1], /The presenter is on slide/, 'no slide, no sentence');
 
   // a folder outside the project the job must read: claude is given it, and only it
@@ -1076,7 +1077,7 @@ test('POST /deck/edit/enhance: the agent drafts tags read-only, the slides that 
 
   const applied = await (await post(base, '/deck/edit/candidate/apply', { id: c.id, take: ['s1'] })).json();
   assert.equal(applied.ok, true, JSON.stringify(applied));
-  assert.equal(applied.commit.subject, 'script: audio tags on slide 1');
+  assert.equal(applied.commit.subject, 'script: audio tags on "Alpha"');
   const after = readFileSync(deck, 'utf8');
   assert.match(after, /<p>\[warm\] Hello there!<\/p>\s*<p>\[click\]<\/p>\s*<p>Next beat\.<\/p>/);
   assert.match(after, /Keep my words\./, 'the reworded answer was not written');
@@ -1240,7 +1241,7 @@ test('POST /deck/edit/rewrite: the slide text, tightened by the agent run by run
 
   const applied = await (await post(base, '/deck/edit/candidate/apply', { id: c.id, take: ['s1'] })).json();
   assert.equal(applied.ok, true, JSON.stringify(applied));
-  assert.equal(applied.commit.subject, 'text: tightened on slide 1');
+  assert.equal(applied.commit.subject, 'text: tightened on "A"');
   assert.match(readFileSync(deck, 'utf8'), /<h2>A<\/h2>/);
   assert.match(readFileSync(deck, 'utf8'), /<h2>Beta<\/h2>/, 'the refused slide is as it was');
   await post(base, '/deck/edit/undo');
@@ -1854,7 +1855,7 @@ test('the commit window cuts the work into the commits an agent proposes, tags H
   const plan = await (await post(base, '/deck/edit/commit/plan', {})).json();
   assert.equal(plan.ok, true, plan.error);
   assert.deepEqual(plan.commits, [{ subject: 'rename the first slide', units: [1] }, { subject: 'rename the second slide', units: [2] }]);
-  assert.deepEqual(plan.units.map((u) => u.where), ['slide 1', 'slide 2']);
+  assert.deepEqual(plan.units.map((u) => u.where), ['slide 1 — "First"', 'slide 2 — "Second"']);
 
   const split = await (await post(base, '/deck/edit/commit/split', {
     base: plan.base, commits: plan.commits.map((c) => ({ message: c.subject, units: c.units })),
@@ -1932,7 +1933,7 @@ test('the commit window makes only the ticked commits: the rest stays uncommitte
   assert.deepEqual(git(['log', '--format=%s', '-2'], repo).split('\n'), ['rename the first slide', 'the deck']);
   assert.equal(readFileSync(path.join(repo, 'deck.html'), 'utf8'), work, 'the working file is untouched');
   assert.deepEqual(split.left.commits, [{ subject: '', units: [1] }]);
-  assert.deepEqual(split.left.units.map((u) => u.where), ['slide 2']);
+  assert.deepEqual(split.left.units.map((u) => u.where), ['slide 2 — "Second"']);
 
   const rest = await (await post(base, '/deck/edit/commit/split', {
     base: split.left.base, commits: [{ message: 'rename the second slide', units: split.left.commits[0].units }],
@@ -1990,7 +1991,7 @@ test('a quick fix asked for review is held: the deck is not written or committed
 
   const applied = await (await post(base, '/deck/edit/candidate/apply', { id: c.id, take: ['s2'] })).json();
   assert.equal(applied.ok, true, JSON.stringify(applied));
-  assert.deepEqual(applied.commit, { subject: 'fix: off-role on slide 2', body: '' });
+  assert.deepEqual(applied.commit, { subject: 'fix: off-role on "Beta, fixed"', body: '' });
   assert.match(readFileSync(deck, 'utf8'), /Beta, fixed/);
   const now = await (await fetch(base + '/deck/ping')).json();
   assert.equal(now.undo, 1, 'one undo entry for the whole apply');

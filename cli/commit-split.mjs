@@ -33,7 +33,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve as resolvePath } from 'node:path';
 import { agentAsk } from './agents.mjs';
-import { ASK_TIMEOUT_MS, ask, deckOutline, deckTitle, describeWorking, reviewSubject } from './commit-message.mjs';
+import { ASK_TIMEOUT_MS, ask, deckOutline, deckTitle, describeWorking, reviewSubject, slideNames } from './commit-message.mjs';
+import { slideNamesPhrase } from '../tools/deck-html.mjs';
 import { GIT_MAX_BUFFER, classifyRemoteError, commitSubject, isIdentityError, noPromptEnv, oneline, remoteState } from './git.mjs';
 
 /** Past this many hunks, the hunks of one slide travel together. */
@@ -96,12 +97,20 @@ const slidesAt = (outline, from, count) => {
   return outline.filter((s) => s.from <= last && s.to >= from).map((s) => s.index);
 };
 
-/** "slide 3", "slides 3-4", "slides 2, 5", or where a change outside any slide is. */
-export function whereLabel(slides) {
+/**
+ * "slide 3", "slides 3-4", "slides 2, 5", or where a change outside any slide
+ * is, followed by what the slides are called when `names` (from `slideNames`)
+ * says: `slide 3 — "The Freshness Problem"`. The agent grouping the units is
+ * asked to name slides by their words, so it has to be shown them: given only
+ * the number, it falls back on the number.
+ */
+export function whereLabel(slides, names = []) {
   if (!slides.length) return 'theme or metadata';
-  if (slides.length === 1) return `slide ${slides[0]}`;
   const run_ = slides.every((s, i) => i === 0 || s === slides[i - 1] + 1);
-  return run_ ? `slides ${slides[0]}-${slides[slides.length - 1]}` : `slides ${slides.join(', ')}`;
+  const at = slides.length === 1 ? `slide ${slides[0]}`
+    : run_ ? `slides ${slides[0]}-${slides[slides.length - 1]}` : `slides ${slides.join(', ')}`;
+  const called = slideNamesPhrase(slides.map((n) => names[n - 1]));
+  return called ? `${at} — ${called}` : at;
 }
 
 /**
@@ -143,6 +152,7 @@ export function workingUnits({ cwd, deckRel, also = [] }) {
       continue;
     }
     const outline = deckOutline(work);
+    const names = slideNames(work);
     let mine = hunks.map((h) => ({
       file: rel, whole: false, hunks: [h],
       slides: slidesAt(outline, h.newStart, h.newCount),
@@ -161,7 +171,7 @@ export function workingUnits({ cwd, deckRel, also = [] }) {
     for (const u of mine) {
       units.push({
         ...u,
-        where: whereLabel(u.slides),
+        where: whereLabel(u.slides, names),
         lines: u.hunks.reduce((n, h) => n + h.oldCount + h.newCount, 0),
         diff: u.hunks.map((h) => h.text.join('\n')).join('\n'),
       });
@@ -291,11 +301,11 @@ export async function planWorking({
   const rest = work.units.filter((u) => u.file !== deckRel);
   const commits = [];
   let unread = null;
+  let html = '';
+  try { html = read(deckPath, 'utf8'); } catch { /* the title and the names are optional */ }
   if (deckUnits.length) {
     let groups = [];
     let answer = null;
-    let html = '';
-    try { html = read(deckPath, 'utf8'); } catch { /* the title is optional */ }
     const spawned = resolve(agent, planPrompt({ deck: deckRel, title: deckTitle(html), units: deckUnits }), { env });
     if (spawned) {
       try { answer = await exec(spawned, cwd, timeoutMs); } catch { answer = null; }
@@ -315,7 +325,7 @@ export async function planWorking({
     commits.push(...deckCommits);
   }
   if (rest.length) {
-    const side = rest.map((u) => reviewSubject(addedLines(work.files[u.file]))).find(Boolean);
+    const side = rest.map((u) => reviewSubject(addedLines(work.files[u.file]), { names: slideNames(html) })).find(Boolean);
     commits.push({ subject: side ?? '', units: rest.map((u) => u.id) });
   }
   return { work, commits, unread };

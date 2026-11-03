@@ -9,7 +9,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { locateSlide, sectionChildRanges, isHiddenSection, sectionBodies } from '../tools/deck-html.mjs';
+import { locateSlide, sectionChildRanges, isHiddenSection, sectionBodies, slideName, slideNamesPhrase, SLIDES_TAIL } from '../tools/deck-html.mjs';
+import { slideCalled } from '../src/core/deckcheck.js';
 
 // sectionChildRanges takes `parts[idx]` exactly as locateSlide hands it back —
 // this helper is what every real caller (cli/edit.mjs) does first.
@@ -120,4 +121,35 @@ test('the Node and runtime escapes are the same function, spelled twice', async 
 test('isHiddenSection reads the open tag and nothing else', () => {
   const bodies = sectionBodies('<section data-hidden><p>data-hidden</p></section><section><p data-hidden>x</p></section><section data-hidden="true"></section>');
   assert.deepEqual(bodies.map(isHiddenSection), [true, false, true], 'the attribute counts on the section, not on a child');
+});
+
+test('slideName calls a slide by its heading, else a few words, and never by its number', () => {
+  const name = (html) => slideName(sectionBodies(html)[0]);
+  assert.equal(name('<section><h2>The <em>Freshness</em> Problem</h2><p>x</p></section>'), '"The Freshness Problem"');
+  assert.equal(name('<section><p>lead</p><h3>Later heading</h3></section>'), '"Later heading"', 'any h1-h3, wherever it sits');
+  assert.equal(name('<section><svg role="img" aria-label="Kafka to agents"><text>k</text></svg></section>'), 'the "Kafka to agents" diagram');
+  assert.equal(name('<section><p>Thank you all for coming tonight, truly</p><aside class="notes">said, not shown</aside></section>'),
+    'the slide "Thank you all for coming…"', 'the opening words, never the notes');
+  assert.equal(name('<section data-layout="split"></section>'), 'the split slide');
+  assert.equal(name('<section></section>'), 'an empty slide');
+  const long = name(`<section><h2>${'word '.repeat(20)}</h2></section>`);
+  assert.ok(long.length <= 42 && long.endsWith('…"'), long);
+  assert.doesNotMatch([long, name('<section></section>')].join(' '), /slide \d/);
+});
+
+test('slideNamesPhrase joins two names and counts the rest; SLIDES_TAIL finds any of them', () => {
+  assert.equal(slideNamesPhrase(['"A"']), '"A"');
+  assert.equal(slideNamesPhrase(['"A"', '"B"', '"A"']), '"A" and "B"');
+  assert.equal(slideNamesPhrase(['"A"', 'the split slide', '"C"']), '"A" and 2 other slides');
+  assert.equal(slideNamesPhrase([]), '');
+  for (const tail of ['on slides 2 and 3', 'on the deck', 'on "A"', 'on "A" and the slide "b c"', 'on the "k" diagram and 4 other slides', 'on an untitled slide']) {
+    assert.equal(`fix: off-role ${tail}`.replace(SLIDES_TAIL, ''), 'fix: off-role', tail);
+  }
+});
+
+test('the page names a finding\'s slide by its title too, and a number-only title as untitled', () => {
+  assert.equal(slideCalled({ slide: 4, title: 'Pricing' }), '"Pricing"');
+  assert.equal(slideCalled({ slide: 4, title: 'slide 4' }), 'an untitled slide');
+  assert.equal(slideCalled({ slide: 4 }), 'an untitled slide');
+  assert.match(slideCalled({ slide: 4, title: 'a very long opening line that runs well past forty characters' }), /^"[^"]{1,40}…"$/);
 });

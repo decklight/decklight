@@ -1412,6 +1412,13 @@ test('the AGENTS.md section carries the same instruction for agents that read it
   assert.match(agentsSection(), /No server listening means no\n?authoring/);
 });
 
+test('the skill and AGENTS.md say to name a slide by its title in a commit subject, never by its number (#975)', () => {
+  for (const text of [claudeSkillMd(), agentsSection()]) {
+    assert.match(text, /naming a slide by its title|Name a slide by its\s+title/);
+    assert.match(text, /never by its number/);
+  }
+});
+
 test('with no server running, the skill and AGENTS.md say to realign recorded tracks after a structural edit (#954)', () => {
   for (const text of [claudeSkillMd(), agentsSection()]) {
     assert.match(text, /decklight narrate --check deck\.html --realign/);

@@ -27,7 +27,8 @@
 // The routes take their bindings explicitly, like cli/edit-slides.mjs, so a
 // test drives them with a temp deck and no socket.
 
-import { deckOutline } from './commit-message.mjs';
+import { deckOutline, slideNames } from './commit-message.mjs';
+import { SLIDES_TAIL, slideNamesPhrase } from '../tools/deck-html.mjs';
 import { slideOps } from './commit-split.mjs';
 import { withBaseHref } from './restore.mjs';
 import { linkRuntime } from './runtime-link.mjs';
@@ -182,10 +183,6 @@ export function mergeCandidate(before, after, take) {
     + shell.suffix;
 }
 
-/** `slide 4`, `slides 4 and 5`, `slides 3, 4 and 5`. */
-const slidesPhrase = (ns) => (ns.length === 1 ? `slide ${ns[0]}`
-  : `slides ${ns.slice(0, -1).join(', ')} and ${ns[ns.length - 1]}`);
-
 /** Where a unit is, in words: `slide 4`, `slide 5 (added)`, `slide 3 (removed)`, `the deck`. */
 export const unitPlace = (u) => (u.kind === 'head' ? 'the deck'
   : u.kind === 'added' ? `slide ${u.slide} (added)`
@@ -193,16 +190,22 @@ export const unitPlace = (u) => (u.kind === 'head' ? 'the deck'
 
 /**
  * The commit a reviewed apply drafts: `{ subject, body }`. The subject names
- * what landed, on the slides it landed on (`fix: off-role on slides 24 and
- * 25`); the body lists what was rejected, with the reviewer's comment, so the
- * history says what the fix did NOT do as well. `what` is `fix: <rule>`, or an
- * agent-review ask's own words. Pure.
+ * what landed, on the slides it landed on, by their names (`fix: off-role on
+ * "Pricing" and "Roadmap"`, `slideNames` of the deck before and after), never
+ * their numbers; the body lists what was rejected, with the reviewer's
+ * comment, so the history says what the fix did NOT do as well. `what` is
+ * `fix: <rule>`, or an agent-review ask's own words. Pure.
  */
-export function commitDraft(what, units, taken, rejected = []) {
+export function commitDraft(what, units, taken, rejected = [], { before = '', after = '' } = {}) {
   const took = units.filter((u) => taken.has(u.key));
-  const ns = [...new Set(took.filter((u) => u.kind !== 'head').map((u) => u.slide ?? u.was))].sort((a, b) => a - b);
-  const base = String(what || 'fix').replace(/\s+on (?:slides? [\d, and]+|the deck)$/, '');
-  const subject = ns.length ? `${base} on ${slidesPhrase(ns)}` : base;
+  const now = slideNames(after);
+  const then = slideNames(before);
+  const named = took.filter((u) => u.kind !== 'head')
+    .sort((a, b) => (a.slide ?? a.was) - (b.slide ?? b.was))
+    .map((u) => (u.kind === 'removed' ? then[u.was - 1] : now[u.slide - 1]) ?? null);
+  const base = String(what || 'fix').replace(SLIDES_TAIL, '');
+  const called = slideNamesPhrase(named);
+  const subject = called ? `${base} on ${called}` : base;
   const lines = rejected
     .map((r) => { const u = units.find((x) => x.key === r.key); return u ? `- ${unitPlace(u)}${r.comment ? `: ${String(r.comment).replace(/\s+/g, ' ').trim()}` : ''}` : null; })
     .filter(Boolean);
@@ -311,7 +314,7 @@ export function registerFixReviewRoutes(routes, {
     if (next === null) return json(409, { ok: false, error: 'the fix could not be merged slide by slide' });
     saveBefore(c.what);
     const changed = applyEdit(next, c.before);
-    const commit = commitDraft(c.what, c.units, taken, said);
+    const commit = commitDraft(c.what, c.units, taken, said, { before: c.before, after: c.after });
     console.log(`  fix: "${c.what}" — ${line}`);
     return json(200, { ok: true, changed, said: line, applied: taken.size, of: c.units.length, rejected: said.length, commit });
   }

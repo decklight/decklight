@@ -33,6 +33,7 @@ import { readFileSync } from 'node:fs';
 import { basename, relative, resolve as resolvePath } from 'node:path';
 import { agentAsk } from './agents.mjs';
 import { commitSubject, git } from './git.mjs';
+import { slideName } from '../tools/deck-html.mjs';
 
 /** How much diff the agent is shown. */
 export const MAX_DIFF = 24 * 1024;
@@ -136,6 +137,20 @@ export function changedSlides(html, diff) {
     for (const s of slides) if (s.from <= last && s.to >= start) hit.add(s.index);
   }
   return slides.filter((s) => hit.has(s.index));
+}
+
+/**
+ * Each slide's name as a commit subject says it (`slideName`), indexed by
+ * slide number minus one. Pure. Read off `deckOutline`, so a nested
+ * `<section>` is part of its slide rather than a slide of its own.
+ */
+export function slideNames(html) {
+  const lines = String(html ?? '').split('\n');
+  return deckOutline(html).map((s) => {
+    const src = lines.slice(s.from - 1, s.to).join('\n');
+    const at = src.search(/<section\b/i);
+    return slideName(at === -1 ? src : src.slice(at + '<section'.length));
+  });
 }
 
 /** `<title>` — what the deck calls itself. */
@@ -376,6 +391,7 @@ export async function describeWorking({
   const deck = basename(deckPath);
   const rel = deckRel || relative(cwd, deckPath) || deck;
 
+  const deckHtml = () => { try { return (read ?? readFileSync)(deckPath, 'utf8'); } catch { return ''; } };
   let out_;
   try { out_ = run(['diff', '--unified=1', 'HEAD', '--', rel], cwd) ?? ''; }
   catch { return null; }
@@ -391,7 +407,7 @@ export async function describeWorking({
         try { side = run(['ls-files', '--others', '--exclude-standard', '--', other], cwd) ? (read ?? readFileSync)(resolvePath(cwd, other), 'utf8').split('\n').map((l) => `+${l}`).join('\n') : ''; }
         catch { side = ''; }
       }
-      const subject = reviewSubject(side);
+      const subject = reviewSubject(side, { names: slideNames(deckHtml()) });
       if (subject) return subject;
     }
     return null;
@@ -401,8 +417,7 @@ export async function describeWorking({
   const truncated = out_.length > MAX_DIFF;
   const diff = truncated ? out_.slice(0, MAX_DIFF) : out_;
 
-  let html = '';
-  try { html = (read ?? readFileSync)(deckPath, 'utf8'); } catch { /* headings are optional */ }
+  const html = deckHtml(); // headings are optional
   const prompt = messagePrompt({
     deck, template, diff, truncated,
     title: deckTitle(html),
@@ -422,10 +437,12 @@ export async function describeWorking({
 
 /**
  * A subject for a change that is only review records: the added lines of the
- * sidecar's diff, read as records. One comment names its slide; several, or
- * a mix, are counted. Null when nothing was added.
+ * sidecar's diff, read as records. One comment names its slide, by its name
+ * in the deck as it is now (`names`, from `slideNames`) or the title the
+ * comment recorded, never by its number alone; several, or a mix, are
+ * counted. Null when nothing was added.
  */
-export function reviewSubject(diff) {
+export function reviewSubject(diff, { names = [] } = {}) {
   const added = [];
   for (const line of String(diff ?? '').split('\n')) {
     if (!line.startsWith('+') || line.startsWith('+++')) continue;
@@ -435,7 +452,12 @@ export function reviewSubject(diff) {
   const comments = added.filter((r) => !r.op && r.id);
   const ops = added.filter((r) => r.op);
   const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
-  if (comments.length === 1 && !ops.length) return `review: a comment on slide ${comments[0].slide}`;
+  if (comments.length === 1 && !ops.length) {
+    const { slide, title } = comments[0];
+    const name = names[slide - 1]
+      ?? (title && !/^slide \d+$/i.test(title) ? `"${String(title).replace(/\s+/g, ' ').trim().slice(0, 40)}"` : null);
+    return name ? `review: a comment on ${name}` : 'review: a comment';
+  }
   if (!comments.length && ops.length) {
     const kinds = [...new Set(ops.map((r) => r.op))];
     if (kinds.length === 1) {

@@ -104,6 +104,58 @@ export const slideHeading = (sectionBody, i) => {
   return fromHeading || slideText(sectionBody).slice(0, 60) || `slide ${i + 1}`;
 };
 
+/** How long a slide's name may run in a commit subject before it is cut. */
+export const SLIDE_NAME_MAX = 40;
+
+/** `s` cut at a word to `max` characters, with an ellipsis when it was cut. */
+const clip = (s, max = SLIDE_NAME_MAX) => {
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, '');
+  const word = cut.replace(/\s+\S*$/, '');
+  return `${(word.length >= max / 2 ? word : cut).replace(/[\s,;:.–—-]+$/, '')}…`;
+};
+
+/**
+ * What a commit subject calls a slide (PRESENTING_EDITING, git autocommit): its
+ * heading in quotes, else a few words that describe it: a diagram's
+ * `aria-label`, its opening words, or its layout. Never its number, which stops
+ * being true the moment a slide is inserted above it, and leaves `git log`
+ * pointing at the wrong slide a day later. `sectionBody` is a `sectionBodies`
+ * entry, open tag's attributes and all.
+ */
+export const slideName = (sectionBody) => {
+  const body = String(sectionBody ?? '');
+  const inner = sectionInner(body);
+  const h = /<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/i.exec(inner);
+  const heading = h ? slideText(h[1]) : '';
+  if (heading) return `"${clip(heading)}"`;
+  const label = /<(?:svg|figure|img)\b[^>]*?\s(?:aria-label|alt)="([^"]+)"/i.exec(inner);
+  if (label && slideText(label[1])) return `the "${clip(slideText(label[1]), SLIDE_NAME_MAX - 8)}" diagram`;
+  const words = slideText(inner.replace(/<svg\b[\s\S]*?<\/svg>/gi, ' ')).split(' ').slice(0, 6).join(' ');
+  if (words) return `the slide "${clip(words, SLIDE_NAME_MAX - 10)}"`;
+  const layout = /^[^>]*\sdata-layout="([a-z-]+)"/i.exec(body)?.[1];
+  return layout ? `the ${layout} slide` : 'an empty slide';
+};
+
+/**
+ * Several slides' names as one phrase: `"A"`, `"A" and "B"`, or `"A" and 2
+ * other slides` when naming them all would crowd the subject out.
+ */
+export const slideNamesPhrase = (names) => {
+  const ns = [...new Set(names.filter(Boolean))];
+  if (ns.length <= 1) return ns[0] ?? '';
+  if (ns.length === 2) return `${ns[0]} and ${ns[1]}`;
+  return `${ns[0]} and ${ns.length - 1} other slides`;
+};
+
+/**
+ * A trailing ` on <slides>` as subjects name them, the old numbered way or
+ * by `slideNamesPhrase`, so a draft can swap where a fix landed for the slides
+ * it actually landed on.
+ */
+const ONE_NAME = String.raw`(?:"[^"]*"|the slide "[^"]*"|the "[^"]*" diagram|the [a-z-]+ slide|an (?:empty|untitled) slide)`;
+export const SLIDES_TAIL = new RegExp(String.raw`\s+on (?:slides? [\d, and]+|the deck|${ONE_NAME}(?: and (?:${ONE_NAME}|\d+ other slides))?)$`);
+
 /**
  * Speaker-note HTML as plain text: tags out, entities back, whitespace flat.
  *

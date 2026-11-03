@@ -111,8 +111,19 @@ export const explainPrompt = (f) => `${f.slide ? `On slide ${f.slide} ("${f.titl
   + ` (rule ${f.rule}, ${f.level === 'agent' ? 'from the agent review' : f.level}): ${f.message}`
   + ' Explain it. What is wrong here, why it matters, and the ways to fix it. Be brief and concrete. This is a question: change no file.';
 
-/** `fix: <rule> on slide N`, or `fix: <rule>` for the deck — the commit a fix makes. */
-const fixSubject = (f) => `fix: ${f.rule}${f.slide ? ` on slide ${f.slide}` : ''}`;
+/**
+ * What a commit subject calls a finding's slide: its title in quotes, never
+ * its number, which is wrong the moment a slide is inserted above it. A title
+ * that is only the number fallback names nothing, and says so.
+ */
+export const slideCalled = (f) => {
+  const t = String(f.title ?? '').replace(/\s+/g, ' ').trim();
+  if (!t || /^slide \d+$/i.test(t)) return 'an untitled slide';
+  return `"${t.length > 40 ? `${t.slice(0, 39).replace(/[\uD800-\uDBFF]$/, '').replace(/\s+\S*$/, '')}…` : t}"`;
+};
+
+/** `fix: <rule> on "Title"`, or `fix: <rule>` for the deck — the commit a fix makes. */
+const fixSubject = (f) => `fix: ${f.rule}${f.slide ? ` on ${slideCalled(f)}` : ''}`;
 
 export function createDeckCheck({
   root, overlays, toast = () => {}, instance, goto, measureOverflow, slideTitle,
@@ -256,7 +267,7 @@ export function createDeckCheck({
     if (!ask) return null;
     if (f.agentFinding) {
       return { label: 'Fix it', batch: false, agent: true,
-        run: () => ask({ prompt: f.agentFinding.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}`, review: true, rule: f.rule }) };
+        run: () => ask({ prompt: f.agentFinding.prompt, slide: f.slide, message: `review: ${f.label} on ${slideCalled(f)}`, review: true, rule: f.rule }) };
     }
     if (NOT_FOR_AGENT.has(f.rule)) return null;
     return { label: 'Fix it', batch: false, agent: true,
@@ -270,11 +281,11 @@ export function createDeckCheck({
     const q = fixOf(f);
     const follow = q?.agent
       ? (f.agentFinding
-        ? { prompt: f.agentFinding.prompt, slide: f.slide, message: `review: ${f.label} on slide ${f.slide}`, rule: f.rule }
+        ? { prompt: f.agentFinding.prompt, slide: f.slide, message: `review: ${f.label} on ${slideCalled(f)}`, rule: f.rule }
         : { prompt: agentPrompt(f), slide: f.slide ?? undefined, message: fixSubject(f), rule: f.rule })
       : null;
     return () => explain({ prompt: f.agentFinding ? `${explainPrompt(f)} The review's own instruction was: ${f.agentFinding.prompt}` : explainPrompt(f),
-      slide: f.slide ?? undefined, message: `explain: ${f.rule}${f.slide ? ` on slide ${f.slide}` : ''}`, follow });
+      slide: f.slide ?? undefined, message: `explain: ${f.rule}${f.slide ? ` on ${slideCalled(f)}` : ''}`, follow });
   }
 
   const explainPill = (i) => aiPill('Explain further', 'the agent explains what is wrong, why it matters and how to fix it, read-only: nothing is written · e', () => runExplain(i), 'dc-fix dc-fix-agent dc-explain');
