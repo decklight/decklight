@@ -1092,6 +1092,23 @@
   opacity: 1;
 }
 .decklight .build-step[data-build-style="draw"][data-build-state="pending"] .draw-fade { opacity: 0; }
+/* the fill of a drawn shape (#973): out while pending, in once its outline
+   has drawn, back up to the shape's own fill-opacity (read by the engine).
+   Every .draw-fill is a .draw-stroke too, and `transition` is one property:
+   this rule comes after the stroke's and carries both, dash offset first
+   (the restore after a CSS draw reads the first duration) */
+.decklight .build-step[data-build-style="draw"] .draw-fill,
+.decklight .build-step.draw-fill[data-build-style="draw"] {
+  fill-opacity: 0;
+  transition: stroke-dashoffset calc(var(--build-duration) * 2.2) ease,
+    fill-opacity var(--build-duration) ease calc(var(--build-duration) * 1.2);
+}
+.decklight .build-step[data-build-style="draw"][data-build-state="current"] .draw-fill,
+.decklight .build-step[data-build-style="draw"][data-build-state="done"] .draw-fill,
+.decklight .build-step.draw-fill[data-build-style="draw"][data-build-state="current"],
+.decklight .build-step.draw-fill[data-build-style="draw"][data-build-state="done"] {
+  fill-opacity: var(--draw-fill-op, 1);
+}
 .decklight .build-step[data-build-style="draw"][data-build-state="pending"] {
   /* strokes hidden by full dash offset; keep element itself visible */
   opacity: 1;
@@ -1109,6 +1126,7 @@
 .decklight.decklight-no-anim .build-step,
 .decklight.decklight-no-anim .build-step .draw-stroke,
 .decklight.decklight-no-anim .build-step .draw-fade,
+.decklight.decklight-no-anim .build-step .draw-fill,
 .decklight.decklight-no-anim .draw-head,
 .decklight.decklight-no-anim .draw-mask-stroke {
   transition: none !important;
@@ -1844,6 +1862,7 @@
 .decklight-overview .build-step { visibility: visible !important; opacity: 1 !important; transform: none !important; }
 .decklight-overview .draw-stroke { stroke-dashoffset: 0 !important; }
 .decklight-overview .draw-fade { opacity: 1 !important; }
+.decklight-overview .draw-fill { fill-opacity: var(--draw-fill-op, 1) !important; }
 .decklight-overview .draw-head { visibility: visible !important; transition: none !important; }
 /* a dashed stroke shows whole: the thumbnail is a clone, so its mask's id
    names the live slide's mid-draw mask, not its own */
@@ -3463,6 +3482,7 @@
 .decklight.decklight-print .build-step { visibility: visible !important; opacity: 1 !important; transform: none !important; }
 .decklight.decklight-print .draw-stroke { stroke-dashoffset: 0 !important; }
 .decklight.decklight-print .draw-fade { opacity: 1 !important; }
+.decklight.decklight-print .draw-fill { fill-opacity: var(--draw-fill-op, 1) !important; }
 .decklight.decklight-print .draw-head { visibility: visible !important; transition: none !important; }
 .decklight.decklight-print [data-draw-masked] { mask: none !important; }
 
@@ -3543,7 +3563,7 @@
 @media (prefers-reduced-motion: reduce) {
   .decklight section.entering, .decklight section.leaving,
   .decklight .build-step, .decklight [data-animate],
-  .decklight .draw-stroke, .decklight .draw-fade, .decklight .draw-head, .decklight .draw-mask-stroke, .decklight .aa-fresh {
+  .decklight .draw-stroke, .decklight .draw-fade, .decklight .draw-fill, .decklight .draw-head, .decklight .draw-mask-stroke, .decklight .aa-fresh {
     animation: none !important;
     transition: none !important;
   }

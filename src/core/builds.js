@@ -77,12 +77,48 @@ function prepareDraw(el) {
   const shapes = (el.matches?.(STROKED) ? [el] : [...el.querySelectorAll(STROKED)]).filter((s) => !s.closest('.draw-head, .draw-mask'));
   let anyStroke = false;
   for (const s of shapes) {
-    if (prepareStroke(s)) anyStroke = true;
+    // a shape that already fades whole (a chart's bar, slice or dot) is left
+    // to that: its outline and fill arrive together
+    if (s.classList.contains('draw-fade')) continue;
+    if (prepareStroke(s)) {
+      anyStroke = true;
+      prepareFill(s);
+    } else {
+      // SVG_DIAGRAMS: a shape with no stroke fades in once the strokes of its
+      // step have drawn, like text (#973) — left unclassed, nothing hid it
+      s.classList.add('draw-fade');
+    }
   }
-  // Non-stroke content (text, filled shapes) fades while strokes draw.
+  // Text fades in once the strokes have drawn.
   const others = el.querySelectorAll('text, tspan');
   others.forEach((o) => o.classList.add('draw-fade'));
   if (!anyStroke) el.setAttribute('data-build-style', 'fade'); // spec: fallback
+}
+
+/**
+ * The fill of a drawn shape (#973): hidden while its step is pending, faded
+ * in once the outline has drawn — the dash offset hides only the outline, so
+ * a box's fill would otherwise stand there before the click that brings it.
+ * Its own opacity is kept for the stroke; the fill's is `fill-opacity`, which
+ * the draw CSS then owns: the authored value (attribute, inline or a class) is
+ * read once into `--draw-fill-op`, the value it fades back up to, and an
+ * inline one is moved there so the pending rule can reach it. A `line` has no
+ * fill, and `fill="none"` has nothing to hide. Idempotent across `sync()`.
+ */
+function prepareFill(s) {
+  if (s.classList.contains('draw-fill') || s.tagName.toLowerCase() === 'line') return;
+  const cs = getComputedStyle(s);
+  const fill = s.getAttribute('fill') ?? cs.fill;
+  if (!fill || fill === 'none' || s.style.fill === 'none' || cs.fill === 'none') return;
+  const op = s.style.fillOpacity || cs.fillOpacity || '1';
+  s.style.removeProperty('fill-opacity');
+  s.style.setProperty('--draw-fill-op', op);
+  s.classList.add('draw-fill');
+  // a stroke the frame loop draws has its CSS transition switched off inline;
+  // its fill still fades by CSS (no-anim, print and reduced motion zero it)
+  if (s.style.transition === 'none') {
+    s.style.transition = 'fill-opacity var(--build-duration) ease calc(var(--build-duration) * 1.2)';
+  }
 }
 
 /**
