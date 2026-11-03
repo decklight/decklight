@@ -2778,6 +2778,14 @@
 .decklight-help .help-card h3 ~ h3 { margin-top: 18px; }
 .decklight-help td { padding: 3px 14px 3px 0; }
 .decklight-help td:first-child { font-family: var(--font-mono, monospace); color: var(--accent, #6af); }
+/* the groups (engine.js): side by side where there is room, one column on a phone */
+.decklight-help .help-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 6px 32px; align-items: start; }
+.decklight-help .help-card { width: min(980px, 96%); }
+.decklight-help h4 { margin: 12px 0 4px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted, #999); }
+.decklight-help .help-group td { vertical-align: top; }
+.decklight-help .help-group table { width: 100%; border-collapse: collapse; }
+.decklight-help .help-group td:first-child { width: 38%; }
+@media (max-width: 700px) { .decklight-help .help-groups { grid-template-columns: 1fr; } }
 
 /* first-run welcome — the help card's anatomy, on the theme's own tokens so it
    reads on all 46 built-in themes and anything a marketplace adds. z-index sits

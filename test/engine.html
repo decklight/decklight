@@ -2752,11 +2752,14 @@
         await new Promise((ok) => setTimeout(ok, 300));
         r.chordInTextIsTheBrowsers = undos() === u2;
         h1c.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-        const help = (() => { press('?'); const t = document.querySelector('.help-card')?.textContent ?? ''; press('?'); return t; })();
+        let helpGroups = [];
+        const help = (() => { press('?'); const t = document.querySelector('.help-card')?.textContent ?? ''; helpGroups = [...document.querySelectorAll('.decklight-help h4')].map((h) => h.textContent); press('?'); return t; })();
         r.helpNamesTheChord = help.includes(mac ? '⌘Z' : 'Ctrl+Z');
+        // …in the Write group, which write mode lists last
+        r.helpHasTheWriteGroup = JSON.stringify(helpGroups) === JSON.stringify(['Navigate', 'Present', 'Look', 'Voice', 'Write']);
 
         r.PASS = r.chordUndoes && r.undoSaysWhatAndGoesThere && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes && r.bareZWritesNothing
-          && r.chordInTextIsTheBrowsers && r.helpNamesTheChord
+          && r.chordInTextIsTheBrowsers && r.helpNamesTheChord && r.helpHasTheWriteGroup
           && r.undoWaitsForTheTextSave && r.undoWaitsForTheSlideOp
           && r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
           && r.editableReleased && r.escapeReverts && r.escapeWroteNothing && r.unchangedWritesNothing
@@ -3009,6 +3012,9 @@
         r.deckHoldsBehindHelp = deck.state.slide === 1 && deck.state.step === 0 && !document.querySelector('.decklight-overview');
         const helpText = document.querySelector('.decklight-help')?.textContent ?? '';
         r.helpNamesTheNewKeys = /B \/ \./.test(helpText) && /click/.test(helpText);
+        // in short groups, and nothing about writing where nothing can be written
+        r.helpInGroupsNoWrite = JSON.stringify([...document.querySelectorAll('.decklight-help h4')].map((h) => h.textContent))
+          === JSON.stringify(['Navigate', 'Present', 'Look', 'Voice']) && !/undo|commit|agent/i.test(helpText);
         press('Escape');
         r.escClosesHelp = !document.querySelector('.decklight-help');
         // ⌘K / Ctrl+K is the palette, not a commit error
@@ -3027,7 +3033,7 @@
         await settle();
         r.sOpensTheSpeakerView = opened.length === 1 && !document.querySelector('.decklight-editor');
         r.PASS = r.clickAdvances && r.linkClickDoesNot && r.dotBlacksOut && r.anyKeyEndsBlackout && r.endingDoesNotMove && r.aClickEndsIt
-          && r.helpOpens && r.deckHoldsBehindHelp && r.helpNamesTheNewKeys && r.escClosesHelp && r.cmdKOpensThePalette && r.presentChordOutsideWriteMode && r.sOpensTheSpeakerView;
+          && r.helpOpens && r.deckHoldsBehindHelp && r.helpNamesTheNewKeys && r.helpInGroupsNoWrite && r.escClosesHelp && r.cmdKOpensThePalette && r.presentChordOutsideWriteMode && r.sOpensTheSpeakerView;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
