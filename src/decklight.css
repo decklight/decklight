@@ -1655,6 +1655,44 @@
 }
 .decklight-touch-btn:active { background: rgba(70, 70, 74, .6); }
 @media (pointer: coarse) { .decklight-touch-controls { display: flex; } }
+/* the arrows, where they are tapped: a finger-sized target on a quiet scrim,
+   not a faint glyph a few pixels wide */
+@media (pointer: coarse) {
+  .decklight-controls { gap: 10px; right: 12px; bottom: 12px; }
+  .decklight-arrow {
+    min-width: 48px; min-height: 48px; padding: 0 12px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 12px; border: 1px solid rgba(160, 160, 160, .28);
+    background: rgba(20, 20, 22, .45); color: var(--fg, #e6e6e6);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .decklight-arrow:active { background: rgba(70, 70, 74, .6); }
+}
+/* the ⋯ menu (engine.js): a short list of big rows under its button */
+.decklight-touch-menu { position: absolute; inset: 0; z-index: 70; }
+.decklight-touch-menu .tm-list {
+  position: absolute; left: 14px; top: 68px; min-width: 220px; max-width: calc(100% - 28px);
+  display: flex; flex-direction: column; padding: 6px;
+  background: rgba(20, 20, 22, .94); border: 1px solid rgba(160, 160, 160, .28); border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.decklight-touch-menu .tm-row {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-height: 48px; padding: 8px 12px; border: 0; border-radius: 10px;
+  background: transparent; color: #f2f2f2; text-align: left; cursor: pointer;
+  font: 500 16px/1.25 system-ui, sans-serif; -webkit-tap-highlight-color: transparent;
+}
+.decklight-touch-menu .tm-row:active, .decklight-touch-menu .tm-row:focus-visible { background: rgba(255, 255, 255, .1); outline: none; }
+.decklight-touch-menu .tm-sub { font-size: 12px; opacity: .65; font-weight: 400; }
+/* turn the phone (engine.js): a pill at the bottom while it is upright */
+.decklight-rotate-hint {
+  position: absolute; left: 50%; bottom: max(70px, calc(env(safe-area-inset-bottom) + 70px)); transform: translateX(-50%); z-index: 60;
+  padding: 10px 16px; border-radius: 999px; border: 1px solid rgba(160, 160, 160, .28);
+  background: rgba(20, 20, 22, .88); color: #f2f2f2; white-space: nowrap;
+  font: 500 15px/1.2 system-ui, sans-serif; cursor: pointer;
+}
 
 /* a finder row that is another module (a separate file), not a slide here */
 .decklight-finder .tp-row.tp-module { color: #cbb6ff; }

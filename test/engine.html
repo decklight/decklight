@@ -3032,6 +3032,42 @@
         return;
       }
 
+      if (mode === 'touchmenu') {
+        // A phone's way to everything past next and back (PRESENTING_CHROME):
+        // the ⋯ button's menu; and a swipe over a picker never turns the slide.
+        await settle();
+        deck.goto(1, 0); await settle();
+        const more = document.querySelector('.decklight-touch-more');
+        r.moreButton = !!more && /overview/i.test(more.getAttribute('aria-label') ?? '');
+        more.click();
+        const rows = () => [...document.querySelectorAll('.decklight-touch-menu .tm-row .tm-label')].map((n) => n.textContent);
+        r.menuRows = JSON.stringify(rows()) === JSON.stringify(['Overview', 'Find a slide', 'Notes', 'Commands', 'Help']);
+        press('Escape');
+        r.escCloses = !document.querySelector('.decklight-touch-menu');
+        more.click();
+        [...document.querySelectorAll('.decklight-touch-menu .tm-row')].find((n) => /Overview/.test(n.textContent)).click();
+        await settle();
+        r.overviewFromTheMenu = !!document.querySelector('.decklight-overview') && !document.querySelector('.decklight-touch-menu');
+        press('Escape'); await settle();
+        // a swipe over an open picker scrolls the picker, not the deck
+        const swipe = (target, dx) => {
+          const t = (x) => new Touch({ identifier: 1, target, clientX: x, clientY: 200 });
+          target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t(300)], changedTouches: [t(300)] }));
+          target.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], changedTouches: [t(300 + dx)] }));
+        };
+        press('/'); await settle();
+        swipe(document.querySelector('.decklight-palette .narr-card'), -150);
+        await settle();
+        r.swipeInAPickerStays = deck.state.slide === 1 && deck.state.step === 0;
+        press('Escape'); await settle();
+        swipe(document.querySelector('.decklight-stage > section.active'), -150);
+        await settle();
+        r.swipeOnTheSlideStillTurns = deck.state.slide === 2 || deck.state.step === 1;
+        r.PASS = r.moreButton && r.menuRows && r.escCloses && r.overviewFromTheMenu && r.swipeInAPickerStays && r.swipeOnTheSlideStillTurns;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'heldreload') {
         // A reload waits for what is typed (drafts.js, PRESENTING_EDITING):
         // the file changing under a half-typed note, HTML edit or ask holds
