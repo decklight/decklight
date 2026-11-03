@@ -29,7 +29,7 @@
 
 import { readJson, writeJson } from './prefs.js';
 
-const GLYPH = { float: '❏', left: '◧', right: '◨', bottom: '⬓' };
+const GLYPH = { float: '❏', left: '◧', right: '◨', bottom: '⬓', window: '⧉' };
 const MODES = ['float', 'left', 'right', 'bottom'];
 const SIDES = ['left', 'right', 'bottom'];
 
@@ -72,6 +72,88 @@ export function reopenPanel(root) {
   if (!p?.opens || !p.available()) return false;
   p.open();
   return p.isOpen();
+}
+
+// The slot can leave the browser: a floating panel dragged past the window's
+// edge (or sent by its ⧉ button) moves into a window of its own, which the
+// author can put on another screen. The panel's element is MOVED, not copied,
+// so every listener and every reference a panel holds keeps working; the
+// window is just somewhere else for it to be. One per root, like the slot: a
+// tab clicked out there opens its panel out there. Never remembered: a popup
+// needs a click to open, so the reload a save causes brings the panel home.
+const popouts = new WeakMap();   // root → Window
+const popoutOf = (root) => { const w = popouts.get(root); return w && !w.closed ? w : null; };
+const editable = (t) => (/^(input|textarea|select)$/i.test(t?.tagName ?? '') && !t.readOnly) || !!t?.isContentEditable;
+
+/**
+ * Open the root's panel window at `left/top` (screen px; null lets the
+ * browser choose), its size the card's. Null when the browser refused: a
+ * popup needs the click that started the drag to be recent.
+ */
+function openPopout(root, { left, top, width, height }, title) {
+  const feats = `popup,width=${Math.round(width)},height=${Math.round(height)}`
+    + (left != null ? `,left=${Math.round(left)},top=${Math.round(top)}` : '');
+  let win = window.open('', 'decklight-panel', feats);
+  if (!win) return null;
+  // a window left from before a reload: its page is gone, start a fresh one
+  let orphan = false;
+  try { orphan = win.document.body ? win.document.body.childNodes.length > 0 : false; } catch { orphan = true; }
+  if (orphan) {
+    try { win.close(); } catch { /* already gone */ }
+    win = window.open('', 'decklight-panel', feats);
+    if (!win) return null;
+    try { void win.document; } catch { return null; }
+  }
+  const doc = win.document;
+  doc.open();
+  doc.write('<!doctype html><html><head><meta charset="utf-8"><title></title></head><body></body></html>');
+  doc.close();
+  doc.title = title;
+  // the deck's stylesheets, and its theme's colours (the card reads --accent)
+  for (const n of document.querySelectorAll('style, link[rel="stylesheet"]')) {
+    const c = doc.importNode(n, true);
+    if (n.href) c.href = n.href;
+    doc.head.append(c);
+  }
+  const cs = getComputedStyle(root);
+  for (const prop of cs) if (prop.startsWith('--')) doc.body.style.setProperty(prop, cs.getPropertyValue(prop));
+  doc.body.style.margin = '0';
+  doc.body.style.background = '#16181d';
+  // keys that are not typing are the deck's, as they are in the speaker window:
+  // → still moves the slides while the panel has the focus
+  doc.addEventListener('keydown', (e) => {
+    if (editable(e.target)) return;
+    const fwd = new KeyboardEvent('keydown', {
+      key: e.key, code: e.code, shiftKey: e.shiftKey, altKey: e.altKey,
+      metaKey: e.metaKey, ctrlKey: e.ctrlKey, repeat: e.repeat, bubbles: true, cancelable: true,
+    });
+    if (!document.dispatchEvent(fwd)) e.preventDefault();
+  });
+  // closing the window closes the panel in it; the deck going away closes the window
+  win.addEventListener('pagehide', () => {
+    if (popouts.get(root) !== win) return;
+    popouts.delete(root);
+    for (const p of panelsOf(root).values()) {
+      const el = p.el();
+      if (el && el.ownerDocument === doc) p.close();
+    }
+  });
+  const bye = () => { try { win.close(); } catch { /* gone */ } };
+  window.addEventListener('pagehide', bye, { once: true });
+  popouts.set(root, win);
+  return win;
+}
+
+/** Close the root's panel window once no panel is left in it (a tab switch moves the next one in first). */
+function closeEmptyPopout(root) {
+  if (!popoutOf(root)) return;
+  setTimeout(() => {
+    const win = popoutOf(root);
+    if (win && !win.document.querySelector('.decklight-dockable')) {
+      popouts.delete(root);
+      win.close();
+    }
+  }, 0);
 }
 
 /** Close every OTHER panel holding the root's slot: one panel beside the slide. */
@@ -128,7 +210,7 @@ export function createDock({
   const token = {};   // this panel's claim on the root's gutters, and its place in the slot
   panelsOf(root).set(token, {
     name, tab: tab && !!name && !!open, available, opens: !!open,
-    open: () => open?.(), close: () => close?.(), isOpen: () => !!getEl(),
+    open: () => open?.(), close: () => close?.(), isOpen: () => !!getEl(), el: () => getEl(),
   });
 
   // The gutter a docked panel reserves, in px — the same figure drives the
@@ -148,6 +230,18 @@ export function createDock({
     takeSlot(root, token);
     if (name) rememberOpen(name);   // after takeSlot: the panels it closed forgot themselves
     load();
+    const card = el.querySelector('.narr-card');
+    const win = popoutOf(root);
+    if (win) {
+      // out in its own window: it fills it, and leaves the stage whole
+      el.dataset.dock = 'window';
+      if (card) { card.style.left = ''; card.style.top = ''; }
+      if (el.ownerDocument !== win.document) win.document.body.append(el);
+      if (name) win.document.title = `${name} · ${document.title}`;
+      claim(root, token, null);
+      reflow?.();
+      return;
+    }
     el.dataset.dock = dock.mode;
     const g = gutter();
     const side = SIDES.includes(dock.mode) ? dock.mode : null;
@@ -157,7 +251,6 @@ export function createDock({
     // the stylesheet: leaving them set pinned a docked panel to wherever it last
     // floated while the stage dutifully reflowed away from an empty gutter.
     // Docking hands the placement back to the CSS.
-    const card = el.querySelector('.narr-card');
     if (card && dock.mode !== 'float') { card.style.left = ''; card.style.top = ''; }
     reflow?.();
     if (dock.mode === 'float') placeCard();
@@ -166,7 +259,7 @@ export function createDock({
   /** Float only: clamp the card to the viewport at its remembered position. */
   function placeCard() {
     const card = getEl()?.querySelector('.narr-card');
-    if (!card || dock.mode !== 'float') return;
+    if (!card || dock.mode !== 'float' || popoutOf(root)) return;
     const w = card.offsetWidth || 460, h = card.offsetHeight || 400;
     let x = dock.x, y = dock.y;
     if (x == null || y == null) { x = root.clientWidth - w - 24; y = 24; }
@@ -177,42 +270,106 @@ export function createDock({
     card.style.top = y + 'px';
   }
 
+  /** Light the placement buttons and the drag cursor for where the panel is now. */
+  function paintControls() {
+    const el = getEl();
+    const now = popoutOf(root) ? 'window' : dock.mode;
+    el?.querySelectorAll('.dk-btn[data-mode]').forEach(
+      (b) => b.classList.toggle('dk-on', b.dataset.mode === now));
+    const head = el?.querySelector('.narr-head');
+    if (head) head.style.cursor = now === 'float' ? 'move' : '';
+  }
+
+  /**
+   * Out of the browser: the panel moves into a window of its own at `at`
+   * (screen px), or one the browser places. False when the popup was refused,
+   * and the panel stays where it was.
+   */
+  function popOut(at = {}) {
+    const el = getEl();
+    const card = el?.querySelector('.narr-card');
+    if (!el || !card) return false;
+    if (popoutOf(root)) return true;
+    const r = card.getBoundingClientRect();
+    const win = openPopout(root, {
+      left: at.left ?? null, top: at.top ?? null,
+      width: Math.max(320, r.width || 460), height: Math.max(240, r.height || 400),
+    }, `${name || 'Panel'} · ${document.title}`);
+    if (!win) return false;
+    reserveGutter();
+    paintControls();
+    win.focus();
+    return true;
+  }
+
+  /** Back into the deck: the window closes and the panel takes the placement it had. */
+  function popIn() {
+    const win = popoutOf(root);
+    if (!win) return;
+    popouts.delete(root);
+    const el = getEl();
+    if (el && el.ownerDocument !== document) root.appendChild(el);
+    try { win.close(); } catch { /* gone */ }
+    window.focus();
+  }
+
   /** Switch placement from a header button — persist, reflow, no full re-render. */
   function setDock(mode) {
+    if (mode === 'window') { popOut(); return; }
+    popIn();
     dock.mode = mode;
     persist();
     reserveGutter();
-    const el = getEl();
-    el?.querySelectorAll('.dk-btn').forEach(
-      (b) => b.classList.toggle('dk-on', b.dataset.mode === mode));
-    const head = el?.querySelector('.narr-head');
-    if (head) head.style.cursor = mode === 'float' ? 'move' : '';
+    paintControls();
   }
 
-  /** Drag the float card by its header. Docked modes ignore it. */
+  /**
+   * Drag the float card by its header. Docked modes ignore it. Inside the
+   * browser the card stays clamped to the deck; let go with the pointer
+   * PAST the browser's edge and the panel leaves it for a window of its own,
+   * where you dropped it (the card goes faint on the way out to say so).
+   */
   function startDrag(e) {
     const el = getEl();
-    if (!el || dock.mode !== 'float' || (e.button != null && e.button !== 0)) return;
-    if (e.target.closest('.dk-ctl')) return;   // the buttons, not a drag
+    if (!el || dock.mode !== 'float' || popoutOf(root) || (e.button != null && e.button !== 0)) return;
+    if (e.target.closest('.dk-ctl, .dk-tabs')) return;   // the buttons, not a drag
     const card = el.querySelector('.narr-card');
     if (!card) return;
     e.preventDefault();
+    // held, so the moves keep coming once the pointer is out of the window
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* a synthetic event */ }
     const sx = e.clientX, sy = e.clientY;
     const ox = parseFloat(card.style.left) || 0, oy = parseFloat(card.style.top) || 0;
+    const box = card.getBoundingClientRect();
+    const gx = sx - box.left, gy = sy - box.top;   // where on the card it was grabbed
+    const outside = (ev) => ev.clientX < 0 || ev.clientY < 0 || ev.clientX >= window.innerWidth || ev.clientY >= window.innerHeight;
     const move = (ev) => {
       const w = card.offsetWidth, h = card.offsetHeight;
       dock.x = Math.max(8, Math.min(ox + ev.clientX - sx, root.clientWidth - w - 8));
       dock.y = Math.max(8, Math.min(oy + ev.clientY - sy, root.clientHeight - h - 8));
       card.style.left = dock.x + 'px';
       card.style.top = dock.y + 'px';
+      card.classList.toggle('dk-leaving', outside(ev));
     };
-    const up = () => {
+    const up = (ev) => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      card.classList.remove('dk-leaving');
+      if (ev.type === 'pointerup' && outside(ev)) {
+        // it comes back where it started, should it ever come back
+        dock.x = ox; dock.y = oy;
+        card.style.left = ox + 'px';
+        card.style.top = oy + 'px';
+        persist();
+        popOut({ left: ev.screenX - gx, top: ev.screenY - gy });
+        return;
+      }
       persist();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   }
 
   /**
@@ -223,9 +380,10 @@ export function createDock({
   function controls(onClose, closeHint = closeLabel) {
     const ctl = document.createElement('div');
     ctl.className = 'dk-ctl';
+    const popped = !!popoutOf(root);
     for (const m of MODES) {
       const b = document.createElement('button');
-      b.className = 'dk-btn' + (dock.mode === m ? ' dk-on' : '');
+      b.className = 'dk-btn' + (!popped && dock.mode === m ? ' dk-on' : '');
       b.type = 'button';
       b.textContent = GLYPH[m];
       b.dataset.mode = m;
@@ -234,6 +392,16 @@ export function createDock({
       b.addEventListener('click', () => setDock(m));
       ctl.append(b);
     }
+    // the fifth placement: a window of its own (dragging the card out does it too)
+    const w = document.createElement('button');
+    w.className = 'dk-btn' + (popoutOf(root) ? ' dk-on' : '');
+    w.type = 'button';
+    w.textContent = GLYPH.window;
+    w.dataset.mode = 'window';
+    w.title = 'own window (or drag the panel out of the browser)';
+    w.setAttribute('aria-label', 'own window');
+    w.addEventListener('click', () => setDock('window'));
+    ctl.append(w);
     const x = document.createElement('button');
     x.className = 'dk-btn dk-close';
     x.type = 'button';
@@ -272,7 +440,7 @@ export function createDock({
 
   /** Give a header the drag handle, the cursor that advertises it, and the tabs. */
   function wireHeader(head) {
-    head.style.cursor = dock.mode === 'float' ? 'move' : '';
+    head.style.cursor = dock.mode === 'float' && !popoutOf(root) ? 'move' : '';
     head.addEventListener('pointerdown', startDrag);
     head.querySelector(':scope > .dk-tabs')?.remove();
     const row = tabs();
@@ -287,14 +455,18 @@ export function createDock({
     if (name) forgetOpen(name);
     claim(root, token, null);
     reflow?.();
+    closeEmptyPopout(root);
   }
 
   return {
-    get mode() { return dock.mode; },
-    isFloat: () => dock.mode === 'float',
+    get mode() { return popoutOf(root) ? 'window' : dock.mode; },
+    // out in its own window the panel is over nothing: the deck keeps its keys
+    isFloat: () => dock.mode === 'float' && !popoutOf(root),
     reserveGutter,
     placeCard,
     setDock,
+    popOut,
+    popIn,
     controls,
     wireHeader,
     release,
