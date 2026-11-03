@@ -3015,6 +3015,8 @@
         // in short groups, and nothing about writing where nothing can be written
         r.helpInGroupsNoWrite = JSON.stringify([...document.querySelectorAll('.decklight-help h4')].map((h) => h.textContent))
           === JSON.stringify(['Navigate', 'Present', 'Look', 'Voice']) && !/undo|commit|agent/i.test(helpText);
+        // the help sits inside .decklight, so a <section> in it would match every slide selector
+        r.helpHasNoSections = !!document.querySelector('.decklight-help') && !document.querySelector('.decklight-help section');
         press('Escape');
         r.escClosesHelp = !document.querySelector('.decklight-help');
         // ⌘K / Ctrl+K is the palette, not a commit error
@@ -3033,7 +3035,7 @@
         await settle();
         r.sOpensTheSpeakerView = opened.length === 1 && !document.querySelector('.decklight-editor');
         r.PASS = r.clickAdvances && r.linkClickDoesNot && r.dotBlacksOut && r.anyKeyEndsBlackout && r.endingDoesNotMove && r.aClickEndsIt
-          && r.helpOpens && r.deckHoldsBehindHelp && r.helpNamesTheNewKeys && r.helpInGroupsNoWrite && r.escClosesHelp && r.cmdKOpensThePalette && r.presentChordOutsideWriteMode && r.sOpensTheSpeakerView;
+          && r.helpOpens && r.deckHoldsBehindHelp && r.helpNamesTheNewKeys && r.helpInGroupsNoWrite && r.helpHasNoSections && r.escClosesHelp && r.cmdKOpensThePalette && r.presentChordOutsideWriteMode && r.sOpensTheSpeakerView;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
