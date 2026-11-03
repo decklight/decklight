@@ -36,6 +36,18 @@ const GENERATE = IS_MAC;
 const SEEN_KEY = 'decklight-onboarded';   // the welcome card, once per browser
 const TOUR_SEEN_KEY = 'decklight-onboarded-tour';   // the editing tour, once per browser
 
+/** A card is a dialog to a screen reader, named by its heading, and takes the focus so its keys are heard. */
+function markDialog(el) {
+  const card = el.querySelector?.('.wel-card');
+  const h = card?.querySelector?.('h3');
+  if (!card) return;
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
+  if (h) { h.id = h.id || `dl-card-${Math.random().toString(36).slice(2, 8)}`; card.setAttribute('aria-labelledby', h.id); }
+  card.tabIndex = -1;
+  setTimeout(() => { try { card.focus({ preventScroll: true }); } catch { /* not focusable here */ } }, 0);
+}
+
 // Storage is advisory here, never load-bearing: `file://` and private mode both
 // throw, and a deck that cannot remember what it has taught must still play.
 const read = (key) => readPref(key);
@@ -111,6 +123,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     // the overlay swallows its own clicks on the way up. The backdrop closes
     // it, and so does the card itself — every part of a card that says "press
     // any key" should answer a click too.
+    markDialog(cardEl);
     cardEl.addEventListener('click', (e) => { e.stopPropagation(); dismissWelcome(); });
     closeOnBackdrop(cardEl, dismissWelcome);
     root.appendChild(cardEl);
@@ -154,6 +167,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
         <button type="button" class="wel-go">Got it</button>
       </div>
     </div>`;
+    markDialog(tourEl);
     tourEl.addEventListener('click', (e) => { e.stopPropagation(); dismissEditingTour(); });
     closeOnBackdrop(tourEl, dismissEditingTour);
     root.appendChild(tourEl);
