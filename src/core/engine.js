@@ -2553,7 +2553,7 @@ export function init(userConfig = {}) {
     // chords spelled the way this machine spells them.
     const enter = IS_MAC ? '⏎' : 'Enter';
     const presentChord = IS_MAC ? '⌘⏎' : 'Ctrl+Enter';
-    const group = (title, rows) => `<section class="help-group"><h4>${title}</h4><table>${rows}</table></section>`;
+    const group = (title, rows) => `<div class="help-group"><h4>${title}</h4><table>${rows}</table></div>`;
     helpEl.innerHTML = `<div class="help-card" role="dialog" aria-label="Keyboard"><h3>Keyboard</h3><div class="help-groups">
       ${group('Navigate', `
       <tr><td>→ / PageDown / click</td><td>next (a click selects in write mode)</td></tr>
