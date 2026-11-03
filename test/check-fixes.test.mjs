@@ -76,7 +76,7 @@ test('every static finding carries the fix the server could apply, in the words 
   const roles = byRule(found, 'off-role');
   assert.deepEqual(roles.map((f) => f.slide), [1, 2]);
   assert.match(roles[0].message, /was renamed text-body in 3\.0\.0/);
-  assert.deepEqual(roles[0].fix, { kind: 'rename', slide: 1, batch: true, label: 'Rename text-main → text-body on slide 1' });
+  assert.deepEqual(roles[0].fix, { kind: 'rename', slide: 1, batch: true, label: 'Rename text-main → text-body on "One"' });
   assert.equal(byRule(found, 'ds-behind').length, 0, 'a deck on the version is not behind');
 
   // a deck behind: Migrate, with the plan's count
@@ -113,7 +113,8 @@ test('renameRoles moves a renamed role to its successor on one slide, or on ever
   assert.doesNotMatch(all.html, /text-main/);
   assert.deepEqual(renameRoles(CLEAN, 1), { html: CLEAN, count: 0, slides: [] });
   assert.deepEqual(BATCH_RULES, ['off-role']);
-  assert.equal(fixSubject('off-role', 2), 'fix: off-role on slide 2');
+  assert.equal(fixSubject('off-role', 2, html), 'fix: off-role on "Two"', 'by its heading, never its number');
+  assert.equal(fixSubject('off-role', 2), 'fix: off-role', 'no deck to read: no number either');
   assert.equal(fixSubject('theme-off-brand'), 'fix: theme-off-brand');
 });
 
@@ -187,11 +188,11 @@ test('POST /deck/edit/check/fix: the theme fix and a role rename each land as on
 
   const one = await (await post(base, '/deck/edit/check/fix', { rule: 'off-role', slide: 2 })).json();
   assert.deepEqual([one.ok, one.changed, one.said, one.undo], [true, true, '1 role renamed on slide 2', 2], JSON.stringify(one));
-  assert.deepEqual([one.ask.title, one.ask.slide], ['fix: off-role on slide 2', 2]);
+  assert.deepEqual([one.ask.title, one.ask.slide], ['fix: off-role on "Two"', 2]);
   const after = readFileSync(file, 'utf8');
   assert.match(after, /<rect fill="var\(--acme-color-text-body\)"/);
   assert.match(after, /<h2>One<\/h2><p style="color: var\(--acme-color-text-main\)"/, 'slide 1 is left for its own fix');
-  if (GIT) assert.equal(subjects(dir)[0], 'fix: off-role on slide 2');
+  if (GIT) assert.equal(subjects(dir)[0], 'fix: off-role on "Two"');
 
   // what is left: slide 1's role, and nothing at the head
   const left = await get(base, '/deck/edit/check');
@@ -205,7 +206,7 @@ test('POST /deck/edit/check/fix: the theme fix and a role rename each land as on
   if (GIT) assert.equal(subjects(dir)[0], 'fix: off-role');
 
   const p = await get(base, '/deck/ping');
-  assert.deepEqual(p.agentAsks.map((a) => a.title), ['fix: theme-off-brand', 'fix: off-role on slide 2', 'fix: off-role'], 'three entries in the agent panel');
+  assert.deepEqual(p.agentAsks.map((a) => a.title), ['fix: theme-off-brand', 'fix: off-role on "Two"', 'fix: off-role'], 'three entries in the agent panel');
   assert.equal((await post(base, '/deck/edit/undo')).status, 200);
   assert.match(readFileSync(file, 'utf8'), /<h2>One<\/h2><p style="color: var\(--acme-color-text-main\)"/, 'one Z takes the batch back');
 

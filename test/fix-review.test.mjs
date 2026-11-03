@@ -128,9 +128,11 @@ test('notesText reads an aside as its words', () => {
 
 test('commitDraft names the slides that landed and puts the rejections in the body', () => {
   const units = candidateUnits(DECK, FIXED);
-  assert.deepEqual(commitDraft('fix: off-role on slide 2', units, new Set(['s1', 's2'])), { subject: 'fix: off-role on slides 1 and 2', body: '' });
-  const d = commitDraft('fix: off-role', units, new Set(['s2']), [{ key: 's3', comment: 'keep  Gamma,\nit is fine' }, { key: 'head', comment: '' }]);
-  assert.equal(d.subject, 'fix: off-role on slide 2');
+  const decks = { before: DECK, after: FIXED };
+  assert.deepEqual(commitDraft('fix: off-role on slide 2', units, new Set(['s1', 's2']), [], decks), { subject: 'fix: off-role on "Alpha" and "Beta"', body: '' });
+  assert.equal(commitDraft('fix: off-role on "Old name"', units, new Set(['s1']), [], decks).subject, 'fix: off-role on "Alpha"', 'where it landed replaces where it was asked');
+  const d = commitDraft('fix: off-role', units, new Set(['s2']), [{ key: 's3', comment: 'keep  Gamma,\nit is fine' }, { key: 'head', comment: '' }], decks);
+  assert.equal(d.subject, 'fix: off-role on "Beta"');
   assert.equal(d.body, 'Rejected in review:\n- slide 3 (removed): keep Gamma, it is fine\n- the deck');
   assert.equal(commitDraft('fix: theme-off-brand', units, new Set(['head'])).subject, 'fix: theme-off-brand');
 });
@@ -209,7 +211,7 @@ test('apply writes the approved slides as ONE undo entry and drafts the commit',
   assert.equal(r.code, 200);
   assert.equal(r.body.changed, true);
   assert.equal(r.body.said, 'applied 2 of 5 · 1 rejected · 2 left out');
-  assert.deepEqual(r.body.commit, { subject: 'fix: off-role on slides 1 and 2', body: 'Rejected in review:\n- slide 3 (removed): Gamma stays' });
+  assert.deepEqual(r.body.commit, { subject: 'fix: off-role on "Alpha" and "Beta"', body: 'Rejected in review:\n- slide 3 (removed): Gamma stays' });
   assert.deepEqual(history.counts(), { undo: 1, redo: 0 });
   assert.deepEqual(saved, ['fix: off-role on slide 2'], 'the outstanding work is saved before the fix lands');
   const now = readDeck();

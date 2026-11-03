@@ -25,7 +25,7 @@ import { execFileSync } from 'node:child_process';
 import {
   MAX_DIFF, MAX_SLIDES_NAMED, amendSubject, amendable, changeDiff, changedSlides,
   deckOutline, deckTitle, describeCommit, messagePrompt, messagesLine, parseHunks,
-  subjectFrom, reviewSubject, describeWorking, ask } from '../cli/commit-message.mjs';
+  subjectFrom, reviewSubject, slideNames, describeWorking, ask } from '../cli/commit-message.mjs';
 import { AGENTS, agentAsk } from '../cli/agents.mjs';
 
 // ── reading the agent's answer ───────────────────────────────────────────
@@ -289,7 +289,13 @@ test('a change that is only review records gets a subject from the records, no a
   // REVIEW: the sidecar rides the deck's commits, and "resolve 1 comment" is
   // a fact read off the diff, not a thing an agent should make up — so the
   // subject comes without one, and an agent that IS there is not asked.
-  assert.equal(reviewSubject('+{"id":"a1","slide":2,"body":"Tighten."}'), 'review: a comment on slide 2');
+  // a slide by its name, never its number alone: the deck's heading, else the
+  // title the comment recorded, else nothing rather than a number
+  const names = slideNames('<section><h2>One</h2></section>\n<section><h2>The Freshness Problem</h2></section>');
+  assert.equal(reviewSubject('+{"id":"a1","slide":2,"body":"Tighten."}', { names }), 'review: a comment on "The Freshness Problem"');
+  assert.equal(reviewSubject('+{"id":"a1","slide":2,"title":"Pricing","body":"Tighten."}'), 'review: a comment on "Pricing"');
+  assert.equal(reviewSubject('+{"id":"a1","slide":2,"title":"slide 2","body":"Tighten."}'), 'review: a comment');
+  assert.equal(reviewSubject('+{"id":"a1","slide":2,"body":"Tighten."}'), 'review: a comment');
   assert.equal(reviewSubject('+{"op":"resolve","re":"a1"}'), 'review: resolve 1 comment');
   assert.equal(reviewSubject('+{"op":"resolve","re":"a1"}\n+{"op":"resolve","re":"a2"}'), 'review: resolve 2 comments');
   assert.equal(reviewSubject('+{"op":"reopen","re":"a1"}\n+{"op":"delete","re":"a2"}'), 'review: 2 changes to comments');

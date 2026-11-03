@@ -282,7 +282,10 @@ curl -sf -X POST localhost:8788/deck/edit/commit \\
   -H 'content-type: application/json' -d '{"message":"split the crowded video slides"}'
 \`\`\`
 
-A subject for THAT change, never "updated the deck". It commits only the deck
+A subject for THAT change, never "updated the deck". Name a slide by its
+title, or by a few words when it has none (*the closing slide*, *the
+Kafka-to-agents diagram*), never by its number: \`slide 12: …\` points at
+the wrong slide the moment one is inserted above it. It commits only the deck
 and is a no-op when nothing changed. Nothing listening on the port: skip it
 silently, and never start a server yourself.
 
@@ -346,7 +349,8 @@ token or a literal; \`check\` names each one that is not (\`off-role\`).
 When the deck is open in write mode (\`decklight deck.html\`), commit each logical
 change you finish rather than leaving it to the timer's generic \`autosave\`:
 \`curl -sf -X POST localhost:8788/deck/edit/commit -H 'content-type: application/json'
--d '{"message":"what this change did"}'\`. No server listening means no
+-d '{"message":"what this change did"}'\`, naming a slide by its title (or a
+few words when it has none), never by its number. No server listening means no
 authoring session — skip it and carry on.
 
 With no server running, after adding, removing or moving slides on a deck with

@@ -3672,7 +3672,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
    * quick fix Check deck… offers for one of `decklight check`'s findings
    * (PRESENTING_EDITING, cli/check-fixes.mjs), applied by this server and
    * recorded in the agent panel as an entry by *decklight*, beside the
-   * agents' edits. One undo entry and one commit (`fix: <rule> on slide N`,
+   * agents' edits. One undo entry and one commit (`fix: <rule> on "Title"`,
    * or `fix: <rule>` for the deck); `all` applies a batchable rule to every
    * slide as one of each. `ds-behind` is Migrate (above), which keeps its
    * own words. The judgement fixes never come here: the page hands those to
@@ -3690,8 +3690,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const { BATCH_RULES, fixSubject, offBrandTarget, renameRoles } = await import('./check-fixes.mjs');
     const { setDeckTheme } = await import('./runtime-link.mjs');
     const where = all && BATCH_RULES.includes(rule) ? null : slide ?? null;
-    const subject = fixSubject(rule, where);
     const before = readDeck();
+    const subject = fixSubject(rule, where, before);
     /** The deck rewritten in one step, committed as the fix, and said in the panel. */
     const land = (next, { said, tail, prompt }) => {
       // reviewed first (#907): held, and nothing written until the author applies it

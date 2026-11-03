@@ -494,6 +494,10 @@ export function agentCommand(name, instruction, deck, { env = process.env, hasBi
     // mode). The skill tells an agent that opened the deck on its own to call
     // the commit route; one started by A must not, or the edit lands twice.
     'decklight started you and will commit your edit itself when you finish, under your summary: do not call the commit route. ' +
+    // The summary is the commit subject, and the slide number above is the
+    // likeliest word in it. A number stops being true when a slide is
+    // inserted above it, and `git log` then points at the wrong slide.
+    'In that summary, name a slide by its title, or by a few words describing it when it has none, never by its number. ' +
     `Apply this change, editing the file in place: ${instruction}`;
   // The spawn spec, not the bare name: on Windows an npm-installed agent is a
   // batch shim, and `prefix` is the script node has to be handed for the

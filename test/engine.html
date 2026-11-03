@@ -5511,7 +5511,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         press('Enter', { metaKey: true, ctrlKey: true });   // ⌘⏎ / Ctrl+Enter: a fix is a deliberate chord
         await settle();
         const ask = CALLS.post.filter((c) => c.u.includes('/deck/edit/agent')).pop()?.body;
-        r.fPostsTheFix = ask?.slide === 2 && ask?.prompt === window.__reviewFindings[0].prompt && ask?.message === 'review: title is a topic on slide 2';
+        r.fPostsTheFix = ask?.slide === 2 && ask?.prompt === window.__reviewFindings[0].prompt && /^review: title is a topic on (?:"[^"]+"|an untitled slide)$/.test(ask?.message ?? ''); // by name, never `on slide 2` (#975)
         // the ask is watched in the agent panel, which takes the slot the check panel held
         r.fGoesAndCloses = !document.querySelector(Q) && deck.state.slide === 2 && !!document.querySelector('.decklight-agent');
         r.rowOffersTheAgent = agentRows[0].querySelector('.dc-fix')?.textContent === 'Fix it';
