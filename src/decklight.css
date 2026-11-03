@@ -2767,6 +2767,19 @@
    as a dimmer prefix (`Voice: Live voice…`), and a write-mode row tagged */
 .decklight-palette .pal-right { display: inline-flex; align-items: center; gap: 8px; }
 .decklight-palette .pal-cat { opacity: .55; }
+/* with nothing typed: group headings, and the rows' own prefix out of sight
+   (kept for a screen reader, which reads the row without its heading) */
+.decklight-palette .pal-group { padding: 10px 12px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #8d93a0; }
+.decklight-palette .pal-group:first-child { padding-top: 2px; }
+.decklight-palette .pal-grouped .pal-cat { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* a picker's query box (overlay.js queryInput): a real input, so a phone's
+   keyboard appears and a paste or an accented letter lands */
+.decklight-narr input.tp-query, .decklight-theme-picker input.tp-query {
+  display: block; width: 100%; box-sizing: border-box; border: 0; outline: none;
+  font: inherit; font-size: 16px; color: #fff; -webkit-appearance: none; appearance: none;
+}
+.decklight-narr input.tp-query::placeholder, .decklight-theme-picker input.tp-query::placeholder { color: #8d93a0; opacity: 1; }
+.decklight-narr input.tp-query:focus-visible, .decklight-theme-picker input.tp-query:focus-visible { box-shadow: 0 0 0 2px var(--accent, #6af); }
 .decklight-palette .pal-tag { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 5px; border-radius: 4px; background: rgba(255, 255, 255, .1); opacity: .7; }
 
 /* blackout / help */

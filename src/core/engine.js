@@ -12,7 +12,7 @@ import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView, installSpeakerBridge } from './speaker.js';
-import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown } from './overlay.js';
+import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown, queryInput } from './overlay.js';
 import { createThemes } from './themes.js';
 import { createNarration, narrationTracks, slideClickMatch } from './narration.js';
 import { stampClickMismatch } from '../../tools/click-match.mjs';
@@ -899,8 +899,7 @@ export function init(userConfig = {}) {
       listBox.appendChild(none);
     }
     const bar = finderEl.querySelector('.tp-filter');
-    bar.textContent = finderQuery
-      || (playlist || hasMarkersDOM ? 'type to find a slide or module…' : 'type to find a slide…');
+    if (bar.value !== finderQuery) bar.value = finderQuery;
     bar.classList.toggle('tp-active', !!finderQuery);
   }
   const finderPreviewSwap = (frame, entry) => finderPreview.show(frame, entry);
@@ -961,10 +960,23 @@ export function init(userConfig = {}) {
     finderEl.className = 'decklight-theme-picker decklight-finder';
     finderEl.innerHTML =
       '<div class="tp-panel">' +
-        '<div class="tp-side"><div class="tp-filter"></div>' +
+        '<div class="tp-side">' +
         '<div class="tp-list" role="listbox" aria-label="Slides"></div></div>' +
         '<div class="tp-preview"><iframe title="Slide preview"></iframe>' +
         '<div class="tp-caption"></div></div></div>';
+    // the query is a real text box (overlay.js queryInput): a phone's
+    // keyboard, a paste and an accented letter all reach it
+    const box = queryInput({
+      placeholder: playlist || hasMarkersDOM ? 'type to find a slide or module…' : 'type to find a slide…',
+      label: 'Find a slide',
+      onQuery: (q) => setFinderQuery(q),
+      onMove: (d) => selectFinderRow(finderSel + d, false),
+      onCommit: commitFinder,
+      onClose: closeSlideFinder,
+      onArrow: (e) => (finderOutlined() ? finderFold(e.key === 'ArrowRight') : false),
+    });
+    box.classList.add('tp-filter');
+    finderEl.querySelector('.tp-side').prepend(box);
     finderEl.__index = finderIndex();
     // the outline opens folded, except where you are standing
     finderOpen = new Set();
@@ -974,6 +986,7 @@ export function init(userConfig = {}) {
     closeOnBackdrop(finderEl, closeSlideFinder);
     root.appendChild(finderEl);
     selectFinderRow(Math.max(0, finderMatches.findIndex((m) => !m.chapter && m.slide === instance.state.slide)), true);
+    finderEl.querySelector('.tp-filter')?.focus({ preventScroll: true });
   }
   function closeSlideFinder() {
     clearTimeout(finderDebounce);
@@ -987,7 +1000,7 @@ export function init(userConfig = {}) {
   // filters, Enter runs. Commands with arguments drill into their own pickers
   // (theme, font, narration, module, slide finder). Text that matches no
   // command falls back to a "search slides for …" row.
-  let palEl = null, palSel = 0, palQuery = '', palRows = [], palCommands = [];
+  let palEl = null, palSel = 0, palQuery = '', palRows = [], palCommands = [], palInput = null;
   // ── HIDDEN_SLIDES from the palette ──────────────────────────────────────
   const hasHiddenSlides = () => (instance._sections ?? []).some((s) => s.hasAttribute('data-hidden'));
   const currentHidden = () => !!instance._sections?.[instance.state.slide - 1]?.hasAttribute('data-hidden');
@@ -1093,8 +1106,8 @@ export function init(userConfig = {}) {
         alias: 'slide template slots convert switch insert slide divider section structure design system',
         run: () => slideTemplates.open() }),
       // ── Edit ────────────────────────────────────────────────────────────
-      write({ label: 'Undo deck edit', cat: 'Edit', hint: UNDO_CHORD, alias: 'revert back history', run: () => deckHistory('undo') }),
-      write({ label: 'Redo deck edit', cat: 'Edit', hint: REDO_CHORD, alias: 'forward history repeat', run: () => deckHistory('redo') }),
+      write({ label: 'Undo', cat: 'Edit', hint: UNDO_CHORD, alias: 'undo deck edit revert back history', run: () => deckHistory('undo') }),
+      write({ label: 'Redo', cat: 'Edit', hint: REDO_CHORD, alias: 'redo deck edit forward history repeat', run: () => deckHistory('redo') }),
       write({ label: 'Ask agent…', cat: 'Edit', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk }),
       // the format painter, on whatever is selected while editing (style-clip.js)
       editmode.elementEditOn() && editbar.selected() && write({ label: 'Copy style', cat: 'Edit', hint: styleClip.keys.copy,
@@ -1132,15 +1145,15 @@ export function init(userConfig = {}) {
       // ⎵ is the verb and V the panel. The rows below the panel row open it
       // on one of its views, so they are found by what they are called; only
       // the panel row carries V, since V opens the panel, not those views.
-      { label: `Narration ${narration.status().paused ? 'resume' : narration.status().narrating ? 'pause' : 'play'}`, cat: 'Voice',
+      { label: `${narration.status().paused ? 'Resume' : narration.status().narrating ? 'Pause' : 'Play'} the voice`, cat: 'Voice',
         hint: '⎵', alias: 'play pause resume voice narration speak start stop', run: () => narration.playPause() },
-      { label: 'Narration…', cat: 'Voice', hint: 'V', alias: 'voice audio track picker panel', run: () => openNarrPicker('tracks') },
+      { label: 'Voice and narration…', cat: 'Voice', hint: 'V', alias: 'narration voice audio track picker panel', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', cat: 'Voice', alias: 'tts synthesize tone gemini elevenlabs engine', run: () => openNarrPicker('voices') },
       { label: 'Character…', cat: 'Voice', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
-      { label: `Character solo ${character.solo ? 'off' : 'on'}`, cat: 'Voice', alias: 'centre center stage narrator only fullscreen avatar', run: () => narration.applySolo(!character.solo) },
+      { label: character.solo ? 'Show the slides with the character' : 'Show only the character', cat: 'Voice', alias: 'character solo centre center stage narrator only fullscreen avatar', run: () => narration.applySolo(!character.solo) },
       { label: 'Record this deck…', cat: 'Voice', alias: 'record narrate microphone mic voice wav offline batch teleprompter',
         run: () => openNarrPicker('record') },
-      { label: `Captions ${narration.status().captionsOn ? 'off' : 'on'}`, cat: 'Voice', hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
+      { label: `${narration.status().captionsOn ? 'Hide' : 'Show'} captions`, cat: 'Voice', hint: 'C', alias: 'captions on off cc subtitles closed caption', run: toggleCaptions },
       { label: 'Voice faster', cat: 'Voice', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
       { label: 'Voice slower', cat: 'Voice', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
       // each engine a registered marketplace declares a wizard for (ENGINES#WIZARD)
@@ -1173,17 +1186,17 @@ export function init(userConfig = {}) {
       { label: `${fsChromeHidden() ? 'Show' : 'Hide'} arrows and slide number in fullscreen`, cat: 'Present', hint: '⇧F',
         alias: 'chevrons controls prev next counter page number chrome clean distraction free', run: () => setFsChrome(!fsChromeHidden()) },
       { label: 'Blackout', cat: 'Present', hint: 'B', run: toggleBlackout },
-      { label: `Pen ${hud.annotator?.tool === 'pen' ? 'off' : 'on'} — draw on the slide`, cat: 'Present', hint: 'W', alias: 'ink annotate draw scribble marker highlight', run: () => toggleInk('pen') },
-      { label: `Laser pointer ${hud.annotator?.tool === 'laser' ? 'off' : 'on'}`, cat: 'Present', hint: '⇧W', alias: 'ink dot glow point at', run: () => toggleInk('laser') },
+      { label: hud.annotator?.tool === 'pen' ? 'Put the pen away' : 'Draw on the slide', cat: 'Present', hint: 'W', alias: 'pen ink annotate draw scribble marker highlight', run: () => toggleInk('pen') },
+      { label: hud.annotator?.tool === 'laser' ? 'Put the laser pointer away' : 'Laser pointer', cat: 'Present', hint: '⇧W', alias: 'laser ink dot glow point at', run: () => toggleInk('laser') },
       // The clock lost K to the commit window and lives here, with no key.
-      { label: `Clock ${hud.status().clockOn ? 'off' : 'on'}`, cat: 'Present', alias: 'time elapsed timer talk wall watch clock', run: toggleClock },
-      { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, cat: 'Present', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
+      { label: `${hud.status().clockOn ? 'Hide' : 'Show'} the clock`, cat: 'Present', alias: 'clock on off time elapsed timer talk wall watch clock', run: toggleClock },
+      { label: `${hud.status().progressOn ? 'Hide' : 'Show'} the progress bar`, cat: 'Present', alias: 'progress bar on off bottom edge position how far through shape of the talk', run: toggleProgress },
       // REHEARSAL_TIMINGS: the recorder lives in the speaker view; this opens
       // it (if it is not already) and starts the clock in one step.
       { label: 'Rehearse timings… (speaker view)', cat: 'Present', alias: 'rehearsal timing time each slide record pace plan stopwatch',
         run: () => { const w = speakerWindow(); w?.__decklightSpeakerRec?.(true); } },
       // HIDDEN_SLIDES: contextual, since a deck with nothing hidden has nothing to show
-      (showHidden || hasHiddenSlides()) && { label: `Hidden slides ${showHidden ? 'skip' : 'show'}`, cat: 'Present',
+      (showHidden || hasHiddenSlides()) && { label: `${showHidden ? 'Skip' : 'Show'} hidden slides`, cat: 'Present',
         alias: 'all cut backup skipped unhide reveal present hidden ⊘', run: toggleShowHidden },
       { label: 'Transcript… (speaker view)', cat: 'Present', alias: 'notes script whole deck text spoken read', run: () => openTranscript() },
       { label: 'Download the transcript (.md)', cat: 'Share', alias: 'transcript notes script markdown download spoken text', run: () => instance.transcript.download('md') },
@@ -1249,8 +1262,13 @@ export function init(userConfig = {}) {
     return all;
   }
   function renderPalette() {
-    const card = palEl.querySelector('.narr-card');
+    const card = palEl.querySelector('.pal-list');
     card.textContent = '';
+    // With nothing typed the rows run group by group, so the groups are
+    // HEADINGS and the rows read plainly; typed, the results mix groups, and
+    // each row says its own. The prefix stays in the row either way, for a
+    // screen reader, only out of sight under a heading.
+    card.classList.toggle('pal-grouped', !palQuery);
     // Which rows a query leaves, the inline "goto 27" argument and the
     // search fallback all live in palette.js; the commands themselves stay
     // here, where each one closes over what it runs.
@@ -1268,15 +1286,22 @@ export function init(userConfig = {}) {
       }),
     });
     palRows = rows;
-    const bar = document.createElement('div');
-    bar.className = 'pal-input' + (palQuery ? ' tp-active' : '');
-    bar.textContent = palQuery || 'type a command…';
-    card.appendChild(bar);
+    if (palInput && palInput.value !== palQuery) palInput.value = palQuery;
     let i = 0;
+    let lastCat = null;
     for (const c of rows) {
       const at = i++;
+      if (!palQuery && c.cat && c.cat !== lastCat) {
+        const head = document.createElement('div');
+        head.className = 'pal-group';
+        head.setAttribute('role', 'presentation');
+        head.textContent = c.cat;
+        card.appendChild(head);
+      }
+      lastCat = c.cat;
       const el = document.createElement('div');
       el.className = 'narr-row pal-row';
+      el.setAttribute('role', 'option');
       const label = document.createElement('span');
       // the category as a dimmer prefix, so the eye runs down the names
       if (c.cat) {
@@ -1334,14 +1359,25 @@ export function init(userConfig = {}) {
     palCommands = paletteCommands();
     palEl = document.createElement('div');
     palEl.className = 'decklight-narr decklight-palette';
-    palEl.innerHTML = '<div class="narr-card" role="listbox" aria-label="Commands"></div>';
+    palEl.innerHTML = '<div class="narr-card"><div class="pal-list" role="listbox" aria-label="Commands"></div></div>';
+    palInput = queryInput({
+      placeholder: 'type a command…', label: 'Command',
+      onQuery: (q) => { palQuery = q; renderPalette(); },
+      onMove: (d) => selectPalRow(palSel + d),
+      onCommit: commitPalRow,
+      onClose: closePalette,
+    });
+    palInput.classList.add('pal-input');
+    palEl.querySelector('.narr-card').prepend(palInput);
     closeOnBackdrop(palEl, closePalette);
     root.appendChild(palEl);
     renderPalette();
+    palInput.focus({ preventScroll: true });
   }
   function closePalette() {
     palEl?.remove();
     palEl = null;
+    palInput = null;
   }
 
   // settings (palette drill-in): facts about what this deck is running, and a

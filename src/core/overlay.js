@@ -71,6 +71,44 @@ export function typeaheadKeydown(e, { query = '', onMove, onCommit, onType, onBa
 }
 
 /**
+ * A picker's query as a REAL text box (PRESENTING_CHROME). The palette and
+ * the finder used to read keys one at a time from the deck's handler, which
+ * dropped whatever was not a bare printable key: a paste, an accented letter
+ * typed through ⌥ or AltGr, a dead key, an IME, and on a phone everything,
+ * because without a focused text box no keyboard ever appears. The browser
+ * types into this one; the picker hears the result (`onQuery`) and the keys
+ * that steer it. Keys dispatched at the page rather than the box still reach
+ * the picker's `typeaheadKeydown`, which keeps the box's text in step.
+ *
+ * `onArrow(e)` may take ← / → (the finder folds its outline with them) and
+ * returns whether it did; otherwise they move the caret, as in any box.
+ */
+export function queryInput({ placeholder, label, onQuery, onMove, onCommit, onClose, onArrow = null }) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'tp-query';
+  input.placeholder = placeholder;
+  input.setAttribute('aria-label', label);
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.setAttribute('autocapitalize', 'off');
+  input.setAttribute('enterkeyhint', 'go');
+  input.addEventListener('input', () => onQuery(input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    let done = true;
+    if (e.key === 'ArrowDown') onMove(1);
+    else if (e.key === 'ArrowUp') onMove(-1);
+    else if (e.key === 'Enter') onCommit();
+    else if (e.key === 'Escape') { if (input.value) { input.value = ''; onQuery(''); } else onClose(); }
+    else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && onArrow) done = onArrow(e) === true;
+    else done = false;
+    if (done) { e.preventDefault(); e.stopPropagation(); }
+  });
+  return input;
+}
+
+/**
  * The registry the deck's keydown handler consults before its own table.
  *
  * Register in PRIORITY ORDER: when overlays somehow overlap, the one
