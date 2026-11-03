@@ -872,6 +872,7 @@ export function init(userConfig = {}) {
     listBox.textContent = '';
     finderMatches.forEach((m, i) => {
       const row = document.createElement('div');
+      row.setAttribute('role', 'option');
       row.className = 'tp-row' + (m.slide === instance.state.slide && !m.chapter ? ' tp-current' : '')
         + (m.href || m.chapter ? ' tp-module' : '') + (m.child ? ' tp-child' : '');
       // Both shapes read the same, because they mean the same thing to the
@@ -2270,7 +2271,7 @@ export function init(userConfig = {}) {
   function ovSelect(i) {
     const cells = overviewEl.querySelectorAll('.ov-cell');
     ovSel = Math.max(0, Math.min(i, cells.length - 1));
-    cells.forEach((c, j) => c.classList.toggle('ov-selected', j === ovSel));
+    cells.forEach((c, j) => { c.classList.toggle('ov-selected', j === ovSel); c.setAttribute('aria-selected', String(j === ovSel)); });
     cells[ovSel]?.scrollIntoView({ block: 'nearest' });
   }
   function ovCommit() {
@@ -2363,12 +2364,16 @@ export function init(userConfig = {}) {
     }
     overviewEl = document.createElement('div');
     overviewEl.className = 'decklight-overview-grid';
+    overviewEl.setAttribute('role', 'listbox');
+    overviewEl.setAttribute('aria-label', 'Slides');
     const editable = editmode.available();
     overviewEl.classList.toggle('ov-editable', editable);
     instance._sections.forEach((s, i) => {
       const cell = document.createElement('div');
       cell.className = 'ov-cell' + (i === instance.state.slide - 1 ? ' ov-current' : '')
         + (s.hasAttribute('data-hidden') ? ' ov-hidden' : '');   // dimmed and badged, still there to unhide
+      cell.setAttribute('role', 'option');
+      cell.setAttribute('aria-label', `Slide ${i + 1}: ${slideTitle(s, i, slideBody(s))}${s.hasAttribute('data-hidden') ? ' (hidden)' : ''}`);
       const frame = document.createElement('div');
       frame.className = 'ov-frame';
       frame.style.width = config.width + 'px';
@@ -3104,6 +3109,26 @@ export function init(userConfig = {}) {
     try { sessionStorage.removeItem(OVERVIEW_OPEN_KEY); } catch { /* nothing kept */ }
     if (overviewEl) { toggleOverview(); toggleOverview(); }
   };
+
+  // ----- what a screen reader hears (PRESENTING_CHROME) ---------------------
+  // A slide change was silent to anyone not looking: the slide number is a
+  // picture of a number. A polite live region says where the deck went,
+  // "Slide 4 of 12: Title", on every slide change (not on every build step,
+  // which would talk over the speaker). Visually hidden; never in a render.
+  if (!printMode && !captureMode && !params.has('embedded')) {
+    const sr = document.createElement('div');
+    sr.className = 'decklight-sr';
+    sr.setAttribute('role', 'status');
+    sr.setAttribute('aria-live', 'polite');
+    sr.setAttribute('aria-atomic', 'true');
+    root.appendChild(sr);
+    instance.on('slide', () => {
+      const n = instance.state.slide;
+      const sec = instance._sections[n - 1];
+      if (!sec) return;
+      sr.textContent = `Slide ${n} of ${instance.state.totalSlides}: ${slideTitle(sec, n - 1, slideBody(sec))}`;
+    });
+  }
   if (!printMode) {
     new ResizeObserver(rescale).observe(root);
     rescale();

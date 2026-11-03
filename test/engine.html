@@ -3210,6 +3210,37 @@
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
+      if (mode === 'a11y') {
+        // What a screen reader hears and a keyboard sees (PRESENTING_CHROME).
+        await settle();
+        deck.goto(1, 0); await settle();
+        const sr = () => document.querySelector('.decklight-sr');
+        deck.goto(2, 0); await settle();
+        r.slideChangeAnnounced = sr()?.getAttribute('aria-live') === 'polite' && sr()?.textContent === 'Slide 2 of 4: Two';
+        r.announcerOutOfSight = sr()?.getBoundingClientRect().width <= 1;
+        // the overview is a list of slides, each named, the selection said
+        press('o'); await settle();
+        const grid = document.querySelector('.decklight-overview-grid');
+        const cells = [...(grid?.querySelectorAll('.ov-cell') ?? [])];
+        r.overviewIsAList = grid?.getAttribute('role') === 'listbox' && cells.every((c) => c.getAttribute('role') === 'option')
+          && cells[0]?.getAttribute('aria-label') === 'Slide 1: One' && cells.some((c) => c.getAttribute('aria-selected') === 'true');
+        press('Escape'); await settle();
+        // the finder's rows are options
+        press('g'); await settle();
+        r.finderRowsAreOptions = [...document.querySelectorAll('.decklight-finder .tp-row')].every((n) => n.getAttribute('role') === 'option')
+          && document.querySelectorAll('.decklight-finder .tp-row').length > 0;
+        press('Escape'); await settle();
+        // the welcome card is a dialog named by its heading, and has the focus
+        deck.showWelcome(); await settle();
+        const card = document.querySelector('.decklight-welcome .wel-card');
+        const label = card && document.getElementById(card.getAttribute('aria-labelledby') ?? '');
+        r.cardIsADialog = card?.getAttribute('role') === 'dialog' && card?.getAttribute('aria-modal') === 'true'
+          && label?.textContent === 'Welcome to Decklight' && document.activeElement === card;
+        press('Escape'); await settle();
+        r.PASS = r.slideChangeAnnounced && r.announcerOutOfSight && r.overviewIsAList && r.finderRowsAreOptions && r.cardIsADialog;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
 
       if (mode === 'heldreload') {
         // A reload waits for what is typed (drafts.js, PRESENTING_EDITING):

@@ -3978,3 +3978,13 @@
 @media (pointer: coarse) {
   .decklight-messages { top: max(76px, calc(env(safe-area-inset-top) + 70px)); left: max(14px, env(safe-area-inset-left)); }
 }
+/* ── accessibility (PRESENTING_CHROME) ─────────────────────────────────────
+   One focus ring for every control Decklight draws, where many had none;
+   and the screen reader's line, out of sight. */
+.decklight button:focus-visible, .decklight [role="button"]:focus-visible, .decklight [role="option"]:focus-visible,
+.decklight [tabindex]:focus-visible, .decklight a:focus-visible, .decklight select:focus-visible,
+.decklight-narr input:focus-visible, .decklight-narr textarea:focus-visible, .decklight-narr .narr-row:focus-visible {
+  outline: 2px solid var(--accent, #6af); outline-offset: 2px;
+}
+.decklight .wel-card:focus, .decklight .help-card:focus { outline: none; }
+.decklight-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

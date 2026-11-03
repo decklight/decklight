@@ -33,6 +33,10 @@ function localFactor(el, stageScale) {
  * Returns the animation duration in ms.
  */
 export function runAutoAnimate(fromSection, toSection, stageScale) {
+  // Somebody who asked for less motion gets the slide as it lands (MOTION):
+  // the moves are inline transitions, which the stylesheet's reduced-motion
+  // rule cannot reach, so they are not started at all.
+  if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return 0;
   // --auto-animate-duration may be authored in ms or s, and the unit has to be
   // read: blind `* 1000` turned "500ms" into 500 seconds, a crawl rather than a
   // move. cssDurationMs is that reading, shared with slide transitions, which

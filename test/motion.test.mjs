@@ -162,3 +162,16 @@ test('an element that did not move gets no transform at all', () => {
   assert.equal(flipCss({ dx: 0, dy: 0, sx: 1, sy: 0.5 }), 'translate(0px, 0px) scale(1, 0.5)');
   assert.equal(flipCss({ dx: -8, dy: 4, sx: 1, sy: 1 }), 'translate(-8px, 4px) scale(1, 1)');
 });
+
+test('matching-element animation does not run for somebody who asked for less motion', async () => {
+  const { runAutoAnimate } = await import('../src/core/autoanimate.js');
+  const had = globalThis.matchMedia;
+  globalThis.matchMedia = (q) => ({ matches: /prefers-reduced-motion: reduce/.test(q) });
+  try {
+    // sections it must never touch: any read of them would throw
+    const untouchable = new Proxy({}, { get() { throw new Error('the animation ran'); } });
+    assert.equal(runAutoAnimate(untouchable, untouchable, 1), 0, 'the slide lands as it is, in no time');
+  } finally {
+    if (had === undefined) delete globalThis.matchMedia; else globalThis.matchMedia = had;
+  }
+});
