@@ -853,7 +853,7 @@ export function createNarration({
     narrRate = Math.round(Math.min(2, Math.max(0.25, narrRate + delta)) * 100) / 100;
     writePref(narrRateKey, String(narrRate));
     if (narrAudio) narrAudio.playbackRate = narrRate;
-    toast(`voice speed ${narrRate}×`);
+    toast(`voice speed ${narrRate}×`, undefined, { aside: true });
     debugLog('narr', `rate ${narrRate}×`);
     updateDebugState();
   }
@@ -2001,7 +2001,7 @@ export function createNarration({
     writePref(captionsKey, captionsOn ? '1' : '0');
     if (captionsOn) { showCaptions(); dismissHint(); }  // same corner — one of them goes
     else { captionEl?.remove(); captionEl = null; }
-    toast(`captions ${captionsOn ? 'on' : 'off'}`);
+    toast(`captions ${captionsOn ? 'on' : 'off'}`, undefined, { aside: true });
     debugLog('narr', `captions ${captionsOn ? 'on' : 'off'}`);
   }
   instance.on('slide', updateCaption);

@@ -1182,6 +1182,8 @@
                   // a theme picked while the deck was unlocked, then locked again (#819) — and still unlocked
                   : HARNESS_MODE === 'brandoffconfig' ? { theme: 'aurora' }
                     : HARNESS_MODE === 'brandunlocked' ? { theme: 'aurora', brandThemesOnly: false }
+                      // the deck's own slide number on, for write mode's to stand in for (lockmode)
+                      : HARNESS_MODE === 'lockmode' ? { slideNumber: 'n/N' }
                       : {});
 
     const ovSelected = () => [...document.querySelectorAll('.decklight-overview-grid .ov-cell')].findIndex((c) => c.classList.contains('ov-selected'));
@@ -3046,6 +3048,12 @@
         r.helpHasNoSections = !!document.querySelector('.decklight-help') && !document.querySelector('.decklight-help section');
         press('Escape');
         r.escClosesHelp = !document.querySelector('.decklight-help');
+        // a presenter-only message is an aside, small, not a slab over the talk
+        press(']');
+        const fontSaid = [...document.querySelectorAll('.decklight-toast')].find((n) => /^font:/.test(n.textContent));
+        r.presenterMessagesAreAsides = !!fontSaid && fontSaid.classList.contains('decklight-toast-aside')
+          && parseFloat(getComputedStyle(fontSaid).fontSize) <= 13;
+        press('[');
         // ⌘K / Ctrl+K is the palette, not a commit error
         press('k', { metaKey: true });
         await settle();
@@ -3062,7 +3070,7 @@
         await settle();
         r.sOpensTheSpeakerView = opened.length === 1 && !document.querySelector('.decklight-editor');
         r.PASS = r.clickAdvances && r.linkClickDoesNot && r.dotBlacksOut && r.anyKeyEndsBlackout && r.endingDoesNotMove && r.aClickEndsIt
-          && r.helpOpens && r.deckHoldsBehindHelp && r.helpNamesTheNewKeys && r.helpInGroupsNoWrite && r.helpHasNoSections && r.escClosesHelp && r.cmdKOpensThePalette && r.presentChordOutsideWriteMode && r.sOpensTheSpeakerView;
+          && r.helpOpens && r.deckHoldsBehindHelp && r.helpNamesTheNewKeys && r.helpInGroupsNoWrite && r.helpHasNoSections && r.escClosesHelp && r.cmdKOpensThePalette && r.presentChordOutsideWriteMode && r.sOpensTheSpeakerView && r.presenterMessagesAreAsides;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -3310,6 +3318,9 @@
         await wait(300);
         r.theWordsStay = h1.textContent === 'One, kept' && h1.classList.contains('dl-unsaved') && !h1.isContentEditable;
         r.itSaysSo = [...document.querySelectorAll('.decklight-toast')].some((n) => /the text not saved.*double-click to try again/.test(n.textContent));
+        // …and it looks like a failure, not like a success (PRESENTING_CHROME)
+        r.anErrorLooksLikeOne = [...document.querySelectorAll('.decklight-toast')].some((n) => /not saved/.test(n.textContent)
+          && n.classList.contains('decklight-toast-error') && n.getAttribute('role') === 'alert');
         r.deckKeysStillWork = (() => { press('ArrowRight'); const moved = deck.state.slide === 2 || deck.state.step > 0; deck.goto(1, 0); return moved; })();
         await settle();
         window.__es.onmessage({ data: JSON.stringify({ reload: 'agent edited the deck' }) });
@@ -3335,7 +3346,7 @@
         await settle();
         r.escapeGivesItUp = h1.textContent === 'One, kept' && !h1.classList.contains('dl-unsaved') && !h1.isContentEditable;
         r.PASS = r.theWordsStay && r.itSaysSo && r.deckKeysStillWork && r.theyHoldTheReload && r.pickedUpAgain
-          && r.retrySaves && r.thenTheReloadGoes && r.escapeGivesItUp;
+          && r.retrySaves && r.thenTheReloadGoes && r.escapeGivesItUp && r.anErrorLooksLikeOne;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -4164,6 +4175,9 @@
           && getComputedStyle(num()).color !== 'rgb(255, 255, 255)' && document.querySelector('.decklight').classList.contains('has-slide-num');
         deck.goto(2); await settle();
         r.slideNumberFollows = num()?.textContent === `2 / ${deck.state.totalSlides}`;
+        // one counter in that corner: the deck's own number stands aside for write mode's
+        r.oneCounterInTheCorner = !!document.querySelector('.decklight-slide-number')
+          && ![...document.querySelectorAll('.decklight-slide-number')].some((n) => getComputedStyle(n).visibility !== 'hidden');
         deck.goto(1); await settle();
         press('/');
         for (const ch of 'lock deck') press(ch);
@@ -4202,7 +4216,7 @@
         await settle(); await settle();
         r.chipUnlocks = locks().at(-1) === false && !chip() && !!bar();
         r.slideNumberBackWithEditing = num()?.textContent === `1 / ${deck.state.totalSlides}`;
-        r.PASS = r.slideNumberShown && r.slideNumberFollows && r.slideNumberGoesWithTheLock && r.slideNumberBackWithEditing
+        r.PASS = r.slideNumberShown && r.slideNumberFollows && r.oneCounterInTheCorner && r.slideNumberGoesWithTheLock && r.slideNumberBackWithEditing
           && r.startsEditing && r.paletteOffersTheLock && r.lockIsPosted && r.chipSaysSo && r.editingOffWhileLocked && r.doorsSayLocked
           && r.writeRowsGone && r.channelUnlocks && r.barLocks && r.chipUnlocks;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);

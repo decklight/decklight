@@ -279,7 +279,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     if (persist && !params.has('embedded') && !params.has('capture') && !unsavedGen) {
       writePref(themeKey, name);
     }
-    if (!silent) toast(name);
+    if (!silent) toast(name, undefined, { aside: true });
     debugLog('theme', name);
     updateCanvas(); // inline/generated swaps take effect synchronously
     if (persist && deck === 'later') writeDeckThemeLater(name);
