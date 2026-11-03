@@ -601,6 +601,22 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
       }
+      // slide ops answered in place (slideinplace): the file's new count, the
+      // undo stack's, and a new slide's own markup
+      if (HARNESS_MODE === 'slideinplace') {
+        window.__total ??= 4;
+        window.__undo ??= 0;
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/undo')) { window.__undo = Math.max(0, window.__undo - 1); return json({ ok: true, undo: window.__undo, redo: 1, what: 'slide change', slide: null }); }
+        if (u.includes('/deck/edit/slide')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          window.__total += b.op === 'delete' ? -1 : (b.op === 'new' || b.op === 'duplicate') ? 1 : 0;
+          window.__undo += 1;
+          const show = { new: b.slide + 1, duplicate: b.slide + 1, delete: Math.min(b.slide, window.__total), up: b.slide - 1, down: b.slide + 1, move: b.to }[b.op];
+          return json({ ok: true, slide: show, total: window.__total, inPlace: b.quiet === true, undo: window.__undo, redo: 0,
+            ...(b.op === 'new' ? { section: '<section><h2>Fresh</h2><aside class="notes"></aside></section>' } : {}) });
+        }
+      }
       // a reload while something is typed (heldreload): notes that save in
       // place, and an HTML editor with a source to load
       if (HARNESS_MODE === 'heldreload') {
@@ -3154,6 +3170,43 @@
         r.finderBoxFinds = deck.state.slide === 2 && !document.querySelector('.decklight-finder');
         r.PASS = r.paletteHasATextBox && r.groupHeadingsWhenEmpty && r.accentedLetterLands && r.noHeadingsWhenTyped && r.enterInTheBoxRuns
           && r.escClearsFirst && r.thenCloses && r.pageKeysStillType && r.finderHasATextBox && r.finderBoxFinds;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'slideinplace') {
+        // Adding, duplicating, moving and deleting a slide update the page in
+        // place (PRESENTING_EDITING): no reload, the slides re-read, the deck
+        // on the slide the server named; a delete offers Undo as a button;
+        // Undo and Redo are greyed out while there is nothing to take back.
+        await settle();
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const count = () => document.querySelectorAll('.decklight-stage > section').length;
+        const undoBtn = () => document.querySelector('.decklight-editbar .eb-undo');
+        r.undoGreyedAtFirst = undoBtn()?.disabled === true && document.querySelector('.decklight-editbar .eb-redo')?.disabled === true;
+        deck.goto(1, 0); await settle();
+        runRow('duplicate this slide'); await settle(); await settle();
+        r.duplicateInPlace = count() === 5 && deck.state.totalSlides === 5 && deck.state.slide === 2 && reloads === 0
+          && /One/.test(document.querySelector('.decklight-stage > section.active')?.textContent ?? '');
+        r.undoLiveOnceThereIsOne = undoBtn()?.disabled === false;
+        runRow('new slide after this one'); await settle(); await settle();
+        r.newInPlace = count() === 6 && deck.state.slide === 3
+          && /Fresh/.test(document.querySelector('.decklight-stage > section.active')?.textContent ?? '');
+        runRow('move slide down'); await settle(); await settle();
+        r.moveInPlace = deck.state.slide === 4 && /Fresh/.test(document.querySelector('.decklight-stage > section.active')?.textContent ?? '');
+        runRow('delete this slide'); await settle(); await settle();
+        r.deleteInPlace = count() === 5 && deck.state.totalSlides === 5 && reloads === 0;
+        const undoOffer = [...document.querySelectorAll('.decklight-toast-ask')].find((n) => /slide 4 deleted/.test(n.textContent));
+        const undoButton = undoOffer && [...undoOffer.querySelectorAll('.toast-act')].find((b) => /^Undo/.test(b.textContent));
+        r.deleteOffersAnUndoButton = !!undoButton;
+        undoButton?.click();
+        await settle();
+        r.theButtonUndoes = CALLS.post.some((c) => c.u.includes('/deck/edit/undo'));
+        r.noReloadAtAll = reloads === 0;
+        r.PASS = r.undoGreyedAtFirst && r.duplicateInPlace && r.undoLiveOnceThereIsOne && r.newInPlace && r.moveInPlace
+          && r.deleteInPlace && r.deleteOffersAnUndoButton && r.theButtonUndoes && r.noReloadAtAll;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

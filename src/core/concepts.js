@@ -321,7 +321,7 @@ export function createConceptsEditor({
     } catch (e) {
       apply(was);
       render();
-      toast(`concept not saved: ${String(e.message || e).slice(0, 90)}`, 3400);
+      toast(`concept not saved: ${String(e.message || e)}`, 6000);
     } finally {
       busy = false;
     }

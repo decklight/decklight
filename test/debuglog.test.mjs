@@ -84,7 +84,7 @@ test('the reload line names the write and whose tab it came from; an older serve
 
 test('the server names its writes, and the reason a reload carries is the latest write, the agent, or the disk', () => {
   assert.equal(whatWrote('/deck/edit/slide/notes'), 'notes saved');
-  assert.equal(whatWrote('/deck/edit/undo'), 'undo (Z)');
+  assert.equal(whatWrote('/deck/edit/undo'), 'undo');
   assert.equal(whatWrote('/deck/upstream/pull'), 'git pull');
   assert.equal(whatWrote('/deck/edit/something/new'), 'something new written', 'an unlisted route still reads');
   assert.equal(whatWrote(undefined), 'the deck written');
@@ -93,7 +93,7 @@ test('the server names its writes, and the reason a reload carries is the latest
   assert.deepEqual(describeReload({ write: { at, what: 'notes saved', from: 'p1' }, now: at + 300 }), { reload: 'notes saved', from: 'p1' });
   assert.deepEqual(describeReload({ write: { at, what: 'notes saved', from: 'p1' }, now: at + RELOAD_WRITE_WINDOW_MS + 1 }),
     { reload: 'changed on disk — an editor, git, or a tool outside this server', from: null }, 'a write long past is not this reload\'s');
-  assert.deepEqual(describeReload({ write: { at, what: 'undo (Z)' }, agent: { agent: 'claude' }, now: at + 100 }), { reload: 'undo (Z)', from: null },
+  assert.deepEqual(describeReload({ write: { at, what: 'undo' }, agent: { agent: 'claude' }, now: at + 100 }), { reload: 'undo', from: null },
     'the server\'s own write wins over a running agent');
   assert.deepEqual(describeReload({ agent: { agent: 'claude' }, now: at }), { reload: 'claude\'s edit', from: null });
   assert.deepEqual(describeReload({}), { reload: 'changed on disk — an editor, git, or a tool outside this server', from: null });

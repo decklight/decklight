@@ -506,7 +506,7 @@ export function createInspector({
         // a deck held to its brand (SPEC BRAND_PALETTE): no Custom, and the swatches name their roles
         brand: (() => { const b = brand(); return b ? { locked: b.locked, theme: b.theme, roles: brandRoles([...pageDesignSystems().values()], b.theme) } : null; })(),
         save: (edits) => editmode().saveStyles({ slide, index, edits }),
-        onError: (m) => toast(`not saved: ${m.slice(0, 90)}`, 3400),
+        onError: (m) => toast(`not saved: ${m}`, 6000),
         onDetach: (c) => editmode().detachConcept({ slide, index, path: c.path, tag: c.tag, el: c.el }),
         // the Concept row: the deck's concepts as chips, set in place (SVG_DIAGRAMS)
         concepts: editmode()?.available?.() && concepts() ? {

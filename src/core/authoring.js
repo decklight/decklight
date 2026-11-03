@@ -124,6 +124,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     const j = await res.json().catch(() => ({}));
+    editmode.noteHistory?.(j);   // the undo stack's counts, for the bar
     if (!res.ok) throw new Error(j.error || String(res.status));
     return j;
   };
@@ -163,7 +164,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     el.removeAttribute('data-dl-unsaved');
   };
   const notSaved = (what, e) => `${what} not saved${editmode.offline?.() ? ': the edit server is not answering'
-    : `: ${String(e?.message || e).slice(0, 80)}`}. Your words stay on the slide, marked: double-click to try again (Esc there puts the old ones back)`;
+    : `: ${String(e?.message || e)}`}. Your words stay on the slide, marked: double-click to try again (Esc there puts the old ones back)`;
   const changedNow = (cur) => (cur.svg ? cur.input.value.replace(/\s+/g, ' ').trim() !== cur.was.replace(/\s+/g, ' ').trim()
     : cur.code ? cur.el.textContent.replace(/\n$/, '') !== cur.text
       : cur.el.innerHTML !== cur.original);
@@ -387,7 +388,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       // whitespace before `</code>` are layout of the file, not code
       text = node.textContent.replace(/^\n/, '').replace(/\s+$/, '');
     } catch (err) {
-      toast(`could not edit the code: ${String(err.message || err).slice(0, 80)}`, 3000);
+      toast(`could not edit the code: ${String(err.message || err)}`, 6000);
       return;
     }
     const kept = document.createDocumentFragment();
@@ -640,19 +641,23 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
    * button, which has no cursor to place by.
    */
   async function placePictures(files, where, index) {
-    const job = (async () => { for (const file of files) {
+    // Every picture but the last is placed quietly (`more`): the reload a
+    // placement causes used to land before the next upload, and a drop of
+    // five pictures stopped after the first. The last one reloads, all of them in.
+    const job = (async () => { for (const [n, file] of files.entries()) {
+      const more = n < files.length - 1;
       try {
         const up = await fetch(base() + '/deck/edit/asset', {
           method: 'POST', headers: { 'content-type': file.type, 'x-decklight-name': file.name }, body: file,
         });
         const j = await up.json().catch(() => ({}));
         if (!up.ok) throw new Error(j.error || String(up.status));
-        const placed = await post('/deck/edit/element/image', { slide: where.slide, index, src: j.src, alt: altFromName(file.name) });
+        const placed = await post('/deck/edit/element/image', { slide: where.slide, index, src: j.src, alt: altFromName(file.name), more });
         // a second picture goes after the first, not before it
         if (Number.isInteger(placed.index)) index = placed.index;
-        toast(`${file.name} added to slide ${where.slide} as ${j.src} — reloading`, 2200);
+        toast(`${file.name} added to slide ${where.slide} as ${j.src}${more ? '' : ' — reloading'}`, 2200);
       } catch (err) {
-        toast(`could not add ${file.name}: ${String(err.message || err).slice(0, 80)}`, 3200);
+        toast(`could not add ${file.name}: ${String(err.message || err)}`, 6000);
       }
     } })();
     // the whole drop — upload, then place — is one write as far as Z is concerned

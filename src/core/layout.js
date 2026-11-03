@@ -91,7 +91,7 @@ export function createLayoutCycler({
     // and a ring pick would silently overwrite the reference.
     const current = sec.getAttribute('data-template') || '';
     if (current) {
-      toast(`layout: this slide is the ${current} template — the design system lays it out; L does not cycle it`, 3200);
+      toast(`layout: this slide is the ${current} template — the design system lays it out; Layout does not cycle it`, 3200);
       return;
     }
 
