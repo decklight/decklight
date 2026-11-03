@@ -2437,47 +2437,59 @@ export function init(userConfig = {}) {
     if (helpEl) { helpEl.remove(); helpEl = null; return; }
     helpEl = document.createElement('div');
     helpEl.className = 'decklight-help';
-    helpEl.innerHTML = `<div class="help-card"><h3>Keyboard</h3><table>
-      <tr><td>→ / PageDown / click</td><td>next build / slide — a click or tap on the slide too, except in write mode, where a click selects (← and → also while a panel beside the slide has the keyboard; a text field keeps them)</td></tr>
-      <tr><td>⎵</td><td>pause / resume the voice while it is speaking — otherwise it advances</td></tr>
-      <tr><td>← / PageUp</td><td>previous</td></tr>
-      <tr><td>⇧→ / ⇧←</td><td>next / previous slide, whatever builds are left</td></tr>
+    // Short groups, in the order a talk needs them (PRESENTING_CHROME):
+    // getting around, presenting, the look, the voice, and writing, which is
+    // listed only where the deck can be written. One line a key, and the
+    // chords spelled the way this machine spells them.
+    const enter = IS_MAC ? '⏎' : 'Enter';
+    const presentChord = IS_MAC ? '⌘⏎' : 'Ctrl+Enter';
+    const group = (title, rows) => `<section class="help-group"><h4>${title}</h4><table>${rows}</table></section>`;
+    helpEl.innerHTML = `<div class="help-card" role="dialog" aria-label="Keyboard"><h3>Keyboard</h3><div class="help-groups">
+      ${group('Navigate', `
+      <tr><td>→ / PageDown / click</td><td>next (a click selects in write mode)</td></tr>
+      <tr><td>← / PageUp</td><td>back</td></tr>
+      <tr><td>⇧→ / ⇧←</td><td>next / previous slide, skipping builds</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
-      <tr><td>S</td><td>speaker view — a second window with notes, next slide, timer; in write mode, this slide's notes to edit</td></tr>
-      <tr><td>⌥⏎ / Alt+Enter</td><td>speaker view, in write mode too (again: rehearse mode)</td></tr>
-      <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
-      <tr><td>I</td><td>inspector — all about this slide, or the element selected on it: layout, builds, notes, fit, contrast, sources; its colours and type; ⬚ picks an element</td></tr>
-      <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
-      <tr><td>B / .</td><td>blackout — any key or a click brings the slide back, and the voice pauses with it</td></tr>
-      <tr><td>pinch · 0</td><td>zoom the slide (trackpad pinch, or two fingers; scroll pans) · 0, Esc or a slide change fits it again</td></tr>
-      <tr><td>&#96;</td><td>the log, on its messages tab (the events tab beside it is the debug stream) — the tilde key; ⌃&#96; / ⌥&#96; also works while editing notes</td></tr>
-      <tr><td>C</td><td>captions (follow the voice)</td></tr>
-      <tr><td>W</td><td>pen — draw on the slide (⌫ clears)</td></tr>
+      <tr><td>G</td><td>find a slide</td></tr>
+      <tr><td>/ · ${PALETTE_CHORD}</td><td>every command</td></tr>
+      <tr><td>&#96;</td><td>the messages so far</td></tr>
+      <tr><td>?</td><td>this help</td></tr>`)}
+      ${group('Present', `
+      <tr><td>S</td><td>speaker view: notes, next slide, timer (in write mode, the notes card)</td></tr>
+      <tr><td>${SPEAKER_CHORD}</td><td>speaker view, in write mode too</td></tr>
+      <tr><td>F / ${presentChord}</td><td>fullscreen (${presentChord} outside write mode)</td></tr>
+      <tr><td>⇧F</td><td>the arrows and the slide number in fullscreen</td></tr>
+      <tr><td>B / .</td><td>black screen; any key brings the slide back</td></tr>
+      <tr><td>W</td><td>pen (⌫ clears)</td></tr>
       <tr><td>⇧W</td><td>laser pointer</td></tr>
-      <tr><td>K</td><td>commit — what changed, and what to call it (${COMMIT_CHORD} also works while typing)</td></tr>
-      <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (write mode)</td></tr>
-      <tr><td>M</td><td>comments — yours and every review's, grouped by who said them, ⏎ jumps</td></tr>
-      <tr><td>⇧M</td><td>leave a comment on the slide you are looking at</td></tr>
-      <tr><td>F / ⌘⏎ / Ctrl+Enter</td><td>fullscreen (⌘⏎ is the present chord, outside write mode, where it saves; the bar and the commit chip leave with it)</td></tr>
-      <tr><td>⇧F</td><td>show / hide the arrows and the slide number in fullscreen</td></tr>
-      <tr><td>T</td><td>theme picker (type to filter)</td></tr>
-      <tr><td>/ · ${PALETTE_CHORD}</td><td>command palette — find, themes, everything (“Welcome to Decklight” reopens the intro)</td></tr>
-      <tr><td>G</td><td>slide finder (live preview)</td></tr>
-      <tr><td>[ / ]</td><td>cycle font</td></tr>
-      <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a selected shape's style: colours, border, type (write mode)</td></tr>
-      <tr><td>${UNDO_CHORD} / ${REDO_CHORD}</td><td>undo / redo deck edits (write mode)</td></tr>
-      <tr><td>A</td><td>ask an AI agent to edit the deck (write mode)</td></tr>
-      <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
-      <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
-      <tr><td>?</td><td>this help</td></tr></table>
-      <h3>Write mode, in context</h3><table>
-      <tr class="help-ctx"><td>⏎ · ⌫ · Esc</td><td>on a selected element: edit its text (or open its menu) · remove it · let it go</td></tr>
-      <tr class="help-ctx"><td>⏎ · ⇧⏎ · Esc</td><td>while editing text: save · new line · cancel</td></tr>
+      <tr><td>pinch · 0</td><td>zoom the slide · fit it again</td></tr>
+      <tr><td>M</td><td>comments</td></tr>
+      <tr><td>⇧M</td><td>leave a comment on this slide</td></tr>`)}
+      ${group('Look', `
+      <tr><td>T</td><td>themes</td></tr>
+      <tr><td>[ / ]</td><td>fonts</td></tr>
+      <tr><td>I</td><td>inspector: this slide, or the selected element</td></tr>${IS_MAC ? `
+      <tr><td>⌃T</td><td>generate a theme</td></tr>
+      <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>` : ''}`)}
+      ${group('Voice', `
+      <tr><td>⎵</td><td>pause / resume the voice while it speaks, else next</td></tr>
+      <tr><td>V</td><td>narration: voice, track, recording, speed</td></tr>
+      <tr><td>C</td><td>captions</td></tr>
+      <tr><td>&lt; / &gt;</td><td>voice speed</td></tr>`)}
+      ${editmode.available() ? group('Write', `
+      <tr><td>${UNDO_CHORD} / ${REDO_CHORD}</td><td>undo / redo</td></tr>
+      <tr><td>A</td><td>ask an AI agent to edit the deck</td></tr>
+      <tr><td>K</td><td>commit (${COMMIT_CHORD} while typing)</td></tr>
+      <tr><td>H</td><td>history: every version, ${enter} restores one</td></tr>
+      <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a shape's style</td></tr>
+      <tr class="help-ctx"><td>${enter} · ⌫ · Esc</td><td>on a selected element: edit · remove · let go</td></tr>
+      <tr class="help-ctx"><td>${enter} · ⇧${enter} · Esc</td><td>while editing text: keep · new line · cancel</td></tr>
       <tr class="help-ctx"><td>${IS_MAC ? '⌘B · ⌘I · ⌘E' : 'Ctrl+B · Ctrl+I · Ctrl+E'}</td><td>while editing text: bold · italic · code</td></tr>
       <tr class="help-ctx"><td>N · D · ⌫</td><td>in the overview: new slide · duplicate · delete</td></tr>
       <tr class="help-ctx"><td>E</td><td>in the inspector: edit this slide's sources</td></tr>
-      <tr class="help-ctx"><td>⇧-click Layout</td><td>on the bar: cycle the layout backwards</td></tr></table></div>`;
+      <tr class="help-ctx"><td>⇧-click Layout</td><td>on the bar: the layout before</td></tr>`) : ''}
+      </div></div>`;
     helpEl.addEventListener('click', toggleHelp);
     root.appendChild(helpEl);
   }
