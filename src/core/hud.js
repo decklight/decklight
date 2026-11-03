@@ -76,7 +76,7 @@ export function createHud({
     writePref(clockKey, clockOn ? '1' : '0');
     if (clockOn) showClock();
     else { clearTimeout(clockTimer); clockTimer = null; clockEl?.remove(); clockEl = null; }
-    toast(`clock ${clockOn ? 'on' : 'off'}`);
+    toast(`clock ${clockOn ? 'on' : 'off'}`, undefined, { aside: true });
     debugLog('nav', `clock ${clockOn ? 'on' : 'off'}`);
   }
   // Arm only after init's opening goto (and any deep-link landing): the
@@ -116,7 +116,7 @@ export function createHud({
     writePref(progressKey, progressOn ? '1' : '0');
     if (progressOn) showProgress();
     else { progressEl?.remove(); progressEl = null; setProgressBar(null); }
-    toast(`progress bar ${progressOn ? 'on' : 'off'}`);
+    toast(`progress bar ${progressOn ? 'on' : 'off'}`, undefined, { aside: true });
     debugLog('nav', `progress bar ${progressOn ? 'on' : 'off'}`);
   }
   instance.toggleProgress = toggleProgress; // J programmatically
@@ -136,7 +136,7 @@ export function createHud({
     if (!annotator) return;
     const t = kind === 'laser' ? annotator.laser() : annotator.toggle();
     toast(t === 'pen' ? 'pen on — drag to draw · ⌫ clears · W off'
-      : t === 'laser' ? 'laser on — ⇧W off' : 'ink off');
+      : t === 'laser' ? 'laser on — ⇧W off' : 'ink off', undefined, { aside: true });
     debugLog('nav', `ink ${t ?? 'off'}`);
   }
 

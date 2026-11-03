@@ -106,7 +106,7 @@ export function createFonts({
       try { writePref(key, f.kind === 'stack' && !f.stack ? null : f.id); } catch { /* private mode */ }
     }
     if (measure) remeasure();
-    if (!silent) toast(`font: ${f.label}`);
+    if (!silent) toast(`font: ${f.label}`, undefined, { aside: true });
     debugLog('font', f.label);
   }
   function cycle(dir) {

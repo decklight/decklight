@@ -3931,3 +3931,47 @@
   color: inherit; font: inherit; font-size: 12px; padding: 2px 8px; cursor: pointer; opacity: .8;
 }
 .decklight-editor .ed-to-inspector:hover { opacity: 1; background: rgba(255, 255, 255, .08); }
+
+/* ── one look for Decklight's own controls (PRESENTING_CHROME) ─────────────
+   The palette, the finder, the editing bar and the voice cards were a fixed
+   dark grey in the system's type; help and the welcome card followed the
+   deck's theme; messages were the theme's big monospace. Everything that is
+   Decklight rather than the deck now wears the first: one surface, one ink,
+   one type, with the deck's accent as the one thing it borrows. */
+.decklight {
+  --dl-chrome-bg: rgba(20, 20, 22, .94);
+  --dl-chrome-fg: #f2f2f2;
+  --dl-chrome-muted: #9aa0aa;
+  --dl-chrome-line: rgba(160, 160, 160, .28);
+  --dl-chrome-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --dl-danger: #f85149;
+}
+.decklight-toast {
+  background: var(--dl-chrome-bg); color: var(--dl-chrome-fg);
+  font: 500 15px/1.45 var(--dl-chrome-font);
+  padding: 9px 14px; border-radius: 10px;
+  border: 1px solid var(--dl-chrome-line); border-left: 4px solid var(--accent, #7ee787);
+}
+.decklight-toast-ask .toast-act { font: 600 13px/1.2 var(--dl-chrome-font); }
+/* presenter-only: small and quiet, not over the talk at full size */
+.decklight-toast.decklight-toast-aside {
+  font-size: 12px; padding: 5px 10px; border-left-width: 2px; opacity: .9;
+}
+.decklight-toast.decklight-toast-aside.show { opacity: .9; }
+/* an error looks like one */
+.decklight-toast.decklight-toast-error { border-left-color: var(--dl-danger); background: rgba(48, 16, 16, .94); }
+.decklight-toast.decklight-toast-error::before { content: '⚠ '; color: var(--dl-danger); }
+.decklight-help .help-card, .decklight-welcome .wel-card {
+  background: var(--dl-chrome-bg); color: var(--dl-chrome-fg);
+  font-family: var(--dl-chrome-font);
+  border: 1px solid var(--dl-chrome-line);
+}
+.decklight-help h3, .decklight-welcome h3 { color: var(--dl-chrome-fg); font-family: var(--dl-chrome-font); }
+.decklight-help h4, .decklight-welcome .wel-lead, .decklight-welcome .wel-foot span { color: var(--dl-chrome-muted); }
+.decklight-help td:first-child, .decklight-welcome td:first-child { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+/* one slide number at a time: write mode's, in the accent, stands in for the deck's own */
+.decklight.has-slide-num .decklight-slide-number { visibility: hidden; }
+/* messages clear of the touch cluster at the top left, and of a notch */
+@media (pointer: coarse) {
+  .decklight-messages { top: max(76px, calc(env(safe-area-inset-top) + 70px)); left: max(14px, env(safe-area-inset-left)); }
+}

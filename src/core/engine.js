@@ -487,16 +487,26 @@ export function init(userConfig = {}) {
     const passing = [...msgEl.children].filter((c) => !c.classList.contains('decklight-toast-ask'));
     while (passing.length && msgEl.children.length > MSG_STACK) passing.shift().remove();
   }
-  function toast(msg, ms = 3200) {
+  // Two kinds a message can be besides an ordinary one (PRESENTING_CHROME):
+  // an ASIDE, for the presenter only (clock on, a font's name, the voice's
+  // speed), drawn small and out of the way rather than large over a talk; and
+  // an ERROR, which used to look exactly like a success: its own colour, and
+  // up long enough to read. An error says so itself, by its first words;
+  // `{ error: true }` says it for one that does not.
+  const ERROR_WORDS = /^(⚠|cannot|can['’]t)|\b(could not|couldn['’]t|failed|not saved)\b/i;
+  function toast(msg, ms = 3200, { aside = false, error = ERROR_WORDS.test(String(msg)) } = {}) {
     logOnly(msg);
     if (printMode || captureMode) return;
     if (!msgEl) {
       msgEl = document.createElement('div');
       msgEl.className = 'decklight-messages';
+      msgEl.setAttribute('role', 'status');
+      msgEl.setAttribute('aria-live', 'polite');
       root.appendChild(msgEl);
     }
     const row = document.createElement('div');
-    row.className = 'decklight-toast';
+    row.className = 'decklight-toast' + (error ? ' decklight-toast-error' : aside ? ' decklight-toast-aside' : '');
+    if (error) { row.setAttribute('role', 'alert'); ms = Math.max(ms ?? 3200, 7000); }
     row.textContent = msg;
     msgEl.appendChild(row);
     requestAnimationFrame(() => row.classList.add('show'));
