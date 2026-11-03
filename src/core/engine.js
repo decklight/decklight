@@ -2096,11 +2096,85 @@ export function init(userConfig = {}) {
   // only on pointer:coarse; desktop keeps F and V.
   const TC_ICON = {
     full: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+    more: '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
     unfull: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>',
     sound: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
     mute: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M17 10l5 4M22 10l-5 4"/></svg>',
   };
   let fsBtn = null, soundBtn = null;
+  /** Can this page go fullscreen at all? Not on an iPhone: Safari there has no element fullscreen. */
+  const canFullscreen = () => document.fullscreenEnabled !== false
+    && typeof (root?.requestFullscreen ?? document.documentElement.requestFullscreen) === 'function';
+
+  // ----- the touch menu (⋯) — PRESENTING_CHROME ----------------------------
+  // A phone has no keyboard, and nearly everything past next and back was a
+  // key: the overview, the finder, the notes, the palette, the help. One ⋯
+  // button in the touch cluster opens them, as a short menu of big rows.
+  let touchMenuEl = null;
+  function closeTouchMenu() { touchMenuEl?.remove(); touchMenuEl = null; }
+  function toggleTouchMenu(anchor) {
+    if (touchMenuEl) { closeTouchMenu(); return; }
+    touchMenuEl = document.createElement('div');
+    touchMenuEl.className = 'decklight-touch-menu';
+    const list = document.createElement('div');
+    list.className = 'tm-list';
+    list.setAttribute('role', 'menu');
+    const rows = [
+      ['Overview', 'every slide at a glance', () => toggleOverview()],
+      ['Find a slide', 'by title or words on it', () => openSlideFinder()],
+      ['Notes', 'this slide\'s speaker notes', () => toggleEditor()],
+      ['Commands', 'everything else', () => openPalette()],
+      ['Help', 'what every key and gesture does', () => toggleHelp()],
+    ];
+    for (const [label, sub, run] of rows) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tm-row';
+      b.setAttribute('role', 'menuitem');
+      b.innerHTML = `<span class="tm-label"></span><span class="tm-sub"></span>`;
+      b.querySelector('.tm-label').textContent = label;
+      b.querySelector('.tm-sub').textContent = sub;
+      b.addEventListener('click', (e) => { e.stopPropagation(); closeTouchMenu(); run(); });
+      list.appendChild(b);
+    }
+    touchMenuEl.appendChild(list);
+    // the backdrop closes it, and never reaches the slide's click-to-advance
+    touchMenuEl.addEventListener('click', (e) => { e.stopPropagation(); if (e.target === touchMenuEl) closeTouchMenu(); });
+    root.appendChild(touchMenuEl);
+    const r = anchor?.getBoundingClientRect?.();
+    const box = root.getBoundingClientRect();
+    if (r) { list.style.left = `${r.left - box.left}px`; list.style.top = `${r.bottom - box.top + 8}px`; }
+    list.querySelector('.tm-row')?.focus();
+  }
+
+  // ----- turn the phone (PRESENTING_CHROME) --------------------------------
+  // A 16:9 slide on a phone held upright is a strip of text a few pixels
+  // tall, and nothing said that turning it would help. Said once a visit,
+  // while it is upright, and gone the moment it is turned.
+  let rotateEl = null;
+  const ROTATE_SEEN = 'decklight-rotate-said';
+  function syncRotateHint() {
+    const portrait = window.innerHeight > window.innerWidth * 1.15;
+    const wide = (instance?.config?.width ?? 16) > (instance?.config?.height ?? 9);
+    const coarse = window.matchMedia?.('(pointer: coarse)').matches === true;
+    let said = false;
+    try { said = sessionStorage.getItem(ROTATE_SEEN) === '1'; } catch { /* no storage: say it */ }
+    if (portrait && wide && coarse && !said && !printMode && !params.has('embedded')) {
+      if (rotateEl) return;
+      rotateEl = document.createElement('button');
+      rotateEl.type = 'button';
+      rotateEl.className = 'decklight-rotate-hint';
+      rotateEl.textContent = '↻ Turn your phone for a bigger slide';
+      rotateEl.addEventListener('click', (e) => { e.stopPropagation(); dropRotateHint(); });
+      root.appendChild(rotateEl);
+    } else if (rotateEl && !portrait) dropRotateHint();
+  }
+  function dropRotateHint() {
+    rotateEl?.remove();
+    rotateEl = null;
+    try { sessionStorage.setItem(ROTATE_SEEN, '1'); } catch { /* fine */ }
+  }
+
   function toggleFullscreen() {
     const el = root || document.documentElement;
     if (document.fullscreenElement) document.exitFullscreen?.();
@@ -2780,6 +2854,7 @@ export function init(userConfig = {}) {
         break;
       case '?': toggleHelp(); break;
       case 'Escape':
+        if (touchMenuEl) { closeTouchMenu(); break; }
         if (cancelCyclePending()) break;
         if (zoom.k !== 1 && !overlays.active()) { resetZoom(); break; }
         if (overviewEl) toggleOverview();
@@ -2820,6 +2895,10 @@ export function init(userConfig = {}) {
   root.addEventListener('touchstart', (e) => { touchX = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
   root.addEventListener('touchend', (e) => {
     if (touchX == null || zoom.k !== 1) return;   // a zoomed slide is panned, not turned
+    // A swipe inside a picker, a panel or a card scrolls THAT; it never turns
+    // the slide behind it (PRESENTING_NAVIGATION).
+    if (overlays.active() || overviewEl || helpEl || touchMenuEl
+      || e.target?.closest?.('.decklight-narr, .decklight-welcome, .decklight-help, .decklight-overview, .decklight-touch-menu')) { touchX = null; return; }
     const dx = e.changedTouches[0].clientX - touchX;
     if (Math.abs(dx) > 40) (dx < 0 ? instance.next() : instance.prev());
     touchX = null;
@@ -3470,17 +3549,29 @@ export function init(userConfig = {}) {
 
   // ----- touch controls (mount) -------------------------------------------
   // Everything they need (toggleFullscreen, narration) is now in scope.
-  // Fullscreen always; sound only when narration is available.
+  // ⋯ always; fullscreen where the browser has it (an iPhone has none, and
+  // a button that does nothing is worse than none); sound only when
+  // narration is available.
   if (!printMode) {
     const tc = document.createElement('div');
     tc.className = 'decklight-touch-controls';
-    fsBtn = document.createElement('button');
-    fsBtn.type = 'button';
-    fsBtn.className = 'decklight-touch-btn';
-    fsBtn.setAttribute('aria-label', 'Fullscreen');
-    fsBtn.innerHTML = TC_ICON.full;
-    fsBtn.addEventListener('click', toggleFullscreen);
-    tc.appendChild(fsBtn);
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'decklight-touch-btn decklight-touch-more';
+    more.setAttribute('aria-label', 'More: overview, find a slide, notes, commands, help');
+    more.setAttribute('aria-haspopup', 'menu');
+    more.innerHTML = TC_ICON.more;
+    more.addEventListener('click', (e) => { e.stopPropagation(); toggleTouchMenu(more); });
+    tc.appendChild(more);
+    if (canFullscreen()) {
+      fsBtn = document.createElement('button');
+      fsBtn.type = 'button';
+      fsBtn.className = 'decklight-touch-btn';
+      fsBtn.setAttribute('aria-label', 'Fullscreen');
+      fsBtn.innerHTML = TC_ICON.full;
+      fsBtn.addEventListener('click', toggleFullscreen);
+      tc.appendChild(fsBtn);
+    }
     if (narration.status().hasTracks) {
       soundBtn = document.createElement('button');
       soundBtn.type = 'button';
@@ -3496,6 +3587,8 @@ export function init(userConfig = {}) {
       syncSoundBtn();
     }
     root.appendChild(tc);
+    syncRotateHint();
+    window.addEventListener('resize', syncRotateHint);
   }
 
   instance.saveGeneratedTheme = (name) => saveGeneratedTheme(name); // ⌃⇧T; name skips the prompt

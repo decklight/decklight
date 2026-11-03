@@ -77,7 +77,22 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     // For whoever is WATCHING the deck: how to move through it and where
     // everything else is. Write mode, agents and undo are the author's, and
     // the author gets the editing tour instead (startEditingTour).
-    cardEl.innerHTML = `<div class="wel-card">
+    // On a phone or a tablet the same card in gestures: it has no keys to list.
+    const touch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true;
+    cardEl.innerHTML = touch ? `<div class="wel-card">
+      <h3>Welcome to Decklight</h3>
+      <p class="wel-lead">A deck in one HTML file. Here is how to get around it.</p>
+      <table>
+        <tr><td>swipe</td><td><b>Next</b> and back; a tap on the slide is next too.</td></tr>
+        <tr><td>⋯</td><td>Top left: the <b>overview</b>, <b>find a slide</b>, the <b>notes</b>, every <b>command</b>.</td></tr>
+        <tr><td>pinch</td><td><b>Zoom</b> the slide; pinch back to fit it.</td></tr>
+        <tr><td>🔊</td><td><b>The voice</b>: hear the deck read aloud, when it has one.</td></tr>
+      </table>
+      <div class="wel-foot">
+        <span>Tap to start.</span>
+        <button type="button" class="wel-go">Got it</button>
+      </div>
+    </div>` : `<div class="wel-card">
       <h3>Welcome to Decklight</h3>
       <p class="wel-lead">A deck in one HTML file. Here is how to get around it.</p>
       <table>
