@@ -2597,6 +2597,17 @@
   box-shadow: 0 -12px 40px rgba(0, 0, 0, .5);
 }
 
+/* window — out of the browser in a window of its own (dock.js): the card is
+   the whole window, and scrolls inside it */
+.decklight-dockable[data-dock="window"] { position: fixed; inset: 0; }
+.decklight-dockable[data-dock="window"] .narr-card {
+  box-sizing: border-box;
+  inset: 0; width: auto; height: auto;
+  max-height: none; border-radius: 0; box-shadow: none;
+}
+/* float, dragged past the browser's edge: let go and it leaves for a window */
+.decklight-dockable .narr-card.dk-leaving { opacity: .5; outline: 2px dashed var(--accent, #6af); outline-offset: -2px; }
+
 /* the dock control lives in the header, which becomes a flex row */
 .decklight-dockable .narr-head { display: flex; align-items: center; gap: 8px; opacity: 1; }
 .decklight-review .rv-heading { flex: 1; opacity: .55; }
