@@ -872,6 +872,30 @@
       </svg>
     </section>`);
     }
+    // A draw build hides its fills until their step (#973): the issue's two
+    // rects and label in one self-built group, then a step per fill-opacity
+    // source, a dashed filled box (drawn through a mask), a chart-style shape
+    // that fades whole, and a bare filled shape that IS its step
+    if (HARNESS_MODE === 'drawfill') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Draw fills</h2>
+      <svg viewBox="0 0 400 300" width="800" height="600" data-build="draw">
+        <g data-build-self>
+          <rect class="df-boxed" x="20" y="20" width="120" height="60" rx="6" stroke-width="2" style="fill: #3366ff; stroke: #99bbff"/>
+          <rect class="df-bare" x="20" y="110" width="120" height="20" style="fill: #ff6633"/>
+          <text class="df-label" x="80" y="160" text-anchor="middle" fill="#fff">label</text>
+        </g>
+        <g>
+          <rect class="df-attr-op" x="200" y="20" width="60" height="40" fill="#336" fill-opacity="0.5" stroke="#fff"/>
+          <rect class="df-inline-op" x="280" y="20" width="60" height="40" fill="#336" stroke="#fff" style="fill-opacity: 0.4"/>
+          <line class="df-line" x1="200" y1="80" x2="340" y2="80" stroke="#fff"/>
+          <rect class="df-outline" x="200" y="100" width="60" height="40" fill="none" stroke="#fff"/>
+        </g>
+        <rect class="df-dashed" x="200" y="160" width="120" height="40" fill="#224" stroke="#fff" stroke-width="2" stroke-dasharray="5 3"/>
+        <rect class="df-chartish draw-fade" x="20" y="200" width="60" height="40" fill="#224" stroke="#fff"/>
+        <circle class="df-dot" cx="300" cy="260" r="20" fill="#c33"/>
+      </svg>
+    </section>`);
+    }
     // Nested fills (#541): two panels of different slots, each holding boxes
     // authored with the same slot — only for the mode that looks at it
     if (HARNESS_MODE === 'nestedfills') {
@@ -4863,6 +4887,58 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.PASS = r.masked && r.ownIds && r.dashesAuthored && r.solidUntouched && r.lineHasRegion && r.boxKeepsFill && r.headBuilt
           && r.steps && r.pendingHidden && r.drawsDashed && r.headRides && r.curveDone && r.stageDashed && r.stage2 && r.boxDashed
           && r.retractsDashed && r.curveRetracts && r.deepLink && r.rescanIdempotent && r.overviewWhole && r.overviewIdsOwn && r.maskBackOnStage;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'drawfill') {
+        // SVG_DIAGRAMS (#973): nothing of a draw step shows before its click.
+        // A stroked shape's fill is out while pending and fades back up to its
+        // own fill-opacity once the step is in; a shape with no stroke fades
+        // like text. Every wait is for the CONDITION, never a fixed span.
+        const el = (cls) => document.querySelector(`.${cls}`);
+        const fo = (cls) => parseFloat(getComputedStyle(el(cls)).fillOpacity);
+        const op = (cls) => parseFloat(getComputedStyle(el(cls)).opacity);
+        const near = (a, b) => Math.abs(a - b) < 0.01;
+        // the fades are CSS transitions, which the harness's virtual clock
+        // does not run: land each one at its end rather than wait it out
+        // (the frame-loop strokes are not CSS animations and are left alone)
+        const land = async () => { await settle(); el('df-boxed').ownerSVGElement.querySelectorAll('*').forEach((n) => n.getAnimations().forEach((a) => a.finish())); };
+        deck.goto(5, 0); await settle();
+        r.classed = el('df-boxed').classList.contains('draw-stroke') && el('df-boxed').classList.contains('draw-fill')
+          && el('df-bare').classList.contains('draw-fade') && !el('df-bare').classList.contains('draw-stroke');
+        r.noFillNoClass = !el('df-line').classList.contains('draw-fill') && !el('df-outline').classList.contains('draw-fill');
+        r.chartLeftAlone = !el('df-chartish').classList.contains('draw-fill') && !el('df-chartish').classList.contains('draw-stroke');
+        r.inlineMoved = el('df-inline-op').style.fillOpacity === '' && el('df-inline-op').style.getPropertyValue('--draw-fill-op') === '0.4';
+        // the issue's step 0: both rects, the label and the outline all out
+        r.pendingHidden = fo('df-boxed') === 0 && op('df-bare') === 0 && op('df-label') === 0
+          && fo('df-attr-op') === 0 && fo('df-inline-op') === 0 && fo('df-dashed') === 0;
+        // the outline still draws: the stroke keeps its own opacity
+        r.strokeStillDraws = op('df-boxed') === 1 && parseFloat(getComputedStyle(el('df-boxed')).strokeDashoffset) > 0;
+        // a bare filled shape that is its own step falls back to fade, hidden too
+        r.bareStepHidden = el('df-dot').getAttribute('data-build-style') === 'fade' && op('df-dot') < 0.01;
+        deck.next(); await land();
+        r.step1In = await until(() => fo('df-boxed') === 1 && op('df-bare') === 1 && op('df-label') === 1, 80);
+        r.othersStillOut = fo('df-attr-op') === 0 && fo('df-inline-op') === 0;
+        deck.next(); await land();
+        r.authoredOpacity = await until(() => near(fo('df-attr-op'), 0.5) && near(fo('df-inline-op'), 0.4), 80);
+        deck.next(); await land();
+        r.dashedFillIn = await until(() => fo('df-dashed') === 1, 80);
+        // reversed: the fill goes back out with its step
+        deck.prev(); await land();
+        r.dashedFillOut = await until(() => fo('df-dashed') === 0, 80);
+        // a rescan adds nothing and keeps the authored value
+        deck.sync(); await settle();
+        r.rescanIdempotent = el('df-inline-op').style.getPropertyValue('--draw-fill-op') === '0.4' && deck._records[4].groups.length === 5;
+        // a deep link lands with the fills in, instantly
+        deck.goto(1, 0); await settle(); deck.goto(5, 2); await settle();
+        r.deepLink = fo('df-boxed') === 1 && near(fo('df-attr-op'), 0.5) && fo('df-dashed') === 0;
+        // the overview shows every fill, pending or not, at its own opacity
+        deck.goto(5, 0); await settle();
+        press('o'); await settle();
+        const ov = (cls) => parseFloat(getComputedStyle(document.querySelector(`.ov-clone .${cls}`)).fillOpacity);
+        r.overviewFills = ov('df-boxed') === 1 && near(ov('df-attr-op'), 0.5) && ov('df-dashed') === 1;
+        press('Escape'); await settle();
+        r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
