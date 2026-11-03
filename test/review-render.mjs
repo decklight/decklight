@@ -55,7 +55,7 @@ const run = (mode, extra = '') => resultsFrom(
   const r = run('dock');
   const ok = r.PASS === true;
   if (!ok) bad++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} dock       opens floating=${r.defaultFloat}`
+  console.log(`${ok ? 'ok  ' : 'FAIL'} dock       opens docked right=${r.defaultFloat}`
     + ` · docks right & reflows the stage=${r.dockedRight && r.stageReflowed}`
     + ` · the card really moves to the edge and fills it=${r.cardActuallyMoved && r.cardOnTheRightEdge && r.cardFillsGutter && r.cardFullHeight}`
     + ` · slide clear of the panel=${r.slideClearOfPanel}`

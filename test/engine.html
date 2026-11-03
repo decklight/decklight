@@ -2665,6 +2665,8 @@
         // editing is on from the ping: the double-click edits at once
         dbl(h1);
         r.becomesEditable = h1.isContentEditable && h1.classList.contains('dl-editing');
+        // editing looks like editing, and says its two ways out
+        r.editingSaysHowOut = document.querySelector('.dl-edit-hint')?.textContent === '⏎ keep · Esc cancel';
         // the deck's shortcuts stand aside while a word is being fixed
         press('ArrowRight');
         r.keysStayInTheText = deck.state.slide === 1;
@@ -2676,6 +2678,7 @@
         r.enterSaves = !!saved && saved.body.slide === 1 && saved.body.index === 0 && saved.body.quiet === true && typeof saved.body.from === 'string';
         r.savedIntoTheSource = !!saved && saved.body.html === '<h1>One, edited</h1>';
         r.editableReleased = !h1.isContentEditable && !h1.classList.contains('dl-editing') && h1.isConnected && h1.textContent === 'One, edited';
+        r.hintGoesWithIt = !document.querySelector('.dl-edit-hint');
         // Escape gives the edit up, and writes nothing
         dbl(h1);
         h1.textContent = 'junk';
@@ -2785,7 +2788,7 @@
         r.PASS = r.chordUndoes && r.undoSaysWhatAndGoesThere && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes && r.bareZWritesNothing
           && r.chordInTextIsTheBrowsers && r.helpNamesTheChord && r.helpHasTheWriteGroup
           && r.undoWaitsForTheTextSave && r.undoWaitsForTheSlideOp
-          && r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
+          && r.becomesEditable && r.editingSaysHowOut && r.hintGoesWithIt && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
           && r.editableReleased && r.escapeReverts && r.escapeWroteNothing && r.unchangedWritesNothing
           && r.paletteRunsASlideOp && r.landsOnTheNewSlide && r.saysWhatItDid
           && r.menuOffersTheSlide && r.slideSubmenu;
@@ -3530,13 +3533,14 @@
         const mark = () => document.querySelector('.decklight-editor .notes-dirty-mark');
         const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/notes')).map((c) => c.body);
         const type = (t) => { box().value = t; box().dispatchEvent(new Event('input', { bubbles: true })); };
-        r.opensAsADrawerAtTheBottom = card()?.dataset.dock === 'bottom';
+        // where every panel opens until one is moved: docked right (PRESENTING_EDITING)
+        r.opensWhereEveryPanelDoes = card()?.dataset.dock === 'right';
         r.headingSaysItSavesItself = /notes — slide 2 · saves itself/.test(card()?.textContent ?? '');
         if (mode === 'notesautofail') {
           box().focus(); type('Will not save.');
           press('Escape'); await settle(); await settle();
           r.aFailedSaveKeepsTheCard = !!card() && box().value === 'Will not save.' && !mark().hidden && posts().length === 1;
-          r.PASS = r.opensAsADrawerAtTheBottom && r.aFailedSaveKeepsTheCard;
+          r.PASS = r.opensWhereEveryPanelDoes && r.aFailedSaveKeepsTheCard;
           sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
           return;
         }
@@ -3630,7 +3634,7 @@
         quietRow().run(); r.cyclesRoundTo250 = quietRow()?.value === '250 ms after typing stops';
         press('Escape'); await settle(); await settle();
         try { localStorage.removeItem('decklight-notes-quiet'); } catch { /* fine */ }
-        r.PASS = r.opensAsADrawerAtTheBottom && r.headingSaysItSavesItself && r.cardButtonsDoNotSave && r.leavingTheBoxSaves
+        r.PASS = r.opensWhereEveryPanelDoes && r.headingSaysItSavesItself && r.cardButtonsDoNotSave && r.leavingTheBoxSaves
           && r.leavingTheWindowSaves && r.movingOnSavesThenFollows && r.closingSaves
           && r.noSaveButton && r.notYetAfterAKeystroke && r.typingAgainHoldsIt && r.quietWritesIt && r.markSaysSaved && r.noToastForIt
           && r.marksAutosaving && r.slowOneLands

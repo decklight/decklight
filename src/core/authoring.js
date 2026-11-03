@@ -294,9 +294,33 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     placePill();
     return true;
   }
+  // ── editing has its own look (PRESENTING_EDITING) ───────────────────────
+  // "Selected" and "editing its text" looked the same, one accent outline, so
+  // nothing said that keys now went into the words. Editing is tinted (CSS
+  // .dl-editing) and carries a hint under it naming its two ways out.
+  let hint = null;
+  const IS_MAC = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
+  function syncHint() {
+    const cur = editing;
+    if (!cur) { hint?.remove(); hint = null; return; }
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.className = 'dl-edit-hint';
+      hint.setAttribute('aria-hidden', 'true');   // the keys are the element's; this only says them
+      document.body.appendChild(hint);
+    }
+    hint.textContent = cur.code ? `${IS_MAC ? '⌘⏎' : 'Ctrl+Enter'} keep · Esc cancel` : '⏎ keep · Esc cancel';
+    const r = (cur.svg ? cur.input : cur.el).getBoundingClientRect();
+    hint.style.left = `${r.left + r.width / 2}px`;
+    hint.style.top = `${r.bottom + 14}px`;
+  }
+  window.addEventListener('resize', () => syncHint());
+  root.addEventListener('input', () => { if (editing) syncHint(); }, true);
+
   let pill = null;
   /** The pill above the selection: there while something is selected in the element being edited, gone otherwise. */
   function placePill() {
+    syncHint();
     const cur = editing;
     const range = cur && !cur.code && !cur.svg ? selectionIn(cur.el) : null;
     if (!range) { pill?.remove(); pill = null; return; }
@@ -387,10 +411,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
+    syncHint();
   }
 
   async function saveCode(cur) {
     editing = null;
+    syncHint();
     const el = cur.el;
     const plain = el.getAttribute('contenteditable') === 'plaintext-only';
     el.removeAttribute('contenteditable');
@@ -482,6 +508,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     input.addEventListener('blur', () => { if (editing === cur) saveInline(); });
     input.focus();
     input.select();
+    syncHint();
     debugLog('info', `editing slide ${slide} element #${index}'s diagram label at ${path.join('.')}`);
   }
 
@@ -492,6 +519,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
 
   async function saveLabel(cur) {
     editing = null;
+    syncHint();
     const text = cur.input.value.replace(/\s+/g, ' ').trim();
     endLabel(cur);
     if (text === cur.was.replace(/\s+/g, ' ').trim()) { if (stranded.has(cur.el)) { cur.el.textContent = cur.was; unstrand(cur.el); } return; } // nothing changed: nothing written
@@ -527,6 +555,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
+    syncHint();
     debugLog('info', `editing slide ${slide} element #${index} inline`);
   }
 

@@ -3737,6 +3737,28 @@
   outline-offset: 3px;
   border-radius: 2px;
   cursor: text;
+  /* editing is not selecting: a tint and a glow say the keys go into the words */
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+/* under the element being edited: its two ways out (authoring.js) */
+.dl-edit-hint {
+  position: fixed; z-index: 60; transform: translateX(-50%);
+  padding: 4px 9px; border-radius: 7px;
+  background: rgba(20, 20, 22, .86); color: #e6e6e6;
+  border: 1px solid rgba(160, 160, 160, .28);
+  font: 500 12px/1.2 system-ui, sans-serif; white-space: nowrap; pointer-events: none;
+}
+/* the panel the keyboard goes to (PRESENTING_EDITING): a box in it has the
+   caret, or the comments panel is taking its letters (review.js) */
+.decklight-dockable:focus-within > .narr-card,
+.decklight-dockable.dl-has-keys > .narr-card {
+  box-shadow: 0 0 0 2px var(--accent, #6af), 0 10px 40px rgba(0, 0, 0, .45);
+}
+.decklight-dockable.dl-has-keys .narr-head::after {
+  content: 'keys here'; margin-left: 8px; padding: 2px 6px; border-radius: 5px;
+  font: 600 10px/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase;
+  background: var(--accent, #6af); color: var(--accent-contrast, #000);
 }
 .decklight .dl-editing.dl-unsaved { outline-style: solid; }
 /* a save that failed (authoring.js): the words stay, marked, until saved or given up */
