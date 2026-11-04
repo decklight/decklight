@@ -206,7 +206,11 @@ function boxOf(el) {
     .map(([x, y]) => ({ x: ctm.a * x + ctm.c * y + ctm.e, y: ctm.b * x + ctm.d * y + ctm.f }));
   const xs = pts.map((p) => p.x); const ys = pts.map((p) => p.y);
   const x = Math.min(...xs); const y = Math.min(...ys);
-  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+  const w = Math.max(...xs) - x; const h = Math.max(...ys) - y;
+  // a shape waiting at scale(0) for its build has collapsed to a sliver that
+  // sits inside whatever it starts from: no box, so it is inside nothing (#981)
+  if (!(w > 0) || !(h > 0)) return null;
+  return { x, y, w, h };
 }
 
 const contains = (outer, inner, eps = 0.5) =>

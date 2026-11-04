@@ -932,6 +932,7 @@
           <rect class="nf-concept" data-concept="tools" x="620" y="130" width="120" height="40" style="fill: var(--d-fill-1)"/>
           <rect class="nf-off" data-nest="off" x="620" y="200" width="120" height="40" style="fill: var(--d-fill-1)"/>
           <rect class="nf-outline" x="470" y="200" width="120" height="40" fill="none" stroke="var(--d-stroke)"/>
+          <rect class="nf-grow" x="700" y="245" width="300" height="25" style="fill: var(--d-fill-4); transform-box: fill-box; transform-origin: left center; transform: scaleX(0)"/>
           <rect class="nf-overlay" x="10" y="10" width="780" height="20" style="fill: var(--d-fill-2)"/>
           <text class="nf-text" x="110" y="95" style="fill: var(--d-text)">label</text>
         </svg>
@@ -4755,6 +4756,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.outlineUntouched = !q('nf-outline').style.fill;
         r.overlayIsNoPanel = styled('nf-overlay') === 'var(--d-fill-2)' && styled('nf-box-a1') === 'var(--d-fill-6-in)';
         r.textUntouched = styled('nf-text') === 'var(--d-text)';
+        // #981: a shape waiting at scaleX(0) for its build has collapsed to a
+        // sliver inside the panel it extends; it is inside nothing
+        r.collapsedIsInsideNothing = styled('nf-grow') === 'var(--d-fill-4)';
         // idempotent: a rescan changes nothing
         const before = ['nf-box-a1', 'nf-box-b1', 'nf-deep', 'nf-concept', 'nf-off'].map(styled).join('|');
         deck.sync(); deck.goto(5, 0); await settle();
@@ -4765,7 +4769,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.overviewSame = cell?.querySelector('.nf-box-a1')?.style.fill === 'var(--d-fill-6-in)' && cell?.querySelector('.nf-box-b1')?.style.fill === 'var(--d-fill-4-in)';
         press('Escape'); await settle();
         r.PASS = r.leftBoxesTakeTheLeftPanel && r.rightBoxesTakeTheRightPanel && r.twoFamilies && r.shortcutTakesTheContainer
-          && r.conceptWins && r.optOutKept && r.outlineUntouched && r.overlayIsNoPanel && r.textUntouched && r.idempotent && r.overviewSame;
+          && r.conceptWins && r.optOutKept && r.outlineUntouched && r.overlayIsNoPanel && r.textUntouched && r.collapsedIsInsideNothing && r.idempotent && r.overviewSame;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
