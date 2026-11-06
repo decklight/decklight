@@ -153,7 +153,7 @@ jobs:
           # GH_TOKEN in this step: the agent commits locally, a later step
           # pushes and speaks. It cannot merge, label, or comment.
           claude_args: |
-            --model claude-fable-5
+            --model claude-opus-5-5
             --max-turns 70
             --allowedTools Bash,Read,Edit,Write,Glob,Grep
           prompt: |
