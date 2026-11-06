@@ -144,7 +144,7 @@ jobs:
           # Bash and a real checkout — rebasing is running git. No GH_TOKEN in
           # this step: the agent resolves locally, a later step pushes.
           claude_args: |
-            --model claude-fable-5
+            --model claude-opus-5-5
             --max-turns 60
             --allowedTools Bash,Read,Edit,Write,Glob,Grep
           prompt: |

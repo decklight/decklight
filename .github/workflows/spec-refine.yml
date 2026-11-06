@@ -120,7 +120,7 @@ jobs:
           # Bash for the mockup rendering; no GH_TOKEN anywhere in this step,
           # and the checkout holds no credentials to push with.
           claude_args: |
-            --model claude-fable-5
+            --model claude-opus-5-5
             --max-turns 50
             --allowedTools Bash,Read,Edit,Write,Glob,Grep
           prompt: |

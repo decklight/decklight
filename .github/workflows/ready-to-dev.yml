@@ -152,7 +152,7 @@ jobs:
           # dead key left alongside this one would quietly keep being used.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
-            --model claude-fable-5
+            --model claude-opus-5-5
             --max-turns 60
             --allowedTools Bash,Read,Edit,Write,Glob,Grep
           prompt: |
