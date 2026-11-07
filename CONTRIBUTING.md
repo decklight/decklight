@@ -252,7 +252,7 @@ controls: apply one by hand at any point to route, re-run, or skip a step.
                             └────┬────────┘
                                  │ auto-merges on green
                     ┌────────────▼──────────┐
-                    │ pr-babysitter (hourly)│  notices a stalled PR
+                    │ pr-babysitter         │  notices a stalled PR
                     └────────────┬──────────┘
                                  │ you label `fix-it`
                             ┌────▼───┐
@@ -324,9 +324,9 @@ repro evidence.
 
 ### pr-babysitter and pr-fix: after the PR opens
 
-Every hour, **pr-babysitter** looks at the open agent PRs and comments when one
-is stuck: CI red (with the error, not just the fact), a conflict with `main`, or
-review comments nobody answered. A quiet hour costs nothing: no agent runs. It
+When a maintainer comments on or reviews an agent PR, and once a week for all of
+them, **pr-babysitter** looks at the PR and comments when it is stuck: CI red (with the error, not just the fact), a conflict with `main`, or
+review comments nobody answered. A quiet check costs nothing: no agent runs. It
 only ever comments.
 
 When a finding is worth acting on, label the PR **`fix-it`** and **pr-fix**
