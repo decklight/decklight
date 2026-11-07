@@ -1,4 +1,4 @@
-# The rebase loop — the gap the event-driven loops cannot reach.
+# The rebase loop: the gap the other event-driven loops cannot reach.
 #
 # The other loops wake on an event: a label, a comment, a red build. But a PR
 # that is GREEN and simply STALE — behind a main that moved and now conflicts —
@@ -8,7 +8,7 @@
 # rots quietly behind main, its armed auto-merge waiting on a mergeability that
 # will never come back on its own. This loop is the coming-back.
 #
-#   every 2 hours →  find the open, non-draft claude/* · ticket/* PRs that main
+#   main moves    →  find the open, non-draft claude/* · ticket/* PRs that main
 #                    made CONFLICTING (polling past the UNKNOWN GitHub returns
 #                    for a beat after main moves). Branches merely BEHIND rebase
 #                    themselves at squash time — left alone.
@@ -21,9 +21,13 @@
 #                    and a draft is excluded from this loop and from auto-merge,
 #                    so it cannot spin.
 #
-# ONE PR PER RUN, on purpose: the every-2h cadence drains a backlog steadily,
-# and draft-marking the unresolvable ones guarantees the queue shrinks rather
-# than looping on the same stuck branch.
+# WHEN IT RUNS. A branch can only start to conflict when main moves, so the loop
+# runs on every push to main: each merge out of the queue. A weekly sweep backs
+# that up, for a conflict a busy week left behind.
+#
+# ONE PR PER RUN, on purpose: every merge serves the next stuck branch, and
+# draft-marking the unresolvable ones guarantees the queue shrinks rather than
+# looping on the same stuck branch.
 #
 # WHY A SCHEDULE MAY HOLD HANDS HERE, when the babysitter may not. The
 # babysitter's danger is the TEXT it reads — PR comments and CI logs, writable
@@ -36,8 +40,10 @@
 name: claude-rebase
 
 on:
+  push:
+    branches: [main] # the only moment a branch can start to conflict
   schedule:
-    - cron: "41 */2 * * *" # every 2h, off the top-of-hour stampede (GitHub throttles dense schedules)
+    - cron: "41 5 * * 1" # weekly backup, Monday 05:41 UTC, off the top-of-hour stampede (GitHub throttles dense schedules)
   workflow_dispatch:
     inputs:
       pr:
@@ -53,10 +59,11 @@ permissions:
   id-token: write
   actions: read
 
-# one rebase at a time; a fresh tick supersedes a stuck one
+# one rebase at a time. A merge that lands mid-rebase queues behind it rather
+# than cancelling it: a busy merge queue would otherwise never let one finish.
 concurrency:
   group: claude-rebase
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   rebase:

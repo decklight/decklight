@@ -4,9 +4,11 @@
 # reviewer leaves three comments, and nobody notices until a human happens to
 # look. This loop is the noticing.
 #
-#   every hour  →  a shell step asks GitHub about every open claude/* and
-#                  ticket/* PR: are checks failing? is it conflicting? did a
-#                  human say something since the last successful run?
+#   a maintainer comments on, or reviews, a claude/* or ticket/* PR
+#   (or the weekly sweep, for every such PR)
+#               →  a shell step asks GitHub about that PR: are checks failing?
+#                  is it conflicting? did a human say something since the last
+#                  successful run?
 #               →  if the answer is "no" everywhere, the job ends here. No
 #                  agent runs, no tokens are spent. Silence is the normal case
 #                  and the normal case is free.
@@ -18,9 +20,18 @@
 #               →  a plain shell step posts the drafts. Claude never holds the
 #                  token, and never holds a shell.
 #
+# WHY A HUMAN COMMENT IS THE TRIGGER. The two other things this loop reports on
+# already have event-driven hands of their own: a red build wakes claude-fix-ci,
+# and a merge to main wakes claude-rebase. What has no other owner is a person
+# saying something on the PR. Only a comment or review from someone with write
+# access starts a run, so a stranger cannot spend the agent; and the bot comments
+# the loops post are made with GITHUB_TOKEN, which GitHub never lets start a
+# workflow, so this loop cannot wake itself. The weekly sweep catches whatever
+# else went quiet.
+#
 # WHY THE AGENT HAS NO SHELL. Same reasoning as the issue-analyzer, one notch
-# sterner: this trigger is a schedule, so there is no maintainer action gating
-# it at all, and the text it reads — PR comments, review threads, log output —
+# sterner: nothing here is a deliberate maintainer gesture like a label, and the
+# text it reads — PR comments, review threads, log output —
 # is writable by anyone with a browser, this being a public repo. So the agent
 # may read the repo and the gathered evidence, and WRITE REPORT FILES. It
 # cannot run a command, reach the network, push a commit, or touch a PR. "It
@@ -35,8 +46,12 @@
 name: pr-babysitter
 
 on:
+  issue_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted] # inline comments arrive as part of a review, so this covers them
   schedule:
-    - cron: "23 * * * *" # hourly, off the top-of-hour stampede
+    - cron: "23 6 * * 1" # weekly sweep, Monday 06:23 UTC, off the top-of-hour stampede
   workflow_dispatch:
 
 permissions:
@@ -49,19 +64,30 @@ permissions:
   id-token: write
   actions: read # gh run list / gh run view --log-failed
 
-# one sweep at a time; a fresh hour supersedes a stuck one
+# one run per PR at a time (the sweep is its own lane); a newer comment
+# supersedes a run still reading the older one
 concurrency:
-  group: pr-babysitter
+  group: pr-babysitter-${{ github.event.issue.number || github.event.pull_request.number || 'sweep' }}
   cancel-in-progress: true
 
 jobs:
   watch:
     name: look at the open PRs so a human doesn't have to
+    # a comment wakes this only when it is on a PR and its author can write here
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review' &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
+          # main, whatever woke the run: a review event would otherwise check out
+          # the PR's merge commit, and with it the PR's copy of this workflow
+          ref: ${{ github.event.repository.default_branch }}
           # no push happens here (the shell steps use gh with an explicit
           # GH_TOKEN), and the agent step below reads stranger-writable PR
           # text — so keep the token out of .git/config where that agent runs
@@ -72,20 +98,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MARKER: "<!-- pr-babysitter -->"
+          # set on a comment or review run, empty on the sweep
+          ONLY_PR: ${{ github.event.issue.number || github.event.pull_request.number }}
+          EVENT_AT: ${{ github.event.comment.created_at || github.event.review.submitted_at }}
         run: |
           set -euo pipefail
           mkdir -p .babysitter/data
           found=0
 
-          # "new activity" means: since the last time this loop ran green.
-          # First run ever: look back a day rather than at all of history.
-          since=$(gh run list --workflow pr-babysitter.yml --status success \
+          # "new activity" means: since the last time the sweep ran green. Only
+          # sweeps count: a comment run reads one PR, so it says nothing about
+          # the others. First sweep ever: look back a week, not all of history.
+          since=$(gh run list --workflow pr-babysitter.yml --event schedule --status success \
                     --limit 1 --json updatedAt --jq '.[0].updatedAt // empty' || true)
-          [ -n "$since" ] || since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          [ -n "$since" ] || since=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          # a comment run must at least see the comment that woke it
+          if [ -n "$EVENT_AT" ]; then
+            just_before=$(date -u -d "@$(( $(date -u -d "$EVENT_AT" +%s) - 1 ))" +%Y-%m-%dT%H:%M:%SZ)
+            if [[ "$just_before" < "$since" ]]; then since=$just_before; fi
+          fi
           echo "watching for activity since $since"
 
           for pr in $(gh pr list --json number,headRefName \
                         --jq '.[] | select(.headRefName | test("^(claude|ticket)/")) | .number'); do
+            [ -z "$ONLY_PR" ] || [ "$pr" = "$ONLY_PR" ] || continue
             d=".babysitter/data/pr-$pr"
             mkdir -p "$d"
             gh pr view "$pr" --json number,title,url,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,updatedAt,statusCheckRollup > "$d/meta.json"
@@ -137,7 +173,7 @@ jobs:
           done
 
           echo "found=$found" >> "$GITHUB_OUTPUT"
-          [ "$found" = "1" ] || echo "all quiet — no agent run this hour"
+          [ "$found" = "1" ] || echo "all quiet — no agent run this time"
 
       - name: diagnose
         if: steps.gather.outputs.found == '1'
@@ -157,7 +193,7 @@ jobs:
           prompt: |
             You are the pr-babysitter for the decklight repository: a scheduled
             loop that watches the open Claude-authored PRs (claude/* and
-            ticket/* branches) so problems get noticed within the hour instead
+            ticket/* branches) so problems get noticed when they happen instead
             of whenever a human next looks.
 
             Under `.babysitter/data/` there is one directory per PR that needs
@@ -203,7 +239,7 @@ jobs:
 
             What does NOT earn a report: anything your previous comments already
             said, unchanged. If `previous-babysitter-comments.json` covers it and
-            the situation is the same, stay silent for that PR — an hourly loop
+            the situation is the same, stay silent for that PR — a loop
             that repeats itself trains everyone to ignore it. Keep each report a
             scannable few lines, not an essay.
 
@@ -223,7 +259,7 @@ jobs:
             # The token lives here and only here. The agent's whole output is
             # markdown files, and the only thing this step can do with one is
             # say it out loud on the PR it names.
-            body=$(printf '%s\n🤖 **pr-babysitter** — hourly check, read by Claude, posted unedited.\n\n%s\n' "$MARKER" "$(cat "$f")")
+            body=$(printf '%s\n🤖 **pr-babysitter** — read by Claude, posted unedited.\n\n%s\n' "$MARKER" "$(cat "$f")")
             # belt to the agent-side dedup: never post the same text twice in a row
             last=$(gh api "repos/$GITHUB_REPOSITORY/issues/$n/comments" --paginate \
                      | jq -r -s --arg marker "$MARKER" '[add[]? | select((.body // "") | contains($marker))] | last | .body // ""')

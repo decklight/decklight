@@ -1,12 +1,14 @@
-# The grooming loop — daily backlog hygiene, cite-or-abstain.
+# The grooming loop: backlog hygiene after every release, cite-or-abstain.
 #
 # Tickets rot. A bug gets fixed by some other PR and nobody closes its report; a
 # feature ask never grew a spec and sits unlabeled forever; a spec goes stale
 # when the code it described was renamed or shipped. No event fires for any of
-# that — decay is the absence of activity, not an activity. This loop is the
-# once-a-day read-through a maintainer never quite gets to.
+# that — decay is the absence of activity, not an activity. So the loop hangs off
+# the nearest event: a release, the moment the most tickets have just been
+# answered by shipped code. It is the read-through a maintainer never quite gets
+# to, with a monthly sweep behind it for a stretch with no release.
 #
-#   once a day  →  read every OPEN, non-`ready-to-dev` issue and check it
+#   a release   →  read every OPEN, non-`ready-to-dev` issue and check it
 #                  against the CODE as it stands today, then, for each:
 #                    · a bug provably fixed in code  →  CLOSE it, citing the
 #                      exact file:line that fixes it
@@ -23,10 +25,10 @@
 # build gate), closed issues, or PRs — and it never rewrites an issue BODY:
 # stale specs are FLAGGED for a human to rescope, not silently rewritten.
 #
-# DRY BY DEFAULT. An autonomous daily editor of a PUBLIC tracker starts read-only:
+# DRY BY DEFAULT. An autonomous editor of a PUBLIC tracker starts read-only:
 #   · a manual run defaults to dry_run=true — it prints its intended verdicts to
 #     the run Summary and changes nothing (the point of a dry run is to read them).
-#   · the scheduled run is dry too, UNLESS the repo variable GROOM_LIVE == 'true'.
+#   · a release or scheduled run is dry too, UNLESS the repo variable GROOM_LIVE == 'true'.
 #     Flip that once you've watched a few dry runs and trust them.
 #
 # WHY THE AGENT HAS NO TOKEN. It reads issue text written by strangers on a
@@ -39,8 +41,10 @@
 name: claude-groom
 
 on:
+  push:
+    tags: ["v*.*.*"] # a release, the same tags release.yml publishes
   schedule:
-    - cron: "0 8 * * *" # daily, 08:00 UTC
+    - cron: "17 8 1 * *" # monthly backup, the 1st at 08:17 UTC
   workflow_dispatch:
     inputs:
       dry_run:
@@ -185,7 +189,7 @@ jobs:
           set -euo pipefail
 
           # Dry by default. A manual run honors its checkbox (default true); the
-          # scheduled run acts only if GROOM_LIVE is explicitly turned on.
+          # release or scheduled run acts only if GROOM_LIVE is explicitly turned on.
           if [ "$EVENT" = "workflow_dispatch" ]; then
             DRY="${INPUT_DRY:-true}"
           elif [ "$GROOM_LIVE" = "true" ]; then
@@ -234,7 +238,7 @@ jobs:
               echo "#$num — behind the build gate now, skipping"; continue
             fi
 
-            body="🤖 **backlog grooming** — a daily pass read this against the current code, posted unedited.\n\n$comment"
+            body="🤖 **backlog grooming** — a pass after a release read this against the current code, posted unedited.\n\n$comment"
             case "$action" in
               close)
                 # cite-or-abstain: a close with no path:line citation is dropped
