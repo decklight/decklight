@@ -650,9 +650,24 @@ jobs:
         env:
           CROSS_ENGINE_STRICT: '1'
 
+      # Write mode against a REAL edit server (test/edit-e2e.mjs): this job is
+      # the one with Playwright installed, and the runner's own Chrome is the
+      # browser, so nothing more is downloaded. Strict for the same reason as
+      # above: skipped here, it would be a green tick for nothing.
+      - name: write mode, read back from the file
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run e2e:edit 2>&1 | tee edit-e2e.log
+        env:
+          EDIT_E2E_STRICT: '1'
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: cross-engine-log
-          path: cross-engine.log
+          path: |
+            cross-engine.log
+            edit-e2e.log
           retention-days: 14

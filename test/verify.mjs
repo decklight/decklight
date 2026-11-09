@@ -123,6 +123,7 @@ const HARNESSES = [
   'pptx-render',
   'import-render',
   'theme-config-render',
+  'edit-e2e',
   'contrast',
   'palette-rules',
 ];

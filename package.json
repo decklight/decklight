@@ -43,7 +43,8 @@
     "verify": "npm run build && node test/verify.mjs",
     "test:impact": "node tools/test-impact.mjs",
     "soak": "node test/soak.mjs",
-    "cross-engine": "node test/cross-engine.mjs"
+    "cross-engine": "node test/cross-engine.mjs",
+    "e2e:edit": "node test/edit-e2e.mjs"
   },
   "engines": {
     "node": ">=20"
