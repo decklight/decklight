@@ -424,6 +424,15 @@ export function createListSessions(ctx) {
     if (!next) return true;
     if (!s.cells.has(next)) s.cells.set(next, next.innerHTML);
     setHost(s, cur, next, null);
+    // the cell's words are selected, as a spreadsheet or a document's table
+    // does on Tab: typing replaces them, and an arrow key keeps them
+    if (next.textContent) {
+      const r = document.createRange();
+      r.selectNodeContents(next);
+      const sel = window.getSelection();
+      sel.removeAllRanges(); sel.addRange(r);
+      ctx.placePill();
+    }
     return true;
   }
 

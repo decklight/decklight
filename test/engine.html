@@ -5341,6 +5341,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           type(' L.');
           key('Tab');
           r.tabMovesToTheNextCell = host() === engineer && engineer.isContentEditable && !ada.isContentEditable && writes().length === 0;
+          // its words selected, as a spreadsheet does: typing replaces them
+          r.tabSelectsTheCellsWords = String(window.getSelection()) === 'Engineer';
           key('Tab', { shiftKey: true });
           r.shiftTabMovesBack = host() === ada && ada.textContent === 'Ada L.';
           key('Tab');

@@ -228,8 +228,10 @@ const EMPHASIS = new Set(['strong', 'em', 'code', 'b', 'i', 'u', 's', 'mark', 's
  * contenteditable writes its own furniture: a `<br>` to hold an empty line
  * open, a `<div>` round a pasted line, a `<span style>` or `<font>` when two
  * runs of different look meet, `&nbsp;` for a space it feared would
- * collapse, `<b>` and `<i>` from its own bold. All of it goes, the author's
- * own tags stay; a `style=` stays only when the item had one in the file.
+ * collapse. All of it goes, the author's own tags stay; a `style=` stays
+ * only when the item had one in the file. A `<b>` or `<i>` is the author's:
+ * the browser never writes one here, since ⌘B and ⌘I write `<strong>` and
+ * `<em>` themselves (authoring.js), and a deck written with `<b>` keeps it.
  */
 export function cleanInline(html, { keepStyle = false } = {}) {
   const walk = (nodes) => {
@@ -248,8 +250,6 @@ export function cleanInline(html, { keepStyle = false } = {}) {
       if (!keepStyle) el.open = dropAttrs(el.open, ['style']);
       const bare = /^<[\w:-]+\s*\/?>$/.test(el.open);
       if (el.tag === 'div' || el.tag === 'p' || el.tag === 'font' || (el.tag === 'span' && bare)) { out.push(...el.kids); continue; }
-      if (bare && el.tag === 'b') el = { ...el, tag: 'strong', open: '<strong>', close: '</strong>' };
-      if (bare && el.tag === 'i') el = { ...el, tag: 'em', open: '<em>', close: '</em>' };
       // an emptied emphasis is nothing the author wrote: `<strong></strong>`
       if (EMPHASIS.has(el.tag) && bare && !el.kids.length) continue;
       out.push(el);

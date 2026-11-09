@@ -61,7 +61,8 @@ test('the browser\'s furniture never reaches the file', () => {
   assert.equal(cleanInline('a&nbsp;&nbsp;b'), 'a b');
   assert.equal(cleanInline('10&nbsp;km'), '10&nbsp;km', 'an author\'s own no-break space stays');
   assert.equal(cleanInline('one&nbsp;<strong>two</strong>'), 'one <strong>two</strong>');
-  assert.equal(cleanInline('<span style="color: red;">a</span> <b>b</b> <i>c</i>'), 'a <strong>b</strong> <em>c</em>');
+  assert.equal(cleanInline('<span style="color: red;">a</span> <strong>b</strong>'), 'a <strong>b</strong>');
+  assert.equal(cleanInline('<b>Bold</b> and <i>italic</i>, as the author wrote them'), '<b>Bold</b> and <i>italic</i>, as the author wrote them', 'an author\'s own <b> and <i> stay');
   assert.equal(cleanInline('<div>pasted</div>'), 'pasted');
   assert.equal(cleanInline('<em style="x">a</em>'), '<em>a</em>');
   assert.equal(cleanInline('<em style="x">a</em>', { keepStyle: true }), '<em style="x">a</em>');
