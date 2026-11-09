@@ -3886,6 +3886,9 @@
 /* nothing to undo or redo (editbar.js): said by the button, greyed out */
 .decklight-editbar .eb-btn:disabled { opacity: .38; cursor: default; }
 .decklight-editbar .eb-btn:disabled:hover, .decklight-editbar .eb-btn:disabled:active { background: none; }
+/* Add on a slide-template slide (add-content.js): pressable, so it can say why it is off */
+.decklight-editbar .eb-btn[aria-disabled="true"] { opacity: .38; }
+.decklight-editbar .eb-btn[aria-disabled="true"]:hover, .decklight-editbar .eb-btn[aria-disabled="true"]:active { background: none; }
 .decklight-editbar .eb-key {
   font: 600 10px/1 system-ui, sans-serif;
   padding: 3px 5px; border-radius: 5px;

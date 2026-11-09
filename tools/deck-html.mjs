@@ -710,21 +710,43 @@ export function swapSlides(html, a, b) {
 }
 
 /**
- * A deck with `<img src alt>` inserted into slide `slide`, after top-level
- * child `index` — the same addressing the element-edit routes use
- * (`sectionChildRanges`).
+ * `markup` written at `indent`: every line but the first shifted by it, and
+ * the lines inside a `<pre>` left exactly as they are, because there the
+ * leading spaces are the code's own and a reindent would put them on screen.
+ * A slide written on one line (`indent === null`) keeps the markup as given.
+ */
+function indentMarkup(markup, indent) {
+  const lines = String(markup).replace(/^\s*\n|\s+$/g, '').split('\n');
+  if (indent === null) return lines.join('\n');
+  let inPre = 0;
+  return lines.map((line, i) => {
+    const out = i === 0 || inPre > 0 || !line.trim() ? line : indent + line;
+    inPre += (line.match(/<pre\b/gi)?.length ?? 0) - (line.match(/<\/pre\s*>/gi)?.length ?? 0);
+    return out;
+  }).join('\n');
+}
+
+/**
+ * A deck with `markup` (one element or several siblings, written at zero
+ * indentation) inserted into slide `slide`, after top-level child `index`:
+ * the same addressing the element-edit routes use (`sectionChildRanges`).
  *
- * `index === null` means "on the slide": the image goes after the last content
- * child and BEFORE the asides, so a picture dropped on a slide that has
- * speaker notes lands on the slide and not inside the notes, where the
- * audience would never see it (DECK_ANATOMY — notes, sources and rehearse are
- * all `<aside>` siblings at the end of a section).
+ * `index === null` means "on the slide": the markup goes after the last
+ * content child and BEFORE the asides, so whatever is added to a slide that
+ * has speaker notes lands on the slide and not inside the notes, where the
+ * audience would never see it (DECK_ANATOMY: notes, sources and rehearse are
+ * all `<aside>` siblings at the end of a section). An explicit `index` is
+ * the author's choice, even one that names an aside.
+ *
+ * The markup lands on its own line at the indentation of the child it
+ * follows, its later lines shifted with it (`indentMarkup`), so a list or a
+ * diagram reads in the file as if it had been typed there.
  *
  * Returns `{ html, index }`: the caller has to be able to tell the browser
  * which child the new element IS, since every element route addresses by
  * position and everything after the insertion has just shifted.
  */
-export function insertImage(html, slide, index, { src = '', alt = '' } = {}) {
+export function insertElement(html, slide, index, markup) {
   const deck = String(html ?? '');
   const { parts, idx } = locateSlide(deck, slide);
   const seg = parts[idx];
@@ -733,6 +755,9 @@ export function insertImage(html, slide, index, { src = '', alt = '' } = {}) {
   // begin a line (a slide written on one line stays on one line)
   const indentOf = (r) => (r ? /\n([ \t]*)$/.exec(seg.slice(0, r.start))?.[1] ?? null : null);
 
+  if (index !== null && index !== undefined && !ranges[index]) {
+    throw new Error(`slide ${slide}: no element at index ${index} (has ${ranges.length})`);
+  }
   let at;         // offset in `seg` to insert at
   let position;   // the new element's child index once it is in
   if (index === null || index === undefined) {
@@ -741,13 +766,23 @@ export function insertImage(html, slide, index, { src = '', alt = '' } = {}) {
     position = k;
     at = k > 0 ? ranges[k - 1].end : seg.indexOf('>') + 1;
   } else {
-    const r = ranges[index];
-    if (!r) throw new Error(`slide ${slide}: no element at index ${index} (has ${ranges.length})`);
     position = index + 1;
-    at = r.end;
+    at = ranges[index].end;
   }
-  const tag = `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`;
-  const indent = indentOf(ranges[Math.max(0, position - 1)]) ?? indentOf(ranges[0]);
-  parts[idx] = seg.slice(0, at) + (indent === null ? tag : `\n${indent}${tag}`) + seg.slice(at);
+  // a slide with no children to read it from: the section's own, plus two
+  const sectionIndent = /\n([ \t]*)$/.exec(parts[idx - 2] ?? '')?.[1];
+  const indent = indentOf(ranges[Math.max(0, position - 1)]) ?? indentOf(ranges[0])
+    ?? (!ranges.length && sectionIndent !== undefined && seg.includes('\n') ? `${sectionIndent}  ` : null);
+  const block = indentMarkup(markup, indent);
+  parts[idx] = seg.slice(0, at) + (indent === null ? block : `\n${indent}${block}`) + seg.slice(at);
   return { html: parts.join(''), index: position };
+}
+
+/**
+ * A deck with `<img src alt>` inserted into slide `slide`, after top-level
+ * child `index`: `insertElement`, whose placement it keeps (`null` is after
+ * the last content child and before the asides).
+ */
+export function insertImage(html, slide, index, { src = '', alt = '' } = {}) {
+  return insertElement(html, slide, index, `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`);
 }

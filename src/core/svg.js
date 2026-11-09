@@ -130,7 +130,8 @@ export function rescopeSvgIds(root, tag) {
   root.querySelectorAll('svg').forEach((svg, n) => prefixSvgIds(svg, `${tag}${n}-`));
 }
 
-function prefixSvgIds(svg, prefix) {
+/** Prefix one svg's ids, and the references to them inside it, with `prefix` (a diagram added in place). */
+export function prefixSvgIds(svg, prefix) {
   const map = new Map();
   svg.querySelectorAll('[id]').forEach((el) => {
     const old = el.id;

@@ -5,7 +5,7 @@
 // scaling, print. SPEC BUILD_SEMANTICS, SLIDE_TRANSITIONS, PRESENTING, JS_API.
 
 import { scanSlide, applyBuildState, stepLabels, registerProvider } from './builds.js';
-import { namespaceSvgIds, rescopeSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf } from './svg.js';
+import { namespaceSvgIds, rescopeSvgIds, prefixSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf } from './svg.js';
 import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
@@ -23,6 +23,7 @@ import { createEditMode } from './editmode.js';
 import { createAuthoring } from './authoring.js';
 import { createEditBar } from './editbar.js';
 import { createElementMove } from './element-move.js';
+import { createAddContent } from './add-content.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
 import { createOnboarding } from './onboarding.js';
@@ -172,6 +173,11 @@ function leadingHeading(section) {
 // class="subtitle": one that no longer follows its heading (an element moved
 // in place, PRESENTING_EDITING) is a paragraph again.
 const autoSubtitles = new WeakSet();
+// The paragraphs marked here, told from an author's own class="subtitle": a
+// slide changed in place (an element added above one, PRESENTING_EDITING)
+// can leave a marked one no longer under the heading, and it goes back to
+// being a paragraph, as a reload would have made it.
+const autoSubtitles = new WeakSet();
 function detectSubtitle(section, heading) {
   for (const p of section.querySelectorAll(':scope > p.subtitle')) {
     if (autoSubtitles.has(p) && p !== heading?.nextElementSibling) { p.classList.remove('subtitle'); autoSubtitles.delete(p); }
@@ -180,7 +186,7 @@ function detectSubtitle(section, heading) {
   const next = heading.nextElementSibling;
   if (next && next.matches('p') && !next.hasAttribute('data-build')) {
     if (!next.classList.contains('subtitle')) autoSubtitles.add(next);
-    next.classList.add('subtitle');
+    if (!next.classList.contains('subtitle')) { next.classList.add('subtitle'); autoSubtitles.add(next); }
     return next;
   }
   return section.querySelector(':scope > p.subtitle');
@@ -1112,6 +1118,10 @@ export function init(userConfig = {}) {
         label: sources.has() ? 'Edit sources on this slide…' : 'Add sources to this slide…', cat: 'Slide', write: true,
         alias: 'sources references links reading provenance where citation cite',
         run: () => sources.edit() },
+      // one row for every kind Add offers: the menu is where the kind is picked
+      editmode.elementEditOn() && write({ label: 'Add to slide…', cat: 'Slide',
+        alias: 'add insert new element heading title subheading text paragraph bullets list numbered ordered quote table code snippet columns two comparison diagram boxes chart graph picture image',
+        run: () => addContent.open() }),
       write({ label: 'New slide after this one', cat: 'Slide', alias: 'add slide insert blank create page', run: () => editmode.slideOp('new') }),
       write({ label: 'Duplicate this slide', cat: 'Slide', alias: 'copy slide clone', run: () => editmode.slideOp('duplicate') }),
       write({ label: 'Move slide up', cat: 'Slide', alias: 'reorder earlier before swap', run: () => editmode.slideOp('up') }),
@@ -1759,6 +1769,29 @@ export function init(userConfig = {}) {
     if (!sec) return;
     if (code && el?.isConnected) initCode(el, registerBuildProvider);
     instance._rescanFor(el?.isConnected ? el : sec);
+    relayoutSlide(sec, slide);
+  });
+  // a starter added in place on this page (add-content.js): what the engine
+  // does to content at load is done to it now (a chart drawn, a diagram's
+  // ids namespaced, code highlighted and lined), two columns get the split
+  // layout they asked for, and the slide is rescanned and laid out again.
+  // Another page's add reloads that page (editmode.js).
+  let addedSvgs = 0;
+  root.addEventListener('decklight:inserted', (e) => {
+    const { slide, els = [], layout: name = null } = e.detail ?? {};
+    const sec = instance._sections?.[slide - 1];
+    if (!sec) return;
+    initCharts(sec);   // idempotent: only a chart not yet drawn is drawn
+    for (const el of els) {
+      if (!el?.isConnected) continue;
+      addedSvgs += 1;
+      if (el.matches('svg')) prefixSvgIds(el, `svgadd${addedSvgs}-`);
+      else rescopeSvgIds(el, `svgadd${addedSvgs}-`);
+      if (el.querySelector('pre > code') || el.matches('pre')) initCode(el, registerBuildProvider);
+    }
+    if (typeof name === 'string') applyLayout(sec, name);
+    applyNesting(sec);
+    instance._rescanFor(sec);
     relayoutSlide(sec, slide);
   });
   const layout = createLayoutCycler({
@@ -3568,11 +3601,15 @@ export function init(userConfig = {}) {
     root, instance, editmode, authoring, toast, debugLog,
     toggleEditor, cycleLayout, deckHistory,
     enabled: () => !printMode && !params.has('embedded') && !captureMode,
+    addMenu: (btn) => addContent.open(btn),
   });
   // Moving things within a slide (element-move.js): the menu's Move rows, Control-Shift-↑ / ↓ and the handle's drag
   editmode.setElementMove(createElementMove({
     root, instance, editmode, toast, debugLog, select: (el) => editbar.selectNode(el, { exact: true }),
   }));
+  // Add ▾ (add-content.js): a heading, words, a list, a table, code, two
+  // columns, a diagram or a chart onto the slide, in place and ready to type
+  const addContent = createAddContent({ root, instance, editmode, authoring, editbar, toast, debugLog });
   inspector = createInspector({
     root, overlays, toast, copyText,
     // the Colors tab's Concept row: the deck's concepts, and an attach in place
