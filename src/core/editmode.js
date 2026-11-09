@@ -2277,6 +2277,7 @@ export function createEditMode({
   let elementEditOn = false;
   let menuEl = null, menuRows = [], menuSel = 0, menuView = 'main', menuTarget = null;
   let menuOwnRows = null;   // the 'rows' view: rows another module hands in (the bar's Add ▾)
+  let menuAt = null;   // where the menu was opened: where Add shape ▸ puts a shape (shapes.js)
   // who wants to know when E turns editing on or off: the editing bar (editbar.js)
   const elementEditListeners = new Set();
 
@@ -2366,6 +2367,14 @@ export function createEditMode({
       if (here?.name) rows.push({ label: 'none (detach)', run: () => commitConcept(null) });
       // the whole list, from where the question came up: colours, pins, which slides use each (Concept colors…)
       if (editConcepts) rows.push({ label: 'Edit concepts…', run: () => { closeElementMenu(); editConcepts(here?.name ?? null); } });
+    } else if (menuView === 'shape') {
+      // Add shape ▸ (SVG_DIAGRAMS): the server writes the markup, the page puts
+      // the same node where the menu was opened
+      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      const target = menuTarget; const at = menuAt;
+      for (const [kind, label] of [['box', 'Box'], ['ellipse', 'Ellipse'], ['label', 'Label'], ['line', 'Line / arrow']]) {
+        rows.push({ label, run: () => { closeElementMenu(); shapes.add(target, kind, at); } });
+      }
     } else if (menuView === 'slide') {
       // opened from the bar's Slide ▾ there is nothing to go back to
       if (!menuTarget.fromBar) rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
@@ -2396,6 +2405,13 @@ export function createEditMode({
       if (nested) rows.push({ label: `Remove the whole ${menuTarget.top.tagName.toLowerCase()}`, run: () => commitRemove(menuTarget, { whole: true }) });
       // up or down the slide, greyed at the ends (element-move.js)
       if (elementMove && !nested) for (const [dir, label, key] of [[-1, 'Move up', elementMove.keys.up], [1, 'Move down', elementMove.keys.down]]) { const t = menuTarget; const can = elementMove.canMove(t, dir); rows.push({ label, key, disabled: !can, run: can ? () => { closeElementMenu(); elementMove.move(t, dir); } : () => {} }); }
+      // a diagram's shapes (shapes.js): a copy of this one, a new one where the menu opened
+      const inDiagram = !!shapes?.diagramOf(menuTarget);
+      if (inDiagram && nested && shapes.canDuplicate(menuTarget)) {
+        const target = menuTarget;
+        rows.push({ label: 'Duplicate', run: () => { closeElementMenu(); shapes.duplicate(target); } });
+      }
+      if (inDiagram) rows.push({ label: 'Add shape ▸', run: () => { menuView = 'shape'; renderElementMenu(); } });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
       // a table's cell: rows and columns added and deleted in place (authoring.js)
       if (tableRows) rows.push(...tableRows(menuTarget, closeElementMenu));
@@ -2437,6 +2453,7 @@ export function createEditMode({
 
   function openElementMenu(x, y, target, view = 'main', { above = false, rows = null, label = 'Element edit menu' } = {}) {
     menuTarget = target;
+    menuAt = { x, y };
     menuView = view;
     menuOwnRows = rows;
     menuEl = document.createElement('div');
@@ -2627,6 +2644,7 @@ export function createEditMode({
   let elementMove = null;   // moving things within a slide (element-move.js), handed in by the engine
   let tableRows = null;   // the table menu's rows for a right-clicked cell (list-session.js), handed in by authoring.js
   let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
+  let shapes = null;      // a diagram's shapes moved, added, duplicated (shapes.js), handed in by the engine
   let editConcepts = null;   // the engine's door to Concept colors… (`fn(name)`), for the Concept ▸ submenu
   /**
    * Where a shape's concept lives in the FILE: `{ slide, index, path, tag,
@@ -4306,6 +4324,8 @@ export function createEditMode({
     setTableRows: (fn) => { tableRows = fn; },
     /** The engine's picture tools (pictures.js): the element menu's picture rows and Slide ▸'s background rows. */
     setPictures: (p) => { pictures = p; },
+    /** The engine's diagram shapes (shapes.js): the menu's Duplicate and Add shape ▸ rows. */
+    setShapes: (x) => { shapes = x; },
     /** The door to the concept list (Concept colors…), opened on a concept: the submenu's Edit concepts…. */
     setEditConcepts: (fn) => { editConcepts = fn; },
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */

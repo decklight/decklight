@@ -41,6 +41,7 @@ import {
   upsertNarrationTrack, configuredTrackDirs,
   locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement } from './edit.mjs';
 import { setElementPicture, setSlideBackground, pictureToBackground } from './edit.mjs';
+import { setElementGeometry, addDiagramShape, duplicateDiagramNode } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
@@ -440,6 +441,59 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
     }
     return json(200, { ok: true, changed, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/element/geometry` — `{ slide, index, edits: [{ path, tag,
+   * attr, value }], quiet?, from? }`: nodes of a diagram moved or resized in
+   * write mode (SVG_DIAGRAMS), every edit of one drag in ONE applyEdit, so `Z`
+   * takes a box and the label that moved with it back in one press. The
+   * attributes are a closed set and a move is `transform: translate(x y)`,
+   * merged with what the transform says (setElementGeometry). A path the file
+   * no longer has is a 409. Asked in place, the page that dragged already
+   * shows it: quiet here, every other page sent `content` (it reloads).
+   */
+  function elementGeometryRoute({ body, json }) {
+    const { slide, index, edits, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
+    let changed;
+    try { changed = applyEdit((html) => setElementGeometry(html, slide, index, edits)); }
+    catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed) console.log(`  diagram moved: slide ${slide} #${index} → ${edits.map((e) => `${e.attr} ${e.value}`).join(', ').slice(0, 120)}`);
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, { ok: true, changed, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/element/shape` — `{ slide, index, path, tag, op, kind?,
+   * at?, by?, quiet?, from? }`: a shape added to a diagram (`op: 'add'`, `path`
+   * the `<svg>`, `kind` box | ellipse | label | line, `at` where in the svg's
+   * coordinates) or a node duplicated (`op: 'duplicate'`, `path` the node).
+   * The server owns the markup (addDiagramShape, duplicateDiagramNode) and
+   * answers with it, `added: { path, html }` (and `defs` when an arrowhead
+   * had to be defined), so the page puts the very node the file got on the
+   * slide. One undo entry; a stale path is a 409.
+   */
+  function elementShapeRoute({ body, json }) {
+    const { slide, index, path, tag = null, op, kind = null, at = null, by = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !['add', 'duplicate'].includes(op)) throw new Error('bad payload');
+    let out = null;
+    let changed;
+    try {
+      changed = applyEdit((html) => {
+        out = op === 'add' ? addDiagramShape(html, slide, index, { path, tag: tag ?? 'svg', kind, at }) : duplicateDiagramNode(html, slide, index, { path, tag, by });
+        return out.html;
+      });
+    } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed) console.log(`  diagram ${op === 'add' ? `${kind} added` : 'node duplicated'}: slide ${slide} #${index} › ${out.added.path.join('.')}`);
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, { ok: true, changed, added: out.added, defs: out.defs ?? null, ...history.counts() });
   }
 
   /**
@@ -930,6 +984,8 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/concept', elementConceptRoute);
   routes.set('POST /deck/edit/element/concepts', elementConceptsRoute);
   routes.set('POST /deck/edit/element/text', elementTextRoute);
+  routes.set('POST /deck/edit/element/geometry', elementGeometryRoute);
+  routes.set('POST /deck/edit/element/shape', elementShapeRoute);
   routes.set('POST /deck/edit/concepts', conceptsRoute);
   routes.set('POST /deck/edit/slide', slideRoute);
   routes.set('POST /deck/edit/asset', assetRoute);

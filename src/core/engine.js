@@ -25,6 +25,7 @@ import { createEditBar } from './editbar.js';
 import { createElementMove } from './element-move.js';
 import { createAddContent } from './add-content.js';
 import { createPictures } from './pictures.js';
+import { createShapes } from './shapes.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
 import { createOnboarding } from './onboarding.js';
@@ -3635,6 +3636,15 @@ export function init(userConfig = {}) {
   });
   editmode.setPictures(pictures);
   instance._pictures = pictures;
+  // A diagram's shapes moved, resized, added and duplicated (shapes.js): over
+  // the selection the bar makes, through the element menu's rows
+  const shapes = createShapes({
+    root, instance, editmode, editbar, authoring, toast, debugLog,
+    // what the engine paints from a diagram's geometry and concepts, again for one svg
+    repaint: (svg) => { const scope = svg.parentElement ?? stage; applyConcepts(scope, config.concepts ?? {}); applyNesting(scope); },
+  });
+  editmode.setShapes(shapes);
+  instance._shapes = shapes;
   inspector = createInspector({
     root, overlays, toast, copyText,
     pictures: () => pictures,
