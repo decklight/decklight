@@ -18,7 +18,7 @@
 // and the element is selected (and its words opened) on the page that comes.
 
 import { authoredIndex } from './design-system.js';
-import { boundedFetch } from './devmode.js';
+import { createEditCommit } from './edit-commit.js';
 
 /** What Add offers, in its order: the server's kinds, then the picture the bar always had. */
 export const ADD_KINDS = [
@@ -44,6 +44,7 @@ export function typingTarget(kind, el) {
 }
 
 export function createAddContent({ root, instance, editmode, authoring, editbar, toast, debugLog = () => {} }) {
+  const commit = createEditCommit(editmode);
   const HANDOFF = 'decklight-add-select:' + location.pathname;
   const current = () => ({ slide: instance.state.slide, sec: instance._sections[instance.state.slide - 1] });
   const templatedSay = (slide) => `slide ${slide} follows a slide template: its content goes in the template's slots, so nothing is added beside them. Edit a slot's words, or take the slide out of the template (Use slide template…) to add freely`;
@@ -73,16 +74,8 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     const index = sel && sel.sec === sec && Number.isInteger(sel.index) ? sel.index : null;
     const job = (async () => {
       let j;
-      try {
-        const res = await boundedFetch(editmode.base() + '/deck/edit/element/insert', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ slide, index, kind, quiet: true, from: editmode.pageId() }),
-        });
-        j = await res.json().catch(() => ({}));
-        editmode.noteHistory?.(j);
-        if (!res.ok) throw new Error(j.error || String(res.status));
-      } catch (e) {
-        toast(`could not add ${SAID[kind] ?? kind}: ${String(e.message || e)}`, 6000);
+      try { j = await commit.send('/deck/edit/element/insert', { slide, index, kind }); } catch (e) {
+        toast(`could not add ${SAID[kind] ?? kind}: ${commit.why(e)}`, 6000);
         return;
       }
       let els;
@@ -90,18 +83,21 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
         // the file has it and this page cannot show it: the page reloads onto it
         debugLog('edit', `add ${kind} in place failed (${String(e.message || e)}) — reloading`);
         handOff({ slide, index: j.index, kind });
-        location.hash = `#/${slide}/0`;
-        editmode.reloadWhenSafe?.(`${SAID[kind] ?? kind} added — the page could not show it in place`);
+        commit.reload(`${SAID[kind] ?? kind} added — the page could not show it in place`, { slide });
         return;
       }
-      root.dispatchEvent(new CustomEvent('decklight:inserted', { detail: { slide, els, layout: j.layout ?? null } }));
+      // what the engine does to content at load, done to it now: a chart
+      // drawn, a diagram's ids namespaced, code highlighted and lined, the
+      // split two columns ask for, and the slide rescanned and laid out again
+      instance.refreshSlide?.(sec, {
+        charts: true, svgs: els, code: els.filter((el) => el.matches('pre') || el.querySelector('pre > code')), layout: j.layout ?? null, paint: sec,
+      });
       editbar.refresh();
       reveal(slide, els);
       settle(kind, els[0]);
       toast(`${SAID[kind] ?? kind} added${typingTarget(kind, els[0]) ? ' — type to replace the placeholder' : ''}`, 2200);
     })();
-    editmode.trackWrite?.(job);   // Z waits for it, as for every write
-    await job;
+    await commit.track(job);   // Z waits for it, as for every write
   }
 
   /** Put the file's new markup into the live slide where the file has it. Throws when it cannot. */

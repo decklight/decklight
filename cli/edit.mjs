@@ -106,7 +106,10 @@ import { semverCompare } from '../tools/semver.mjs';
 // "agent". (`decklight <deck>` builds this argv itself and was never affected.)
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--agent-model', '--agent-ask-model', '--git-mode', '--tts-port', '--lipsync-port',
   '--host', '--root', '--branch', '--into', '--upstream-every'];
-import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
+import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag, carriedChild } from '../tools/deck-html.mjs';
+import {
+  stale, checkPath, locateElement, nodeAt, openElement, attrList, attrOf, withAttr, withStyle, decodeText, withoutNodes,
+} from './edit-address.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkReferences } from './deck-refs.mjs';
@@ -440,69 +443,39 @@ export function setSlideHidden(html, slide, hidden) {
   return parts.join('');
 }
 
-/** Look up element `index` (raw child position) on slide `slide`, or throw. */
-export function locateElement(html, slide, index) {
-  const { parts, idx } = locateSlide(html, slide);
-  const seg = parts[idx];
-  const ranges = sectionChildRanges(seg);
-  const r = ranges[index];
-  if (!r) throw new Error(`slide ${slide}: no element at index ${index} (has ${ranges.length})`);
-  return { parts, idx, seg, r };
-}
-
 /** Remove slide N's element at raw child index `index` (title included). */
 export function removeSlideElement(html, slide, index) {
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  parts[idx] = seg.slice(0, r.start) + seg.slice(r.end);
-  return parts.join('');
+  const e = openElement(html, slide, index);
+  e.el = '';
+  return e.html();
 }
 
 /**
  * Remove ONE element inside slide N's element `index` (PRESENTING, a shape
  * selected inside a diagram): the node at `path`, addressed and checked the
- * way setElementStyles addresses one. `[]` is refused, since that is the
- * whole element and removeSlideElement's job. A node alone on its line takes
- * the line with it, so the file is left without a blank one. A diagram node
- * with connectors (a `data-node` in what goes) takes the wires that name it
- * along, in the same write (SVG_DIAGRAMS).
+ * way every element edit addresses one (cli/edit-address.mjs). `[]` is
+ * refused, since that is the whole element and removeSlideElement's job. A
+ * node alone on its line takes the line with it, so the file is left without
+ * a blank one. A diagram node with connectors (a `data-node` in what goes)
+ * takes the wires that name it along, in the same write (SVG_DIAGRAMS).
  */
 export function removeNestedElement(html, slide, index, { path, tag }) {
-  if (!Array.isArray(path) || !path.length || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  const el = seg.slice(r.start, r.end);
-  let start = 0; let end = el.length;
-  for (const n of path) {
-    const kid = elementChildRanges(el.slice(start, end))[n];
-    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
-    end = start + kid.end; start += kid.start;
-  }
-  const found = /^<([a-zA-Z][\w:-]*)/.exec(el.slice(start, end))?.[1]?.toLowerCase();
-  if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.')}, the file has <${found}> — reload and try again`);
+  checkPath(path, { nested: true });
+  const e = openElement(html, slide, index);
+  const at = e.at(path, tag);
   // a node's connectors go with it (SVG_DIAGRAMS): a wire left naming a node
   // that is gone would be drawn where the file last put it, joined to nothing
-  const ranges = [[start, end]];
-  const names = nodeNamesIn(el.slice(start, end));
-  if (names.length) {
-    const svg = nodeAt(el, path, { slide, index, tag }).svg;
-    if (svg) {
-      for (const n of drawnNodes(el.slice(svg.start, svg.end))) {
-        const s = svg.start + n.start; const e = svg.start + n.end;
-        if (!WIRE_TAGS.has(n.tag) || (s >= start && e <= end)) continue;
-        if (names.includes(attrOf(n.attrs, 'data-from')) || names.includes(attrOf(n.attrs, 'data-to'))) ranges.push([s, e]);
-      }
+  const ranges = [[at.start, at.end]];
+  const names = nodeNamesIn(e.src(at));
+  if (names.length && at.svg) {
+    for (const n of drawnNodes(e.src(at.svg))) {
+      const s = at.svg.start + n.start; const end = at.svg.start + n.end;
+      if (!WIRE_TAGS.has(n.tag) || (s >= at.start && end <= at.end)) continue;
+      if (names.includes(attrOf(n.attrs, 'data-from')) || names.includes(attrOf(n.attrs, 'data-to'))) ranges.push([s, end]);
     }
   }
-  // each with its line when it stood alone on one, the last first so the offsets before it hold
-  let out = el;
-  for (let [s, e] of ranges.sort((a, b) => b[0] - a[0])) {
-    const lineStart = out.lastIndexOf('\n', s - 1) + 1;
-    const nl = out.indexOf('\n', e);
-    const lineEnd = nl < 0 ? out.length : nl;
-    if (/^[ \t]*$/.test(out.slice(lineStart, s)) && /^[ \t]*$/.test(out.slice(e, lineEnd)) && nl >= 0) { s = lineStart; e = nl + 1; }
-    out = out.slice(0, s) + out.slice(e);
-  }
-  parts[idx] = seg.slice(0, r.start) + out + seg.slice(r.end);
-  return parts.join('');
+  e.el = withoutNodes(e.el, ranges);
+  return e.html();
 }
 
 /**
@@ -535,16 +508,6 @@ const TYPE_VALUES = {
 const kindOf = (prop) => (STYLE_PROPS.has(prop) ? 'colour' : WIDTH_PROPS.has(prop) ? 'width' : Object.hasOwn(TYPE_VALUES, prop) ? prop.replace('-', ' ') : null);
 const valueShape = (prop) => (STYLE_PROPS.has(prop) ? STYLE_VALUE : WIDTH_PROPS.has(prop) ? WIDTH_VALUE : TYPE_VALUES[prop]);
 
-/** The page and the file disagree about what is where: a 409, not a bad request. */
-const stale = (message) => Object.assign(new Error(message), { code: 'STALE' });
-
-/** `style` text with `prop` set to `value` (null: taken off) — its old declaration replaced, the rest kept in order. */
-export function withStyleProp(style, prop, value) {
-  const kept = String(style ?? '').split(';').map((d) => d.trim()).filter(Boolean)
-    .filter((d) => d.slice(0, d.indexOf(':')).trim().toLowerCase() !== prop);
-  return (value === null ? kept : [...kept, `${prop}: ${value}`]).join('; ');
-}
-
 /**
  * Set style properties on elements INSIDE slide N's element `index` — a shape
  * in a diagram and the text on it, in one edit (so `Z` takes both back).
@@ -563,35 +526,16 @@ export function withStyleProp(style, prop, value) {
  */
 export function setElementStyles(html, slide, index, edits) {
   if (!Array.isArray(edits) || !edits.length || edits.length > 40) throw new Error('bad edits');
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  let el = seg.slice(r.start, r.end);
+  const e = openElement(html, slide, index);
   // each edit re-walks from the top: the one before it changed the offsets
-  for (const e of edits) {
-    if (!Array.isArray(e?.path) || e.path.length > 16 || e.path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
-    const kind = kindOf(e.prop);
-    if (!kind) throw new Error(`not a property this server writes: ${String(e.prop).slice(0, 40)}`);
-    if (e.value !== null && (typeof e.value !== 'string' || !valueShape(e.prop).test(e.value))) throw new Error(`not a ${kind} this server writes: ${String(e.value).slice(0, 40)}`);
-    let start = 0; let end = el.length;
-    for (const n of e.path) {
-      const kids = elementChildRanges(el.slice(start, end));
-      const kid = kids[n];
-      if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${e.path.join('.')} — the engine drew this one, or the deck changed; reload and try again`);
-      end = start + kid.end; start += kid.start;
-    }
-    const node = el.slice(start, end);
-    const tag = /^<([a-zA-Z][\w:-]*)/.exec(node)?.[1]?.toLowerCase();
-    if (e.tag && tag !== String(e.tag).toLowerCase()) {
-      throw stale(`slide ${slide} #${index}: the page found <${e.tag}> at ${e.path.join('.') || 'the element'}, the file has <${tag}> — reload and try again`);
-    }
-    const { attrs, close, rest } = splitOpenTag(node);
-    const styleM = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
-    const style = withStyleProp(styleM ? (styleM[2] ?? styleM[3]) : '', e.prop, e.value).replace(/"/g, "'");
-    const attr = style ? ` style="${style}"` : '';
-    const head = styleM ? attrs.replace(styleM[0], () => attr) : attrs + attr;
-    el = el.slice(0, start) + head + close + rest + el.slice(end);
+  for (const ed of edits) {
+    checkPath(ed?.path);
+    const kind = kindOf(ed.prop);
+    if (!kind) throw new Error(`not a property this server writes: ${String(ed.prop).slice(0, 40)}`);
+    if (ed.value !== null && (typeof ed.value !== 'string' || !valueShape(ed.prop).test(ed.value))) throw new Error(`not a ${kind} this server writes: ${String(ed.value).slice(0, 40)}`);
+    e.edit(ed.path, ed.tag, (attrs) => withStyle(attrs, ed.prop, ed.value));
   }
-  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
-  return parts.join('');
+  return e.html();
 }
 
 /**
@@ -604,34 +548,14 @@ export function setElementStyles(html, slide, index, edits) {
 const ATTR_NAMES = new Set(['data-concept']);
 const ATTR_VALUE = /^[a-z][a-z0-9-]{0,40}$/i;
 export function setElementAttr(html, slide, index, { path, tag, name, value }) {
-  if (!Array.isArray(path) || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
+  checkPath(path);
   if (!ATTR_NAMES.has(name)) throw new Error(`not an attribute this server writes: ${name}`);
   if (value !== null && (typeof value !== 'string' || !ATTR_VALUE.test(value))) throw new Error(`not a name: ${String(value).slice(0, 40)}`);
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  let el = seg.slice(r.start, r.end);
-  let start = 0; let end = el.length;
-  for (const n of path) {
-    const kid = elementChildRanges(el.slice(start, end))[n];
-    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
-    end = start + kid.end; start += kid.start;
-  }
-  const node = el.slice(start, end);
-  const found = /^<([a-zA-Z][\w:-]*)/.exec(node)?.[1]?.toLowerCase();
-  if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.') || 'the element'}, the file has <${found}> — reload and try again`);
-  const { attrs, close, rest } = splitOpenTag(node);
-  const re = new RegExp(`\\s${name}(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+))?`, 'i');
-  const head = value === null ? attrs.replace(re, '') : (re.test(attrs) ? attrs.replace(re, () => ` ${name}="${value}"`) : `${attrs} ${name}="${value}"`);
-  el = el.slice(0, start) + head + close + rest + el.slice(end);
-  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
-  return parts.join('');
+  const e = openElement(html, slide, index);
+  e.edit(path, tag, (attrs) => withAttr(attrs, name, value));
+  return e.html();
 }
 
-/** The text a run of markup reads as: the entities a label is likely to carry, decoded. */
-const decodeText = (s) => String(s).replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (m, e) => {
-  const k = e.toLowerCase();
-  if (k[0] === '#') return String.fromCodePoint(k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10));
-  return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }[k];
-});
 const sameWords = (a, b) => String(a).replace(/\s+/g, ' ').trim() === String(b).replace(/\s+/g, ' ').trim();
 
 /**
@@ -647,42 +571,99 @@ const sameWords = (a, b) => String(a).replace(/\s+/g, ' ').trim() === String(b).
  */
 const LABEL_TAGS = new Set(['text', 'tspan']);
 export function setElementText(html, slide, index, { path, tag, was, text }) {
-  if (!Array.isArray(path) || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
+  checkPath(path);
   if (typeof text !== 'string' || text.length > 400 || /[\u0000-\u001f\u007f]/.test(text)) throw new Error('a label is one line of at most 400 characters');
   if (typeof was !== 'string') throw new Error('bad payload');
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  let el = seg.slice(r.start, r.end);
-  let start = 0; let end = el.length;
-  for (const n of path) {
-    const kid = elementChildRanges(el.slice(start, end))[n];
-    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
-    end = start + kid.end; start += kid.start;
-  }
-  const node = el.slice(start, end);
-  const found = /^<([a-zA-Z][\w:-]*)/.exec(node)?.[1]?.toLowerCase();
-  if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.') || 'the element'}, the file has <${found}> — reload and try again`);
-  if (!LABEL_TAGS.has(found)) throw new Error(`not a diagram label: <${found}>`);
-  const { attrs, close, rest } = splitOpenTag(node);
-  const closeAt = rest.toLowerCase().lastIndexOf(`</${found}`);
-  if (close.endsWith('/>') || closeAt < 0) throw new Error(`<${found}> has no words to edit`);
+  const e = openElement(html, slide, index);
+  const at = e.at(path, tag);
+  if (!LABEL_TAGS.has(at.found)) throw new Error(`not a diagram label: <${at.found}>`);
+  const { attrs, close, rest } = splitOpenTag(e.src(at));
+  const closeAt = rest.toLowerCase().lastIndexOf(`</${at.found}`);
+  if (close.endsWith('/>') || closeAt < 0) throw new Error(`<${at.found}> has no words to edit`);
   const inner = rest.slice(0, closeAt);
-  if (/<(?!!--)/.test(inner)) throw new Error(`this <${found}> holds other elements — edit one line at a time`);
+  if (/<(?!!--)/.test(inner)) throw new Error(`this <${at.found}> holds other elements — edit one line at a time`);
   if (!sameWords(decodeText(inner.replace(/<!--[\s\S]*?-->/g, '')), was)) {
     throw stale(`slide ${slide} #${index}: the file's label is not the one the page showed — reload and try again`);
   }
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const lead = /^\s*/.exec(inner)[0]; const trail = /\s*$/.exec(inner)[0];
   const words = inner.trim() ? lead + escaped + trail : escaped;
-  el = el.slice(0, start) + attrs + close + words + rest.slice(closeAt) + el.slice(end);
-  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
-  return parts.join('');
+  e.splice(at.start, at.end, attrs + close + words + rest.slice(closeAt));
+  return e.html();
 }
 
 /** Replace slide N's element at raw child index `index` with `outerHtml` verbatim. */
 export function setSlideElementHtml(html, slide, index, outerHtml) {
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  parts[idx] = seg.slice(0, r.start) + outerHtml + seg.slice(r.end);
-  return parts.join('');
+  const e = openElement(html, slide, index);
+  e.el = outerHtml;
+  return e.html();
+}
+
+// ── moving an element within its slide (PRESENTING_EDITING, Moving) ────────
+
+/** A move the slide's own shape rules out (an end of the list, the asides): a 409 said as a sentence. */
+const refusedMove = (message) => Object.assign(new Error(message), { code: 'REFUSED' });
+
+/**
+ * `text` with child `from` of `ranges` moved to position `to` among them, the
+ * text between them left where it was. When every one of them begins its own
+ * line, a child takes its line's indentation with it: whole lines move, so a
+ * child indented its own way keeps it. Otherwise (a slide written on one line,
+ * a first child sharing the `<section>`'s line) only the children move and the
+ * whitespace stays put, so a one-line slide stays one line.
+ */
+function reorderChildren(text, ranges, from, to) {
+  const indentOf = (r) => /\n([ \t]*)$/.exec(text.slice(0, r.start))?.[1];
+  const ownLines = ranges.every((r) => indentOf(r) !== undefined);
+  const units = ranges.map((r) => ({ start: ownLines ? r.start - indentOf(r).length : r.start, end: r.end }));
+  const order = units.map((u) => text.slice(u.start, u.end));
+  const [moved] = order.splice(from, 1);
+  order.splice(to, 0, moved);
+  let out = text.slice(0, units[0].start);
+  units.forEach((u, i) => { out += order[i] + (i + 1 < units.length ? text.slice(u.end, units[i + 1].start) : ''); });
+  return out + text.slice(units.at(-1).end);
+}
+
+/**
+ * Slide `slide` with element `index` (raw child position, title included, as
+ * every element route addresses one) moved to position `to` among the slide's
+ * CONTENT children, the ones it shows: its notes, sources and rehearsed time
+ * stay where they are (last), so a move reaches neither them nor past them.
+ * With `path` (and the `tag` the page saw there) the node at that path inside
+ * the element moves among its OWN siblings instead, `to` counted among them:
+ * a list item up or down its list.
+ *
+ * Returns `{ html, index, path }`: where the element is now, since every
+ * element route addresses by position and the move has just changed it. A
+ * path or a tag the file does not have is a STALE error (409), an end of the
+ * list or an aside a REFUSED one (409, said as a sentence).
+ */
+export function moveSlideElement(html, slide, index, { to, path = null, tag = null } = {}) {
+  const { parts, idx } = locateSlide(String(html ?? ''), slide);
+  const seg = parts[idx];
+  const ranges = sectionChildRanges(seg);
+  const r = ranges[index];
+  if (!r) throw stale(`slide ${slide}: the file has no element at ${index} (it has ${ranges.length}) — reload and try again`);
+  if (!Number.isInteger(to) || to < 0) throw new Error('bad position');
+  if (path?.length) {
+    const el = seg.slice(r.start, r.end);
+    const { parent } = nodeAt(el, path, { slide, index, tag });
+    // the node's siblings: its parent's children, offsets into `el`
+    const siblings = elementChildRanges(el.slice(parent.start, parent.end)).map((k) => ({ ...k, start: parent.start + k.start, end: parent.start + k.end }));
+    const from = path.at(-1);
+    if (to >= siblings.length) throw refusedMove(`it is already the last of ${siblings.length}`);
+    if (to === from) throw refusedMove(`it is already ${from === 0 ? 'the first' : from === siblings.length - 1 ? 'the last' : 'there'}`);
+    parts[idx] = seg.slice(0, r.start) + reorderChildren(el, siblings, from, to) + seg.slice(r.end);
+    return { html: parts.join(''), index, path: [...path.slice(0, -1), to] };
+  }
+  if (tag && r.tag !== String(tag).toLowerCase()) throw stale(`slide ${slide}: the page found <${tag}> at ${index}, the file has <${r.tag}> — reload and try again`);
+  if (carriedChild(seg, r)) throw refusedMove(`the slide's ${r.tag === 'aside' ? 'notes and sources stay' : `<${r.tag}> stays`} where it is: only what the slide shows moves`);
+  const content = ranges.map((x, i) => ({ ...x, raw: i })).filter((x) => !carriedChild(seg, x));
+  const from = content.findIndex((x) => x.raw === index);
+  if (to >= content.length) throw refusedMove(content.length === 1 ? 'it is the only thing on the slide' : 'the notes and sources stay last: it is already as far down as it goes');
+  if (to === from) throw refusedMove(`it is already ${from === 0 ? 'first on the slide' : from === content.length - 1 ? 'last on the slide' : 'there'}`);
+  parts[idx] = reorderChildren(seg, content, from, to);
+  return { html: parts.join(''), index: content[to].raw, path: null };
 }
 
 // ── a diagram's shapes: moved, resized, added, duplicated (SVG_DIAGRAMS) ────
@@ -741,62 +722,6 @@ export function withTranslate(transform, x, y) {
   const sep = m && m[1].includes(',') ? ', ' : ' ';
   const tr = x === 0 && y === 0 ? '' : `translate(${formatCoord(x)}${sep}${formatCoord(y)})`;
   return [tr, rest].filter(Boolean).join(' ');
-}
-
-/** The attributes of an open tag's text (`<rect x="1" …`, no `>`), each with where it stands, so one can be changed in place. */
-function attrList(attrs) {
-  const out = [];
-  const head = /^<[a-zA-Z][\w:-]*/.exec(attrs);
-  const re = /(\s+)([^\s=/>"']+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>"']+))?/y;
-  re.lastIndex = head ? head[0].length : 0;
-  for (let m = re.exec(attrs); m; m = re.exec(attrs)) {
-    const raw = m[3] ?? null;
-    out.push({ name: m[2].toLowerCase(), written: m[2], lead: m[1], start: m.index, end: re.lastIndex, raw,
-      value: raw === null ? '' : /^["']/.test(raw) ? raw.slice(1, -1) : raw });
-  }
-  return out;
-}
-
-/** An open tag's text with attribute `name` set to `value` where it stands (its quote kept), or added last; null takes it off. */
-export function withAttr(attrs, name, value) {
-  const a = attrList(attrs).find((x) => x.name === name);
-  if (value === null) return a ? attrs.slice(0, a.start) + attrs.slice(a.end) : attrs;
-  const v = String(value).replace(/"/g, '&quot;');
-  if (a) {
-    const q = a.raw?.[0] === "'" ? "'" : '"';
-    return attrs.slice(0, a.start) + `${a.lead}${a.written}=${q}${v}${q}` + attrs.slice(a.end);
-  }
-  const tail = /\s*$/.exec(attrs)[0];
-  return `${attrs.slice(0, attrs.length - tail.length)} ${name}="${v}"${tail}`;
-}
-
-/** The value of attribute `name` on an open tag's text, or null. */
-const attrOf = (attrs, name) => attrList(attrs).find((x) => x.name === name)?.value ?? null;
-
-/**
- * The node at `path` below `el` (a slide element's source): its offsets in
- * `el`, its tag, and the nodes on the way down (`el` first, its parent last),
- * so a caller can ask whether it sits in a diagram and what holds it. A path
- * the file does not have, or one that lands on another tag than the page saw,
- * is stale: a 409.
- */
-function nodeAt(el, path, { slide, index, tag = null }) {
-  if (!Array.isArray(path) || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
-  const tagAt = (s) => /^<([a-zA-Z][\w:-]*)/.exec(s)?.[1]?.toLowerCase() ?? null;
-  let start = 0; let end = el.length;
-  const chain = [];
-  for (const n of path) {
-    chain.push({ start, end, tag: tagAt(el.slice(start, end)) });
-    const kid = elementChildRanges(el.slice(start, end))[n];
-    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — the engine drew this one, or the deck changed; reload and try again`);
-    end = start + kid.end; start += kid.start;
-  }
-  const found = tagAt(el.slice(start, end));
-  if (tag && found !== String(tag).toLowerCase()) {
-    throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.') || 'the element'}, the file has <${found}> — reload and try again`);
-  }
-  const svgAt = chain.map((c) => c.tag).lastIndexOf('svg');
-  return { start, end, found, chain, parent: chain.at(-1) ?? null, svg: svgAt < 0 ? null : chain[svgAt], inSvg: svgAt >= 0 };
 }
 
 // A wire's own geometry (SVG_DIAGRAMS, connectors): path data and a list of
@@ -879,24 +804,18 @@ function geometryValue(attr, value) {
  */
 export function setElementGeometry(html, slide, index, edits) {
   if (!Array.isArray(edits) || !edits.length || edits.length > 60) throw new Error('bad edits');
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  let el = seg.slice(r.start, r.end);
-  for (const e of edits) {
-    if (!GEOMETRY_ATTRS.has(e?.attr)) throw new Error(`not an attribute this server moves: ${String(e?.attr).slice(0, 40)}`);
-    const value = geometryValue(e.attr, e.value);
-    const at = nodeAt(el, e.path, { slide, index, tag: e.tag });
-    if (!at.inSvg || !DIAGRAM_NODES.has(at.found)) throw new Error(`not a node of a diagram: <${at.found}>`);
-    if (SHAPE_DATA[e.attr] && !SHAPE_DATA[e.attr].has(at.found)) throw new Error(`a <${at.found}> has no ${e.attr}`);
-    const { attrs, close, rest } = splitOpenTag(el.slice(at.start, at.end));
-    let head;
-    if (e.attr === 'transform') {
-      const merged = withTranslate(attrOf(attrs, 'transform'), value.x, value.y);
-      head = withAttr(attrs, 'transform', merged || null);
-    } else head = withAttr(attrs, e.attr, value);
-    el = el.slice(0, at.start) + head + close + rest + el.slice(at.end);
+  const e = openElement(html, slide, index);
+  for (const ed of edits) {
+    if (!GEOMETRY_ATTRS.has(ed?.attr)) throw new Error(`not an attribute this server moves: ${String(ed?.attr).slice(0, 40)}`);
+    const value = geometryValue(ed.attr, ed.value);
+    e.edit(ed.path, ed.tag, (attrs, at) => {
+      if (!at.inSvg || !DIAGRAM_NODES.has(at.found)) throw new Error(`not a node of a diagram: <${at.found}>`);
+      if (SHAPE_DATA[ed.attr] && !SHAPE_DATA[ed.attr].has(at.found)) throw new Error(`a <${at.found}> has no ${ed.attr}`);
+      return ed.attr === 'transform' ? withAttr(attrs, 'transform', withTranslate(attrOf(attrs, 'transform'), value.x, value.y) || null)
+        : withAttr(attrs, ed.attr, value);
+    });
   }
-  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
-  return parts.join('');
+  return e.html();
 }
 
 // ── a copy, moved by a step ──────────────────────────────────────────────────
@@ -1086,13 +1005,13 @@ function openTag(tag, modelAttrs, place) {
   for (const a of modelAttrs ? attrList(modelAttrs) : []) {
     if (a.name in place) {
       used.add(a.name);
-      if (place[a.name] !== null) head += ` ${a.written}="${place[a.name]}"`;
+      if (place[a.name] !== null) head += ` ${a.written}="${escapeHtml(place[a.name])}"`;
       continue;
     }
     if (NOT_COPIED.test(a.name)) continue;
     head += a.raw === null ? ` ${a.written}` : ` ${a.written}=${a.raw}`;
   }
-  for (const [k, v] of Object.entries(place)) if (!used.has(k) && v !== null && v !== undefined) head += ` ${k}="${v}"`;
+  for (const [k, v] of Object.entries(place)) if (!used.has(k) && v !== null && v !== undefined) head += ` ${k}="${escapeHtml(v)}"`;
   return head;
 }
 
@@ -1144,12 +1063,8 @@ function appendToSvg(svgSrc, markup, lay, svgIndent) {
   return { svgSrc: svgSrc.slice(0, where) + lead + markup + trail + svgSrc.slice(where), index: kids.length };
 }
 
-/** The indentation of the line the svg at `node` (in slide element `r` of `seg`) starts on: the svg may be the element itself. */
-function svgIndentOf(seg, r, node) {
-  const abs = r.start + node.start;
-  const lead = seg.slice(seg.lastIndexOf('\n', abs - 1) + 1, abs);
-  return /^[ \t]*$/.test(lead) ? lead : /^[ \t]*/.exec(lead)[0];
-}
+/** The indentation of the line the svg at `at` starts on, read in the slide (the svg may be the element itself). */
+const svgIndentOf = (e, at) => /^[ \t]*/.exec(e.lead(at))[0];
 
 /** How the svg's children are laid out: on their own lines (and how far in), or all on one. */
 function layoutOf(svgSrc, svgLineIndent) {
@@ -1189,11 +1104,10 @@ export const SHAPE_KINDS = ['box', 'ellipse', 'label', 'line'];
 export function addDiagramShape(html, slide, index, { path, tag = 'svg', kind, at = null }) {
   if (!SHAPE_KINDS.includes(kind)) throw new Error(`not a shape this server adds: ${String(kind).slice(0, 20)}`);
   if (at !== null && (typeof at !== 'object' || !Number.isFinite(coordOf(at.x)) || !Number.isFinite(coordOf(at.y)))) throw new Error('bad position');
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  let el = seg.slice(r.start, r.end);
-  const node = nodeAt(el, path, { slide, index, tag });
+  const e = openElement(html, slide, index);
+  const node = e.at(path, tag);
   if (node.found !== 'svg') throw new Error(`shapes are added to a diagram's <svg>, not a <${node.found}>`);
-  let svgSrc = el.slice(node.start, node.end);
+  let svgSrc = e.src(node);
   const { attrs: svgAttrs, close: svgClose } = splitOpenTag(svgSrc);
   if (svgClose.endsWith('/>')) throw new Error('this <svg> is empty and self-closed: give it a closing tag first');
   if (/\sdata-chart\b/i.test(svgAttrs)) throw new Error('a chart draws itself from its data');
@@ -1201,7 +1115,7 @@ export function addDiagramShape(html, slide, index, { path, tag = 'svg', kind, a
   const c = at ? { x: coordOf(at.x), y: coordOf(at.y) } : { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 };
   const f = formatCoord;
   // the svg's own indentation, read in the slide (the svg may be the element itself)
-  const svgIndent = svgIndentOf(seg, r, node);
+  const svgIndent = svgIndentOf(e, node);
   const lay = layoutOf(svgSrc, svgIndent);
   const drawn = drawnNodes(svgSrc);
   const inner = lay.lines ? `\n${lay.indent}${lay.unit}` : '';
@@ -1257,9 +1171,8 @@ export function addDiagramShape(html, slide, index, { path, tag = 'svg', kind, a
   // last in the svg, on a line of its own at its siblings' indentation
   let at2;
   ({ svgSrc, index: at2 } = appendToSvg(svgSrc, markup, lay, svgIndent));
-  el = el.slice(0, node.start) + svgSrc + el.slice(node.end);
-  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
-  return { html: parts.join(''), added: { path: [...path, at2], html: markup }, defs };
+  e.splice(node.start, node.end, svgSrc);
+  return { html: e.html(), added: { path: [...path, at2], html: markup }, defs };
 }
 
 /** The label a new one is written like: the nearest text, its look kept. */
@@ -1305,24 +1218,19 @@ function withMarker(svgSrc, marker, lay, path) {
  * Returns `{ html, added: { path, html } }`.
  */
 export function duplicateDiagramNode(html, slide, index, { path, tag = null, by = null }) {
-  if (!Array.isArray(path) || !path.length) throw new Error('bad path');
+  checkPath(path, { nested: true });
   if (by !== null && (typeof by !== 'object' || !Number.isFinite(coordOf(by.dx)) || !Number.isFinite(coordOf(by.dy)))) throw new Error('bad step');
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  let el = seg.slice(r.start, r.end);
-  const at = nodeAt(el, path, { slide, index, tag });
+  const e = openElement(html, slide, index);
+  const at = e.at(path, tag);
   if (!at.inSvg || !DIAGRAM_NODES.has(at.found) || at.found === 'tspan') throw new Error(`not a node of a diagram: <${at.found}>`);
-  const step = by ? null : Math.max(4, Math.round(viewBoxOf(splitOpenTag(el.slice(at.svg.start, at.svg.end)).attrs).w / 50));
+  const step = by ? null : Math.max(4, Math.round(viewBoxOf(splitOpenTag(e.src(at.svg)).attrs).w / 50));
   const dx = by ? coordOf(by.dx) : step; const dy = by ? coordOf(by.dy) : step;
-  const parentAttrs = splitOpenTag(el.slice(at.parent.start, at.parent.end)).attrs;
-  const isStep = attrOf(parentAttrs, 'data-build') !== null;
-  const copy = ownNames(shiftSource(withoutIds(el.slice(at.start, at.end)), dx, dy, { step: isStep }), el.slice(at.svg.start, at.svg.end));
-  const lineStart = el.lastIndexOf('\n', at.start - 1) + 1;
-  const lead = el.slice(lineStart, at.start);
-  const own = lineStart > 0 && /^[ \t]*$/.test(lead);
-  const ins = own ? `\n${lead}${copy}` : copy;
-  el = el.slice(0, at.end) + ins + el.slice(at.end);
-  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
-  return { html: parts.join(''), added: { path: [...path.slice(0, -1), path.at(-1) + 1], html: copy } };
+  const isStep = attrOf(splitOpenTag(e.src(at.parent)).attrs, 'data-build') !== null;
+  const copy = ownNames(shiftSource(withoutIds(e.src(at)), dx, dy, { step: isStep }), e.src(at.svg));
+  // on its own line when the original stands on one
+  const lead = e.lead(at);
+  e.splice(at.end, at.end, /^[ \t]*$/.test(lead) ? `\n${lead}${copy}` : copy);
+  return { html: e.html(), added: { path: [...path.slice(0, -1), path.at(-1) + 1], html: copy } };
 }
 
 // ── connectors: wires that stay attached (SVG_DIAGRAMS) ─────────────────────
@@ -1452,14 +1360,9 @@ function retag(src, to) {
 export function editConnector(html, slide, index, req) {
   const { op } = req ?? {};
   if (!CONNECTOR_OPS.includes(op)) throw new Error(`not a connector edit: ${String(op).slice(0, 20)}`);
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  let el = seg.slice(r.start, r.end);
-  const loc = (p, tag) => nodeAt(el, p, { slide, index, tag });
-  const setAttrs = (p, tag, fn) => {
-    const at = loc(p, tag);
-    const { attrs, close, rest } = splitOpenTag(el.slice(at.start, at.end));
-    el = el.slice(0, at.start) + fn(attrs) + close + rest + el.slice(at.end);
-  };
+  const e = openElement(html, slide, index);
+  const loc = e.at;
+  const setAttrs = (p, tag, fn) => e.edit(p, tag, fn);
   const ref = (n, what) => {
     if (!n || typeof n !== 'object' || !Array.isArray(n.path)) throw new Error(`which ${what}?`);
     return n;
@@ -1471,25 +1374,22 @@ export function editConnector(html, slide, index, req) {
     const at = loc(n.path, n.tag ?? null);
     if (!NODE_TAGS.has(at.found)) throw new Error(`a connector joins shapes and boxes, not a <${at.found}>`);
     if (!at.svg || at.svg.start !== svg.start || n.path.length <= svgPath.length) throw new Error('a connector joins nodes of its own diagram');
-    const head = splitOpenTag(el.slice(at.start, at.end)).attrs;
+    const head = splitOpenTag(e.src(at)).attrs;
     if (attrOf(head, 'data-from') !== null || attrOf(head, 'data-to') !== null) throw new Error('a connector joins shapes, not another connector');
     const own = attrOf(head, 'data-node');
     if (own) return own;
-    const said = wordsOf(el.slice(at.start, at.end)) || (typeof n.label === 'string' ? n.label.slice(0, 80) : '');
-    const name = uniqueName(slugNode(said || (at.found === 'g' || at.found === 'rect' ? 'box' : at.found)), new Set(nodeNamesIn(el.slice(svg.start, svg.end))));
+    const said = wordsOf(e.src(at)) || (typeof n.label === 'string' ? n.label.slice(0, 80) : '');
+    const name = uniqueName(slugNode(said || (at.found === 'g' || at.found === 'rect' ? 'box' : at.found)), new Set(nodeNamesIn(e.src(svg))));
     setAttrs(n.path, at.found, (a) => withAttr(a, 'data-node', name));
     return name;
   };
-  const finish = (out) => {
-    parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
-    return { html: parts.join(''), ...out };
-  };
+  const finish = (out) => ({ html: e.html(), ...out });
 
   if (op === 'add') {
     const svgPath = ref(req, 'diagram').path;
     let svg = loc(svgPath, req.tag ?? 'svg');
     if (svg.found !== 'svg') throw new Error(`a connector is added to a diagram's <svg>, not a <${svg.found}>`);
-    if (/\sdata-chart\b/i.test(splitOpenTag(el.slice(svg.start, svg.end)).attrs)) throw new Error('a chart draws itself from its data');
+    if (/\sdata-chart\b/i.test(splitOpenTag(e.src(svg)).attrs)) throw new Error('a chart draws itself from its data');
     const ends = req.nodes ?? {};
     ref(ends.from, 'node'); ref(ends.to, 'node');
     if (JSON.stringify(ends.from.path) === JSON.stringify(ends.to.path)) throw new Error('a connector joins two different nodes');
@@ -1497,8 +1397,8 @@ export function editConnector(html, slide, index, req) {
     const from = nameNode(ends.from, svgPath);
     const to = nameNode(ends.to, svgPath);
     svg = loc(svgPath, 'svg');
-    let svgSrc = el.slice(svg.start, svg.end);
-    const svgIndent = svgIndentOf(seg, r, svg);
+    let svgSrc = e.src(svg);
+    const svgIndent = svgIndentOf(e, svg);
     const lay = layoutOf(svgSrc, svgIndent);
     // written like the diagram's connectors, else its wires: their look, never their place
     const lines = drawnNodes(svgSrc).filter((n) => n.tag === 'line');
@@ -1509,7 +1409,7 @@ export function editConnector(html, slide, index, req) {
     const markup = `${model ? openTag('line', model.attrs, place) : openTag('line', null, { ...place, 'stroke-width': '2', style: 'stroke: var(--d-stroke)' })}/>`;
     let at;
     ({ svgSrc, index: at } = appendToSvg(svgSrc, markup, lay, svgIndent));
-    el = el.slice(0, svg.start) + svgSrc + el.slice(svg.end);
+    e.splice(svg.start, svg.end, svgSrc);
     return finish({ added: { path: [...svgPath, at], html: markup }, wire: { path: [...svgPath, at], html: markup }, defs: defs ? [defs] : [], named: { from, to } });
   }
 
@@ -1519,7 +1419,7 @@ export function editConnector(html, slide, index, req) {
   if (!wAt.inSvg || !WIRE_TAGS.has(wAt.found)) throw new Error(`not a wire: <${wAt.found}>`);
   const svgPath = wPath.slice(0, wAt.chain.map((c) => c.tag).lastIndexOf('svg'));
   let tag = wAt.found;
-  const head0 = splitOpenTag(el.slice(wAt.start, wAt.end)).attrs;
+  const head0 = splitOpenTag(e.src(wAt)).attrs;
   const ends = { from: attrOf(head0, 'data-from'), to: attrOf(head0, 'data-to') };
   if ((op === 'reconnect' || op === 'detach') && !['from', 'to'].includes(req.end)) throw new Error('which end: from or to?');
   if (op === 'route' && !CONNECTOR_ROUTES.includes(req.route)) throw new Error(`a route is straight, elbow or curve, not: ${String(req.route).slice(0, 20)}`);
@@ -1543,7 +1443,7 @@ export function editConnector(html, slide, index, req) {
   if (op === 'route') {
     if (toTag !== tag) {
       const at = loc(wPath, tag);
-      el = el.slice(0, at.start) + retag(el.slice(at.start, at.end), toTag) + el.slice(at.end);
+      e.splice(at.start, at.end, retag(e.src(at), toTag));
       tag = toTag;
     }
     edit((a) => withAttr(a, 'data-route', req.route === 'straight' ? null : req.route));
@@ -1551,10 +1451,10 @@ export function editConnector(html, slide, index, req) {
   if (geom) edit((a) => Object.entries(geom).reduce((h, [k, v]) => withAttr(h, k, v), a));
   const defs = [];
   if (op === 'arrows') {
-    const head = splitOpenTag(el.slice(loc(wPath, tag).start)).attrs;
+    const head = splitOpenTag(e.src(loc(wPath, tag))).attrs;
     const svg = loc(svgPath, 'svg');
-    let svgSrc = el.slice(svg.start, svg.end);
-    const lay = layoutOf(svgSrc, svgIndentOf(seg, r, svg));
+    let svgSrc = e.src(svg);
+    const lay = layoutOf(svgSrc, svgIndentOf(e, svg));
     let end = null; let start = null; let d = null;
     if (req.arrows !== 'none') {
       ({ svgSrc, defs: d, marker: end } = arrowheadFor(svgSrc, lay, svgPath, { prefer: attrOf(head, 'marker-end') }));
@@ -1567,7 +1467,7 @@ export function editConnector(html, slide, index, req) {
         if (d) defs.push(d);
       }
     }
-    el = el.slice(0, svg.start) + svgSrc + el.slice(svg.end);
+    e.splice(svg.start, svg.end, svgSrc);
     // a <defs> made first in the svg moves everything after it one along
     if (defs.some((x) => x.created && !x.replaced) && wPath.length > svgPath.length) {
       wPath = [...wPath.slice(0, svgPath.length), wPath[svgPath.length] + 1, ...wPath.slice(svgPath.length + 1)];
@@ -1575,7 +1475,7 @@ export function editConnector(html, slide, index, req) {
     edit((a) => withAttr(withAttr(a, 'marker-end', end), 'marker-start', start));
   }
   const at = loc(wPath, tag);
-  return finish({ wire: { path: wPath, html: el.slice(at.start, at.end) }, defs, named: named ? { [req.end]: named } : null });
+  return finish({ wire: { path: wPath, html: e.src(at) }, defs, named: named ? { [req.end]: named } : null });
 }
 
 // The spec's 7 entrance styles (MOTION), plus 'none' — an explicit, instant
@@ -1966,20 +1866,6 @@ export function setSlideElementBuild(html, slide, index, effect) {
 /** The bounds of a picture's written width, in deck units (the stage is scaled, not the picture). */
 export const PICTURE_WIDTH = Object.freeze({ min: 16, max: 4096 });
 
-/** An open tag's attribute text with `name` set to `value` (escaped) in its own place, or added; null takes it off. */
-function withEscapedAttr(attrs, name, value) {
-  const re = new RegExp(`\\s${name}(?=[\\s=/>]|$)(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+))?`, 'i');
-  if (value === null) return attrs.replace(re, '');
-  const said = ` ${name}="${escapeHtml(String(value))}"`;
-  return re.test(attrs) ? attrs.replace(re, () => said) : `${attrs}${said}`;
-}
-
-/** What an attribute says in the file, its entities read (`a&amp;b.png` is `a&b.png`), or null. */
-function attrValue(attrs, name) {
-  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(attrs);
-  return m ? decodeText(m[1] ?? m[2] ?? m[3]) : null;
-}
-
 /**
  * Change ONE picture: the `<img>` at `path` below slide N's element `index`
  * (`[]` when the picture is the element). Each field left out is left alone:
@@ -2004,38 +1890,28 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
   if (src !== undefined && !relativeSrc(src)) throw new Error('an image src must be a relative path beside the deck');
   if (caption !== undefined && (typeof caption !== 'string' || caption.length > 400 || /[\u0000-\u001f\u007f]/.test(caption))) throw new Error('a caption is one line of at most 400 characters');
   if (width === undefined && alt === undefined && src === undefined && caption === undefined) throw new Error('nothing to change on the picture');
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  const el = seg.slice(r.start, r.end);
-  const { start, end, found } = nodeAt(el, path, { slide, index, tag });
-  if (found !== 'img') throw new Error(`not a picture: <${found}>`);
-  const { attrs: had, close, rest } = splitOpenTag(el.slice(start, end));
-  let attrs = had;
+  const e = openElement(html, slide, index);
+  const at = e.at(path, tag);
+  if (at.found !== 'img') throw new Error(`not a picture: <${at.found}>`);
+  let { attrs, close, rest } = splitOpenTag(e.src(at));
   if (width !== undefined) {
-    attrs = withEscapedAttr(withEscapedAttr(attrs, 'height', null), 'width', width === null ? null : Math.round(width));
-    const styleM = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
-    if (styleM) {
-      const style = withStyleProp(withStyleProp(styleM[2] ?? styleM[3], 'width', null), 'height', null).replace(/"/g, "'");
-      attrs = attrs.replace(styleM[0], () => (style ? ` style="${style}"` : ''));
-    }
+    attrs = withAttr(withAttr(attrs, 'height', null), 'width', width === null ? null : Math.round(width));
+    attrs = withStyle(withStyle(attrs, 'width', null), 'height', null);
   }
-  if (alt !== undefined) attrs = withEscapedAttr(attrs, 'alt', alt);
-  if (src !== undefined) attrs = withEscapedAttr(attrs, 'src', src);
+  if (alt !== undefined) attrs = withAttr(attrs, 'alt', alt);
+  if (src !== undefined) attrs = withAttr(attrs, 'src', src);
   let node = attrs + close + rest;
   if (caption !== undefined) {
-    if (path.length && nodeAt(el, path.slice(0, -1), { slide, index }).found === 'figure') {
-      throw new Error('this picture has a caption already: it is in a <figure>');
-    }
+    if (at.parent?.tag === 'figure') throw new Error('this picture has a caption already: it is in a <figure>');
     const words = escapeHtml(caption);
     // the figure opens where the picture's line did, one step in for what it holds
-    const text = path.length ? el : seg;
-    const at = path.length ? start : r.start;
-    const lead = text.slice(text.lastIndexOf('\n', at - 1) + 1, at);
-    node = /^[ \t]*$/.test(lead) && text.lastIndexOf('\n', at - 1) >= 0
+    const lead = e.lead(at);
+    node = /^[ \t]*$/.test(lead)
       ? `<figure>\n${lead}  ${node}\n${lead}  <figcaption>${words}</figcaption>\n${lead}</figure>`
       : `<figure>${node}<figcaption>${words}</figcaption></figure>`;
   }
-  parts[idx] = seg.slice(0, r.start) + el.slice(0, start) + node + el.slice(end) + seg.slice(r.end);
-  return parts.join('');
+  e.splice(at.start, at.end, node);
+  return e.html();
 }
 
 /** The background attributes that mean nothing once a slide has no background media. */
@@ -2052,9 +1928,9 @@ export function setSlideBackground(html, slide, src) {
   if (src !== null && !relativeSrc(src)) throw new Error('a background src must be a relative path beside the deck');
   const { parts, idx } = locateSlide(html, slide);
   const { attrs: had, close, rest } = splitOpenTag(parts[idx]);
-  let attrs = withEscapedAttr(had, 'data-background-image', src);
-  if (src === null && attrValue(attrs, 'data-background-video') === null) {
-    for (const name of BACKGROUND_TUNING) attrs = withEscapedAttr(attrs, name, null);
+  let attrs = withAttr(had, 'data-background-image', src);
+  if (src === null && attrOf(attrs, 'data-background-video') === null) {
+    for (const name of BACKGROUND_TUNING) attrs = withAttr(attrs, name, null);
   }
   parts[idx] = attrs + close + rest;
   return parts.join('');
@@ -2070,17 +1946,12 @@ export function setSlideBackground(html, slide, src) {
  * the element itself).
  */
 export function pictureToBackground(html, slide, index, { path = [], tag = 'img' } = {}) {
-  const { seg, r } = locateElement(html, slide, index);
-  const el = seg.slice(r.start, r.end);
-  const { start, end, found } = nodeAt(el, path, { slide, index, tag });
-  if (found !== 'img') throw new Error(`not a picture: <${found}>`);
-  const src = attrValue(splitOpenTag(el.slice(start, end)).attrs, 'src');
+  const e = openElement(html, slide, index);
+  const at = e.at(path, tag);
+  if (at.found !== 'img') throw new Error(`not a picture: <${at.found}>`);
+  const src = attrOf(splitOpenTag(e.src(at)).attrs, 'src');
   if (!relativeSrc(src)) throw new Error('only a picture beside the deck can become its background (this one is inline or a link)');
-  let removed = path;
-  if (path.length) {
-    const p = nodeAt(el, path.slice(0, -1), { slide, index });
-    if (p.found === 'figure' && elementChildRanges(el.slice(p.start, p.end)).length === 1) removed = path.slice(0, -1);
-  }
+  const removed = at.parent?.tag === 'figure' && elementChildRanges(e.src(at.parent)).length === 1 ? path.slice(0, -1) : path;
   const out = removed.length ? removeNestedElement(html, slide, index, { path: removed }) : removeSlideElement(html, slide, index);
   return { html: setSlideBackground(out, slide, src), src, removed };
 }

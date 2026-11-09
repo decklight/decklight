@@ -466,12 +466,7 @@ export function elementChildRanges(el) {
   return ranges;
 }
 
-// ── moving an element within its slide (PRESENTING_EDITING, Moving) ────────
-
-/** The page and the file disagree about what is where: a 409, never a guess. */
-const staleMove = (message) => Object.assign(new Error(message), { code: 'STALE' });
-/** A move the slide's own shape rules out (an end of the list, the asides): a 409 said as a sentence. */
-const refusedMove = (message) => Object.assign(new Error(message), { code: 'REFUSED' });
+// ── what a slide carries (PRESENTING_EDITING, Moving) ─────────────────────
 
 /**
  * What a slide carries rather than shows (DECK_ANATOMY): its notes, sources
@@ -480,76 +475,6 @@ const refusedMove = (message) => Object.assign(new Error(message), { code: 'REFU
  */
 export const carriedChild = (seg, r) => r.tag === 'script' || r.tag === 'style'
   || (r.tag === 'aside' && /^<aside\b[^>]*\bclass\s*=\s*["'][^"']*\b(?:notes|sources|rehearse)\b/i.test(seg.slice(r.start, r.end)));
-
-/**
- * `text` with child `from` of `ranges` moved to position `to` among them, the
- * text between them left where it was. When every one of them begins its own
- * line, a child takes its line's indentation with it: whole lines move, so a
- * child indented its own way keeps it. Otherwise (a slide written on one line,
- * a first child sharing the `<section>`'s line) only the children move and the
- * whitespace stays put, so a one-line slide stays one line.
- */
-function reorderChildren(text, ranges, from, to) {
-  const indentOf = (r) => /\n([ \t]*)$/.exec(text.slice(0, r.start))?.[1];
-  const ownLines = ranges.every((r) => indentOf(r) !== undefined);
-  const units = ranges.map((r) => ({ start: ownLines ? r.start - indentOf(r).length : r.start, end: r.end }));
-  const order = units.map((u) => text.slice(u.start, u.end));
-  const [moved] = order.splice(from, 1);
-  order.splice(to, 0, moved);
-  let out = text.slice(0, units[0].start);
-  units.forEach((u, i) => { out += order[i] + (i + 1 < units.length ? text.slice(u.end, units[i + 1].start) : ''); });
-  return out + text.slice(units.at(-1).end);
-}
-
-/**
- * Slide `slide` with element `index` (raw child position, title included, as
- * every element route addresses one) moved to position `to` among the slide's
- * CONTENT children, the ones it shows: its notes, sources and rehearsed time
- * stay where they are (last), so a move reaches neither them nor past them.
- * With `path` (and the `tag` the page saw there) the node at that path inside
- * the element moves among its OWN siblings instead, `to` counted among them:
- * a list item up or down its list.
- *
- * Returns `{ html, index, path }`: where the element is now, since every
- * element route addresses by position and the move has just changed it. A
- * path or a tag the file does not have is a STALE error (409), an end of the
- * list or an aside a REFUSED one (409, said as a sentence).
- */
-export function moveSlideElement(html, slide, index, { to, path = null, tag = null } = {}) {
-  const { parts, idx } = locateSlide(String(html ?? ''), slide);
-  const seg = parts[idx];
-  const ranges = sectionChildRanges(seg);
-  const r = ranges[index];
-  if (!r) throw staleMove(`slide ${slide}: the file has no element at ${index} (it has ${ranges.length}) — reload and try again`);
-  if (!Number.isInteger(to) || to < 0) throw new Error('bad position');
-  if (path?.length) {
-    if (path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
-    const el = seg.slice(r.start, r.end);
-    // walk down to the node's parent; `siblings` are its children, offsets into `el`
-    let start = 0; let end = el.length; let siblings = [];
-    for (const n of path) {
-      siblings = elementChildRanges(el.slice(start, end)).map((k) => ({ ...k, start: start + k.start, end: start + k.end }));
-      const kid = siblings[n];
-      if (!kid) throw staleMove(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
-      start = kid.start; end = kid.end;
-    }
-    const from = path.at(-1);
-    const found = siblings[from].tag;
-    if (tag && found !== String(tag).toLowerCase()) throw staleMove(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.')}, the file has <${found}> — reload and try again`);
-    if (to >= siblings.length) throw refusedMove(`it is already the last of ${siblings.length}`);
-    if (to === from) throw refusedMove(`it is already ${from === 0 ? 'the first' : from === siblings.length - 1 ? 'the last' : 'there'}`);
-    parts[idx] = seg.slice(0, r.start) + reorderChildren(el, siblings, from, to) + seg.slice(r.end);
-    return { html: parts.join(''), index, path: [...path.slice(0, -1), to] };
-  }
-  if (tag && r.tag !== String(tag).toLowerCase()) throw staleMove(`slide ${slide}: the page found <${tag}> at ${index}, the file has <${r.tag}> — reload and try again`);
-  if (carriedChild(seg, r)) throw refusedMove(`the slide's ${r.tag === 'aside' ? 'notes and sources stay' : `<${r.tag}> stays`} where it is: only what the slide shows moves`);
-  const content = ranges.map((x, i) => ({ ...x, raw: i })).filter((x) => !carriedChild(seg, x));
-  const from = content.findIndex((x) => x.raw === index);
-  if (to >= content.length) throw refusedMove(content.length === 1 ? 'it is the only thing on the slide' : 'the notes and sources stay last: it is already as far down as it goes');
-  if (to === from) throw refusedMove(`it is already ${from === 0 ? 'first on the slide' : from === content.length - 1 ? 'last on the slide' : 'there'}`);
-  parts[idx] = reorderChildren(seg, content, from, to);
-  return { html: parts.join(''), index: content[to].raw, path: null };
-}
 
 /** A section body split into its open tag's attributes and everything after. */
 export function splitOpenTag(body) {

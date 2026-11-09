@@ -27,6 +27,7 @@ import { holdDraft } from './drafts.js';
 import { linkTarget, slideSuggestions } from './links.js';
 import { slideTitle, slideBody } from './finder.js';
 import { createListSessions } from './list-session.js';
+import { createEditCommit } from './edit-commit.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -121,22 +122,15 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   const base = () => editmode.base?.() ?? '';
   // Every read and write here is bounded (boundedFetch): a request the browser
   // queues behind a saturated socket pool never rejects on its own, and the
-  // toasts below only speak when something does.
-  const post = async (path, body) => {
-    const res = await boundedFetch(base() + path, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-    });
-    const j = await res.json().catch(() => ({}));
-    editmode.noteHistory?.(j);   // the undo stack's counts, for the bar
-    if (!res.ok) throw new Error(j.error || String(res.status));
-    return j;
-  };
-  // A save is written IN PLACE (PRESENTING): this page already shows what it
-  // typed, so it asks the server for a quiet write (no reload here) and tells
-  // the engine what changed, so the slide is rescanned and laid out again as
-  // a reload would have; every other page of the deck is sent the event.
-  const inPlace = () => ({ quiet: true, from: editmode.pageId?.() ?? null });
-  const announce = (slide, index, el, code = false) => root.dispatchEvent(new CustomEvent('decklight:content', { detail: { slide, index, el, code } }));
+  // toasts below only speak when something does. A save is written IN PLACE
+  // (PRESENTING, edit-commit.js): this page already shows what it typed, so
+  // the write is quiet (no reload here) and the engine is told what changed,
+  // so the slide is rescanned and laid out again as a reload would have; every
+  // other page of the deck is sent the event. A save's flow is tracked whole.
+  const commit = createEditCommit(editmode);
+  const post = (path, body) => commit.send(path, body);
+  /** The slide refreshed around what was saved (a code block highlighted and lined again). */
+  const announce = (slide, el, code = false) => instance.refreshSlide?.(instance._sections?.[slide - 1], { scan: el, code: code ? [el] : [] });
   const sectionOf = (node) => {
     const sec = node?.closest?.('section');
     const slide = sec ? instance._sections.indexOf(sec) + 1 : 0;
@@ -167,8 +161,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     el.classList.remove('dl-unsaved');
     el.removeAttribute('data-dl-unsaved');
   };
-  const notSaved = (what, e) => `${what} not saved${editmode.offline?.() ? ': the edit server is not answering'
-    : `: ${String(e?.message || e)}`}. Your words stay on the slide, marked: double-click to try again (Esc there puts the old ones back)`;
+  const notSaved = (what, e) => `${commit.notSaved(what, e)}. Your words stay on the slide, marked: double-click to try again (Esc there puts the old ones back)`;
   const changedNow = (cur) => (cur.list || cur.table ? lists.changed(cur) : cur.svg ? cur.input.value.replace(/\s+/g, ' ').trim() !== cur.was.replace(/\s+/g, ' ').trim()
     : cur.code ? cur.el.textContent.replace(/\n$/, '') !== cur.text
       : cur.el.innerHTML !== cur.original);
@@ -208,10 +201,10 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       const node = nodeAtPath(top, cur.path);
       if (!node) throw new Error('the source has no element where the click landed');
       node.innerHTML = inner;
-      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML, ...inPlace() });
+      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
       unstrand(cur.el);
       toast('saved', 1200);
-      announce(cur.slide, cur.index, cur.el);
+      announce(cur.slide, cur.el);
     } catch (e) {
       strand(cur);
       toast(notSaved('the text', e), 7000);
@@ -255,7 +248,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
 
   // ── lists and tables, typed in like a document (PRESENTING_EDITING) ──────
   const lists = createListSessions({
-    instance, toast, editmode, fetch: boundedFetch, base, post, inPlace, announce, childPath,
+    instance, toast, editmode, fetch: boundedFetch, base, post, announce, childPath,
     sectionOf, topLevelChild, authoredIndex, strand, unstrand, notSaved, saveText,
     saveInline: () => saveInline(), lastSave: () => lastSave,
     editing: () => editing,
@@ -703,7 +696,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       // `<`, `>` and `&` on the way out — the attributes are never touched
       const raw = node.textContent;
       node.textContent = (raw.startsWith('\n') ? '\n' : '') + text + raw.match(/\s*$/)[0];
-      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML, ...inPlace() });
+      await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
       toast('saved', 1200);
       // the block is re-rendered from its new source, highlighted and lined
       // as the first render did it: the plain text the author typed into
@@ -712,7 +705,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       const fresh = node.closest('pre') ?? node;
       const shown = el.closest('pre') ?? el;
       shown.replaceWith(fresh);
-      announce(cur.slide, cur.index, fresh, true);
+      announce(cur.slide, fresh, true);
     } catch (e) {
       // the typed code stays in the block, as text, until it is saved or given up
       strand(cur);
@@ -800,10 +793,10 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!text) { toast('kept the label: an empty one could not be clicked again (remove the shape instead)', 3200); return; }
     cur.el.textContent = text;
     try {
-      await post('/deck/edit/element/text', { slide: cur.slide, index: cur.index, path: cur.path, tag: cur.tag, was: cur.was, text, ...inPlace() });
+      await post('/deck/edit/element/text', { slide: cur.slide, index: cur.index, path: cur.path, tag: cur.tag, was: cur.was, text });
       unstrand(cur.el);
       toast('saved', 1200);
-      announce(cur.slide, cur.index, cur.el);
+      announce(cur.slide, cur.el);
     } catch (e) {
       strand(cur);
       toast(notSaved('the label', e), 7000);
@@ -966,7 +959,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
         });
         const j = await up.json().catch(() => ({}));
         if (!up.ok) throw new Error(j.error || String(up.status));
-        const placed = await post('/deck/edit/element/image', { slide: where.slide, index, src: j.src, alt: altFromName(file.name), more });
+        const placed = await commit.send('/deck/edit/element/image', { slide: where.slide, index, src: j.src, alt: altFromName(file.name), more }, { quiet: false });
         // a second picture goes after the first, not before it
         if (Number.isInteger(placed.index)) index = placed.index;
         toast(`${file.name} added to slide ${where.slide} as ${j.src}${more ? '' : ' — reloading'}`, 2200);

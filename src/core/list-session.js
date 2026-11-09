@@ -378,9 +378,9 @@ export function createListSessions(ctx) {
     try {
       const at = await source(cur.slide, cur.index, s.listPath, s.root.tagName.toLowerCase());
       if (at.html !== s.src) throw new Error('the list changed in the file while it was edited here (Esc puts it back, then edit it again)');
-      await ctx.post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: at.replace(listHtml(s.doc)), ...ctx.inPlace() });
+      await ctx.post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: at.replace(listHtml(s.doc)) });
       ctx.unstrand(s.root);
-      ctx.announce(cur.slide, cur.index, s.root);
+      ctx.announce(cur.slide, s.root);
       afterWrite(cur.slide, cur.el, s.before, 'saved');
     } catch (e) {
       ctx.strand(cur, s.root);
@@ -466,12 +466,12 @@ export function createListSessions(ctx) {
       const shape = rows.filter((r) => !s.added.includes(r)).map((r) => liveCellsOf(r).length);
       if (JSON.stringify(tableShape(at.html)) !== JSON.stringify(shape)) throw new Error('the table in the file is not the one on the slide: reload, then edit it again');
       const html = tableEdit(at.html, { append: s.added.length, cells });
-      await ctx.post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: at.replace(html), ...ctx.inPlace() });
+      await ctx.post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: at.replace(html) });
       ctx.unstrand(s.table);
       // a row Tab added is shown as the file now has it, its cells' tags and attributes and all
       const at0 = [rows.indexOf(cur.el.parentElement), liveCellsOf(cur.el.parentElement).indexOf(cur.el)];
       if (s.added.length) showTable(s.table, html);
-      ctx.announce(cur.slide, cur.index, s.table);
+      ctx.announce(cur.slide, s.table);
       // the row last typed in stays on screen, a row that builds included
       afterWrite(cur.slide, cellAt(s.table, ...at0), s.before, 'saved');
     } catch (e) {
@@ -508,9 +508,9 @@ export function createListSessions(ctx) {
           throw new Error('the table in the file is not the one on the slide: reload, then try again');
         }
         const html = tableOp(at.html, op, row, col);
-        await ctx.post('/deck/edit/element/content', { slide: where.slide, index, html: at.replace(html), ...ctx.inPlace() });
+        await ctx.post('/deck/edit/element/content', { slide: where.slide, index, html: at.replace(html) });
         showTable(table, html);
-        ctx.announce(where.slide, index, table);
+        ctx.announce(where.slide, table);
         // a new row in a table that builds is shown, not left waiting for its click
         const shown = op === 'row-above' || op === 'row-below' ? row + 1 : row;
         afterWrite(where.slide, cellAt(table, shown, 0), before, said);

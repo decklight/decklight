@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Moving an element within its slide (PRESENTING_EDITING, Moving): the pure
-// transform (tools/deck-html.mjs `moveSlideElement`), the design-system guard
+// transform (cli/edit.mjs `moveSlideElement`), the design-system guard
 // (`slotMoveProblem`) and the route that puts them through one undo entry.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { moveSlideElement } from '../tools/deck-html.mjs';
+import { moveSlideElement } from '../cli/edit.mjs';
 import { slotMoveProblem } from '../cli/design-system-edit.mjs';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
 import { createHistory } from '../cli/edit.mjs';

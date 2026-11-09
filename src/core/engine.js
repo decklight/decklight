@@ -4,7 +4,8 @@
 // Engine — init, navigation, transitions, overview/blackout/help, hash,
 // scaling, print. SPEC BUILD_SEMANTICS, SLIDE_TRANSITIONS, PRESENTING, JS_API.
 
-import { scanSlide, applyBuildState, stepLabels, registerProvider } from './builds.js';
+import { scanSlide, applyBuildState, stepLabels, registerProvider, refitStroke } from './builds.js';
+import { routeWire, routeConnectors } from './connectors.js';
 import { namespaceSvgIds, rescopeSvgIds, prefixSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf } from './svg.js';
 import { initCharts, renderChart } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
@@ -1756,52 +1757,49 @@ export function init(userConfig = {}) {
     applyLayout(sec, name);
     relayoutSlide(sec, slide);
   });
-  // text, code or a label saved in place on this page (authoring.js): the
-  // page already shows it; a code block is rendered again from its new
-  // source, and the slide is rescanned and laid out again, as a reload would
-  // have done. Another page's save reloads this one (editmode.js).
-  root.addEventListener('decklight:content', (e) => {
-    const { slide, el, code } = e.detail ?? {};
-    const sec = instance._sections?.[slide - 1];
-    if (!sec) return;
-    if (code && el?.isConnected) initCode(el, registerBuildProvider);
-    instance._rescanFor(el?.isConnected ? el : sec);
-    relayoutSlide(sec, slide);
-  });
-  // a starter added in place on this page (add-content.js): what the engine
-  // does to content at load is done to it now (a chart drawn, a diagram's
-  // ids namespaced, code highlighted and lined), two columns get the split
-  // layout they asked for, and the slide is rescanned and laid out again.
-  // Another page's add reloads that page (editmode.js).
+  // ----- one slide brought up to date in place (PRESENTING_EDITING) ---------
+  // An edit this page shows itself (text, a list, a picture, a chart's
+  // numbers, a shape, a move, an added element) is followed by what the engine
+  // does to content at load, done again to what changed and in load's order,
+  // each part only when asked. Another page's edit reloads that page
+  // (editmode.js). Every in-place edit comes through here, so the order holds:
+  //   charts      true: each chart not drawn yet; a chart: drawn again from its data, its concepts painted
+  //   svgs        new elements whose diagram ids are namespaced
+  //   code        elements whose code blocks are highlighted and lined
+  //   layout      the layout the slide takes (two columns ask for `split`)
+  //   connectors  wires routed again to the nodes they join: a list, or a scope's all
+  //   strokes     drawn strokes fitted to their geometry again, the wires that moved with them
+  //   paint       a scope whose concepts and nested fills are painted again
+  //   background  its background layer, and the bleed behind the stage when it is on screen
+  //   scan        the node whose slide's builds are scanned again (scanSlide routes the
+  //               connectors before a draw measures them), true for the slide, false for none
+  //   relayout    its pinned title and subtitle, a split's sides, the overflow guardrail
   let addedSvgs = 0;
-  root.addEventListener('decklight:inserted', (e) => {
-    const { slide, els = [], layout: name = null } = e.detail ?? {};
-    const sec = instance._sections?.[slide - 1];
-    if (!sec) return;
-    initCharts(sec);   // idempotent: only a chart not yet drawn is drawn
-    for (const el of els) {
+  function refreshSlide(sec, {
+    charts = null, svgs = [], code = [], layout: name = null, connectors = null, strokes = [], paint = null,
+    background = false, scan = true, relayout = true,
+  } = {}) {
+    const idx = instance._sections.indexOf(sec) + 1;
+    if (!idx) return;
+    if (charts === true) initCharts(sec);   // idempotent: only a chart not yet drawn is drawn
+    else if (charts?.isConnected) { renderChart(charts); applyConcepts(charts, config.concepts); }
+    for (const el of svgs) {
       if (!el?.isConnected) continue;
       addedSvgs += 1;
       if (el.matches('svg')) prefixSvgIds(el, `svgadd${addedSvgs}-`);
       else rescopeSvgIds(el, `svgadd${addedSvgs}-`);
-      if (el.querySelector('pre > code') || el.matches('pre')) initCode(el, registerBuildProvider);
     }
+    for (const el of code) if (el?.isConnected) initCode(el, registerBuildProvider);
     if (typeof name === 'string') applyLayout(sec, name);
-    applyNesting(sec);
-    instance._rescanFor(sec);
-    relayoutSlide(sec, slide);
-  });
-  // a chart's numbers changed in the inspector's Data tab (chartgrid.js):
-  // that one chart drawn again from its element, its series' concepts
-  // painted, its slide's builds rescanned and laid out, as init did
-  function redrawChart(el) {
-    const sec = el?.isConnected ? el.closest('section') : null;
-    const idx = sec ? instance._sections.indexOf(sec) + 1 : 0;
-    if (!idx) return;
-    renderChart(el);
-    applyConcepts(el, config.concepts);
-    instance._rescanFor(el);
-    relayoutSlide(sec, idx);
+    const routed = !connectors ? [] : Array.isArray(connectors) ? connectors.filter((w) => routeWire(w)) : routeConnectors(connectors);
+    for (const n of [...strokes, ...routed]) {
+      if (n.matches?.('.draw-stroke')) refitStroke(n);
+      n.querySelectorAll?.('.draw-stroke').forEach(refitStroke);
+    }
+    if (paint) { applyConcepts(paint, config.concepts ?? {}); applyNesting(paint); }
+    if (background) { setupMedia([sec], { printMode }); if (idx === instance.state.slide) bleedNow(0); }
+    if (scan) instance._rescanFor(scan !== true && scan.isConnected ? scan : sec);
+    if (relayout) relayoutSlide(sec, idx);
   }
   const layout = createLayoutCycler({
     slideOf: () => instance.state.slide,
@@ -3157,6 +3155,7 @@ export function init(userConfig = {}) {
   // Docked overlays call this after changing a `--dock-*` var: it is the same
   // refit the ResizeObserver runs, but a var change is not a resize.
   instance._reflow = () => { if (!printMode) rescale(); };
+  instance.refreshSlide = refreshSlide;
   // A slide op made in place (editmode.js): not in a deck of chapters, whose
   // outline is built once; and an overview that is open is drawn again.
   instance._slideOpsInPlace = () => !hasMarkersDOM && !playlist;
@@ -3627,22 +3626,12 @@ export function init(userConfig = {}) {
   const pictures = createPictures({
     root, instance, editmode, editbar, authoring, toast, debugLog,
     inspector: () => inspector,
-    refreshBackground: (sec) => {
-      const n = instance._sections.indexOf(sec) + 1;
-      setupMedia([sec], { printMode });
-      if (n === instance.state.slide) bleedNow(0);
-      if (n) relayoutSlide(sec, n);
-    },
   });
   editmode.setPictures(pictures);
   instance._pictures = pictures;
   // A diagram's shapes moved, resized, added and duplicated (shapes.js): over
   // the selection the bar makes, through the element menu's rows
-  const shapes = createShapes({
-    root, instance, editmode, editbar, authoring, toast, debugLog,
-    // what the engine paints from a diagram's geometry and concepts, again for one svg
-    repaint: (svg) => { const scope = svg.parentElement ?? stage; applyConcepts(scope, config.concepts ?? {}); applyNesting(scope); },
-  });
+  const shapes = createShapes({ root, instance, editmode, editbar, authoring, toast, debugLog });
   editmode.setShapes(shapes);
   instance._shapes = shapes;
   inspector = createInspector({
@@ -3664,7 +3653,8 @@ export function init(userConfig = {}) {
     review: () => review, narration: () => narration, sources: () => sources,
     // the deck's brand (SPEC BRAND_PALETTE): held to it or not, and the theme on screen
     brand: () => ({ locked: themes.brandLocked(), theme: themes.currentTheme() }),
-    redrawChart,
+    // a chart's numbers changed in the Data tab (chartgrid.js): drawn again from its element
+    redrawChart: (el) => { const sec = el?.isConnected ? el.closest('section') : null; if (sec) refreshSlide(sec, { charts: el, scan: el }); },
   });
   // the content editor's way back to the inspector (its HTML tab's other end)
   editmode.setInspectorOpener?.(() => inspector?.open());

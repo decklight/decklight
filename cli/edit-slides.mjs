@@ -39,7 +39,8 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden,
   upsertNarrationTrack, configuredTrackDirs,
-  locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement } from './edit.mjs';
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement, moveSlideElement } from './edit.mjs';
+import { locateElement } from './edit-address.mjs';
 import { setElementPicture, setSlideBackground, pictureToBackground } from './edit.mjs';
 import { setElementGeometry, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
@@ -52,7 +53,7 @@ import { setDeckConcepts } from './runtime-link.mjs';
 // are string surgery on a deck's sections, which is what tools/deck-html.mjs
 // is, and nothing about them wants the server.
 import {
-  sectionBodies, insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertImage, moveSlideElement,
+  sectionBodies, insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertImage,
 } from '../tools/deck-html.mjs';
 // A slide op moves the deck's recordings with their slides (#916): Node-only
 // file moves, which is what tools/ is for.

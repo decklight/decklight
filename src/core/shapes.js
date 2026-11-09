@@ -52,11 +52,10 @@
 
 import { pathFrom } from './colorpicker.js';
 import { injectedIn, isDrawn } from './pick.js';
-import { refitStroke } from './builds.js';
-import { boundedFetch } from './devmode.js';
+import { createEditCommit } from './edit-commit.js';
 import {
   IDENTITY, WIRE_TAGS, connectorsIn, isConnector, nodeNamed, nodeBox, endsOf, geometryFor, wireGeometry, setGeometry,
-  routeWire, routeOf, tagForRoute, svgOf, invert, toRoot, union,
+  routeOf, tagForRoute, svgOf, invert, toRoot, union,
 } from './connectors.js';
 
 /** Nodes in the page that are not in the file: the engine's and a template's. */
@@ -280,24 +279,17 @@ function moveSpec(el) {
   return { translate: true };
 }
 
-export function createShapes({ root, instance, editmode, editbar, authoring, toast, debugLog = () => {}, repaint = () => {} }) {
+export function createShapes({ root, instance, editmode, editbar, authoring, toast, debugLog = () => {} }) {
   const active = () => editmode.elementEditOn?.() && editmode.available?.() && editbar.isOpen?.() && !authoring.editing?.();
 
   // ── writes ────────────────────────────────────────────────────────────────
-  async function post(path, body) {
-    const p = (async () => {
-      const res = await boundedFetch((editmode.base?.() ?? '') + path, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...body, quiet: true, from: editmode.pageId?.() ?? null }),
-      });
-      const j = await res.json().catch(() => ({}));
-      editmode.noteHistory?.(j);
-      if (!res.ok || j.ok === false) throw new Error(j.error || `the edit server answered ${res.status}`);
-      return j;
-    })();
-    editmode.trackWrite?.(p);
-    return p;
-  }
+  // each one quiet and tracked; a page that cannot show the answer reloads (edit-commit.js)
+  const commit = createEditCommit(editmode);
+  const post = commit.post;
+  const reloadFor = (what, e) => {
+    debugLog('edit', `${what} (${String(e.message || e)}) — reloading`);
+    commit.reload(what);
+  };
 
   /** Every edit a set of live nodes needs to say what `before` became, addressed by the file's path. */
   function editsFor(top, before) {
@@ -330,20 +322,18 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     }
     return wires;
   }
-  /** Route these connectors again where their nodes are now: the ones that moved. */
-  const reroute = (wires) => wires.filter((w) => routeWire(w));
   /** Put the attributes `before` remembers back (a refused write, an Esc mid-drag). */
   function restore(before) {
     for (const [el, attrs] of before) for (const [a, v] of Object.entries(attrs)) { if (v === null) el.removeAttribute(a); else el.setAttribute(a, v); }
   }
-  /** What the engine drew from these nodes, drawn again for where they are now. */
-  function refit(nodes, svg) {
-    for (const n of nodes) {
-      if (n.matches?.('.draw-stroke')) refitStroke(n);
-      n.querySelectorAll?.('.draw-stroke').forEach(refitStroke);
-    }
-    if (svg) repaint(svg);
-  }
+  /**
+   * What the engine drew from these nodes, drawn again for where they are now
+   * (engine.js refreshSlide): `wires` routed to their nodes first, then each
+   * drawn stroke fitted, and the diagram's concepts and nesting painted again.
+   */
+  const refit = (nodes, svg, wires = []) => instance.refreshSlide?.(svg?.closest('section'), {
+    connectors: wires, strokes: nodes, paint: svg?.parentElement, scan: false, relayout: false,
+  });
   async function save(target, before, what) {
     const edits = editsFor(target.top, before);
     if (!edits) { restore(before); toast('that node is the engine’s, not the file’s — nothing to move', 2600); return false; }
@@ -355,7 +345,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     } catch (e) {
       restore(before);
       refit([...before.keys()], target.node?.ownerSVGElement);
-      toast(`${what} not saved: ${String(e.message || e)}`, 6000);
+      toast(commit.notSaved(what, e), 6000);
       return false;
     }
   }
@@ -441,7 +431,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       }
     }
     drag.moved = true;
-    refit([...drag.members, ...reroute(drag.wires)], drag.svg);
+    refit(drag.members, drag.svg, drag.wires);
   }
 
   // ── guides (GUIDES) ───────────────────────────────────────────────────────
@@ -744,7 +734,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       }
     }
     R.moved = true;
-    refit([R.shape, ...reroute(R.wires)], R.svg);
+    refit([R.shape], R.svg, R.wires);
     placeHandles();
   }
   async function resizeEnd(e, { cancel = false } = {}) {
@@ -918,7 +908,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     try {
       // as a line, last in the svg: its space is the svg's own
       j = await post('/deck/edit/element/connector', { slide: target.slide, index: target.index, op: 'add', path, tag: 'svg', nodes: ends, geometry: geometryFor('line', 'straight', a, b) });
-    } catch (e) { toast(`not connected: ${String(e.message || e)}`, 6000); return null; }
+    } catch (e) { toast(`not connected: ${commit.why(e)}`, 6000); return null; }
     let wire;
     try {
       putDefs(target.top, svg, j.defs);
@@ -927,12 +917,10 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       wire = liveNode(j.added.html, svg);
       insertAt(target.top, j.added.path, wire);
     } catch (e) {
-      debugLog('edit', `a new connector could not be put on the page (${String(e.message || e)}) — reloading`);
-      location.reload();
+      reloadFor('a new connector could not be put on the page', e);
       return null;
     }
-    routeWire(wire);
-    repaint(svg);
+    refit([], svg, [wire]);
     editbar.selectNode(wire, { exact: true });
     toast('connected — move either shape and the wire follows', 2000);
     debugLog('edit', `connector ${j.named?.from} → ${j.named?.to} on slide ${target.slide} element #${target.index}`);
@@ -990,19 +978,17 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     const body = { slide: target.slide, index: target.index, op, wire: { path, tag: tagOf(wire) }, ...extra };
     if (op !== 'arrows' && !extra.geometry) body.geometry = geometryOf(wire);
     let j;
-    try { j = await post('/deck/edit/element/connector', body); } catch (e) { undo(); toast(`connector not saved: ${String(e.message || e)}`, 6000); return null; }
+    try { j = await post('/deck/edit/element/connector', body); } catch (e) { undo(); toast(commit.notSaved('connector', e), 6000); return null; }
     let live;
     try {
       putDefs(target.top, svg, j.defs);
       if (node && j.named) for (const name of Object.values(j.named)) node.setAttribute('data-node', name);
       live = syncWire(wire, j.wire.html, svg);
     } catch (e) {
-      debugLog('edit', `a connector could not be redrawn (${String(e.message || e)}) — reloading`);
-      location.reload();
+      reloadFor('a connector could not be redrawn', e);
       return null;
     }
-    routeWire(live);
-    refit([live], svg);
+    refit([live], svg, [live]);
     if (editbar.selected()?.node !== live) editbar.selectNode(live, { exact: true });
     else showHandles(editbar.selected());
     debugLog('edit', `connector ${op}: slide ${target.slide} element #${target.index} › ${j.wire.path.join('.')}`);
@@ -1098,18 +1084,17 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     let j;
     try {
       j = await post('/deck/edit/element/shape', { slide: target.slide, index: target.index, path, tag: 'svg', op: 'add', kind, at: svgPoint(svg, point) });
-    } catch (e) { toast(`the ${KIND_SAID[kind] ?? 'shape'} was not added: ${String(e.message || e)}`, 6000); return null; }
+    } catch (e) { toast(`the ${KIND_SAID[kind] ?? 'shape'} was not added: ${commit.why(e)}`, 6000); return null; }
     let node;
     try {
       putDefs(target.top, svg, j.defs);
       node = liveNode(j.added.html, svg);
       insertAt(target.top, j.added.path, node);
     } catch (e) {
-      debugLog('edit', `a new shape could not be put on the page (${String(e.message || e)}) — reloading`);
-      location.reload();
+      reloadFor('a new shape could not be put on the page', e);
       return null;
     }
-    repaint(svg);
+    refit([], svg);
     const shape = kind === 'box' ? node.querySelector('rect') ?? node : node;
     editbar.selectNode(shape, { exact: true });
     const words = kind === 'box' ? node.querySelector('text') : kind === 'label' ? node : null;
@@ -1138,19 +1123,17 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     let j;
     try {
       j = await post('/deck/edit/element/shape', { slide: target.slide, index: target.index, path, tag: tagOf(unit), op: 'duplicate' });
-    } catch (e) { toast(`not duplicated: ${String(e.message || e)}`, 6000); return null; }
+    } catch (e) { toast(`not duplicated: ${commit.why(e)}`, 6000); return null; }
     let copy;
     try {
       copy = liveNode(j.added.html, svg);
       insertAt(target.top, j.added.path, copy);
     } catch (e) {
-      debugLog('edit', `a copy could not be put on the page (${String(e.message || e)}) — reloading`);
-      location.reload();
+      reloadFor('a copy could not be put on the page', e);
       return null;
     }
     // the copy's connectors join the copy's nodes (the server named them its own): routed where they are
-    for (const w of connectorsIn(copy)) routeWire(w);
-    repaint(svg);
+    refit([], svg, connectorsIn(copy));
     // the copy of what was selected is what is selected now
     const rel = unit === target.node ? [] : pathFrom(unit, target.node);
     editbar.selectNode((rel && liveAt(copy, rel)) || copy, { exact: true });

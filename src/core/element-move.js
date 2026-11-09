@@ -22,7 +22,7 @@
 // The notes, sources and rehearsed time stay last: nothing moves onto them or
 // past them, here or on the server.
 
-import { boundedFetch } from './devmode.js';
+import { createEditCommit } from './edit-commit.js';
 import { fileIndexOf } from './design-system.js';
 
 /** Children the engine put on a slide: not the file's, never moved, never counted. */
@@ -55,22 +55,11 @@ export function createElementMove({ root, instance, editmode, toast, select = ()
   const keys = { up: IS_MAC ? '⌃⇧↑' : 'Ctrl+Shift+↑', down: IS_MAC ? '⌃⇧↓' : 'Ctrl+Shift+↓' };
   const slideOf = (sec) => instance._sections.indexOf(sec) + 1;
 
-  async function post(body) {
-    const p = (async () => {
-      const res = await boundedFetch((editmode.base?.() ?? '') + '/deck/edit/element/move', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-      });
-      const j = await res.json().catch(() => ({}));
-      editmode.noteHistory?.(j);
-      if (!res.ok) throw new Error(j.error || String(res.status));
-      return j;
-    })();
-    editmode.trackWrite?.(p);   // the undo chord waits for it
-    return p;
-  }
+  // one write, tracked for the undo chord; quiet when this page follows it in place (edit-commit.js)
+  const commit = createEditCommit(editmode);
 
   /** The slide laid out and scanned for builds again, as a reload would have done it. */
-  const relayout = (sec) => root.dispatchEvent(new CustomEvent('decklight:content', { detail: { slide: slideOf(sec), el: sec } }));
+  const relayout = (sec) => instance.refreshSlide?.(sec);
 
   /** After a reload: the element selected again, on the slide it moved on. */
   function remember(slide, index) {
@@ -118,7 +107,7 @@ export function createElementMove({ root, instance, editmode, toast, select = ()
     if (!inPlace) remember(slide, rawIndexOf(sec, content[to]));
     const words = said ?? (to < from ? 'moved up' : 'moved down');
     try {
-      const j = await post({ slide, index, tag: top.tagName.toLowerCase(), to, ...(inPlace ? { quiet: true, from: editmode.pageId?.() ?? null } : {}) });
+      const j = await commit.post('/deck/edit/element/move', { slide, index, tag: top.tagName.toLowerCase(), to }, { quiet: inPlace });
       if (j.inPlace) {
         if (to > from) content[to].after(top); else content[to].before(top);
         relayout(sec);
@@ -132,7 +121,7 @@ export function createElementMove({ root, instance, editmode, toast, select = ()
       return true;
     } catch (e) {
       try { sessionStorage.removeItem(RESELECT_KEY); } catch { /* fine */ }
-      toast(`could not move it: ${String(e.message || e)}`, 6000);
+      toast(`could not move it: ${commit.why(e)}`, 6000);
       return false;
     }
   }
