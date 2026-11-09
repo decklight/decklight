@@ -3666,7 +3666,8 @@
         r.landsInEdit = !!li?.isContentEditable && li.classList.contains('dl-editing');
         r.placeholderSelected = window.getSelection().toString() === 'New point';
         document.execCommand('insertText', false, 'Fast feedback');
-        li?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        // ⌘⏎ keeps: in a list, a bare Enter starts the next point
+        li?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true }));
         await settle(); await settle();
         const saved = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content')).at(-1)?.body;
         r.typingReplacesThePlaceholder = li?.textContent === 'Fast feedback' && saved?.index === 1 && /<li>Fast feedback<\/li>\n {2}<li>Another point<\/li>/.test(saved?.html ?? '');
