@@ -590,12 +590,6 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       else if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); }
       return;
     }
-    // ⌥↑ / ⌥↓ on a list item: the item moves, the editing goes on (element-move.js)
-    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editing.el.matches('li')) {
-      e.preventDefault();
-      moveEditedItem(e.key === 'ArrowUp' ? -1 : 1);
-      return;
-    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveInline(); }
     else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
     else if ((e.metaKey || e.ctrlKey) && !e.altKey && EMPHASIS[e.key?.toLowerCase?.()]) {
@@ -606,50 +600,6 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   root.addEventListener('focusout', (e) => {
     if (editing && e.target === editing.el) saveInline();
   });
-
-  // ── a list item moved while its words are edited (PRESENTING_EDITING, Moving) ──
-  // Outliner style: what was typed is saved first (so the file has the words
-  // before the item moves), the item moves among its siblings, and the editing
-  // goes on in it with the caret where it was.
-  let moving = false;
-  const caretOffset = (el) => {
-    const sel = window.getSelection();
-    if (!sel?.rangeCount || !el.contains(sel.anchorNode)) return null;
-    const r = document.createRange();
-    r.selectNodeContents(el);
-    r.setEnd(sel.anchorNode, sel.anchorOffset);
-    return r.toString().length;
-  };
-  function putCaret(el, offset) {
-    if (offset === null) return;
-    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    let left = offset;
-    for (let t = walk.nextNode(); t; t = walk.nextNode()) {
-      if (left <= t.length) {
-        const r = document.createRange();
-        r.setStart(t, left); r.collapse(true);
-        const sel = window.getSelection();
-        sel.removeAllRanges(); sel.addRange(r);
-        return;
-      }
-      left -= t.length;
-    }
-  }
-  async function moveEditedItem(dir) {
-    const mover = editmode.elementMove?.();
-    const cur = editing;
-    if (!mover || !cur || moving) return;
-    const el = cur.el;
-    const caret = caretOffset(el);
-    moving = true;
-    try {
-      await saveInline();
-      if (stranded.has(el)) return;   // the words did not save: the item stays where it is, marked
-      await mover.moveItem(el, dir);
-      const where = el.isConnected ? sectionOf(el) : null;
-      if (where && !editing) { beginInline(el, where); putCaret(el, caret); }
-    } finally { moving = false; }
-  }
 
   // ── drop a picture onto the slide ─────────────────────────────────────────
   // A file dropped on the deck is ALWAYS caught, picture or not, write mode or

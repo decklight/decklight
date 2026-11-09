@@ -7,8 +7,8 @@
 // picture above the bullets meant opening the HTML. Three ways now, one route:
 //
 //   the element menu's Move up and Move down (greyed at the ends),
-//   ⌥↑ / ⌥↓ on a selection, and on a list item while its words are being
-//   edited (outliner style: the item moves, the editing goes on),
+//   Control-Shift-↑ / ↓ on a selection (a bullet being typed in moves by the
+//   same chord, in its list session: list-session.js),
 //   dragging the selection's ⋯ handle, a line showing where it would land.
 //
 // Each is one `POST /deck/edit/element/move` and one undo entry. The page
@@ -23,15 +23,12 @@
 // past them, here or on the server.
 
 import { boundedFetch } from './devmode.js';
-import { authoredTop, fileIndexOf } from './design-system.js';
-import { pathFrom } from './colorpicker.js';
+import { fileIndexOf } from './design-system.js';
 
 /** Children the engine put on a slide: not the file's, never moved, never counted. */
 const ENGINE_CHILD = '.slide-bg, .decklight-hero-logo, [data-ds-injected]';
 /** What a slide carries rather than shows (DECK_ANATOMY): it stays where it is. */
 const CARRIED = 'aside.notes, aside.sources, aside.rehearse, script, style';
-/** Nodes the engine put inside an element (a draw build's head and mask): not the file's. */
-const INJECTED = '.draw-head, .draw-mask, [data-ds-injected]';
 /** Something live on a slide: moved in the DOM it would restart, or lose its place. */
 const LIVE = '.terminal, video, audio, iframe, canvas';
 const RESELECT_KEY = 'decklight-move-select:' + (typeof location !== 'undefined' ? location.pathname : '');
@@ -53,11 +50,9 @@ export const contentOf = (sec) => authoredList(sec).filter((c) => !c.matches(CAR
 const rawIndexOf = (sec, el) => fileIndexOf(el) ?? authoredList(sec).indexOf(el);
 /** Can this slide follow a move in its own DOM? Not one a template built, nor one with something live on it. */
 const followsInPlace = (sec, instance) => !!instance.sync && !sec.hasAttribute('data-template') && !sec.querySelector(LIVE);
-/** A node's siblings as the file has them (the engine's own left out). */
-const fileSiblings = (node) => [...node.parentElement.children].filter((c) => !c.matches(INJECTED));
 
 export function createElementMove({ root, instance, editmode, toast, select = () => {}, debugLog = () => {} }) {
-  const keys = { up: IS_MAC ? '⌥↑' : 'Alt+↑', down: IS_MAC ? '⌥↓' : 'Alt+↓' };
+  const keys = { up: IS_MAC ? '⌃⇧↑' : 'Ctrl+Shift+↑', down: IS_MAC ? '⌃⇧↓' : 'Ctrl+Shift+↓' };
   const slideOf = (sec) => instance._sections.indexOf(sec) + 1;
 
   async function post(body) {
@@ -142,7 +137,7 @@ export function createElementMove({ root, instance, editmode, toast, select = ()
     }
   }
 
-  /** The selection one place up (`dir` -1) or down (+1): the menu's rows and ⌥↑ / ⌥↓. */
+  /** The selection one place up (`dir` -1) or down (+1): the menu's rows and Control-Shift-↑ / ↓. */
   function move(target, dir) {
     const top = target?.top;
     const sec = top?.closest?.('section');
@@ -150,43 +145,6 @@ export function createElementMove({ root, instance, editmode, toast, select = ()
     const from = contentOf(sec).indexOf(top);
     if (from < 0) return Promise.resolve(false);
     return moveTo(top, from + dir);
-  }
-
-  /**
-   * A node inside an element one place among its OWN siblings: a list item up
-   * or down its list (⌥↑ / ⌥↓ while its words are edited). Resolves true once
-   * it has moved, here or by the reload a design-system slide needs.
-   */
-  async function moveItem(node, dir) {
-    if (refuse()) return false;
-    const sec = node.closest('section');
-    const top = sec && authoredTop(sec, node);
-    if (!top || top === node) return false;
-    const path = pathFrom(top, node);
-    if (!path) { toast('that is the engine’s, not the file’s: nothing to move', 2600); return false; }
-    const sibs = fileSiblings(node);
-    const from = sibs.indexOf(node);
-    const to = from + dir;
-    const what = node.matches('li') ? 'item' : node.tagName.toLowerCase();
-    if (to < 0) { toast(`already the first ${what}`, 1600); return false; }
-    if (to >= sibs.length) { toast(`already the last ${what}`, 1600); return false; }
-    const slide = slideOf(sec);
-    const index = rawIndexOf(sec, top);
-    const inPlace = followsInPlace(sec, instance);
-    if (!inPlace) remember(slide, index);
-    try {
-      const j = await post({ slide, index, path, tag: node.tagName.toLowerCase(), to, ...(inPlace ? { quiet: true, from: editmode.pageId?.() ?? null } : {}) });
-      if (j.inPlace) {
-        if (to > from) sibs[to].after(node); else sibs[to].before(node);
-        relayout(sec);
-        toast(`${what} moved ${dir < 0 ? 'up' : 'down'}`, 1200);
-      } else toast(`${what} moved — reloading`, 1600);
-      return true;
-    } catch (e) {
-      try { sessionStorage.removeItem(RESELECT_KEY); } catch { /* fine */ }
-      toast(`could not move it: ${String(e.message || e)}`, 6000);
-      return false;
-    }
   }
 
   // ── dragging the ⋯ handle ────────────────────────────────────────────────
@@ -313,7 +271,7 @@ export function createElementMove({ root, instance, editmode, toast, select = ()
   }
 
   return {
-    keys, canMove, move, moveTo, moveItem, dragFrom,
+    keys, canMove, move, moveTo, dragFrom,
     /** Is a drag of the handle under way? */
     dragging: () => !!drag?.on,
     /** Was the click that just came a drag's end, not a click? Asked once, by the handle. */

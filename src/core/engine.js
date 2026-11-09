@@ -2618,7 +2618,7 @@ export function init(userConfig = {}) {
       <tr><td>H</td><td>history: every version, ${enter} restores one</td></tr>
       <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a shape's style</td></tr>
       <tr class="help-ctx"><td>${enter} · ⌫ · Esc</td><td>on a selected element: edit · remove · let go</td></tr>
-      <tr class="help-ctx"><td>${IS_MAC ? '⌥↑ / ⌥↓' : 'Alt+↑ / Alt+↓'}</td><td>on a selected element, or a list item being edited: move it up / down (or drag its ⋯)</td></tr>
+      <tr class="help-ctx"><td>${IS_MAC ? '⌃⇧↑ / ⌃⇧↓' : 'Ctrl+Shift+↑ / ↓'}</td><td>on a selected element: move it up / down (or drag its ⋯)</td></tr>
       <tr class="help-ctx"><td>${enter} · ⇧${enter} · Esc</td><td>while editing text: keep · new line · cancel</td></tr>
       <tr class="help-ctx"><td>${IS_MAC ? '⌘B · ⌘I · ⌘E' : 'Ctrl+B · Ctrl+I · Ctrl+E'}</td><td>while editing text: bold · italic · code</td></tr>
       <tr class="help-ctx"><td>N · D · ⌫</td><td>in the overview: new slide · duplicate · delete</td></tr>
@@ -2809,8 +2809,8 @@ export function init(userConfig = {}) {
     // PowerPoint's chords. By code, not key: ⌥ turns the C into a ç.
     const styleChord = e.altKey && (e.metaKey || e.ctrlKey) && !e.shiftKey && (e.code === 'KeyC' || e.code === 'KeyV')
       && editmode.elementEditOn() ? e.code : null;
-    // ⌥↑ / ⌥↓ (Alt elsewhere) — move the selected element one place (PRESENTING_EDITING, Moving); the selection's keys below take it
-    const moveChord = e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editmode.elementEditOn();
+    // Control-Shift-↑ / ↓, on every platform — move the selected element one place (PRESENTING_EDITING, Moving); the selection's keys below take it
+    const moveChord = e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editmode.elementEditOn();
     if (!undoChord && !speakerChord && !styleChord && !moveChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
     // An overlay that is up owns the keyboard — whether or not it wants this
     // particular key. Registration order (see `overlays.register` calls) is the
@@ -3569,7 +3569,7 @@ export function init(userConfig = {}) {
     toggleEditor, cycleLayout, deckHistory,
     enabled: () => !printMode && !params.has('embedded') && !captureMode,
   });
-  // Moving things within a slide (element-move.js): the menu's Move rows, ⌥↑ / ⌥↓ and the handle's drag
+  // Moving things within a slide (element-move.js): the menu's Move rows, Control-Shift-↑ / ↓ and the handle's drag
   editmode.setElementMove(createElementMove({
     root, instance, editmode, toast, debugLog, select: (el) => editbar.selectNode(el, { exact: true }),
   }));

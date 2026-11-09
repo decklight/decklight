@@ -3255,7 +3255,7 @@
         const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         const moves = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/move'));
         const lastMove = () => moves().at(-1)?.body ?? null;
-        const altKey = (k) => press(k, { altKey: true });
+        const moveKey = (k) => press(k, { ctrlKey: true, shiftKey: true });
         const ctx = (el) => { const b = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 5, clientY: b.top + 5 })); };
         const row = (label) => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.childNodes[0]?.textContent === label);
         const selectedTop = () => deck._selection()?.top ?? null;
@@ -3265,7 +3265,7 @@
           // the title: nothing above it, so Move up is greyed and does nothing
           ctx($('.mv-h')); await settle();
           r.menuHasMoveRows = !!row('Move up') && !!row('Move down');
-          r.rowsSayTheirChords = /⌥↑|Alt\+↑/.test(row('Move up')?.textContent ?? '') && /⌥↓|Alt\+↓/.test(row('Move down')?.textContent ?? '');
+          r.rowsSayTheirChords = /⌃⇧↑|Ctrl\+Shift\+↑/.test(row('Move up')?.textContent ?? '') && /⌃⇧↓|Ctrl\+Shift\+↓/.test(row('Move down')?.textContent ?? '');
           r.upGreyedAtTheTop = row('Move up')?.classList.contains('cm-disabled') === true && row('Move up')?.getAttribute('aria-disabled') === 'true'
             && row('Move down')?.classList.contains('cm-disabled') === false;
           row('Move up')?.click(); await settle();
@@ -3283,44 +3283,27 @@
           r.PASS = r.menuHasMoveRows && r.rowsSayTheirChords && r.upGreyedAtTheTop && r.greyedRowWritesNothing && r.downGreyedAboveTheNotes
             && r.oneMoveAsked && r.movedInPlace && r.notesStayLast && r.selectionFollows;
         } else if (mode === 'movekeys') {
-          // nothing selected: ⌥↓ moves nothing
-          altKey('ArrowDown'); await settle();
+          // nothing selected: Control-Shift-↓ moves nothing
+          moveKey('ArrowDown'); await settle();
           r.nothingSelectedMovesNothing = moves().length === 0 && deck.state.slide === 5;
           click($('.mv-list')); await settle();
-          altKey('ArrowDown'); await settle(); await settle();
-          r.altDownMovesIt = order(5) === 'mv-h,mv-a,mv-b,mv-list' && lastMove()?.to === 3 && lastMove()?.index === 2 && deck.state.slide === 5;
+          moveKey('ArrowDown'); await settle(); await settle();
+          r.chordDownMovesIt = order(5) === 'mv-h,mv-a,mv-b,mv-list' && lastMove()?.to === 3 && lastMove()?.index === 2 && deck.state.slide === 5;
           r.stillSelected = selectedTop() === $('.mv-list');
-          altKey('ArrowUp'); await settle(); await settle();
-          r.altUpMovesItBack = order(5) === 'mv-h,mv-a,mv-list,mv-b' && lastMove()?.to === 2 && lastMove()?.index === 3;
-          // the bare arrows are still the deck's
+          moveKey('ArrowUp'); await settle(); await settle();
+          r.chordUpMovesItBack = order(5) === 'mv-h,mv-a,mv-list,mv-b' && lastMove()?.to === 2 && lastMove()?.index === 3;
+          // the bare arrows are still the deck's, and ⌥ is not a move chord
           const before = moves().length;
           press('ArrowDown'); await settle();
+          press('ArrowUp', { altKey: true }); await settle();
           r.bareArrowsMoveNothing = moves().length === before && deck.state.slide === 5;
           press('Escape'); await settle();
-          // a list item being edited: ⌥↑ moves it, its typed words saved first, and the editing goes on in it
-          const two = [...$('.mv-list').children][1];
-          two.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-          await settle();
-          r.editingTheItem = two.isContentEditable;
-          two.textContent = 'two!';
-          two.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true }));
-          for (let i = 0; i < 6; i++) await settle();
-          const posts = CALLS.post.map((c) => c.u);
-          const savedAt = posts.findIndex((u) => u.includes('/deck/edit/element/content'));
-          const movedAt = posts.findLastIndex((u) => u.includes('/deck/edit/element/move'));
-          const m = lastMove();
-          r.itemMoveAsked = m?.slide === 5 && m?.index === 2 && JSON.stringify(m?.path) === '[1]' && m?.tag === 'li' && m?.to === 0 && m?.quiet === true;
-          r.wordsSavedFirst = savedAt >= 0 && savedAt < movedAt;
-          r.itemMovedInPlace = [...$('.mv-list').children].map((li) => li.textContent).join(',') === 'two!,one,three';
-          r.editingGoesOn = two.isContentEditable && two.classList.contains('dl-editing') && document.activeElement === two;
-          two.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-          await settle();
-          // the help card names the chords where the editing keys are
+          // the help card names the chord where the editing keys are
           press('?'); await settle();
-          r.helpNamesTheChords = /(⌥↑ \/ ⌥↓|Alt\+↑ \/ Alt\+↓)\s*on a selected element, or a list item being edited: move it/.test(document.querySelector('.help-card')?.textContent ?? '');
+          r.helpNamesTheChords = /(⌃⇧↑ \/ ⌃⇧↓|Ctrl\+Shift\+↑ \/ ↓)\s*on a selected element: move it/.test(document.querySelector('.help-card')?.textContent ?? '');
           press('?'); await settle();
-          r.PASS = r.nothingSelectedMovesNothing && r.altDownMovesIt && r.stillSelected && r.altUpMovesItBack && r.bareArrowsMoveNothing
-            && r.editingTheItem && r.itemMoveAsked && r.wordsSavedFirst && r.itemMovedInPlace && r.editingGoesOn && r.helpNamesTheChords;
+          r.PASS = r.nothingSelectedMovesNothing && r.chordDownMovesIt && r.stillSelected && r.chordUpMovesItBack && r.bareArrowsMoveNothing
+            && r.helpNamesTheChords;
         } else if (mode === 'movedrag') {
           const h = $('.mv-h');
           const pA = $('.mv-a');
@@ -3371,7 +3354,7 @@
           const rec = () => deck._records[5];
           r.buildsInFileOrder = rec().steps[0]?.el === b1 && rec().steps[1]?.el === b2;
           click(b2); await settle();
-          altKey('ArrowUp'); await settle(); await settle();
+          moveKey('ArrowUp'); await settle(); await settle();
           r.movedInPlace = order(6) === 'h2,mv-b2,mv-b1' && lastMove()?.quiet === true && reloads === 0;
           r.buildsFollowTheNewOrder = rec().steps[0]?.el === b2 && rec().steps[1]?.el === b1;
           deck.next(); await settle();
@@ -3379,7 +3362,7 @@
           // a slide with something live on it: the move is the ordinary reload, and the page selects it again after
           deck.goto(7, 0); await settle();
           click($('.mv-l')); await settle();
-          altKey('ArrowDown'); await settle(); await settle();
+          moveKey('ArrowDown'); await settle(); await settle();
           let kept = null;
           try { kept = JSON.parse(sessionStorage.getItem('decklight-move-select:' + location.pathname) || 'null'); } catch { /* none */ }
           r.liveSlideReloads = lastMove()?.slide === 7 && lastMove()?.quiet === undefined && order(7) === 'h2,mv-l,mv-v' && kept?.slide === 7 && kept?.index === 2

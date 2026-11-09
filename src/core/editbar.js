@@ -373,8 +373,9 @@ export function createEditBar({
       return true;
     }
     if (e.key === 'Escape') { deselect(); return true; }
-    // ⌥↑ / ⌥↓: the element one place up or down the slide (element-move.js)
-    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    // Control-Shift-↑ / ↓: the element one place up or down the slide (element-move.js),
+    // the chord a bullet being typed in moves by too
+    if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       const mover = editmode.elementMove?.();
       if (!mover) return false;
       if (selected.node !== selected.top) { toast('this moves whole elements: click the diagram\'s empty canvas to select all of it, then move that', 2600); return true; }

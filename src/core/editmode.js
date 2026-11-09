@@ -4277,7 +4277,7 @@ export function createEditMode({
     setConceptTools: (t) => { conceptTools = t; },
     /** The engine's style clipboard (style-clip.js): the menu's Copy style and Paste style rows. */
     setStyleClip: (c) => { styleClip = c; },
-    /** Moving things within a slide (element-move.js): the menu's Move rows; the bar's keys and drag, and the inline edit's ⌥↑ / ⌥↓, ask for it here. */
+    /** Moving things within a slide (element-move.js): the menu's Move rows; and the bar's keys and drag ask for it here. */
     setElementMove: (m) => { elementMove = m; },
     elementMove: () => elementMove,
     /** The door to the concept list (Concept colors…), opened on a concept: the submenu's Edit concepts…. */
