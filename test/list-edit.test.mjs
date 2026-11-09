@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseMarkup, serialize, splitInline, joinInline, textLength, cleanInline, trimInline, dropAttrs,
-  listDoc, listHtml, listShape, itemFacts, splitItem, mergeItem, removeItem, indentItem, outdentItem, setItemWords,
+  listDoc, listHtml, listShape, itemFacts, splitItem, mergeItem, removeItem, indentItem, outdentItem, moveItem, setItemWords,
   tableOp, tableEdit, tableShape, elementAt,
 } from '../src/core/list-edit.js';
 
@@ -141,6 +141,29 @@ test('a join reaches the point above as it reads, deep in the previous point\'s 
   const a1 = listShape(sub).items[0].sub.items[0].key;
   mergeItem(sub, a1);
   assert.equal(listHtml(sub), '<ul><li>aa1<ul><li>deep</li><li>a2</li></ul></li></ul>');
+});
+
+test('Control-Shift-↑ / ↓ swaps a point with its neighbour in its own list, its sublist going with it', () => {
+  const doc = listDoc('<ul>\n  <li>one</li>\n  <li>two\n    <ul>\n      <li>two a</li>\n      <li>two b</li>\n    </ul>\n  </li>\n  <li>three</li>\n</ul>');
+  const every = (l) => l.items.flatMap((i) => [i.key, ...(i.sub ? every(i.sub) : [])]);
+  const [one, two, twoA, twoB, three] = every(listShape(doc));
+  assert.equal(moveItem(doc, one, -1), null, 'the first point has nowhere further up');
+  assert.deepEqual(moveItem(doc, one, 1), { key: one });
+  assert.equal(listHtml(doc), '<ul>\n  <li>two\n    <ul>\n      <li>two a</li>\n      <li>two b</li>\n    </ul>\n  </li>\n  <li>one</li>\n  <li>three</li>\n</ul>');
+  // inside a sublist a point moves among its own, and never out of it
+  assert.equal(moveItem(doc, twoA, -1), null, 'first of its sublist');
+  moveItem(doc, twoA, 1);
+  assert.equal(listHtml(doc), '<ul>\n  <li>two\n    <ul>\n      <li>two b</li>\n      <li>two a</li>\n    </ul>\n  </li>\n  <li>one</li>\n  <li>three</li>\n</ul>');
+  assert.equal(moveItem(doc, twoA, 1), null, 'last of its sublist');
+  assert.equal(moveItem(doc, three, 1), null, 'the last point has nowhere further down');
+  assert.equal(moveItem(doc, three, 2), null, 'one place at a time');
+  moveItem(doc, two, 1);
+  assert.equal(listHtml(doc), '<ul>\n  <li>one</li>\n  <li>two\n    <ul>\n      <li>two b</li>\n      <li>two a</li>\n    </ul>\n  </li>\n  <li>three</li>\n</ul>');
+  assert.ok(twoB > twoA, 'reading order numbers the sublist after its point');
+  // a list written on one line stays on one line
+  const flat = listDoc('<ol><li>a</li><li>b</li></ol>');
+  moveItem(flat, keys(flat)[1], -1);
+  assert.equal(listHtml(flat), '<ol><li>b</li><li>a</li></ol>');
 });
 
 test('Tab nests a point under the one before, in a sublist of the same type; Shift-Tab takes it out again', () => {

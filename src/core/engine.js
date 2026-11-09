@@ -2648,6 +2648,7 @@ export function init(userConfig = {}) {
       <tr class="help-ctx"><td>${enter} · ⌫ · Esc</td><td>on a selected element: edit · remove · let go</td></tr>
       <tr class="help-ctx"><td>${IS_MAC ? '⌃⇧↑ / ⌃⇧↓' : 'Ctrl+Shift+↑ / ↓'}</td><td>on a selected element: move it up / down (or drag its ⋯)</td></tr>
       <tr class="help-ctx"><td>${enter} · ⇧${enter} · Esc</td><td>while editing text: keep · new line · cancel</td></tr>
+      <tr class="help-ctx"><td>${enter} · ⇥ · ${IS_MAC ? '⌃⇧↑ / ⌃⇧↓' : 'Ctrl+Shift+↑ / ↓'}</td><td>while typing in a bullet: new point · indent · move it up or down</td></tr>
       <tr class="help-ctx"><td>${IS_MAC ? '⌘B · ⌘I · ⌘E · ⌘K' : 'Ctrl+B · Ctrl+I · Ctrl+E · Ctrl+K'}</td><td>while editing text: bold · italic · code · link</td></tr>
       <tr class="help-ctx"><td>N · D · ⌫</td><td>in the overview: new slide · duplicate · delete</td></tr>
       <tr class="help-ctx"><td>E</td><td>in the inspector: edit this slide's sources</td></tr>

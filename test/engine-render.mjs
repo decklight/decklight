@@ -35,7 +35,7 @@ export const MODES = [
   'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesbuilds', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'heldreload', 'savefail', 'slideinplace', 'esckeeps', 'pinch', 'debugreload', 'lockmode', 'notrustmode', 'editingtour', 'editingtourwelcome', 'welcomekeys',
   'bgindex',
   'addmenu', 'addslidekinds',
-  'listkeys', 'listplain', 'tablekeys', 'tablemenu',
+  'listkeys', 'listplain', 'tablekeys', 'tablemenu', 'listmove',
   'linedraw', 'dasheddraw', 'drawfill', 'nestedfills', 'rolefills', 'dstemplates', 'dsedit', 'concepts', 'conceptsfind',
   'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect',
   'links',

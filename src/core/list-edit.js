@@ -528,6 +528,27 @@ export function outdentItem(doc, key) {
   return { key };
 }
 
+/**
+ * Control-Shift-↑ / ↓: item `key` swaps places with the item before (`dir`
+ * -1) or after (+1) it in its own list, its sublist going with it, as a
+ * document's outline moves a paragraph. Null at that end of its list: a
+ * point never leaves its level this way (Tab and Shift-Tab do that).
+ */
+export function moveItem(doc, key, dir) {
+  const f = findItem(doc, key);
+  if (!f || (dir !== -1 && dir !== 1)) return null;
+  const items = itemsOf(f.list);
+  const other = items[items.indexOf(f.li) + dir];
+  if (!other) return null;
+  const kids = f.list.kids;
+  const a = kids.indexOf(f.li);
+  const b = kids.indexOf(other);
+  kids[a] = other;
+  kids[b] = f.li;
+  layout(doc);
+  return { key };
+}
+
 /** Item `key`'s words replaced by `html` (what was typed, cleaned). */
 export function setItemWords(doc, key, html) {
   const f = findItem(doc, key);

@@ -21,7 +21,7 @@
  */
 
 import {
-  listDoc, listShape, listHtml, itemFacts, splitItem, mergeItem, removeItem, indentItem, outdentItem,
+  listDoc, listShape, listHtml, itemFacts, splitItem, mergeItem, removeItem, indentItem, outdentItem, moveItem,
   setItemWords, cleanInline, tableOp, tableEdit, tableShape, elementAt,
 } from './list-edit.js';
 import { slideClickMatch } from './narration.js';
@@ -31,6 +31,8 @@ const isList = (n) => n?.nodeType === 1 && (n.tagName === 'UL' || n.tagName === 
 const isCell = (n) => n?.nodeType === 1 && (n.tagName === 'TD' || n.tagName === 'TH');
 const IS_MAC = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
 const KEEP = IS_MAC ? '⌘⏎' : 'Ctrl+⏎';
+/** The chord that moves a point up or down its list: Control-Shift on every platform. */
+const MOVE = IS_MAC ? '⌃⇧↑↓' : 'Ctrl+Shift+↑↓';
 
 /** The table menu's six rows: what each says, and the change it asks of the file. */
 export const TABLE_ROWS = [
@@ -309,7 +311,11 @@ export function createListSessions(ctx) {
       const c = caretIn(cur.el);
       back = !!c && c.collapsed && c.offset === 0;
     }
-    if (!enter && !tab && !back) return false;
+    // Control-Shift-↑ / ↓ moves the point among its own list's points, the
+    // same chord on every platform (a document editor's outline move)
+    const move = (e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && !e.isComposing
+      ? (e.key === 'ArrowUp' ? -1 : 1) : 0;
+    if (!enter && !tab && !back && !move) return false;
     e.preventDefault();
     if (enter) {
       const sel = window.getSelection();
@@ -341,6 +347,10 @@ export function createListSessions(ctx) {
         } else to = splitItem(s.doc, key, at, { words: liveWords(cur.el), clean: (h) => cleanInline(h, { keepStyle: s.keepStyle }) });
       } else if (back) {
         to = mergeItem(s.doc, key);
+      } else if (move) {
+        to = moveItem(s.doc, key, move);
+        if (to) to.offset = at;
+        else toast(move < 0 ? 'already the first point of its list' : 'already the last point of its list', 1600);
       } else {
         to = (shift ? outdentItem : indentItem)(s.doc, key);
         if (to) to.offset = at;
@@ -573,7 +583,7 @@ export function createListSessions(ctx) {
     anchor: (cur) => cur?.list?.root ?? cur?.table?.table ?? null,
     /** The hint under the text, for a session: what Enter and Tab do here. */
     hint(cur) {
-      if (cur.list) return `⏎ new point · ⇥ indent · ⇧⇥ outdent · ${KEEP} keep · Esc cancel`;
+      if (cur.list) return `⏎ new point · ⇥ indent · ⇧⇥ outdent · ${MOVE} move · ${KEEP} keep · Esc cancel`;
       if (cur.table) return '⇥ next cell · ⏎ keep · Esc cancel';
       return null;
     },

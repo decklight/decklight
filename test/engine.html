@@ -142,6 +142,8 @@
       listkeys: '<ul data-build>\n  <li>Alpha <strong>bold</strong> tail</li>\n  <li>Beta</li>\n</ul>',
       listplain: '<ul>\n  <li><p>A paragraph</p></li>\n  <li>Two</li>\n</ul>',
       tablekeys: '<table>\n  <tr><th>Name</th><th>Role</th></tr>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n</table>',
+      // Control-Shift-↑/↓ (listmove): a point with a sublist of its own, in a list that builds
+      listmove: '<ul data-build>\n  <li>One</li>\n  <li>Two\n    <ul>\n      <li>Two a</li>\n    </ul>\n  </li>\n  <li>Three</li>\n</ul>',
     };
     LK.tablemenu = LK.tablekeys;
     let LK_SRC = LK[HARNESS_MODE] ?? null;
@@ -5216,9 +5218,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
       // and Shift-Tab nest it and take it out, Enter on an empty last point
       // ends the list; the whole session is ONE write of the list, built from
       // its source, and Esc gives every bit of it back.
-      if (mode === 'listkeys' || mode === 'listplain' || mode === 'tablekeys' || mode === 'tablemenu') {
+      if (mode === 'listkeys' || mode === 'listplain' || mode === 'tablekeys' || mode === 'tablemenu' || mode === 'listmove') {
         await settle();
-        deck.goto(3, mode === 'listkeys' ? 2 : 0);
+        deck.goto(3, mode === 'listkeys' ? 2 : mode === 'listmove' ? 3 : 0);
         await settle();
         const sec = document.querySelector('.decklight-stage > section.active');
         const host = () => document.activeElement;
@@ -5235,13 +5237,53 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content'));
         const hint = () => document.querySelector('.dl-edit-hint')?.textContent ?? null;
         const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+        if (mode === 'listmove') {
+          // Control-Shift-↑ / ↓ moves the point being typed in among its own
+          // list's points, its sublist with it, in the same session: one write
+          const ul = sec.querySelector('ul');
+          const tops = () => [...ul.children].filter((n) => n.tagName === 'LI').map((li) => li.firstChild.textContent.trim());
+          const one = ul.children[0];
+          const chord = (k) => key(k, { ctrlKey: true, shiftKey: true });
+          dbl(one);
+          await settle(); await settle();
+          r.hintNamesTheMove = /· (⌃⇧↑↓|Ctrl\+Shift\+↑↓) move ·/.test(hint() ?? '');
+          caretAt(one.firstChild, 1);
+          chord('ArrowDown');
+          await settle();
+          r.downSwapsWithTheNext = JSON.stringify(tops()) === '["Two","One","Three"]';
+          r.sublistTravelsWithItsPoint = ul.children[0].querySelector('ul li')?.textContent === 'Two a' && !one.querySelector('ul');
+          r.typingStaysInIt = host() === one && one.isContentEditable && caretText(one) === 'O';
+          chord('ArrowDown');
+          await settle();
+          r.downAgain = JSON.stringify(tops()) === '["Two","Three","One"]';
+          chord('ArrowDown');
+          await settle();
+          r.lastSaysSo = JSON.stringify(tops()) === '["Two","Three","One"]' && said().some((t) => /already the last point/.test(t));
+          chord('ArrowUp');
+          await settle();
+          r.upSwapsWithThePrevious = JSON.stringify(tops()) === '["Two","One","Three"]' && host() === one;
+          key('ArrowUp');
+          await settle();
+          r.bareArrowIsTheCaret = JSON.stringify(tops()) === '["Two","One","Three"]';
+          r.nothingWrittenYet = writes().length === 0;
+          key('Enter', { metaKey: true, ctrlKey: true });
+          await settle(); await settle();
+          const w = writes();
+          r.oneWrite = w.length === 1;
+          r.theMarkup = w[0]?.body.html === '<ul data-build>\n  <li>Two\n    <ul>\n      <li>Two a</li>\n    </ul>\n  </li>\n  <li>One</li>\n  <li>Three</li>\n</ul>';
+          const rec = deck._records[2];
+          r.buildsFollowTheOrder = !!rec && rec.steps[rec.groups[0][0]]?.el?.firstChild?.textContent.trim() === 'Two';
+          r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
         if (mode === 'listkeys') {
           const ul = sec.querySelector('ul');
           const items = () => [...ul.querySelectorAll('li')];
           const [alpha, beta] = items();
           dbl(alpha);
           await settle(); await settle();
-          r.hintSaysWhatEnterDoes = /^⏎ new point · ⇥ indent · ⇧⇥ outdent · (⌘⏎|Ctrl\+⏎) keep · Esc cancel$/.test(hint() ?? '');
+          r.hintSaysWhatEnterDoes = /^⏎ new point · ⇥ indent · ⇧⇥ outdent · (⌃⇧↑↓|Ctrl\+Shift\+↑↓) move · (⌘⏎|Ctrl\+⏎) keep · Esc cancel$/.test(hint() ?? '');
           // Enter inside the emphasis: the words after the caret start the next point, the <strong> cut in two
           caretAt(alpha.querySelector('strong').firstChild, 2);
           key('Enter');
