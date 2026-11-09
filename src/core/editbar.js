@@ -280,8 +280,11 @@ export function createEditBar({
     handle.title = 'what you can do with this element';
     handle.textContent = '⋯';
     handle.addEventListener('mousedown', (e) => e.preventDefault());
+    // dragged, the handle moves the element (element-move.js); clicked, it opens the menu
+    handle.addEventListener('pointerdown', (e) => editmode.elementMove?.()?.dragFrom(e, selected, handle));
     handle.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (editmode.elementMove?.()?.consumeClick()) return;
       editmode.openElementMenuAt(e.clientX, e.clientY, selected);
     });
     root.appendChild(handle);
@@ -370,6 +373,14 @@ export function createEditBar({
       return true;
     }
     if (e.key === 'Escape') { deselect(); return true; }
+    // ⌥↑ / ⌥↓: the element one place up or down the slide (element-move.js)
+    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      const mover = editmode.elementMove?.();
+      if (!mover) return false;
+      if (selected.node !== selected.top) { toast('this moves whole elements: click the diagram\'s empty canvas to select all of it, then move that', 2600); return true; }
+      mover.move(selected, e.key === 'ArrowUp' ? -1 : 1);
+      return true;
+    }
     return false;
   }
 

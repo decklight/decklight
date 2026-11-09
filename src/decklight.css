@@ -3870,6 +3870,30 @@
   cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
 }
 @media print { .decklight-editbar, .decklight .dl-handle { display: none; } }
+/* moving an element within its slide (PRESENTING_EDITING, Moving): the ⋯
+   handle drags, the element being moved fades, and a line in the accent says
+   where it would land; a row with nowhere to go is greyed */
+.decklight .dl-handle { touch-action: none; }
+.decklight.dl-moving, .decklight.dl-moving .dl-handle { cursor: grabbing; }
+.decklight.dl-moving { user-select: none; -webkit-user-select: none; }
+.decklight .dl-move-src { opacity: .45; }
+.decklight .dl-drop-line {
+  position: absolute; z-index: 43; pointer-events: none;
+  height: 0; border-top: 3px solid var(--accent); margin-top: -1.5px;
+  border-radius: 2px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg, #000) 70%, transparent), 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.decklight .dl-drop-line.dl-drop-row { width: 0; border-top: 0; margin-top: 0; border-left: 3px solid var(--accent); margin-left: -1.5px; }
+.decklight .dl-drop-line::before, .decklight .dl-drop-line::after {
+  content: ''; position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--accent); top: -6px;
+}
+.decklight .dl-drop-line::before { left: -5px; }
+.decklight .dl-drop-line::after { right: -5px; }
+.decklight .dl-drop-line.dl-drop-row::before { left: -6px; top: -5px; }
+.decklight .dl-drop-line.dl-drop-row::after { left: -6px; right: auto; top: auto; bottom: -5px; }
+.decklight .dl-drop-line[hidden] { display: none; }
+.decklight-ctxmenu .cm-row.cm-disabled { color: #6b707a; cursor: default; }
+.decklight-ctxmenu .cm-row.cm-disabled .cm-key { color: #4f535b; }
 
 /* ---------- font picker (SPEC FONTS) — each row in its own face, its source on the right ---------- */
 /* the slide behind IS the preview: no blur, a light dim, the card off to the side */

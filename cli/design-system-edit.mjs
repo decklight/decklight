@@ -18,7 +18,7 @@
 // come from the deck's design systems as the server resolves them, never
 // from the page; they are handed in, so every transform is testable alone.
 
-import { locateSlide, sectionChildRanges, splitOpenTag, readAttrs, writeAttrs, insertSectionsAfter } from '../tools/deck-html.mjs';
+import { locateSlide, sectionChildRanges, splitOpenTag, readAttrs, writeAttrs, insertSectionsAfter, carriedChild } from '../tools/deck-html.mjs';
 
 /** Elements a slide carries rather than shows — never assigned to a slot. */
 const CARRIED = new Set(['aside', 'script', 'style']);
@@ -58,6 +58,31 @@ export function slotWriteProblem(html, slide, index, outerHtml) {
   return after === undefined
     ? `this element fills the "${before}" slot of the slide's template — keep data-slot="${before}" on it (an edit may change what it says, not where it goes)`
     : null;
+}
+
+/**
+ * Why moving element `index` to content position `to` on a design-system
+ * slide is refused, or null (PRESENTING_EDITING, Moving). The template puts
+ * each element in its slot by its `data-slot`, not by its place in the file,
+ * so the only order a move can change is the order of one slot's own
+ * elements: a move past another slot's would write a change the slide never
+ * shows, and read as a move into that slot that did not happen.
+ */
+export function slotMoveProblem(html, slide, index, to) {
+  if (!slideTemplateOf(html, slide)) return null;
+  const { parts, idx } = locateSlide(html, slide);
+  const seg = parts[idx];
+  const content = sectionChildRanges(seg).map((r, raw) => ({ r, raw }))
+    .filter(({ r }) => !carriedChild(seg, r))
+    .map(({ r, raw }) => ({ raw, slot: openTag(seg.slice(r.start, r.end)).attrs['data-slot'] ?? '' }));
+  const from = content.findIndex((c) => c.raw === index);
+  if (from < 0 || !Number.isInteger(to) || to < 0 || to >= content.length) return null;   // the move's own checks say why
+  const mine = content[from].slot;
+  const [lo, hi] = from < to ? [from + 1, to] : [to, from - 1];
+  const other = content.slice(lo, hi + 1).find((c) => c.slot !== mine);
+  if (!other) return null;
+  const name = (s) => (s ? `the "${s}" slot` : 'the template\'s default slot');
+  return `this element fills ${name(mine)} of the slide's template, and its data-slot, not its place in the file, says where it goes: it moves only among ${name(mine)}'s own elements, not past ${name(other.slot)}'s (to put it in another slot, change its data-slot in Edit content (HTML))`;
 }
 
 /** A hint (`"h1,h2"`) as the tags it names. */

@@ -2386,6 +2386,8 @@ export function createEditMode({
       if (inspectHook) rows.push({ label: 'Inspect', run: () => openInspect() });
       rows.push({ label: nested ? `Remove this ${menuTarget.node.tagName.toLowerCase()}` : 'Remove element', run: () => commitRemove() });
       if (nested) rows.push({ label: `Remove the whole ${menuTarget.top.tagName.toLowerCase()}`, run: () => commitRemove(menuTarget, { whole: true }) });
+      // up or down the slide, greyed at the ends (element-move.js)
+      if (elementMove && !nested) for (const [dir, label, key] of [[-1, 'Move up', elementMove.keys.up], [1, 'Move down', elementMove.keys.down]]) { const t = menuTarget; const can = elementMove.canMove(t, dir); rows.push({ label, key, disabled: !can, run: can ? () => { closeElementMenu(); elementMove.move(t, dir); } : () => {} }); }
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
       if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting({ group: 'text' }); } });
       rows.push({ label: 'Colors…', run: () => openInspect('colors') });
@@ -2404,8 +2406,9 @@ export function createEditMode({
     menuRows = rows;
     rows.forEach((r, i) => {
       const row = document.createElement('div');
-      row.className = 'cm-row' + (r.back ? ' cm-back' : '');
+      row.className = 'cm-row' + (r.back ? ' cm-back' : '') + (r.disabled ? ' cm-disabled' : '');
       row.setAttribute('role', 'option');
+      if (r.disabled) row.setAttribute('aria-disabled', 'true');
       row.textContent = r.label;
       if (r.key) row.append(Object.assign(document.createElement('span'), { className: 'cm-key', textContent: r.key }));
       row.addEventListener('mouseenter', () => selectElementRow(i, false));
@@ -2603,6 +2606,7 @@ export function createEditMode({
   }
   let conceptTools = null;
   let styleClip = null;   // copy style / paste style (style-clip.js), handed in by the engine
+  let elementMove = null;   // moving things within a slide (element-move.js), handed in by the engine
   let editConcepts = null;   // the engine's door to Concept colors… (`fn(name)`), for the Concept ▸ submenu
   /**
    * Where a shape's concept lives in the FILE: `{ slide, index, path, tag,
@@ -4273,6 +4277,9 @@ export function createEditMode({
     setConceptTools: (t) => { conceptTools = t; },
     /** The engine's style clipboard (style-clip.js): the menu's Copy style and Paste style rows. */
     setStyleClip: (c) => { styleClip = c; },
+    /** Moving things within a slide (element-move.js): the menu's Move rows; the bar's keys and drag, and the inline edit's ⌥↑ / ⌥↓, ask for it here. */
+    setElementMove: (m) => { elementMove = m; },
+    elementMove: () => elementMove,
     /** The door to the concept list (Concept colors…), opened on a concept: the submenu's Edit concepts…. */
     setEditConcepts: (fn) => { editConcepts = fn; },
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
