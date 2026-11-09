@@ -3946,6 +3946,48 @@
 .decklight-ctxmenu .cm-row.cm-disabled { color: #6b707a; cursor: default; }
 .decklight-ctxmenu .cm-row.cm-disabled .cm-key { color: #4f535b; }
 
+/* ---------- pictures after the drop (SPEC PRESENTING_EDITING) ----------------
+   A selected picture's four corner handles, on its selection outline; the ⋯
+   handle steps out of the top-right one's way. While a drag is on, the size
+   it would write is said under the picture, in deck units. */
+.decklight .dl-pic-handle {
+  position: absolute; z-index: 43;
+  width: 12px; height: 12px; margin: -6px 0 0 -6px; padding: 0;
+  border: 2px solid var(--accent, #6af); border-radius: 3px;
+  background: var(--bg, #111); box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+}
+.decklight .dl-pic-nw, .decklight .dl-pic-se { cursor: nwse-resize; }
+.decklight .dl-pic-ne, .decklight .dl-pic-sw { cursor: nesw-resize; }
+.decklight .dl-pic-handle:hover, .decklight.dl-pic-resizing .dl-pic-handle { background: var(--accent, #6af); }
+.decklight.dl-pic-handles .dl-handle { transform: translate(14px, -16px); }
+.decklight.dl-pic-resizing, .decklight.dl-pic-resizing * { cursor: nwse-resize !important; user-select: none; }
+.decklight .dl-pic-size {
+  position: absolute; z-index: 43; transform: translateX(-50%); pointer-events: none;
+  padding: 2px 8px; border-radius: 999px; background: rgba(15, 17, 22, .88); color: #fff;
+  font: 600 11.5px/18px system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+@media print { .decklight .dl-pic-handle, .decklight .dl-pic-size { display: none; } }
+/* the Info tab's alt field and Replace… */
+.decklight-inspector .ins-field {
+  box-sizing: border-box; width: 100%; padding: 3px 7px; border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .06);
+  font: inherit; color: #fff;
+}
+.decklight-inspector .ins-field:focus { outline: none; border-color: #9ecbff; background: rgba(255, 255, 255, .1); }
+.decklight-inspector :is(.ins-ok, .ins-warn) + .ins-field { width: calc(100% - 21px); }
+.decklight-inspector .ins-value + .ins-field { margin-top: 5px; }
+.decklight-inspector .ins-btn {
+  margin-left: 8px; padding: 1px 8px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, .18);
+  background: rgba(255, 255, 255, .06); font: inherit; font-size: .92em; color: #dfe3ea; cursor: pointer;
+}
+.decklight-inspector .ins-btn:hover, .decklight-inspector .ins-btn:focus-visible { background: rgba(255, 255, 255, .14); color: #fff; }
+/* a captioned picture: the figure stands where the picture stood, centred
+   as a lone picture is, with its caption under it in the theme's muted ink;
+   zero specificity past .decklight, so a deck's own figure rules win */
+.decklight :where(section > figure) { margin: 0.3em auto; text-align: center; }
+.decklight :where(figure > img) { display: block; margin: 0 auto; }
+.decklight :where(figcaption) { margin-top: 0.35em; font-size: 0.62em; color: var(--muted, inherit); }
+
 /* ---------- font picker (SPEC FONTS) — each row in its own face, its source on the right ---------- */
 /* the slide behind IS the preview: no blur, a light dim, the card off to the side */
 .decklight-narr.decklight-font-picker { background: rgba(0, 0, 0, .12); backdrop-filter: none; justify-content: flex-end; padding-right: 3vw; }

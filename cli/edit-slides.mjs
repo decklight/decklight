@@ -40,6 +40,7 @@ import {
   setSlideTiming, setSlideLayout, setSlideHidden,
   upsertNarrationTrack, configuredTrackDirs,
   locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement } from './edit.mjs';
+import { setElementPicture, setSlideBackground, pictureToBackground } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
@@ -59,6 +60,25 @@ import {
 } from '../tools/voice-renumber.mjs';
 // What Add and the New slide kinds put in: the server's own closed set
 import { insertStarter, insertSlideOfKind, SLIDE_KINDS } from '../tools/starters.mjs';
+
+/**
+ * Is `src` a path this deck can carry? Relative, and only relative.
+ *
+ * A scheme is somebody else's server (or, for `javascript:` and `data:`,
+ * somebody else's code); a leading slash is the serving root rather than the
+ * folder the deck lives in, so it breaks the moment the deck is opened over
+ * `file://` or published under a path; and `..` points outside what travels
+ * with the file. A deck is one HTML file and what sits beside it
+ * (DECK_ANATOMY), and an `<img>` the author cannot send anybody is worse
+ * than a refusal. A declaration, not a const: edit.mjs's picture transforms
+ * call it across the deliberate static cycle between the two modules.
+ */
+export function relativeSrc(s) {
+  return typeof s === 'string' && !!s.trim()
+    && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(s)
+    && !/^[/\\]/.test(s)
+    && !s.split(/[/\\]/).includes('..');
+}
 
 /**
  * Put the slide-mutation routes into `routes`, the table cli/edit.mjs
@@ -741,22 +761,6 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   /**
-   * Is `src` a path this deck can carry? Relative, and only relative.
-   *
-   * A scheme is somebody else's server (or, for `javascript:` and `data:`,
-   * somebody else's code); a leading slash is the serving root rather than the
-   * folder the deck lives in, so it breaks the moment the deck is opened over
-   * `file://` or published under a path; and `..` points outside what travels
-   * with the file. A deck is one HTML file and what sits beside it
-   * (DECK_ANATOMY), and an `<img>` the author cannot send anybody is worse
-   * than a refusal.
-   */
-  const relativeSrc = (s) => typeof s === 'string' && !!s.trim()
-    && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(s)
-    && !/^[/\\]/.test(s)
-    && !s.split(/[/\\]/).includes('..');
-
-  /**
    * `POST /deck/edit/element/image` — `{ slide, index, src, alt }`, an `<img>` onto a
    * slide, addressed by the same top-level child index every element route
    * uses (`sectionChildRanges`).
@@ -836,6 +840,80 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     });
   }
 
+  // ── pictures after the drop (PRESENTING_EDITING) ───────────────────────
+  // A refusal is said in the transform's own words: a shape it does not take
+  // is a 400, a slide or element the file does not have a 404, and a path
+  // that lands on something else the 409 every element route answers.
+  const refusal = (e, json) => {
+    if (e.code === 'STALE') return json(409, { ok: false, error: oneline(e) });
+    if (/^no slide \d|no element at index/.test(e.message)) return json(404, { ok: false, error: oneline(e) });
+    return json(400, { ok: false, error: oneline(e) });
+  };
+  /** A write the page already shows: no reload there, every other page told. */
+  const inPlaceWrite = (changed, inPlace, slide, index, from) => {
+    if (!changed || inPlace !== true) return false;
+    quiet(readDeck());
+    broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    return true;
+  };
+
+  /**
+   * `POST /deck/edit/element/picture` — `{ slide, index, path?, tag?, width?,
+   * alt?, src?, caption? }`: one picture's size, alt text, file, or a caption
+   * around it (setElementPicture), each field a closed shape and one undo
+   * entry for the lot. `path` addresses a picture inside the element (a
+   * figure's, a column's); `[]` or none is the element itself. A caption
+   * answers where the new `<figcaption>` is, for the page to edit it there.
+   */
+  function elementPictureRoute({ body, json }) {
+    const b = JSON.parse(body || '{}');
+    const { slide, index, path = [], tag = 'img', quiet: inPlace = false, from = null } = b;
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || (tag !== null && typeof tag !== 'string')) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    const fields = {};
+    for (const k of ['width', 'alt', 'src', 'caption']) if (Object.hasOwn(b, k)) fields[k] = b[k];
+    let changed;
+    try { changed = applyEdit((html) => setElementPicture(html, slide, index, { path, tag, ...fields })); }
+    catch (e) { return refusal(e, json); }
+    const said = Object.entries(fields).map(([k, v]) => `${k} ${v === null ? '(removed)' : JSON.stringify(v).slice(0, 60)}`).join(', ');
+    if (changed) console.log(`  picture changed: slide ${slide} #${index}${path.length ? ` › ${path.join('.')}` : ''} → ${said}`);
+    const placed = inPlaceWrite(changed, inPlace, slide, index, from);
+    const caption = Object.hasOwn(fields, 'caption') && changed ? { figure: path, img: [...path, 0], figcaption: [...path, 1] } : undefined;
+    return json(200, { ok: true, changed, inPlace: placed, ...(caption ? { caption } : {}), ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/slide/background` — `{ slide, src }`: slide N's
+   * background picture (`data-background-image`, DECK_ANATOMY), a relative
+   * path beside the deck, or null to take it off. With `take: { index, path?,
+   * tag? }` the picture there becomes it: it leaves the slide's content and
+   * its file is the background, in the same one edit (`src` is then the
+   * file's, whatever the body said).
+   */
+  function slideBackgroundRoute({ body, json }) {
+    const { slide, src = null, take = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || (take !== null && (typeof take !== 'object' || !Number.isInteger(take.index) || take.index < 0))) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    if (!take && src !== null && !relativeSrc(src)) {
+      return json(400, { ok: false, error: 'a background src must be a relative path beside the deck' });
+    }
+    let changed;
+    let out = { src, removed: null };
+    try {
+      changed = applyEdit((html) => {
+        if (!take) return setSlideBackground(html, slide, src);
+        const moved = pictureToBackground(html, slide, take.index, { path: take.path ?? [], tag: take.tag ?? 'img' });
+        out = { src: moved.src, removed: moved.removed };
+        return moved.html;
+      });
+    } catch (e) { return refusal(e, json); }
+    if (changed) console.log(`  slide background: slide ${slide} → ${out.src ?? '(removed)'}${take ? ` (the picture at #${take.index} moved there)` : ''}`);
+    const placed = inPlaceWrite(changed, inPlace, slide, take?.index ?? null, from);
+    return json(200, { ok: true, changed, inPlace: placed, src: out.src, ...(take ? { removed: out.removed } : {}), ...history.counts() });
+  }
+
   routes.set('POST /deck/edit/slide/notes', notesRoute);
   routes.set('POST /deck/edit/slide/sources', sourcesRoute);
   routes.set('POST /deck/edit/timings', timingsRoute);
@@ -857,5 +935,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/asset', assetRoute);
   routes.set('POST /deck/edit/element/image', imageRoute);
   routes.set('POST /deck/edit/element/insert', elementInsertRoute);
+  routes.set('POST /deck/edit/element/picture', elementPictureRoute);
+  routes.set('POST /deck/edit/slide/background', slideBackgroundRoute);
   return routes;
 }

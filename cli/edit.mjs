@@ -33,6 +33,8 @@
 //   POST /deck/edit/element/content → { slide, index, html }    replace its outerHTML
 //   POST /deck/edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
 //   POST /deck/edit/element/move    → { slide, index, to, path?, tag? }  move it (or a node inside it) to place `to`
+//   POST /deck/edit/element/picture → { slide, index, path?, width?, alt?, src?, caption? }  one picture's size, alt, file or caption
+//   POST /deck/edit/slide/background → { slide, src | null, take? }  the slide's background picture, or a picture made it
 //   POST /deck/edit/undo            → step the deck file back through the edit history
 //   POST /deck/edit/redo            → step it forward again
 //   POST /deck/edit/agent           → { prompt, agent?, slide?, offer?, place? } one-shot AI agent edit, the skill offered first
@@ -118,7 +120,7 @@ import { applyPlans, voiceFolders, realignMoves, planFolder, planMoves, planStep
 // evaluation that is waiting on IT, and the server would never come up.
 // A static cycle has no such moment: both bodies are function declarations,
 // hoisted before either runs, and nothing is read until a request arrives.
-import { registerSlideRoutes } from './edit-slides.mjs';
+import { registerSlideRoutes, relativeSrc } from './edit-slides.mjs';
 // The route groups split out after it, imported the same way and for the same
 // reason: the deck's look (themes, design systems, fonts), and handing the
 // deck over (export, publish, the inspector's read), and git (the commit
@@ -1040,6 +1042,149 @@ export function setSlideElementBuild(html, slide, index, effect) {
   return parts.join('');
 }
 
+// ── pictures after the drop (PRESENTING_EDITING) ─────────────────────────
+// A dropped picture is an `<img>`, and these are what can be done to it
+// without the HTML: its size, its alt text, the file it points at, a caption
+// around it, and the slide's own background. Each is a closed shape, written
+// textually into the one open tag (or the one section tag) it is about, so
+// the author's bytes around it survive.
+
+/** The bounds of a picture's written width, in deck units (the stage is scaled, not the picture). */
+export const PICTURE_WIDTH = Object.freeze({ min: 16, max: 4096 });
+
+/** The node at `path` below an element's source `el`: its offsets and its tag; stale when the file disagrees with the page. */
+function nodeAt(el, path, { slide, index, tag = null }) {
+  if (!Array.isArray(path) || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
+  let start = 0; let end = el.length;
+  for (const n of path) {
+    const kid = elementChildRanges(el.slice(start, end))[n];
+    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
+    end = start + kid.end; start += kid.start;
+  }
+  const found = /^<([a-zA-Z][\w:-]*)/.exec(el.slice(start, end))?.[1]?.toLowerCase();
+  if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.') || 'the element'}, the file has <${found}> — reload and try again`);
+  return { start, end, found };
+}
+
+/** An open tag's attribute text with `name` set to `value` (escaped) in its own place, or added; null takes it off. */
+function withAttr(attrs, name, value) {
+  const re = new RegExp(`\\s${name}(?=[\\s=/>]|$)(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+))?`, 'i');
+  if (value === null) return attrs.replace(re, '');
+  const said = ` ${name}="${escapeHtml(String(value))}"`;
+  return re.test(attrs) ? attrs.replace(re, () => said) : `${attrs}${said}`;
+}
+
+/** What an attribute says in the file, its entities read (`a&amp;b.png` is `a&b.png`), or null. */
+function attrValue(attrs, name) {
+  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(attrs);
+  return m ? decodeText(m[1] ?? m[2] ?? m[3]) : null;
+}
+
+/**
+ * Change ONE picture: the `<img>` at `path` below slide N's element `index`
+ * (`[]` when the picture is the element). Each field left out is left alone:
+ *   width    a whole number of deck units in PICTURE_WIDTH, or null for the
+ *            picture's natural size. Written as the `width` attribute, which
+ *            every theme's `max-width: 100%` still caps and the stage scales
+ *            with the slide; a `height` attribute and an inline width or
+ *            height would fight it (stretch it, or win), so they go.
+ *   alt      any string, escaped; '' says the picture is decoration.
+ *   src      a relative path beside the deck (relativeSrc), nothing else.
+ *   caption  a string: the picture is wrapped in a `<figure>` with that
+ *            `<figcaption>`, unless it is in one already.
+ * Anything but an `<img>` there is refused, and a path that lands elsewhere
+ * is stale.
+ */
+export function setElementPicture(html, slide, index, { path = [], tag = 'img', width, alt, src, caption } = {}) {
+  if (width !== undefined && width !== null
+      && (typeof width !== 'number' || !Number.isFinite(width) || Math.round(width) < PICTURE_WIDTH.min || Math.round(width) > PICTURE_WIDTH.max)) {
+    throw new Error(`a picture's width is a number of deck units from ${PICTURE_WIDTH.min} to ${PICTURE_WIDTH.max}, or null for its own size`);
+  }
+  if (alt !== undefined && (typeof alt !== 'string' || alt.length > 2000)) throw new Error('alt text is a string of at most 2000 characters');
+  if (src !== undefined && !relativeSrc(src)) throw new Error('an image src must be a relative path beside the deck');
+  if (caption !== undefined && (typeof caption !== 'string' || caption.length > 400 || /[\u0000-\u001f\u007f]/.test(caption))) throw new Error('a caption is one line of at most 400 characters');
+  if (width === undefined && alt === undefined && src === undefined && caption === undefined) throw new Error('nothing to change on the picture');
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  const el = seg.slice(r.start, r.end);
+  const { start, end, found } = nodeAt(el, path, { slide, index, tag });
+  if (found !== 'img') throw new Error(`not a picture: <${found}>`);
+  const { attrs: had, close, rest } = splitOpenTag(el.slice(start, end));
+  let attrs = had;
+  if (width !== undefined) {
+    attrs = withAttr(withAttr(attrs, 'height', null), 'width', width === null ? null : Math.round(width));
+    const styleM = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
+    if (styleM) {
+      const style = withStyleProp(withStyleProp(styleM[2] ?? styleM[3], 'width', null), 'height', null).replace(/"/g, "'");
+      attrs = attrs.replace(styleM[0], () => (style ? ` style="${style}"` : ''));
+    }
+  }
+  if (alt !== undefined) attrs = withAttr(attrs, 'alt', alt);
+  if (src !== undefined) attrs = withAttr(attrs, 'src', src);
+  let node = attrs + close + rest;
+  if (caption !== undefined) {
+    if (path.length && nodeAt(el, path.slice(0, -1), { slide, index }).found === 'figure') {
+      throw new Error('this picture has a caption already: it is in a <figure>');
+    }
+    const words = escapeHtml(caption);
+    // the figure opens where the picture's line did, one step in for what it holds
+    const text = path.length ? el : seg;
+    const at = path.length ? start : r.start;
+    const lead = text.slice(text.lastIndexOf('\n', at - 1) + 1, at);
+    node = /^[ \t]*$/.test(lead) && text.lastIndexOf('\n', at - 1) >= 0
+      ? `<figure>\n${lead}  ${node}\n${lead}  <figcaption>${words}</figcaption>\n${lead}</figure>`
+      : `<figure>${node}<figcaption>${words}</figcaption></figure>`;
+  }
+  parts[idx] = seg.slice(0, r.start) + el.slice(0, start) + node + el.slice(end) + seg.slice(r.end);
+  return parts.join('');
+}
+
+/** The background attributes that mean nothing once a slide has no background media. */
+const BACKGROUND_TUNING = ['data-background-size', 'data-background-position', 'data-background-dim'];
+
+/**
+ * Slide N's background picture (DECK_ANATOMY, background media):
+ * `data-background-image` set to `src` (a relative path beside the deck) in
+ * its own place on the `<section>` tag, or added; null takes it off, and with
+ * it the size, position and dim that tuned it, unless a background video is
+ * still there to be tuned.
+ */
+export function setSlideBackground(html, slide, src) {
+  if (src !== null && !relativeSrc(src)) throw new Error('a background src must be a relative path beside the deck');
+  const { parts, idx } = locateSlide(html, slide);
+  const { attrs: had, close, rest } = splitOpenTag(parts[idx]);
+  let attrs = withAttr(had, 'data-background-image', src);
+  if (src === null && attrValue(attrs, 'data-background-video') === null) {
+    for (const name of BACKGROUND_TUNING) attrs = withAttr(attrs, name, null);
+  }
+  parts[idx] = attrs + close + rest;
+  return parts.join('');
+}
+
+/**
+ * "Use as slide background": the picture at `path` below slide N's element
+ * `index` leaves the slide's content and becomes its background, in ONE edit.
+ * Its `src` is the file's, and must be a path beside the deck (a data: URI or
+ * a link is refused: a background is a file the deck carries). A `<figure>`
+ * the picture leaves empty goes with it; one with a caption keeps the caption.
+ * Returns `{ html, src, removed }`: `removed` is the path that went (`[]` for
+ * the element itself).
+ */
+export function pictureToBackground(html, slide, index, { path = [], tag = 'img' } = {}) {
+  const { seg, r } = locateElement(html, slide, index);
+  const el = seg.slice(r.start, r.end);
+  const { start, end, found } = nodeAt(el, path, { slide, index, tag });
+  if (found !== 'img') throw new Error(`not a picture: <${found}>`);
+  const src = attrValue(splitOpenTag(el.slice(start, end)).attrs, 'src');
+  if (!relativeSrc(src)) throw new Error('only a picture beside the deck can become its background (this one is inline or a link)');
+  let removed = path;
+  if (path.length) {
+    const p = nodeAt(el, path.slice(0, -1), { slide, index });
+    if (p.found === 'figure' && elementChildRanges(el.slice(p.start, p.end)).length === 1) removed = path.slice(0, -1);
+  }
+  const out = removed.length ? removeNestedElement(html, slide, index, { path: removed }) : removeSlideElement(html, slide, index);
+  return { html: setSlideBackground(out, slide, src), src, removed };
+}
+
 /**
  * The edit history: whole-file snapshots, in memory, capped. record() the
  * content a mutation is about to replace; undo()/redo() take the CURRENT
@@ -1072,6 +1217,8 @@ const WRITE_LABELS = {
   '/deck/edit/element/text': 'text saved',
   '/deck/edit/element/image': 'image placed',
   '/deck/edit/element/insert': 'element added',
+  '/deck/edit/element/picture': 'picture changed',
+  '/deck/edit/slide/background': 'slide background set',
   '/deck/edit/concepts': 'concept colours saved',
   '/deck/edit/asset': 'asset added',
   '/deck/edit/undo': 'undo',
@@ -1203,6 +1350,8 @@ const UNDO_LABELS = {
   '/deck/edit/element/text': 'label edit',
   '/deck/edit/element/image': 'picture',
   '/deck/edit/element/insert': 'added element',
+  '/deck/edit/element/picture': 'picture',
+  '/deck/edit/slide/background': 'slide background',
   '/deck/edit/concepts': 'concept colours',
   '/deck/edit/restore': 'restore from git',
   '/deck/edit/theme': 'theme',

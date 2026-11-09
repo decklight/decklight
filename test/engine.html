@@ -791,6 +791,24 @@
         if (u.includes('/deck/edit/theme/browse')) return json({ ok: true, themes: [] });
         if (u.includes('/deck/edit/')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
       }
+      // pictures after the drop (PRESENTING_EDITING): the picture and
+      // background routes answer as the server does, quiet and in place
+      if (HARNESS_MODE.startsWith('picture')) {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/picture')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          const p = b.path ?? [];
+          return json({ ok: true, changed: true, inPlace: b.quiet === true, undo: 1, redo: 0,
+            ...(b.caption !== undefined ? { caption: { figure: p, img: [...p, 0], figcaption: [...p, 1] } } : {}) });
+        }
+        if (u.includes('/deck/edit/slide/background')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, changed: true, inPlace: b.quiet === true, undo: 1, redo: 0,
+            src: b.take ? 'assets/taken.svg' : b.src, ...(b.take ? { removed: b.take.path } : {}) });
+        }
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<figure>\n<img src="x.svg" alt="">\n<figcaption>Caption</figcaption>\n</figure>' });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
+      }
       if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors' || HARNESS_MODE === 'copystyle') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/style')) {
@@ -1212,6 +1230,25 @@
         <section data-background-image="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='16' height='9' fill='red'/%3E%3C/svg%3E"><h2>Art</h2></section>
         <section><h2>Plain</h2></section>
         <section data-template="bl/cover"><h2 data-slot="title">Layout art</h2></section>`);
+    }
+    // Pictures after the drop (PRESENTING_EDITING): a slide with a picture of
+    // its own and one in a figure in the columns, first in the deck; an upload
+    // answered here, since its body is the file and not JSON
+    if (HARNESS_MODE.startsWith('picture')) {
+      const svg = (w, h, fill) => `data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}'%3E%3Crect width='${w}' height='${h}' fill='${fill}'/%3E%3C/svg%3E`;
+      document.querySelector('.decklight').insertAdjacentHTML('afterbegin', `
+        <section><h2>Pictures</h2>
+          <img class="pic-top" src="${svg(400, 200, '%23c33')}" alt="a wide red box">
+          <div class="columns"><figure><img class="pic-fig" src="${svg(200, 200, '%2333c')}" alt=""></figure><p>beside it</p></div>
+        </section>`);
+      const inner = window.fetch;
+      window.fetch = async (url, init) => {
+        if (init?.body instanceof Blob) {
+          CALLS.post.push({ u: String(url), body: { file: init.body.name } });
+          return json({ ok: true, src: `assets/${init.body.name}`, bytes: init.body.size });
+        }
+        return inner(url, init);
+      };
     }
     // the page before the reload left its debug log and the reason it was told
     if (HARNESS_MODE === 'debugreload') {
@@ -3797,6 +3834,177 @@
         r.noReload = reloads === 0;
         r.PASS = r.barOffersNewSlideKinds && r.barListsTheKinds && r.askedForTheKind && r.newSlideInPlace && r.titleInEdit
           && r.rightClickListsTheKinds && r.blankIsBlank && r.noReload;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      // ── pictures after the drop (PRESENTING_EDITING) ─────────────────────
+      if (mode.startsWith('picture')) {
+        await settle(); await settle();
+        deck.goto(1, 0); await settle();
+        let reloads = 0;
+        document.querySelector('.decklight').addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const top = document.querySelector('.pic-top');
+        const fig = document.querySelector('.pic-fig');
+        await until(() => top.naturalWidth > 0 && fig.naturalWidth > 0);
+        const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const posts = (route) => CALLS.post.filter((c) => c.u.includes(route));
+        const picPosts = () => posts('/deck/edit/element/picture');
+        const sec = top.closest('section');
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+        const row = (label) => rows().find((n) => n.textContent === label);
+        const rightClick = (el) => { const b = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 5, clientY: b.top + 5 })); };
+        const chooseFile = (name) => deck._pictures.setChooser(async () => new File(['<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"/>'], name, { type: 'image/svg+xml' }));
+
+        if (mode === 'pictureresize') {
+          // A selected picture wears four corner handles; a drag resizes it
+          // live, its aspect kept, and ONE write lands on release: its width in
+          // deck units. A double-click is its own size again, a drag never
+          // makes it bigger than the slide, and a picture in a figure in the
+          // columns is selected as itself.
+          click(top); await settle();
+          const handles = () => [...document.querySelectorAll('.dl-pic-handle')];
+          r.fourHandles = handles().length === 4 && deck._pictures.handled() === top;
+          const se = handles().find((h) => h.dataset.corner === 'se');
+          const hr = se.getBoundingClientRect(); const ir = top.getBoundingClientRect();
+          r.handleOnTheCorner = Math.abs(hr.left + hr.width / 2 - (ir.right + 4)) <= 2 && Math.abs(hr.top + hr.height / 2 - (ir.bottom + 4)) <= 2;
+          const pe = (target, type, x, y) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 7, clientX: x, clientY: y, button: 0 }));
+          const x0 = hr.left + 6, y0 = hr.top + 6;
+          pe(se, 'pointerdown', x0, y0);
+          pe(window, 'pointermove', x0 + 40, y0 + 5);
+          pe(window, 'pointermove', x0 + 80, y0 + 10);
+          const mid = top.getBoundingClientRect();
+          r.cornerFollowsThePointer = Math.abs(mid.right - (ir.right + 80)) <= 3;
+          r.liveWithNoWriteYet = !!document.querySelector('.dl-pic-size') && picPosts().length === 0;
+          r.aspectKept = Math.abs(mid.width / mid.height - 2) < 0.03;
+          pe(window, 'pointerup', x0 + 80, y0 + 10);
+          await settle();
+          const w = Number(top.getAttribute('width'));
+          const sent = picPosts()[0]?.body ?? {};
+          r.oneWriteOnRelease = picPosts().length === 1 && sent.width === w && sent.slide === 1 && sent.index === 1
+            && Array.isArray(sent.path) && sent.path.length === 0 && sent.tag === 'img' && sent.quiet === true;
+          r.widthInDeckUnits = w > 400 && Math.abs(w - top.getBoundingClientRect().width / deck._scale) <= 1;
+          // as far as the pointer goes, no wider than the slide holds
+          const hr2 = handles().find((h) => h.dataset.corner === 'se').getBoundingClientRect();
+          pe(handles().find((h) => h.dataset.corner === 'se'), 'pointerdown', hr2.left + 6, hr2.top + 6);
+          pe(window, 'pointermove', hr2.left + 5000, hr2.top + 6);
+          pe(window, 'pointerup', hr2.left + 5000, hr2.top + 6);
+          await settle();
+          const cs = getComputedStyle(sec);
+          const inner = sec.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+          r.neverWiderThanTheSlide = picPosts().length === 2 && picPosts()[1].body.width <= inner
+            && top.getBoundingClientRect().right <= sec.getBoundingClientRect().right + 1;
+          handles().find((h) => h.dataset.corner === 'nw').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+          await settle();
+          r.doubleClickIsItsOwnSize = picPosts().length === 3 && picPosts()[2].body.width === null && !top.hasAttribute('width')
+            && Math.round(top.getBoundingClientRect().width / deck._scale) === 400;
+          // the picture in the figure in the columns: selected as itself, written by its path
+          click(fig); await settle();
+          r.nestedSelectedAsItself = deck._selection()?.node === fig && deck._pictures.handled() === fig && handles().length === 4;
+          const sw = handles().find((h) => h.dataset.corner === 'sw').getBoundingClientRect();
+          pe(handles().find((h) => h.dataset.corner === 'sw'), 'pointerdown', sw.left + 6, sw.top + 6);
+          pe(window, 'pointermove', sw.left - 30, sw.top + 6);
+          pe(window, 'pointerup', sw.left - 30, sw.top + 6);
+          await settle();
+          const nested = picPosts()[3]?.body ?? {};
+          r.nestedWrittenByItsPath = nested.index === 2 && JSON.stringify(nested.path) === '[0,0]' && nested.width > 200;
+          r.noReload = reloads === 0;
+          r.PASS = r.fourHandles && r.handleOnTheCorner && r.cornerFollowsThePointer && r.liveWithNoWriteYet && r.aspectKept
+            && r.oneWriteOnRelease && r.widthInDeckUnits && r.neverWiderThanTheSlide && r.doubleClickIsItsOwnSize
+            && r.nestedSelectedAsItself && r.nestedWrittenByItsPath && r.noReload;
+        }
+
+        if (mode === 'picturealt') {
+          // The Info tab edits alt text in place (⏎ saves, Esc cancels), a
+          // missing one stays flagged, and Replace… uploads a new file and
+          // points the same <img> at it, its size and alt kept.
+          click(top); await settle();
+          press('i'); await settle();
+          const field = () => document.querySelector('.decklight-inspector dd[data-key="alt"] .ins-field');
+          r.altIsAField = field()?.value === 'a wide red box';
+          field().value = 'Q3 revenue';
+          field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          await settle();
+          r.enterSaves = picPosts().length === 1 && picPosts()[0].body.alt === 'Q3 revenue' && picPosts()[0].body.quiet === true
+            && top.getAttribute('alt') === 'Q3 revenue' && field()?.value === 'Q3 revenue';
+          field().value = 'not this';
+          field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          await settle();
+          r.escCancels = picPosts().length === 1 && field()?.value === 'Q3 revenue' && deck._selection()?.node === top
+            && !!document.querySelector('.decklight-inspector');
+          // Replace…: the upload, then the same element pointed at the new file
+          chooseFile('fresh.svg');
+          top.setAttribute('width', '300');
+          const replace = document.querySelector('.decklight-inspector dd[data-key="image"] .ins-btn');
+          r.replaceOffered = replace?.textContent === 'Replace…';
+          replace?.click();
+          await settle(); await settle();
+          const last = picPosts().at(-1)?.body ?? {};
+          r.replaceUploads = posts('/deck/edit/asset').some((c) => c.body.file === 'fresh.svg');
+          r.replaceKeepsTheElement = last.src === 'assets/fresh.svg' && last.alt === undefined && last.width === undefined
+            && top.isConnected && top.getAttribute('src') === 'assets/fresh.svg' && top.getAttribute('alt') === 'Q3 revenue' && top.getAttribute('width') === '300';
+          // the figure's picture has no alt: flagged as before, and the field is empty
+          click(fig); await settle();
+          const altDd = document.querySelector('.decklight-inspector dd[data-key="alt"]');
+          r.missingStaysFlagged = !!altDd?.querySelector('.ins-warn') && altDd.querySelector('.ins-value')?.textContent === 'missing' && field()?.value === '';
+          r.noReload = reloads === 0;
+          r.PASS = r.altIsAField && r.enterSaves && r.escCancels && r.replaceOffered && r.replaceUploads
+            && r.replaceKeepsTheElement && r.missingStaysFlagged && r.noReload;
+        }
+
+        if (mode === 'picturebg') {
+          // Slide ▸ Background picture… sets the slide's background in place,
+          // Remove background takes it off, a picture's menu makes it the
+          // background (it leaves the content), and Add caption wraps it in a
+          // figure whose caption goes straight into editing.
+          chooseFile('sky.svg');
+          const slideBtn = document.querySelector('.decklight-editbar .eb-slide');
+          click(slideBtn); await settle();
+          r.slideMenuOffersIt = !!row('Background picture…') && !row('Remove background');
+          row('Background picture…')?.click();
+          await settle(); await settle();
+          const bgPost = posts('/deck/edit/slide/background')[0]?.body ?? {};
+          const layer = () => sec.querySelector(':scope > .slide-bg');
+          r.setInPlace = bgPost.slide === 1 && bgPost.src === 'assets/sky.svg' && bgPost.quiet === true
+            && sec.getAttribute('data-background-image') === 'assets/sky.svg' && /assets\/sky\.svg/.test(layer()?.style.backgroundImage ?? '');
+          r.bleedFollows = !!document.querySelector('.decklight-bleed .bleed-piece') && sec.hasAttribute('data-bled');
+          // the engine's layer is not the file's: the title is still element 0.
+          // Reported, not yet gated: authoredIndex counts the layer until its
+          // own fix lands (claude/fix-element-index-past-background)
+          click(sec.querySelector('h2')); await settle();
+          r.indexSkipsTheLayer = deck._selection()?.index === 0;
+          press('Escape'); await settle();
+          click(slideBtn); await settle();
+          r.removeOffered = !!row('Remove background') && !!row('Change background picture…');
+          row('Remove background')?.click();
+          await settle(); await settle();
+          r.removedInPlace = posts('/deck/edit/slide/background')[1]?.body.src === null
+            && !sec.hasAttribute('data-background-image') && !layer() && !document.querySelector('.decklight-bleed .bleed-piece');
+          // a picture already in a figure has no Add caption; both offer the background
+          rightClick(fig); await settle();
+          r.figureHasNoCaptionRow = !!row('Use as slide background') && !row('Add caption');
+          press('Escape'); await settle();
+          rightClick(top); await settle();
+          r.pictureMenuRows = !!row('Use as slide background') && !!row('Add caption');
+          row('Add caption')?.click();
+          await settle(); await settle();
+          const cap = sec.querySelector('figure > figcaption');
+          const capPost = picPosts()[0]?.body ?? {};
+          r.captionWraps = capPost.caption === 'Caption' && capPost.index === 1 && top.parentElement?.tagName === 'FIGURE'
+            && top.parentElement.parentElement === sec && cap?.textContent === 'Caption';
+          r.captionEditing = cap?.isContentEditable === true && String(window.getSelection()) === 'Caption';
+          cap?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          await settle();
+          // the figure's picture becomes the background: one write, out of the content
+          rightClick(fig); await settle();
+          row('Use as slide background')?.click();
+          await settle(); await settle();
+          const took = posts('/deck/edit/slide/background')[2]?.body ?? {};
+          r.useAsBackground = took.take?.index === 2 && JSON.stringify(took.take?.path) === '[0,0]' && took.take?.tag === 'img'
+            && !fig.isConnected && sec.getAttribute('data-background-image') === 'assets/taken.svg' && !!layer();
+          r.noReload = reloads === 0;
+          r.PASS = r.slideMenuOffersIt && r.setInPlace && r.bleedFollows && r.removeOffered && r.removedInPlace
+            && r.figureHasNoCaptionRow && r.pictureMenuRows && r.captionWraps && r.captionEditing && r.useAsBackground && r.noReload;
+        }
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
