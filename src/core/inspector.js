@@ -15,7 +15,8 @@
  * when it is fine and a yellow ! when it wants a look, the way the terminal
  * banner marks its rows: short, no commentary. With an element selected in
  * write mode, the Colors and Type tabs are where it is restyled
- * (colorpicker.js), each pick saved in place as it is made.
+ * (colorpicker.js), each pick saved in place as it is made, and a chart's
+ * Data tab is where its numbers are typed (chartgrid.js).
  *
  * The picker (the arrow-in-a-box button, DevTools' "select an element")
  * lights whatever is under the pointer, a diagram's shapes one by one
@@ -36,6 +37,7 @@ import { sourcesOf } from './sources.js';
 import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
 import { colorTargets, createColorEditor, brandRoles } from './colorpicker.js';
 import { pickNode, createSpotlight } from './pick.js';
+import { createChartGrid } from './chartgrid.js';
 import {
   parseColor, contrastRatio, aaFloor, hex, tokenFor, stageBox, shareOf,
   fontLine, clock, effectiveBackground,
@@ -57,6 +59,8 @@ export function createInspector({
   concepts = () => null,
   brand = () => null,
   pictures = () => null,
+  // a chart drawn again after its Data tab changed it, and its slide rescanned (the engine's)
+  redrawChart = null,
 }) {
   const dock = createDock({
     root,
@@ -77,9 +81,12 @@ export function createInspector({
   let target = null;
   let focus = null;
   let subscribed = false;
+  let lockHeard = false;
   // Info, Colors or Type; the editor the last two share, for the node it was made for
   let tab = 'info';
   let editor = null;
+  // the Data tab's grid, for the chart it was made for, kept across repaints
+  let chartPane = null;
   let picking = false;
   const spot = createSpotlight(root);
   // what the server and the review said about a slide, kept until the slide
@@ -97,6 +104,7 @@ export function createInspector({
     unhover();
     stopPicking();
     editor = null;
+    dropChartPane();
     el?.remove();
     el = null;
     if (onResize) { window.removeEventListener('resize', onResize); onResize = null; }
@@ -117,6 +125,11 @@ export function createInspector({
         focus = focusOf(t);
         if (el) render();
       });
+    }
+    if (!lockHeard && editmode()?.onLockChange) {
+      lockHeard = true;
+      // the grid is writable or read-only by the lock: made again when it turns
+      editmode().onLockChange(() => { if (!chartPane) return; dropChartPane(); if (el) render(); });
     }
     if (want) tab = want;
     if (el) { target = editbar()?.selected?.() ?? target; focus = focusOf(target); render(); return; }
@@ -466,7 +479,8 @@ export function createInspector({
     const bar = document.createElement('div');
     bar.className = 'ins-tabs';
     bar.setAttribute('role', 'tablist');
-    for (const [id, label] of [['info', 'Info'], ['colors', 'Colors'], ['type', 'Type']]) {
+    const chart = chartOf(target);
+    for (const [id, label] of [['info', 'Info'], ['colors', 'Colors'], ['type', 'Type'], ['data', 'Data']]) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'ins-tab';
@@ -474,7 +488,9 @@ export function createInspector({
       b.textContent = label;
       b.setAttribute('role', 'tab');
       b.setAttribute('aria-selected', String(tab === id));
-      if (id !== 'info' && !can) { b.disabled = true; b.title = editmode()?.available?.() ? 'nothing here to restyle' : 'restyling is write mode’s'; }
+      // Data is a chart's: its numbers, as a grid (read-only where nothing writes)
+      if (id === 'data') { if (!chart) { b.disabled = true; b.title = 'not a chart'; } else b.title = 'this chart’s numbers, as a grid'; }
+      else if (id !== 'info' && !can) { b.disabled = true; b.title = editmode()?.available?.() ? 'nothing here to restyle' : 'restyling is write mode’s'; }
       b.addEventListener('click', (e) => { e.stopPropagation(); tab = id; render(); });
       bar.append(b);
     }
@@ -496,6 +512,44 @@ export function createInspector({
       bar.append(h);
     }
     return bar;
+  }
+
+  // ----- the Data tab -----------------------------------------------------------
+
+  /** The charts an authored element holds, in document order, itself first. */
+  const chartsIn = (top) => (top ? [...(top.matches?.('[data-chart]') ? [top] : []), ...top.querySelectorAll('[data-chart]')] : []);
+  /**
+   * The chart the selection is: the one it is in, or the only one in the
+   * element selected. The Data tab's own is kept while it is still there:
+   * drawing a chart again replaces the very shape that was clicked.
+   */
+  function chartOf(t) {
+    if (!t?.top) return null;
+    if (chartPane && chartPane.top === t.top && chartPane.chart.isConnected && t.top.contains(chartPane.chart)) return chartPane.chart;
+    for (const n of [t.node, focus, t.clicked]) {
+      const c = n?.isConnected ? n.closest?.('[data-chart]') : null;
+      if (c && t.top.contains(c)) return c;
+    }
+    const all = chartsIn(t.top);
+    return all.length === 1 ? all[0] : null;
+  }
+  function dropChartPane() {
+    chartPane?.destroy();
+    chartPane = null;
+  }
+  /** The grid for the chart selected, made once per chart and kept across repaints. */
+  function chartPaneFor(chart) {
+    if (!chartPane || chartPane.chart !== chart || chartPane.top !== target.top) {
+      dropChartPane();
+      const em = editmode();
+      const pane = createChartGrid({
+        chart, target, ordinal: chartsIn(target.top).indexOf(chart), editmode: em, toast,
+        redraw: redrawChart ?? undefined,
+        openHtml: em?.available?.() && em?.editContent && target.index != null ? (() => { const t = target; em.editContent(t); }) : null,
+      });
+      chartPane = { ...pane, top: target.top };
+    }
+    return chartPane.el;
   }
 
   /** The editor for the node shown, made once per node and kept across repaints. */
@@ -576,7 +630,7 @@ export function createInspector({
     if (e.type !== 'click') return;
     const node = pickedAt(e.target);
     stopPicking();
-    if (node) { if (tab !== 'info' && !styleTargets()) tab = 'info'; inspectNode(node); }
+    if (node) { if (tab !== 'info' && tab !== 'data' && !styleTargets()) tab = 'info'; inspectNode(node); }
   }
   const PICK_EVENTS = ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu'];
   function startPicking() {
@@ -601,11 +655,23 @@ export function createInspector({
     const n = slideNo();
     if (target && (!focus || !focus.isConnected || target.slide !== n)) { target = null; focus = null; }
     if (editor && editor.node !== focus) editor = null;
+    const chart = target ? chartOf(target) : null;
+    if (chartPane && (tab !== 'data' || chartPane.chart !== chart)) dropChartPane();
+    if (tab === 'data' && !chart) tab = 'info';
     const card = el.querySelector('.narr-card');
+    // the grid on screen, for this chart: left as it is, so a cell keeps its
+    // caret through the repaints a redrawn chart sets off (a rescan, the
+    // overflow guardrail's verdict)
+    if (tab === 'data' && chartPane?.el.isConnected && card.contains(chartPane.el)) return;
     card.textContent = '';
     header(card);
     if (!target) tab = 'info';
     if (target) card.append(tabsBar());
+    if (target && tab === 'data') {
+      // its foot is its own: what the keys do depends on whether there is a grid
+      card.append(chartPaneFor(chart));
+      return;
+    }
     if (target && tab !== 'info') {
       card.append(editorPane());
       const hint = document.createElement('div');
@@ -795,6 +861,6 @@ export function createInspector({
     + '<path d="M6.5 13.5h-4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v4" stroke-dasharray="2 1.6"/>'
     + '<path d="M8 8l6.5 2.4-2.8 1.1 2.3 2.3-.9.9-2.3-2.3-1.1 2.8z" fill="currentColor" stroke-linejoin="round"/></svg>';
   /** Something the panel shows changed under it (a concept attached): paint it again, the editor rebuilt. */
-  function refresh() { if (!el) return; editor = null; render(); }
+  function refresh() { if (!el) return; editor = null; dropChartPane(); render(); }
   return { open, close, isOpen, onSlide, refresh, text: () => lastText };
 }
