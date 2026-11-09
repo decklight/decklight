@@ -568,6 +568,18 @@
         }
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // links while editing (PRESENTING_EDITING): the slide's sources, by index,
+      // and every content write kept for the mode to read back exactly
+      if (HARNESS_MODE === 'links') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) {
+          const i = Number(new URL(u, location.href).searchParams.get('index'));
+          return json({ ok: true, html: ['<h2>Links</h2>', '<p class="lk-p">Read the guide today</p>',
+            '<ul>\n  <li class="lk-li">See <a href="https://example.org/a">the docs</a> now</li>\n</ul>',
+            '<h3 class="lk-h">A heading</h3>'][i] ?? '<p></p>' });
+        }
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       // ⌘⏎ saves the notes card from anywhere (#646): an edit server whose
       // notes route answers `changed` — false when the box matches the file
       // the card back open after a save's reload (#646): a slow save, so the
@@ -1030,6 +1042,12 @@
           <text class="le-lines" x="500" y="80" font-size="24" fill="#f2ece4"><tspan class="le-one" x="500">Line one</tspan><tspan class="le-two" x="500" dy="30">Line two</tspan></text>
         </svg>
       </section>`);
+    }
+    // words to link, a link already there, and a heading (links)
+    if (HARNESS_MODE === 'links') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Links</h2><p class="lk-p">Read the guide today</p><ul>
+  <li class="lk-li">See <a href="https://example.org/a">the docs</a> now</li>
+</ul><h3 class="lk-h">A heading</h3></section>`);
     }
     // three diagrams, no concept yet: "Agent" twice in two colours, its label in
     // a group on one slide and beside it on another; "Other" twice in two colours
@@ -2582,7 +2600,8 @@
         r.noPillWithoutSelection = !pill();
         selectWord(h1, 'One');
         await settle();
-        r.pillOnSelection = !!pill() && [...pill().querySelectorAll('button')].map((b) => b.textContent).join('|') === 'B|I|‹›';
+        // B, I, code, and the link button (links)
+        r.pillOnSelection = !!pill() && [...pill().querySelectorAll('button')].map((b) => b.textContent || b.getAttribute('aria-label')).join('|') === 'B|I|‹›|link';
         chord('b');
         r.chordWrapsStrong = h1.innerHTML === '<strong>One</strong>';
         r.pillSaysOn = pill()?.querySelector('.fmt-strong')?.classList.contains('on') === true;
@@ -2608,6 +2627,158 @@
         return;
       }
 
+      if (mode === 'links') {
+        // Links while editing in place (PRESENTING_EDITING): ⌘K over selected
+        // words opens a URL box under them; Esc leaves the words as they were;
+        // a javascript: address is refused in the box; ⏎ applies the <a>; the
+        // pill's link button opens the same box, and offers the deck's slides
+        // for `#`; on a link the box holds its href, with Open and Remove; a
+        // link cut through keeps its other half and none nests; the save
+        // posts exactly that markup, quietly, in place; and a plain click on
+        // a slide's link in write mode does not leave the deck.
+        await settle();
+        deck.goto(5, 0); await settle();
+        const p = document.querySelector('.decklight-stage > section.active .lk-p');
+        const li = document.querySelector('.decklight-stage > section.active .lk-li');
+        const box = () => document.querySelector('.dl-link');
+        const url = () => box()?.querySelector('.dl-link-url');
+        const pill = () => document.querySelector('.dl-fmt');
+        const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const select = (el, word, { caret = false } = {}) => {
+          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          let t;
+          while ((t = walker.nextNode()) && !t.textContent.includes(word));
+          const i = t.textContent.indexOf(word);
+          const r = document.createRange(); r.setStart(t, caret ? i + 1 : i); r.setEnd(t, caret ? i + 1 : i + word.length);
+          const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+          document.dispatchEvent(new Event('selectionchange'));
+        };
+        const chordK = (el) => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true }));
+        const typeUrl = (v) => { url().value = v; url().dispatchEvent(new Event('input', { bubbles: true })); };
+        const keyIn = (k) => url().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+        const click = (el) => { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); el.click(); };
+        const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content'));
+        const opened = [];
+        window.open = (...a) => { opened.push(a); return null; };
+
+        dbl(p);
+        select(p, 'guide');
+        chordK(p);
+        await settle();
+        const wr = (() => { const t = p.firstChild; const r0 = document.createRange(); r0.setStart(t, 9); r0.setEnd(t, 14); return r0.getBoundingClientRect(); })();
+        const br = box()?.getBoundingClientRect();
+        r.chordOpensTheBox = !!box() && document.activeElement === url() && url().value === ''
+          && !document.querySelector('.decklight-palette');                          // the palette's chord, taken by the words
+        r.boxUnderTheWords = !!br && br.top >= wr.bottom && br.top - wr.bottom < 40
+          && br.left <= wr.right && br.right >= wr.left;
+        r.noRemoveOnNewLink = !!box() && !box().querySelector('.dl-link-remove') && !box().querySelector('.dl-link-open');
+        keyIn('Escape');
+        await settle();
+        r.escapeLeavesTheWords = !box() && p.innerHTML === 'Read the guide today' && p.isContentEditable
+          && document.activeElement === p && String(window.getSelection()) === 'guide';
+
+        chordK(p);
+        await settle();
+        typeUrl('javascript:alert(1)');
+        keyIn('Enter');
+        await settle();
+        r.javascriptRefused = !!box() && box().classList.contains('refused') && /javascript: links run code/.test(box().querySelector('.dl-link-why').textContent)
+          && url().getAttribute('aria-invalid') === 'true' && p.innerHTML === 'Read the guide today';
+        typeUrl('example.com');
+        r.typingClearsTheReason = box().querySelector('.dl-link-why').textContent === '' && !box().classList.contains('refused');
+        keyIn('Enter');
+        await settle();
+        r.enterAppliesTheLink = !box() && p.innerHTML === 'Read the <a href="https://example.com">guide</a> today'
+          && p.isContentEditable && String(window.getSelection()) === 'guide';
+        r.pillSaysLinkOn = pill()?.querySelector('.fmt-a')?.classList.contains('on') === true;
+
+        // the pill's own button, and a slide of this deck offered for `#`
+        select(p, 'today');
+        await settle();
+        r.pillLinkOffOutsideALink = pill()?.querySelector('.fmt-a')?.classList.contains('on') === false;
+        pill().querySelector('.fmt-a').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        await settle();
+        r.pillOpensTheBox = !!box() && document.activeElement === url();
+        typeUrl('#');
+        const offered = [...box().querySelectorAll('.dl-link-slide')].map((n) => n.textContent);
+        r.slidesOffered = offered.length === 5 && offered[1] === 'Slide 2Two' && offered[4] === 'Slide 5Links';
+        keyIn('ArrowDown'); keyIn('ArrowDown');
+        keyIn('Enter');
+        await settle();
+        r.slideLinkApplied = !box() && p.innerHTML === 'Read the <a href="https://example.com">guide</a> <a href="#/2">today</a>';
+
+        // on a link already there: its href, Open, Remove; a new address updates it
+        select(p, 'guide', { caret: true });
+        chordK(p);
+        await settle();
+        r.existingLinkFilled = !!box() && url().value === 'https://example.com'
+          && !!box().querySelector('.dl-link-remove') && !!box().querySelector('.dl-link-open');
+        click(box().querySelector('.dl-link-open'));
+        r.openGoesToANewTab = opened.length === 1 && opened[0][0] === 'https://example.com/' && opened[0][1] === '_blank';
+        typeUrl('https://example.org/new');
+        keyIn('Enter');
+        await settle();
+        r.changedUrlUpdates = !box() && p.innerHTML === 'Read the <a href="https://example.org/new">guide</a> <a href="#/2">today</a>';
+        select(p, 'today', { caret: true });
+        chordK(p);
+        await settle();
+        click(box().querySelector('.dl-link-remove'));
+        await settle();
+        r.removeKeepsTheWords = !box() && p.innerHTML === 'Read the <a href="https://example.org/new">guide</a> today'
+          && String(window.getSelection()) === 'today' && p.isContentEditable;
+
+        p.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const first = writes()[0]?.body;
+        r.savedExactly = writes().length === 1 && first.slide === 5 && first.index === 1
+          && first.html === '<p class="lk-p">Read the <a href="https://example.org/new">guide</a> today</p>'
+          && first.quiet === true && typeof first.from === 'string';
+        r.savedInPlace = p.isConnected && !p.isContentEditable && ![...document.querySelectorAll('.decklight-toast')].some((n) => /reloading/.test(n.textContent));
+
+        // a link cut through: the selected half takes the new one, the rest keeps its own
+        dbl(li);
+        // the selection crosses the link's end: from inside it to the text after it
+        { const a = li.querySelector('a'); const t1 = a.firstChild; const t2 = a.nextSibling;
+          const rr = document.createRange(); rr.setStart(t1, 4); rr.setEnd(t2, 4);
+          const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(rr); }
+        chordK(li);
+        await settle();
+        r.crossingIsANewLink = !!box() && url().value === '';
+        typeUrl('notes.pdf');
+        keyIn('Enter');
+        await settle();
+        r.cutLinkKeepsItsHalf = li.innerHTML === 'See <a href="https://example.org/a">the </a><a href="notes.pdf">docs now</a>'
+          && !li.querySelector('a a');
+        li.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const second = writes()[1]?.body;
+        r.listItemSavedExactly = writes().length === 2 && second.index === 2
+          && second.html === '<ul>\n  <li class="lk-li">See <a href="https://example.org/a">the </a><a href="notes.pdf">docs now</a></li>\n</ul>';
+
+        // write mode: a plain click on a slide's link stays on the deck; ⌘-click is the browser's
+        let prevented = null;
+        const watch = (e) => { prevented = e.defaultPrevented; e.preventDefault(); };
+        document.addEventListener('click', watch);
+        li.querySelector('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+        r.clickDoesNotLeave = prevented === true && location.href.includes('engine.html');
+        li.querySelector('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, metaKey: true }));
+        r.cmdClickIsTheBrowsers = prevented === false;
+        // locked, editing is off: a link is followed as it always was
+        window.__es.emit('lock', { locked: true });
+        await settle();
+        prevented = null;
+        li.querySelector('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+        r.lockedLinksWork = prevented === false;
+        document.removeEventListener('click', watch);
+
+        r.PASS = r.chordOpensTheBox && r.boxUnderTheWords && r.noRemoveOnNewLink && r.escapeLeavesTheWords && r.javascriptRefused
+          && r.typingClearsTheReason && r.enterAppliesTheLink && r.pillSaysLinkOn && r.pillLinkOffOutsideALink && r.pillOpensTheBox
+          && r.slidesOffered && r.slideLinkApplied && r.existingLinkFilled && r.openGoesToANewTab && r.changedUrlUpdates
+          && r.removeKeepsTheWords && r.savedExactly && r.savedInPlace && r.crossingIsANewLink && r.cutLinkKeepsItsHalf
+          && r.listItemSavedExactly && r.clickDoesNotLeave && r.cmdClickIsTheBrowsers && r.lockedLinksWork;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
       if (mode === 'labeledit') {
         // SVG_DIAGRAMS: a double-click on a diagram label lays a box over it
         // in the label's font and ink; ⏎ or leaving it sends the words alone,
