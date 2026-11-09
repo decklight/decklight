@@ -2688,8 +2688,11 @@
         r.typingClearsTheReason = box().querySelector('.dl-link-why').textContent === '' && !box().classList.contains('refused');
         keyIn('Enter');
         await settle();
-        r.enterAppliesTheLink = !box() && p.innerHTML === 'Read the <a href="https://example.com">guide</a> today'
-          && p.isContentEditable && String(window.getSelection()) === 'guide';
+        { const sel = window.getSelection(); const a = p.querySelector('a');
+          r.enterAppliesTheLink = !box() && p.innerHTML === 'Read the <a href="https://example.com">guide</a> today'
+            && p.isContentEditable && sel.isCollapsed && sel.anchorNode === p && sel.anchorOffset === [...p.childNodes].indexOf(a) + 1; }
+        select(p, 'guide');
+        await settle();
         r.pillSaysLinkOn = pill()?.querySelector('.fmt-a')?.classList.contains('on') === true;
 
         // the pill's own button, and a slide of this deck offered for `#`
@@ -2749,7 +2752,8 @@
         await settle();
         r.cutLinkKeepsItsHalf = li.innerHTML === 'See <a href="https://example.org/a">the </a><a href="notes.pdf">docs now</a>'
           && !li.querySelector('a a');
-        li.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        // ⌘⏎ keeps: in a list, a bare Enter starts the next point
+        li.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true }));
         await settle(); await settle();
         const second = writes()[1]?.body;
         r.listItemSavedExactly = writes().length === 2 && second.index === 2

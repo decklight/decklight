@@ -499,8 +499,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       for (const e of cur.el.querySelectorAll('a')) if (e !== a && !e.textContent && !e.querySelector('img, svg, picture')) e.remove();
       cur.el.normalize();
     }
+    // the caret goes just after the link, as a document editor leaves it:
+    // typing carries on outside it, and an Enter in a list starts the next
+    // point instead of replacing the words that were just linked
     const r = document.createRange();
-    r.selectNodeContents(a);
+    r.setStartAfter(a); r.collapse(true);
     sel.removeAllRanges(); sel.addRange(r);
     placePill();
     return true;
