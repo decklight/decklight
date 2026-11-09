@@ -31,7 +31,10 @@ async function served(t, { knownTypesOnly = false, sibling = null } = {}) {
     if (!files(req, res, url)) { res.writeHead(405); res.end(); }
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  t.after(() => server.close());
+  // close every connection, not only the idle ones: a test that reads a
+  // response's status and not its body (the runtime is a megabyte) leaves its
+  // connection mid-write, and close() alone waited on it for ever
+  t.after(() => { server.closeAllConnections(); server.close(); });
   return { dir, base: `http://127.0.0.1:${server.address().port}` };
 }
 const installed = (rel) => fs.readFileSync(path.join(PKG_ROOT, rel), 'utf8');
