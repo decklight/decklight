@@ -2375,6 +2375,17 @@ export function createEditMode({
       for (const [kind, label] of [['box', 'Box'], ['ellipse', 'Ellipse'], ['label', 'Label'], ['line', 'Line / arrow']]) {
         rows.push({ label, run: () => { closeElementMenu(); shapes.add(target, kind, at); } });
       }
+    } else if (menuView === 'route' || menuView === 'arrows') {
+      // a connector's Route ▸ and Arrows ▸ (SVG_DIAGRAMS, shapes.js): the one it has ticked
+      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      const target = menuTarget;
+      const state = shapes.wireState(target) ?? {};
+      const choices = menuView === 'route' ? [['straight', 'Straight'], ['elbow', 'Elbow'], ['curve', 'Curved']] : [['none', 'None'], ['end', 'End'], ['both', 'Both ends']];
+      const cur = menuView === 'route' ? state.route : state.arrows;
+      const set = menuView === 'route' ? shapes.setRoute : shapes.setArrows;
+      for (const [value, label] of choices) {
+        rows.push({ label: `${value === cur ? '✓ ' : ''}${label}`, current: value === cur, run: () => { closeElementMenu(); if (value !== cur) set(target, value); } });
+      }
     } else if (menuView === 'slide') {
       // opened from the bar's Slide ▾ there is nothing to go back to
       if (!menuTarget.fromBar) rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
@@ -2412,6 +2423,13 @@ export function createEditMode({
         rows.push({ label: 'Duplicate', run: () => { closeElementMenu(); shapes.duplicate(target); } });
       }
       if (inDiagram) rows.push({ label: 'Add shape ▸', run: () => { menuView = 'shape'; renderElementMenu(); } });
+      // a wire: how it runs, its arrowheads, its direction (connectors, shapes.js)
+      if (inDiagram && nested && shapes.isWire?.(menuTarget)) {
+        const target = menuTarget;
+        rows.push({ label: 'Route ▸', run: () => { menuView = 'route'; renderElementMenu(); } });
+        rows.push({ label: 'Arrows ▸', run: () => { menuView = 'arrows'; renderElementMenu(); } });
+        rows.push({ label: 'Reverse', run: () => { closeElementMenu(); shapes.reverse(target); } });
+      }
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
       // a table's cell: rows and columns added and deleted in place (authoring.js)
       if (tableRows) rows.push(...tableRows(menuTarget, closeElementMenu));
@@ -4324,7 +4342,7 @@ export function createEditMode({
     setTableRows: (fn) => { tableRows = fn; },
     /** The engine's picture tools (pictures.js): the element menu's picture rows and Slide ▸'s background rows. */
     setPictures: (p) => { pictures = p; },
-    /** The engine's diagram shapes (shapes.js): the menu's Duplicate and Add shape ▸ rows. */
+    /** The engine's diagram shapes (shapes.js): the menu's Duplicate, Add shape ▸ and a wire's Route ▸, Arrows ▸ and Reverse rows. */
     setShapes: (x) => { shapes = x; },
     /** The door to the concept list (Concept colors…), opened on a concept: the submenu's Edit concepts…. */
     setEditConcepts: (fn) => { editConcepts = fn; },

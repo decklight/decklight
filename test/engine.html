@@ -820,6 +820,14 @@
         }
         if (u.includes('/deck/edit/element/text')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // Connectors (SVG_DIAGRAMS, shapes.js / connectors.js): the geometry
+      // and remove writes answer, and the connector route answers the way the
+      // server does, the markup it would write handed back (window.__fakeConnector)
+      if (['connectors', 'connectmenu', 'guides', 'connectdraw'].includes(HARNESS_MODE)) {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/geometry') || u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/connector')) return json({ ok: true, changed: true, undo: 1, redo: 0, ...window.__fakeConnector(JSON.parse(init?.body ?? '{}')) });
+      }
       if (HARNESS_MODE === 'inspectpick') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -1193,6 +1201,87 @@
         </svg>
       </section>`);
     }
+    // connectors (SVG_DIAGRAMS): a named box group, an unnamed one, a named
+    // ellipse, a connector whose file coordinates are wrong (the runtime
+    // routes it), and a line drawn by hand; at half the viewBox, scaled
+    if (HARNESS_MODE === 'connectors' || HARNESS_MODE === 'connectmenu') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Connect</h2>
+        <svg class="cn-svg" viewBox="0 0 800 300" width="400" aria-label="connectors">
+          <defs><marker id="cn-arr" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4"/></marker></defs>
+          <g class="cn-api" data-node="api"><rect class="cn-api-box" x="40" y="40" width="160" height="70" style="fill: var(--d-fill-3)"/><text x="120" y="75" text-anchor="middle" dominant-baseline="central" font-size="24">API</text></g>
+          <g class="cn-db-group"><rect class="cn-db-box" x="560" y="40" width="160" height="70" style="fill: var(--d-fill-2)"/><text x="640" y="75" text-anchor="middle" dominant-baseline="central" font-size="24">Database</text></g>
+          <ellipse class="cn-cache" data-node="cache" cx="400" cy="230" rx="80" ry="40" style="fill: var(--d-fill-4)"/>
+          <line class="cn-wire" data-from="api" data-to="cache" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="6" marker-end="url(#cn-arr)"/>
+          <line class="cn-hand" x1="300" y1="20" x2="380" y2="20" stroke="#888" stroke-width="6"/>
+          <rect class="cn-panel" x="560" y="160" width="220" height="130" style="fill: var(--d-fill-1)"/>
+          <rect class="cn-inner" x="600" y="200" width="60" height="40" style="fill: var(--d-fill-5)"/>
+        </svg>
+      </section>`);
+    }
+    // alignment guides: two boxes to line up
+    if (HARNESS_MODE === 'guides') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Guides</h2>
+        <svg class="cn-svg" viewBox="0 0 800 300" width="400" aria-label="guides">
+          <rect class="gd-a" x="40" y="40" width="160" height="70" style="fill: var(--d-fill-3)"/>
+          <rect class="gd-b" x="300" y="200" width="160" height="70" style="fill: var(--d-fill-2)"/>
+        </svg>
+      </section>`);
+    }
+    // a draw build of two boxes and two connectors whose file coordinates are
+    // wrong: routed before the draw measures them, a straight one with a head
+    if (HARNESS_MODE === 'connectdraw') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Drawn</h2>
+        <svg class="cd-svg" viewBox="0 0 800 300" width="800" data-build="draw">
+          <defs><marker id="cd-arr" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4"/></marker></defs>
+          <rect class="cd-a" data-node="a" x="40" y="100" width="160" height="80" stroke="#888" stroke-width="2" fill="none"/>
+          <rect class="cd-b" data-node="b" x="560" y="180" width="160" height="80" stroke="#888" stroke-width="2" fill="none"/>
+          <line class="cd-wire" data-from="a" data-to="b" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="3" marker-end="url(#cd-arr)"/>
+          <path class="cd-elbow" data-from="a" data-to="b" data-route="elbow" d="M 0 0 L 1 1" fill="none" stroke="#888" stroke-width="3"/>
+        </svg>
+      </section>`);
+    }
+    // what the server's connector route writes (cli/edit.mjs editConnector),
+    // as far as these harnesses ask it: the markup read off the live wire
+    // (the engine's attributes left out, the ids the file's), the op applied
+    window.__fakeConnector = (b) => {
+      const svg = document.querySelector('.cn-svg');
+      const kids = (el) => [...el.children].filter((c) => !c.matches('.draw-head, .draw-mask'));
+      const at = (p) => p.reduce((el, i) => kids(el)[i], svg);
+      const nameOf = (n) => n.getAttribute('data-node') ?? (n.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || n.tagName.toLowerCase());
+      const write = (tag, attrs) => `<${tag}${[...attrs].map(([k, v]) => ` ${k}="${v}"`).join('')}/>`;
+      if (b.op === 'add') {
+        const from = nameOf(at(b.nodes.from.path)); const to = nameOf(at(b.nodes.to.path)); const g = b.geometry;
+        const html = `<line class="cn-new" data-from="${from}" data-to="${to}" x1="${g.x1}" y1="${g.y1}" x2="${g.x2}" y2="${g.y2}" stroke="#888" stroke-width="6" marker-end="url(#cn-arr)"/>`;
+        return { added: { path: [kids(svg).length], html }, wire: { path: [kids(svg).length], html }, defs: [], named: { from, to } };
+      }
+      const w = at(b.wire.path);
+      let tag = w.tagName.toLowerCase();
+      const a = new Map([...w.attributes].filter((x) => !/^(style|mask|data-build-|data-draw-)/.test(x.name))
+        .map((x) => [x.name, x.name === 'class' ? x.value.split(/\s+/).filter((c) => /^c[nd]-/.test(c)).join(' ') : x.value.replace(/#svg\d+-/g, '#')]));
+      let named = null; let defs = [];
+      if (b.op === 'reconnect') { const n = nameOf(at(b.node.path)); a.set(`data-${b.end}`, n); named = { [b.end]: n }; }
+      if (b.op === 'detach') a.delete(`data-${b.end}`);
+      if (b.op === 'reverse') {
+        const f = a.get('data-from'); const t = a.get('data-to');
+        a.delete('data-from'); a.delete('data-to');
+        if (t) a.set('data-from', t);
+        if (f) a.set('data-to', f);
+      }
+      if (b.op === 'route') {
+        if (b.geometry.d && tag !== 'path') { tag = 'path'; for (const k of ['x1', 'y1', 'x2', 'y2']) a.delete(k); a.set('fill', 'none'); }
+        if (b.route === 'straight') a.delete('data-route'); else a.set('data-route', b.route);
+      }
+      if (b.op === 'arrows') {
+        a.delete('marker-start');
+        if (b.arrows === 'none') a.delete('marker-end'); else a.set('marker-end', 'url(#cn-arr)');
+        if (b.arrows === 'both') {
+          a.set('marker-start', 'url(#cn-arr-start)');
+          defs = [{ path: [0, kids(kids(svg)[0]).length], created: false, html: '<marker id="cn-arr-start" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto-start-reverse"><polygon points="0 0, 6 2, 0 4"/></marker>' }];
+        }
+      }
+      for (const [k, v] of Object.entries(b.geometry ?? {})) a.set(k, String(v));
+      return { wire: { path: b.wire.path, html: write(tag, a) }, defs, named };
+    };
     // three diagrams, no concept yet: "Agent" twice in two colours, its label in
     // a group on one slide and beside it on another; "Other" twice in two colours
     if (HARNESS_MODE === 'conceptsfind') {
@@ -3102,11 +3191,12 @@
           el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: c.x, clientY: c.y }));
           await settle();
         };
-        // a press, a move in three steps, a release, and the click a browser sends after it
+        // a press, a move in three steps, a release, and the click a browser sends after it;
+        // ⌘/Ctrl held on the way (GUIDES, CONNECT): these measure the move itself, never a snap or an attach
         const dragFrom = async (el, from, dx, dy, o = {}) => {
           ptr('pointerdown', el, from.x, from.y, o);
-          for (const f of [0.1, 0.5, 1]) ptr('pointermove', document.body, from.x + dx * f, from.y + dy * f, o);
-          ptr('pointerup', document.body, from.x + dx, from.y + dy, o);
+          for (const f of [0.1, 0.5, 1]) ptr('pointermove', document.body, from.x + dx * f, from.y + dy * f, { ctrlKey: true, ...o });
+          ptr('pointerup', document.body, from.x + dx, from.y + dy, { ctrlKey: true, ...o });
           el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: from.x + dx, clientY: from.y + dy }));
           await settle(); await settle();
         };
@@ -3231,6 +3321,224 @@
           r.PASS = r.scaledStage && r.menuOffersAdd && r.fourKinds && r.addsWhereTheMenuOpened && r.landsOnTheSlide && r.newBoxSelected
             && r.straightIntoItsWords && r.itsWordsSaved && r.duplicateAsksForTheGroup && r.copyAfterIt && r.copySelected && r.lineUsesTheLiveMarker;
         }
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'connectors' || mode === 'connectmenu' || mode === 'guides') {
+        // SVG_DIAGRAMS, connectors (shapes.js, connectors.js): wires that stay
+        // attached, drawn from a dot, re-routed by a move in the same write,
+        // reconnected and let go by their ends; the menu's rows; the guides
+        await settle();
+        deck.goto(deck._sections.length);
+        await settle(); await settle();
+        const svg = document.querySelector('.cn-svg');
+        const q = (s) => svg.querySelector(s);
+        const k = svg.getScreenCTM().a;
+        const ptr = (type, el, x, y, o = {}) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0, ...o }));
+        const centre = (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; };
+        const toScreen = (x, y) => { const m = svg.getScreenCTM(); return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f }; };
+        const clickAt = async (el, p = centre(el)) => {
+          ptr('pointerdown', el, p.x, p.y); ptr('pointerup', el, p.x, p.y);
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y }));
+          await settle();
+        };
+        // a wire's release away from the dot it started on: the click a browser sends lands on what holds both
+        const release = (p) => {
+          ptr('pointerup', document.body, p.x, p.y);
+          document.querySelector('.decklight').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y }));
+        };
+        // a press, a move in three steps, a release, and the click a browser sends after it
+        const drag = async (el, from, to, mo = {}) => {
+          ptr('pointerdown', el, from.x, from.y);
+          for (const f of [0.1, 0.5, 1]) ptr('pointermove', document.body, from.x + (to.x - from.x) * f, from.y + (to.y - from.y) * f, mo);
+          ptr('pointerup', document.body, to.x, to.y, mo);
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: to.x, clientY: to.y }));
+          await settle(); await settle();
+        };
+        const posts = (what) => CALLS.post.filter((c) => c.u.includes(`/deck/edit/element/${what}`)).map((c) => c.body);
+        const authored = () => [...svg.children].filter((c) => !c.matches('.draw-head, .draw-mask'));
+        const num = (el, a) => parseFloat(el.getAttribute(a));
+        const at = (x) => JSON.stringify(x);
+        const dot = (side) => deck._shapes.dots().find((d) => d.side === side)?.el;
+        r.scaledStage = k > 0.05 && Math.abs(k - 1) > 0.1;
+
+        if (mode === 'connectors') {
+          const wire = q('.cn-wire');
+          // routed at load: off the api box's bottom edge, onto the cache's boundary, not where the file said
+          const onEllipse = (x, y, cx = 400, rx = 80) => Math.abs(((x - cx) / rx) ** 2 + ((y - 230) / 40) ** 2 - 1) < 0.02;
+          r.routedAtLoad = num(wire, 'y1') === 110 && num(wire, 'x1') > 40 && num(wire, 'x1') < 200 && onEllipse(num(wire, 'x2'), num(wire, 'y2'));
+          // a selected box shows its four dots
+          await clickAt(q('.cn-db-box'), toScreen(570, 45));
+          r.dotsOnABox = deck._shapes.dots().length === 4 && deck._shapes.handles().length === 8;
+          // a drag from one: the wire follows the pointer, the node under it is lit, the drop makes a connector
+          const lc = centre(dot('left')); const apiC = centre(q('.cn-api-box'));
+          ptr('pointerdown', dot('left'), lc.x, lc.y);
+          const mid = toScreen(380, 75);
+          ptr('pointermove', document.body, mid.x, mid.y);
+          r.wireFollows = !!document.querySelector('.dl-wire-ghost line') && !document.querySelector('.dl-wire-target') && deck._shapes.busy();
+          ptr('pointermove', document.body, apiC.x, apiC.y);
+          r.nodeLit = !!document.querySelector('.dl-wire-target') && q('.cn-api').classList.contains('dl-wire-lit');
+          release(apiC);
+          await settle(); await settle();
+          const add = posts('connector')[0];
+          r.addAsked = add?.op === 'add' && at(add.path) === '[]' && add.tag === 'svg' && add.quiet === true
+            && at(add.nodes.from.path) === '[2]' && add.nodes.from.tag === 'g' && add.nodes.from.label === 'Database'
+            && at(add.nodes.to.path) === '[1]' && at(add.geometry) === at({ x1: '560', y1: '75', x2: '200', y2: '75' });
+          const made = authored().at(-1);
+          r.connectorOnSlide = !!made?.classList.contains('cn-new') && made.getAttribute('data-from') === 'database'
+            && q('.cn-db-group').getAttribute('data-node') === 'database' && /url\(#svg\d+-cn-arr\)/.test(made.getAttribute('marker-end'))
+            && !document.querySelector('.dl-wire-ghost') && !q('.dl-wire-lit');
+          r.newOneSelected = deck._selection()?.node === made && deck._shapes.handles().length === 2;
+          // dropped on the canvas: nothing is made
+          await clickAt(q('.cn-db-box'), toScreen(570, 45));
+          const n0 = posts('connector').length;
+          const tc = centre(dot('top')); const empty = toScreen(400, 150);
+          ptr('pointerdown', dot('top'), tc.x, tc.y); ptr('pointermove', document.body, empty.x, empty.y); release(empty);
+          await settle();
+          r.canvasMakesNothing = posts('connector').length === n0 && !document.querySelector('.dl-wire-ghost') && !deck._shapes.busy();
+          // Esc gives a wire up
+          ptr('pointerdown', dot('top'), tc.x, tc.y); ptr('pointermove', document.body, apiC.x, apiC.y);
+          press('Escape');
+          release(apiC);
+          await settle();
+          r.escGivesUp = posts('connector').length === n0 && !document.querySelector('.dl-wire-ghost') && !q('.dl-wire-lit');
+          // a move of the api box: its two connectors routed again, live, in the SAME write
+          await clickAt(q('.cn-api-box'), toScreen(45, 45));
+          const g0 = posts('geometry').length;
+          await drag(q('.cn-api-box'), toScreen(45, 45), toScreen(45, 145), { ctrlKey: true });
+          const mv = posts('geometry')[g0];
+          const ed = (path, attr) => mv?.edits.find((x) => at(x.path) === at(path) && x.attr === attr);
+          r.moveIsOneWrite = posts('geometry').length === g0 + 1 && ed([1], 'transform')?.value === 'translate(0 100)'
+            && ed([4], 'y1')?.value === num(wire, 'y1') && ed([8], 'y2')?.value === num(made, 'y2');
+          r.wiresFollowLive = num(wire, 'x1') === 200 && Math.abs(num(wire, 'y1') - 190.7) < 0.1 && num(made, 'y2') > 140;
+          // a resize of the cache: its connector in the same write
+          await clickAt(q('.cn-cache'), toScreen(400, 255));
+          const east = deck._shapes.handles().find((h) => h.hx === 1 && h.hy === 0)?.el;
+          const ec = centre(east);
+          await drag(east, ec, { x: ec.x + 40 * k, y: ec.y }, { ctrlKey: true });
+          const rs = posts('geometry').at(-1);
+          r.resizeTakesItsWire = posts('geometry').length === g0 + 2 && rs.edits.some((x) => at(x.path) === '[3]' && x.attr === 'rx' && x.value === 100)
+            && rs.edits.some((x) => at(x.path) === '[4]' && x.attr === 'x2' && x.value === num(wire, 'x2')) && onEllipse(num(wire, 'x2'), num(wire, 'y2'), 420, 100);
+          // a connector's ends: dragged onto another node, it is reconnected
+          await clickAt(wire);
+          r.wireWearsItsEnds = deck._selection()?.node === wire && deck._shapes.handles().length === 2 && deck._shapes.dots().length === 0;
+          const e2 = deck._shapes.handles().find((h) => h.end === 2).el;
+          await drag(e2, centre(e2), toScreen(600, 50));
+          const rc = posts('connector').at(-1);
+          r.reconnectAsked = rc?.op === 'reconnect' && rc.end === 'to' && at(rc.node.path) === '[2]' && rc.node.tag === 'g' && at(rc.wire) === at({ path: [4], tag: 'line' })
+            && rc.geometry.x2 === '560';
+          r.reconnected = q('.cn-wire') === wire && wire.getAttribute('data-to') === 'database' && num(wire, 'x2') === 560 && deck._selection()?.node === wire;
+          // dropped on the canvas, an attached end lets go where it is
+          const e1 = deck._shapes.handles().find((h) => h.end === 1).el;
+          await drag(e1, centre(e1), toScreen(300, 120));
+          const dt = posts('connector').at(-1);
+          r.detachAsked = dt?.op === 'detach' && dt.end === 'from' && Math.abs(parseFloat(dt.geometry.x1) - 300) < 1 && Math.abs(parseFloat(dt.geometry.y1) - 120) < 1;
+          r.detached = !wire.hasAttribute('data-from') && Math.abs(num(wire, 'x1') - 300) < 1 && wire.getAttribute('data-to') === 'database';
+          // a line drawn by hand: inside a panel (a node holding others), away from its edge, its end is not caught
+          const hand = q('.cn-hand');
+          await clickAt(hand);
+          const c0 = posts('connector').length; const g1 = posts('geometry').length;
+          const h1 = deck._shapes.handles().find((h) => h.end === 1)?.el;
+          await drag(h1, centre(h1), toScreen(690, 225));
+          r.panelInsideDoesNotCatch = posts('connector').length === c0 && posts('geometry').length === g1 + 1 && !hand.hasAttribute('data-from');
+          // its other end dropped on a node attaches it
+          const h2 = deck._shapes.handles().find((h) => h.end === 2)?.el;
+          await drag(h2, centre(h2), toScreen(420, 250));
+          const hc = posts('connector').at(-1);
+          r.handLineAttaches = hc?.op === 'reconnect' && hc.end === 'to' && at(hc.node.path) === '[3]' && hc.node.tag === 'ellipse'
+            && hand.getAttribute('data-to') === 'cache' && onEllipse(num(hand, 'x2'), num(hand, 'y2'), 420, 100);
+          r.PASS = Object.values(r).every((v) => v === true);
+        } else if (mode === 'connectmenu') {
+          const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+          const row = (t) => rows().find((n) => n.textContent.trim() === t);
+          const menuOn = async (el) => { const c = centre(el); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: Math.round(c.x), clientY: Math.round(c.y) })); await settle(); };
+          const pick = async (el, sub, choice) => { await menuOn(el); row(sub)?.click(); await settle(); const ok = !!row(choice); row(choice)?.click(); await settle(); await settle(); return ok; };
+          const wire = q('.cn-wire');
+          await menuOn(wire);
+          r.wireRows = !!row('Route ▸') && !!row('Arrows ▸') && !!row('Reverse');
+          row('Route ▸')?.click(); await settle();
+          r.routeTicked = !!row('✓ Straight') && !!row('Elbow') && !!row('Curved');
+          row('Elbow')?.click(); await settle(); await settle();
+          const rt = posts('connector')[0];
+          r.elbowAsked = rt?.op === 'route' && rt.route === 'elbow' && at(rt.wire) === at({ path: [4], tag: 'line' }) && rt.geometry?.d === 'M 200 75 L 400 75 L 400 190';
+          const bent = q('.cn-wire');
+          r.lineBecomesPath = bent?.tagName === 'path' && bent !== wire && bent.getAttribute('data-route') === 'elbow' && bent.getAttribute('d') === rt.geometry.d
+            && bent.getAttribute('fill') === 'none' && deck._selection()?.node === bent && !wire.isConnected;
+          r.curveTicksElbow = await pick(bent, 'Route ▸', 'Curved') && !!document;
+          const cv = posts('connector')[1];
+          r.curved = cv?.route === 'curve' && cv.geometry.d === 'M 200 75 C 260 75 260 230 320 230' && q('.cn-wire') === bent && bent.getAttribute('d') === cv.geometry.d;
+          await menuOn(bent); row('Arrows ▸')?.click(); await settle();
+          r.arrowsTicked = !!row('None') && !!row('✓ End') && !!row('Both ends');
+          row('Both ends')?.click(); await settle(); await settle();
+          const ar = posts('connector')[2];
+          const markers = [...svg.querySelectorAll('defs marker')];
+          r.bothEnds = ar?.op === 'arrows' && ar.arrows === 'both' && !ar.geometry && markers.length === 2 && /^svg\d+-cn-arr-start$/.test(markers[1].id)
+            && bent.getAttribute('marker-start') === `url(#${markers[1].id})` && /cn-arr\)$/.test(bent.getAttribute('marker-end'));
+          await menuOn(bent); row('Reverse')?.click(); await settle(); await settle();
+          const rv = posts('connector')[3];
+          r.reversed = rv?.op === 'reverse' && rv.geometry.d === 'M 320 230 C 260 230 260 75 200 75' && bent.getAttribute('data-from') === 'cache' && bent.getAttribute('data-to') === 'api';
+          // a node deleted: the remove names the node (the server takes its connectors in the same write)
+          await clickAt(q('.cn-cache'), toScreen(400, 255));
+          press('Delete');
+          await settle();
+          const rm = posts('remove')[0];
+          r.deleteAsksForTheNode = !!rm && at(rm.path) === '[3]' && rm.tag === 'ellipse';
+          r.PASS = Object.values(r).every((v) => v === true);
+        } else {
+          // GUIDES: a box dragged near another's lines snaps to them, the guides shown while it is
+          const a = q('.gd-a'); const b = q('.gd-b');
+          await clickAt(b);
+          const from = toScreen(310, 210);
+          ptr('pointerdown', b, from.x, from.y);
+          const near = toScreen(52, 160);   // its left edge 2 units off a's
+          for (const f of [0.2, 0.6, 1]) ptr('pointermove', document.body, from.x + (near.x - from.x) * f, from.y + (near.y - from.y) * f);
+          r.guidesShown = deck._shapes.guides().length === 3 && deck._shapes.guides().every((g) => g.classList.contains('dl-guide-x'));
+          r.snapsLive = b.getAttribute('x') === '40';
+          ptr('pointerup', document.body, near.x, near.y);
+          b.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: near.x, clientY: near.y }));
+          await settle(); await settle();
+          const w = posts('geometry')[0];
+          r.snappedWritten = w?.edits.find((x) => x.attr === 'x')?.value === 40 && deck._shapes.guides().length === 0;
+          // ⌘/Ctrl held: no snap, no guides
+          const from2 = toScreen(50, 210);
+          ptr('pointerdown', b, from2.x, from2.y);
+          const off = toScreen(52, 160);
+          ptr('pointermove', document.body, off.x, off.y, { ctrlKey: true });
+          r.noGuidesWithCtrl = deck._shapes.guides().length === 0;
+          ptr('pointermove', document.body, off.x + 1, off.y, { ctrlKey: true });
+          ptr('pointerup', document.body, off.x + 1, off.y, { ctrlKey: true });
+          await settle(); await settle();
+          r.ctrlDoesNotSnap = Math.abs(posts('geometry')[1]?.edits.find((x) => x.attr === 'x')?.value - (42 + 1 / k)) < 1.5;
+          r.othersStay = a.getAttribute('x') === '40';
+          r.PASS = Object.values(r).every((v) => v === true);
+        }
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'connectdraw') {
+        // BUILD_ENTRANCES, SVG_DIAGRAMS: connectors are routed before a draw
+        // measures them, so one still draws, its arrowhead riding the tip to
+        // the node's edge, and an elbow draws its three segments
+        await settle();
+        const n = deck._sections.length;
+        deck.goto(n, 0);
+        await settle(); await settle();
+        const wire = document.querySelector('.cd-wire'); const elbow = document.querySelector('.cd-elbow');
+        const num = (el, a) => parseFloat(el.getAttribute(a));
+        r.routed = num(wire, 'x1') === 200 && num(wire, 'x2') === 560 && Math.abs(num(wire, 'y1') - 152.3) < 0.1 && Math.abs(num(wire, 'y2') - 207.7) < 0.1;
+        r.elbowRouted = elbow.getAttribute('d') === 'M 200 140 L 380 140 L 380 220 L 560 220';
+        r.measuredRouted = Math.abs(wire._drawLen - Math.hypot(360, 55.4)) < 0.5 && Math.abs(elbow._drawLen - 440) < 0.5;
+        r.drawsAsAStep = wire.classList.contains('draw-stroke') && wire.getAttribute('data-build-state') === 'pending' && !wire.hasAttribute('marker-end');
+        deck.goto(n, 99);
+        await until(() => !wire._drawAnim && !elbow._drawAnim, 80);
+        await settle();
+        const head = wire.nextElementSibling?.classList.contains('draw-head') ? wire.nextElementSibling : null;
+        const tip = /translate\(([-\d.]+) ([-\d.]+)\)/.exec(head?.getAttribute('transform') ?? '');
+        r.headOnTheEdge = !!tip && Math.abs(parseFloat(tip[1]) - 560) < 1 && Math.abs(parseFloat(tip[2]) - 207.7) < 1 && head.style.visibility !== 'hidden';
+        r.allDrawn = wire.getAttribute('data-build-state') === 'done' && Math.round(parseFloat(getComputedStyle(wire).strokeDashoffset)) === 0;
+        r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

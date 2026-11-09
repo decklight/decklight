@@ -462,7 +462,9 @@ export function removeSlideElement(html, slide, index) {
  * selected inside a diagram): the node at `path`, addressed and checked the
  * way setElementStyles addresses one. `[]` is refused, since that is the
  * whole element and removeSlideElement's job. A node alone on its line takes
- * the line with it, so the file is left without a blank one.
+ * the line with it, so the file is left without a blank one. A diagram node
+ * with connectors (a `data-node` in what goes) takes the wires that name it
+ * along, in the same write (SVG_DIAGRAMS).
  */
 export function removeNestedElement(html, slide, index, { path, tag }) {
   if (!Array.isArray(path) || !path.length || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
@@ -476,11 +478,30 @@ export function removeNestedElement(html, slide, index, { path, tag }) {
   }
   const found = /^<([a-zA-Z][\w:-]*)/.exec(el.slice(start, end))?.[1]?.toLowerCase();
   if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.')}, the file has <${found}> — reload and try again`);
-  const lineStart = el.lastIndexOf('\n', start - 1) + 1;
-  const nl = el.indexOf('\n', end);
-  const lineEnd = nl < 0 ? el.length : nl;
-  if (/^[ \t]*$/.test(el.slice(lineStart, start)) && /^[ \t]*$/.test(el.slice(end, lineEnd)) && nl >= 0) { start = lineStart; end = nl + 1; }
-  parts[idx] = seg.slice(0, r.start) + el.slice(0, start) + el.slice(end) + seg.slice(r.end);
+  // a node's connectors go with it (SVG_DIAGRAMS): a wire left naming a node
+  // that is gone would be drawn where the file last put it, joined to nothing
+  const ranges = [[start, end]];
+  const names = nodeNamesIn(el.slice(start, end));
+  if (names.length) {
+    const svg = nodeAt(el, path, { slide, index, tag }).svg;
+    if (svg) {
+      for (const n of drawnNodes(el.slice(svg.start, svg.end))) {
+        const s = svg.start + n.start; const e = svg.start + n.end;
+        if (!WIRE_TAGS.has(n.tag) || (s >= start && e <= end)) continue;
+        if (names.includes(attrOf(n.attrs, 'data-from')) || names.includes(attrOf(n.attrs, 'data-to'))) ranges.push([s, e]);
+      }
+    }
+  }
+  // each with its line when it stood alone on one, the last first so the offsets before it hold
+  let out = el;
+  for (let [s, e] of ranges.sort((a, b) => b[0] - a[0])) {
+    const lineStart = out.lastIndexOf('\n', s - 1) + 1;
+    const nl = out.indexOf('\n', e);
+    const lineEnd = nl < 0 ? out.length : nl;
+    if (/^[ \t]*$/.test(out.slice(lineStart, s)) && /^[ \t]*$/.test(out.slice(e, lineEnd)) && nl >= 0) { s = lineStart; e = nl + 1; }
+    out = out.slice(0, s) + out.slice(e);
+  }
+  parts[idx] = seg.slice(0, r.start) + out + seg.slice(r.end);
   return parts.join('');
 }
 
@@ -674,7 +695,9 @@ export function setSlideElementHtml(html, slide, index, outerHtml) {
 // indentation its neighbours have, so every other byte of the diagram stays.
 
 /** Attributes a move or a resize writes, and the ones that can never be negative. */
-const GEOMETRY_ATTRS = new Set(['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'transform']);
+const GEOMETRY_ATTRS = new Set(['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'transform', 'd', 'points']);
+/** The attributes that are a shape of their own, and the only tags that may carry them. */
+const SHAPE_DATA = { d: new Set(['path']), points: new Set(['polyline', 'polygon']) };
 const NON_NEGATIVE = new Set(['width', 'height', 'r', 'rx', 'ry']);
 /** The drawn nodes of a diagram that have a geometry to write (a label's line moves with it). */
 const DIAGRAM_NODES = new Set(['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text', 'tspan', 'image', 'use', 'g', 'foreignobject']);
@@ -776,8 +799,57 @@ function nodeAt(el, path, { slide, index, tag = null }) {
   return { start, end, found, chain, parent: chain.at(-1) ?? null, svg: svgAt < 0 ? null : chain[svgAt], inSvg: svgAt >= 0 };
 }
 
+// A wire's own geometry (SVG_DIAGRAMS, connectors): path data and a list of
+// points, each in a closed shape. Path data is absolute M, L, H, V, C, Q and
+// Z with numbers only (no arcs, no relative commands, no exponents), and is
+// written back in one canonical spelling, `M 10 20 L 30 40`, the spelling
+// the page routes in, so the file and the page agree byte for byte.
+const PATH_ARGS = { M: 2, L: 2, H: 1, V: 1, C: 6, Q: 4, Z: 0 };
+const MAX_PATH_COMMANDS = 200;
+const MAX_POINTS = 500;
+
+/** Path data in its canonical spelling, or a refusal saying what it cannot be. */
+export function pathDataValue(value) {
+  const src = String(value ?? '').trim();
+  if (src.length > 6000 || !/^[MLHVCQZ\s\d.,-]*$/.test(src)) throw new Error(`path data is absolute M, L, H, V, C, Q and Z with numbers: ${src.slice(0, 40)}`);
+  const tokens = src.match(/[MLHVCQZ]|-?\d+(?:\.\d+)?/g) ?? [];
+  if (tokens.join('').length !== src.replace(/[\s,]/g, '').length) throw new Error(`not path data: ${src.slice(0, 40)}`);
+  if (tokens[0] !== 'M') throw new Error('path data starts with M');
+  const out = [];
+  let cmd = null; let args = [];
+  const flush = () => {
+    if (!cmd) return;
+    const n = PATH_ARGS[cmd];
+    if (n === 0) { if (args.length) throw new Error('Z takes no numbers'); out.push('Z'); return; }
+    if (!args.length || args.length % n) throw new Error(`${cmd} takes ${n} number${n === 1 ? '' : 's'} at a time`);
+    for (let i = 0; i < args.length; i += n) out.push(`${cmd} ${args.slice(i, i + n).map(formatCoord).join(' ')}`);
+  };
+  for (const t of tokens) {
+    if (t in PATH_ARGS) { flush(); cmd = t; args = []; continue; }
+    const n = coordOf(t);
+    if (!Number.isFinite(n)) throw new Error(`not a coordinate: ${t.slice(0, 20)}`);
+    args.push(n);
+  }
+  flush();
+  if (out.length > MAX_PATH_COMMANDS) throw new Error('too long a path');
+  return out.join(' ');
+}
+
+/** A list of points in its canonical spelling, `x,y x,y`, or a refusal. */
+export function pointsValue(value) {
+  const nums = String(value ?? '').trim().split(/[\s,]+/).filter(Boolean);
+  if (nums.length < 4 || nums.length % 2 || nums.length > 2 * MAX_POINTS) throw new Error('points are pairs of numbers, two pairs at least');
+  const n = nums.map(coordOf);
+  if (n.some((v) => !Number.isFinite(v))) throw new Error(`not a list of coordinates: ${String(value).slice(0, 40)}`);
+  const out = [];
+  for (let i = 0; i < n.length; i += 2) out.push(`${formatCoord(n[i])},${formatCoord(n[i + 1])}`);
+  return out.join(' ');
+}
+
 /** One geometry value as the file gets it, or a refusal naming what was sent. */
 function geometryValue(attr, value) {
+  if (attr === 'd') return pathDataValue(value);
+  if (attr === 'points') return pointsValue(value);
   if (attr === 'transform') {
     const m = TRANSLATE_VALUE.exec(String(value ?? '').trim());
     const x = m ? coordOf(m[1]) : NaN; const y = m ? coordOf(m[2] ?? '0') : NaN;
@@ -800,8 +872,10 @@ function geometryValue(attr, value) {
  * `transform`, whose value is `translate(x y)`: the translate the node is to
  * have, which REPLACES a leading translate the file has and is put in front
  * of whatever else the transform says (a `rotate()` survives the move), and
- * `translate(0 0)` takes it off again. Only nodes inside an `<svg>` are
- * written, and only the one attribute's text changes.
+ * `translate(0 0)` takes it off again. A connector's own geometry is `d` on a
+ * path (pathDataValue) or `points` on a polyline or a polygon (pointsValue),
+ * so a move re-routes the wires it drags along in the same write. Only nodes
+ * inside an `<svg>` are written, and only the one attribute's text changes.
  */
 export function setElementGeometry(html, slide, index, edits) {
   if (!Array.isArray(edits) || !edits.length || edits.length > 60) throw new Error('bad edits');
@@ -812,6 +886,7 @@ export function setElementGeometry(html, slide, index, edits) {
     const value = geometryValue(e.attr, e.value);
     const at = nodeAt(el, e.path, { slide, index, tag: e.tag });
     if (!at.inSvg || !DIAGRAM_NODES.has(at.found)) throw new Error(`not a node of a diagram: <${at.found}>`);
+    if (SHAPE_DATA[e.attr] && !SHAPE_DATA[e.attr].has(at.found)) throw new Error(`a <${at.found}> has no ${e.attr}`);
     const { attrs, close, rest } = splitOpenTag(el.slice(at.start, at.end));
     let head;
     if (e.attr === 'transform') {
@@ -998,7 +1073,7 @@ function nearest(list, at) {
 }
 
 /** Attributes not copied from a model onto a new shape: who it is, where it is, which build and concept it belongs to. */
-const NOT_COPIED = /^(?:id|transform|x|y|x1|y1|x2|y2|cx|cy|dx|dy|points|d|data-build.*|data-concept|data-draw-.*|data-ds-.*|data-nest-fill|aria-.*|role)$/;
+const NOT_COPIED = /^(?:id|transform|x|y|x1|y1|x2|y2|cx|cy|dx|dy|points|d|data-build.*|data-concept|data-draw-.*|data-ds-.*|data-nest-fill|data-node|data-from|data-to|data-route|aria-.*|role)$/;
 /**
  * An open tag for `tag` written like `modelAttrs`: its attributes that are
  * look, not place, in its order, with `place` (where the new node is) put
@@ -1023,7 +1098,58 @@ function openTag(tag, modelAttrs, place) {
 
 const ARROW_ID = 'dl-arrow';
 /** The shipped arrowhead (SVG_DIAGRAMS, Arrowheads), in the diagram's ink. */
-const arrowMarker = (id) => `<marker id="${id}" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker>`;
+const arrowMarker = (id, orient = 'auto') => `<marker id="${id}" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="${orient}"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker>`;
+
+/** Every `<marker>` an svg's source defines: `{ id, orient }`. */
+function markersIn(svgSrc) {
+  return [...svgSrc.matchAll(/<marker\b[^>]*>/gi)].map((m) => {
+    const head = m[0].replace(/\/?>$/, '');
+    return { id: attrOf(head, 'id'), orient: String(attrOf(head, 'orient') ?? '').trim() };
+  }).filter((m) => m.id);
+}
+
+/**
+ * The arrowhead a wire in this svg ends in, as `url(#id)`: `prefer` (the
+ * model's own) when there is one, else the marker another wire of the
+ * diagram ends in, else the first the svg defines, else the shipped one,
+ * added to its `<defs>` (`defs` says where). `start` asks for a head at a
+ * wire's START: a marker oriented `auto-start-reverse` (the shipped one so
+ * oriented when the svg has none), so it points away from the line.
+ */
+function arrowheadFor(svgSrc, lay, path, { prefer = null, start = false } = {}) {
+  const markers = markersIn(svgSrc);
+  let id = null;
+  if (start) id = markers.find((m) => m.orient === 'auto-start-reverse')?.id ?? null;
+  else {
+    if (prefer) return { svgSrc, defs: null, marker: prefer };
+    const used = /\smarker-end\s*=\s*["']\s*url\(\s*#([^)'"\s]+)\s*\)/i.exec(svgSrc)?.[1];
+    id = (used && markers.some((m) => m.id === used) ? used : null) ?? markers[0]?.id ?? null;
+  }
+  if (id) return { svgSrc, defs: null, marker: `url(#${id})` };
+  const taken = new Set([...svgSrc.matchAll(/\sid\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]));
+  const base = start ? `${ARROW_ID}-start` : ARROW_ID;
+  id = base;
+  for (let k = 2; taken.has(id); k++) id = `${base}-${k}`;
+  const out = withMarker(svgSrc, arrowMarker(id, start ? 'auto-start-reverse' : 'auto'), lay, path);
+  return { svgSrc: out.svgSrc, defs: out.defs, marker: `url(#${id})` };
+}
+
+/** `markup` put last in the svg, on a line of its own at its siblings' indentation: the svg's source, and the new child's index. */
+function appendToSvg(svgSrc, markup, lay, svgIndent) {
+  const kids = elementChildRanges(svgSrc);
+  const last = kids.at(-1);
+  const where = last ? last.end : svgSrc.toLowerCase().lastIndexOf('</svg');
+  const lead = lay.lines ? `\n${lay.indent}` : '';
+  const trail = !last && lay.lines ? `\n${svgIndent}` : '';
+  return { svgSrc: svgSrc.slice(0, where) + lead + markup + trail + svgSrc.slice(where), index: kids.length };
+}
+
+/** The indentation of the line the svg at `node` (in slide element `r` of `seg`) starts on: the svg may be the element itself. */
+function svgIndentOf(seg, r, node) {
+  const abs = r.start + node.start;
+  const lead = seg.slice(seg.lastIndexOf('\n', abs - 1) + 1, abs);
+  return /^[ \t]*$/.test(lead) ? lead : /^[ \t]*/.exec(lead)[0];
+}
 
 /** How the svg's children are laid out: on their own lines (and how far in), or all on one. */
 function layoutOf(svgSrc, svgLineIndent) {
@@ -1075,9 +1201,7 @@ export function addDiagramShape(html, slide, index, { path, tag = 'svg', kind, a
   const c = at ? { x: coordOf(at.x), y: coordOf(at.y) } : { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 };
   const f = formatCoord;
   // the svg's own indentation, read in the slide (the svg may be the element itself)
-  const abs = r.start + node.start;
-  const svgLead = seg.slice(seg.lastIndexOf('\n', abs - 1) + 1, abs);
-  const svgIndent = /^[ \t]*$/.test(svgLead) ? svgLead : /^[ \t]*/.exec(svgLead)[0];
+  const svgIndent = svgIndentOf(seg, r, node);
   const lay = layoutOf(svgSrc, svgIndent);
   const drawn = drawnNodes(svgSrc);
   const inner = lay.lines ? `\n${lay.indent}${lay.unit}` : '';
@@ -1124,33 +1248,18 @@ export function addDiagramShape(html, slide, index, { path, tag = 'svg', kind, a
   } else {
     const model = nearest(drawn.filter((n) => n.tag === 'line'), at && c);
     const half = model ? Math.max(10, Math.hypot(num(model.attrs, 'x2') - num(model.attrs, 'x1'), num(model.attrs, 'y2') - num(model.attrs, 'y1')) / 2) : Math.round(vb.w * 0.075);
-    let marker = model && attrOf(model.attrs, 'marker-end');
-    if (!marker) {
-      // the arrowhead the diagram already has, else the shipped one in its <defs>
-      const ids = [...svgSrc.matchAll(/<marker\b[^>]*?\sid\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]);
-      let id = ids[0];
-      if (!id) {
-        const taken = new Set([...svgSrc.matchAll(/\sid\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]));
-        id = ARROW_ID;
-        for (let k = 2; taken.has(id); k++) id = `${ARROW_ID}-${k}`;
-        ({ svgSrc, defs } = withMarker(svgSrc, arrowMarker(id), lay, path));
-      }
-      marker = `url(#${id})`;
-    }
+    // the arrowhead the diagram already has, else the shipped one in its <defs>
+    let marker;
+    ({ svgSrc, defs, marker } = arrowheadFor(svgSrc, lay, path, { prefer: model && attrOf(model.attrs, 'marker-end') }));
     markup = `${model ? openTag('line', model.attrs, { x1: f(c.x - half), y1: f(c.y), x2: f(c.x + half), y2: f(c.y), 'marker-end': marker })
       : openTag('line', null, { x1: f(c.x - half), y1: f(c.y), x2: f(c.x + half), y2: f(c.y), 'stroke-width': '2', style: 'stroke: var(--d-stroke)', 'marker-end': marker })}/>`;
   }
   // last in the svg, on a line of its own at its siblings' indentation
-  const kids = elementChildRanges(svgSrc);
-  const last = kids.at(-1);
-  const closeAt = svgSrc.toLowerCase().lastIndexOf('</svg');
-  const where = last ? last.end : closeAt;
-  const lead = lay.lines ? `\n${lay.indent}` : '';
-  const trail = !last && lay.lines ? `\n${svgIndent}` : '';
-  svgSrc = svgSrc.slice(0, where) + lead + markup + trail + svgSrc.slice(where);
+  let at2;
+  ({ svgSrc, index: at2 } = appendToSvg(svgSrc, markup, lay, svgIndent));
   el = el.slice(0, node.start) + svgSrc + el.slice(node.end);
   parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
-  return { html: parts.join(''), added: { path: [...path, kids.length], html: markup }, defs };
+  return { html: parts.join(''), added: { path: [...path, at2], html: markup }, defs };
 }
 
 /** The label a new one is written like: the nearest text, its look kept. */
@@ -1190,7 +1299,9 @@ function withMarker(svgSrc, marker, lay, path) {
  * slide N's element `index` is copied from the FILE, its ids taken off,
  * moved by `by` (`{ dx, dy }` in its own coordinates; a fiftieth of the
  * viewBox's width down and right without one) the way shiftSource moves a
- * node, and put right after it, on its own line when it stands on one.
+ * node, and put right after it, on its own line when it stands on one. Its
+ * node names are made its own (ownNames), so a copied pair of boxes and the
+ * connector between them is a second pair joined by a second connector.
  * Returns `{ html, added: { path, html } }`.
  */
 export function duplicateDiagramNode(html, slide, index, { path, tag = null, by = null }) {
@@ -1204,7 +1315,7 @@ export function duplicateDiagramNode(html, slide, index, { path, tag = null, by 
   const dx = by ? coordOf(by.dx) : step; const dy = by ? coordOf(by.dy) : step;
   const parentAttrs = splitOpenTag(el.slice(at.parent.start, at.parent.end)).attrs;
   const isStep = attrOf(parentAttrs, 'data-build') !== null;
-  const copy = shiftSource(withoutIds(el.slice(at.start, at.end)), dx, dy, { step: isStep });
+  const copy = ownNames(shiftSource(withoutIds(el.slice(at.start, at.end)), dx, dy, { step: isStep }), el.slice(at.svg.start, at.svg.end));
   const lineStart = el.lastIndexOf('\n', at.start - 1) + 1;
   const lead = el.slice(lineStart, at.start);
   const own = lineStart > 0 && /^[ \t]*$/.test(lead);
@@ -1212,6 +1323,259 @@ export function duplicateDiagramNode(html, slide, index, { path, tag = null, by 
   el = el.slice(0, at.end) + ins + el.slice(at.end);
   parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
   return { html: parts.join(''), added: { path: [...path.slice(0, -1), path.at(-1) + 1], html: copy } };
+}
+
+// ── connectors: wires that stay attached (SVG_DIAGRAMS) ─────────────────────
+// A shape or a box group names itself `data-node`, a wire says which nodes it
+// joins with `data-from` / `data-to` and how with `data-route`, and keeps real
+// coordinates (the runtime routes it again at load: src/core/connectors.js).
+// The page measures and routes, since only it can measure a label; the server
+// validates every value it is sent and owns the markup: the names, the
+// arrowheads, the element a wire becomes when it bends.
+
+const WIRE_TAGS = new Set(['line', 'path', 'polyline']);
+const NODE_TAGS = new Set(['g', 'rect', 'circle', 'ellipse', 'polygon', 'path', 'image', 'use', 'text', 'foreignobject']);
+export const CONNECTOR_OPS = ['add', 'reconnect', 'detach', 'route', 'arrows', 'reverse'];
+export const CONNECTOR_ROUTES = ['straight', 'elbow', 'curve'];
+export const CONNECTOR_ARROWS = ['none', 'end', 'both'];
+const LINE_GEOMETRY = ['x1', 'y1', 'x2', 'y2'];
+
+/** The open tags of a source, each `{ head, close }` replaceable by a function of them. */
+const eachOpenTag = (src, fn) => src.replace(/<[a-zA-Z][^<>]*>/g, (open) => {
+  const close = /\/?>$/.exec(open)[0];
+  return fn(open.slice(0, -close.length), close);
+});
+/** The node names a source uses, in order. */
+function nodeNamesIn(src) {
+  const out = [];
+  eachOpenTag(src, (head) => { const n = attrOf(head, 'data-node'); if (n) out.push(n); return head; });
+  return out;
+}
+/** A node's name from its words: lowercase, dashes between, a letter first, 32 characters at most. */
+export function slugNode(label) {
+  const s = String(label ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 32).replace(/-+$/, '');
+  return /^[a-z]/.test(s) ? s : s ? `n-${s}`.slice(0, 32) : 'node';
+}
+/** `base`, or `base-2`, `base-3`… : the first `taken` does not have. */
+function uniqueName(base, taken) {
+  if (!taken.has(base)) return base;
+  const stem = base.replace(/-\d+$/, '') || base;
+  let k = 2;
+  while (taken.has(`${stem}-${k}`)) k++;
+  return `${stem}-${k}`;
+}
+/** What a node says: the words of its own text, or of the first label inside it. */
+function wordsOf(src) {
+  const t = /<text\b[^>]*>([\s\S]*?)<\/text>/i.exec(src);
+  return t ? decodeText(t[1].replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim() : '';
+}
+
+/**
+ * A copy's node names made its own (Duplicate): each `data-node` renamed to
+ * one `svgSrc` does not have, the copy's wires following their nodes; a
+ * wire's end on a node outside the copy is let go, its coordinates kept, so
+ * a copy is never joined to its original's neighbours.
+ */
+function ownNames(copy, svgSrc) {
+  const taken = new Set(nodeNamesIn(svgSrc));
+  const renamed = new Map();
+  for (const name of nodeNamesIn(copy)) {
+    const n = uniqueName(name, taken);
+    taken.add(n);
+    renamed.set(name, n);
+  }
+  if (!renamed.size && !/\sdata-(?:from|to)\s*=/i.test(copy)) return copy;
+  return eachOpenTag(copy, (head, close) => {
+    let h = head;
+    const own = attrOf(h, 'data-node');
+    if (own !== null && renamed.has(own)) h = withAttr(h, 'data-node', renamed.get(own));
+    for (const a of ['data-from', 'data-to']) {
+      const v = attrOf(h, a);
+      if (v !== null) h = withAttr(h, a, renamed.get(v) ?? null);
+    }
+    return h + close;
+  });
+}
+
+/** A wire's geometry as a `<tag>` is written with it, each value in its closed shape: `{ attr: value }`, or a refusal. */
+function connectorGeometry(tag, geometry) {
+  if (!geometry || typeof geometry !== 'object' || Array.isArray(geometry)) throw new Error('a connector is written with its geometry');
+  const want = tag === 'line' ? LINE_GEOMETRY : tag === 'path' ? ['d'] : ['points'];
+  const keys = Object.keys(geometry);
+  if (keys.length !== want.length || !want.every((k) => keys.includes(k))) throw new Error(`a <${tag}> wire is written with ${want.join(', ')}`);
+  return Object.fromEntries(want.map((k) => [k, geometryValue(k, geometry[k])]));
+}
+/** The element a wire is once routed: a line that bends becomes a path, and so does a polyline that curves. */
+const tagForRoute = (tag, route) => ((tag === 'line' && route !== 'straight') || (tag === 'polyline' && route === 'curve') ? 'path' : tag);
+/** A wire's source as a `<to>`: its tags renamed, the geometry of what it was taken off, and unfilled (a bent path would fill). */
+function retag(src, to) {
+  const from = /^<([a-zA-Z][\w:-]*)/.exec(src)[1];
+  if (from.toLowerCase() === to) return src;
+  const { attrs, close, rest } = splitOpenTag(src);
+  let head = `<${to}${attrs.slice(1 + from.length)}`;
+  for (const a of [...LINE_GEOMETRY, 'points', 'd']) head = withAttr(head, a, null);
+  if (attrOf(head, 'fill') === null && !/(?:^|;)\s*fill\s*:/i.test(attrOf(head, 'style') ?? '')) head = withAttr(head, 'fill', 'none');
+  return head + close + rest.replace(new RegExp(`</${from}(\\s*>)$`, 'i'), `</${to}$1`);
+}
+
+/**
+ * Add or change a connector (SVG_DIAGRAMS), slide N's element `index`, as
+ * ONE write. Every request names its nodes and its wire the way the colour
+ * card names a shape (`{ path, tag }`, the FILE's element-child path below
+ * the element, a mismatch a 409) and sends the geometry the page routed:
+ * `{ x1, y1, x2, y2 }` for a line, `{ d }` for a path, `{ points }` for a
+ * polyline, each value in the geometry route's closed shapes.
+ *
+ *   add        `{ path, nodes: { from, to }, geometry }`: a line from node
+ *              `from` to node `to` (each `{ path, tag, label }`; not top-level
+ *              fields, since `from` is the page a quiet write names) last in the svg at
+ *              `path`, written like the diagram's other wires (their look,
+ *              never their place or their build), else in theme tokens,
+ *              ending in the arrowhead the svg has, else the shipped one
+ *   reconnect  `{ wire, end, node, geometry }`: `end` ('from' or 'to') on
+ *              `node`; a hand-drawn line becomes attached this way
+ *   detach     `{ wire, end, geometry }`: that end let go where it is
+ *   route      `{ wire, route, geometry }`: straight, elbow or curve; a line
+ *              that bends becomes a `<path>`
+ *   arrows     `{ wire, arrows }`: none, end, or both ends (a start head
+ *              is a marker oriented `auto-start-reverse`)
+ *   reverse    `{ wire, geometry }`: from and to swapped, the geometry run
+ *              the other way, so the arrowhead points the other way
+ *
+ * A node without a `data-node` is given one, from its words (a group's
+ * label, else the `label` the page read beside it), slugged and unique in
+ * the svg. Returns `{ html, wire: { path, html }, defs: [...], named }`
+ * (`added` for `add`): the wire's markup as the file has it, and each
+ * arrowhead definition added, in order, the way addDiagramShape says one.
+ */
+export function editConnector(html, slide, index, req) {
+  const { op } = req ?? {};
+  if (!CONNECTOR_OPS.includes(op)) throw new Error(`not a connector edit: ${String(op).slice(0, 20)}`);
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  let el = seg.slice(r.start, r.end);
+  const loc = (p, tag) => nodeAt(el, p, { slide, index, tag });
+  const setAttrs = (p, tag, fn) => {
+    const at = loc(p, tag);
+    const { attrs, close, rest } = splitOpenTag(el.slice(at.start, at.end));
+    el = el.slice(0, at.start) + fn(attrs) + close + rest + el.slice(at.end);
+  };
+  const ref = (n, what) => {
+    if (!n || typeof n !== 'object' || !Array.isArray(n.path)) throw new Error(`which ${what}?`);
+    return n;
+  };
+  /** The name of a node of the svg at `svgPath`, given one when it has none. */
+  const nameNode = (n, svgPath) => {
+    ref(n, 'node');
+    const svg = loc(svgPath, 'svg');
+    const at = loc(n.path, n.tag ?? null);
+    if (!NODE_TAGS.has(at.found)) throw new Error(`a connector joins shapes and boxes, not a <${at.found}>`);
+    if (!at.svg || at.svg.start !== svg.start || n.path.length <= svgPath.length) throw new Error('a connector joins nodes of its own diagram');
+    const head = splitOpenTag(el.slice(at.start, at.end)).attrs;
+    if (attrOf(head, 'data-from') !== null || attrOf(head, 'data-to') !== null) throw new Error('a connector joins shapes, not another connector');
+    const own = attrOf(head, 'data-node');
+    if (own) return own;
+    const said = wordsOf(el.slice(at.start, at.end)) || (typeof n.label === 'string' ? n.label.slice(0, 80) : '');
+    const name = uniqueName(slugNode(said || (at.found === 'g' || at.found === 'rect' ? 'box' : at.found)), new Set(nodeNamesIn(el.slice(svg.start, svg.end))));
+    setAttrs(n.path, at.found, (a) => withAttr(a, 'data-node', name));
+    return name;
+  };
+  const finish = (out) => {
+    parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
+    return { html: parts.join(''), ...out };
+  };
+
+  if (op === 'add') {
+    const svgPath = ref(req, 'diagram').path;
+    let svg = loc(svgPath, req.tag ?? 'svg');
+    if (svg.found !== 'svg') throw new Error(`a connector is added to a diagram's <svg>, not a <${svg.found}>`);
+    if (/\sdata-chart\b/i.test(splitOpenTag(el.slice(svg.start, svg.end)).attrs)) throw new Error('a chart draws itself from its data');
+    const ends = req.nodes ?? {};
+    ref(ends.from, 'node'); ref(ends.to, 'node');
+    if (JSON.stringify(ends.from.path) === JSON.stringify(ends.to.path)) throw new Error('a connector joins two different nodes');
+    const geom = connectorGeometry('line', req.geometry);
+    const from = nameNode(ends.from, svgPath);
+    const to = nameNode(ends.to, svgPath);
+    svg = loc(svgPath, 'svg');
+    let svgSrc = el.slice(svg.start, svg.end);
+    const svgIndent = svgIndentOf(seg, r, svg);
+    const lay = layoutOf(svgSrc, svgIndent);
+    // written like the diagram's connectors, else its wires: their look, never their place
+    const lines = drawnNodes(svgSrc).filter((n) => n.tag === 'line');
+    const model = lines.findLast((n) => attrOf(n.attrs, 'data-from') !== null || attrOf(n.attrs, 'data-to') !== null) ?? lines.at(-1) ?? null;
+    let defs; let marker;
+    ({ svgSrc, defs, marker } = arrowheadFor(svgSrc, lay, svgPath, { prefer: model && attrOf(model.attrs, 'marker-end') }));
+    const place = { 'data-from': from, 'data-to': to, ...geom, 'marker-end': marker };
+    const markup = `${model ? openTag('line', model.attrs, place) : openTag('line', null, { ...place, 'stroke-width': '2', style: 'stroke: var(--d-stroke)' })}/>`;
+    let at;
+    ({ svgSrc, index: at } = appendToSvg(svgSrc, markup, lay, svgIndent));
+    el = el.slice(0, svg.start) + svgSrc + el.slice(svg.end);
+    return finish({ added: { path: [...svgPath, at], html: markup }, wire: { path: [...svgPath, at], html: markup }, defs: defs ? [defs] : [], named: { from, to } });
+  }
+
+  const w = ref(req.wire, 'wire');
+  let wPath = w.path;
+  const wAt = loc(wPath, w.tag ?? null);
+  if (!wAt.inSvg || !WIRE_TAGS.has(wAt.found)) throw new Error(`not a wire: <${wAt.found}>`);
+  const svgPath = wPath.slice(0, wAt.chain.map((c) => c.tag).lastIndexOf('svg'));
+  let tag = wAt.found;
+  const head0 = splitOpenTag(el.slice(wAt.start, wAt.end)).attrs;
+  const ends = { from: attrOf(head0, 'data-from'), to: attrOf(head0, 'data-to') };
+  if ((op === 'reconnect' || op === 'detach') && !['from', 'to'].includes(req.end)) throw new Error('which end: from or to?');
+  if (op === 'route' && !CONNECTOR_ROUTES.includes(req.route)) throw new Error(`a route is straight, elbow or curve, not: ${String(req.route).slice(0, 20)}`);
+  if (op === 'arrows' && !CONNECTOR_ARROWS.includes(req.arrows)) throw new Error(`arrows are none, end or both, not: ${String(req.arrows).slice(0, 20)}`);
+  const toTag = op === 'route' ? tagForRoute(tag, req.route) : tag;
+  const geom = op === 'arrows' ? null : connectorGeometry(toTag, req.geometry);
+  let named = null;
+  if (op === 'reconnect') {
+    named = nameNode(req.node, svgPath);
+    if (ends[req.end === 'from' ? 'to' : 'from'] === named) throw new Error('both ends of a connector on one node');
+  }
+  const edit = (fn) => setAttrs(wPath, tag, fn);
+  if (op === 'reconnect') edit((a) => withAttr(a, `data-${req.end}`, named));
+  if (op === 'detach') {
+    edit((a) => {
+      const h = withAttr(a, `data-${req.end}`, null);
+      return attrOf(h, 'data-from') === null && attrOf(h, 'data-to') === null ? withAttr(h, 'data-route', null) : h;
+    });
+  }
+  if (op === 'reverse') edit((a) => withAttr(withAttr(a, 'data-from', ends.to), 'data-to', ends.from));
+  if (op === 'route') {
+    if (toTag !== tag) {
+      const at = loc(wPath, tag);
+      el = el.slice(0, at.start) + retag(el.slice(at.start, at.end), toTag) + el.slice(at.end);
+      tag = toTag;
+    }
+    edit((a) => withAttr(a, 'data-route', req.route === 'straight' ? null : req.route));
+  }
+  if (geom) edit((a) => Object.entries(geom).reduce((h, [k, v]) => withAttr(h, k, v), a));
+  const defs = [];
+  if (op === 'arrows') {
+    const head = splitOpenTag(el.slice(loc(wPath, tag).start)).attrs;
+    const svg = loc(svgPath, 'svg');
+    let svgSrc = el.slice(svg.start, svg.end);
+    const lay = layoutOf(svgSrc, svgIndentOf(seg, r, svg));
+    let end = null; let start = null; let d = null;
+    if (req.arrows !== 'none') {
+      ({ svgSrc, defs: d, marker: end } = arrowheadFor(svgSrc, lay, svgPath, { prefer: attrOf(head, 'marker-end') }));
+      if (d) defs.push(d);
+    }
+    if (req.arrows === 'both') {
+      start = attrOf(head, 'marker-start');
+      if (!start) {
+        ({ svgSrc, defs: d, marker: start } = arrowheadFor(svgSrc, lay, svgPath, { start: true }));
+        if (d) defs.push(d);
+      }
+    }
+    el = el.slice(0, svg.start) + svgSrc + el.slice(svg.end);
+    // a <defs> made first in the svg moves everything after it one along
+    if (defs.some((x) => x.created && !x.replaced) && wPath.length > svgPath.length) {
+      wPath = [...wPath.slice(0, svgPath.length), wPath[svgPath.length] + 1, ...wPath.slice(svgPath.length + 1)];
+    }
+    edit((a) => withAttr(withAttr(a, 'marker-end', end), 'marker-start', start));
+  }
+  const at = loc(wPath, tag);
+  return finish({ wire: { path: wPath, html: el.slice(at.start, at.end) }, defs, named: named ? { [req.end]: named } : null });
 }
 
 // The spec's 7 entrance styles (MOTION), plus 'none' — an explicit, instant
@@ -1753,6 +2117,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/text': 'text saved',
   '/deck/edit/element/geometry': 'diagram shapes moved',
   '/deck/edit/element/shape': 'diagram shape added',
+  '/deck/edit/element/connector': 'connector saved',
   '/deck/edit/element/image': 'image placed',
   '/deck/edit/element/insert': 'element added',
   '/deck/edit/element/picture': 'picture changed',
@@ -1888,6 +2253,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/text': 'label edit',
   '/deck/edit/element/geometry': 'move in a diagram',
   '/deck/edit/element/shape': 'new shape in a diagram',
+  '/deck/edit/element/connector': 'connector',
   '/deck/edit/element/image': 'picture',
   '/deck/edit/element/insert': 'added element',
   '/deck/edit/element/picture': 'picture',
