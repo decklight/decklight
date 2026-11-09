@@ -26,6 +26,7 @@ import { injectedIn } from './pick.js';
 import { holdDraft } from './drafts.js';
 import { linkTarget, slideSuggestions } from './links.js';
 import { slideTitle, slideBody } from './finder.js';
+import { createListSessions } from './list-session.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -155,10 +156,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   // ⏎ tries the save again and Esc puts the file's words back. Until then the
   // reload waits for them (drafts.js).
   const stranded = new Map();   // element → the edit whose save failed
-  const strand = (cur) => {
-    stranded.set(cur.el, cur);
-    cur.el.classList.add('dl-unsaved');
-    cur.el.setAttribute('data-dl-unsaved', 'not saved: double-click to try again');
+  // `el`: what is marked, the edited element, or a whole list or table
+  const strand = (cur, el = cur.el) => {
+    stranded.set(el, cur);
+    el.classList.add('dl-unsaved');
+    el.setAttribute('data-dl-unsaved', 'not saved: double-click to try again');
   };
   const unstrand = (el) => {
     stranded.delete(el);
@@ -167,7 +169,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   };
   const notSaved = (what, e) => `${what} not saved${editmode.offline?.() ? ': the edit server is not answering'
     : `: ${String(e?.message || e)}`}. Your words stay on the slide, marked: double-click to try again (Esc there puts the old ones back)`;
-  const changedNow = (cur) => (cur.svg ? cur.input.value.replace(/\s+/g, ' ').trim() !== cur.was.replace(/\s+/g, ' ').trim()
+  const changedNow = (cur) => (cur.list || cur.table ? lists.changed(cur) : cur.svg ? cur.input.value.replace(/\s+/g, ' ').trim() !== cur.was.replace(/\s+/g, ' ').trim()
     : cur.code ? cur.el.textContent.replace(/\n$/, '') !== cur.text
       : cur.el.innerHTML !== cur.original);
   holdDraft(() => {
@@ -182,7 +184,13 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (cur.code) return saveCode(cur);
     if (cur.svg) return saveLabel(cur);
     closeLinkBox();
-    editing = null;
+    // a list or a table: the whole session, one write (list-session.js)
+    if (cur.list || cur.table) return lists.save(cur);
+    return saveText(cur);
+  }
+
+  async function saveText(cur) {
+    if (editing === cur) editing = null;
     placePill();
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
@@ -213,9 +221,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   // Tracked from its FIRST await, not just the POST: the save reads the element's
   // source before it writes, and a Z pressed during that read is exactly the one
   // that used to find "nothing to undo" while the edit landed behind it.
+  let lastSave = Promise.resolve();
   function saveInline() {
     const p = saveInlineNow();
     editmode.trackWrite?.(p);
+    lastSave = p.catch(() => {});
     return p;
   }
 
@@ -230,6 +240,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       if (stranded.has(cur.el)) { cur.el.textContent = cur.was; unstrand(cur.el); }
       return;
     }
+    if (cur.list || cur.table) { lists.cancel(cur); return; }
     unstrand(cur.el);
     if (cur.code) {
       cur.el.removeAttribute('contenteditable');
@@ -241,6 +252,18 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
   }
+
+  // ── lists and tables, typed in like a document (PRESENTING_EDITING) ──────
+  const lists = createListSessions({
+    instance, toast, editmode, fetch: boundedFetch, base, post, inPlace, announce, childPath,
+    sectionOf, topLevelChild, authoredIndex, strand, unstrand, notSaved, saveText,
+    saveInline: () => saveInline(), lastSave: () => lastSave,
+    editing: () => editing,
+    setEditing: (v) => { editing = v; placePill(); },
+    syncHint: () => syncHint(), placePill: () => placePill(),
+  });
+  // the element menu's rows for a right-click on a table's cell
+  editmode.setTableRows?.((target, close) => lists.tableRows(target, close));
 
   // ── emphasis while editing in place (PRESENTING) ──────────────────────────
   // ⌘B, ⌘I and ⌘E (Ctrl on Windows and Linux) wrap the selection in <strong>,
@@ -548,8 +571,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       document.body.appendChild(hint);
     }
     hint.style.display = linkBox ? 'none' : '';
-    hint.textContent = cur.code ? `${IS_MAC ? '⌘⏎' : 'Ctrl+Enter'} keep · Esc cancel` : '⏎ keep · Esc cancel';
-    const r = (cur.svg ? cur.input : cur.el).getBoundingClientRect();
+    hint.textContent = lists.hint(cur) ?? (cur.code ? `${IS_MAC ? '⌘⏎' : 'Ctrl+Enter'} keep · Esc cancel` : '⏎ keep · Esc cancel');
+    // a list or a table: under the whole of it, clear of the next point
+    const r = (cur.svg ? cur.input : lists.anchor(cur) ?? cur.el).getBoundingClientRect();
     hint.style.left = `${r.left + r.width / 2}px`;
     hint.style.top = `${r.bottom + 14}px`;
   }
@@ -787,14 +811,21 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   }
 
   function beginInline(el, { sec, slide }, { selectAll = false } = {}) {
+    // another point of the list being edited, another cell of its table: the same session
+    if (editing && lists.claim(editing, el)) return;
     if (editing) saveInline();
     const top = topLevelChild(sec, el);
     if (!top) return;
     const index = authoredIndex(sec, top);
     const path = childPath(top, el);
     if (path === null) return;
+    // a list or table whose save failed: its session, picked up where it was left
+    const again = lists.strandedFor(el, stranded);
+    if (again) { editing = again; lists.resume(again, el); syncHint(); return; }
     // picked up again after a save that failed: the file still has the original
     editing = { el, original: stranded.get(el)?.original ?? el.innerHTML, slide, index, path };
+    // a point of a list, a cell of a table: Enter and Tab work as a document's (list-session.js)
+    lists.begin(editing, top);
     el.setAttribute('contenteditable', 'true');
     el.classList.add('dl-editing');
     el.focus();
@@ -840,6 +871,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       else if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); }
       return;
     }
+    if (lists.key(e, editing)) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveInline(); }
     else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
     // ⌘K / Ctrl+K is the palette's everywhere else; in the words, it is the link
@@ -853,9 +885,17 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     }
   }, true);
   root.addEventListener('focusout', (e) => {
-    // into the link box is not leaving: the box ends the edit itself if it is left
-    if (editing && e.target === editing.el && !linkBox) saveInline();
+    // into the link box is not leaving: the box ends the edit itself if it is
+    // left; nor is the typing moving to the next point or cell of the same session
+    if (editing && e.target === editing.el && !linkBox && !lists.moving(editing)) saveInline();
   });
+  // a press on another point of the list (another cell of the table) being
+  // edited moves the typing there, in the same session
+  root.addEventListener('mousedown', (e) => {
+    if (!editing || !(editing.list || editing.table) || e.button !== 0) return;
+    const el = e.target?.closest?.('li, td, th');
+    if (el && el !== editing.el) lists.claim(editing, el);
+  }, true);
 
   // ── a link on a slide does not take the deck away (PRESENTING_EDITING) ────
   // In write mode a click selects and a double-click edits: the first click
