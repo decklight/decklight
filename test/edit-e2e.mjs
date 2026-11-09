@@ -103,6 +103,12 @@ const FIXTURES = {
       <aside class="notes">Notes.</aside>
     </section>`),
 };
+// a picture on a slide, for its own menu and a caption
+FIXTURES.picture = deckOf(`    <section>
+      <h2>Throughput</h2>
+      <img src="picture.png" alt="the queue" width="200">
+      <aside class="notes">Notes.</aside>
+    </section>`);
 // a 4×4 PNG, for the picture a file chooser is handed
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGNgYGD4z4AKMFAAKX0B/9g5w2kAAAAASUVORK5CYII=', 'base64');
 
@@ -343,10 +349,125 @@ try {
     await page.keyboard.press('Escape'); await wait(200);
     const w = await page.locator(`${ACTIVE} svg [data-from]`).boundingBox();
     await page.mouse.click(w.x + w.width / 2, w.y + w.height / 2, { button: 'right' }); await wait(400);
-    await menuRow(page, /^Wire ▸$|^Route ▸$/);
-    if (await page.locator('.decklight-ctxmenu .cm-row', { hasText: /^Route ▸$/ }).count()) await menuRow(page, /^Route ▸$/);
+    await menuRow(page, /^Wire ▸$/);
+    const heads = await page.locator('.decklight-ctxmenu .cm-head').allTextContents();
+    check('diagram', 'Wire ▸ is one submenu: Route and Arrows as headed groups', heads.join() === 'Route,Arrows', heads);
     await menuRow(page, /Elbow$/); await wait(1200);
-    check('diagram', 'Route ▸ Elbow writes an elbow', /data-route="elbow"/.test(wire()), wire());
+    check('diagram', 'Wire ▸ Elbow writes an elbow', /data-route="elbow"/.test(wire()), wire());
+    // the whole diagram duplicated from its canvas by ⌘D: a second diagram, its node names its own
+    await page.goto(diagram.url + '#/1/0'); await wait(1500);
+    await page.keyboard.press('Escape'); await wait(200);
+    const svgBox = await page.locator(`${ACTIVE} svg`).boundingBox();
+    await page.mouse.click(svgBox.x + svgBox.width / 2, svgBox.y + svgBox.height - 12); await wait(300);
+    const before = diagram.read();
+    await page.keyboard.press(`${MOD}+d`); await wait(1500);
+    const names = (diagram.read().match(/data-node="([^"]+)"/g) ?? []);
+    check('diagram', '⌘D on the canvas: a second diagram after it, its names its own',
+      (section(diagram.read(), 1).match(/<svg\b/g) ?? []).length === 2 && new Set(names).size === names.length && names.length === 4, names);
+    check('diagram', 'shown in place, the copy selected', await page.locator(`${ACTIVE} > svg`).count() === 2
+      && await page.locator(`${ACTIVE} > svg`).nth(1).evaluate((n) => n.classList.contains('dl-selected')));
+    await page.keyboard.press('Escape'); await wait(200);
+    await page.keyboard.press(`${MOD}+z`); await wait(1800);
+    check('diagram', 'one undo takes the copy back', diagram.read() === before);
+    await page.close();
+  });
+
+  // 7 · the element menu: the same short list on a paragraph as on anything,
+  //     a table's rows behind one Table ▸; Duplicate and ⌘D one write each
+  await scenario('menus', async () => {
+    text.reset(); await wait(400);
+    const page = await open(text, '#/1/3');
+    const labels = () => page.locator('.decklight-ctxmenu .cm-row').evaluateAll((rs) => rs.map((r) => r.firstChild?.textContent ?? ''));
+    const box = await page.locator(`${ACTIVE} > ul`).boundingBox();
+    await page.mouse.click(box.x + 6, box.y + 6, { button: 'right' }); await wait(400);
+    const rows = (await labels()).filter((t) => t !== 'Writing tools…');
+    check('menus', 'the top level on a list', JSON.stringify(rows) === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build: fade-up ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Slide ▸']), rows);
+    const original = text.read();
+    await menuRow(page, /^Duplicate/); await wait(1500);
+    const lists = section(text.read(), 1).match(/<ul data-build="fade-up">[\s\S]*?<\/ul>/g) ?? [];
+    check('menus', 'Duplicate: the list copied right after itself', lists.length === 2 && lists[0] === lists[1]
+      && /<\/ul>\n {6}<ul data-build="fade-up">/.test(section(text.read(), 1)), section(text.read(), 1).slice(0, 400));
+    check('menus', 'one write', text.saves(/element duplicated/g) === 1);
+    await page.keyboard.press(`${MOD}+z`); await wait(1800);
+    check('menus', 'one undo takes it back', text.read() === original);
+    // ⌘D on the selected title, shown at once, nothing reloaded
+    await page.goto(text.url + '#/1/3'); await wait(1500);
+    await page.keyboard.press('Escape'); await wait(200);
+    await page.locator(`${ACTIVE} > h2`).click(); await wait(300);
+    const marker = await page.evaluate(() => { window.__noReload = true; return true; });
+    await page.keyboard.press(`${MOD}+d`); await wait(1500);
+    check('menus', '⌘D on the title: two titles in the file and on the page, no reload',
+      (section(text.read(), 1).match(/<h2>Why the queue<\/h2>/g) ?? []).length === 2
+      && await page.locator(`${ACTIVE} > h2`).count() === 2 && marker && await page.evaluate(() => window.__noReload === true));
+    await page.close();
+  });
+
+  // 8 · a picture's menu: one Picture ▸; a caption typed is ONE write, and Esc writes nothing
+  await scenario('caption', async () => {
+    const picture = await serve('picture');
+    const page = await open(picture, '#/1/0');
+    const original = picture.read();
+    const img = page.locator(`${ACTIVE} > img`);
+    const menuOn = async () => { const b = await img.boundingBox(); await page.mouse.click(b.x + 10, b.y + 10, { button: 'right' }); await wait(400); };
+    await menuOn();
+    const top = await page.locator('.decklight-ctxmenu .cm-row').evaluateAll((rs) => rs.map((r) => r.firstChild?.textContent ?? ''));
+    check('caption', 'the picture\'s rows behind one Picture ▸, just above Slide ▸', top.at(-2) === 'Picture ▸' && !top.includes('Add caption'), top);
+    await menuRow(page, /^Picture ▸$/);
+    const sub = await page.locator('.decklight-ctxmenu .cm-row').allTextContents();
+    check('caption', 'Picture ▸: Replace…, Add caption, Use as slide background, Reset size', sub.join('|') === '← back|Replace…|Add caption|Use as slide background|Reset size', sub);
+    await menuRow(page, /^Add caption$/); await wait(400);
+    check('caption', 'the caption is in edit at once, nothing written', await page.locator(`${ACTIVE} figure > figcaption[contenteditable]`).count() === 1 && picture.read() === original);
+    await page.keyboard.press('Escape'); await wait(800);
+    check('caption', 'Esc writes nothing and puts the picture back', picture.read() === original && await page.locator(`${ACTIVE} > img`).count() === 1);
+    await menuOn();
+    await menuRow(page, /^Picture ▸$/);
+    await menuRow(page, /^Add caption$/); await wait(400);
+    await page.keyboard.type('Queue depth');
+    await page.keyboard.press('Enter'); await wait(1500);
+    check('caption', 'one write: the figure and the words typed', /<figure>\n {8}<img src="picture.png" alt="the queue" width="200">\n {8}<figcaption>Queue depth<\/figcaption>\n {6}<\/figure>/.test(picture.read())
+      && picture.saves(/picture changed/g) === 1, section(picture.read(), 1));
+    await page.keyboard.press(`${MOD}+z`); await wait(1800);
+    check('caption', 'one undo takes the caption back', picture.read() === original);
+    await page.close();
+  });
+
+  // 9 · New slide offers the same kinds from every door: the palette, the overview's N
+  await scenario('newslide', async () => {
+    text.reset(); await wait(400);
+    const page = await open(text, '#/1/0');
+    const kinds = () => page.locator('.decklight-ctxmenu .cm-list[aria-label="New slide"] .cm-row').allTextContents();
+    await page.keyboard.press('/'); await wait(300);
+    await page.keyboard.type('new slide'); await wait(200);
+    await page.keyboard.press('Enter'); await wait(400);
+    const listed = await kinds();
+    check('newslide', 'the palette\'s New slide… opens the kinds, Title and bullets ready',
+      listed[0] === 'Title and bullets' && listed.length === 5 && await page.locator('.decklight-ctxmenu .cm-row.cm-selected').textContent() === 'Title and bullets', listed);
+    await page.keyboard.press('Enter'); await wait(1500);
+    check('newslide', '⏎ adds Title and bullets after this slide', (text.read().match(/<section\b/g) ?? []).length === 3 && /<li>/.test(section(text.read(), 2)), section(text.read(), 2).slice(0, 200));
+    await page.keyboard.press('Escape'); await wait(300);   // its title was in edit
+    await page.keyboard.press('o'); await wait(500);
+    await page.keyboard.press('n'); await wait(400);
+    check('newslide', 'the overview\'s N opens the same kinds', (await kinds()).length === 5);
+    await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter'); await wait(1500);
+    check('newslide', 'a pick adds that kind, the overview still up', (text.read().match(/<section\b/g) ?? []).length === 4
+      && await page.locator('.decklight-overview-grid').count() === 1 && await page.locator('.decklight-stage [contenteditable="true"]').count() === 0);
+    await page.close();
+  });
+
+  // 10 · ⌘K while typing with no words selected: neither a link box nor the palette
+  await scenario('linkchord', async () => {
+    text.reset(); await wait(400);
+    const page = await open(text, '#/1/0');
+    await page.locator(`${ACTIVE} > h2`).dblclick(); await wait(400);
+    await page.keyboard.press('End');
+    await page.keyboard.press(`${MOD}+k`); await wait(400);
+    const said = await page.locator('.decklight-toast').allTextContents();
+    check('linkchord', 'no link box, no palette, and it says what to do', await page.locator('.dl-link').count() === 0
+      && await page.locator('.decklight-palette').count() === 0 && said.some((t) => t === 'select words to link'), said);
+    await page.keyboard.press('Escape'); await wait(300);
+    await page.keyboard.press(`${MOD}+k`); await wait(300);
+    check('linkchord', 'not typing, ⌘K is the palette, its hint saying both',
+      /links the selected words/.test(await page.locator('.decklight-palette .pal-hint').textContent().catch(() => '')));
     await page.close();
   });
 } finally {

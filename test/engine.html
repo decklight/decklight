@@ -705,6 +705,18 @@
             section: SECTIONS[b.kind] ?? '<section><h2>New slide</h2><p>Say something here.</p><aside class="notes"></aside></section>' });
         }
       }
+      // Duplicate and the chords (dupkeys): the copy's markup as the server
+      // answers it (a copy of the element, put right after it), in place
+      if (HARNESS_MODE === 'dupkeys') {
+        window.__dups ??= 0;
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/duplicate')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          const nested = Array.isArray(b.path) && b.path.length > 0;
+          return json({ ok: true, changed: true, index: nested ? b.index : b.index + 1, path: nested ? [...b.path.slice(0, -1), b.path.at(-1) + 1] : [],
+            html: '<h1>One</h1>', inPlace: b.quiet === true, undo: ++window.__dups, redo: 0 });
+        }
+      }
       // a reload while something is typed (heldreload): notes that save in
       // place, and an HTML editor with a source to load
       if (HARNESS_MODE === 'heldreload') {
@@ -3266,19 +3278,21 @@
         } else {
           const shapes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/shape')).map((c) => c.body);
           const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
-          const row = (t) => rows().find((n) => n.textContent.trim() === t);
+          const row = (t) => rows().find((n) => (n.firstChild?.textContent ?? '').trim() === t);
           const menuAt = async (el, x, y) => { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y })); await settle(); };
           const authored = () => [...svg.children].filter((c) => !c.matches('.draw-head, .draw-mask'));
           const n0 = authored().length;
-          // the menu on the diagram's canvas: Add shape ▸, its four kinds; nothing to duplicate there
+          // the menu on the diagram's canvas: Shape ▸, its four kinds under an Add heading; the canvas is the
+          // whole diagram, so nothing there to remove beyond it
           const sb = svg.getBoundingClientRect();
           // whole pixels: a MouseEvent's clientX is an integer
           const px = Math.round(sb.left + sb.width * 0.8); const py = Math.round(sb.top + sb.height * 0.85);
           await menuAt(svg, px, py);
-          r.menuOffersAdd = !!row('Add shape ▸') && !row('Duplicate');
-          row('Add shape ▸')?.click();
+          r.menuOffersAdd = !!row('Shape ▸') && !row('Add shape ▸');
+          row('Shape ▸')?.click();
           await settle();
-          r.fourKinds = ['Box', 'Ellipse', 'Label', 'Line / arrow'].every((t) => row(t));
+          r.fourKinds = ['Box', 'Ellipse', 'Label', 'Line / arrow'].every((t) => row(t)) && document.querySelector('.decklight-ctxmenu .cm-head')?.textContent === 'Add'
+            && !row('Remove the whole diagram');
           row('Box')?.click();
           await settle(); await settle();
           const m = svg.getScreenCTM().inverse();
@@ -3311,7 +3325,7 @@
           r.copySelected = deck._selection()?.node === copy?.querySelector('rect');
           // a line ends in the diagram's own arrowhead, by the id the page gave it
           await menuAt(svg, px, sb.top + sb.height * 0.1);
-          row('Add shape ▸')?.click();
+          row('Shape ▸')?.click();
           await settle();
           row('Line / arrow')?.click();
           await settle(); await settle();
@@ -3456,26 +3470,32 @@
           const pick = async (el, sub, choice) => { await menuOn(el); row(sub)?.click(); await settle(); const ok = !!row(choice); row(choice)?.click(); await settle(); await settle(); return ok; };
           const wire = q('.cn-wire');
           await menuOn(wire);
-          r.wireRows = !!row('Route ▸') && !!row('Arrows ▸') && !!row('Reverse');
-          row('Route ▸')?.click(); await settle();
+          // one Wire ▸ row: route and arrows as two small headed groups in ONE submenu, then Reverse
+          r.wireRows = !!row('Wire ▸') && !row('Route ▸') && !row('Arrows ▸') && !row('Reverse');
+          row('Wire ▸')?.click(); await settle();
+          const sub = [...document.querySelectorAll('.decklight-ctxmenu .cm-list > *')].map((n) => (n.classList.contains('cm-head') ? `#${n.textContent}` : n.classList.contains('cm-sep') ? '—' : n.textContent));
+          r.wireSubmenu = JSON.stringify(sub) === JSON.stringify(['← back', '#Route', '✓ Straight', 'Elbow', 'Curved', '#Arrows', 'None', '✓ End', 'Both ends', '—', 'Reverse']);
           r.routeTicked = !!row('✓ Straight') && !!row('Elbow') && !!row('Curved');
+          // the arrows skip the headings: ↓ from the back row lands on Straight
+          press('ArrowDown');
+          r.headsAreNotRows = document.querySelector('.decklight-ctxmenu .cm-row.cm-selected')?.textContent === '✓ Straight';
           row('Elbow')?.click(); await settle(); await settle();
           const rt = posts('connector')[0];
           r.elbowAsked = rt?.op === 'route' && rt.route === 'elbow' && at(rt.wire) === at({ path: [4], tag: 'line' }) && rt.geometry?.d === 'M 200 75 L 400 75 L 400 190';
           const bent = q('.cn-wire');
           r.lineBecomesPath = bent?.tagName === 'path' && bent !== wire && bent.getAttribute('data-route') === 'elbow' && bent.getAttribute('d') === rt.geometry.d
             && bent.getAttribute('fill') === 'none' && deck._selection()?.node === bent && !wire.isConnected;
-          r.curveTicksElbow = await pick(bent, 'Route ▸', 'Curved') && !!document;
+          r.curveTicksElbow = await pick(bent, 'Wire ▸', 'Curved') && !!document;
           const cv = posts('connector')[1];
           r.curved = cv?.route === 'curve' && cv.geometry.d === 'M 200 75 C 260 75 260 230 320 230' && q('.cn-wire') === bent && bent.getAttribute('d') === cv.geometry.d;
-          await menuOn(bent); row('Arrows ▸')?.click(); await settle();
+          await menuOn(bent); row('Wire ▸')?.click(); await settle();
           r.arrowsTicked = !!row('None') && !!row('✓ End') && !!row('Both ends');
           row('Both ends')?.click(); await settle(); await settle();
           const ar = posts('connector')[2];
           const markers = [...svg.querySelectorAll('defs marker')];
           r.bothEnds = ar?.op === 'arrows' && ar.arrows === 'both' && !ar.geometry && markers.length === 2 && /^svg\d+-cn-arr-start$/.test(markers[1].id)
             && bent.getAttribute('marker-start') === `url(#${markers[1].id})` && /cn-arr\)$/.test(bent.getAttribute('marker-end'));
-          await menuOn(bent); row('Reverse')?.click(); await settle(); await settle();
+          await menuOn(bent); row('Wire ▸')?.click(); await settle(); row('Reverse')?.click(); await settle(); await settle();
           const rv = posts('connector')[3];
           r.reversed = rv?.op === 'reverse' && rv.geometry.d === 'M 320 230 C 260 230 260 75 200 75' && bent.getAttribute('data-from') === 'cache' && bent.getAttribute('data-to') === 'api';
           // a node deleted: the remove names the node (the server takes its connectors in the same write)
@@ -4060,9 +4080,18 @@
         r.duplicateInPlace = count() === 5 && deck.state.totalSlides === 5 && deck.state.slide === 2 && reloads === 0
           && /One/.test(document.querySelector('.decklight-stage > section.active')?.textContent ?? '');
         r.undoLiveOnceThereIsOne = undoBtn()?.disabled === false;
-        runRow('new slide after this one'); await settle(); await settle();
+        // the palette's New slide… opens the same kinds every door offers, the common one ready for ⏎
+        runRow('new slide…'); await settle();
+        const chooser = document.querySelector('.decklight-ctxmenu .cm-list[aria-label="New slide"]');
+        r.paletteOpensTheKinds = !!chooser && !chooser.querySelector('.cm-back')
+          && chooser.querySelector('.cm-row.cm-selected')?.textContent === 'Title and bullets';
+        press('Enter'); await settle(); await settle();
         r.newInPlace = count() === 6 && deck.state.slide === 3
+          && CALLS.post.filter((c) => c.u.includes('/deck/edit/slide')).at(-1)?.body.kind === 'bullets'
           && /Fresh/.test(document.querySelector('.decklight-stage > section.active')?.textContent ?? '');
+        // its title is typed next; Esc leaves it as it came
+        document.querySelector('.decklight-stage > section.active h2')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
         runRow('move slide down'); await settle(); await settle();
         r.moveInPlace = deck.state.slide === 4 && /Fresh/.test(document.querySelector('.decklight-stage > section.active')?.textContent ?? '');
         runRow('delete this slide'); await settle(); await settle();
@@ -4074,7 +4103,7 @@
         await settle();
         r.theButtonUndoes = CALLS.post.some((c) => c.u.includes('/deck/edit/undo'));
         r.noReloadAtAll = reloads === 0;
-        r.PASS = r.undoGreyedAtFirst && r.duplicateInPlace && r.undoLiveOnceThereIsOne && r.newInPlace && r.moveInPlace
+        r.PASS = r.undoGreyedAtFirst && r.duplicateInPlace && r.undoLiveOnceThereIsOne && r.paletteOpensTheKinds && r.newInPlace && r.moveInPlace
           && r.deleteInPlace && r.deleteOffersAnUndoButton && r.theButtonUndoes && r.noReloadAtAll;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -4325,6 +4354,77 @@
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
+      if (mode === 'dupkeys') {
+        // The same action the same way everywhere (PRESENTING_EDITING):
+        // Duplicate on any element, from the menu and by ⌘D / Ctrl+D on a
+        // selection, shown in place and the copy selected; ⌘D with nothing
+        // selected is the browser's; ⌘K while typing is the link only with
+        // words selected, and says so with none; the palette's hint says both.
+        await settle(); await settle();
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const mac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform);
+        const chord = (key, el = document.body) => {
+          const e = new KeyboardEvent('keydown', { key, code: `Key${key.toUpperCase()}`, metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
+          el.dispatchEvent(e);
+          return e;
+        };
+        const click = (el) => el?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const active = () => document.querySelector('.decklight-stage > section.active');
+        const dups = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/duplicate')).map((c) => c.body);
+        const toastSays = (re) => [...document.querySelectorAll('.decklight-toast')].some((n) => re.test(n.textContent));
+        deck.goto(1, 0); await settle();
+        // ⌘D on a selected title: one write, the copy after it, selected
+        click(active().querySelector('h1')); await settle();
+        const taken = chord('d');
+        await settle(); await settle();
+        const h1s = () => [...active().querySelectorAll(':scope > h1')];
+        r.chordDuplicates = taken.defaultPrevented && dups().length === 1 && dups()[0].slide === 1 && dups()[0].index === 0 && dups()[0].tag === 'h1'
+          && dups()[0].quiet === true && !dups()[0].path;
+        r.copyInPlaceSelected = h1s().length === 2 && h1s()[1].classList.contains('dl-selected') && deck._selection()?.index === 1 && reloads === 0;
+        // nothing selected: the chord is the browser's, nothing written
+        press('Escape'); await settle();
+        const free = chord('d');
+        await settle();
+        r.noSelectionLeavesTheChord = !free.defaultPrevented && dups().length === 1;
+        // the menu's Duplicate does the same
+        h1s()[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        await settle();
+        [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.firstChild?.textContent === 'Duplicate')?.click();
+        await settle(); await settle();
+        r.menuDuplicates = dups().length === 2 && dups()[1].index === 0 && h1s().length === 3 && !document.querySelector('.decklight-ctxmenu');
+        press('Escape'); await settle();
+        // ⌘K while typing with no words selected: no link box, no palette, a word on what to do
+        const h1 = h1s()[0];
+        h1.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        await settle();
+        const caret = document.createRange(); caret.selectNodeContents(h1); caret.collapse(false);
+        getSelection().removeAllRanges(); getSelection().addRange(caret);
+        const k1 = chord('k', h1);
+        await settle();
+        r.noWordsSaysSo = k1.defaultPrevented && !document.querySelector('.dl-link') && !document.querySelector('.decklight-palette')
+          && toastSays(/^select words to link$/) && h1.isContentEditable;
+        // with words selected, the link box
+        const words = document.createRange(); words.selectNodeContents(h1);
+        getSelection().removeAllRanges(); getSelection().addRange(words);
+        chord('k', h1);
+        await settle();
+        r.wordsLink = !!document.querySelector('.dl-link') && !document.querySelector('.decklight-palette');
+        document.querySelector('.dl-link-url')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        // anywhere else, ⌘K is the palette, and its hint says both
+        chord('k');
+        await settle();
+        r.paletteSaysBoth = /links the selected words/.test(document.querySelector('.decklight-palette .pal-hint')?.textContent ?? '');
+        press('Escape'); await settle();
+        r.noReload = reloads === 0;
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
       if (mode === 'addslidekinds') {
         // New slide ▸ (PRESENTING_EDITING): the bar's Slide ▾ and the
         // right-click Slide ▸ offer the same short choice of kinds; the new
@@ -4507,23 +4607,46 @@
           await settle(); await settle();
           r.removedInPlace = posts('/deck/edit/slide/background')[1]?.body.src === null
             && !sec.hasAttribute('data-background-image') && !layer() && !document.querySelector('.decklight-bleed .bleed-piece');
-          // a picture already in a figure has no Add caption; both offer the background
+          // a picture's rows are under Picture ▸, the same four for every
+          // picture: one in a figure has Add caption greyed, and its figure
+          // removed whole from there
           rightClick(fig); await settle();
-          r.figureHasNoCaptionRow = !!row('Use as slide background') && !row('Add caption');
+          r.onePictureRow = !!row('Picture ▸') && !row('Add caption') && !row('Use as slide background');
+          row('Picture ▸')?.click(); await settle();
+          r.figureHasNoCaptionRow = !!row('Use as slide background') && row('Add caption')?.classList.contains('cm-disabled') === true
+            && !!row('Remove the whole figure');
           press('Escape'); await settle();
           rightClick(top); await settle();
-          r.pictureMenuRows = !!row('Use as slide background') && !!row('Add caption');
+          row('Picture ▸')?.click(); await settle();
+          r.pictureMenuRows = JSON.stringify(rows().map((n) => n.textContent)) === JSON.stringify(['← back', 'Replace…', 'Add caption', 'Use as slide background', 'Reset size'])
+            && row('Add caption')?.classList.contains('cm-disabled') === false;
+          // Add caption: the figure and its caption on the page at once, the
+          // caption in edit, NOTHING written yet; Esc writes nothing and puts
+          // the picture back
           row('Add caption')?.click();
           await settle(); await settle();
-          const cap = sec.querySelector('figure > figcaption');
-          const capPost = picPosts()[0]?.body ?? {};
-          r.captionWraps = capPost.caption === 'Caption' && capPost.index === 1 && top.parentElement?.tagName === 'FIGURE'
+          let cap = sec.querySelector('figure > figcaption');
+          r.captionWraps = picPosts().length === 0 && top.parentElement?.tagName === 'FIGURE'
             && top.parentElement.parentElement === sec && cap?.textContent === 'Caption';
           r.captionEditing = cap?.isContentEditable === true && String(window.getSelection()) === 'Caption';
           cap?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-          await settle();
+          await settle(); await settle();
+          r.escWritesNothing = picPosts().length === 0 && top.parentElement === sec && !cap?.isConnected;
+          // again, typed and kept: ONE write, the figure and the words typed
+          rightClick(top); await settle();
+          row('Picture ▸')?.click(); await settle();
+          row('Add caption')?.click();
+          await settle(); await settle();
+          cap = sec.querySelector('figure > figcaption');
+          if (cap) cap.textContent = 'Q3  revenue ';
+          cap?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          await settle(); await settle();
+          const capPost = picPosts()[0]?.body ?? {};
+          r.captionOneWrite = picPosts().length === 1 && capPost.caption === 'Q3 revenue' && capPost.index === 1 && capPost.quiet === true
+            && JSON.stringify(capPost.path) === '[]' && top.parentElement?.tagName === 'FIGURE' && cap?.textContent === 'Q3 revenue' && !cap.isContentEditable;
           // the figure's picture becomes the background: one write, out of the content
           rightClick(fig); await settle();
+          row('Picture ▸')?.click(); await settle();
           row('Use as slide background')?.click();
           await settle(); await settle();
           const took = posts('/deck/edit/slide/background')[2]?.body ?? {};
@@ -4531,7 +4654,8 @@
             && !fig.isConnected && sec.getAttribute('data-background-image') === 'assets/taken.svg' && !!layer();
           r.noReload = reloads === 0;
           r.PASS = r.slideMenuOffersIt && r.setInPlace && r.bleedFollows && r.removeOffered && r.removedInPlace
-            && r.figureHasNoCaptionRow && r.pictureMenuRows && r.captionWraps && r.captionEditing && r.useAsBackground && r.noReload;
+            && r.onePictureRow && r.figureHasNoCaptionRow && r.pictureMenuRows && r.captionWraps && r.captionEditing && r.escWritesNothing && r.captionOneWrite
+            && r.useAsBackground && r.noReload;
         }
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -5361,7 +5485,7 @@
         click(h1());
         document.querySelector('.dl-handle').click();
         await settle();
-        r.handleOpensTheMenu = rows().includes('Remove element') && rows().includes('Colors…') && rows().includes('Slide ▸');
+        r.handleOpensTheMenu = rows().some((t) => /^Remove/.test(t)) && rows().includes('Colors…') && rows().includes('Slide ▸');
         press('Escape');
         await settle();
         // Slide ▾ opens straight onto the slide's own actions
@@ -5444,10 +5568,21 @@
         }
         r.cellsCarryTools = grid().classList.contains('ov-editable')
           && cells().every((c) => c.draggable && c.querySelector('.ov-new') && c.querySelector('.ov-duplicate') && c.querySelector('.ov-delete'));
-        // + on the second cell: a new slide after 2, and the overview is to come back
+        // + on the second cell: the kinds every door to a new slide offers,
+        // opened there, the common one ready; a pick is a new slide after 2,
+        // and the overview is to come back
         cells()[1].querySelector('.ov-new').click();
         await settle();
-        r.plusAddsAfterThatSlide = ops().at(-1)?.op === 'new' && ops().at(-1)?.slide === 2;
+        const kinds = () => document.querySelector('.decklight-ctxmenu .cm-list[aria-label="New slide"]');
+        // at the + (shown on hover; a synthetic click has none, so the cell's own corner)
+        const plus = ((b) => (b.width ? b : cells()[1].getBoundingClientRect()))(cells()[1].querySelector('.ov-new').getBoundingClientRect());
+        const card = document.querySelector('.decklight-ctxmenu .cm-card')?.getBoundingClientRect();
+        r.plusOpensTheKinds = !!kinds() && kinds().querySelector('.cm-row.cm-selected')?.textContent === 'Title and bullets' && ops().length === 0
+          && !!card && Math.abs(card.left - plus.left) < 40 && Math.abs(card.top - plus.bottom) < 40;
+        press('ArrowDown'); press('Enter');
+        await settle();
+        r.plusAddsAfterThatSlide = ops().at(-1)?.op === 'new' && ops().at(-1)?.slide === 2 && ops().at(-1)?.kind === 'text'
+          && !kinds() && !document.querySelector('.decklight-stage [contenteditable="true"]');
         r.toolClickDoesNotLeaveTheOverview = !!grid();
         r.overviewComesBackAfterTheReload = sessionStorage.getItem('decklight-overview-open:' + location.pathname) === '1';
         // a drag: cell 1 dropped on the right half of cell 3 lands at 3
@@ -5477,17 +5612,21 @@
         press('Delete');
         await settle();
         r.deleteKeyDeletesTheSelected = ops().at(-1).op === 'delete' && ops().at(-1).slide === ovSelected() + 1;
+        const selected = ovSelected();
         press('n');
         await settle();
-        r.nKeyAddsAfterTheSelected = ops().at(-1).op === 'new' && ops().at(-1).slide === ovSelected() + 1;
+        r.nKeyOpensTheKinds = !!kinds() && ops().at(-1).op === 'delete';
+        press('Enter');
+        await settle();
+        r.nKeyAddsAfterTheSelected = ops().at(-1).op === 'new' && ops().at(-1).slide === selected + 1 && ops().at(-1).kind === 'bullets';
         press('d');
         await settle();
         r.dKeyDuplicatesTheSelected = ops().at(-1).op === 'duplicate' && ops().at(-1).slide === ovSelected() + 1;
         r.undoEntryEach = ops().every((o) => Number.isInteger(o.slide));
         press('Escape');
-        r.PASS = r.overviewOpens && r.cellsCarryTools && r.plusAddsAfterThatSlide && r.toolClickDoesNotLeaveTheOverview
+        r.PASS = r.overviewOpens && r.cellsCarryTools && r.plusOpensTheKinds && r.plusAddsAfterThatSlide && r.toolClickDoesNotLeaveTheOverview
           && r.overviewComesBackAfterTheReload && r.dragShowsWhereItLands && r.dragMovesTheSlide && r.dragBackwards
-          && r.dropInPlaceAsksNothing && r.deleteKeyDeletesTheSelected && r.nKeyAddsAfterTheSelected && r.dKeyDuplicatesTheSelected;
+          && r.dropInPlaceAsksNothing && r.deleteKeyDeletesTheSelected && r.nKeyOpensTheKinds && r.nKeyAddsAfterTheSelected && r.dKeyDuplicatesTheSelected;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -6153,15 +6292,19 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
           const rowsText = () => [...document.querySelectorAll(`${M} .cm-row`)].map((x) => x.firstChild?.textContent ?? '');
           const clickRow = (label) => [...document.querySelectorAll(`${M} .cm-row`)].find((x) => x.textContent === label)?.click();
-          const run = async (r0, c0, label) => { rightClick(cell(r0, c0)); clickRow(label); await settle(); await settle(); return writes()[writes().length - 1]?.body; };
+          // the six are under Table ▸, the one contextual row a cell's menu has
+          const run = async (r0, c0, label) => { rightClick(cell(r0, c0)); clickRow('Table ▸'); clickRow(label); await settle(); await settle(); return writes()[writes().length - 1]?.body; };
           rightClick(cell(1, 1));
+          // one Table ▸ row at the top level, just above Slide ▸; the six behind it
+          const top = rowsText();
+          r.oneTableRow = top.indexOf('Table ▸') === top.length - 2 && !top.includes('Add row above');
+          clickRow('Table ▸');
           const t = rowsText();
-          const at = t.indexOf('Add row above');
-          r.menuOffersTheSix = at > t.indexOf('Edit content (HTML)')
-            && t.slice(at, at + 6).join('|') === 'Add row above|Add row below|Add column left|Add column right|Delete row|Delete column';
+          r.menuOffersTheSix = t[0] === '← back'
+            && t.slice(1).join('|') === 'Add row above|Add row below|Add column left|Add column right|Delete row|Delete column';
           document.querySelector(M)?.click();
           rightClick(sec.querySelector('h2'));
-          r.notOnAHeading = !rowsText().includes('Add row above');
+          r.notOnAHeading = !rowsText().includes('Table ▸');
           document.querySelector(M)?.click();
           let b = await run(1, 1, 'Add row below');
           r.addRowBelow = b?.html === '<table>\n  <tr><th>Name</th><th>Role</th></tr>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n  <tr><td></td><td></td></tr>\n</table>'
@@ -6868,7 +7011,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // wrote, by its index in the FILE — never the layout's decoration
         await settle();
         const M = '.decklight-ctxmenu', ROW = '.cm-row';
-        const rows = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.textContent);
+        const rows = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.firstChild?.textContent);
         const filled = document.querySelector('section.ds-filled');
         const n = deck._sections.indexOf(filled) + 1;
         deck.goto(n, 0);
@@ -6877,8 +7020,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const title = filled.querySelector('h2[data-slot="title"]');
         title.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
         await settle();
-        r.titleIsAnElement = rows().includes('Remove element');
-        [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.textContent === 'Remove element')?.click();
+        r.titleIsAnElement = rows().includes('Remove');
+        [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.firstChild?.textContent === 'Remove')?.click();
         await settle();
         const rm = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/remove')).pop()?.body;
         // in the file: kicker 0, title 1, subtitle 2 — whatever order the layout put them in
@@ -6887,7 +7030,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const decoration = filled.querySelector('.acme-divider');
         decoration.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
         await settle();
-        r.decorationIsNothing = !!document.querySelector(M) && !rows().includes('Remove element');
+        r.decorationIsNothing = !!document.querySelector(M) && !rows().includes('Remove');
         if (document.querySelector(M)) press('Escape');
         // a diagram in a template's slot is the author's (#831): a click picks the
         // shape, a double-click edits the label, check lints it — the slot
@@ -8540,9 +8683,14 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         fire(box, 'click');
         fire(document.querySelector('.dl-handle'), 'click', { clientX: 300, clientY: 300 });
         await settle();
-        const rows = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
-        r.menuInspectsAndRemovesTheNode = rows[0] === 'Inspect' && rows.includes('Remove this rect') && rows.includes('Remove the whole svg');
-        [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === 'Inspect').click();
+        const menuRow = (t) => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.firstChild?.textContent === t);
+        const rows = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.firstChild?.textContent);
+        // Remove removes what is selected (the rect); the whole diagram is under Shape ▸
+        const removesTheNode = rows[0] === 'Inspect' && rows.includes('Remove') && rows.includes('Shape ▸') && !rows.some((t) => /^Remove the whole/.test(t));
+        menuRow('Shape ▸')?.click(); await settle();
+        r.menuInspectsAndRemovesTheNode = removesTheNode && !!menuRow('Remove the whole diagram');
+        menuRow('← back')?.click(); await settle();
+        menuRow('Inspect').click();
         await settle();
         const crumbs = () => [...document.querySelectorAll(`${I} .ins-crumb`)].map((b) => b.textContent);
         r.inspectShowsTheNode = q('.ins-tab[aria-selected="true"]')?.dataset.tab === 'info' && crumbs().join(' › ') === 'svg › g.cp-group-a › rect.cp-box'
@@ -8769,14 +8917,14 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         rightClick(box);
         // the chord as this machine spells it: ⌥⌘C on a Mac, Ctrl+Alt+C elsewhere (headless may say either)
         r.menuCopies = !!row('Copy style') && /^(⌥⌘C|Ctrl\+Alt\+C)$/.test(row('Copy style').querySelector('.cm-key')?.textContent ?? '');
-        r.noPasteYet = !row('Paste style');
+        r.noPasteYet = row('Paste style')?.classList.contains('cm-disabled') === true;
         row('Copy style')?.click();
         r.copiedSaid = toastSays(/^style copied: box · fill 1 · (⌥⌘V|Ctrl\+Alt\+V) pastes/);
         r.copyWritesNothing = styles().length === 0;
         r.remembered = /var\(--d-fill-1\)/.test(localStorage.getItem('decklight-style-clip') ?? '');
 
         rightClick(plain);
-        r.menuPastes = !!row('Paste style');
+        r.menuPastes = !!row('Paste style') && !row('Paste style').classList.contains('cm-disabled');
         row('Paste style')?.click();
         await settle();
         let b = last();
@@ -9441,7 +9589,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
         // the label, not the chord a row may carry beside it (Copy style ⌥⌘C)
         const rowsText = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.firstChild?.textContent ?? '');
-        const clickRow = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.textContent === label)?.click();
+        const clickRow = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => (x.firstChild?.textContent ?? '') === label)?.click();
         await settle();                        // let /deck/ping resolve
 
         const sections = [...document.querySelectorAll('.decklight section')];
@@ -9455,7 +9603,11 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.opensOnElement = !!document.querySelector(M);
         // Writing tools… sits after Edit content when an agent is on the machine (none here)
         r.fullMenuRows = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…'))
-          === JSON.stringify(['Inspect', 'Remove element', 'Move up', 'Move down', 'Edit content (HTML)', 'Colors…', 'Type…', 'Copy style', 'Add text effect ▸', 'Slide ▸']);
+          === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Slide ▸']);
+        // a row that cannot act here is greyed, not gone: nothing copied yet, so Paste style; the chords said beside their rows
+        const rowEl = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.firstChild?.textContent === label);
+        r.greyedNotGone = rowEl('Paste style')?.classList.contains('cm-disabled') === true && rowEl('Duplicate')?.classList.contains('cm-disabled') === false
+          && /^(⌘D|Ctrl\+D)$/.test(rowEl('Duplicate')?.querySelector('.cm-key')?.textContent ?? '') && rowEl('Remove')?.querySelector('.cm-key')?.textContent === '⌫';
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;
         press('ArrowDown');
@@ -9472,11 +9624,11 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.backgroundOnlyNotes = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…')) === JSON.stringify(['Edit speaker notes', 'Slide ▸']);
         press('Escape');
 
-        // "Add text effect ▸" drills into a submenu — the 7 SPEC entrance
+        // "Build ▸" drills into a submenu — the 7 SPEC entrance
         // styles, 'none' (a real, instant build step), "remove effect", and a
         // back row — and committing one posts { slide, index, effect }
         rightClick(h1);
-        clickRow('Add text effect ▸');
+        clickRow('Build ▸');
         const fx = rowsText();
         // no effect yet: nothing ticked, and no "remove effect" to offer
         r.submenuShape = fx[0] === '← back' && fx.includes('fade-up') && fx.includes('highlight')
@@ -9487,9 +9639,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.postsEffect = fxPost?.body.slide === 1 && fxPost?.body.index === 0 && fxPost?.body.effect === 'fade-up';
         r.closesAfterEffect = !document.querySelector(M);
 
-        // "Remove element" posts { slide, index }
+        // "Remove" posts { slide, index }
         rightClick(h1);
-        clickRow('Remove element');
+        clickRow('Remove');
         await settle();
         const rmPost = CALLS.post.find((c) => c.u.includes('/deck/edit/element/remove'));
         r.postsRemove = rmPost?.body.slide === 1 && rmPost?.body.index === 0;
@@ -9546,7 +9698,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         rightClick(h1);
         r.disarmedNoMenu = !document.querySelector(M);
 
-        r.PASS = r.armingOpensNoMenu && r.opensOnElement && r.fullMenuRows && r.hasSelection && r.downMoves
+        r.PASS = r.armingOpensNoMenu && r.opensOnElement && r.fullMenuRows && r.greyedNotGone && r.hasSelection && r.downMoves
           && r.escapeCloses && r.opensOnBackground && r.backgroundOnlyNotes
           && r.submenuShape && r.postsEffect && r.closesAfterEffect && r.postsRemove
           && r.contentMounts && r.contentLoadedFromSource && r.postsContent && r.escapeClosesContentEditor

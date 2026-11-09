@@ -33,6 +33,7 @@
 //   POST /deck/edit/element/content → { slide, index, html }    replace its outerHTML
 //   POST /deck/edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
 //   POST /deck/edit/element/move    → { slide, index, to, path?, tag? }  move it (or a node inside it) to place `to`
+//   POST /deck/edit/element/duplicate → { slide, index, path?, tag? }  a copy of it (or of a node inside it) right after it
 //   POST /deck/edit/element/picture → { slide, index, path?, width?, alt?, src?, caption? }  one picture's size, alt, file or caption
 //   POST /deck/edit/slide/background → { slide, src | null, take? }  the slide's background picture, or a picture made it
 //   POST /deck/edit/undo            → step the deck file back through the edit history
@@ -1233,6 +1234,51 @@ export function duplicateDiagramNode(html, slide, index, { path, tag = null, by 
   return { html: e.html(), added: { path: [...path.slice(0, -1), path.at(-1) + 1], html: copy } };
 }
 
+/**
+ * A copy's markup without the ids the page would then have twice: every `id`
+ * on an HTML element, and on an `<svg>` itself, goes; the ids INSIDE an svg
+ * stay, since the engine scopes each diagram's ids to it (namespaceSvgIds)
+ * and a copied diagram's arrowheads and gradients need their own.
+ */
+function withoutPageIds(src) {
+  return src.split(/(<svg\b[^>]*>[\s\S]*?<\/svg>)/i).map((part, i) => {
+    if (!(i % 2)) return withoutIds(part);
+    const gt = part.indexOf('>') + 1;
+    return withoutIds(part.slice(0, gt)) + part.slice(gt);
+  }).join('');
+}
+
+/**
+ * Duplicate one element of slide N (PRESENTING_EDITING, Duplicate): element
+ * `index`, or with `path` the node there below it (outside a diagram: a
+ * diagram's node is duplicateDiagramNode's), copied from the FILE and put
+ * right after it, on its own line(s) when it stands on its own. The copy
+ * loses its ids (withoutPageIds) and its `data-node` names are made its own
+ * (ownNames), so a copied diagram is a second diagram, not a second view of
+ * the first. The slide's notes, a script or a style are not what it shows:
+ * refused. Returns `{ html, index, path, markup }`: where the copy is, and
+ * what it is.
+ */
+export function duplicateSlideElement(html, slide, index, { path = null, tag = null } = {}) {
+  const nested = Array.isArray(path) && path.length > 0;
+  if (path !== null) checkPath(path);
+  const { seg, r } = locateElement(html, slide, index);
+  if (!nested) {
+    if (tag && r.tag !== String(tag).toLowerCase()) throw stale(`slide ${slide}: the page found <${tag}> at ${index}, the file has <${r.tag}> — reload and try again`);
+    if (carriedChild(seg, r)) throw refusedMove(`the slide's ${r.tag === 'aside' ? 'notes and sources are' : `<${r.tag}> is`} not something it shows: nothing to duplicate`);
+  }
+  const e = openElement(html, slide, index);
+  const at = e.at(nested ? path : [], nested ? tag : null);
+  if (nested && at.inSvg) throw new Error('a node of a diagram is duplicated by the shape route');
+  const copy = ownNames(withoutPageIds(e.src(at)), seg);
+  // on its own line(s) when the original stands on its own
+  const lead = e.lead(at);
+  e.splice(at.end, at.end, /^[ \t]*$/.test(lead) ? `\n${lead}${copy}` : copy);
+  return nested
+    ? { html: e.html(), index, path: [...path.slice(0, -1), path.at(-1) + 1], markup: copy }
+    : { html: e.html(), index: index + 1, path: [], markup: copy };
+}
+
 // ── connectors: wires that stay attached (SVG_DIAGRAMS) ─────────────────────
 // A shape or a box group names itself `data-node`, a wire says which nodes it
 // joins with `data-from` / `data-to` and how with `data-route`, and keeps real
@@ -1983,6 +2029,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/content': 'element content saved',
   '/deck/edit/element/effect': 'build effect set',
   '/deck/edit/element/move': 'element moved',
+  '/deck/edit/element/duplicate': 'element duplicated',
   '/deck/edit/element/style': 'colours saved',
   '/deck/edit/element/concept': 'concept set',
   '/deck/edit/element/text': 'text saved',
@@ -2119,6 +2166,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/content': 'text edit',
   '/deck/edit/element/effect': 'build effect',
   '/deck/edit/element/move': 'move',
+  '/deck/edit/element/duplicate': 'duplicate',
   '/deck/edit/element/style': 'colours',
   '/deck/edit/element/concept': 'concept',
   '/deck/edit/element/text': 'label edit',

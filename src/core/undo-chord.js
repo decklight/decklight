@@ -22,6 +22,8 @@ export const IS_MAC = typeof navigator !== 'undefined'
   && isApplePlatform(navigator.userAgentData?.platform ?? navigator.platform);
 export const UNDO_CHORD = IS_MAC ? '⌘Z' : 'Ctrl+Z';
 export const REDO_CHORD = IS_MAC ? '⌘⇧Z' : 'Ctrl+⇧Z';
+/** Duplicate the selection (PRESENTING_EDITING): the browser's bookmark chord, taken in write mode with something selected, as Keynote and Slides do. */
+export const DUPLICATE_CHORD = IS_MAC ? '⌘D' : 'Ctrl+D';
 
 /**
  * What the page says for an undo or redo, from what the server said the step

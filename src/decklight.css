@@ -2802,6 +2802,13 @@
    (kept for a screen reader, which reads the row without its heading) */
 .decklight-palette .pal-group { padding: 10px 12px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #8d93a0; }
 .decklight-palette .pal-group:first-child { padding-top: 2px; }
+/* the chord's two meanings, kept in sight at the foot of the card however far the list scrolls */
+.decklight-palette .pal-hint {
+  position: sticky; bottom: -14px; z-index: 1;
+  margin: 6px -14px -14px; padding: 9px 26px 11px;
+  background: #16181d; border-top: 1px solid rgba(255, 255, 255, .08); border-radius: 0 0 12px 12px;
+  font-size: 12px; color: #8d93a0;
+}
 .decklight-palette .pal-grouped .pal-cat { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* a picker's query box (overlay.js queryInput): a real input, so a phone's
    keyboard appears and a paste or an accented letter lands */
@@ -3272,6 +3279,21 @@
   border-bottom: 1px solid rgba(255, 255, 255, .12);
   margin-bottom: 4px;
   padding-bottom: 9px;
+}
+/* a submenu's small headed groups (Wire ▸: Route, then Arrows) and the rule
+   before a row that is not one of them: neither is a row the arrows stop on */
+.decklight-ctxmenu .cm-head {
+  padding: 6px 12px 2px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #8b909a;
+  cursor: default;
+}
+.decklight-ctxmenu .cm-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgba(255, 255, 255, .12);
 }
 
 /* the colour picker (element menu → Colors…): a dockable panel like the

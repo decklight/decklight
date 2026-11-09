@@ -43,7 +43,7 @@
  *   the move. A selected wire's ends drag: onto a node it is (re)attached,
  *   onto the canvas an attached end lets go where it is dropped, and a
  *   hand-drawn line becomes a connector the same way. The element menu's
- *   Route ▸, Arrows ▸ and Reverse are here too.
+ *   Wire ▸ (Route, Arrows, Reverse) is here too.
  *
  *   GUIDES. While a shape is dragged or resized, a thin accent line shows
  *   where its edges or its middle line up with another shape's in the same
@@ -995,7 +995,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     return live;
   }
 
-  // the element menu's rows on a wire (editmode.js): Route ▸, Arrows ▸, Reverse
+  // the element menu's Wire ▸ on a wire (editmode.js): its route, its arrows, Reverse
   /** The wire a target is, when the menu offers its rows: a connector, or a line drawn by hand. */
   function wireOf(target) {
     const n = target?.node;

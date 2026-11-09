@@ -363,8 +363,8 @@ export function createEditBar({
 
   /**
    * The keys a selection answers, before the deck's own: ⏎ edits (text) or
-   * opens the menu (anything else), ⌫/Delete removes, Esc lets go. True when
-   * the key was taken.
+   * opens the menu (anything else), ⌫/Delete removes, ⌘D / Ctrl+D duplicates,
+   * Esc lets go. True when the key was taken.
    */
   function keydown(e) {
     if (!on() || !selected || authoring.editing()) return false;
@@ -384,6 +384,11 @@ export function createEditBar({
       return true;
     }
     if (e.key === 'Escape') { deselect(); return true; }
+    // ⌘D / Ctrl+D: a copy right after it, selected (the gate in engine.js lets the chord through only with a selection)
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === 'KeyD') {
+      editmode.duplicateElement?.(selected);
+      return true;
+    }
     // Control-Shift-↑ / ↓: the element one place up or down the slide (element-move.js),
     // the chord a bullet being typed in moves by too
     if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {

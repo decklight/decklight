@@ -188,6 +188,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
     const inner = cur.el.innerHTML;
+    // words the file does not have yet (a caption just added, pictures.js):
+    // their own one write when the typing ends, whatever they say
+    if (cur.provisional) return cur.provisional.save(cur.el);
     if (inner === cur.original) { unstrand(cur.el); return; } // nothing changed: nothing written, no reload
     try {
       const src = await boundedFetch(`${base()}/deck/edit/element/source?slide=${cur.slide}&index=${cur.index}`);
@@ -228,6 +231,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     closeLinkBox();
     editing = null;
     placePill();
+    if (cur.provisional) {
+      cur.el.removeAttribute('contenteditable');
+      cur.el.classList.remove('dl-editing');
+      cur.provisional.cancel();
+      return;
+    }
     if (cur.svg) {
       endLabel(cur);
       if (stranded.has(cur.el)) { cur.el.textContent = cur.was; unstrand(cur.el); }
@@ -265,6 +274,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   // <b> or <i> a browser's own bold command writes, so every theme's rule
   // for `strong` (the heading colour) is what the emphasis looks like.
   const EMPHASIS = { b: 'strong', i: 'em', e: 'code' };
+  /** ⌘K / Ctrl+K: the link while typing, the palette everywhere else. */
+  const isLinkChord = (e) => (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K');
   const TAGS = ['strong', 'em', 'code'];
   function selectionIn(el) {
     const sel = window.getSelection();
@@ -354,7 +365,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!sel?.rangeCount || !cur.el.contains(sel.getRangeAt(0).commonAncestorContainer)) return false;
     const link = linkAround(cur.el);
     let range = sel.getRangeAt(0).cloneRange();
-    if (!link && range.collapsed) { toast('select some words to link first', 1800); return false; }
+    if (!link && range.collapsed) { toast('select words to link', 1800); return false; }
     const caret = range.collapsed;
     if (link && caret) { range = document.createRange(); range.selectNodeContents(link); }
     const box = document.createElement('div');
@@ -771,6 +782,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); saveInline(); }
       else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
+      else if (isLinkChord(e)) { e.preventDefault(); toast('a link goes on words of the slide’s text, not on a diagram’s label', 2200); }
     });
     input.addEventListener('blur', () => { if (editing === cur) saveInline(); });
     input.focus();
@@ -803,22 +815,23 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     }
   }
 
-  function beginInline(el, { sec, slide }, { selectAll = false } = {}) {
+  function beginInline(el, { sec, slide }, { selectAll = false, provisional = null } = {}) {
     // another point of the list being edited, another cell of its table: the same session
     if (editing && lists.claim(editing, el)) return;
     if (editing) saveInline();
     const top = topLevelChild(sec, el);
     if (!top) return;
     const index = authoredIndex(sec, top);
-    const path = childPath(top, el);
+    // words the file does not have yet are written their own way (`provisional`): no path into it
+    const path = provisional ? [] : childPath(top, el);
     if (path === null) return;
     // a list or table whose save failed: its session, picked up where it was left
-    const again = lists.strandedFor(el, stranded);
+    const again = provisional ? null : lists.strandedFor(el, stranded);
     if (again) { editing = again; lists.resume(again, el); syncHint(); return; }
     // picked up again after a save that failed: the file still has the original
-    editing = { el, original: stranded.get(el)?.original ?? el.innerHTML, slide, index, path };
+    editing = { el, original: stranded.get(el)?.original ?? el.innerHTML, slide, index, path, provisional };
     // a point of a list, a cell of a table: Enter and Tab work as a document's (list-session.js)
-    lists.begin(editing, top);
+    if (!provisional) lists.begin(editing, top);
     el.setAttribute('contenteditable', 'true');
     el.classList.add('dl-editing');
     el.focus();
@@ -862,13 +875,16 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveInline(); }
       else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
       else if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); }
+      else if (isLinkChord(e)) { e.preventDefault(); toast('a link goes on words of the slide’s text, not in code', 2200); }
       return;
     }
     if (lists.key(e, editing)) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveInline(); }
     else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
-    // ⌘K / Ctrl+K is the palette's everywhere else; in the words, it is the link
-    else if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+    // ⌘K / Ctrl+K is the palette's everywhere else; while typing it is the
+    // link, on the words selected (or the link the caret is in). With none,
+    // it opens neither a link box nor the palette: it says to select words.
+    else if (isLinkChord(e)) {
       e.preventDefault();
       openLinkBox();
     }
@@ -980,10 +996,17 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
      * its source. False when it is neither. `selectAll`: its words selected
      * whole, so typing replaces them (a placeholder just added).
      */
-    editInline(el, { selectAll = false } = {}) {
+    /**
+     * Start typing in `el`. `provisional: { save(el), cancel() }` is for words
+     * the page shows before the file has them (a caption just added): the
+     * typing ending (⏎, or leaving) calls `save` instead of writing the
+     * element, Esc calls `cancel`, so the whole gesture is one write.
+     */
+    editInline(el, { selectAll = false, provisional = null } = {}) {
       if (!available()) return false;
       const where = sectionOf(el);
       if (!where || where.sec.hasAttribute('data-markdown-removed')) return false;
+      if (provisional) { beginInline(el, where, { selectAll, provisional }); return editing?.el === el; }
       const code = el.closest?.(CODE_EDITABLE);
       if (code && where.sec.contains(code) && !code.closest('.terminal, aside, [data-chart]')) { beginCode(code, where, { selectAll }); return true; }
       const label = svgTextTarget(el, where.sec);

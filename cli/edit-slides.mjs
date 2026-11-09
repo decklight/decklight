@@ -39,7 +39,8 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden,
   upsertNarrationTrack, configuredTrackDirs,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement, moveSlideElement } from './edit.mjs';
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
+  duplicateSlideElement } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
 import { setElementPicture, setSlideBackground, pictureToBackground } from './edit.mjs';
 import { setElementGeometry, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
@@ -376,6 +377,36 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       broadcast('content', { slide, index: moved.index, from: typeof from === 'string' ? from.slice(0, 64) : null });
     }
     return json(200, { ok: true, changed, index: moved.index, path: moved.path, inPlace: !!changed && inPlace === true, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/element/duplicate` — `{ slide, index, tag?, path?, quiet?,
+   * from? }` (PRESENTING_EDITING, Duplicate): element `index`, or the node at
+   * `path` below it, copied right after itself (duplicateSlideElement). One
+   * applyEdit, one undo entry. The answer is the copy's markup and where it
+   * is (`index`, `path`), so the page puts the very same thing on the slide.
+   * Asked for in place, the write is quiet and every other page is told.
+   */
+  function elementDuplicateRoute({ body, json }) {
+    const { slide, index, tag = null, path = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0
+        || (path !== null && !Array.isArray(path)) || (tag !== null && typeof tag !== 'string')) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    let done = null;
+    try {
+      applyEdit((html) => { done = duplicateSlideElement(html, slide, index, { path, tag }); return done.html; });
+    } catch (e) {
+      if (e.code === 'STALE' || e.code === 'REFUSED') return json(409, { ok: false, error: oneline(e), ...(e.code === 'STALE' ? { stale: true } : {}) });
+      if (/^no slide \d|no element at index/.test(e.message)) return json(404, { ok: false, error: oneline(e) });
+      return json(400, { ok: false, error: oneline(e) });
+    }
+    console.log(`  element duplicated: slide ${slide} #${index}${path?.length ? ` › ${path.join('.')}` : ''} → #${done.index}${done.path.length ? ` › ${done.path.join('.')}` : ''}`);
+    if (inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index: done.index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, { ok: true, changed: true, index: done.index, path: done.path, html: done.markup, inPlace: inPlace === true, ...history.counts() });
   }
 
   function elementEffectRoute({ body, json }) {
@@ -1012,6 +1043,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/content', elementContentRoute);
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
   routes.set('POST /deck/edit/element/move', elementMoveRoute);
+  routes.set('POST /deck/edit/element/duplicate', elementDuplicateRoute);
   routes.set('POST /deck/edit/element/style', elementStyleRoute);
   routes.set('POST /deck/edit/element/concept', elementConceptRoute);
   routes.set('POST /deck/edit/element/concepts', elementConceptsRoute);
