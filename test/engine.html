@@ -5661,8 +5661,10 @@
         await settle(); await settle();
         r.cardShows = !!card();
         const text = card()?.textContent ?? '';
-        r.namesTheGestures = /double-click/.test(text) && /drop/.test(text) && /Editing/.test(text) && /notes drawer/.test(text)
-          && /Describe a change/.test(text) && /commits what changed/.test(text);
+        r.namesTheGestures = /double-click/.test(text) && /drop/i.test(text) && /Editing/.test(text) && /notes drawer/.test(text)
+          && /Describe a change/.test(text) && /commits what changed/.test(text)
+          // the doors the editing grew: Add, a link, a move, a connector
+          && /Add/.test(text) && /⌘K/.test(text) && /⌃⇧↑/.test(text) && /connect/.test(text);
         r.saysWhereToReopen = /Editing tour/.test(text);
         press('ArrowRight');
         r.anyKeyDismissesAndDoesNothingElse = !card() && deck.state.slide === 1;

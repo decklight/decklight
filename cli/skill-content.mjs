@@ -206,6 +206,15 @@ line is its own beat. The engine adds \`.draw-head\` and \`.draw-mask\` nodes
 beside a drawing stroke in the browser: they are not in the file, so never
 copy them from the rendered DOM into the deck. SVG_DIAGRAMS has the rules.
 
+**A wire between two shapes is a connector, not a free line.** Name each
+shape it joins with \`data-node="api"\` (on the box's \`<g>\`, or the shape
+itself) and give the wire \`data-from="client" data-to="api"\`, optionally
+\`data-route="elbow"\` or \`"curve"\`. Keep real coordinates on the wire as
+well: the engine reroutes it between the two shapes when the deck loads, and
+write mode reroutes it whenever either shape moves, so a box moved by hand or
+in the browser never leaves its arrow behind. \`decklight check\` names a wire
+whose \`data-from\` or \`data-to\` matches no shape in its diagram.
+
 **On a deck that uses a design system, fill its templates' slots — never
 recreate a template's structure by hand.** A slide names a template and
 supplies one element per slot (\`<section data-template="acme/section-divider">\`

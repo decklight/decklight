@@ -31,6 +31,11 @@ and links, hidden on the slide and shown in the inspector (`SLIDE_SOURCES`).
 **Layout.** How one slide places its content: `auto`, `centered`, `top`,
 `split`. Cycled from the bar's Layout button and written as `data-layout`.
 
+**Connector.** A diagram's wire that stays attached: each shape it joins
+names itself `data-node`, and the wire says `data-from` and `data-to`. Moving
+a shape reroutes its wires, in the editor and when the deck loads
+(`SVG_DIAGRAMS`).
+
 **Template.** A design system's slide: a structure with named **slots**. A
 slide names it with `data-template` and fills the slots; the structure comes
 from the design system when the deck renders (`DESIGN_SYSTEMS`). Not a layout.
