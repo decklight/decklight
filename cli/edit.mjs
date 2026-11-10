@@ -1602,22 +1602,8 @@ export function setSlideElementBuild(html, slide, index, effect) {
 /** The bounds of a picture's written width, in deck units (the stage is scaled, not the picture). */
 export const PICTURE_WIDTH = Object.freeze({ min: 16, max: 4096 });
 
-/** The node at `path` below an element's source `el`: its offsets and its tag; stale when the file disagrees with the page. */
-function nodeAt(el, path, { slide, index, tag = null }) {
-  if (!Array.isArray(path) || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
-  let start = 0; let end = el.length;
-  for (const n of path) {
-    const kid = elementChildRanges(el.slice(start, end))[n];
-    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
-    end = start + kid.end; start += kid.start;
-  }
-  const found = /^<([a-zA-Z][\w:-]*)/.exec(el.slice(start, end))?.[1]?.toLowerCase();
-  if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.') || 'the element'}, the file has <${found}> — reload and try again`);
-  return { start, end, found };
-}
-
 /** An open tag's attribute text with `name` set to `value` (escaped) in its own place, or added; null takes it off. */
-function withAttr(attrs, name, value) {
+function withEscapedAttr(attrs, name, value) {
   const re = new RegExp(`\\s${name}(?=[\\s=/>]|$)(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+))?`, 'i');
   if (value === null) return attrs.replace(re, '');
   const said = ` ${name}="${escapeHtml(String(value))}"`;
@@ -1661,15 +1647,15 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
   const { attrs: had, close, rest } = splitOpenTag(el.slice(start, end));
   let attrs = had;
   if (width !== undefined) {
-    attrs = withAttr(withAttr(attrs, 'height', null), 'width', width === null ? null : Math.round(width));
+    attrs = withEscapedAttr(withEscapedAttr(attrs, 'height', null), 'width', width === null ? null : Math.round(width));
     const styleM = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
     if (styleM) {
       const style = withStyleProp(withStyleProp(styleM[2] ?? styleM[3], 'width', null), 'height', null).replace(/"/g, "'");
       attrs = attrs.replace(styleM[0], () => (style ? ` style="${style}"` : ''));
     }
   }
-  if (alt !== undefined) attrs = withAttr(attrs, 'alt', alt);
-  if (src !== undefined) attrs = withAttr(attrs, 'src', src);
+  if (alt !== undefined) attrs = withEscapedAttr(attrs, 'alt', alt);
+  if (src !== undefined) attrs = withEscapedAttr(attrs, 'src', src);
   let node = attrs + close + rest;
   if (caption !== undefined) {
     if (path.length && nodeAt(el, path.slice(0, -1), { slide, index }).found === 'figure') {
@@ -1702,9 +1688,9 @@ export function setSlideBackground(html, slide, src) {
   if (src !== null && !relativeSrc(src)) throw new Error('a background src must be a relative path beside the deck');
   const { parts, idx } = locateSlide(html, slide);
   const { attrs: had, close, rest } = splitOpenTag(parts[idx]);
-  let attrs = withAttr(had, 'data-background-image', src);
+  let attrs = withEscapedAttr(had, 'data-background-image', src);
   if (src === null && attrValue(attrs, 'data-background-video') === null) {
-    for (const name of BACKGROUND_TUNING) attrs = withAttr(attrs, name, null);
+    for (const name of BACKGROUND_TUNING) attrs = withEscapedAttr(attrs, name, null);
   }
   parts[idx] = attrs + close + rest;
   return parts.join('');
