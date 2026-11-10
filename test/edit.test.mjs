@@ -19,7 +19,7 @@ import http from 'node:http';
 
 import {
   upsertNarrationTrack, narrationLiteral, initArgument, configuredTrackDirs,
-  setSlideLayout, setSlideTiming, setSlideHidden, createHistory, undoMeta, STRETCH_MS, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
+  setSlideLayout, setSlideTiming, setSlideHidden, setSlideFace, createHistory, undoMeta, STRETCH_MS, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS,
 } from '../cli/edit.mjs';
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
@@ -2205,6 +2205,30 @@ test('/deck/edit/slide/hidden hides and unhides one slide through the same undo 
   assert.equal(readFileSync(deck, 'utf8'), DECK);
   assert.equal((await post(base, '/deck/edit/slide/hidden', { slide: 2, hidden: 'yes' })).status, 400);
   assert.equal((await post(base, '/deck/edit/slide/hidden', { slide: 0, hidden: true })).status, 400);
+});
+
+test('setSlideFace writes data-face on one section, replaces it, and removes it for the default corner', () => {
+  const placed = setSlideFace(DECK, 2, 'full 1.5');
+  assert.match(placed, /<section data-layout="centered" data-face="full 1.5">/);
+  assert.match(setSlideFace(placed, 2, 'top-right'), /<section data-layout="centered" data-face="top-right">/, 'one attribute, replaced');
+  assert.equal(setSlideFace(placed, 2, ''), DECK, 'the default corner is no attribute at all');
+  assert.throws(() => setSlideFace(DECK, 3, 'hide'), /no slide 3 \(deck has 2\)/);
+});
+
+test('/deck/edit/slide/face places the face on several slides in one undo step, and refuses what the reader cannot read', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  let r = await (await post(base, '/deck/edit/slide/face', { slides: [1, 2], face: 'hide' })).json();
+  assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
+  assert.equal((readFileSync(deck, 'utf8').match(/data-face="hide"/g) ?? []).length, 2);
+  r = await (await post(base, '/deck/edit/slide/face', { slides: [1, 2], face: '' })).json();
+  assert.equal(r.changed, true);
+  assert.equal(readFileSync(deck, 'utf8'), DECK);
+  assert.equal((await post(base, '/deck/edit/slide/face', { slides: [2], face: 'sideways' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/slide/face', { slides: [], face: 'hide' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/slide/face', { slides: [2], face: '"><script>' })).status, 400);
 });
 
 test('/deck/edit/slide/sources writes a slide\u2019s sources, replaces them, and clears them', async (t) => {

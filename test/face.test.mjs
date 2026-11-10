@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { have } from './helpers.mjs';
-import { parseFaceLayout, faceLayout, FACE_CORNER } from '../tools/face-layout.mjs';
+import { parseFaceLayout, faceLayout, faceValue, FACE_CORNER } from '../tools/face-layout.mjs';
 import { wavSeconds, faceClipArgs, faceJoinArgs, writeFaceClip, joinFaceClips } from '../tools/face-clip.mjs';
 import { extractFaces, faceFor, segmentArgs, FACE_CORNER_PX } from '../tools/video.mjs';
 import { recorderManifest } from '../tools/narration-manifest.mjs';
@@ -45,6 +45,25 @@ test('data-face: each beat value holds until the next one', () => {
   assert.deepEqual([1, 2].map((b) => faceLayout('2:full', b).kind), ['corner', 'full']);
   // out of order, or the same beat twice: sorted, the later one wins
   assert.deepEqual(parseFaceLayout('4:hide 2:full 2:corner').rules.map((r) => [r.from, r.kind]), [[2, 'corner'], [4, 'hide']]);
+});
+
+test('data-face: a named corner moves the medallion for the slide, and a bare corner is the deck\'s', () => {
+  assert.deepEqual(faceLayout('top-right'), { kind: 'corner', zoom: 1, at: 'tr' });
+  assert.deepEqual(faceLayout('hide 2:bottom-left', 2), { kind: 'corner', zoom: 1, at: 'bl' });
+  assert.deepEqual(faceLayout('corner'), FACE_CORNER, 'no corner named: wherever the deck keeps it');
+  assert.deepEqual(parseFaceLayout('top-right 1.4').bad, ['1.4'], 'a corner takes no zoom');
+});
+
+test('faceValue writes back what faceLayout reads, the default as no attribute', () => {
+  assert.equal(faceValue(FACE_CORNER), '');
+  assert.equal(faceValue({ kind: 'corner', at: 'tl' }), 'top-left');
+  assert.equal(faceValue({ kind: 'full', zoom: 1 }), 'full');
+  assert.equal(faceValue({ kind: 'full', zoom: 3 }), 'full 3');
+  assert.equal(faceValue({ kind: 'full', zoom: 9 }), 'full 4', 'clamped as the reader clamps it');
+  assert.equal(faceValue({ kind: 'hide' }), 'hide');
+  for (const v of ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'full 2.5', 'hide']) {
+    assert.equal(faceValue(faceLayout(v)), v, `${v} round-trips`);
+  }
 });
 
 // ── the clips ───────────────────────────────────────────────────────────────
@@ -147,6 +166,8 @@ test('segmentArgs: a face segment composes the clip; a plain one is as it was', 
   const { size: d, margin: m } = FACE_CORNER_PX;
   assert.match(g, new RegExp(`overlay=${1280 - d - m}:${720 - d - m}`), 'bottom right, where the deck puts it');
   assert.match(g, /geq=.*hypot/, 'cut round');
+  const topLeft = segmentArgs({ ...base, face: { clip: 'c.mp4', kind: 'corner', zoom: 1, at: 'tl' }, size: { w: 1280, h: 720 } });
+  assert.match(topLeft[topLeft.indexOf('-filter_complex') + 1], new RegExp(`overlay=${m}:${m}:`), 'the corner the slide names');
   assert.match(g, /\[1:a\]apad=pad_dur=0\.4\[a\]/);
   assert.deepEqual(corner.slice(corner.indexOf('-map'), corner.indexOf('-map') + 4), ['-map', '[v]', '-map', '[a]']);
   assert.equal(corner[corner.indexOf('-t') + 1], '3.000');

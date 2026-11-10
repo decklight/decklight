@@ -18,6 +18,7 @@ import { createCharacter, concatTimelines } from './character.js';
 import { createFilmRecorder, cameraUnavailable, refusal as cameraRefusal } from './film.js';
 import { createFaceCam, hasCamera } from './facecam.js';
 import { BROWSER_ENGINE, browserPing, speakSentence } from './browser-voice.js';
+import { faceLayout, faceValue, parseFaceLayout, FACE_CORNERS, FACE_ZOOM_MAX } from '../../tools/face-layout.mjs';
 import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, writtenMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { slideTitle, slideBody } from './finder.js';
@@ -2178,6 +2179,7 @@ export function createNarration({
     else if (narrView === 'engines' || narrView === 'langs' || narrView === 'library') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('character');
     else if (narrView === 'card' && narrConfirm) { narrConfirm = null; narrSel = 0; renderNarr('card'); }
+    else if (narrView === 'face') { narrFace = null; renderNarr('card'); }
     else if (narrView === 'card' || narrView === 'add') renderNarr('tracks');
     else if (narrView === 'voices' || narrView === 'character') renderNarr('tracks');
     else closeNarrPicker();
@@ -2546,6 +2548,41 @@ export function createNarration({
     narrSel = 0;   // the yes, first
     renderNarr('card');
   }
+  // ── Place my face (FACE_LAYOUT): where the filmed face shows on a slide ──
+  // Chosen here, written to the slide's data-face, read by the one reader
+  // the deck and the video share. Nothing is filmed again: it only says how
+  // the footage you already have is shown.
+  let narrFace = null;   // the placement being chosen: { kind, zoom, at, byBeat }
+  const deckCorner = () => config.narration?.character?.position ?? 'br';
+  const CORNER_ORDER = ['br', 'bl', 'tl', 'tr'];
+  const cornerSaid = (at) => Object.keys(FACE_CORNERS).find((k) => FACE_CORNERS[k] === at).replace('-', ' ');
+  function openFacePlacement(t) {
+    const attr = instance._sections?.[instance.state.slide - 1]?.getAttribute('data-face') ?? null;
+    const at = faceLayout(attr, 1);
+    narrCardOf = t;
+    narrFace = { kind: at.kind, zoom: at.zoom, at: at.at ?? deckCorner(), byBeat: parseFaceLayout(attr).rules.some((r) => r.from > 1) };
+    narrSel = 0;
+    renderNarr('face');
+  }
+  /** The placement as data-face writes it: the deck's own corner is no attribute at all. */
+  const faceChosen = () => faceValue(narrFace.kind === 'corner' && narrFace.at === deckCorner() ? { kind: 'corner' } : narrFace);
+  async function saveFace(slides) {
+    const face = faceChosen();
+    try {
+      const r = await fetch(`${editBase()}/deck/edit/slide/face`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slides, face }),
+      });
+      if (!r.ok) throw new Error(String(r.status));
+    } catch (e) { toast(`could not place the face: ${e.message}`, 4000); return; }
+    for (const n of slides) {
+      const sec = instance._sections?.[n - 1];
+      if (face) sec?.setAttribute('data-face', face); else sec?.removeAttribute('data-face');
+    }
+    const where = narrFace.kind === 'hide' ? 'hidden' : narrFace.kind === 'full' ? `full screen at ${narrFace.zoom}×` : `in the ${cornerSaid(narrFace.at)} corner`;
+    toast(`your face: ${where} on ${slides.length === 1 ? `slide ${slides[0]}` : `${slides.length} slides`} · ${UNDO_CHORD} undoes it`, 3200);
+    narrFace = null;
+    renderNarr('card');
+  }
   /** The live voice into a folder: the synthesized recorder, offered where a voice is added or kept. */
   function saveLiveRow() {
     const why = onBrowser() ? "the browser's voice cannot be saved — it needs the voice bridge"
@@ -2582,7 +2619,7 @@ export function createNarration({
     // toggle — keeps the row you were on: a late answer that put the
     // highlight back on the current voice would send your next → to the
     // wrong card.
-    const keepSel = cameFrom === view && (view === 'tracks' || view === 'card' || view === 'add') ? narrSel : -1;
+    const keepSel = cameFrom === view && (view === 'tracks' || view === 'card' || view === 'add' || view === 'face') ? narrSel : -1;
     narrView = view;
     // ARRIVING here means you are looking for something, so the box takes the
     // keyboard. Re-rendering because you typed does not re-decide that — it is
@@ -2818,6 +2855,13 @@ export function createNarration({
             openMicRecorder({ dir: dirKey(t.dir), label: t.label });
           },
         });
+        if (k?.faces?.length) {
+          narrRows.push({
+            text: 'Place my face…',
+            flavor: `where it shows on slide ${instance.state.slide}, and how zoomed · nothing is recorded again`,
+            commit: () => openFacePlacement(t),
+          });
+        }
       } else if (!t.manifest && rangePicker) {
         const why = revoiceWhy(t);
         narrRows.push({
@@ -2840,6 +2884,67 @@ export function createNarration({
         });
       }
       voiceTail(t);
+    } else if (view === 'face' && narrFace) {
+      const t = narrCardOf;
+      const k = knownOf(t);
+      const sl = instance.state.slide;
+      const filmed = k?.faces ?? [];
+      head.textContent = `my face on slide ${sl}`;
+      cardTags(card, ['mine', 'recorded']);
+      // a sketch of the slide, with the face where it would be
+      const sketch = Object.assign(document.createElement('div'), { className: 'narr-face-sketch' });
+      sketch.setAttribute('aria-hidden', 'true');
+      sketch.appendChild(Object.assign(document.createElement('span'), {
+        className: `narr-face-dot narr-face-${narrFace.kind} narr-face-at-${narrFace.at}`,
+        textContent: narrFace.kind === 'full' ? `${narrFace.zoom}×` : '',
+      }));
+      card.appendChild(sketch);
+      cardFacts(card, [
+        filmed.includes(sl) ? ['filmed', 'yes, with this slide'] : ['filmed', 'no: this slide was recorded without the camera', true],
+        ...(narrFace.byBeat ? [['now', 'it changes beat by beat; saving sets one place for the whole slide', true]] : []),
+      ]);
+      const setKind = (kind) => () => { narrFace.kind = kind; renderNarr('face'); };
+      const WHERE = 'where';
+      narrRows.push({ group: WHERE, text: 'In the corner', cur: narrFace.kind === 'corner', commit: setKind('corner') });
+      if (narrFace.kind === 'corner') {
+        const turn = (d) => {
+          const i = CORNER_ORDER.indexOf(narrFace.at);
+          narrFace.at = CORNER_ORDER[(i + d + CORNER_ORDER.length) % CORNER_ORDER.length];
+          renderNarr('face');
+        };
+        narrRows.push({
+          group: WHERE, text: 'Which corner', sub: true,
+          stepper: { value: cornerSaid(narrFace.at), less: () => turn(-1), more: () => turn(1) },
+          commit: () => turn(1),
+        });
+      }
+      narrRows.push({ group: WHERE, text: 'Full screen', flavor: 'the slide steps aside', cur: narrFace.kind === 'full', commit: setKind('full') });
+      if (narrFace.kind === 'full') {
+        const zoom = (d) => {
+          narrFace.zoom = Math.min(FACE_ZOOM_MAX, Math.max(1, narrFace.zoom + d));
+          renderNarr('face');
+        };
+        narrRows.push({
+          group: WHERE, text: 'Zoom', sub: true, flavor: 'how close your face is',
+          stepper: { value: `${narrFace.zoom}×`, less: () => zoom(-0.5), more: () => zoom(0.5) },
+          commit: () => zoom(narrFace.zoom >= FACE_ZOOM_MAX ? 1 - FACE_ZOOM_MAX : 0.5),
+        });
+      }
+      narrRows.push({ group: WHERE, text: 'Hidden', flavor: 'the voice plays on', cur: narrFace.kind === 'hide', commit: setKind('hide') });
+      const why = editBase() == null ? 'needs write mode — it writes the slide' : null;
+      narrRows.push({
+        text: `Save for slide ${sl}`,
+        blocked: why,
+        commit: () => (why ? toast(why, 4000) : saveFace([sl])),
+      });
+      if (filmed.length > 1) {
+        narrRows.push({
+          text: `Save for every filmed slide`,
+          flavor: `${filmed.length} slides`,
+          blocked: why,
+          commit: () => (why ? toast(why, 4000) : saveFace(filmed)),
+        });
+      }
     } else if (view === 'add') {
       head.textContent = 'add a voice';
       card.appendChild(Object.assign(document.createElement('div'), {
@@ -5211,7 +5316,7 @@ export function createNarration({
     const says = micCamWhy
       ? `<span class="rec-check-why">${escapeHtml(micCamWhy)}: your voice is recorded without it</span>`
       : face
-        ? 'Your face is filmed with every beat and plays in the character\'s medallion with your voice, or full screen where a slide says <code>data-face="full"</code>.'
+        ? 'Your face is filmed with every beat and plays in the character\'s medallion with your voice. Afterwards, Place my face… (on your voice\'s card) moves it to another corner, full screen or out of the way, slide by slide.'
         : 'Film your face too, while you read: it plays with your voice in the deck and in its exported video.';
     return `<div class="rec-cam-row"><div class="rec-line"><span class="rec-seg" role="group" aria-label="film my face">${
       seg('on', '📹 film me too', face)}${seg('off', 'voice only', !face)}</span></div>
@@ -5416,7 +5521,7 @@ export function createNarration({
     const offer = useTrackRow(dir, 'Use my voice in this deck');
     card.innerHTML = `${recTop(stopped ? 'recording stopped' : 'your recording is saved', 'mine', 2)}
       <div class="rec-line rec-done-sum">${slides} slide${slides === 1 ? '' : 's'} · ${files} file${files === 1 ? '' : 's'}${secs ? ` · ${durationText(secs)}` : ''} · ${where}</div>
-      ${faces ? `<div class="rec-line rec-done-face">📹 your face on ${faces} slide${faces === 1 ? '' : 's'}: the character shows it with your voice whenever this track plays, in the corner, or full screen where a slide says <code>data-face="full"</code></div>` : ''}
+      ${faces ? `<div class="rec-line rec-done-face">📹 your face on ${faces} slide${faces === 1 ? '' : 's'}: the character shows it with your voice whenever this track plays: V → My voice › → Place my face… chooses where, slide by slide</div>` : ''}
       ${faceWhy ? `<div class="rec-line rec-warn">${escapeHtml(faceWhy)}</div>` : ''}
       ${left ? `<div class="rec-line rec-done-left">stopped early: ${left} slide${left === 1 ? '' : 's'} not reached, left as ${left === 1 ? 'it was' : 'they were'}</div>` : ''}
       ${takeRows ? `<div class="rec-takes">${takeRows}</div>` : ''}

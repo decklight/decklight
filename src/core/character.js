@@ -148,10 +148,14 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     el?.classList.toggle('face-full', at.kind === 'full');
     el?.classList.toggle('face-hide', at.kind === 'hide');
     el?.style.setProperty('--face-zoom', String(at.zoom));
+    // a corner a slide names (data-face="top-right") moves the medallion there
+    // for that slide; anything else puts it back where the deck keeps it
+    const pos = at.kind === 'corner' && at.at ? at.at : (cfg.position ?? 'br');
+    for (const p of ['br', 'bl', 'tr', 'tl']) el?.classList.toggle(`pos-${p}`, p === pos);
     root.classList.toggle('decklight-face-full', at.kind === 'full');
   }
   function setFace(next) {
-    if (next.kind === face.kind && next.zoom === face.zoom) return;
+    if (next.kind === face.kind && next.zoom === face.zoom && next.at === face.at) return;
     face = next;
     applyFace();
     debugLog('lipsync', `face ${face.kind}${face.kind === 'full' && face.zoom !== 1 ? ` ×${face.zoom}` : ''}`);
