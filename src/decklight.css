@@ -2445,6 +2445,10 @@
 .decklight-narr .narr-stepper button { width: 30px; height: 28px; font: inherit; font-size: 1.1em; color: inherit; background: none; border: 0; cursor: pointer; }
 .decklight-narr .narr-stepper button:hover { background: rgba(255, 255, 255, .12); }
 .decklight-narr .narr-step-val { min-width: 44px; text-align: center; font-size: .92em; }
+/* a setting that belongs to the row above it (Caption size, under Captions) */
+.decklight-narr .narr-row.narr-subrow { padding-left: 28px; }
+.decklight-narr .narr-step-val { white-space: nowrap; }
+.decklight-narr .narr-subrow .narr-step-val { min-width: 84px; }
 /* the recorders' three steps: plan, record or generate, review */
 .decklight-narr .narr-steps { display: flex; gap: 6px; margin: 4px 12px 8px; padding: 0; list-style: none; font-size: .78em; }
 .decklight-narr .narr-steps li { flex: 1; padding-top: 5px; border-top: 3px solid rgba(255, 255, 255, .16); opacity: .55; }
@@ -2994,7 +2998,7 @@
   border-radius: calc(8px * var(--cap-k));
   background: rgba(8, 9, 12, .8);
   color: #fff;
-  font-size: calc(21px * var(--cap-k));
+  font-size: calc(21px * var(--cap-k) * var(--cap-size, 1));
   line-height: 1.45;
   text-align: center;
   z-index: 45;

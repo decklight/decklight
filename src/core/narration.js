@@ -2001,8 +2001,24 @@ export function createNarration({
     captionEl = document.createElement('div');
     captionEl.className = 'decklight-captions';
     captionEl.setAttribute('aria-live', 'polite');
+    paintCaptionSize();
     root.appendChild(captionEl);
     updateCaption();
+  }
+  // How big the captions are, per deck (PRESENTING_VOICE): four named steps,
+  // so the panel can say which one it is rather than a number nobody chose.
+  const CAPTION_SIZES = [['small', 0.8], ['medium', 1], ['large', 1.3], ['extra large', 1.65]];
+  const captionSizeKey = 'decklight-caption-size:' + location.pathname;
+  const savedSize = CAPTION_SIZES.findIndex(([name]) => name === readPref(captionSizeKey));
+  let captionSize = savedSize >= 0 ? savedSize : 1;
+  function paintCaptionSize() { captionEl?.style.setProperty('--cap-size', String(CAPTION_SIZES[captionSize][1])); }
+  function changeCaptionSize(delta) {
+    const next = Math.min(CAPTION_SIZES.length - 1, Math.max(0, captionSize + delta));
+    if (next === captionSize) return;
+    captionSize = next;
+    writePref(captionSizeKey, CAPTION_SIZES[captionSize][0]);
+    paintCaptionSize();
+    debugLog('narr', `caption size ${CAPTION_SIZES[captionSize][0]}`);
   }
   function toggleCaptions() {
     if (embeddedPreview) return; // a preview has no captions to toggle, and no say over the deck's
@@ -2670,6 +2686,19 @@ export function createNarration({
         switch: captionsOn,
         commit: () => { toggleCaptions(); renderNarr('tracks'); },
       });
+      if (captionsOn) {
+        // only while there are captions to size: a control for something
+        // switched off is a question with no answer on screen
+        const size = (d) => { changeCaptionSize(d); renderNarr('tracks'); };
+        narrRows.push({
+          group: OPTIONS,
+          text: 'Caption size',
+          flavor: '← smaller · → larger',
+          sub: true,
+          stepper: { value: CAPTION_SIZES[captionSize][0], less: () => size(-1), more: () => size(1) },
+          commit: () => size(captionSize === CAPTION_SIZES.length - 1 ? -captionSize : 1),
+        });
+      }
       const speed = (d) => { changeNarrRate(d); renderNarr('tracks'); };
       narrRows.push({
         group: OPTIONS,
@@ -3368,6 +3397,7 @@ export function createNarration({
       }
       el.className = 'narr-row' + (row.cur ? ' narr-cur' : '')
         + (row.toggle ? ' narr-toggle' : '')
+        + (row.sub === true ? ' narr-subrow' : '')
         + (row.blocked || row.blocked === '' ? ' narr-blocked' : '');
       if (row.title) el.title = row.title;
       const label = document.createElement('span');
