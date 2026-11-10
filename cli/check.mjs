@@ -688,6 +688,20 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       const own = a.fill && a.fill !== 'none' ? `fill="${a.fill}"` : /(?:^|;)\s*fill\s*:\s*(?!none\b)[^;]+/i.test(a.style ?? '') ? 'a fill in its style' : null;
       if (own) push('concept-fill', `<${node.tag} data-concept="${a['data-concept']}"> also carries ${own} — the concept colours it, and the fill is painted over; pin the concept's slot (Concept colors…) or take the concept off (Colors… → Detach from concept)`);
     }
+    // a connector naming a node its svg does not have (SVG_DIAGRAMS): the
+    // runtime leaves it where the file draws it, attached to nothing
+    for (const svg of descendants(tree)) {
+      if (svg.tag !== 'svg') continue;
+      const inside = [...descendants(svg)];
+      const names = new Set(inside.map((n) => readAttrs(n.attrs)['data-node']).filter(Boolean));
+      for (const n of inside) {
+        const a = readAttrs(n.attrs);
+        for (const end of ['data-from', 'data-to']) {
+          if (a[end] === undefined || names.has(a[end])) continue;
+          push('connector-node', `<${n.tag} ${end}="${a[end]}"> names no data-node in its svg — the wire stays where the file draws it, joined to nothing: give the shape it joins data-node="${a[end]}", or take ${end} off`);
+        }
+      }
+    }
     // a deck on a design system with roles: every colour its slides name is a role (SPEC DESIGN_SYSTEM_ROLES)
     if (roles) {
       const off = [];

@@ -42,6 +42,7 @@ export const MODES = [
   'pictureresize', 'picturealt', 'picturebg',
   'chartdata',
   'shapedrag', 'shapeadd',
+  'connectors', 'connectmenu', 'guides', 'connectdraw',
 ];
 
 // A typo in a mode name would otherwise run NOTHING and exit 0, which is the

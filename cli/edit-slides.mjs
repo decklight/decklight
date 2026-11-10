@@ -41,7 +41,7 @@ import {
   upsertNarrationTrack, configuredTrackDirs,
   locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement } from './edit.mjs';
 import { setElementPicture, setSlideBackground, pictureToBackground } from './edit.mjs';
-import { setElementGeometry, addDiagramShape, duplicateDiagramNode } from './edit.mjs';
+import { setElementGeometry, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
@@ -494,6 +494,37 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
     }
     return json(200, { ok: true, changed, added: out.added, defs: out.defs ?? null, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/element/connector` — `{ slide, index, op, …, quiet?,
+   * from? }`: a connector added between two nodes of a diagram, an end
+   * reconnected or let go, its route, its arrowheads, its direction
+   * (SVG_DIAGRAMS; editConnector says each op's fields). The page sends the
+   * geometry it routed, since only it can measure a label; the server checks
+   * every value and writes the markup: the nodes' `data-node` names, the
+   * wire, an arrowhead's definition. It answers with what it wrote (`wire`,
+   * `added`, `defs`, `named`), so the page puts the very same markup on the
+   * slide. One undo entry; a stale path is a 409.
+   */
+  function elementConnectorRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const { slide, index, op, quiet: inPlace = false, from = null } = req;
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !CONNECTOR_OPS.includes(op)) throw new Error('bad payload');
+    let out = null;
+    let changed;
+    try {
+      changed = applyEdit((html) => {
+        out = editConnector(html, slide, index, req);
+        return out.html;
+      });
+    } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed) console.log(`  connector ${op}: slide ${slide} #${index} › ${out.wire.path.join('.')}`);
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, { ok: true, changed, wire: out.wire, added: out.added ?? null, defs: out.defs, named: out.named, ...history.counts() });
   }
 
   /**
@@ -986,6 +1017,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/text', elementTextRoute);
   routes.set('POST /deck/edit/element/geometry', elementGeometryRoute);
   routes.set('POST /deck/edit/element/shape', elementShapeRoute);
+  routes.set('POST /deck/edit/element/connector', elementConnectorRoute);
   routes.set('POST /deck/edit/concepts', conceptsRoute);
   routes.set('POST /deck/edit/slide', slideRoute);
   routes.set('POST /deck/edit/asset', assetRoute);

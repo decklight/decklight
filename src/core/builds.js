@@ -7,6 +7,7 @@
 
 import { computeGroups, orderItem } from '../../tools/build-groups.mjs';
 import { pointAlong, shapeLength } from './stroke-geometry.js';
+import { routeConnectors } from './connectors.js';
 
 const CONTAINER_TAGS = new Set(['UL', 'OL', 'TABLE', 'TBODY', 'DL', 'SVG']);
 const SVG_SKIP = new Set(['defs', 'title', 'desc', 'style', 'metadata', 'mask', 'clippath']);
@@ -658,6 +659,10 @@ function drawStopsProvider(s) {
  *     groups: [[stepIdx…]…], providers: [{el, provider, first, count}] }
  */
 export function scanSlide(section) {
+  // Connectors are routed to the nodes they join before a draw measures
+  // them (SVG_DIAGRAMS), so a connector that draws draws where it goes; one
+  // already prepared (a rescan after a node moved) is fitted to its new geometry
+  for (const w of routeConnectors(section)) refitStroke(w);
   const steps = [];
   const items = []; // {key, explicit} parallel to steps
   const claimed = new Set();
