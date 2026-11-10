@@ -1051,7 +1051,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
           const fix = narration.engine ? 're-voice' : 're-record';
           throw new Error(`the narration in ${narration.dir} was recorded from older notes on ${which}`
             + `${unrevoiced ? ` and cannot be re-voiced here: ${unrevoiced}` : ''} — `
-            + `${fix} ${stale.length === 1 ? 'it' : 'them'} from the deck (V, then ⋯ on ${basename(narration.dir)}) or pass --allow-stale`);
+            + `${fix} ${stale.length === 1 ? 'it' : 'them'} from the deck (V, then › on ${basename(narration.dir)}) or pass --allow-stale`);
         }
         console.warn(`  --allow-stale: rendering ${which} with the older narration`);
       }

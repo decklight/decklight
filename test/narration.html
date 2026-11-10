@@ -706,12 +706,12 @@
           deck.narration.openPicker();
           await wait(120);
           r.rows = labels();
-          r.offRowFirst = /🔇/.test(r.rows[0] ?? '');
+          r.offRowFirst = /^Silent/.test(r.rows[0] ?? '');
           r.offRowIsCurrent = rowsNow()[0]?.classList.contains('narr-cur') === true;
 
           // 4 · picking the track hands ⎵ to the voice — the second half of
           //     the complaint, and the reason this is not just a new row
-          const trackRow = rowsNow().find((el, i) => i > 0 && /🔊/.test(labels()[i]));
+          const trackRow = rowsNow().find((el) => el.dataset.how === 'recorded');
           trackRow?.click();
           await wait(120);
           r.pickedTrack = !!deck.narration.status().track;
@@ -1174,20 +1174,20 @@
           // edit server up, every file must go through it instead.
           //
           // Opened the way a person now reaches it: V → ＋ Add a voice… →
-          // Save a live voice as a track (the palette's Record this deck… route). It had its own shortcut (⇧V) and nobody
+          // Generate an AI recording (the palette's Record this deck… route). It had its own shortcut (⇧V) and nobody
           // found it; the keys were rationalised and the shortcut went.
           await new Promise((ok) => setTimeout(ok, 400));   // /deck/ping answers
           deck.narration.openPicker('record');
           await new Promise((ok) => setTimeout(ok, 100));
           [...document.querySelectorAll('.decklight-narr .narr-row')]
-            .find((n) => /Save a live voice as a track/.test(n.textContent))?.click();
+            .find((n) => /Generate an AI recording/.test(n.textContent))?.click();
           await new Promise((ok) => setTimeout(ok, 100));
           r.dialogOpens = !!document.querySelector('.decklight-record');
           // the target lands asynchronously (the server is asked what exists),
           // so the card names the folder a moment after it opens
           const field = await until(() => document.querySelector('.decklight-record .rec-dir'), 3000);
           r.folderField = field?.value ?? null;
-          document.querySelector('.decklight-record .narr-card .narr-row')?.click();  // Start recording
+          document.querySelector('.decklight-record .narr-card .narr-row')?.click();  // Generate the recording
 
           // Poll for the done card rather than sleeping a guessed interval: a
           // slide is several bridge round-trips and a blob stitch, and under a
@@ -1205,10 +1205,10 @@
           // finishes reads as finished=false, and the runner's wall clock
           // stays the guard against a page that hangs.
           const untilRecorded = async (c) => {
-            for (let i = 0; i < 20000 && !/recording done/.test(c?.textContent ?? ''); i++) {
+            for (let i = 0; i < 20000 && !/the recording is ready/.test(c?.textContent ?? ''); i++) {
               await new Promise((ok) => setTimeout(ok, 5));
             }
-            return /recording done/.test(c?.textContent ?? '');
+            return /the recording is ready/.test(c?.textContent ?? '');
           };
           const card = document.querySelector('.decklight-record .narr-card');
           r.finished = await untilRecorded(card);
@@ -1224,7 +1224,7 @@
             deck.narration.openPicker('record');
             await new Promise((ok) => setTimeout(ok, 100));
             [...document.querySelectorAll('.decklight-narr .narr-row')]
-              .find((n) => /Save a live voice as a track/.test(n.textContent))?.click();
+              .find((n) => /Generate an AI recording/.test(n.textContent))?.click();
             await until(() => document.querySelector('.decklight-record .rec-dir'), 3000);
             document.querySelector('.decklight-record .narr-card .narr-row')?.click();
             const card2 = document.querySelector('.decklight-record .narr-card');

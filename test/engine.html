@@ -6858,7 +6858,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         const rows = [...document.querySelectorAll('.decklight-narr .narr-row')];
         r.offRowIsCurrent = rows[0]?.classList.contains('narr-cur') === true;
-        rows.find((el) => /🔊/.test(el.textContent))?.click();
+        rows.find((el) => el.dataset.how === 'recorded')?.click();
         await settle();
         r.trackChosen = !!deck.narration.status().track;
 
@@ -6901,14 +6901,35 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // #919: who speaks is one list, Silent first, and a voice row has two
         // targets: the row selects it, the button at its right opens its card
         const voices = () => [...document.querySelectorAll('.decklight-narr .narr-row.narr-voice')];
-        r.silentFirst = /🔇 Silent/.test(voices()[0]?.textContent ?? '');
-        const live = () => voices().find((n) => /⚡/.test(n.textContent));
+        r.silentFirst = /^Silent/.test(voices()[0]?.textContent ?? '');
+        const live = () => voices().find((n) => n.dataset.how === 'live');
         r.liveHasManage = !!live()?.querySelector('.narr-manage');
+        // the redesign: the live voice sits in a section that says how it
+        // arrives, carries a tag that says whose voice it is, and the panel
+        // says in words who speaks now
+        const groups = [...document.querySelectorAll('.decklight-narr .narr-group')].map((g) => g.textContent);
+        r.liveSectionSaysHow = groups.some((g) => /^live/.test(g) && /generated as you present/.test(g));
+        r.liveTaggedAi = /AI voice/.test(live()?.querySelector('.narr-tag')?.textContent ?? '');
+        r.nowSaysWho = /speaking now: nobody/.test(document.querySelector('.decklight-narr .narr-now')?.textContent ?? '');
+        // Speed is a stepper ← → turn, Captions a switch
+        const rowOf = (re) => [...document.querySelectorAll('.decklight-narr .narr-row')].find((n) => re.test(n.textContent));
+        rowOf(/^Speed/)?.dispatchEvent(new MouseEvent('mouseenter'));
+        const rate = () => rowOf(/^Speed/)?.querySelector('.narr-step-val')?.textContent;
+        const was = rate();
+        press('ArrowRight');
+        await settle();
+        const up = rate();
+        press('ArrowLeft');
+        await settle();
+        r.speedSteps = was === '1×' && up === '1.25×' && rate() === '1×';
+        r.captionsIsSwitch = rowOf(/^Captions/)?.getAttribute('role') === 'switch'
+          && !!rowOf(/^Captions/)?.querySelector('.narr-switch');
         // → on the live voice opens its card, ← comes back
         live()?.dispatchEvent(new MouseEvent('mouseenter'));   // rows select on hover
         press('ArrowRight');
         await settle();
-        r.arrowOpensCard = rowText().some((t) => /Change voice/.test(t)) && rowText().some((t) => /Save a live voice as a track/.test(t));
+        r.arrowOpensCard = rowText().some((t) => /Change voice/.test(t)) && rowText().some((t) => /Generate an AI recording/.test(t))
+          && /saved\s*nothing/.test(document.querySelector('.decklight-narr .narr-facts')?.textContent ?? '');
         press('ArrowLeft');
         await settle();
         r.arrowComesBack = rowText().some((t) => /Add a voice/.test(t));
@@ -6917,19 +6938,19 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           .find((n) => /Add a voice/.test(n.textContent));
         add.click();
         await settle();
-        r.recordViewLists = rowText().some((t) => /Record yourself/.test(t))
-          && rowText().some((t) => /A live voice/.test(t))
-          && rowText().some((t) => /Save a live voice as a track/.test(t));
+        r.recordViewLists = rowText().some((t) => /Record my own voice/.test(t) && /your voice/.test(t))
+          && rowText().some((t) => /Use a live AI voice/.test(t))
+          && rowText().some((t) => /Generate an AI recording/.test(t));
         // The synthesized row is BLOCKED here — this deck has no live voice —
         // and a blocked row must refuse in place, with its reason, rather than
         // closing the panel and refusing afterwards. `commitNarrRow` fires any
         // commit it is handed, so the guard has to be in the row itself.
         const synth = [...document.querySelectorAll('.decklight-narr .narr-row')]
-          .find((n) => /Save a live voice as a track/.test(n.textContent));
+          .find((n) => /Generate an AI recording/.test(n.textContent));
         // (with no bridge here the browser's own voice is the live one, and it
         // is that, not the lack of a voice, that cannot be recorded)
         r.blockedRowSaysWhy = !!synth && /narr-blocked/.test(synth.className)
-          && /pick a live voice first|the browser's voice cannot be recorded/.test(synth.textContent);
+          && /choose an AI voice first|the browser's voice cannot be saved/.test(synth.textContent);
         synth.click();
         await settle();
         r.blockedRowKeptThePanel = !!document.querySelector('.decklight-narr')
@@ -6949,7 +6970,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         r.nDoesNothing = !document.querySelector('.decklight-narr');
         r.PASS = r.vOpensPanel && r.panelOffersRecording && r.panelOffersCaptions
-          && r.panelOffersSpeed && r.silentFirst && r.liveHasManage && r.arrowOpensCard && r.arrowComesBack
+          && r.panelOffersSpeed && r.silentFirst && r.liveHasManage
+          && r.liveSectionSaysHow && r.liveTaggedAi && r.nowSaysWho && r.speedSteps && r.captionsIsSwitch && r.arrowOpensCard && r.arrowComesBack
           && r.recordViewLists && r.blockedRowSaysWhy && r.blockedRowKeptThePanel && r.noCommands
           && r.escapeGoesBack && r.vCloses && r.nDoesNothing;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
@@ -7554,7 +7576,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // the V panel: ✍ Writing tools… opens the same picker
         press('v');
         await settle();
-        const vRow = [...document.querySelectorAll('.decklight-narr .narr-row')].find((n) => /✍ Writing tools…/.test(n.textContent));
+        const vRow = [...document.querySelectorAll('.decklight-narr .narr-row')].find((n) => /^Writing tools…/.test(n.textContent));
         vRow?.click();
         await settle();
         r.vPanelOpensIt = !!vRow && !!document.querySelector(W) && wHead() === 'writing tools';

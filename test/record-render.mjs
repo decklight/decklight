@@ -147,7 +147,7 @@ const DECK = `<!doctype html>
   const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
   const card = () => document.querySelector('.decklight-mic .narr-card');
   const reading = () => document.querySelector('.decklight-mic .rec-read')?.textContent ?? null;
-  const done = () => /recording done|recording stopped/.test(card()?.textContent ?? '');
+  const done = () => /your recording is saved|recording stopped/.test(card()?.textContent ?? '');
   // the indicator: 'countdown' during the 3-2-1, 'rec' once the take runs.
   // A new element per beat, which is how a re-render (a retake, a ←) is seen.
   const status = () => document.querySelector('.decklight-mic .rec-status');
@@ -178,12 +178,14 @@ const DECK = `<!doctype html>
       if (params.has('vpanel')) {
         await wait(1500);   // the probe, then the track list the panel asks for
         press('v');
-        // #919: no banner — the voice's row says it, on the button that opens its card
-        const warn = await until(() => document.querySelector('.decklight-narr .narr-manage.narr-warn-status'), 6000);
+        // #919 and its redesign: no banner — the voice's row says it on its
+        // own line, beside the named button that fixes it
+        const warn = await until(() => document.querySelector('.decklight-narr .narr-voice .narr-sub-warn'), 6000);
         r.vWarn = warn?.textContent ?? null;
+        r.vFix = warn?.closest('.narr-voice')?.querySelector('.narr-act')?.textContent ?? null;
         r.vRows = [...document.querySelectorAll('.decklight-narr .narr-row')].map((n) => n.textContent).join(' | ');
         r.vBanner = !!document.querySelector('.decklight-narr .narr-warn');
-        warn?.click();
+        warn?.closest('.narr-voice')?.querySelector('.narr-manage')?.click();
         await wait(50);
         r.vCard = document.querySelector('.decklight-narr .narr-card')?.textContent ?? null;
         throw 'introonly';
@@ -775,11 +777,11 @@ writeFileSync(deckFile, DECK);
 const steady = await run('tone', '', 'keys', '&cfg=takes&vpanel');
 // #919: the row says it once, on the button that opens the card, and the
 // card's first row IS the fix — no banner above, and no command to paste
-check('drift', /⚠ slide 1 to re-record/.test(moved.vWarn ?? '') && moved.vBanner === false
+check('drift', /slide 1 out of date/.test(moved.vWarn ?? '') && moved.vFix === 'Re-record' && moved.vBanner === false
   && /Re-record slide 1/.test(moved.vCard ?? '') && /the \[click\] moved \(3 beats → 2\)/.test(moved.vCard ?? '')
   && /read those beats again/.test(moved.vCard ?? '') && !/decklight narrate/.test(moved.vCard ?? '')
   && steady.vWarn === null,
-`V says: "${moved.vWarn}" · card "${moved.vCard}" · put back, says nothing=${steady.vWarn === null}`);
+`V says: "${moved.vWarn}" [${moved.vFix}] · card "${moved.vCard}" · put back, says nothing=${steady.vWarn === null}`);
 
 // ── the words, edited mid-take ───────────────────────────────────────────
 // E on slide 1's beat two: the box holds that beat's words, Enter writes them
