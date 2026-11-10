@@ -534,7 +534,7 @@
             findings: n === 1 ? [{ level: 'warn', rule: 'asset-missing', message: 'gone.png is not there' }] : [] });
         }
       }
-      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'emphasis' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettecategories' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
+      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'bgindex' || HARNESS_MODE === 'emphasis' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettecategories' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -2699,6 +2699,46 @@
         r.PASS = r.boxOverTheLabel && r.inTheLabelsType && r.labelHiddenUnderIt && r.boxGrowsAroundTheMiddle && r.deckKeysStandAside
           && r.enterSendsTheWords && r.labelShowsItAndTheBoxGoes && r.escapeWritesNothing && r.unchangedWritesNothing
           && r.twoLinesAskForOne && r.leavingSavesTheLine && r.refusedKeepsTheWords && r.selectThenEnterEdits && r.escapePutsTheFilesBack;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'bgindex') {
+        // PRESENTING_EDITING: the engine PREPENDS a background layer (and a
+        // hero logo) to a slide. Neither is in the file, so neither may count:
+        // the h1 the author double-clicks is still element 0 of slide 1, and
+        // the layers themselves select nothing.
+        await settle();
+        deck.goto(1, 0);
+        const sec = deck._sections[0];
+        sec.setAttribute('data-background-image', 'nowhere.png');
+        deck.sync();
+        await settle();
+        r.layerIsFirst = sec.firstElementChild?.classList.contains('slide-bg') === true;
+        const h1 = sec.querySelector(':scope > h1');
+        h1.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        h1.textContent = 'One, past the background';
+        h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const saved = CALLS.post.find((c) => c.u.includes('/deck/edit/element/content'));
+        r.savesTheFilesElement = !!saved && saved.body.slide === 1 && saved.body.index === 0;
+        // a hero logo prepended in front of it too: still element 0
+        const hero = document.createElement('div');
+        hero.className = 'decklight-hero-logo';
+        sec.prepend(hero);
+        h1.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        h1.textContent = 'One, past the logo';
+        h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const again = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content'))[1];
+        r.pastTheLogoToo = !!again && again.body.index === 0;
+        // a right-click on the layer is the slide's background, not an element
+        const bg = sec.querySelector(':scope > .slide-bg');
+        bg.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+        await settle();
+        const menu = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((b) => b.textContent);
+        r.layerIsNotAnElement = menu.some((t) => /Edit speaker notes/.test(t)) && !menu.some((t) => /Remove/.test(t));
+        r.PASS = r.layerIsFirst && r.savesTheFilesElement && r.pastTheLogoToo && r.layerIsNotAnElement;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

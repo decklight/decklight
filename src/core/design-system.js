@@ -31,7 +31,7 @@ import { NAME_RE, isTemplateRef, parseTemplateRef } from '../../tools/design-sys
 export { isTemplateRef, parseTemplateRef };
 
 /** Direct children that stay where they are: what the slide carries, not what it shows. */
-const KEEP = 'aside.notes, aside.sources, aside.rehearse, script, style, .slide-bg';
+const KEEP = 'aside.notes, aside.sources, aside.rehearse, script, style, .slide-bg, .decklight-hero-logo';
 
 /** Tags a template clone may never contain, whatever its checks said — the last line. */
 const FORBIDDEN = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'FOREIGNOBJECT', 'LINK', 'META', 'BASE', 'FRAME', 'FRAMESET']);
@@ -109,13 +109,25 @@ export const fileIndexOf = (el) => fileIndex.get(el);
 export function authoredTop(sec, target) {
   for (let el = target; el && el !== sec; el = el.parentElement) {
     if (fileIndex.has(el)) return el;
-    if (el.parentElement === sec) return el.hasAttribute('data-ds-injected') ? null : el;
+    if (el.parentElement === sec) return el.hasAttribute('data-ds-injected') || el.matches(ENGINE_MADE) ? null : el;
   }
   return null;
 }
 
+/**
+ * The children the ENGINE puts into a slide that the file never had: the
+ * background layer (`data-background-*`, media.js) and the hero logo
+ * (`data-logo`, engine.js). Both are PREPENDED, so counting them shifted every
+ * element after them by one, and on a slide with a background a text save,
+ * a removal or a recolour addressed the element after the one clicked.
+ */
+export const ENGINE_MADE = '.slide-bg, .decklight-hero-logo';
+
+/** A section's children as the file has them: what the engine prepended left out. */
+export const fileChildren = (sec) => [...sec.children].filter((el) => !el.matches(ENGINE_MADE));
+
 /** That element's index among its section's children IN THE FILE — what `/deck/edit/element/*` addresses. */
-export const authoredIndex = (sec, el) => fileIndex.get(el) ?? Array.prototype.indexOf.call(sec.children, el);
+export const authoredIndex = (sec, el) => fileIndex.get(el) ?? fileChildren(sec).indexOf(el);
 
 /** The authored content of an expanded slide that has not moved since — or null if it changed. */
 function stillExpanded(sec, key) {
@@ -170,7 +182,7 @@ export function setupSlideTemplates(sections, { systems = pageDesignSystems(), w
       }
     } else {
       authored = [...sec.children].filter((el) => !el.matches(KEEP));
-      [...sec.children].forEach((el, i) => { if (!el.matches(KEEP)) fileIndex.set(el, i); });
+      fileChildren(sec).forEach((el, i) => { if (!el.matches(KEEP)) fileIndex.set(el, i); });
     }
 
     const clone = tpl.content.cloneNode(true);
