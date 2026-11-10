@@ -169,12 +169,8 @@ function leadingHeading(section) {
  * pinned or centered. Opt out per slide with
  * data-subtitle="none"; an author-placed class="subtitle" is respected as-is.
  */
-// The paragraphs the engine itself made subtitles, told from an author's own
-// class="subtitle": one that no longer follows its heading (an element moved
-// in place, PRESENTING_EDITING) is a paragraph again.
-const autoSubtitles = new WeakSet();
 // The paragraphs marked here, told from an author's own class="subtitle": a
-// slide changed in place (an element added above one, PRESENTING_EDITING)
+// slide changed in place (an element added above one, or moved, PRESENTING_EDITING)
 // can leave a marked one no longer under the heading, and it goes back to
 // being a paragraph, as a reload would have made it.
 const autoSubtitles = new WeakSet();
@@ -185,7 +181,6 @@ function detectSubtitle(section, heading) {
   if (!heading || section.getAttribute('data-subtitle') === 'none') return null;
   const next = heading.nextElementSibling;
   if (next && next.matches('p') && !next.hasAttribute('data-build')) {
-    if (!next.classList.contains('subtitle')) autoSubtitles.add(next);
     if (!next.classList.contains('subtitle')) { next.classList.add('subtitle'); autoSubtitles.add(next); }
     return next;
   }
