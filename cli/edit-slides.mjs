@@ -37,7 +37,7 @@ import { basename, dirname, resolve, sep } from 'node:path';
 import {
   notesTextToAside, setSlideNotes,
   sourcesToAside, setSlideSources,
-  setSlideTiming, setSlideLayout, setSlideHidden,
+  setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
   duplicateSlideElement } from './edit.mjs';
@@ -49,6 +49,7 @@ import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTempl
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
 import { markedSources } from './theme-refs.mjs';
 import { parseTemplateRef } from '../tools/design-system-format.mjs';
+import { parseFaceLayout } from '../tools/face-layout.mjs';
 import { setDeckConcepts } from './runtime-link.mjs';
 // The whole-slide and image transforms are NOT in edit.mjs with the rest: they
 // are string surgery on a deck's sections, which is what tools/deck-html.mjs
@@ -231,6 +232,19 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     if (!Number.isInteger(slide) || slide < 1 || typeof hidden !== 'boolean') throw new Error('bad payload');
     const changed = applyEdit((html) => setSlideHidden(html, slide, hidden));
     if (changed) console.log(`  slide ${slide} ${hidden ? 'hidden' : 'shown again'}`);
+    return json(200, { ok: true, changed, ...history.counts() });
+  }
+
+  // Where the filmed face shows (FACE_LAYOUT), for one slide or several at
+  // once: Place my face's "this slide" and "every filmed slide". The value is
+  // read back through the one reader the deck and the video share, so the
+  // file never holds a placement that reader would not understand.
+  function faceRoute({ body, json }) {
+    const { slides, face } = JSON.parse(body);
+    if (!Array.isArray(slides) || !slides.length || !slides.every((n) => Number.isInteger(n) && n >= 1)
+      || typeof face !== 'string' || (face && parseFaceLayout(face).bad.length)) throw new Error('bad payload');
+    const changed = applyEdit((html) => slides.reduce((h, n) => setSlideFace(h, n, face), html));
+    if (changed) console.log(`  face ${face || 'corner'} on slide${slides.length === 1 ? '' : 's'} ${slides.join(', ')}`);
     return json(200, { ok: true, changed, ...history.counts() });
   }
 
@@ -1037,6 +1051,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/slide/layout', layoutRoute);
   routes.set('POST /deck/edit/slide/template', slideTemplateRoute);
   routes.set('POST /deck/edit/slide/hidden', hiddenRoute);
+  routes.set('POST /deck/edit/slide/face', faceRoute);
   routes.set('POST /deck/edit/narration', narrationRoute);
   routes.set('GET /deck/edit/element/source', elementSourceRoute);
   routes.set('POST /deck/edit/element/remove', elementRemoveRoute);

@@ -512,7 +512,9 @@ function faceSegmentArgs({ frame, frames, rest, audio, duration, fps, out, pad, 
     const m = FACE_CORNER_PX.margin;
     graph = `[2:v]fps=${fps},scale=${d}:${d}:force_original_aspect_ratio=increase,crop=${d}:${d},setsar=1,${hold},format=yuva420p,`
       + `geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lte(hypot(X-${d / 2},Y-${d / 2}),${d / 2}),255,0)'[f];`
-      + `[0:v]${rest > 0 ? `tpad=stop_mode=clone:stop_duration=${rest.toFixed(3)},` : ''}setsar=1[s];[s][f]overlay=${w - d - m}:${h - d - m}:eof_action=repeat,format=yuv420p[v]`;
+      // the corner the slide names (data-face="top-left"), else the deck's bottom right
+      + `[0:v]${rest > 0 ? `tpad=stop_mode=clone:stop_duration=${rest.toFixed(3)},` : ''}setsar=1[s];[s][f]overlay=`
+      + `${/l$/.test(face.at ?? '') ? m : w - d - m}:${/^t/.test(face.at ?? '') ? m : h - d - m}:eof_action=repeat,format=yuv420p[v]`;
   }
   return [
     '-y', ...(frames

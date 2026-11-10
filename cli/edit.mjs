@@ -23,6 +23,7 @@
 //   POST /deck/edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
 //   POST /deck/edit/slide/layout          → { slide, layout }         write data-layout to the file
 //   POST /deck/edit/slide/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
+//   POST /deck/edit/slide/face            → { slides, face }          data-face on each slide (FACE_LAYOUT)
 //   POST /deck/edit/export          → { kind }   write the deck out as a file (the palette's hand-over rows)
 //   POST /deck/edit/export/stop     → stop that export part-way: its children killed, nothing half-written left
 //   GET  /deck/edit/publish/plan    → where publishing would put this deck, without putting it there
@@ -440,6 +441,22 @@ export function setSlideHidden(html, slide, hidden) {
   if (gt < 0) throw new Error(`slide ${slide}: malformed <section> tag`);
   let head = seg.slice(0, gt).replace(/\s+data-hidden(?:=("[^"]*"|'[^']*'))?(?=[\s>\/]|$)/, '');
   if (hidden) head += ' data-hidden';
+  parts[idx] = head + seg.slice(gt);
+  return parts.join('');
+}
+
+/**
+ * Where the filmed face shows on a slide (FACE_LAYOUT): `data-face` on the
+ * section, written from the V panel's Place my face. An empty value is the
+ * default corner, which is no attribute at all.
+ */
+export function setSlideFace(html, slide, face) {
+  const { parts, idx } = locateSlide(html, slide);
+  const seg = parts[idx];
+  const gt = seg.indexOf('>');
+  if (gt < 0) throw new Error(`slide ${slide}: malformed <section> tag`);
+  let head = seg.slice(0, gt).replace(/\s+data-face(?:=("[^"]*"|'[^']*'|[^\s>]*))?(?=[\s>\/]|$)/, '');
+  if (face) head += ` data-face="${face}"`;
   parts[idx] = head + seg.slice(gt);
   return parts.join('');
 }
@@ -2022,6 +2039,7 @@ const WRITE_LABELS = {
   '/deck/edit/slide/layout': 'layout picked',
   '/deck/edit/slide/template': 'template switched',
   '/deck/edit/slide/hidden': 'slide hidden or shown',
+  '/deck/edit/slide/face': 'face placed',
   '/deck/edit/slide': 'slides rearranged',
   '/deck/edit/narration': 'narration track saved',
   '/deck/edit/narration/record': 'narration recorded',
@@ -2161,6 +2179,7 @@ const UNDO_LABELS = {
   '/deck/edit/slide/layout': 'layout',
   '/deck/edit/slide/template': 'template',
   '/deck/edit/slide/hidden': 'hiding the slide',
+  '/deck/edit/slide/face': 'face placement',
   '/deck/edit/slide': 'slide change',
   '/deck/edit/element/remove': 'removed element',
   '/deck/edit/element/content': 'text edit',
@@ -4132,6 +4151,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
         let engine = null; let voice = null; let model = null; let style = null; let manifest = false; let stale = 0; let mine = false;
         let drift = [];
         let realign = null;
+        let faces = [];
         try {
           const m = JSON.parse(readFileSync(resolve(root2, rel, 'manifest.json'), 'utf8'));
           engine = m.engine ?? null; voice = m.voice ?? null; manifest = true; mine = m.recorder === 'mic';
@@ -4149,6 +4169,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
             // the deck was reordered outside the slide ops, and each one's
             // stored words say which slide it belongs to now
             realign = realignMoves(m, deck, { scripts: trackScripts(resolve(root2, rel)) });
+            // …and which slides were filmed with your face (FACE_LAYOUT), so
+            // the panel offers to place it only where there is one
+            faces = m.slides.map((e, i) => (e?.face === true ? i + 1 : null)).filter(Boolean);
           }
         } catch { /* a folder recorded by hand has no manifest, and needs none */ }
         seen.push({
@@ -4169,6 +4192,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
           manifest,
           mine,
           drift,
+          faces,
           ...(realign?.moves.length ? { realign: { moves: realign.moves, said: realign.said } } : {}),
           // what `decklight video` can render from: a manifest, or a
           // whole-slide file to read off the disk, which is what your own
