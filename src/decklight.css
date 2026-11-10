@@ -307,6 +307,8 @@
   max-width: 34em;
 }
 .decklight li { margin: 0.35em 0; }
+/* a sublist sits under its point: the inline-block above centres a list as a whole, and nested it put the sublist beside the words */
+.decklight li > ul, .decklight li > ol { display: block; margin: 0.2em 0 0; }
 .decklight blockquote {
   text-align: left;
   border-left: 4px solid var(--accent, #6af);
@@ -3749,6 +3751,10 @@
   border: 1px solid rgba(160, 160, 160, .28);
   font: 500 12px/1.2 system-ui, sans-serif; white-space: nowrap; pointer-events: none;
 }
+/* a table typed in like a document (list-session.js): an empty cell keeps a
+   line's height while editing is on, so a row Tab or the menu added can be
+   clicked into */
+.decklight.dl-editmode td:empty, .decklight.dl-editmode th:empty { height: 1.4em; }
 /* the panel the keyboard goes to (PRESENTING_EDITING): a box in it has the
    caret, or the comments panel is taking its letters (review.js) */
 .decklight-dockable:focus-within > .narr-card,

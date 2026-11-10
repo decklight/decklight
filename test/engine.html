@@ -136,6 +136,17 @@
       sentTo: 'answers go to its own bridge on this machine (127.0.0.1:8787/validate), then ~/.decklight/credentials.json (0600)',
     };
     const CALLS = { get: [], post: [] };
+    // listkeys, listplain, tablekeys, tablemenu (PRESENTING_EDITING): slide
+    // 3's list or table, and the file's copy of it, which each write replaces
+    const LK = {
+      listkeys: '<ul data-build>\n  <li>Alpha <strong>bold</strong> tail</li>\n  <li>Beta</li>\n</ul>',
+      listplain: '<ul>\n  <li><p>A paragraph</p></li>\n  <li>Two</li>\n</ul>',
+      tablekeys: '<table>\n  <tr><th>Name</th><th>Role</th></tr>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n</table>',
+      // Control-Shift-↑/↓ (listmove): a point with a sublist of its own, in a list that builds
+      listmove: '<ul data-build>\n  <li>One</li>\n  <li>Two\n    <ul>\n      <li>Two a</li>\n    </ul>\n  </li>\n  <li>Three</li>\n</ul>',
+    };
+    LK.tablemenu = LK.tablekeys;
+    let LK_SRC = LK[HARNESS_MODE] ?? null;
     let FAIL_NEXT_STYLE = false;   // the colours mode: the next style save is refused
     const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url, init) => {
@@ -716,6 +727,11 @@
           agents: [{ name: 'claude', label: 'Claude Code', installed: true }] });
         if (u.includes('/deck/edit/slide/notes')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      if (LK_SRC !== null) {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: LK_SRC });
+        if (u.includes('/deck/edit/element/content')) { LK_SRC = JSON.parse(init.body).html; return json({ ok: true, changed: true, undo: 1, redo: 0 }); }
+      }
       if (HARNESS_MODE === 'codeedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) {
@@ -1167,6 +1183,10 @@
         <section class="ds-nosystem" data-template="other/x"><h2>Also plain</h2></section>
         <section class="ds-booby" data-template="acme/booby"><h2 data-slot="title">Booby-trapped layout</h2></section>
         <section class="ds-diagram" data-template="acme/statement"><h2 data-slot="title">Diagram</h2><svg viewBox="0 0 400 200" width="400"><rect class="dd-box" x="10" y="10" width="120" height="60"/><circle cx="200" cy="40" r="20"/><path d="M130 40h50"/><text class="dd-label" x="70" y="45">Label</text></svg></section>`);
+    }
+    if (LK_SRC !== null) {
+      document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>\n${LK_SRC}`
+        + (HARNESS_MODE === 'listkeys' ? '\n<aside class="notes">Here. [click] Alpha. [click] Beta.</aside>' : '');
     }
     if (HARNESS_MODE === 'codeedit') {
       document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
@@ -5191,6 +5211,242 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.PASS = r.renderedHighlighted && r.becomesEditable && r.showsTheSourceText && r.keysStayInTheCode
           && r.enterIsNotASave && r.escapePutsTheLinesBack && r.escapeWroteNothing
           && r.savesIntoTheSource && r.keepsTheBlockExactly && r.renderedAgainInPlace;
+      }
+
+      // Lists typed in like a document (PRESENTING_EDITING, list-session.js):
+      // Enter makes the next point, Backspace at its start joins it back, Tab
+      // and Shift-Tab nest it and take it out, Enter on an empty last point
+      // ends the list; the whole session is ONE write of the list, built from
+      // its source, and Esc gives every bit of it back.
+      if (mode === 'listkeys' || mode === 'listplain' || mode === 'tablekeys' || mode === 'tablemenu' || mode === 'listmove') {
+        await settle();
+        deck.goto(3, mode === 'listkeys' ? 2 : mode === 'listmove' ? 3 : 0);
+        await settle();
+        const sec = document.querySelector('.decklight-stage > section.active');
+        const host = () => document.activeElement;
+        const key = (k, o = {}) => host().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...o }));
+        const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const caretAt = (node, off) => {
+          const rg = document.createRange(); rg.setStart(node, off); rg.collapse(true);
+          const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg);
+        };
+        const caretEnd = (el) => { const rg = document.createRange(); rg.selectNodeContents(el); rg.collapse(false); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); };
+        // the words before the caret in `el`
+        const caretText = (el) => { const sel = getSelection(); if (!sel.rangeCount || !el.contains(sel.anchorNode)) return null; const rg = document.createRange(); rg.selectNodeContents(el); rg.setEnd(sel.anchorNode, sel.anchorOffset); return rg.toString(); };
+        const type = (t) => document.execCommand('insertText', false, t);
+        const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content'));
+        const hint = () => document.querySelector('.dl-edit-hint')?.textContent ?? null;
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+        if (mode === 'listmove') {
+          // Control-Shift-↑ / ↓ moves the point being typed in among its own
+          // list's points, its sublist with it, in the same session: one write
+          const ul = sec.querySelector('ul');
+          const tops = () => [...ul.children].filter((n) => n.tagName === 'LI').map((li) => li.firstChild.textContent.trim());
+          const one = ul.children[0];
+          const chord = (k) => key(k, { ctrlKey: true, shiftKey: true });
+          dbl(one);
+          await settle(); await settle();
+          r.hintNamesTheMove = /· (⌃⇧↑↓|Ctrl\+Shift\+↑↓) move ·/.test(hint() ?? '');
+          caretAt(one.firstChild, 1);
+          chord('ArrowDown');
+          await settle();
+          r.downSwapsWithTheNext = JSON.stringify(tops()) === '["Two","One","Three"]';
+          r.sublistTravelsWithItsPoint = ul.children[0].querySelector('ul li')?.textContent === 'Two a' && !one.querySelector('ul');
+          r.typingStaysInIt = host() === one && one.isContentEditable && caretText(one) === 'O';
+          chord('ArrowDown');
+          await settle();
+          r.downAgain = JSON.stringify(tops()) === '["Two","Three","One"]';
+          chord('ArrowDown');
+          await settle();
+          r.lastSaysSo = JSON.stringify(tops()) === '["Two","Three","One"]' && said().some((t) => /already the last point/.test(t));
+          chord('ArrowUp');
+          await settle();
+          r.upSwapsWithThePrevious = JSON.stringify(tops()) === '["Two","One","Three"]' && host() === one;
+          key('ArrowUp');
+          await settle();
+          r.bareArrowIsTheCaret = JSON.stringify(tops()) === '["Two","One","Three"]';
+          r.nothingWrittenYet = writes().length === 0;
+          key('Enter', { metaKey: true, ctrlKey: true });
+          await settle(); await settle();
+          const w = writes();
+          r.oneWrite = w.length === 1;
+          r.theMarkup = w[0]?.body.html === '<ul data-build>\n  <li>Two\n    <ul>\n      <li>Two a</li>\n    </ul>\n  </li>\n  <li>One</li>\n  <li>Three</li>\n</ul>';
+          const rec = deck._records[2];
+          r.buildsFollowTheOrder = !!rec && rec.steps[rec.groups[0][0]]?.el?.firstChild?.textContent.trim() === 'Two';
+          r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+        if (mode === 'listkeys') {
+          const ul = sec.querySelector('ul');
+          const items = () => [...ul.querySelectorAll('li')];
+          const [alpha, beta] = items();
+          dbl(alpha);
+          await settle(); await settle();
+          r.hintSaysWhatEnterDoes = /^⏎ new point · ⇥ indent · ⇧⇥ outdent · (⌃⇧↑↓|Ctrl\+Shift\+↑↓) move · (⌘⏎|Ctrl\+⏎) keep · Esc cancel$/.test(hint() ?? '');
+          // Enter inside the emphasis: the words after the caret start the next point, the <strong> cut in two
+          caretAt(alpha.querySelector('strong').firstChild, 2);
+          key('Enter');
+          await settle();
+          r.enterSplits = items().length === 3 && items()[0] === alpha && alpha.innerHTML === 'Alpha <strong>bo</strong>'
+            && items()[1].innerHTML === '<strong>ld</strong> tail';
+          r.caretOnTheNewPoint = host() === items()[1] && items()[1].isContentEditable && !alpha.isContentEditable && caretText(items()[1]) === '';
+          r.nothingWrittenYet = writes().length === 0;
+          key('Backspace');
+          await settle();
+          r.backspaceJoins = items().length === 2 && alpha.innerHTML === 'Alpha <strong>bold</strong> tail' && host() === alpha && caretText(alpha) === 'Alpha bo';
+          // a press on another point moves the typing there, in the same session
+          beta.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+          await settle();
+          r.pressMovesTheTyping = host() === beta && beta.isContentEditable && !alpha.isContentEditable && writes().length === 0;
+          caretEnd(beta);
+          key('Enter');
+          await settle();
+          const gamma = items()[2];
+          r.enterAtTheEndMakesAnEmptyPoint = items().length === 3 && host() === gamma && gamma.textContent === '';
+          type('Gamma');
+          key('Tab');
+          await settle();
+          r.tabNests = gamma.parentElement.tagName === 'UL' && gamma.parentElement.parentElement === beta && host() === gamma && caretText(gamma) === 'Gamma';
+          r.nestedHintStays = /^⏎ new point/.test(hint() ?? '');
+          key('Tab', { shiftKey: true });
+          await settle();
+          r.shiftTabOutdents = gamma.parentElement === ul && !beta.querySelector('ul') && host() === gamma && caretText(gamma) === 'Gamma';
+          key('Tab');
+          await settle();
+          key('Enter');
+          await settle();
+          const fresh = host();
+          r.enterInANestedPoint = fresh !== gamma && fresh.parentElement === gamma.parentElement && fresh.textContent === '';
+          // empty and last in a sublist: out to the top level, as a document does
+          key('Enter');
+          await settle();
+          r.emptyNestedEnterOutdents = host() === fresh && fresh.parentElement === ul && fresh.previousElementSibling === beta;
+          type('Delta');
+          key('Enter');
+          await settle();
+          r.stillOneSession = writes().length === 0 && items().length === 5;
+          // an empty last point goes, and the session ends: ONE write, the whole list
+          key('Enter');
+          await settle(); await settle(); await settle();
+          const w = writes();
+          r.oneWrite = w.length === 1;
+          r.theMarkup = w[0]?.body.html === '<ul data-build>\n  <li>Alpha <strong>bold</strong> tail</li>\n  <li>Beta\n    <ul>\n      <li>Gamma</li>\n    </ul>\n  </li>\n  <li>Delta</li>\n</ul>';
+          r.addressedAndQuiet = w[0]?.body.slide === 3 && w[0]?.body.index === 1 && w[0]?.body.quiet === true && typeof w[0]?.body.from === 'string';
+          r.noBrowserJunk = !!w[0] && !/<br|&nbsp;|style=|contenteditable|<div|dl-editing|build-step|data-build=""/.test(w[0].body.html);
+          r.editingEnded = !ul.querySelector('[contenteditable="true"]') && hint() === null && items().length === 4 && items()[3].textContent === 'Delta';
+          // the slide's builds scanned again: Delta is a step of its own, shown; the notes' [click]s one short, said once
+          r.newPointIsABuild = deck._records[2].groups.length === 3 && items()[3].classList.contains('build-step') && deck.state.step === 3;
+          r.saysTheClicksNoLongerMatch = said().filter((t) => /2 \[click\] markers, 3 build clicks/.test(t)).length === 1;
+          // Esc gives the whole session back: nothing written, the very same elements, their words
+          const before = items();
+          dbl(alpha);
+          await settle(); await settle();
+          caretAt(alpha.firstChild, 2);
+          key('Enter'); await settle();
+          key('Tab'); await settle();
+          type('junk');
+          key('Escape'); await settle();
+          r.escapeGivesItAllBack = writes().length === 1 && items().length === 4 && items().every((li, i) => li === before[i])
+            && alpha.innerHTML === 'Alpha <strong>bold</strong> tail' && !alpha.querySelector('ul') && !ul.querySelector('[contenteditable]');
+          // ⌘⏎ keeps, mid-list
+          dbl(items()[3]);
+          await settle(); await settle();
+          type(' more');
+          key('Enter', { metaKey: true });
+          await settle(); await settle();
+          r.cmdEnterKeeps = writes().length === 2 && /\n  <li>Delta more<\/li>\n<\/ul>$/.test(writes()[1].body.html) && items().length === 4;
+          r.mismatchSaidOnlyOnce = said().filter((t) => /\[click\] markers/.test(t)).length === 1;
+        }
+        if (mode === 'listplain') {
+          // a list this editor cannot cut (a point holding a paragraph): the old edit, Enter keeps
+          const two = sec.querySelectorAll('li')[1];
+          dbl(two);
+          await settle(); await settle();
+          r.plainHint = hint() === '⏎ keep · Esc cancel';
+          type(' more');
+          key('Tab');
+          r.tabStaysOnThePage = host() === two && two.isContentEditable;
+          key('Enter');
+          await settle(); await settle();
+          const w = writes();
+          r.enterKeeps = w.length === 1 && w[0].body.html.includes('<li>Two more</li>') && w[0].body.html.includes('<p>A paragraph</p>')
+            && sec.querySelectorAll('li').length === 2 && !two.isContentEditable;
+        }
+        if (mode === 'tablekeys') {
+          const table = sec.querySelector('table');
+          const rows = () => [...table.querySelectorAll('tr')];
+          const [ada, engineer] = rows()[1].children;
+          dbl(ada);
+          await settle();
+          r.hintSaysTab = hint() === '⇥ next cell · ⏎ keep · Esc cancel';
+          type(' L.');
+          key('Tab');
+          r.tabMovesToTheNextCell = host() === engineer && engineer.isContentEditable && !ada.isContentEditable && writes().length === 0;
+          // its words selected, as a spreadsheet does: typing replaces them
+          r.tabSelectsTheCellsWords = String(window.getSelection()) === 'Engineer';
+          key('Tab', { shiftKey: true });
+          r.shiftTabMovesBack = host() === ada && ada.textContent === 'Ada L.';
+          key('Tab');
+          key('Tab');
+          r.tabInTheLastCellAddsARow = rows().length === 3 && host() === rows()[2].children[0] && rows()[2].children.length === 2 && writes().length === 0;
+          type('Grace');
+          key('Tab');
+          type('Admiral');
+          key('Enter');
+          await settle(); await settle();
+          const w = writes();
+          r.oneWrite = w.length === 1;
+          r.theMarkup = w[0]?.body.html === '<table>\n  <tr><th>Name</th><th>Role</th></tr>\n  <tr><td>Ada L.</td><td>Engineer</td></tr>\n  <tr><td>Grace</td><td>Admiral</td></tr>\n</table>';
+          r.addressedAndQuiet = w[0]?.body.slide === 3 && w[0]?.body.index === 1 && w[0]?.body.quiet === true;
+          r.shownAsTheFileHasIt = rows().length === 3 && rows()[2].textContent === 'GraceAdmiral' && !table.querySelector('[contenteditable], br');
+          // Esc: the row Tab added and the words go, nothing written
+          dbl(rows()[2].children[0]);
+          await settle();
+          type('X');
+          key('Tab'); key('Tab');
+          r.escapeBefore = rows().length === 4;
+          key('Escape');
+          await settle();
+          r.escapeGivesItBack = rows().length === 3 && rows()[2].children[0].textContent === 'Grace' && writes().length === 1;
+        }
+        if (mode === 'tablemenu') {
+          const M = '.decklight-ctxmenu';
+          const table = sec.querySelector('table');
+          const cell = (r0, c0) => [...table.querySelectorAll('tr')][r0].children[c0];
+          const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+          const rowsText = () => [...document.querySelectorAll(`${M} .cm-row`)].map((x) => x.firstChild?.textContent ?? '');
+          const clickRow = (label) => [...document.querySelectorAll(`${M} .cm-row`)].find((x) => x.textContent === label)?.click();
+          const run = async (r0, c0, label) => { rightClick(cell(r0, c0)); clickRow(label); await settle(); await settle(); return writes()[writes().length - 1]?.body; };
+          rightClick(cell(1, 1));
+          const t = rowsText();
+          const at = t.indexOf('Add row above');
+          r.menuOffersTheSix = at > t.indexOf('Edit content (HTML)')
+            && t.slice(at, at + 6).join('|') === 'Add row above|Add row below|Add column left|Add column right|Delete row|Delete column';
+          document.querySelector(M)?.click();
+          rightClick(sec.querySelector('h2'));
+          r.notOnAHeading = !rowsText().includes('Add row above');
+          document.querySelector(M)?.click();
+          let b = await run(1, 1, 'Add row below');
+          r.addRowBelow = b?.html === '<table>\n  <tr><th>Name</th><th>Role</th></tr>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n  <tr><td></td><td></td></tr>\n</table>'
+            && b.quiet === true && table.querySelectorAll('tr').length === 3 && !document.querySelector(M);
+          b = await run(1, 0, 'Add row above');
+          r.addRowAbove = b?.html === '<table>\n  <tr><th>Name</th><th>Role</th></tr>\n  <tr><td></td><td></td></tr>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n  <tr><td></td><td></td></tr>\n</table>'
+            && table.querySelectorAll('tr').length === 4;
+          b = await run(0, 1, 'Add column right');
+          r.addColumnRight = b?.html === '<table>\n  <tr><th>Name</th><th>Role</th><th></th></tr>\n  <tr><td></td><td></td><td></td></tr>\n  <tr><td>Ada</td><td>Engineer</td><td></td></tr>\n  <tr><td></td><td></td><td></td></tr>\n</table>'
+            && table.querySelectorAll('tr')[0].children.length === 3 && table.querySelectorAll('tr')[0].children[2].tagName === 'TH';
+          b = await run(2, 0, 'Add column left');
+          r.addColumnLeft = /^<table>\n  <tr><th><\/th><th>Name<\/th>/.test(b?.html ?? '') && cell(2, 1).textContent === 'Ada';
+          b = await run(1, 0, 'Delete row');
+          r.deleteRow = b?.html === '<table>\n  <tr><th></th><th>Name</th><th>Role</th><th></th></tr>\n  <tr><td></td><td>Ada</td><td>Engineer</td><td></td></tr>\n  <tr><td></td><td></td><td></td><td></td></tr>\n</table>'
+            && table.querySelectorAll('tr').length === 3 && cell(1, 1).textContent === 'Ada';
+          b = await run(0, 0, 'Delete column');
+          r.deleteColumn = b?.html === '<table>\n  <tr><th>Name</th><th>Role</th><th></th></tr>\n  <tr><td>Ada</td><td>Engineer</td><td></td></tr>\n  <tr><td></td><td></td><td></td></tr>\n</table>'
+            && cell(0, 0).textContent === 'Name';
+          r.eachOneWrite = writes().length === 6 && !said().some((x) => /reloading|not changed/.test(x));
+        }
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
       // G surfaces a multi-module deck's chapters as rows of their own (#479).
