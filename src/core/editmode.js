@@ -2374,13 +2374,13 @@ export function createEditMode({
       rows.push({ label: 'Move slide up', run: () => { closeElementMenu(); slideOp('up'); } });
       rows.push({ label: 'Move slide down', run: () => { closeElementMenu(); slideOp('down'); } });
       rows.push({ label: 'Delete this slide', run: () => { closeElementMenu(); slideOp('delete'); } });
+      for (const p of pictures?.slideRows(menuTarget.slide) ?? []) rows.push({ label: p.label, run: () => { closeElementMenu(); p.run(); } });
     } else if (menuView === 'newslide') {
       // a new slide of a kind (PRESENTING_EDITING): a short choice, its title then typed in place
       rows.push({ label: '← back', back: true, run: () => { menuView = 'slide'; renderElementMenu(); } });
       for (const [kind, label] of NEW_SLIDE_KINDS) rows.push({ label, run: () => { closeElementMenu(); slideOp('new', { kind }).catch(() => {}); } });
     } else if (menuView === 'rows') {
       rows.push(...(menuOwnRows?.() ?? []));
-      for (const p of pictures?.slideRows(menuTarget.slide) ?? []) rows.push({ label: p.label, run: () => { closeElementMenu(); p.run(); } });
     } else if (menuTarget.index === null) {
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
       if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting(); } });
