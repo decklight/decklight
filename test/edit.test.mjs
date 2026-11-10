@@ -3369,7 +3369,7 @@ test('/deck/edit/export refuses a narration recorded from other notes, names the
   const why = (await r.json()).error;
   assert.match(why, /recorded from older notes on slide 2/);
   // an engine's track is re-voiced, never "re-recorded" (#919)
-  assert.match(why, /re-voice it from the deck \(V, then ⋯ on samantha\) or pass --allow-stale/);
+  assert.match(why, /re-voice it from the deck \(V, then › on samantha\) or pass --allow-stale/);
   assert.match(log(), /slide 2: narration was recorded from different notes/);
   // a range that does not reach the stale slide is not stopped by it
   r = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/samantha', slides: '1' });

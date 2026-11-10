@@ -3952,7 +3952,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return json(200, { ok: true, forgotten: had });
   }
 
-  // ── the recorder's offline recordings — V → Save a live voice as a track, or your voice (PRESENTING) ───────────────────────────────
+  // ── the recorder's offline recordings — V → Generate an AI recording, or your voice (PRESENTING) ───────────────────────────────
   // The player used to hand every stitched slide to the browser's DOWNLOAD
   // path, which is why a deck's voice arrived as thirty slide-NN.wav in
   // whatever folder the OS calls Downloads — never the deck's, and on
