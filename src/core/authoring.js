@@ -620,7 +620,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     cur.el.appendChild(cur.kept);
   }
 
-  async function beginCode(codeEl, { sec, slide }) {
+  async function beginCode(codeEl, { sec, slide }, { selectAll = false } = {}) {
     if (editing) await saveInline();
     // a save that failed: the typed text is still in the block, as text
     const was = stranded.get(codeEl);
@@ -644,11 +644,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     while (codeEl.firstChild) kept.appendChild(codeEl.firstChild);
     codeEl.textContent = text;
     editing = { el: codeEl, code: true, kept, text, slide, index, path };
-    editCode(codeEl);
+    editCode(codeEl, { selectAll });
     debugLog('info', `editing slide ${slide} element #${index}'s code`);
   }
 
-  function editCode(codeEl) {
+  function editCode(codeEl, { selectAll = false } = {}) {
     // plaintext-only: typing and pasting stay text, Enter is a real newline
     codeEl.setAttribute('contenteditable', 'plaintext-only');
     if (codeEl.contentEditable !== 'plaintext-only') codeEl.setAttribute('contenteditable', 'true');
@@ -657,7 +657,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     codeEl.focus();
     const range = document.createRange();
     range.selectNodeContents(codeEl);
-    range.collapse(false);
+    if (!selectAll) range.collapse(false);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
@@ -786,7 +786,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     }
   }
 
-  function beginInline(el, { sec, slide }) {
+  function beginInline(el, { sec, slide }, { selectAll = false } = {}) {
     if (editing) saveInline();
     const top = topLevelChild(sec, el);
     if (!top) return;
@@ -798,10 +798,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     el.setAttribute('contenteditable', 'true');
     el.classList.add('dl-editing');
     el.focus();
-    // caret at the end, where a correction usually goes
+    // caret at the end, where a correction usually goes; a placeholder just
+    // added (add-content.js) is selected whole, so typing replaces it
     const range = document.createRange();
     range.selectNodeContents(el);
-    range.collapse(false);
+    if (!selectAll) range.collapse(false);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
@@ -941,18 +942,22 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   return {
     /** Is an inline edit in progress? The deck's shortcuts stand aside while one is. */
     editing: () => !!editing,
-    /** Edit `el` in place as a double-click would — text, or a code block as its source. False when it is neither. */
-    editInline(el) {
+    /**
+     * Edit `el` in place as a double-click would — text, or a code block as
+     * its source. False when it is neither. `selectAll`: its words selected
+     * whole, so typing replaces them (a placeholder just added).
+     */
+    editInline(el, { selectAll = false } = {}) {
       if (!available()) return false;
       const where = sectionOf(el);
       if (!where || where.sec.hasAttribute('data-markdown-removed')) return false;
       const code = el.closest?.(CODE_EDITABLE);
-      if (code && where.sec.contains(code) && !code.closest('.terminal, aside, [data-chart]')) { beginCode(code, where); return true; }
+      if (code && where.sec.contains(code) && !code.closest('.terminal, aside, [data-chart]')) { beginCode(code, where, { selectAll }); return true; }
       const label = svgTextTarget(el, where.sec);
       if (label) { beginLabel(label, where); return true; }
       const text = editableTarget(el, where.sec);
       if (!text) return false;
-      beginInline(text, where);
+      beginInline(text, where, { selectAll });
       return true;
     },
     /** Add pictures to the current slide, after element `afterIndex` (last when null) — the bar's Picture button. */

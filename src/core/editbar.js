@@ -11,7 +11,7 @@
 //
 // Editing is on in write mode (E, L and bare Z have since gone), and it has a face:
 //
-//   THE BAR, along the bottom of the deck: Text, Picture, Layout, Notes,
+//   THE BAR, along the bottom of the deck: Text, Add ▾ (add-content.js), Picture, Layout, Notes,
 //   Slide ▾, Undo, Redo, Done — each with the key it stands for, so the keys
 //   are learnt by using the bar rather than needed before it.
 //
@@ -34,6 +34,7 @@ import { readPref, readJson, writePref, writeJson } from './prefs.js';
 
 const BUTTONS = [
   { id: 'text', label: 'Text', key: '⏎', title: 'select some text and press Enter, or double-click it' },
+  { id: 'add', label: 'Add ▾', key: '', title: 'add a heading, text, a list, a quote, a table, code, two columns, a diagram, a chart or a picture' },
   { id: 'picture', label: 'Picture', key: '', title: 'add a picture (or drop one onto the slide)' },
   { id: 'layout', label: 'Layout', key: '', title: 'cycle this slide\'s layout (⇧-click backwards)' },
   { id: 'build', label: 'Build ▾', key: '', title: 'how the selected element arrives: fade, zoom, draw… (select it first)' },
@@ -47,6 +48,7 @@ const BUTTONS = [
 export function createEditBar({
   root, instance, editmode, authoring, toast, debugLog = () => {},
   toggleEditor, cycleLayout, deckHistory, enabled = () => true,
+  addMenu = null,
 }) {
   let bar = null, handle = null, fileInput = null;
   let selected = null;   // the element target (editmode.elementTargetOf) under the outline
@@ -213,6 +215,14 @@ export function createEditBar({
     if (!bar) return;
     const b = bar.querySelector('.eb-layout .eb-label');
     if (b) b.textContent = `Layout · ${layoutLabel()}`;
+    // a slide that follows a slide template takes its content in its slots
+    // (DESIGN_SYSTEMS): Add is off there, and a press says why
+    const add = bar.querySelector('.eb-add');
+    const templated = !!instance._sections[instance.state.slide - 1]?.hasAttribute('data-template');
+    if (add) {
+      add.setAttribute('aria-disabled', String(templated));
+      add.title = templated ? 'this slide follows a slide template: its content goes in the template\'s slots' : BUTTONS.find((x) => x.id === 'add').title;
+    }
   }
 
   function run(id, btn, e = null) {
@@ -223,7 +233,8 @@ export function createEditBar({
         else toast('double-click any text to edit it — or click it, then press ⏎', 3200);
         break;
       }
-      case 'picture': fileInput?.click(); break;
+      case 'add': addMenu?.(btn); break;
+      case 'picture': choosePicture(); break;
       case 'layout': cycleLayout(e?.shiftKey ? -1 : 1); refresh(); break;
       case 'notes': toggleEditor(); break;
       // the effects were behind a right-click and a submenu; the bar says
@@ -385,6 +396,27 @@ export function createEditBar({
     return false;
   }
 
+  /**
+   * The file chooser Picture opens, after the selected element or last on the
+   * slide. The Add menu's Picture row is the same door, and it is there with
+   * the bar hidden too, so with no bar a chooser of its own is made for it.
+   */
+  function choosePicture() {
+    if (fileInput) { fileInput.click(); return; }
+    const pick = document.createElement('input');
+    pick.type = 'file';
+    pick.accept = 'image/*';
+    pick.multiple = true;
+    pick.hidden = true;
+    pick.addEventListener('change', () => {
+      const files = Array.from(pick.files ?? []);
+      pick.remove();
+      if (files.length) authoring.addPictures(files, { afterIndex: selected?.index ?? null });
+    });
+    root.append(pick);
+    pick.click();
+  }
+
   /** After write mode or the lock changes: show or hide the bar to match. */
   function sync() {
     if (on()) mount(); else unmount();
@@ -406,6 +438,9 @@ export function createEditBar({
 
   return {
     sync, keydown, refresh, selected: () => selected, isOpen: () => !!bar,
+    /** The bar's Add ▾ button while the bar is on screen (the Add menu opens above it), else null. */
+    addButton: () => bar?.querySelector('.eb-add') ?? null,
+    choosePicture,
     /** Select the element `node` is in, or `node` itself inside a diagram (the inspector's picker and breadcrumb). */
     selectNode(node, { exact = false } = {}) {
       const target = editmode.elementTargetOf(node);

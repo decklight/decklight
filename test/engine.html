@@ -643,6 +643,46 @@
             inPlace: b.quiet === true, undo: ++window.__moves, redo: 0 });
         }
       }
+      // Add ▾ (addmenu, addslidekinds): the insert route's answer, its markup
+      // as tools/starters.mjs writes it, placed where the server places it;
+      // the new element's source for the save that follows; and a new slide
+      // of a kind, answered in place
+      if (HARNESS_MODE === 'addmenu' || HARNESS_MODE === 'addslidekinds') {
+        window.__total ??= 4;
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: window.__lastInsert ?? '<p>x</p>' });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
+        if (u.includes('/deck/edit/element/insert')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          const COL = '<div>\n  <h3>Column</h3>\n  <ul>\n    <li>New point</li>\n    <li>Another point</li>\n  </ul>\n</div>';
+          const MARKUP = {
+            bullets: '<ul>\n  <li>New point</li>\n  <li>Another point</li>\n</ul>',
+            code: '<pre><code class="language-js">// New code\nconst answer = 42;</code></pre>',
+            columns: `${COL}\n${COL}`,
+            chart: '<div class="chart" data-chart="bar" data-title="New chart">\n  <script type="application/json">\n  { "labels": ["A", "B", "C"], "series": [ { "name": "Series", "data": [3, 5, 2] } ] }\n  <\/script>\n</div>',
+            diagram: '<svg viewBox="0 0 640 200" width="640" data-build="draw" role="img" aria-label="New diagram">\n  <defs><marker id="dl-wire-1" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>\n  <g><rect x="40" y="56" width="200" height="88" rx="10" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/><text x="140" y="106" text-anchor="middle">Box A</text></g>\n  <line x1="244" y1="100" x2="392" y2="100" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#dl-wire-1)"/>\n  <g><rect x="400" y="56" width="200" height="88" rx="10" style="fill: var(--d-fill-2); stroke: var(--d-stroke)" stroke-width="2"/><text x="500" y="106" text-anchor="middle">Box B</text></g>\n</svg>',
+          };
+          if (!MARKUP[b.kind]) return json({ ok: false, error: `no kind "${b.kind}" to add` }, 400);
+          const kids = [...document.querySelectorAll('.decklight-stage > section')[b.slide - 1].children];
+          let k = kids.length;
+          while (k > 0 && kids[k - 1].tagName === 'ASIDE') k--;
+          const index = b.index === null ? k : b.index + 1;
+          window.__lastInsert = MARKUP[b.kind];
+          return json({ ok: true, index, count: b.kind === 'columns' ? 2 : 1, kind: b.kind, html: MARKUP[b.kind],
+            ...(b.kind === 'columns' ? { layout: 'split' } : {}), inPlace: b.quiet === true, undo: 1, redo: 0 });
+        }
+        if (u.includes('/deck/edit/slide')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          window.__total += 1;
+          const SECTIONS = {
+            columns: '<section data-layout="split">\n  <h2>Slide title</h2>\n  <div><h3>Column</h3><ul><li>New point</li></ul></div>\n  <div><h3>Column</h3><ul><li>New point</li></ul></div>\n  <aside class="notes"></aside>\n</section>',
+            blank: '<section>\n  <aside class="notes"></aside>\n</section>',
+          };
+          window.__lastInsert = '<h2>Slide title</h2>';
+          return json({ ok: true, slide: b.slide + 1, total: window.__total, inPlace: b.quiet === true, undo: 1, redo: 0,
+            section: SECTIONS[b.kind] ?? '<section><h2>New slide</h2><p>Say something here.</p><aside class="notes"></aside></section>' });
+        }
+      }
       // a reload while something is typed (heldreload): notes that save in
       // place, and an HTML editor with a source to load
       if (HARNESS_MODE === 'heldreload') {
@@ -2973,7 +3013,7 @@
         r.menuOffersTheSlide = rows().includes('Slide ▸');
         [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === 'Slide ▸')?.click();
         await settle();
-        r.slideSubmenu = rows().includes('New slide after this one') && rows().includes('Delete this slide')
+        r.slideSubmenu = rows().includes('New slide ▸') && rows().includes('Delete this slide')
           && rows().includes('Move slide up');
         press('Escape');
 
@@ -3589,6 +3629,154 @@
           r.selectsItAgain = selectedTop() === $('.mv-b') && $('.mv-b').classList.contains('dl-selected');
           r.PASS = r.landsOnTheSlide && r.selectsItAgain;
         }
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'addmenu') {
+        // Add ▾ (add-content.js, PRESENTING_EDITING): the bar's menu of kinds
+        // and the palette's one row; a starter lands after the selection (or
+        // before the notes), in place, selected, and its words in edit with
+        // the placeholder selected; a diagram and a chart render in place;
+        // a slide-template slide and a locked deck add nothing.
+        await settle(); await settle();
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const bar = () => document.querySelector('.decklight-editbar');
+        const click = (el) => el?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const menuRows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
+        const pick = (label) => click([...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === label));
+        const active = () => document.querySelector('.decklight-stage > section.active');
+        const inserts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/insert'));
+        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Table', 'Code', 'Two columns', 'Diagram', 'Chart', 'Picture'];
+        deck.goto(1, 0); await settle();
+        const labels = [...(bar()?.querySelectorAll('.eb-btn .eb-label') ?? [])].map((n) => n.textContent);
+        r.addSitsBesidePicture = labels.indexOf('Add ▾') === labels.indexOf('Picture') - 1;
+        // the title selected, then Add ▾ → Bullets
+        click(active().querySelector('h1')); await settle();
+        click(bar().querySelector('.eb-add')); await settle();
+        r.menuListsEveryKind = JSON.stringify(menuRows()) === JSON.stringify(KINDS);
+        pick('Bullets'); await settle(); await settle();
+        const ul = active().querySelector(':scope > ul');
+        const li = ul?.querySelector('li');
+        const sent = inserts().at(-1)?.body;
+        r.askedAfterTheSelection = sent?.slide === 1 && sent?.index === 0 && sent?.kind === 'bullets' && sent?.quiet === true;
+        r.landsAfterTheSelection = [...active().children].indexOf(ul) === 1;
+        r.landsSelected = !!ul?.classList.contains('dl-selected');
+        r.landsInEdit = !!li?.isContentEditable && li.classList.contains('dl-editing');
+        r.placeholderSelected = window.getSelection().toString() === 'New point';
+        document.execCommand('insertText', false, 'Fast feedback');
+        // ⌘⏎ keeps: in a list, a bare Enter starts the next point
+        li?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const saved = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content')).at(-1)?.body;
+        r.typingReplacesThePlaceholder = li?.textContent === 'Fast feedback' && saved?.index === 1 && /<li>Fast feedback<\/li>\n {2}<li>Another point<\/li>/.test(saved?.html ?? '');
+        press('Escape'); await settle();
+        // nothing selected: a diagram lands before the slide's asides, drawn whole and selected
+        deck.goto(2, 0); await settle();
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Diagram'); await settle(); await settle();
+        const svg = active().querySelector(':scope > svg');
+        r.diagramBeforeTheAsides = !!svg?.nextElementSibling?.matches('aside') && inserts().at(-1)?.body.index === null;
+        r.diagramIdsNamespaced = /^svgadd\d+-dl-wire-1$/.test(svg?.querySelector('marker')?.id ?? '') && /url\(#svgadd\d+-dl-wire-1\)/.test(svg?.querySelector('line')?.getAttribute('marker-end') ?? '');
+        r.diagramShownWhole = deck.state.step > 0 && deck.state.step === (deck._records[1]?.groups.length ?? -1);
+        r.diagramSelectedNotTyped = !!svg?.classList.contains('dl-selected') && !document.querySelector('[contenteditable]');
+        press('Escape'); await settle();
+        // two columns take the split layout; a chart is drawn in place by the engine
+        deck.goto(3, 0); await settle();
+        click(active().querySelector('h2')); await settle();
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Two columns'); await settle(); await settle();
+        const cols = [...active().querySelectorAll(':scope > div')];
+        r.columnsTakeTheSplit = active().getAttribute('data-layout') === 'split' && cols.length === 2 && [...active().children].indexOf(cols[0]) === 1
+          && /split/.test(bar().querySelector('.eb-layout')?.textContent ?? '');
+        r.columnsHeadingInEdit = !!cols[0]?.querySelector('h3')?.isContentEditable;
+        cols[0]?.querySelector('h3')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        press('Escape'); await settle();
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Chart'); await settle(); await settle();
+        const chart = active().querySelector(':scope > .chart');
+        r.chartDrawnInPlace = !!chart?.querySelector('svg.chart-svg') && chart.classList.contains('dl-selected') && reloads === 0;
+        press('Escape'); await settle();
+        // code: highlighted in place, and its source open for typing
+        deck.goto(4, 0); await settle();
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Code'); await settle(); await settle(); await settle();
+        const code = active().querySelector(':scope > pre > code');
+        r.codeInEdit = !!code && code.classList.contains('dl-editing') && /const answer = 42;/.test(code.textContent)
+          && window.getSelection().toString().includes('const answer = 42;');
+        code?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        r.codeHighlighted = !!code?.classList.contains('hljs') && !!code.querySelector('.code-line');
+        press('Escape'); await settle();
+        // the palette's one row opens the same menu
+        runRow('add to slide'); await settle();
+        r.paletteRowOpensTheMenu = JSON.stringify(menuRows()) === JSON.stringify(KINDS);
+        press('Escape'); await settle();
+        // a slide that follows a slide template: Add is off, says why, writes nothing
+        const before = inserts().length;
+        active().setAttribute('data-template', 'acme/divider');
+        deck.goto(3, 0); await settle(); deck.goto(4, 0); await settle();
+        const addBtn = bar().querySelector('.eb-add');
+        r.templateSlideTurnsAddOff = addBtn?.getAttribute('aria-disabled') === 'true';
+        click(addBtn); await settle();
+        r.templateSlideSaysWhy = !document.querySelector('.decklight-ctxmenu') && inserts().length === before
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /slide template/.test(n.textContent));
+        active().removeAttribute('data-template');
+        // locked: no bar, and no palette row
+        click(bar().querySelector('.eb-lock')); await settle(); await settle();
+        press('/');
+        for (const ch of 'add to slide') press(ch);
+        await settle();
+        r.lockedAddsNothing = !bar() && !palNames().includes('Add to slide…');
+        press('Escape');
+        r.noReload = reloads === 0;
+        r.PASS = r.addSitsBesidePicture && r.menuListsEveryKind && r.askedAfterTheSelection && r.landsAfterTheSelection && r.landsSelected
+          && r.landsInEdit && r.placeholderSelected && r.typingReplacesThePlaceholder && r.diagramBeforeTheAsides && r.diagramIdsNamespaced
+          && r.diagramShownWhole && r.diagramSelectedNotTyped && r.columnsTakeTheSplit && r.columnsHeadingInEdit && r.chartDrawnInPlace
+          && r.codeInEdit && r.codeHighlighted && r.paletteRowOpensTheMenu && r.templateSlideTurnsAddOff && r.templateSlideSaysWhy
+          && r.lockedAddsNothing && r.noReload;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'addslidekinds') {
+        // New slide ▸ (PRESENTING_EDITING): the bar's Slide ▾ and the
+        // right-click Slide ▸ offer the same short choice of kinds; the new
+        // slide comes in place and its title is typed next, selected whole.
+        await settle(); await settle();
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const click = (el) => el?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const menuRows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
+        const pick = (label) => click([...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === label));
+        const active = () => document.querySelector('.decklight-stage > section.active');
+        const KINDS = ['Title and bullets', 'Title and text', 'Two columns', 'Section title', 'Blank'];
+        deck.goto(1, 0); await settle();
+        click(document.querySelector('.decklight-editbar .eb-slide')); await settle();
+        r.barOffersNewSlideKinds = menuRows().includes('New slide ▸');
+        pick('New slide ▸'); await settle();
+        r.barListsTheKinds = JSON.stringify(menuRows().filter((x) => x !== '← back')) === JSON.stringify(KINDS);
+        pick('Two columns'); await settle(); await settle(); await settle();
+        const asked = CALLS.post.filter((c) => c.u.includes('/deck/edit/slide')).at(-1)?.body;
+        r.askedForTheKind = asked?.op === 'new' && asked?.kind === 'columns' && asked?.quiet === true;
+        const title = active()?.querySelector(':scope > h2');
+        r.newSlideInPlace = deck.state.totalSlides === 5 && deck.state.slide === 2 && active()?.getAttribute('data-layout') === 'split' && reloads === 0;
+        r.titleInEdit = !!title?.isContentEditable && window.getSelection().toString() === 'Slide title';
+        title?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        // the right-click menu's Slide ▸ has the same choice
+        active().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        await settle();
+        pick('Slide ▸'); await settle();
+        pick('New slide ▸'); await settle();
+        r.rightClickListsTheKinds = JSON.stringify(menuRows().filter((x) => x !== '← back')) === JSON.stringify(KINDS);
+        pick('Blank'); await settle(); await settle(); await settle();
+        r.blankIsBlank = deck.state.totalSlides === 6 && deck.state.slide === 3 && !active()?.querySelector('h1, h2') && !document.querySelector('[contenteditable]');
+        r.noReload = reloads === 0;
+        r.PASS = r.barOffersNewSlideKinds && r.barListsTheKinds && r.askedForTheKind && r.newSlideInPlace && r.titleInEdit
+          && r.rightClickListsTheKinds && r.blankIsBlank && r.noReload;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -4307,7 +4495,7 @@
         const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
         const sec1 = document.querySelector('.decklight-stage > section');
         r.barAtOnce = !!bar() && document.querySelector('.decklight').classList.contains('dl-editmode');
-        r.barNamesEveryDoor = labels().join('|') === 'Text|Picture|Layout · auto|Build ▾|Notes|Slide ▾|Undo|Redo|Lock';
+        r.barNamesEveryDoor = labels().join('|') === 'Text|Add ▾|Picture|Layout · auto|Build ▾|Notes|Slide ▾|Undo|Redo|Lock';
         r.barShowsTheKeys = ['⏎', 'S'].every((k) => keys().includes(k)) && keys().some((k) => /^(⌘Z|Ctrl\+Z)$/.test(k)) && !keys().includes('L') && !keys().includes('Z');
         // the grip: the bar moves, the place is remembered, a double-click puts it back
         const grip = () => bar().querySelector('.eb-grip');

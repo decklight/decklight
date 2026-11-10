@@ -2276,6 +2276,7 @@ export function createEditMode({
   const currentEffect = (t) => (t?.top?.hasAttribute?.('data-build') ? t.top.getAttribute('data-build') : null);
   let elementEditOn = false;
   let menuEl = null, menuRows = [], menuSel = 0, menuView = 'main', menuTarget = null;
+  let menuOwnRows = null;   // the 'rows' view: rows another module hands in (the bar's Add ▾)
   // who wants to know when E turns editing on or off: the editing bar (editbar.js)
   const elementEditListeners = new Set();
 
@@ -2368,11 +2369,17 @@ export function createEditMode({
     } else if (menuView === 'slide') {
       // opened from the bar's Slide ▾ there is nothing to go back to
       if (!menuTarget.fromBar) rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
-      rows.push({ label: 'New slide after this one', run: () => { closeElementMenu(); slideOp('new'); } });
+      rows.push({ label: 'New slide ▸', run: () => { menuView = 'newslide'; renderElementMenu(); } });
       rows.push({ label: 'Duplicate this slide', run: () => { closeElementMenu(); slideOp('duplicate'); } });
       rows.push({ label: 'Move slide up', run: () => { closeElementMenu(); slideOp('up'); } });
       rows.push({ label: 'Move slide down', run: () => { closeElementMenu(); slideOp('down'); } });
       rows.push({ label: 'Delete this slide', run: () => { closeElementMenu(); slideOp('delete'); } });
+    } else if (menuView === 'newslide') {
+      // a new slide of a kind (PRESENTING_EDITING): a short choice, its title then typed in place
+      rows.push({ label: '← back', back: true, run: () => { menuView = 'slide'; renderElementMenu(); } });
+      for (const [kind, label] of NEW_SLIDE_KINDS) rows.push({ label, run: () => { closeElementMenu(); slideOp('new', { kind }).catch(() => {}); } });
+    } else if (menuView === 'rows') {
+      rows.push(...(menuOwnRows?.() ?? []));
     } else if (menuTarget.index === null) {
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
       if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting(); } });
@@ -2424,9 +2431,10 @@ export function createEditMode({
     menuSel = selectInList(rows, i, 'cm-selected', { scroll });
   }
 
-  function openElementMenu(x, y, target, view = 'main', { above = false } = {}) {
+  function openElementMenu(x, y, target, view = 'main', { above = false, rows = null, label = 'Element edit menu' } = {}) {
     menuTarget = target;
     menuView = view;
+    menuOwnRows = rows;
     menuEl = document.createElement('div');
     menuEl.className = 'decklight-ctxmenu';
     const card = document.createElement('div');
@@ -2434,7 +2442,7 @@ export function createEditMode({
     const list = document.createElement('div');
     list.className = 'cm-list';
     list.setAttribute('role', 'listbox');
-    list.setAttribute('aria-label', 'Element edit menu');
+    list.setAttribute('aria-label', label);
     card.appendChild(list);
     menuEl.appendChild(card);
     root.appendChild(menuEl);
@@ -2468,6 +2476,8 @@ export function createEditMode({
   // frame: a copy of the page would be a dead copy), or recordings that moved
   // with the slides (the server says so, and the voice reloads with them).
   const LIVE = '.terminal, video, audio, iframe, canvas';
+  // the kinds New slide ▸ offers (tools/starters.mjs owns their markup)
+  const NEW_SLIDE_KINDS = [['bullets', 'Title and bullets'], ['text', 'Title and text'], ['columns', 'Two columns'], ['section', 'Section title'], ['blank', 'Blank']];
   function canDoInPlace(op, slide) {
     if (!instance.sync || instance._slideOpsInPlace?.() === false) return false;
     if (op === 'duplicate' && instance._sections[slide - 1]?.querySelector(LIVE)) return false;
@@ -2507,18 +2517,18 @@ export function createEditMode({
     instance.goto(j.slide, 0, { force: true });
     instance._afterSlideOp?.();
   }
-  async function slideOp(op, { slide = instance.state.slide, to = null } = {}) {
+  async function slideOp(op, { slide = instance.state.slide, to = null, kind = null } = {}) {
     if (!editAvailable) { toast(cannot('editing slides'), 3200); return; }
     const inPlace = canDoInPlace(op, slide);
     try {
       const res = await writeFetch(editBase + '/deck/edit/slide', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ op, slide, ...(op === 'move' ? { to } : {}), ...(inPlace ? { quiet: true, from: PAGE_ID } : {}) }),
+        body: JSON.stringify({ op, slide, ...(op === 'move' ? { to } : {}), ...(kind ? { kind } : {}), ...(inPlace ? { quiet: true, from: PAGE_ID } : {}) }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || String(res.status));
       const said = {
-        new: `new slide added after ${slide}`,
+        new: kind ? `new slide (${NEW_SLIDE_KINDS.find(([k]) => k === kind)?.[1].toLowerCase() ?? kind}) added after ${slide}` : `new slide added after ${slide}`,
         duplicate: `slide ${slide} duplicated`,
         delete: `slide ${slide} deleted`,
         up: `slide ${slide} moved up`,
@@ -2534,6 +2544,9 @@ export function createEditMode({
           reloadWhenSafe(`slide ${op} — the page could not follow it in place`);
         }
       } else if (Number.isInteger(j.slide)) location.hash = `#/${j.slide}/0`;
+      // a new slide of a kind has its title typed next (add-content.js):
+      // here, or on the page the reload brings
+      if (op === 'new' && kind) for (const fn of slideAddedListeners) fn({ slide: j.slide, kind, placed });
       // a delete says how to take it back with a button, not in words
       if (op === 'delete') undoToast(said);
       else toast(placed || !j.inPlace ? (placed ? said : `${said} — reloading`) : said, 2000);
@@ -2542,6 +2555,7 @@ export function createEditMode({
       throw e;
     }
   }
+  const slideAddedListeners = new Set();
   /** A message about something just removed, with an Undo button on it, gone on its own after a while. */
   function undoToast(said, ms = 9000) {
     if (!actionToast) { toast(`${said} — ${UNDO_CHORD} takes it back`, 4000); return; }
@@ -4262,6 +4276,8 @@ export function createEditMode({
     setInspectorOpener(fn) { inspectorOpen = fn; },
     /** The element menu, opened at a point by something other than a right-click: the bar's ⋯ handle and Slide ▾. */
     openElementMenuAt: (x, y, target, view = 'main', opts = {}) => { if (!elementEditOn) return; overlays.opening(); openElementMenu(x, y, target, view, opts); },
+    /** Close the element menu: a row another module handed in (`opts.rows`) closes it before it acts. */
+    closeMenu: () => closeElementMenu(),
     /** Remove the element a target names: ⌫ on a selection. */
     removeElement: (target) => commitRemove(target),
     /** The engine's door to the inspector: `fn(target, tab)` for the menu's Inspect, Colors… and Type…. */
@@ -4284,6 +4300,10 @@ export function createEditMode({
     setEditConcepts: (fn) => { editConcepts = fn; },
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
     slideOp,
+    /** `fn({ slide, kind, placed })` after a new slide of a kind is written, in place (`placed`) or with a reload coming. */
+    onSlideAdded: (fn) => { slideAddedListeners.add(fn); },
+    /** A reload that waits for whatever is typed (drafts.js): a write the page could not show in place. */
+    reloadWhenSafe: (why) => reloadWhenSafe(why),
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside write mode. */
     wizard: openWizard,
     /** What the server's ping said a wizard can configure — the palette's Configure rows. */

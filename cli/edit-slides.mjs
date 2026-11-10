@@ -57,6 +57,8 @@ import {
 import {
   voiceFolders, planSteps, applyPlans,
 } from '../tools/voice-renumber.mjs';
+// What Add and the New slide kinds put in: the server's own closed set
+import { insertStarter, insertSlideOfKind, SLIDE_KINDS } from '../tools/starters.mjs';
 
 /**
  * Put the slide-mutation routes into `routes`, the table cli/edit.mjs
@@ -568,9 +570,14 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * the moves.
    */
   function slideRoute({ body, json }) {
-    const { op, slide, to, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    const { op, slide, to, kind = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
     if (!SLIDE_OPS.has(op) || !Number.isInteger(slide) || slide < 1) {
       return json(400, { ok: false, error: 'bad payload' });
+    }
+    // a new slide of a kind (PRESENTING_EDITING): one of a closed set, and
+    // only a new slide has one; no kind is the blank slide it always was
+    if (kind !== null && (op !== 'new' || !SLIDE_KINDS.includes(kind))) {
+      return json(400, { ok: false, error: op !== 'new' ? 'only a new slide has a kind' : `no slide kind "${String(kind).slice(0, 40)}" (one of: ${SLIDE_KINDS.join(', ')})` });
     }
     if (op === 'move' && (!Number.isInteger(to) || to < 1)) return json(400, { ok: false, error: 'bad payload' });
     const before = readDeck();
@@ -598,7 +605,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     if (voices.error) return json(409, { ok: false, error: voices.error });
     const done = editWithVoices((html) => {
       switch (op) {
-        case 'new': return insertBlankSlide(html, slide);
+        case 'new': return kind ? insertSlideOfKind(html, slide, kind) : insertBlankSlide(html, slide);
         case 'duplicate': return duplicateSlide(html, slide);
         case 'delete': return deleteSlide(html, slide);
         case 'up': return swapSlides(html, slide - 1, slide);
@@ -607,7 +614,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       }
     }, before, voices.plans);
     if (done.error) return json(409, { ok: false, error: done.error });
-    console.log(`  slide ${op}: ${slide}${op === 'move' ? ` → ${to}` : ''} → ${after} slide${after === 1 ? '' : 's'}`);
+    console.log(`  slide ${op}${kind ? ` (${kind})` : ''}: ${slide}${op === 'move' ? ` → ${to}` : ''} → ${after} slide${after === 1 ? '' : 's'}`);
     // Asked for IN PLACE (PRESENTING_EDITING), and no recording moved with
     // it: the page that asked makes the same change itself, so the write is
     // quiet (no reload there, its selection and scroll kept) and every other
@@ -788,6 +795,47 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     return json(200, { ok: true, index: at, ...history.counts() });
   }
 
+  /**
+   * `POST /deck/edit/element/insert` — `{ slide, index, kind, quiet?, from? }`:
+   * a starter of `kind` (heading, text, bullets, numbered, quote, table, code,
+   * columns, diagram, chart) onto a slide, after top-level child `index`, or
+   * with `index: null` after the last content child and before the asides,
+   * the way a dropped picture lands (PRESENTING_EDITING). The markup is the
+   * server's (tools/starters.mjs): a kind outside the set is a 400, a slide
+   * that follows a slide template, or two columns with content before them,
+   * a 409 that says why.
+   *
+   * One applyEdit, so one undo entry, two columns' layout included. The
+   * answer names the new element's index and carries the markup the file
+   * got, so the page that asked shows exactly that IN PLACE: asked `quiet`,
+   * the watcher skips the reload and every other page is sent `content`.
+   */
+  function elementInsertRoute({ body, json }) {
+    const { slide, index = null, kind, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || typeof kind !== 'string'
+        || (index !== null && (!Number.isInteger(index) || index < 0))) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    let done = null;
+    try {
+      applyEdit((html) => {
+        done = insertStarter(html, slide, index, kind);
+        return done.html;
+      });
+    } catch (e) {
+      return json(e.status ?? 404, { ok: false, error: oneline(e) });
+    }
+    console.log(`  element added: slide ${slide} #${done.index} (${kind})`);
+    if (inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index: done.index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, {
+      ok: true, index: done.index, count: done.count, kind, html: done.markup,
+      ...(done.layout ? { layout: done.layout } : {}), inPlace: inPlace === true, ...history.counts(),
+    });
+  }
+
   routes.set('POST /deck/edit/slide/notes', notesRoute);
   routes.set('POST /deck/edit/slide/sources', sourcesRoute);
   routes.set('POST /deck/edit/timings', timingsRoute);
@@ -808,5 +856,6 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/slide', slideRoute);
   routes.set('POST /deck/edit/asset', assetRoute);
   routes.set('POST /deck/edit/element/image', imageRoute);
+  routes.set('POST /deck/edit/element/insert', elementInsertRoute);
   return routes;
 }
