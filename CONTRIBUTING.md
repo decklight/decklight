@@ -164,6 +164,24 @@ npm run cross-engine
 job that skipped silently would be a green tick for nothing at all. It runs on
 Ubuntu, because this is about the *engine* and not the platform.
 
+### `npm run e2e:edit`: write mode, read back from the file
+
+The editing harnesses in `engine-render` run the page against a fake server:
+they prove what the page sent and nothing about what the server then wrote
+into the author's file. `test/edit-e2e.mjs` closes that gap. It starts the real
+edit server on a scratch copy of a fixture deck, drives the page with
+Playwright's real keyboard and mouse in the system Chrome, and after each
+gesture reads the deck file: what was written, that nothing else changed, that
+one gesture is one write and one undo takes it back. It covers typing in a
+bullet list, a link, adding a table, a chart and a picture, a background
+picture, moving an element, and a diagram's connectors.
+
+It is part of `verify`, and like `cross-engine` it skips by name without
+Playwright (`npm install --include=optional`). No browser download is needed:
+it uses the Chrome every other harness uses. `EDIT_E2E_STRICT=1` turns the skip
+into a failure, and the cross-engine job in CI, which has Playwright, runs it
+that way.
+
 ### Which platforms `verify` is known to pass on
 
 | platform | `npm test` | `npm run verify` |
