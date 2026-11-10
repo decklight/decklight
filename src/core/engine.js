@@ -22,6 +22,7 @@ import { setupMedia } from './media.js';
 import { createEditMode } from './editmode.js';
 import { createAuthoring } from './authoring.js';
 import { createEditBar } from './editbar.js';
+import { createElementMove } from './element-move.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
 import { createOnboarding } from './onboarding.js';
@@ -167,10 +168,18 @@ function leadingHeading(section) {
  * pinned or centered. Opt out per slide with
  * data-subtitle="none"; an author-placed class="subtitle" is respected as-is.
  */
+// The paragraphs the engine itself made subtitles, told from an author's own
+// class="subtitle": one that no longer follows its heading (an element moved
+// in place, PRESENTING_EDITING) is a paragraph again.
+const autoSubtitles = new WeakSet();
 function detectSubtitle(section, heading) {
+  for (const p of section.querySelectorAll(':scope > p.subtitle')) {
+    if (autoSubtitles.has(p) && p !== heading?.nextElementSibling) { p.classList.remove('subtitle'); autoSubtitles.delete(p); }
+  }
   if (!heading || section.getAttribute('data-subtitle') === 'none') return null;
   const next = heading.nextElementSibling;
   if (next && next.matches('p') && !next.hasAttribute('data-build')) {
+    if (!next.classList.contains('subtitle')) autoSubtitles.add(next);
     next.classList.add('subtitle');
     return next;
   }
@@ -2609,6 +2618,7 @@ export function init(userConfig = {}) {
       <tr><td>H</td><td>history: every version, ${enter} restores one</td></tr>
       <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a shape's style</td></tr>
       <tr class="help-ctx"><td>${enter} · ⌫ · Esc</td><td>on a selected element: edit · remove · let go</td></tr>
+      <tr class="help-ctx"><td>${IS_MAC ? '⌃⇧↑ / ⌃⇧↓' : 'Ctrl+Shift+↑ / ↓'}</td><td>on a selected element: move it up / down (or drag its ⋯)</td></tr>
       <tr class="help-ctx"><td>${enter} · ⇧${enter} · Esc</td><td>while editing text: keep · new line · cancel</td></tr>
       <tr class="help-ctx"><td>${IS_MAC ? '⌘B · ⌘I · ⌘E' : 'Ctrl+B · Ctrl+I · Ctrl+E'}</td><td>while editing text: bold · italic · code</td></tr>
       <tr class="help-ctx"><td>N · D · ⌫</td><td>in the overview: new slide · duplicate · delete</td></tr>
@@ -2799,7 +2809,9 @@ export function init(userConfig = {}) {
     // PowerPoint's chords. By code, not key: ⌥ turns the C into a ç.
     const styleChord = e.altKey && (e.metaKey || e.ctrlKey) && !e.shiftKey && (e.code === 'KeyC' || e.code === 'KeyV')
       && editmode.elementEditOn() ? e.code : null;
-    if (!undoChord && !speakerChord && !styleChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
+    // Control-Shift-↑ / ↓, on every platform — move the selected element one place (PRESENTING_EDITING, Moving); the selection's keys below take it
+    const moveChord = e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editmode.elementEditOn();
+    if (!undoChord && !speakerChord && !styleChord && !moveChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
     // An overlay that is up owns the keyboard — whether or not it wants this
     // particular key. Registration order (see `overlays.register` calls) is the
     // priority order the long if-chain here used to encode.
@@ -3557,6 +3569,10 @@ export function init(userConfig = {}) {
     toggleEditor, cycleLayout, deckHistory,
     enabled: () => !printMode && !params.has('embedded') && !captureMode,
   });
+  // Moving things within a slide (element-move.js): the menu's Move rows, Control-Shift-↑ / ↓ and the handle's drag
+  editmode.setElementMove(createElementMove({
+    root, instance, editmode, toast, debugLog, select: (el) => editbar.selectNode(el, { exact: true }),
+  }));
   inspector = createInspector({
     root, overlays, toast, copyText,
     // the Colors tab's Concept row: the deck's concepts, and an attach in place

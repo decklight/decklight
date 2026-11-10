@@ -82,7 +82,7 @@ const ENGINE_GROUPS = {
   navigation: ['overviewedit', 'overviewplain', 'restore', 'historydetails', 'historycaptions', 'historychanges', 'historybuilds', 'escapeall', 'hidden', 'hidden&all', 'shiftarrows', 'chapters', 'chaptersplaylist', 'pinch', 'chromescale'],
   handover: ['exportpptx', 'exportfail', 'exportvideo', 'exportmodule', 'publish'],
   sources: ['inspector', 'sourcesedit'],
-  authoring: ['lockmode', 'notrustmode', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesbuilds', 'notesauto', 'notesautofail', 'heldreload', 'savefail', 'slideinplace', 'esckeeps', 'debugreload', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'concepts', 'conceptsfind', 'typingdock', 'editingtour', 'editingtourwelcome', 'welcomekeys'],
+  authoring: ['lockmode', 'notrustmode', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesbuilds', 'notesauto', 'notesautofail', 'heldreload', 'savefail', 'slideinplace', 'esckeeps', 'debugreload', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'concepts', 'conceptsfind', 'typingdock', 'editingtour', 'editingtourwelcome', 'welcomekeys', 'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect'],
   builds: ['linedraw', 'dasheddraw', 'drawfill', 'nestedfills', 'rolefills', 'dstemplates', 'dsedit'],
 };
 const ENGINE_HARNESSES = Object.keys(ENGINE_GROUPS).map((g) => `engine-render:${g}`);

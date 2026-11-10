@@ -617,6 +617,20 @@
             ...(b.op === 'new' ? { section: '<section><h2>Fresh</h2><aside class="notes"></aside></section>' } : {}) });
         }
       }
+      // moving things within a slide (movemenu, movekeys, movedrag, moveinplace,
+      // movereselect): the move answers where the element is now, in place
+      // when asked; a list item's typed words are saved first
+      if (HARNESS_MODE.startsWith('move')) {
+        window.__moves ??= 0;
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<ul class="mv-list"><li>one</li><li>two</li><li>three</li></ul>' });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: ++window.__moves, redo: 0 });
+        if (u.includes('/deck/edit/element/move')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, changed: true, index: b.path ? b.index : b.to, path: b.path ? [...b.path.slice(0, -1), b.to] : null,
+            inPlace: b.quiet === true, undo: ++window.__moves, redo: 0 });
+        }
+      }
       // a reload while something is typed (heldreload): notes that save in
       // place, and an HTML editor with a source to load
       if (HARNESS_MODE === 'heldreload') {
@@ -1178,6 +1192,20 @@
       const secs = document.querySelectorAll('.decklight > section');
       secs[1].setAttribute('data-module', 'Foundations');
       secs[3].setAttribute('data-module', 'Operations');
+    }
+    // moving things within a slide: three more slides, only for the modes
+    // that move things (every other mode counts on four): one to reorder, one
+    // with builds, one with something live on it that a move cannot follow
+    if (HARNESS_MODE.startsWith('move')) {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
+        <section><h2 class="mv-h">Order</h2><p class="mv-a">alpha</p><ul class="mv-list"><li>one</li><li>two</li><li>three</li></ul><p class="mv-b">beta</p><aside class="notes"><p>Say it.</p></aside></section>
+        <section><h2>Builds</h2><p data-build class="mv-b1">first</p><p data-build class="mv-b2">second</p></section>
+        <section><h2>Live</h2><p class="mv-l">words</p><video class="mv-v" muted></video></section>`);
+      // movereselect: the page a move reloaded, which selects the element again on the slide it moved on
+      if (HARNESS_MODE === 'movereselect') {
+        try { sessionStorage.setItem('decklight-move-select:' + location.pathname, JSON.stringify({ slide: 5, index: 3, t: Date.now() })); } catch { /* fine */ }
+        location.hash = '#/5/0';
+      }
     }
     // exportpptx has a recorded voice too: it is what offers bundling the audio
     const deck = Decklight.init(HARNESS_MODE === 'narration' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportmodule'
@@ -3208,6 +3236,144 @@
         r.noReloadAtAll = reloads === 0;
         r.PASS = r.undoGreyedAtFirst && r.duplicateInPlace && r.undoLiveOnceThereIsOne && r.newInPlace && r.moveInPlace
           && r.deleteInPlace && r.deleteOffersAnUndoButton && r.theButtonUndoes && r.noReloadAtAll;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode.startsWith('move')) {
+        // Moving things within a slide (PRESENTING_EDITING, Moving): the menu's
+        // rows greyed at the ends, ⌥↑ / ⌥↓ on a selection and on a list item
+        // being edited, the handle's drag with its drop line, and every move
+        // made in the page's own DOM at once, its layout and builds run again.
+        await settle(); await settle();
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const secs = () => document.querySelectorAll('.decklight-stage > section');
+        const tag = (c) => c.className.match(/mv-\w+/)?.[0] ?? c.tagName.toLowerCase();
+        const order = (n) => [...secs()[n - 1].children].filter((c) => !c.matches('aside, .slide-bg')).map(tag).join(',');
+        const $ = (sel) => document.querySelector(`.decklight-stage ${sel}`);
+        const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const moves = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/move'));
+        const lastMove = () => moves().at(-1)?.body ?? null;
+        const moveKey = (k) => press(k, { ctrlKey: true, shiftKey: true });
+        const ctx = (el) => { const b = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 5, clientY: b.top + 5 })); };
+        const row = (label) => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.childNodes[0]?.textContent === label);
+        const selectedTop = () => deck._selection()?.top ?? null;
+        if (mode !== 'movereselect') { deck.goto(mode === 'moveinplace' ? 6 : 5, 0); await settle(); }
+
+        if (mode === 'movemenu') {
+          // the title: nothing above it, so Move up is greyed and does nothing
+          ctx($('.mv-h')); await settle();
+          r.menuHasMoveRows = !!row('Move up') && !!row('Move down');
+          r.rowsSayTheirChords = /⌃⇧↑|Ctrl\+Shift\+↑/.test(row('Move up')?.textContent ?? '') && /⌃⇧↓|Ctrl\+Shift\+↓/.test(row('Move down')?.textContent ?? '');
+          r.upGreyedAtTheTop = row('Move up')?.classList.contains('cm-disabled') === true && row('Move up')?.getAttribute('aria-disabled') === 'true'
+            && row('Move down')?.classList.contains('cm-disabled') === false;
+          row('Move up')?.click(); await settle();
+          r.greyedRowWritesNothing = moves().length === 0;
+          press('Escape'); await settle();
+          // the last thing the slide shows: the notes below it do not count
+          ctx($('.mv-b')); await settle();
+          r.downGreyedAboveTheNotes = row('Move down')?.classList.contains('cm-disabled') === true && row('Move up')?.classList.contains('cm-disabled') === false;
+          row('Move up')?.click(); await settle(); await settle();
+          const b = lastMove();
+          r.oneMoveAsked = moves().length === 1 && b?.slide === 5 && b?.index === 3 && b?.to === 2 && b?.tag === 'p' && b?.quiet === true && typeof b?.from === 'string';
+          r.movedInPlace = order(5) === 'mv-h,mv-a,mv-b,mv-list' && reloads === 0;
+          r.notesStayLast = secs()[4].lastElementChild?.matches('aside.notes') === true;
+          r.selectionFollows = selectedTop() === $('.mv-b') && $('.mv-b').classList.contains('dl-selected') && deck._selection()?.index === 2;
+          r.PASS = r.menuHasMoveRows && r.rowsSayTheirChords && r.upGreyedAtTheTop && r.greyedRowWritesNothing && r.downGreyedAboveTheNotes
+            && r.oneMoveAsked && r.movedInPlace && r.notesStayLast && r.selectionFollows;
+        } else if (mode === 'movekeys') {
+          // nothing selected: Control-Shift-↓ moves nothing
+          moveKey('ArrowDown'); await settle();
+          r.nothingSelectedMovesNothing = moves().length === 0 && deck.state.slide === 5;
+          click($('.mv-list')); await settle();
+          moveKey('ArrowDown'); await settle(); await settle();
+          r.chordDownMovesIt = order(5) === 'mv-h,mv-a,mv-b,mv-list' && lastMove()?.to === 3 && lastMove()?.index === 2 && deck.state.slide === 5;
+          r.stillSelected = selectedTop() === $('.mv-list');
+          moveKey('ArrowUp'); await settle(); await settle();
+          r.chordUpMovesItBack = order(5) === 'mv-h,mv-a,mv-list,mv-b' && lastMove()?.to === 2 && lastMove()?.index === 3;
+          // the bare arrows are still the deck's, and ⌥ is not a move chord
+          const before = moves().length;
+          press('ArrowDown'); await settle();
+          press('ArrowUp', { altKey: true }); await settle();
+          r.bareArrowsMoveNothing = moves().length === before && deck.state.slide === 5;
+          press('Escape'); await settle();
+          // the help card names the chord where the editing keys are
+          press('?'); await settle();
+          r.helpNamesTheChords = /(⌃⇧↑ \/ ⌃⇧↓|Ctrl\+Shift\+↑ \/ ↓)\s*on a selected element: move it/.test(document.querySelector('.help-card')?.textContent ?? '');
+          press('?'); await settle();
+          r.PASS = r.nothingSelectedMovesNothing && r.chordDownMovesIt && r.stillSelected && r.chordUpMovesItBack && r.bareArrowsMoveNothing
+            && r.helpNamesTheChords;
+        } else if (mode === 'movedrag') {
+          const h = $('.mv-h');
+          const pA = $('.mv-a');
+          r.subtitleBefore = pA.classList.contains('subtitle') && h.classList.contains('pin-title');
+          click(h); await settle();
+          const handle = () => document.querySelector('.decklight .dl-handle');
+          const pe = (type, x, y) => handle().dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 7, clientX: x, clientY: y, button: 0 }));
+          const hb = handle().getBoundingClientRect();
+          const ul = $('.mv-list').getBoundingClientRect();
+          const pb = $('.mv-b').getBoundingClientRect();
+          const line = () => document.querySelector('.decklight .dl-drop-line');
+          // travel to the lower half of the list: the line shows between it and beta
+          pe('pointerdown', hb.left + 5, hb.top + 5);
+          pe('pointermove', ul.left + 20, ul.bottom - 3);
+          const lb = line()?.getBoundingClientRect();
+          r.dropLineShows = !!line() && !line().hidden && deckEl.classList.contains('dl-moving') && h.classList.contains('dl-move-src');
+          r.lineSitsBetween = !!lb && lb.top >= ul.bottom - 2 && lb.top <= pb.top + 2 && lb.width > 20;
+          // Esc gives it up: nothing written, the selection kept, no menu from the click that follows
+          press('Escape'); await settle();
+          pe('pointerup', ul.left + 20, ul.bottom - 3);
+          click(handle()); await settle();
+          r.escGivesItUp = !line() && !deckEl.classList.contains('dl-moving') && !h.classList.contains('dl-move-src') && moves().length === 0
+            && selectedTop() === h && !document.querySelector('.decklight-ctxmenu');
+          // again, and let go: the title goes below the list
+          pe('pointerdown', hb.left + 5, hb.top + 5);
+          pe('pointermove', ul.left + 20, ul.top + 10);
+          pe('pointermove', ul.left + 20, ul.bottom - 3);
+          pe('pointerup', ul.left + 20, ul.bottom - 3);
+          click(handle());
+          await settle(); await settle();
+          const b = lastMove();
+          r.dropMoves = moves().length === 1 && b?.index === 0 && b?.to === 2 && b?.tag === 'h2' && order(5) === 'mv-a,mv-list,mv-h,mv-b' && reloads === 0;
+          r.noMenuAfterADrag = !document.querySelector('.decklight-ctxmenu') && !line();
+          // the title moved down: no longer leading, so not pinned; the paragraph it led is not its subtitle any more
+          r.layoutRunAgain = !h.classList.contains('pin-title') && !pA.classList.contains('subtitle') && !pA.classList.contains('pin-subtitle');
+          r.selectionFollows = selectedTop() === h;
+          // a press that does not travel is still the click that opens the menu
+          const hb2 = handle().getBoundingClientRect();
+          pe('pointerdown', hb2.left + 5, hb2.top + 5);
+          pe('pointerup', hb2.left + 5, hb2.top + 5);
+          click(handle()); await settle();
+          r.aClickStillOpensTheMenu = !!document.querySelector('.decklight-ctxmenu') && moves().length === 1;
+          press('Escape'); await settle();
+          r.PASS = r.subtitleBefore && r.dropLineShows && r.lineSitsBetween && r.escGivesItUp && r.dropMoves && r.noMenuAfterADrag
+            && r.layoutRunAgain && r.selectionFollows && r.aClickStillOpensTheMenu;
+        } else if (mode === 'moveinplace') {
+          const b1 = $('.mv-b1'); const b2 = $('.mv-b2');
+          const rec = () => deck._records[5];
+          r.buildsInFileOrder = rec().steps[0]?.el === b1 && rec().steps[1]?.el === b2;
+          click(b2); await settle();
+          moveKey('ArrowUp'); await settle(); await settle();
+          r.movedInPlace = order(6) === 'h2,mv-b2,mv-b1' && lastMove()?.quiet === true && reloads === 0;
+          r.buildsFollowTheNewOrder = rec().steps[0]?.el === b2 && rec().steps[1]?.el === b1;
+          deck.next(); await settle();
+          r.firstStepIsTheMovedOne = deck.state.slide === 6 && deck.state.step === 1 && b2.getAttribute('data-build-state') !== 'pending' && b1.getAttribute('data-build-state') === 'pending';
+          // a slide with something live on it: the move is the ordinary reload, and the page selects it again after
+          deck.goto(7, 0); await settle();
+          click($('.mv-l')); await settle();
+          moveKey('ArrowDown'); await settle(); await settle();
+          let kept = null;
+          try { kept = JSON.parse(sessionStorage.getItem('decklight-move-select:' + location.pathname) || 'null'); } catch { /* none */ }
+          r.liveSlideReloads = lastMove()?.slide === 7 && lastMove()?.quiet === undefined && order(7) === 'h2,mv-l,mv-v' && kept?.slide === 7 && kept?.index === 2
+            && [...document.querySelectorAll('.decklight-toast')].some((n) => /moved down — reloading/.test(n.textContent));
+          r.PASS = r.buildsInFileOrder && r.movedInPlace && r.buildsFollowTheNewOrder && r.firstStepIsTheMovedOne && r.liveSlideReloads;
+        } else if (mode === 'movereselect') {
+          await settle();
+          r.landsOnTheSlide = deck.state.slide === 5;
+          r.selectsItAgain = selectedTop() === $('.mv-b') && $('.mv-b').classList.contains('dl-selected');
+          r.PASS = r.landsOnTheSlide && r.selectsItAgain;
+        }
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -7767,7 +7933,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.opensOnElement = !!document.querySelector(M);
         // Writing tools… sits after Edit content when an agent is on the machine (none here)
         r.fullMenuRows = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…'))
-          === JSON.stringify(['Inspect', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Type…', 'Copy style', 'Add text effect ▸', 'Slide ▸']);
+          === JSON.stringify(['Inspect', 'Remove element', 'Move up', 'Move down', 'Edit content (HTML)', 'Colors…', 'Type…', 'Copy style', 'Add text effect ▸', 'Slide ▸']);
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;
         press('ArrowDown');

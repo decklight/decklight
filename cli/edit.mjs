@@ -32,6 +32,7 @@
 //   POST /deck/edit/element/remove  → { slide, index }          delete that element
 //   POST /deck/edit/element/content → { slide, index, html }    replace its outerHTML
 //   POST /deck/edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
+//   POST /deck/edit/element/move    → { slide, index, to, path?, tag? }  move it (or a node inside it) to place `to`
 //   POST /deck/edit/undo            → step the deck file back through the edit history
 //   POST /deck/edit/redo            → step it forward again
 //   POST /deck/edit/agent           → { prompt, agent?, slide?, offer?, place? } one-shot AI agent edit, the skill offered first
@@ -1065,6 +1066,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/remove': 'element removed',
   '/deck/edit/element/content': 'element content saved',
   '/deck/edit/element/effect': 'build effect set',
+  '/deck/edit/element/move': 'element moved',
   '/deck/edit/element/style': 'colours saved',
   '/deck/edit/element/concept': 'concept set',
   '/deck/edit/element/text': 'text saved',
@@ -1194,6 +1196,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/remove': 'removed element',
   '/deck/edit/element/content': 'text edit',
   '/deck/edit/element/effect': 'build effect',
+  '/deck/edit/element/move': 'move',
   '/deck/edit/element/style': 'colours',
   '/deck/edit/element/concept': 'concept',
   '/deck/edit/element/text': 'label edit',

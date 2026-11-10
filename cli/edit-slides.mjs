@@ -41,7 +41,7 @@ import {
   upsertNarrationTrack, configuredTrackDirs,
   locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement } from './edit.mjs';
 import { oneline } from './git.mjs';
-import { slotWriteProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
+import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
 import { markedSources } from './theme-refs.mjs';
 import { parseTemplateRef } from '../tools/design-system-format.mjs';
@@ -50,7 +50,7 @@ import { setDeckConcepts } from './runtime-link.mjs';
 // are string surgery on a deck's sections, which is what tools/deck-html.mjs
 // is, and nothing about them wants the server.
 import {
-  sectionBodies, insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertImage,
+  sectionBodies, insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertImage, moveSlideElement,
 } from '../tools/deck-html.mjs';
 // A slide op moves the deck's recordings with their slides (#916): Node-only
 // file moves, which is what tools/ is for.
@@ -317,6 +317,41 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
     }
     return json(200, { ok: true, changed, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/element/move` — `{ slide, index, to, tag?, path?, quiet?, from? }`
+   * (PRESENTING_EDITING, Moving): element `index` to content position `to`
+   * on its slide, or, with `path`, the node there to place `to` among its own
+   * siblings (a list item). One applyEdit, one undo entry. The answer names
+   * where the element is now (`index`, `path`), since everything after it
+   * has shifted. On a design-system slide an element moves only within its
+   * slot. Asked for in place, the write is quiet and every other page is told.
+   */
+  function elementMoveRoute({ body, json }) {
+    const { slide, index, to, tag = null, path = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !Number.isInteger(to) || to < 0
+        || (path !== null && !Array.isArray(path)) || (tag !== null && typeof tag !== 'string')) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    if (!path?.length) {
+      const problem = slotMoveProblem(readDeck(), slide, index, to);
+      if (problem) return json(409, { ok: false, error: problem });
+    }
+    let moved = null;
+    let changed;
+    try {
+      changed = applyEdit((html) => { moved = moveSlideElement(html, slide, index, { to, path, tag }); return moved.html; });
+    } catch (e) {
+      if (e.code !== 'STALE' && e.code !== 'REFUSED') throw e;
+      return json(409, { ok: false, error: oneline(e), ...(e.code === 'STALE' ? { stale: true } : {}) });
+    }
+    if (changed) console.log(`  element moved: slide ${slide} #${index}${path?.length ? ` › ${path.join('.')}` : ''} → ${to}`);
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index: moved.index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, { ok: true, changed, index: moved.index, path: moved.path, inPlace: !!changed && inPlace === true, ...history.counts() });
   }
 
   function elementEffectRoute({ body, json }) {
@@ -764,6 +799,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/remove', elementRemoveRoute);
   routes.set('POST /deck/edit/element/content', elementContentRoute);
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
+  routes.set('POST /deck/edit/element/move', elementMoveRoute);
   routes.set('POST /deck/edit/element/style', elementStyleRoute);
   routes.set('POST /deck/edit/element/concept', elementConceptRoute);
   routes.set('POST /deck/edit/element/concepts', elementConceptsRoute);
