@@ -17,6 +17,7 @@
 // chose ElevenLabs and lets your environment remember the secret.
 
 import { wavFromPcm } from './gemini-tts.mjs';
+import { styleTag } from './tone-cue.mjs';
 
 export const KEY_ENV = 'ELEVENLABS_API_KEY';
 const API = 'https://api.elevenlabs.io/v1';
@@ -46,31 +47,9 @@ export const readsAudioTags = (model) => TAG_MODELS.includes(model);
 // silently rounded to the nearest preset.
 export const STABILITY_PRESETS = { creative: 0, natural: 0.5, robust: 1 };
 
-// A tag this long stops being a short performance cue and starts being a
-// second sentence — cut it back rather than let it run on. 40 chars covers
-// every named ElevenLabs tag with room for a typed phrase like "on the verge
-// of tears" and still reads as direction, not dialogue.
-const MAX_TAG_LEN = 40;
-
-/**
- * A `style` string, or free-typed text, as a single ElevenLabs v3 audio tag —
- * or '' if there is nothing to say.
- *
- * Someone who already knows v3 syntax can type `[whispers]` and get exactly
- * that cue: the first well-formed bracketed group survives untouched (and
- * only the first — a second `[…]` later in the string would be a second cue
- * riding along uninvited, so everything after the first close-bracket is
- * dropped). Anyone else just types a word or a short phrase, which is wrapped
- * in brackets for them. Either way the result is capped to MAX_TAG_LEN so a
- * persona too long to be a cue is cut back rather than spoken.
- */
-export function styleTag(style, maxLen = MAX_TAG_LEN) {
-  const raw = String(style ?? '').trim();
-  if (!raw) return '';
-  const bracketed = raw.match(/^\[([^[\]]+)\]/);
-  const cue = (bracketed ? bracketed[1] : raw).trim().slice(0, maxLen).trim();
-  return cue ? `[${cue}]` : '';
-}
+// The tag a tone becomes, and where it is cut, live with the built-in tones:
+// the deck's tone picker needs both too (tools/tone-cue.mjs).
+export { styleTag, cutTag, cueFor, MAX_TAG_LEN } from './tone-cue.mjs';
 
 // PCM is what the rest of decklight is built on: the deck's recorder stitches per-slide WAVs
 // out of the sentence cache, and rhubarb reads WAV to find visemes. mp3 plays

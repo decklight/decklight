@@ -29,6 +29,7 @@ import {
   manifestSegmentUrl, manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
 } from './voicetrack.js';
 import { UNDO_CHORD } from './undo-chord.js';
+import { TONES, cutNote } from '../../tools/tone-cue.mjs';
 import { clickMismatch, clickCounts, clickCountsShort, clickCause } from '../../tools/click-match.mjs';
 
 /**
@@ -793,25 +794,32 @@ export function createNarration({
     return p;
   }
 
-  // Third element is the SAME tone as a short ElevenLabs v3 audio-tag cue —
-  // v3 wants a bracketed word or two of direction, not a Gemini-shaped prose
-  // instruction, so each preset carries both and toneStyle() below picks the
-  // one the live engine can actually act on.
-  const TONES = [
-    // single directive clauses: instruction-shaped text steers; persona
-    // sentences ("You're a…") can stochastically be read aloud
-    ['Warm senior engineer', 'Read in a warm, welcoming tone, like a friendly battle-hardened senior engineer who is still curious about new technology.', 'warmly'],
-    ['Professional', 'Read in a clear, professional tone — measured, confident, and articulate.', 'professionally'],
-    ['Too serious', 'Read in an extremely grave, deadly serious tone, as if announcing news of the utmost importance.', 'serious'],
-    ['Joyful', 'Read in a joyful, light-hearted tone, smiling through every sentence.', 'joyfully'],
-    ['Super excited', 'Read in a super-excited, high-energy tone, barely containing your enthusiasm.', 'excited'],
-    ['Sad', 'Read in a somber, melancholic tone, on the verge of a sigh.', 'sad'],
-  ];
-  // Gemini reads the full instruction as a prompt prefix; ElevenLabs v3 reads
-  // a short bracketed cue instead (tools/elevenlabs-tts.mjs wraps it in
-  // brackets) — never the long Gemini-shaped sentence, which would still work
-  // as v3 input but is not the short cue the ticket asks for.
+  // Each built-in tone carries the same tone twice (tools/tone-cue.mjs): a
+  // Gemini-shaped instruction, and a short cue for ElevenLabs, which reads a
+  // bracketed tag rather than a prompt. toneStyle() picks the one the live
+  // engine can act on.
   const toneStyle = ([, geminiText, tag]) => (liveEngine === 'elevenlabs' ? tag : geminiText);
+  /**
+   * The style the live voice speaks with NOW. A built-in tone is resolved
+   * from its label every time, never from the text saved when it was picked:
+   * a tone chosen on Gemini and then voiced by ElevenLabs used to go on
+   * sending the Gemini sentence, cut to a forty-character fragment in front
+   * of every line (#1005). A custom tone is what was typed.
+   */
+  const liveStyle = () => {
+    const t = TONES.find(([label]) => label === liveCfg.tone);
+    return t ? toneStyle(t) : (liveCfg.style ?? '');
+  };
+  /** Said once a session, the first time a tone will not reach ElevenLabs whole. */
+  let toneCutSaid = false;
+  const toneCut = (style) => (liveEngine === 'elevenlabs' && liveAudioTags ? cutNote(style) : null);
+  const sayToneCut = () => {
+    const note = toneCutSaid ? null : toneCut(liveStyle());
+    if (!note) return;
+    toneCutSaid = true;
+    toast(`tone ${note}`, 4200);
+    debugLog('tts', `tone ${note}: ${liveStyle()}`);
+  };
   const narrSets = narrationTracks(config.narration);
   const LIVE_TRACK = { live: true };
   let liveCfg = { voice: 'Alnilam', tone: TONES[0][0], style: TONES[0][1] };
@@ -925,13 +933,14 @@ export function createNarration({
     const counts = tally && !tally.seen.has(key);
     if (counts) tally.seen.add(key);
     if (!liveCache.has(key)) {
+      sayToneCut();
       const p = (async () => {
         const t0 = Date.now();
         try {
           const res = await fetch(LIVE_URL, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text, voice: liveCfg.voice, style: liveCfg.style, ...(liveEngine ? { engine: liveEngine } : {}) }),
+            body: JSON.stringify({ text, voice: liveCfg.voice, style: liveStyle(), ...(liveEngine ? { engine: liveEngine } : {}) }),
           });
           if (!res.ok) throw new Error(String(res.status));
           const blob = await res.blob();
@@ -1022,7 +1031,7 @@ export function createNarration({
     debugLog('narr', msg);
   }
 
-  const sentenceKey = (sl, step, i, text) => liveClipKey(sl, step, i, text, liveCfg.voice, liveCfg.style);
+  const sentenceKey = (sl, step, i, text) => liveClipKey(sl, step, i, text, liveCfg.voice, liveStyle());
   /**
    * The clip for sentence `i` of slide `sl`'s step `step`, synthesized or
    * cached.
@@ -2123,6 +2132,9 @@ export function createNarration({
     if (!narrating) narrating = true;
     toast(`⚡ live voice: ${liveCfg.voice} · ${liveCfg.tone} — V stops`);
     debugLog('narr', `live config — ${liveCfg.voice} · ${liveCfg.tone}`);
+    // a different tone is a new thing to be told about
+    toneCutSaid = false;
+    setTimeout(sayToneCut, 2000);
     playSlideFile();
   }
   /**
@@ -3106,7 +3118,14 @@ export function createNarration({
           commit: () => applyLive(label, styleText),
         });
       });
-      narrRows.push({ text: 'Custom…', cur: narrSet?.live && liveCfg.tone === 'Custom', commit: () => renderNarr('custom') });
+      const custom = liveCfg.tone === 'Custom';
+      narrRows.push({
+        text: 'Custom…',
+        // the tone row says when the typed tone will not reach ElevenLabs as written
+        ...(custom && toneCut(liveCfg.style) ? { flavor: toneCut(liveCfg.style) } : {}),
+        cur: narrSet?.live && custom,
+        commit: () => renderNarr('custom'),
+      });
     } else { // custom tone input
       head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — type the delivery instruction · ▶ previews`;
       const wrap = document.createElement('div');
@@ -3933,7 +3952,7 @@ export function createNarration({
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveCfg.style,
+            engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveStyle(),
             range: only ? [sl, sl] : range, slides: only ? { [sl]: recorded[sl] } : recorded,
           }),
         });
@@ -5826,7 +5845,7 @@ export function createNarration({
         const dir = synthTarget(tracks);
         options.push({
           label: `⚡ Synthesize — ${liveCfg.voice} · ${liveEngine} → ${dir}/`,
-          value: { kind: 'live', engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveCfg.style, dir },
+          value: { kind: 'live', engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveStyle(), dir },
         });
       }
       options.push({ label: '🔇 Silent', value: { kind: 'silent' } });
@@ -5849,7 +5868,7 @@ export function createNarration({
       if (!liveFound && !onBrowser()) { toast('no live voice to hear it with — open the deck with: decklight <deck.html>', 3200); return; }
       const was = previewText;
       previewText = String(text ?? '');
-      try { previewClip({ voice: liveCfg.voice, style: liveCfg.style ?? '' }, btn); } finally { previewText = was; }
+      try { previewClip({ voice: liveCfg.voice, style: liveStyle() }, btn); } finally { previewText = was; }
     },
     notesSegs, notesDraftOf,
     /** Everything the engine's chrome, palette and debug panel read back. */
