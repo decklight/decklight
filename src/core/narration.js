@@ -3369,10 +3369,11 @@ export function createNarration({
     } else if (view === 'tones') {
       head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — pick a tone · ▶ previews`;
       TONES.forEach((t) => {
-        const [label] = t;
+        const [label, , , group] = t;
         const styleText = toneStyle(t);
         narrRows.push({
           text: label,
+          group,
           preview: { voice: liveDraft ?? liveCfg.voice, style: styleText, prefetch: 'tones' },
           cur: narrSet?.live && liveCfg.tone === label,
           commit: () => applyLive(label, styleText),
@@ -3381,6 +3382,7 @@ export function createNarration({
       const custom = liveCfg.tone === 'Custom';
       narrRows.push({
         text: 'Custom…',
+        group: 'your own',
         // the tone row says when the typed tone will not reach ElevenLabs as written
         ...(custom && toneCut(liveCfg.style) ? { flavor: toneCut(liveCfg.style) } : {}),
         cur: narrSet?.live && custom,

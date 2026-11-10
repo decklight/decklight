@@ -193,6 +193,9 @@ test('every built-in tone reaches ElevenLabs whole, and its Gemini directive goe
     assert.deepEqual(cutTag(directive), { tag: `[${cue}]`, cut: false }, `${label}: the directive is sent as the cue, not cut`);
   }
   assert.equal(cueFor('in a hushed voice'), 'in a hushed voice', 'a tone of your own is itself');
+  assert.equal(new Set(TONES.map(([label]) => label)).size, TONES.length, 'no two tones share a name');
+  assert.deepEqual([...new Set(TONES.map((t) => t[3]))], ['presenting', 'moods', 'for a laugh'],
+    'ways to present first, then moods, then the ones for a laugh, each group together (#1006)');
 });
 
 test('the cut is said in one line, and nothing is said for a tone that fits', () => {

@@ -1573,6 +1573,8 @@
           rows = [...(picker?.querySelectorAll('.narr-row') ?? [])];
           r.toneStepShown = rows.length > 0;
           r.toneLabels = rows.map((el) => el.querySelector('.narr-row-label')?.textContent);
+          // the tones under their headings (#1006): ways to present, moods, for a laugh, your own
+          r.toneGroups = [...(picker?.querySelectorAll('.narr-group') ?? [])].map((el) => el.textContent.trim());
 
           const excited = rows.find((el) => /Super excited/.test(el.textContent));
           excited?.click();
@@ -1580,7 +1582,9 @@
           r.sentStyle = bodies[bodies.length - 1]?.style;
 
           r.PASS = r.voiceRows.length > 0 && r.toneStepShown
-            && r.toneLabels.includes('Super excited') && r.sentStyle === 'super excited';
+            && r.toneLabels.includes('Super excited') && r.sentStyle === 'super excited'
+            && r.toneLabels.includes('Calm explainer') && r.toneLabels.includes('Noir detective')
+            && r.toneGroups.join('|') === 'presenting|moods|for a laugh|your own';
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

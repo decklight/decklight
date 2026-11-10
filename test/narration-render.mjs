@@ -226,7 +226,7 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
   }
   if (mode === 'elevenlabsv3') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} tone step shown=${r.toneStepShown}`
-      + ` · tones offered=${r.toneLabels?.length ?? 0} · sent short v3 cue "${r.sentStyle}" (not the gemini prose)`
+      + ` · tones offered=${r.toneLabels?.length ?? 0} under ${(r.toneGroups ?? []).join('|')} · sent short v3 cue "${r.sentStyle}" (not the gemini prose)`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
