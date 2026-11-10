@@ -3820,6 +3820,48 @@
 .dl-fmt button.on { background: rgba(255, 255, 255, .2); }
 .dl-fmt .fmt-em { font-style: italic; font-weight: 500; }
 .dl-fmt .fmt-code { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 500; }
+.dl-fmt .fmt-a { display: inline-flex; align-items: center; justify-content: center; }
+/* the link box (authoring.js): ⌘K or the pill's link button, under the
+   selection, in the stage's chrome colours whatever the theme */
+.decklight .dl-link {
+  position: fixed; z-index: 61; box-sizing: border-box;
+  width: min(440px, calc(100vw - 16px)); padding: 6px;
+  border-radius: 11px; border: 1px solid rgba(160, 160, 160, .28);
+  background: rgba(20, 20, 22, .94); color: #e6e6e6;
+  font: 500 13px/1.3 system-ui, sans-serif;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.decklight .dl-link-row, .decklight .dl-link-acts { display: flex; gap: 4px; align-items: center; }
+.decklight .dl-link-acts { margin-top: 4px; justify-content: flex-end; }
+.decklight .dl-link-url {
+  flex: 1; min-width: 0; box-sizing: border-box; margin: 0; padding: 7px 9px;
+  border: 1px solid rgba(160, 160, 160, .35); border-radius: 7px;
+  background: rgba(0, 0, 0, .35); color: inherit; font: inherit;
+  outline: none;
+}
+.decklight .dl-link-url:focus { border-color: var(--accent, #6af); }
+.decklight .dl-link.refused .dl-link-url { border-color: #f85149; }
+.decklight .dl-link button {
+  padding: 7px 10px; border: 0; border-radius: 7px;
+  background: rgba(255, 255, 255, .08); color: inherit; font: inherit; cursor: pointer; white-space: nowrap;
+}
+.decklight .dl-link button:hover { background: rgba(255, 255, 255, .16); }
+.decklight .dl-link .dl-link-apply { background: var(--accent, #6af); color: var(--accent-contrast, #000); font-weight: 600; }
+.decklight .dl-link .dl-link-remove { color: #ffb1ab; }
+.decklight .dl-link-why:empty { display: none; }
+.decklight .dl-link-why { margin: 6px 3px 2px; color: #ffb1ab; font-size: 12px; }
+.decklight .dl-link-slides:empty { display: none; }
+.decklight .dl-link-slides { margin-top: 4px; display: flex; flex-direction: column; gap: 1px; }
+.decklight .dl-link-slide {
+  display: flex; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.decklight .dl-link-slide b { flex: none; font-weight: 600; color: rgba(230, 230, 230, .7); }
+.decklight .dl-link-slide span { overflow: hidden; text-overflow: ellipsis; }
+.decklight .dl-link-slide:hover, .decklight .dl-link-slide.on { background: rgba(255, 255, 255, .12); }
+/* the words a link is being made for, while the caret is in the box */
+::highlight(dl-link-target) { background-color: color-mix(in srgb, var(--accent, #6af) 35%, transparent); }
 /* the grip: the bar moves (editbar.js); moved, it is positioned by its own
    left/top instead of the bottom-centre default */
 .decklight-editbar .eb-grip {

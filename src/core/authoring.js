@@ -24,6 +24,8 @@ import { boundedFetch } from './devmode.js';
 import { pathFrom } from './colorpicker.js';
 import { injectedIn } from './pick.js';
 import { holdDraft } from './drafts.js';
+import { linkTarget, slideSuggestions } from './links.js';
+import { slideTitle, slideBody } from './finder.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -179,6 +181,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!cur) return;
     if (cur.code) return saveCode(cur);
     if (cur.svg) return saveLabel(cur);
+    closeLinkBox();
     editing = null;
     placePill();
     cur.el.removeAttribute('contenteditable');
@@ -219,6 +222,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   function cancelInline() {
     const cur = editing;
     if (!cur) return;
+    closeLinkBox();
     editing = null;
     placePill();
     if (cur.svg) {
@@ -295,6 +299,239 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     placePill();
     return true;
   }
+
+  // ── links while editing in place (PRESENTING_EDITING) ─────────────────────
+  // ⌘K / Ctrl+K, or the pill's link button, opens a small box under the
+  // selection: an address, ⏎ to apply, Esc to leave the words as they were.
+  // On a link already there it opens filled with its href, with Remove link
+  // and Open beside it. What the box accepts is links.js's rule, the one the
+  // ingredients label agrees with; the <a> goes into the element as an
+  // emphasis tag does, and is written by the same save (⏎, or leaving).
+  const LINK_ICON = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6.6 9.4a2.6 2.6 0 0 0 3.7 0l2.3-2.3a2.6 2.6 0 0 0-3.7-3.7l-.9.9"/><path d="M9.4 6.6a2.6 2.6 0 0 0-3.7 0L3.4 8.9a2.6 2.6 0 0 0 3.7 3.7l.9-.9"/></svg>';
+  /** The <a> the caret or the selection sits in, within `el`, or null; a bare caret counts. */
+  function linkAround(el) {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return null;
+    return wrappedIn(range, 'a', el);
+  }
+  /**
+   * The `target` (and its `rel`) the deck's own web links already carry, or
+   * null: a new link stays plain unless the deck chose otherwise elsewhere.
+   */
+  function deckLinkTarget() {
+    for (const sec of instance._sections) {
+      for (const a of sec.querySelectorAll('a[target][href]')) {
+        if (/^https?:/i.test(a.getAttribute('href'))) return { target: a.getAttribute('target'), rel: a.getAttribute('rel') };
+      }
+    }
+    return null;
+  }
+  let linkBox = null;   // { box, input, why, list, range, link, cur }
+  const HL = 'dl-link-target';
+  function openLinkBox() {
+    const cur = editing;
+    if (!cur || cur.code || cur.svg) return false;
+    if (linkBox) { closeLinkBox({ restore: true }); return true; }
+    const sel = window.getSelection();
+    if (!sel?.rangeCount || !cur.el.contains(sel.getRangeAt(0).commonAncestorContainer)) return false;
+    const link = linkAround(cur.el);
+    let range = sel.getRangeAt(0).cloneRange();
+    if (!link && range.collapsed) { toast('select some words to link first', 1800); return false; }
+    const caret = range.collapsed;
+    if (link && caret) { range = document.createRange(); range.selectNodeContents(link); }
+    const box = document.createElement('div');
+    box.className = 'dl-link';
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', link ? 'edit the link' : 'add a link');
+    const row = document.createElement('div');
+    row.className = 'dl-link-row';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'dl-link-url';
+    input.spellcheck = false;
+    input.autocomplete = 'off';
+    input.placeholder = 'https://…, a file beside the deck, or #3 for a slide';
+    input.setAttribute('aria-label', 'link address');
+    input.value = link?.getAttribute('href') ?? '';
+    const button = (cls, text, run, title) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = cls;
+      b.textContent = text;
+      if (title) b.title = title;
+      // the box keeps its caret: the press is not a move of the focus
+      b.addEventListener('mousedown', (ev) => ev.preventDefault());
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); run(); });
+      return b;
+    };
+    row.append(input, button('dl-link-apply', link ? 'Update' : 'Apply', () => applyLink(input.value), '⏎'));
+    box.append(row);
+    if (link) {
+      const acts = document.createElement('div');
+      acts.className = 'dl-link-acts';
+      acts.append(
+        button('dl-link-open', 'Open ↗', () => openLink(link), 'in a new tab'),
+        button('dl-link-remove', 'Remove link', () => removeLink(), 'the words stay'));
+      box.append(acts);
+    }
+    const why = document.createElement('div');
+    why.className = 'dl-link-why';
+    why.setAttribute('role', 'status');
+    why.setAttribute('aria-live', 'polite');
+    const list = document.createElement('div');
+    list.className = 'dl-link-slides';
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', 'slides of this deck');
+    box.append(why, list);
+    linkBox = { box, input, why, list, range, link, cur };
+    root.appendChild(box);
+    // under the words, kept on screen
+    const r = range.getBoundingClientRect();
+    const w = box.offsetWidth;
+    box.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
+    box.style.top = `${Math.max(8, Math.min(innerHeight - box.offsetHeight - 8, r.bottom + 10))}px`;
+    // the words the link is for stay marked while the caret is in the box
+    if (globalThis.CSS?.highlights && typeof globalThis.Highlight === 'function') CSS.highlights.set(HL, new Highlight(range));
+    input.addEventListener('input', () => { why.textContent = ''; box.classList.remove('refused'); input.removeAttribute('aria-invalid'); suggest(); });
+    box.addEventListener('keydown', (e) => {
+      // the box's keys are its own: the deck and the element hear none
+      e.stopPropagation();
+      const k = e.key;
+      if (k === 'Escape' || ((e.metaKey || e.ctrlKey) && !e.altKey && (k === 'k' || k === 'K'))) { e.preventDefault(); closeLinkBox({ restore: true }); }
+      else if (k === 'Enter' && e.target === input) { e.preventDefault(); enter(); }
+      else if ((k === 'ArrowDown' || k === 'ArrowUp') && list.children.length) { e.preventDefault(); moveSuggestion(k === 'ArrowDown' ? 1 : -1); }
+    });
+    // leaving the box for the page is leaving the edit, as a click away from
+    // the words always was; back into the words only closes the box
+    box.addEventListener('focusout', (e) => {
+      if (linkBox?.box !== box || box.contains(e.relatedTarget)) return;
+      closeLinkBox();
+      if (editing === cur && e.relatedTarget !== cur.el) saveInline();
+    });
+    syncHint();
+    pill?.remove(); pill = null;
+    input.focus();
+    input.select();
+    suggest();
+    return true;
+  }
+  function closeLinkBox({ restore = false } = {}) {
+    const lb = linkBox;
+    if (!lb) return;
+    linkBox = null;
+    lb.box.remove();
+    globalThis.CSS?.highlights?.delete?.(HL);
+    if (restore && editing === lb.cur) {
+      lb.cur.el.focus({ preventScroll: true });
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(lb.range);
+    }
+    placePill();
+  }
+  /** The slides offered while `#` or a number is typed: a few rows, one click each. */
+  function suggest() {
+    const { input, list } = linkBox;
+    const titles = instance._sections.map((sec, i) => slideTitle(sec, i, slideBody(sec)));
+    list.textContent = '';
+    for (const s of slideSuggestions(input.value, titles)) {
+      const row = document.createElement('div');
+      row.className = 'dl-link-slide';
+      row.setAttribute('role', 'option');
+      row.dataset.href = s.href;
+      const n = document.createElement('b');
+      n.textContent = `Slide ${s.slide}`;
+      const t = document.createElement('span');
+      t.textContent = s.title;
+      row.append(n, t);
+      row.addEventListener('mousedown', (ev) => { ev.preventDefault(); applyLink(s.href); });
+      list.appendChild(row);
+    }
+  }
+  function moveSuggestion(d) {
+    const rows = [...linkBox.list.children];
+    const at = rows.findIndex((r) => r.classList.contains('on'));
+    const next = at < 0 ? (d > 0 ? 0 : rows.length - 1) : (at + d + rows.length) % rows.length;
+    rows.forEach((r, i) => { r.classList.toggle('on', i === next); r.setAttribute('aria-selected', String(i === next)); });
+  }
+  // ⏎: the slide picked with the arrows, else what was typed, else (when what
+  // was typed is only the start of a slide link, `#`) the first slide offered
+  function enter() {
+    const { input, list } = linkBox;
+    const picked = list.querySelector('.dl-link-slide.on');
+    if (picked) return applyLink(picked.dataset.href);
+    const typed = linkTarget(input.value, { slides: instance._sections.length });
+    if (!typed.ok && list.firstElementChild) return applyLink(list.firstElementChild.dataset.href);
+    return applyLink(input.value);
+  }
+  /** Put `raw` on the words the box is for, or say in the box why it cannot go there. */
+  function applyLink(raw) {
+    const lb = linkBox;
+    if (!lb) return false;
+    const t = linkTarget(raw, { slides: instance._sections.length });
+    if (!t.ok) {
+      lb.why.textContent = t.why;
+      lb.box.classList.add('refused');
+      lb.input.setAttribute('aria-invalid', 'true');
+      lb.input.focus();
+      return false;
+    }
+    const { cur, link } = lb;
+    closeLinkBox({ restore: true });
+    const sel = window.getSelection();
+    let a = link?.isConnected ? link : null;
+    if (a) a.setAttribute('href', t.href);
+    else {
+      // a new link: links the words carried step out of it (no <a> in an
+      // <a>), and one the selection cut through keeps its other half
+      const range = sel.getRangeAt(0);
+      a = document.createElement('a');
+      a.setAttribute('href', t.href);
+      const like = t.kind === 'web' ? deckLinkTarget() : null;
+      if (like?.target) a.setAttribute('target', like.target);
+      if (like?.rel) a.setAttribute('rel', like.rel);
+      const frag = range.extractContents();
+      for (const inner of frag.querySelectorAll('a')) inner.replaceWith(...inner.childNodes);
+      a.appendChild(frag);
+      range.insertNode(a);
+      for (const e of cur.el.querySelectorAll('a')) if (e !== a && !e.textContent && !e.querySelector('img, svg, picture')) e.remove();
+      cur.el.normalize();
+    }
+    // the caret goes just after the link, as a document editor leaves it:
+    // typing carries on outside it, and an Enter in a list starts the next
+    // point instead of replacing the words that were just linked
+    const r = document.createRange();
+    r.setStartAfter(a); r.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r);
+    placePill();
+    return true;
+  }
+  /** Take the link off: its words stay where they were, selected. */
+  function removeLink() {
+    const lb = linkBox;
+    if (!lb?.link) return;
+    const a = lb.link;
+    closeLinkBox({ restore: true });
+    if (!a.isConnected) return;
+    const first = a.firstChild, last = a.lastChild;
+    a.replaceWith(...a.childNodes);
+    const sel = window.getSelection();
+    if (first && last) {
+      const r = document.createRange();
+      r.setStartBefore(first); r.setEndAfter(last);
+      sel.removeAllRanges(); sel.addRange(r);
+    }
+    lb.cur.el.normalize();
+    placePill();
+  }
+  /** Open the link in a new tab: the deck stays where it is. */
+  function openLink(a) {
+    const href = a.getAttribute('href') ?? '';
+    if (!linkTarget(href, { slides: instance._sections.length }).ok) { toast('that link is not one a deck can follow', 2400); return; }
+    window.open(new URL(href, location.href).href, '_blank', 'noopener');
+  }
   // ── editing has its own look (PRESENTING_EDITING) ───────────────────────
   // "Selected" and "editing its text" looked the same, one accent outline, so
   // nothing said that keys now went into the words. Editing is tinted (CSS
@@ -310,6 +547,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       hint.setAttribute('aria-hidden', 'true');   // the keys are the element's; this only says them
       document.body.appendChild(hint);
     }
+    hint.style.display = linkBox ? 'none' : '';
     hint.textContent = cur.code ? `${IS_MAC ? '⌘⏎' : 'Ctrl+Enter'} keep · Esc cancel` : '⏎ keep · Esc cancel';
     const r = (cur.svg ? cur.input : cur.el).getBoundingClientRect();
     hint.style.left = `${r.left + r.width / 2}px`;
@@ -334,18 +572,29 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
         const b = document.createElement('button');
         b.type = 'button';
         b.className = `fmt-${tag}`;
+        b.dataset.tag = tag;
         b.textContent = label;
         b.title = `${tag} — ⌘${key.toUpperCase()} / Ctrl+${key.toUpperCase()}`;
         // mousedown, not click: a click would move the selection the pill is about
         b.addEventListener('mousedown', (ev) => { ev.preventDefault(); toggleEmphasis(tag); });
         pill.appendChild(b);
       }
+      // the link: the same box ⌘K opens (below), lit when the selection is in one
+      const a = document.createElement('button');
+      a.type = 'button';
+      a.className = 'fmt-a';
+      a.dataset.tag = 'a';
+      a.title = 'link — ⌘K / Ctrl+K';
+      a.setAttribute('aria-label', 'link');
+      a.innerHTML = LINK_ICON;
+      a.addEventListener('mousedown', (ev) => { ev.preventDefault(); openLinkBox(); });
+      pill.appendChild(a);
       document.body.appendChild(pill);
     }
     const rect = range.getBoundingClientRect();
     pill.style.left = `${Math.max(48, rect.left + rect.width / 2)}px`;
     pill.style.top = `${Math.max(40, rect.top - 8)}px`;
-    for (const b of pill.children) b.classList.toggle('on', !!wrappedIn(range, b.className.slice(4), cur.el));
+    for (const b of pill.children) b.classList.toggle('on', !!wrappedIn(range, b.dataset.tag, cur.el));
   }
   document.addEventListener('selectionchange', () => { if (editing) placePill(); });
 
@@ -592,14 +841,38 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveInline(); }
     else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
+    // ⌘K / Ctrl+K is the palette's everywhere else; in the words, it is the link
+    else if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      openLinkBox();
+    }
     else if ((e.metaKey || e.ctrlKey) && !e.altKey && EMPHASIS[e.key?.toLowerCase?.()]) {
       e.preventDefault();
       toggleEmphasis(EMPHASIS[e.key.toLowerCase()]);
     }
   }, true);
   root.addEventListener('focusout', (e) => {
-    if (editing && e.target === editing.el) saveInline();
+    // into the link box is not leaving: the box ends the edit itself if it is left
+    if (editing && e.target === editing.el && !linkBox) saveInline();
   });
+
+  // ── a link on a slide does not take the deck away (PRESENTING_EDITING) ────
+  // In write mode a click selects and a double-click edits: the first click
+  // of either used to follow the link, and the tab left the deck mid-edit.
+  // While editing is on, a plain click on a slide's link stays on the deck;
+  // ⌘-click (Ctrl+click) still opens it in a new tab, as the browser does.
+  // Locked, or presenting without a server, links work as they always did.
+  let toldLinks = false;
+  root.addEventListener('click', (e) => {
+    const a = e.target?.closest?.('a[href]');
+    if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (!a.closest('.decklight-stage section') || !available() || !editmode.elementEditOn?.()) return;
+    e.preventDefault();
+    if (!toldLinks && !editing) {
+      toldLinks = true;
+      toast(`links do not open while editing: ${IS_MAC ? '⌘-click' : 'Ctrl+click'} opens one in a new tab`, 3200);
+    }
+  }, true);
 
   // ── drop a picture onto the slide ─────────────────────────────────────────
   // A file dropped on the deck is ALWAYS caught, picture or not, write mode or

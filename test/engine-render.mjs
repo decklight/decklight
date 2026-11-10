@@ -36,6 +36,7 @@ export const MODES = [
   'bgindex',
   'linedraw', 'dasheddraw', 'drawfill', 'nestedfills', 'rolefills', 'dstemplates', 'dsedit', 'concepts', 'conceptsfind',
   'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect',
+  'links',
 ];
 
 // A typo in a mode name would otherwise run NOTHING and exit 0, which is the
