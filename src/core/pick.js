@@ -37,6 +37,10 @@ export const injectedIn = (n, svg) => {
 /** The node a click on `clicked` selects inside the top-level block `top`. */
 export function pickNode(top, clicked) {
   if (!top || !clicked?.closest || !top.contains(clicked)) return top;
+  // a picture in a figure or a column is the picture (PRESENTING_EDITING):
+  // what you resize, caption or make the background is it, not its box
+  const img = clicked.closest('img');
+  if (img && img !== top && top.contains(img) && !img.closest('svg, [data-chart], .terminal')) return img;
   const svg = clicked.closest('svg');
   if (!svg || !top.contains(svg) || svg.closest('[data-chart], .terminal')) return top;
   if (svg.hasAttribute?.('data-ds-injected')) return top;

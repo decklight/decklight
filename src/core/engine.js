@@ -24,6 +24,7 @@ import { createAuthoring } from './authoring.js';
 import { createEditBar } from './editbar.js';
 import { createElementMove } from './element-move.js';
 import { createAddContent } from './add-content.js';
+import { createPictures } from './pictures.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
 import { createOnboarding } from './onboarding.js';
@@ -3606,8 +3607,25 @@ export function init(userConfig = {}) {
   // Add ▾ (add-content.js): a heading, words, a list, a table, code, two
   // columns, a diagram or a chart onto the slide, in place and ready to type
   const addContent = createAddContent({ root, instance, editmode, authoring, editbar, toast, debugLog });
+  // Pictures after the drop (pictures.js, PRESENTING_EDITING): resize, alt,
+  // replace, caption, and the slide's background, each shown at once. A
+  // background is the engine's to draw: its layer again for the one slide,
+  // and the bleed behind the stage when that slide is the one on screen.
+  const pictures = createPictures({
+    root, instance, editmode, editbar, authoring, toast, debugLog,
+    inspector: () => inspector,
+    refreshBackground: (sec) => {
+      const n = instance._sections.indexOf(sec) + 1;
+      setupMedia([sec], { printMode });
+      if (n === instance.state.slide) bleedNow(0);
+      if (n) relayoutSlide(sec, n);
+    },
+  });
+  editmode.setPictures(pictures);
+  instance._pictures = pictures;
   inspector = createInspector({
     root, overlays, toast, copyText,
+    pictures: () => pictures,
     // the Colors tab's Concept row: the deck's concepts, and an attach in place
     concepts: () => (conceptTools ? {
       names: () => conceptsOn(stage, config.concepts ?? {}).map((c) => c.name),

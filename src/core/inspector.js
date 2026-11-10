@@ -56,6 +56,7 @@ export function createInspector({
   instance, stage, editmode, editbar, review, narration, sources,
   concepts = () => null,
   brand = () => null,
+  pictures = () => null,
 }) {
   const dock = createDock({
     root,
@@ -301,9 +302,16 @@ export function createInspector({
     if (node.tagName === 'IMG') {
       const raw = node.getAttribute('src') ?? '';
       const src = raw.startsWith('data:') ? 'inline' : raw.split(/[?#]/)[0].split('/').pop() || 'inline';
-      rows.push(row('image', `${src} · ${node.naturalWidth}×${node.naturalHeight}`));
+      // in write mode the picture is changed here (PRESENTING_EDITING): its
+      // alt text in place, and Replace… for another file at the same size
+      const pics = pictures()?.editable?.() ? pictures() : null;
+      const image = row('image', `${src} · ${node.naturalWidth}×${node.naturalHeight}`);
+      if (pics) image.button = { label: 'Replace…', title: 'another picture in its place: its size and alt text stay', run: () => pics.replace(node) };
+      rows.push(image);
       const alt = (node.getAttribute('alt') ?? '').trim();
-      rows.push(row('alt', alt || 'missing', alt ? 'ok' : 'warn'));
+      const altRow = row('alt', alt || 'missing', alt ? 'ok' : 'warn');
+      if (pics) altRow.field = { value: alt, placeholder: 'what the picture shows', label: 'alt text', save: (v) => pics.setAlt(node, v) };
+      rows.push(altRow);
     }
     const svgRoot = node.tagName === 'svg' ? node : null;
     if (svgRoot?.getAttribute('viewBox')) rows.push(row('viewBox', svgRoot.getAttribute('viewBox')));
@@ -618,11 +626,20 @@ export function createInspector({
         }));
       }
       if (r.look) dd.append(lookOf(r.look));
-      if (r.act) {
+      if (r.field) {
+        // an empty one still says what it is short of, as the read-only row does
+        if (!r.field.value) dd.append(Object.assign(document.createElement('span'), { className: 'ins-value', textContent: r.value }));
+        dd.append(fieldOf(r.field));
+      } else if (r.act) {
         const b = Object.assign(document.createElement('button'), { type: 'button', className: 'ins-value ins-act', textContent: r.value, title: r.act.title });
         b.addEventListener('click', (e) => { e.stopPropagation(); r.act.run(); });
         dd.append(b);
       } else dd.append(Object.assign(document.createElement('span'), { className: 'ins-value', textContent: r.value }));
+      if (r.button) {
+        const b = Object.assign(document.createElement('button'), { type: 'button', className: 'ins-btn', textContent: r.button.label, title: r.button.title });
+        b.addEventListener('click', (e) => { e.stopPropagation(); r.button.run(); });
+        dd.append(b);
+      }
       if (r.extra) dd.append(Object.assign(document.createElement('span'), { className: 'ins-extra', textContent: r.extra }));
       dd.dataset.key = r.key;
       grid.append(dt, dd);
@@ -641,6 +658,32 @@ export function createInspector({
     ].filter(Boolean).join(' · ');
     card.append(foot);
     if (!target) fetchAsync(n);
+  }
+
+  /**
+   * A value edited in place (`row.field`: `{ value, placeholder, label,
+   * save(v) }`): ⏎ saves, Esc puts the value back, and its keys are its own,
+   * so the deck and the panel hear neither. Leaving it with a change saves
+   * too, as an inline text edit does.
+   */
+  function fieldOf(f) {
+    const input = Object.assign(document.createElement('input'), { type: 'text', className: 'ins-field', value: f.value, placeholder: f.placeholder ?? '' });
+    input.setAttribute('aria-label', f.label ?? 'value');
+    input.spellcheck = true;
+    let settled = false;
+    const commit = () => {
+      if (settled || input.value.trim() === f.value) return;
+      settled = true;
+      input.disabled = true;
+      Promise.resolve(f.save(input.value)).finally(() => { input.disabled = false; settled = false; });
+    };
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); commit(); input.blur(); }
+      else if (e.key === 'Escape') { e.preventDefault(); settled = true; input.value = f.value; input.blur(); settled = false; }
+    });
+    input.addEventListener('blur', () => commit());
+    return input;
   }
 
   /** What a colour row shows beside its value: a chip, a ring, or `Aa` in the text's colour on its background. */

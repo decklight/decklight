@@ -2374,6 +2374,7 @@ export function createEditMode({
       rows.push({ label: 'Move slide up', run: () => { closeElementMenu(); slideOp('up'); } });
       rows.push({ label: 'Move slide down', run: () => { closeElementMenu(); slideOp('down'); } });
       rows.push({ label: 'Delete this slide', run: () => { closeElementMenu(); slideOp('delete'); } });
+      for (const p of pictures?.slideRows(menuTarget.slide) ?? []) rows.push({ label: p.label, run: () => { closeElementMenu(); p.run(); } });
     } else if (menuView === 'newslide') {
       // a new slide of a kind (PRESENTING_EDITING): a short choice, its title then typed in place
       rows.push({ label: '← back', back: true, run: () => { menuView = 'slide'; renderElementMenu(); } });
@@ -2401,6 +2402,7 @@ export function createEditMode({
       if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting({ group: 'text' }); } });
       rows.push({ label: 'Colors…', run: () => openInspect('colors') });
       rows.push({ label: 'Type…', run: () => openInspect('type') });
+      for (const p of pictures?.elementRows(menuTarget) ?? []) rows.push({ label: p.label, run: () => { closeElementMenu(); p.run(); } });
       // the format painter: this shape's look onto another (style-clip.js)
       if (styleClip) {
         const target = menuTarget;
@@ -2624,6 +2626,7 @@ export function createEditMode({
   let styleClip = null;   // copy style / paste style (style-clip.js), handed in by the engine
   let elementMove = null;   // moving things within a slide (element-move.js), handed in by the engine
   let tableRows = null;   // the table menu's rows for a right-clicked cell (list-session.js), handed in by authoring.js
+  let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
   let editConcepts = null;   // the engine's door to Concept colors… (`fn(name)`), for the Concept ▸ submenu
   /**
    * Where a shape's concept lives in the FILE: `{ slide, index, path, tag,
@@ -4301,6 +4304,8 @@ export function createEditMode({
     elementMove: () => elementMove,
     /** The rows a right-click on a table's cell adds to the element menu: `fn(target, close)` → rows. */
     setTableRows: (fn) => { tableRows = fn; },
+    /** The engine's picture tools (pictures.js): the element menu's picture rows and Slide ▸'s background rows. */
+    setPictures: (p) => { pictures = p; },
     /** The door to the concept list (Concept colors…), opened on a concept: the submenu's Edit concepts…. */
     setEditConcepts: (fn) => { editConcepts = fn; },
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
