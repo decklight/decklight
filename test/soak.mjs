@@ -1230,7 +1230,10 @@ try {
   await step('no-trust mode serves the deck and nothing else', async () => {
     presentSrv = await startServer(['deck.html', '--no-trust', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
       { timeoutMs: 15000 });
-    await until('the ingredients label', () => /ingredients/.test(presentSrv.log()), { ms: 5000 });
+    // the label prints its heading first and its verdict on the runtime after:
+    // wait for the verdict, not the heading (a slow runner read the log
+    // between the two), and say what the log held if it never comes
+    await until('the label\'s verdict on the runtime', () => vouchesForRuntime(presentSrv.log()), { ms: 8000 }).catch(() => {});
     must(vouchesForRuntime(presentSrv.log()), `the label does not vouch for the runtime: ${presentSrv.log()}`);
     must(!presentSrv.log().includes('serving strict'),
       'present went strict on a deck decklight itself wrote');
