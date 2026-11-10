@@ -99,22 +99,30 @@ itself (`<script src="decklight/dist/decklight.js">` and a
 
 ## What's in the box
 
-- **Editing in the browser.** In write mode, double-click any text (or a
-  code block, edited as plain source) to change it, drop a picture onto a
-  slide to add it, and add, duplicate, move or delete slides from the palette
-  or the right-click menu. Inside a diagram, a click selects one shape, wire
-  or label: `I` opens the inspector on it, with a Colors tab and a Type tab
-  (size, weight, the theme's font role, italic, alignment) that save as you
-  pick, and a picker that hovers shapes the way DevTools does, each boxed in
-  the theme's accent; a double-click retypes a label in place and `⌫` removes
-  just that shape. The notes, the inspector, the comments, the sources and the
-  agent ask share one panel beside the slide, with a tab for each, wherever
-  you left it. Every edit lands in the file and
-  `⌘Z` (`Ctrl+Z`) takes it back. `decklight check`
+- **Editing in the browser.** In write mode the slide is the editor, and
+  small changes never need the HTML or an agent. Double-click any text to
+  change it (`⌘B`, `⌘I`, `⌘E` and `⌘K` for bold, italic, code and a link); in
+  a list `⏎` starts the next point, `⇥` nests it and `⌃⇧↑` / `⌃⇧↓` (Control-Shift
+  on every platform) moves it,
+  and in a table `⇥` walks the cells. The bar's **Add** puts a heading, text,
+  a list, a quote, a table, code, two columns, a diagram or a chart on the
+  slide, ready to type, and a new slide comes as a kind (title and bullets,
+  two columns, a section title…). Select an element to move it
+  (`⌃⇧↑` / `⌃⇧↓`, or drag its handle), duplicate it (`⌘D`) or remove it (`⌫`);
+  a right-click has the rest, with a row for a table, a picture or a wire
+  where one is selected. Drop a picture and drag its corners to size it, give
+  it alt text, a caption, or make it the slide's background. A chart's
+  numbers are a grid in the inspector's Data tab. In a diagram, drag a shape
+  to move it, its corners to resize it, and from a dot on its side to another
+  shape to connect them: the arrow stays attached when either moves, and
+  guides line shapes up as you drag. `I` opens the inspector on whatever is
+  selected, with Colors and Type tabs that save as you pick. Every edit lands
+  in the file at once, and `⌘Z` (`Ctrl+Z`) takes it back. `decklight check`
   reports what an author or an agent would otherwise only see by looking:
   clipped slides, crowded ones, missing images, notes whose [click] count
-  disagrees with the builds. In the deck, the palette's *Review: Check deck…* lists the
-  same in one docked panel, the file's findings included, each with its quick fix.
+  disagrees with the builds, a wire that names a shape its diagram lacks. In
+  the deck, the palette's *Review: Check deck…* lists the same in one docked
+  panel, each finding with its quick fix.
 - **Chapters.** `data-module` marks chapters, and `G` shows the outline.
 - **Builds.** `data-build` on a container makes each child a step. The layout
   never jumps.

@@ -155,9 +155,9 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
       <h3>Editing this deck</h3>
       <p class="wel-lead">This deck is open in write mode (<code>decklight &lt;deck.html&gt;</code>): what you change here is written to the file, snapshotted, and taken back with <b>${UNDO_CHORD}</b>.</p>
       <table>
-        <tr><td>double-click</td><td><b>Edit any text</b> in place; <b>⌘B</b>, <b>⌘I</b>, <b>⌘E</b> emphasise a selection; <b>⏎</b> keeps it, <b>Esc</b> gives it up.</td></tr>
-        <tr><td>drop</td><td><b>Add a picture</b> by dropping a file onto the slide.</td></tr>
-        <tr><td>bar</td><td><b>Editing</b> is on: a bar names every door (Text, Picture, Layout, Notes, Slide…); a click selects an element, ⌫ removes it; <b>Lock</b> turns changes off.</td></tr>
+        <tr><td>double-click</td><td><b>Edit any text</b> in place; <b>⌘B</b>, <b>⌘I</b>, <b>⌘E</b> emphasise a selection and <b>⌘K</b> links it; in a list <b>⏎</b> starts the next point, <b>⇥</b> nests it, <b>⌃⇧↑ ↓</b> moves it; <b>⌘⏎</b> keeps, <b>Esc</b> gives it up.</td></tr>
+        <tr><td>bar</td><td><b>Editing</b> is on: the bar names every door, <b>Add</b> puts a heading, a list, a table, a chart or a diagram on the slide; a click selects an element, <b>⌃⇧↑ ↓</b> moves it, <b>⌘D</b> duplicates it, <b>⌫</b> removes it, a right-click has the rest; <b>Lock</b> turns changes off.</td></tr>
+        <tr><td>drag</td><td><b>Drop a picture</b> onto the slide and drag its corners to size it; in a diagram drag a shape to move it, and from a dot on its side to another shape to <b>connect</b> them.</td></tr>
         <tr><td>S · O</td><td><b>S</b> opens the notes drawer, which saves itself; <b>O</b> is the overview, where slides are dragged, added and deleted.</td></tr>
         <tr><td>A</td><td><b>Describe a change</b> and an AI agent makes it; ${UNDO_CHORD} takes it back too.</td></tr>
         <tr><td>K · /</td><td><b>K</b> commits what changed (the chip at the corner keeps count); <b>/</b> lists everything else.</td></tr>
