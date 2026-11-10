@@ -6924,6 +6924,23 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.speedSteps = was === '1×' && up === '1.25×' && rate() === '1×';
         r.captionsIsSwitch = rowOf(/^Captions/)?.getAttribute('role') === 'switch'
           && !!rowOf(/^Captions/)?.querySelector('.narr-switch');
+        // Caption size shows only while captions are on, in named steps that
+        // ← → turn, and it sizes the captions themselves
+        r.noSizeWhileOff = !rowOf(/^Caption size/);
+        rowOf(/^Captions/)?.click();
+        await settle();
+        const sizeRow = () => rowOf(/^Caption size/);
+        const sizeOf = () => sizeRow()?.querySelector('.narr-step-val')?.textContent;
+        const sizeWas = sizeOf();
+        sizeRow()?.dispatchEvent(new MouseEvent('mouseenter'));
+        press('ArrowRight');
+        await settle();
+        r.captionSizeSteps = sizeWas === 'medium' && sizeOf() === 'large'
+          && document.querySelector('.decklight-captions')?.style.getPropertyValue('--cap-size') === '1.3';
+        press('ArrowLeft');
+        await settle();
+        rowOf(/^Captions/)?.click();   // off again, as the rest of this mode expects
+        await settle();
         // → on the live voice opens its card, ← comes back
         live()?.dispatchEvent(new MouseEvent('mouseenter'));   // rows select on hover
         press('ArrowRight');
@@ -6971,7 +6988,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.nDoesNothing = !document.querySelector('.decklight-narr');
         r.PASS = r.vOpensPanel && r.panelOffersRecording && r.panelOffersCaptions
           && r.panelOffersSpeed && r.silentFirst && r.liveHasManage
-          && r.liveSectionSaysHow && r.liveTaggedAi && r.nowSaysWho && r.speedSteps && r.captionsIsSwitch && r.arrowOpensCard && r.arrowComesBack
+          && r.liveSectionSaysHow && r.liveTaggedAi && r.nowSaysWho && r.speedSteps && r.captionsIsSwitch && r.noSizeWhileOff && r.captionSizeSteps && r.arrowOpensCard && r.arrowComesBack
           && r.recordViewLists && r.blockedRowSaysWhy && r.blockedRowKeptThePanel && r.noCommands
           && r.escapeGoesBack && r.vCloses && r.nDoesNothing;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
