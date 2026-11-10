@@ -32,9 +32,9 @@
  * itself, at once, and every other page of the deck is told and reloads.
  */
 
-import { boundedFetch } from './devmode.js';
 import { pathFrom } from './colorpicker.js';
 import { imageFiles } from './authoring.js';
+import { createEditCommit } from './edit-commit.js';
 
 /** The bounds the server writes a width within (cli/edit.mjs PICTURE_WIDTH), in deck units. */
 export const PICTURE_MIN = 16;
@@ -66,28 +66,13 @@ export function dragWidth({ w0, dx, dy, perX, perY, east, south, max }) {
 }
 
 export function createPictures({
-  root, instance, editmode, editbar, authoring, toast, debugLog = () => {},
-  refreshBackground = () => {}, inspector = () => null,
+  root, instance, editmode, editbar, authoring, toast, debugLog = () => {}, inspector = () => null,
 }) {
   const base = () => editmode.base?.() ?? '';
-  const pageId = () => editmode.pageId?.() ?? null;
   const say = (what) => editmode.cannot?.(what) ?? `${what} needs write mode`;
-
-  /** One write, tracked for the undo chord, its counts noted for the bar. */
-  function post(path, body) {
-    const p = (async () => {
-      const res = await boundedFetch(base() + path, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...body, quiet: true, from: pageId() }),
-      });
-      const j = await res.json().catch(() => ({}));
-      editmode.noteHistory?.(j);
-      if (!res.ok || j.ok === false) throw new Error(j.error || `the edit server answered ${res.status}`);
-      return j;
-    })();
-    editmode.trackWrite?.(p);
-    return p;
-  }
+  // one quiet write each, tracked for the undo chord (edit-commit.js)
+  const commit = createEditCommit(editmode);
+  const post = commit.post;
 
   /** A picture file to the deck's assets/, through the drop's own route: its path beside the deck. */
   async function upload(file) {
@@ -120,7 +105,9 @@ export function createPictures({
   }
 
   /** The slide was changed in place: rescanned and laid out again, as a reload would have (engine.js). */
-  const announce = (slide, el) => root.dispatchEvent(new CustomEvent('decklight:content', { detail: { slide, el } }));
+  const announce = (slide, el) => instance.refreshSlide?.(instance._sections?.[slide - 1], { scan: el });
+  /** A background is the engine's to draw: its layer again for the one slide, and the bleed when it is on screen. */
+  const refreshBackground = (sec) => instance.refreshSlide?.(sec, { background: true, scan: false });
 
   // ── the handles ─────────────────────────────────────────────────────────
   let img = null;        // the picture wearing them
@@ -311,7 +298,7 @@ export function createPictures({
       return j;
     } catch (e) {
       undo();
-      toast(`the picture was not changed: ${String(e.message || e)}`, 6000);
+      toast(`the picture was not changed: ${commit.why(e)}`, 6000);
       return null;
     }
   }
@@ -342,7 +329,7 @@ export function createPictures({
         pic.decode?.().then(() => { announce(addressOf(pic)?.slide ?? instance.state.slide, pic); inspector()?.refresh?.(); }, () => {});
       }
     } catch (e) {
-      toast(`could not replace the picture: ${String(e.message || e)}`, 6000);
+      toast(`could not replace the picture: ${commit.why(e)}`, 6000);
     }
   }
 
@@ -361,7 +348,7 @@ export function createPictures({
       if (sec) refreshBackground(sec);
       toast(`slide ${slide}'s background is ${src}`, 2000);
     } catch (e) {
-      toast(`the background was not set: ${String(e.message || e)}`, 6000);
+      toast(`the background was not set: ${commit.why(e)}`, 6000);
     }
   }
   async function removeBackground(slide = instance.state.slide) {
@@ -375,7 +362,7 @@ export function createPictures({
       refreshBackground(sec);
       toast(`slide ${slide}'s background removed`, 1800);
     } catch (e) {
-      toast(`the background was not removed: ${String(e.message || e)}`, 6000);
+      toast(`the background was not removed: ${commit.why(e)}`, 6000);
     }
   }
   async function toBackground(pic) {
@@ -388,11 +375,10 @@ export function createPictures({
       // what the file lost, the page loses: the picture, or the figure it emptied
       (Array.isArray(j.removed) && j.removed.length < at.path.length ? pic.parentElement : pic).remove();
       at.sec.setAttribute('data-background-image', j.src);
-      refreshBackground(at.sec);
-      announce(at.slide, at.sec);
+      instance.refreshSlide?.(at.sec, { background: true });
       toast(`the picture is slide ${at.slide}'s background now`, 2200);
     } catch (e) {
-      toast(`the picture did not become the background: ${String(e.message || e)}`, 6000);
+      toast(`the picture did not become the background: ${commit.why(e)}`, 6000);
     }
   }
 
@@ -422,7 +408,7 @@ export function createPictures({
         sel.addRange(range);
       }
     } catch (e) {
-      toast(`no caption added: ${String(e.message || e)}`, 6000);
+      toast(`no caption added: ${commit.why(e)}`, 6000);
     }
   }
 

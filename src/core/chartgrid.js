@@ -23,6 +23,7 @@ import {
 } from './chartdata.js';
 import { renderChart } from './charts.js';
 import { boundedFetch } from './devmode.js';
+import { createEditCommit } from './edit-commit.js';
 import { holdDraft } from './drafts.js';
 import { UNDO_CHORD } from './undo-chord.js';
 
@@ -52,6 +53,7 @@ const button = (cls, text, title, run) => {
  */
 export function createChartGrid({ chart, target, ordinal, editmode, toast = () => {}, redraw = renderChart, openHtml = null }) {
   const em = editmode;
+  const commit = createEditCommit(em ?? {});
   const { slide, index } = target;
   const el = h('div', 'dl-chartgrid');
   el.dataset.slide = String(slide);
@@ -145,27 +147,19 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     status();
     const p = queue.then(() => send(want)).then(() => { failed = null; }, (e) => {
       dirty = true;   // the next edit, or leaving the next cell, tries again
-      failed = `not saved: ${em?.offline?.() ? 'the edit server is not answering' : String(e.message || e)}`;
+      failed = `not saved: ${commit.why(e)}`;
       toast(`the chart's data was ${failed} (it is still on the slide; the next edit tries again)`, 6000);
     }).finally(() => { saving--; status(); });
     queue = p;
-    em?.trackWrite?.(p);
-    return p;
+    return commit.track(p);
   }
   async function send(want) {
-    const base = em.base();
-    const res = await boundedFetch(`${base}/deck/edit/element/source?slide=${slide}&index=${index}`);
+    const res = await boundedFetch(`${em.base()}/deck/edit/element/source?slide=${slide}&index=${index}`);
     const j = await res.json().catch(() => ({}));
     if (!res.ok || typeof j.html !== 'string') throw new Error(j.error || String(res.status));
     const html = rewriteChart(j.html, ordinal, want);
     if (html === j.html) return;
-    const post = await boundedFetch(`${base}/deck/edit/element/content`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ slide, index, html, quiet: true, from: em.pageId?.() ?? null }),
-    });
-    const r = await post.json().catch(() => ({}));
-    em.noteHistory?.(r);
-    if (!post.ok) throw new Error(r.error || String(post.status));
+    await commit.send('/deck/edit/element/content', { slide, index, html });
   }
 
   /** A button's edit: refused with a word, else shown, the grid rebuilt, and written as its own burst. */

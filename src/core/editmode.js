@@ -39,6 +39,7 @@ import { hljs } from '../code/code.js';
 import { UNDO_CHORD, undoSaid } from './undo-chord.js';
 import { markdownNodes } from './mdtext.js';
 import { aiIcon } from './aiicon.js';
+import { createEditCommit } from './edit-commit.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
@@ -1707,6 +1708,11 @@ export function createEditMode({
    * slide follows unless it holds something unsaved.
    */
   const PAGE_ID = Math.random().toString(36).slice(2, 12);   // which page a notes save came from
+  // the in-place writes made here, the way every page module makes one (edit-commit.js)
+  const commit = createEditCommit({
+    base: () => editBase, pageId: () => PAGE_ID, offline: () => offline,
+    noteHistory: (j) => noteHistory(j), trackWrite: (p) => trackWrite(p), reloadWhenSafe: (why) => reloadWhenSafe(why),
+  });
   function patchNotes(slide, asideInner, from = null) {
     const sec = instance._sections?.[slide - 1];
     if (!sec || typeof asideInner !== 'string') return;
@@ -2560,12 +2566,7 @@ export function createEditMode({
     if (!editAvailable) { toast(cannot('editing slides'), 3200); return; }
     const inPlace = canDoInPlace(op, slide);
     try {
-      const res = await writeFetch(editBase + '/deck/edit/slide', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ op, slide, ...(op === 'move' ? { to } : {}), ...(kind ? { kind } : {}), ...(inPlace ? { quiet: true, from: PAGE_ID } : {}) }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || String(res.status));
+      const j = await commit.post('/deck/edit/slide', { op, slide, ...(op === 'move' ? { to } : {}), ...(kind ? { kind } : {}) }, { quiet: inPlace });
       const said = {
         new: kind ? `new slide (${NEW_SLIDE_KINDS.find(([k]) => k === kind)?.[1].toLowerCase() ?? kind}) added after ${slide}` : `new slide added after ${slide}`,
         duplicate: `slide ${slide} duplicated`,
@@ -2579,8 +2580,7 @@ export function createEditMode({
         try { applySlideOp(op, slide, to, j); placed = true; } catch (e) {
           // the page could not follow: the file is right, so the page reloads to it
           debugLog('edit', `slide ${op} in place failed (${String(e.message || e)}) — reloading`);
-          if (Number.isInteger(j.slide)) location.hash = `#/${j.slide}/0`;
-          reloadWhenSafe(`slide ${op} — the page could not follow it in place`);
+          commit.reload(`slide ${op} — the page could not follow it in place`, { slide: j.slide });
         }
       } else if (Number.isInteger(j.slide)) location.hash = `#/${j.slide}/0`;
       // a new slide of a kind has its title typed next (add-content.js):
@@ -2686,17 +2686,7 @@ export function createEditMode({
    */
   async function writeConcepts(targets, concept) {
     const items = targets.map(({ slide, index, path, tag }) => ({ slide, index, path, tag }));
-    const p = (async () => {
-      const res = await writeFetch(editBase + '/deck/edit/element/concepts', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ items, concept, quiet: true, from: PAGE_ID }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j.ok) throw new Error(j.error || `the edit server answered ${res.status}`);
-      return j;
-    })();
-    trackWrite(p);
-    return p;
+    return commit.post('/deck/edit/element/concepts', { items, concept });
   }
   async function postConcept({ slide, index, path, tag, concept }, name) {
     try {
@@ -2747,15 +2737,7 @@ export function createEditMode({
    * open); every other page of the deck is told, and reloads. One POST and one
    * undo entry per pick.
    */
-  async function saveStyles({ slide, index, edits, concept = null }) {
-    const res = await writeFetch(editBase + '/deck/edit/element/style', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ slide, index, edits, concept, quiet: true, from: PAGE_ID }),
-    });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(j.error || res.status);
-    return j;
-  }
+  const saveStyles = ({ slide, index, edits, concept = null }) => commit.send('/deck/edit/element/style', { slide, index, edits, concept });
 
   // "Edit content (HTML)" — the element's raw outerHTML, read fresh from the
   // FILE (never the live DOM: the engine mutates elements in place, so what
@@ -4325,7 +4307,7 @@ export function createEditMode({
     /** The engine's door to the inspector: `fn(target, tab)` for the menu's Inspect, Colors… and Type…. */
     setInspect: (fn) => { inspectHook = fn; },
     /** A pick from the inspector's Colors or Type tab, written in place. */
-    saveStyles: (body) => { const p = saveStyles(body); trackWrite(p); return p; },
+    saveStyles: (body) => commit.track(saveStyles(body)),
     /** Take a shape's concept off (the Colors tab's notice): in place through the concept tools, else with a reload. */
     detachConcept: (t) => (conceptTools && t.el ? conceptTools.attach([t.el], null) : postConcept({ ...t, concept: null }, null)),
     /** Where a shape's concept lives in the file (`conceptTarget`), and the in-place batch write (`writeConcepts`). */
