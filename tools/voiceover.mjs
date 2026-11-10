@@ -23,13 +23,15 @@
 //   chirp  — Chirp 3: HD on the Cloud Text-to-Speech API. Same 30 star-named
 //            voices as gemini, ~1s a sentence, and 1M characters a month free.
 //            No --style: Chirp has no delivery-instruction channel.
-//   gemini — gemini-2.5-{pro,flash}-tts on Vertex AI. The only engine that
-//            honors --style (default: warm, welcoming battle-hardened senior
-//            engineer). No free tier, and pro is slow.
+//   gemini — gemini-2.5-{pro,flash}-tts on Vertex AI. Honors --style as a
+//            delivery instruction (default: warm, welcoming battle-hardened
+//            senior engineer). No free tier, and pro is slow.
 //   elevenlabs — your ElevenLabs account's own voices, cloned ones included.
 //            --voice takes the voice's NAME (or its id); omit it and the first
 //            of YOUR voices is used, which is the point of the engine. Needs
-//            $ELEVENLABS_API_KEY. No --style. --tts-format mp3 if your plan has
+//            $ELEVENLABS_API_KEY. On v3/v4, --style is a short audio-tag cue
+//            ("warmly"), cut at a word past 40 characters, and said so at the
+//            start; the default tone goes as its cue. --tts-format mp3 if your plan has
 //            no PCM output — but this tool wants WAV (--keep-wav feeds
 //            tools/lipsync.mjs), so pcm is the sane choice here.
 //   Cloud engines: --project or $GOOGLE_CLOUD_PROJECT, auth via
@@ -54,6 +56,7 @@ import { resolve, join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createEngine } from './tts-engines.mjs';
 import { createTtsCache } from './tts-cache.mjs';
+import { cueFor, cutNote } from './tone-cue.mjs';
 import { argReader } from './args.mjs';
 import { sectionBodies } from './deck-html.mjs';
 import { parseSlideRange } from './video.mjs';
@@ -150,7 +153,7 @@ const track = prev?.engine === engine ? prev : null;   // its header speaks for 
 // and undefined means "the first of yours", which is what you came for
 const voice = opt('--voice', track ? track.voice : engine === 'piper' ? 'en_US-ryan-high'
   : engine === 'elevenlabs' ? undefined : 'Alnilam');
-const style = opt('--style', track?.style ??
+let style = opt('--style', track?.style ??
   'Read in a warm, welcoming tone, like a friendly battle-hardened senior ' +
   'engineer who is still curious about new technology.');
 // the model is identity only where the engine has more than one per voice
@@ -173,6 +176,15 @@ try {
 } catch (e) {
   console.error(e.message);
   process.exit(1);
+}
+
+// A model that reads audio tags takes a tone as a short cue. A built-in
+// tone's directive is named by its cue, so the clips are the ones the deck's
+// live voice caches under it; a track keeps the style it was voiced with.
+if (tts.audioTags) {
+  if (opt('--style') != null || track?.style == null) style = cueFor(style);
+  const cut = cutNote(style);
+  if (cut) console.log(`tone ${cut}`);
 }
 
 // `· N to voice` closes the line because the edit server reads it: an export

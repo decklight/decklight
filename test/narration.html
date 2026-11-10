@@ -1580,7 +1580,7 @@
           r.sentStyle = bodies[bodies.length - 1]?.style;
 
           r.PASS = r.voiceRows.length > 0 && r.toneStepShown
-            && r.toneLabels.includes('Super excited') && r.sentStyle === 'excited';
+            && r.toneLabels.includes('Super excited') && r.sentStyle === 'super excited';
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

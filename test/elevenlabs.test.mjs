@@ -10,9 +10,10 @@ import assert from 'node:assert/strict';
 
 import {
   KEY_ENV, DEFAULT_MODEL, V3_MODEL, STABILITY_PRESETS, FORMATS,
-  apiKey, shapeVoices, pickVoice, shortName, synthError, createSynth, styleTag,
+  apiKey, shapeVoices, pickVoice, shortName, synthError, createSynth, styleTag, cutTag, cueFor, MAX_TAG_LEN,
   voiceLangs, shapeLibrary,
 } from '../tools/elevenlabs-tts.mjs';
+import { TONES, cutNote } from '../tools/tone-cue.mjs';
 import { createEngine, ENGINES } from '../tools/tts-engines.mjs';
 import { suggestEngine } from '../tools/tts-setup.mjs';
 import { planServices } from '../cli/open.mjs';
@@ -172,7 +173,41 @@ test('styleTag wraps plain text, keeps a well-formed cue verbatim, and drops a s
 test('a persona too long to be a cue is cut back, not spoken', () => {
   const long = 'a'.repeat(80);
   const tag = styleTag(long, 10);
-  assert.equal(tag, `[${'a'.repeat(10)}]`);
+  assert.equal(tag, `[${'a'.repeat(10)}]`, 'one word longer than the cap has no boundary: cut there');
+});
+
+test('a long tone is cut at a word, and a dangling comma or connective goes with it (#1005)', () => {
+  const r = cutTag('Read in a calm, low voice, like a friendly narrator of nature films');
+  assert.deepEqual(r, { tag: '[Read in a calm, low voice]', cut: true }, '"like a f" was the old slice');
+  assert.equal(styleTag('Speak like a pirate captain who is very angry today'), '[Speak like a pirate captain]');
+  assert.deepEqual(cutTag('whispers'), { tag: '[whispers]', cut: false });
+  // exactly at the cap is whole, not cut
+  assert.deepEqual(cutTag('x'.repeat(MAX_TAG_LEN)), { tag: `[${'x'.repeat(MAX_TAG_LEN)}]`, cut: false });
+});
+
+test('every built-in tone reaches ElevenLabs whole, and its Gemini directive goes as its cue (#1005)', () => {
+  for (const [label, directive, cue] of TONES) {
+    assert.ok(cue.length <= MAX_TAG_LEN, `${label}: its cue fits a tag`);
+    assert.ok(directive.length > MAX_TAG_LEN, `${label}: its directive would not`);
+    assert.equal(cueFor(directive), cue);
+    assert.deepEqual(cutTag(directive), { tag: `[${cue}]`, cut: false }, `${label}: the directive is sent as the cue, not cut`);
+  }
+  assert.equal(cueFor('in a hushed voice'), 'in a hushed voice', 'a tone of your own is itself');
+});
+
+test('the cut is said in one line, and nothing is said for a tone that fits', () => {
+  assert.equal(cutNote('warmly'), null);
+  assert.equal(cutNote(TONES[0][1]), null, 'a built-in directive is sent as its cue');
+  assert.equal(cutNote('Read in a calm, low voice, like a friendly narrator of nature films'),
+    'cut to [Read in a calm, low voice] for ElevenLabs — tones here are short cues');
+});
+
+test('the warm directive goes out as its cue, not as "[Read in a warm, welcoming tone, like a f]" (#1005)', async () => {
+  const fetchImpl = fakeFetch();
+  const { synth } = createSynth({ key: 'k', model: DEFAULT_MODEL, fetchImpl });
+  await synth('You ask, it answers.', { voice: 'Gilles', style: TONES[0][1] });
+  const post = fetchImpl.calls.find((c) => c.init.method === 'POST');
+  assert.equal(JSON.parse(post.init.body).text, '[warmly, like a seasoned engineer] You ask, it answers.');
 });
 
 test('a tag is prepended to the text and billed as part of what was sent — v3 only', async () => {
