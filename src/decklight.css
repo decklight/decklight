@@ -3829,6 +3829,20 @@
   outline: 2px solid var(--accent); outline-offset: 1px;
   caret-color: currentColor;
 }
+/* a diagram's shapes moved and resized in place (src/core/shapes.js): a
+   selected node drags, and a box wears handles, a line one at each end */
+.decklight.dl-editmode svg .dl-glow { cursor: move; }
+.decklight.dl-shape-dragging, .decklight.dl-shape-dragging * { cursor: grabbing !important; user-select: none !important; }
+.decklight .dl-shape-handle {
+  position: fixed; z-index: 31; box-sizing: border-box; width: 10px; height: 10px; margin: -5px 0 0 -5px;
+  background: var(--bg, #fff); border: 2px solid var(--accent); border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg, #fff) 70%, transparent);
+  touch-action: none;
+}
+.decklight .dl-shape-handle.dl-shape-end { border-radius: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; }
+.decklight .dl-shape-handle:hover { background: var(--accent); }
+.decklight.dl-shape-handles .dl-handle { translate: 16px -10px; }
+@media print { .decklight .dl-shape-handle { display: none; } }
 .decklight.dl-dropping > .decklight-stage { outline: 3px dashed var(--accent); outline-offset: -3px; }
 .decklight.dl-dropping > .decklight-stage::after {
   content: 'drop to add the picture to this slide';

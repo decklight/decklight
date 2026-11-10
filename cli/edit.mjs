@@ -664,6 +664,556 @@ export function setSlideElementHtml(html, slide, index, outerHtml) {
   return parts.join('');
 }
 
+// ── a diagram's shapes: moved, resized, added, duplicated (SVG_DIAGRAMS) ────
+// Write mode drags a box, pulls a handle, adds a shape from the element menu
+// and duplicates one. The page shows each at once; these are what the file
+// gets. Like the colour card's writes they are addressed by the FILE's path
+// below the slide's element and the tag the page saw there (a mismatch is a
+// 409, never a guess), and they change the file textually: one attribute
+// where it stands, or one node's markup inserted on its own line at the
+// indentation its neighbours have, so every other byte of the diagram stays.
+
+/** Attributes a move or a resize writes, and the ones that can never be negative. */
+const GEOMETRY_ATTRS = new Set(['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'transform']);
+const NON_NEGATIVE = new Set(['width', 'height', 'r', 'rx', 'ry']);
+/** The drawn nodes of a diagram that have a geometry to write (a label's line moves with it). */
+const DIAGRAM_NODES = new Set(['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text', 'tspan', 'image', 'use', 'g', 'foreignobject']);
+/** A coordinate as a page may send it: a number, at most one decimal written. */
+const COORD = /^-?\d{1,6}(?:\.\d+)?$/;
+const MAX_COORD = 100000;
+
+/** `v` as a coordinate, or NaN: a finite number (or the text of one) within reach of any diagram. */
+function coordOf(v) {
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && COORD.test(v.trim()) ? Number(v) : NaN);
+  return Number.isFinite(n) && Math.abs(n) <= MAX_COORD ? n : NaN;
+}
+/** A coordinate as the file gets it: rounded to one decimal, no trailing `.0`, never `-0`. */
+export const formatCoord = (n) => {
+  const r = Math.round(n * 10) / 10;
+  return String(Object.is(r, -0) ? 0 : r);
+};
+
+const LEADING_TRANSLATE = /^\s*translate\(\s*([^)]*)\)\s*/i;
+const TRANSLATE_VALUE = /^translate\(\s*(-?\d{1,6}(?:\.\d+)?)(?:\s*[\s,]\s*(-?\d{1,6}(?:\.\d+)?))?\s*\)$/;
+
+/** The leading `translate()` of a `transform`, `{ x, y }` (0, 0 when it has none). */
+export function translateOf(transform) {
+  const m = LEADING_TRANSLATE.exec(String(transform ?? ''));
+  if (!m) return { x: 0, y: 0 };
+  const [a = 0, b = 0] = m[1].split(/[\s,]+/).filter(Boolean).map(Number);
+  return { x: Number.isFinite(a) ? a : 0, y: Number.isFinite(b) ? b : 0 };
+}
+
+/**
+ * `transform` with its leading `translate()` made `translate(x y)`: replaced
+ * where there is one (its comma kept when it had one), put in front of the
+ * rest when there is none, so a `rotate()` or a `scale()` the author wrote is
+ * never lost. A move back to (0, 0) takes the translate off; '' is no
+ * transform left at all.
+ */
+export function withTranslate(transform, x, y) {
+  const t = String(transform ?? '');
+  const m = LEADING_TRANSLATE.exec(t);
+  const rest = (m ? t.slice(m[0].length) : t).trim();
+  const sep = m && m[1].includes(',') ? ', ' : ' ';
+  const tr = x === 0 && y === 0 ? '' : `translate(${formatCoord(x)}${sep}${formatCoord(y)})`;
+  return [tr, rest].filter(Boolean).join(' ');
+}
+
+/** The attributes of an open tag's text (`<rect x="1" …`, no `>`), each with where it stands, so one can be changed in place. */
+function attrList(attrs) {
+  const out = [];
+  const head = /^<[a-zA-Z][\w:-]*/.exec(attrs);
+  const re = /(\s+)([^\s=/>"']+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>"']+))?/y;
+  re.lastIndex = head ? head[0].length : 0;
+  for (let m = re.exec(attrs); m; m = re.exec(attrs)) {
+    const raw = m[3] ?? null;
+    out.push({ name: m[2].toLowerCase(), written: m[2], lead: m[1], start: m.index, end: re.lastIndex, raw,
+      value: raw === null ? '' : /^["']/.test(raw) ? raw.slice(1, -1) : raw });
+  }
+  return out;
+}
+
+/** An open tag's text with attribute `name` set to `value` where it stands (its quote kept), or added last; null takes it off. */
+export function withAttr(attrs, name, value) {
+  const a = attrList(attrs).find((x) => x.name === name);
+  if (value === null) return a ? attrs.slice(0, a.start) + attrs.slice(a.end) : attrs;
+  const v = String(value).replace(/"/g, '&quot;');
+  if (a) {
+    const q = a.raw?.[0] === "'" ? "'" : '"';
+    return attrs.slice(0, a.start) + `${a.lead}${a.written}=${q}${v}${q}` + attrs.slice(a.end);
+  }
+  const tail = /\s*$/.exec(attrs)[0];
+  return `${attrs.slice(0, attrs.length - tail.length)} ${name}="${v}"${tail}`;
+}
+
+/** The value of attribute `name` on an open tag's text, or null. */
+const attrOf = (attrs, name) => attrList(attrs).find((x) => x.name === name)?.value ?? null;
+
+/**
+ * The node at `path` below `el` (a slide element's source): its offsets in
+ * `el`, its tag, and the nodes on the way down (`el` first, its parent last),
+ * so a caller can ask whether it sits in a diagram and what holds it. A path
+ * the file does not have, or one that lands on another tag than the page saw,
+ * is stale: a 409.
+ */
+function nodeAt(el, path, { slide, index, tag = null }) {
+  if (!Array.isArray(path) || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
+  const tagAt = (s) => /^<([a-zA-Z][\w:-]*)/.exec(s)?.[1]?.toLowerCase() ?? null;
+  let start = 0; let end = el.length;
+  const chain = [];
+  for (const n of path) {
+    chain.push({ start, end, tag: tagAt(el.slice(start, end)) });
+    const kid = elementChildRanges(el.slice(start, end))[n];
+    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — the engine drew this one, or the deck changed; reload and try again`);
+    end = start + kid.end; start += kid.start;
+  }
+  const found = tagAt(el.slice(start, end));
+  if (tag && found !== String(tag).toLowerCase()) {
+    throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.') || 'the element'}, the file has <${found}> — reload and try again`);
+  }
+  const svgAt = chain.map((c) => c.tag).lastIndexOf('svg');
+  return { start, end, found, chain, parent: chain.at(-1) ?? null, svg: svgAt < 0 ? null : chain[svgAt], inSvg: svgAt >= 0 };
+}
+
+/** One geometry value as the file gets it, or a refusal naming what was sent. */
+function geometryValue(attr, value) {
+  if (attr === 'transform') {
+    const m = TRANSLATE_VALUE.exec(String(value ?? '').trim());
+    const x = m ? coordOf(m[1]) : NaN; const y = m ? coordOf(m[2] ?? '0') : NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`a move is written as translate(x y), not: ${String(value).slice(0, 40)}`);
+    return { x, y };
+  }
+  const n = coordOf(value);
+  if (!Number.isFinite(n)) throw new Error(`not a coordinate: ${String(value).slice(0, 40)}`);
+  if (NON_NEGATIVE.has(attr) && n < 0) throw new Error(`${attr} cannot be negative`);
+  return formatCoord(n);
+}
+
+/**
+ * Move or resize nodes of a diagram (SVG_DIAGRAMS): slide N's element
+ * `index`, each edit `{ path, tag, attr, value }` addressed the way
+ * setElementStyles addresses one, all of them ONE write (so `Z` takes a box
+ * and the label that moved with it back in one press). `attr` is one of a
+ * closed set, `x` `y` `width` `height` `cx` `cy` `r` `rx` `ry` `x1` `y1` `x2`
+ * `y2` (a number, written to at most one decimal; a size never negative) or
+ * `transform`, whose value is `translate(x y)`: the translate the node is to
+ * have, which REPLACES a leading translate the file has and is put in front
+ * of whatever else the transform says (a `rotate()` survives the move), and
+ * `translate(0 0)` takes it off again. Only nodes inside an `<svg>` are
+ * written, and only the one attribute's text changes.
+ */
+export function setElementGeometry(html, slide, index, edits) {
+  if (!Array.isArray(edits) || !edits.length || edits.length > 60) throw new Error('bad edits');
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  let el = seg.slice(r.start, r.end);
+  for (const e of edits) {
+    if (!GEOMETRY_ATTRS.has(e?.attr)) throw new Error(`not an attribute this server moves: ${String(e?.attr).slice(0, 40)}`);
+    const value = geometryValue(e.attr, e.value);
+    const at = nodeAt(el, e.path, { slide, index, tag: e.tag });
+    if (!at.inSvg || !DIAGRAM_NODES.has(at.found)) throw new Error(`not a node of a diagram: <${at.found}>`);
+    const { attrs, close, rest } = splitOpenTag(el.slice(at.start, at.end));
+    let head;
+    if (e.attr === 'transform') {
+      const merged = withTranslate(attrOf(attrs, 'transform'), value.x, value.y);
+      head = withAttr(attrs, 'transform', merged || null);
+    } else head = withAttr(attrs, e.attr, value);
+    el = el.slice(0, at.start) + head + close + rest + el.slice(at.end);
+  }
+  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
+  return parts.join('');
+}
+
+// ── a copy, moved by a step ──────────────────────────────────────────────────
+
+/** A list of numbers (`x="10 20"`), each moved by `d`; null when it is not one. */
+function shiftList(v, d) {
+  if (v === null) return formatCoord(d);
+  const nums = String(v).trim().split(/[\s,]+/);
+  if (!nums.length || nums.some((n) => !COORD.test(n))) return null;
+  return nums.map((n) => formatCoord(Number(n) + d)).join(' ');
+}
+
+/** `points` moved by (dx, dy), pair by pair; null when it is not a list of numbers. */
+export function shiftPoints(points, dx, dy) {
+  const nums = String(points ?? '').trim().split(/[\s,]+/).filter(Boolean);
+  if (!nums.length || nums.length % 2 || nums.some((n) => !COORD.test(n))) return null;
+  const out = [];
+  for (let i = 0; i < nums.length; i += 2) out.push(`${formatCoord(Number(nums[i]) + dx)},${formatCoord(Number(nums[i + 1]) + dy)}`);
+  return out.join(' ');
+}
+
+/**
+ * A path's `d` moved by (dx, dy): every ABSOLUTE coordinate shifted (an arc's
+ * radii and flags, and relative commands, are not positions), the first
+ * moveto included even when it is relative, since it is taken from the
+ * origin. Null when `d` holds something this does not read.
+ */
+export function shiftPathData(d, dx, dy) {
+  const src = String(d ?? '');
+  if (!/^\s*[mM]/.test(src)) return null;
+  // per command, which of its numbers are x (1) and y (2) when absolute
+  const ROLE = { M: [1, 2], L: [1, 2], T: [1, 2], H: [1], V: [2], C: [1, 2, 1, 2, 1, 2], S: [1, 2, 1, 2], Q: [1, 2, 1, 2], A: [0, 0, 0, 0, 0, 1, 2], Z: [] };
+  let cmd = null; let k = 0; let first = true; let bad = false;
+  // each number replaced where it stands, so the path keeps its own spacing
+  const out = src.replace(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g, (t) => {
+    if (/^[a-zA-Z]$/.test(t)) {
+      if (!(t.toUpperCase() in ROLE)) bad = true;
+      cmd = t; k = 0;
+      return t;
+    }
+    const roles = cmd && ROLE[cmd.toUpperCase()];
+    if (!roles?.length) { bad = true; return t; }
+    const role = roles[k % roles.length];
+    const absolute = cmd === cmd.toUpperCase() || (first && cmd === 'm' && k < 2);
+    k++;
+    if (k >= 2 && /^m$/i.test(cmd)) first = false;
+    const by = !absolute ? 0 : role === 1 ? dx : role === 2 ? dy : 0;
+    return by ? formatCoord(Number(t) + by) : t;
+  });
+  return bad || /[^\s\d.,eE+\-a-zA-Z]/.test(src) ? null : out;
+}
+
+/**
+ * A node's source moved by (dx, dy), in the geometry it already uses: `x`/`y`
+ * on a rect, text, image, use; `cx`/`cy` on a circle or an ellipse; the two
+ * ends of a line; a leading translate on a group, a path, a polygon. A BUILD
+ * STEP owns its transform (the build's CSS sets it while it plays, and a
+ * transform it writes would be overridden), so one that would move by a
+ * translate moves what it holds instead: a group's children each by their
+ * own geometry, a polygon's points, a path's coordinates.
+ */
+function shiftSource(src, dx, dy, { step = false } = {}) {
+  const tag = /^<([a-zA-Z][\w:-]*)/.exec(src)?.[1]?.toLowerCase();
+  const { attrs, close, rest } = splitOpenTag(src);
+  const set = (head, pairs) => pairs.reduce((h, [name, d]) => {
+    const moved = shiftList(attrOf(h, name), d);
+    if (moved === null) throw new Error(`<${tag}> has a ${name} this cannot move`);
+    return withAttr(h, name, moved);
+  }, head);
+  const translate = (head) => {
+    const t = attrOf(head, 'transform');
+    const { x, y } = translateOf(t);
+    return withAttr(head, 'transform', withTranslate(t, x + dx, y + dy) || null);
+  };
+  if (['rect', 'image', 'use', 'foreignobject'].includes(tag)) return set(attrs, [['x', dx], ['y', dy]]) + close + rest;
+  if (tag === 'circle' || tag === 'ellipse') return set(attrs, [['cx', dx], ['cy', dy]]) + close + rest;
+  if (tag === 'line') return set(attrs, [['x1', dx], ['y1', dy], ['x2', dx], ['y2', dy]]) + close + rest;
+  if (tag === 'text' || tag === 'tspan') {
+    // a label's lines that are placed themselves move with it
+    const inner = rest.replace(/<tspan\b[^>]*>/gi, (open) => {
+      let o = open;
+      for (const [name, d] of [['x', dx], ['y', dy]]) {
+        if (attrOf(o, name) === null) continue;
+        const moved = shiftList(attrOf(o, name), d);
+        if (moved === null) throw new Error(`a line of this label has a ${name} this cannot move`);
+        o = withAttr(o, name, moved);
+      }
+      return o;
+    });
+    return set(attrs, [['x', dx], ['y', dy]]) + close + inner;
+  }
+  if (!step) return translate(attrs) + close + rest;
+  if (tag === 'polygon' || tag === 'polyline') {
+    const pts = shiftPoints(attrOf(attrs, 'points'), dx, dy);
+    if (pts === null) throw new Error(`<${tag}> has points this cannot move`);
+    return withAttr(attrs, 'points', pts) + close + rest;
+  }
+  if (tag === 'path') {
+    const d = shiftPathData(attrOf(attrs, 'd'), dx, dy);
+    if (d === null) throw new Error('<path> has a d this cannot move');
+    return withAttr(attrs, 'd', d) + close + rest;
+  }
+  if (tag === 'g' || tag === 'a') {
+    let out = src;
+    // from the last child back, so the offsets before each are still good
+    for (const kid of elementChildRanges(src).reverse()) {
+      out = out.slice(0, kid.start) + shiftSource(out.slice(kid.start, kid.end), dx, dy) + out.slice(kid.end);
+    }
+    return out;
+  }
+  throw new Error(`<${tag}> cannot be moved`);
+}
+
+/** A copy's markup with every `id` taken off: two nodes with one id would be one target for every `url(#…)`. */
+const withoutIds = (src) => src.replace(/<[a-zA-Z][^<>]*>/g, (open) => attrList(open.replace(/\/?>$/, '')).filter((a) => a.name === 'id')
+  .reverse().reduce((o, a) => o.slice(0, a.start) + o.slice(a.end), open));
+
+// ── the markup the server owns for each kind of new shape ───────────────────
+
+/** An svg's coordinate box: its viewBox, else its width and height, else 800 × 450. */
+function viewBoxOf(svgAttrs) {
+  const vb = String(attrOf(svgAttrs, 'viewbox') ?? '').trim().split(/[\s,]+/).map(Number);
+  if (vb.length === 4 && vb.every(Number.isFinite) && vb[2] > 0 && vb[3] > 0) return { x: vb[0], y: vb[1], w: vb[2], h: vb[3] };
+  const w = parseFloat(attrOf(svgAttrs, 'width')); const h = parseFloat(attrOf(svgAttrs, 'height'));
+  return { x: 0, y: 0, w: w > 0 ? w : 800, h: h > 0 ? h : 450 };
+}
+
+const NOT_DRAWN = new Set(['defs', 'marker', 'mask', 'clippath', 'pattern', 'symbol', 'lineargradient', 'radialgradient', 'filter', 'style', 'title', 'desc', 'metadata', 'animate', 'animatemotion', 'animatetransform', 'set']);
+
+/** Every node an svg's source draws, in paint order: `{ tag, attrs, src, start, end, path, at }`, `at` the translate it sits under. */
+function drawnNodes(svgSrc) {
+  const out = [];
+  const walk = (src, base, path, at) => {
+    elementChildRanges(src).forEach((k, i) => {
+      const s = src.slice(k.start, k.end);
+      const tag = k.tag;
+      if (NOT_DRAWN.has(tag)) return;
+      const { attrs } = splitOpenTag(s);
+      const t = translateOf(attrOf(attrs, 'transform'));
+      const node = { tag, attrs, src: s, start: base + k.start, end: base + k.end, path: [...path, i], at };
+      out.push(node);
+      if (tag === 'g' || tag === 'a') walk(s, base + k.start, [...path, i], { x: at.x + t.x, y: at.y + t.y });
+    });
+  };
+  walk(svgSrc, 0, [], { x: 0, y: 0 });
+  return out;
+}
+
+const num = (attrs, name, dflt = 0) => { const v = parseFloat(attrOf(attrs, name)); return Number.isFinite(v) ? v : dflt; };
+/** Where a node's middle is, in the svg's coordinates (its group translates added). */
+function middleOf(n) {
+  const a = n.attrs; const t = translateOf(attrOf(a, 'transform'));
+  const at = { x: n.at.x + t.x, y: n.at.y + t.y };
+  switch (n.tag) {
+    case 'rect': case 'image': case 'use': return { x: at.x + num(a, 'x') + num(a, 'width') / 2, y: at.y + num(a, 'y') + num(a, 'height') / 2 };
+    case 'circle': case 'ellipse': return { x: at.x + num(a, 'cx'), y: at.y + num(a, 'cy') };
+    case 'line': return { x: at.x + (num(a, 'x1') + num(a, 'x2')) / 2, y: at.y + (num(a, 'y1') + num(a, 'y2')) / 2 };
+    case 'text': return { x: at.x + num(a, 'x'), y: at.y + num(a, 'y') };
+    default: return null;
+  }
+}
+/** The node of `list` nearest `at` (the last one when there is no `at`), or null. */
+function nearest(list, at) {
+  if (!list.length) return null;
+  if (!at) return list.at(-1);
+  let best = null; let d = Infinity;
+  for (const n of list) {
+    const m = n.middle ?? middleOf(n);
+    if (!m) continue;
+    const e = Math.hypot(m.x - at.x, m.y - at.y);
+    if (e < d) { d = e; best = n; }
+  }
+  return best ?? list.at(-1);
+}
+
+/** Attributes not copied from a model onto a new shape: who it is, where it is, which build and concept it belongs to. */
+const NOT_COPIED = /^(?:id|transform|x|y|x1|y1|x2|y2|cx|cy|dx|dy|points|d|data-build.*|data-concept|data-draw-.*|data-ds-.*|data-nest-fill|aria-.*|role)$/;
+/**
+ * An open tag for `tag` written like `modelAttrs`: its attributes that are
+ * look, not place, in its order, with `place` (where the new node is) put
+ * where the model has those attributes and after them otherwise; a `place`
+ * value of null leaves the model's out.
+ */
+function openTag(tag, modelAttrs, place) {
+  let head = `<${tag}`;
+  const used = new Set();
+  for (const a of modelAttrs ? attrList(modelAttrs) : []) {
+    if (a.name in place) {
+      used.add(a.name);
+      if (place[a.name] !== null) head += ` ${a.written}="${place[a.name]}"`;
+      continue;
+    }
+    if (NOT_COPIED.test(a.name)) continue;
+    head += a.raw === null ? ` ${a.written}` : ` ${a.written}=${a.raw}`;
+  }
+  for (const [k, v] of Object.entries(place)) if (!used.has(k) && v !== null && v !== undefined) head += ` ${k}="${v}"`;
+  return head;
+}
+
+const ARROW_ID = 'dl-arrow';
+/** The shipped arrowhead (SVG_DIAGRAMS, Arrowheads), in the diagram's ink. */
+const arrowMarker = (id) => `<marker id="${id}" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker>`;
+
+/** How the svg's children are laid out: on their own lines (and how far in), or all on one. */
+function layoutOf(svgSrc, svgLineIndent) {
+  const kids = elementChildRanges(svgSrc);
+  const indentAt = (at) => {
+    const ls = svgSrc.lastIndexOf('\n', at - 1);
+    const lead = svgSrc.slice(ls + 1, at);
+    return ls >= 0 && /^[ \t]*$/.test(lead) ? lead : null;
+  };
+  const kid = kids.find((k) => indentAt(k.start) !== null);
+  const indent = kid ? indentAt(kid.start) : null;
+  const lines = indent !== null;
+  const unit = lines && indent.startsWith(svgLineIndent) && indent.length > svgLineIndent.length ? indent.slice(svgLineIndent.length) : '  ';
+  return { kids, lines, indent: lines ? indent : `${svgLineIndent}  `, unit };
+}
+
+/**
+ * Add a shape to a diagram (SVG_DIAGRAMS): the `<svg>` at `path` below slide
+ * N's element `index` gets, as its last child, one of four kinds whose markup
+ * this server owns, centred on `at` (the svg's own coordinates; its viewBox
+ * centre without one):
+ *
+ *   box      a group of a rect and a centred label, the way the nearest box
+ *            in this diagram is written when it has one (its look, not its
+ *            place, its concept or its build), else in theme tokens only
+ *   ellipse  likewise from the nearest ellipse
+ *   label    a text, from the nearest label
+ *   line     a line ending in an arrowhead: the marker the svg already
+ *            defines, or the shipped one added to its `<defs>`
+ *
+ * Returns `{ html, added: { path, html }, defs }`: the deck, the new node's
+ * path and markup (the page puts the same node on the slide), and, when an
+ * arrowhead had to be added, where (`{ path, html, created }`: a new
+ * `<defs>`, or a marker appended to the one there).
+ */
+export const SHAPE_KINDS = ['box', 'ellipse', 'label', 'line'];
+export function addDiagramShape(html, slide, index, { path, tag = 'svg', kind, at = null }) {
+  if (!SHAPE_KINDS.includes(kind)) throw new Error(`not a shape this server adds: ${String(kind).slice(0, 20)}`);
+  if (at !== null && (typeof at !== 'object' || !Number.isFinite(coordOf(at.x)) || !Number.isFinite(coordOf(at.y)))) throw new Error('bad position');
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  let el = seg.slice(r.start, r.end);
+  const node = nodeAt(el, path, { slide, index, tag });
+  if (node.found !== 'svg') throw new Error(`shapes are added to a diagram's <svg>, not a <${node.found}>`);
+  let svgSrc = el.slice(node.start, node.end);
+  const { attrs: svgAttrs, close: svgClose } = splitOpenTag(svgSrc);
+  if (svgClose.endsWith('/>')) throw new Error('this <svg> is empty and self-closed: give it a closing tag first');
+  if (/\sdata-chart\b/i.test(svgAttrs)) throw new Error('a chart draws itself from its data');
+  const vb = viewBoxOf(svgAttrs);
+  const c = at ? { x: coordOf(at.x), y: coordOf(at.y) } : { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 };
+  const f = formatCoord;
+  // the svg's own indentation, read in the slide (the svg may be the element itself)
+  const abs = r.start + node.start;
+  const svgLead = seg.slice(seg.lastIndexOf('\n', abs - 1) + 1, abs);
+  const svgIndent = /^[ \t]*$/.test(svgLead) ? svgLead : /^[ \t]*/.exec(svgLead)[0];
+  const lay = layoutOf(svgSrc, svgIndent);
+  const drawn = drawnNodes(svgSrc);
+  const inner = lay.lines ? `\n${lay.indent}${lay.unit}` : '';
+  const outer = lay.lines ? `\n${lay.indent}` : '';
+  let markup;
+  let defs = null;
+  if (kind === 'box') {
+    // a box is a group holding one rect and its labels
+    const boxes = drawn.filter((n) => n.tag === 'g').map((g) => {
+      const kids = drawnNodes(g.src).filter((k) => k.path.length === 1);
+      const rects = kids.filter((k) => k.tag === 'rect'); const texts = kids.filter((k) => k.tag === 'text');
+      if (rects.length !== 1 || !texts.length || kids.some((k) => !['rect', 'text'].includes(k.tag))) return null;
+      const rect = { ...rects[0], at: { x: 0, y: 0 } };
+      const m = middleOf(rect);
+      const t = translateOf(attrOf(g.attrs, 'transform'));
+      return { g, rect, text: texts[0], middle: { x: g.at.x + t.x + m.x, y: g.at.y + t.y + m.y }, local: m };
+    }).filter(Boolean);
+    const model = nearest(boxes, at && c);
+    const w = model ? num(model.rect.attrs, 'width', 160) : Math.round(vb.w * 0.2);
+    const h = model ? num(model.rect.attrs, 'height', 64) : Math.round(w * 0.4);
+    const rect = model
+      ? openTag('rect', model.rect.attrs, { x: f(c.x - w / 2), y: f(c.y - h / 2), width: f(w), height: f(h) })
+      : openTag('rect', null, { x: f(c.x - w / 2), y: f(c.y - h / 2), width: f(w), height: f(h), rx: f(Math.round(h * 0.15)),
+        style: 'fill: var(--d-fill-1); stroke: var(--d-stroke)', 'stroke-width': '2' });
+    // the label sits where the model's sits on its box: its centre, usually
+    const off = model ? { x: num(model.text.attrs, 'x') - model.local.x, y: num(model.text.attrs, 'y') - model.local.y } : { x: 0, y: 0 };
+    const label = labelModel(drawn, c);
+    const text = model
+      ? openTag('text', model.text.attrs, { x: f(c.x + off.x), y: f(c.y + off.y) })
+      : openTag('text', label?.attrs ?? null, { x: f(c.x), y: f(c.y), 'text-anchor': 'middle', 'dominant-baseline': 'central',
+        ...(label ? {} : { 'font-size': f(Math.max(8, Math.round(h * 0.3))), style: 'fill: var(--d-text)' }) });
+    const g = model ? openTag('g', model.g.attrs, {}) : '<g';
+    markup = `${g}>${inner}${rect}/>${inner}${text}>Box</text>${outer}</g>`;
+  } else if (kind === 'ellipse') {
+    const model = nearest(drawn.filter((n) => n.tag === 'ellipse'), at && c);
+    const rx = model ? num(model.attrs, 'rx', 70) : Math.round(vb.w * 0.09);
+    const ry = model ? num(model.attrs, 'ry', 40) : Math.round(rx * 0.6);
+    markup = (model ? openTag('ellipse', model.attrs, { cx: f(c.x), cy: f(c.y), rx: f(rx), ry: f(ry) })
+      : openTag('ellipse', null, { cx: f(c.x), cy: f(c.y), rx: f(rx), ry: f(ry), style: 'fill: var(--d-fill-2); stroke: var(--d-stroke)', 'stroke-width': '2' })) + '/>';
+  } else if (kind === 'label') {
+    const model = labelModel(drawn, c);
+    markup = `${model ? openTag('text', model.attrs, { x: f(c.x), y: f(c.y) })
+      : openTag('text', null, { x: f(c.x), y: f(c.y), 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': f(Math.max(8, Math.round(vb.w * 0.025))), style: 'fill: var(--d-text)' })}>Label</text>`;
+  } else {
+    const model = nearest(drawn.filter((n) => n.tag === 'line'), at && c);
+    const half = model ? Math.max(10, Math.hypot(num(model.attrs, 'x2') - num(model.attrs, 'x1'), num(model.attrs, 'y2') - num(model.attrs, 'y1')) / 2) : Math.round(vb.w * 0.075);
+    let marker = model && attrOf(model.attrs, 'marker-end');
+    if (!marker) {
+      // the arrowhead the diagram already has, else the shipped one in its <defs>
+      const ids = [...svgSrc.matchAll(/<marker\b[^>]*?\sid\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]);
+      let id = ids[0];
+      if (!id) {
+        const taken = new Set([...svgSrc.matchAll(/\sid\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]));
+        id = ARROW_ID;
+        for (let k = 2; taken.has(id); k++) id = `${ARROW_ID}-${k}`;
+        ({ svgSrc, defs } = withMarker(svgSrc, arrowMarker(id), lay, path));
+      }
+      marker = `url(#${id})`;
+    }
+    markup = `${model ? openTag('line', model.attrs, { x1: f(c.x - half), y1: f(c.y), x2: f(c.x + half), y2: f(c.y), 'marker-end': marker })
+      : openTag('line', null, { x1: f(c.x - half), y1: f(c.y), x2: f(c.x + half), y2: f(c.y), 'stroke-width': '2', style: 'stroke: var(--d-stroke)', 'marker-end': marker })}/>`;
+  }
+  // last in the svg, on a line of its own at its siblings' indentation
+  const kids = elementChildRanges(svgSrc);
+  const last = kids.at(-1);
+  const closeAt = svgSrc.toLowerCase().lastIndexOf('</svg');
+  const where = last ? last.end : closeAt;
+  const lead = lay.lines ? `\n${lay.indent}` : '';
+  const trail = !last && lay.lines ? `\n${svgIndent}` : '';
+  svgSrc = svgSrc.slice(0, where) + lead + markup + trail + svgSrc.slice(where);
+  el = el.slice(0, node.start) + svgSrc + el.slice(node.end);
+  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
+  return { html: parts.join(''), added: { path: [...path, kids.length], html: markup }, defs };
+}
+
+/** The label a new one is written like: the nearest text, its look kept. */
+function labelModel(drawn, c) {
+  return nearest(drawn.filter((n) => n.tag === 'text'), c);
+}
+
+/** `svgSrc` with `marker` in its `<defs>` (one made first when it has none), and where it went. */
+function withMarker(svgSrc, marker, lay, path) {
+  const kids = elementChildRanges(svgSrc);
+  const i = kids.findIndex((k) => k.tag === 'defs');
+  if (i >= 0) {
+    const k = kids[i];
+    const d = svgSrc.slice(k.start, k.end);
+    const { attrs, close } = splitOpenTag(d);
+    if (close.endsWith('/>')) {
+      const full = `${attrs}>${marker}</defs>`;
+      return { svgSrc: svgSrc.slice(0, k.start) + full + svgSrc.slice(k.end), defs: { path: [...path, i], html: full, created: true, replaced: true } };
+    }
+    const n = elementChildRanges(d).length;
+    const at = d.toLowerCase().lastIndexOf('</defs');
+    const multi = /\n[ \t]*$/.test(d.slice(0, at));
+    const ins = multi ? `${lay.unit}${marker}\n${lay.indent}` : marker;
+    const into = multi ? d.slice(0, at) + ins + d.slice(at) : d.slice(0, at) + marker + d.slice(at);
+    return { svgSrc: svgSrc.slice(0, k.start) + into + svgSrc.slice(k.end), defs: { path: [...path, i, n], html: marker, created: false } };
+  }
+  const full = `<defs>${marker}</defs>`;
+  const first = kids[0];
+  const at = first ? first.start : svgSrc.toLowerCase().lastIndexOf('</svg');
+  const sep = lay.lines ? `\n${lay.indent}` : '';
+  const ins = first ? full + sep : sep + full;
+  return { svgSrc: svgSrc.slice(0, at) + ins + svgSrc.slice(at), defs: { path: [...path, 0], html: full, created: true } };
+}
+
+/**
+ * Duplicate one node of a diagram (SVG_DIAGRAMS): the node at `path` below
+ * slide N's element `index` is copied from the FILE, its ids taken off,
+ * moved by `by` (`{ dx, dy }` in its own coordinates; a fiftieth of the
+ * viewBox's width down and right without one) the way shiftSource moves a
+ * node, and put right after it, on its own line when it stands on one.
+ * Returns `{ html, added: { path, html } }`.
+ */
+export function duplicateDiagramNode(html, slide, index, { path, tag = null, by = null }) {
+  if (!Array.isArray(path) || !path.length) throw new Error('bad path');
+  if (by !== null && (typeof by !== 'object' || !Number.isFinite(coordOf(by.dx)) || !Number.isFinite(coordOf(by.dy)))) throw new Error('bad step');
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  let el = seg.slice(r.start, r.end);
+  const at = nodeAt(el, path, { slide, index, tag });
+  if (!at.inSvg || !DIAGRAM_NODES.has(at.found) || at.found === 'tspan') throw new Error(`not a node of a diagram: <${at.found}>`);
+  const step = by ? null : Math.max(4, Math.round(viewBoxOf(splitOpenTag(el.slice(at.svg.start, at.svg.end)).attrs).w / 50));
+  const dx = by ? coordOf(by.dx) : step; const dy = by ? coordOf(by.dy) : step;
+  const parentAttrs = splitOpenTag(el.slice(at.parent.start, at.parent.end)).attrs;
+  const isStep = attrOf(parentAttrs, 'data-build') !== null;
+  const copy = shiftSource(withoutIds(el.slice(at.start, at.end)), dx, dy, { step: isStep });
+  const lineStart = el.lastIndexOf('\n', at.start - 1) + 1;
+  const lead = el.slice(lineStart, at.start);
+  const own = lineStart > 0 && /^[ \t]*$/.test(lead);
+  const ins = own ? `\n${lead}${copy}` : copy;
+  el = el.slice(0, at.end) + ins + el.slice(at.end);
+  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
+  return { html: parts.join(''), added: { path: [...path.slice(0, -1), path.at(-1) + 1], html: copy } };
+}
+
 // The spec's 7 entrance styles (MOTION), plus 'none' — an explicit, instant
 // build step, distinct from having no data-build attribute at all: one more
 // advance still reveals the element, it just has no animation.
@@ -1052,22 +1602,8 @@ export function setSlideElementBuild(html, slide, index, effect) {
 /** The bounds of a picture's written width, in deck units (the stage is scaled, not the picture). */
 export const PICTURE_WIDTH = Object.freeze({ min: 16, max: 4096 });
 
-/** The node at `path` below an element's source `el`: its offsets and its tag; stale when the file disagrees with the page. */
-function nodeAt(el, path, { slide, index, tag = null }) {
-  if (!Array.isArray(path) || path.length > 16 || path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
-  let start = 0; let end = el.length;
-  for (const n of path) {
-    const kid = elementChildRanges(el.slice(start, end))[n];
-    if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${path.join('.')} — reload and try again`);
-    end = start + kid.end; start += kid.start;
-  }
-  const found = /^<([a-zA-Z][\w:-]*)/.exec(el.slice(start, end))?.[1]?.toLowerCase();
-  if (tag && found !== String(tag).toLowerCase()) throw stale(`slide ${slide} #${index}: the page found <${tag}> at ${path.join('.') || 'the element'}, the file has <${found}> — reload and try again`);
-  return { start, end, found };
-}
-
 /** An open tag's attribute text with `name` set to `value` (escaped) in its own place, or added; null takes it off. */
-function withAttr(attrs, name, value) {
+function withEscapedAttr(attrs, name, value) {
   const re = new RegExp(`\\s${name}(?=[\\s=/>]|$)(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+))?`, 'i');
   if (value === null) return attrs.replace(re, '');
   const said = ` ${name}="${escapeHtml(String(value))}"`;
@@ -1111,15 +1647,15 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
   const { attrs: had, close, rest } = splitOpenTag(el.slice(start, end));
   let attrs = had;
   if (width !== undefined) {
-    attrs = withAttr(withAttr(attrs, 'height', null), 'width', width === null ? null : Math.round(width));
+    attrs = withEscapedAttr(withEscapedAttr(attrs, 'height', null), 'width', width === null ? null : Math.round(width));
     const styleM = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
     if (styleM) {
       const style = withStyleProp(withStyleProp(styleM[2] ?? styleM[3], 'width', null), 'height', null).replace(/"/g, "'");
       attrs = attrs.replace(styleM[0], () => (style ? ` style="${style}"` : ''));
     }
   }
-  if (alt !== undefined) attrs = withAttr(attrs, 'alt', alt);
-  if (src !== undefined) attrs = withAttr(attrs, 'src', src);
+  if (alt !== undefined) attrs = withEscapedAttr(attrs, 'alt', alt);
+  if (src !== undefined) attrs = withEscapedAttr(attrs, 'src', src);
   let node = attrs + close + rest;
   if (caption !== undefined) {
     if (path.length && nodeAt(el, path.slice(0, -1), { slide, index }).found === 'figure') {
@@ -1152,9 +1688,9 @@ export function setSlideBackground(html, slide, src) {
   if (src !== null && !relativeSrc(src)) throw new Error('a background src must be a relative path beside the deck');
   const { parts, idx } = locateSlide(html, slide);
   const { attrs: had, close, rest } = splitOpenTag(parts[idx]);
-  let attrs = withAttr(had, 'data-background-image', src);
+  let attrs = withEscapedAttr(had, 'data-background-image', src);
   if (src === null && attrValue(attrs, 'data-background-video') === null) {
-    for (const name of BACKGROUND_TUNING) attrs = withAttr(attrs, name, null);
+    for (const name of BACKGROUND_TUNING) attrs = withEscapedAttr(attrs, name, null);
   }
   parts[idx] = attrs + close + rest;
   return parts.join('');
@@ -1215,6 +1751,8 @@ const WRITE_LABELS = {
   '/deck/edit/element/style': 'colours saved',
   '/deck/edit/element/concept': 'concept set',
   '/deck/edit/element/text': 'text saved',
+  '/deck/edit/element/geometry': 'diagram shapes moved',
+  '/deck/edit/element/shape': 'diagram shape added',
   '/deck/edit/element/image': 'image placed',
   '/deck/edit/element/insert': 'element added',
   '/deck/edit/element/picture': 'picture changed',
@@ -1348,6 +1886,8 @@ const UNDO_LABELS = {
   '/deck/edit/element/style': 'colours',
   '/deck/edit/element/concept': 'concept',
   '/deck/edit/element/text': 'label edit',
+  '/deck/edit/element/geometry': 'move in a diagram',
+  '/deck/edit/element/shape': 'new shape in a diagram',
   '/deck/edit/element/image': 'picture',
   '/deck/edit/element/insert': 'added element',
   '/deck/edit/element/picture': 'picture',

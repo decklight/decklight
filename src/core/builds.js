@@ -421,6 +421,35 @@ function setDrawn(s, d, len) {
   }
 }
 
+/**
+ * A drawn stroke whose geometry was just changed in write mode (a line's end
+ * dragged, a box moved or resized: SVG_DIAGRAMS): what the draw made of it
+ * follows. Its length is measured again, the copy its mask draws through
+ * takes the new geometry, and its heads are placed again on the stroke as it
+ * now is, as drawn as it was. Nothing for a shape that does not draw.
+ */
+export function refitStroke(s) {
+  if (!s?.classList?.contains('draw-stroke')) return;
+  const was = s._drawLen ?? 0;
+  const len = strokeLength(s);
+  if (!len) return;
+  const drawn = s._drawnLen ?? was;
+  s._drawLen = len;
+  s.style.setProperty('--draw-len', String(Math.ceil(len)));
+  const id = /url\(\s*["']?#([^"')\s]+)/.exec(s.getAttribute('mask') ?? '')?.[1];
+  const mask = id ? s.ownerSVGElement?.querySelector(`[id="${CSS.escape(id)}"]`) : null;
+  if (mask?.classList.contains('draw-mask')) {
+    for (const c of mask.children) for (const a of GEOMETRY) if (s.hasAttribute(a)) c.setAttribute(a, s.getAttribute(a));
+    if (s._drawMask) s._drawMask.style.strokeDasharray = String(len);
+  }
+  if (!s._drawHeads) return;
+  // the heads share the stroke's parent: its own transform is theirs too
+  for (const h of Object.values(s._drawHeads)) h.prefix = s.getAttribute('transform') ? `${s.getAttribute('transform')} ` : '';
+  // the frame loop draws it by a dash as long as the stroke (a restored authored dash pattern stays)
+  if (drawnBy(s) !== s || !s.dataset.drawOrig) drawnBy(s).style.strokeDasharray = String(len);
+  setDrawn(s, drawn >= was - 0.5 ? len : Math.min(drawn, len), len);
+}
+
 /** CSS `ease` — cubic-bezier(.25, .1, .25, 1) — solved for progress `t`. */
 function ease(t) {
   const bx = (u) => 3 * 0.25 * u * (1 - u) * (1 - u) + 3 * 0.25 * u * u * (1 - u) + u * u * u;
