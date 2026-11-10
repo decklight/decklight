@@ -20,7 +20,7 @@ h1.dispatchEvent(new MouseEvent('contextmenu', {
 await sleep(300); // the menu mounts, cursor-anchored at the title
 
 const addEffect = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')]
-  .find((row) => row.textContent === 'Add text effect ▸');
+  .find((row) => row.textContent === 'Build ▸');
 addEffect?.click();
 await sleep(300); // drills into the effects submenu — same overlay, new rows
 

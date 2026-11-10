@@ -22,11 +22,15 @@
  *   `<img>` at it, its size and alt kept.
  *
  *   BACKGROUND: Slide ▸ Background picture… and Remove background, and the
- *   element menu's Use as slide background on a picture, which moves it out
+ *   element menu's Picture ▸ Use as slide background, which moves it out
  *   of the content and onto the slide's `data-background-image` in one edit.
  *
- *   CAPTION: Add caption wraps the picture in a `<figure>` whose
- *   `<figcaption>` goes straight into inline editing.
+ *   CAPTION: Picture ▸ Add caption wraps the picture in a `<figure>` on the
+ *   page at once, its `<figcaption>` being typed; the file gets both in ONE
+ *   write when the typing ends, so one undo takes the caption back, and Esc
+ *   writes nothing.
+ *
+ *   Picture ▸ also offers Replace… and Reset size (the handles' double-click).
  *
  * Every write is quiet (`quiet: true, from`): this page makes the change
  * itself, at once, and every other page of the deck is told and reloads.
@@ -272,12 +276,14 @@ export function createPictures({
     if (d.w === d.w0) { putSize(d.pic, d.was); return; }
     savePicture(d.pic, { width: d.w }, { undo: () => putSize(d.pic, d.was), said: `picture ${d.w} wide` });
   }
-  function naturalSize() {
-    const pic = img;
+  /** Has `pic` a size in the markup (a width, a height, an inline one) for Reset size to take off? */
+  const sized = (pic) => { const s = sizeOf(pic); return s.width !== null || s.height !== null || !!s.sw || !!s.sh; };
+  /** The picture at its own size again: a double-click on a handle, or Picture ▸ Reset size. */
+  function naturalSize(pic = img) {
     if (!pic) return;
     if (!editmode.available?.()) { toast(say('resizing a picture'), 3200); return; }
     const was = sizeOf(pic);
-    if (was.width === null && was.height === null && !was.sw && !was.sh) { toast('the picture is at its own size already', 2000); return; }
+    if (!sized(pic)) { toast('the picture is at its own size already', 2000); return; }
     setWidth(pic, null);
     savePicture(pic, { width: null }, { undo: () => putSize(pic, was), said: 'picture at its own size' });
   }
@@ -389,37 +395,60 @@ export function createPictures({
     if (inFigure(pic)) { toast('this picture has a caption already', 2200); return; }
     const at = addressOf(pic);
     if (!at) { toast('that picture is the engine’s, not the file’s', 2600); return; }
-    const words = 'Caption';
-    try {
-      await post('/deck/edit/element/picture', { slide: at.slide, index: at.index, path: at.path, tag: at.tag, caption: words });
-      editbar.deselect?.();
-      const fig = document.createElement('figure');
-      const cap = Object.assign(document.createElement('figcaption'), { textContent: words });
-      // the page wraps it as the file did: whatever the <img> carried stays on it
-      pic.before(fig);
-      fig.append(pic, cap);
-      announce(at.slide, fig);
-      // straight into its words, all of them selected, so typing replaces them
-      if (authoring?.editInline?.(cap)) {
-        const range = document.createRange();
-        range.selectNodeContents(cap);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-    } catch (e) {
-      toast(`no caption added: ${commit.why(e)}`, 6000);
+    // The figure and its caption are on the page at once, the caption being
+    // typed; the file gets them in ONE write when the typing ends (⏎, or
+    // leaving), with the words typed, so one undo takes the caption back.
+    // Esc, or no words, writes nothing and puts the picture back as it was.
+    editbar.deselect?.();
+    const fig = document.createElement('figure');
+    const cap = Object.assign(document.createElement('figcaption'), { textContent: 'Caption' });
+    // the page wraps it as the file will: whatever the <img> carried stays on it
+    pic.before(fig);
+    fig.append(pic, cap);
+    announce(at.slide, fig);
+    const unwrap = () => {
+      if (!fig.isConnected) return;
+      fig.before(pic);
+      fig.remove();
+      announce(at.slide, pic);
+    };
+    const provisional = {
+      cancel: unwrap,
+      async save(el) {
+        const words = el.textContent.replace(/\s+/g, ' ').trim();
+        if (!words) { unwrap(); return; }
+        el.textContent = words;   // what the file gets: one line of words
+        try {
+          await post('/deck/edit/element/picture', { slide: at.slide, index: at.index, path: at.path, tag: at.tag, caption: words });
+          announce(at.slide, fig);
+          debugLog('edit', `caption added · slide ${at.slide} #${at.index}`);
+        } catch (e) {
+          unwrap();
+          toast(`no caption added: ${commit.why(e)}`, 6000);
+        }
+      },
+    };
+    // straight into its words, all of them selected, so typing replaces them
+    if (!authoring?.editInline?.(cap, { selectAll: true, provisional })) {
+      unwrap();
+      toast('no caption added: this page cannot type into it', 3200);
     }
   }
 
   return {
-    /** The element menu's rows for a target (editmode.js): a picture's own, or none. */
+    /**
+     * Picture ▸'s rows for a target (editmode.js): a picture's own, or none.
+     * Always the same four, in order; one that cannot act is `disabled` (a
+     * caption it has already, a size that is its own).
+     */
     elementRows(target) {
       const pic = pictureOf(target);
       if (!pic || !editmode.available?.()) return [];
       return [
+        { label: 'Replace…', run: () => replace(pic) },
+        { label: 'Add caption', disabled: inFigure(pic), run: () => addCaption(pic) },
         { label: 'Use as slide background', run: () => toBackground(pic) },
-        ...(inFigure(pic) ? [] : [{ label: 'Add caption', run: () => addCaption(pic) }]),
+        { label: 'Reset size', disabled: !sized(pic), run: () => naturalSize(pic) },
       ];
     },
     /** Slide ▸'s rows: a background picture to choose, and one to take off when the slide has one. */

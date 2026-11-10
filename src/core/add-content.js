@@ -19,6 +19,7 @@
 
 import { authoredIndex } from './design-system.js';
 import { createEditCommit } from './edit-commit.js';
+import { pathFrom } from './colorpicker.js';
 
 /** What Add offers, in its order: the server's kinds, then the picture the bar always had. */
 export const ADD_KINDS = [
@@ -100,6 +101,55 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     await commit.track(job);   // Z waits for it, as for every write
   }
 
+  /**
+   * Duplicate what `target` selects (PRESENTING_EDITING, Duplicate): the
+   * element, or the node picked inside it (a picture in a figure), copied
+   * right after itself by the server, which answers with the copy's markup.
+   * The page puts that very markup where the file has it, refreshes the slide
+   * as Add does and selects the copy. One write, one undo. A diagram's shapes
+   * are shapes.js's (their copy is moved off the original and wired anew).
+   */
+  async function duplicate(target) {
+    if (!editmode.elementEditOn()) { toast(editmode.cannot('duplicating'), 3200); return; }
+    const { slide, sec, top } = target ?? {};
+    if (!sec || !top || !Number.isInteger(target.index)) { toast('select an element to duplicate it', 2200); return; }
+    const node = target.node && target.node !== top ? target.node : null;
+    const path = node ? pathFrom(top, node) : null;
+    if (node && !path) { toast('that is the engine’s, not the file’s: nothing to duplicate', 2600); return; }
+    const job = (async () => {
+      let j;
+      try {
+        j = await commit.send('/deck/edit/element/duplicate', { slide, index: target.index, tag: (node ?? top).tagName.toLowerCase(), ...(path ? { path } : {}) });
+      } catch (e) {
+        toast(`not duplicated: ${commit.why(e)}`, 6000);
+        return;
+      }
+      let els;
+      try {
+        if (node) {
+          const tpl = document.createElement('template');
+          tpl.innerHTML = j.html;
+          els = [...tpl.content.children];
+          if (els.length !== 1) throw new Error('no element in the markup');
+          node.after(els[0]);
+        } else els = place(sec, j);
+      } catch (e) {
+        debugLog('edit', `duplicate in place failed (${String(e.message || e)}) — reloading`);
+        if (!node) handOff({ slide, index: j.index, kind: 'duplicate' });
+        commit.reload('duplicated — the page could not show it in place', { slide });
+        return;
+      }
+      instance.refreshSlide?.(sec, {
+        charts: true, svgs: els, code: els.filter((el) => el.matches('pre') || el.querySelector('pre > code')), paint: sec,
+      });
+      editbar.refresh();
+      reveal(slide, els);
+      if (node) editbar.selectNode(els[0], { exact: true }); else editbar.selectNode(els[0]);
+      toast('duplicated', 1600);
+    })();
+    await commit.track(job);
+  }
+
   /** Put the file's new markup into the live slide where the file has it. Throws when it cannot. */
   function place(sec, j) {
     if (typeof j.html !== 'string' || !Number.isInteger(j.index)) throw new Error('no markup came back');
@@ -141,7 +191,9 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     // once the slide change has run, or the focus lands on a slide still coming in
     setTimeout(() => { if (title.isConnected) authoring.editInline(title, { selectAll: true }); }, 0);
   }
-  editmode.onSlideAdded?.(({ slide, placed }) => {
+  editmode.onSlideAdded?.(({ slide, placed, typeTitle = true }) => {
+    // added from the overview, the slide stays one cell among the others: nothing is typed under it
+    if (typeTitle === false) return;
     if (placed) editTitle(slide);
     else handOff({ slide, title: true });
   });
@@ -169,5 +221,5 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
   editmode.onElementEditChange(resumeWhenOn);
   if (editmode.elementEditOn()) resume();
 
-  return { open, add, kinds: () => ADD_KINDS.map(([kind, label]) => ({ kind, label })) };
+  return { open, add, duplicate, kinds: () => ADD_KINDS.map(([kind, label]) => ({ kind, label })) };
 }

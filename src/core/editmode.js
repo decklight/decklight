@@ -36,7 +36,7 @@ import { createWritingPicker, WRITING_TOOLS } from './writing.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { notesParts, withPart, hasClick, partFor, partLabel, wholeWhy } from './notesparts.js';
 import { hljs } from '../code/code.js';
-import { UNDO_CHORD, undoSaid } from './undo-chord.js';
+import { UNDO_CHORD, DUPLICATE_CHORD, undoSaid } from './undo-chord.js';
 import { markdownNodes } from './mdtext.js';
 import { aiIcon } from './aiicon.js';
 import { createEditCommit } from './edit-commit.js';
@@ -2283,7 +2283,7 @@ export function createEditMode({
   let elementEditOn = false;
   let menuEl = null, menuRows = [], menuSel = 0, menuView = 'main', menuTarget = null;
   let menuOwnRows = null;   // the 'rows' view: rows another module hands in (the bar's Add ▾)
-  let menuAt = null;   // where the menu was opened: where Add shape ▸ puts a shape (shapes.js)
+  let menuAt = null;   // where the menu was opened: where Shape ▸ puts a shape (shapes.js)
   // who wants to know when E turns editing on or off: the editing bar (editbar.js)
   const elementEditListeners = new Set();
 
@@ -2374,23 +2374,51 @@ export function createEditMode({
       // the whole list, from where the question came up: colours, pins, which slides use each (Concept colors…)
       if (editConcepts) rows.push({ label: 'Edit concepts…', run: () => { closeElementMenu(); editConcepts(here?.name ?? null); } });
     } else if (menuView === 'shape') {
-      // Add shape ▸ (SVG_DIAGRAMS): the server writes the markup, the page puts
-      // the same node where the menu was opened
-      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      // Shape ▸ (SVG_DIAGRAMS): a new shape where the menu was opened (the
+      // server writes the markup, the page puts the same node there), and,
+      // from a shape inside it, the whole diagram removed
+      rows.push(backTo('main'));
       const target = menuTarget; const at = menuAt;
+      rows.push({ head: 'Add' });
       for (const [kind, label] of [['box', 'Box'], ['ellipse', 'Ellipse'], ['label', 'Label'], ['line', 'Line / arrow']]) {
         rows.push({ label, run: () => { closeElementMenu(); shapes.add(target, kind, at); } });
       }
-    } else if (menuView === 'route' || menuView === 'arrows') {
-      // a connector's Route ▸ and Arrows ▸ (SVG_DIAGRAMS, shapes.js): the one it has ticked
-      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      const svg = shapes.diagramOf(target);
+      if (svg && target.node !== svg && target.node !== target.top) {
+        rows.push({ sep: true });
+        rows.push({ label: 'Remove the whole diagram', run: () => removeHolder(target, svg) });
+      }
+    } else if (menuView === 'wire') {
+      // Wire ▸ (SVG_DIAGRAMS, shapes.js): how it runs and its arrowheads, the
+      // one it has ticked in each, then its direction turned round
+      rows.push(backTo('main'));
       const target = menuTarget;
       const state = shapes.wireState(target) ?? {};
-      const choices = menuView === 'route' ? [['straight', 'Straight'], ['elbow', 'Elbow'], ['curve', 'Curved']] : [['none', 'None'], ['end', 'End'], ['both', 'Both ends']];
-      const cur = menuView === 'route' ? state.route : state.arrows;
-      const set = menuView === 'route' ? shapes.setRoute : shapes.setArrows;
-      for (const [value, label] of choices) {
-        rows.push({ label: `${value === cur ? '✓ ' : ''}${label}`, current: value === cur, run: () => { closeElementMenu(); if (value !== cur) set(target, value); } });
+      const group = (head, choices, cur, set) => {
+        rows.push({ head });
+        for (const [value, label] of choices) {
+          rows.push({ label: `${value === cur ? '✓ ' : ''}${label}`, current: value === cur, run: () => { closeElementMenu(); if (value !== cur) set(target, value); } });
+        }
+      };
+      group('Route', [['straight', 'Straight'], ['elbow', 'Elbow'], ['curve', 'Curved']], state.route, shapes.setRoute);
+      group('Arrows', [['none', 'None'], ['end', 'End'], ['both', 'Both ends']], state.arrows, shapes.setArrows);
+      rows.push({ sep: true });
+      rows.push({ label: 'Reverse', run: () => { closeElementMenu(); shapes.reverse(target); } });
+    } else if (menuView === 'table') {
+      // Table ▸: rows and columns added and deleted in place (list-session.js)
+      rows.push(backTo('main'));
+      rows.push(...(tableRows?.(menuTarget, closeElementMenu) ?? []));
+    } else if (menuView === 'picture') {
+      // Picture ▸ (pictures.js): replace, caption, background, its own size
+      rows.push(backTo('main'));
+      const pic = menuTarget;
+      for (const p of pictures?.elementRows(pic) ?? []) {
+        rows.push({ label: p.label, disabled: !!p.disabled, run: p.disabled ? () => {} : () => { closeElementMenu(); p.run(); } });
+      }
+      const fig = pic.node?.parentElement?.tagName === 'FIGURE' ? pic.node.parentElement : null;
+      if (fig) {
+        rows.push({ sep: true });
+        rows.push({ label: 'Remove the whole figure', run: () => removeHolder(pic, fig) });
       }
     } else if (menuView === 'slide') {
       // opened from the bar's Slide ▾ there is nothing to go back to
@@ -2402,9 +2430,15 @@ export function createEditMode({
       rows.push({ label: 'Delete this slide', run: () => { closeElementMenu(); slideOp('delete'); } });
       for (const p of pictures?.slideRows(menuTarget.slide) ?? []) rows.push({ label: p.label, run: () => { closeElementMenu(); p.run(); } });
     } else if (menuView === 'newslide') {
-      // a new slide of a kind (PRESENTING_EDITING): a short choice, its title then typed in place
-      rows.push({ label: '← back', back: true, run: () => { menuView = 'slide'; renderElementMenu(); } });
-      for (const [kind, label] of NEW_SLIDE_KINDS) rows.push({ label, run: () => { closeElementMenu(); slideOp('new', { kind }).catch(() => {}); } });
+      // a new slide of a kind (PRESENTING_EDITING): a short choice, its title
+      // then typed in place. Every door to a new slide opens this one list
+      // (chooseNewSlide): opened straight, there is nothing to go back to.
+      const pick = menuTarget.newSlide;
+      // opened straight, it says where the slide goes (from the overview, after which cell)
+      rows.push(pick ? { head: `New slide after ${menuTarget.slide}` } : backTo('slide'));
+      for (const [kind, label] of NEW_SLIDE_KINDS) {
+        rows.push({ label, run: () => { closeElementMenu(); if (pick) pick.run(kind); else slideOp('new', { kind }).catch(() => {}); } });
+      }
     } else if (menuView === 'rows') {
       rows.push(...(menuOwnRows?.() ?? []));
     } else if (menuTarget.index === null) {
@@ -2412,61 +2446,102 @@ export function createEditMode({
       if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     } else {
-      const nested = menuTarget.node && menuTarget.node !== menuTarget.top;
+      // The element menu (PRESENTING_EDITING): the same short list for every
+      // element, in the same order, so a row is found where it was last time;
+      // a row that cannot act here is greyed, not gone. What only some
+      // elements have (a table's rows, a picture's, a wire's, a diagram's
+      // shapes, a concept) is ONE submenu row each, just above Slide ▸.
+      //
       // No notes row here: the notes are the slide's, not the element's, and
       // the background right-click, S, the bar's Notes and the palette all
-      // open them. On an element the row only pushed what the click was about
-      // (remove, content, colours, type) one line further down.
+      // open them.
+      const t = menuTarget;
+      const nested = t.node && t.node !== t.top;
+      const noop = () => {};
       if (inspectHook) rows.push({ label: 'Inspect', run: () => openInspect() });
-      rows.push({ label: nested ? `Remove this ${menuTarget.node.tagName.toLowerCase()}` : 'Remove element', run: () => commitRemove() });
-      if (nested) rows.push({ label: `Remove the whole ${menuTarget.top.tagName.toLowerCase()}`, run: () => commitRemove(menuTarget, { whole: true }) });
-      // up or down the slide, greyed at the ends (element-move.js)
-      if (elementMove && !nested) for (const [dir, label, key] of [[-1, 'Move up', elementMove.keys.up], [1, 'Move down', elementMove.keys.down]]) { const t = menuTarget; const can = elementMove.canMove(t, dir); rows.push({ label, key, disabled: !can, run: can ? () => { closeElementMenu(); elementMove.move(t, dir); } : () => {} }); }
-      // a diagram's shapes (shapes.js): a copy of this one, a new one where the menu opened
-      const inDiagram = !!shapes?.diagramOf(menuTarget);
-      if (inDiagram && nested && shapes.canDuplicate(menuTarget)) {
-        const target = menuTarget;
-        rows.push({ label: 'Duplicate', run: () => { closeElementMenu(); shapes.duplicate(target); } });
-      }
-      if (inDiagram) rows.push({ label: 'Add shape ▸', run: () => { menuView = 'shape'; renderElementMenu(); } });
-      // a wire: how it runs, its arrowheads, its direction (connectors, shapes.js)
-      if (inDiagram && nested && shapes.isWire?.(menuTarget)) {
-        const target = menuTarget;
-        rows.push({ label: 'Route ▸', run: () => { menuView = 'route'; renderElementMenu(); } });
-        rows.push({ label: 'Arrows ▸', run: () => { menuView = 'arrows'; renderElementMenu(); } });
-        rows.push({ label: 'Reverse', run: () => { closeElementMenu(); shapes.reverse(target); } });
-      }
-      rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
-      // a table's cell: rows and columns added and deleted in place (authoring.js)
-      if (tableRows) rows.push(...tableRows(menuTarget, closeElementMenu));
-      if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting({ group: 'text' }); } });
       rows.push({ label: 'Colors…', run: () => openInspect('colors') });
       rows.push({ label: 'Type…', run: () => openInspect('type') });
-      for (const p of pictures?.elementRows(menuTarget) ?? []) rows.push({ label: p.label, run: () => { closeElementMenu(); p.run(); } });
-      // the format painter: this shape's look onto another (style-clip.js)
+      // the format painter: this element's look onto another (style-clip.js)
       if (styleClip) {
-        const target = menuTarget;
-        rows.push({ label: 'Copy style', key: styleClip.keys.copy, run: () => { closeElementMenu(); styleClip.copy(target); } });
-        if (styleClip.has()) rows.push({ label: 'Paste style', key: styleClip.keys.paste, run: () => { closeElementMenu(); styleClip.paste(target); } });
+        rows.push({ label: 'Copy style', key: styleClip.keys.copy, run: () => { closeElementMenu(); styleClip.copy(t); } });
+        const can = styleClip.has();
+        rows.push({ label: 'Paste style', key: styleClip.keys.paste, disabled: !can, run: can ? () => { closeElementMenu(); styleClip.paste(t); } : noop });
       }
-      if (conceptOf(menuTarget.top, menuTarget.clicked)) rows.push({ label: 'Concept ▸', run: () => { menuView = 'concept'; renderElementMenu(); } });
-      const fx = currentEffect(menuTarget);
-      rows.push({ label: fx ? `Build: ${fx} ▸` : fx === '' ? 'Build: the default ▸' : 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
-      rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
+      const fx = currentEffect(t);
+      rows.push({ label: fx ? `Build: ${fx} ▸` : fx === '' ? 'Build: the default ▸' : 'Build ▸', run: drill('effects') });
+      // up or down the slide, greyed at the ends and inside a diagram (element-move.js)
+      if (elementMove) {
+        for (const [dir, label, key] of [[-1, 'Move up', elementMove.keys.up], [1, 'Move down', elementMove.keys.down]]) {
+          const can = !nested && elementMove.canMove(t, dir);
+          rows.push({ label, key, disabled: !can, run: can ? () => { closeElementMenu(); elementMove.move(t, dir); } : noop });
+        }
+      }
+      const dup = canDuplicate(t);
+      rows.push({ label: 'Duplicate', key: DUPLICATE_CHORD, disabled: !dup, run: dup ? () => { closeElementMenu(); duplicateElement(t); } : noop });
+      // what is selected: a shape picked in a diagram goes alone (its holder is under Shape ▸)
+      rows.push({ label: 'Remove', key: '⌫', run: () => commitRemove(t) });
+      rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(t); } });
+      if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting({ group: 'text' }); } });
+      // the contextual rows, each one submenu, only where it applies
+      if (tableRows?.(t, closeElementMenu)?.length) rows.push({ label: 'Table ▸', run: drill('table') });
+      if (pictures?.elementRows(t)?.length) rows.push({ label: 'Picture ▸', run: drill('picture') });
+      if (shapes?.isWire?.(t)) rows.push({ label: 'Wire ▸', run: drill('wire') });
+      if (shapes?.diagramOf(t)) rows.push({ label: 'Shape ▸', run: drill('shape') });
+      if (conceptOf(t.top, t.clicked)) rows.push({ label: 'Concept ▸', run: drill('concept') });
+      rows.push({ label: 'Slide ▸', run: drill('slide') });
     }
-    menuRows = rows;
-    rows.forEach((r, i) => {
+    // a heading (`head`) names the rows under it and a `sep` rules a line:
+    // neither is a row, so the arrows and the selection skip them
+    menuRows = rows.filter((r) => !r.head && !r.sep);
+    let i = 0;
+    for (const r of rows) {
+      if (r.head || r.sep) {
+        const el = document.createElement('div');
+        el.className = r.head ? 'cm-head' : 'cm-sep';
+        el.setAttribute('role', r.head ? 'presentation' : 'separator');
+        if (r.head) el.textContent = r.head;
+        list.appendChild(el);
+        continue;
+      }
+      const at = i++;
       const row = document.createElement('div');
       row.className = 'cm-row' + (r.back ? ' cm-back' : '') + (r.disabled ? ' cm-disabled' : '');
       row.setAttribute('role', 'option');
       if (r.disabled) row.setAttribute('aria-disabled', 'true');
       row.textContent = r.label;
       if (r.key) row.append(Object.assign(document.createElement('span'), { className: 'cm-key', textContent: r.key }));
-      row.addEventListener('mouseenter', () => selectElementRow(i, false));
+      row.addEventListener('mouseenter', () => selectElementRow(at, false));
       row.addEventListener('click', r.run);
       list.appendChild(row);
-    });
-    selectElementRow(0, false);
+    }
+    // a list of choices opened straight (New slide's kinds) has its first, the common one, ready for ⏎
+    selectElementRow(menuView === 'newslide' ? Math.max(0, menuRows.findIndex((r) => !r.back)) : 0, false);
+  }
+  /** A submenu row's run: the menu redrawn as `view`. */
+  function drill(view) { return () => { menuView = view; renderElementMenu(); }; }
+  /** A submenu's way back to `view`. */
+  function backTo(view) { return { label: '← back', back: true, run: drill(view) }; }
+
+  /** Can Duplicate act on what `t` selects? A diagram's shape by its own route, anything else the file has. */
+  function canDuplicate(t) {
+    if (!t?.top || !Number.isInteger(t.index)) return false;
+    const svg = shapes?.diagramOf(t);
+    if (svg && t.node && t.node !== svg && t.node !== t.top) return !!shapes.canDuplicate(t);
+    if (!addContent) return false;
+    if (t.top.matches?.('aside, script, style')) return false;
+    return !t.node || t.node === t.top || pathFrom(t.top, t.node) !== null;
+  }
+  /** Duplicate what `t` selects (the menu's Duplicate, ⌘D): a diagram's shape there, anything else in the file. */
+  function duplicateElement(t) {
+    if (!editAvailable) { toast(cannot('duplicating'), 3200); return null; }
+    if (!canDuplicate(t)) { toast('select an element to duplicate it', 2200); return null; }
+    const svg = shapes?.diagramOf(t);
+    if (svg && t.node && t.node !== svg && t.node !== t.top) return shapes.duplicate(t);
+    return addContent.duplicate(t);
+  }
+  /** Remove `holder`, what holds the selection (the diagram a shape is in, the figure a picture is in): the element, or the node in it. */
+  function removeHolder(t, holder) {
+    return holder === t.top ? commitRemove(t, { whole: true }) : commitRemove({ ...t, node: holder });
   }
 
   function selectElementRow(i, scroll) {
@@ -2562,7 +2637,7 @@ export function createEditMode({
     instance.goto(j.slide, 0, { force: true });
     instance._afterSlideOp?.();
   }
-  async function slideOp(op, { slide = instance.state.slide, to = null, kind = null } = {}) {
+  async function slideOp(op, { slide = instance.state.slide, to = null, kind = null, typeTitle = true } = {}) {
     if (!editAvailable) { toast(cannot('editing slides'), 3200); return; }
     const inPlace = canDoInPlace(op, slide);
     try {
@@ -2585,7 +2660,7 @@ export function createEditMode({
       } else if (Number.isInteger(j.slide)) location.hash = `#/${j.slide}/0`;
       // a new slide of a kind has its title typed next (add-content.js):
       // here, or on the page the reload brings
-      if (op === 'new' && kind) for (const fn of slideAddedListeners) fn({ slide: j.slide, kind, placed });
+      if (op === 'new' && kind) for (const fn of slideAddedListeners) fn({ slide: j.slide, kind, placed, typeTitle });
       // a delete says how to take it back with a button, not in words
       if (op === 'delete') undoToast(said);
       else toast(placed || !j.inPlace ? (placed ? said : `${said} — reloading`) : said, 2000);
@@ -2593,6 +2668,24 @@ export function createEditMode({
       toast(`could not ${op === 'new' ? 'add a slide' : `${op} the slide`}: ${errText(e)}`, 6000);
       throw e;
     }
+  }
+  /**
+   * New slide, from any door (PRESENTING_EDITING): the bar's Slide ▾, the
+   * menu's Slide ▸, the palette's row, the overview's + and N all open this
+   * one short list of kinds, Title and bullets first and ready for ⏎. It
+   * opens at `x, y` (the middle of the stage without them, `above` for a
+   * point it opens up from), for a slide after `slide`; `run(kind)` is what
+   * a pick does (slideOp's new, by default).
+   */
+  function chooseNewSlide({ x = null, y = null, slide = instance.state.slide, above = false, run = null } = {}) {
+    if (!elementEditOn) { toast(cannot('adding a slide'), 3200); return; }
+    const r = root.getBoundingClientRect();
+    const target = {
+      sec: instance._sections[slide - 1], slide, index: null, top: null, clicked: null, fromBar: true,
+      newSlide: { run: run ?? ((kind) => slideOp('new', { slide, kind }).catch(() => {})) },
+    };
+    overlays.opening();
+    openElementMenu(x ?? r.left + r.width / 2 - 90, y ?? r.top + r.height / 3, target, 'newslide', { above, label: 'New slide' });
   }
   const slideAddedListeners = new Set();
   /** A message about something just removed, with an Undo button on it, gone on its own after a while. */
@@ -2663,6 +2756,7 @@ export function createEditMode({
   let tableRows = null;   // the table menu's rows for a right-clicked cell (list-session.js), handed in by authoring.js
   let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
   let shapes = null;      // a diagram's shapes moved, added, duplicated (shapes.js), handed in by the engine
+  let addContent = null;  // Add and Duplicate in place (add-content.js), handed in by the engine
   let editConcepts = null;   // the engine's door to Concept colors… (`fn(name)`), for the Concept ▸ submenu
   /**
    * Where a shape's concept lives in the FILE: `{ slide, index, path, tag,
@@ -2944,6 +3038,8 @@ export function createEditMode({
   }
 
   overlays.register({
+    // drawn over whatever opened it (the overview's New slide list sits on the overview): its keys first
+    first: true,
     isOpen: () => !!menuEl,
     close: closeElementMenu,
     transient: true,
@@ -4304,6 +4400,8 @@ export function createEditMode({
     closeMenu: () => closeElementMenu(),
     /** Remove the element a target names: ⌫ on a selection. */
     removeElement: (target) => commitRemove(target),
+    /** Duplicate what a target selects: ⌘D on a selection, the menu's Duplicate. */
+    duplicateElement: (target) => duplicateElement(target),
     /** The engine's door to the inspector: `fn(target, tab)` for the menu's Inspect, Colors… and Type…. */
     setInspect: (fn) => { inspectHook = fn; },
     /** A pick from the inspector's Colors or Type tab, written in place. */
@@ -4324,13 +4422,17 @@ export function createEditMode({
     setTableRows: (fn) => { tableRows = fn; },
     /** The engine's picture tools (pictures.js): the element menu's picture rows and Slide ▸'s background rows. */
     setPictures: (p) => { pictures = p; },
-    /** The engine's diagram shapes (shapes.js): the menu's Duplicate, Add shape ▸ and a wire's Route ▸, Arrows ▸ and Reverse rows. */
+    /** The engine's diagram shapes (shapes.js): a shape's Duplicate, Shape ▸ and a wire's Wire ▸. */
     setShapes: (x) => { shapes = x; },
+    /** Add and Duplicate in place (add-content.js): the menu's Duplicate and ⌘D on anything but a diagram's shape. */
+    setAddContent: (a) => { addContent = a; },
     /** The door to the concept list (Concept colors…), opened on a concept: the submenu's Edit concepts…. */
     setEditConcepts: (fn) => { editConcepts = fn; },
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
     slideOp,
-    /** `fn({ slide, kind, placed })` after a new slide of a kind is written, in place (`placed`) or with a reload coming. */
+    /** New slide's kinds, opened from any door: `{ x, y, slide, above, run }` (chooseNewSlide). */
+    chooseNewSlide,
+    /** `fn({ slide, kind, placed, typeTitle })` after a new slide of a kind is written, in place (`placed`) or with a reload coming; `typeTitle` false from the overview. */
     onSlideAdded: (fn) => { slideAddedListeners.add(fn); },
     /** A reload that waits for whatever is typed (drafts.js): a write the page could not show in place. */
     reloadWhenSafe: (why) => reloadWhenSafe(why),

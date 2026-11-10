@@ -43,6 +43,7 @@ export const MODES = [
   'chartdata',
   'shapedrag', 'shapeadd',
   'connectors', 'connectmenu', 'guides', 'connectdraw',
+  'dupkeys',
 ];
 
 // A typo in a mode name would otherwise run NOTHING and exit 0, which is the

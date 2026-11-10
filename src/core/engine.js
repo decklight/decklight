@@ -1120,7 +1120,8 @@ export function init(userConfig = {}) {
       editmode.elementEditOn() && write({ label: 'Add to slide…', cat: 'Slide',
         alias: 'add insert new element heading title subheading text paragraph bullets list numbered ordered quote table code snippet columns two comparison diagram boxes chart graph picture image',
         run: () => addContent.open() }),
-      write({ label: 'New slide after this one', cat: 'Slide', alias: 'add slide insert blank create page', run: () => editmode.slideOp('new') }),
+      // the same kinds every door to a new slide offers (chooseNewSlide): ⏎ takes Title and bullets
+      write({ label: 'New slide…', cat: 'Slide', alias: 'add slide after this one insert blank create page kind bullets section title columns', run: () => editmode.chooseNewSlide() }),
       write({ label: 'Duplicate this slide', cat: 'Slide', alias: 'copy slide clone', run: () => editmode.slideOp('duplicate') }),
       write({ label: 'Move slide up', cat: 'Slide', alias: 'reorder earlier before swap', run: () => editmode.slideOp('up') }),
       write({ label: 'Move slide down', cat: 'Slide', alias: 'reorder later after swap', run: () => editmode.slideOp('down') }),
@@ -1387,7 +1388,9 @@ export function init(userConfig = {}) {
     palCommands = paletteCommands();
     palEl = document.createElement('div');
     palEl.className = 'decklight-narr decklight-palette';
-    palEl.innerHTML = '<div class="narr-card"><div class="pal-list" role="listbox" aria-label="Commands"></div></div>';
+    // the chord's two meanings, said where it is used: the palette here, the link while words are selected in an edit
+    palEl.innerHTML = `<div class="narr-card"><div class="pal-list" role="listbox" aria-label="Commands"></div>`
+      + `<div class="pal-hint">${PALETTE_CHORD} or / opens this · while editing text, ${PALETTE_CHORD} links the selected words</div></div>`;
     palInput = queryInput({
       placeholder: 'type a command…', label: 'Command',
       onQuery: (q) => { palQuery = q; renderPalette(); },
@@ -2349,12 +2352,26 @@ export function init(userConfig = {}) {
   // server named, so a second drag follows the first without pressing O again.
   const OVERVIEW_OPEN_KEY = 'decklight-overview-open:' + location.pathname;
   let ovDrag = null;   // the index of the cell being dragged
-  function ovOp(op, i, to = null) {
+  function ovOp(op, i, to = null, kind = null) {
     if (!editmode.available()) return;
     try { sessionStorage.setItem(OVERVIEW_OPEN_KEY, '1'); } catch { /* no storage: the overview closes on reload, as before */ }
-    editmode.slideOp(op, { slide: i + 1, to }).catch(() => {
+    // a new slide stays a cell here: its title is not typed under the overview
+    editmode.slideOp(op, { slide: i + 1, to, kind, typeTitle: false }).catch(() => {
       try { sessionStorage.removeItem(OVERVIEW_OPEN_KEY); } catch { /* nothing to clear */ }
     });
+  }
+  /**
+   * The overview's + and N: the kinds every door to a new slide offers
+   * (editmode.chooseNewSlide), opened at the cell's + (or the cell itself),
+   * the new slide put after cell `i`.
+   */
+  function ovNew(i, at = null) {
+    if (!editmode.available()) return;
+    const cell = overviewEl?.querySelectorAll('.ov-cell')[i];
+    // the + when it is shown (on hover it is), else the cell's own corner
+    const plus = at ?? cell?.querySelector('.ov-new');
+    const r = (plus?.getBoundingClientRect().width ? plus : cell)?.getBoundingClientRect();
+    editmode.chooseNewSlide({ slide: i + 1, ...(r ? { x: r.left, y: r.bottom + 4 } : {}), run: (kind) => ovOp('new', i, null, kind) });
   }
   /** Where a drop over cell `i` would put the dragged slide: before it on the left half, after it on the right. */
   function ovDropAt(cell, i, e) {
@@ -2368,13 +2385,13 @@ export function init(userConfig = {}) {
   function ovEditable(cell, i) {
     const tools = document.createElement('div');
     tools.className = 'ov-tools';
-    for (const [op, glyph, title] of [['new', '+', 'new slide after this one'], ['duplicate', '⧉', 'duplicate this slide'], ['delete', '🗑', `delete this slide (${UNDO_CHORD} takes it back)`]]) {
+    for (const [op, glyph, title] of [['new', '+', 'new slide after this one: choose its kind'], ['duplicate', '⧉', 'duplicate this slide'], ['delete', '🗑', `delete this slide (${UNDO_CHORD} takes it back)`]]) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = `ov-tool ov-${op}`;
       b.title = title;
       b.textContent = glyph;
-      b.addEventListener('click', (e) => { e.stopPropagation(); ovOp(op, i); });
+      b.addEventListener('click', (e) => { e.stopPropagation(); if (op === 'new') ovNew(i, b); else ovOp(op, i); });
       tools.appendChild(b);
     }
     cell.appendChild(tools);
@@ -2626,7 +2643,7 @@ export function init(userConfig = {}) {
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
       <tr><td>G</td><td>find a slide</td></tr>
-      <tr><td>/ · ${PALETTE_CHORD}</td><td>every command</td></tr>
+      <tr><td>/ · ${PALETTE_CHORD}</td><td>every command (while editing text, ${PALETTE_CHORD} links the selected words)</td></tr>
       <tr><td>&#96;</td><td>the messages so far</td></tr>
       <tr><td>?</td><td>this help</td></tr>`)}
       ${group('Present', `
@@ -2657,11 +2674,11 @@ export function init(userConfig = {}) {
       <tr><td>K</td><td>commit (${COMMIT_CHORD} while typing)</td></tr>
       <tr><td>H</td><td>history: every version, ${enter} restores one</td></tr>
       <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a shape's style</td></tr>
-      <tr class="help-ctx"><td>${enter} · ⌫ · Esc</td><td>on a selected element: edit · remove · let go</td></tr>
+      <tr class="help-ctx"><td>${enter} · ⌫ · ${IS_MAC ? '⌘D' : 'Ctrl+D'} · Esc</td><td>on a selected element: edit · remove · duplicate · let go</td></tr>
       <tr class="help-ctx"><td>${IS_MAC ? '⌃⇧↑ / ⌃⇧↓' : 'Ctrl+Shift+↑ / ↓'}</td><td>on a selected element: move it up / down (or drag its ⋯)</td></tr>
       <tr class="help-ctx"><td>${enter} · ⇧${enter} · Esc</td><td>while editing text: keep · new line · cancel</td></tr>
       <tr class="help-ctx"><td>${enter} · ⇥ · ${IS_MAC ? '⌃⇧↑ / ⌃⇧↓' : 'Ctrl+Shift+↑ / ↓'}</td><td>while typing in a bullet: new point · indent · move it up or down</td></tr>
-      <tr class="help-ctx"><td>${IS_MAC ? '⌘B · ⌘I · ⌘E · ⌘K' : 'Ctrl+B · Ctrl+I · Ctrl+E · Ctrl+K'}</td><td>while editing text: bold · italic · code · link</td></tr>
+      <tr class="help-ctx"><td>${IS_MAC ? '⌘B · ⌘I · ⌘E · ⌘K' : 'Ctrl+B · Ctrl+I · Ctrl+E · Ctrl+K'}</td><td>while editing text: bold · italic · code · link the selected words (${PALETTE_CHORD} is the palette everywhere else)</td></tr>
       <tr class="help-ctx"><td>N · D · ⌫</td><td>in the overview: new slide · duplicate · delete</td></tr>
       <tr class="help-ctx"><td>E</td><td>in the inspector: edit this slide's sources</td></tr>
       <tr class="help-ctx"><td>⇧-click Layout</td><td>on the bar: the layout before</td></tr>`) : ''}
@@ -2738,7 +2755,7 @@ export function init(userConfig = {}) {
         case 'o': case 'O': case 'Escape': toggleOverview(); break;
         // the selected cell, rearranged from the keyboard (write mode)
         case 'Backspace': case 'Delete': if (editmode.available()) ovOp('delete', ovSel); break;
-        case 'n': case 'N': if (editmode.available()) ovOp('new', ovSel); break;
+        case 'n': case 'N': if (editmode.available()) ovNew(ovSel); break;
         case 'd': case 'D': if (editmode.available()) ovOp('duplicate', ovSel); break;
         default: return false;
       }
@@ -2852,7 +2869,12 @@ export function init(userConfig = {}) {
       && editmode.elementEditOn() ? e.code : null;
     // Control-Shift-↑ / ↓, on every platform — move the selected element one place (PRESENTING_EDITING, Moving); the selection's keys below take it
     const moveChord = e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editmode.elementEditOn();
-    if (!undoChord && !speakerChord && !styleChord && !moveChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
+    // ⌘D / Ctrl+D — duplicate the selection (PRESENTING_EDITING): the browser's
+    // bookmark chord, taken only in write mode with something selected, as
+    // Keynote and Slides take it; with nothing selected the browser keeps it
+    const duplicateChord = (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && e.code === 'KeyD'
+      && editmode.elementEditOn() && !!editbar.selected();
+    if (!undoChord && !speakerChord && !styleChord && !moveChord && !duplicateChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
     // An overlay that is up owns the keyboard — whether or not it wants this
     // particular key. Registration order (see `overlays.register` calls) is the
     // priority order the long if-chain here used to encode.
@@ -3619,6 +3641,8 @@ export function init(userConfig = {}) {
   // Add ▾ (add-content.js): a heading, words, a list, a table, code, two
   // columns, a diagram or a chart onto the slide, in place and ready to type
   const addContent = createAddContent({ root, instance, editmode, authoring, editbar, toast, debugLog });
+  // …and Duplicate (the menu's row, ⌘D), which puts a copy in the same way
+  editmode.setAddContent(addContent);
   // Pictures after the drop (pictures.js, PRESENTING_EDITING): resize, alt,
   // replace, caption, and the slide's background, each shown at once. A
   // background is the engine's to draw: its layer again for the one slide,
