@@ -6,7 +6,7 @@
 
 import { scanSlide, applyBuildState, stepLabels, registerProvider } from './builds.js';
 import { namespaceSvgIds, rescopeSvgIds, prefixSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf } from './svg.js';
-import { initCharts } from './charts.js';
+import { initCharts, renderChart } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath } from '../math/math.js';
@@ -1790,6 +1790,18 @@ export function init(userConfig = {}) {
     instance._rescanFor(sec);
     relayoutSlide(sec, slide);
   });
+  // a chart's numbers changed in the inspector's Data tab (chartgrid.js):
+  // that one chart drawn again from its element, its series' concepts
+  // painted, its slide's builds rescanned and laid out, as init did
+  function redrawChart(el) {
+    const sec = el?.isConnected ? el.closest('section') : null;
+    const idx = sec ? instance._sections.indexOf(sec) + 1 : 0;
+    if (!idx) return;
+    renderChart(el);
+    applyConcepts(el, config.concepts);
+    instance._rescanFor(el);
+    relayoutSlide(sec, idx);
+  }
   const layout = createLayoutCycler({
     slideOf: () => instance.state.slide,
     sectionAt: (idx) => instance._sections[idx - 1],
@@ -3642,6 +3654,7 @@ export function init(userConfig = {}) {
     review: () => review, narration: () => narration, sources: () => sources,
     // the deck's brand (SPEC BRAND_PALETTE): held to it or not, and the theme on screen
     brand: () => ({ locked: themes.brandLocked(), theme: themes.currentTheme() }),
+    redrawChart,
   });
   // the content editor's way back to the inspector (its HTML tab's other end)
   editmode.setInspectorOpener?.(() => inspector?.open());

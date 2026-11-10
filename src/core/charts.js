@@ -473,35 +473,57 @@ export function chartSvg(spec) {
 export function initCharts(root) {
   root.querySelectorAll('[data-chart]').forEach((el) => {
     if (el.querySelector(':scope > svg.chart-svg, :scope > .chart-broken')) return; // idempotent
-    el.classList.add('chart');
-    const dataEl = el.querySelector('script[type="application/json"]');
-    try {
-      const spec = parseChart(dataEl ? dataEl.textContent : null, {
-        type: el.getAttribute('data-chart') || undefined,
-        title: el.getAttribute('data-title') || undefined,
-        aspect: el.getAttribute('data-aspect') || undefined,
-      });
-      const tpl = document.createElement('template');
-      tpl.innerHTML = chartSvg(spec);
-      const svg = tpl.content.firstElementChild;
-      // builds without a build provider: the authored data-build moves onto
-      // the generated <svg>, whose direct-child series groups are exactly the
-      // BUILD_AUTHORING SVG-container steps (the chrome group is data-build-stay)
-      if (el.hasAttribute('data-build')) {
-        svg.setAttribute('data-build', el.getAttribute('data-build'));
-        el.removeAttribute('data-build');
-      } else if (spec.build != null && spec.build !== false) {
-        svg.setAttribute('data-build', spec.build === true ? '' : String(spec.build));
-      }
-      if (!el.getAttribute('data-chart')) {
-        el.setAttribute('data-chart', spec.donut ? 'donut' : spec.type);
-      }
-      el.insertBefore(svg, dataEl);
-    } catch (err) {
-      const box = document.createElement('div');
-      box.className = 'chart-broken';
-      box.textContent = `chart: ${err.message || err}`;
-      el.insertBefore(box, dataEl);
-    }
+    drawChart(el);
   });
+}
+
+// the data-build each wrapper authored, kept when it moves onto the <svg>, so
+// a chart drawn again (renderChart) moves it again, and a build its JSON
+// carried (the fence form's) is never mistaken for one the wrapper had
+const authoredBuild = new WeakMap();
+
+/**
+ * Draw ONE chart again from what its element says now: its JSON, its
+ * data-chart and data-title. The inspector's Data tab calls this on every
+ * edit (chartgrid.js), so the slide shows the number as it is typed; the
+ * caller rescans the slide's builds after, as init's pipeline does.
+ */
+export function renderChart(el) {
+  el.querySelectorAll(':scope > svg.chart-svg, :scope > .chart-broken').forEach((n) => n.remove());
+  if (authoredBuild.has(el) && !el.hasAttribute('data-build')) el.setAttribute('data-build', authoredBuild.get(el));
+  drawChart(el);
+}
+
+function drawChart(el) {
+  el.classList.add('chart');
+  const dataEl = el.querySelector('script[type="application/json"]');
+  try {
+    const spec = parseChart(dataEl ? dataEl.textContent : null, {
+      type: el.getAttribute('data-chart') || undefined,
+      title: el.getAttribute('data-title') || undefined,
+      aspect: el.getAttribute('data-aspect') || undefined,
+    });
+    const tpl = document.createElement('template');
+    tpl.innerHTML = chartSvg(spec);
+    const svg = tpl.content.firstElementChild;
+    // builds without a build provider: the authored data-build moves onto
+    // the generated <svg>, whose direct-child series groups are exactly the
+    // BUILD_AUTHORING SVG-container steps (the chrome group is data-build-stay)
+    if (el.hasAttribute('data-build')) {
+      authoredBuild.set(el, el.getAttribute('data-build'));
+      svg.setAttribute('data-build', el.getAttribute('data-build'));
+      el.removeAttribute('data-build');
+    } else if (spec.build != null && spec.build !== false) {
+      svg.setAttribute('data-build', spec.build === true ? '' : String(spec.build));
+    }
+    if (!el.getAttribute('data-chart')) {
+      el.setAttribute('data-chart', spec.donut ? 'donut' : spec.type);
+    }
+    el.insertBefore(svg, dataEl);
+  } catch (err) {
+    const box = document.createElement('div');
+    box.className = 'chart-broken';
+    box.textContent = `chart: ${err.message || err}`;
+    el.insertBefore(box, dataEl);
+  }
 }

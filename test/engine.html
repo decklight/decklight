@@ -147,6 +147,17 @@
     };
     LK.tablemenu = LK.tablekeys;
     let LK_SRC = LK[HARNESS_MODE] ?? null;
+    // chartdata: a bar chart as an author writes one (a number spelled 80.50,
+    // a key no chart reads, a build, a style), and a scatter beside it
+    const CD_BAR = `<div class="chart cd-bar" data-chart="bar" data-title="Latency" data-build="draw" style="max-width:70%">
+        <script type="application/json">
+        { "labels": ["v1", "v2", "v3"],
+          "series": [ { "name": "p50", "data": [120, 80.50, 45] } ],
+          "x-from": "grafana" }
+        <\/script>
+      </div>`;
+    const CD_SCATTER = `<div class="chart cd-scatter" data-chart="scatter"><script type="application/json">{ "series": [ { "name": "a", "points": [[1, 2], [3, 4]] } ] }<\/script></div>`;
+    const CD_FILE = { 1: CD_BAR, 2: CD_SCATTER };
     let FAIL_NEXT_STYLE = false;   // the colours mode: the next style save is refused
     const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url, init) => {
@@ -809,6 +820,17 @@
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<figure>\n<img src="x.svg" alt="">\n<figcaption>Caption</figcaption>\n</figure>' });
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
       }
+      // the Data tab (chartdata): the file's two charts, as the server would
+      // read them, and a content write that the next read sees
+      if (HARNESS_MODE === 'chartdata') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: CD_FILE[Number(new URL(u, location.href).searchParams.get('index'))] });
+        if (u.includes('/deck/edit/element/content') && init?.method === 'POST') {
+          const b = JSON.parse(init.body);
+          CD_FILE[b.index] = b.html;
+          return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        }
+      }
       if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors' || HARNESS_MODE === 'copystyle') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/style')) {
@@ -1105,6 +1127,12 @@
           <g class="cs-c"><rect class="cs-plain2" x="580" y="40" width="120" height="60"/><text x="640" y="75">Other</text></g>`);
         document.querySelector('.cp-text').style.setProperty('font-weight', '700');
       }
+    }
+    if (HARNESS_MODE === 'chartdata') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Charts</h2>
+      ${CD_BAR}
+      ${CD_SCATTER}
+      </section>`);
     }
     // diagram labels to type into (SVG_DIAGRAMS): a box and its label, a
     // label of two lines, and a stroke a draw build puts its head after
@@ -8315,6 +8343,133 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.fillByReference && r.strokeToo && r.labelInkAndWeight && r.pathIsTheFiles && r.noConcept && r.pastedSaid && r.samePasteWritesNothing
           && r.chordCopies && r.conceptPasted && r.conceptRepainted && r.detachesInSameWrite && r.ontoACssBox && r.refusalPutsBack
           && r.noSelectionSaysHow && r.paletteRows;
+      }
+
+      if (mode === 'chartdata') {
+        // PRESENTING_EDITING, the inspector's Data tab (SPEC CHARTS): a chart's
+        // numbers as a grid read from the FILE, every edit drawn on the slide
+        // at once and written in place (quiet, this page's id) once the typing
+        // pauses, one POST a burst; the file's bytes kept around each change;
+        // a bad number marked and written nowhere; a scatter is a note and the
+        // HTML editor, never a broken grid; locked, the grid only reads.
+        const I = '.decklight-inspector';
+        const q = (s) => document.querySelector(`${I} ${s}`);
+        const fire = (el, type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content'));
+        const chart = () => document.querySelector('.cd-bar');
+        const svgOf = () => chart().querySelector(':scope > svg.chart-svg');
+        const cell = (row, col) => q(`.dg-cell[data-row="${row}"][data-col="${col}"]`);
+        const type = (input, v) => { if (document.activeElement !== input) input.focus(); input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); };
+        const key = (el, k, opts = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+        const pause = async () => { for (let i = 0; i < 20; i++) await settle(); };
+        await settle();
+        deck.goto(5);
+        await settle();
+        fire(chart().querySelector('.chart-bar'), 'click');
+        await settle();
+        r.chartSelected = deck._selection?.()?.top === chart();
+        press('i');
+        await settle();
+        const tabs = [...document.querySelectorAll(`${I} .ins-tab`)].map((b) => b.dataset.tab).join(',');
+        r.dataTabBesideTheOthers = tabs.startsWith('info,colors,type,data') && !q('.ins-tab[data-tab="data"]').disabled;
+        q('.ins-tab[data-tab="data"]').click();
+        await until(() => cell(0, 0));
+        r.readFromTheFile = CALLS.get.some((u) => u.includes('/deck/edit/element/source?slide=5&index=1'));
+        r.gridShown = cell(-1, 0)?.value === 'p50' && cell(0, -1)?.value === 'v1' && cell(2, -1)?.value === 'v3'
+          && cell(1, 0)?.value === '80.50' && q('.dg-title')?.value === 'Latency' && q('.dg-seg-btn[aria-checked="true"]')?.dataset.type === 'bar';
+
+        // a burst of typing in one cell: drawn at every keystroke, written once
+        const before = svgOf();
+        const h0 = Number(before.querySelectorAll('.chart-bar')[1].getAttribute('height'));
+        for (const v of ['2', '21', '210']) type(cell(1, 0), v);
+        r.redrawnAtOnce = svgOf() !== before && Number(svgOf().querySelectorAll('.chart-bar')[1].getAttribute('height')) > h0;
+        r.buildKeptOnTheRedraw = svgOf().getAttribute('data-build') === 'draw' && !chart().hasAttribute('data-build');
+        r.notPostedWhileTyping = posts().length === 0;
+        await pause();
+        const first = posts()[0]?.body;
+        r.oneBurstOnePost = posts().length === 1 && first.slide === 5 && first.index === 1 && first.quiet === true && typeof first.from === 'string';
+        const want1 = CD_BAR.replace('80.50', '210');
+        r.postedExactly = first?.html === want1;
+
+        // a bad number: marked, not drawn, not written (the 4 on the way to 4x5
+        // neither: the cell keeps what it held); Esc puts the cell back
+        const bar3 = () => Number(svgOf().querySelectorAll('.chart-bar')[2].getAttribute('height'));
+        const h45 = bar3();
+        type(cell(2, 0), '4');
+        const shrank = bar3() < h45;
+        type(cell(2, 0), '4x5');
+        r.badMarked = shrank && cell(2, 0).classList.contains('dg-bad') && cell(2, 0).getAttribute('aria-invalid') === 'true' && bar3() === h45;
+        key(cell(2, 0), 'Escape');
+        r.escPutsTheCellBack = cell(2, 0).value === '45' && !cell(2, 0).classList.contains('dg-bad') && !!document.querySelector(I)
+          && deck._selection?.()?.top === chart();
+        await pause();
+        r.badNotWritten = posts().length === 1;
+
+        // a spreadsheet's keys: Enter goes down, Tab across and on to the next row
+        cell(0, 0).focus();
+        key(cell(0, 0), 'Enter');
+        const down = document.activeElement === cell(1, 0);
+        key(cell(1, 0), 'Tab');
+        r.enterAndTabWalk = down && document.activeElement === cell(2, -1);
+
+        // a row: below the cell the caret is in, a 0 in every series, its own write
+        q('.dg-add-row').click();
+        await settle();
+        const want2 = want1.replace('"v3"]', '"v3", "label 4"]').replace('45]', '45, 0]');
+        r.addRowPosted = posts().length === 2 && posts()[1].body.html === want2;
+        r.addRowDrawn = svgOf().querySelectorAll('.chart-cat').length === 4 && document.activeElement === cell(3, -1);
+
+        // a series, named in its header cell
+        q('.dg-add-series').click();
+        await settle();
+        const want3 = want2.replace('[120, 210, 45, 0] } ]', '[120, 210, 45, 0] }, { "name": "series 2", "data": [0, 0, 0, 0] } ]');
+        r.addSeriesPosted = posts().length === 3 && posts()[2].body.html === want3;
+        r.addSeriesDrawn = svgOf().querySelectorAll('.chart-series').length === 2 && svgOf().querySelectorAll('.chart-legend').length === 2;
+        type(cell(-1, 1), 'p99');
+        cell(-1, 1).blur();
+        await settle();
+        const want4 = want3.replace('"series 2"', '"p99"');
+        r.renamePosted = posts().length === 4 && posts()[3].body.html === want4 && svgOf().querySelectorAll('.chart-legend')[1]?.textContent === 'p99';
+        r.pieTakesOneSeries = q('.dg-seg-btn[data-type="pie"]').disabled && q('.dg-seg-btn[data-type="donut"]').disabled;
+
+        // the type: drawn as a line at once, data-chart written, every other attribute the file's
+        q('.dg-seg-btn[data-type="line"]').click();
+        await settle();
+        const want5 = want4.replace('data-chart="bar"', 'data-chart="line"');
+        r.typePosted = posts().length === 5 && posts()[4].body.html === want5 && want5.includes('data-build="draw" style="max-width:70%"');
+        r.typeDrawn = chart().getAttribute('data-chart') === 'line' && !!svgOf().querySelector('.chart-line') && !svgOf().querySelector('.chart-bar')
+          && q('.dg-seg-btn[aria-checked="true"]')?.dataset.type === 'line';
+        r.unknownKeyKept = posts()[4]?.body.html.includes('"x-from": "grafana"');
+
+        // locked: the selection lets go, the picker still inspects, and the grid only reads, saying why
+        window.__es.emit('lock', { locked: true });
+        await settle();
+        q('.ins-pick').click();
+        fire(chart().querySelector('.chart-line'), 'click');
+        await settle();
+        q('.ins-tab[data-tab="data"]')?.click();
+        await until(() => cell(0, 0));
+        r.lockedReadsOnly = !!cell(0, 0) && cell(0, 0).readOnly && q('.dg-add-row').disabled && /locked/.test(q('.dg-readonly')?.textContent ?? '');
+        window.__es.emit('lock', { locked: false });
+        await settle();
+
+        // a scatter is x/y pairs: a note and the HTML editor, never a broken grid
+        fire(document.querySelector('.cd-scatter .chart-dot'), 'click');
+        await settle();
+        if (!document.querySelector(I)) press('i');
+        await settle();
+        q('.ins-tab[data-tab="data"]')?.click();
+        await until(() => q('.dg-note'));
+        r.scatterIsANote = /scatter/.test(q('.dg-note')?.textContent ?? '') && !q('.dg-cell') && !!q('.dg-html');
+        q('.dg-html')?.click();
+        await until(() => document.querySelector('.decklight-editor'));
+        r.scatterOpensTheHtmlEditor = !!document.querySelector('.decklight-editor');
+
+        r.PASS = r.chartSelected && r.dataTabBesideTheOthers && r.readFromTheFile && r.gridShown && r.redrawnAtOnce && r.buildKeptOnTheRedraw
+          && r.notPostedWhileTyping && r.oneBurstOnePost && r.postedExactly && r.badMarked && r.escPutsTheCellBack && r.badNotWritten
+          && r.enterAndTabWalk && r.addRowPosted && r.addRowDrawn && r.addSeriesPosted && r.addSeriesDrawn && r.renamePosted
+          && r.pieTakesOneSeries && r.typePosted && r.typeDrawn && r.unknownKeyKept && r.lockedReadsOnly && r.scatterIsANote
+          && r.scatterOpensTheHtmlEditor;
       }
 
       if (mode === 'colors') {

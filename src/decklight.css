@@ -3675,6 +3675,52 @@
 .decklight-inspector .cp-embedded { padding: 0 12px 4px; }
 .decklight-colorpicker .cp-saved { font-size: 11px; opacity: .5; }
 
+/* the Data tab (chartgrid.js): a chart's numbers as a grid, a cell an input,
+   numbers right-aligned in the mono face so their digits line up */
+.decklight-inspector .dl-chartgrid { padding: 0 12px 4px; font-size: 12.5px; }
+.decklight-inspector .dg-field { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.decklight-inspector .dg-key { flex: none; width: 40px; color: #b9bec8; }
+.decklight-inspector .dg-seg { display: flex; flex: 1; min-width: 0; gap: 2px; padding: 2px; border-radius: 8px; background: rgba(255, 255, 255, .07); }
+.decklight-inspector .dg-seg-btn {
+  flex: 1; min-width: 0; padding: 4px 4px; border: 0; border-radius: 6px; background: none;
+  color: #b9bec8; font: inherit; font-size: 12px; cursor: pointer;
+}
+.decklight-inspector .dg-seg-btn[aria-checked="true"] { background: rgba(255, 255, 255, .16); color: #fff; }
+.decklight-inspector .dg-seg-btn:disabled { opacity: .35; cursor: default; }
+.decklight-inspector .dg-seg-btn:not([aria-checked="true"]):not(:disabled):hover { background: rgba(255, 255, 255, .06); color: #e4e7ec; }
+.decklight-inspector :is(.dg-title, .dg-cell) {
+  box-sizing: border-box; min-width: 0; padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, .14); border-radius: 6px; background: rgba(0, 0, 0, .3); color: inherit; font: inherit;
+}
+.decklight-inspector .dg-title { flex: 1; }
+.decklight-inspector :is(.dg-title, .dg-cell):focus { outline: none; border-color: #9ecbff; box-shadow: 0 0 0 1px #9ecbff; }
+.decklight-inspector :is(.dg-title, .dg-cell)[readonly] { opacity: .7; }
+.decklight-inspector .dg-scroll { max-height: 46vh; overflow: auto; margin: 0 -2px; padding: 2px; }
+.decklight-inspector .dg-grid { border-collapse: separate; border-spacing: 3px; margin: -3px; }
+/* a theme's table rules (borders, stripes) are the slide's, not this panel's */
+.decklight-inspector .dg-grid :is(th, td) { padding: 0; border: 0; background: none; font-weight: inherit; }
+.decklight-inspector .dg-corner { color: #8d94a1; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; text-align: left; padding-left: 7px !important; }
+.decklight-inspector .dg-cell { width: 100%; min-width: 64px; }
+.decklight-inspector .dg-name { font-weight: 600; color: #fff; }
+.decklight-inspector .dg-label { min-width: 84px; color: #e4e7ec; }
+.decklight-inspector .dg-num { text-align: right; font: 12.5px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+.decklight-inspector .dg-cell.dg-bad { border-color: #f08a7e; box-shadow: 0 0 0 1px #f08a7e; background: rgba(240, 138, 126, .12); }
+.decklight-inspector .dg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; margin-top: 10px; }
+.decklight-inspector .dg-spacer { flex: 1; }
+.decklight-inspector .dg-btn {
+  padding: 4px 8px; border: 0; border-radius: 7px; background: rgba(255, 255, 255, .08);
+  color: inherit; font: inherit; font-size: 12px; cursor: pointer;
+}
+.decklight-inspector .dg-btn:not(:disabled):hover { background: rgba(255, 255, 255, .16); }
+.decklight-inspector .dg-btn:disabled { opacity: .35; cursor: default; }
+.decklight-inspector .dg-status { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .12); font-size: 11px; opacity: .5; }
+.decklight-inspector .dg-status:empty { display: none; }
+.decklight-inspector .dg-status.dg-failed { color: #f08a7e; opacity: 1; }
+.decklight-inspector .dg-note { margin: 2px 0 10px; color: #b9bec8; font-size: .95em; line-height: 1.45; }
+.decklight-inspector .dg-readonly { color: #f2c46d; }
+/* the panel's foot, set inside the pane that already has the panel's margin */
+.decklight-inspector .dl-chartgrid .ins-foot { margin: 0 -12px; }
+
 /* the picker and the hover inside a diagram (pick.js): a dashed line in the
    theme's accent around the node under the pointer, a faint glow on the node,
    the stage around it dimmed a little; the box lets every pointer event

@@ -40,6 +40,7 @@ export const MODES = [
   'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect',
   'links',
   'pictureresize', 'picturealt', 'picturebg',
+  'chartdata',
 ];
 
 // A typo in a mode name would otherwise run NOTHING and exit 0, which is the
