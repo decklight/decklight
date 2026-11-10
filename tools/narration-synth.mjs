@@ -30,6 +30,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node
 import { createHash } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
+import { checkedSynth, takeLine } from './take-check.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
 import { slideNotes, priorSlideTexts, manifestHash, markerPauses } from './narration-manifest.mjs';
 import { PAUSE_MARK, speechRuns, hasWords, canonMarks, writtenMarks, forEngine, voicedPauses } from './sentences.mjs';
@@ -222,12 +223,24 @@ export async function synthesizeSlides({
   if (!keyVoice && tts.listVoices) {
     try { keyVoice = (await tts.listVoices())[0]?.name; } catch { /* keep it undefined */ }
   }
-  /** `tts.synth`, but a sentence anyone has already paid for is free. */
-  const synth = async (text) => {
+  // Every take that was sampled again because its length did not fit its
+  // text (#1005), as `slide N: …` lines: the run ends with them, a list of
+  // what is worth a listen.
+  const retried = [];
+  /**
+   * `tts.synth`, but a sentence anyone has already paid for is free, and a
+   * take whose length does not fit its text is sampled once more first.
+   */
+  const synth = async (text, where) => {
     const key = clipKey(tts, { voice: keyVoice, style, text });
     const hit = cache.read(key, synthExt);
     if (hit) return { wav: hit, usage: { chars: 0, cost: 0 }, cached: true };
-    const out = await tts.synth(text, { voice, style });
+    const out = await checkedSynth(tts, text, { voice, style });
+    if (out.take) {
+      const line = `${where}: ${takeLine(text, out.take)}`;
+      retried.push(line);
+      log(`  retried ${line}`);
+    }
     cache.write(key, out.wav, synthExt);
     return { ...out, cached: false };
   };
@@ -244,9 +257,9 @@ export async function synthesizeSlides({
    * (ElevenLabs v3/v4) holds each ⟨PAUSE⟩ itself: it is sent as `[pause]`,
    * in one clip, and nothing is joined.
    */
-  const voiceText = async (text, hold) => {
+  const voiceText = async (text, hold, where) => {
     text = tts.audioTags ? voicedPauses(text) : forEngine(tts, text);
-    if (!text.includes(PAUSE_MARK)) return { ...(await synth(text)), ext: synthExt };
+    if (!text.includes(PAUSE_MARK)) return { ...(await synth(text, where)), ext: synthExt };
     const { lead: bare, runs: all } = speechRuns(text);
     let lead = bare;
     const runs = [];
@@ -256,7 +269,7 @@ export async function synthesizeSlides({
       else lead += r.pause;
     }
     const outs = [];
-    for (const r of runs) outs.push(await synth(r.text));
+    for (const r of runs) outs.push(await synth(r.text, where));
     let clips = outs.map((o) => o.wav);
     if (synthExt !== 'wav') {
       clips = clips.map((clip, j) => {
@@ -373,7 +386,7 @@ export async function synthesizeSlides({
       for (let k = 0; k < segs.length; k++) {
         const kk = String(k + 1).padStart(2, '0');
         const beat = `slide-${n}-${kk}.${format}`;
-        const out = await voiceText(segs[k], holds[i]);
+        const out = await voiceText(segs[k], holds[i], `slide ${i + 1} beat ${k + 1}`);
         if (out.cached) cachedBeats++;
         // the beat's own words beside its audio — tools/lipsync.mjs hands this
         // to Rhubarb as the dialog hint for that beat
@@ -388,7 +401,7 @@ export async function synthesizeSlides({
       rmSync(list, { force: true });
       entries[i].segments = parts.map((p) => ({ file: p }));
     } else {
-      const out = await voiceText(text, holds[i]);
+      const out = await voiceText(text, holds[i], `slide ${i + 1}`);
       if (out.cached) cachedBeats++;
       slideCost = out.usage?.cost ?? 0;
       encode(out.wav, join(dir, file), out.ext);
@@ -402,7 +415,7 @@ export async function synthesizeSlides({
     save(entries);   // crash-safe: an interrupted run resumes from here
   }
   save(entries);
-  return { manifest: manifestOf(entries), skipped, cost };
+  return { manifest: manifestOf(entries), skipped, cost, retried };
 }
 
 /** The plan line `decklight narrate` prints — the edit server reads its `· N to voice`. */

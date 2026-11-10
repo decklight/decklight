@@ -198,13 +198,19 @@ const reuseTextFrom = args.includes('--reuse-text')
 try {
   const cache = createTtsCache({ enabled: !args.includes('--no-cache') });
   cache.prune();
-  const { skipped, cost } = await synthesizeSlides({
+  const { skipped, cost, retried } = await synthesizeSlides({
     html, dir: outDir, tts, voice, style, format,
     range: opt('--slides') ? range : null, prev, cache, reuseTextFrom,
     keepWav: args.includes('--keep-wav'),
   });
   console.log(`done → ${outDir}${skipped ? ` (${skipped} unchanged, skipped)` : ''}`
     + (cost ? ` · estimated cost ~$${cost.toFixed(4)}` : ''));
+  // the takes sampled twice because the first did not fit its text: the
+  // sentences worth a listen before this track is played to anyone
+  if (retried.length) {
+    console.log(`${retried.length} take${retried.length === 1 ? '' : 's'} retried, worth a listen:`);
+    for (const line of retried) console.log(`  ${line}`);
+  }
 } catch (e) {
   console.error(`decklight narrate: ${e.message}`);
   process.exitCode = 1;

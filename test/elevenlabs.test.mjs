@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  KEY_ENV, DEFAULT_MODEL, V3_MODEL, STABILITY_PRESETS, FORMATS,
+  KEY_ENV, DEFAULT_MODEL, V3_MODEL, STABILITY_PRESETS, SHORT_TEXT, FORMATS,
   apiKey, shapeVoices, pickVoice, shortName, synthError, createSynth, styleTag, cutTag, cueFor, MAX_TAG_LEN,
   voiceLangs, shapeLibrary,
 } from '../tools/elevenlabs-tts.mjs';
@@ -240,7 +240,7 @@ test('no style at all sends the sentence untouched, even on v3', async () => {
   assert.equal(JSON.parse(post.init.body).text, 'Hello there.');
 });
 
-// ── v3 stability presets — a v3-only knob, refused elsewhere ───────────────
+// ── stability presets — a v3/v4 knob, refused elsewhere ────────────────────
 
 test('a stability preset maps to its documented number and rides in voice_settings', async () => {
   const fetchImpl = fakeFetch();
@@ -253,18 +253,41 @@ test('a stability preset maps to its documented number and rides in voice_settin
   assert.equal(STABILITY_PRESETS.robust, 1);
 });
 
-test('unasked, no voice_settings is sent at all — the account setting is left alone', async () => {
+const LONG = 'This sentence runs long enough that the account\'s own voice settings are left alone.';
+
+test('unasked, no voice_settings is sent for an ordinary sentence — the account setting is left alone', async () => {
   const fetchImpl = fakeFetch();
   const { synth } = createSynth({ key: 'k', model: V3_MODEL, fetchImpl });
-  await synth('hi', { voice: 'Gilles' });
+  await synth(LONG, { voice: 'Gilles' });
   const post = fetchImpl.calls.find((c) => c.init.method === 'POST');
   assert.equal(JSON.parse(post.init.body).voice_settings, undefined);
 });
 
+test('a short sentence on a tag model goes at robust, unless a stability was chosen (#1005)', async () => {
+  const sent = async (opts, text) => {
+    const fetchImpl = fakeFetch();
+    const { synth } = createSynth({ key: 'k', fetchImpl, ...opts });
+    const { usage } = await synth(text, { voice: 'Gilles' });
+    return { body: JSON.parse(fetchImpl.calls.find((c) => c.init.method === 'POST').init.body), usage };
+  };
+  const short = await sent({}, 'You ask, it answers.');
+  assert.equal(short.body.voice_settings.stability, STABILITY_PRESETS.robust, 'the default v4 model, a short sentence');
+  assert.match(short.usage.note, /robust \(short\)/, 'the bridge line says why');
+  assert.equal((await sent({}, 'x'.repeat(SHORT_TEXT))).body.voice_settings, undefined, 'at the threshold it is ordinary');
+  assert.equal((await sent({ stability: 'creative' }, 'You ask.')).body.voice_settings.stability, 0, 'a chosen position holds for every sentence');
+  assert.equal((await sent({ model: 'eleven_multilingual_v2' }, 'You ask.')).body.voice_settings, undefined, 'no slider, nothing sent');
+});
+
+test('--tts-stability is taken by v4 as well as v3', () => {
+  for (const model of ['eleven_v3', 'eleven_v4', 'eleven_v4_turbo']) {
+    assert.doesNotThrow(() => createSynth({ key: 'k', model, stability: 'natural' }));
+  }
+});
+
 test('a stability preset asked of a model with no such slider is refused up front', () => {
   assert.throws(
-    () => createSynth({ key: 'k', model: DEFAULT_MODEL, stability: 'creative' }),
-    /--tts-stability is a v3 feature/,
+    () => createSynth({ key: 'k', model: 'eleven_multilingual_v2', stability: 'creative' }),
+    /--tts-stability is a v3\/v4 feature/,
   );
 });
 
