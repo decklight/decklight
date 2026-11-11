@@ -15,7 +15,7 @@ import {
   formatCoord, createHistory,
 } from '../cli/edit.mjs';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
-import { resizeBox, followLabel, keepGrain, setTranslate, localStep, leadingTranslate } from '../src/core/shapes.js';
+import { resizeBox, followLabel, keepGrain, setTranslate, localStep, leadingTranslate, viewOf, clampPoint, clampStep } from '../src/core/shapes.js';
 import { tmp } from './helpers.mjs';
 
 const DECK = `<!doctype html><html><body><div class="decklight">
@@ -279,4 +279,27 @@ test('the page writes in the grain a coordinate had, and its translate the way t
   assert.equal(setTranslate(null, 0, 0), '');
   assert.deepEqual(leadingTranslate('translate(4)'), { x: 4, y: 0 });
   assert.deepEqual(localStep({ a: 0.5, b: 0, c: 0, d: 0.5 }, 10, 20), { x: 5, y: 10 });
+});
+
+test('a point and a step are held on the canvas: the viewBox, which is all an svg draws', () => {
+  const svg = (vb) => ({ getAttribute: (a) => (a === 'viewBox' ? vb : null) });
+  assert.deepEqual(viewOf(svg('0 0 800 220')), { x: 0, y: 0, w: 800, h: 220 });
+  assert.deepEqual(viewOf(svg(' -10,-20, 100 50 ')), { x: -10, y: -20, w: 100, h: 50 });
+  assert.equal(viewOf(svg(null)), null);
+  assert.equal(viewOf(svg('0 0 0 220')), null);
+  const view = { x: 0, y: 0, w: 800, h: 220 };
+  // the report in #1013: a wire's end dropped at y = -187 lands on the top edge, its x kept
+  assert.deepEqual(clampPoint({ x: 520, y: -187 }, view), { x: 520, y: 0 });
+  assert.deepEqual(clampPoint({ x: 900, y: 300 }, view), { x: 800, y: 220 });
+  assert.deepEqual(clampPoint({ x: 12.5, y: 40 }, view), { x: 12.5, y: 40 });
+  assert.deepEqual(clampPoint({ x: 5, y: -5 }, null), { x: 5, y: -5 });
+  // a box stops against the edge it is dragged at
+  const box = { x: 560, y: 80, w: 160, h: 60 };
+  assert.deepEqual(clampStep(box, { x: 300, y: -200 }, view), { x: 80, y: -80 });
+  assert.deepEqual(clampStep(box, { x: -30, y: 10 }, view), { x: -30, y: 10 });
+  // one that already pokes out is not pulled in: it goes no further out, and comes back freely
+  const out = { x: 700, y: 80, w: 160, h: 60 };
+  assert.deepEqual(clampStep(out, { x: 20, y: 0 }, view), { x: 0, y: 0 });
+  assert.deepEqual(clampStep(out, { x: -200, y: 0 }, view), { x: -200, y: 0 });
+  assert.deepEqual(clampStep(box, { x: 300, y: 0 }, null), { x: 300, y: 0 });
 });

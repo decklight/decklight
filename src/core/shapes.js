@@ -18,7 +18,9 @@
  *   labels moves whole, and a shape whose labels sit loose beside it takes
  *   the ones on it along. The pointer goes through the inverse screen
  *   matrix, so a scaled stage and a viewBox both come out right, and ⇧
- *   holds the move to one axis.
+ *   holds the move to one axis. Nothing leaves the canvas: an svg draws
+ *   nothing past its viewBox, so a move, a resize handle and a wire's end
+ *   all stop at its edge (clampStep, clampPoint).
  *
  *   RESIZE. A selected rect, ellipse, circle or image (or a box group's
  *   shape) wears handles; a line wears one at each end. A label centred on a
@@ -55,7 +57,7 @@ import { injectedIn, isDrawn } from './pick.js';
 import { createEditCommit } from './edit-commit.js';
 import {
   IDENTITY, WIRE_TAGS, connectorsIn, isConnector, nodeNamed, nodeBox, endsOf, geometryFor, wireGeometry, setGeometry,
-  routeOf, tagForRoute, svgOf, invert, toRoot, union,
+  routeOf, tagForRoute, svgOf, invert, toRoot, union, applyTo, boxThrough,
 } from './connectors.js';
 
 /** Nodes in the page that are not in the file: the engine's and a template's. */
@@ -105,6 +107,27 @@ export function setTranslate(transform, x, y) {
 
 /** A screen-space step as a step in the space `inv` (an inverse screen matrix) maps to: its linear part only. */
 export const localStep = (inv, dx, dy) => ({ x: inv.a * dx + inv.c * dy, y: inv.b * dx + inv.d * dy });
+
+/** A diagram's canvas: the `viewBox` of its svg as a box `{ x, y, w, h }`, or null when it has none. */
+export function viewOf(svg) {
+  const v = String(svg?.getAttribute?.('viewBox') ?? '').trim().split(/[\s,]+/).filter(Boolean).map(Number);
+  return v.length === 4 && v.every(Number.isFinite) && v[2] > 0 && v[3] > 0 ? { x: v[0], y: v[1], w: v[2], h: v[3] } : null;
+}
+/** `p` held inside `view`: past an edge, the nearest point on it. Itself where there is no view. */
+export function clampPoint(p, view) {
+  if (!view) return p;
+  return { x: Math.min(Math.max(p.x, view.x), view.x + view.w), y: Math.min(Math.max(p.y, view.y), view.y + view.h) };
+}
+/**
+ * The step `d` (`{ x, y }`) a `box` may take and stay inside `view`. A box
+ * that already pokes out of an edge (an old deck's) is not pulled in: it
+ * just goes no further out on that side.
+ */
+export function clampStep(box, d, view) {
+  if (!view || !box) return d;
+  const lim = (v, lo, hi) => Math.min(Math.max(v, Math.min(lo, 0)), Math.max(hi, 0));
+  return { x: lim(d.x, view.x - box.x, view.x + view.w - (box.x + box.w)), y: lim(d.y, view.y - box.y, view.y + view.h - (box.y + box.h)) };
+}
 
 /**
  * A box `{ x, y, w, h }` after the handle at (`hx`, `hy`) (each -1, 0 or 1:
@@ -409,7 +432,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     const wires = keepWires(svg, before);
     root.classList.add('dl-shape-dragging');
     window.getSelection?.()?.removeAllRanges();
-    return { target, node, members, parts, before, svg, wires, guide: guideFor(svg, members), x: press.x, y: press.y, moved: false };
+    return { target, node, members, parts, before, svg, wires, guide: guideFor(svg, members), hold: holdFor(svg, members), x: press.x, y: press.y, moved: false };
   }
 
   function applyMove(e) {
@@ -418,6 +441,12 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     if (lock === 'y') dy = 0; else if (lock === 'x') dx = 0;
     const snap = snapMove(drag.guide, dx, dy, lock, !(e.metaKey || e.ctrlKey));
     dx += snap.x; dy += snap.y;
+    // nothing leaves the canvas: the svg draws nothing past its viewBox
+    if (drag.hold) {
+      const s = localStep(drag.hold.inv, dx, dy);
+      const c = clampStep(drag.hold.box, s, drag.hold.view);
+      if (c.x !== s.x || c.y !== s.y) ({ x: dx, y: dy } = localStep(drag.hold.ctm, c.x, c.y));
+    }
     for (const p of drag.parts) {
       const d = localStep(p.inv, dx, dy);
       if (p.translate) {
@@ -453,6 +482,15 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     const boxes = members.filter((m) => !WIRE_TAGS.has(tagOf(m)) || tagOf(m) === 'path').map((m) => nodeBox(m, IDENTITY, svg)).filter(Boolean);
     if (!ctm || !inv || !boxes.length) return null;
     return { ctm, inv, box: boxes.length === 1 ? boxes[0] : union(boxes), others: guideBoxes(svg, members), within: SNAP_PX * Math.hypot(inv.a, inv.b) };
+  }
+  /** What keeps a move of `members` on the canvas: their box and the viewBox, in the svg's space. Null when the svg has no viewBox. */
+  function holdFor(svg, members) {
+    const view = viewOf(svg);
+    const ctm = svg.getScreenCTM?.();
+    const inv = ctm?.inverse();
+    const boxes = members.map((m) => nodeBox(m, IDENTITY, svg)).filter(Boolean);
+    if (!view || !ctm || !inv || !boxes.length) return null;
+    return { view, ctm, inv, box: union(boxes) };
   }
   /** The screen step that snaps a move of (dx, dy) to the nearest guide, the guides shown; nothing with `on` false. */
   function snapMove(g, dx, dy, lock, on) {
@@ -675,18 +713,29 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     // a box: the connectors it drags along, and the lines of the others it may snap to, in its own space
     const wires = data.end ? [] : keepWires(svg, before);
     const group = boxGroupOf(shape);
-    const space = invert(toRoot(shape, svg));
+    const toSvg = toRoot(shape, svg);
+    const space = invert(toSvg);
+    // the canvas a handle stays on (the viewBox, and for a box whatever of it already pokes out), in the svg's space
+    const view = space ? viewOf(svg) : null;
+    const held = view && !data.end ? union([view, boxThrough(toSvg, boxOf(shape))]) : view;
     const guide = data.end || tagOf(shape) === 'circle' || !space ? null
       : { others: guideBoxes(svg, [shape, ...labels.map((l) => l.t), ...(group ? [group] : [])], space), within: SNAP_PX * Math.hypot(inv.a, inv.b) };
     resizing = { id: e.pointerId, data, shape, target, inv, was, box: data.end ? null : boxOf(shape), labels, before, svg, wires, guide,
-      attached, ends: data.end ? endsOf(tagOf(shape), (a) => shape.getAttribute(a)) : null, hover: null, moved: false };
+      toSvg, space, view: held, attached, ends: data.end ? endsOf(tagOf(shape), (a) => shape.getAttribute(a)) : null, hover: null, moved: false };
     root.classList.add('dl-shape-dragging');
   }
   function resizeMove(e) {
     const R = resizing;
     if (!R || e.pointerId !== R.id) return;
     const m = R.inv;
-    const p = { x: m.a * e.clientX + m.c * e.clientY + m.e, y: m.b * e.clientX + m.d * e.clientY + m.f };
+    // the pointer in the shape's space, held on the canvas: the svg draws nothing past its viewBox
+    const onCanvas = (q) => {
+      if (!R.view) return q;
+      const s = applyTo(R.toSvg, q);
+      const c = clampPoint(s, R.view);
+      return c.x === s.x && c.y === s.y ? q : applyTo(R.space, c);
+    };
+    const p = onCanvas({ x: m.a * e.clientX + m.c * e.clientY + m.e, y: m.b * e.clientX + m.d * e.clientY + m.f });
     const free = e.metaKey || e.ctrlKey;   // ⌘/Ctrl: no snapping, no attaching
     if (R.data.end) {
       const k = R.data.end;
@@ -699,6 +748,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       let { x, y } = p;
       const o = k === 1 ? R.ends?.end : R.ends?.start;
       if (!hit && e.shiftKey && o) { if (Math.abs(x - o.x) >= Math.abs(y - o.y)) y = o.y; else x = o.x; }
+      ({ x, y } = onCanvas({ x, y }));
       if (!hit && tagOf(R.shape) === 'line' && !isConnector(R.shape)) {
         R.shape.setAttribute(`x${k}`, String(keepGrain(R.was[`x${k}`], x)));
         R.shape.setAttribute(`y${k}`, String(keepGrain(R.was[`y${k}`], y)));
@@ -713,7 +763,13 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       if (tagOf(R.shape) === 'circle') {
         // a circle keeps its centre: the handle sets the radius
         const cx = R.was.cx; const cy = R.was.cy;
-        const r = Math.max(MIN_SIZE / 2, hx && hy ? Math.max(Math.abs(p.x - cx), Math.abs(p.y - cy)) : hx ? Math.abs(p.x - cx) : Math.abs(p.y - cy));
+        let r = Math.max(MIN_SIZE / 2, hx && hy ? Math.max(Math.abs(p.x - cx), Math.abs(p.y - cy)) : hx ? Math.abs(p.x - cx) : Math.abs(p.y - cy));
+        // it grows on every side: no further than its nearest edge of the canvas (never smaller than it was)
+        if (R.view) {
+          const c = applyTo(R.toSvg, { x: cx, y: cy });
+          const room = Math.min(c.x - R.view.x, R.view.x + R.view.w - c.x, c.y - R.view.y, R.view.y + R.view.h - c.y) / (Math.hypot(R.toSvg.a, R.toSvg.b) || 1);
+          r = Math.min(r, Math.max(room, R.was.r));
+        }
         b = { x: cx - r, y: cy - r, w: 2 * r, h: 2 * r };
       } else {
         const aspect = e.shiftKey && hx && hy;

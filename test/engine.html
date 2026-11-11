@@ -3272,9 +3272,21 @@
           ptr('pointerup', document.body, c1.x + 30, c1.y + 30);
           await settle();
           r.escapeGivesUp = geometry().length === 5 && loose.getAttribute('x') === x0 && !deck._shapes.busy();
+          // nothing leaves the canvas (the svg draws nothing past its viewBox): a line's end dragged above it stops at
+          // its top edge, a box dragged past its right edge stops against it, a corner pulled past the bottom stops there
+          await clickOn(line);
+          const endOut = deck._shapes.handles().find((h) => h.end === 2)?.el;
+          await dragFrom(endOut, centre(endOut), 0, -400 * k);
+          r.lineEndHeldOnCanvas = line.getAttribute('y2') === '0' && line.getAttribute('x2') === '340' && edit(geometry()[5], [3], 'y2')?.value === 0;
+          await clickOn(loose);
+          await dragFrom(loose, centre(loose), 600 * k, 0);
+          r.moveHeldOnCanvas = loose.getAttribute('x') === '640' && looseLabel.getAttribute('x') === '720' && edit(geometry()[6], [4], 'x')?.value === 640;
+          const seOut = deck._shapes.handles().find((h) => h.hx === 1 && h.hy === 1)?.el;
+          await dragFrom(seOut, centre(seOut), 0, 900 * k);
+          r.resizeHeldOnCanvas = loose.getAttribute('height') === '260' && edit(geometry()[7], [4], 'height')?.value === 260;
           r.PASS = r.scaledStage && r.clickSelects && r.boxHasHandles && r.nestedOnItsPanel && r.jitterIsNoDrag && r.dragIsOneWrite && r.rightNumbersScaled
             && r.nestingFollows && r.stillSelected && r.shiftOneAxisLabelAlong && r.resizeOneWrite && r.labelStaysCentred && r.lineHasTwoEnds
-            && r.lineEndMoves && r.refusedPutsItBack && r.escapeGivesUp;
+            && r.lineEndMoves && r.refusedPutsItBack && r.escapeGivesUp && r.lineEndHeldOnCanvas && r.moveHeldOnCanvas && r.resizeHeldOnCanvas;
         } else {
           const shapes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/shape')).map((c) => c.body);
           const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
@@ -3449,6 +3461,12 @@
           const dt = posts('connector').at(-1);
           r.detachAsked = dt?.op === 'detach' && dt.end === 'from' && Math.abs(parseFloat(dt.geometry.x1) - 300) < 1 && Math.abs(parseFloat(dt.geometry.y1) - 120) < 1;
           r.detached = !wire.hasAttribute('data-from') && Math.abs(num(wire, 'x1') - 300) < 1 && wire.getAttribute('data-to') === 'database';
+          // that free end dragged past the top of the diagram is held at the canvas's edge: an svg draws nothing past its viewBox
+          const e1out = deck._shapes.handles().find((h) => h.end === 1)?.el;
+          if (e1out) await drag(e1out, centre(e1out), toScreen(300, -150), { ctrlKey: true });
+          const held = posts('geometry').at(-1);
+          r.freeEndHeldOnCanvas = num(wire, 'y1') === 0 && Math.abs(num(wire, 'x1') - 300) < 1
+            && !!held?.edits.some((x) => at(x.path) === '[4]' && x.attr === 'y1' && x.value === 0);
           // a line drawn by hand: inside a panel (a node holding others), away from its edge, its end is not caught
           const hand = q('.cn-hand');
           await clickAt(hand);
