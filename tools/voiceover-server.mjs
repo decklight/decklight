@@ -42,6 +42,7 @@ import { createInterface } from 'node:readline/promises';
 import { canBind, resolvePortConflict, describePortOutcome } from '../cli/port-conflict.mjs';
 import { execFile } from 'node:child_process';
 import { cacheHome, clipKey, createTtsCache, extFor } from './tts-cache.mjs';
+import { checkedSynth, takeLine } from './take-check.mjs';
 
 /**
  * The one exec a deck may trigger: open macOS's voice-download pane.
@@ -121,8 +122,10 @@ export async function ttsMain(args) {
           for it / eleven_v4 for quality over latency / eleven_v3, the first tag model —
           higher latency, more variable / eleven_multilingual_v2, no tags (a tag
           in the notes is taken out rather than read aloud).
-          --tts-stability creative|natural|robust — how hard v3 follows a tag (v3 only;
-          refused on any other model rather than silently doing nothing).
+          --tts-stability creative|natural|robust — how hard v3/v4 follow a tag, for
+          every sentence (refused on any other model rather than silently doing
+          nothing). Unset, a sentence under 60 characters goes at robust: short
+          input is where these models stutter.
           --tts-format mp3 if your plan has no PCM output (costs you the panel's
           Generate an AI recording and lip-sync, both of which read WAV).
 
@@ -327,7 +330,7 @@ export async function ttsMain(args) {
   });
 
   // the player reads the cost estimate for its debug window
-  const CORS = corsHeaders('x-tts-cost, x-tts-tokens, x-tts-cached');
+  const CORS = corsHeaders('x-tts-cost, x-tts-tokens, x-tts-cached, x-tts-take');
   let totalCost = 0;
   let totalChars = 0;
 
@@ -462,7 +465,9 @@ export async function ttsMain(args) {
         if (fresh) {
           process.stdout.write(`  ${engine.name} ${picked}: ${text.length} chars … `);
           const t0 = Date.now();
-          cache.set(key, await engine.synth(text, { voice, style }));
+          // a take whose length does not fit its text is sampled once more
+          // before it is cached, and played on every pass after (#1005)
+          cache.set(key, await checkedSynth(engine, text, { voice, style }));
           disk.write(key, cache.get(key).wav, ext);
           const u = cache.get(key).usage;
           // `cost` is OPTIONAL, and an installed engine is why (SPEC
@@ -488,6 +493,8 @@ export async function ttsMain(args) {
                 ? `~$${u.cost.toFixed(4)} (session ~$${totalCost.toFixed(4)})`
                 : `${totalChars} chars this session`;
           console.log(`${((Date.now() - t0) / 1000).toFixed(1)}s · ${u.note ?? `${text.length} chars`} · ${spend}`);
+          const { take } = cache.get(key);
+          if (take) console.log(`  retried: ${takeLine(text, take)}`);
         }
         const { wav, usage } = cache.get(key);
         res.writeHead(200, {
@@ -502,6 +509,8 @@ export async function ttsMain(args) {
             : '0',
           'x-tts-tokens': usage.note ?? '',
           'x-tts-cached': fresh ? '0' : '1',
+          // a retried take, said once, for the deck's debug log to name its slide
+          ...(fresh && cache.get(key).take ? { 'x-tts-take': encodeURIComponent(takeLine(text, cache.get(key).take)) } : {}),
         });
         return res.end(wav);
       } catch (e) {

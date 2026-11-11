@@ -40,12 +40,18 @@ export const TAG_MODELS = ['eleven_v3', 'eleven_v4', 'eleven_v4_turbo'];
 /** Does this ElevenLabs model act on `[whispers]`-style audio tags? */
 export const readsAudioTags = (model) => TAG_MODELS.includes(model);
 
-// v3's stability slider is not the continuous 0–1 knob older models expose —
-// ElevenLabs documents exactly these three named positions. Creative follows
-// a tag hardest and drifts most; Robust barely moves and mostly ignores tags;
-// Natural is the middle ground. Unnamed values are refused rather than
-// silently rounded to the nearest preset.
+// The tag models' stability slider is not the continuous 0–1 knob older
+// models expose: ElevenLabs documents exactly these three named positions.
+// Creative follows a tag hardest and drifts most; Robust barely moves and
+// mostly ignores tags; Natural is the middle ground. Unnamed values are
+// refused rather than silently rounded to the nearest preset.
 export const STABILITY_PRESETS = { creative: 0, natural: 0.5, robust: 1 };
+
+// A very short input is where a tag model is least stable: ElevenLabs' own
+// guidance, and how "You ask, it answers." came back as "You ask, you ask, it
+// answers" (#1005). Below this many characters a sentence goes at Robust,
+// unless --tts-stability chose a position for every sentence.
+export const SHORT_TEXT = 60;
 
 // The tag a tone becomes, and where it is cut, live with the built-in tones:
 // the deck's tone picker needs both too (tools/tone-cue.mjs).
@@ -192,8 +198,8 @@ export function createSynth({
   // up front, at construction, rather than accepted and quietly doing nothing.
   let stabilityValue;
   if (stability != null) {
-    if (model !== V3_MODEL) {
-      throw new Error(`--tts-stability is a v3 feature — pass --tts-model ${V3_MODEL}, or drop --tts-stability`);
+    if (!readsAudioTags(model)) {
+      throw new Error(`--tts-stability is a v3/v4 feature — pass --tts-model ${DEFAULT_MODEL}, or drop --tts-stability`);
     }
     stabilityValue = STABILITY_PRESETS[stability];
     if (stabilityValue == null) {
@@ -254,11 +260,13 @@ export function createSynth({
     return { id: j.voice_id ?? id, name };
   }
 
-  async function call(text, voice) {
+  async function call(text, voice, short) {
     const payload = { text, model_id: model };
     // Unasked, the account's own voice settings are left alone — sending a
     // voice_settings object at all overrides them, even to "no opinion".
-    if (stabilityValue != null) payload.voice_settings = { stability: stabilityValue };
+    // The one exception is a short sentence on a tag model, held at Robust.
+    const stable = stabilityValue ?? (short ? STABILITY_PRESETS.robust : null);
+    if (stable != null) payload.voice_settings = { stability: stable };
     const res = await fetchImpl(
       `${API}/text-to-speech/${encodeURIComponent(voice.id)}?output_format=${OUTPUT[format]}`,
       {
@@ -289,11 +297,12 @@ export function createSynth({
     // is NEVER attached unless this is a model that can act on it.
     const tag = readsAudioTags(model) ? styleTag(style) : '';
     const sent = tag ? `${tag} ${text}` : text;
+    const short = readsAudioTags(model) && String(text).trim().length < SHORT_TEXT;
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return {
-          wav: await call(sent, picked),
+          wav: await call(sent, picked, short),
           usage: {
             model,
             // Billed on what actually went out — the tag rides inside the same
@@ -304,7 +313,8 @@ export function createSynth({
             // the per-character rate depends on a tier we cannot see. Reporting a
             // dollar figure would be inventing one, so the bridge shows characters.
             cost: 0,
-            note: tag ? `${sent.length} chars · ${picked.name} · ${tag}` : `${sent.length} chars · ${picked.name}`,
+            note: [`${sent.length} chars`, picked.name, tag, short && stabilityValue == null ? 'robust (short)' : '']
+              .filter(Boolean).join(' · '),
           },
         };
       } catch (e) {

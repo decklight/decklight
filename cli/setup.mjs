@@ -33,7 +33,7 @@ export const USAGE = `usage: decklight setup <voice | face> …
     save exactly these, no questions: what used to be a flag on every
     decklight <deck> run. A new --engine drops the old engine's voice,
     model, format, stability and data dir.
-    EXAMPLE: decklight setup voice --engine elevenlabs --model eleven_v3 --stability natural
+    EXAMPLE: decklight setup voice --engine elevenlabs --model eleven_v4 --stability natural
 
   decklight setup face --portrait me=<photo.jpg | clip.mp4> [--wav2lip-dir <checkout>
                        --wav2lip-ckpt <wav2lip_gan.pth>] [--sadtalker-dir <checkout>]

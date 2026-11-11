@@ -955,6 +955,10 @@ export function createNarration({
           }
           debugLog('tts', `${label} · ${liveCfg.voice} · ${text.length} chars → ${((Date.now() - t0) / 1000).toFixed(1)}s`
             + (cost ? ` · ~$${cost.toFixed(4)}` : ''));
+          // a take whose length did not fit its text, sampled again by the
+          // bridge (`x-tts-take`): named here with its slide, worth a listen
+          const take = res.headers?.get?.('x-tts-take');
+          if (take) debugLog('tts', `${label} · retried: ${decodeURIComponent(take)}`);
           return { url: URL.createObjectURL(blob), blob };
         } catch (e) {
           debugLog('tts', `${label} · ${liveCfg.voice} FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s (${String(e.message || e)})`);

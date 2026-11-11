@@ -18,6 +18,7 @@ import {
 import { recorderManifest, slideTexts, priorSlideTexts, manifestHash, staleSlides } from '../tools/narration-manifest.mjs';
 import { createTtsCache } from '../tools/tts-cache.mjs';
 import { createEngine } from '../tools/tts-engines.mjs';
+import { PACE } from '../tools/take-check.mjs';
 import { tmp, writeFakePiper } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,10 +40,23 @@ function wavOf(text) {
   return Buffer.concat([h, pcm]);
 }
 
-/** An engine as tools/tts-engines.mjs shapes one, counting what it is asked to say. */
+/** {@link wavOf}, as long as the words run: an engine whose takes are checked is not asked twice. */
+function pacedWavOf(text) {
+  const wav = wavOf(text);
+  const pcm = Buffer.alloc(2 * Math.round((text.length / 14) * 24000));
+  wav.writeUInt32LE(36 + pcm.length, 4); wav.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([wav.subarray(0, 44), pcm]);
+}
+
+/**
+ * An engine as tools/tts-engines.mjs shapes one, counting what it is asked to
+ * say. One that samples (elevenlabs, gemini) has its takes' length checked
+ * against the words (tools/take-check.mjs), so its takes run that long.
+ */
 function fakeTts({ name = 'fake', model = 'm1', ...traits } = {}) {
   const said = [];
-  const synth = Object.assign(async (text) => { said.push(text); return { wav: wavOf(text), usage: { cost: 0 } }; },
+  const take = PACE[name] ? pacedWavOf : wavOf;
+  const synth = Object.assign(async (text) => { said.push(text); return { wav: take(text), usage: { cost: 0 } }; },
     { mimeType: 'audio/wav' });
   return { name, model, stylable: false, synth, said, ...traits };
 }
@@ -452,4 +466,25 @@ test('a track stamped before #557 is kept and re-stamped — current again, noth
   assert.equal(tts.said.length, 0);
   assert.equal(skipped, 3);
   assert.deepEqual(staleSlides(readTrack(dir), texts).stale, []);
+});
+
+test('a take whose length does not fit its slide is voiced again, and the run names it (#1005)', async (t) => {
+  const dir = tmp('synth-take', t);
+  // slide 2's first take repeats itself: 9 s for fourteen characters
+  const lengths = [1.2, 9, 1.1, 1.3];
+  const said = [];
+  const synth = Object.assign(async (text) => {
+    said.push(text);
+    const pcm = Buffer.alloc(2 * Math.round(lengths[said.length - 1] * 24000));
+    const wav = wavOf(text);
+    wav.writeUInt32LE(36 + pcm.length, 4); wav.writeUInt32LE(pcm.length, 40);
+    return { wav: Buffer.concat([wav.subarray(0, 44), pcm]), usage: { cost: 0 } };
+  }, { mimeType: 'audio/wav' });
+  const tts = { name: 'elevenlabs', model: 'eleven_v4_turbo', stylable: true, synth };
+  const lines = [];
+  const { retried } = await run({ html: THREE, dir, tts, format: 'wav', log: (l) => lines.push(l) });
+  assert.deepEqual(said, ['One says this.', 'Two says that.', 'Two says that.', 'Three says the rest.']);
+  assert.equal(retried.length, 1);
+  assert.match(retried[0], /^slide 2: “Two says that\.” ran 9\.00 s .*the retry ran 1\.10 s and is kept$/);
+  assert.ok(lines.some((l) => l.includes('retried slide 2:')), 'said as it happens, too');
 });

@@ -86,7 +86,8 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
     --check      every track beside the deck, slide by slide: in step, the words
                  changed, or (your own voice) only the [click] split moved, which
                  a recording cannot follow; each with the command that fixes it.
-                 Exits 1 when something is out of step
+                 An engine's clips far longer or shorter than their text runs are
+                 listed as worth a listen. Exits 1 when something is out of step
     --dir NAME   only this folder
     --realign    a track whose recordings are only in the wrong place (slides
                  inserted, moved or deleted outside decklight's own slide ops) is
@@ -197,6 +198,7 @@ async function checkMain(plan, argv) {
   if (!plan.deck || !existsSync(plan.deck)) { console.error(`decklight narrate: ${plan.deck ? `no deck at ${plan.deck}` : 'name the deck'}`); return 1; }
   const { trackDrift, rerecordLine } = await import('../tools/narration-manifest.mjs');
   const { realignMoves, planFolder, applyPlans, trackScripts } = await import('../tools/voice-renumber.mjs');
+  const { auditTrack } = await import('../tools/take-check.mjs');
   const realign = argv.includes('--realign');
   const html = readFileSync(plan.deck, 'utf8');
   const deckDir = dirname(resolve(plan.deck));
@@ -224,7 +226,15 @@ async function checkMain(plan, argv) {
       console.log(`${dir}/  ${said} — move them: decklight narrate ${plan.deck} --realign --dir ${dir}`);
     }
     const note = unknown ? ` (${unknown} slide${unknown === 1 ? '' : 's'} recorded before the script was kept: not checked)` : '';
-    if (!drift.length) { console.log(`${dir}/  ${who}: in step with the notes${note}`); continue; }
+    // an engine's takes whose length does not fit their text (#1005): a
+    // repeated or dropped phrase, worth a listen; said, not failed on
+    const odd = mine ? [] : auditTrack(join(deckDir, dir), m.engine);
+    const listen = () => {
+      if (!odd.length) return;
+      console.log(`  ${odd.length} clip${odd.length === 1 ? '' : 's'} not the length ${odd.length === 1 ? 'its' : 'their'} text runs, worth a listen:`);
+      for (const t of odd) console.log(`    ${t.file}: ${t.seconds.toFixed(2)} s against ~${t.expected.toFixed(2)} s`);
+    };
+    if (!drift.length) { console.log(`${dir}/  ${who}: in step with the notes${note}`); listen(); continue; }
     out = 1;
     // your own voice is re-recorded, an engine's track re-voiced (#919)
     console.log(`${dir}/  ${who}: ${drift.length} slide${drift.length === 1 ? '' : 's'} to ${mine ? 're-record' : 're-voice'}${note}`);
@@ -235,6 +245,7 @@ async function checkMain(plan, argv) {
         : `  slide ${d.slide}: the notes changed since it was recorded`);
       console.log(`    ${rerecordLine(plan.deck, dir, [d.slide], { mine })}`);
     }
+    listen();
   }
   return out;
 }
