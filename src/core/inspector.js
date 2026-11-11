@@ -31,6 +31,7 @@ import { readJson } from './prefs.js';
 import { stepLabels } from './builds.js';
 import { notesSegments } from './speaker.js';
 import { slideDensity } from './density.js';
+import { clipReport } from './overflow.js';
 import { slideTitle } from './finder.js';
 import { conceptNameOf } from './concepts.js';
 import { sourcesOf } from './sources.js';
@@ -241,15 +242,7 @@ export function createInspector({
   }
 
   /** How far the slide's worst clipped box overflows, in deck px (the guardrail's own test). */
-  function clippedBy(sec) {
-    let worst = 0;
-    for (const n of [sec, ...sec.querySelectorAll('pre, table, svg, ul, ol, blockquote')]) {
-      if (n.closest('.terminal') || n.hasAttribute('data-scroll-ok')) continue;
-      if (getComputedStyle(n).overflowY === 'visible') continue;
-      worst = Math.max(worst, n.scrollHeight - n.clientHeight);
-    }
-    return worst > 2 ? Math.round(worst) : 0;
-  }
+  function clippedBy(sec) { return clipReport(sec)?.by ?? 0; }
 
   const span = ([a, b]) => (a === b ? `${a}` : `${a}–${b}`);
 

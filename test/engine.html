@@ -215,6 +215,11 @@
         if (u.includes('/deck/edit/lock')) { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, locked: b.locked === true }); }
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
       }
+      // the clipped badge (clipbadge): write mode, and a file with nothing of its own to add
+      if (HARNESS_MODE === 'clipbadge') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], noTrust: false, locked: false });
+        if (u.includes('/deck/edit/check')) return json({ ok: true, findings: [], slides: 5, file: 'engine.html' });
+      }
       // no-trust mode (notrustmode): the one probe says so, and nothing edits
       if (HARNESS_MODE === 'notrustmode') {
         if (u.includes('/deck/ping')) return json({ ok: true, name: 'engine.html', noTrust: true, locked: true, phone: false, container: false });
@@ -1476,6 +1481,13 @@
         <section><h2>Two clicks, no builds</h2><p>Nothing builds here.</p><aside class="notes"><p>One</p><p>[click]</p><p>Two</p><p>[click]</p><p>Three</p></aside></section>
         <section><h2>Broken image</h2><img src="no-such-image.png" alt=""></section>
         <section data-template="x/module-title"><p data-slot="number">01</p><p data-slot="eyebrow">Module 01</p><h2 data-slot="title">The AI Gap</h2><p data-slot="subtitle">Why systems fall short</p></section>`);
+    }
+    // the clipped badge (clipbadge): a fifth slide whose list runs off it, and
+    // the page opened on it, the way a reload lands on the slide you were on
+    if (HARNESS_MODE === 'clipbadge') {
+      const items = Array.from({ length: 30 }, (_, i) => `<li>point ${i + 1}</li>`).join('');
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Too much</h2><ul class="cb-list">${items}</ul></section>`);
+      location.hash = '#/5/0';
     }
     if (HARNESS_MODE.startsWith('chapters') || HARNESS_MODE === 'enhance' || HARNESS_MODE === 'exportmodule') {
       const secs = document.querySelectorAll('.decklight > section');
@@ -5809,6 +5821,55 @@
         press('ArrowRight');
         r.otherKeysOnlyDismiss = !welcome() && deck.state.slide === 1 && deck.state.step === 0;
         r.PASS = r.welcomeShows && r.aboutGettingAround && r.noAuthorPitch && r.questionOpensHelp && r.slashOpensThePalette && r.otherKeysOnlyDismiss;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'clipbadge') {
+        // A clipped slide shows on write mode's slide number (PRESENTING_EDITING):
+        // a badge that says what is clipped and by how much, opens Check deck
+        // on that slide's row, and comes and goes with the guardrail's mark:
+        // on a reload, on an edit made in place, and on the watch's own re-check.
+        await settle(); await settle();   // the ping: write mode
+        const num = () => document.querySelector('.decklight-slide-num');
+        const badge = () => num()?.querySelector('.sn-clip') ?? null;
+        const sec = deck._sections[4];
+        const list = sec.querySelector('.cb-list');
+        await until(() => sec.hasAttribute('data-overflow') && !!badge());
+        r.showsOnLoad = deck.state.slide === 5 && !!badge() && badge().tagName === 'BUTTON';
+        r.numberStillReads = num()?.querySelector('.sn-n')?.textContent === '5 / 5';
+        // the slide itself is the box that clips most here: its content runs off the bottom
+        r.saysWhatAndHowMuch = /^slide 5 is clipped: content runs \d+px past the bottom of the slide/.test(badge()?.getAttribute('aria-label') ?? '')
+          && /^clipped: content runs \d+px past the bottom of the slide.*Check deck/.test(badge()?.title ?? '');
+        const nb = num()?.getBoundingClientRect(), bb = badge()?.getBoundingClientRect();
+        r.onTheNumber = !!nb && !!bb && bb.left >= nb.left && bb.right <= nb.right + 1 && bb.top >= nb.top - 4 && bb.bottom <= nb.bottom + 4
+          && getComputedStyle(badge()).pointerEvents === 'auto';
+        r.notTheAccent = !!badge() && getComputedStyle(badge()).color !== getComputedStyle(num()).color;
+        badge()?.click();
+        await until(() => !!document.querySelector('.decklight-deckcheck .dc-row.narr-sel'));
+        const picked = document.querySelector('.decklight-deckcheck .dc-row.narr-sel');
+        r.clickOpensCheckOnTheRow = picked?.dataset.rule === 'overflow' && picked.querySelector('.dc-where')?.textContent === '5';
+        deck._deckCheck.close();
+        await settle();
+        deck.goto(1); await settle();
+        r.goneOnACleanSlide = !!num() && !badge();
+        deck.goto(5); await settle();
+        r.backOnTheClippedOne = !!badge();
+        // an edit made in place: the list loses most of its points, the slide is laid out again
+        while (list.children.length > 4) list.lastElementChild.remove();
+        deck.refreshSlide(sec);
+        await until(() => !badge());
+        r.goneOnceItFits = !sec.hasAttribute('data-overflow') && !badge();
+        // and it clips again with nobody calling anything: the overflow watch's re-check
+        list.insertAdjacentHTML('beforeend', Array.from({ length: 30 }, (_, i) => `<li>more ${i}</li>`).join(''));
+        await until(() => !!badge());
+        r.backWhenItClipsAgain = sec.hasAttribute('data-overflow') && !!badge();
+        // the lock takes the number, and the badge with it
+        window.__es.emit('lock', { locked: true });
+        await settle();
+        r.goesWithTheLock = !num() && !document.querySelector('.sn-clip');
+        r.PASS = r.showsOnLoad && r.numberStillReads && r.saysWhatAndHowMuch && r.onTheNumber && r.notTheAccent && r.clickOpensCheckOnTheRow
+          && r.goneOnACleanSlide && r.backOnTheClippedOne && r.goneOnceItFits && r.backWhenItClipsAgain && r.goesWithTheLock;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

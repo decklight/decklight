@@ -305,7 +305,7 @@ export function createDeckCheck({
   /** The palette row: open it, or close it when it is up. */
   function toggle() { if (el) close(); else open(); }
 
-  /** Open it (or leave it open); `{ rule, ref }` opens on, or moves to, that row. */
+  /** Open it (or leave it open); `{ rule, ref, slide }` opens on, or moves to, that row. */
   function open(select = null) {
     if (select) want = select;
     if (el) { selectWanted(); return; }
@@ -333,7 +333,8 @@ export function createDeckCheck({
 
   function selectWanted() {
     if (!want || !el) return;
-    const i = rows.findIndex((f) => f.rule === want.rule && (!want.ref || f.fix?.ref === want.ref || f.fix?.name === want.ref || f.message.includes(want.ref)));
+    const i = rows.findIndex((f) => f.rule === want.rule && (want.slide == null || f.slide === want.slide)
+      && (!want.ref || f.fix?.ref === want.ref || f.fix?.name === want.ref || f.message.includes(want.ref)));
     if (i >= 0) { select(i); want = null; } else if (served !== null && file !== null) want = null;   // the file answered: the row is not there
   }
 

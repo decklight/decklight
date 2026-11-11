@@ -1542,7 +1542,25 @@
   font-variant-numeric: tabular-nums;
   padding: 7px 12px; border-radius: 999px;
   pointer-events: none; user-select: none;
+  display: flex; align-items: center; gap: 8px;
 }
+/* a clipped slide says so on its number (editmode.js, PRESENTING_EDITING):
+   the guardrail's red, pulled toward the theme's own text so it reads on a
+   dark canvas and a light one alike; the one part of the pill that clicks
+   (Check deck, on that slide's row) */
+.decklight-slide-num .sn-clip {
+  --sn-clip: color-mix(in oklab, #e5534b 70%, var(--fg, #eee));
+  pointer-events: auto; cursor: pointer;
+  margin: -3px -6px -3px 0; padding: 3px 7px;
+  font: 700 11px/1 var(--font-mono, monospace); letter-spacing: .02em;
+  color: var(--sn-clip);
+  background: color-mix(in srgb, var(--sn-clip) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sn-clip) 55%, transparent);
+  border-radius: 999px;
+}
+.decklight-slide-num .sn-clip::before { content: '\25B2'; font-size: 8px; margin-right: 4px; vertical-align: 1px; }
+.decklight-slide-num .sn-clip:hover { background: color-mix(in srgb, var(--sn-clip) 26%, transparent); }
+.decklight-slide-num .sn-clip:focus-visible { outline: 2px solid var(--accent, #6af); outline-offset: 2px; }
 .decklight.has-slide-num .decklight-commit-chip { top: 48px; }
 .decklight-commit-chip[data-tone="quiet"]:hover { opacity: 1; }
 .decklight-commit-chip:hover { background: rgba(0, 0, 0, .85); }

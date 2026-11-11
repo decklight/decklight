@@ -44,6 +44,7 @@ import { markdownNodes } from './mdtext.js';
 import { aiIcon } from './aiicon.js';
 import { createEditCommit } from './edit-commit.js';
 import { landing } from './outside-edit.js';
+import { clipReport, clipSentence } from './overflow.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
@@ -149,7 +150,15 @@ export function createEditMode({
   // number an author needs the whole time the file is theirs to change, in
   // the theme's accent, above the commit chip. It goes with the lock and
   // with fullscreen, which is a rehearsal.
+  //
+  // A clipped slide says so ON that number (PRESENTING_EDITING): the guardrail
+  // marks it `data-overflow` and warns in a console nobody editing by hand has
+  // open, and the Check deck panel is a place you go, not a thing you see. So
+  // the badge rides the number, follows the attribute wherever it changes (an
+  // edit in place, a refresh, the watch's own re-check, a reload), and a click
+  // opens Check deck on that slide's row.
   let slideNum = null;
+  let checkOpen = null;   // set by the engine: Check deck…, on a row
   function paintSlideNum() {
     const show = editAvailable && !printMode && !document.fullscreenElement;
     root.classList.toggle('has-slide-num', show);
@@ -157,12 +166,57 @@ export function createEditMode({
     if (!slideNum) {
       slideNum = document.createElement('div');
       slideNum.className = 'decklight-slide-num';
-      slideNum.setAttribute('aria-hidden', 'true');
+      const n = document.createElement('span');
+      n.className = 'sn-n';
+      n.setAttribute('aria-hidden', 'true');
+      slideNum.appendChild(n);
       root.appendChild(slideNum);
     }
-    slideNum.textContent = `${instance.state.slide} / ${instance.state.totalSlides}`;
+    const at = instance.state.slide;
+    slideNum.querySelector('.sn-n').textContent = `${at} / ${instance.state.totalSlides}`;
+    paintClipBadge(instance._sections?.[at - 1], at);
+  }
+  /** The badge on the number: there while the slide on stage is clipped, gone once it fits. */
+  function paintClipBadge(sec, at) {
+    let badge = slideNum.querySelector('.sn-clip');
+    if (!sec?.hasAttribute('data-overflow')) { badge?.remove(); return; }
+    if (!badge) {
+      badge = document.createElement('button');
+      badge.type = 'button';
+      badge.className = 'sn-clip';
+      badge.textContent = 'clipped';
+      // the amount moves while the slide stays clipped (a line typed, a font
+      // landing): read it again whenever somebody is about to read it
+      const fresh = () => describeClip(badge);
+      badge.addEventListener('pointerenter', fresh);
+      badge.addEventListener('focus', fresh);
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        checkOpen?.({ rule: 'overflow', slide: Number(badge.dataset.slide) });
+      });
+      slideNum.appendChild(badge);
+    }
+    badge.dataset.slide = String(at);
+    describeClip(badge);
+  }
+  function describeClip(badge) {
+    const n = Number(badge.dataset.slide);
+    const said = clipSentence(clipReport(instance._sections?.[n - 1])) || 'clipped: content runs past its box';
+    badge.title = `${said}. Click for Check deck`;
+    badge.setAttribute('aria-label', `slide ${n} is ${said}. Open Check deck`);
   }
   instance.on('slide', paintSlideNum);
+  // The guardrail's mark, wherever it is set or lifted: one attribute,
+  // watched under the deck, so nothing that changes a slide has to know
+  // the badge exists. (A data-overflow toggle is rare: it changes only when
+  // a slide starts or stops clipping.)
+  if (!printMode && typeof MutationObserver === 'function') {
+    new MutationObserver((records) => {
+      if (!slideNum) return;
+      const on = instance._sections?.[instance.state.slide - 1];
+      if (records.some((r) => r.target === on)) paintClipBadge(on, instance.state.slide);
+    }).observe(root, { attributes: true, attributeFilter: ['data-overflow'], subtree: true });
+  }
   function paintCommitChip() {
     const text = commitChipText(commitNow);
     // fullscreen is a rehearsal: nothing about git belongs on that screen
@@ -4502,6 +4556,8 @@ export function createEditMode({
     editContent: (t) => { if (t && t.index != null) openElementContentEditor(t); },
     /** The inspector's own door, so the content editor can go back to it. */
     setInspectorOpener(fn) { inspectorOpen = fn; },
+    /** Check deck…, opened on a row: the clipped badge's way there. */
+    setCheckOpener(fn) { checkOpen = fn; },
     /** The element menu, opened at a point by something other than a right-click: the bar's ⋯ handle and Slide ▾. */
     openElementMenuAt: (x, y, target, view = 'main', opts = {}) => { if (!elementEditOn) return; overlays.opening(); openElementMenu(x, y, target, view, opts); },
     /** Close the element menu: a row another module handed in (`opts.rows`) closes it before it acts. */
