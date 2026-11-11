@@ -18,6 +18,8 @@
  * through, so it never takes the click it is about.
  */
 
+import { WIRE_TAGS, isConnector } from './connectors.js';
+
 const DRAWN = 'rect, circle, ellipse, polygon, polyline, path, line, text, image, use, foreignObject';
 const NOT_THE_FILES = 'defs, marker, mask, .draw-head, .draw-mask';
 
@@ -53,6 +55,28 @@ export function pickNode(top, clicked) {
 export const isDrawn = (node) => node instanceof SVGElement && node.tagName.toLowerCase() !== 'svg' && !!node.closest?.('svg');
 
 /**
+ * Is `node` a wire: a connector, a `<line>`, or an unfilled `<path>` or
+ * `<polyline>`? A wire's bounding box is the rectangle its route spans, mostly
+ * empty, so a wire is never boxed: it glows along its own stroke instead.
+ */
+export function isWireNode(node) {
+  if (!isDrawn(node)) return false;
+  const tag = node.tagName.toLowerCase();
+  if (!WIRE_TAGS.has(tag)) return false;
+  return tag === 'line' || isConnector(node) || getComputedStyle(node).fill === 'none';
+}
+
+/** The middle of a wire's stroke on the screen, `{ x, y }`, or null when it cannot be measured (a hidden slide). */
+export function wireMiddle(node) {
+  try {
+    const m = node.getScreenCTM?.();
+    const p = node.getPointAtLength?.(node.getTotalLength() / 2);
+    if (!m || !p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+    return { x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f };
+  } catch { return null; }
+}
+
+/**
  * One spotlight inside `root`: `show(node, { dim })` glows `node` and, with
  * `dim`, darkens everything around its box; `hide()` takes it off.
  */
@@ -74,6 +98,8 @@ export function createSpotlight(root) {
       // inside the dashed box; a block glows by the box drawn around it
       if (isDrawn(node)) node.classList.add('dl-glow');
     }
+    // a wire only glows: no box around the rectangle its route spans, nothing dimmed around it
+    if (isWireNode(node)) { box?.remove(); box = null; return; }
     box ??= Object.assign(document.createElement('div'), { className: 'dl-spot' });
     if (!box.isConnected) root.appendChild(box);
     box.classList.toggle('dl-spot-dim', dim);
@@ -91,24 +117,28 @@ export function createSpotlight(root) {
 /**
  * The frame a selection inside a diagram wears: SVG takes no CSS outline, so
  * the selected node is framed by a box drawn over it, kept in place by
- * `place()`.
+ * `place()`. A wire wears no box: it takes a class, and glows along its own
+ * stroke (a filter on the wire itself, so it follows every re-route with
+ * nothing to place). The class is the page's, never the file's.
  */
 export function createFrame(root) {
   let box = null;
   let node = null;
   function place() {
-    if (!box || !node?.isConnected) return;
+    if (!box || !node?.isConnected) return;   // a wire has no box: nothing to place
     const r = node.getBoundingClientRect();
     Object.assign(box.style, { left: `${r.left - 4}px`, top: `${r.top - 4}px`, width: `${r.width + 8}px`, height: `${r.height + 8}px` });
   }
   return {
     on(n) {
+      this.off();
       node = n;
+      if (isWireNode(n)) { n.classList.add('dl-wire-selected'); return; }
       box ??= Object.assign(document.createElement('div'), { className: 'dl-frame' });
       if (!box.isConnected) root.appendChild(box);
       place();
     },
-    off() { box?.remove(); box = null; node = null; },
+    off() { node?.classList.remove('dl-wire-selected'); box?.remove(); box = null; node = null; },
     place,
   };
 }
