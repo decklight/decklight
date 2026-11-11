@@ -28,7 +28,7 @@
 
 import { authoredTop } from './design-system.js';
 import { editableTarget, svgTextTarget, CODE_EDITABLE } from './authoring.js';
-import { pickNode, isDrawn, createSpotlight, createFrame } from './pick.js';
+import { pickNode, isDrawn, isWireNode, wireMiddle, createSpotlight, createFrame } from './pick.js';
 import { UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
 
@@ -267,11 +267,21 @@ export function createEditBar({
   }
   /** What the selection outlines: the node picked inside a diagram, else the block. */
   const shown = (t) => t.node ?? t.top;
+  /** Where a selected wire's ⋯ goes: beside the middle of its stroke, not at the corner of the box its route spans. */
+  const wireAnchor = (t) => (t && isWireNode(shown(t)) ? wireMiddle(shown(t)) : null);
   function placeHandle() {
     frame.place();
     if (!selected || !handle) return;
-    const r = shown(selected).getBoundingClientRect();
     const base = root.getBoundingClientRect();
+    const mid = wireAnchor(selected);
+    // a wire has no corner resize handle for the ⋯ to step aside from (dl-handle-wire: no nudge)
+    handle.classList.toggle('dl-handle-wire', !!mid);
+    if (mid) {
+      handle.style.left = `${mid.x - base.left + 8}px`;
+      handle.style.top = `${mid.y - base.top - 30}px`;
+      return;
+    }
+    const r = shown(selected).getBoundingClientRect();
     handle.style.left = `${r.right - base.left - 4}px`;
     handle.style.top = `${r.top - base.top - 10}px`;
   }
@@ -314,7 +324,9 @@ export function createEditBar({
     const tick = () => {
       if (!selected) return;
       const r = shown(selected).getBoundingClientRect();
-      const box = `${r.left},${r.top},${r.width},${r.height}`;
+      // a wire's ⋯ is on its middle, which a route change moves without moving its box
+      const mid = wireAnchor(selected);
+      const box = `${r.left},${r.top},${r.width},${r.height}${mid ? `,${mid.x},${mid.y}` : ''}`;
       if (box !== lastBox) { lastBox = box; placeHandle(); }
       following = requestAnimationFrame(tick);
     };

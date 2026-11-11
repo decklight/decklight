@@ -3825,6 +3825,9 @@
 .decklight.dl-picking, .decklight.dl-picking .decklight-stage * { cursor: crosshair !important; }
 /* a node selected inside a diagram: SVG takes no outline, so a frame is drawn over it */
 .decklight .dl-frame { position: fixed; z-index: 29; pointer-events: none; outline: 2px solid var(--accent); border-radius: 4px; }
+/* a wire is never boxed (the box its route spans is mostly empty): selected, it glows along its own stroke,
+   tighter and fuller than the hover's glow, and winning over it */
+.decklight svg .dl-wire-selected, .decklight svg .dl-wire-selected.dl-glow { filter: drop-shadow(0 0 1.5px var(--accent)) drop-shadow(0 0 4px var(--accent)); }
 
 /* The sources editor. A draft, so it looks like a form and not like the card
    it was reading a moment ago. */
@@ -3930,6 +3933,8 @@
 .decklight .dl-shape-handle.dl-shape-end { border-radius: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; }
 .decklight .dl-shape-handle:hover { background: var(--accent); }
 .decklight.dl-shape-handles .dl-handle { translate: 16px -10px; }
+/* a wire has no corner handle: its ⋯ stays where it was put, beside the middle of the line */
+.decklight.dl-shape-handles .dl-handle.dl-handle-wire { translate: none; }
 @media print { .decklight .dl-shape-handle { display: none; } }
 /* connectors (src/core/shapes.js, connectors.js): a dot off each side of a
    selected box to draw a wire from, the wire after the pointer, the node it
