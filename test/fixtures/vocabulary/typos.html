@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>A deck typed by hand</title>
+  <script type="application/json" data-decklight-config>
+  { "decklight": "0.10.0", "theme": "aurora", "trasition": "slide", "slideNumber": "n/n", "analytics": "mine" }
+  </script>
+</head>
+<body>
+  <div class="decklight">
+    <section data-layuot="split">
+      <h2>Three reasons</h2>
+      <ul data-build="fade-upp">
+        <li>First</li>
+        <li>Second</li>
+      </ul>
+      <p data-buld>A paragraph meant to build.</p>
+      <p data-tracking-id="hero" data-myapp="1">The author's own attributes.</p>
+    </section>
+    <section data-transition="fdae">
+      <h2>The flow</h2>
+      <svg viewBox="0 0 200 60" data-build="draw">
+        <g data-node="a"><rect width="40" height="20"/><text x="5" y="15">A</text></g>
+        <g data-node="b"><rect x="120" width="40" height="20"/><text x="125" y="15">B</text></g>
+        <path d="M40 10 H120" data-from="a" data-to="b" data-route="elbo" stroke="currentColor"/>
+      </svg>
+      <p data-animate="wobble">Look here.</p>
+    </section>
+    <section data-layout="split" data-build-order="2">
+      <h2>Clean</h2>
+      <ul data-build="fade-up"><li>one</li><li>two</li></ul>
+      <pre data-lines="1|2" data-fit><code>a
+b</code></pre>
+    </section>
+  </div>
+</body>
+</html>

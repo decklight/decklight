@@ -125,6 +125,7 @@ const RULES = [
   [/^tools\/chrome\.mjs$/, ALL, 'every harness starts a browser through it'],
   [/^tools\/render-theme\.mjs$/, ['pdf-render', 'pptx-render', 'shot-render'], 'the theme a render is told to open on'],
   [/^tools\/review-anchor\.mjs$/, ['review-render'], 'the anchor resolver both halves share'],
+  [/^tools\/vocabulary\.mjs$/, ['engine-render:palette'], 'the authoring vocabulary: Check deck… reads it off the live page'],
   [/^tools\/(tts-engines|local-voice|voiceover-server|lipsync)\.mjs$/, [...NARRATION, 'record-render'],
     'the voice bridge narration talks to'],
   [/^themes\//, ['render', 'starter-render', ...LINT], 'a theme, the gates that read every theme, and the full starter walked in each'],

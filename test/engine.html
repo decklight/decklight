@@ -3945,6 +3945,25 @@
         r.stillDiagramHinted = hints('static-diagram').map((f) => f.slide).join(',') === '11'
           && hints('static-diagram')[0].level === 'hint';
 
+        // a word Decklight does not know (tools/vocabulary.mjs), read off the
+        // live page: every slide above, the engine's own attributes all over
+        // them by now, says nothing; a slip on a new one is named, with what
+        // was meant, and an attribute of the author's own is left alone
+        const words = () => deck.check().filter((f) => /^(unknown-attribute|unknown-value|config-)/.test(f.rule));
+        r.engineOwnAttributesSayNothing = words().length === 0;
+        secs[0].parentElement.insertAdjacentHTML('beforeend', `
+          <section data-layuot="split"><h2>Typos</h2><ul data-build="fade-upp"><li>a</li><li>b</li></ul><p data-buld>x</p><p data-myapp="1">mine</p></section>`);
+        document.head.insertAdjacentHTML('beforeend', '<script type="application/json" data-decklight-config>{ "trasition": "fade" }<\/script>');
+        deck.sync();
+        await settle();
+        const said = words();
+        const on14 = (rule, re) => said.some((f) => f.slide === 14 && f.rule === rule && re.test(f.message));
+        r.attributeSlipNamed = on14('unknown-attribute', /^data-buld .*did you mean data-build\?/) && on14('unknown-attribute', /^data-layuot .*did you mean data-layout\?/);
+        r.effectSlipNamed = on14('unknown-value', /^data-build="fade-upp" is not a build effect: did you mean fade-up\?/);
+        r.authorsOwnLeftAlone = !said.some((f) => /data-myapp/.test(f.message));
+        r.configKeySlipNamed = said.some((f) => f.slide === null && f.rule === 'config-key' && f.title === 'the deck' && /"trasition" .*did you mean "transition"\?/.test(f.message));
+        r.wordsAreWarnings = said.length === 4 && said.every((f) => f.level === 'warn');
+
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
