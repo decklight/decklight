@@ -109,6 +109,20 @@ FIXTURES.picture = deckOf(`    <section>
       <img src="picture.png" alt="the queue" width="200">
       <aside class="notes">Notes.</aside>
     </section>`);
+// three slides, for the file to change under the page (outside)
+FIXTURES.outside = deckOf(`    <section>
+      <h2>Alpha</h2>
+      <aside class="notes">Notes.</aside>
+    </section>
+    <section>
+      <h2>Beta</h2>
+      <ul><li>one</li></ul>
+      <aside class="notes">Notes.</aside>
+    </section>
+    <section>
+      <h2>Gamma</h2>
+      <aside class="notes">Notes.</aside>
+    </section>`);
 // a 4×4 PNG, for the picture a file chooser is handed
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGNgYGD4z4AKMFAAKX0B/9g5w2kAAAAASUVORK5CYII=', 'base64');
 
@@ -468,6 +482,37 @@ try {
     await page.keyboard.press(`${MOD}+k`); await wait(300);
     check('linkchord', 'not typing, ⌘K is the palette, its hint saying both',
       /links the selected words/.test(await page.locator('.decklight-palette .pal-hint').textContent().catch(() => '')));
+    await page.close();
+  });
+
+  // 11 · the file changed from outside (an editor, git): one slide's markup is
+  //      swapped in place and the author taken to it; a slide put in above
+  //      reloads, and a locked page lands on the same content, not the number
+  await scenario('outside', async () => {
+    const srv = await serve('outside');
+    const page = await open(srv, '#/1/0');
+    await page.evaluate(() => { window.__marker = 'kept'; });
+    writeFileSync(path.join(dir, 'outside.html'), FIXTURES.outside.replace('<h2>Gamma</h2>', '<h2>Gamma, edited</h2>'));
+    await page.waitForFunction((sel) => /Gamma, edited/.test(document.querySelector(sel)?.textContent ?? ''), ACTIVE, { timeout: 5000 }).catch(() => {});
+    const title = await page.locator(`${ACTIVE} > h2`).textContent().catch(() => '');
+    check('outside', 'one slide changed: no reload, the page kept', await page.evaluate(() => window.__marker) === 'kept');
+    check('outside', 'swapped in place, and the author is on it', title === 'Gamma, edited', title);
+    await wait(400);
+    check('outside', 'the hash follows', /^#\/3\//.test(await page.evaluate(() => location.hash)), await page.evaluate(() => location.hash));
+    check('outside', 'the server says which slide and what', /slide 3 changed: the title · in place/.test(srv.log()), srv.log().slice(-400));
+    // a presenter: the deck locked, on Beta; a slide is put in above it
+    await page.keyboard.press('Home'); await wait(300);
+    await page.keyboard.press('ArrowRight'); await wait(400);
+    await page.evaluate(() => fetch('/deck/edit/lock', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locked: true }) }));
+    await wait(500);
+    writeFileSync(path.join(dir, 'outside.html'), srv.read().replace('    <section>\n      <h2>Beta</h2>', '    <section>\n      <h2>Inserted</h2>\n    </section>\n    <section>\n      <h2>Beta</h2>'));
+    await page.waitForFunction(() => !window.__marker, null, { timeout: 5000 }).catch(() => {});
+    await page.waitForSelector(ACTIVE); await wait(800);
+    const landed = await page.locator(`${ACTIVE} > h2`).textContent().catch(() => '');
+    check('outside', 'a slide put in above reloads', await page.evaluate(() => window.__marker) === undefined);
+    check('outside', 'and a locked page lands on the same content', landed === 'Beta' && /^#\/3\//.test(await page.evaluate(() => location.hash)), `${landed} ${await page.evaluate(() => location.hash)}`);
+    check('outside', 'the server says a slide was added', /reload × \d+ — slide 2 added/.test(srv.log()), srv.log().slice(-400));
+    await page.evaluate(() => fetch('/deck/edit/lock', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locked: false }) }));
     await page.close();
   });
 } finally {

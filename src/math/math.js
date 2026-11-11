@@ -81,7 +81,7 @@ export function findMathSpans(text) {
 // (notes are spoken — narration must not read markup), already-rendered math.
 const SKIP = 'code, pre, script, style, svg, aside, math';
 
-function renderMathIn(section) {
+export function renderMathIn(section) {
   const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => (node.parentElement && node.parentElement.closest(SKIP)
       ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),

@@ -101,6 +101,7 @@ import { runMain, afterOutput } from './util.mjs';
 import { PKG, AGENTS_MARKER, skillVersionOf } from './skill-content.mjs';
 import { selfCommand } from './pkg.mjs';
 import { slidesSinceHead, slideRenumber } from './commit-split.mjs';
+import { outsideEdit } from './outside-edit.mjs';
 import { semverCompare } from '../tools/semver.mjs';
 
 // The flags that take a value, so the deck can be found past them. `--git-mode`
@@ -2097,14 +2098,25 @@ export function reportText(text, max = 4000) {
  * The reason a reload carries. A write of the server's own within the last
  * moments is that write; the file changing while an agent runs is the
  * agent's; anything else changed on disk by a hand this server never saw —
- * an editor, git, a tool. The page shows it as the first line after the
- * reload, with "this tab" or "another tab" when the write said which page.
+ * an editor, git, a tool — and, given the bytes the pages show and the bytes
+ * now, says which slides and how (null when nothing a page shows changed).
+ * The page shows it as the first line after the reload, with "this tab" or
+ * "another tab" when the write said which page.
  */
 export const RELOAD_WRITE_WINDOW_MS = 2000;
-export function describeReload({ write = null, agent = null, now = Date.now() } = {}) {
+export function describeReload({ write = null, agent = null, now = Date.now(), before = null, after = null } = {}) {
   if (write && now - write.at <= RELOAD_WRITE_WINDOW_MS) return { reload: write.what, from: write.from ?? null };
   // a job that names its own reason says it (a migration: "migrated to acme 6.0.0")
   if (agent) return { reload: agent.reload ?? `${agent.agent}'s edit`, from: null };
+  // An outside edit, read against the bytes the pages show (cli/outside-edit.mjs):
+  // said slide by slide, the changed slides' markup when the pages can swap
+  // them in place, and where each slide went. `reload` stays the reason, so
+  // an older page, which reloads on any message, still does.
+  if (typeof before === 'string' && typeof after === 'string') {
+    const o = outsideEdit(before, after);
+    if (!o) return null;
+    return { reload: o.said, from: null, ...(o.patch ? { patch: o.patch } : {}), land: o.land };
+  }
   return { reload: 'changed on disk — an editor, git, or a tool outside this server', from: null };
 }
 
@@ -3432,6 +3444,11 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // place, and the file goes back to what it was when it is done: no page
   // reloads for any of it, because nothing it wrote has landed.
   let holding = false;
+  // The deck as the pages show it: the bytes the last change sent them to.
+  // An outside edit is measured against it. Kept apart from `knownDeck`,
+  // which is the voice folders' and stands still through an agent's run.
+  let shownDeck = null;
+  try { shownDeck = readDeck(); } catch { /* not there yet: the first change reloads */ }
   // The DIRECTORY, not the file. A path watch follows the inode, and an
   // atomic write — temp file + rename, which is how an agent's editor and
   // most careful tools save — replaces the inode: the watcher then sits deaf
@@ -3460,19 +3477,25 @@ export async function editMain(args, { onListen = null, client } = {}) {
       // since (an editor save, an undo) reloads as it always has.
       const quiet = quietWrite;
       quietWrite = null;
-      if (quiet !== null) {
-        let now = null;
-        try { now = readFileSync(deckPath, 'utf8'); } catch { /* gone — reload says so */ }
-        if (now === quiet) { lastWrite = null; console.log('  changed → updated in place, no reload'); return; }
-      }
+      let now = null;
+      try { now = readFileSync(deckPath, 'utf8'); } catch { /* gone — reload says so */ }
+      if (quiet !== null && now === quiet) { shownDeck = now; lastWrite = null; console.log('  changed → updated in place, no reload'); return; }
       // The message names what wrote the file (`describeReload`): the page
       // stashes it with its debug log and says it first thing after the
-      // reload. An older page reloads on any message, as it always did.
-      const why = describeReload({ write: lastWrite, agent: agentJob });
-      if (voices) why.reload += ` — ${voices}`;
+      // reload. An outside edit is read against what the pages show: only
+      // slides' own markup changed, and they are swapped in place (`patch`);
+      // else the reload carries where each slide went (`land`). An older
+      // page reloads on any message, as it always did.
+      const why = describeReload({ write: lastWrite, agent: agentJob, before: shownDeck, after: now });
+      if (now !== null) shownDeck = now;
       lastWrite = null;
+      if (!why) { console.log('  changed → nothing the slides show, no reload'); return; }
+      // recordings that moved with the slides reload with them (#978)
+      if (voices) { why.reload += ` — ${voices}`; delete why.patch; }
       clients.raw(`data: ${JSON.stringify(why)}\n\n`);
-      console.log(`  changed → reload × ${clients.size} — ${why.reload}${why.from ? ` (page ${why.from})` : ''}`);
+      console.log(why.patch
+        ? `  changed → ${why.reload} · in place × ${clients.size}`
+        : `  changed → reload × ${clients.size} — ${why.reload}${why.from ? ` (page ${why.from})` : ''}`);
     }, 150);
   });
 

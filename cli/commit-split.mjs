@@ -397,8 +397,11 @@ export function slideDiff(before, after) {
  * (cli/fix-review.mjs). Pure.
  */
 export function slideOps(before, after) {
-  const a = slideSources(before);
-  const b = slideSources(after);
+  return slideOpsOf(slideSources(before), slideSources(after));
+}
+
+/** slideOps over slides already cut out: each one's source, whitespace at line ends ignored. Pure. */
+export function slideOpsOf(a, b) {
   // LCS over whole slides; decks are tens of slides, so n×m is nothing
   const n = a.length, m = b.length;
   const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
@@ -448,9 +451,12 @@ export function slideOps(before, after) {
  * (and flagged stale by its words), not thrown away. The rest went. Pure.
  */
 export function slideRenumber(before, after) {
-  const a = slideSources(before);
-  const b = slideSources(after);
-  const ops = slideOps(before, after);
+  return slideRenumberOf(slideSources(before), slideSources(after));
+}
+
+/** slideRenumber over slides already cut out, as slideOpsOf takes them. Pure. */
+export function slideRenumberOf(a, b) {
+  const ops = slideOpsOf(a, b);
   const now = new Map();
   const taken = new Set();
   const gaps = [[]];

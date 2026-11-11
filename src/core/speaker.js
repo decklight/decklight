@@ -110,6 +110,9 @@ export function installSpeakerBridge(instance) {
   const deckUrl = () => {
     const u = new URL(location.href);
     u.searchParams.set('embedded', '');
+    // slides swapped in place by an outside edit (editmode.js): a new address,
+    // so the previews load the deck again rather than show the old slides
+    if (instance._deckRev) u.searchParams.set('rev', String(instance._deckRev));
     u.hash = '';
     return u.href;
   };
@@ -402,9 +405,10 @@ export function openSpeakerView(instance) {
     // CURRENT is what the audience sees: the slide at the step the deck is on,
     // not the slide fully built. Only the fragment changes, so the pane steps
     // through its builds in place instead of reloading.
-    if (st.slide !== last.slide || st.step !== last.step) $('#cur').src = st.url + '#/' + st.slide + '/' + st.step;
-    if (st.nextHash !== last.nextHash) $('#nxt').src = st.url + '#' + st.nextHash;
-    last = { slide: st.slide, step: st.step, nextHash: st.nextHash };
+    // A new url is the deck changed in place: both panes load it again.
+    if (st.slide !== last.slide || st.step !== last.step || st.url !== last.url) $('#cur').src = st.url + '#/' + st.slide + '/' + st.step;
+    if (st.nextHash !== last.nextHash || st.url !== last.url) $('#nxt').src = st.url + '#' + st.nextHash;
+    last = { slide: st.slide, step: st.step, nextHash: st.nextHash, url: st.url };
     if (script) { renderScript(st); } else {
     const segs = (mode === 'rehearse' && st.rehearseSegments) ? st.rehearseSegments : st.notesSegments;
     // Splitting on ⟨CLICK⟩ can cut through a paragraph, leaving fragments

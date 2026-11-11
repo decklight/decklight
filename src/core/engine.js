@@ -10,7 +10,7 @@ import { namespaceSvgIds, rescopeSvgIds, prefixSvgIds, applyConcepts, applyNesti
 import { initCharts, renderChart } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
-import { initMath } from '../math/math.js';
+import { initMath, renderMathIn } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { fitCode } from '../code/fit.js';
 import { openSpeakerView, installSpeakerBridge } from './speaker.js';
@@ -1766,11 +1766,13 @@ export function init(userConfig = {}) {
   });
   // ----- one slide brought up to date in place (PRESENTING_EDITING) ---------
   // An edit this page shows itself (text, a list, a picture, a chart's
-  // numbers, a shape, a move, an added element) is followed by what the engine
-  // does to content at load, done again to what changed and in load's order,
-  // each part only when asked. Another page's edit reloads that page
-  // (editmode.js). Every in-place edit comes through here, so the order holds:
+  // numbers, a shape, a move, an added element), and a slide an outside edit
+  // swapped in (editmode.js), is followed by what the engine does to content
+  // at load, done again to what changed and in load's order, each part only
+  // when asked. Another page's edit reloads that page (editmode.js). Every
+  // in-place edit comes through here, so the order holds:
   //   charts      true: each chart not drawn yet; a chart: drawn again from its data, its concepts painted
+  //   math        true: the slide's formulas typeset, on a slide that asks (data-math)
   //   svgs        new elements whose diagram ids are namespaced
   //   code        elements whose code blocks are highlighted and lined
   //   layout      the layout the slide takes (two columns ask for `split`)
@@ -1783,13 +1785,14 @@ export function init(userConfig = {}) {
   //   relayout    its pinned title and subtitle, a split's sides, the overflow guardrail
   let addedSvgs = 0;
   function refreshSlide(sec, {
-    charts = null, svgs = [], code = [], layout: name = null, connectors = null, strokes = [], paint = null,
+    charts = null, math = false, svgs = [], code = [], layout: name = null, connectors = null, strokes = [], paint = null,
     background = false, scan = true, relayout = true,
   } = {}) {
     const idx = instance._sections.indexOf(sec) + 1;
     if (!idx) return;
     if (charts === true) initCharts(sec);   // idempotent: only a chart not yet drawn is drawn
     else if (charts?.isConnected) { renderChart(charts); applyConcepts(charts, config.concepts); }
+    if (math && sec.hasAttribute('data-math')) renderMathIn(sec);
     for (const el of svgs) {
       if (!el?.isConnected) continue;
       addedSvgs += 1;
