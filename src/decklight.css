@@ -1249,6 +1249,9 @@
   padding: 0.1em 0.35em;
   border-radius: 5px;
 }
+/* data-fit (#958): while code/fit.js measures, a pending build stands where it
+   will land — an entrance offset is not where the content ends up */
+.decklight section.dl-fit-measure .build-step { transform: none !important; transition: none !important; }
 .decklight .code-line { display: block; min-height: 1.55em; transition: opacity var(--build-duration) ease; }
 .decklight pre.line-numbers { counter-reset: dl-line; }
 .decklight pre.line-numbers .code-line { counter-increment: dl-line; }

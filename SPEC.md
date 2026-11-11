@@ -390,6 +390,15 @@ An added theme (linked for a marked theme, a bundle's inline copy, or a block an
   (languages: sql, js, ts, python, bash/shell, yaml, json, java, go, rust, html/xml, css, plaintext), themed through the `--hl-*` tokens (no separate hljs theme files).
 - **Line stepping**: `data-lines="1|3-5|all"` on the `<pre>` → registers a build provider with one step per segment; non-highlighted lines get `--dim-opacity`. `data-lines-numbers` shows line numbers.
 - Escaping rule for authors: use `&lt;` inside code blocks.
+- **Fit to the room** (`data-fit`): on a `<pre>`, or on an element holding several, the code is sized to the space its slide gives it: as large as fits, never larger than the size the block has with no `font-size` of its own (short code stays at that size; a fit only ever shrinks). Every block under one fit host shares one size; a block's own `font-size` is what the fit replaces, and a block with no `data-fit` keeps its hand-set size as before. The host is the room when it holds the blocks, and the block's parent when the attribute is on the `<pre>` itself. The fit is measured, not inferred from the overflow guardrail (PRESENTING_FIT): no line wider than its block, nothing scrolling inside one, and every in-flow box from the host up to the section inside its parent's content box, which catches a slot that centres its content and hides its overflow past its top as well as its bottom. The slide is measured fully built: a pending build keeps its space and its entrance offset is ignored, so later builds never arrive into room the code took. It is redone whenever the guardrail re-checks the slide (a theme, a font, a resize, an edit in write mode), and for every slide in `?print`, so `decklight pdf` and `video` show the browser's size. Nothing fits at 30% of the block's size: the floor stays, and the guardrail flags the slide like any other. `data-fit-scale` on the host says what it came to (`1` at full size). Prefer it to hand-set `font-size` on code slides:
+
+  ```html
+  <section>
+    <h2>The query</h2>
+    <pre data-fit><code class="language-sql">SELECT …</code></pre>
+    <p>What it returns.</p>
+  </section>
+  ```
 - **Math** (`data-math` on the section): LaTeX math renders at init to MathML Core via
   bundled [Temml](https://temml.org): no per-deck build step, no network fetch, no
   webfonts (evergreen browsers render MathML natively; `?print` output included).
