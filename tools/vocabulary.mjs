@@ -12,9 +12,6 @@
  *     configuration key renders as if it were absent, and nothing said so.
  *     `data-buld` and `data-build="fade-upp"` are findings now, with what
  *     was meant.
- *   - the editor support files (cli/editor-support.mjs): VS Code's
- *     completions and hovers are generated from this table at the moment they
- *     are written, so they never drift from it.
  *
  * Here and not in src/ for the reason tools/click-match.mjs gives: cli/ never
  * imports src/, src/ may import a tool. It ships in the runtime bundle, so it
@@ -25,8 +22,9 @@
  */
 
 /**
- * The attributes an author writes. `on` says where it goes when that matters
- * (`section`, a tag, or a short phrase); `values` is the enumeration when the
+ * The attributes an author writes: what the rules need and nothing else,
+ * since this ships in the runtime and so in every self-contained deck. Where
+ * each goes and what it does is SPEC's, kept out of the bundle. `values` is the enumeration when the
  * attribute takes one, `bare` means it may be written with no value, and
  * `number` that a number is a value too. `open` marks values that are only
  * suggestions (a CSS value may be anything else); `kind` names what a value
@@ -34,98 +32,84 @@
  */
 export const ATTRIBUTES = [
   // ── a slide ───────────────────────────────────────────────────────────────
-  { name: 'data-layout', on: 'section', kind: 'layout', values: ['auto', 'centered', 'pinned', 'top', 'split', 'split-flip'],
-    desc: 'How the slide is laid out: auto, centered, a pinned title, top, or split into two sides (split-flip mirrors them).' },
-  { name: 'data-template', on: 'section', desc: 'The design-system slide template this slide is built on, as system/template.' },
-  { name: 'data-pin', on: 'section', kind: 'pin', values: ['none'], bare: true, number: true,
-    desc: 'Pin the title: bare forces the pin, none opts out, a number is its Y in design px.' },
-  { name: 'data-subtitle', on: 'section', kind: 'subtitle setting', values: ['none'],
-    desc: 'none: the paragraph after the title is not made its subtitle.' },
-  { name: 'data-transition', on: 'section', kind: 'transition', values: ['none', 'fade', 'slide', 'scale', 'flip'],
-    desc: 'The transition into this slide, over the deck\'s own.' },
-  { name: 'data-auto-animate', on: 'section', bare: true,
-    desc: 'Magic Move from the slide before: elements sharing a data-id move, the rest fade.' },
-  { name: 'data-hidden', on: 'section', bare: true, desc: 'A slide the audience does not see. It keeps its number.' },
-  { name: 'data-module', on: 'section', desc: 'Starts a chapter with this title; every slide after it belongs to it.' },
-  { name: 'data-background-image', on: 'section', desc: 'An image behind the whole slide.' },
-  { name: 'data-background-video', on: 'section', desc: 'A muted, looping video behind the slide while it is on.' },
-  { name: 'data-background-poster', on: 'section', desc: 'The still that stands in for the background video (print needs it).' },
-  { name: 'data-background-size', on: 'section', kind: 'background size', values: ['cover', 'contain'], open: true,
-    desc: 'How the background image fills the slide (default cover).' },
-  { name: 'data-background-position', on: 'section', desc: 'Where the background image sits (default center).' },
-  { name: 'data-background-dim', on: 'section', number: true, desc: 'Dims the background media toward the canvas, 0 to 1, so text reads.' },
-  { name: 'data-logo', on: 'section', bare: true, number: true, desc: 'A large copy of the deck\'s logo above the content; a number is its height in px.' },
-  { name: 'data-math', on: 'section', bare: true, desc: 'Renders the LaTeX on this slide.' },
-  { name: 'data-static-ok', on: 'section or svg', bare: true, desc: 'This diagram is meant to land all at once: no hint for it.' },
-  { name: 'data-dense-ok', on: 'section', bare: true, desc: 'This slide is meant to be dense: no crowded warning for it.' },
-  { name: 'data-timing', on: 'section', number: true, desc: 'Planned seconds on this slide, for rehearsal.' },
-  { name: 'data-face', on: 'section', desc: 'Where the filmed face shows on this slide: a corner, hide, or full with a zoom.' },
-  { name: 'data-narration', on: 'section', kind: 'narration setting', values: ['hold'],
-    desc: 'hold: narration never moves off this slide by itself.' },
-  { name: 'data-narration-pause', on: 'section', number: true, desc: 'Seconds the slide holds after its narration ends.' },
-  { name: 'data-narration-beat-pause', on: 'section', number: true, desc: 'Seconds between one build\'s narration and the next.' },
-  { name: 'data-narration-sentence-pause', on: 'section', number: true, desc: 'Seconds between two sentences of one beat.' },
-  { name: 'data-video-hold', on: 'section', number: true, desc: 'Seconds this slide holds in a video export.' },
+  { name: 'data-layout', kind: 'layout', values: ['auto', 'centered', 'pinned', 'top', 'split', 'split-flip'] },
+  { name: 'data-template' },
+  { name: 'data-pin', kind: 'pin', values: ['none'], bare: true, number: true },
+  { name: 'data-subtitle', kind: 'subtitle setting', values: ['none'] },
+  { name: 'data-transition', kind: 'transition', values: ['none', 'fade', 'slide', 'scale', 'flip'] },
+  { name: 'data-auto-animate', bare: true },
+  { name: 'data-hidden', bare: true },
+  { name: 'data-module' },
+  { name: 'data-background-image' },
+  { name: 'data-background-video' },
+  { name: 'data-background-poster' },
+  { name: 'data-background-size', kind: 'background size', values: ['cover', 'contain'], open: true },
+  { name: 'data-background-position' },
+  { name: 'data-background-dim', number: true },
+  { name: 'data-logo', bare: true, number: true },
+  { name: 'data-math', bare: true },
+  { name: 'data-static-ok', bare: true },
+  { name: 'data-dense-ok', bare: true },
+  { name: 'data-timing', number: true },
+  { name: 'data-face' },
+  { name: 'data-narration', kind: 'narration setting', values: ['hold'] },
+  { name: 'data-narration-pause', number: true },
+  { name: 'data-narration-beat-pause', number: true },
+  { name: 'data-narration-sentence-pause', number: true },
+  { name: 'data-video-hold', number: true },
 
   // ── builds ────────────────────────────────────────────────────────────────
-  { name: 'data-build', kind: 'build effect', values: ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'none'], bare: true,
-    desc: 'Reveal in steps: on a container each child is a step, on a leaf the element is one. The value is the entrance.' },
-  { name: 'data-build-order', number: true, desc: 'The click this step comes on, over document order; equal numbers arrive together.' },
-  { name: 'data-build-stay', on: 'child of a data-build container', bare: true, desc: 'This child is not a step: it is there from the start.' },
-  { name: 'data-build-self', bare: true, desc: 'A container that is one step itself, not one per child.' },
-  { name: 'data-draw-stops', on: 'stroke in a draw build', desc: 'Draws one stroke in stages: path lengths, or fractions of it.' },
-  { name: 'data-draw-speed', on: 'stroke in a draw build', number: true, desc: 'Pace of a staged stroke, in path units per second (default 300).' },
+  { name: 'data-build', kind: 'build effect', values: ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'none'], bare: true },
+  { name: 'data-build-order', number: true },
+  { name: 'data-build-stay', bare: true },
+  { name: 'data-build-self', bare: true },
+  { name: 'data-draw-stops' },
+  { name: 'data-draw-speed', number: true },
 
   // ── diagrams ──────────────────────────────────────────────────────────────
-  { name: 'data-node', on: 'svg shape or group', desc: 'Names this box so a connector can join it.' },
-  { name: 'data-from', on: 'svg line, path or polyline', desc: 'The data-node this wire starts at.' },
-  { name: 'data-to', on: 'svg line, path or polyline', desc: 'The data-node this wire ends at.' },
-  { name: 'data-route', on: 'svg line, path or polyline', kind: 'route', values: ['straight', 'elbow', 'curve'],
-    desc: 'How the wire runs between its nodes (default straight).' },
-  { name: 'data-concept', on: 'svg shape or group', desc: 'Colours the shape by meaning: one concept, one colour, deck-wide.' },
-  { name: 'data-nest', on: 'svg shape or group', kind: 'nesting setting', values: ['on', 'off'],
-    desc: 'off: keep the authored fill inside a filled panel; on: nest a shape the box test misses.' },
-  { name: 'data-id', desc: 'Matches this element across two auto-animate slides.' },
-  { name: 'data-animate', kind: 'animation', values: ['pulse', 'float', 'shake', 'spin', 'blink', 'bounce', 'swing', 'glow', 'breathe'],
-    desc: 'A looping attention animation while the slide is on.' },
+  { name: 'data-node' },
+  { name: 'data-from' },
+  { name: 'data-to' },
+  { name: 'data-route', kind: 'route', values: ['straight', 'elbow', 'curve'] },
+  { name: 'data-concept' },
+  { name: 'data-nest', kind: 'nesting setting', values: ['on', 'off'] },
+  { name: 'data-id' },
+  { name: 'data-animate', kind: 'animation', values: ['pulse', 'float', 'shake', 'spin', 'blink', 'bounce', 'swing', 'glow', 'breathe'] },
 
   // ── charts ────────────────────────────────────────────────────────────────
-  { name: 'data-chart', on: 'div.chart', kind: 'chart type', values: ['bar', 'line', 'area', 'pie', 'donut', 'scatter'],
-    desc: 'A chart drawn from the JSON inside it.' },
-  { name: 'data-title', on: 'chart or terminal', desc: 'The chart\'s title, or the terminal\'s window title.' },
-  { name: 'data-aspect', on: 'div.chart', desc: 'The chart\'s shape as w:h (default 16:9).' },
+  { name: 'data-chart', kind: 'chart type', values: ['bar', 'line', 'area', 'pie', 'donut', 'scatter'] },
+  { name: 'data-title' },
+  { name: 'data-aspect' },
 
   // ── code ──────────────────────────────────────────────────────────────────
-  { name: 'data-lines', on: 'pre', desc: 'Steps through the code by lines, as segments: 1|3-5|all.' },
-  { name: 'data-lines-numbers', on: 'pre', bare: true, desc: 'Shows line numbers.' },
-  { name: 'data-fit', on: 'pre, or what holds several', bare: true, desc: 'Sizes the code to the room the slide gives it.' },
+  { name: 'data-lines' },
+  { name: 'data-lines-numbers', bare: true },
+  { name: 'data-fit', bare: true },
 
   // ── terminals ─────────────────────────────────────────────────────────────
-  { name: 'data-cast', on: 'div.terminal', desc: 'The recorded session to play, a .cast.json file.' },
-  { name: 'data-cast-inline', on: 'div.terminal', desc: 'The recorded session embedded in this page, as #id of its script block.' },
-  { name: 'data-mode', on: 'div.terminal', kind: 'terminal mode', values: ['step', 'play'],
-    desc: 'step: one command per click; play: it plays through.' },
-  { name: 'data-rows', on: 'div.terminal', number: true, desc: 'The terminal\'s height in rows.' },
-  { name: 'data-type-speed', on: 'div.terminal', number: true, desc: 'Typing speed, 1 (slow) to 10 (fast).' },
-  { name: 'data-max-step', on: 'div.terminal', number: true, desc: 'The longest a step may play, in seconds.' },
-  { name: 'data-speed', on: 'div.terminal', kind: 'playback speed', values: ['1', '2', '4'], desc: 'Initial playback speed.' },
-  { name: 'data-type-sound', on: 'div.terminal', kind: 'key sound', values: ['thocky', 'creamy', 'clacky', 'off'],
-    desc: 'The keyboard\'s sound (default thocky).' },
+  { name: 'data-cast' },
+  { name: 'data-cast-inline' },
+  { name: 'data-mode', kind: 'terminal mode', values: ['step', 'play'] },
+  { name: 'data-rows', number: true },
+  { name: 'data-type-speed', number: true },
+  { name: 'data-max-step', number: true },
+  { name: 'data-speed', kind: 'playback speed', values: ['1', '2', '4'] },
+  { name: 'data-type-sound', kind: 'key sound', values: ['thocky', 'creamy', 'clacky', 'off'] },
 
   // ── anything ──────────────────────────────────────────────────────────────
-  { name: 'data-scroll-ok', bare: true, desc: 'This element scrolls on purpose: not counted as clipped.' },
-  { name: 'data-no-advance', bare: true, desc: 'A click on this element does not advance the deck.' },
+  { name: 'data-scroll-ok', bare: true },
+  { name: 'data-no-advance', bare: true },
 
   // ── design-system templates, and the slots a slide fills ──────────────────
-  { name: 'data-slot', desc: 'The template slot this element fills (on a slide) or is (in a template).' },
-  { name: 'data-slot-hint', on: 'template', desc: 'What an author is expected to put in this slot, e.g. h1,h2.' },
-  { name: 'data-slot-required', on: 'template', bare: true, desc: 'This slot must be filled.' },
-  { name: 'data-slot-default', on: 'template', bare: true, desc: 'Where content that names no slot lands.' },
-  { name: 'data-ds-bleed', on: 'template', bare: true, desc: 'This element\'s background is the slide\'s art, painted to the screen\'s edges.' },
+  { name: 'data-slot' },
+  { name: 'data-slot-hint' },
+  { name: 'data-slot-required', bare: true },
+  { name: 'data-slot-default', bare: true },
+  { name: 'data-ds-bleed', bare: true },
 
   // ── the page ──────────────────────────────────────────────────────────────
-  { name: 'data-decklight-config', on: 'script', bare: true, desc: 'The deck\'s configuration block, as JSON.' },
-  { name: 'data-theme', on: 'style', desc: 'A theme carried in the page, by name.' },
+  { name: 'data-decklight-config', bare: true },
+  { name: 'data-theme' },
 ];
 
 /**
@@ -155,32 +139,33 @@ export const ENGINE_ATTRIBUTES = [
 
 /**
  * The configuration block's keys (SPEC DECK_ANATOMY): `<script
- * type="application/json" data-decklight-config>`. `values` as above.
+ * type="application/json" data-decklight-config>`, with the JSON type each
+ * takes. `values` as above.
  */
 export const CONFIG_KEYS = [
-  { name: 'decklight', type: 'string', desc: 'The Decklight version this deck was written for.' },
-  { name: 'theme', type: 'string', desc: 'The theme the deck opens on (default aurora).' },
-  { name: 'transition', type: 'string', kind: 'transition', values: ['none', 'fade', 'slide', 'scale', 'flip'], desc: 'The slide transition (default fade).' },
-  { name: 'hash', type: 'boolean', desc: 'Keep the slide and build step in the URL (default true).' },
-  { name: 'controls', type: 'boolean', desc: 'Show the previous and next chevrons (default true).' },
-  { name: 'slideNumber', type: ['boolean', 'string'], kind: 'slide number style', values: ['n', 'n/N'], desc: 'Show the slide number: false, "n" or "n/N" (default false).' },
-  { name: 'width', type: 'number', desc: 'The design width in px (default 1280).' },
-  { name: 'height', type: 'number', desc: 'The design height in px (default 720).' },
-  { name: 'pinTitles', type: ['boolean', 'number'], desc: 'Pin slide titles at one height: true, false, or a Y in px (default true).' },
-  { name: 'themes', type: 'array', desc: 'The themes the picker offers, by name (default: every shipped theme).' },
-  { name: 'markedThemes', type: 'array', desc: 'Marketplace themes the deck uses, as name@marketplace.' },
-  { name: 'themeSources', type: 'object', desc: 'Where each marketplace the deck references comes from.' },
-  { name: 'brandThemesOnly', type: 'boolean', desc: 'Hold a design-system deck to its brand\'s themes (default true).' },
-  { name: 'designSystems', type: 'array', desc: 'The design systems the deck is built on, as name@marketplace.' },
-  { name: 'designSystemVersions', type: 'object', desc: 'The version of each design system the deck was written for.' },
-  { name: 'fonts', type: 'array', desc: 'Marketplace fonts the deck uses, as name@marketplace.' },
-  { name: 'font', type: 'string', desc: 'The font the deck is set in.' },
-  { name: 'concepts', type: 'object', desc: 'Diagram concepts pinned to a fill slot (1 to 6) or a colour.' },
-  { name: 'logo', type: 'object', desc: 'The brand mark: { onLight, onDark, src, height, position }.' },
-  { name: 'playlist', type: 'array', desc: 'Decks that play one after another, as file paths.' },
-  { name: 'narration', type: 'object', desc: 'The deck\'s voice: recorded tracks (files), the live bridge and its pauses.' },
-  { name: 'bleed', type: 'boolean', desc: 'Paint a slide\'s background art to the screen\'s edges (default true).' },
-  { name: 'edit', type: 'object', desc: 'Write mode: { url } of the edit server to use.' },
+  { name: 'decklight', type: 'string' },
+  { name: 'theme', type: 'string' },
+  { name: 'transition', type: 'string', kind: 'transition', values: ['none', 'fade', 'slide', 'scale', 'flip'] },
+  { name: 'hash', type: 'boolean' },
+  { name: 'controls', type: 'boolean' },
+  { name: 'slideNumber', type: ['boolean', 'string'], kind: 'slide number style', values: ['n', 'n/N'] },
+  { name: 'width', type: 'number' },
+  { name: 'height', type: 'number' },
+  { name: 'pinTitles', type: ['boolean', 'number'] },
+  { name: 'themes', type: 'array' },
+  { name: 'markedThemes', type: 'array' },
+  { name: 'themeSources', type: 'object' },
+  { name: 'brandThemesOnly', type: 'boolean' },
+  { name: 'designSystems', type: 'array' },
+  { name: 'designSystemVersions', type: 'object' },
+  { name: 'fonts', type: 'array' },
+  { name: 'font', type: 'string' },
+  { name: 'concepts', type: 'object' },
+  { name: 'logo', type: 'object' },
+  { name: 'playlist', type: 'array' },
+  { name: 'narration', type: 'object' },
+  { name: 'bleed', type: 'boolean' },
+  { name: 'edit', type: 'object' },
 ];
 
 // ── lookups ──────────────────────────────────────────────────────────────────

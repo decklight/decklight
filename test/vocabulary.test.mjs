@@ -73,14 +73,15 @@ test('the table is well formed: unique, lower case, every enumeration named and 
   assert.equal(new Set(ALL).size, ALL.length, 'no name twice, and none both authored and the engine\'s');
   for (const a of ATTRIBUTES) {
     assert.match(a.name, /^data-[a-z][a-z0-9-]*$/);
-    assert.ok(a.desc && a.desc.length < 140, `${a.name}: a one-line description`);
+    assert.deepEqual(Object.keys(a).filter((k) => !['name', 'kind', 'values', 'bare', 'number', 'open'].includes(k)), [],
+      `${a.name}: only what the rules read (it ships in the runtime)`);
     if (a.values) {
       assert.ok(a.values.length && a.kind, `${a.name}: an enumeration has values and a kind`);
       assert.ok(!a.values.includes(''), `${a.name}: bare is said with bare: true`);
     }
   }
   assert.equal(new Set(CONFIG_KEYS.map((k) => k.name)).size, CONFIG_KEYS.length);
-  for (const k of CONFIG_KEYS) assert.ok(k.desc && k.type, `${k.name}: a type and a description`);
+  for (const k of CONFIG_KEYS) assert.ok(k.type, `${k.name}: a type`);
 });
 
 test('the enumerations are the runtime\'s own lists', () => {
