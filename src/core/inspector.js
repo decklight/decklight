@@ -410,6 +410,8 @@ export function createInspector({
 
   function unhover() { if (!picking) spot.hide(); }
 
+  /** Several selected (editbar.js): all of them, the primary first; null for one or none. */
+  const manyNow = () => { const all = editbar()?.selectedAll?.() ?? []; return target && all.length > 1 ? all : null; };
   function header(card) {
     const head = document.createElement('div');
     head.className = 'narr-head ins-head';
@@ -420,12 +422,12 @@ export function createInspector({
     // the number quiet, the slide's name bright, the name the one that gives way to an ellipsis
     title.append(
       Object.assign(document.createElement('span'), { className: 'ins-root', textContent: `slide ${n} / ${inst().state.totalSlides} · ` }),
-      Object.assign(document.createElement('span'), { className: 'ins-name', textContent: sec ? slideTitle(sec, n - 1, '') : '' }),
+      Object.assign(document.createElement('span'), { className: 'ins-name', textContent: manyNow() ? `${manyNow().length} selected` : sec ? slideTitle(sec, n - 1, '') : '' }),
     );
     // with something selected, the path down to it on a line of its own,
     // where a deep one wraps instead of squeezing the node inspected
     let path = null;
-    if (target) {
+    if (target && !manyNow()) {
       path = document.createElement('div');
       path.className = 'ins-path';
       crumbs().forEach((node, i) => {
@@ -495,7 +497,7 @@ export function createInspector({
     // only on the right-click menu (ROADMAP section 3); the editor's own
     // header has an Inspector tab that comes back.
     const em = editmode();
-    if (target && target.index != null && em?.available?.() && em?.editContent) {
+    if (target && target.index != null && em?.available?.() && em?.editContent && !manyNow()) {
       const h = document.createElement('button');
       h.type = 'button';
       h.className = 'ins-tab';
@@ -532,7 +534,10 @@ export function createInspector({
   const INFO = { id: 'info', label: 'Info', enabled: () => true, showsWithoutSelection: true };
   const tabs = [INFO];
   const enabledOf = (t, ctx) => { const v = t.enabled ? t.enabled(ctx) : true; return v === true ? true : (v || 'not here'); };
-  const shownTabs = (ctx) => tabs.filter((t) => (target ? t.showsWithSelection !== false : t.showsWithoutSelection) && (!t.shows || t.shows(ctx)));
+  // several selected: only what applies to all of them, their facts and their colours and type
+  const SEVERAL_TABS = new Set(['info', 'colors', 'type']);
+  const shownTabs = (ctx) => tabs.filter((t) => (target ? t.showsWithSelection !== false : t.showsWithoutSelection) && (!t.shows || t.shows(ctx))
+    && (!manyNow() || SEVERAL_TABS.has(t.id)));
   const contextOf = (n) => ({
     target, focus, slide: n, sec: sectionAt(n), instance: inst(), editmode: editmode(), toast, root,
     repaint: () => render(),
@@ -608,7 +613,13 @@ export function createInspector({
         systems: [...pageDesignSystems().values()],
         // a deck held to its brand (SPEC BRAND_PALETTE): no Custom, and the swatches name their roles
         brand: (() => { const b = brand(); return b ? { locked: b.locked, theme: b.theme, roles: brandRoles([...pageDesignSystems().values()], b.theme) } : null; })(),
-        save: (edits) => editmode().saveStyles({ slide, index, edits }),
+        // several selected: what is picked for the element itself goes on every one of them, one write (several.js)
+        save: (edits) => {
+          const many = manyNow();
+          const own = edits.filter((ed) => !ed.path?.length);
+          if (many && own.length === edits.length && editmode().several?.()) return editmode().several().style(many, own.map((ed) => ({ prop: ed.prop, value: ed.value })));
+          return editmode().saveStyles({ slide, index, edits });
+        },
         onError: (m) => toast(`not saved: ${m}`, 6000),
         onDetach: (c) => editmode().detachConcept({ slide, index, path: c.path, tag: c.tag, el: c.el }),
         // the Concept row: the deck's concepts as chips, set in place (SVG_DIAGRAMS)

@@ -40,11 +40,11 @@ import {
   setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, moveSlideElement,
-  duplicateSlideElement } from './edit.mjs';
+  duplicateSlideElement, removeSlideElements, duplicateSlideElements, moveSlideElements } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
 import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
 import { findInDeck, replaceInDeck } from './find-replace.mjs';
-import { setElementGeometry, setDiagramCanvas, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
+import { setElementGeometry, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
@@ -324,6 +324,31 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     }
   }
 
+  /**
+   * A change to several selected elements of one slide (PRESENTING_EDITING,
+   * selecting several): `write` is the batch's pure transform, run through
+   * ONE applyEdit, so one undo takes all of it back. A stale page is a 409
+   * and a refused move says why. Asked for in place, the write is quiet here
+   * and every other page is told (`event`). `answer` adds what the page needs
+   * to show it (where the copies or the moved ones are).
+   */
+  function batchRoute(json, slide, said, write, items, { inPlace = false, from = null, event = 'content', answer = () => ({}) } = {}) {
+    if (!Number.isInteger(slide) || slide < 1 || !Array.isArray(items)) return json(400, { ok: false, error: 'bad payload' });
+    let changed;
+    try {
+      changed = applyEdit(write);
+    } catch (e) {
+      if (e.code === 'STALE' || e.code === 'REFUSED') return json(409, { ok: false, error: oneline(e), ...(e.code === 'STALE' ? { stale: true } : {}) });
+      return json(400, { ok: false, error: oneline(e) });
+    }
+    if (changed) console.log(`  ${items.length} elements ${said}: slide ${slide} #${items.map((it) => it.index).join(', #')}`);
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast(event, { slide, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, { ok: true, changed, ...(changed ? answer() : {}), inPlace: !!changed && inPlace === true, ...history.counts() });
+  }
+
   // The three that WRITE an element. Same door as layout and notes: a pure
   // (html, slide, index, …) → html transform, through applyEdit, onto the ONE
   // undo/redo stack. A content or label save asked `quiet` is written in
@@ -334,7 +359,9 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   // inside a column, which the page takes off itself), the write is in place:
   // no reload there, and every other page is sent `content`.
   function elementRemoveRoute({ body, json }) {
-    const { slide, index, path = null, tag = null, quiet: inPlace = false, from = null } = JSON.parse(body);
+    const { slide, index, path = null, tag = null, quiet: inPlace = false, from = null, items = null } = JSON.parse(body);
+    // several selected (`items: [{ index, tag? }]`): all of them, one edit, one undo
+    if (items !== null) return batchRoute(json, slide, 'removed', (html) => removeSlideElements(html, slide, items), items, { inPlace, from });
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
     let changed;
     try {
@@ -376,7 +403,13 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * slot. Asked for in place, the write is quiet and every other page is told.
    */
   function elementMoveRoute({ body, json }) {
-    const { slide, index, to, tag = null, path = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    const { slide, index, to, tag = null, path = null, quiet: inPlace = false, from = null, items = null, dir = null } = JSON.parse(body || '{}');
+    // several selected: one place up (`dir` -1) or down (1) together, one edit; the answer says where each is now
+    if (items !== null) {
+      let moved = null;
+      return batchRoute(json, slide, `moved ${dir === -1 ? 'up' : 'down'}`, (html) => { moved = moveSlideElements(html, slide, items, dir); return moved.html; }, items,
+        { inPlace, from, answer: () => ({ indices: moved.indices }) });
+    }
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !Number.isInteger(to) || to < 0
         || (path !== null && !Array.isArray(path)) || (tag !== null && typeof tag !== 'string')) {
       return json(400, { ok: false, error: 'bad payload' });
@@ -447,7 +480,13 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * Asked for in place, the write is quiet and every other page is told.
    */
   function elementDuplicateRoute({ body, json }) {
-    const { slide, index, tag = null, path = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    const { slide, index, tag = null, path = null, quiet: inPlace = false, from = null, items = null } = JSON.parse(body || '{}');
+    // several selected: each copied right after itself, one edit; the answer is each copy's markup and where it is
+    if (items !== null) {
+      let done = null;
+      return batchRoute(json, slide, 'duplicated', (html) => { done = duplicateSlideElements(html, slide, items); return done.html; }, items,
+        { inPlace, from, answer: () => ({ copies: done.copies.map((c) => ({ index: c.index, html: c.markup })) }) });
+    }
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0
         || (path !== null && !Array.isArray(path)) || (tag !== null && typeof tag !== 'string')) {
       return json(400, { ok: false, error: 'bad payload' });
@@ -544,7 +583,15 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * page as the file has it, since a drawn stroke is the engine's to rebuild.
    */
   function elementStyleRoute({ body, json }) {
-    const { slide, index, edits = [], concept = null, quiet: inPlace, from, echo = false } = JSON.parse(body);
+    const { slide, index, edits = [], concept = null, quiet: inPlace, from, echo = false, items = null } = JSON.parse(body);
+    // several selected (`items: [{ index, edits }]`, Paste style or a pick on all of them): one edit, one undo
+    if (items !== null) {
+      if (!Array.isArray(items) || !items.length || items.length > 64 || items.some((it) => !Number.isInteger(it?.index) || it.index < 0 || !Array.isArray(it.edits) || !it.edits.length)) {
+        throw new Error('bad items');
+      }
+      return batchRoute(json, slide, 'restyled', (html) => items.reduce((out, it) => setElementStyles(out, slide, it.index, it.edits), html), items,
+        { inPlace, from, event: 'styles' });
+    }
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
     if (concept !== null && (typeof concept !== 'object' || !(concept.value === null || typeof concept.value === 'string'))) throw new Error('bad payload');
     if (!concept && (!Array.isArray(edits) || !edits.length)) throw new Error('bad edits');
@@ -587,26 +634,6 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     try { changed = applyEdit((html) => (lines ? setElementLines(html, slide, index, { path, tag: tag ?? 'text', was, lines }) : setElementText(html, slide, index, { path, tag, was, text }))); }
     catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
     if (changed) console.log(`  diagram label saved: slide ${slide} #${index} → ${JSON.stringify(lines ?? text).slice(0, 60)}`);
-    if (changed && inPlace === true) {
-      quiet(readDeck());
-      broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
-    }
-    return json(200, { ok: true, changed, ...history.counts() });
-  }
-
-  /**
-   * `POST /deck/edit/element/canvas` — `{ slide, index, path, tag, viewBox,
-   * width?, height?, quiet?, from? }`: a diagram's canvas given more room or
-   * less, or its size on the slide with it (SVG_DIAGRAMS, setDiagramCanvas).
-   * One undo entry; asked in place, quiet here and every other page told.
-   */
-  function elementCanvasRoute({ body, json }) {
-    const { slide, index, path = [], tag = 'svg', viewBox, width = null, height = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
-    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !Array.isArray(path)) return json(400, { ok: false, error: 'bad payload' });
-    let changed;
-    try { changed = applyEdit((html) => setDiagramCanvas(html, slide, index, { path, tag, viewBox, width, height })); }
-    catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
-    if (changed) console.log(`  diagram canvas: slide ${slide} #${index} → ${['x', 'y', 'w', 'h'].map((k) => viewBox?.[k]).join(' ')}${width ? ` · ${width} wide` : ''}`);
     if (changed && inPlace === true) {
       quiet(readDeck());
       broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
@@ -1295,7 +1322,6 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/concepts', elementConceptsRoute);
   routes.set('POST /deck/edit/element/text', elementTextRoute);
   routes.set('POST /deck/edit/element/geometry', elementGeometryRoute);
-  routes.set('POST /deck/edit/element/canvas', elementCanvasRoute);
   routes.set('POST /deck/edit/element/shape', elementShapeRoute);
   routes.set('POST /deck/edit/element/connector', elementConnectorRoute);
   routes.set('POST /deck/edit/concepts', conceptsRoute);

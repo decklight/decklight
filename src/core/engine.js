@@ -30,13 +30,13 @@ import { createAddContent } from './add-content.js';
 import { createClipboard } from './clipboard.js';
 import { createPictures } from './pictures.js';
 import { createShapes } from './shapes.js';
-import { createCanvas } from './canvas.js';
 import { overflowingLabels } from './diagram-labels.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
 import { createSlideSettings, applySlideAttrs } from './slide-settings.js';
 import { createBuildsPanel } from './builds-panel.js';
 import { createBuildEdit } from './build-edit.js';
+import { createSeveral } from './several.js';
 import { createDeckSettings } from './deck-settings.js';
 import { createFindReplace } from './find-replace.js';
 import { createOptionsTab } from './options-tab.js';
@@ -3727,6 +3727,8 @@ export function init(userConfig = {}) {
   editmode.setElementMove(createElementMove({
     root, instance, editmode, toast, debugLog, select: (el) => editbar.selectNode(el, { exact: true }),
   }));
+  // Several selected (several.js): ⇧-click adds to the selection, and what changes one changes all, one undo
+  editmode.setSeveral(createSeveral({ instance, editmode, editbar, toast, styleClip: () => styleClip }), () => editbar.selectedAll());
   // Open in your editor (open-in-editor.js): a slide or an element at its
   // line in the deck file, in the author's code editor, asked once which
   const openInEditor = createOpenInEditor({ editmode, choiceCard, toast, actionToast, debugLog });
@@ -3773,10 +3775,6 @@ export function init(userConfig = {}) {
   const shapes = createShapes({ root, instance, editmode, editbar, authoring, toast, debugLog });
   editmode.setShapes(shapes);
   instance._shapes = shapes;
-  // a diagram's canvas: more room or less from its edges, fitted to the drawing (canvas.js)
-  const canvas = createCanvas({ root, instance, editmode, editbar, toast, debugLog });
-  editmode.setCanvas?.(canvas);
-  instance._canvas = canvas;
   inspector = createInspector({
     root, overlays, toast, copyText,
     pictures: () => pictures,
@@ -3865,6 +3863,7 @@ export function init(userConfig = {}) {
   // the element menu's Inspect, Colors… and Type… (PRESENTING): select what
   // the menu was opened on, then show it in the inspector on that tab
   instance._selection = () => editbar.selected();   // what is selected, for the render harnesses
+  instance._selectionAll = () => editbar.selectedAll();   // everything selected, the primary first
   instance._selectNode = (node, opts) => editbar.selectNode(node, opts);   // and a node inside a block selected, as the breadcrumb does
   editmode.setInspect((t, tab, side = null) => {
     if (t?.node) editbar.selectNode(t.node, { exact: true });

@@ -152,24 +152,14 @@ try {
   {
     const posts = [];
     const realFetch = window.fetch;
-    // The answers are plain objects that hand their bodies back at once, and
-    // a post is known by what it carries, never read back: a Blob read is
-    // real work that the harness's virtual clock (--virtual-time-budget) does
-    // not wait for, so a wait below could time out on virtual time alone with
-    // the clips still being read (posts stuck at 1, Date.now() exactly 5000
-    // on, 252 polls: recWarmsAheadOnce's flake). Nothing here waits on one now.
-    const answer = (status, body = {}) => ({ ok: status < 400, status, headers: { get: () => null }, body: null, ...body });
     window.fetch = async (url, init = {}) => {
       const u = String(url);
-      if (/\.mp4$/.test(u)) return answer(/voices\/withclips\//.test(u) ? 200 : 404);
-      if (u.endsWith('/ping')) return answer(200, { json: async () => ({ ok: true, engines: { viseme: false, video: ['wav2lip'] }, portraits: ['default'] }) });
-      if (/\.wav$/.test(u)) {
-        const audio = Object.assign(new Blob([`RIFF-${u}`]), { said: `RIFF-${u}` });
-        return answer(200, { blob: async () => audio });
-      }
+      if (/\.mp4$/.test(u)) return new Response('mp4', { status: /voices\/withclips\//.test(u) ? 200 : 404 });
+      if (u.endsWith('/ping')) return new Response(JSON.stringify({ ok: true, engines: { viseme: false, video: ['wav2lip'] }, portraits: ['default'] }), { status: 200 });
+      if (/\.wav$/.test(u)) return new Response(new Blob([`RIFF-${u}`]), { status: 200 });
       if (u.includes('/video?')) {
-        posts.push(init.body?.said ?? '(not the audio fetched)');
-        return answer(200, { blob: async () => new Blob(['mp4'], { type: 'video/mp4' }) });
+        posts.push(await init.body.text());
+        return new Response(new Blob(['mp4'], { type: 'video/mp4' }), { status: 200 });
       }
       return realFetch(url, init);
     };

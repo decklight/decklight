@@ -20,7 +20,7 @@ import http from 'node:http';
 import {
   upsertNarrationTrack, narrationLiteral, initArgument, configuredTrackDirs,
   setSlideLayout, setSlideTiming, setSlideHidden, setSlideFace, createHistory, undoMeta, STRETCH_MS, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS, setElementBuildAttrs, ANIMATIONS, setSlideBuildOrder,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS, setElementBuildAttrs, ANIMATIONS, setSlideBuildOrder, removeSlideElements, duplicateSlideElements, moveSlideElements,
 } from '../cli/edit.mjs';
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
@@ -3545,4 +3545,37 @@ test('the inspector hears where a slide and its blocks live, and what check says
     assert.equal(r.status, 400, `slide=${bad}`);
     assert.match((await r.json()).error, /the deck has 2/);
   }
+});
+
+// ── several elements at once (selecting several) ───────────────────────────
+
+const SEVERAL = '<div class="decklight">\n<section>\n  <h2>T</h2>\n  <p>a</p>\n  <p>b</p>\n  <p>c</p>\n  <aside class="notes">n</aside>\n</section>\n</div>';
+
+test('removeSlideElements: several taken off in one edit, each with its line, whatever order they are named in', () => {
+  assert.equal(removeSlideElements(SEVERAL, 1, [{ index: 3, tag: 'p' }, { index: 1 }]),
+    '<div class="decklight">\n<section>\n  <h2>T</h2>\n  <p>b</p>\n  <aside class="notes">n</aside>\n</section>\n</div>');
+  assert.throws(() => removeSlideElements(SEVERAL, 1, [{ index: 1, tag: 'h2' }]), (e) => e.code === 'STALE');
+  assert.throws(() => removeSlideElements(SEVERAL, 1, [{ index: 9 }]), (e) => e.code === 'STALE');
+  assert.throws(() => removeSlideElements(SEVERAL, 1, [{ index: 1 }, { index: 1 }]), /named twice/);
+  assert.throws(() => removeSlideElements(SEVERAL, 1, []), /one to 64/);
+});
+
+test('duplicateSlideElements: each copied right after itself, and the copies said where they are now', () => {
+  const { html, copies } = duplicateSlideElements(SEVERAL, 1, [{ index: 3 }, { index: 1 }]);
+  assert.match(html, /<h2>T<\/h2>\n {2}<p>a<\/p>\n {2}<p>a<\/p>\n {2}<p>b<\/p>\n {2}<p>c<\/p>\n {2}<p>c<\/p>\n {2}<aside/);
+  assert.deepEqual(copies, [{ index: 2, markup: '<p>a</p>' }, { index: 5, markup: '<p>c</p>' }]);
+});
+
+test('moveSlideElements: a block steps past its neighbour together, a gap closes, and the end refuses', () => {
+  const up = moveSlideElements(SEVERAL, 1, [{ index: 2 }, { index: 3 }], -1);
+  assert.match(up.html, /<h2>T<\/h2>\n {2}<p>b<\/p>\n {2}<p>c<\/p>\n {2}<p>a<\/p>\n {2}<aside/);
+  assert.deepEqual(up.indices, [1, 2]);
+  // a and c, with b between: down, each steps past what follows it
+  const twoDeck = SEVERAL.replace('<p>c</p>\n', '<p>c</p>\n  <p>d</p>\n');
+  const down = moveSlideElements(twoDeck, 1, [{ index: 1 }, { index: 3 }], 1);
+  assert.match(down.html, /<h2>T<\/h2>\n {2}<p>b<\/p>\n {2}<p>a<\/p>\n {2}<p>d<\/p>\n {2}<p>c<\/p>/);
+  assert.deepEqual(down.indices, [2, 4]);
+  assert.throws(() => moveSlideElements(SEVERAL, 1, [{ index: 0 }, { index: 2 }], -1), (e) => e.code === 'REFUSED' && /already first/.test(e.message));
+  assert.throws(() => moveSlideElements(SEVERAL, 1, [{ index: 3 }], 1), (e) => e.code === 'REFUSED');
+  assert.throws(() => moveSlideElements(SEVERAL, 1, [{ index: 4 }], -1), (e) => e.code === 'REFUSED' && /notes and sources/.test(e.message));
 });
