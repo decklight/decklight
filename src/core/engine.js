@@ -183,7 +183,8 @@ function leadingHeading(section) {
 const autoSubtitles = new WeakSet();
 function detectSubtitle(section, heading) {
   for (const p of section.querySelectorAll(':scope > p.subtitle')) {
-    if (autoSubtitles.has(p) && p !== heading?.nextElementSibling) { p.classList.remove('subtitle'); autoSubtitles.delete(p); }
+    // an auto subtitle no longer after the title, or on a slide that says none, is a plain paragraph again
+    if (autoSubtitles.has(p) && (p !== heading?.nextElementSibling || section.getAttribute('data-subtitle') === 'none')) { p.classList.remove('subtitle'); autoSubtitles.delete(p); }
   }
   if (!heading || section.getAttribute('data-subtitle') === 'none') return null;
   const next = heading.nextElementSibling;
@@ -1781,7 +1782,10 @@ export function init(userConfig = {}) {
     for (const ed of e.detail?.edits ?? []) {
       const sec = instance._sections?.[ed?.slide - 1];
       applySlideAttrs(sec, ed?.set);
-      if (sec && Object.keys(ed?.set ?? {}).some((k) => k.startsWith('data-background-'))) refreshSlide(sec, { background: true, scan: false, relayout: false });
+      const keys = Object.keys(ed?.set ?? {});
+      const background = keys.some((k) => k.startsWith('data-background-'));
+      const relayout = keys.includes('data-pin') || keys.includes('data-subtitle');
+      if (sec && (background || relayout)) refreshSlide(sec, { background, scan: false, relayout });
     }
     inspector?.refresh?.();
   });

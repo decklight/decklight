@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { setSlideAttrs, SLIDE_ATTR_NAMES } from '../cli/edit.mjs';
 import { ATTRIBUTES } from '../tools/vocabulary.mjs';
 import { ATTRIBUTE_DOCS } from '../cli/vocabulary-docs.mjs';
-import { SLIDE_FIELDS, BACKGROUND_FIELDS, TRANSITIONS, POSITIONS, parseClock, clockText, writeFor, fieldValue, dimValue } from '../src/core/slide-settings.js';
+import { SLIDE_FIELDS, BACKGROUND_FIELDS, TITLE_FIELDS, NARRATION_FIELDS, TRANSITIONS, POSITIONS, parseClock, clockText, writeFor, fieldValue, dimValue, morphEdits } from '../src/core/slide-settings.js';
 
 const DECK = `<!doctype html>
 <html><body>
@@ -108,7 +108,7 @@ test('every name it writes is a slide attribute the vocabulary lists', () => {
 // ── the Slide tab's side: src/ cannot import cli/, so this holds them together
 
 test('every field of the Slide tab writes an attribute the server writes, or goes through its own route', () => {
-  for (const f of [...SLIDE_FIELDS, ...BACKGROUND_FIELDS]) {
+  for (const f of [...SLIDE_FIELDS, ...BACKGROUND_FIELDS, ...TITLE_FIELDS, ...NARRATION_FIELDS]) {
     if (f.route === 'hidden') { assert.equal(f.attr, 'data-hidden'); continue; }
     assert.ok(SLIDE_ATTR_NAMES.includes(f.attr), `${f.attr} is not in the server's allow-list`);
   }
@@ -191,4 +191,71 @@ test('a background video is a path beside the deck, typed; the server refuses an
     assert.match(writeFor(by.video, bad, '').error ?? '', /beside the deck/, bad);
   }
   assert.deepEqual(writeFor(by.video, '', 'media/loop.mp4'), { set: { 'data-background-video': null } });
+});
+
+// ── morph, title and narration ─────────────────────────────────────────────
+
+const morphOf = (marked, n, on, total = 6) => morphEdits((k) => marked.includes(k), n, on, total);
+
+test('morph ticked: this slide and the one before carry it, written once each', () => {
+  assert.deepEqual(morphOf([], 3, true), { edits: [{ slide: 3, set: { 'data-auto-animate': true } }, { slide: 2, set: { 'data-auto-animate': true } }], breaks: [] });
+  assert.deepEqual(morphOf([2], 3, true).edits, [{ slide: 3, set: { 'data-auto-animate': true } }], 'the one that has it already is not written');
+  assert.deepEqual(morphOf([2, 3], 3, true).edits, []);
+  assert.deepEqual(morphOf([], 1, true).edits, [], 'the first slide has nothing before it');
+});
+
+test('morph unticked: the pair parts, and only what nothing else pairs with is taken off', () => {
+  const off = (k) => ({ slide: k, set: { 'data-auto-animate': null } });
+  // 2 ↔ 3 alone: both go
+  assert.deepEqual(morphOf([2, 3], 3, false), { edits: [off(3), off(2)], breaks: [] });
+  // 1 ↔ 2 ↔ 3: slide 2 still morphs from 1, so it keeps it
+  assert.deepEqual(morphOf([1, 2, 3], 3, false), { edits: [off(3)], breaks: [] });
+  // 2 ↔ 3 ↔ 4: slide 4 morphs from 3, so 2 is the one taken off and 4 keeps its morph
+  assert.deepEqual(morphOf([2, 3, 4], 3, false), { edits: [off(2)], breaks: [] });
+  // 1 ↔ 2 ↔ 3 ↔ 4: no way to part 2 and 3 alone; 3 goes, and 4's morph with it, said
+  assert.deepEqual(morphOf([1, 2, 3, 4], 3, false), { edits: [off(3)], breaks: [4] });
+  // not morphing: nothing to take off
+  assert.deepEqual(morphOf([3], 3, false).edits, []);
+  assert.deepEqual(morphOf([3, 4], 3, false).edits, [], 'morphing into the next slide is not morphing from the previous one');
+  // the last slide has no next to keep
+  assert.deepEqual(morphOf([5, 6], 6, false).edits, [off(6), off(5)]);
+});
+
+test('pin title: the deck\'s, off, pinned at the default height or at one typed', () => {
+  const pin = TITLE_FIELDS.find((f) => f.key === 'pin');
+  const sec = (v) => ({ getAttribute: (n) => (n === 'data-pin' ? v : null) });
+  assert.deepEqual(fieldValue(sec(null), pin), { mode: '', y: '' });
+  assert.deepEqual(fieldValue(sec('none'), pin), { mode: 'none', y: '' });
+  assert.deepEqual(fieldValue(sec(''), pin), { mode: 'pin', y: '' });
+  assert.deepEqual(fieldValue(sec('120'), pin), { mode: 'pin', y: '120' });
+  const was = { mode: '', y: '' };
+  assert.deepEqual(writeFor(pin, { mode: 'none', y: '' }, was), { set: { 'data-pin': 'none' } });
+  assert.deepEqual(writeFor(pin, { mode: 'pin', y: '' }, was), { set: { 'data-pin': true } }, 'pinned with no height is the attribute bare');
+  assert.deepEqual(writeFor(pin, { mode: 'pin', y: '96' }, was), { set: { 'data-pin': '96' } });
+  assert.deepEqual(writeFor(pin, { mode: '', y: '' }, { mode: 'pin', y: '96' }), { set: { 'data-pin': null } });
+  assert.equal(writeFor(pin, { mode: 'pin', y: '96' }, { mode: 'pin', y: '96' }), null);
+  assert.match(writeFor(pin, { mode: 'pin', y: 'high' }, was).error, /design px/);
+  const DECK1 = '<div class="decklight"><section><h2>A</h2></section></div>';
+  for (const v of [{ mode: 'none' }, { mode: 'pin', y: '' }, { mode: 'pin', y: '96.5' }]) assert.doesNotThrow(() => setSlideAttrs(DECK1, 1, writeFor(pin, v, was).set));
+});
+
+test('subtitle auto or none; narration pauses in seconds, empty the deck\'s', () => {
+  const sub = TITLE_FIELDS.find((f) => f.key === 'subtitle');
+  assert.deepEqual(writeFor(sub, 'none', ''), { set: { 'data-subtitle': 'none' } });
+  assert.deepEqual(writeFor(sub, '', 'none'), { set: { 'data-subtitle': null } });
+  const by = Object.fromEntries(NARRATION_FIELDS.map((f) => [f.key, f]));
+  assert.deepEqual(writeFor(by.pause, '1.5', ''), { set: { 'data-narration-pause': '1.5' } });
+  assert.deepEqual(writeFor(by.beat, '0.50', ''), { set: { 'data-narration-beat-pause': '0.5' } }, 'written as the number it is');
+  assert.deepEqual(writeFor(by.sentence, '2 s', ''), { set: { 'data-narration-sentence-pause': '2' } });
+  assert.deepEqual(writeFor(by.pause, '', '1.5'), { set: { 'data-narration-pause': null } });
+  assert.equal(writeFor(by.pause, '', ''), null);
+  assert.equal(writeFor(by.pause, '1.50', '1.5'), null);
+  assert.match(writeFor(by.pause, '61', '').error, /0 to 60/);
+  assert.match(writeFor(by.pause, '-1', '').error, /seconds/);
+  assert.deepEqual(writeFor(by.videohold, '120', ''), { set: { 'data-video-hold': '120' } });
+  const DECK1 = '<div class="decklight"><section><h2>A</h2></section></div>';
+  for (const f of NARRATION_FIELDS) assert.doesNotThrow(() => setSlideAttrs(DECK1, 1, writeFor(f, '0.25', '').set), f.attr);
+  const sec = (v) => ({ getAttribute: () => v });
+  assert.equal(fieldValue(sec('0.500'), by.beat), '0.5');
+  assert.equal(fieldValue(sec(null), by.beat), '');
 });

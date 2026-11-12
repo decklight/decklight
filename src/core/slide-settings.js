@@ -36,6 +36,8 @@ export const SLIDE_FIELDS = [
     title: 'a chapter of this name starts on this slide; empty, none does', reload: 'a chapter is read when the deck loads' },
   { key: 'transition', attr: 'data-transition', label: 'Transition', kind: 'choice',
     choices: [['', 'the deck’s'], ...TRANSITIONS.map((t) => [t, t])], title: 'how this slide arrives' },
+  { key: 'morph', attr: 'data-auto-animate', label: 'Morph from previous', kind: 'morph',
+    title: 'elements that share a data-id move from the slide before to this one, the rest fade' },
   { key: 'hidden', attr: 'data-hidden', label: 'Hidden when presenting', kind: 'toggle', route: 'hidden',
     title: 'the audience does not see it; it keeps its number' },
   { key: 'timing', attr: 'data-timing', label: 'Planned time', kind: 'clock', placeholder: 'm:ss',
@@ -71,6 +73,14 @@ export function fieldValue(sec, field) {
   if (field.kind === 'clock') return raw && Number(raw) > 0 ? clockText(raw) : '';
   if (field.kind === 'choice') return raw !== null && field.choices.some(([v]) => v === raw) ? raw : '';
   if (field.kind === 'range') { const d = Number(raw); return Number.isFinite(d) ? Math.round(Math.min(Math.max(d, 0), 1) * 100) : 0; }
+  if (field.kind === 'seconds') { const d = Number(raw); return raw !== null && raw.trim() !== '' && Number.isFinite(d) && d >= 0 ? secondsText(d) : ''; }
+  // a pin: { mode: '' the deck's | 'none' off | 'pin' pinned, y: its height or '' }
+  if (field.kind === 'pin') {
+    if (raw === null) return { mode: '', y: '' };
+    if (raw === 'none') return { mode: 'none', y: '' };
+    const y = Number(raw);
+    return { mode: 'pin', y: raw.trim() !== '' && Number.isFinite(y) && y >= 0 ? secondsText(y) : '' };
+  }
   return raw ?? '';
 }
 
@@ -91,12 +101,71 @@ export function writeFor(field, input, current) {
     const v = dimValue(input);
     return v === dimValue(current) ? null : { set: { [field.attr]: v } };
   }
+  if (field.kind === 'seconds') {
+    const t = String(input ?? '').trim().replace(/\s*s$/, '');
+    if (t === '') return current === '' ? null : { set: { [field.attr]: null } };
+    const n = Number(t);
+    if (!/^\d{1,4}(?:\.\d+)?$/.test(t) || !Number.isFinite(n) || n > field.max) return { error: `${field.label.toLowerCase()} is a number of seconds, 0 to ${field.max}` };
+    const v = secondsText(n);
+    return v === current ? null : { set: { [field.attr]: v } };
+  }
+  if (field.kind === 'pin') {
+    const { mode = '', y = '' } = input ?? {};
+    const cur = current ?? { mode: '', y: '' };
+    const yt = String(y).trim();
+    if (mode === 'pin' && yt !== '' && !(/^\d{1,4}(?:\.\d+)?$/.test(yt) && Number(yt) <= 2000)) return { error: 'a pinned title’s height is a number of design px, 0 to 2000' };
+    const value = mode === '' ? null : mode === 'none' ? 'none' : yt === '' ? true : secondsText(Number(yt));
+    const was = cur.mode === '' ? null : cur.mode === 'none' ? 'none' : cur.y === '' ? true : cur.y;
+    return value === was ? null : { set: { [field.attr]: value } };
+  }
   const v = String(input ?? '').trim();
   if (v === String(current ?? '')) return null;
   if (field.kind === 'path' && v !== '' && !pathOk(v)) return { error: 'a file beside the deck, written as a relative path: media/loop.mp4' };
   if (field.kind === 'choice' && v !== '' && !field.choices.some(([c]) => c === v)) return { error: `not a ${field.label.toLowerCase()}: ${v}` };
   if (field.kind === 'text' && !chapterOk(v)) return { error: 'a chapter name is one line of up to 120 characters' };
   return { set: { [field.attr]: v === '' ? null : v } };
+}
+
+/**
+ * The title's fields (DECK_ANATOMY): its pin, the deck's, off, or pinned (a
+ * height is its Y in design px, none the default one); and whether the line
+ * after it is made its subtitle.
+ */
+export const TITLE_FIELDS = [
+  { key: 'pin', attr: 'data-pin', label: 'Pin title', kind: 'pin', title: 'hold the title at the same height as every pinned slide' },
+  { key: 'subtitle', attr: 'data-subtitle', label: 'Subtitle', kind: 'choice', choices: [['', 'auto'], ['none', 'none']],
+    title: 'auto: the paragraph after the title is its subtitle; none: it is not' },
+];
+
+/** Narration's pauses for this slide (NARRATION), in seconds; empty is the deck's. */
+export const NARRATION_FIELDS = [
+  { key: 'pause', attr: 'data-narration-pause', label: 'Pause after the slide', kind: 'seconds', max: 60, title: 'seconds the slide holds after its narration ends' },
+  { key: 'beat', attr: 'data-narration-beat-pause', label: 'Between beats', kind: 'seconds', max: 60, title: 'seconds between one build’s narration and the next' },
+  { key: 'sentence', attr: 'data-narration-sentence-pause', label: 'Between sentences', kind: 'seconds', max: 60, title: 'seconds between two sentences of one beat' },
+  { key: 'videohold', attr: 'data-video-hold', label: 'Hold in a video', kind: 'seconds', max: 600, title: 'seconds this slide holds in a video export' },
+];
+
+/** Seconds as a field shows them and the server takes them: up to three decimals, no trailing zeros. */
+const secondsText = (n) => String(Math.round(n * 1000) / 1000);
+
+/**
+ * Morph from the previous slide (DECK_ANATOMY, auto-animate): two slides side
+ * by side morph when both carry `data-auto-animate`. `has(n)` says whether
+ * slide n carries it. Ticked on slide `n`, it goes on `n` and on `n - 1`.
+ * Unticked, the pair has to part, and the one taken off is the one nothing
+ * else pairs with: `n` (and `n - 1` too, when `n - 2` does not pair with it),
+ * or, when slide `n + 1` morphs from `n` and `n - 1` pairs with nothing
+ * else, `n - 1` alone, so the next slide keeps its morph. Returns the edits
+ * (`[{ slide, set }]`), and `breaks`: a slide whose own morph goes too.
+ */
+export function morphEdits(has, n, on, total) {
+  if (n < 2) return { edits: [], breaks: [] };
+  const h = (k) => k >= 1 && k <= total && !!has(k);
+  if (on) return { edits: [n, n - 1].filter((k) => !h(k)).map((k) => ({ slide: k, set: { 'data-auto-animate': true } })), breaks: [] };
+  if (!(h(n) && h(n - 1))) return { edits: [], breaks: [] };
+  const off = (k) => ({ slide: k, set: { 'data-auto-animate': null } });
+  if (h(n + 1) && !h(n - 2)) return { edits: [off(n - 1)], breaks: [] };
+  return { edits: h(n - 2) ? [off(n)] : [off(n), off(n - 1)], breaks: h(n + 1) ? [n + 1] : [] };
 }
 
 /** The nine places a background can sit; '' is the centre, the default. */
@@ -154,10 +223,18 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
   const sectionAt = (n) => instance()._sections?.[n - 1] ?? null;
   const editing = () => !!(em()?.available?.() && em()?.elementEditOn?.());
   const touchesBackground = (set) => Object.keys(set).some((k) => k.startsWith('data-background-'));
-  /** The slide shown as its attributes now say: its background layer drawn again when that changed. */
+  // the pin and the subtitle are the slide's layout: laid out again for them
+  const touchesLayout = (set) => Object.hasOwn(set, 'data-pin') || Object.hasOwn(set, 'data-subtitle');
+  /**
+   * The slide shown as its attributes now say: its background layer drawn
+   * again when that changed, its title laid out again for a pin or a
+   * subtitle. A transition or a morph is read when the slide is next shown.
+   */
   function show(sec, set) {
     applySlideAttrs(sec, set);
-    if (touchesBackground(set)) instance().refreshSlide?.(sec, { background: true, scan: false, relayout: false });
+    const background = touchesBackground(set);
+    const relayout = touchesLayout(set);
+    if (background || relayout) instance().refreshSlide?.(sec, { background, scan: false, relayout });
   }
 
   /**
@@ -176,6 +253,26 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
       return false;
     }
   }
+
+  /** Morph from the previous slide, ticked or not: this slide's and its neighbour's attribute in one write, one undo. */
+  async function setMorph(slide, on) {
+    const total = instance()._sections?.length ?? 0;
+    const { edits, breaks } = morphEdits((k) => sectionAt(k)?.hasAttribute('data-auto-animate'), slide, on, total);
+    if (!edits.length) return true;
+    const before = edits.map((e) => ({ slide: e.slide, set: beforeOf(sectionAt(e.slide), e.set) }));
+    for (const e of edits) show(sectionAt(e.slide), e.set);
+    try {
+      await commit.post('/deck/edit/slide/attr', { edits });
+      if (breaks.length) toast(`slide ${breaks[0]} no longer morphs from slide ${slide}: they shared its morph`, 4200);
+      return true;
+    } catch (e) {
+      for (const b of before) show(sectionAt(b.slide), b.set);
+      toast(commit.notSaved(`slide ${slide}’s morph`, e), 6000);
+      return false;
+    }
+  }
+  /** Is this slide morphing from the one before: both carry the attribute. */
+  const morphing = (slide) => slide > 1 && !!sectionAt(slide)?.hasAttribute('data-auto-animate') && !!sectionAt(slide - 1)?.hasAttribute('data-auto-animate');
   const beforeOf = (sec, set) => Object.fromEntries(Object.keys(set).map((k) => [k, sec.getAttribute(k)]));
 
   /** Write one field's new value for slide `slide`, the slide shown at once; false when it did not land. */
@@ -209,6 +306,44 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
   function control(slide, field, after) {
     const sec = () => sectionAt(slide);
     const keys = (el) => el.addEventListener('keydown', (e) => e.stopPropagation());
+    if (field.kind === 'morph') {
+      // the first slide has nothing before it to morph from: said, not offered
+      const box = Object.assign(document.createElement('input'), { type: 'checkbox', className: 'ins-check' });
+      box.setAttribute('aria-label', field.label);
+      const why = Object.assign(document.createElement('span'), { className: 'ins-extra', textContent: 'the first slide has nothing before it' });
+      const wrap = Object.assign(document.createElement('span'), { className: 'ins-line' });
+      wrap.append(box, why);
+      keys(box);
+      box.addEventListener('change', async () => { box.disabled = true; await setMorph(slide, box.checked); box.disabled = slide < 2; after(); });
+      return { el: wrap, fill: () => { box.checked = morphing(slide); box.disabled = slide < 2; why.hidden = slide >= 2; } };
+    }
+    if (field.kind === 'pin') {
+      // the deck's, off, or pinned: at the default height, or at one typed
+      const wrap = Object.assign(document.createElement('span'), { className: 'ins-line' });
+      const pick = Object.assign(document.createElement('select'), { className: 'ins-field ins-select' });
+      pick.setAttribute('aria-label', field.label);
+      for (const [v, label] of [['', 'the deck’s'], ['none', 'off'], ['pin', 'pinned']]) pick.append(Object.assign(document.createElement('option'), { value: v, textContent: label }));
+      const y = Object.assign(document.createElement('input'), { type: 'text', className: 'ins-field ins-short', placeholder: 'height' });
+      y.setAttribute('aria-label', 'pinned title height, in design px');
+      y.inputMode = 'decimal';
+      wrap.append(pick, y);
+      keys(pick);
+      const go = async () => {
+        pick.disabled = y.disabled = true;
+        await save(slide, field, { mode: pick.value, y: pick.value === 'pin' ? y.value : '' });
+        pick.disabled = y.disabled = false;
+        after();
+      };
+      pick.addEventListener('change', go);
+      y.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); go(); }
+        else if (e.key === 'Escape') { e.preventDefault(); fillPin(); y.blur(); }
+      });
+      y.addEventListener('blur', () => { if (y.value.trim() !== fieldValue(sec(), field).y) go(); });
+      const fillPin = () => { const v = fieldValue(sec(), field); pick.value = v.mode; y.value = v.y; y.hidden = v.mode !== 'pin'; };
+      return { el: wrap, fill: fillPin };
+    }
     if (field.kind === 'toggle') {
       const box = Object.assign(document.createElement('input'), { type: 'checkbox', className: 'ins-check' });
       box.setAttribute('aria-label', field.label);
@@ -265,6 +400,7 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
     const input = Object.assign(document.createElement('input'), { type: 'text', className: 'ins-field', placeholder: field.placeholder ?? '' });
     input.setAttribute('aria-label', field.label);
     input.spellcheck = field.kind === 'text';
+    if (field.kind === 'seconds') { input.inputMode = 'decimal'; input.placeholder = 'the deck’s'; input.classList.add('ins-short'); }
     let busy = false;
     // what the field last read off the slide: typing makes it differ, and a
     // repaint leaves typing alone until it is saved or put back
@@ -337,6 +473,16 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
       const row = rowOf(grid, field.key, field.label, field.title, c.el);
       if (field.when) shown.push([field, row]);
     }
+    const group = (label, fields) => {
+      grid.append(Object.assign(document.createElement('div'), { className: 'ins-group', textContent: label }));
+      for (const field of fields) {
+        const c = control(slide, field, () => fill());
+        controls.push(c);
+        rowOf(grid, field.key, field.label, field.title, c.el);
+      }
+    };
+    group('Title', TITLE_FIELDS);
+    group('Narration', NARRATION_FIELDS);
     el.append(grid);
     function fill() {
       const sec = sectionAt(slide);
@@ -353,7 +499,7 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
     fill();
     const sec = sectionAt(slide);
     const watch = typeof MutationObserver === 'function' && sec ? new MutationObserver(() => fill()) : null;
-    watch?.observe(sec, { attributes: true, attributeFilter: [...SLIDE_FIELDS, ...BACKGROUND_FIELDS].map((f) => f.attr).concat('data-background-image') });
+    watch?.observe(sec, { attributes: true, attributeFilter: [...SLIDE_FIELDS, ...BACKGROUND_FIELDS, ...TITLE_FIELDS, ...NARRATION_FIELDS].map((f) => f.attr).concat('data-background-image') });
     return {
       el,
       destroy() {
@@ -365,12 +511,12 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
   }
 
   const tab = {
-    id: 'slide', label: 'Slide', title: 'this slide’s settings: chapter, transition, hidden, planned time, background',
+    id: 'slide', label: 'Slide', title: 'this slide’s settings: chapter, transition, morph, hidden, planned time, background, title, narration',
     showsWithoutSelection: true, showsWithSelection: false,
     shows: () => editing(),
     key: (ctx) => ctx.slide,
     pane,
     foot: 'esc closes',
   };
-  return { tab, save, removeBackground };
+  return { tab, save, removeBackground, setMorph };
 }
