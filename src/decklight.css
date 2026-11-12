@@ -4166,6 +4166,18 @@
 .decklight-inspector .ins-select { width: auto; max-width: 100%; padding: 2px 5px; }
 .decklight-inspector .ins-select option { color: #111; }
 .decklight-inspector .ins-check { margin: 0; accent-color: #9ecbff; width: 15px; height: 15px; vertical-align: middle; }
+.decklight-inspector .ins-settings .ins-group {
+  grid-column: 1 / -1; margin-top: 10px; padding: 6px 0 2px; border-top: 1px solid rgba(255, 255, 255, .1);
+  color: #e4e7ec; font-weight: 600; font-size: .92em;
+}
+.decklight-inspector .ins-settings .ins-group + dt, .decklight-inspector .ins-settings .ins-group + dt + dd { border-top: 0; }
+.decklight-inspector .ins-settings .ins-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.decklight-inspector .ins-settings .ins-line .ins-btn { margin-left: 0; }
+.decklight-inspector .ins-settings .ins-file { display: inline-block; max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.decklight-inspector .ins-range { display: flex; align-items: center; gap: 10px; }
+.decklight-inspector .ins-settings [hidden] { display: none !important; }
+.decklight-inspector .ins-slider { flex: 1; min-width: 80px; accent-color: #9ecbff; margin: 0; }
+.decklight-inspector .ins-range-value { min-width: 3.2em; text-align: right; color: #c3c8d1; font-variant-numeric: tabular-nums; }
 .decklight-inspector .ins-btn {
   margin-left: 8px; padding: 1px 8px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, .18);
   background: rgba(255, 255, 255, .06); font: inherit; font-size: .92em; color: #dfe3ea; cursor: pointer;

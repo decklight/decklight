@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { setSlideAttrs, SLIDE_ATTR_NAMES } from '../cli/edit.mjs';
 import { ATTRIBUTES } from '../tools/vocabulary.mjs';
 import { ATTRIBUTE_DOCS } from '../cli/vocabulary-docs.mjs';
-import { SLIDE_FIELDS, TRANSITIONS, parseClock, clockText, writeFor, fieldValue } from '../src/core/slide-settings.js';
+import { SLIDE_FIELDS, BACKGROUND_FIELDS, TRANSITIONS, POSITIONS, parseClock, clockText, writeFor, fieldValue, dimValue } from '../src/core/slide-settings.js';
 
 const DECK = `<!doctype html>
 <html><body>
@@ -108,7 +108,7 @@ test('every name it writes is a slide attribute the vocabulary lists', () => {
 // ── the Slide tab's side: src/ cannot import cli/, so this holds them together
 
 test('every field of the Slide tab writes an attribute the server writes, or goes through its own route', () => {
-  for (const f of SLIDE_FIELDS) {
+  for (const f of [...SLIDE_FIELDS, ...BACKGROUND_FIELDS]) {
     if (f.route === 'hidden') { assert.equal(f.attr, 'data-hidden'); continue; }
     assert.ok(SLIDE_ATTR_NAMES.includes(f.attr), `${f.attr} is not in the server's allow-list`);
   }
@@ -152,4 +152,43 @@ test('what a field reads off a slide', () => {
   assert.equal(fieldValue(sec({ 'data-transition': 'zoom' }), by.transition), '', 'a value the vocabulary does not list reads as the deck\'s');
   assert.equal(fieldValue(sec({ 'data-hidden': '' }), by.hidden), true);
   assert.equal(fieldValue(sec({ 'data-module': 'Words' }), by.chapter), 'Words');
+});
+
+test('the background\'s fields write what the server takes: nine places, fill or whole, a dim from 0 to 1', () => {
+  const by = Object.fromEntries(BACKGROUND_FIELDS.map((f) => [f.key, f]));
+  const DECK1 = '<div class="decklight"><section data-background-image="a.png"><h2>A</h2></section></div>';
+  for (const p of POSITIONS) {
+    const w = writeFor(by.position, p, 'x');
+    assert.doesNotThrow(() => setSlideAttrs(DECK1, 1, w.set), `position ${p || 'center'}`);
+  }
+  assert.equal(POSITIONS.length, 9);
+  assert.deepEqual(writeFor(by.position, '', 'top'), { set: { 'data-background-position': null } }, 'the centre is the default: no attribute');
+  assert.deepEqual(writeFor(by.fit, 'contain', ''), { set: { 'data-background-size': 'contain' } });
+  assert.deepEqual(writeFor(by.fit, '', 'contain'), { set: { 'data-background-size': null } }, 'fill is the default');
+  assert.equal(dimValue(40), '0.4');
+  assert.equal(dimValue(0), null, 'no dim is no attribute');
+  assert.equal(dimValue(140), '1');
+  assert.deepEqual(writeFor(by.dim, 50, 40), { set: { 'data-background-dim': '0.5' } });
+  assert.equal(writeFor(by.dim, 40, 40), null);
+  for (const pct of [0, 5, 35, 100]) {
+    const w = writeFor(by.dim, pct, 50);
+    if (w.set['data-background-dim'] !== null) assert.doesNotThrow(() => setSlideAttrs(DECK1, 1, w.set), `dim ${pct}%`);
+  }
+  const sec = (attrs) => ({ getAttribute: (n) => (Object.hasOwn(attrs, n) ? attrs[n] : null) });
+  assert.equal(fieldValue(sec({ 'data-background-dim': '0.35' }), by.dim), 35);
+  assert.equal(fieldValue(sec({}), by.dim), 0);
+});
+
+test('a background video is a path beside the deck, typed; the server refuses any other', () => {
+  const by = Object.fromEntries(BACKGROUND_FIELDS.map((f) => [f.key, f]));
+  const DECK1 = '<div class="decklight"><section><h2>A</h2></section></div>';
+  for (const ok of ['media/loop.mp4', 'loop.webm', 'clips/a b.mp4']) {
+    const w = writeFor(by.video, ok, '');
+    assert.deepEqual(w, { set: { 'data-background-video': ok } });
+    assert.doesNotThrow(() => setSlideAttrs(DECK1, 1, w.set), ok);
+  }
+  for (const bad of ['https://x.invalid/a.mp4', '/abs.mp4', '../up.mp4', 'a/../../b.mp4', 'data:video/mp4;base64,AA', 'a.mp4?x=1']) {
+    assert.match(writeFor(by.video, bad, '').error ?? '', /beside the deck/, bad);
+  }
+  assert.deepEqual(writeFor(by.video, '', 'media/loop.mp4'), { set: { 'data-background-video': null } });
 });
