@@ -3828,7 +3828,7 @@ export function init(userConfig = {}) {
   editmode.setBuildEdit(buildEdit);
   inspector.addTab(createBuildsPanel({
     instance: () => instance, select: (node) => editbar.selectNode(node, { exact: true }),
-    edit: buildEdit, writable: () => !!editmode.available?.(),
+    edit: buildEdit, writable: () => !!editmode.available?.(), toast,
   }).tab, { after: 'data' });
   // a selected block's settings as fields: a code block's language, line numbers, fit and steps
   inspector.addTab(createOptionsTab({ instance: () => instance, editmode: () => editmode, toast }).tab, { after: 'data' });
