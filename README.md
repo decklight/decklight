@@ -115,7 +115,11 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   two columns, a section title…). Select an element to move it
   (`⌃⇧↑` / `⌃⇧↓`, or drag its handle), duplicate it (`⌘D`) or remove it (`⌫`);
   a right-click has the rest, with a row for a table, a picture or a wire
-  where one is selected. Drop a picture and drag its corners to size it, give
+  where one is selected. **Open in your editor** (the right-click menu, or
+  the palette for the slide) opens the deck file in VS Code, Cursor, Zed or a
+  command of your own at that element's or that slide's line, for the edit
+  the browser does not offer; it asks once which editor, and Settings changes
+  it. Drop a picture and drag its corners to size it, give
   it alt text, a caption, or make it the slide's background. A chart's
   numbers are a grid in the inspector's Data tab. In a diagram, drag a shape
   to move it, its corners to resize it, and from a dot on its side to another

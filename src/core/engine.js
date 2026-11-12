@@ -35,6 +35,7 @@ import { createOverflowWatch, clipReport } from './overflow.js';
 import { createPlaylist } from './playlist.js';
 import { createRangePicker } from './ranges.js';
 import { createChoiceCard } from './choice.js';
+import { createOpenInEditor } from './open-in-editor.js';
 import { createConceptTools } from './concept-tools.js';
 import { createStyleClip } from './style-clip.js';
 import { brandSnapper } from './colorpicker.js';
@@ -1132,6 +1133,10 @@ export function init(userConfig = {}) {
       // Two rows, not one row with a mode in it: one adds a slide, the other
       // rewrites one you wrote, and ⏎ should not depend on a keystroke you
       // may not have pressed.
+      // the slide's <section> in the author's code editor; it writes nothing, so a locked deck has it too
+      editmode.served() && !editmode.noTrust() && { label: 'Open this slide in your editor', cat: 'Slide', write: true,
+        alias: 'open code editor vs code vscode cursor zed source html file line jump reveal edit by hand text editor',
+        run: () => openInEditor.openSlide(instance.state.slide) },
       write({ label: 'Use slide template…', cat: 'Slide',
         alias: 'slide template slots convert switch insert slide divider section structure design system',
         run: () => slideTemplates.open() }),
@@ -1286,6 +1291,9 @@ export function init(userConfig = {}) {
       // ── Preferences ─────────────────────────────────────────────────────
       // `config` and `version` find it too; `version` is what somebody is
       // usually after in here.
+      editmode.served() && !editmode.noTrust() && { label: 'Choose your code editor…', cat: 'Preferences', write: true,
+        alias: 'code editor vs code vscode cursor zed open in editor visual editor command',
+        run: () => openInEditor.choose() },
       { label: 'Settings…', cat: 'Preferences', alias: 'config configuration preferences options about version build release which version',
         run: openSettings },
     ].filter(Boolean).filter((c) => has(c.run));
@@ -1470,6 +1478,10 @@ export function init(userConfig = {}) {
       // …and an A ask the same way; a script rewrite always is
       ...(editmode?.available() ? [{ label: 'Review agent asks', value: editmode.reviewAsks() ? 'before they land' : 'off — they land at once',
         hint: '⏎ switches', stays: true, run: () => editmode.toggleAskReview() }] : []),
+      // write mode only: the editor Open in your editor opens, kept for every
+      // deck on this machine; ⏎ opens the chooser
+      ...(editmode?.served() && !editmode.noTrust() ? [{ label: 'Code editor', value: openInEditor.label() ?? 'asked the first time',
+        hint: '⏎ chooses', run: () => openInEditor.choose() }] : []),
       // write mode only: the notes card writes itself this long after the
       // typing stops; ⏎ walks the steps, off last
       ...(editmode?.available() ? [{ label: 'Notes autosave', value: editmode.notesQuietLabel(),
@@ -3649,6 +3661,11 @@ export function init(userConfig = {}) {
   editmode.setElementMove(createElementMove({
     root, instance, editmode, toast, debugLog, select: (el) => editbar.selectNode(el, { exact: true }),
   }));
+  // Open in your editor (open-in-editor.js): a slide or an element at its
+  // line in the deck file, in the author's code editor, asked once which
+  const openInEditor = createOpenInEditor({ editmode, choiceCard, toast, actionToast, debugLog });
+  editmode.setOpenInEditor(openInEditor);
+  editmode.settled?.().then(() => openInEditor.refresh());
   // Add ▾ (add-content.js): a heading, words, a list, a table, code, two
   // columns, a diagram or a chart onto the slide, in place and ready to type
   const addContent = createAddContent({ root, instance, editmode, authoring, editbar, toast, debugLog });

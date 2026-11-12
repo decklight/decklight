@@ -28,7 +28,7 @@
  * tick for nothing.
  */
 
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -133,14 +133,14 @@ const dir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'decklight-edit-e2e-
 writeFileSync(path.join(dir, 'picture.png'), PNG);
 const servers = [];
 let nextPort = 8930;
-async function serve(name) {
+async function serve(name, env = {}) {
   const file = path.join(dir, `${name}.html`);
   writeFileSync(file, FIXTURES[name]);
   const port = await nextFreePort(nextPort);
   nextPort = port + 1;
   const log = [];
   const child = spawn(process.execPath, [path.join(root, 'cli', 'edit.mjs'), `${name}.html`, '--port', String(port), '--no-git'],
-    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_NO_UPDATE_CHECK: '1' } });
+    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_NO_UPDATE_CHECK: '1', ...env } });
   child.stdout.on('data', (b) => log.push(String(b)));
   child.stderr.on('data', (b) => log.push(String(b)));
   servers.push(child);
@@ -395,7 +395,7 @@ try {
     const box = await page.locator(`${ACTIVE} > ul`).boundingBox();
     await page.mouse.click(box.x + 6, box.y + 6, { button: 'right' }); await wait(400);
     const rows = (await labels()).filter((t) => t !== 'Writing tools…');
-    check('menus', 'the top level on a list', JSON.stringify(rows) === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build: fade-up ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Slide ▸']), rows);
+    check('menus', 'the top level on a list', JSON.stringify(rows) === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build: fade-up ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Slide ▸']), rows);
     const original = text.read();
     await menuRow(page, /^Duplicate/); await wait(1500);
     const lists = section(text.read(), 1).match(/<ul data-build="fade-up">[\s\S]*?<\/ul>/g) ?? [];
@@ -513,6 +513,52 @@ try {
     check('outside', 'and a locked page lands on the same content', landed === 'Beta' && /^#\/3\//.test(await page.evaluate(() => location.hash)), `${landed} ${await page.evaluate(() => location.hash)}`);
     check('outside', 'the server says a slide was added', /reload × \d+ — slide 2 added/.test(srv.log()), srv.log().slice(-400));
     await page.evaluate(() => fetch('/deck/edit/lock', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locked: false }) }));
+    await page.close();
+  });
+
+  // 12 · Open in your editor: asked once which editor (a command of your own
+  //      here: a script that writes down what it was given), then the element
+  //      and the slide opened at their lines in the deck file
+  await scenario('editor', async () => {
+    if (process.platform === 'win32') return;   // the recorder is a shebang script
+    const recorder = path.join(dir, 'record-editor.mjs');
+    const said = path.join(dir, 'editor-args.json');
+    writeFileSync(recorder, `#!${process.execPath}\nimport { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(said)}, JSON.stringify(process.argv.slice(2)));\n`);
+    chmodSync(recorder, 0o755);
+    const ed = await serve('text', { XDG_CONFIG_HOME: path.join(dir, 'config'), VISUAL: '', EDITOR: '' });
+    ed.reset(); await wait(400);
+    const page = await open(ed, '#/1/3');
+    const asked = [];
+    page.on('dialog', (d) => { asked.push(d.message()); d.accept(`"${recorder}" {file} {line} {column}`); });
+    const recorded = async () => {
+      for (let i = 0; i < 40 && !existsSync(said); i++) await wait(100);
+      try { const args = JSON.parse(readFileSync(said, 'utf8')); rmSync(said); return args; } catch { return null; }
+    };
+    // the list, by the element menu (a right-click on a point is the list's)
+    const li = await page.locator(`${ACTIVE} > ul > li`).nth(1).boundingBox();
+    await page.mouse.click(li.x + li.width - 3, li.y + li.height / 2, { button: 'right' }); await wait(400);
+    await menuRow(page, /^Open in your editor$/); await wait(600);
+    const rows = await page.locator('.decklight-choice .narr-row-label').allTextContents();
+    check('editor', 'first use asks which editor, a command of your own among them', rows.some((r) => r.startsWith('A command of your own')), rows);
+    await page.locator('.decklight-choice .narr-row', { hasText: 'A command of your own' }).click(); await wait(1500);
+    const lines = ed.read().split('\n');
+    const line = (re) => lines.findIndex((l) => re.test(l)) + 1;
+    let args = await recorded();
+    check('editor', 'the template asked for once', asked.length === 1 && /\{file\}/.test(asked[0]), asked);
+    const ulLine = line(/<ul data-build/);
+    check('editor', 'the element opens at its own line and column, in the deck file',
+      args?.[0] === path.join(dir, 'text.html') && args?.[1] === String(ulLine) && args?.[2] === String(lines[ulLine - 1].indexOf('<ul') + 1), [args, ulLine]);
+    check('editor', 'the choice is remembered beside the voice settings',
+      existsSync(path.join(dir, 'config', 'decklight', 'editor.json')));
+    // the palette's row: the slide's <section>, no question this time
+    await page.keyboard.press('Escape'); await wait(200);
+    await page.keyboard.press('/'); await wait(300);
+    await page.keyboard.type('open this slide in your editor'); await wait(200);
+    await page.keyboard.press('Enter');
+    args = await recorded();
+    check('editor', 'the palette opens the slide at its <section>, without asking again',
+      asked.length === 1 && args?.[1] === String(line(/<section>/)) && args?.[2] === String(lines[line(/<section>/) - 1].indexOf('<section') + 1), args);
+    check('editor', 'nothing written to the deck', ed.read() === FIXTURES.text);
     await page.close();
   });
 } finally {

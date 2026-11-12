@@ -2606,6 +2606,8 @@ export function createEditMode({
     } else if (menuTarget.index === null) {
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
       if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting(); } });
+      // the slide's <section> in the author's code editor (open-in-editor.js)
+      if (openInEditor) { const slide = menuTarget.slide; rows.push({ label: 'Open this slide in your editor', run: () => { closeElementMenu(); openInEditor.openSlide(slide); } }); }
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     } else {
       // The element menu (PRESENTING_EDITING): the same short list for every
@@ -2643,6 +2645,8 @@ export function createEditMode({
       // what is selected: a shape picked in a diagram goes alone (its holder is under Shape ▸)
       rows.push({ label: 'Remove', key: '⌫', run: () => commitRemove(t) });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(t); } });
+      // its line in the deck file, in the author's code editor (open-in-editor.js)
+      if (openInEditor) rows.push({ label: 'Open in your editor', run: () => { closeElementMenu(); openInEditor.open(editorAddress(t), 'the element'); } });
       if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting({ group: 'text' }); } });
       // the contextual rows, each one submenu, only where it applies
       if (tableRows?.(t, closeElementMenu)?.length) rows.push({ label: 'Table ▸', run: drill('table') });
@@ -2700,6 +2704,16 @@ export function createEditMode({
     const svg = shapes?.diagramOf(t);
     if (svg && t.node && t.node !== svg && t.node !== t.top) return shapes.duplicate(t);
     return addContent.duplicate(t);
+  }
+  /**
+   * Where `t` is in the file, for Open in your editor: the element by its raw
+   * index, a node picked inside it by the file's path and its tag; a node the
+   * engine drew (no path) opens at the element that holds it.
+   */
+  function editorAddress(t) {
+    const node = t.node && t.node !== t.top ? t.node : null;
+    const path = node ? pathFrom(t.top, node) : null;
+    return path ? { slide: t.slide, index: t.index, path, tag: node.tagName.toLowerCase() } : { slide: t.slide, index: t.index };
   }
   /** Remove `holder`, what holds the selection (the diagram a shape is in, the figure a picture is in): the element, or the node in it. */
   function removeHolder(t, holder) {
@@ -2915,6 +2929,7 @@ export function createEditMode({
   let conceptTools = null;
   let styleClip = null;   // copy style / paste style (style-clip.js), handed in by the engine
   let elementMove = null;   // moving things within a slide (element-move.js), handed in by the engine
+  let openInEditor = null;  // a slide or an element at its line in the author's editor (open-in-editor.js), handed in by the engine
   let tableRows = null;   // the table menu's rows for a right-clicked cell (list-session.js), handed in by authoring.js
   let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
   let shapes = null;      // a diagram's shapes moved, added, duplicated (shapes.js), handed in by the engine
@@ -4581,6 +4596,8 @@ export function createEditMode({
     setStyleClip: (c) => { styleClip = c; },
     /** Moving things within a slide (element-move.js): the menu's Move rows; and the bar's keys and drag ask for it here. */
     setElementMove: (m) => { elementMove = m; },
+    /** Open in your editor (open-in-editor.js): the element menu's and the slide menu's rows. */
+    setOpenInEditor: (o) => { openInEditor = o; },
     elementMove: () => elementMove,
     /** The rows a right-click on a table's cell adds to the element menu: `fn(target, close)` → rows. */
     setTableRows: (fn) => { tableRows = fn; },

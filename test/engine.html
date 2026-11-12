@@ -9913,7 +9913,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.opensOnElement = !!document.querySelector(M);
         // Writing tools… sits after Edit content when an agent is on the machine (none here)
         r.fullMenuRows = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…'))
-          === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Slide ▸']);
+          === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Slide ▸']);
         // a row that cannot act here is greyed, not gone: nothing copied yet, so Paste style; the chords said beside their rows
         const rowEl = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.firstChild?.textContent === label);
         r.greyedNotGone = rowEl('Paste style')?.classList.contains('cm-disabled') === true && rowEl('Duplicate')?.classList.contains('cm-disabled') === false
@@ -9931,7 +9931,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         rightClick(sections[0]);
         r.opensOnBackground = !!document.querySelector(M);
         // the background has no element to act on, so the slide itself is what is offered
-        r.backgroundOnlyNotes = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…')) === JSON.stringify(['Edit speaker notes', 'Slide ▸']);
+        r.backgroundOnlyNotes = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…')) === JSON.stringify(['Edit speaker notes', 'Open this slide in your editor', 'Slide ▸']);
         press('Escape');
 
         // "Build ▸" drills into a submenu — the 7 SPEC entrance
