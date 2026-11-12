@@ -137,6 +137,7 @@ const RULES = [
   [/^(docs|\.github|\.claude)\//, [], 'not read by any harness'],
   [/^(SPEC|README|CONTRIBUTING|CLAUDE|CHANGELOG)\.md$/, [], 'prose'],
   [/^test\/.*\.test\.mjs$/, [], 'a unit test — the unit suite covers it'],
+  [/^cli\/editor-support\.mjs$/, [], 'the .vscode/ files init and vscode write: no browser reads them, the unit suite does'],
 ];
 
 /** Which harnesses a single path implicates, and why. */

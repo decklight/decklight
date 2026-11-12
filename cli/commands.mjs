@@ -29,6 +29,7 @@
 export const COMMANDS = {
   init: { module: './init.mjs', main: 'initMain' },
   skills: { module: './skills.mjs', main: 'skillsMain' },
+  vscode: { module: './editor-support.mjs', main: 'vscodeMain' },
   cast: { module: './cast.mjs', main: 'castMain' },
   // `cast refresh` and `cast export` are castMain's own subcommands. They
   // used to be top-level `refresh` and `export` too, and a top-level `export`
@@ -253,6 +254,10 @@ Commands:
            EXAMPLE: decklight skills claude codex   (or --all, or omit to use detected agents)
            EXAMPLE: decklight skills --global        (install into each agent's config home, every project)
            EXAMPLE: decklight skills claude --pack   (zip it to upload in your claude.ai skill settings)
+  vscode   write .vscode/ beside a deck: completions for every data-* attribute Decklight reads,
+           with its values, and dl- snippets (a slide, a build, notes, a diagram, a chart, a
+           comparison); settings.json is merged, never overwritten. init --vscode does it for a new deck
+           EXAMPLE: decklight vscode deck.html
   cast     record a truthful terminal cast by running a YAML command script in a real PTY
            (this records a TERMINAL — decklight narrate --mic records your VOICE)
            EXAMPLE: decklight cast deck.term.yaml -o deck.cast.json

@@ -184,6 +184,13 @@ short paragraphs per column, and one idea per slide, over anything that merely
 fits (SLIDE_DENSITY). \`npx decklight@latest check deck.html\` names those
 too: a slide past that budget is reported \`crowded\` with the count that
 tipped it (a warning, never a failed run); split it rather than shrink it.
+It also names a word Decklight does not read, which renders as if it were
+absent: a misspelled \`data-*\` attribute (\`data-buld\`), a build effect, layout
+or route it does not take (\`fade-upp\`), and a configuration key or value it
+does not know, or a block that is not JSON, each with what was meant
+(\`unknown-attribute\`, \`unknown-value\`, \`config-key\`, \`config-json\`). A
+person who writes the deck in VS Code gets the same words as completions and
+\`dl-\` snippets from \`decklight vscode\` (or \`decklight init --vscode\`).
 
 **For a comparison slide, use \`data-layout="split"\` — and do not also write
 your own column flexbox.** Two sibling blocks become the columns, a third
