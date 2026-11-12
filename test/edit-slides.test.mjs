@@ -892,3 +892,23 @@ test('the pictures of one drop are placed quietly until the last, so the reload 
   assert.equal(quiet.length, 1, 'the last one reloads, all of them in');
   assert.match(readDeck(), /a\.png[\s\S]*b\.png/);
 });
+
+test('POST /deck/edit/element/remove asked quiet takes a block inside a column off in place: no reload here, every other page told', async (t) => {
+  const split = DECK.replace('<section>\n      <h2>Alpha</h2>\n      <ul><li>one</li></ul>\n    </section>',
+    '<section data-layout="split">\n      <h2>Alpha</h2>\n      <div>\n        <h3>Left</h3>\n        <p>gone</p>\n      </div>\n      <div><p>right</p></div>\n    </section>');
+  const quiet = [];
+  const told = [];
+  const { routes, readDeck } = harness(t, split, { quiet: (h) => quiet.push(h), broadcast: (event, data) => told.push({ event, data }) });
+  const r = await call(routes, 'POST /deck/edit/element/remove', { body: { slide: 1, index: 1, path: [1], tag: 'p', quiet: true, from: 'page-a' } });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.changed, true);
+  assert.equal(r.body.inPlace, true);
+  assert.doesNotMatch(readDeck(), /gone/);
+  assert.match(readDeck(), /<div>\n {8}<h3>Left<\/h3>\n {6}<\/div>/, 'its line goes with it');
+  assert.equal(quiet.at(-1), readDeck(), 'the watcher skips what this write put there');
+  assert.deepEqual(told.at(-1), { event: 'content', data: { slide: 1, index: 1, from: 'page-a' } });
+  // not asked quiet: the reload it always was
+  const loud = await call(routes, 'POST /deck/edit/element/remove', { body: { slide: 1, index: 1, path: [0], tag: 'h3' } });
+  assert.equal(loud.body.inPlace, false);
+  assert.equal(quiet.length, 1);
+});

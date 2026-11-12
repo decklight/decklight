@@ -37,7 +37,7 @@ export const MODES = [
   'addmenu', 'addcolumn', 'turninto', 'blockresize', 'addslidekinds',
   'listkeys', 'listplain', 'tablekeys', 'tablemenu', 'listmove', 'buildsettings', 'buildorder', 'drawstages', 'buildpanel', 'buildselect', 'buildreselect',
   'linedraw', 'dasheddraw', 'drawfill', 'nestedfills', 'rolefills', 'dstemplates', 'dsedit', 'concepts', 'conceptsfind',
-  'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect',
+  'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect', 'moveatdepth',
   'links',
   'pictureresize', 'picturefit', 'picturealt', 'picturebg', 'picturepaste', 'pictureslidetab',
   'chartdata', 'codeoptions',

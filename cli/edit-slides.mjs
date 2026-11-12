@@ -330,16 +330,22 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   // place: the page that saved already shows it, so the watcher skips its
   // reload and every other page is sent a `content` event instead.
   // `path` (a node inside the element, the selection inside a diagram) removes
-  // that node alone; without it the whole element goes
+  // that node alone; without it the whole element goes. Asked `quiet` (a block
+  // inside a column, which the page takes off itself), the write is in place:
+  // no reload there, and every other page is sent `content`.
   function elementRemoveRoute({ body, json }) {
-    const { slide, index, path = null, tag = null } = JSON.parse(body);
+    const { slide, index, path = null, tag = null, quiet: inPlace = false, from = null } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
     let changed;
     try {
       changed = applyEdit((html) => (path ? removeNestedElement(html, slide, index, { path, tag }) : removeSlideElement(html, slide, index)));
     } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
     if (changed) console.log(`  element removed: slide ${slide} #${index}${path ? ` › ${path.join('.')}` : ''}`);
-    return json(200, { ok: true, changed, ...history.counts() });
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, { ok: true, changed, inPlace: !!changed && inPlace === true, ...history.counts() });
   }
 
   function elementContentRoute({ body, json }) {
