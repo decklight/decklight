@@ -122,6 +122,7 @@ import {
 } from './edit-address.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { CODE_LANGUAGES, languageOf, lineCount, linesError } from '../tools/code-options.mjs';
+import { webAddress } from '../tools/starters.mjs';
 import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkReferences } from './deck-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides, trackDrift } from '../tools/narration-manifest.mjs';
@@ -2498,8 +2499,10 @@ export const ELEMENT_OPTIONS = {
   video: ['src', 'controls', 'loop', 'muted', 'autoplay', 'poster'],
   // a terminal (TERMINAL_PLAYER): a `<div class="terminal">`, its recording and how it plays
   div: ['data-cast', 'data-mode', 'data-title', 'data-rows', 'data-type-speed', 'data-type-sound', 'data-poster'],
+  // a framed web page: its address (https only) and the title a screen reader says
+  iframe: ['src', 'title'],
 };
-const OPTION_HOLDER = { pre: 'a code block', video: 'a video', div: 'a terminal' };
+const OPTION_HOLDER = { pre: 'a code block', video: 'a video', div: 'a terminal', iframe: 'a web page' };
 /** A terminal's settings, each its one shape (TERMINAL_PLAYER); null takes one off. */
 const TERMINAL_SHAPES = {
   'data-cast': [(v) => relativeSrc(v) && /\.cast(\.json)?$/i.test(v), 'a recording is a .cast.json (or .cast) beside the deck, given by its relative path'],
@@ -2526,7 +2529,9 @@ export function setElementOptions(html, slide, index, { path = [], tag = 'pre', 
   for (const [k, v] of Object.entries(set)) {
     if (!names.includes(k)) throw new Error(`${OPTION_HOLDER[tag]} has no setting ${JSON.stringify(k).slice(0, 40)}`);
     if (BARE_OPTIONS.has(k) && v !== true && v !== null) throw new Error(`${k} is on (true) or off (null)`);
-    if (k === 'src' && !(relativeSrc(v) && /\.(mp4|webm)$/i.test(v))) throw new Error('a video is an mp4 or a webm beside the deck, given by its relative path');
+    if (tag === 'iframe' && k === 'src' && !webAddress(v)) throw new Error('a web page is an https address (https://example.com/page)');
+    if (tag === 'iframe' && k === 'title' && !(typeof v === 'string' && v.trim() && v.length <= 120 && !/[\u0000-\u001f]/.test(v))) throw new Error('a web page keeps a title, one line of at most 120 characters: a screen reader says it');
+    if (tag === 'video' && k === 'src' && !(relativeSrc(v) && /\.(mp4|webm)$/i.test(v))) throw new Error('a video is an mp4 or a webm beside the deck, given by its relative path');
     if (k === 'poster' && v !== null && !(relativeSrc(v) && /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(v))) throw new Error('a poster is a picture beside the deck, given by its relative path, or null for none');
     if (tag === 'div' && v !== null && !TERMINAL_SHAPES[k][0](v)) throw new Error(TERMINAL_SHAPES[k][1]);
     if (tag === 'div' && k === 'data-cast' && v === null) throw new Error('a terminal keeps its recording: remove the terminal instead');
@@ -2535,6 +2540,10 @@ export function setElementOptions(html, slide, index, { path = [], tag = 'pre', 
   }
   const e = openElement(html, slide, index);
   const at = e.at(path, tag);
+  if (tag === 'iframe') {
+    e.edit(path, tag, (attrs) => Object.entries(set).reduce((a, [n, v]) => withAttr(a, n, v), attrs));
+    return e.html();
+  }
   if (tag === 'div') {
     if (!/(^|\s)terminal(\s|$)/.test(attrOf(splitOpenTag(e.src(at)).attrs, 'class') ?? '')) throw new Error('only a terminal has these settings');
     e.edit(path, tag, (attrs) => Object.entries(set).reduce((a, [n, v]) => withAttr(a, n, v === null ? null : String(v)), attrs));

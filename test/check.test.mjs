@@ -575,3 +575,13 @@ test('Fix it and Explain further name the element a finding is about, every one 
   assert.match(agentPrompt(folded), /The 2 elements: the <rect> at element path 1\.0, the <rect> at element path 1\.2/);
   assert.doesNotMatch(agentPrompt({ ...f, at: undefined }), /element path/, 'a finding about no one element says nothing of one');
 });
+
+test('a framed web page is a warning: blank in no-trust mode, in a video export and offline', () => {
+  const html = deck(`  <section><h2>Live</h2><iframe src="https://status.example.com/board" title="Status"></iframe></section>
+  <section><h2>Ours</h2><iframe src="local/page.html" title="Ours"></iframe></section>`);
+  const found = only(staticFindings(html, everything), 'web-page');
+  assert.equal(found.length, 1, 'a page beside the deck is the deck’s own');
+  assert.equal(found[0].slide, 1);
+  assert.equal(found[0].level, 'warn');
+  assert.match(found[0].message, /status\.example\.com is blank in no-trust mode, in a video export and offline/);
+});

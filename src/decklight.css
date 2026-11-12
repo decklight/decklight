@@ -354,6 +354,11 @@
 .decklight th { color: var(--accent, #6af); }
 .decklight img, .decklight svg { max-width: 100%; }
 .decklight section > svg, .decklight section > img { margin: 0.3em auto; display: block; }
+/* a framed web page (Add ▾ › Web page): the content's width at 16:9 unless it
+   says its own size, at zero specificity so a deck's own rules win */
+.decklight :where(section iframe:not([width])) { width: 100%; }
+.decklight :where(section iframe:not([height])) { aspect-ratio: 16 / 9; height: auto; }
+.decklight :where(section iframe) { display: block; max-width: 100%; margin: 0.3em auto; border: 1px solid var(--d-stroke, currentColor); border-radius: 6px; background: var(--bg); }
 
 /* ---------- builds (SPEC BUILDS) ---------------------------------------------- */
 .decklight .build-step {
@@ -3952,6 +3957,13 @@
 .decklight.dl-editmode.dl-col-edge, .decklight.dl-editmode.dl-col-edge * { cursor: col-resize !important; }
 /* placing a draw stop (builds-panel.js): the next press on the slide says where */
 html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * { cursor: crosshair !important; }
+/* while editing, a frame is a block to select, not a page to click into */
+.decklight.dl-editmode section iframe { pointer-events: none; }
+/* Add ▾ › Web page: its address, asked above the bar */
+.decklight .dl-url-ask { position: fixed; z-index: 60; display: flex; gap: 6px; align-items: center; padding: 8px; border-radius: 10px;
+  background: #1b1e24; color: #e4e7ec; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); font: 13px/1.3 system-ui, sans-serif; }
+.decklight .dl-url-ask input { width: 26em; padding: 4px 6px; border-radius: 6px; border: 1px solid #4b5160; background: #12141a; color: inherit; font: inherit; }
+.decklight .dl-url-ask .dl-url-why { color: #f2c46d; }
 /* the panel the keyboard goes to (PRESENTING_EDITING): a box in it has the
    caret, or the comments panel is taking its letters (review.js) */
 .decklight-dockable:focus-within > .narr-card,

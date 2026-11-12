@@ -108,7 +108,7 @@ test('insertImage is insertElement with an <img>, as before', () => {
 test('every kind has a starter that lands on the slide, after the selection, with its index answered', () => {
   for (const kind of ELEMENT_KINDS) {
     if (kind === 'columns') continue;   // its own rule, below
-    const out = insertStarter(DECK, 1, 1, kind, { with: { src: 'assets/clip.mp4', cast: 'casts/demo.cast.json' } });
+    const out = insertStarter(DECK, 1, 1, kind, { with: { src: 'assets/clip.mp4', cast: 'casts/demo.cast.json', url: 'https://example.com/' } });
     assert.equal(out.index, 2, `${kind}: after the selection`);
     assert.deepEqual(out.path, [], `${kind}: on the slide, not inside anything`);
     assert.equal(out.count, 1);
@@ -181,6 +181,15 @@ test('a terminal plays the recording it is given, beside the deck, a command a c
   assert.match(insertStarter(DECK, 2, 0, 'terminal', { with: { cast: 'talk.cast' } }).markup, /data-cast="talk\.cast"/, 'an asciicast too');
   for (const cast of [undefined, '', 'https://x.test/a.cast.json', '/abs/a.cast.json', '../a.cast.json', 'casts/a.json', 'a".cast.json']) {
     assert.throws(() => insertStarter(DECK, 2, 0, 'terminal', { with: { cast } }), (e) => e.status === 400 && /terminal recording is a \.cast\.json/.test(e.message), String(cast));
+  }
+});
+
+test('a web page is an https address in a frame, with a title, loaded as it comes near; anything else is refused', () => {
+  const out = insertStarter(DECK, 2, 0, 'webpage', { with: { url: 'https://example.com/a?b=1&c=2' } });
+  assert.equal(out.markup, '<iframe src="https://example.com/a?b=1&amp;c=2" title="Web page: example.com" loading="lazy"></iframe>');
+  assert.match(insertStarter(DECK, 2, 0, 'webpage', { with: { url: 'https://x.test/', title: 'The dashboard' } }).markup, /title="The dashboard"/);
+  for (const url of [undefined, '', 'http://example.com/', 'javascript:alert(1)', 'https://a b', 'https://x.test/"onload="x', 'example.com']) {
+    assert.throws(() => insertStarter(DECK, 2, 0, 'webpage', { with: { url } }), (e) => e.status === 400 && /an https address/.test(e.message), String(url));
   }
 });
 

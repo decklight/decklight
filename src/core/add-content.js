@@ -31,11 +31,11 @@ export const MAX_VIDEO_BYTES = 200e6;
 export const ADD_KINDS = [
   ['heading', 'Heading'], ['text', 'Text'], ['bullets', 'Bullets'], ['numbered', 'Numbered list'],
   ['quote', 'Quote'], ['table', 'Table'], ['code', 'Code'], ['formula', 'Formula'], ['columns', 'Two columns'],
-  ['diagram', 'Diagram'], ['chart', 'Chart'], ['picture', 'Picture'], ['video', 'Video'], ['terminal', 'Terminal recording'],
+  ['diagram', 'Diagram'], ['chart', 'Chart'], ['picture', 'Picture'], ['video', 'Video'], ['terminal', 'Terminal recording'], ['webpage', 'Web page'],
 ];
 const SAID = {
   heading: 'a heading', text: 'text', bullets: 'a bullet list', numbered: 'a numbered list', quote: 'a quote',
-  table: 'a table', code: 'a code block', formula: 'a formula', columns: 'two columns', diagram: 'a diagram', chart: 'a chart', video: 'a video', terminal: 'a terminal',
+  table: 'a table', code: 'a code block', formula: 'a formula', columns: 'two columns', diagram: 'a diagram', chart: 'a chart', video: 'a video', terminal: 'a terminal', webpage: 'a web page',
 };
 
 /** The node a new element's words are typed into, or null for a kind that is not words (a diagram, a chart). */
@@ -81,6 +81,7 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     if (kind === 'picture') { editbar.choosePicture(); return; }
     if (kind === 'video') { chooseVideo(); return; }
     if (kind === 'terminal') { chooseRecording(); return; }
+    if (kind === 'webpage') { askAddress(); return; }
     return insert(kind);
   }
 
@@ -241,6 +242,64 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
       } catch (e) { toast(`could not add ${cast}: ${commit.why(e)}`, 6000); return; }
       handOff({ slide, index: j.index, path: j.path ?? [], kind: 'terminal' });
       commit.reload(`${cast} added — the deck reloads to set the terminal up`, { slide });
+    })();
+    await commit.track(job);
+  }
+
+  // ── a web page: an https address, framed ──────────────────────────────
+  /** Is `url` an address a frame takes (tools/starters.mjs webAddress, said here too so a typo never leaves the page)? */
+  const httpsAddress = (url) => /^https:\/\/[^\s"'<>`]+$/i.test(url) && (() => { try { return new URL(url).protocol === 'https:'; } catch { return false; } })();
+  /**
+   * Add ▾ › Web page: a field for its address, above the bar. ⏎ places it
+   * after the selection (an https address only, said in the field
+   * otherwise), Esc gives up.
+   */
+  function askAddress() {
+    const { slide, sec } = current();
+    if (!sec) return;
+    const sel = editbar.selected();
+    const index = sel && sel.sec === sec && Number.isInteger(sel.index) ? sel.index : null;
+    const path = index !== null ? innerPath(sel) : null;
+    root.querySelector('.dl-url-ask')?.remove();
+    const box = document.createElement('div');
+    box.className = 'dl-url-ask';
+    const input = Object.assign(document.createElement('input'), { type: 'url', placeholder: 'https://… the page to show on the slide', spellcheck: false });
+    input.setAttribute('aria-label', 'web page address');
+    const why = Object.assign(document.createElement('span'), { className: 'dl-url-why' });
+    box.append(input, why);
+    const r = (editbar.addButton() ?? root).getBoundingClientRect();
+    box.style.left = `${Math.max(8, r.left)}px`;
+    box.style.top = `${Math.max(8, r.top - 52)}px`;
+    root.append(box);
+    const done = () => box.remove();
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); done(); return; }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const url = input.value.trim();
+      if (!httpsAddress(url)) { why.textContent = 'an https address, like https://example.com/page'; return; }
+      done();
+      placeWebPage(url, { slide, sec, index, path });
+    });
+    input.addEventListener('blur', () => setTimeout(() => { if (box.isConnected && !box.contains(document.activeElement)) done(); }, 0));
+    input.focus();
+  }
+  async function placeWebPage(url, { slide, sec, index, path }) {
+    const job = (async () => {
+      let j;
+      try { j = await commit.send('/deck/edit/element/insert', { slide, index, kind: 'webpage', with: { url }, ...(path?.length ? { path } : {}) }); }
+      catch (e) { toast(`could not add the web page: ${commit.why(e)}`, 6000); return; }
+      let els;
+      try { els = place(sec, j); } catch (e) {
+        handOff({ slide, index: j.index, path: j.path ?? [], kind: 'webpage' });
+        commit.reload('the web page added — the page could not show it in place', { slide });
+        return;
+      }
+      instance.refreshSlide?.(sec, { scan: sec });
+      editbar.refresh();
+      settle('webpage', els[0]);
+      toast(`a web page is on slide ${slide} — it is blank in no-trust mode, in a video export and offline`, 4200);
     })();
     await commit.track(job);
   }
