@@ -4190,6 +4190,8 @@
 .decklight-inspector .ins-settings .ins-group + dt, .decklight-inspector .ins-settings .ins-group + dt + dd { border-top: 0; }
 .decklight-inspector .ins-settings .ins-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .decklight-inspector .ins-settings .ins-line .ins-btn { margin-left: 0; }
+.decklight-inspector .ins-settings .ins-short { width: 6.5em; }
+.decklight-inspector .ins-settings .ins-line .ins-extra { margin: 0; }
 .decklight-inspector .ins-settings .ins-file { display: inline-block; max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .decklight-inspector .ins-range { display: flex; align-items: center; gap: 10px; }
 .decklight-inspector .ins-settings [hidden] { display: none !important; }

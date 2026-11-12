@@ -558,7 +558,7 @@
       }
       // `editbar` is the same server, driven from the bar and the selection
       // the Slide tab's writes: a transition of "slide" is refused, to see a refusal said and put back
-      if (HARNESS_MODE === 'slidesettings') {
+      if (HARNESS_MODE === 'slidesettings' || HARNESS_MODE === 'slidemorph') {
         if (u.includes('/deck/edit/slide/attr')) {
           const b = JSON.parse(init?.body ?? '{}');
           if (b.set?.['data-transition'] === 'slide') return json({ ok: false, error: 'refused here' }, 400);
@@ -566,7 +566,7 @@
         }
         if (u.includes('/deck/edit/slide/hidden')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
-      if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs' || HARNESS_MODE === 'slidesettings') {
+      if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs' || HARNESS_MODE === 'slidesettings' || HARNESS_MODE === 'slidemorph') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/review/comments')) return json({ ok: true, records: [] });
         if (u.includes('/deck/edit/inspect')) {
@@ -1077,7 +1077,7 @@
     }
     // the inspector (I): a slide that clips, and one with shapes to select —
     // an SVG node, grey text on white just under AA, an image with no alt
-    if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs' || HARNESS_MODE === 'slidesettings') {
+    if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs' || HARNESS_MODE === 'slidesettings' || HARNESS_MODE === 'slidemorph') {
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Tall</h2>
         <ul>${Array.from({ length: 40 }, (_, i) => `<li>line ${i + 1}</li>`).join('')}</ul></section>
         <section><h2>Shapes</h2>
@@ -2907,6 +2907,87 @@
         press('Escape');
         try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || k === 'crumbs' || k === 'contrast' || v === true);
+      }
+
+      if (mode === 'slidemorph') {
+        // PRESENTING_EDITING, the Slide tab's morph, title and narration:
+        // morph written on both slides in one edit, and parted the way that
+        // keeps the next slide's; a pin and a subtitle laid out again at once;
+        // narration pauses in seconds
+        const P = '.decklight-inspector';
+        const q = (s) => document.querySelector(`${P} ${s}`);
+        const dd = (k) => q(`.ins-settings dd[data-key="${k}"]`);
+        const field = (k) => dd(k)?.querySelector('input, select');
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/attr')).map((c) => c.body);
+        const sec = (n) => document.querySelectorAll('.decklight-stage > section')[n - 1];
+        const morphed = () => [1, 2, 3, 4, 5, 6].filter((n) => sec(n).hasAttribute('data-auto-animate')).join(',');
+        const toasts = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        const tick = async (on) => { const b = dd('morph').querySelector('input'); b.checked = on; b.dispatchEvent(new Event('change', { bubbles: true })); await settle(); await settle(); };
+        const choose = async (el, v) => { el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); await settle(); await settle(); };
+        const type = async (el, text) => { el.focus(); el.value = text; el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await settle(); await settle(); };
+        const onSlide = async (n) => { deck.goto(n, 0); await settle(); await settle(); if (q('.ins-tab[data-tab="slide"]')?.getAttribute('aria-selected') !== 'true') { q('.ins-tab[data-tab="slide"]')?.click(); await settle(); } };
+        await settle(); await settle();
+        deck.goto(1, 0);
+        await settle();
+        press('i');
+        await settle(); await settle();
+        await onSlide(1);
+        r.firstSlideSaysWhy = dd('morph').querySelector('input').disabled && !dd('morph').querySelector('.ins-extra').hidden
+          && /nothing before it/.test(dd('morph').textContent);
+
+        // ticked on 3: 3 and 2, in one write
+        await onSlide(3);
+        await tick(true);
+        const m1 = posts().pop();
+        r.morphBothInOneWrite = JSON.stringify(m1?.edits) === JSON.stringify([{ slide: 3, set: { 'data-auto-animate': true } }, { slide: 2, set: { 'data-auto-animate': true } }])
+          && m1?.quiet === true && morphed() === '2,3';
+        // ticked on 4: only 4 is written, 3 has it
+        await onSlide(4);
+        await tick(true);
+        r.morphWritesOnlyWhatIsMissing = JSON.stringify(posts().pop()?.edits) === JSON.stringify([{ slide: 4, set: { 'data-auto-animate': true } }]) && morphed() === '2,3,4';
+        // unticked on 3: 4 still morphs from 3, so it is 2 that goes
+        await onSlide(3);
+        await tick(false);
+        r.untickKeepsTheNextOnesMorph = JSON.stringify(posts().pop()?.edits) === JSON.stringify([{ slide: 2, set: { 'data-auto-animate': null } }])
+          && morphed() === '3,4' && dd('morph').querySelector('input').checked === false;
+        await onSlide(4);
+        r.nextSlideStillMorphs = dd('morph').querySelector('input').checked === true;
+
+        // a pin: off, and slide 3's title is no longer pinned, at once
+        await onSlide(3);
+        const wasPinned = sec(3).hasAttribute('data-pinned');
+        await choose(field('pin'), 'none');
+        r.pinOff = wasPinned && posts().pop()?.set?.['data-pin'] === 'none' && !sec(3).hasAttribute('data-pinned');
+        await choose(field('pin'), 'pin');
+        const heightBox = dd('pin').querySelectorAll('input')[0];
+        r.pinnedBare = posts().pop()?.set?.['data-pin'] === true && sec(3).getAttribute('data-pin') === '' && !heightBox.hidden;
+        await type(heightBox, '140');
+        r.pinHeight = posts().pop()?.set?.['data-pin'] === '140' && sec(3).style.getPropertyValue('--pin-y') === '140px';
+
+        // a subtitle: the line after the title is one until the slide says none
+        await onSlide(4);
+        sec(4).querySelector('h2').insertAdjacentHTML('afterend', '<p class="sm-line">the line under it</p>');
+        deck.refreshSlide(sec(4), { scan: false });
+        await settle();
+        const line = sec(4).querySelector('.sm-line');
+        const wasSubtitle = line.classList.contains('subtitle');
+        await choose(field('subtitle'), 'none');
+        r.subtitleNone = wasSubtitle && posts().pop()?.set?.['data-subtitle'] === 'none' && !line.classList.contains('subtitle');
+        await choose(field('subtitle'), '');
+        r.subtitleAuto = posts().pop()?.set?.['data-subtitle'] === null && line.classList.contains('subtitle');
+
+        // narration: seconds, empty the deck's, nonsense said
+        await type(field('pause'), '1.5');
+        r.pauseWritten = posts().pop()?.set?.['data-narration-pause'] === '1.5' && sec(4).getAttribute('data-narration-pause') === '1.5';
+        const n = posts().length;
+        await type(field('beat'), 'soon');
+        r.badPauseSaid = posts().length === n && /seconds/.test(toasts()) && field('beat').value === '';
+        await type(field('pause'), '');
+        r.pauseBackToTheDecks = posts().pop()?.set?.['data-narration-pause'] === null && !sec(4).hasAttribute('data-narration-pause');
+        press('Escape');
+        await settle();
+        try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
       if (mode === 'slidesettings') {
