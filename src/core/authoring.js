@@ -35,9 +35,10 @@ export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, 
 export const NOT_EDITABLE = 'pre, code, svg, .terminal, [data-chart], aside, table[data-chart]';
 /**
  * A formula as the runtime typeset it (or the error it shows in its place). A
- * slide marked for math is edited like any slide; only an element that HOLDS
- * one of these is refused, since its DOM is MathML and the TeX lives only in
- * the file: writing the DOM back would put the MathML in the deck.
+ * slide marked for math is edited like any slide, but an element that HOLDS
+ * one of these is never typed into as it is shown: its DOM is MathML and the
+ * TeX lives only in the file, so writing the DOM back would put the MathML in
+ * the deck. It opens as its source instead (formulaTarget).
  */
 export const FORMULA = 'math, .temml-error';
 /**
@@ -126,14 +127,21 @@ export function editableTarget(target, sec) {
 }
 
 /**
- * Why a double-click on `target` opens nothing, when the reason is a formula
- * it holds (so the gesture is never silent), else null.
+ * The text element under `target` that holds a typeset formula, or null: the
+ * one editableTarget refuses for that reason alone, which a double-click
+ * opens showing what the file has (`$$E = mc^2$$`) rather than the MathML.
  */
-export function formulaRefusal(target, sec) {
+export function formulaTarget(target, sec) {
   const el = target?.closest?.(EDITABLE);
   if (!el || !sec?.contains?.(el) || el.closest(NOT_EDITABLE)) return null;
-  if (!el.querySelector?.(FORMULA)) return null;
-  return 'this text holds a formula: for now it is changed in its HTML (the inspector’s HTML tab)';
+  return el.querySelector?.(FORMULA) ? el : null;
+}
+
+/** What a formula that did not parse says, from the error Temml shows in its place. */
+export function formulaError(node) {
+  const text = node?.textContent ?? '';
+  const at = text.lastIndexOf('\n\n');
+  return (at >= 0 ? text.slice(at + 2) : text).replace(/^ParseError:\s*/, '').trim() || 'it does not parse';
 }
 
 export function createAuthoring({ root, instance, toast, editmode, debugLog = () => {} }) {
@@ -197,9 +205,48 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (cur.code) return saveCode(cur);
     if (cur.svg) return saveLabel(cur);
     closeLinkBox();
+    const changed = cur.formula && changedNow(cur);
     // a list or a table: the whole session, one write (list-session.js)
-    if (cur.list || cur.table) return lists.save(cur);
-    return saveText(cur);
+    const done = cur.list || cur.table ? lists.save(cur) : saveText(cur);
+    if (!cur.formula) return done;
+    await done;
+    typesetAgain(cur, { changed });
+  }
+
+  // ── a formula typed as its source (CODE_AND_MATH) ─────────────────────────
+  // Its text shows the file's TeX while it is typed; when the typing ends the
+  // slide typesets it again, whether it was written (the save's announce has
+  // already done it), unchanged, or given up. Words a failed save left marked
+  // stay as typed, so a double-click picks them up as they are.
+  function typesetAgain(cur, { changed = false } = {}) {
+    const sec = instance._sections?.[cur.slide - 1];
+    const host = cur.list?.root ?? cur.el;
+    if (!sec || host.closest?.('.dl-unsaved')) return;
+    instance.refreshSlide?.(sec, { math: true, scan: false });
+    const bad = changed ? host.querySelector?.('.temml-error') : null;
+    if (bad) toast(`saved, but the formula does not parse: ${formulaError(bad)}`, 6000);
+  }
+  /** Text holding a typeset formula, opened as what the file has: the TeX, never the MathML. */
+  async function beginFormula(el, where, { selectAll = false } = {}) {
+    if (editing) await saveInline();
+    if (!el.isConnected || !el.querySelector(FORMULA)) {
+      // a save just now typeset it differently, or the words are already the source
+      if (el.isConnected && editableTarget(el, where.sec)) beginInline(el, where, { selectAll });
+      return;
+    }
+    const top = topLevelChild(where.sec, el);
+    if (!top) return;
+    const path = childPath(top, el);
+    if (path === null) return;
+    let html;
+    try {
+      ({ node: { innerHTML: html } } = await elementSource(where.slide, authoredIndex(where.sec, top), path, 'formula'));
+    } catch (err) {
+      toast(`could not open the formula: ${String(err.message || err)}`, 6000);
+      return;
+    }
+    el.innerHTML = html;
+    beginInline(el, where, { selectAll, formula: true });
   }
 
   async function saveText(cur) {
@@ -262,7 +309,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       if (stranded.has(cur.el)) { cur.el.textContent = cur.was; unstrand(cur.el); }
       return;
     }
-    if (cur.list || cur.table) { lists.cancel(cur); return; }
+    if (cur.list || cur.table) { lists.cancel(cur); if (cur.formula) typesetAgain(cur); return; }
     unstrand(cur.el);
     if (cur.code) {
       cur.el.removeAttribute('contenteditable');
@@ -273,6 +320,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     cur.el.innerHTML = cur.original;
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
+    if (cur.formula) typesetAgain(cur);
   }
 
   // ── lists and tables, typed in like a document (PRESENTING_EDITING) ──────
@@ -647,18 +695,19 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   document.addEventListener('selectionchange', () => { if (editing) placePill(); });
 
   // ── double-click a code block ─────────────────────────────────────────────
-  /** The source text of the `<code>` at `path` inside a top-level element, straight from the file. */
-  async function codeSource(slide, index, path) {
+  /** The node at `path` inside a top-level element, parsed from the file's source; `what` names it in a refusal. */
+  async function elementSource(slide, index, path, what = 'code block') {
     const src = await boundedFetch(`${base()}/deck/edit/element/source?slide=${slide}&index=${index}`);
     const j = await src.json().catch(() => ({}));
-    if (!src.ok || typeof j.html !== 'string') throw new Error(j.error || 'no source for this code block');
+    if (!src.ok || typeof j.html !== 'string') throw new Error(j.error || `no source for this ${what}`);
     const tpl = document.createElement('template');
     tpl.innerHTML = j.html;
     const top = tpl.content.firstElementChild;
     const node = nodeAtPath(top, path);
-    if (!node) throw new Error('the source has no code block where the click landed');
+    if (!node) throw new Error(`the source has no ${what} where the click landed`);
     return { top, node };
   }
+  const codeSource = (slide, index, path) => elementSource(slide, index, path);
 
   // The rendered lines are MOVED aside, not copied as HTML: the data-lines build
   // provider holds references to these very `.code-line` nodes, and an Escape
@@ -835,7 +884,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     }
   }
 
-  function beginInline(el, { sec, slide }, { selectAll = false, provisional = null } = {}) {
+  function beginInline(el, { sec, slide }, { selectAll = false, provisional = null, formula = false } = {}) {
     // another point of the list being edited, another cell of its table: the same session
     if (editing && lists.claim(editing, el)) return;
     if (editing) saveInline();
@@ -849,7 +898,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const again = provisional ? null : lists.strandedFor(el, stranded);
     if (again) { editing = again; lists.resume(again, el); syncHint(); return; }
     // picked up again after a save that failed: the file still has the original
-    editing = { el, original: stranded.get(el)?.original ?? el.innerHTML, slide, index, path, provisional };
+    // a formula's text is shown as its source while it is typed, and typeset again after
+    const prior = stranded.get(el);
+    editing = { el, original: prior?.original ?? el.innerHTML, slide, index, path, provisional, formula: formula || !!prior?.formula };
     // a point of a list, a cell of a table: Enter and Tab work as a document's (list-session.js)
     if (!provisional) lists.begin(editing, top);
     el.setAttribute('contenteditable', 'true');
@@ -883,8 +934,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (label) { e.preventDefault(); beginLabel(label, where); return; }
     const el = editableTarget(e.target, where.sec);
     if (!el) {
-      const why = formulaRefusal(e.target, where.sec);
-      if (why) { e.preventDefault(); toast(why, 3600); }
+      const formula = formulaTarget(e.target, where.sec);
+      if (formula) { e.preventDefault(); beginFormula(formula, where); }
       return;
     }
     e.preventDefault();
@@ -930,7 +981,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!el || el === editing.el) return;
     // a point or cell holding a typeset formula is not typed into: its page
     // is MathML, and the session would write that into the file
-    if (el.querySelector(FORMULA)) { toast(formulaRefusal(el, sectionOf(el)?.sec) ?? 'this text holds a formula', 3600); return; }
+    if (el.querySelector(FORMULA)) { toast('this point holds a formula: double-click it to type it as its source', 3600); return; }
     lists.claim(editing, el);
   }, true);
 
@@ -1044,9 +1095,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       if (label) { beginLabel(label, where); return true; }
       const text = editableTarget(el, where.sec);
       if (!text) {
-        const why = formulaRefusal(el, where.sec);
-        if (why) toast(why, 3600);
-        return false;
+        const formula = formulaTarget(el, where.sec);
+        if (formula) beginFormula(formula, where, { selectAll });
+        return !!formula;
       }
       beginInline(text, where, { selectAll });
       return true;
