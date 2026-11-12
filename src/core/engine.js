@@ -3789,9 +3789,9 @@ export function init(userConfig = {}) {
   // the menu was opened on, then show it in the inspector on that tab
   instance._selection = () => editbar.selected();   // what is selected, for the render harnesses
   instance._selectNode = (node, opts) => editbar.selectNode(node, opts);   // and a node inside a block selected, as the breadcrumb does
-  editmode.setInspect((t, tab) => {
+  editmode.setInspect((t, tab, side = null) => {
     if (t?.node) editbar.selectNode(t.node, { exact: true });
-    inspector.open({ tab });
+    inspector.open({ tab, side });
   });
 
   // `hasTracks`, not `track`: narration is OFF until somebody picks, so a deck

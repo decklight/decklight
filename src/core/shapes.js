@@ -55,6 +55,7 @@
 import { pathFrom } from './colorpicker.js';
 import { injectedIn, isDrawn } from './pick.js';
 import { createEditCommit } from './edit-commit.js';
+import { LINE_DASHES, LINES, lineOf, CORNERS, cornersOf, cornerRadius } from '../../tools/diagram-shapes.mjs';
 import {
   IDENTITY, WIRE_TAGS, connectorsIn, isConnector, nodeNamed, nodeBox, endsOf, geometryFor, wireGeometry, setGeometry,
   routeOf, tagForRoute, svgOf, invert, toRoot, union, applyTo, boxThrough,
@@ -326,7 +327,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
         if (attr === 'transform') {
           const t = leadingTranslate(now);
           edits.push({ path, tag: tagOf(el), attr, value: `translate(${round1(t.x)} ${round1(t.y)})` });
-        } else edits.push({ path, tag: tagOf(el), attr, value: SHAPE_DATA.has(attr) ? now : Number(now) });
+        } else edits.push({ path, tag: tagOf(el), attr, value: now === null ? null : SHAPE_DATA.has(attr) ? now : Number(now) });
       }
     }
     return edits;
@@ -614,7 +615,10 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     switch (tagOf(shape)) {
       case 'ellipse': g('cx', b.x + b.w / 2); g('cy', b.y + b.h / 2); g('rx', b.w / 2); g('ry', b.h / 2); break;
       case 'circle': g('cx', b.x + b.w / 2); g('cy', b.y + b.h / 2); g('r', Math.max(b.w, b.h) / 2); break;
-      default: g('x', b.x); g('y', b.y); g('width', b.w); g('height', b.h);
+      default:
+        g('x', b.x); g('y', b.y); g('width', b.w); g('height', b.h);
+        // a pill stays a pill: its corners are half its short side, whatever size it is made
+        if (tagOf(shape) === 'rect' && cornersOf(was) === 'pill') for (const a of ['rx', 'ry']) if (a in was || a === 'rx') g(a, Math.min(b.w, b.h) / 2);
     }
   }
   const BOX_HANDLES = [[-1, -1, 'nwse'], [0, -1, 'ns'], [1, -1, 'nesw'], [1, 0, 'ew'], [1, 1, 'nwse'], [0, 1, 'ns'], [-1, 1, 'nesw'], [-1, 0, 'ew']];
@@ -1011,6 +1015,11 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       }
       return live;
     }
+    return replaceDrawn(live, fresh, svg);
+  }
+  /** `live` replaced by `fresh`, what the engine drew for it (a riding head, a dashed line's mask) gone, and its slide's builds scanned again. */
+  function replaceDrawn(live, fresh, svg) {
+    const drawn = live.classList.contains('draw-stroke');
     for (const h of Object.values(live._drawHeads ?? {})) h.el?.remove();
     const mask = /url\(\s*["']?#([^"')\s]+)/.exec(live.getAttribute('mask') ?? '')?.[1];
     if (mask) svg.querySelector(`[id="${CSS.escape(mask)}"].draw-mask`)?.remove();
@@ -1085,6 +1094,77 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     const geometry = ends && wireGeometry(w, { from: named('data-to') ?? ends.end, to: named('data-from') ?? ends.start });
     if (!geometry) return null;
     return wireOp(target, w, 'reverse', { geometry });
+  }
+
+  // Line ▸ and Corners ▸ (SVG_DIAGRAMS): a stroke solid, dashed or dotted,
+  // a box's corners square, rounded or a pill
+  /** The stroke a target is, for Line ▸: a wire, a line, a polyline, or a path that is only a stroke. */
+  function strokeOf(target) {
+    const n = target?.node;
+    if (!n || !isDrawn(n) || !diagramOf(target) || !pathFrom(target.top, n)) return null;
+    const tag = tagOf(n);
+    if (wireOf(target) || tag === 'line' || tag === 'polyline') return n;
+    return tag === 'path' && getComputedStyle(n).fill === 'none' ? n : null;
+  }
+  /** The dashes the file gives a live stroke: a drawn one keeps them inline when they dash (builds.js), else they are stashed. */
+  function authoredDashes(n) {
+    if (n.hasAttribute('data-draw-masked')) return n.style.strokeDasharray;
+    if (n.classList.contains('draw-stroke')) return n.dataset.drawOrig ?? '';
+    return n.style.strokeDasharray || n.getAttribute('stroke-dasharray') || '';
+  }
+  /** 'solid', 'dashed' or 'dotted': what the stroke the target is draws as. */
+  function lineState(target) {
+    const n = strokeOf(target);
+    return n ? lineOf(authoredDashes(n)) : null;
+  }
+  /** Line ▸: the stroke made solid, dashed or dotted, in one write; a drawn one rebuilt as the file now has it. */
+  async function setLine(target, line) {
+    const n = strokeOf(target);
+    if (!n || !LINES.includes(line)) return null;
+    const was = lineState(target);
+    const path = pathFrom(target.top, n);
+    const edits = [{ path, tag: tagOf(n), prop: 'stroke-dasharray', value: LINE_DASHES[line] ?? null }];
+    // a dot is a round cap on a dash of nothing; leaving the dots takes the cap they had off
+    if (line === 'dotted' || was === 'dotted') edits.push({ path, tag: tagOf(n), prop: 'stroke-linecap', value: line === 'dotted' ? 'round' : null });
+    let j;
+    try { j = await post('/deck/edit/element/style', { slide: target.slide, index: target.index, edits, echo: true }); }
+    catch (e) { toast(commit.notSaved('line', e), 6000); return null; }
+    const svg = svgOf(n);
+    let live = n;
+    try {
+      const fresh = liveNode(j.nodes?.[0]?.html ?? '', svg);
+      if (n.classList.contains('draw-stroke') || n.closest('.build-step')) live = replaceDrawn(n, fresh, svg);
+      else for (const a of ['style', 'stroke-dasharray', 'stroke-linecap']) { if (fresh.hasAttribute(a)) n.setAttribute(a, fresh.getAttribute(a)); else n.removeAttribute(a); }
+    } catch (e) {
+      reloadFor('a restyled line could not be redrawn', e);
+      return null;
+    }
+    refit([live], svg, isConnector(live) ? [live] : []);
+    if (editbar.selected()?.node !== live) editbar.selectNode(live, { exact: true });
+    debugLog('edit', `line ${line}: slide ${target.slide} element #${target.index} › ${path.join('.')}`);
+    return live;
+  }
+  /** The box a target's corners are: a rect, or the rect of the box group it is. */
+  function cornerBox(target) {
+    const r = resizable(target);
+    return r?.kind === 'box' && tagOf(r.shape) === 'rect' ? r.shape : null;
+  }
+  /** 'square', 'rounded' or 'pill': the corners of the box the target is. */
+  function cornerState(target) {
+    const b = cornerBox(target);
+    return b ? cornersOf(Object.fromEntries(['width', 'height', 'rx', 'ry'].filter((a) => b.hasAttribute(a)).map((a) => [a, num(b, a)]))) : null;
+  }
+  /** Corners ▸: the box's `rx` and `ry`, one geometry write; a pill's follow its size when it is resized. */
+  async function setCorners(target, corners) {
+    const b = cornerBox(target);
+    if (!b || !CORNERS.includes(corners)) return null;
+    const before = new Map([[b, { rx: b.getAttribute('rx'), ry: b.getAttribute('ry') }]]);
+    const r = cornerRadius(corners, num(b, 'width'), num(b, 'height'));
+    for (const a of ['rx', 'ry']) { if (r === null) b.removeAttribute(a); else b.setAttribute(a, String(r)); }
+    refit([b], svgOf(b));
+    const ok = await save(target, before, 'corners');
+    placeHandles();
+    return ok ? b : null;
   }
 
   editbar.onSelect?.((t) => { if (t) showHandles(t); else hideHandles(); });
@@ -1201,6 +1281,9 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     diagramOf, canDuplicate, add, duplicate,
     /** The element menu's rows on a wire: is it one, its route and arrows, and the three edits. */
     isWire: (target) => !!wireOf(target), wireState, setRoute, setArrows, reverse,
+    /** Line ▸ on a stroke and Corners ▸ on a box: is there one, which is ticked, and the write. */
+    isStroke: (target) => !!strokeOf(target), lineState, setLine,
+    hasCorners: (target) => !!cornerBox(target), cornerState, setCorners,
     /** Is a drag, a resize or a wire being drawn under way? (the harnesses) */
     busy: () => !!(drag || resizing || wiring),
     /** The handles on screen, for the harnesses: `[{ el, hx, hy, end }]`. */

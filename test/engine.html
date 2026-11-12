@@ -885,6 +885,16 @@
         if (u.includes('/deck/edit/element/geometry') || u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/connector')) return json({ ok: true, changed: true, undo: 1, redo: 0, ...window.__fakeConnector(JSON.parse(init?.body ?? '{}')) });
       }
+      // Line ▸ and Corners ▸ (SVG_DIAGRAMS): the style route, asked to echo,
+      // answers with the node as the file would have it (window.__lsFile)
+      if (HARNESS_MODE === 'linestyle') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/style')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, changed: true, undo: 1, redo: 0, ...(b.echo ? { nodes: window.__lsFile(b) } : {}) });
+        }
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'inspectpick') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -1276,6 +1286,41 @@
           <rect class="cn-inner" x="600" y="200" width="60" height="40" style="fill: var(--d-fill-5)"/>
         </svg>
       </section>`);
+    }
+    // Line ▸ and Corners ▸: a connector in a draw build (drawn dashed through
+    // a mask once it dashes), and beside it a box and a dashed polyline
+    if (HARNESS_MODE === 'linestyle') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Lines</h2>
+        <svg class="ls-svg" viewBox="0 0 800 300" width="800" data-build="draw">
+          <rect class="ls-a" data-node="a" x="40" y="100" width="160" height="80" stroke="#888" stroke-width="2" fill="none"/>
+          <rect class="ls-b" data-node="b" x="560" y="100" width="160" height="80" stroke="#888" stroke-width="2" fill="none"/>
+          <line class="ls-wire" data-from="a" data-to="b" x1="200" y1="140" x2="560" y2="140" stroke="#888" stroke-width="3"/>
+        </svg>
+        <svg class="ls-plain" viewBox="0 0 800 200" width="800">
+          <rect class="ls-box" x="40" y="40" width="200" height="80" style="fill: var(--d-fill-3)"/>
+          <polyline class="ls-poly" points="300,40 400,100 500,40" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="3 3"/>
+        </svg>
+      </section>`);
+      // the file's markup of each stroke, restyled the way setElementStyles restyles it
+      const file = new Map();
+      window.__lsFile = (b) => {
+        const key = `${b.index}:${JSON.stringify(b.edits[0].path)}`;
+        if (!file.has(key)) {
+          const live = [...document.querySelector(b.index === 1 ? '.ls-svg' : '.ls-plain').children].filter((c) => !c.matches('.draw-head, .draw-mask'))[b.edits[0].path[0]];
+          const c = live.cloneNode(false);
+          for (const a of [...c.attributes]) if (!['class', 'data-node', 'data-from', 'data-to', 'x', 'y', 'width', 'height', 'x1', 'y1', 'x2', 'y2', 'points', 'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'style'].includes(a.name)) c.removeAttribute(a.name);
+          c.removeAttribute('style');
+          c.setAttribute('class', live.classList[0]);   // the file's class, not the engine's
+          file.set(key, c);
+        }
+        const el = file.get(key);
+        for (const ed of b.edits) {
+          if (ed.value === null) el.style.removeProperty(ed.prop); else el.style.setProperty(ed.prop, ed.value);
+          el.removeAttribute(ed.prop);
+          if (!el.getAttribute('style')) el.removeAttribute('style');
+        }
+        return [{ path: b.edits[0].path, html: el.outerHTML }];
+      };
     }
     // alignment guides: two boxes to line up
     if (HARNESS_MODE === 'guides') {
@@ -3738,7 +3783,7 @@
           r.wireRows = !!row('Wire ▸') && !row('Route ▸') && !row('Arrows ▸') && !row('Reverse');
           row('Wire ▸')?.click(); await settle();
           const sub = [...document.querySelectorAll('.decklight-ctxmenu .cm-list > *')].map((n) => (n.classList.contains('cm-head') ? `#${n.textContent}` : n.classList.contains('cm-sep') ? '—' : n.textContent));
-          r.wireSubmenu = JSON.stringify(sub) === JSON.stringify(['← back', '#Route', '✓ Straight', 'Elbow', 'Curved', '#Arrows', 'None', '✓ End', 'Both ends', '—', 'Reverse']);
+          r.wireSubmenu = JSON.stringify(sub) === JSON.stringify(['← back', '#Route', '✓ Straight', 'Elbow', 'Curved', '#Arrows', 'None', '✓ End', 'Both ends', '#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', '—', 'Reverse']);
           r.routeTicked = !!row('✓ Straight') && !!row('Elbow') && !!row('Curved');
           // the arrows skip the headings: ↓ from the back row lands on Straight
           press('ArrowDown');
@@ -3805,6 +3850,115 @@
           r.othersStay = a.getAttribute('x') === '40';
           r.PASS = Object.values(r).every((v) => v === true);
         }
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'linestyle') {
+        // SVG_DIAGRAMS, Line ▸ and Corners ▸ (shapes.js): a wire dashed in a
+        // draw build is rebuilt to draw dashed, a hand-drawn polyline styled
+        // in place, a box's corners squared, rounded, made a pill that stays
+        // one on a resize; Wire ▸ Width… opens Colors on its Stroke
+        await settle();
+        deck.goto(deck._sections.length);
+        await settle(); await settle();
+        const svg = document.querySelector('.ls-svg');
+        const plain = document.querySelector('.ls-plain');
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+        const row = (t) => rows().find((n) => n.textContent.trim() === t);
+        const listed = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-list > *')].map((n) => (n.classList.contains('cm-head') ? `#${n.textContent}` : n.classList.contains('cm-sep') ? '—' : n.textContent));
+        const centre = (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; };
+        const menuOn = async (el, p = centre(el)) => { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: Math.round(p.x), clientY: Math.round(p.y) })); await settle(); };
+        const into = async (el, sub, p) => { await menuOn(el, p); row(sub)?.click(); await settle(); };
+        const choose = async (t) => { const ok = !!row(t); row(t)?.click(); await settle(); await settle(); return ok; };
+        const posts = (what) => CALLS.post.filter((c) => c.u.includes(`/deck/edit/element/${what}`)).map((c) => c.body);
+        const at = (x) => JSON.stringify(x);
+        const masks = () => svg.querySelectorAll('.draw-mask').length;
+        const steps = () => svg.closest('section').querySelectorAll('.build-step').length;
+        const steps0 = steps();
+        const wire = svg.querySelector('.ls-wire');
+        r.drawnAtLoad = wire.classList.contains('draw-stroke') && !wire.hasAttribute('data-draw-masked') && masks() === 0;
+
+        // Wire ▸: Line, ticked solid, and a Width… row, between the arrows and Reverse
+        await into(wire, 'Wire ▸');
+        const sub = listed();
+        r.wireLineGroup = at(sub.slice(sub.indexOf('#Line'))) === at(['#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', '—', 'Reverse']);
+        await choose('Dashed');
+        const d1 = posts('style')[0];
+        r.dashedAsked = d1?.echo === true && at(d1.edits) === at([{ path: [2], tag: 'line', prop: 'stroke-dasharray', value: '6 4' }]);
+        const dashed = svg.querySelector('.ls-wire');
+        // a drawn stroke's dashes are its mask's to draw: the node is rebuilt, masked, still a step, selected
+        r.rebuiltMasked = dashed !== wire && !wire.isConnected && dashed.classList.contains('draw-stroke') && dashed.hasAttribute('data-draw-masked')
+          && masks() === 1 && /^6(px)?,? 4(px)?$/.test(dashed.style.strokeDasharray) && deck._selection()?.node === dashed;
+        r.stepsKept = steps() === steps0;
+        await into(dashed, 'Wire ▸');
+        r.dashedTicked = !!row('✓ Dashed') && !!row('Solid');
+        await choose('Dotted');
+        const d2 = posts('style')[1];
+        r.dottedCapsRound = at(d2?.edits.map((e) => [e.prop, e.value])) === at([['stroke-dasharray', '0 4'], ['stroke-linecap', 'round']]);
+        const dotted = svg.querySelector('.ls-wire');
+        r.oneMaskStill = masks() === 1 && dotted.hasAttribute('data-draw-masked');
+        await into(dotted, 'Wire ▸');
+        await choose('Solid');
+        const d3 = posts('style')[2];
+        r.solidTakesBothOff = at(d3?.edits.map((e) => [e.prop, e.value])) === at([['stroke-dasharray', null], ['stroke-linecap', null]]);
+        const solid = svg.querySelector('.ls-wire');
+        r.solidUnmasked = !solid.hasAttribute('data-draw-masked') && masks() === 0 && solid.classList.contains('draw-stroke') && steps() === steps0;
+
+        // Width… opens the inspector on Colors, at the Stroke side and its width
+        await into(solid, 'Wire ▸');
+        row('Width…')?.click(); await settle(); await settle();
+        r.widthOpensStroke = !!document.querySelector('input[aria-label="Stroke width"]');
+        press('Escape'); await settle();
+        document.querySelector('.decklight-inspector')?.remove?.();
+
+        // a polyline drawn by hand: Line in its Shape ▸, the file's dashes ticked, restyled where it stands
+        const poly = plain.querySelector('.ls-poly');
+        await into(poly, 'Shape ▸', { x: centre(poly).x, y: poly.getBoundingClientRect().top + 1 });
+        r.polyLineGroup = !!row('✓ Dashed') && !row('Square');
+        await choose('Dotted');
+        const p1 = posts('style')[3];
+        r.polyAsked = p1?.index === 2 && at(p1.edits[0]) === at({ path: [1], tag: 'polyline', prop: 'stroke-dasharray', value: '0 4' });
+        r.polyInPlace = plain.querySelector('.ls-poly') === poly && !poly.hasAttribute('stroke-dasharray') && /^0(px)?,? 4(px)?$/.test(poly.style.strokeDasharray) && poly.style.strokeLinecap === 'round';
+
+        // a box: Corners, ticked square, then rounded, a pill, a pill resized, square again
+        const box = plain.querySelector('.ls-box');
+        await into(box, 'Shape ▸');
+        r.cornersGroup = at(listed().filter((t) => ['#Corners', '✓ Square', 'Rounded', 'Pill'].includes(t))) === at(['#Corners', '✓ Square', 'Rounded', 'Pill']) && !row('Dashed');
+        await choose('Rounded');
+        const g1 = posts('geometry')[0];
+        r.roundedAsked = at(g1?.edits) === at([{ path: [0], tag: 'rect', attr: 'rx', value: 12 }, { path: [0], tag: 'rect', attr: 'ry', value: 12 }]) && box.getAttribute('rx') === '12';
+        await into(box, 'Shape ▸');
+        r.roundedTicked = !!row('✓ Rounded');
+        await choose('Pill');
+        r.pill = posts('geometry')[1]?.edits[0]?.value === 40 && box.getAttribute('ry') === '40';
+        // the bottom handle up by 20 units: the pill's corners follow its new height
+        if (deck._selection()?.node !== box) {
+          const c = centre(box);
+          for (const type of ['pointerdown', 'pointerup']) box.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: c.x, clientY: c.y, pointerId: 1, isPrimary: true, button: 0 }));
+          box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: c.x, clientY: c.y }));
+          await settle();
+        }
+        const hb = deck._shapes.handles().find((h) => h.hx === 0 && h.hy === 1)?.el;
+        const k = plain.getScreenCTM().a;
+        if (hb) {
+          const c = centre(hb);
+          const ptr = (type, el, x, y) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0 }));
+          ptr('pointerdown', hb, c.x, c.y);
+          for (const f of [0.3, 1]) ptr('pointermove', document.body, c.x, c.y - 20 * k * f);
+          ptr('pointerup', document.body, c.x, c.y - 20 * k);
+          await settle(); await settle();
+        }
+        const g3 = posts('geometry')[2];
+        const said = (a) => g3?.edits.find((e) => e.attr === a)?.value;
+        r.pillFollowsResize = !!hb && said('height') === 60 && said('rx') === 30 && said('ry') === 30 && box.getAttribute('rx') === '30';
+        // the click a handle's drag ends in is swallowed for a moment: the next pick waits it out
+        await new Promise((f) => setTimeout(f, 400));
+        await into(box, 'Shape ▸');
+        await choose('Square');
+        const g4 = posts('geometry').at(-1);
+        r.squareTakesThemOff = at(g4?.edits.map((e) => [e.attr, e.value])) === at([['rx', null], ['ry', null]]) && !box.hasAttribute('rx') && !box.hasAttribute('ry');
+        r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

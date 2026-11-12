@@ -79,7 +79,7 @@ function colourOf(t) {
 export function copyStyle(target) {
   const tg = target?.top && colorTargets(target.top, target.clicked ?? target.node ?? target.top);
   if (!tg) return null;
-  const any = tg.fill[0] ?? tg.text[0];
+  const any = tg.fill[0] ?? tg.stroke?.[0] ?? tg.text[0];
   const kind = isSvg(any) ? 'svg' : 'html';
   const stroke = tg.stroke?.[0];
   const widthProp = kind === 'svg' ? 'stroke-width' : 'border-width';
@@ -151,7 +151,7 @@ export function pasteChanges(clip, target, { snap = null } = {}) {
     if (!same(resolveColor(computed(t.el, t.prop)), src.rgb)) set(t, t.prop, onBrand(rgbToHex(src.rgb)));
   };
   const shape = tg.fill[0];
-  const kind = isSvg(shape ?? tg.text[0]) ? 'svg' : 'html';
+  const kind = isSvg(shape ?? tg.stroke?.[0] ?? tg.text[0]) ? 'svg' : 'html';
   let concept = null;
   if (kind === 'svg' && tg.conceptAt) {
     const here = tg.conceptAt;
