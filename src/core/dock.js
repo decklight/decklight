@@ -45,9 +45,9 @@ const ICON = {
 const LABEL = { float: 'Float', left: 'Left', right: 'Right', bottom: 'Bottom', window: 'Window' };
 const MODES = ['float', 'left', 'right', 'bottom'];
 // The tabs in the order of the work, whichever panel was built first: write
-// the notes, look at the slide, check the deck, read what was said about it,
-// cite it, ask for help.
-const TAB_ORDER = ['Notes', 'Inspector', 'Check', 'Comments', 'Sources', 'Agent'];
+// the notes, look at the slide, check the deck, find and replace in it, read
+// what was said about it, cite it, ask for help.
+const TAB_ORDER = ['Notes', 'Inspector', 'Check', 'Find', 'Comments', 'Sources', 'Agent'];
 // what starts a hint and is a key: a chord (⌘⏎, ⇧M, Ctrl+Enter, Ctrl+⇧Enter),
 // a named key (Esc, ⏎, ⌫), or one letter (R, e; not the word "a")
 const MOD = '(?:Ctrl\\+|Alt\\+|Shift\\+|[⌘⇧⌥⌃])';

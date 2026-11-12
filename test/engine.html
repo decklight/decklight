@@ -563,6 +563,23 @@
         }
       }
       // `editbar` is the same server, driven from the bar and the selection
+      // find and replace (findreplace): two matches the file has, a replace that answers its count,
+      // and FR_DRIFT a deck that changed since the search
+      if (HARNESS_MODE === 'findreplace') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/find')) {
+          const q = new URL(u, location.href).searchParams.get('q') ?? '';
+          return json(/quarter/i.test(q) ? { ok: true, count: 2, matches: [
+            { id: '1:120', slide: 1, notes: false, before: 'this ', text: 'quarter', after: ' we grew' },
+            { id: '2:340', slide: 2, notes: false, before: 'next ', text: 'quarter', after: '' },
+          ] } : { ok: true, count: 0, matches: [] });
+        }
+        if (u.includes('/deck/edit/replace')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          if (window.FR_DRIFT) return json({ ok: false, error: 'the deck has changed since the search: it now has 3 matches, not 2. Search again.', count: 3 }, 409);
+          return json({ ok: true, changed: true, count: b.only ? b.only.length : 2, undo: 1, redo: 0 });
+        }
+      }
       // Deck settings… (decksettings): the file's settings as the server reads them, a save
       // answered as the file read again; DS_READONLY makes it a deck whose configuration is code
       if (HARNESS_MODE === 'decksettings') {
@@ -2973,6 +2990,68 @@
         press('Escape');
         try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || k === 'crumbs' || k === 'contrast' || v === true);
+      }
+
+      if (mode === 'findreplace') {
+        // PRESENTING_EDITING, find and replace: the palette's row opens a docked
+        // panel; it lists the file's matches with their slides, a click goes to
+        // one, Replace replaces one and Replace all every one, each one write;
+        // a deck that changed since is said; a match across formatting is said
+        const P = '.decklight-findreplace';
+        const q = (s) => document.querySelector(`${P} ${s}`);
+        const finds = () => CALLS.get.filter((u) => u.includes('/deck/edit/find'));
+        const reps = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/replace')).map((c) => c.body);
+        const toasts = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+        document.querySelectorAll('.decklight-stage > section')[0].insertAdjacentHTML('beforeend', '<p class="fr-split">a <b>quar</b>ter apart</p>');
+        await settle(); await settle();
+        press('/');
+        for (const ch of 'find and replace') press(ch);
+        r.paletteRow = /Find and replace…/.test(document.querySelector('.decklight-palette .pal-row')?.textContent ?? '');
+        press('Enter');
+        await settle();
+        r.docked = !!document.querySelector(P) && !!document.querySelector(P).dataset.dock && document.activeElement === q('[name="fr-find"]');
+        const find = q('[name="fr-find"]');
+        find.value = 'quarter'; find.dispatchEvent(new Event('input', { bubbles: true }));
+        await wait(400); await settle();
+        r.searchedTheFile = /q=quarter/.test(finds().pop() ?? '');
+        r.listsTheMatches = [...document.querySelectorAll(`${P} .fr-row`)].map((n) => n.querySelector('.fr-where').textContent).join(',') === 'slide 1,slide 2'
+          && /2 matches on 2 slides/.test(q('.fr-said')?.textContent ?? '') && q('.fr-row mark')?.textContent === 'quarter';
+        r.saysAcrossFormatting = /1 more on the slides run across bold/.test(q('.fr-said')?.textContent ?? '');
+        r.findKeepsItsCaret = document.activeElement === q('[name="fr-find"]');
+        // the notes, when ticked, are asked for
+        q('input[name="fr-notes"]').click();
+        await settle(); await settle();
+        r.notesAskedFor = /notes=1/.test(finds().pop() ?? '');
+        // a row goes to its slide
+        document.querySelectorAll(`${P} .fr-row`)[1].click();
+        await settle();
+        r.rowGoesToTheSlide = deck.state.slide === 2;
+        // replace one, then all: each one write, not quiet, with the count it searched
+        const rep = q('[name="fr-replace"]');
+        rep.value = 'half'; rep.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelectorAll(`${P} .fr-row .fr-btn`)[0].click();
+        await settle(); await settle();
+        const one = reps().pop();
+        r.replaceOne = one?.find === 'quarter' && one?.replace === 'half' && one?.expect === 2 && JSON.stringify(one?.only) === '["1:120"]'
+          && one?.opts?.notes === true && one?.quiet !== true && /replaced 1 match/.test(toasts());
+        r.searchedAgainAfter = finds().length >= 3;
+        q('.fr-all').click();
+        await settle(); await settle();
+        const all = reps().pop();
+        r.replaceAll = reps().length === 2 && all?.only === undefined && all?.expect === 2 && q('.fr-all')?.textContent === 'Replace all 2';
+        // the deck changed since: said, nothing claimed
+        window.FR_DRIFT = true;
+        q('.fr-all').click();
+        await settle(); await settle();
+        r.driftSaid = /nothing replaced: the deck has changed since the search/.test(toasts());
+        window.FR_DRIFT = false;
+        // Esc in a field closes the panel, and the deck's arrows were the deck's all along
+        q('[name="fr-find"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        r.escCloses = !document.querySelector(P);
+        try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
       if (mode === 'decksettings') {
@@ -7157,7 +7236,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // the frame every panel shares: the tabs in the order of the work, one
         // button for where the panel sits, the keys at the foot
         {
-          const want = ['Notes', 'Inspector', 'Check', 'Comments', 'Sources', 'Agent'];
+          const want = ['Notes', 'Inspector', 'Check', 'Find', 'Comments', 'Sources', 'Agent'];
           const got = [...document.querySelectorAll(`${A} .dk-tab`)].map((t) => t.textContent);
           r.tabsInTheOrderOfTheWork = got.length > 1 && got.every((t, i) => want.includes(t) && (i === 0 || want.indexOf(got[i - 1]) < want.indexOf(t)));
           const tabsRow = document.querySelector(`${A} .dk-tabs`);

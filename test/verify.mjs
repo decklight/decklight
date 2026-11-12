@@ -99,6 +99,7 @@ const ENGINE_GROUPS = {
     'paletteplain',
     'settings',
     'decksettings',
+    'findreplace',
     'deckcheck',
     'display',
     'exclusive',
