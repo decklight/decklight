@@ -69,7 +69,9 @@ decklight doctor          # what this machine can do, and how to get the rest
 ```
 
 Type a command wrong and it tells you which one you meant. Or skip the scaffold
-and write the HTML yourself. A deck you author is *data* (slides and a JSON
+and write the HTML yourself: `decklight vscode` gives VS Code the completions and
+snippets for it, and `decklight check` names a slip like `data-buld` with what
+you meant. A deck you author is *data* (slides and a JSON
 configuration block) and `decklight <deck>` adds the runtime as it serves it, in write mode and in `--no-trust`;
 `bundle` embeds it when you hand the file over. This is the whole anatomy:
 
@@ -203,9 +205,10 @@ narrate, template, library, gate) are defined once in
 | Writing | |
 |---|---|
 | `init ["Title"]` | scaffold a deck and the agent skill, then open it in write mode (`--no-open` keeps the browser closed; `--starter full` writes one slide per feature to copy from) |
+| `vscode [deck.html]` | write `.vscode/` beside a deck so VS Code helps you type it: every `data-*` attribute Decklight reads completes with its values and a line on what it does, and `dl-slide`, `dl-build`, `dl-notes`, `dl-diagram`, `dl-chart` and `dl-compare` expand to the markup. An existing `settings.json` gains one key and keeps the rest (`init --vscode` does it for a new deck) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob; a skill older than this build is refreshed, and write mode names one at startup |
 | `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser editing is on: double-click text to edit it (`⌘B`, `⌘I`, `⌘E` for bold, italic and code while you do), drop a picture onto a slide, the bar's Layout for a layout, `S` for notes, `O` to rearrange slides; `Lock deck` in the palette turns changes off until you unlock |
-| `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`; `--watch` checks again on every save, in a terminal beside your editor, until Ctrl-C) |
+| `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds, a misspelled attribute, build effect or configuration key with what was meant (`--json`; `--watch` checks again on every save, in a terminal beside your editor, until Ctrl-C) |
 | `narrate deck.html` | the narration into a folder beside the deck: an engine reads the notes, or you do with `--mic`, one [click] beat at a time (`--slides 7` for one slide); `--face` gives the recorded track its lip-sync, so the character plays it with nothing running |
 | `cast script.term.yaml` | record a terminal session in a real PTY (`cast refresh` re-runs, `cast export` writes asciicast) |
 

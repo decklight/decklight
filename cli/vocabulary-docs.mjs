@@ -1,0 +1,105 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * What each word of tools/vocabulary.mjs means, for a person: where an
+ * attribute goes (when that matters) and one line on what it does, and the
+ * same line for each configuration key. Joined to the table by name when the
+ * editor support files are written (cli/editor-support.mjs).
+ *
+ * Here and not in the table because the table ships in the runtime, and so in
+ * every self-contained and published deck, while only the CLI ever says these
+ * words. test/editor-support.test.mjs fails when an attribute or a key in the
+ * table has no line here, or a line here names nothing in the table.
+ */
+
+export const ATTRIBUTE_DOCS = {
+  'data-layout': { on: 'section', desc: 'How the slide is laid out: auto, centered, a pinned title, top, or split into two sides (split-flip mirrors them).' },
+  'data-template': { on: 'section', desc: 'The design-system slide template this slide is built on, as system/template.' },
+  'data-pin': { on: 'section', desc: 'Pin the title: bare forces the pin, none opts out, a number is its Y in design px.' },
+  'data-subtitle': { on: 'section', desc: 'none: the paragraph after the title is not made its subtitle.' },
+  'data-transition': { on: 'section', desc: 'The transition into this slide, over the deck\'s own.' },
+  'data-auto-animate': { on: 'section', desc: 'Magic Move from the slide before: elements sharing a data-id move, the rest fade.' },
+  'data-hidden': { on: 'section', desc: 'A slide the audience does not see. It keeps its number.' },
+  'data-module': { on: 'section', desc: 'Starts a chapter with this title; every slide after it belongs to it.' },
+  'data-background-image': { on: 'section', desc: 'An image behind the whole slide.' },
+  'data-background-video': { on: 'section', desc: 'A muted, looping video behind the slide while it is on.' },
+  'data-background-poster': { on: 'section', desc: 'The still that stands in for the background video (print needs it).' },
+  'data-background-size': { on: 'section', desc: 'How the background image fills the slide (default cover).' },
+  'data-background-position': { on: 'section', desc: 'Where the background image sits (default center).' },
+  'data-background-dim': { on: 'section', desc: 'Dims the background media toward the canvas, 0 to 1, so text reads.' },
+  'data-logo': { on: 'section', desc: 'A large copy of the deck\'s logo above the content; a number is its height in px.' },
+  'data-math': { on: 'section', desc: 'Renders the LaTeX on this slide.' },
+  'data-static-ok': { on: 'section or svg', desc: 'This diagram is meant to land all at once: no hint for it.' },
+  'data-dense-ok': { on: 'section', desc: 'This slide is meant to be dense: no crowded warning for it.' },
+  'data-timing': { on: 'section', desc: 'Planned seconds on this slide, for rehearsal.' },
+  'data-face': { on: 'section', desc: 'Where the filmed face shows on this slide: a corner, hide, or full with a zoom.' },
+  'data-narration': { on: 'section', desc: 'hold: narration never moves off this slide by itself.' },
+  'data-narration-pause': { on: 'section', desc: 'Seconds the slide holds after its narration ends.' },
+  'data-narration-beat-pause': { on: 'section', desc: 'Seconds between one build\'s narration and the next.' },
+  'data-narration-sentence-pause': { on: 'section', desc: 'Seconds between two sentences of one beat.' },
+  'data-video-hold': { on: 'section', desc: 'Seconds this slide holds in a video export.' },
+  'data-build': { desc: 'Reveal in steps: on a container each child is a step, on a leaf the element is one. The value is the entrance.' },
+  'data-build-order': { desc: 'The click this step comes on, over document order; equal numbers arrive together.' },
+  'data-build-stay': { on: 'child of a data-build container', desc: 'This child is not a step: it is there from the start.' },
+  'data-build-self': { desc: 'A container that is one step itself, not one per child.' },
+  'data-draw-stops': { on: 'stroke in a draw build', desc: 'Draws one stroke in stages: path lengths, or fractions of it.' },
+  'data-draw-speed': { on: 'stroke in a draw build', desc: 'Pace of a staged stroke, in path units per second (default 300).' },
+  'data-node': { on: 'svg shape or group', desc: 'Names this box so a connector can join it.' },
+  'data-from': { on: 'svg line, path or polyline', desc: 'The data-node this wire starts at.' },
+  'data-to': { on: 'svg line, path or polyline', desc: 'The data-node this wire ends at.' },
+  'data-route': { on: 'svg line, path or polyline', desc: 'How the wire runs between its nodes (default straight).' },
+  'data-concept': { on: 'svg shape or group', desc: 'Colours the shape by meaning: one concept, one colour, deck-wide.' },
+  'data-nest': { on: 'svg shape or group', desc: 'off: keep the authored fill inside a filled panel; on: nest a shape the box test misses.' },
+  'data-id': { desc: 'Matches this element across two auto-animate slides.' },
+  'data-animate': { desc: 'A looping attention animation while the slide is on.' },
+  'data-chart': { on: 'div.chart', desc: 'A chart drawn from the JSON inside it.' },
+  'data-title': { on: 'chart or terminal', desc: 'The chart\'s title, or the terminal\'s window title.' },
+  'data-aspect': { on: 'div.chart', desc: 'The chart\'s shape as w:h (default 16:9).' },
+  'data-lines': { on: 'pre', desc: 'Steps through the code by lines, as segments: 1|3-5|all.' },
+  'data-lines-numbers': { on: 'pre', desc: 'Shows line numbers.' },
+  'data-fit': { on: 'pre, or what holds several', desc: 'Sizes the code to the room the slide gives it.' },
+  'data-cast': { on: 'div.terminal', desc: 'The recorded session to play, a .cast.json file.' },
+  'data-cast-inline': { on: 'div.terminal', desc: 'The recorded session embedded in this page, as #id of its script block.' },
+  'data-mode': { on: 'div.terminal', desc: 'step: one command per click; play: it plays through.' },
+  'data-rows': { on: 'div.terminal', desc: 'The terminal\'s height in rows.' },
+  'data-type-speed': { on: 'div.terminal', desc: 'Typing speed, 1 (slow) to 10 (fast).' },
+  'data-max-step': { on: 'div.terminal', desc: 'The longest a step may play, in seconds.' },
+  'data-speed': { on: 'div.terminal', desc: 'Initial playback speed.' },
+  'data-type-sound': { on: 'div.terminal', desc: 'The keyboard\'s sound (default thocky).' },
+  'data-scroll-ok': { desc: 'This element scrolls on purpose: not counted as clipped.' },
+  'data-no-advance': { desc: 'A click on this element does not advance the deck.' },
+  'data-slot': { desc: 'The template slot this element fills (on a slide) or is (in a template).' },
+  'data-slot-hint': { on: 'template', desc: 'What an author is expected to put in this slot, e.g. h1,h2.' },
+  'data-slot-required': { on: 'template', desc: 'This slot must be filled.' },
+  'data-slot-default': { on: 'template', desc: 'Where content that names no slot lands.' },
+  'data-ds-bleed': { on: 'template', desc: 'This element\'s background is the slide\'s art, painted to the screen\'s edges.' },
+  'data-decklight-config': { on: 'script', desc: 'The deck\'s configuration block, as JSON.' },
+  'data-theme': { on: 'style', desc: 'A theme carried in the page, by name.' },
+};
+
+export const CONFIG_DOCS = {
+  decklight: 'The Decklight version this deck was written for.',
+  theme: 'The theme the deck opens on (default aurora).',
+  transition: 'The slide transition (default fade).',
+  hash: 'Keep the slide and build step in the URL (default true).',
+  controls: 'Show the previous and next chevrons (default true).',
+  slideNumber: 'Show the slide number: false, \"n\" or \"n/N\" (default false).',
+  width: 'The design width in px (default 1280).',
+  height: 'The design height in px (default 720).',
+  pinTitles: 'Pin slide titles at one height: true, false, or a Y in px (default true).',
+  themes: 'The themes the picker offers, by name (default: every shipped theme).',
+  markedThemes: 'Marketplace themes the deck uses, as name@marketplace.',
+  themeSources: 'Where each marketplace the deck references comes from.',
+  brandThemesOnly: 'Hold a design-system deck to its brand\'s themes (default true).',
+  designSystems: 'The design systems the deck is built on, as name@marketplace.',
+  designSystemVersions: 'The version of each design system the deck was written for.',
+  fonts: 'Marketplace fonts the deck uses, as name@marketplace.',
+  font: 'The font the deck is set in.',
+  concepts: 'Diagram concepts pinned to a fill slot (1 to 6) or a colour.',
+  logo: 'The brand mark: { onLight, onDark, src, height, position }.',
+  playlist: 'Decks that play one after another, as file paths.',
+  narration: 'The deck\'s voice: recorded tracks (files), the live bridge and its pauses.',
+  bleed: 'Paint a slide\'s background art to the screen\'s edges (default true).',
+  edit: 'Write mode: { url } of the edit server to use.',
+};

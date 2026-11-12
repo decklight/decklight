@@ -11,13 +11,16 @@
  *                  [--starter basic|full] [--design-system <ref> | --no-design-system]
  *                  [--git | --no-git] [--remote <url> | --no-remote]
  *                  [--no-open] [--force] [--no-skill | --global-skill]
+ *                  [--vscode | --no-vscode]
  *
- * A terminal run can ask up to six questions, each skipped by its flag or
+ * A terminal run can ask up to seven questions, each skipped by its flag or
  * by a non-TTY run: the deck's title ("My Deck" by default), which starter
  * (basic, two slides, or full, one slide per feature), which design
  * system it is built on (only when a cached catalog offers one), where the
  * skill goes (the project, or each detected agent's config home), whether to
- * create a git repository, and, for a repository it just created, a remote.
+ * write VS Code's completions and snippets (only when VS Code's `code` is on
+ * the PATH), whether to create a git repository, and, for a repository it
+ * just created, a remote.
  *
  * The deck is data by default: slides plus a JSON configuration block, with
  * no runtime in the file. `decklight <deck>` serves the installed runtime into
@@ -54,6 +57,7 @@ import {
 } from './git.mjs';
 import { makeFail, runMain } from './util.mjs';
 import { configHome } from './marketplace.mjs';
+import { writeEditorSupport } from './editor-support.mjs';
 import { openCommand, openDeck, openUrl } from './open-browser.mjs';
 
 // still exported from here — record and review used to import the opener from init
@@ -452,6 +456,18 @@ export function planSkill({ args = [], tty = false } = {}) {
 }
 
 /**
+ * VS Code's completions and snippets (cli/editor-support.mjs), the same
+ * shape again: a flag says, a terminal run with VS Code on the PATH is asked
+ * (yes by default: the author uses it), and every other run writes nothing,
+ * since a .vscode/ folder nobody's editor reads is clutter.
+ */
+export function planVscode({ args = [], tty = false, hasCode = false } = {}) {
+  if (args.includes('--no-vscode')) return { action: 'skip' };
+  if (args.includes('--vscode')) return { action: 'write' };
+  return { action: tty && hasCode ? 'ask' : 'skip' };
+}
+
+/**
  * Create the repository (via the shared createRepo seam, so it starts with
  * the starter .gitignore) and commit everything init just wrote. The deck is
  * the product: every failure is reported as a one-line note, never an exit.
@@ -610,7 +626,7 @@ Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--inline [--themes …]]
                  [--starter basic|full] [--design-system <ref> | --no-design-system]
                  [--git | --no-git] [--remote <url> | --no-remote] [--no-open] [--force]
-                 [--no-skill | --global-skill]
+                 [--no-skill | --global-skill] [--vscode | --no-vscode]
 
 Options:
   -o <file>       deck output path (default: deck.html)
@@ -671,6 +687,13 @@ Options:
                   agent's config home (~/.claude, ~/.codex, …), exactly what
                   \`decklight skills --global\` installs — instead of into the
                   project; suppresses the question
+  --vscode        write .vscode/ beside the deck: completions for every
+                  data-* attribute Decklight reads, with its values, and
+                  dl- snippets (a slide, a build, notes, a diagram, a chart,
+                  a comparison). An existing .vscode/settings.json is merged,
+                  never overwritten. (VS Code on the PATH + no flag: init
+                  ASKS on a TTY; decklight vscode adds it to a deck later)
+  --no-vscode     never write .vscode/, and ask nothing about it
 
 Without a title argument, a terminal run asks for one (empty keeps "My Deck");
 non-interactive runs scaffold "My Deck" without asking.
@@ -702,6 +725,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--force') force = true;
     else if (a === '--open' || a === '--no-open') ; // the handoff, below (--open is the default)
     else if (a === '--no-skill' || a === '--global-skill') ; // consumed by planSkill below
+    else if (a === '--vscode' || a === '--no-vscode') ;   // consumed by planVscode below
     else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
     else if (a === '--remote') i++;                // consumed by planRemote below
     else if (a === '--no-remote') ;                // likewise
@@ -886,6 +910,13 @@ unless --no-skill is given. The deck file is only touched with --force.
       }
     }
   }
+
+  // ── VS Code's completions and snippets, before git so the commit has them ─
+  let vscode = planVscode({ args: argv, tty, hasCode: hasBin('code') }).action;
+  if (vscode === 'ask') {
+    vscode = (await askYes('  add VS Code completions and snippets for Decklight (.vscode/)? [Y/n] ')) ? 'write' : 'skip';
+  }
+  if (vscode === 'write') for (const line of writeEditorSupport(root)) note(line);
 
   // ── the git offer — dev's question, asked at the natural moment ──────────
   const plan = planGit({ args: argv, tty, inRepo: inGitRepo(root) });
