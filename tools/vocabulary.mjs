@@ -122,7 +122,7 @@ export const ATTRIBUTES = [
  * name close to an authored one (`data-builds`, `data-pinned`) is the engine's.
  */
 export const ENGINE_ATTRIBUTES = [
-  'data-action', 'data-beat', 'data-beat-of', 'data-beats', 'data-bled', 'data-bleed', 'data-build-container',
+  'data-action', 'data-axis', 'data-beat', 'data-beat-of', 'data-beats', 'data-bled', 'data-bleed', 'data-build-container',
   'data-build-state', 'data-build-style', 'data-builds', 'data-canvas', 'data-chan', 'data-click-mismatch', 'data-col',
   'data-concept-hints', 'data-corner', 'data-count', 'data-custom', 'data-decklight-audio', 'data-decklight-runtime',
   'data-decklight-terminal', 'data-decklight-version', 'data-decklight-visemes', 'data-decklight-voices', 'data-dense',
@@ -133,7 +133,7 @@ export const ENGINE_ATTRIBUTES = [
   'data-font', 'data-font-meta', 'data-font-preview', 'data-font-version', 'data-generated', 'data-go', 'data-how',
   'data-href', 'data-i', 'data-idle', 'data-key', 'data-label', 'data-markdown', 'data-markdown-removed', 'data-mouth',
   'data-n', 'data-name', 'data-nest-fill', 'data-noise', 'data-off', 'data-off-fix', 'data-off-undo', 'data-overflow',
-  'data-overflow-by', 'data-phase', 'data-pinned', 'data-play', 'data-play-beat', 'data-plugin', 'data-pos',
+  'data-overflow-by', 'data-phase', 'data-pinned', 'data-play', 'data-play-beat', 'data-plugin', 'data-point', 'data-pos',
   'data-poster', 'data-rate', 'data-redo', 'data-redo-beat', 'data-ref', 'data-roles', 'data-row', 'data-rule',
   'data-scope', 'data-series', 'data-sig', 'data-slide', 'data-slide-index', 'data-split-conflict', 'data-state',
   'data-tab', 'data-tag', 'data-takes', 'data-theme-added', 'data-theme-marketplace', 'data-theme-source',
