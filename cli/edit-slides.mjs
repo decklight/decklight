@@ -1095,7 +1095,11 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * `index` (or the node at `path` below it), or with `index: null` after the
    * last content child and before the asides, the way a dropped picture lands
    * (PRESENTING_EDITING). Where it lands is the server's one rule
-   * (`whereNewBlockLands`): with a column selected, inside that column. The markup is the
+   * (`whereNewBlockLands`): with a column selected, inside that column.
+   * With `words` (one line of inline words each, `kind` text, bullets or
+   * numbered), the block is a paste from another app's clipboard: the server
+   * builds the paragraph or the list around them and takes them only as words
+   * and the editor's emphasis (`inlineWords`, tools/starters.mjs). The markup is the
    * server's (tools/starters.mjs): a kind outside the set is a 400, a slide
    * that follows a slide template, or two columns with content before them,
    * a 409 that says why.
@@ -1106,21 +1110,22 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * the watcher skips the reload and every other page is sent `content`.
    */
   function elementInsertRoute({ body, json }) {
-    const { slide, index = null, path = null, kind, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    const { slide, index = null, path = null, kind, words = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
     if (!Number.isInteger(slide) || slide < 1 || typeof kind !== 'string'
-        || (index !== null && (!Number.isInteger(index) || index < 0)) || !pathShape(path)) {
+        || (index !== null && (!Number.isInteger(index) || index < 0)) || !pathShape(path)
+        || (words !== null && (!Array.isArray(words) || words.some((w) => typeof w !== 'string')))) {
       return json(400, { ok: false, error: 'bad payload' });
     }
     let done = null;
     try {
       applyEdit((html) => {
-        done = insertStarter(html, slide, index, kind, { path });
+        done = insertStarter(html, slide, index, kind, { path, words });
         return done.html;
       });
     } catch (e) {
       return json(e.status ?? 404, { ok: false, error: oneline(e) });
     }
-    console.log(`  element added: slide ${slide} #${done.index}${done.path.length ? ` › ${done.path.join('.')}` : ''} (${kind}${done.wrapped ? ', its column wrapped' : ''})`);
+    console.log(`  element added: slide ${slide} #${done.index}${done.path.length ? ` › ${done.path.join('.')}` : ''} (${kind}${words ? ', pasted' : ''}${done.wrapped ? ', its column wrapped' : ''})`);
     if (inPlace === true) {
       quiet(readDeck());
       broadcast('content', { slide, index: done.index, from: typeof from === 'string' ? from.slice(0, 64) : null });

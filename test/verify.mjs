@@ -205,6 +205,7 @@ const ENGINE_GROUPS = {
     'addmenu',
     'turninto',
     'addcolumn',
+    'addpaste',
     'addslidekinds',
     'listkeys',
     'listplain',

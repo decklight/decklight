@@ -74,6 +74,26 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
   /** Add a starter of `kind` to the slide on screen, after the selected element (or last on the slide). */
   async function add(kind) {
     if (kind === 'picture') { editbar.choosePicture(); return; }
+    return insert(kind);
+  }
+
+  /**
+   * Words pasted from another app, outside typing (clipboard.js): a paragraph
+   * of one line or a list of several (`pastedWords`), added where Add would
+   * add one, and selected, not opened for typing: they are the author's
+   * words already, not a placeholder.
+   */
+  async function pasteWords(kind, words) {
+    if (!editmode.elementEditOn()) return;
+    const { slide, sec } = current();
+    if (!sec) return;
+    if (sec.hasAttribute('data-template')) { toast(templatedSay(slide), 5200); return; }
+    return insert(kind, { words });
+  }
+
+  /** One element onto the slide on screen, after the selection: a starter of `kind`, or with `words`, a paste of them. */
+  async function insert(kind, { words = null } = {}) {
+    const pasted = words !== null;
     const { slide, sec } = current();
     if (!sec) return;
     const sel = editbar.selected();
@@ -83,15 +103,15 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     const path = index !== null ? innerPath(sel) : null;
     const job = (async () => {
       let j;
-      try { j = await commit.send('/deck/edit/element/insert', { slide, index, kind, ...(path?.length ? { path } : {}) }); } catch (e) {
-        toast(`could not add ${SAID[kind] ?? kind}: ${commit.why(e)}`, 6000);
+      try { j = await commit.send('/deck/edit/element/insert', { slide, index, kind, ...(path?.length ? { path } : {}), ...(pasted ? { words } : {}) }); } catch (e) {
+        toast(`could not ${pasted ? 'paste' : 'add'} ${SAID[kind] ?? kind}: ${commit.why(e)}`, 6000);
         return;
       }
       let els;
       try { els = place(sec, j); } catch (e) {
         // the file has it and this page cannot show it: the page reloads onto it
         debugLog('edit', `add ${kind} in place failed (${String(e.message || e)}) — reloading`);
-        handOff({ slide, index: j.index, path: j.path ?? [], kind });
+        handOff({ slide, index: j.index, path: j.path ?? [], kind: pasted ? 'pasted' : kind });
         commit.reload(`${SAID[kind] ?? kind} added — the page could not show it in place`, { slide });
         return;
       }
@@ -106,8 +126,9 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
       });
       editbar.refresh();
       reveal(slide, els);
-      settle(kind, els[0]);
-      toast(`${SAID[kind] ?? kind} added${typingTarget(kind, els[0]) ? ' — type to replace the placeholder' : ''}`, 2200);
+      settle(pasted ? 'pasted' : kind, els[0]);
+      toast(pasted ? `pasted as ${SAID[kind] ?? kind}${words.length > 1 ? ` of ${words.length} points` : ''}`
+        : `${SAID[kind] ?? kind} added${typingTarget(kind, els[0]) ? ' — type to replace the placeholder' : ''}`, 2200);
     })();
     await commit.track(job);   // Z waits for it, as for every write
   }
@@ -248,5 +269,5 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
   editmode.onElementEditChange(resumeWhenOn);
   if (editmode.elementEditOn()) resume();
 
-  return { open, add, duplicate, kinds: () => ADD_KINDS.map(([kind, label]) => ({ kind, label })) };
+  return { open, add, pasteWords, duplicate, kinds: () => ADD_KINDS.map(([kind, label]) => ({ kind, label })) };
 }

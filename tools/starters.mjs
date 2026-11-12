@@ -232,6 +232,58 @@ function freeWireId(html) {
   for (let n = 1; ; n++) if (!new RegExp(`\\bid=["']dl-wire-${n}["']`).test(html)) return `dl-wire-${n}`;
 }
 
+// ── words pasted from another app (PRESENTING_EDITING, the clipboard) ─────
+// A paste outside typing adds a paragraph or a list of the clipboard's words.
+// The page cleans them (`pastedWords`, src/core/list-edit.js) and sends one
+// line of inline words per paragraph or point; the server builds the block
+// around them, as it builds every starter, and takes the words only when each
+// is plain text and the editor's own emphasis: a page or a forged request
+// cannot make this route a door for any other markup.
+
+/** The kinds words can be pasted as. */
+export const WORDS_KINDS = ['text', 'bullets', 'numbered'];
+const INLINE_TAGS = new Set(['strong', 'em', 'code', 'mark', 's', 'sup', 'sub']);
+// the web, mail or a slide; else a path, which may name no scheme, not even
+// one spelled with a character reference (`javascript&#58;`), and so holds none
+const SAFE_HREF = /^(?:https?:\/\/|mailto:|#)[^"<>\s]*$|^(?![a-z][a-z0-9+.-]*:)(?!.*&(?:#|colon;))[^"<>\s:]+$/i;
+
+/**
+ * `words` if it is one line of inline words the file may take as they are:
+ * text with its `<`, `>` and `&` escaped, the emphasis tags with no
+ * attributes, and `<a href>` to the web, mail, a slide or a path, every tag
+ * closed in order. Anything else throws a 400.
+ */
+export function inlineWords(words) {
+  const src = String(words ?? '');
+  if (!src.trim() || src.length > 2000 || /[\n\r]/.test(src)) throw new StarterError('a pasted line must be one line of words', 400);
+  const open = [];
+  const re = /<(\/?)([a-z]+)((?:\s+href="[^"]*")?)>|&(?:[a-z]+|#\d+|#x[0-9a-f]+);|[<>&]/gi;
+  for (const m of src.matchAll(re)) {
+    if (m[0][0] === '&' && m[0].length > 1) continue;   // an entity
+    const [, close, name, attrs] = m;
+    const tag = name?.toLowerCase();
+    const ok = tag && (INLINE_TAGS.has(tag) ? !attrs : tag === 'a' && (close ? !attrs : SAFE_HREF.test(attrs.replace(/^\s+href="|"$/g, ''))));
+    if (!ok) throw new StarterError(`a pasted line may hold words and emphasis only, not "${m[0].slice(0, 40)}"`, 400);
+    if (close) { if (open.pop() !== tag) throw new StarterError('a pasted line\'s tags must close in order', 400); }
+    else open.push(tag);
+  }
+  if (open.length) throw new StarterError('a pasted line\'s tags must close in order', 400);
+  return src;
+}
+
+/** The block pasted `words` make: a paragraph of one line, a list of several. */
+function wordsMarkup(kind, words) {
+  if (!WORDS_KINDS.includes(kind)) throw new StarterError(`words are pasted as ${WORDS_KINDS.join(', ')}, not "${kind}"`, 400);
+  if (!Array.isArray(words) || !words.length || words.length > 30) throw new StarterError('words come as one to thirty lines', 400);
+  const lines = words.map(inlineWords);
+  if (kind === 'text') {
+    if (lines.length !== 1) throw new StarterError('a paragraph is one line of words', 400);
+    return `<p>${lines[0]}</p>`;
+  }
+  const tag = kind === 'numbered' ? 'ol' : 'ul';
+  return `<${tag}>\n${lines.map((l) => `  <li>${l}</li>`).join('\n')}\n</${tag}>`;
+}
+
 /**
  * A deck with a starter of `kind` on slide `slide`, after top-level child
  * `index` or the node at `path` below it (`index: null`: after the last
@@ -253,7 +305,7 @@ function freeWireId(html) {
  * blocks the columns, so the columns go first under the title; and two
  * columns asked for inside a column (409).
  */
-export function insertStarter(html, slide, index, kind, { path = null } = {}) {
+export function insertStarter(html, slide, index, kind, { path = null, words = null } = {}) {
   const deck = String(html ?? '');
   if (!ELEMENT_KINDS.includes(kind)) {
     throw new StarterError(`no kind "${kind}" to add (one of: ${ELEMENT_KINDS.join(', ')})`, 400);
@@ -266,7 +318,8 @@ export function insertStarter(html, slide, index, kind, { path = null } = {}) {
     throw new StarterError(`slide ${slide} follows the "${template}" slide template: what it says goes in the template's slots, so nothing is added beside them. Edit a slot's words, or take the slide out of the template (Use slide template…) to add freely`, 409);
   }
   const titled = sectionChildRanges(seg).some((r) => r.tag === 'h1' || r.tag === 'h2');
-  const markup = elementStarter(kind, { titled, wire: kind === 'diagram' ? freeWireId(deck) : undefined });
+  // words pasted from another app: their block around them, else the kind's starter
+  const markup = words !== null ? wordsMarkup(kind, words) : elementStarter(kind, { titled, wire: kind === 'diagram' ? freeWireId(deck) : undefined });
   const count = kind === 'columns' ? 2 : 1;
   let layout = null;
   let out;
