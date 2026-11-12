@@ -128,7 +128,7 @@ export function registerOpenRoutes(routes, {
     if (!choice) return json(428, { ok: false, choose: true, error: 'choose your code editor first', ...state() });
     const cmd = editorCommand(choice, { file: deckPath, line: pos.line, column: pos.column }, where);
     if (!cmd.ok) return json(422, { ok: false, reason: cmd.reason, error: cmd.error, ...state() });
-    const started = await launchEditor(cmd, { ...(spawn ? { spawn } : {}) });
+    const started = await launchEditor(cmd, { baseEnv: env, ...(spawn ? { spawn } : {}) });
     if (!started.ok) {
       return json(422, { ok: false, reason: 'missing', error: `${cmd.label} did not start: ${started.error}`, ...state() });
     }

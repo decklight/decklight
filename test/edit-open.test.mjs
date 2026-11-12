@@ -136,11 +136,40 @@ test('a template: words split like a shell would for the simple cases, placehold
   assert.equal(editorCommand({ editor: 'custom', template: 'nothere {file}' }, POS, { ...POSIX, exists: machine() }).reason, 'missing');
 });
 
-test('Windows: a batch file is said, never started through a shell', () => {
-  const env = { Path: 'C:\\Code\\bin' };
-  const r = editorCommand({ editor: 'vscode' }, POS, { env, platform: 'win32', exists: machine('C:\\Code\\bin\\code.cmd') });
-  assert.deepEqual([r.ok, r.reason], [false, 'missing']);
-  assert.match(r.error, /without a shell/);
+test('Windows: VS Code\'s and Cursor\'s code.cmd started as the shim starts them, the app on its cli.js, no shell', async () => {
+  const VS = 'C:\\Users\\me\\AppData\\Local\\Programs\\Microsoft VS Code';
+  const CURSOR = 'C:\\Users\\me\\AppData\\Local\\Programs\\cursor';
+  const CU = `${CURSOR}\\resources\\app`;
+  const env = { Path: `C:\\Windows;${VS}\\bin;${CU}\\bin` };
+  const layout = machine(`${VS}\\bin\\code.cmd`, `${VS}\\Code.exe`, `${VS}\\resources\\app\\out\\cli.js`,
+    `${CU}\\bin\\cursor.cmd`, `${CURSOR}\\Cursor.exe`, `${CU}\\out\\cli.js`);
+  const win = { env, platform: 'win32', exists: layout };
+  const vs = editorCommand({ editor: 'vscode' }, POS, win);
+  assert.deepEqual(vs, { ok: true, bin: `${VS}\\Code.exe`, args: [`${VS}\\resources\\app\\out\\cli.js`, '-g', '/decks/my talk.html:12:7'],
+    env: { ELECTRON_RUN_AS_NODE: '1' }, label: 'VS Code' });
+  const cu = editorCommand({ editor: 'cursor' }, POS, win);
+  assert.deepEqual([cu.bin, cu.args[0], cu.env], [`${CURSOR}\\Cursor.exe`, `${CURSOR}\\resources\\app\\out\\cli.js`, { ELECTRON_RUN_AS_NODE: '1' }],
+    'Cursor\'s shim inside resources\\app reaches the same two files');
+  // and launched with the variable added to the server's environment, never through cmd.exe
+  const calls = [];
+  const spawn = (bin, args, opts) => { calls.push({ bin, args, opts }); const c = Object.assign(new EventEmitter(), { unref() {} }); process.nextTick(() => c.emit('spawn')); return c; };
+  assert.deepEqual(await launchEditor(vs, { spawn, baseEnv: { Path: 'x' } }), { ok: true });
+  assert.deepEqual([calls[0].bin, calls[0].opts.shell, calls[0].opts.env], [`${VS}\\Code.exe`, false, { Path: 'x', ELECTRON_RUN_AS_NODE: '1' }]);
+  await launchEditor({ bin: '/usr/bin/code', args: [] }, { spawn });
+  assert.equal(calls[1].opts.env, undefined, 'any other editor inherits the server\'s environment as it is');
+});
+
+test('Windows: a shim whose app or cli.js is not where the layout puts it, or anyone else\'s .cmd, is said, never run', () => {
+  const VS = 'C:\\Code';
+  const env = { Path: `${VS}\\bin;C:\\tools` };
+  const noCli = editorCommand({ editor: 'vscode' }, POS, { env, platform: 'win32', exists: machine(`${VS}\\bin\\code.cmd`, `${VS}\\Code.exe`) });
+  assert.deepEqual([noCli.ok, noCli.reason], [false, 'missing']);
+  assert.match(noCli.error, /without a shell/);
+  const noExe = editorCommand({ editor: 'vscode' }, POS, { env, platform: 'win32', exists: machine(`${VS}\\bin\\code.cmd`, `${VS}\\resources\\app\\out\\cli.js`) });
+  assert.equal(noExe.ok, false);
+  const other = editorCommand({ editor: 'custom', template: 'myedit {file}' }, POS,
+    { env, platform: 'win32', exists: machine('C:\\tools\\myedit.cmd', 'C:\\Code.exe', 'C:\\resources\\app\\out\\cli.js') });
+  assert.equal(other.ok, false, 'only code.cmd and cursor.cmd are known shims');
 });
 
 test('launchEditor: detached, no shell, output ignored; a failure to start is an answer, not a throw', async () => {

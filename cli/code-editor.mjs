@@ -199,6 +199,32 @@ export function choiceLabel(choice, { env = process.env } = {}) {
 
 // ── the command ───────────────────────────────────────────────────────────
 
+/** The app a VS Code-style `bin\<name>.cmd` shim starts, by the shim's name. */
+const ELECTRON_EXE = { code: 'Code.exe', cursor: 'Cursor.exe' };
+
+/**
+ * What a Windows VS Code or Cursor shim (`<install>\bin\code.cmd`) runs,
+ * without cmd.exe: the app (`<install>\Code.exe`) as node, on its CLI script
+ * (`<install>\resources\app\out\cli.js`), which is what the shim does
+ * with ELECTRON_RUN_AS_NODE set. `{ exe, cli }`, or null when the shim is not
+ * one of theirs or either file is not where that layout puts it.
+ */
+export function electronShim(cmd, { exists = existsSync } = {}) {
+  const w = path.win32;
+  const exeName = ELECTRON_EXE[programName(cmd)];
+  if (!exeName || w.basename(w.dirname(cmd)).toLowerCase() !== 'bin') return null;
+  const install = w.dirname(w.dirname(cmd));
+  // Cursor has kept its shim inside the app (`<install>\resources\app\bin`):
+  // the same two files, reached from there
+  const roots = /\\resources\\app$/i.test(install) ? [install, w.dirname(w.dirname(install))] : [install];
+  for (const root of roots) {
+    const exe = w.join(root, exeName);
+    const cli = w.join(root, 'resources', 'app', 'out', 'cli.js');
+    if (exists(exe) && exists(cli)) return { exe, cli };
+  }
+  return null;
+}
+
 /**
  * The argument array that opens `file` at `line`:`column` in the saved
  * editor: `{ ok: true, bin, args, label }`, or `{ ok: false, reason, error }`
@@ -210,8 +236,11 @@ export function editorCommand(choice, { file, line, column }, { env = process.en
   const label = choiceLabel(choice, { env });
   const runnable = (bin, args) => {
     // Node starts a .cmd or a .bat only through cmd.exe, and nothing here
-    // goes through a shell: such a command is said, never half-run
+    // goes through a shell. VS Code's and Cursor's own shims are started the
+    // way they start themselves (electronShim); any other is said, never half-run
     if (platform === 'win32' && /\.(cmd|bat)$/i.test(bin)) {
+      const shim = electronShim(bin, { exists });
+      if (shim) return { ok: true, bin: shim.exe, args: [shim.cli, ...args], env: { ELECTRON_RUN_AS_NODE: '1' }, label };
       return { ok: false, reason: 'missing', error: `${label} is a batch file here, and decklight starts editors without a shell: choose a command that names the program itself` };
     }
     return { ok: true, bin, args, label };
@@ -243,11 +272,12 @@ export function editorCommand(choice, { file, line, column }, { env = process.en
  * one that stays is its own). Resolves once it started, `{ ok: true }`, or
  * failed to, `{ ok: false, error }`; `spawn` is injected by the tests.
  */
-export function launchEditor({ bin, args }, { spawn = nodeSpawn, cwd } = {}) {
+export function launchEditor({ bin, args, env = null }, { spawn = nodeSpawn, cwd, baseEnv = process.env } = {}) {
   return new Promise((done) => {
     let child;
     try {
-      child = spawn(bin, args, { detached: true, stdio: 'ignore', shell: false, windowsHide: true, ...(cwd ? { cwd } : {}) });
+      child = spawn(bin, args, { detached: true, stdio: 'ignore', shell: false, windowsHide: true,
+        ...(cwd ? { cwd } : {}), ...(env ? { env: { ...baseEnv, ...env } } : {}) });
     } catch (e) { done({ ok: false, error: String(e.message || e) }); return; }
     child.once('error', (e) => done({ ok: false, error: e.code === 'ENOENT' ? `${bin} was not found` : String(e.message || e) }));
     child.once('spawn', () => { child.unref?.(); done({ ok: true }); });
