@@ -38,7 +38,12 @@ agent that reads `AGENTS.md`) has the real authoring contract on hand instead of
 guessing from Reveal.js memory. Then it asks whether to open the deck in write
 mode: live reload, edits from the browser, an AI agent on `A`, and git
 underneath: your work snapshotted as you go, committed when you press `K`.
-Say yes. Leave out `--dir` to start the deck in the current directory. Keep the
+Say yes. Leave out `--dir` to start the deck in the current directory. Add
+`--starter full` for a reference deck instead of the two-slide starter: one
+slide per feature (builds, notes, two columns, a table, code, math, a picture,
+a chart, a diagram with connectors, chapters, sources), each under a comment
+naming the SPEC section to read, so there is always a working slide to copy
+from. Keep the
 `@latest`: npx resolves it against the registry on every run, so you always
 get the current release, whereas a bare `npx decklight` runs any decklight
 already installed in the project or globally, however old.
@@ -193,7 +198,7 @@ narrate, template, library, gate) are defined once in
 
 | Writing | |
 |---|---|
-| `init ["Title"]` | scaffold a deck and the agent skill, then open it in write mode (`--no-open` keeps the browser closed) |
+| `init ["Title"]` | scaffold a deck and the agent skill, then open it in write mode (`--no-open` keeps the browser closed; `--starter full` writes one slide per feature to copy from) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob; a skill older than this build is refreshed, and write mode names one at startup |
 | `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser editing is on: double-click text to edit it (`⌘B`, `⌘I`, `⌘E` for bold, italic and code while you do), drop a picture onto a slide, the bar's Layout for a layout, `S` for notes, `O` to rearrange slides; `Lock deck` in the palette turns changes off until you unlock |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |

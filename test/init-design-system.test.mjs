@@ -313,6 +313,7 @@ test('on a terminal, one design system on offer is the default: Enter takes it',
   const w = world(t, ['acme']);
   const out = await onPty(w, ['init', '--no-git'], [
     [/deck title \[My Deck\]: $/, 'Orders in Real Time'],
+    [/\[B\/f\] $/, ''],
     [/\[1\]: $/, ''],
   ], /where should the skill go\?/);
   assert.match(out, /design system for this deck\?\n {2}1 {2}Acme Brand — acme@brand-mkt 2\.0\.0\n {7}the Acme brand\n {2}2 {2}none — decklight's own themes\n/);
@@ -323,6 +324,7 @@ test('on a terminal, one design system on offer is the default: Enter takes it',
 test('on a terminal, several design systems have no default: Enter asks again, a number picks', { skip: ptySkip, timeout: 60_000 }, async (t) => {
   const w = world(t, ['acme', 'beta']);
   const out = await onPty(w, ['init', 'Talk', '--no-git'], [
+    [/\[B\/f\] $/, ''],
     [/\[1-3\]: $/, ''],
     [/\[1-3\]: $/, '2'],
   ], /where should the skill go\?/);
@@ -333,7 +335,7 @@ test('on a terminal, several design systems have no default: Enter asks again, a
 
 test('on a terminal, none keeps today\'s starter', { skip: ptySkip, timeout: 60_000 }, async (t) => {
   const w = world(t, ['acme']);
-  const out = await onPty(w, ['init', 'Talk', '--no-git'], [[/\[1\]: $/, '2']], /where should the skill go\?/);
+  const out = await onPty(w, ['init', 'Talk', '--no-git'], [[/\[B\/f\] $/, ''], [/\[1\]: $/, '2']], /where should the skill go\?/);
   assert.match(out, /created deck\.html \(theme: aurora · /);
   assert.equal(config(deck(w)).designSystems, undefined);
 });
@@ -343,9 +345,22 @@ test('the bare `decklight` offer to start a deck reaches the same question', { s
   const out = await onPty(w, [], [
     [/start one here\? \[Y\/n\] $/, ''],
     [/deck title \[My Deck\]: $/, 'From Start'],
+    [/\[B\/f\] $/, ''],
     [/\[1\]: $/, '1'],
   ], /where should the skill go\?/);
   assert.match(out, /design system for this deck\?/);
   assert.match(out, /created deck\.html \(design system: Acme Brand/);
   assert.match(deck(w), /<h1 data-slot="title">From Start<\/h1>/);
+});
+
+test('on a terminal, f takes the full starter, its title slide on the brand\'s template', { skip: ptySkip, timeout: 60_000 }, async (t) => {
+  const w = world(t, ['acme']);
+  const out = await onPty(w, ['init', 'Tour', '--no-git'], [[/\[B\/f\] $/, 'f'], [/\[1\]: $/, '']], /where should the skill go\?/);
+  assert.match(out, /starter: basic \(a title and a build slide\) or full/);
+  assert.match(out, /created deck\.html \(full starter: one slide per feature · design system: Acme Brand/);
+  const html = deck(w);
+  assert.match(html, /<!-- The title slide[^\n]*-->\n {4}<section data-template="acme\/section-divider">\n {6}<h1 data-slot="title">Tour<\/h1>\n {6}<aside class="notes">/);
+  assert.match(html, /<section data-module="Words">/, 'the feature slides follow it');
+  const check = spawnSync(process.execPath, [CLI, 'check', 'deck.html', '--no-render', '--json'], { encoding: 'utf8', cwd: w.deckDir, env: w.env });
+  assert.deepEqual(JSON.parse(check.stdout), [], 'check is clean on the brand too');
 });

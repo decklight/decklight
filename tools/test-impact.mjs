@@ -52,7 +52,7 @@ export const ALL = [
   'record-render', 'review-render',
   'character-render', 'engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:sources', 'engine-render:authoring', 'engine-render:builds', 'pin-render', 'overflow-render', 'split-render', 'fit-render',
   'strict-render', 'shot-render', 'plugin-render', 'extension-check-render',
-  'deckfile-render', 'pdf-render', 'pptx-render', 'import-render', 'theme-config-render', 'edit-e2e', 'contrast', 'palette-rules',
+  'deckfile-render', 'pdf-render', 'pptx-render', 'import-render', 'starter-render', 'theme-config-render', 'edit-e2e', 'contrast', 'palette-rules',
 ];
 
 /**
@@ -108,6 +108,7 @@ const RULES = [
   [/^cli\/bundle\.mjs$/, ['strict-render', 'render'], 'bundling, and the deck it produces'],
   [/^cli\/plugin\.mjs$/, ['plugin-render'], 'presenter plugins'],
   [/^cli\/import\.mjs$/, ['import-render'], 'deck import'],
+  [/^cli\/(init|starter-full)\.mjs$/, ['starter-render'], 'the starter deck init writes, walked in every theme'],
   [/^cli\/deckfile\.mjs$/, ['deckfile-render'], 'the .decklight container'],
   [/^cli\/pdf\.mjs$/, ['pdf-render'], 'PDF export'],
   [/^cli\/pptx-export\.mjs$/, ['pptx-render'], 'PowerPoint export'],
@@ -124,7 +125,7 @@ const RULES = [
   [/^tools\/review-anchor\.mjs$/, ['review-render'], 'the anchor resolver both halves share'],
   [/^tools\/(tts-engines|local-voice|voiceover-server|lipsync)\.mjs$/, [...NARRATION, 'record-render'],
     'the voice bridge narration talks to'],
-  [/^themes\//, ['render', ...LINT], 'a theme, and the gates that read every theme'],
+  [/^themes\//, ['render', 'starter-render', ...LINT], 'a theme, the gates that read every theme, and the full starter walked in each'],
   [/^demo\//, ['render'], 'the smoke deck itself'],
 
   // ── things no harness reads ────────────────────────────────────────────
@@ -234,7 +235,7 @@ const COST = {
   'engine-render:sources': 3, 'engine-render:authoring': 3, 'engine-render:builds': 3,
   'pdf-render': 10, 'split-render': 9, 'fit-render': 8, 'review-render': 8, 'pin-render': 7, 'record-render': 7,
   'strict-render': 6, 'overflow-render': 6, 'plugin-render': 6, 'deckfile-render': 4,
-  'shot-render': 4, 'pptx-render': 6, 'edit-e2e': 30, 'player-render': 3, 'character-render': 2, 'import-render': 2, 'theme-config-render': 3,
+  'shot-render': 4, 'pptx-render': 6, 'edit-e2e': 30, 'player-render': 3, 'character-render': 2, 'import-render': 2, 'starter-render': 12, 'theme-config-render': 3,
   contrast: 1, 'palette-rules': 1,
 };
 const cost = (list) => list.reduce((n, h) => n + (COST[h] ?? 10), 0);
