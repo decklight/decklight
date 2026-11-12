@@ -38,6 +38,7 @@ import { createBuildEdit } from './build-edit.js';
 import { createDeckSettings } from './deck-settings.js';
 import { createFindReplace } from './find-replace.js';
 import { createOptionsTab } from './options-tab.js';
+import { createTurnInto } from './turn-into.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { createPlaylist } from './playlist.js';
@@ -3750,6 +3751,8 @@ export function init(userConfig = {}) {
   instance._deckSettings = deckSettings;
   const findReplace = createFindReplace({ root, overlays, toast, instance: () => instance, editmode: () => editmode });
   instance._findReplace = findReplace;
+  // Turn into ▸ on the element menu: a text block made another kind (turn-into.js)
+  editmode.setTurnInto(createTurnInto({ instance: () => instance, editmode: () => editmode, toast }));
   editmode.setSlideRows((slide) => {
     const hidden = !!instance._sections?.[slide - 1]?.hasAttribute('data-hidden');
     return [

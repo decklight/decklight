@@ -136,6 +136,9 @@
       sentTo: 'answers go to its own bridge on this machine (127.0.0.1:8787/validate), then ~/.decklight/credentials.json (0600)',
     };
     const CALLS = { get: [], post: [] };
+    // turninto: slide 1's blocks, as the file writes them (and as the page shows them)
+    const TI_SOURCE = ['<h2>Kinds</h2>', '<p class="ti-p">Some <em>words</em></p>',
+      '<ul class="ti-list" data-build>\n  <li>a</li>\n  <li>b <strong>bold</strong></li>\n</ul>', '<table class="ti-table"><tr><td>x</td></tr></table>'];
     // decksettings: the settings the file says (the defaults where it says nothing)
     const DS_VALUES = { transition: 'fade', slideNumber: false, controls: true, pinTitles: true, logo: null,
       'narration.slidePause': 1, 'narration.beatPause': 0.5, 'narration.sentencePause': 0.25 };
@@ -1033,6 +1036,15 @@
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, mode: 'switch', said: `now ${body.template} — content stays by slot name`, undo: 1, redo: 0 });
         }
+      }
+      // Turn into ▸ (turninto): each block's source as the file has it, a content write answered
+      if (HARNESS_MODE === 'turninto') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) {
+          const i = Number(new URL(u, location.href).searchParams.get('index'));
+          return json({ ok: true, html: TI_SOURCE[i] ?? '' });
+        }
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'contextmenu') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -11504,6 +11516,65 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.markedByTheToken && r.customOpensOnWhatShows && r.themePickPlain;
       }
 
+      if (mode === 'turninto') {
+        // PRESENTING_EDITING, Turn into ▸: a text block's menu offers the six
+        // kinds, its own ticked; a pick writes the block retagged from its
+        // source in one write; a list's build that becomes one step is said;
+        // the slide's title stays a heading; a table is not offered it
+        const M = '.decklight-ctxmenu', ROW = '.cm-row';
+        const sec = document.querySelectorAll('.decklight-stage > section')[0];
+        sec.innerHTML = TI_SOURCE.join('\n');
+        deck.refreshSlide(sec, { scan: false });
+        const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        const rowsText = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.firstChild?.textContent ?? '');
+        const rowEl = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => (x.firstChild?.textContent ?? '') === label);
+        const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content')).map((c) => c.body);
+        const toasts = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        await settle(); await settle();
+        deck.goto(1, 0);
+        await settle();
+        const open = async (el) => { rightClick(el); await settle(); rowEl('Turn into ▸')?.click(); await settle(); };
+
+        rightClick(sec.querySelector('.ti-p'));
+        await settle();
+        r.offeredOnText = rowsText().includes('Turn into ▸');
+        rowEl('Turn into ▸')?.click();
+        await settle();
+        r.sixKindsItsOwnTicked = JSON.stringify(rowsText().filter((t) => t !== '← back')) === JSON.stringify(['✓ Text', 'Heading', 'Small heading', 'Quote', 'Bullets', 'Numbered']);
+        rowEl('Heading').click();
+        await settle(); await settle();
+        const w1 = writes().pop();
+        r.paragraphToHeading = w1?.slide === 1 && w1?.index === 1 && w1?.html === '<h2 class="ti-p">Some <em>words</em></h2>' && w1?.quiet !== true && !document.querySelector(M);
+
+        await open(sec.querySelector('.ti-list li'));
+        r.aPointMeansItsList = rowsText().includes('✓ Bullets');
+        rowEl('Numbered').click();
+        await settle(); await settle();
+        r.bulletsToNumbered = writes().pop()?.html === TI_SOURCE[2].replace('<ul', '<ol').replace('</ul>', '</ol>');
+
+        await open(sec.querySelector('.ti-list'));
+        rowEl('Quote').click();
+        await settle(); await settle();
+        r.listToQuoteSaysTheBuild = writes().pop()?.html === '<blockquote class="ti-list" data-build>\n  <p>a</p>\n  <p>b <strong>bold</strong></p>\n</blockquote>'
+          && /its build is now one step/.test(toasts());
+
+        await open(sec.querySelector('h2'));
+        r.titleStaysAHeading = rowsText().includes('✓ Heading') && rowEl('Text')?.classList.contains('cm-disabled')
+          && /title stays a heading/.test(document.querySelector(`${M} .cm-head`)?.textContent ?? '');
+        const n = writes().length;
+        rowEl('Text')?.click();
+        await settle();
+        r.titleNotWritten = writes().length === n;
+        press('Escape'); await settle();
+        if (document.querySelector(M)) { press('Escape'); await settle(); }
+
+        rightClick(sec.querySelector('.ti-table td'));
+        await settle();
+        r.notOnATable = !rowsText().includes('Turn into ▸');
+        press('Escape');
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+      }
+
       if (mode === 'contextmenu') {
         // Element edit mode (#112): E only ARMS it — right-clicking a slide
         // element is the actual surface, and the menu it opens differs by
@@ -11525,9 +11596,10 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // right-click ON an element → the full menu
         rightClick(h1);
         r.opensOnElement = !!document.querySelector(M);
-        // Writing tools… sits after Edit content when an agent is on the machine (none here)
+        // Writing tools… sits after Edit content when an agent is on the machine (none here);
+        // a heading is text, so Turn into ▸ is its one contextual row, above Slide ▸
         r.fullMenuRows = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…'))
-          === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build ▸', 'Animate ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Slide ▸']);
+          === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build ▸', 'Animate ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Turn into ▸', 'Slide ▸']);
         // a row that cannot act here is greyed, not gone: nothing copied yet, so Paste style; the chords said beside their rows
         const rowEl = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.firstChild?.textContent === label);
         r.greyedNotGone = rowEl('Paste style')?.classList.contains('cm-disabled') === true && rowEl('Duplicate')?.classList.contains('cm-disabled') === false

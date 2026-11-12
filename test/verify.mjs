@@ -202,6 +202,7 @@ const ENGINE_GROUPS = {
     'bgindex',
     'links',
     'addmenu',
+    'turninto',
     'addcolumn',
     'addslidekinds',
     'listkeys',
