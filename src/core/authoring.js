@@ -341,14 +341,24 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
 
   // ── emphasis while editing in place (PRESENTING) ──────────────────────────
   // ⌘B, ⌘I and ⌘E (Ctrl on Windows and Linux) wrap the selection in <strong>,
-  // <em> or <code>, and take it off again; a pill above any selection offers
-  // the same three to the mouse. The file gets the semantic tag, never the
-  // <b> or <i> a browser's own bold command writes, so every theme's rule
-  // for `strong` (the heading colour) is what the emphasis looks like.
+  // <em> or <code>, ⌘⇧H in a highlight (<mark>) and ⌘⇧X in a strikethrough
+  // (<s>), and take it off again; a pill above any selection offers those and
+  // superscript and subscript (<sup>, <sub>) to the mouse. The file gets the
+  // semantic tag, never the <b> or <i> a browser's own bold command writes,
+  // so every theme's rule for `strong` (the heading colour) and `mark` (its
+  // accent, tinted) is what the emphasis looks like.
   const EMPHASIS = { b: 'strong', i: 'em', e: 'code' };
+  /** The chords with ⇧: a highlight and a strikethrough. Superscript and subscript are the pill's (⌘, and ⌘. are the browser's). */
+  const SHIFTED_EMPHASIS = { h: 'mark', x: 's' };
+  /** The pill, in its order: [chord, tag, label, what it is]. */
+  const PILL = [
+    ['B', 'strong', 'B', 'bold'], ['I', 'em', 'I', 'italic'], ['E', 'code', '‹›', 'code'],
+    ['⇧H', 'mark', 'H', 'highlight'], ['⇧X', 's', 'S', 'strikethrough'],
+    [null, 'sup', 'x²', 'superscript'], [null, 'sub', 'x₂', 'subscript'],
+  ];
   /** ⌘K / Ctrl+K: the link while typing, the palette everywhere else. */
   const isLinkChord = (e) => (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K');
-  const TAGS = ['strong', 'em', 'code'];
+  const TAGS = ['strong', 'em', 'code', 'mark', 's', 'sup', 'sub'];
   function selectionIn(el) {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
@@ -703,13 +713,14 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       pill.className = 'dl-fmt';
       pill.setAttribute('role', 'toolbar');
       pill.setAttribute('aria-label', 'emphasis');
-      for (const [key, tag, label] of [['b', 'strong', 'B'], ['i', 'em', 'I'], ['e', 'code', '‹›']]) {
+      for (const [key, tag, label, what] of PILL) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = `fmt-${tag}`;
         b.dataset.tag = tag;
         b.textContent = label;
-        b.title = `${tag} — ⌘${key.toUpperCase()} / Ctrl+${key.toUpperCase()}`;
+        b.title = key ? `${what} — ⌘${key} / Ctrl+${key.replace('⇧', 'Shift+')}` : what;
+        b.setAttribute('aria-label', what);
         // mousedown, not click: a click would move the selection the pill is about
         b.addEventListener('mousedown', (ev) => { ev.preventDefault(); toggleEmphasis(tag); });
         pill.appendChild(b);
@@ -1002,9 +1013,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       e.preventDefault();
       openLinkBox();
     }
-    else if ((e.metaKey || e.ctrlKey) && !e.altKey && EMPHASIS[e.key?.toLowerCase?.()]) {
+    else if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.shiftKey ? SHIFTED_EMPHASIS : EMPHASIS)[e.key?.toLowerCase?.()]) {
       e.preventDefault();
-      toggleEmphasis(EMPHASIS[e.key.toLowerCase()]);
+      toggleEmphasis((e.shiftKey ? SHIFTED_EMPHASIS : EMPHASIS)[e.key.toLowerCase()]);
     }
   }, true);
   root.addEventListener('focusout', (e) => {

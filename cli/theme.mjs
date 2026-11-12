@@ -126,11 +126,12 @@ export async function fetchTheme(source, { fetchImpl = fetch, read = readFileSyn
 /** The validation report, as the lines to print. */
 export function reportLines(name, result) {
   const out = [];
+  const warned = (result.warnings ?? []).map((w) => `  ⚠ ${w}`);
   if (result.ok) {
     out.push(`✔ ${name} — all ${REQUIRED.length} tokens present, contrast gates pass`);
     const ex = Object.entries(result.exceptions ?? {});
     for (const [rule, why] of ex) out.push(`  ○ ${rule} waived — ${why}`);
-    return out;
+    return [...out, ...warned];
   }
   out.push(`✘ ${name}`);
   for (const e of result.errors) out.push(`    ${e}`);
@@ -138,7 +139,7 @@ export function reportLines(name, result) {
     out.push(`  ${result.missing.length} of ${REQUIRED.length} tokens missing`
       + ' — a theme written against an older contract needs the new ones added (SPEC THEMING)');
   }
-  return out;
+  return [...out, ...warned];
 }
 
 async function checkMain(args) {

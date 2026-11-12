@@ -30,6 +30,8 @@
 
   /* ── accent ─────────────────────────────── */
   --accent: #13daec;
+  /* a highlight: the cyan lighter than the default, or the grey text loses its edge on it */
+  --mark-tint: 18%;
   --accent-contrast: #131313;
 
   /* ── blocks ─────────────────────────────── */

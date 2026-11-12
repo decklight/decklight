@@ -27,6 +27,9 @@
 
   /* ── accent ─────────────────────────────── */
   --accent: #268bd2;
+  /* a highlight: solarized's yellow, its words in base02, since the body grey has no contrast to spare */
+  --mark-bg: #eddeb1;
+  --mark-fg: #073642;
   --accent-contrast: #1c1c17;
 
   /* ── blocks ─────────────────────────────── */

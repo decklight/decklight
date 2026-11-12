@@ -144,7 +144,89 @@ export function validateTheme(css) {
     }
   }
 
-  return { ok: errors.length === 0, tokens, exceptions, missing, failures, errors, empty: false };
+  // A highlight (`<mark>`, PRESENTING_EDITING): words marked while typing sit
+  // on the theme's accent tinted over the slide, `--mark-bg`, by default
+  // `--mark-tint` (25%) of the accent; a theme may set the tint, or its own
+  // `--mark-bg` and `--mark-fg`. Over every background stop the marked words
+  // must stay as readable as body text, headings and muted words, and the
+  // mark must show. These are WARNINGS: a theme written before highlights
+  // existed (a marketplace's, a deck's own) still applies, and `theme gate`
+  // names what to set. The shipped themes are held to them (test/contrast.mjs).
+  const warnings = markGates(tokens).map((m) => m.message);
+
+  return { ok: errors.length === 0, tokens, exceptions, missing, failures, errors, warnings, empty: false };
+}
+
+/** The accent's share in a highlight when the theme says nothing: `color-mix(in srgb, var(--accent) 25%, transparent)`. */
+export const MARK_TINT = 0.25;
+/** How far a highlight must stand from the slide behind it, in OKLab distance, to read as one. */
+export const MARK_MIN_DISTANCE = 0.05;
+
+/**
+ * What a theme made from a palette (a PowerPoint template, a brand) adds so
+ * its highlight passes: nothing when the default tint does, else the
+ * nearest `--mark-tint` that does (lighter first, down to 6%, then stronger,
+ * up to 70%, for an accent too pale to show), else a highlight of its own
+ * (`--mark-bg`, the accent at 12% over the first background stop, and
+ * `--mark-fg`, whichever of fg and heading-color reads best on it). Tokens
+ * without the `--`, as `markGates` takes them.
+ */
+export function settleMark(tokens) {
+  if (!markGates(tokens).length) return {};
+  // lighter first (the words lose their edge on a strong tint), then stronger (a pale accent does not show)
+  const tints = [22, 20, 18, 16, 14, 12, 10, 8, 6, 30, 35, 40, 45, 50, 60, 70];
+  for (const pct of tints) {
+    const add = { 'mark-tint': `${pct}%` };
+    if (!markGates({ ...tokens, ...add }).length) return add;
+  }
+  const accent = colorsIn(tokens.accent ?? '')[0];
+  const stop = colorsIn(tokens.bg ?? '')[0];
+  if (!accent || !stop) return {};
+  const tone = tintOver(accent, stop, 0.12);
+  const inks = ['fg', 'heading-color'].map((k) => colorsIn(tokens[k] ?? '')[0]).filter(Boolean);
+  const ink = inks.sort((a, b) => contrast(b, tone) - contrast(a, tone))[0];
+  const hex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+  return ink ? { 'mark-bg': hex(tone), 'mark-fg': hex(ink) } : {};
+}
+
+/** `tint` over `bg`, as the page composites a translucent accent: in sRGB, by alpha. */
+const tintOver = (tint, bg, alpha) => tint.map((c, i) => Math.round(c * alpha + bg[i] * (1 - alpha)));
+
+/**
+ * The highlight's gates for a theme's tokens, as failures (none: it passes).
+ * The mark behind the words is the theme's opaque `--mark-bg` when it sets
+ * one, else its accent at `--mark-tint` over each background stop.
+ */
+export function markGates(tokens) {
+  const out = [];
+  const accent = colorsIn(tokens.accent ?? '')[0];
+  const stops = colorsIn(tokens.bg ?? '');
+  if (!accent || !stops.length) return out;   // missing or unparseable: already reported
+  const own = tokens['mark-bg'] ? colorsIn(tokens['mark-bg'])[0] : null;
+  const pct = /^\s*([\d.]+)%\s*$/.exec(tokens['mark-tint'] ?? '');
+  const alpha = pct ? Number(pct[1]) / 100 : MARK_TINT;
+  const ink = (name) => colorsIn(tokens['mark-fg'] ?? tokens[name] ?? '')[0];
+  // body text as body text; a heading as a heading; a subtitle's muted words as a diagram's sublabels
+  const gates = [['fg', 4.5], ['heading-color', 3.0], ['muted', 2.6]];
+  for (const stop of stops) {
+    const tone = own ?? tintOver(accent, stop, alpha);
+    for (const [name, min] of gates) {
+      const fg = ink(name);
+      if (!fg) continue;
+      const ratio = contrast(fg, tone);
+      if (ratio < min) {
+        out.push({ fg: tokens['mark-fg'] ? 'mark-fg' : name, bg: 'mark-bg', min, ratio,
+          message: `--${tokens['mark-fg'] ? 'mark-fg' : name} on a highlight (--mark-bg${own ? '' : `, the accent at ${Math.round(alpha * 100)}%`}): ${ratio.toFixed(2)} < ${min} — lower --mark-tint, or set --mark-bg and --mark-fg` });
+      }
+    }
+    const [a, b] = [toOklab(tone), toOklab(stop)];
+    const distance = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    if (distance < MARK_MIN_DISTANCE) {
+      out.push({ fg: 'mark-bg', bg: 'bg', min: MARK_MIN_DISTANCE, ratio: distance,
+        message: `--mark-bg on --bg: OKLab distance ${distance.toFixed(3)} < ${MARK_MIN_DISTANCE} — a highlight would not show` });
+    }
+  }
+  return out;
 }
 
 /** The least OKLab lightness step between a panel and the tone of a box nested in it. */

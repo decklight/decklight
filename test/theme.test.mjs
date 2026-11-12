@@ -19,7 +19,7 @@ import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools/theme-check.mjs';
+import { validateTheme, themeNameFrom, validThemeName, REQUIRED, markGates, MARK_TINT } from '../tools/theme-check.mjs';
 import { reportLines } from '../cli/theme.mjs';
 import { addedThemeLink, addedThemeStyle, setMarked, markedRefs, markedEntries, parseRef } from '../cli/theme-refs.mjs';
 import { MarketplaceError } from '../cli/marketplace.mjs';
@@ -364,4 +364,47 @@ test('a hostile title cannot escape its attribute', () => {
     assert.ok(!/data-theme-source="[^"]*"[^ >]/.test(el), 'the attribute did not break out');
     assert.match(el, /&quot;&gt;&lt;script&gt;/);
   }
+});
+
+// ── the highlight (PRESENTING_EDITING: emphasis while typing) ─────────────
+
+test('a highlight is the accent tinted over the slide, and marked words must stay readable on it', () => {
+  const base = { bg: '#101418', fg: '#e8eaed', 'heading-color': '#ffffff', accent: '#5aa9ff' };
+  assert.deepEqual(markGates(base), [], 'a dark theme with a clear accent passes');
+  assert.equal(MARK_TINT, 0.25, 'the default the stylesheet uses: color-mix(… 25%, transparent)');
+  // a pale ink on a strong accent: the tint drowns the words
+  const loud = { ...base, fg: '#a9b0b8', accent: '#ffd400' };
+  const failed = markGates(loud);
+  assert.ok(failed.some((f) => f.fg === 'fg' && f.min === 4.5), JSON.stringify(failed));
+  assert.match(failed[0].message, /lower --mark-tint, or set --mark-bg and --mark-fg/);
+  // a lighter tint is the theme's own fix
+  assert.deepEqual(markGates({ ...loud, 'mark-tint': '8%' }).filter((f) => f.fg === 'fg'), []);
+});
+
+test('a theme may set its own highlight and ink; a highlight that does not show is refused', () => {
+  const light = { bg: '#fdf6e3', fg: '#5e737a', 'heading-color': '#586e75', accent: '#268bd2' };
+  assert.ok(markGates(light).length > 0, 'solarized\'s grey has no contrast to spare for an accent tint');
+  assert.deepEqual(markGates({ ...light, 'mark-bg': '#eddeb1', 'mark-fg': '#073642' }), []);
+  const invisible = markGates({ ...light, 'mark-bg': '#fcf5e2', 'mark-fg': '#073642' });
+  assert.ok(invisible.some((f) => f.fg === 'mark-bg' && /would not show/.test(f.message)));
+});
+
+test('every stop of a gradient background is checked under a highlight', () => {
+  const grad = { bg: 'linear-gradient(180deg, #555a5f 0%, #1c1e20 100%)', fg: '#eeeeee', 'heading-color': '#eeeeee', accent: '#13daec' };
+  assert.ok(markGates(grad).some((f) => f.fg === 'fg'), 'the light stop fails at the default tint');
+  assert.deepEqual(markGates({ ...grad, 'mark-tint': '18%' }), []);
+});
+
+test('a theme from elsewhere whose highlight would not read is warned, not refused: it still applies', () => {
+  const shipped = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'themes', 'reveal-solarized.css'), 'utf8');
+  // the same theme as it was before highlights existed
+  const older = shipped.replace(/\n\s*\/\*[^*]*highlight[^*]*\*\/\n\s*--mark-bg:[^;]*;\n\s*--mark-fg:[^;]*;/, '');
+  assert.notEqual(older, shipped, 'the fixture took the highlight off');
+  const r = validateTheme(older);
+  assert.equal(r.ok, true, 'still a theme: it applies');
+  assert.ok(r.warnings.some((w) => /on a highlight/.test(w)), JSON.stringify(r.warnings));
+  const lines = reportLines('reveal-solarized', r);
+  assert.match(lines[0], /^✔/);
+  assert.ok(lines.some((l) => /^ {2}⚠ .*set --mark-bg and --mark-fg/.test(l)), lines.join('\n'));
+  assert.deepEqual(validateTheme(shipped).warnings, [], 'the shipped one sets its own pair');
 });

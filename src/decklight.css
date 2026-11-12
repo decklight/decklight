@@ -23,6 +23,11 @@
      these itself; left alone they derive from the theme's own slots and ink,
      in dark and light themes alike. `-in2` is the step below that, and the
      last: deeper nesting stays there. */
+  /* A highlight (<mark>, PRESENTING_EDITING): the theme's accent tinted over
+     the slide, so it is readable on dark and light themes alike (the theme
+     gate checks it, tools/theme-check.mjs). A theme may set --mark-tint, or
+     its own --mark-bg and --mark-fg. */
+  --mark-bg: color-mix(in srgb, var(--accent, #6af) var(--mark-tint, 25%), transparent);
   --d-fill-1-in: color-mix(in oklab, var(--d-fill-1) 82%, var(--d-text));
   --d-fill-2-in: color-mix(in oklab, var(--d-fill-2) 82%, var(--d-text));
   --d-fill-3-in: color-mix(in oklab, var(--d-fill-3) 82%, var(--d-text));
@@ -1263,6 +1268,16 @@
   background: none;
   white-space: pre;
 }
+.decklight mark {
+  background: var(--mark-bg);
+  color: var(--mark-fg, inherit);
+  padding: 0 0.12em;
+  border-radius: 0.15em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* a superscript or a subscript does not push its line away from the next */
+.decklight sup, .decklight sub { line-height: 0; }
 .decklight :not(pre) > code {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.9em;
@@ -4028,6 +4043,9 @@
 .dl-fmt button.on { background: rgba(255, 255, 255, .2); }
 .dl-fmt .fmt-em { font-style: italic; font-weight: 500; }
 .dl-fmt .fmt-code { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 500; }
+.dl-fmt .fmt-mark { font-weight: 600; box-shadow: inset 0 -0.45em 0 color-mix(in srgb, var(--accent, #6af) 45%, transparent); }
+.dl-fmt .fmt-s { text-decoration: line-through; font-weight: 500; }
+.dl-fmt .fmt-sup, .dl-fmt .fmt-sub { font-weight: 500; }
 .dl-fmt .fmt-a { display: inline-flex; align-items: center; justify-content: center; }
 /* the link box (authoring.js): ⌘K or the pill's link button, under the
    selection, in the stage's chrome colours whatever the theme */

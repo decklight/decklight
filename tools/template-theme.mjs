@@ -25,7 +25,7 @@
 
 import { parseXml, find, findAll } from './ooxml.mjs';
 import { parseColor, contrast } from './color.mjs';
-import { validateTheme, GATES } from './theme-check.mjs';
+import { validateTheme, GATES, settleMark } from './theme-check.mjs';
 
 const SLOTS = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'];
 
@@ -146,6 +146,8 @@ export function themeFromTemplate(parsed, { name } = {}) {
     if (f.startsWith('d-')) continue;   // settled above, against every fill at once
     if (tok[f] && tok[b] && /^#/.test(tok[f]) && /^#/.test(tok[b]) && contrast(rgb(tok[f]), rgb(tok[b])) < min) tok[f] = pushUntil(tok[f], tok[b], min);
   }
+  // a highlight readable on what was derived (PRESENTING_EDITING: emphasis while typing)
+  Object.assign(tok, settleMark(tok));
   const themeName = name ?? `template-${String(parsed.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'template'}`;
   const lines = Object.entries(tok).map(([k, v]) => `  --${k}: ${v};`);
   const css = `/* Decklight theme · ${themeName}\n   light · derived from the PowerPoint template's colour and font schemes\n   Token contract: SPEC.md THEMING */\n.decklight {\n${lines.join('\n')}\n}\n`;
