@@ -42,7 +42,7 @@ import {
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
   duplicateSlideElement } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
-import { setElementPicture, setSlideBackground, pictureToBackground } from './edit.mjs';
+import { setElementPicture, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
 import { setElementGeometry, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
@@ -1045,12 +1045,44 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     return json(200, { ok: true, changed, inPlace: placed, src: out.src, ...(take ? { removed: out.removed } : {}), ...history.counts() });
   }
 
+  /**
+   * `POST /deck/edit/slide/attr` — `{ slide, set: { name: value } }`: slide
+   * N's own settings (the inspector's Slide tab, PRESENTING_EDITING), each a
+   * `<section>` attribute written in its place (setSlideAttrs): a string its
+   * value, `true` bare, null off. `edits: [{ slide, set }]` writes more than
+   * one slide in the same one edit (a morph is this slide's and the one
+   * before's). Quiet, the page that asked already shows it and every other
+   * page is sent the edits to put on its slides.
+   */
+  function slideAttrRoute({ body, json }) {
+    const b = JSON.parse(body || '{}');
+    const { quiet: inPlace = false, from = null } = b;
+    const edits = Array.isArray(b.edits) ? b.edits : [{ slide: b.slide, set: b.set }];
+    if (!edits.length || edits.length > 4 || !edits.every((e) => Number.isInteger(e?.slide) && e.slide >= 1 && e.set && typeof e.set === 'object')) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    let changed;
+    try { changed = applyEdit((html) => edits.reduce((h, e) => setSlideAttrs(h, e.slide, e.set), html)); }
+    catch (e) { return refusal(e, json); }
+    if (changed) {
+      const said = edits.map((e) => `slide ${e.slide}: ${Object.entries(e.set).map(([k, v]) => `${k}${v === null ? ' (removed)' : v === true ? '' : `=${JSON.stringify(v).slice(0, 60)}`}`).join(', ')}`);
+      console.log(`  slide settings: ${said.join('; ')}`);
+    }
+    const placed = !!changed && inPlace === true;
+    if (placed) {
+      quiet(readDeck());
+      broadcast('slide-attrs', { edits: edits.map((e) => ({ slide: e.slide, set: e.set })), from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, { ok: true, changed, inPlace: placed, ...history.counts() });
+  }
+
   routes.set('POST /deck/edit/slide/notes', notesRoute);
   routes.set('POST /deck/edit/slide/sources', sourcesRoute);
   routes.set('POST /deck/edit/timings', timingsRoute);
   routes.set('POST /deck/edit/slide/layout', layoutRoute);
   routes.set('POST /deck/edit/slide/template', slideTemplateRoute);
   routes.set('POST /deck/edit/slide/hidden', hiddenRoute);
+  routes.set('POST /deck/edit/slide/attr', slideAttrRoute);
   routes.set('POST /deck/edit/slide/face', faceRoute);
   routes.set('POST /deck/edit/narration', narrationRoute);
   routes.set('GET /deck/edit/element/source', elementSourceRoute);

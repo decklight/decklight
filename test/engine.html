@@ -551,7 +551,16 @@
         }
       }
       // `editbar` is the same server, driven from the bar and the selection
-      if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs') {
+      // the Slide tab's writes: a transition of "slide" is refused, to see a refusal said and put back
+      if (HARNESS_MODE === 'slidesettings') {
+        if (u.includes('/deck/edit/slide/attr')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          if (b.set?.['data-transition'] === 'slide') return json({ ok: false, error: 'refused here' }, 400);
+          return json({ ok: true, changed: true, inPlace: b.quiet === true, undo: 1, redo: 0 });
+        }
+        if (u.includes('/deck/edit/slide/hidden')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
+      if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs' || HARNESS_MODE === 'slidesettings') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/review/comments')) return json({ ok: true, records: [] });
         if (u.includes('/deck/edit/inspect')) {
@@ -1027,7 +1036,7 @@
     }
     // the inspector (I): a slide that clips, and one with shapes to select —
     // an SVG node, grey text on white just under AA, an image with no alt
-    if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs') {
+    if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs' || HARNESS_MODE === 'slidesettings') {
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Tall</h2>
         <ul>${Array.from({ length: 40 }, (_, i) => `<li>line ${i + 1}</li>`).join('')}</ul></section>
         <section><h2>Shapes</h2>
@@ -2803,11 +2812,100 @@
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || k === 'crumbs' || k === 'contrast' || v === true);
       }
 
+      if (mode === 'slidesettings') {
+        // PRESENTING_EDITING, the Slide tab: beside Info with nothing
+        // selected, its fields written in place (POST /deck/edit/slide/attr),
+        // a chapter for a reload, Hidden the Slide menu's write, a refusal
+        // put back, another page's edit followed, gone with a selection
+        const P = '.decklight-inspector';
+        const q = (s) => document.querySelector(`${P} ${s}`);
+        const tabIds = () => [...document.querySelectorAll(`${P} .ins-tab`)].map((b) => b.dataset.tab).join(',');
+        const chosen = () => q('.ins-tab[aria-selected="true"]')?.dataset.tab ?? null;
+        const field = (k) => q(`.ins-settings dd[data-key="${k}"] :is(input, select)`);
+        const posts = (path) => CALLS.post.filter((c) => c.u.includes(path)).map((c) => c.body);
+        const sec = (n) => document.querySelectorAll('.decklight-stage > section')[n - 1];
+        const toasts = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+        const type = async (el, text) => { el.focus(); el.value = text; key(el, 'Enter'); await settle(); await settle(); };
+        const choose = async (el, v) => { el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); await settle(); await settle(); };
+        await settle(); await settle();       // /deck/ping: editAvailable
+        deck.goto(2, 0);
+        await settle();
+        press('i');
+        await settle(); await settle();
+        r.slideTabBesideInfo = tabIds() === 'info,slide' && chosen() === 'info';
+        r.infoStillReports = !q('.ins-rows input, .ins-rows select');
+        q('.ins-tab[data-tab="slide"]').click();
+        await settle();
+        r.fieldsShown = chosen() === 'slide' && ['chapter', 'transition', 'hidden', 'timing'].every((k) => !!field(k))
+          && field('transition').value === '' && field('timing').value === '' && field('hidden').checked === false;
+
+        // a transition: on the slide at once, one quiet write, and "the deck's" takes it off
+        await choose(field('transition'), 'flip');
+        const t1 = posts('/deck/edit/slide/attr').pop();
+        r.transitionWritten = t1?.slide === 2 && t1?.set?.['data-transition'] === 'flip' && t1?.quiet === true
+          && sec(2).getAttribute('data-transition') === 'flip' && field('transition').value === 'flip';
+        await choose(field('transition'), '');
+        r.transitionBackToTheDecks = posts('/deck/edit/slide/attr').pop()?.set?.['data-transition'] === null && !sec(2).hasAttribute('data-transition');
+        // refused: said, and the slide put back as it was
+        await choose(field('transition'), 'scale');
+        await choose(field('transition'), 'slide');
+        r.refusalPutBack = sec(2).getAttribute('data-transition') === 'scale' && field('transition').value === 'scale' && /not saved: refused here/.test(toasts());
+
+        // planned time, typed as m:ss and stored in seconds; nonsense is said and not sent
+        await type(field('timing'), '1:30');
+        const t2 = posts('/deck/edit/slide/attr').pop();
+        r.timingWritten = t2?.set?.['data-timing'] === '90' && sec(2).getAttribute('data-timing') === '90' && field('timing').value === '1:30';
+        const sent = posts('/deck/edit/slide/attr').length;
+        await type(field('timing'), 'soon');
+        r.badTimeNotSent = posts('/deck/edit/slide/attr').length === sent && /m:ss/.test(toasts()) && sec(2).getAttribute('data-timing') === '90';
+        await type(field('timing'), '');
+        r.emptyTimeRemoves = posts('/deck/edit/slide/attr').pop()?.set?.['data-timing'] === null && !sec(2).hasAttribute('data-timing');
+
+        // a chapter: written for the reload that shows it (not quiet)
+        await type(field('chapter'), 'Words');
+        const t3 = posts('/deck/edit/slide/attr').pop();
+        r.chapterWrittenForAReload = t3?.set?.['data-module'] === 'Words' && t3?.quiet !== true;
+
+        // another page's edit lands on the slide here, and the tab follows
+        window.__es.emit('slide-attrs', { edits: [{ slide: 2, set: { 'data-transition': 'fade' } }], from: 'another-page' });
+        await settle();
+        r.anotherPageFollowed = sec(2).getAttribute('data-transition') === 'fade' && field('transition')?.value === 'fade';
+
+        // the keys typed in a field are the field's: the deck does not move
+        field('chapter').focus();
+        key(field('chapter'), 'ArrowRight');
+        await settle();
+        r.fieldKeepsItsKeys = deck.state.slide === 2;
+
+        // Hidden is the Slide menu's write, and steps off the slide
+        field('hidden').click();
+        await settle(); await settle();
+        const h = posts('/deck/edit/slide/hidden').pop();
+        r.hiddenIsTheMenusWrite = h?.slide === 2 && h?.hidden === true && sec(2).hasAttribute('data-hidden');
+        sec(2).removeAttribute('data-hidden');
+
+        // a selection: the element's tabs, no Slide tab
+        deck.goto(6, 0);
+        await settle();
+        sec(6).querySelector('.ins-grey').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+        r.goneWithASelection = !tabIds().includes('slide') && chosen() === 'info';
+        press('Escape');
+        await settle();
+        r.backWithNothingSelected = tabIds() === 'info,slide';
+        press('Escape');
+        await settle();
+        try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+      }
+
       if (mode === 'inspectortabs') {
-        // PRESENTING, the inspector's tabs as a list a feature adds to: none
-        // of them the slide's, no bar with nothing selected; one that is, a
-        // bar beside Info there, its pane kept while its key holds and
-        // destroyed when the slide, the tab or the selection moves on
+        // PRESENTING, the inspector's tabs as a list a feature adds to: with
+        // nothing selected the bar is Info and the slide's own tabs (the
+        // Slide tab, in write mode); one added there is beside them, its pane
+        // kept while its key holds and destroyed when the slide, the tab or
+        // the selection moves on
         const P = '.decklight-inspector';
         const ins = deck._inspector;
         const tabIds = () => [...document.querySelectorAll(`${P} .ins-tab`)].map((b) => b.dataset.tab).join(',');
@@ -2818,7 +2916,7 @@
         await settle();
         press('i');
         await settle(); await settle();
-        r.noBarWithNothingSelected = !!document.querySelector(P) && !document.querySelector(`${P} .ins-tabs`);
+        r.onlyTheSlidesTabsWithNothingSelected = !!document.querySelector(P) && tabIds() === 'info,slide';
         let made = 0, destroyed = 0;
         ins.addTab({
           id: 'probe', label: 'Probe', showsWithoutSelection: true, showsWithSelection: false,
@@ -2830,11 +2928,11 @@
         let offered = false;
         ins.addTab({ id: 'unseen', label: 'Unseen', showsWithoutSelection: true, shows: (ctx) => offered && ctx.slide === 1, pane: () => ({ el: document.createElement('div') }) });
         await settle();
-        r.barBesideInfo = tabIds() === 'info,probe,later' && chosen() === 'info';
+        r.barBesideInfo = tabIds() === 'info,probe,slide,later' && chosen() === 'info';
         offered = true;
         ins.onSlide();
         await settle();
-        r.showsWhenItSays = tabIds() === 'info,probe,later,unseen';
+        r.showsWhenItSays = tabIds() === 'info,probe,slide,later,unseen';
         offered = false;
         ins.onSlide();
         await settle();
@@ -2861,7 +2959,7 @@
         r.backToInfoWithASelection = chosen() === 'info' && !probe() && made === 3 && destroyed === 3;
         press('Escape');
         await settle();
-        r.nothingSelectedAgain = tabIds() === 'info,probe,later';
+        r.nothingSelectedAgain = tabIds() === 'info,probe,slide,later';
         let threw = false;
         try { ins.addTab({ id: 'probe', label: 'Again', pane: () => ({ el: document.createElement('div') }) }); } catch { threw = true; }
         r.oneTabPerId = threw;
@@ -9654,7 +9752,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         q('.ins-tab[data-tab="colors"]').click();
         r.colorsComesBackToItsSide = q('.cp-side [aria-selected="true"]')?.dataset.id === 'stroke';
         press('Escape');
-        r.escLetsGo = !document.querySelector('.dl-frame') && q('.ins-tab') === null;
+        r.escLetsGo = !document.querySelector('.dl-frame') && q('.ins-tab[data-tab="colors"]') === null;
         press('Escape');
 
         // Type… on an HTML block, from the inline run inside it: text-align, on the block

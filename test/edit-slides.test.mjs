@@ -102,6 +102,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/element/text',
     'POST /deck/edit/narration',
     'POST /deck/edit/slide',
+    'POST /deck/edit/slide/attr',
     'POST /deck/edit/slide/background',
     'POST /deck/edit/slide/face',
     'POST /deck/edit/slide/hidden',
@@ -398,6 +399,61 @@ test('POST /deck/edit/slide/hidden takes a slide out of the talk and puts it bac
   await call(routes, 'POST /deck/edit/slide/hidden', { body: { slide: 2, hidden: false } });
   assert.doesNotMatch(readDeck(), /data-hidden/, 'showing it again must take the attribute off');
   assert.match(readDeck(), /data-layout="centered"/, 'and must leave the rest of the tag alone');
+});
+
+test('POST /deck/edit/slide/attr writes a slide\'s settings in place: one undo, quiet, every page sent the edits', async (t) => {
+  const quiet = [];
+  const sent = [];
+  const { routes, readDeck, history } = harness(t, DECK, { quiet: (html) => quiet.push(html), broadcast: (e, d) => sent.push([e, d]) });
+  const r = await call(routes, 'POST /deck/edit/slide/attr', {
+    body: { slide: 2, set: { 'data-module': 'Words', 'data-transition': 'flip', 'data-timing': '90' }, quiet: true, from: 'page-1' },
+  });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.changed, true);
+  assert.equal(r.body.inPlace, true);
+  assert.equal(r.body.undo, 1, 'three settings, one undo entry');
+  assert.match(readDeck(), /<section data-layout="centered" data-module="Words" data-transition="flip" data-timing="90">/,
+    'each lands after what the tag had, the layout kept');
+  assert.deepEqual(quiet, [readDeck()], 'the bytes written are the quiet ones: no reload here');
+  assert.deepEqual(sent, [['slide-attrs', { edits: [{ slide: 2, set: { 'data-module': 'Words', 'data-transition': 'flip', 'data-timing': '90' } }], from: 'page-1' }]]);
+
+  // the same again is no write and no undo entry
+  const again = await call(routes, 'POST /deck/edit/slide/attr', { body: { slide: 2, set: { 'data-transition': 'flip' } } });
+  assert.equal(again.body.changed, false);
+  assert.equal(history.counts().undo, 1);
+
+  // two slides in one edit: a morph is this slide's and the one before's
+  const both = await call(routes, 'POST /deck/edit/slide/attr', {
+    body: { edits: [{ slide: 2, set: { 'data-auto-animate': true } }, { slide: 1, set: { 'data-auto-animate': true } }] },
+  });
+  assert.equal(both.body.undo, 2, 'one more undo entry for both slides');
+  assert.equal(both.body.inPlace, false, 'not asked for quiet, not quiet');
+  assert.equal((readDeck().match(/data-auto-animate>/g) ?? []).length, 2, 'written bare on both');
+
+  // taking one off, and the deck's transition back
+  await call(routes, 'POST /deck/edit/slide/attr', { body: { slide: 2, set: { 'data-transition': null, 'data-module': null } } });
+  assert.match(readDeck(), /<section data-layout="centered" data-timing="90" data-auto-animate>/);
+});
+
+test('POST /deck/edit/slide/attr refuses what it does not write, and writes nothing then', async (t) => {
+  const { routes, readDeck } = harness(t);
+  const before = readDeck();
+  for (const [body, why] of [
+    [{ slide: 1, set: { 'data-layout': 'top' } }, /not a slide attribute this server writes: data-layout/],
+    [{ slide: 1, set: { 'data-hidden': true } }, /not a slide attribute/],
+    [{ slide: 1, set: { onclick: 'x' } }, /not a slide attribute/],
+    [{ slide: 1, set: { 'data-transition': 'spin' } }, /not a value data-transition takes: spin/],
+    [{ slide: 1, set: { 'data-transition': 'fade', 'data-timing': '-3' } }, /not a value data-timing takes/],
+    [{ slide: 1, set: { 'data-background-video': 'https://x.invalid/a.mp4' } }, /not a value/],
+  ]) {
+    const r = await call(routes, 'POST /deck/edit/slide/attr', { body });
+    assert.equal(r.code, 400, JSON.stringify(body));
+    assert.match(r.body.error, why);
+  }
+  assert.equal((await call(routes, 'POST /deck/edit/slide/attr', { body: { slide: 9, set: { 'data-transition': 'fade' } } })).code, 404);
+  assert.equal((await call(routes, 'POST /deck/edit/slide/attr', { body: { slide: 1 } })).code, 400);
+  assert.equal((await call(routes, 'POST /deck/edit/slide/attr', { body: { edits: Array(5).fill({ slide: 1, set: { 'data-math': true } }) } })).code, 400);
+  assert.equal(readDeck(), before, 'a refusal is a refusal: not one byte written');
 });
 
 test('GET /deck/edit/element/source reads the FILE, and 404s past the last element', async (t) => {
