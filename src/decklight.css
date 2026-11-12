@@ -4370,6 +4370,30 @@
 /* a hint long enough to need the line (the comments' gone-slide note) may break */
 .decklight-dockable[data-dock="left"] .dk-hint, .decklight-dockable[data-dock="right"] .dk-hint { white-space: normal; }
 
+/* the docked panel's inner edge, to drag (dock.js): a strip 9px wide astride
+   the edge, a short grip at its middle to say it is there, the whole edge lit
+   in the accent under the pointer, while it is dragged and with the keyboard
+   on it. On the panel's frame, placed by the same --dock-size as the card. */
+.decklight-dockable > .dk-resize { display: none; position: absolute; z-index: 3; pointer-events: auto; touch-action: none; outline: none; }
+.decklight-dockable:is([data-dock="left"], [data-dock="right"]) > .dk-resize { display: block; top: 0; bottom: 0; width: 9px; cursor: col-resize; }
+.decklight-dockable[data-dock="right"] > .dk-resize { right: calc(var(--dock-size, 360px) - 5px); }
+.decklight-dockable[data-dock="left"] > .dk-resize { left: calc(var(--dock-size, 360px) - 5px); }
+.decklight-dockable[data-dock="bottom"] > .dk-resize { display: block; left: 0; right: 0; height: 9px; bottom: calc(var(--dock-size, 320px) - 5px); cursor: row-resize; }
+.decklight-dockable > .dk-resize::before {
+  content: ''; position: absolute; inset: 0 3px; background: transparent; transition: background .12s;
+}
+.decklight-dockable[data-dock="bottom"] > .dk-resize::before { inset: 3px 0; }
+.decklight-dockable > .dk-resize::after {
+  content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 36px; margin: -18px 0 0 -2px;
+  border-radius: 2px; background: rgba(255, 255, 255, .28); box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+.decklight-dockable[data-dock="bottom"] > .dk-resize::after { width: 36px; height: 4px; margin: -2px 0 0 -18px; }
+.decklight-dockable > .dk-resize:is(:hover, :focus-visible, .dk-dragging)::before { background: var(--accent, #6af); }
+.decklight-dockable > .dk-resize:is(:hover, :focus-visible, .dk-dragging)::after { background: #fff; }
+/* while the edge is dragged nothing under the pointer selects or takes it */
+.decklight.dk-resizing { user-select: none; -webkit-user-select: none; }
+.decklight.dk-resizing iframe { pointer-events: none; }
+
 /* ── the notes ── what the box shows above it, what can be done with it below */
 .decklight-editor.decklight-dockable .notes-tools { margin: 0 0 8px; gap: 6px; }
 .decklight-editor.decklight-dockable .notes-tools .notes-btn { font-size: 12px; padding: 4px 10px; min-height: 26px; border-radius: 7px; }

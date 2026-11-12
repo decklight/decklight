@@ -6026,7 +6026,11 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           const arrows = document.querySelector('.decklight-controls')?.getBoundingClientRect();
           r.arrowsClearThePanel = !!arrows && arrows.width > 0 && arrows.right <= rootBox.right - g + 1;
           const bar = document.querySelector('.decklight-editbar:not(.eb-moved)')?.getBoundingClientRect();
-          r.editBarCentresOnTheSlide = !bar || !bar.width || Math.abs((bar.left + bar.right) / 2 - (rootBox.left + (rootBox.width - g) / 2)) < 2;
+          // …when there is room for it beside the panel; in a window too narrow, it
+          // starts at the left edge with its grip in reach and runs on under the panel
+          r.editBarCentresOnTheSlide = !bar || !bar.width || (bar.width <= rootBox.width - g
+            ? Math.abs((bar.left + bar.right) / 2 - (rootBox.left + (rootBox.width - g) / 2)) < 2
+            : Math.abs(bar.left - rootBox.left) < 2);
         }
         // before the first ask: what the card is for and three asks to start
         // from take the room, and the prompt keeps its height at the foot
@@ -6072,8 +6076,43 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           r.footListsTheKeys = /(⌘⏎|Ctrl\+Enter) sends · Esc closes$/.test(foot?.textContent ?? '') && foot?.querySelectorAll('kbd').length === 2;
           r.titleDoesNotRepeatTheTab = document.querySelector(`${A} .dk-title`)?.textContent === 'edits the deck file';
         }
+        // ── resized by its edge ── a docked panel's inner edge drags: the
+        // gutter and the card follow it between the limits, the size is kept
+        // with the placement, and a double-click puts the usual one back
+        {
+          const stored = () => JSON.parse(localStorage.getItem('decklight-panel-dock:' + location.pathname) ?? '{}');
+          const edge = document.querySelector(`${A} > .dk-resize`);
+          const rootBox = document.querySelector('.decklight').getBoundingClientRect();
+          const cardW = () => Math.round(document.querySelector(`${A} .narr-card`).getBoundingClientRect().width);
+          const was = side('right');
+          const pe = (type, x) => new PointerEvent(type, { pointerId: 7, button: 0, clientX: x, clientY: 200, bubbles: true, cancelable: true });
+          const dragTo = async (x) => {
+            edge.dispatchEvent(pe('pointerdown', rootBox.right - side('right')));
+            window.dispatchEvent(pe('pointermove', x)); await settle();
+            window.dispatchEvent(pe('pointerup', x)); await settle();
+          };
+          r.edgeIsASeparator = !!edge && edge.getAttribute('role') === 'separator' && edge.tabIndex === 0
+            && getComputedStyle(edge).display !== 'none' && edge.getAttribute('aria-valuenow') === String(was);
+          await dragTo(rootBox.right - was - 80);
+          r.dragWidensThePanel = side('right') === was + 80 && cardW() === was + 80;
+          r.sizeKeptWithThePlacement = stored().w === was + 80 && stored().mode === 'right';
+          await dragTo(rootBox.right - 10);
+          const least = side('right');
+          r.dragStopsAtTheLeast = least < was + 80 && least >= Math.min(320, Math.round(rootBox.width * 0.32)) - 1 && cardW() === least;
+          await dragTo(rootBox.left + 5);
+          r.dragStopsWhileTheSlideHasRoom = side('right') > was && side('right') <= Math.round(rootBox.width * 0.7) + 1;
+          edge.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+          r.doubleClickPutsItBack = side('right') === was && stored().w === null;
+          const slideWas = deck.state.slide;
+          edge.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+          r.arrowGrowsItAndTurnsNoSlide = side('right') === Math.min(was + 16, Number(edge.getAttribute('aria-valuemax'))) && deck.state.slide === slideWas;
+          edge.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          r.enterPutsItBack = side('right') === was;
+          await dragTo(rootBox.right - was - 40);
+        }
         document.querySelector(`${A} .dk-btn[data-mode="left"]`)?.click();
         await settle();
+        r.sizeGoesWithThePanelToTheOtherSide = side('left') > 0 && side('left') === JSON.parse(localStorage.getItem('decklight-panel-dock:' + location.pathname) ?? '{}').w;
         r.placeButtonChoosesAndCloses = document.querySelector(`${A} .dk-menu`)?.hidden === true
           && document.querySelector(`${A} .dk-opt.dk-on`)?.dataset.mode === 'left';
         r.agentHasTabs = [...document.querySelectorAll(`${A} .dk-tab`)].map((t) => t.textContent).includes('Notes');
@@ -6084,6 +6123,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.tabIsLit = document.querySelector(`${N} .dk-tab-on`)?.textContent === 'Notes';
         // the panel that took the slot draws the placement it inherited, not the one it last had
         r.theNextPanelDrawsThePlacement = document.querySelector(`${N} .dk-opt.dk-on`)?.dataset.mode === 'left';
+        r.theNextPanelIsTheSameSize = side('left') === JSON.parse(localStorage.getItem('decklight-panel-dock:' + location.pathname) ?? '{}').w
+          && !!document.querySelector(`${N} > .dk-resize`);
         document.querySelector(`${N} .dk-close`)?.click();
         await settle();
         r.slotReleased = side('left') === 0 && side('right') === 0 && side('bottom') === 0;

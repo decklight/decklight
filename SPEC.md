@@ -864,7 +864,15 @@ dragged by its header), docked **left**, **right** or **bottom**, or a **window*
 reserves a gutter (`--dock-left/right/bottom` on the root) and the stage reflows into what is left through the
 same `rescale` that fits the slide to the window. The deck's own chrome keeps clear of that gutter too: the
 editing bar centres on the slide, not on the window, and the slide number, the arrows and the character move in
-from the edge the panel took, where they used to sit under it. The placement is **remembered per deck** in `localStorage`,
+from the edge the panel took, where they used to sit under it. **A docked panel is resized by its inner edge**:
+drag it (a short grip marks the middle, the edge lights under the pointer) and a side panel is wider or
+narrower, the bottom tray taller or shorter, the slide refitting beside it as it goes. It stops at a least
+size (320px wide, the six tabs on one line; 160px tall) and before the slide is squeezed out (70% of the window,
+and never less than 320px of slide beside a side panel or 200px above the tray). A double-click on the edge
+puts back the size it opens at (360px wide, 320px tall, less in a small window); from the keyboard the edge is
+a separator that takes the arrows (16px a press, 64 with Shift), Home and End for its limits, Enter for the
+usual size. The size is kept with the placement, one width and one height per deck for every panel, and read
+against the window each time, so one set in a wide window still leaves a slide in a narrow one. The placement is **remembered per deck** in `localStorage`,
 like the clock and the character. **One slot, one placement** (`src/core/dock.js`): the comments, the notes,
 the inspector, the sources, the agent ask and the HTML editor share it. They share ONE placement per deck
 (`decklight-panel-dock:`; until one is moved, every panel opens docked **right**, beside the slide: each
