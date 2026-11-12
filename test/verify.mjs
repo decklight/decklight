@@ -209,6 +209,7 @@ const ENGINE_GROUPS = {
     'tablemenu',
     'listmove',
     'buildsettings',
+    'buildorder',
     'buildpanel',
     'buildselect',
     'buildreselect',

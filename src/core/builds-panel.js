@@ -11,7 +11,7 @@
 // This module reads the slide and says what each step is in words; the rows
 // themselves are buildlist.js's, pure. Nothing here writes the file.
 
-import { buildRows, beatsLine, firstWords } from './buildlist.js';
+import { buildRows, beatsLine, firstWords, moveClick, mergeClick, splitClick, orderGroups } from './buildlist.js';
 import { stepShowing, buildsPerItem } from './builds.js';
 import { authoredIndex } from './design-system.js';
 
@@ -67,7 +67,9 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
       .filter((c) => !c.matches(NOT_SHOWN) && authoredIndex(sec, c) >= 0 && stepShowing(rec, c) === 0)
       .map(whatIs) : [];
     const notes = sec?.querySelector(':scope > aside.notes')?.innerHTML ?? '';
-    return { ...buildRows({ steps, groups: rec.groups, start, notes }), steps };
+    // what carries each step's order: the element, or a code block / stroke for each of its steps
+    const nodes = rec.steps.map((st) => ({ node: st.el, count: st.kind === 'provider' ? st.provider?.count ?? 1 : 1 }));
+    return { ...buildRows({ steps, groups: rec.groups, start, notes }), steps, groups: rec.groups, nodes, sec };
   }
 
   function pane({ slide, target }) {
@@ -89,12 +91,14 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
       }
       const list = document.createElement('ol');
       list.className = 'bl-list';
+      const ordered = m.nodes.some((x) => x.node?.hasAttribute?.('data-build-order'));
       for (const row of m.rows) {
         const li = document.createElement('li');
         li.className = 'bl-row';
         li.value = row.click;   // the list's own number: the click it is
         if (row.click === at) li.classList.add('bl-on');
         else if (row.click < at) li.classList.add('bl-past');
+        if (can) dragRow(li, row, m);
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'bl-go';
@@ -114,10 +118,18 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
         });
         beat.title = row.beat ? `the notes' beat for click ${row.click}` : `the notes have no [click] beat for click ${row.click}`;
         b.title = `click ${row.click}: ${row.items.map((it) => it.label).join(' + ')}`;
+        // the order was written, and this step came after (a point added to a list): it plays where the slide puts it, said
+        if (ordered && row.items.some((it) => it.el && !it.el.hasAttribute('data-build-order'))) {
+          li.classList.add('bl-unplaced');
+          what.append(Object.assign(document.createElement('span'), {
+            className: 'bl-flag', textContent: 'no place in the order',
+            title: 'added after the order was written: it plays by its place on the slide; drag it where it goes',
+          }));
+        }
         b.append(n, what, beat);
         b.addEventListener('click', (e) => { e.stopPropagation(); go(slide, row.click, m, row); });
         li.append(b);
-        if (can) li.append(rowTools(row));
+        if (can) li.append(rowTools(row, m));
         list.append(li);
       }
       if (m.rows.length) el.append(list);
@@ -144,8 +156,59 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
     return b;
   };
   /** A row's own settings: each element's effect, picked as Build ▸ picks it, and taking its step away. */
-  function rowTools(row) {
+  /** Is this a row of a code block's lines or a stroke's stages: one that keeps with its block? */
+  const ownedRow = (row) => row.items.some((it) => it.owner);
+  /** The slide's clicks arranged anew, written: one undo, nothing on the slide moves. */
+  function arrange(m, groups, said) {
+    edit.order(m.sec, orderGroups(groups, m.nodes), said);
+  }
+  /**
+   * A row is dragged by its grip: dropped above or below another row it plays
+   * there, dropped onto one it arrives with it. A code line's or a stage's row
+   * keeps with its block, so nothing arrives with it and it is not dragged.
+   */
+  let dragFrom = null;
+  function dragRow(li, row, m) {
+    const g = row.click - 1;
+    const owned = ownedRow(row);
+    const grip = Object.assign(document.createElement('span'), { className: 'bl-grip', textContent: '⋮⋮', title: owned ? 'it keeps with its block' : 'drag to reorder · drop on a row to arrive with it' });
+    li.prepend(grip);
+    if (!owned) {
+      li.draggable = true;
+      li.addEventListener('dragstart', (e) => { dragFrom = g; e.dataTransfer?.setData('text/plain', String(row.click)); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'; li.classList.add('bl-dragging'); });
+      li.addEventListener('dragend', () => { dragFrom = null; li.classList.remove('bl-dragging'); });
+    }
+    const zone = (e) => {
+      const r = li.getBoundingClientRect();
+      const y = (e.clientY - r.top) / (r.height || 1);
+      if (y < 0.3) return 'before';
+      if (y > 0.7) return 'after';
+      return owned ? (y < 0.5 ? 'before' : 'after') : 'onto';
+    };
+    const mark = (z) => { for (const k of ['before', 'after', 'onto']) li.classList.toggle(`bl-drop-${k}`, z === k); };
+    li.addEventListener('dragover', (e) => { if (dragFrom === null || dragFrom === g) return; e.preventDefault(); mark(zone(e)); });
+    li.addEventListener('dragleave', () => mark(null));
+    li.addEventListener('drop', (e) => {
+      e.preventDefault();
+      mark(null);
+      const from = dragFrom;
+      dragFrom = null;
+      if (from === null || from === g) return;
+      const z = zone(e);
+      if (z === 'onto') arrange(m, mergeClick(m.groups, from, g), `arrives with click ${row.click}`);
+      else arrange(m, moveClick(m.groups, from, z === 'before' ? g : g + 1), 'build order changed');
+    });
+  }
+  function rowTools(row, m) {
     const tools = Object.assign(document.createElement('span'), { className: 'bl-tools' });
+    const g = row.click - 1;
+    // the same, with no drag: onto the click before it, or apart again
+    if (g > 0 && !ownedRow(row) && !ownedRow(m.rows[g - 1])) {
+      tools.append(btn('⤒', `with previous: arrives with click ${row.click - 1}`, () => arrange(m, mergeClick(m.groups, g, g - 1), `arrives with click ${row.click - 1}`), 'ins-btn bl-with-prev'));
+    }
+    if (row.items.length > 1 && !ownedRow(row)) {
+      tools.append(btn('split', 'on its own click: each of these arrives on a click of its own', () => arrange(m, splitClick(m.groups, g), 'each on its own click'), 'ins-btn bl-split'));
+    }
     for (const it of row.items) {
       if (it.owner || !it.el?.isConnected) continue;   // a code line or a stroke's stage is its block's
       const pick = document.createElement('select');

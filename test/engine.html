@@ -155,6 +155,7 @@
     LK.tablemenu = LK.tablekeys;
     LK.buildreselect = LK.buildselect;
     LK.buildsettings = LK.buildpanel;
+    LK.buildorder = LK.buildpanel;
     let LK_SRC = LK[HARNESS_MODE] ?? null;
     let MX_SRC = [];   // mathedit: the file's markup of slide 3's elements, by index
     // chartdata: a bar chart as an author writes one (a number spelled 80.50,
@@ -816,6 +817,17 @@
         if (u.includes('/deck/edit/element/content')) { LK_SRC = JSON.parse(init.body).html; return json({ ok: true, changed: true, undo: 1, redo: 0 }); }
         if (u.includes('/deck/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/build')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+        // the order route, as setSlideBuildOrder answers it: a key a click (a node of n steps taking n), none when it is the file's own order
+        if (u.includes('/deck/edit/slide/builds')) {
+          const { groups } = JSON.parse(init.body);
+          const flat = groups.flat();
+          const before = (a, b) => a.index !== b.index ? a.index < b.index
+            : (() => { const p = a.path ?? [], q = b.path ?? []; for (let i = 0; i < Math.min(p.length, q.length); i++) if (p[i] !== q[i]) return p[i] < q[i]; return p.length < q.length; })();
+          const asWritten = groups.every((g) => g.length === 1) && flat.every((n, i) => i === 0 || before(flat[i - 1], n));
+          const orders = []; let key = 1;
+          for (const g of groups) { for (const n of g) orders.push({ index: n.index, path: n.path ?? [], order: asWritten ? null : String(key) }); key += Math.max(...g.map((n) => n.count ?? 1)); }
+          return json({ ok: true, changed: true, orders, inPlace: true, undo: 1, redo: 0 });
+        }
       }
       if (HARNESS_MODE === 'mathedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -1529,7 +1541,7 @@
     if (LK_SRC !== null) {
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>\n${LK_SRC}`
         + (HARNESS_MODE === 'listkeys' ? '\n<aside class="notes">Here. [click] Alpha. [click] Beta.</aside>' : '')
-        + (HARNESS_MODE === 'buildpanel' || HARNESS_MODE === 'buildsettings' ? '\n<aside class="notes">Opening words. [click] The audience first. [click]\n\n[click] Third one. [click] Code one. [click] Code two. [click] A spare beat.</aside>' : '');
+        + (HARNESS_MODE === 'buildpanel' || HARNESS_MODE === 'buildsettings' || HARNESS_MODE === 'buildorder' ? '\n<aside class="notes">Opening words. [click] The audience first. [click]\n\n[click] Third one. [click] Code one. [click] Code two. [click] A spare beat.</aside>' : '');
     }
     // a slide marked for math (CODE_AND_MATH): a paragraph with a formula, one without
     if (HARNESS_MODE === 'mathedit') {
@@ -7382,6 +7394,72 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         rows()[4].querySelector('.bl-go').click(); await settle(); await settle();
         r.codeRowSelectsTheBlock = deck.state.step === 5 && deck._selection()?.top === sec.querySelector('pre');
         r.infoHasNoBuildsRow = !document.querySelector(`${P} dd[data-key="builds"]`);
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'buildorder') {
+        // the order (PRESENTING_EDITING): a row dragged plays elsewhere and
+        // nothing on the slide moves; dropped onto a row it arrives with it;
+        // split and With previous do the same without a drag; the file's own
+        // order again leaves no data-build-order; a step added later is flagged
+        await settle(); await settle();
+        deck.goto(3, 0); await settle();
+        const P = '.decklight-inspector';
+        const sec = document.querySelector('.decklight-stage > section.active');
+        const ul = sec.querySelector('ul');
+        const [a, b, c] = [...ul.querySelectorAll('li')];
+        press('i'); await settle(); await settle();
+        document.querySelector(`${P} .ins-tab[data-tab="builds"]`)?.click(); await settle();
+        const rows = () => [...document.querySelectorAll(`${P} .bl-row`)];
+        const labels = () => rows().map((x) => [...x.querySelectorAll('.bl-label')].map((l) => l.textContent).join('+')).join('|');
+        const orders = () => CALLS.post.filter((q) => q.u.includes('/deck/edit/slide/builds'));
+        const last = () => orders().at(-1)?.body;
+        const clicks = () => deck._records[2]?.groups.length;
+        const drag = (from, to, where) => {
+          const dt = new DataTransfer();
+          const box = to.getBoundingClientRect();
+          const y = where === 'before' ? box.top + 1 : where === 'after' ? box.bottom - 1 : box.top + box.height / 2;
+          from.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+          to.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientY: y }));
+          to.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientY: y }));
+          from.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        };
+        const domOrder = () => [...ul.children].map((li) => li.textContent).join('|');
+        const onSlide = domOrder();
+        r.startsInFileOrder = labels() === 'Start from the audience|One idea per slide|Three|lines 1|lines 2';
+        // the third point dragged above the first
+        drag(rows()[2], rows()[0], 'before'); await settle(); await settle();
+        r.dragWritesEveryStep = JSON.stringify(last()?.groups) === JSON.stringify([[{ index: 2, path: [2], tag: 'li' }], [{ index: 2, path: [0], tag: 'li' }], [{ index: 2, path: [1], tag: 'li' }], [{ index: 3, tag: 'pre', count: 2 }]])
+          && last()?.quiet === true;
+        r.playsFirst = labels() === 'Three|Start from the audience|One idea per slide|lines 1|lines 2' && c.getAttribute('data-build-order') === '1';
+        r.nothingMovedOnTheSlide = domOrder() === onSlide;
+        deck.goto(3, 1); await settle();
+        r.presentsFirst = c.getAttribute('data-build-state') === 'current' && a.getAttribute('data-build-state') === 'pending';
+        deck.goto(3, 0); await settle();
+        // the second point dropped onto the first: one click
+        drag(rows()[2], rows()[1], 'onto'); await settle(); await settle();
+        r.dropOntoArrivesWith = labels() === 'Three|Start from the audience+One idea per slide|lines 1|lines 2' && clicks() === 4
+          && a.getAttribute('data-build-order') === b.getAttribute('data-build-order');
+        // split: each on its own click again
+        rows()[1].querySelector('.bl-split')?.click(); await settle(); await settle();
+        r.splitApart = labels() === 'Three|Start from the audience|One idea per slide|lines 1|lines 2' && clicks() === 5;
+        // With previous, no drag
+        rows()[2].querySelector('.bl-with-prev')?.click(); await settle(); await settle();
+        r.withPrevious = labels() === 'Three|Start from the audience+One idea per slide|lines 1|lines 2';
+        r.codeRowsKeepWithTheirBlock = !rows()[2].draggable && !rows()[2].querySelector('.bl-with-prev');
+        rows()[1].querySelector('.bl-split')?.click(); await settle(); await settle();
+        // back as the slide has it: no order left in the file
+        drag(rows()[0], rows()[2], 'after'); await settle(); await settle();
+        r.fileOrderLeavesNothing = labels() === 'Start from the audience|One idea per slide|Three|lines 1|lines 2'
+          && last()?.groups.every((g) => g.length === 1) && !sec.querySelector('[data-build-order]');
+        // an order written, then a point added that has none: flagged, not hidden
+        drag(rows()[2], rows()[0], 'before'); await settle(); await settle();
+        const d = document.createElement('li'); d.textContent = 'A new point'; ul.append(d);
+        deck.refreshSlide(sec, { scan: true }); await settle(); await settle();
+        r.addedPointFlagged = rows().some((x) => x.classList.contains('bl-unplaced') && /A new point/.test(x.textContent) && /no place in the order/.test(x.textContent));
+        r.othersKeepTheirPlace = rows()[0]?.querySelector('.bl-label')?.textContent === 'Three';
+        r.oneWriteEach = orders().length === 7;
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
