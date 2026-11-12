@@ -135,7 +135,7 @@ export const ENGINE_ATTRIBUTES = [
   'data-n', 'data-name', 'data-nest-fill', 'data-noise', 'data-off', 'data-off-fix', 'data-off-undo', 'data-overflow',
   'data-overflow-by', 'data-phase', 'data-pinned', 'data-play', 'data-play-beat', 'data-plugin', 'data-pos',
   'data-poster', 'data-rate', 'data-redo', 'data-redo-beat', 'data-ref', 'data-roles', 'data-row', 'data-rule',
-  'data-scope', 'data-series', 'data-sig', 'data-slide', 'data-slide-index', 'data-split-conflict', 'data-state',
+  'data-scope', 'data-series', 'data-side', 'data-sig', 'data-slide', 'data-slide-index', 'data-split-conflict', 'data-state',
   'data-tab', 'data-tag', 'data-takes', 'data-theme-added', 'data-theme-marketplace', 'data-theme-source',
   'data-token', 'data-tone', 'data-type', 'data-type-wpm', 'data-value', 'data-version', 'data-view', 'data-viseme', 'data-was',
 ];

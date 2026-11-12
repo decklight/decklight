@@ -35,6 +35,7 @@
 //   POST /deck/edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
 //   POST /deck/edit/element/move    → { slide, index, to, path?, tag? }  move it (or a node inside it) to place `to`
 //   POST /deck/edit/element/order   → { slide, index, path, tag, to, groups? }  a diagram's node to the front, forward, backward or back
+//   POST /deck/edit/element/canvas  → { slide, index, path, viewBox, width?, height? }  a diagram's canvas: more room, or less
 //   POST /deck/edit/element/duplicate → { slide, index, path?, tag? }  a copy of it (or of a node inside it) right after it
 //   POST /deck/edit/element/picture → { slide, index, path?, width?, alt?, src?, caption? }  one picture's size, alt, file or caption
 //   POST /deck/edit/element/options → { slide, index, path?, tag, set }  a code block's language, line numbers, fit, line steps
@@ -836,6 +837,43 @@ export function setDiagramOrder(html, slide, index, { path, tag = null, to }) {
   if (want < 0 || want >= drawn.length || want === here) throw refusedMove(`it is already ${want > here || to === 'front' || to === 'forward' ? 'at the front' : 'at the back'}`);
   const moved = moveSlideElement(html, slide, index, { to: drawn[want].i, path, tag });
   return { html: moved.html, path: moved.path };
+}
+
+// ── a diagram's canvas (SVG_DIAGRAMS) ────────────────────────────────────────
+
+/**
+ * A diagram's canvas made bigger or smaller (SVG_DIAGRAMS, the canvas): the
+ * `<svg>` at `path` below slide N's element `index` given `viewBox` `{ x, y,
+ * w, h }`, the room the drawing has, and, when the page sends them, the
+ * `width` (and `height`) it is drawn at on the slide, so more room does not
+ * shrink what is drawn. Only those attributes change, each where it stands,
+ * `viewBox` keeping the casing the file wrote it in. Numbers only: a size is
+ * positive, and the canvas never smaller than 1 unit.
+ */
+export function setDiagramCanvas(html, slide, index, { path = [], tag = 'svg', viewBox, width = null, height = null }) {
+  checkPath(path);
+  const v = viewBox ?? {};
+  const [x, y, w, h] = ['x', 'y', 'w', 'h'].map((k) => coordOf(v[k]));
+  if (![x, y, w, h].every(Number.isFinite) || w < 1 || h < 1) throw new Error('a canvas is x, y, a width and a height, the sizes at least 1');
+  const size = (n, what) => {
+    if (n === null || n === undefined) return null;
+    const c = coordOf(n);
+    if (!Number.isFinite(c) || c < 1 || c > 4096) throw new Error(`not a ${what} on the slide: ${String(n).slice(0, 20)}`);
+    return formatCoord(c);
+  };
+  const wOn = size(width, 'width'); const hOn = size(height, 'height');
+  const e = openElement(html, slide, index);
+  e.edit(path, tag, (attrs, at) => {
+    if (at.found !== 'svg') throw new Error(`a canvas is a diagram's <svg>, not a <${at.found}>`);
+    if (/\sdata-chart\b/i.test(attrs)) throw new Error('a chart draws itself from its data');
+    const value = [x, y, w, h].map(formatCoord).join(' ');
+    // the name as the file wrote it (`viewBox`, or `viewbox`), and `viewBox` when it had none
+    let out = attrOf(attrs, 'viewbox') !== null ? withAttr(attrs, 'viewbox', value) : withAttr(attrs, 'viewBox', value);
+    if (wOn !== null) out = withAttr(out, 'width', wOn);
+    if (hOn !== null) out = withAttr(out, 'height', hOn);
+    return out;
+  });
+  return e.html();
 }
 
 // ── a diagram's shapes: moved, resized, added, duplicated (SVG_DIAGRAMS) ────
@@ -2505,6 +2543,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/concept': 'concept set',
   '/deck/edit/element/text': 'text saved',
   '/deck/edit/element/geometry': 'diagram shapes moved',
+  '/deck/edit/element/canvas': 'diagram canvas changed',
   '/deck/edit/element/shape': 'diagram shape added',
   '/deck/edit/element/connector': 'connector saved',
   '/deck/edit/element/image': 'image placed',
@@ -2661,6 +2700,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/concept': 'concept',
   '/deck/edit/element/text': 'label edit',
   '/deck/edit/element/geometry': 'move in a diagram',
+  '/deck/edit/element/canvas': 'diagram canvas',
   '/deck/edit/element/shape': 'new shape in a diagram',
   '/deck/edit/element/connector': 'connector',
   '/deck/edit/element/image': 'picture',

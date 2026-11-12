@@ -960,6 +960,11 @@
         }
         if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // a diagram's canvas (SVG_DIAGRAMS): its write answers
+      if (HARNESS_MODE === 'canvas') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       // more shapes (SVG_DIAGRAMS): a marked shape's resize is a geometry write
       if (HARNESS_MODE === 'shaperesize') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -1434,6 +1439,14 @@
         <svg class="so-plain" viewBox="0 0 400 200" width="400">
           <rect class="so-p" x="10" y="10" width="120" height="80" style="fill: var(--d-fill-1)"/>
           <rect class="so-q" x="60" y="40" width="120" height="80" style="fill: var(--d-fill-2)"/>
+        </svg>
+      </section>`);
+    }
+    // a diagram's canvas: one box in a wide canvas, drawn at 600 of 800 units
+    if (HARNESS_MODE === 'canvas') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Canvas</h2>
+        <svg class="cv-svg" viewBox="0 0 800 300" width="600" aria-label="a box">
+          <rect class="cv-box" x="100" y="50" width="200" height="100" style="fill: var(--d-fill-2)"/>
         </svg>
       </section>`);
     }
@@ -4421,6 +4434,74 @@
         row('To front')?.click(); await settle(); await settle();
         const o4 = orders()[3];
         r.plainSendsNoGroups = o4?.to === 'front' && o4.index === 2 && !('groups' in o4) && drawnOrder(plain) === 'so-q so-p' && !p.hasAttribute('data-build-order');
+        r.PASS = Object.values(r).every((v) => v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'canvas') {
+        // SVG_DIAGRAMS, the canvas (canvas.js): the canvas selected wears an
+        // edge handle on each side beside the picture's corners; an edge gives
+        // the drawing room without changing what is drawn, stops at the
+        // drawing, keeps the slide from clipping; Shape ▸ fits it to the drawing
+        await settle();
+        deck.goto(deck._sections.length, 0);
+        await settle(); await settle();
+        const svg = document.querySelector('.cv-svg');
+        const box = svg.querySelector('.cv-box');
+        const sec = svg.closest('section');
+        const ptr = (type, el, x, y) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0 }));
+        const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/canvas')).map((c) => c.body);
+        const vb = () => svg.getAttribute('viewBox').split(/\s+/).map(Number);
+        const handle = (side) => deck._canvas.handles().find((h) => h.side === side)?.el;
+        const dragEdge = async (side, dx, dy) => {
+          const h = handle(side);
+          if (!h) return false;
+          const b = h.getBoundingClientRect(); const c = { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+          ptr('pointerdown', h, c.x, c.y);
+          for (const f of [0.25, 0.5, 0.75, 1]) ptr('pointermove', document.body, c.x + dx * f, c.y + dy * f);
+          ptr('pointerup', document.body, c.x + dx, c.y + dy);
+          await settle(); await settle();
+          return true;
+        };
+        // the canvas selected: a click on its empty room
+        const sb = svg.getBoundingClientRect();
+        const empty = { x: sb.right - 10, y: sb.bottom - 10 };
+        ptr('pointerdown', svg, empty.x, empty.y); ptr('pointerup', svg, empty.x, empty.y);
+        svg.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: empty.x, clientY: empty.y }));
+        await settle();
+        r.canvasSelected = deck._selection()?.node === svg;
+        r.edgesAndCorners = deck._canvas.handles().length === 4 && document.querySelectorAll('.dl-pic-handle').length === 4;
+
+        // the right edge out by 75 units: more room, the svg wider by as much (600 × 875 / 800), the box the same size on screen
+        const k = svg.getScreenCTM().a;
+        const w0 = box.getBoundingClientRect().width;
+        await dragEdge('e', 75 * k, 0);
+        const g1 = writes()[0];
+        r.moreRoom = !!g1 && Math.abs(g1.viewBox.w - 875) < 1 && g1.viewBox.x === 0 && g1.width === 656 && g1.path?.length === 0 && g1.tag === 'svg';
+        r.nothingDrawnChangesSize = Math.abs(box.getBoundingClientRect().width - w0) < 0.6;
+
+        // the left edge in, far: it stops where the drawing begins
+        await dragEdge('w', 2000, 0);
+        const g2 = writes()[1];
+        r.stopsAtTheDrawing = !!g2 && Math.abs(g2.viewBox.x - 100) < 1.5 && Math.abs(vb()[0] - 100) < 1.5;
+
+        // the bottom edge out, far: the slide is kept from clipping
+        const fit0 = sec.scrollHeight <= sec.clientHeight + 2;
+        await dragEdge('s', 0, 3000);
+        r.slideKeptFitting = fit0 && sec.scrollHeight <= sec.clientHeight + 2 && writes().length === 3 && vb()[3] > 300;
+
+        // Shape ▸ Fit the canvas to the drawing: an even margin round the box
+        svg.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: Math.round(sb.right - 12), clientY: Math.round(sb.top + 12) }));
+        await settle();
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+        rows().find((x) => x.textContent.trim() === 'Shape ▸')?.click();
+        await settle();
+        rows().find((x) => x.textContent.trim() === 'Fit the canvas to the drawing')?.click();
+        await settle(); await settle();
+        const g4 = writes()[3];
+        const near = (a, b) => Math.abs(a - b) < 1.5;
+        r.fitsTheDrawing = !!g4 && near(g4.viewBox.x, 90) && near(g4.viewBox.y, 40) && near(g4.viewBox.w, 220) && near(g4.viewBox.h, 120);
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
