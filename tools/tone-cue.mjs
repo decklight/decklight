@@ -13,20 +13,37 @@
 // and the same cut. Pure, so the runtime bundles it.
 
 /**
- * The built-in tones: `[label, Gemini directive, ElevenLabs cue]`.
+ * The built-in tones: `[label, Gemini directive, ElevenLabs cue, group]`.
  *
  * The directives are single instruction clauses: instruction-shaped text
  * steers, while persona sentences ("You're a…") can stochastically be read
  * aloud. Each cue is the SAME tone in a few words, short enough to reach
- * ElevenLabs whole.
+ * ElevenLabs whole, and close to the tags ElevenLabs documents: an invented
+ * cue is one the model ignores or reads aloud. The group is the heading the
+ * V panel lists it under: ways to present first, then moods, then the ones
+ * for a laugh.
  */
+const PRESENTING = 'presenting';
+const MOODS = 'moods';
+const FOR_A_LAUGH = 'for a laugh';
 export const TONES = [
-  ['Warm senior engineer', 'Read in a warm, welcoming tone, like a friendly battle-hardened senior engineer who is still curious about new technology.', 'warmly, like a seasoned engineer'],
-  ['Professional', 'Read in a clear, professional tone — measured, confident, and articulate.', 'clear and professional'],
-  ['Too serious', 'Read in an extremely grave, deadly serious tone, as if announcing news of the utmost importance.', 'gravely serious'],
-  ['Joyful', 'Read in a joyful, light-hearted tone, smiling through every sentence.', 'joyfully, smiling'],
-  ['Super excited', 'Read in a super-excited, high-energy tone, barely containing your enthusiasm.', 'super excited'],
-  ['Sad', 'Read in a somber, melancholic tone, on the verge of a sigh.', 'sadly, on the verge of a sigh'],
+  ['Warm senior engineer', 'Read in a warm, welcoming tone, like a friendly battle-hardened senior engineer who is still curious about new technology.', 'warmly, like a seasoned engineer', PRESENTING],
+  ['Professional', 'Read in a clear, professional tone — measured, confident, and articulate.', 'clear and professional', PRESENTING],
+  ['Calm explainer', 'Read in a calm, patient tone, like a teacher walking a class through something for the first time, pausing on the key words.', 'calm, patient', PRESENTING],
+  ['Conversational', 'Read in a relaxed, conversational tone, as if talking to one colleague across a desk rather than to a room.', 'conversational, relaxed', PRESENTING],
+  ['Keynote', 'Read in a confident, energetic tone with clear emphasis, like a speaker opening a conference.', 'confident, energetic', PRESENTING],
+  ['Documentary', "Read in a measured, unhurried narrator's voice, with weight on the facts and no sales pitch.", 'narrating a documentary', PRESENTING],
+  ['Storyteller', 'Read as a storyteller, with warmth and a sense of anticipation, letting each sentence land before the next.', 'storytelling, warm', PRESENTING],
+  ['Plain and brisk', 'Read in a plain, brisk tone with no flourish, like release notes read aloud.', 'neutral, brisk', PRESENTING],
+  ['Joyful', 'Read in a joyful, light-hearted tone, smiling through every sentence.', 'joyfully, smiling', MOODS],
+  ['Super excited', 'Read in a super-excited, high-energy tone, barely containing your enthusiasm.', 'super excited', MOODS],
+  ['Sad', 'Read in a somber, melancholic tone, on the verge of a sigh.', 'sadly, on the verge of a sigh', MOODS],
+  ['Too serious', 'Read in an extremely grave, deadly serious tone, as if announcing news of the utmost importance.', 'gravely serious', FOR_A_LAUGH],
+  ['Deadpan', 'Read in a completely flat, deadpan tone, never acknowledging that anything is funny.', 'deadpan', FOR_A_LAUGH],
+  ['Breaking news', 'Read in an urgent, breathless tone, like a reporter breaking a story live.', 'urgent, breaking news', FOR_A_LAUGH],
+  ['Whisper', 'Read in a hushed whisper, as if sharing a secret in a library.', 'whispers', FOR_A_LAUGH],
+  ['Sports commentator', 'Read like a sports commentator calling the final minute of a close match, fast and rising.', 'excited sports commentary', FOR_A_LAUGH],
+  ['Noir detective', "Read in a low, world-weary noir detective's voice, slow and full of pauses.", 'low, world-weary', FOR_A_LAUGH],
 ];
 
 // A tag this long stops being a short performance cue and starts being a
