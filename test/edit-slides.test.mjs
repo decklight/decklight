@@ -17,7 +17,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
@@ -82,6 +82,7 @@ async function call(routes, key, { body, query = '' } = {}) {
 test('every slide-mutation route the server dispatches is registered here', () => {
   const { routes } = harness();
   assert.deepEqual([...routes.keys()].sort(), [
+    'GET /deck/edit/casts',
     'GET /deck/edit/element/source',
     'GET /deck/edit/find',
     'POST /deck/edit/asset',
@@ -1003,4 +1004,15 @@ test('POST /deck/edit/element/remove asked quiet takes a block inside a column o
   const loud = await call(routes, 'POST /deck/edit/element/remove', { body: { slide: 1, index: 1, path: [0], tag: 'h3' } });
   assert.equal(loud.body.inPlace, false);
   assert.equal(quiet.length, 1);
+});
+
+test('GET /deck/edit/casts lists the recordings beside the deck, nearest first, never in a hidden folder or node_modules', async (t) => {
+  const { routes, dir } = harness(t, THREE);
+  const put = (rel) => { mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); writeFileSync(path.join(dir, rel), '{}'); };
+  for (const rel of ['casts/demo.cast.json', 'intro.cast', 'casts/deep/b.cast.json', '.hidden/x.cast.json', 'node_modules/p/y.cast.json', 'notes.json']) put(rel);
+  const sent = {};
+  await routes.get('GET /deck/edit/casts')({ req: {}, res: {}, url: new URL('http://x/deck/edit/casts'), json: (code, obj) => { sent.code = code; sent.body = obj; } });
+  assert.equal(sent.code, 200);
+  assert.deepEqual(sent.body.casts.map((c) => c.path), ['intro.cast', 'casts/demo.cast.json', 'casts/deep/b.cast.json']);
+  assert.equal(sent.body.casts[0].bytes, 2);
 });

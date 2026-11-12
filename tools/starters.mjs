@@ -21,7 +21,7 @@ import {
 } from './deck-html.mjs';
 
 /** The kinds of element Add offers, in its order (Picture is the page's file chooser, not a starter). */
-export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'table', 'code', 'formula', 'columns', 'diagram', 'chart', 'video'];
+export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'table', 'code', 'formula', 'columns', 'diagram', 'chart', 'video', 'terminal'];
 
 /** The kinds of slide New slide offers; no kind is today's blank slide (`BLANK_SLIDE`). */
 export const SLIDE_KINDS = ['bullets', 'text', 'columns', 'section', 'blank'];
@@ -41,8 +41,8 @@ const COLUMN = (name) => `<div>
 </div>`;
 
 /**
- * A file a starter points at (a video): a path beside the deck, written
- * relative (no scheme, not absolute, no `..`), of one of `exts`.
+ * A file a starter points at (a video, a recording): a path beside the deck,
+ * written relative (no scheme, not absolute, no `..`), matching `exts`.
  */
 const besideDeck = (src, exts) => typeof src === 'string' && src.length <= 300 && !!src.trim()
   && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(src) && !/^[/\\]/.test(src) && !src.split(/[/\\]/).includes('..')
@@ -54,7 +54,7 @@ const attrText = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
  * (a heading added then is a subheading, h3, rather than a second title);
  * `ctx.wire` is an arrowhead id no other element of the deck uses.
  */
-function elementStarter(kind, { titled = true, wire = 'dl-wire-1', src = null } = {}) {
+function elementStarter(kind, { titled = true, wire = 'dl-wire-1', src = null, cast = null } = {}) {
   switch (kind) {
     case 'heading': return titled ? '<h3>Heading</h3>' : '<h2>Heading</h2>';
     case 'text': return '<p>New text</p>';
@@ -104,6 +104,8 @@ const answer = 42;</code></pre>`;
     // DECK_ANATOMY: a video beside the deck, with its controls; the engine
     // plays it only on its slide (slide-media.js), and loads its first frame
     case 'video': return `<video src="${attrText(src)}" controls playsinline preload="metadata"></video>`;
+    // TERMINAL_PLAYER: a recording beside the deck, played a command a click
+    case 'terminal': return `<div class="terminal" data-cast="${attrText(cast)}" data-mode="step"></div>`;
     default: return null;
   }
 }
@@ -326,6 +328,9 @@ export function insertStarter(html, slide, index, kind, { path = null, words = n
   if (kind === 'video' && !besideDeck(given?.src, /\.(mp4|webm)$/i)) {
     throw new StarterError('a video is an mp4 or a webm beside the deck, given by its relative path (assets/clip.mp4)', 400);
   }
+  if (kind === 'terminal' && !besideDeck(given?.cast, /\.cast(\.json)?$/i)) {
+    throw new StarterError('a terminal recording is a .cast.json (or an asciicast .cast) beside the deck, given by its relative path (casts/demo.cast.json)', 400);
+  }
   const { parts, idx } = locateSlide(deck, slide);
   const seg = parts[idx];
   const sectionAttrs = readAttrs(splitOpenTag(seg).attrs);
@@ -335,7 +340,7 @@ export function insertStarter(html, slide, index, kind, { path = null, words = n
   }
   const titled = sectionChildRanges(seg).some((r) => r.tag === 'h1' || r.tag === 'h2');
   // words pasted from another app: their block around them, else the kind's starter
-  const markup = words !== null ? wordsMarkup(kind, words) : elementStarter(kind, { titled, wire: kind === 'diagram' ? freeWireId(deck) : undefined, src: given?.src ?? null });
+  const markup = words !== null ? wordsMarkup(kind, words) : elementStarter(kind, { titled, wire: kind === 'diagram' ? freeWireId(deck) : undefined, src: given?.src ?? null, cast: given?.cast ?? null });
   const count = kind === 'columns' ? 2 : 1;
   let layout = null;
   let out;

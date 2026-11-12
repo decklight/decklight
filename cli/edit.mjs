@@ -2496,8 +2496,20 @@ export const ELEMENT_OPTIONS = {
   pre: ['language', 'data-lines-numbers', 'data-fit', 'data-lines'],
   // a video on a slide (DECK_ANATOMY): its file, its toggles (bare), its poster
   video: ['src', 'controls', 'loop', 'muted', 'autoplay', 'poster'],
+  // a terminal (TERMINAL_PLAYER): a `<div class="terminal">`, its recording and how it plays
+  div: ['data-cast', 'data-mode', 'data-title', 'data-rows', 'data-type-speed', 'data-type-sound', 'data-poster'],
 };
-const OPTION_HOLDER = { pre: 'a code block', video: 'a video' };
+const OPTION_HOLDER = { pre: 'a code block', video: 'a video', div: 'a terminal' };
+/** A terminal's settings, each its one shape (TERMINAL_PLAYER); null takes one off. */
+const TERMINAL_SHAPES = {
+  'data-cast': [(v) => relativeSrc(v) && /\.cast(\.json)?$/i.test(v), 'a recording is a .cast.json (or .cast) beside the deck, given by its relative path'],
+  'data-mode': [(v) => v === 'step' || v === 'play', 'a terminal plays step (a command a click) or play (by itself)'],
+  'data-title': [(v) => typeof v === 'string' && v.length <= 80 && !/[\u0000-\u001f]/.test(v), 'a title is one line of at most 80 characters'],
+  'data-rows': [(v) => /^\d+$/.test(String(v)) && +v >= 4 && +v <= 60, 'rows is a whole number from 4 to 60'],
+  'data-type-speed': [(v) => /^\d+$/.test(String(v)) && +v >= 1 && +v <= 10, 'typing speed is 1 (slow) to 10 (fast)'],
+  'data-type-sound': [(v) => ['thocky', 'creamy', 'clacky', 'off'].includes(v), 'a typing sound is thocky, creamy, clacky or off'],
+  'data-poster': [(v) => /^\d+$/.test(String(v)) && +v >= 0 && +v <= 99, 'a poster is how many steps show before it plays, 0 to 99'],
+};
 const BARE_OPTIONS = new Set(['data-lines-numbers', 'data-fit', 'controls', 'loop', 'muted', 'autoplay']);
 
 /**
@@ -2516,11 +2528,18 @@ export function setElementOptions(html, slide, index, { path = [], tag = 'pre', 
     if (BARE_OPTIONS.has(k) && v !== true && v !== null) throw new Error(`${k} is on (true) or off (null)`);
     if (k === 'src' && !(relativeSrc(v) && /\.(mp4|webm)$/i.test(v))) throw new Error('a video is an mp4 or a webm beside the deck, given by its relative path');
     if (k === 'poster' && v !== null && !(relativeSrc(v) && /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(v))) throw new Error('a poster is a picture beside the deck, given by its relative path, or null for none');
+    if (tag === 'div' && v !== null && !TERMINAL_SHAPES[k][0](v)) throw new Error(TERMINAL_SHAPES[k][1]);
+    if (tag === 'div' && k === 'data-cast' && v === null) throw new Error('a terminal keeps its recording: remove the terminal instead');
     if (k === 'language' && v !== null && v !== '' && !CODE_LANGUAGES.some(([l]) => l === v)) throw new Error(`not a language the runtime highlights: ${String(v).slice(0, 40)}`);
     if (k === 'data-lines' && v !== null && (typeof v !== 'string' || v.length > 400)) throw new Error('data-lines is its steps, like 1-2|4, or null');
   }
   const e = openElement(html, slide, index);
   const at = e.at(path, tag);
+  if (tag === 'div') {
+    if (!/(^|\s)terminal(\s|$)/.test(attrOf(splitOpenTag(e.src(at)).attrs, 'class') ?? '')) throw new Error('only a terminal has these settings');
+    e.edit(path, tag, (attrs) => Object.entries(set).reduce((a, [n, v]) => withAttr(a, n, v === null ? null : String(v)), attrs));
+    return e.html();
+  }
   if (tag === 'video') {
     // one that plays on arrival is muted: a browser refuses to start one with sound
     const had = splitOpenTag(e.src(at)).attrs;

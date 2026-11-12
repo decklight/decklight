@@ -185,6 +185,8 @@
     const CD_ODD = `<div class="chart cd-odd" data-chart="bar"><script type="application/json">{ "labels": ["a"], "series": [ { "data": ["many"] } ] }<\/script></div>`;
     const CD_FILE = { 1: CD_BAR, 2: CD_SCATTER, 3: CD_ODD };
     // codeoptions: the code block the file has on slide 5, element 1
+    // terminaloptions: the terminal the file has on slide 5, element 1 (its recording is not here: the player shows its broken box)
+    const TO_FILE = '<div class="terminal" data-cast="casts/demo.cast.json" data-mode="step"></div>';
     // videooptions: the video the file has on slide 5, element 1 (preload none: no file to load here)
     const VO_FILE = '<video src="assets/demo.mp4" controls playsinline preload="none"></video>';
     const CO_FILE = '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\ngo(a, b);\n</code></pre>';
@@ -766,6 +768,8 @@
         if (u.includes('/deck/edit/asset') && init?.body instanceof Blob) {
           return json({ ok: true, src: `assets/${init.body.name}`, bytes: init.body.size, video: true, committed: false });
         }
+        // the recordings beside the deck: none, until the test puts one there
+        if (u.includes('/deck/edit/casts')) return json({ ok: true, casts: window.__casts ?? [] });
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: window.__lastInsert ?? '<p>x</p>' });
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
@@ -788,6 +792,7 @@
           // preload none here: the harness has no such file, and a clip loading
           // one would hold Chrome's virtual clock (the server writes metadata)
           if (b.kind === 'video') MARKUP.video = `<video src="${b.with?.src}" controls playsinline preload="none"></video>`;
+          if (b.kind === 'terminal') MARKUP.terminal = `<div class="terminal" data-cast="${b.with?.cast}" data-mode="step"></div>`;
           if (!MARKUP[b.kind]) return json({ ok: false, error: `no kind "${b.kind}" to add` }, 400);
           const kids = [...document.querySelectorAll('.decklight-stage > section')[b.slide - 1].children];
           let k = kids.length;
@@ -1072,6 +1077,14 @@
           return json({ ok: true, index: b.index === null ? 3 : b.index + 1, path: [], undo: 1, redo: 0 });
         }
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
+      }
+      // the Options tab for a terminal (terminaloptions): the file's terminal,
+      // the recordings beside the deck, and the settings route
+      if (HARNESS_MODE === 'terminaloptions') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: TO_FILE });
+        if (u.includes('/deck/edit/casts')) return json({ ok: true, casts: [{ path: 'casts/demo.cast.json', bytes: 10 }, { path: 'casts/other.cast.json', bytes: 12 }] });
+        if (u.includes('/deck/edit/element/options') && init?.method === 'POST') return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       // the Options tab for a video (videooptions): the file's video, its
       // settings route, and a poster's upload
@@ -1447,6 +1460,10 @@
           <g class="cs-c"><rect class="cs-plain2" x="580" y="40" width="120" height="60"/><text x="640" y="75">Other</text></g>`);
         document.querySelector('.cp-text').style.setProperty('font-weight', '700');
       }
+    }
+    // a terminal to set up from the Options tab (terminaloptions), slide 5
+    if (HARNESS_MODE === 'terminaloptions') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Shell</h2>\n${TO_FILE}</section>`);
     }
     // a video to set up from the Options tab (videooptions), slide 5
     if (HARNESS_MODE === 'videooptions') {
@@ -5742,7 +5759,7 @@
         const pick = (label) => click([...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === label));
         const active = () => document.querySelector('.decklight-stage > section.active');
         const inserts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/insert'));
-        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Table', 'Code', 'Formula', 'Two columns', 'Diagram', 'Chart', 'Picture', 'Video'];
+        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Table', 'Code', 'Formula', 'Two columns', 'Diagram', 'Chart', 'Picture', 'Video', 'Terminal recording'];
         deck.goto(1, 0); await settle();
         const labels = [...(bar()?.querySelectorAll('.eb-btn .eb-label') ?? [])].map((n) => n.textContent);
         r.addSitsBesidePicture = labels.indexOf('Add ▾') === labels.indexOf('Picture') - 1;
@@ -5844,6 +5861,23 @@
         at.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rr.left + 5, clientY: rr.top + 5 }));
         await settle(); await settle(); await settle();
         r.videoDropPlaced = inserts().at(-1)?.body.with?.src === 'assets/drop.webm' && !!active().querySelector(':scope > video[src="assets/drop.webm"]');
+        // a terminal recording: with none beside the deck, it says how one is made and adds nothing
+        const insertsBefore = inserts().length;
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Terminal recording'); await settle(); await settle();
+        r.noRecordingSaysHow = inserts().length === insertsBefore && !document.querySelector('.decklight-ctxmenu')
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /no terminal recording beside the deck yet.*\.term\.yaml.*decklight cast/.test(n.textContent));
+        // with some, they are listed, and the one picked is placed, the deck reloading onto it
+        window.__casts = [{ path: 'casts/demo.cast.json', bytes: 120 }, { path: 'casts/deep/b.cast.json', bytes: 80 }];
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Terminal recording'); await settle(); await settle();
+        r.recordingsListed = JSON.stringify(menuRows()) === JSON.stringify(['casts/demo.cast.json', 'casts/deep/b.cast.json']);
+        const reloadsBefore = reloads;
+        pick('casts/demo.cast.json'); await settle(); await settle();
+        const sentT = inserts().at(-1)?.body;
+        r.recordingPlaced = sentT?.kind === 'terminal' && sentT?.with?.cast === 'casts/demo.cast.json' && sentT?.quiet === true;
+        r.recordingReloadsOntoIt = reloads === reloadsBefore + 1;
+        const terminalReloads = reloads - reloadsBefore;
         press('Escape'); await settle();
         // the palette's one row opens the same menu
         runRow('add to slide'); await settle();
@@ -5866,12 +5900,13 @@
         await settle();
         r.lockedAddsNothing = !bar() && !palNames().includes('Add to slide…');
         press('Escape');
-        r.noReload = reloads === 0;
+        r.noReload = reloads === terminalReloads;
         r.PASS = r.addSitsBesidePicture && r.menuListsEveryKind && r.askedAfterTheSelection && r.landsAfterTheSelection && r.landsSelected
           && r.landsInEdit && r.placeholderSelected && r.typingReplacesThePlaceholder && r.diagramBeforeTheAsides && r.diagramIdsNamespaced
           && r.diagramShownWhole && r.diagramSelectedNotTyped && r.columnsTakeTheSplit && r.columnsHeadingInEdit && r.chartDrawnInPlace
           && r.codeInEdit && r.codeHighlighted && r.formulaMarksTheSlide && r.formulaOpenAsSource && r.formulaTypeset
           && r.videoChooserTakesVideos && r.videoCopiedThenPlaced && r.videoOnTheSlide && r.videoSaysItIsNotCommitted && r.videoOverTheCapRefused && r.videoDropPlaced
+          && r.noRecordingSaysHow && r.recordingsListed && r.recordingPlaced && r.recordingReloadsOntoIt
           && r.paletteRowOpensTheMenu && r.templateSlideTurnsAddOff && r.templateSlideSaysWhy
           && r.lockedAddsNothing && r.noReload;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
@@ -11518,6 +11553,42 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
       // The Options tab for a video (DECK_ANATOMY): its file, controls, loop,
       // muted, play on arrival (which turns muted on, and says so), its poster;
       // shown at once, a burst written as one settings write.
+      // The Options tab for a terminal (TERMINAL_PLAYER): which recording, how
+      // it plays, title, rows, typing; set up at load, so gathered and saved
+      // with one button, and the deck reloads to show them.
+      if (mode === 'terminaloptions') {
+        const I = '.decklight-inspector';
+        const q = (s) => document.querySelector(`${I} ${s}`);
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/options'));
+        let reloads = 0;
+        document.querySelector('.decklight').addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        await settle();
+        deck.goto(5);
+        await settle();
+        const term = document.querySelector('.decklight-stage section.active .terminal');
+        term.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+        press('i');
+        await settle();
+        q('.ins-tab[data-tab="options"]')?.click();
+        await until(() => q('dd[data-key="data-cast"] select'));
+        const field = (k) => q(`dd[data-key="${k}"] select, dd[data-key="${k}"] input`);
+        r.fieldsSayWhatTheFileHas = field('data-cast').value === 'casts/demo.cast.json' && field('data-mode').value === 'step'
+          && [...field('data-cast').options].map((o) => o.value).join(',') === 'casts/demo.cast.json,casts/other.cast.json';
+        r.saveWaitsForAChange = q('.ins-apply')?.disabled === true;
+        const pickIt = (k, v) => { const f = field(k); f.value = v; f.dispatchEvent(new Event(f.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); };
+        pickIt('data-mode', 'play');
+        pickIt('data-type-sound', 'off');
+        pickIt('data-rows', '18');
+        r.nothingWrittenYet = posts().length === 0 && q('.ins-apply')?.disabled === false;
+        q('.ins-apply').click();
+        await settle(); await settle();
+        const sent = posts()[0]?.body;
+        r.oneWrite = posts().length === 1 && sent?.tag === 'div' && sent.set['data-mode'] === 'play' && sent.set['data-type-sound'] === 'off'
+          && sent.set['data-rows'] === '18' && !('data-cast' in sent.set) && !('data-title' in sent.set);
+        r.reloadsToShowIt = reloads === 1;
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+      }
       if (mode === 'videooptions') {
         const I = '.decklight-inspector';
         const q = (s) => document.querySelector(`${I} ${s}`);

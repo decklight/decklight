@@ -231,6 +231,7 @@ const ENGINE_GROUPS = {
     'chartdata',
     'codeoptions',
     'videooptions',
+    'terminaloptions',
     'shapedrag',
     'shapeadd',
     'shaperesize',

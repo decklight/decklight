@@ -31,8 +31,8 @@
 // both sides is a hoisted function declaration, and nothing is read until a
 // request arrives.
 
-import { existsSync, mkdirSync, readdirSync, writeFileSync, createWriteStream, linkSync, rmSync } from 'node:fs';
-import { basename, dirname, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync, createWriteStream, linkSync, rmSync } from 'node:fs';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 
 import {
   notesTextToAside, setSlideNotes,
@@ -1279,6 +1279,39 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     });
   }
 
+  // ── the recordings a terminal can play (TERMINAL_PLAYER) ─────────────────
+  /**
+   * `GET /deck/edit/casts` — the terminal recordings found beside the deck,
+   * for Add ▾ › Terminal recording: every `*.cast.json` (and asciicast
+   * `*.cast`) under the deck's folder, searched a few folders deep, never into
+   * a hidden folder or `node_modules`, and at most a couple of hundred. Each
+   * is its path relative to the deck (what `data-cast` is written as) and
+   * its size; the nearest first.
+   */
+  function castsRoute({ json }) {
+    const root = dirname(deckPath);
+    const found = [];
+    const walk = (dir, depth) => {
+      if (depth > 4 || found.length >= 200) return;
+      let entries;
+      try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        if (found.length >= 200) return;
+        if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+        const at = resolve(dir, e.name);
+        if (e.isDirectory()) walk(at, depth + 1);
+        else if (e.isFile() && /\.cast(\.json)?$/i.test(e.name)) {
+          let bytes = 0;
+          try { bytes = statSync(at).size; } catch { /* gone since the listing */ }
+          found.push({ path: relative(root, at).split(sep).join('/'), bytes, depth });
+        }
+      }
+    };
+    walk(root, 0);
+    found.sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path));
+    return json(200, { ok: true, casts: found.map(({ path, bytes }) => ({ path, bytes })) });
+  }
+
   // ── pictures after the drop (PRESENTING_EDITING) ───────────────────────
   // A refusal is said in the transform's own words: a shape it does not take
   // is a 400, a slide or element the file does not have a 404, and a path
@@ -1478,6 +1511,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/concepts', conceptsRoute);
   routes.set('POST /deck/edit/slide', slideRoute);
   routes.set('POST /deck/edit/asset', assetRoute);
+  routes.set('GET /deck/edit/casts', castsRoute);
   routes.set('POST /deck/edit/element/image', imageRoute);
   routes.set('POST /deck/edit/element/insert', elementInsertRoute);
   routes.set('POST /deck/edit/element/picture', elementPictureRoute);
