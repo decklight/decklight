@@ -124,7 +124,10 @@ export function createInspector({
   const focusOf = (t) => (t ? (t.node && t.top.contains(t.node) ? t.node : t.top) : null);
 
   /** `I` toggles it; the menu's Inspect, Colors… and Type… open it on a tab (`{ tab }`). */
-  function open({ tab: want = null } = {}) {
+  // the colour side a door asked for (Wire ▸ Width… opens Colors on Stroke), taken once
+  let wantSide = null;
+  function open({ tab: want = null, side = null } = {}) {
+    wantSide = side;
     if (el && !want) { close(); return; }
     if (!subscribed && editbar()?.onSelect) {
       subscribed = true;
@@ -625,6 +628,7 @@ export function createInspector({
       editor = { ...ed, node: focus };
     }
     editor.setSide(tab === 'type' ? 'type' : 'colors');
+    if (wantSide && tab === 'colors') { editor.setSide(wantSide); wantSide = null; }
     // the inspector's own placement, so a bottom dock lays the editor out in columns
     editor.el.dataset.dock = el.dataset.dock ?? '';
     return editor.el;

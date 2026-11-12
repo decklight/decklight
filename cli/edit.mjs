@@ -74,6 +74,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, wa
 // edit server rewrites the whole file on every small edit, and a truncate
 // that is interrupted leaves a prefix of a talk where the talk was.
 import { writeFileAtomic } from '../tools/atomic-write.mjs';
+import { LINE_DASHES } from '../tools/diagram-shapes.mjs';
 import { resolve, relative, dirname, sep, basename } from 'node:path';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
@@ -526,8 +527,17 @@ const TYPE_VALUES = {
   'text-anchor': /^(?:start|middle|end)$/,
   'text-align': /^(?:left|center|right)$/,
 };
-const kindOf = (prop) => (STYLE_PROPS.has(prop) ? 'colour' : WIDTH_PROPS.has(prop) ? 'width' : Object.hasOwn(TYPE_VALUES, prop) ? prop.replace('-', ' ') : null);
-const valueShape = (prop) => (STYLE_PROPS.has(prop) ? STYLE_VALUE : WIDTH_PROPS.has(prop) ? WIDTH_VALUE : TYPE_VALUES[prop]);
+// a line's style (SVG_DIAGRAMS): Line ▸ solid, dashed, dotted. Closed values,
+// written inline so a `draw` build keeps the dashes as it draws (BUILD_AUTHORING:
+// a dash set by a class would draw solid, then snap); the attribute of the
+// same name goes when one is written, so the file never says two things
+const LINE_VALUES = {
+  'stroke-dasharray': new RegExp(`^(?:${Object.values(LINE_DASHES).join('|')})$`),
+  'stroke-linecap': /^(?:butt|round|square)$/,
+};
+const kindOf = (prop) => (STYLE_PROPS.has(prop) ? 'colour' : WIDTH_PROPS.has(prop) ? 'width'
+  : Object.hasOwn(TYPE_VALUES, prop) ? prop.replace('-', ' ') : Object.hasOwn(LINE_VALUES, prop) ? 'line style' : null);
+const valueShape = (prop) => (STYLE_PROPS.has(prop) ? STYLE_VALUE : WIDTH_PROPS.has(prop) ? WIDTH_VALUE : TYPE_VALUES[prop] ?? LINE_VALUES[prop]);
 
 /**
  * Set style properties on elements INSIDE slide N's element `index` — a shape
@@ -554,9 +564,23 @@ export function setElementStyles(html, slide, index, edits) {
     const kind = kindOf(ed.prop);
     if (!kind) throw new Error(`not a property this server writes: ${String(ed.prop).slice(0, 40)}`);
     if (ed.value !== null && (typeof ed.value !== 'string' || !valueShape(ed.prop).test(ed.value))) throw new Error(`not a ${kind} this server writes: ${String(ed.value).slice(0, 40)}`);
-    e.edit(ed.path, ed.tag, (attrs) => withStyle(attrs, ed.prop, ed.value));
+    e.edit(ed.path, ed.tag, (attrs) => {
+      const styled = withStyle(attrs, ed.prop, ed.value);
+      return Object.hasOwn(LINE_VALUES, ed.prop) ? withAttr(styled, ed.prop, null) : styled;
+    });
   }
   return e.html();
+}
+
+/** The markup of the nodes `edits` addressed in slide N's element `index`, once each: what a page puts back in place of a drawn stroke. */
+export function editedNodes(html, slide, index, edits) {
+  const e = openElement(html, slide, index);
+  const seen = new Map();
+  for (const ed of edits ?? []) {
+    const key = JSON.stringify(ed.path);
+    if (!seen.has(key)) seen.set(key, { path: ed.path, html: e.src(e.at(ed.path, ed.tag ?? null)) });
+  }
+  return [...seen.values()];
 }
 
 /**
@@ -701,6 +725,8 @@ const GEOMETRY_ATTRS = new Set(['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'r
 /** The attributes that are a shape of their own, and the only tags that may carry them. */
 const SHAPE_DATA = { d: new Set(['path']), points: new Set(['polyline', 'polygon']) };
 const NON_NEGATIVE = new Set(['width', 'height', 'r', 'rx', 'ry']);
+/** What a `null` takes off: a box's rounded corners. */
+const CORNER_ATTRS = new Set(['rx', 'ry']);
 /** The drawn nodes of a diagram that have a geometry to write (a label's line moves with it). */
 const DIAGRAM_NODES = new Set(['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text', 'tspan', 'image', 'use', 'g', 'foreignobject']);
 /** A coordinate as a page may send it: a number, at most one decimal written. */
@@ -828,6 +854,14 @@ export function setElementGeometry(html, slide, index, edits) {
   const e = openElement(html, slide, index);
   for (const ed of edits) {
     if (!GEOMETRY_ATTRS.has(ed?.attr)) throw new Error(`not an attribute this server moves: ${String(ed?.attr).slice(0, 40)}`);
+    // a box's corners squared again (Corners ▸ square): its rx and ry taken off
+    if (ed.value === null && CORNER_ATTRS.has(ed.attr)) {
+      e.edit(ed.path, ed.tag, (attrs, at) => {
+        if (!at.inSvg || at.found !== 'rect') throw new Error(`only a box's corners are squared, not a <${at.found}>'s`);
+        return withAttr(attrs, ed.attr, null);
+      });
+      continue;
+    }
     const value = geometryValue(ed.attr, ed.value);
     e.edit(ed.path, ed.tag, (attrs, at) => {
       if (!at.inSvg || !DIAGRAM_NODES.has(at.found)) throw new Error(`not a node of a diagram: <${at.found}>`);

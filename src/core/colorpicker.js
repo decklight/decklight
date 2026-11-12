@@ -360,6 +360,12 @@ export function colorTargets(top, clicked) {
   };
   const svg = clicked.closest?.('svg');
   if (svg && top.contains(svg) && clicked !== svg) {
+    // a line or a polyline is a stroke and nothing else: its colour and its width (Wire ▸ Width…), no fill to pick
+    const line = clicked.closest('line, polyline');
+    if (line && !line.closest(INJECTED + ', defs')) {
+      const stroke = [target(line, 'stroke')].filter(Boolean);
+      return stroke.length ? { fill: [], stroke, text: [], what: line.tagName.toLowerCase(), concept: null, conceptAt: null } : null;
+    }
     let shape = clicked.closest(SVG_SHAPES);
     const label = clicked.closest('text');
     const filled = (s) => getComputedStyle(s).fill !== 'none';

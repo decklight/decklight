@@ -365,9 +365,24 @@ try {
     await page.mouse.click(w.x + w.width / 2, w.y + w.height / 2, { button: 'right' }); await wait(400);
     await menuRow(page, /^Wire ▸$/);
     const heads = await page.locator('.decklight-ctxmenu .cm-head').allTextContents();
-    check('diagram', 'Wire ▸ is one submenu: Route and Arrows as headed groups', heads.join() === 'Route,Arrows', heads);
+    check('diagram', 'Wire ▸ is one submenu: Route, Arrows and Line as headed groups', heads.join() === 'Route,Arrows,Line', heads);
     await menuRow(page, /Elbow$/); await wait(1200);
     check('diagram', 'Wire ▸ Elbow writes an elbow', /data-route="elbow"/.test(wire()), wire());
+    // Line ▸ Dashed: the dashes inline in its style, and they survive the next re-route (SVG_DIAGRAMS)
+    await page.keyboard.press('Escape'); await wait(200);
+    const mid = await page.locator(`${ACTIVE} svg [data-from]`).evaluate((p) => {
+      const q = p.getPointAtLength(p.getTotalLength() / 2); const m = p.getScreenCTM();
+      return { x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f };
+    });
+    await page.mouse.click(mid.x, mid.y, { button: 'right' }); await wait(400);
+    await menuRow(page, /^Wire ▸$/);
+    await menuRow(page, /^Dashed$/); await wait(1200);
+    check('diagram', 'Wire ▸ Line ▸ Dashed writes its dashes inline', /style="[^"]*stroke-dasharray: 6 4/.test(wire()), wire());
+    await page.keyboard.press('Escape'); await wait(200);
+    await page.mouse.click(mid.x, mid.y, { button: 'right' }); await wait(400);
+    await menuRow(page, /^Wire ▸$/);
+    await menuRow(page, /^Curved$/); await wait(1200);
+    check('diagram', 'a dashed wire stays dashed when its route changes', /data-route="curve"/.test(wire()) && /stroke-dasharray: 6 4/.test(wire()), wire());
     // the whole diagram duplicated from its canvas by ⌘D: a second diagram, its node names its own
     await page.goto(diagram.url + '#/1/0'); await wait(1500);
     await page.keyboard.press('Escape'); await wait(200);

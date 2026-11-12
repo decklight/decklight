@@ -39,7 +39,7 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, editedNodes, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
   duplicateSlideElement } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
 import { setElementPicture, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
@@ -445,18 +445,23 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * press. A pasted style (Paste style) can carry the shape's concept too,
    * `concept: { path, tag, value }` (value null takes it off), written in the
    * same edit: a style that is a concept is that concept, not its colour.
+   * Asked to `echo`, the answer carries the markup of each node it styled
+   * (`nodes: [{ path, html }]`): a line restyled to dashes is put back on the
+   * page as the file has it, since a drawn stroke is the engine's to rebuild.
    */
   function elementStyleRoute({ body, json }) {
-    const { slide, index, edits = [], concept = null, quiet: inPlace, from } = JSON.parse(body);
+    const { slide, index, edits = [], concept = null, quiet: inPlace, from, echo = false } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
     if (concept !== null && (typeof concept !== 'object' || !(concept.value === null || typeof concept.value === 'string'))) throw new Error('bad payload');
     if (!concept && (!Array.isArray(edits) || !edits.length)) throw new Error('bad edits');
-    let changed;
+    let changed; let nodes = null;
     try {
       changed = applyEdit((html) => {
         const styled = Array.isArray(edits) && edits.length ? setElementStyles(html, slide, index, edits) : html;
-        return concept ? setElementAttr(styled, slide, index,
+        const out = concept ? setElementAttr(styled, slide, index,
           { path: concept.path ?? [], tag: concept.tag ?? null, name: 'data-concept', value: concept.value }) : styled;
+        if (echo === true) nodes = editedNodes(out, slide, index, edits);
+        return out;
       });
     } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
     // Asked for IN PLACE (the inspector's Colors and Type tabs), the write is
@@ -470,7 +475,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       const said = [...(edits ?? []).map((e) => `${e.prop} ${e.value}`), ...(concept ? [`concept ${concept.value ?? '(detached)'}`] : [])];
       console.log(`  element colours saved: slide ${slide} #${index} → ${said.join(', ')}`);
     }
-    return json(200, { ok: true, changed, ...history.counts() });
+    return json(200, { ok: true, changed, ...(nodes ? { nodes } : {}), ...history.counts() });
   }
 
   /**

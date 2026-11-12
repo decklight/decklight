@@ -2455,6 +2455,9 @@ export function createEditMode({
    * list, a shape) when there is one, else the block itself.
    */
   const buildNode = (t) => t?.node ?? t?.top ?? null;
+  // Line ▸ and Corners ▸ (SVG_DIAGRAMS): a stroke's dashes, a box's corners
+  const LINE_CHOICES = [['solid', 'Solid'], ['dashed', 'Dashed'], ['dotted', 'Dotted']];
+  const CORNER_CHOICES = [['square', 'Square'], ['rounded', 'Rounded'], ['pill', 'Pill']];
   /** The build effect the menu's element carries: its `data-build`, '' for the default, null for none. */
   const currentEffect = (t) => { const n = buildNode(t); return n?.hasAttribute?.('data-build') ? n.getAttribute('data-build') : null; };
   let elementEditOn = false;
@@ -2524,6 +2527,14 @@ export function createEditMode({
     menuView = 'main';
   }
 
+  /** A heading and its choices, the one `cur` names ticked; picking another calls `set(target, value)`. */
+  function tickGroup(rows, target, head, choices, cur, set) {
+    rows.push({ head });
+    for (const [value, label] of choices) {
+      rows.push({ label: `${value === cur ? '✓ ' : ''}${label}`, current: value === cur, run: () => { closeElementMenu(); if (value !== cur) set(target, value); } });
+    }
+  }
+
   function renderElementMenu() {
     const list = menuEl.querySelector('.cm-list');
     list.textContent = '';
@@ -2560,6 +2571,9 @@ export function createEditMode({
       for (const [kind, label] of [['box', 'Box'], ['ellipse', 'Ellipse'], ['label', 'Label'], ['line', 'Line / arrow']]) {
         rows.push({ label, run: () => { closeElementMenu(); shapes.add(target, kind, at); } });
       }
+      // what the shape the menu was opened on looks like: a box's corners, a stroke's line
+      if (shapes.hasCorners?.(target)) tickGroup(rows, target, 'Corners', CORNER_CHOICES, shapes.cornerState(target), shapes.setCorners);
+      if (shapes.isStroke?.(target) && !shapes.isWire?.(target)) tickGroup(rows, target, 'Line', LINE_CHOICES, shapes.lineState(target), shapes.setLine);
       const svg = shapes.diagramOf(target);
       if (svg && target.node !== svg && target.node !== target.top) {
         rows.push({ sep: true });
@@ -2571,14 +2585,12 @@ export function createEditMode({
       rows.push(backTo('main'));
       const target = menuTarget;
       const state = shapes.wireState(target) ?? {};
-      const group = (head, choices, cur, set) => {
-        rows.push({ head });
-        for (const [value, label] of choices) {
-          rows.push({ label: `${value === cur ? '✓ ' : ''}${label}`, current: value === cur, run: () => { closeElementMenu(); if (value !== cur) set(target, value); } });
-        }
-      };
+      const group = (head, choices, cur, set) => tickGroup(rows, target, head, choices, cur, set);
       group('Route', [['straight', 'Straight'], ['elbow', 'Elbow'], ['curve', 'Curved']], state.route, shapes.setRoute);
       group('Arrows', [['none', 'None'], ['end', 'End'], ['both', 'Both ends']], state.arrows, shapes.setArrows);
+      group('Line', LINE_CHOICES, shapes.lineState(target), shapes.setLine);
+      // its weight lives with its colour (Colors… › Stroke › Width): this row opens it there
+      rows.push({ label: 'Width…', run: () => openInspect('colors', 'stroke') });
       rows.push({ sep: true });
       rows.push({ label: 'Reverse', run: () => { closeElementMenu(); shapes.reverse(target); } });
     } else if (menuView === 'table') {
@@ -3022,10 +3034,10 @@ export function createEditMode({
   // whose Colors and Type tabs are the colour card's editors. The engine owns
   // the inspector and hands this module the door to it.
   let inspectHook = null;
-  function openInspect(tab = 'info') {
+  function openInspect(tab = 'info', side = null) {
     const target = menuTarget;
     closeElementMenu();
-    inspectHook?.(target, tab);
+    inspectHook?.(target, tab, side);
   }
 
   /**
