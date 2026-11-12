@@ -20,7 +20,7 @@ import { closeOnBackdrop, selectInList } from './overlay.js';
 import { reloadLine } from './debuglog.js';
 import { holdDraft, unsavedDrafts, draftList, heldReloadText } from './drafts.js';
 import { conceptOf, pathFrom } from './colorpicker.js';
-import { pickNode } from './pick.js';
+import { pickNode, atDepth } from './pick.js';
 import { reselectAfterReload, forgetReselect } from './editbar.js';
 import { rangeLabel } from './ranges.js';
 import { agentChipText, boundedFetch, commitChipParts, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
@@ -2697,13 +2697,15 @@ export function createEditMode({
         const loop = buildNode(t)?.getAttribute?.('data-animate');
         rows.push({ label: loop ? `Animate: ${loop} ▸` : 'Animate ▸', run: drill('animate') });
       }
-      // up or down the slide, greyed at the ends and inside a diagram (element-move.js)
+      // up or down the slide, or among its siblings for a block inside a column;
+      // greyed at the ends and inside a diagram (element-move.js)
       if (elementMove) {
         for (const [dir, label, key] of [[-1, 'Move up', elementMove.keys.up], [1, 'Move down', elementMove.keys.down]]) {
-          // on a diagram's shape, up is forward and down is backward: what covers what (front and back)
+          // on a diagram's shape, up is forward and down is backward: what covers what (front and back);
+          // a block inside a column moves among its own siblings (element-move.js decides)
           const shape = nested && shapes?.isOrderable?.(t);
           const to = dir < 0 ? 'forward' : 'backward';
-          const can = shape ? shapes.canOrder(t, to) : !nested && elementMove.canMove(t, dir);
+          const can = shape ? shapes.canOrder(t, to) : elementMove.canMove(t, dir);
           rows.push({ label, key, disabled: !can, run: !can ? noop : shape ? () => { closeElementMenu(); shapes.order(t, to); } : () => { closeElementMenu(); elementMove.move(t, dir); } });
         }
       }
@@ -2948,6 +2950,20 @@ export function createEditMode({
     const node = whole ? null : target.node && target.node !== target.top ? target.node : null;
     const path = node ? pathFrom(target.top, node) : null;
     if (node && !path) { toast('that node is the engine’s, not the file’s — nothing to remove', 2600); return; }
+    // a block inside a column goes in place: the page takes it off as the file does, no reload
+    const sec = target.top?.closest?.('section');
+    if (node && atDepth(target.top, node) && sec && !sec.hasAttribute('data-template') && !sec.querySelector('.terminal, video, audio, iframe, canvas')) {
+      try {
+        const j = await commit.post('/deck/edit/element/remove', { slide, index, path, tag: node.tagName.toLowerCase() });
+        if (!j.changed) { toast('nothing to remove'); return; }
+        node.remove();
+        instance.refreshSlide?.(sec);
+        undoToast(`removed from slide ${slide}`);
+      } catch (e) {
+        toast(`remove failed: ${commit.why(e)}`, 6000);
+      }
+      return;
+    }
     try {
       const res = await writeFetch(editBase + '/deck/edit/element/remove', {
         method: 'POST', headers: { 'content-type': 'application/json' },

@@ -731,6 +731,17 @@
           return json({ ok: true, changed: true, index: b.path ? b.index : b.to, path: b.path ? [...b.path.slice(0, -1), b.to] : null,
             inPlace: b.quiet === true, undo: ++window.__moves, redo: 0 });
         }
+        if (u.includes('/deck/edit/element/build')) return json({ ok: true, changed: true, inPlace: JSON.parse(init?.body ?? '{}').quiet === true, undo: ++window.__moves, redo: 0 });
+        // a block at depth (moveatdepth): removed and duplicated in place, by its path
+        if (u.includes('/deck/edit/element/remove')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, changed: true, inPlace: b.quiet === true, undo: ++window.__moves, redo: 0 });
+        }
+        if (u.includes('/deck/edit/element/duplicate')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, changed: true, index: b.index, path: [...b.path.slice(0, -1), b.path.at(-1) + 1],
+            html: '<p class="mv-lp">words</p>', inPlace: b.quiet === true, undo: ++window.__moves, redo: 0 });
+        }
       }
       // Add ▾ (addmenu, addslidekinds): the insert route's answer, its markup
       // as tools/starters.mjs writes it, placed where the server places it;
@@ -1766,6 +1777,11 @@
         <section><h2 class="mv-h">Order</h2><p class="mv-a">alpha</p><ul class="mv-list"><li>one</li><li>two</li><li>three</li></ul><p class="mv-b">beta</p><aside class="notes"><p>Say it.</p></aside></section>
         <section><h2>Builds</h2><p data-build class="mv-b1">first</p><p data-build class="mv-b2">second</p></section>
         <section><h2>Live</h2><p class="mv-l">words</p><video class="mv-v" muted></video></section>`);
+      // moveatdepth: a comparison slide whose left column holds three blocks
+      if (HARNESS_MODE === 'moveatdepth') {
+        document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
+          <section data-layout="split"><h2>Depth</h2><div class="mv-col"><h3 class="mv-c3">Before</h3><p class="mv-cp">words</p><ul class="mv-cu"><li class="mv-ci">a point</li></ul></div><div class="mv-col2"><h3>After</h3><p>x</p></div></section>`);
+      }
       // movereselect: the page a move reloaded, which selects the element again on the slide it moved on
       if (HARNESS_MODE === 'movereselect') {
         try { sessionStorage.setItem('decklight-move-select:' + location.pathname, JSON.stringify({ slide: 5, index: 3, t: Date.now() })); } catch { /* fine */ }
@@ -5311,7 +5327,67 @@
         const selectedTop = () => deck._selection()?.top ?? null;
         if (mode !== 'movereselect') { deck.goto(mode === 'moveinplace' ? 6 : 5, 0); await settle(); }
 
-        if (mode === 'movemenu') {
+        if (mode === 'moveatdepth') {
+          // Selecting and working at depth (PRESENTING_EDITING, Selection): the
+          // first click on a block in a column selects the column, the second
+          // the block, one beside it the next block (never a list's point);
+          // Esc goes up a level; ⌥-click goes straight there; and Move, the
+          // chord, Duplicate and Remove act on the inner block among its own
+          // siblings, by its path, in place.
+          deck.goto(8, 0); await settle();
+          const col = $('.mv-col');
+          const sel = () => deck._selection();
+          const mac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform);
+          const chordD = () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', code: 'KeyD', metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true }));
+          const posts = (route) => CALLS.post.filter((c) => c.u.includes(route)).map((c) => c.body);
+          click($('.mv-c3')); await settle();
+          r.firstClickIsTheColumn = sel()?.top === col && sel()?.node === col && col.classList.contains('dl-selected');
+          click($('.mv-cp')); await settle();
+          r.secondClickIsTheBlock = sel()?.top === col && sel()?.node === $('.mv-cp');
+          click($('.mv-ci')); await settle();
+          r.besideItTheNextBlockNotAPoint = sel()?.node === $('.mv-cu');
+          press('Escape'); await settle();
+          r.escGoesUpALevel = sel()?.node === col;
+          press('Escape'); await settle();
+          r.escAgainLetsGo = !sel();
+          $('.mv-ci').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, altKey: true }));
+          await settle();
+          r.altClickGoesStraightThere = sel()?.node === $('.mv-cu');
+          click($('.mv-cp')); await settle();
+          // ⌃⇧↑: the paragraph above the heading, among its own siblings
+          moveKey('ArrowUp'); await settle(); await settle();
+          const m = lastMove();
+          r.chordAsksWithItsPath = m?.slide === 8 && m?.index === 1 && JSON.stringify(m?.path) === '[1]' && m?.to === 0 && m?.tag === 'p' && m?.quiet === true;
+          r.movedAmongItsSiblings = [...col.children].map(tag).join(',') === 'mv-cp,mv-c3,mv-cu' && sel()?.node === $('.mv-cp');
+          // the menu on the selection: Move up greyed at the top of its column, Move down not
+          document.querySelector('.dl-handle')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+          await settle();
+          r.menuRowsAtDepth = row('Move up')?.classList.contains('cm-disabled') === true && row('Move down')?.classList.contains('cm-disabled') === false;
+          row('Move down')?.click(); await settle(); await settle();
+          r.menuMovesItDown = lastMove()?.to === 1 && JSON.stringify(lastMove()?.path) === '[0]' && [...col.children].map(tag).join(',') === 'mv-c3,mv-cp,mv-cu';
+          // Build ▸ on the inner block: its own build, by its path, in place
+          document.querySelector('.dl-handle')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+          await settle();
+          row('Build ▸')?.click(); await settle();
+          row('fade')?.click(); await settle(); await settle();
+          const bu = posts('/deck/edit/element/build').at(-1);
+          r.buildAtDepth = bu?.index === 1 && JSON.stringify(bu?.path) === '[1]' && bu?.effect === 'fade' && $('.mv-cp').getAttribute('data-build') === 'fade';
+          press('Escape'); await settle();
+          if (sel()?.node !== $('.mv-cp')) { click($('.mv-c3')); await settle(); click($('.mv-cp')); await settle(); }
+          // ⌘D: a copy right after it, by its path, in place
+          chordD(); await settle(); await settle();
+          const d = posts('/deck/edit/element/duplicate').at(-1);
+          r.duplicateAtDepth = d?.index === 1 && JSON.stringify(d?.path) === '[1]' && col.querySelectorAll(':scope > p').length === 2;
+          // ⌫: the selected copy goes, in place, by its path
+          const copy = sel()?.node;
+          press('Backspace'); await settle(); await settle();
+          const rm = posts('/deck/edit/element/remove').at(-1);
+          r.removeAtDepthInPlace = rm?.index === 1 && JSON.stringify(rm?.path) === '[2]' && rm?.quiet === true && !!copy && !copy.isConnected
+            && col.querySelectorAll(':scope > p').length === 1;
+          r.slideKeepsItsTwoColumns = !$('.mv-col2').classList.contains('split-footer');
+          r.noReload = reloads === 0;
+          r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        } else if (mode === 'movemenu') {
           // the title: nothing above it, so Move up is greyed and does nothing
           ctx($('.mv-h')); await settle();
           r.menuHasMoveRows = !!row('Move up') && !!row('Move down');

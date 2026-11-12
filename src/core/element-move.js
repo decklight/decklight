@@ -24,6 +24,8 @@
 
 import { createEditCommit } from './edit-commit.js';
 import { fileIndexOf } from './design-system.js';
+import { atDepth } from './pick.js';
+import { pathFrom } from './colorpicker.js';
 
 /** Children the engine put on a slide: not the file's, never moved, never counted. */
 const ENGINE_CHILD = '.slide-bg, .decklight-hero-logo, [data-ds-injected]';
@@ -94,8 +96,57 @@ export function createElementMove({ root, instance, editmode, toast, select = ()
     return true;
   }
 
+  /** A block at depth's siblings as the file counts them (pathFrom's way), and where it is among them. */
+  function depthPlace(target) {
+    const { top, node } = target ?? {};
+    if (!atDepth(top, node)) return null;
+    const path = pathFrom(top, node);
+    if (!path) return null;
+    const siblings = [...node.parentElement.children].filter((c) => pathFrom(node.parentElement, c)?.length === 1);
+    return { path, siblings, from: siblings.indexOf(node) };
+  }
+
+  /** A block at depth one place up or down among its own siblings, in place: one write, one undo. */
+  async function moveAtDepth(target, dir) {
+    if (refuse()) return false;
+    const place = depthPlace(target);
+    if (!place || place.from < 0) return false;
+    const { top, node } = target;
+    const { path, siblings, from } = place;
+    const to = from + dir;
+    if (to < 0) { toast('already first in its column', 1600); return false; }
+    if (to >= siblings.length) { toast('already last in its column', 1600); return false; }
+    const sec = top.closest('section');
+    const slide = slideOf(sec);
+    const index = rawIndexOf(sec, top);
+    const inPlace = followsInPlace(sec, instance);
+    const words = dir < 0 ? 'moved up' : 'moved down';
+    try {
+      const j = await commit.post('/deck/edit/element/move', { slide, index, tag: node.tagName.toLowerCase(), path, to }, { quiet: inPlace });
+      if (j.inPlace) {
+        if (dir > 0) siblings[to].after(node); else siblings[to].before(node);
+        relayout(sec);
+        select(node);
+        debugLog('edit', `slide ${slide}: element #${index} › ${path.join('.')} moved to ${to}, in place`);
+        toast(words, 1200);
+      } else {
+        remember(slide, index);
+        toast(`${words} — reloading`, 1600);
+      }
+      return true;
+    } catch (e) {
+      toast(`could not move it: ${commit.why(e)}`, 6000);
+      return false;
+    }
+  }
+
   /** Can the selection go one place up (`dir` -1) or down (+1)? The menu greys a row that cannot. */
   function canMove(target, dir) {
+    // a block inside a column moves among its own siblings; a diagram's node not at all (the shapes move those)
+    if (target?.node && target.node !== target.top) {
+      const place = depthPlace(target);
+      return !!place && place.from >= 0 && place.from + dir >= 0 && place.from + dir < place.siblings.length;
+    }
     const top = target?.top;
     const sec = top?.closest?.('section');
     if (!sec) return false;
@@ -141,6 +192,7 @@ export function createElementMove({ root, instance, editmode, toast, select = ()
 
   /** The selection one place up (`dir` -1) or down (+1): the menu's rows and Control-Shift-↑ / ↓. */
   function move(target, dir) {
+    if (target?.node && target.node !== target.top) return depthPlace(target) ? moveAtDepth(target, dir) : Promise.resolve(false);
     const top = target?.top;
     const sec = top?.closest?.('section');
     if (!sec) return Promise.resolve(false);

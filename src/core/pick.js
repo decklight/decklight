@@ -51,6 +51,55 @@ export function pickNode(top, clicked) {
   return drawn && svg.contains(drawn) ? drawn : svg;
 }
 
+// ── blocks at depth (PRESENTING_EDITING, Selection) ───────────────────────
+// A column is a block of blocks: a heading over its points, a picture, a
+// quote. The first click selects the column (its drag and its layout are the
+// column's); a second click on the same column goes one level down, to the
+// block under the pointer, and a click on another block beside that one
+// selects it in turn. ⌥-click goes straight to the deepest block. Only plain
+// wrappers are stepped into: a list, a table and a figure have their own
+// sessions (their points, cells and caption), and a chart or a terminal is
+// one block.
+
+/** What the engine put there: never a block of the file's. */
+const ENGINE_NODE = '.slide-bg, .decklight-hero-logo, [data-ds-injected], .draw-head, .draw-mask';
+const NOT_A_WRAPPER = `.chart, [data-chart], .terminal, ${ENGINE_NODE}`;
+/** Is `el` a plain wrapper of blocks: a `<div>` that is not a chart, a terminal or the engine's? */
+export const isWrapper = (el) => el?.tagName === 'DIV' && !el.matches(NOT_A_WRAPPER) && !el.closest('svg');
+/** The block one level below wrapper `from` that holds `clicked`, or null. */
+export function blockBelow(from, clicked) {
+  if (!isWrapper(from) || !clicked || clicked === from || !from.contains(clicked)) return null;
+  return [...from.children].find((c) => c.contains(clicked) && !c.matches(ENGINE_NODE)) ?? null;
+}
+/** The deepest block under `clicked`, stepping down through wrappers from `top` (⌥-click). */
+export function innermostBlock(top, clicked) {
+  let n = top;
+  for (let b = blockBelow(n, clicked); b; b = blockBelow(n, clicked)) n = b;
+  return n;
+}
+/** Is `node` a block at depth: below its top-level element `top`, in a wrapper, not a diagram's node? */
+export const atDepth = (top, node) => !!node && !!top && node !== top && top.contains(node)
+  && isWrapper(node.parentElement) && !(typeof SVGElement !== 'undefined' && node instanceof SVGElement);
+
+/**
+ * What a click on `clicked` selects inside `top` while `current` (a target,
+ * or null) is selected: a picture or a diagram's node as `pickNode` says;
+ * with ⌥, the deepest block; on the selected wrapper, the block below it
+ * under the pointer; on a block beside a selected inner one, that block; on
+ * the selected inner block itself, that block still; else the top-level block.
+ */
+export function nodeForClick(top, clicked, current, { alt = false } = {}) {
+  const picked = pickNode(top, clicked);
+  if (picked !== top) return picked;
+  if (alt) return innermostBlock(top, clicked);
+  const cur = current?.top === top ? current.node : null;
+  if (!cur || !top.contains(clicked)) return top;
+  const holder = cur.contains(clicked) ? cur
+    : atDepth(top, cur) && cur.parentElement.contains(clicked) ? cur.parentElement : null;
+  if (!holder) return top;
+  return blockBelow(holder, clicked) ?? (holder === cur ? cur : top);
+}
+
 /** Is `node` a drawn node inside a diagram (a box, a label, a wire), not the block or the canvas? */
 export const isDrawn = (node) => node instanceof SVGElement && node.tagName.toLowerCase() !== 'svg' && !!node.closest?.('svg');
 

@@ -199,6 +199,7 @@ const ENGINE_GROUPS = {
     'movedrag',
     'moveinplace',
     'movereselect',
+    'moveatdepth',
     'bgindex',
     'links',
     'addmenu',

@@ -31,7 +31,7 @@
 import { authoredTop, authoredIndex } from './design-system.js';
 import { stepShowing } from './builds.js';
 import { editableTarget, formulaTarget, svgTextTarget, CODE_EDITABLE } from './authoring.js';
-import { pickNode, isDrawn, isWireNode, wireMiddle, createSpotlight, createFrame } from './pick.js';
+import { pickNode, isDrawn, isWireNode, wireMiddle, createSpotlight, createFrame, nodeForClick, atDepth } from './pick.js';
 import { UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
 import { pathFrom } from './colorpicker.js';
@@ -366,6 +366,8 @@ export function createEditBar({
     cancelAnimationFrame(following);
     const tick = () => {
       if (!selected) return;
+      // what was selected left the page (removed in place): the selection goes with it
+      if (!shown(selected).isConnected) { deselect(); return; }
       const r = shown(selected).getBoundingClientRect();
       // a wire's ⋯ is on its middle, which a route change moves without moving its box
       const mid = wireAnchor(selected);
@@ -397,7 +399,9 @@ export function createEditBar({
     if (!on() || authoring.editing() || inOverlay(e.target)) return;
     const target = editmode.elementTargetOf(e.target);
     if (target?.top) {
-      if (selected?.node !== pickNode(target.top, target.clicked)) select(target);
+      // a second click on a selected column is the block under the pointer, ⌥-click the deepest one (pick.js)
+      const node = nodeForClick(target.top, target.clicked, selected, { alt: e.altKey });
+      if (selected?.node !== node) { target.node = node; select(target); }
       else stepToShow(target);   // another waiting point of the list already selected
     }
     else deselect();
@@ -410,7 +414,8 @@ export function createEditBar({
     // a shape in a diagram gets a dashed accent box and a glow, and the stage around it dims; a block keeps its own dashed outline
     const node = top ? pickNode(top, e.target) : null;
     if (node && isDrawn(node)) { hover(null); spot.show(node, { dim: true }); }
-    else { spot.hide(); hover(top); }
+    // what a click would select: inside a selected column, the block under the pointer
+    else { spot.hide(); hover(top ? nodeForClick(top, e.target, selected, { alt: e.altKey }) : null); }
   });
   root.addEventListener('mouseleave', () => { hover(null); spot.hide(); });
   window.addEventListener('resize', placeHandle);
@@ -441,7 +446,13 @@ export function createEditBar({
       editmode.removeElement(target);
       return true;
     }
-    if (e.key === 'Escape') { deselect(); return true; }
+    // Esc goes up a level: a block at depth to the block holding it, else lets go
+    if (e.key === 'Escape') {
+      const up = atDepth(selected.top, selected.node) ? selected.node.parentElement : null;
+      if (up) select({ ...selected, node: up, clicked: up });
+      else deselect();
+      return true;
+    }
     // ⌘D / Ctrl+D: a copy right after it, selected (the gate in engine.js lets the chord through only with a selection)
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === 'KeyD') {
       editmode.duplicateElement?.(selected);
@@ -455,7 +466,8 @@ export function createEditBar({
       // a diagram's shape: up is forward, down is backward (front and back, SVG_DIAGRAMS)
       const shapes = editmode.shapes?.();
       if (selected.node !== selected.top && shapes?.isOrderable?.(selected)) { shapes.order(selected, e.key === 'ArrowUp' ? 'forward' : 'backward'); return true; }
-      if (selected.node !== selected.top) { toast('this moves whole elements: click the diagram\'s empty canvas to select all of it, then move that', 2600); return true; }
+      // a block at depth moves among its own siblings (element-move.js); any other node inside an element is not the slide's order
+      if (selected.node !== selected.top && !atDepth(selected.top, selected.node)) { toast('this moves whole elements: click the diagram\'s empty canvas to select all of it, then move that', 2600); return true; }
       mover.move(selected, e.key === 'ArrowUp' ? -1 : 1);
       return true;
     }
