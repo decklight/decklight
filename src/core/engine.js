@@ -31,7 +31,7 @@ import { createShapes } from './shapes.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
 import { createOnboarding } from './onboarding.js';
-import { createOverflowWatch } from './overflow.js';
+import { createOverflowWatch, clipReport } from './overflow.js';
 import { createPlaylist } from './playlist.js';
 import { createRangePicker } from './ranges.js';
 import { createChoiceCard } from './choice.js';
@@ -351,11 +351,8 @@ function checkOverflow(section, slideNo) {
   // every re-check is a layout change the fit must follow (SPEC CODE_AND_MATH)
   fitCode(section);
   // Terminals scroll internally by design (SPEC TERMINAL_PLAYER scrollback viewport);
-  // any other intentional scroller can opt out with data-scroll-ok.
-  const clipped = [section, ...section.querySelectorAll('pre, table, svg, ul, ol, blockquote')]
-    .some((el) => el.scrollHeight > el.clientHeight + 2 &&
-                  getComputedStyle(el).overflowY !== 'visible' &&
-                  !el.closest('.terminal') && !el.hasAttribute('data-scroll-ok'));
+  // any other intentional scroller can opt out with data-scroll-ok (overflow.js clipReport).
+  const clipped = !!clipReport(section);
   const was = section.hasAttribute('data-overflow');
   section.toggleAttribute('data-overflow', clipped);
   // Only on the way IN. The check re-runs whenever the slide's content changes
@@ -3138,8 +3135,15 @@ export function init(userConfig = {}) {
     const badge = root.querySelector('.decklight-slide-num');
     zoomChip.style.right = badge ? `${16 + badge.offsetWidth + 8}px` : '';
   }
-  // the badge comes and goes with editing and the lock: the chip follows it
-  new MutationObserver(() => { if (zoomChip) paintZoomChip(); }).observe(root, { childList: true });
+  // the badge comes and goes with editing and the lock, and grows and shrinks
+  // with its number and its clipped mark: the chip follows it
+  let badgeWatched = null;
+  const badgeWatch = new MutationObserver(() => {
+    const badge = root.querySelector(':scope > .decklight-slide-num');
+    if (badge && badge !== badgeWatched) { badgeWatched = badge; badgeWatch.observe(badge, { childList: true, subtree: true }); }
+    if (zoomChip) paintZoomChip();
+  });
+  badgeWatch.observe(root, { childList: true });
   /** The deck's zoom as the harness and the debug line read it: factor and pan. */
   instance.zoom = () => ({ k: zoom.k, x: zoom.x, y: zoom.y });
   instance.setZoom = (k, opts) => applyZoom(k, opts);
@@ -3721,6 +3725,8 @@ export function init(userConfig = {}) {
   editmode.onWrite?.(() => deckCheck.refresh());
   for (const ev of ['decklight:theme', 'decklight:concepts', 'decklight:layout']) root.addEventListener(ev, () => deckCheck.refresh());
   instance.check = () => deckCheck.check();
+  // the clipped badge on write mode's slide number: Check deck…, on that slide's row
+  editmode.setCheckOpener?.((select) => deckCheck.open(select));
   instance._deckCheck = deckCheck;
   // the review a quick fix opens (#907): its candidate, stops and decisions, for a headless probe
   instance._fixReview = editmode.fixReview;

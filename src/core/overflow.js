@@ -197,3 +197,45 @@ export function createOverflowWatch({
     get watched() { return watched.slice(); },
   };
 }
+
+// ── what "clipped" is, measured ─────────────────────────────────────────────
+// The guardrail's own test (checkOverflow in engine.js), the inspector's "clips
+// by" and write mode's badge on the slide number all ask the same question, so
+// they share one answer: the box that overflows its own height the most.
+
+/** The boxes that can clip: the slide itself, and what scrolls inside it. */
+const CLIP_BOXES = 'pre, table, svg, ul, ol, blockquote';
+const CLIP_WHAT = { SECTION: 'the slide', PRE: 'a code block', TABLE: 'a table', SVG: 'a diagram',
+  UL: 'a list', OL: 'a list', BLOCKQUOTE: 'a quote' };
+
+/**
+ * The slide's worst clipped box, or null when nothing is clipped.
+ *
+ * `{ el, what, by }`: the box, a few words for it ("a code block", "the
+ * slide"), and how far its content runs past it, in deck px. Terminals scroll
+ * by design (SPEC TERMINAL_PLAYER) and `data-scroll-ok` opts any other
+ * scroller out; an `overflow: visible` box clips nothing. Under 3 px is
+ * rounding, not clipping.
+ */
+export function clipReport(section) {
+  if (!section) return null;
+  let worst = null;
+  for (const el of [section, ...section.querySelectorAll(CLIP_BOXES)]) {
+    const by = el.scrollHeight - el.clientHeight;
+    if (by <= 2 || (worst && by <= worst.by)) continue;
+    if (el.closest('.terminal') || el.hasAttribute('data-scroll-ok')) continue;
+    if (getComputedStyle(el).overflowY === 'visible') continue;
+    worst = { el, by };
+  }
+  if (!worst) return null;
+  return { el: worst.el, what: CLIP_WHAT[worst.el.tagName.toUpperCase()] ?? 'a box', by: Math.round(worst.by) };
+}
+
+/** The sentence a clipped slide says about itself: what, by how much, and that nobody sees it. */
+export function clipSentence(report) {
+  if (!report) return '';
+  const where = report.what === 'the slide'
+    ? `content runs ${report.by}px past the bottom of the slide`
+    : `${report.what} runs ${report.by}px past the bottom of its box`;
+  return `clipped: ${where}, and the audience never sees the rest`;
+}
