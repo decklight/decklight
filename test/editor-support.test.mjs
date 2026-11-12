@@ -17,6 +17,7 @@ import {
   vscodeMain, writeEditorSupport,
 } from '../cli/editor-support.mjs';
 import { ATTRIBUTES, CONFIG_KEYS, attributeEntry } from '../tools/vocabulary.mjs';
+import { ATTRIBUTE_DOCS, CONFIG_DOCS } from '../cli/vocabulary-docs.mjs';
 import { checkMain, staticFindings } from '../cli/check.mjs';
 import { planVscode } from '../cli/init.mjs';
 
@@ -31,6 +32,21 @@ const tmp = (t) => {
 
 // ── the custom data ──────────────────────────────────────────────────────────
 
+test('every attribute and configuration key in the table has its line, and no line names a word the table lacks', () => {
+  assert.deepEqual(Object.keys(ATTRIBUTE_DOCS).sort(), ATTRIBUTES.map((a) => a.name).sort());
+  assert.deepEqual(Object.keys(CONFIG_DOCS).sort(), CONFIG_KEYS.map((k) => k.name).sort());
+  for (const [name, d] of Object.entries(ATTRIBUTE_DOCS)) assert.ok(d.desc && d.desc.length < 140, `${name}: one line`);
+  for (const [name, d] of Object.entries(CONFIG_DOCS)) assert.ok(d && d.length < 140, `${name}: one line`);
+});
+
+test('the runtime bundle carries the table, never its descriptions', (t) => {
+  const bundle = path.join(ROOT, 'dist/decklight.js');
+  if (!fs.existsSync(bundle)) { t.skip('needs a built dist/'); return; }
+  const js = fs.readFileSync(bundle, 'utf8');
+  assert.ok(js.includes('"data-build-stay"') || js.includes("'data-build-stay'"), 'the table is in it');
+  assert.ok(!js.includes(ATTRIBUTE_DOCS['data-build'].desc), 'a description is not');
+});
+
 test('the custom data is the table: every authored attribute, its values, and no value where it takes none', () => {
   const data = customData();
   assert.equal(data.version, 1.1);
@@ -42,7 +58,7 @@ test('the custom data is the table: every authored attribute, its values, and no
   assert.equal(data.globalAttributes.find((a) => a.name === 'data-logo').valueSet, undefined, 'bare or a number: a value may follow');
   assert.match(data.globalAttributes.find((a) => a.name === 'data-layout').description.value, /^On `<section>`\. /);
   const config = data.globalAttributes.find((a) => a.name === 'data-decklight-config').description.value;
-  for (const k of CONFIG_KEYS) assert.ok(config.includes(`\`${k.name}\``), `the config hover names ${k.name}`);
+  for (const k of CONFIG_KEYS) assert.ok(config.includes(`- \`${k.name}\`: ${CONFIG_DOCS[k.name]}`), `the config hover says what ${k.name} is`);
 });
 
 // ── the snippets ─────────────────────────────────────────────────────────────

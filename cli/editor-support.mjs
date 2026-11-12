@@ -15,7 +15,8 @@
  *
  * GENERATED WHEN WRITTEN, never committed as copies: both files are made from
  * tools/vocabulary.mjs, the one table `decklight check` and the Check deck
- * panel read, at the moment they are written. So they say what the installed
+ * panel read, at the moment they are written, its words described by
+ * cli/vocabulary-docs.mjs (kept out of the runtime bundle). So they say what the installed
  * Decklight reads, and re-running after an upgrade refreshes them.
  *
  * `.vscode/settings.json` is the person's. It is never overwritten: the one
@@ -34,6 +35,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ATTRIBUTES, CONFIG_KEYS, attributeEntry } from '../tools/vocabulary.mjs';
+import { ATTRIBUTE_DOCS, CONFIG_DOCS } from './vocabulary-docs.mjs';
 import { PKG } from './skill-content.mjs';
 import { isMain } from '../tools/args.mjs';
 import { CommandError, runMain } from './util.mjs';
@@ -59,10 +61,11 @@ export function customData() {
     version: 1.1,
     globalAttributes: ATTRIBUTES.map((a) => {
       const keys = a.name === 'data-decklight-config'
-        ? `\n\nKeys: ${CONFIG_KEYS.map((k) => `\`${k.name}\``).join(', ')}.` : '';
+        ? `\n\nKeys:\n${CONFIG_KEYS.map((k) => `- \`${k.name}\`: ${CONFIG_DOCS[k.name]}`).join('\n')}` : '';
+      const doc = ATTRIBUTE_DOCS[a.name];
       return {
         name: a.name,
-        description: { kind: 'markdown', value: `${where(a.on)}${a.desc}${keys}` },
+        description: { kind: 'markdown', value: `${where(doc.on)}${doc.desc}${keys}` },
         ...(a.values ? { values: a.values.map((v) => ({ name: v })) }
           : a.bare && !a.number ? { valueSet: 'v' } : {}),
       };

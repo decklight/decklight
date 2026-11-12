@@ -63,7 +63,7 @@ test('every data-* name the runtime spells is in the table, as authored or as th
 
 test('every name in the table is read somewhere: no entry completes in an editor for nothing', () => {
   const corpus = [...sources('src', /\.(m?js|css)$/), ...sources('cli', /\.mjs$/), ...sources('tools', /\.mjs$/)]
-    .filter(([file]) => !file.endsWith(`tools${path.sep}vocabulary.mjs`) && !file.endsWith(`cli${path.sep}editor-support.mjs`));
+    .filter(([file]) => !file.endsWith(`tools${path.sep}vocabulary.mjs`) && !/cli[\\/](editor-support|vocabulary-docs)\.mjs$/.test(file));
   const spelled = new Set();
   for (const [, text] of corpus) for (const n of dataNames(text)) spelled.add(n);
   assert.deepEqual(ALL.filter((n) => !spelled.has(n)), []);

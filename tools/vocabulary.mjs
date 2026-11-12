@@ -24,7 +24,9 @@
 /**
  * The attributes an author writes: what the rules need and nothing else,
  * since this ships in the runtime and so in every self-contained deck. Where
- * each goes and what it does is SPEC's, kept out of the bundle. `values` is the enumeration when the
+ * each goes and what it does is cli/vocabulary-docs.mjs's, joined by name for
+ * the editor support files (cli/editor-support.mjs) and kept out of the
+ * bundle. `values` is the enumeration when the
  * attribute takes one, `bare` means it may be written with no value, and
  * `number` that a number is a value too. `open` marks values that are only
  * suggestions (a CSS value may be anything else); `kind` names what a value
