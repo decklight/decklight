@@ -136,6 +136,9 @@
       sentTo: 'answers go to its own bridge on this machine (127.0.0.1:8787/validate), then ~/.decklight/credentials.json (0600)',
     };
     const CALLS = { get: [], post: [] };
+    // decksettings: the settings the file says (the defaults where it says nothing)
+    const DS_VALUES = { transition: 'fade', slideNumber: false, controls: true, pinTitles: true, logo: null,
+      'narration.slidePause': 1, 'narration.beatPause': 0.5, 'narration.sentencePause': 0.25 };
     // listkeys, listplain, tablekeys, tablemenu (PRESENTING_EDITING): slide
     // 3's list or table, and the file's copy of it, which each write replaces
     const LK = {
@@ -169,7 +172,8 @@
     const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url, init) => {
       const u = String(url);
-      if (init?.method === 'POST') CALLS.post.push({ u, body: JSON.parse(init.body ?? '{}') });
+      if (init?.method === 'POST') CALLS.post.push({ u, body: init.body instanceof Blob ? { file: init.body.name } : JSON.parse(init.body ?? '{}') });
+      if (HARNESS_MODE === 'decksettings' && init?.body instanceof Blob) return json({ ok: true, src: `assets/${init.body.name}`, bytes: init.body.size });
       else CALLS.get.push(u);
       // every panel, one Esc each (escapeall): enough of each route for its
       // panel to open; anything else is a plain ok
@@ -558,6 +562,20 @@
         }
       }
       // `editbar` is the same server, driven from the bar and the selection
+      // Deck settings… (decksettings): the file's settings as the server reads them, a save
+      // answered as the file read again; DS_READONLY makes it a deck whose configuration is code
+      if (HARNESS_MODE === 'decksettings') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/config')) {
+          if (init?.method !== 'POST') {
+            return json(window.DS_READONLY
+              ? { ok: true, title: 'Talk', values: DS_VALUES, editable: false, why: 'its Decklight.init(…) is code, not plain data, so it is the author’s to edit' }
+              : { ok: true, title: 'Talk', values: DS_VALUES, editable: true, why: null });
+          }
+          return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        }
+        if (u.includes('/deck/edit/slide')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       // the Slide tab's writes: a transition of "slide" is refused, to see a refusal said and put back
       if (HARNESS_MODE === 'slidesettings' || HARNESS_MODE === 'slidemorph') {
         if (u.includes('/deck/edit/slide/attr')) {
@@ -2924,6 +2942,87 @@
         press('Escape');
         try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || k === 'crumbs' || k === 'contrast' || v === true);
+      }
+
+      if (mode === 'decksettings') {
+        // PRESENTING_EDITING, Deck settings…: a card saved in the deck, from
+        // the palette and the Slide menu; a save writes only what changed, in
+        // one write that reloads; a deck whose configuration is code is shown
+        // read-only with why; Settings… says it is this browser's
+        const C = '.decklight-decksettings';
+        const q = (s) => document.querySelector(`${C} ${s}`);
+        const dd = (k) => q(`dd[data-key="${k}"]`);
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/config')).map((c) => c.body);
+        const toasts = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        const choose = async (el, label) => { const o = [...el.options].find((x) => x.textContent === label); el.value = o.value; el.dispatchEvent(new Event('change', { bubbles: true })); await settle(); };
+        const type = async (el, text) => { el.focus(); el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); await settle(); };
+        const saveBtn = () => q('.ds-save');
+        await settle(); await settle();      // /deck/ping: editAvailable
+        press('/');
+        for (const ch of 'deck settings') press(ch);
+        r.paletteRow = /Deck settings…/.test(document.querySelector('.decklight-palette .pal-row')?.textContent ?? '');
+        press('Enter');
+        await settle(); await settle();
+        r.opens = !!document.querySelector(C) && q('.narr-head')?.textContent === 'Deck settings · saved in the deck';
+        const selected = (k) => dd(k)?.querySelector('select')?.selectedOptions[0]?.textContent;
+        r.readsTheFile = dd('title')?.querySelector('input')?.value === 'Talk' && selected('transition') === 'fade' && selected('slideNumber') === 'off'
+          && dd('controls')?.querySelector('input').checked === true && selected('pinTitles') === 'at the same height'
+          && dd('narration.beatPause')?.querySelector('input')?.value === '0.5';
+        r.pointsAtSettings = /Settings…/.test(q('.ds-foot')?.textContent ?? '');
+
+        // three changes, one write: slide numbers, a logo chosen, the title
+        await choose(dd('slideNumber').querySelector('select'), '4 / 12');
+        deck._deckSettings.setChooser(async () => new File(['<svg xmlns="http://www.w3.org/2000/svg"/>'], 'logo.svg', { type: 'image/svg+xml' }));
+        dd('logo').querySelector('.ins-btn').click();
+        await settle(); await settle();
+        r.logoUploaded = CALLS.post.some((c) => c.u.includes('/deck/edit/asset') && c.body.file === 'logo.svg')
+          && dd('logo').querySelector('input').value === 'assets/logo.svg';
+        await type(dd('title').querySelector('input'), 'Quarterly review');
+        saveBtn().click();
+        await settle(); await settle();
+        const p1 = posts().pop();
+        r.oneWriteOfWhatChanged = posts().length === 1 && JSON.stringify(p1?.set) === JSON.stringify({ slideNumber: 'n/N', logo: { onLight: 'assets/logo.svg' } })
+          && p1?.title === 'Quarterly review' && p1?.quiet !== true;
+        r.closesAndSaysItReloads = !document.querySelector(C) && /reloads/.test(toasts());
+
+        // the Slide menu's door; nothing changed is no write
+        document.querySelector('.decklight-editbar .eb-slide')?.click();
+        await settle();
+        [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === 'Deck settings…')?.click();
+        await settle(); await settle();
+        r.slideMenuOpensIt = !!document.querySelector(C);
+        saveBtn().click();
+        await settle();
+        r.nothingChangedNoWrite = posts().length === 1 && !document.querySelector(C);
+
+        // a pause that is not a number is said, and nothing is sent
+        press('/'); for (const ch of 'deck settings') press(ch); press('Enter');
+        await settle(); await settle();
+        await type(dd('narration.slidePause').querySelector('input'), 'soon');
+        saveBtn().click();
+        await settle();
+        r.badPauseSaid = posts().length === 1 && /seconds/.test(toasts()) && !!document.querySelector(C);
+        press('Escape');
+        await settle();
+        r.escCloses = !document.querySelector(C);
+
+        // a deck whose configuration is code: read-only, why, nothing to save
+        window.DS_READONLY = true;
+        press('/'); for (const ch of 'deck settings') press(ch); press('Enter');
+        await settle(); await settle();
+        r.readOnlySaysWhy = /^Read-only: its Decklight\.init/.test(q('.ds-why')?.textContent ?? '')
+          && [...document.querySelectorAll(`${C} input, ${C} select, ${C} button`)].every((n) => n.disabled) && !saveBtn();
+        press('Escape');
+        await settle();
+
+        // Settings… is this browser's
+        press('/'); for (const ch of 'settings') press(ch);
+        r.settingsStillFirst = /^(?:Preferences: )?Settings…/.test(document.querySelector('.decklight-palette .pal-row')?.textContent ?? '');
+        press('Enter');
+        await settle();
+        r.settingsSaysThisBrowser = document.querySelector('.decklight-settings .narr-head')?.textContent === 'Settings · this browser';
+        press('Escape');
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
       if (mode === 'slidemorph') {

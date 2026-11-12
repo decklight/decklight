@@ -98,6 +98,7 @@ const ENGINE_GROUPS = {
     'palettecategories',
     'paletteplain',
     'settings',
+    'decksettings',
     'deckcheck',
     'display',
     'exclusive',

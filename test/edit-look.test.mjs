@@ -104,12 +104,14 @@ async function call(routes, key, { body, query = '' } = {}) {
 test('every look route the server dispatches is registered here', () => {
   const { routes } = harness();
   assert.deepEqual([...routes.keys()].sort(), [
+    'GET /deck/edit/config',
     'GET /deck/edit/design-system/browse',
     'GET /deck/edit/font/browse',
     'GET /deck/edit/marketplace/auto-check',
     'GET /deck/edit/marketplaces',
     'GET /deck/edit/theme/browse',
     'POST /deck/edit/brand-themes',
+    'POST /deck/edit/config',
     'POST /deck/edit/design-system/apply',
     'POST /deck/edit/design-system/mark',
     'POST /deck/edit/font/mark',
@@ -121,6 +123,41 @@ test('every look route the server dispatches is registered here', () => {
     'POST /deck/edit/theme/add',
     'POST /deck/edit/theme/mark',
   ], 'a route that leaves this list has left the edit server too');
+});
+
+test('GET and POST /deck/edit/config: Deck settings read from the file, saved in one undo, a default taking the key off', async (t) => {
+  const { routes, readDeck, history } = harness(t);
+  const got = await call(routes, 'GET /deck/edit/config');
+  assert.equal(got.body.editable, true);
+  assert.equal(got.body.values.slideNumber, false);
+  assert.equal(got.body.title, '');
+  const r = await call(routes, 'POST /deck/edit/config', { body: { set: { slideNumber: 'n/N', 'narration.slidePause': 2 }, title: 'Quarterly review' } });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.changed, true);
+  assert.equal(history.counts().undo, 1, 'settings and title, one undo entry');
+  assert.equal(r.body.values.slideNumber, 'n/N', 'the answer is the file read again');
+  assert.equal(r.body.title, 'Quarterly review');
+  const cfg = JSON.parse(/data-decklight-config>([\s\S]*?)<\/script>/.exec(readDeck())[1]);
+  assert.deepEqual(cfg, { decklight: '0.9.0', theme: 'aurora', slideNumber: 'n/N', narration: { slidePause: 2 } }, 'two more keys and nothing else');
+  assert.match(readDeck(), /<head>\n<title>Quarterly review<\/title>/);
+  const back = await call(routes, 'POST /deck/edit/config', { body: { set: { slideNumber: false, 'narration.slidePause': 1 } } });
+  assert.equal(back.body.changed, true);
+  assert.deepEqual(JSON.parse(/data-decklight-config>([\s\S]*?)<\/script>/.exec(readDeck())[1]), { decklight: '0.9.0', theme: 'aurora' });
+  const bad = await call(routes, 'POST /deck/edit/config', { body: { set: { width: 1920 } } });
+  assert.equal(bad.code, 400);
+  assert.match(bad.body.error, /not a deck setting/);
+  assert.equal((await call(routes, 'POST /deck/edit/config', { body: {} })).code, 400);
+});
+
+test('POST /deck/edit/config on a deck whose configuration is not in a form it rewrites: 409, why, nothing written', async (t) => {
+  const { routes, readDeck } = harness(t, BARE);
+  const got = await call(routes, 'GET /deck/edit/config');
+  assert.equal(got.body.editable, false);
+  assert.match(got.body.why, /no configuration block/);
+  const r = await call(routes, 'POST /deck/edit/config', { body: { set: { transition: 'flip' } } });
+  assert.equal(r.code, 409);
+  assert.match(r.body.error, /cannot be saved here/);
+  assert.equal(readDeck(), BARE);
 });
 
 test('POST /deck/edit/theme writes the deck\'s theme into its config block as one undo entry, and the same pick again is nothing', async (t) => {

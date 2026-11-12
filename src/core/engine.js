@@ -34,6 +34,7 @@ import { createInspector } from './inspector.js';
 import { createSlideSettings, applySlideAttrs } from './slide-settings.js';
 import { createBuildsPanel } from './builds-panel.js';
 import { createBuildEdit } from './build-edit.js';
+import { createDeckSettings } from './deck-settings.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { createPlaylist } from './playlist.js';
@@ -1301,6 +1302,9 @@ export function init(userConfig = {}) {
         run: () => openInEditor.choose() },
       { label: 'Settings…', cat: 'Preferences', alias: 'config configuration preferences options about version build release which version',
         run: openSettings },
+      // the deck's own settings, saved in its file (deck-settings.js, PRESENTING_EDITING)
+      write({ label: 'Deck settings…', cat: 'Preferences', alias: 'deck title transition slide numbers arrows pin titles logo narration pauses saved in the file',
+        run: () => deckSettings.open() }),
     ].filter(Boolean).filter((c) => has(c.run));
     return all;
   }
@@ -1543,7 +1547,8 @@ export function init(userConfig = {}) {
     card.replaceChildren();
     const head = document.createElement('div');
     head.className = 'narr-head';
-    head.textContent = 'settings';
+    // presenting preferences, kept in this browser; what the deck's file says is Deck settings…
+    head.textContent = 'Settings · this browser';
     card.appendChild(head);
     setRows = settingsRows();
     setRows.forEach((r, i) => {
@@ -3733,9 +3738,15 @@ export function init(userConfig = {}) {
   // Hide / Unhide this slide on the bar's Slide ▾ and the right-click
   // Slide ▸ too, for the slide the menu was opened on: the palette's row,
   // the same write (setHidden, HIDDEN_SLIDES)
+  // …and Deck settings…, what the whole deck's file says (deck-settings.js)
+  const deckSettings = createDeckSettings({ root, overlays, editmode: () => editmode, toast });
+  instance._deckSettings = deckSettings;
   editmode.setSlideRows((slide) => {
     const hidden = !!instance._sections?.[slide - 1]?.hasAttribute('data-hidden');
-    return [{ label: `${hidden ? 'Unhide' : 'Hide'} this slide`, run: () => setHidden(slide, !hidden) }];
+    return [
+      { label: `${hidden ? 'Unhide' : 'Hide'} this slide`, run: () => setHidden(slide, !hidden) },
+      { label: 'Deck settings…', run: () => deckSettings.open() },
+    ];
   });
   instance._pictures = pictures;
   // A diagram's shapes moved, resized, added and duplicated (shapes.js): over
