@@ -314,6 +314,8 @@ test('no-trust mode refuses the whole write family by name — before a route ru
     ['POST', '/deck/edit/agent', '{"prompt":"x"}'], ['POST', '/deck/edit/export', '{"kind":"pdf"}'],
     ['POST', '/deck/edit/wizard', '{}'], ['POST', '/deck/edit/theme/mark', '{}'],
     ['GET', '/deck/edit/history', null], ['GET', '/deck/edit/theme/browse', null], ['GET', '/deck/edit/wizard', null],
+    // opening the deck in your editor runs a program: never without trust
+    ['POST', '/deck/edit/open', '{"slide":1}'], ['POST', '/deck/edit/editor', '{"editor":"vscode"}'], ['GET', '/deck/edit/editor', null],
     ['POST', '/deck/tts', '{"text":"hi"}'], ['GET', '/deck/tts/ping', null], ['GET', '/deck/lipsync/ping', null],
     ['GET', '/deck/review/incoming', null], ['GET', '/deck/review/at?id=x', null],
   ];

@@ -134,6 +134,7 @@ import { registerSlideRoutes, relativeSrc } from './edit-slides.mjs';
 import { registerLookRoutes, runMarketplace, autoCheckInBackground } from './edit-look.mjs';
 import { registerHandoverRoutes } from './edit-handover.mjs';
 import { registerGitRoutes } from './edit-git.mjs';
+import { registerOpenRoutes } from './edit-open.mjs';
 import { registerFixReviewRoutes, adjustPrompt } from './fix-review.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
@@ -4912,6 +4913,14 @@ export async function editMain(args, { onListen = null, client } = {}) {
     followOutside,
   });
 
+  // And the way out to the author's own editor (cli/edit-open.mjs): a slide
+  // or an element opened in it at its line. The command is the author's saved
+  // choice, never the request's, and only this server's own page may ask.
+  registerOpenRoutes(routes, {
+    readDeck, deckPath,
+    ownOrigin: (req) => isOwnOrigin(req, actualPort),
+  });
+
   // The routes that run BEFORE the shared body read, and the only reason the
   // dispatcher below has a sequence at all. `/deck/edit/narration/record`'s body is BINARY and
   // megabytes of it — a slide of speech is ~48 kB a second — so the string
@@ -4981,8 +4990,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
     || pathname === '/deck/tts' || pathname.startsWith('/deck/tts/') || pathname.startsWith('/deck/lipsync/')
     || pathname === '/deck/review/incoming' || pathname === '/deck/review/at';
 
-  // What a locked deck still answers: the lock, and the stops.
-  const UNLOCKED_POSTS = new Set(['/deck/edit/lock', '/deck/edit/export/stop', '/deck/edit/agent/stop']);
+  // What a locked deck still answers: the lock, the stops, and opening the
+  // deck in your editor, which writes nothing (cli/edit-open.mjs).
+  const UNLOCKED_POSTS = new Set(['/deck/edit/lock', '/deck/edit/export/stop', '/deck/edit/agent/stop', '/deck/edit/open', '/deck/edit/editor']);
 
   // Two static servers for one root, chosen per request by the mode. Write
   // mode serves the cwd with the deck at "/" and an author's exotic asset as
