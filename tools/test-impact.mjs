@@ -99,6 +99,7 @@ const RULES = [
   [/^cli\/outside-edit\.mjs$/, ['edit-e2e'], 'an outside edit, swapped in place or reloaded: the real-server pass writes the file under a page'],
   [/^test\/edit-e2e\.mjs$/, ['edit-e2e'], 'the real-server pass itself'],
   [/^src\/core\/hud\.js$/, ENGINE, 'clock and progress live on the engine'],
+  [/^src\/core\/slide-media\.js$/, [...ENGINE, 'pdf-render'], 'a slide\'s own videos: the engine harness steps through them, print shows their first frame'],
   [/^src\/core\/finder\.js$/, [...ENGINE, 'review-render'], 'slide titles: the finder names them, review anchors by them'],
   [/^src\/terminal\//, ['player-render'], 'the cast player'],
   [/^src\/code\/fit\.js$/, ['fit-render', 'pdf-render'], 'data-fit, and the print view pdf reads it from'],
