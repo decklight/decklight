@@ -354,11 +354,11 @@ export function createDeckCheck({
     const head = document.createElement('div');
     head.className = 'narr-head';
     const heading = document.createElement('span');
-    heading.className = 'dc-heading';
+    heading.className = 'dc-heading dk-title';
     heading.textContent = (issues.length
-      ? `check · ${plural(issues.length, 'issue')} on ${onSlides ? plural(onSlides, 'slide') : ''}${onDeck ? `${onSlides ? ' and ' : ''}the deck` : ''}`
+      ? `${plural(issues.length, 'issue')} on ${onSlides ? plural(onSlides, 'slide') : ''}${onDeck ? `${onSlides ? ' and ' : ''}the deck` : ''}`
         + (errors ? ` · ${plural(errors, 'error')}` : '')
-      : 'check') + (hints ? ` · ${plural(hints, 'suggestion')}` : '') + (fromAgent ? ` · ${fromAgent} from the agent` : '')
+      : 'no issues') + (hints ? ` · ${plural(hints, 'suggestion')}` : '') + (fromAgent ? ` · ${fromAgent} from the agent` : '')
       + (withFix ? ` · ${withFix} with a fix` : '');
     head.append(heading, dock.controls(close));
     dock.wireHeader(head);
@@ -445,13 +445,11 @@ export function createDeckCheck({
       row.addEventListener('click', () => run(i));
       list.appendChild(row);
     });
-    const foot = document.createElement('div');
-    foot.className = 'narr-foot dc-foot';
-    foot.textContent = served
+    const foot = dock.foot(served
       ? `⏎ goes to the slide · ${FIX_CHORD} applies the row's fix${fixes.some((x) => x?.batch) ? ` · ${FIX_ALL_CHORD} every slide` : ''}${explainAgent() ? ' · e explains it' : ''} · the file's findings included`
       : served === false
         ? '⏎ goes to the slide · the file\'s own findings (missing files, scripts) need write mode: decklight check <deck> reads them too'
-        : '⏎ goes to the slide · reading the file…';
+        : '⏎ goes to the slide · reading the file…', 'narr-foot dc-foot');
     card.appendChild(foot);
     list.scrollTop = scrolled;
     if (found.length) select(Math.min(sel, found.length - 1));

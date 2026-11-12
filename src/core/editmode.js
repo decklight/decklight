@@ -36,7 +36,10 @@ import { createWritingPicker, WRITING_TOOLS } from './writing.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { notesParts, withPart, hasClick, partFor, partLabel, wholeWhy } from './notesparts.js';
 import { hljs } from '../code/code.js';
-import { UNDO_CHORD, DUPLICATE_CHORD, undoSaid } from './undo-chord.js';
+import { UNDO_CHORD, DUPLICATE_CHORD, IS_MAC, undoSaid } from './undo-chord.js';
+
+/** The chord that sends or saves from a panel's box, as this platform writes it (the panels' foot). */
+const SAVE_CHORD_HINT = IS_MAC ? '⌘⏎' : 'Ctrl+Enter';
 import { markdownNodes } from './mdtext.js';
 import { aiIcon } from './aiicon.js';
 import { createEditCommit } from './edit-commit.js';
@@ -1310,7 +1313,7 @@ export function createEditMode({
     card.className = 'narr-card';
     const head = document.createElement('div');
     head.className = 'narr-head';
-    const title = Object.assign(document.createElement('span'), { className: 'ed-heading', textContent: heading });
+    const title = Object.assign(document.createElement('span'), { className: 'ed-heading dk-title', textContent: heading });
     head.append(title, dock.controls(onClose));
     dock.wireHeader(head);
     card.append(head);
@@ -1458,7 +1461,7 @@ export function createEditMode({
     }
     const canAsk = editAgents.length > 0;
     const { el, card } = typingCard('agent', agentDock,
-      canAsk ? 'ask an agent — edits the deck file · ⌘⏎ sends' : 'what decklight ran — no agent CLI on this machine to ask', toggleAgentAsk);
+      canAsk ? 'edits the deck file' : 'what decklight ran — no agent CLI on this machine to ask', toggleAgentAsk);
     agentEl = el;
     // what was asked this session and what came of it — newest at the bottom,
     // right above where the next one is typed
@@ -1599,14 +1602,34 @@ export function createEditMode({
     btn.textContent = '🤖 send to agent';
     btn.addEventListener('click', send);
     actions.appendChild(btn);
+    // before the first ask: what this is for, and three asks to start from
+    // (a click types one into the box, about the slide on screen)
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.append(Object.assign(document.createElement('div'), { className: 'agent-empty-say',
+      textContent: 'Say what should change. The agent edits the deck file, and each ask is listed here with what came of it.' }));
+    for (const text of [
+      'Tighten the text on this slide',
+      'Write speaker notes for this slide',
+      'Split this slide in two',
+    ]) {
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'agent-try', textContent: text });
+      b.addEventListener('click', () => {
+        ta.value = text.replace('this slide', `slide ${instance.state.slide}`);
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      });
+      empty.append(b);
+    }
     paintAsks = () => {
       log.replaceChildren(...agentAsks.map(askRow));
       log.hidden = !agentAsks.length;
+      empty.hidden = !log.hidden;
       btn.disabled = !!agentBusy;
       log.scrollTop = log.scrollHeight;
     };
     paintAsks();
-    card.append(log, ta, actions);
+    card.append(empty, log, ta, actions, agentDock.foot(`${SAVE_CHORD_HINT} sends · Esc closes`, 'ed-foot'));
     if (agentKept) { ta.value = agentKept; agentKept = ''; }
     agentText = () => ta.value;
     unmountAgent = mountTypingCard(el, agentDock);
@@ -1833,10 +1856,10 @@ export function createEditMode({
       return { ...at, parts, count: parts.length, step, builds };
     };
     const heading = () => {
-      if (notesRO) return `notes — slide ${sl} · read-only (write mode edits them)`;
+      if (notesRO) return `slide ${sl} · read-only (write mode edits them)`;
       const why = perBuild && shown.part == null ? wholeWhy(shown.why, shown) : '';
       const which = shown.part != null ? ` · ${partLabel(shown.part, shown.count)}` : why ? ` · whole slide: ${why}` : '';
-      return `notes — slide ${sl}${which} · saves itself`;
+      return `slide ${sl}${which}`;
     };
     const { el, card, title } = typingCard('notes', notesDock, heading(), toggleEditor);
     editEl = el;
@@ -2180,7 +2203,6 @@ export function createEditMode({
     });
     ta.addEventListener('input', () => { syncChanged(); armAutosave(); });
     tools.append(views, scopes, resetBtn);
-    actions.append(tools);
     showDiff(false);
     syncView();
     syncChanged();
@@ -2257,7 +2279,8 @@ export function createEditMode({
       syncQuickView = syncQuick;
       syncQuick();
     }
-    card.append(ta, diffEl, actions);
+    // what the box shows above it, what can be done with it below, the keys at the foot
+    card.append(tools, ta, diffEl, actions, notesDock.foot(`saves itself · ${SAVE_CHORD_HINT} saves now · Esc closes`, 'ed-foot'));
     const unmountCard = mountTypingCard(el, notesDock);
     unmountEditor = () => { unmountCard(); unmountLeaving(); unmountQuick(); notesPassage = null; };
     setTimeout(() => ta.focus(), 0);
@@ -2897,7 +2920,7 @@ export function createEditMode({
     const head = document.createElement('div');
     head.className = 'narr-head';
     head.append(Object.assign(document.createElement('span'), {
-      className: 'ed-heading', textContent: `edit content — slide ${slide}, element ${index} · ⌘⏎ saves`,
+      className: 'ed-heading dk-title', textContent: `HTML · slide ${slide}, element ${index}`,
     }));
     // back to the inspector on the same element, in the same slot: the two
     // read as tabs of one place (inspector.js offers HTML the other way)
@@ -2990,7 +3013,7 @@ export function createEditMode({
     btn.textContent = '💾 save to file';
     btn.addEventListener('click', save);
     actions.appendChild(btn);
-    card.append(head, wrap, actions);
+    card.append(head, wrap, actions, editorDock.foot(`${SAVE_CHORD_HINT} saves · Esc closes`, 'ed-foot'));
     contentEl.appendChild(card);
     root.appendChild(contentEl);
     // no backdrop to click: a dockable panel dims nothing (the × and Esc close)

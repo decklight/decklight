@@ -1289,7 +1289,10 @@
 .decklight .terminal ::selection { background: var(--term-selection, rgba(120,150,255,.35)); }
 
 /* ---------- chrome --------------------------------------------------------- */
-.decklight-controls { position: absolute; right: 18px; bottom: 14px; z-index: 40; display: flex; gap: 6px; }
+/* right and bottom clear a docked panel's gutter (dock.js sets --dock-* on the
+   root, the same figures the stage reflows by); divided by the chrome's zoom,
+   which scales every length on these, the gutter included */
+.decklight-controls { position: absolute; right: calc(18px + var(--dock-right, 0px) / var(--chrome-k, 1)); bottom: calc(14px + var(--dock-bottom, 0px) / var(--chrome-k, 1)); z-index: 40; display: flex; gap: 6px; }
 .decklight-arrow {
   background: transparent;
   border: 0;
@@ -1324,7 +1327,7 @@
 .decklight-annotate.tool-laser { pointer-events: auto; cursor: none; }
 .decklight-slide-number {
   position: absolute;
-  right: 20px;
+  right: calc(20px + var(--dock-right, 0px) / var(--chrome-k, 1));
   top: 16px;
   z-index: 40;
   color: var(--muted, #888);
@@ -1691,7 +1694,7 @@
 /* the arrows, where they are tapped: a finger-sized target on a quiet scrim,
    not a faint glyph a few pixels wide */
 @media (pointer: coarse) {
-  .decklight-controls { gap: 10px; right: 12px; bottom: 12px; }
+  .decklight-controls { gap: 10px; right: calc(12px + var(--dock-right, 0px) / var(--chrome-k, 1)); bottom: calc(12px + var(--dock-bottom, 0px) / var(--chrome-k, 1)); }
   .decklight-arrow {
     min-width: 48px; min-height: 48px; padding: 0 12px;
     display: flex; align-items: center; justify-content: center;
@@ -2749,30 +2752,6 @@
 /* the dock control lives in the header, which becomes a flex row */
 .decklight-dockable .narr-head { display: flex; align-items: center; gap: 8px; opacity: 1; }
 .decklight-review .rv-heading { flex: 1; opacity: .55; }
-.decklight-dockable .dk-ctl { display: flex; gap: 2px; pointer-events: auto; }
-.decklight-dockable .dk-btn {
-  font-size: 13px; line-height: 1; padding: 3px 5px;
-  border: 0; border-radius: 5px;
-  background: transparent; color: inherit;
-  opacity: .5; cursor: pointer;
-}
-.decklight-dockable .dk-btn:hover { opacity: .9; background: rgba(255, 255, 255, .12); }
-/* the tabs: one panel beside the slide, and the others it can be, in the same
-   place (dock.js). A full-width row across the top of the header. */
-.decklight-dockable .narr-head { flex-wrap: wrap; }
-.decklight-dockable .dk-tabs {
-  display: flex; flex-wrap: wrap; gap: 2px; flex: 0 0 100%; order: -1;
-  margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255, 255, 255, .1);
-  text-transform: none; letter-spacing: normal; cursor: default;
-}
-.decklight-dockable .dk-tab {
-  background: none; border: 0; border-radius: 4px; padding: 2px 6px; cursor: pointer;
-  color: inherit; font: inherit; font-size: 11px; letter-spacing: .02em; opacity: .55;
-}
-.decklight-dockable .dk-tab:hover { opacity: .9; background: rgba(255, 255, 255, .08); }
-.decklight-dockable .dk-tab-on { opacity: 1; cursor: default; box-shadow: inset 0 -2px 0 var(--accent, #6af); border-radius: 4px 4px 0 0; }
-.decklight-dockable .dk-on { opacity: 1; background: rgba(255, 255, 255, .18); }
-.decklight-dockable .dk-close { font-size: 16px; margin-left: 2px; }
 /* the panel's composer: at the FOOT, and pinned there while the list scrolls
    (the card is the scroller; -14px covers its padding, so nothing shows
    through beneath the box). Opaque, or the rows would read through it. */
@@ -3080,10 +3059,11 @@
   filter: drop-shadow(0 6px 18px rgba(0, 0, 0, .35));
 }
 .decklight-character.show { display: block; }
-.decklight-character.pos-br { right: 28px; bottom: 28px; }
-.decklight-character.pos-bl { left: 28px; bottom: 28px; }
-.decklight-character.pos-tr { right: 28px; top: 28px; }
-.decklight-character.pos-tl { left: 28px; top: 28px; }
+/* its corner is the slide's, so a docked panel's gutter (--dock-*) moves it in */
+.decklight-character.pos-br { right: calc(28px + var(--dock-right, 0px)); bottom: calc(28px + var(--dock-bottom, 0px)); }
+.decklight-character.pos-bl { left: calc(28px + var(--dock-left, 0px)); bottom: calc(28px + var(--dock-bottom, 0px)); }
+.decklight-character.pos-tr { right: calc(28px + var(--dock-right, 0px)); top: 28px; }
+.decklight-character.pos-tl { left: calc(28px + var(--dock-left, 0px)); top: 28px; }
 
 /* solo — the narrator takes the stage. The slide steps aside and the
    character centers, sized to the stage: `inset: 0` pins all four offsets
@@ -3901,11 +3881,6 @@
 .decklight-dockable.dl-has-keys > .narr-card {
   box-shadow: 0 0 0 2px var(--accent, #6af), 0 10px 40px rgba(0, 0, 0, .45);
 }
-.decklight-dockable.dl-has-keys .narr-head::after {
-  content: 'keys here'; margin-left: 8px; padding: 2px 6px; border-radius: 5px;
-  font: 600 10px/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase;
-  background: var(--accent, #6af); color: var(--accent-contrast, #000);
-}
 .decklight .dl-editing.dl-unsaved { outline-style: solid; }
 /* a save that failed (authoring.js): the words stay, marked, until saved or given up */
 .decklight .dl-unsaved {
@@ -3976,7 +3951,14 @@
 
 /* ── editing's face (src/core/editbar.js): the bar E opens, and the selection ── */
 .decklight-editbar {
-  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  /* centred on the slide, not the window: between a docked panel's gutters
+     (--dock-*), where a bar centred on the window ran under the panel. Held
+     by both edges with its margins taking up the slack, so a window too
+     narrow for it starts it at the left gutter, its grip in reach, and lets
+     the far end run on, rather than pushing both ends out of sight. */
+  position: absolute; left: var(--dock-left, 0px); right: var(--dock-right, 0px);
+  width: max-content; margin-inline: auto;
+  bottom: calc(14px + var(--dock-bottom, 0px));
   z-index: 41;
   display: flex; align-items: center; gap: 2px;
   padding: 4px;
@@ -4059,7 +4041,7 @@
 }
 .decklight-editbar .eb-grip:hover { color: #e6e6e6; }
 .decklight-editbar.eb-dragging .eb-grip, .decklight-editbar .eb-grip:active { cursor: grabbing; }
-.decklight-editbar.eb-moved { bottom: auto; transform: none; }
+.decklight-editbar.eb-moved { bottom: auto; right: auto; margin-inline: 0; }
 .decklight-editbar.eb-dragging { transition: none; box-shadow: 0 14px 40px rgba(0, 0, 0, .5); }
 .decklight-editbar .eb-btn {
   display: inline-flex; align-items: center; gap: 7px;
@@ -4286,3 +4268,178 @@
 }
 .decklight .wel-card:focus, .decklight .help-card:focus { outline: none; }
 .decklight-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ── The panels' frame (dock.js) ──────────────────────────────────────────
+   One header, one foot and one set of insets for every panel beside the
+   slide: the notes, the inspector, the check, the comments, the sources, the
+   agent and the HTML editor. Last in the file, so it settles a tie with a
+   panel's own rules above.
+
+   The insets: TEXT sits 26px in from the panel's edge (the card's 14 and a
+   row's 12); a BOX (a text area, a field, a row that lights) starts at 14. */
+.decklight-dockable .narr-card { --dk-dim: #969dab; --dk-line: rgba(255, 255, 255, .09); }
+/* docked, a column: the header, what the panel is for, the keys at the foot */
+.decklight-dockable:not([data-dock="float"]) .narr-card { display: flex; flex-direction: column; }
+:where(.decklight-dockable:not([data-dock="float"]) .narr-card > *) { flex-shrink: 0; }
+
+/* the header: the tabs on a rule across the panel, then one line saying what
+   this panel is on, its own buttons, where it sits, and a close */
+.decklight-dockable .narr-head.dk-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px;
+  margin: 0; padding: 0 12px 10px; opacity: 1;
+  font-size: 12.5px; line-height: 1.3; text-transform: none; letter-spacing: 0;
+}
+.decklight-dockable .dk-tabs {
+  order: -1; flex: 0 0 calc(100% + 52px); box-sizing: border-box;
+  display: flex; gap: 0; margin: -6px -26px 4px; padding: 0 8px;
+  border-bottom: 1px solid var(--dk-line);
+  overflow-x: auto; scrollbar-width: none; cursor: default;
+  container-type: inline-size;
+}
+.decklight-dockable .dk-tabs::-webkit-scrollbar { display: none; }
+.decklight-dockable .dk-tab {
+  /* six names are about 270px of text: the air either side of each gives way
+     first (6px down to 2) as the panel narrows, and under that the row scrolls */
+  flex: 0 0 auto; margin-bottom: -1px; padding: 7px clamp(2px, calc((100cqw - 272px) / 12), 6px) 8px; cursor: pointer;
+  background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  color: var(--dk-dim); font: 500 12px/1.3 system-ui, sans-serif; white-space: nowrap;
+}
+.decklight-dockable .dk-tab:hover { color: #e8eaee; }
+.decklight-dockable .dk-tab-on { color: #fff; border-bottom-color: var(--accent, #6af); cursor: default; }
+.decklight-dockable .dk-tab:focus-visible { outline: 2px solid var(--accent, #6af); outline-offset: -2px; border-radius: 4px; }
+/* what the panel is on: one line, the first letter a capital, an ellipsis when it runs out of room */
+.decklight-dockable .dk-head .dk-title {
+  flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #c5cad3; opacity: 1;
+}
+.decklight-dockable .dk-head .dk-title::first-letter,
+.decklight-dockable .dk-head .dk-title > .ins-root::first-letter { text-transform: uppercase; }
+/* the only panel on offer has no tabs to name it: the header does */
+.decklight-dockable .dk-name { flex: none; font-weight: 650; color: #fff; }
+.decklight-dockable .dk-name::after { content: '·'; margin: 0 0 0 6px; color: var(--dk-dim); font-weight: 400; }
+/* a header's buttons: one size, the panel's own (pick, copy, A− A+) and the frame's */
+.decklight-dockable .dk-ctl { display: flex; gap: 2px; margin-left: 2px; pointer-events: auto; }
+.decklight-dockable .dk-btn {
+  flex: none; display: inline-grid; place-items: center; box-sizing: border-box;
+  min-width: 26px; height: 26px; padding: 0 5px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--dk-dim);
+  font: 600 11px/1 system-ui, sans-serif; opacity: 1; cursor: pointer;
+}
+.decklight-dockable .dk-btn:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.decklight-dockable .dk-btn:disabled { opacity: .35; cursor: default; }
+.decklight-dockable .dk-btn:focus-visible { outline: 2px solid var(--accent, #6af); outline-offset: -1px; }
+.decklight-dockable .dk-btn.dk-open,
+.decklight-dockable .dk-btn.dk-on { background: rgba(255, 255, 255, .15); color: #fff; }
+/* where the panel sits: the five places, named, in a strip under the header
+   while the placement button is open */
+.decklight-dockable .dk-menu {
+  order: 9; flex: 0 0 100%; box-sizing: border-box; display: flex; gap: 2px;
+  padding: 3px; border-radius: 9px; background: rgba(255, 255, 255, .06);
+}
+.decklight-dockable .dk-menu[hidden] { display: none; }
+.decklight-dockable .dk-menu .dk-opt {
+  flex: 1 1 0; min-width: 0; height: auto; padding: 6px 2px 5px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font: 500 10.5px/1 system-ui, sans-serif;
+}
+/* a section's label inside a panel: one look */
+.decklight-dockable .narr-group { font-size: 10.5px; letter-spacing: .1em; color: var(--dk-dim); opacity: 1; border-top-color: var(--dk-line); }
+
+/* the foot: the keys this panel takes, pinned to its bottom edge. The rule is
+   painted 10px down, so there is always air between it and what is above. */
+.decklight-dockable .dk-foot {
+  display: block; margin: auto -14px 0; padding: 18px 26px 0;
+  background: linear-gradient(var(--dk-line), var(--dk-line)) 0 10px / 100% 1px no-repeat;
+  border: 0; opacity: 1; color: var(--dk-dim);
+  font: 11.5px/1.9 system-ui, sans-serif; text-transform: none; letter-spacing: 0; cursor: default;
+}
+.decklight-dockable .dk-hint { white-space: nowrap; }
+.decklight-dockable .dk-foot kbd {
+  display: inline-block; min-width: 1.1em; margin-right: 1px; padding: 0 4px; text-align: center;
+  border: 1px solid rgba(255, 255, 255, .16); border-radius: 4px; background: rgba(255, 255, 255, .05);
+  color: #c5cad3; font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: capitalize;
+}
+/* the panel taking the deck's letters (the comments, review.js) says so where
+   those letters are listed, and its keys light */
+.decklight-dockable.dl-has-keys .dk-foot::before {
+  content: 'keys here'; display: inline-block; margin-right: 8px; padding: 3px 6px; border-radius: 5px; vertical-align: 1px;
+  font: 600 10px/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase;
+  background: var(--accent, #6af); color: var(--accent-contrast, #000);
+}
+.decklight-dockable.dl-has-keys .dk-foot kbd { border-color: var(--accent, #6af); color: #fff; }
+/* a hint long enough to need the line (the comments' gone-slide note) may break */
+.decklight-dockable[data-dock="left"] .dk-hint, .decklight-dockable[data-dock="right"] .dk-hint { white-space: normal; }
+
+/* ── the notes ── what the box shows above it, what can be done with it below */
+.decklight-editor.decklight-dockable .notes-tools { margin: 0 0 8px; gap: 6px; }
+.decklight-editor.decklight-dockable .notes-tools .notes-btn { font-size: 12px; padding: 4px 10px; min-height: 26px; border-radius: 7px; }
+.decklight-editor.decklight-dockable .notes-tools .notes-views .notes-btn { border-radius: 0; }
+.decklight-editor.decklight-dockable .notes-tools .notes-views .notes-btn:first-child { border-radius: 7px 0 0 7px; }
+.decklight-editor.decklight-dockable .notes-tools .notes-views .notes-btn:last-child { border-radius: 0 7px 7px 0; }
+.decklight-editor.decklight-dockable .notes-tools .notes-reset { margin-left: auto; }
+/* in a side panel the row is the two switches and the reset as its arrow alone
+   (its title says what it does); with the word it wrapped to a row of its own */
+.decklight-editor.decklight-dockable:is([data-dock="left"], [data-dock="right"]) .notes-tools { flex-wrap: nowrap; }
+.decklight-editor.decklight-dockable:is([data-dock="left"], [data-dock="right"]) .notes-tools { container-type: inline-size; }
+.decklight-editor.decklight-dockable:is([data-dock="left"], [data-dock="right"]) .notes-tools .notes-btn { padding: 4px clamp(4px, calc((100cqw - 268px) / 8), 8px); white-space: nowrap; }
+.decklight-editor.decklight-dockable:is([data-dock="left"], [data-dock="right"]) .notes-tools .notes-reset {
+  width: 28px; padding: 4px 0; overflow: hidden; font-size: 0;
+}
+.decklight-editor.decklight-dockable:is([data-dock="left"], [data-dock="right"]) .notes-tools .notes-reset::before { content: '↺'; font-size: 14px; }
+/* along the bottom the tray is short: the switches and the rewrites share a
+   row above the box, which takes what is left */
+.decklight-notes.decklight-dockable[data-dock="bottom"] .narr-card {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr) auto; column-gap: 12px;
+}
+.decklight-notes.decklight-dockable[data-dock="bottom"] .narr-card > :is(.narr-head, textarea, .notes-diff, .dk-foot) { grid-column: 1 / -1; }
+.decklight-notes.decklight-dockable[data-dock="bottom"] .narr-card > .notes-tools { grid-column: 1; grid-row: 2; }
+.decklight-notes.decklight-dockable[data-dock="bottom"] .narr-card > .tr-actions { grid-column: 2; grid-row: 2; padding: 0; margin-bottom: 8px; }
+.decklight-notes.decklight-dockable[data-dock="bottom"] .narr-card > textarea.edit-notes { height: auto; min-height: 0; }
+.decklight-notes.decklight-dockable[data-dock="bottom"] .tr-actions .notes-btn { font-size: 12px; padding: 4px 10px; min-height: 26px; border-radius: 7px; }
+.decklight-notes.decklight-dockable[data-dock="bottom"] .narr-card > .notes-diff { margin: 0; min-height: 0; max-height: none; }
+.decklight-editor.decklight-dockable .notes-sep { display: none; }
+/* a panel's buttons line up with its box, not with its text */
+.decklight-editor.decklight-dockable .tr-actions { padding: 8px 0 0; }
+.decklight-editor.decklight-dockable .notes-size { display: flex; gap: 2px; }
+
+/* ── the agent ── a log of what was asked, the box to ask in under it; before
+   the first ask, what this is for and three asks to start from */
+.decklight-agent .agent-empty { padding: 2px 12px 12px; }
+.decklight-agent .agent-empty[hidden] { display: none; }
+.decklight-agent .agent-empty-say { margin-bottom: 12px; font-size: 13px; line-height: 1.5; color: var(--dk-dim, #969dab); }
+.decklight-agent .agent-try {
+  display: block; width: 100%; box-sizing: border-box; margin: 0 0 6px; padding: 8px 10px; text-align: left; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .12); border-radius: 8px; background: rgba(255, 255, 255, .04);
+  color: #d7dbe2; font: 12.5px/1.3 system-ui, sans-serif;
+}
+.decklight-agent .agent-try:hover { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .25); color: #fff; }
+.decklight-editor.decklight-agent.decklight-dockable:not([data-dock="float"]) .agent-empty { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.decklight-editor.decklight-agent.decklight-dockable:not([data-dock="float"]) .narr-card > textarea.edit-notes { flex: 0 0 auto; min-height: 96px; height: 20vh; }
+.decklight-editor.decklight-agent.decklight-dockable[data-dock="bottom"] .agent-empty { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.decklight-editor.decklight-agent.decklight-dockable[data-dock="bottom"] .agent-empty[hidden] { display: none; }
+.decklight-editor.decklight-agent.decklight-dockable[data-dock="bottom"] .agent-empty-say { flex: 0 0 100%; margin-bottom: 4px; }
+.decklight-editor.decklight-agent.decklight-dockable[data-dock="bottom"] .agent-try { width: auto; margin: 0; }
+.decklight-editor.decklight-agent.decklight-dockable[data-dock="bottom"] .narr-card > textarea.edit-notes { height: 64px; min-height: 64px; }
+
+/* ── the sources ── in a side panel a link is three fields under one another,
+   the address with a line to itself, instead of three squeezed onto one */
+.decklight-sources:is([data-dock="left"], [data-dock="right"]) .src-edit-row:has(.src-wide) {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 6px; padding-bottom: 8px;
+}
+.decklight-sources:is([data-dock="left"], [data-dock="right"]) .src-edit-row:has(.src-wide) .src-field { grid-column: 1; width: 100%; box-sizing: border-box; margin: 0; }
+.decklight-sources:is([data-dock="left"], [data-dock="right"]) .src-edit-row:has(.src-wide) .src-drop { grid-column: 2; grid-row: 1; }
+
+/* a panel's first section sits under the header's rule: it needs none of its own */
+.decklight-dockable .dk-head + .narr-group { border-top: 0; padding-top: 0; margin-top: 0; }
+/* floating, every panel with tabs is one width, so the tabs stay under the
+   pointer from one panel to the next (they were 440 to 640, and the card
+   jumped sideways with each tab) */
+.decklight-dockable[data-dock="float"]:has(.dk-tabs) .narr-card { width: min(480px, 88vw); }
+/* the facts are the panel's width, not a slide list's 34em (`.decklight dl`) */
+.decklight-inspector .ins-rows { max-width: none; }
+
+/* ── along the bottom ── a tray is wide and short: lists run in columns */
+.decklight-inspector[data-dock="bottom"] .ins-rows { grid-template-columns: repeat(3, auto 1fr); column-gap: 14px; }
+.decklight-inspector[data-dock="bottom"] .ins-rows :is(dt, dd):nth-child(-n + 6) { border-top: 0; }
+.decklight-inspector[data-dock="bottom"] .ins-rows dd { padding-right: 18px; }
+.decklight-deckcheck[data-dock="bottom"] .dc-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); align-content: start; column-gap: 8px; }

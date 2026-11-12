@@ -29,8 +29,31 @@
 
 import { readJson, writeJson } from './prefs.js';
 
-const GLYPH = { float: '❏', left: '◧', right: '◨', bottom: '⬓', window: '⧉' };
+// The placements, drawn: a frame, and where in it the panel sits. One stroke
+// weight and one box for all five, where the glyphs they replace (❏ ◧ ◨ ⬓ ⧉)
+// came from five corners of a font and sat at five sizes.
+const svg = (inner) => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">${inner}</svg>`;
+const FRAME = '<rect x="1.65" y="2.65" width="12.7" height="10.7" rx="2"/>';
+const ICON = {
+  float: svg(`${FRAME}<rect x="7.5" y="5" width="4.6" height="3.8" rx=".8" fill="currentColor" stroke="none"/>`),
+  left: svg(`${FRAME}<path d="M2 4.6a1.6 1.6 0 0 1 1.6-1.6H6v10H3.6A1.6 1.6 0 0 1 2 11.4z" fill="currentColor" stroke="none"/>`),
+  right: svg(`${FRAME}<path d="M14 4.6A1.6 1.6 0 0 0 12.4 3H10v10h2.4a1.6 1.6 0 0 0 1.6-1.6z" fill="currentColor" stroke="none"/>`),
+  bottom: svg(`${FRAME}<path d="M2 9.5h12v1.9a1.6 1.6 0 0 1-1.6 1.6H3.6A1.6 1.6 0 0 1 2 11.4z" fill="currentColor" stroke="none"/>`),
+  window: svg('<rect x="1.65" y="5.65" width="8.7" height="7.7" rx="1.6"/><path d="M5.6 3.4V3a1.4 1.4 0 0 1 1.4-1.4H13A1.4 1.4 0 0 1 14.4 3v5a1.4 1.4 0 0 1-1.4 1.4h-.4"/>'),
+  close: svg('<path d="M4 4l8 8M12 4l-8 8" stroke-width="1.5" stroke-linecap="round"/>'),
+};
+const LABEL = { float: 'Float', left: 'Left', right: 'Right', bottom: 'Bottom', window: 'Window' };
 const MODES = ['float', 'left', 'right', 'bottom'];
+// The tabs in the order of the work, whichever panel was built first: write
+// the notes, look at the slide, check the deck, read what was said about it,
+// cite it, ask for help.
+const TAB_ORDER = ['Notes', 'Inspector', 'Check', 'Comments', 'Sources', 'Agent'];
+// what starts a hint and is a key: a chord (⌘⏎, ⇧M, Ctrl+Enter, Ctrl+⇧Enter),
+// a named key (Esc, ⏎, ⌫), or one letter (R, e; not the word "a")
+const MOD = '(?:Ctrl\\+|Alt\\+|Shift\\+|[⌘⇧⌥⌃])';
+const NAMED = '(?:Esc|esc|Enter|Tab|Space|[⏎↵⌫⇥]|↑\\/↓|←\\/→)';
+const KEY_RE = new RegExp(`^(${MOD}+(?:${NAMED}|[A-Za-z])|${NAMED}|[A-Zb-z])(?= |$)`);
+const tabRank = (name) => { const i = TAB_ORDER.indexOf(name); return i < 0 ? TAB_ORDER.length : i; };
 const SIDES = ['left', 'right', 'bottom'];
 const DEFAULT_MODE = 'right';   // where every panel opens until one is moved
 
@@ -279,8 +302,12 @@ export function createDock({
   function paintControls() {
     const el = getEl();
     const now = popoutOf(root) ? 'window' : dock.mode;
-    el?.querySelectorAll('.dk-btn[data-mode]').forEach(
-      (b) => b.classList.toggle('dk-on', b.dataset.mode === now));
+    el?.querySelectorAll('.dk-btn[data-mode]').forEach((b) => {
+      b.classList.toggle('dk-on', b.dataset.mode === now);
+      b.setAttribute('aria-checked', String(b.dataset.mode === now));
+    });
+    const place = el?.querySelector('.dk-place-btn');
+    if (place) place.innerHTML = ICON[now] ?? ICON.right;
     const head = el?.querySelector('.narr-head');
     if (head) head.style.cursor = now === 'float' ? 'move' : '';
   }
@@ -378,43 +405,72 @@ export function createDock({
   }
 
   /**
-   * The four placement buttons plus a close — the row a panel puts in its
-   * header. `onClose` is the panel's own, because closing is the one thing
-   * here that is not about placement.
+   * Where the panel sits, and a close: the two buttons a panel puts at the end
+   * of its header. The placement is ONE button, drawn as where the panel is
+   * now, which opens the five choices as a labelled strip under the header.
+   * It used to be five glyphs side by side in every header, which is five
+   * buttons for a choice made once a deck, in the room the title needed.
+   * `onClose` is the panel's own, because closing is the one thing here that
+   * is not about placement.
    */
   function controls(onClose, closeHint = closeLabel) {
     const ctl = document.createElement('div');
     ctl.className = 'dk-ctl';
-    const popped = !!popoutOf(root);
-    for (const m of MODES) {
+    // the placement is every panel's, and another may have moved it since this
+    // one last drew: a header built from the stale one drew the wrong place
+    load();
+    const now = popoutOf(root) ? 'window' : dock.mode;
+    const place = document.createElement('button');
+    place.className = 'dk-btn dk-place-btn';
+    place.type = 'button';
+    place.innerHTML = ICON[now] ?? ICON.right;
+    place.title = 'move this panel';
+    place.setAttribute('aria-label', 'move this panel');
+    place.setAttribute('aria-haspopup', 'true');
+    place.setAttribute('aria-expanded', 'false');
+    // the choices: built here, shown by wireHeader's row under the header
+    const menu = document.createElement('div');
+    menu.className = 'dk-menu';
+    menu.setAttribute('role', 'group');
+    menu.setAttribute('aria-label', 'where the panel sits');
+    menu.hidden = true;
+    const show = (on) => {
+      menu.hidden = !on;
+      place.setAttribute('aria-expanded', String(on));
+      place.classList.toggle('dk-open', on);
+    };
+    for (const m of [...MODES, 'window']) {
       const b = document.createElement('button');
-      b.className = 'dk-btn' + (!popped && dock.mode === m ? ' dk-on' : '');
+      b.className = 'dk-btn dk-opt' + (now === m ? ' dk-on' : '');
       b.type = 'button';
-      b.textContent = GLYPH[m];
+      b.innerHTML = `${ICON[m]}<span>${LABEL[m]}</span>`;
       b.dataset.mode = m;
-      b.title = m === 'float' ? 'float (movable)' : `dock ${m}`;
-      b.setAttribute('aria-label', m === 'float' ? 'float' : `dock ${m}`);
-      b.addEventListener('click', () => setDock(m));
-      ctl.append(b);
+      b.title = m === 'float' ? 'float (movable)'
+        : m === 'window' ? 'own window (or drag the panel out of the browser)' : `dock ${m}`;
+      b.setAttribute('aria-label', m === 'float' ? 'float' : m === 'window' ? 'own window' : `dock ${m}`);
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(now === m));
+      b.addEventListener('click', () => { show(false); setDock(m); });
+      menu.append(b);
     }
-    // the fifth placement: a window of its own (dragging the card out does it too)
-    const w = document.createElement('button');
-    w.className = 'dk-btn' + (popoutOf(root) ? ' dk-on' : '');
-    w.type = 'button';
-    w.textContent = GLYPH.window;
-    w.dataset.mode = 'window';
-    w.title = 'own window (or drag the panel out of the browser)';
-    w.setAttribute('aria-label', 'own window');
-    w.addEventListener('click', () => setDock('window'));
-    ctl.append(w);
+    place.addEventListener('click', (e) => { e.stopPropagation(); show(menu.hidden); });
+    // Esc with the choices open closes them, not the panel
+    const esc = (e) => {
+      if (e.key !== 'Escape' || menu.hidden) return;
+      e.preventDefault(); e.stopPropagation();
+      show(false);
+      place.focus();
+    };
+    place.addEventListener('keydown', esc);
+    menu.addEventListener('keydown', esc);
     const x = document.createElement('button');
     x.className = 'dk-btn dk-close';
     x.type = 'button';
-    x.textContent = '×';
+    x.innerHTML = ICON.close;
     x.title = closeHint;
     x.setAttribute('aria-label', 'close');
     x.addEventListener('click', onClose);
-    ctl.append(x);
+    ctl.append(place, x, menu);
     return ctl;
   }
 
@@ -425,7 +481,8 @@ export function createDock({
    * the placement buttons. Absent while this is the only panel on offer.
    */
   function tabs() {
-    const offered = [...panelsOf(root)].filter(([t, p]) => p.tab && (t === token || p.available()));
+    const offered = [...panelsOf(root)].filter(([t, p]) => p.tab && (t === token || p.available()))
+      .sort(([, a], [, b]) => tabRank(a.name) - tabRank(b.name));
     if (!panelsOf(root).get(token)?.tab || offered.length < 2) return null;
     const row = document.createElement('div');
     row.className = 'dk-tabs';
@@ -445,11 +502,43 @@ export function createDock({
 
   /** Give a header the drag handle, the cursor that advertises it, and the tabs. */
   function wireHeader(head) {
+    head.classList.add('dk-head');
     head.style.cursor = dock.mode === 'float' && !popoutOf(root) ? 'move' : '';
     head.addEventListener('pointerdown', startDrag);
     head.querySelector(':scope > .dk-tabs')?.remove();
+    head.querySelector(':scope > .dk-name')?.remove();
     const row = tabs();
     if (row) head.prepend(row);
+    // no tabs to say which panel this is (it is the only one on offer): the
+    // header says it itself
+    else if (name && panelsOf(root).get(token)?.tab) {
+      head.prepend(Object.assign(document.createElement('span'), { className: 'dk-name', textContent: name }));
+    }
+    // the placement choices open as a row of their own, under the title's
+    const menu = head.querySelector('.dk-ctl > .dk-menu');
+    if (menu) head.append(menu);
+  }
+
+  /**
+   * The keys line at the foot of a panel: `a · b · c`, each hint kept whole
+   * when the line wraps, and the key that starts one drawn as a key. One look
+   * for all of them; they used to be a header here, a paragraph there, small
+   * capitals in a third. The text reads as it was written (`textContent`).
+   */
+  function foot(text, className = '') {
+    const el = document.createElement('div');
+    el.className = ('dk-foot ' + className).trim();
+    String(text).split(' · ').forEach((hint, i) => {
+      if (i) el.append(' · ');
+      const span = document.createElement('span');
+      span.className = 'dk-hint';
+      const m = KEY_RE.exec(hint);
+      if (m) {
+        span.append(Object.assign(document.createElement('kbd'), { textContent: m[1] }), hint.slice(m[1].length));
+      } else span.textContent = hint;
+      el.append(span);
+    });
+    return el;
   }
 
   /**
@@ -474,6 +563,7 @@ export function createDock({
     popIn,
     controls,
     wireHeader,
+    foot,
     release,
   };
 }

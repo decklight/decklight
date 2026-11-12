@@ -3828,7 +3828,7 @@
         r.fileDuplicateDropped = rows().filter((x) => x.dataset.rule === 'clicks-vs-builds').length === 1
           && /\[click\] markers, 0 build clicks/.test(rows().find((x) => x.dataset.rule === 'clicks-vs-builds')?.querySelector('.dc-msg')?.textContent ?? '');
         r.fileOnlyKept = rows().some((x) => x.dataset.rule === 'missing-asset' && x.querySelector('.dc-where')?.textContent === '10');
-        r.panelHeadCounts = document.querySelector(`${Q} .dc-heading`)?.textContent === 'check · 10 issues on 6 slides and the deck · 2 errors · 3 with a fix';
+        r.panelHeadCounts = document.querySelector(`${Q} .dc-heading`)?.textContent === '10 issues on 6 slides and the deck · 2 errors · 3 with a fix';
         // every row with a fix says what it will do; one without says so
         const fixOf = (rule) => rows().find((x) => x.dataset.rule === rule)?.querySelector('.dc-fix')?.textContent ?? null;
         r.fixLabelsSayWhat = fixOf('ds-behind') === 'Migrate to acme 3.0.0 · 3 renames' && fixOf('theme-off-brand') === 'Switch to acme-dark, the brand’s first theme'
@@ -3914,7 +3914,7 @@
         press('Enter');
         await settle(); await settle();
         r.cleanSaysSo = document.querySelector(`${Q} .dc-clean`)?.textContent === 'no issues: 10 slides checked, file included'
-          && document.querySelector(`${Q} .dc-heading`)?.textContent === 'check';
+          && document.querySelector(`${Q} .dc-heading`)?.textContent === 'no issues';
         r.paletteTogglesIt = (press('/'), 'check deck'.split('').forEach((ch) => press(ch)), press('Enter'), await settle(), !document.querySelector(Q));
 
         // decklight check's diagram hint, asked of the open deck (cli/check.mjs)
@@ -5106,7 +5106,8 @@
         const type = (t) => { box().value = t; box().dispatchEvent(new Event('input', { bubbles: true })); };
         // where every panel opens until one is moved: docked right (PRESENTING_EDITING)
         r.opensWhereEveryPanelDoes = card()?.dataset.dock === 'right';
-        r.headingSaysItSavesItself = /notes — slide 2 · saves itself/.test(card()?.textContent ?? '');
+        r.headingSaysItSavesItself = card()?.querySelector('.ed-heading')?.textContent === 'slide 2'
+          && /^saves itself · /.test(card()?.querySelector('.dk-foot')?.textContent ?? '');
         if (mode === 'notesautofail') {
           box().focus(); type('Will not save.');
           press('Escape'); await settle(); await settle();
@@ -5136,7 +5137,7 @@
         deck.goto(3, 0);
         await settle(); await settle(); await settle();
         r.movingOnSavesThenFollows = posts().length === 3 && posts()[2].slide === 2 && posts()[2].text === 'Written on two.'
-          && /notes — slide 3/.test(card()?.textContent ?? '') && box().value !== 'Written on two.' && mark().hidden;
+          && /^slide 3/.test(card()?.querySelector('.ed-heading')?.textContent ?? '') && box().value !== 'Written on two.' && mark().hidden;
         // closing with edits writes them first
         type('Written on three.');
         press('Escape');
@@ -6016,7 +6017,28 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         Object.assign(r, a.out);
         await settle();
         r.agentDocksRight = a.el?.dataset.dock === 'right' && parseFloat(gutter()) > 100;
-        r.agentFillsTheGutter = fills(a.el, a.ta);
+        // the deck's chrome keeps clear of the gutter, as the stage does: the
+        // arrows move in from the edge the panel took, and the editing bar
+        // (when this deck shows one) centres on the slide, not on the window
+        {
+          const rootBox = document.querySelector('.decklight').getBoundingClientRect();
+          const g = parseFloat(gutter());
+          const arrows = document.querySelector('.decklight-controls')?.getBoundingClientRect();
+          r.arrowsClearThePanel = !!arrows && arrows.width > 0 && arrows.right <= rootBox.right - g + 1;
+          const bar = document.querySelector('.decklight-editbar:not(.eb-moved)')?.getBoundingClientRect();
+          r.editBarCentresOnTheSlide = !bar || !bar.width || Math.abs((bar.left + bar.right) / 2 - (rootBox.left + (rootBox.width - g) / 2)) < 2;
+        }
+        // before the first ask: what the card is for and three asks to start
+        // from take the room, and the prompt keeps its height at the foot
+        const tries = a.el?.querySelector('.agent-empty');
+        const cardH = a.el?.querySelector('.narr-card')?.clientHeight ?? 0;
+        r.agentStartsWithAsksToTry = !!tries && !tries.hidden && tries.querySelectorAll('.agent-try').length === 3;
+        r.agentPromptAtTheFoot = !!tries && !!a.ta && a.ta.getBoundingClientRect().top >= tries.getBoundingClientRect().bottom - 1
+          && a.ta.offsetHeight >= 96 && a.ta.offsetHeight < cardH / 2;
+        tries?.querySelector('.agent-try')?.click();
+        r.agentTryTypesItAndSendsNothing = a.ta?.value === `Tighten the text on slide ${deck.state.slide}`
+          && !CALLS.post.some((c) => c.u.includes('/deck/edit/agent'));
+        if (a.ta) { a.ta.value = ''; a.ta.dispatchEvent(new Event('input', { bubbles: true })); }
         r.agentSharesThePlacement = JSON.parse(localStorage.getItem('decklight-panel-dock:' + location.pathname) ?? '{}').mode === 'right';
         a.ta?.blur();
         press('ArrowRight'); await settle();
@@ -6030,14 +6052,38 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // closes the agent and takes its place, tabs in its header
         const side = (s) => parseFloat(document.querySelector('.decklight').style.getPropertyValue('--dock-' + s)) || 0;
         press('a'); await settle();
+        // the frame every panel shares: the tabs in the order of the work, one
+        // button for where the panel sits, the keys at the foot
+        {
+          const want = ['Notes', 'Inspector', 'Check', 'Comments', 'Sources', 'Agent'];
+          const got = [...document.querySelectorAll(`${A} .dk-tab`)].map((t) => t.textContent);
+          r.tabsInTheOrderOfTheWork = got.length > 1 && got.every((t, i) => want.includes(t) && (i === 0 || want.indexOf(got[i - 1]) < want.indexOf(t)));
+          const tabsRow = document.querySelector(`${A} .dk-tabs`);
+          r.tabsOnOneLine = !!tabsRow && new Set([...tabsRow.children].map((t) => t.offsetTop)).size === 1;
+          const place = document.querySelector(`${A} .dk-place-btn`);
+          const strip = document.querySelector(`${A} .dk-menu`);
+          r.placesStartClosed = !!strip && strip.hidden && strip.querySelectorAll('.dk-opt[data-mode]').length === 5;
+          place?.click();
+          r.placeButtonOpensThem = strip?.hidden === false && place?.getAttribute('aria-expanded') === 'true'
+            && strip.querySelector('.dk-on')?.dataset.mode === 'right';
+          strip?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          r.escClosesThePlacesNotThePanel = strip?.hidden === true && !!document.querySelector(A);
+          const foot = document.querySelector(`${A} .dk-foot`);
+          r.footListsTheKeys = /(⌘⏎|Ctrl\+Enter) sends · Esc closes$/.test(foot?.textContent ?? '') && foot?.querySelectorAll('kbd').length === 2;
+          r.titleDoesNotRepeatTheTab = document.querySelector(`${A} .dk-title`)?.textContent === 'edits the deck file';
+        }
         document.querySelector(`${A} .dk-btn[data-mode="left"]`)?.click();
         await settle();
+        r.placeButtonChoosesAndCloses = document.querySelector(`${A} .dk-menu`)?.hidden === true
+          && document.querySelector(`${A} .dk-opt.dk-on`)?.dataset.mode === 'left';
         r.agentHasTabs = [...document.querySelectorAll(`${A} .dk-tab`)].map((t) => t.textContent).includes('Notes');
         document.querySelector(`${A} .dk-tab`) && [...document.querySelectorAll(`${A} .dk-tab`)].find((t) => t.textContent === 'Notes')?.click();
         await settle(); await settle();
         r.slotHoldsOne = !document.querySelector(A) && !!document.querySelector(N);
         r.placementIsShared = document.querySelector(N)?.dataset.dock === 'left' && side('left') > 100 && side('right') === 0;
         r.tabIsLit = document.querySelector(`${N} .dk-tab-on`)?.textContent === 'Notes';
+        // the panel that took the slot draws the placement it inherited, not the one it last had
+        r.theNextPanelDrawsThePlacement = document.querySelector(`${N} .dk-opt.dk-on`)?.dataset.mode === 'left';
         document.querySelector(`${N} .dk-close`)?.click();
         await settle();
         r.slotReleased = side('left') === 0 && side('right') === 0 && side('bottom') === 0;
