@@ -231,6 +231,7 @@ const ENGINE_GROUPS = {
     'shapeadd',
     'shaperesize',
     'shapeorder',
+    'canvas',
     'connectors',
     'connectmenu',
     'linestyle',

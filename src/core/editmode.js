@@ -2602,6 +2602,11 @@ export function createEditMode({
         }
       }
       const svg = shapes.diagramOf(target);
+      // the room round the drawing trimmed to an even margin (canvas.js)
+      if (svg && canvas?.fits(svg)) {
+        rows.push({ sep: true });
+        rows.push({ label: 'Fit the canvas to the drawing', run: () => { closeElementMenu(); canvas.fit(svg); } });
+      }
       if (svg && target.node !== svg && target.node !== target.top) {
         rows.push({ sep: true });
         rows.push({ label: 'Remove the whole diagram', run: () => removeHolder(target, svg) });
@@ -3067,6 +3072,7 @@ export function createEditMode({
   let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
   let slideRowsOf = null; // the engine's rows for Slide ▸ / Slide ▾, for slide N: Hide this slide (HIDDEN_SLIDES)
   let shapes = null;      // a diagram's shapes moved, added, duplicated (shapes.js), handed in by the engine
+  let canvas = null;      // a diagram's canvas: its room and its fit (canvas.js), handed in by the engine
   let addContent = null;  // Add and Duplicate in place (add-content.js), handed in by the engine
   let editConcepts = null;   // the engine's door to Concept colors… (`fn(name)`), for the Concept ▸ submenu
   /**
@@ -4745,6 +4751,7 @@ export function createEditMode({
     setSlideRows: (fn) => { slideRowsOf = fn; },
     /** The engine's diagram shapes (shapes.js): a shape's Duplicate, Shape ▸ and a wire's Wire ▸. */
     setShapes: (x) => { shapes = x; },
+    setCanvas: (x) => { canvas = x; },
     /** The diagram's shapes (shapes.js), for the bar's keys: Move up / down on a shape is front and back. */
     shapes: () => shapes,
     /** Add and Duplicate in place (add-content.js): the menu's Duplicate and ⌘D on anything but a diagram's shape. */
