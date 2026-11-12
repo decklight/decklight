@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  cleanPasted, cleanTyped,
   parseMarkup, serialize, splitInline, joinInline, textLength, cleanInline, trimInline, dropAttrs,
   listDoc, listHtml, listShape, itemFacts, splitItem, mergeItem, removeItem, indentItem, outdentItem, moveItem, setItemWords,
   tableOp, tableEdit, tableShape, elementAt,
@@ -259,4 +260,58 @@ test('the list or table is found in the element by path, and only it is rewritte
   assert.equal(elementAt(top, [0], 'ul'), null, 'a path that lands on another tag is refused');
   assert.equal(elementAt(top, [5]), null);
   assert.equal(elementAt('<ol><li>x</li></ol>', [], 'ol').replace('<ol><li>y</li></ol>'), '<ol><li>y</li></ol>');
+});
+
+// ── a paste while typing (PRESENTING_EDITING) ─────────────────────────────
+
+test('a paste from another app brings the words and the editor\'s emphasis, never its look', () => {
+  // tried by hand on main: this span was saved inside the paragraph
+  const mail = '<meta charset="utf-8"><!--StartFragment--><span style="color: red; font: 31px \'Comic Sans MS\'" class="m_1">Ship it <b>today</b></span><!--EndFragment-->';
+  assert.equal(cleanPasted({ html: mail }), 'Ship it <strong>today</strong>');
+  assert.equal(cleanPasted({ html: '<font face="Arial" size="7"><i>soft</i> <u>under</u> <code class="x">x()</code></font>' }), '<em>soft</em> under <code>x()</code>');
+  assert.equal(cleanPasted({ html: '<div style="margin:0"><p class="MsoNormal">One</p><p>Two<br>three</p></div>' }), 'One Two three', 'paragraphs and lines are spaces between words');
+});
+
+test('a paste drops pictures, frames, scripts and the page head, content and all', () => {
+  const page = '<html><head><title>Page</title><style>p{color:red}</style></head><body><p>Words<img src="x.png" onerror="alert(1)"></p>'
+    + '<script>alert(1)</script><iframe src="https://evil"></iframe><svg><text>drawn</text></svg><video src="v.mp4">no</video></body></html>';
+  assert.equal(cleanPasted({ html: page }), 'Words');
+});
+
+test('a pasted link keeps its href only when it is the web, mail, a slide or a path', () => {
+  assert.equal(cleanPasted({ html: '<a href="https://x.io/?a=1&amp;b=2" style="color:red" target="_blank">site</a>' }), '<a href="https://x.io/?a=1&amp;b=2">site</a>');
+  assert.equal(cleanPasted({ html: '<a href="mailto:a@b.c">mail</a> <a href="#/3">slide</a> <a href="notes.html">file</a>' }),
+    '<a href="mailto:a@b.c">mail</a> <a href="#/3">slide</a> <a href="notes.html">file</a>');
+  for (const bad of ['javascript:alert(1)', ' JavaScript:alert(1)', 'java\tscript:alert(1)', 'data:text/html,<b>x</b>', 'vbscript:x']) {
+    assert.equal(cleanPasted({ html: `<a href="${bad}">click</a>` }), 'click', bad);
+  }
+  assert.equal(cleanPasted({ html: '<a href="https://x.io"><img src="logo.png"></a> after' }), 'after', 'a link with nothing left to read goes');
+});
+
+test('Google Docs: its whole-copy <b> is not bold, its bold and italic spans are', () => {
+  const docs = '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-1"><p dir="ltr"><span style="font-size:11pt;font-weight:700;color:#000">Bold</span><span style="font-size:11pt"> plain </span><span style="font-style:italic">slanted</span></p></b>';
+  assert.equal(cleanPasted({ html: docs }), '<strong>Bold</strong> plain <em>slanted</em>');
+});
+
+test('plain text comes as text: its markup characters escaped, its lines and runs of spaces one space', () => {
+  assert.equal(cleanPasted({ text: 'a < b & c\r\n\r\n  next\tline' }), 'a &lt; b &amp; c next line');
+  assert.equal(cleanPasted({ html: 'not <html> really', text: 'ignored' }), 'not really', 'html, when there is some, is what is read');
+  assert.equal(cleanPasted({ html: '', text: '' }), '');
+  assert.equal(cleanPasted({ html: '<img src="a.png">' }), '', 'a picture alone is no words');
+});
+
+test('spaces fall between words, never inside emphasis edges or doubled where tags met', () => {
+  assert.equal(cleanPasted({ html: '<p> Hello<strong> big </strong>world </p>' }), 'Hello <strong>big</strong> world');
+  assert.equal(cleanPasted({ html: '<strong></strong><em> </em>x' }), 'x');
+  assert.equal(cleanPasted({ html: 'a&nbsp;&nbsp;b&#160;c' }), 'a b c');
+});
+
+test('a save cleans what typing left that the file should not get, and keeps what the file had', () => {
+  assert.equal(cleanTyped('Words <span style="color:red">red</span>', 'Words'), 'Words red');
+  assert.equal(cleanTyped('Words <span style="color:red">red</span>', 'Was <span style="color:red">red</span>'), 'Words <span style="color:red">red</span>',
+    'a style the element had in the file stays');
+  assert.equal(cleanTyped('\n      Title <font face="x">here</font>\n    ', '\n      Title\n    '), '\n      Title here\n    ', 'the file\'s white space round the words kept');
+  assert.equal(cleanTyped('<p>One</p><p>Two <span style="x">t</span></p>', '<p>One</p><p>Two</p>'), '<p>One</p><p>Two <span style="x">t</span></p>',
+    'words that hold blocks of their own (a quote of paragraphs) are left as typed');
+  assert.equal(cleanTyped('<strong>B</strong> <em>i</em> <a href="#/2">s</a> <span class="accent">kept</span>', ''), '<strong>B</strong> <em>i</em> <a href="#/2">s</a> <span class="accent">kept</span>');
 });

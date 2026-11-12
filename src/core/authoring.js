@@ -28,6 +28,7 @@ import { linkTarget, slideSuggestions } from './links.js';
 import { slideTitle, slideBody } from './finder.js';
 import { createListSessions } from './list-session.js';
 import { createEditCommit } from './edit-commit.js';
+import { cleanPasted, cleanTyped } from './list-edit.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -259,6 +260,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     // their own one write when the typing ends, whatever they say
     if (cur.provisional) return cur.provisional.save(cur.el);
     if (inner === cur.original) { unstrand(cur.el); return; } // nothing changed: nothing written, no reload
+    // what typing left that the file should not get (cleanTyped): the second guard behind the paste's own
+    const words = cleanTyped(inner, cur.original);
+    if (words !== inner) cur.el.innerHTML = words;   // the page shows what the file gets
     try {
       const src = await boundedFetch(`${base()}/deck/edit/element/source?slide=${cur.slide}&index=${cur.index}`);
       const j = await src.json().catch(() => ({}));
@@ -270,7 +274,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       const top = tpl.content.firstElementChild;
       const node = nodeAtPath(top, cur.path);
       if (!node) throw new Error('the source has no element where the click landed');
-      node.innerHTML = inner;
+      node.innerHTML = words;
       await post('/deck/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
       unstrand(cur.el);
       toast('saved', 1200);
@@ -651,6 +655,41 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   }
   window.addEventListener('resize', () => syncHint());
   root.addEventListener('input', () => { if (editing) syncHint(); }, true);
+
+  // ── a paste while typing (PRESENTING_EDITING) ─────────────────────────────
+  // Left to the browser, a paste from a web page or a mail writes the other
+  // app's font, size and colour into the words (a red 31px Comic Sans span,
+  // saved inside the paragraph). Here it brings the words and the editor's
+  // own emphasis and links only (cleanPasted), put in where the caret is.
+  // Code is plaintext-only, and the browser keeps that text; where it falls
+  // back to a plain contenteditable, the paste is put in as text too.
+  root.addEventListener('paste', (e) => {
+    const el = e.target?.closest?.('[contenteditable]');
+    if (!editing || !el || !root.contains(el) || el.getAttribute('contenteditable') === 'plaintext-only') return;
+    const data = e.clipboardData;
+    if (!data) return;
+    e.preventDefault();
+    const text = data.getData('text/plain');
+    const markup = el.matches(CODE_EDITABLE) ? null : cleanPasted({ html: data.getData('text/html'), text });
+    // nothing but a picture on the clipboard: not into the words (Add a picture puts one on the slide)
+    if (markup === '' || (markup === null && !text)) return;
+    const sel = window.getSelection();
+    if (!sel?.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return;
+    range.deleteContents();
+    let frag;
+    if (markup === null) frag = document.createTextNode(text);
+    else {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = markup;
+      frag = tpl.content;
+    }
+    const last = frag.nodeType === 11 ? frag.lastChild : frag;
+    range.insertNode(frag);
+    if (last) { range.setStartAfter(last); range.collapse(true); sel.removeAllRanges(); sel.addRange(range); }
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste' }));
+  }, true);
 
   let pill = null;
   /** The pill above the selection: there while something is selected in the element being edited, gone otherwise. */

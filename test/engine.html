@@ -577,7 +577,7 @@
             findings: n === 1 ? [{ level: 'warn', rule: 'asset-missing', message: 'gone.png is not there' }] : [] });
         }
       }
-      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'bgindex' || HARNESS_MODE === 'emphasis' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettecategories' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
+      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'bgindex' || HARNESS_MODE === 'emphasis' || HARNESS_MODE === 'pasteclean' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettecategories' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -3283,6 +3283,55 @@
           && h1.innerHTML === '<em><code>One</code></em>' && ![...document.querySelectorAll('.decklight-toast')].some((n) => /reloading/.test(n.textContent));
         r.PASS = r.noPillWithoutSelection && r.pillOnSelection && r.chordWrapsStrong && r.pillSaysOn && r.chordAgainUnwraps
           && r.chordWrapsEm && r.pillWrapsCode && r.stillEditing && r.savedWithTheTags && r.pillGoneAfterSave && r.savedInPlace;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'pasteclean') {
+        // A paste while typing arrives clean (PRESENTING_EDITING): another
+        // app's clipboard html (a red 31px Comic Sans span, a picture, its
+        // paragraphs) brings only the words and the editor's own emphasis and
+        // links; a picture alone brings nothing; plain text comes as text; and
+        // the save cleans again whatever reached the words another way.
+        await settle(); deck.goto(1, 0); await settle();
+        const h1 = document.querySelector('.decklight-stage > section.active h1');
+        h1.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        await settle();
+        const selectAll = () => { const rg = document.createRange(); rg.selectNodeContents(h1); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); };
+        const caretEnd = () => { const rg = document.createRange(); rg.selectNodeContents(h1); rg.collapse(false); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); };
+        const paste = (fill) => {
+          const dt = new DataTransfer();
+          fill(dt);
+          const e = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+          h1.dispatchEvent(e);
+          return e;
+        };
+        selectAll();
+        const rich = paste((dt) => {
+          dt.setData('text/html', '<meta charset="utf-8"><!--StartFragment--><p class="x"><span style="color: red; font: 31px \'Comic Sans MS\'">Hello <b>big</b> <a href="https://example.com" style="color:red">world</a></span></p><img src="x.png" onerror="alert(1)"><!--EndFragment-->');
+          dt.setData('text/plain', 'Hello big world');
+        });
+        r.richTakenOver = rich.defaultPrevented;
+        r.richWordsOnly = h1.innerHTML === 'Hello <strong>big</strong> <a href="https://example.com">world</a>';
+        r.noLookFromTheSource = !h1.querySelector('[style], [class], span, font, img, p, div');
+        // a picture alone is not words: nothing goes in
+        caretEnd();
+        const pic = paste((dt) => dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' })));
+        r.pictureBringsNothing = pic.defaultPrevented && h1.innerHTML === 'Hello <strong>big</strong> <a href="https://example.com">world</a>';
+        // plain text, lines and all, comes in as text, at the caret
+        caretEnd();
+        paste((dt) => dt.setData('text/plain', ' and <more>\nlines'));
+        r.plainTextAsText = h1.innerHTML.endsWith('</a>and &lt;more&gt; lines') || h1.innerHTML.endsWith('</a> and &lt;more&gt; lines');
+        r.stillTyping = h1.isContentEditable;
+        // what reached the words another way (a dragged run) is cleaned on save
+        h1.insertAdjacentHTML('beforeend', '<span style="color: red"> red</span>');
+        h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const saved = CALLS.post.find((c) => c.u.includes('/deck/edit/element/content'))?.body.html ?? '';
+        r.savedClean = /^<h1>Hello <strong>big<\/strong> <a href="https:\/\/example.com">world<\/a> ?and &lt;more&gt; lines red<\/h1>$/.test(saved);
+        r.pageShowsWhatTheFileGot = !h1.querySelector('span') && /lines red$/.test(h1.innerHTML);
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        if (!r.PASS) r.saved = saved;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
