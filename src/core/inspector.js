@@ -18,6 +18,11 @@
  * (colorpicker.js), each pick saved in place as it is made, and a chart's
  * Data tab is where its numbers are typed (chartgrid.js).
  *
+ * The tabs are a list, and a feature adds its own to it (`addTab`): a label,
+ * when it can be chosen, and the pane it shows. A tab may show with nothing
+ * selected, for what is the slide's; with one such tab the bar shows there
+ * too, beside Info.
+ *
  * The picker (the arrow-in-a-box button, DevTools' "select an element")
  * lights whatever is under the pointer, a diagram's shapes one by one
  * (pick.js), and a click makes it the element inspected.
@@ -83,11 +88,13 @@ export function createInspector({
   let focus = null;
   let subscribed = false;
   let lockHeard = false;
-  // Info, Colors or Type; the editor the last two share, for the node it was made for
+  // the tab chosen, by id; the editor Colors and Type share, for the node it was made for
   let tab = 'info';
   let editor = null;
-  // the Data tab's grid, for the chart it was made for, kept across repaints
-  let chartPane = null;
+  // the pane on screen, for a tab with a `key`, kept across repaints while
+  // the tab and its key stay: `{ id, key, el, destroy }` (the Data tab's grid
+  // also carries its chart and the element it was made for)
+  let pane = null;
   let picking = false;
   const spot = createSpotlight(root);
   // what the server and the review said about a slide, kept until the slide
@@ -105,7 +112,7 @@ export function createInspector({
     unhover();
     stopPicking();
     editor = null;
-    dropChartPane();
+    dropPane();
     el?.remove();
     el = null;
     if (onResize) { window.removeEventListener('resize', onResize); onResize = null; }
@@ -130,7 +137,7 @@ export function createInspector({
     if (!lockHeard && editmode()?.onLockChange) {
       lockHeard = true;
       // the grid is writable or read-only by the lock: made again when it turns
-      editmode().onLockChange(() => { if (!chartPane) return; dropChartPane(); if (el) render(); });
+      editmode().onLockChange(() => { if (!pane) return; dropPane(); if (el) render(); });
     }
     if (want) tab = want;
     if (el) { target = editbar()?.selected?.() ?? target; focus = focusOf(target); render(); return; }
@@ -467,24 +474,21 @@ export function createInspector({
   /** Can the element shown be restyled here: write mode, editing on, and something to colour? */
   const styleTargets = () => (target && editmode()?.available?.() && editmode()?.elementEditOn?.() ? colorTargets(target.top, focus) : null);
 
-  function tabsBar() {
-    const can = !!styleTargets();
+  function tabsBar(shown, ctx) {
     const bar = document.createElement('div');
     bar.className = 'ins-tabs';
     bar.setAttribute('role', 'tablist');
-    const chart = chartOf(target);
-    for (const [id, label] of [['info', 'Info'], ['colors', 'Colors'], ['type', 'Type'], ['data', 'Data']]) {
+    for (const t of shown) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'ins-tab';
-      b.dataset.tab = id;
-      b.textContent = label;
+      b.dataset.tab = t.id;
+      b.textContent = t.label;
       b.setAttribute('role', 'tab');
-      b.setAttribute('aria-selected', String(tab === id));
-      // Data is a chart's: its numbers, as a grid (read-only where nothing writes)
-      if (id === 'data') { if (!chart) { b.disabled = true; b.title = 'not a chart'; } else b.title = 'this chart’s numbers, as a grid'; }
-      else if (id !== 'info' && !can) { b.disabled = true; b.title = editmode()?.available?.() ? 'nothing here to restyle' : 'restyling is write mode’s'; }
-      b.addEventListener('click', (e) => { e.stopPropagation(); tab = id; render(); });
+      b.setAttribute('aria-selected', String(tab === t.id));
+      const why = enabledOf(t, ctx);
+      if (why !== true) { b.disabled = true; b.title = why; } else if (t.title) b.title = t.title;
+      b.addEventListener('click', (e) => { e.stopPropagation(); tab = t.id; render(); });
       bar.append(b);
     }
     // HTML: the selected element's source, in the editor that shares this
@@ -507,6 +511,59 @@ export function createInspector({
     return bar;
   }
 
+  // ----- the tabs ---------------------------------------------------------------
+
+  /**
+   * The tabs, in the order the bar shows them. Each is
+   * `{ id, label, title?, enabled(ctx), pane(ctx), key?(ctx), foot?,
+   * showsWithoutSelection?, showsWithSelection?, keeps?, staysWhenDisabled? }`:
+   * - `enabled` says true, or why not (the disabled button's title);
+   * - `pane` gives `{ el, destroy? }`. With a `key` it is made once and kept
+   *   across repaints while the tab and the key stay (destroyed when either
+   *   changes, the panel closes, or the lock turns); without one it is asked
+   *   for on every repaint;
+   * - `showsWithoutSelection` puts it in the bar with nothing selected (the
+   *   slide's own settings), `showsWithSelection: false` only then;
+   * - `shows(ctx)`, when given, leaves it out of the bar while false (a tab
+   *   that is write mode's alone, not offered disabled to a reader);
+   * - `keeps` leaves its pane untouched by a repaint while it is on screen.
+   * `ctx` is `{ target, focus, slide, sec, instance, editmode, toast, root, repaint }`.
+   * Info is first and is the rows below (the slide's, or the element's).
+   */
+  const INFO = { id: 'info', label: 'Info', enabled: () => true, showsWithoutSelection: true };
+  const tabs = [INFO];
+  const enabledOf = (t, ctx) => { const v = t.enabled ? t.enabled(ctx) : true; return v === true ? true : (v || 'not here'); };
+  const shownTabs = (ctx) => tabs.filter((t) => (target ? t.showsWithSelection !== false : t.showsWithoutSelection) && (!t.shows || t.shows(ctx)));
+  const contextOf = (n) => ({
+    target, focus, slide: n, sec: sectionAt(n), instance: inst(), editmode: editmode(), toast, root,
+    repaint: () => render(),
+  });
+  function dropPane() {
+    pane?.destroy?.();
+    pane = null;
+  }
+  /** A feature's tab, added to the bar after `after` (a tab's id) or last. */
+  function addTab(def, { after = null } = {}) {
+    if (!def?.id || !def.label || typeof def.pane !== 'function') throw new Error('a tab needs an id, a label and a pane');
+    if (tabs.some((t) => t.id === def.id)) throw new Error(`a tab ${def.id} is already there`);
+    const at = after ? tabs.findIndex((t) => t.id === after) : -1;
+    tabs.splice(at < 0 ? tabs.length : at + 1, 0, def);
+    if (el) render();
+  }
+  // Colors and Type: the selected element restyled (colorpicker.js), one editor between them
+  const restyleWhy = () => (styleTargets() ? true : editmode()?.available?.() ? 'nothing here to restyle' : 'restyling is write mode’s');
+  for (const [id, label] of [['colors', 'Colors'], ['type', 'Type']]) {
+    tabs.push({ id, label, enabled: restyleWhy, staysWhenDisabled: true, pane: () => ({ el: editorPane() }), foot: 'esc lets go of it' });
+  }
+  // Data: a chart's numbers, as a grid (read-only where nothing writes)
+  tabs.push({
+    id: 'data', label: 'Data', title: 'this chart’s numbers, as a grid',
+    enabled: (ctx) => (chartOf(ctx.target) ? true : 'not a chart'),
+    key: (ctx) => chartOf(ctx.target), keeps: true,
+    // its foot is its own: what the keys do depends on whether there is a grid
+    pane: (ctx) => chartPaneFor(chartOf(ctx.target)),
+  });
+
   // ----- the Data tab -----------------------------------------------------------
 
   /** The charts an authored element holds, in document order, itself first. */
@@ -518,7 +575,7 @@ export function createInspector({
    */
   function chartOf(t) {
     if (!t?.top) return null;
-    if (chartPane && chartPane.top === t.top && chartPane.chart.isConnected && t.top.contains(chartPane.chart)) return chartPane.chart;
+    if (pane?.id === 'data' && pane.top === t.top && pane.chart.isConnected && t.top.contains(pane.chart)) return pane.chart;
     for (const n of [t.node, focus, t.clicked]) {
       const c = n?.isConnected ? n.closest?.('[data-chart]') : null;
       if (c && t.top.contains(c)) return c;
@@ -526,23 +583,15 @@ export function createInspector({
     const all = chartsIn(t.top);
     return all.length === 1 ? all[0] : null;
   }
-  function dropChartPane() {
-    chartPane?.destroy();
-    chartPane = null;
-  }
-  /** The grid for the chart selected, made once per chart and kept across repaints. */
+  /** The grid for the chart selected: the Data tab's pane, kept while it is this chart's (its key). */
   function chartPaneFor(chart) {
-    if (!chartPane || chartPane.chart !== chart || chartPane.top !== target.top) {
-      dropChartPane();
-      const em = editmode();
-      const pane = createChartGrid({
-        chart, target, ordinal: chartsIn(target.top).indexOf(chart), editmode: em, toast,
-        redraw: redrawChart ?? undefined,
-        openHtml: em?.available?.() && em?.editContent && target.index != null ? (() => { const t = target; em.editContent(t); }) : null,
-      });
-      chartPane = { ...pane, top: target.top };
-    }
-    return chartPane.el;
+    const em = editmode();
+    const grid = createChartGrid({
+      chart, target, ordinal: chartsIn(target.top).indexOf(chart), editmode: em, toast,
+      redraw: redrawChart ?? undefined,
+      openHtml: em?.available?.() && em?.editContent && target.index != null ? (() => { const t = target; em.editContent(t); }) : null,
+    });
+    return { ...grid, top: target.top };
   }
 
   /** The editor for the node shown, made once per node and kept across repaints. */
@@ -648,26 +697,28 @@ export function createInspector({
     const n = slideNo();
     if (target && (!focus || !focus.isConnected || target.slide !== n)) { target = null; focus = null; }
     if (editor && editor.node !== focus) editor = null;
-    const chart = target ? chartOf(target) : null;
-    if (chartPane && (tab !== 'data' || chartPane.chart !== chart)) dropChartPane();
-    if (tab === 'data' && !chart) tab = 'info';
+    const ctx = contextOf(n);
+    const shown = shownTabs(ctx);
+    let def = shown.find((t) => t.id === tab);
+    // a tab that cannot be chosen now goes back to Info; Colors and Type say
+    // so in their own pane once, and go back the next time
+    if (!def || (!def.staysWhenDisabled && enabledOf(def, ctx) !== true)) { tab = 'info'; def = INFO; }
+    const key = def.key ? def.key(ctx) : undefined;
+    if (pane && (pane.id !== tab || pane.key !== key)) dropPane();
     const card = el.querySelector('.narr-card');
-    // the grid on screen, for this chart: left as it is, so a cell keeps its
-    // caret through the repaints a redrawn chart sets off (a rescan, the
-    // overflow guardrail's verdict)
-    if (tab === 'data' && chartPane?.el.isConnected && card.contains(chartPane.el)) return;
+    // a kept pane on screen (the Data tab's grid, for this chart): left as it
+    // is, so a cell keeps its caret through the repaints a redrawn chart sets
+    // off (a rescan, the overflow guardrail's verdict)
+    if (def.keeps && pane?.el.isConnected && card.contains(pane.el)) return;
     card.textContent = '';
     header(card);
-    if (!target) tab = 'info';
-    if (target) card.append(tabsBar());
-    if (target && tab === 'data') {
-      // its foot is its own: what the keys do depends on whether there is a grid
-      card.append(chartPaneFor(chart));
-      return;
-    }
-    if (target && tab !== 'info') {
-      card.append(editorPane());
-      card.append(dock.foot('esc lets go of it', 'ins-foot'));
+    if (target || shown.length > 1) card.append(tabsBar(shown, ctx));
+    if (def.pane) {
+      if (def.key) {
+        if (!pane) pane = { ...def.pane(ctx), id: tab, key };
+        card.append(pane.el);
+      } else card.append(def.pane(ctx).el);
+      if (def.foot) card.append(dock.foot(def.foot, 'ins-foot'));
       return;
     }
     const rows = target ? elementRows() : slideRows();
@@ -850,6 +901,6 @@ export function createInspector({
     + '<path d="M6.5 13.5h-4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v4" stroke-dasharray="2 1.6"/>'
     + '<path d="M8 8l6.5 2.4-2.8 1.1 2.3 2.3-.9.9-2.3-2.3-1.1 2.8z" fill="currentColor" stroke-linejoin="round"/></svg>';
   /** Something the panel shows changed under it (a concept attached): paint it again, the editor rebuilt. */
-  function refresh() { if (!el) return; editor = null; dropChartPane(); render(); }
-  return { open, close, isOpen, onSlide, refresh, text: () => lastText };
+  function refresh() { if (!el) return; editor = null; dropPane(); render(); }
+  return { open, close, isOpen, onSlide, refresh, addTab, text: () => lastText };
 }
