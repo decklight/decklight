@@ -425,13 +425,16 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   function elementEffectRoute({ body, json }) {
-    const { slide, index, effect } = JSON.parse(body);
+    const { slide, index, effect, path = [], tag = null } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0
-        || (effect !== null && typeof effect !== 'string')) {
+        || (effect !== null && typeof effect !== 'string') || (tag !== null && typeof tag !== 'string')) {
       throw new Error('bad payload');
     }
-    const changed = applyEdit((html) => setSlideElementBuild(html, slide, index, effect));
-    if (changed) console.log(`  element effect saved: slide ${slide} #${index} → ${effect ?? '(removed)'}`);
+    let changed;
+    try {
+      changed = applyEdit((html) => setSlideElementBuild(html, slide, index, effect, { path, tag }));
+    } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed) console.log(`  element effect saved: slide ${slide} #${index}${path.length ? ` › ${path.join('.')}` : ''} → ${effect ?? '(removed)'}`);
     return json(200, { ok: true, changed, ...history.counts() });
   }
 

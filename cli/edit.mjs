@@ -1908,20 +1908,19 @@ export function upsertNarrationTrack(html, track) {
 export const BUILD_EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'none'];
 
 /**
- * Set slide N's element `index`'s build/entrance effect, or — when `effect`
- * is `null` — strip `data-build` entirely (the menu's separate "remove
- * effect" action).
+ * Set the build/entrance effect of slide N's element `index`, or of the node
+ * at `path` below it (a point of a list, a block inside a column; `[]` is the
+ * element), or — when `effect` is `null` — take `data-build` off entirely (the
+ * menu's separate "remove effect" action). The attribute is changed where it
+ * stands, so a bare `data-build` (the default build) is replaced, not joined
+ * by a second one the first would win over, and removed by null.
  */
-export function setSlideElementBuild(html, slide, index, effect) {
+export function setSlideElementBuild(html, slide, index, effect, { path = [], tag = null } = {}) {
   if (effect !== null && !BUILD_EFFECTS.includes(effect)) throw new Error(`unknown build effect "${effect}"`);
-  const { parts, idx, seg, r } = locateElement(html, slide, index);
-  const el = seg.slice(r.start, r.end);
-  const gt = el.indexOf('>');
-  if (gt < 0) throw new Error(`slide ${slide}: malformed element at index ${index}`);
-  let head = el.slice(0, gt).replace(/\s+data-build=("[^"]*"|'[^']*')/, '');
-  if (effect !== null) head += ` data-build="${effect}"`;
-  parts[idx] = seg.slice(0, r.start) + head + el.slice(gt) + seg.slice(r.end);
-  return parts.join('');
+  checkPath(path);
+  const e = openElement(html, slide, index);
+  e.edit(path, tag, (attrs) => withAttr(attrs, 'data-build', effect));
+  return e.html();
 }
 
 // ── pictures after the drop (PRESENTING_EDITING) ─────────────────────────

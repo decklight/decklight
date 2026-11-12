@@ -775,6 +775,24 @@ export function applyBuildState(record, step) {
   }
 }
 
+/**
+ * How many clicks of slide `record` show `node` whole (PRESENTING_EDITING):
+ * the last group holding a step that is the node, holds it, or sits inside it
+ * (a list's points), plus one; 0 when none does, so the node is there from
+ * the start. What write mode steps the slide to when a waiting element is
+ * selected, or has just been given a build.
+ */
+export function stepShowing(record, node) {
+  let need = 0;
+  record?.groups?.forEach((group, g) => {
+    for (const i of group) {
+      const el = record.steps[i]?.el;
+      if (el && (el === node || el.contains?.(node) || node?.contains?.(el))) need = Math.max(need, g + 1);
+    }
+  });
+  return need;
+}
+
 /** Speaker-view step labels for a slide record. */
 export function stepLabels(record) {
   return record.groups.map((group) => {
