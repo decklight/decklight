@@ -106,6 +106,7 @@ const RULES = [
 
   // ── the CLI and tools, each spawned by the harness that tests it ────────
   [/^cli\/audit\.mjs$/, ['strict-render'], 'the ingredients label and --strict stripping'],
+  [/^cli\/check-watch\.mjs$/, [], 'decklight check --watch: its unit test drives it, no harness spawns it'],
   [/^cli\/bundle\.mjs$/, ['strict-render', 'render'], 'bundling, and the deck it produces'],
   [/^cli\/plugin\.mjs$/, ['plugin-render'], 'presenter plugins'],
   [/^cli\/import\.mjs$/, ['import-render'], 'deck import'],

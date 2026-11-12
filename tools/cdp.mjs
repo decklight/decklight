@@ -22,14 +22,16 @@ const LISTENING = /DevTools listening on (ws:\/\/\S+)/;
 
 /**
  * Start a headless Chrome and open one page of `w`×`h` CSS pixels.
- * @returns {Promise<{ send, evaluate, navigate, screenshot, close }>}
+ * `args` are extra Chrome flags (`decklight check --watch` reads a file://
+ * deck, so it needs `--allow-file-access-from-files`).
+ * @returns {Promise<{ send, once, evaluate, navigate, screenshot, close }>}
  */
-export async function openPage(bin, { w, h, signal, startupMs = 15000 } = {}) {
+export async function openPage(bin, { w, h, signal, startupMs = 15000, args = [] } = {}) {
   if (typeof WebSocket === 'undefined') throw new Error('animated capture needs Node 22 or newer (no WebSocket client here)');
   const profile = mkdtempSync(join(tmpdir(), 'decklight-cdp-'));
   const child = spawn(bin, chromeArgs(
     '--hide-scrollbars', '--autoplay-policy=no-user-gesture-required',
-    `--window-size=${w},${h}`, '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
+    `--window-size=${w},${h}`, '--remote-debugging-port=0', `--user-data-dir=${profile}`, ...args, 'about:blank',
   ), { stdio: ['ignore', 'ignore', 'pipe'], signal });
   child.on('error', () => {});   // an abort kills the child; the rejection below says why
   const exited = new Promise((ok) => child.once('exit', ok));
@@ -97,6 +99,8 @@ export async function openPage(bin, { w, h, signal, startupMs = 15000 } = {}) {
 
     return {
       send,
+      /** The page's next `method` event, its params. */
+      once,
       /** Run an expression in the page; its (awaited) value comes back. */
       async evaluate(expression) {
         const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });

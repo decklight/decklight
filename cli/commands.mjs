@@ -339,7 +339,8 @@ Commands:
            looking — clipped content, a crowded slide, an asset that is not on disk, [click] beats
            that do not line up with the builds; exit 1 on an error (an agent after every edit,
            you before a talk); in the deck, the palette's Check deck… lists the same
-           EXAMPLE: decklight check deck.html   (--json for an agent, --no-render without Chrome)
+           EXAMPLE: decklight check deck.html   (--json for an agent, --no-render without Chrome,
+                    --watch to check again on every save until Ctrl-C)
   help     show this help, or a command's help: decklight help bundle
   version  print the installed version (also --version / -v)
 `;
