@@ -340,3 +340,25 @@ test('guides: the nearest line within reach snaps, on each axis; the guides span
   const edge = alignGuides({ x: 0, y: 60, w: 98, h: 20 }, others, { within: 4, xs: [1], ys: [] });
   assert.deepEqual([edge.dx, edge.dy, edge.lines.length], [2, 0, 1], 'a resize moves one edge: only that edge snaps');
 });
+
+test('a wire stops at the outline of a shape marked data-shape, not at its box; an unmarked polygon keeps its box', () => {
+  const diamond = h('g', { 'data-node': 'gate' }, h('polygon', { 'data-shape': 'diamond', points: '300,0 400,50 300,100 200,50' }), h('text', { x: 300, y: 50 }, 'Gate'));
+  const store = h('path', { 'data-node': 'store', 'data-shape': 'cylinder', d: 'M 200 200 L 400 200 L 400 300 L 200 300 Z' });
+  const plain = h('polygon', { 'data-node': 'plain', points: '600,0 700,50 600,100 500,50' });
+  const src = h('rect', { 'data-node': 'src', x: 0, y: 0, width: 100, height: 100 });
+  const toGate = h('line', { 'data-from': 'src', 'data-to': 'gate', x1: 0, y1: 0, x2: 0, y2: 0 });
+  const toPlain = h('line', { 'data-from': 'gate', 'data-to': 'plain', x1: 0, y1: 0, x2: 0, y2: 0 });
+  const svg = h('svg', { viewBox: '0 0 800 400' }, src, diamond, store, plain, toGate, toPlain);
+  const box = nodeBox(diamond, IDENTITY, svg);
+  assert.deepEqual([box.x, box.y, box.w, box.h], [200, 0, 200, 100], 'its box is still its box');
+  assert.equal(box.outline.length, 4);
+  // off-axis, a diamond's edge is well inside its box
+  const p = edgeToward(box, { x: 400, y: 100 });
+  near(p.x, 350); near(p.y, 75);
+  assert.deepEqual(edgeToward(box, { x: 500, y: 50 }), { x: 400, y: 50 }, 'on the axis the tip and the box\'s side agree');
+  assert.ok(nodeBox(store, IDENTITY, svg).outline, 'a marked path too');
+  assert.equal(nodeBox(plain, IDENTITY, svg).outline, undefined);
+  routeConnectors(svg);
+  assert.deepEqual([toGate.attrs.x2, toGate.attrs.y2], ['200', '50'], 'into the diamond\'s left tip');
+  assert.deepEqual([toPlain.attrs.x1, toPlain.attrs.x2], ['400', '500'], 'out of its right tip, into the plain polygon\'s box edge');
+});

@@ -49,6 +49,7 @@ export const ATTRIBUTE_DOCS = {
   'data-from': { on: 'svg line, path or polyline', desc: 'The data-node this wire starts at.' },
   'data-to': { on: 'svg line, path or polyline', desc: 'The data-node this wire ends at.' },
   'data-route': { on: 'svg line, path or polyline', desc: 'How the wire runs between its nodes (default straight).' },
+  'data-shape': { on: 'svg polygon or path', desc: 'Which shape it is, so write mode redraws it when it is resized and a wire stops at its outline.' },
   'data-concept': { on: 'svg shape or group', desc: 'Colours the shape by meaning: one concept, one colour, deck-wide.' },
   'data-nest': { on: 'svg shape or group', desc: 'off: keep the authored fill inside a filled panel; on: nest a shape the box test misses.' },
   'data-id': { desc: 'Matches this element across two auto-animate slides.' },

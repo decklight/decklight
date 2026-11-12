@@ -876,6 +876,7 @@
             line: `<line x1="${x - 60}" y1="${y}" x2="${x + 60}" y2="${y}" stroke="#888" stroke-width="2" marker-end="url(#sh-arr)"/>`,
             label: `<text x="${x}" y="${y}" text-anchor="middle" font-size="24">Label</text>`,
             ellipse: `<ellipse cx="${x}" cy="${y}" rx="60" ry="30" style="fill: var(--d-fill-2)"/>`,
+            diamond: `<g><polygon style="fill: var(--d-fill-1)" points="${x},${y - 30} ${x + 80},${y} ${x},${y + 30} ${x - 80},${y}" data-shape="diamond"/><text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="24">Decision</text></g>`,
           }[b.kind];
           return json({ ok: true, changed: true, defs: null, undo: 1, redo: 0, added: { path: [kids.length], html } });
         }
@@ -888,6 +889,11 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/geometry') || u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/connector')) return json({ ok: true, changed: true, undo: 1, redo: 0, ...window.__fakeConnector(JSON.parse(init?.body ?? '{}')) });
+      }
+      // more shapes (SVG_DIAGRAMS): a marked shape's resize is a geometry write
+      if (HARNESS_MODE === 'shaperesize') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       // Line ▸ and Corners ▸ (SVG_DIAGRAMS): the style route, asked to echo,
       // answers with the node as the file would have it (window.__lsFile)
@@ -1303,6 +1309,19 @@
           <line class="cn-hand" x1="300" y1="20" x2="380" y2="20" stroke="#888" stroke-width="6"/>
           <rect class="cn-panel" x="560" y="160" width="220" height="130" style="fill: var(--d-fill-1)"/>
           <rect class="cn-inner" x="600" y="200" width="60" height="40" style="fill: var(--d-fill-5)"/>
+        </svg>
+      </section>`);
+    }
+    // more shapes: a diamond box group and a cylinder, each a node a wire
+    // joins, and a source box; at the full viewBox, unscaled
+    if (HARNESS_MODE === 'shaperesize') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Shapes</h2>
+        <svg class="sr-svg" viewBox="0 0 800 400" width="800" aria-label="more shapes">
+          <rect class="sr-src" data-node="src" x="20" y="100" width="100" height="80" style="fill: var(--d-fill-2)"/>
+          <g class="sr-gate" data-node="gate"><polygon class="sr-diamond" data-shape="diamond" points="300,40 400,140 300,240 200,140" style="fill: var(--d-fill-3)"/><text class="sr-label" x="300" y="140" text-anchor="middle" dominant-baseline="central" font-size="20">Gate</text></g>
+          <path class="sr-store" data-node="store" data-shape="cylinder" d="M 500 120 C 500 113.4 535.8 108 580 108 C 624.2 108 660 113.4 660 120 L 660 228 C 660 234.6 624.2 240 580 240 C 535.8 240 500 234.6 500 228 Z M 500 120 C 500 126.6 535.8 132 580 132 C 624.2 132 660 126.6 660 120" style="fill: var(--d-fill-4)"/>
+          <line class="sr-w1" data-from="src" data-to="gate" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="3"/>
+          <line class="sr-w2" data-from="gate" data-to="store" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="3"/>
         </svg>
       </section>`);
     }
@@ -3744,7 +3763,7 @@
           r.menuOffersAdd = !!row('Shape ▸') && !row('Add shape ▸');
           row('Shape ▸')?.click();
           await settle();
-          r.fourKinds = ['Box', 'Ellipse', 'Label', 'Line / arrow'].every((t) => row(t)) && document.querySelector('.decklight-ctxmenu .cm-head')?.textContent === 'Add'
+          r.allKinds = ['Box', 'Ellipse', 'Label', 'Line / arrow', 'Diamond', 'Hexagon', 'Cylinder', 'Document', 'Note', 'Cloud'].every((t) => row(t)) && document.querySelector('.decklight-ctxmenu .cm-head')?.textContent === 'Add'
             && !row('Remove the whole diagram');
           row('Box')?.click();
           await settle(); await settle();
@@ -3785,8 +3804,21 @@
           const ln = authored().at(-1);
           const mk = svg.querySelector('marker');
           r.lineUsesTheLiveMarker = ln?.tagName.toLowerCase() === 'line' && mk.id !== 'sh-arr' && ln.getAttribute('marker-end') === `url(#${mk.id})`;
-          r.PASS = r.scaledStage && r.menuOffersAdd && r.fourKinds && r.addsWhereTheMenuOpened && r.landsOnTheSlide && r.newBoxSelected
-            && r.straightIntoItsWords && r.itsWordsSaved && r.duplicateAsksForTheGroup && r.copyAfterIt && r.copySelected && r.lineUsesTheLiveMarker;
+          // a diamond: its group lands, its shape selected, straight into its words like a box
+          document.querySelector('.dl-label-edit')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          await settle();
+          await menuAt(svg, px, py);
+          row('Shape ▸')?.click();
+          await settle();
+          row('Diamond')?.click();
+          await settle(); await settle();
+          const dm = authored().at(-1);
+          r.diamondAsked = shapes().at(-1)?.kind === 'diamond';
+          r.diamondSelected = !!dm?.querySelector('polygon[data-shape="diamond"]') && deck._selection()?.node === dm.querySelector('polygon');
+          r.diamondIntoItsWords = document.querySelector('.dl-label-edit')?.value === 'Decision';
+          r.PASS = r.scaledStage && r.menuOffersAdd && r.allKinds && r.addsWhereTheMenuOpened && r.landsOnTheSlide && r.newBoxSelected
+            && r.straightIntoItsWords && r.itsWordsSaved && r.duplicateAsksForTheGroup && r.copyAfterIt && r.copySelected && r.lineUsesTheLiveMarker
+            && r.diamondAsked && r.diamondSelected && r.diamondIntoItsWords;
         }
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -4000,6 +4032,68 @@
           r.othersStay = a.getAttribute('x') === '40';
           r.PASS = Object.values(r).every((v) => v === true);
         }
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'shaperesize') {
+        // SVG_DIAGRAMS, more shapes (shapes.js, connectors.js): a wire stops
+        // at a diamond's tip and a cylinder's side; a marked shape wears
+        // handles, and a resize writes its geometry again for the new box in
+        // one write, its label centred and its wires routed with it
+        await settle();
+        deck.goto(deck._sections.length);
+        await settle(); await settle();
+        const svg = document.querySelector('.sr-svg');
+        const q = (c) => svg.querySelector(c);
+        const k = svg.getScreenCTM().a;
+        const toScreen = (x, y) => { const m = svg.getScreenCTM(); return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f }; };
+        const ptr = (type, el, x, y) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0 }));
+        const clickAt = async (el, p) => { ptr('pointerdown', el, p.x, p.y); ptr('pointerup', el, p.x, p.y); el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y })); await settle(); };
+        const geometry = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/geometry')).map((c) => c.body);
+        const n = (el, a) => parseFloat(el.getAttribute(a));
+        const w1 = q('.sr-w1'); const w2 = q('.sr-w2');
+        // routed at load: into the diamond's left tip; out of its right tip, onto the cylinder's side
+        r.wireToTheTip = n(w1, 'x2') === 200 && n(w1, 'y2') === 140;
+        const onDiamond = (x, y, cx, cy, hw, hh) => Math.abs(Math.abs(x - cx) / hw + Math.abs(y - cy) / hh - 1) < 0.01;
+        r.wireOffTheOutline = onDiamond(n(w2, 'x1'), n(w2, 'y1'), 300, 140, 100, 100) && n(w2, 'x1') > 380 && Math.abs(n(w2, 'x2') - 500) < 0.5 && n(w2, 'y2') > 120 && n(w2, 'y2') < 228;
+        // the diamond selected: eight handles, as a box has
+        const dia = q('.sr-diamond');
+        await clickAt(dia, toScreen(300, 100));
+        const hs = deck._shapes.handles();
+        r.handlesOnTheDiamond = deck._selection()?.node === dia && hs.length === 8;
+        // its bottom right handle out by (40, 20): the points written again for 200,40 to 440,260
+        const br = hs.find((h) => h.hx === 1 && h.hy === 1)?.el;
+        if (br) {
+          const b = br.getBoundingClientRect(); const c = { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+          ptr('pointerdown', br, c.x, c.y);
+          for (const f of [0.3, 1]) ptr('pointermove', document.body, c.x + 40 * k * f, c.y + 20 * k * f);
+          ptr('pointerup', document.body, c.x + 40 * k, c.y + 20 * k);
+          await settle(); await settle();
+        }
+        r.redrawnLive = dia.getAttribute('points') === '320,40 440,150 320,260 200,150';
+        const g = geometry().at(-1);
+        const said = (cls, attr) => g?.edits.find((e) => e.attr === attr && JSON.stringify(e.path) === JSON.stringify(cls))?.value;
+        r.oneWrite = geometry().length === 1 && said([1, 0], 'points') === '320,40 440,150 320,260 200,150';
+        r.labelCentred = said([1, 1], 'x') === 320 && said([1, 1], 'y') === 150 && n(q('.sr-label'), 'x') === 320;
+        r.wiresInTheSameWrite = said([3], 'y2') === n(w1, 'y2') && said([4], 'x1') === n(w2, 'x1')
+          && onDiamond(n(w1, 'x2'), n(w1, 'y2'), 320, 150, 120, 110) && onDiamond(n(w2, 'x1'), n(w2, 'y1'), 320, 150, 120, 110);
+        // the cylinder resizes by its box too: its path data written again, canonical
+        await new Promise((f) => setTimeout(f, 400));
+        const cyl = q('.sr-store');
+        await clickAt(cyl, toScreen(580, 180));
+        const top = deck._shapes.handles().find((h) => h.hx === 0 && h.hy === -1)?.el;
+        if (top) {
+          const b = top.getBoundingClientRect(); const c = { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+          ptr('pointerdown', top, c.x, c.y);
+          for (const f of [0.5, 1]) ptr('pointermove', document.body, c.x, c.y - 40 * k * f);
+          ptr('pointerup', document.body, c.x, c.y - 40 * k);
+          await settle(); await settle();
+        }
+        const cg = geometry().at(-1);
+        const d = cg?.edits.find((e) => e.attr === 'd' && JSON.stringify(e.path) === '[2]')?.value ?? '';
+        r.cylinderRedrawn = geometry().length === 2 && /^M 500 \d/.test(d) && d.includes(' Z M ') && cyl.getAttribute('d') === d && !/68 /.test(d.slice(0, 9));
+        r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

@@ -55,7 +55,7 @@
 import { pathFrom } from './colorpicker.js';
 import { injectedIn, isDrawn } from './pick.js';
 import { createEditCommit } from './edit-commit.js';
-import { LINE_DASHES, LINES, lineOf, CORNERS, cornersOf, cornerRadius } from '../../tools/diagram-shapes.mjs';
+import { LINE_DASHES, LINES, lineOf, CORNERS, cornersOf, cornerRadius, SHAPES, shapeGeometry, shapeBox } from '../../tools/diagram-shapes.mjs';
 import {
   IDENTITY, WIRE_TAGS, connectorsIn, isConnector, nodeNamed, nodeBox, endsOf, geometryFor, wireGeometry, setGeometry,
   routeOf, tagForRoute, svgOf, invert, toRoot, union, applyTo, boxThrough,
@@ -225,6 +225,14 @@ export function alignGuides(box, others, { within = 4, xs = FEATURES, ys = FEATU
 
 const tagOf = (el) => el?.tagName?.toLowerCase() ?? '';
 const num = (el, a) => { const v = parseFloat(el.getAttribute(a)); return Number.isFinite(v) ? v : 0; };
+/** The kind a shape is marked as (a diamond, a cylinder…) and the attribute its geometry is in, or null: SVG_DIAGRAMS, `data-shape`. */
+function markedShape(el) {
+  const kind = el?.getAttribute?.('data-shape');
+  const tag = tagOf(el);
+  if (!kind || SHAPES[kind] !== tag) return null;
+  const attr = tag === 'path' ? 'd' : 'points';
+  return shapeBox(attr, el.getAttribute(attr)) ? { kind, attr } : null;
+}
 const numericAttr = (el, a) => !el.hasAttribute(a) || NUMERIC.test(el.getAttribute(a));
 const isStep = (el) => !!el?.classList?.contains('build-step');
 const authoredKids = (el) => [...el.children].filter((c) => !c.matches(ENGINE_NODES));
@@ -468,7 +476,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
   /** The other shapes of `svg` a drag lines up with: their boxes in the svg's space. */
   function guideBoxes(svg, skip, space = IDENTITY) {
     const out = [];
-    for (const el of svg.querySelectorAll('rect, circle, ellipse, image, use, polygon, foreignObject')) {
+    for (const el of svg.querySelectorAll('rect, circle, ellipse, image, use, polygon, path[data-shape], foreignObject')) {
       if (el.closest(`${ENGINE_NODES}, defs, marker, mask, clipPath, pattern, symbol`) || injectedIn(el, svg)) continue;
       if (skip.some((s) => s === el || s.contains?.(el))) continue;
       const b = nodeBox(el, space, svg);
@@ -592,6 +600,8 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     }
     const tag = tagOf(node);
     if (tag !== 'line' && isConnector(node)) return endsOf(tag, (a) => node.getAttribute(a)) ? { shape: node, kind: 'line' } : null;
+    // a marked shape resizes by its box, its geometry written again for the new one
+    if (markedShape(node)) return { shape: node, kind: 'box' };
     const need = { rect: ['x', 'y', 'width', 'height'], image: ['x', 'y', 'width', 'height'], ellipse: ['cx', 'cy', 'rx', 'ry'], circle: ['cx', 'cy', 'r'], line: ['x1', 'y1', 'x2', 'y2'] }[tag];
     if (!need || !need.every((a) => numericAttr(node, a))) return null;
     return { shape: node, kind: tag === 'line' ? 'line' : 'box' };
@@ -603,6 +613,8 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
   };
   /** A box shape's box in its own coordinates. */
   function boxOf(shape) {
+    const marked = markedShape(shape);
+    if (marked) return shapeBox(marked.attr, shape.getAttribute(marked.attr));
     switch (tagOf(shape)) {
       case 'ellipse': return { x: num(shape, 'cx') - num(shape, 'rx'), y: num(shape, 'cy') - num(shape, 'ry'), w: 2 * num(shape, 'rx'), h: 2 * num(shape, 'ry') };
       case 'circle': return { x: num(shape, 'cx') - num(shape, 'r'), y: num(shape, 'cy') - num(shape, 'r'), w: 2 * num(shape, 'r'), h: 2 * num(shape, 'r') };
@@ -612,6 +624,8 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
   /** Write box `b` on `shape` in the attributes it uses, in the grain each had. */
   function setBox(shape, b, was) {
     const g = (a, v) => shape.setAttribute(a, String(keepGrain(was[a] ?? 0, v)));
+    const marked = markedShape(shape);
+    if (marked) { const geom = shapeGeometry(marked.kind, b); shape.setAttribute(geom.attr, geom.value); return; }
     switch (tagOf(shape)) {
       case 'ellipse': g('cx', b.x + b.w / 2); g('cy', b.y + b.h / 2); g('rx', b.w / 2); g('ry', b.h / 2); break;
       case 'circle': g('cx', b.x + b.w / 2); g('cy', b.y + b.h / 2); g('r', Math.max(b.w, b.h) / 2); break;
@@ -703,6 +717,9 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     const was = {};
     for (const a of ['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2']) if (shape.hasAttribute(a)) was[a] = num(shape, a);
     keep(shape, Object.keys(was));
+    // a marked shape's geometry is its points or its path data, written again whole
+    const marked = !data.end && markedShape(shape);
+    if (marked) keep(shape, [marked.attr]);
     // the labels on a box come along, by what they are to it; a line has none
     const labels = data.end || shape.hasAttribute('transform') ? [] : labelsOn(shape).filter((t) => !t.hasAttribute('transform') && numericAttr(t, 'x') && numericAttr(t, 'y'))
       .map((t) => {
@@ -1211,7 +1228,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     return { x: Math.round(m.a * pt.x + m.c * pt.y + m.e), y: Math.round(m.b * pt.x + m.d * pt.y + m.f) };
   }
 
-  const KIND_SAID = { box: 'box', ellipse: 'ellipse', label: 'label', line: 'arrow' };
+  const KIND_SAID = { box: 'box', ellipse: 'ellipse', label: 'label', line: 'arrow', ...Object.fromEntries(Object.keys(SHAPES).map((k) => [k, k])) };
   async function add(target, kind, point = null) {
     if (!editmode.available?.()) { toast(editmode.cannot?.('adding a shape') ?? 'this page cannot write the deck', 3200); return null; }
     const svg = diagramOf(target);
@@ -1231,9 +1248,10 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       return null;
     }
     refit([], svg);
-    const shape = kind === 'box' ? node.querySelector('rect') ?? node : node;
+    const grouped = kind === 'box' || Object.hasOwn(SHAPES, kind);
+    const shape = kind === 'box' ? node.querySelector('rect') ?? node : grouped ? node.querySelector('[data-shape]') ?? node : node;
     editbar.selectNode(shape, { exact: true });
-    const words = kind === 'box' ? node.querySelector('text') : kind === 'label' ? node : null;
+    const words = grouped ? node.querySelector('text') : kind === 'label' ? node : null;
     if (words) authoring.editInline(words);
     else toast(`${KIND_SAID[kind]} added — drag it into place`, 1800);
     debugLog('edit', `${kind} added to slide ${target.slide} element #${target.index} at ${j.added.path.join('.')}`);

@@ -218,6 +218,7 @@ const ENGINE_GROUPS = {
     'chartdata',
     'shapedrag',
     'shapeadd',
+    'shaperesize',
     'connectors',
     'connectmenu',
     'linestyle',

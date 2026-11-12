@@ -12,8 +12,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   setElementGeometry, addDiagramShape, duplicateDiagramNode, withTranslate, translateOf, shiftPathData, shiftPoints,
-  formatCoord, createHistory,
+  formatCoord, createHistory, pathDataValue, pointsValue,
 } from '../cli/edit.mjs';
+import { SHAPES, SHAPE_LABELS, shapeGeometry, shapeBox, outlineOf, outlineToward } from '../tools/diagram-shapes.mjs';
+import { ATTRIBUTES } from '../tools/vocabulary.mjs';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
 import { resizeBox, followLabel, keepGrain, setTranslate, localStep, leadingTranslate, viewOf, clampPoint, clampStep } from '../src/core/shapes.js';
 import { tmp } from './helpers.mjs';
@@ -126,6 +128,56 @@ test('a box in a diagram that has none is theme tokens only, centred on the view
   assert.equal(rect, '<rect x="320" y="118" width="160" height="64" rx="10" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/>');
   assert.match(text, /^<text x="400" y="150" text-anchor="middle" dominant-baseline="central" [^>]*>Box<\/text>$/);
   assert.doesNotMatch(out.added.html, /#[0-9a-f]{3,8}\b/i, 'no literal colour');
+});
+
+test('each of the six more shapes is a group of one marked shape and a label, the nearest box\'s look, its geometry the server\'s', () => {
+  for (const kind of Object.keys(SHAPES)) {
+    const out = addDiagramShape(DECK, 1, 1, { path: [], tag: 'svg', kind, at: { x: 400, y: 250 } });
+    const geom = shapeGeometry(kind, { x: 310, y: 215, w: 180, h: 70 });
+    const [g, shape, text, end] = out.added.html.split('\n').map((l) => l.trim());
+    assert.equal(g, '<g>');
+    assert.equal(shape, `<${geom.tag} style="fill: var(--d-fill-3)" ${geom.attr}="${geom.value}" data-shape="${kind}"/>`, `${kind}: the box's look, not its rx, its id or its concept`);
+    assert.equal(text, `<text x="400" y="250" text-anchor="middle" font-size="18" style="fill: var(--d-text)">${SHAPE_LABELS[kind]}</text>`);
+    assert.equal(end, '</g>');
+    assert.equal(out.html.replace(`\n      ${out.added.html}`, ''), DECK, 'nothing else moved');
+  }
+});
+
+test('a second diamond takes the first one\'s size and look; in a bare diagram one is theme tokens only', () => {
+  const one = addDiagramShape(DECK, 1, 1, { path: [], kind: 'diamond', at: { x: 400, y: 250 } }).html
+    .replace(/style="fill: var\(--d-fill-3\)" points="[^"]*" data-shape/, 'style="fill: var(--d-fill-5)" points="500,0 560,30 500,60 440,30" data-shape');
+  const two = addDiagramShape(one, 1, 1, { path: [], kind: 'diamond', at: { x: 480, y: 40 } });
+  assert.match(two.added.html, /<polygon style="fill: var\(--d-fill-5\)" points="480,10 540,40 480,70 420,40" data-shape="diamond"\/>/);
+  const bare = DECK.replace(/<g>\n {8}<rect[^]*?<\/g>\n {6}/, '');
+  const t = addDiagramShape(bare, 1, 1, { path: [], kind: 'cloud' });
+  assert.match(t.added.html, /<path data-shape="cloud" d="M [^"]+ Z" style="fill: var\(--d-fill-1\); stroke: var\(--d-stroke\)" stroke-width="2"\/>/);
+  assert.doesNotMatch(t.added.html, /#[0-9a-f]{3,8}\b/i, 'no literal colour');
+});
+
+test('a shape\'s geometry fills its box exactly, in the spelling the server writes back, and is read back as that box', () => {
+  for (const kind of Object.keys(SHAPES)) {
+    for (const box of [{ x: 10, y: 20, w: 160, h: 80 }, { x: -5.5, y: 0, w: 40, h: 120.3 }, { x: 0, y: 0, w: 300, h: 30 }]) {
+      const g = shapeGeometry(kind, box);
+      assert.equal(g.tag, SHAPES[kind]);
+      assert.equal(g.value, g.attr === 'd' ? pathDataValue(g.value) : pointsValue(g.value), `${kind}: canonical`);
+      const b = shapeBox(g.attr, g.value);
+      for (const k of ['x', 'y', 'w', 'h']) assert.ok(Math.abs(b[k] - box[k]) < 0.11, `${kind} ${k}: ${b[k]} vs ${box[k]}`);
+    }
+  }
+  assert.equal(shapeGeometry('person', { x: 0, y: 0, w: 1, h: 1 }), null);
+  // the vocabulary lists the same kinds
+  assert.deepEqual(ATTRIBUTES.find((v) => v.name === 'data-shape').values, Object.keys(SHAPES));
+});
+
+test('an outline is the polygon, or the first subpath of the path with its curves sampled; a ray leaves it at its first edge', () => {
+  const d = outlineOf('points', '0,0 10,0 10,10 0,10');
+  assert.deepEqual(d, [[0, 0], [10, 0], [10, 10], [0, 10]]);
+  const cyl = shapeGeometry('cylinder', { x: 0, y: 0, w: 100, h: 100 });
+  const o = outlineOf('d', cyl.value);
+  assert.ok(o.length > 20 && o.every(([x, y]) => x >= -0.01 && x <= 100.01 && y >= -0.01 && y <= 100.01), 'the body only, inside its box');
+  const top = outlineToward(o, { x: 50, y: 50 }, { x: 50, y: -100 });
+  assert.ok(Math.abs(top.y) < 0.5, 'up through the middle it leaves at the top of the rim');
+  assert.equal(outlineToward(d, { x: 5, y: 5 }, { x: 5, y: 5 }), null, 'no direction, no answer');
 });
 
 test('an ellipse and a label, each from the nearest of its kind', () => {

@@ -2465,6 +2465,9 @@ export function createEditMode({
   // Line ▸ and Corners ▸ (SVG_DIAGRAMS): a stroke's dashes, a box's corners
   const LINE_CHOICES = [['solid', 'Solid'], ['dashed', 'Dashed'], ['dotted', 'Dotted']];
   const CORNER_CHOICES = [['square', 'Square'], ['rounded', 'Rounded'], ['pill', 'Pill']];
+  // Add a shape (SVG_DIAGRAMS): the four it always had, then the six marked with `data-shape`
+  const SHAPE_CHOICES = [['box', 'Box'], ['ellipse', 'Ellipse'], ['label', 'Label'], ['line', 'Line / arrow'],
+    ['diamond', 'Diamond'], ['hexagon', 'Hexagon'], ['cylinder', 'Cylinder'], ['document', 'Document'], ['note', 'Note'], ['cloud', 'Cloud']];
   /** The build effect the menu's element carries: its `data-build`, '' for the default, null for none. */
   const currentEffect = (t) => { const n = buildNode(t); return n?.hasAttribute?.('data-build') ? n.getAttribute('data-build') : null; };
   let elementEditOn = false;
@@ -2582,7 +2585,7 @@ export function createEditMode({
       rows.push(backTo('main'));
       const target = menuTarget; const at = menuAt;
       rows.push({ head: 'Add' });
-      for (const [kind, label] of [['box', 'Box'], ['ellipse', 'Ellipse'], ['label', 'Label'], ['line', 'Line / arrow']]) {
+      for (const [kind, label] of SHAPE_CHOICES) {
         rows.push({ label, run: () => { closeElementMenu(); shapes.add(target, kind, at); } });
       }
       // what the shape the menu was opened on looks like: a box's corners, a stroke's line
