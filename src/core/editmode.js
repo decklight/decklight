@@ -2629,17 +2629,24 @@ export function createEditMode({
       rows.push(backTo('main'));
       rows.push(...(turnInto?.rows(menuTarget, closeElementMenu) ?? []));
     } else if (menuView === 'picture') {
-      // Picture ▸ (pictures.js): replace, caption, background, its own size
+      // Picture ▸ (pictures.js): replace, caption, background, its own size,
+      // then how it sits in its frame (a heading names each group; Position ▸ drills)
       rows.push(backTo('main'));
       const pic = menuTarget;
       for (const p of pictures?.elementRows(pic) ?? []) {
-        rows.push({ label: p.label, disabled: !!p.disabled, run: p.disabled ? () => {} : () => { closeElementMenu(); p.run(); } });
+        if (p.head || p.sep) { rows.push(p.head ? { head: p.head } : { sep: true }); continue; }
+        if (p.drill) { rows.push({ label: p.label, run: drill(p.drill) }); continue; }
+        rows.push({ label: p.label, current: !!p.current, disabled: !!p.disabled, run: p.disabled ? () => {} : () => { closeElementMenu(); p.run(); } });
       }
       const fig = pic.node?.parentElement?.tagName === 'FIGURE' ? pic.node.parentElement : null;
       if (fig) {
         rows.push({ sep: true });
         rows.push({ label: 'Remove the whole figure', run: () => removeHolder(pic, fig) });
       }
+    } else if (menuView === 'picposition') {
+      // Picture ▸ Position ▸: where a filled frame shows the picture, nine places
+      rows.push(backTo('picture'));
+      for (const p of pictures?.positionRows?.(menuTarget) ?? []) rows.push({ label: p.label, current: !!p.current, run: () => { closeElementMenu(); p.run(); } });
     } else if (menuView === 'slide') {
       // opened from the bar's Slide ▾ there is nothing to go back to
       if (!menuTarget.fromBar) rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
@@ -2751,6 +2758,12 @@ export function createEditMode({
     }
     // a list of choices opened straight (New slide's kinds) has its first, the common one, ready for ⏎
     selectElementRow(menuView === 'newslide' ? Math.max(0, menuRows.findIndex((r) => !r.back)) : 0, false);
+    // a submenu taller than the one it replaced still fits on the deck: moved up, never off it
+    const card = menuEl?.querySelector('.cm-card');
+    if (card?.style.top) {
+      const room = root.getBoundingClientRect().height - card.offsetHeight - 4;
+      if (parseFloat(card.style.top) > room) card.style.top = Math.max(4, room) + 'px';
+    }
   }
   /** A submenu row's run: the menu redrawn as `view`. */
   function drill(view) { return () => { menuView = view; renderElementMenu(); }; }

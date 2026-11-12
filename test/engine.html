@@ -1000,6 +1000,11 @@
             src: b.take ? 'assets/taken.svg' : b.src, ...(b.take ? { removed: b.take.path } : {}) });
         }
         if (u.includes('/deck/edit/slide/attr')) return json({ ok: true, changed: true, inPlace: JSON.parse(init?.body ?? '{}').quiet === true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/style')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          if (b.edits?.some((e) => e.value === '50%') && window.PF_REFUSE) return json({ ok: false, error: 'refused here' }, 400);
+          return json({ ok: true, changed: true, inPlace: b.quiet === true, undo: 1, redo: 0 });
+        }
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<figure>\n<img src="x.svg" alt="">\n<figcaption>Caption</figcaption>\n</figure>' });
         // a picture placed (picturepaste): where the server puts it, after the element asked for
         if (u.includes('/deck/edit/element/image')) {
@@ -5914,7 +5919,9 @@
           press('Escape'); await settle();
           rightClick(top); await settle();
           row('Picture ▸')?.click(); await settle();
-          r.pictureMenuRows = JSON.stringify(rows().map((n) => n.textContent)) === JSON.stringify(['← back', 'Replace…', 'Add caption', 'Use as slide background', 'Reset size'])
+          // then how it sits in its frame (picturefit): Fit and Corners, each a headed group
+          r.pictureMenuRows = JSON.stringify(rows().map((n) => n.textContent)) === JSON.stringify(['← back', 'Replace…', 'Add caption', 'Use as slide background', 'Reset size',
+            '✓ Whole picture', 'Fill a 16:9 frame', 'Fill a 4:3 frame', 'Fill a 3:2 frame', 'Fill a square frame', '✓ Square', 'Rounded', 'More rounded', 'Circle'])
             && row('Add caption')?.classList.contains('cm-disabled') === false;
           // Add caption: the figure and its caption on the page at once, the
           // caption in edit, NOTHING written yet; Esc writes nothing and puts
@@ -5953,6 +5960,58 @@
             && r.onePictureRow && r.figureHasNoCaptionRow && r.pictureMenuRows && r.captionWraps && r.captionEditing && r.escWritesNothing && r.captionOneWrite
             && r.useAsBackground && r.noReload;
         }
+        if (mode === 'picturefit') {
+          // Picture ▸ Fit, Position and Corners (PRESENTING_EDITING): the whole
+          // picture or a frame it fills, where the frame shows it, and its
+          // corners; each shown at once and written as the picture's own
+          // style in one write; a refusal puts it back
+          const styles = () => posts('/deck/edit/element/style').map((c) => c.body);
+          const labels = () => rows().map((n) => n.firstChild?.textContent ?? n.textContent);
+          const heads = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-head')].map((n) => n.textContent);
+          const pick = (label) => rows().find((n) => (n.firstChild?.textContent ?? n.textContent) === label)?.click();
+          const open = async () => { rightClick(top); await settle(); pick('Picture ▸'); await settle(); };
+          await open();
+          r.groupsOffered = heads().join(',') === 'Fit,Corners' && labels().includes('✓ Whole picture') && labels().includes('Fill a 16:9 frame')
+            && labels().includes('✓ Square') && !labels().some((t) => /^Position/.test(t));
+          pick('Fill a 16:9 frame');
+          await settle(); await settle();
+          const f = styles().pop();
+          const props = Object.fromEntries((f?.edits ?? []).map((e) => [e.prop, e.value]));
+          r.fillWritesOneStyle = styles().length === 1 && props['aspect-ratio'] === '16 / 9' && props['object-fit'] === 'cover'
+            && f.edits.every((e) => e.tag === 'img' && JSON.stringify(e.path) === '[]') && f.index === 1 && f.quiet === true;
+          const rr = top.getBoundingClientRect();
+          r.shownAtOnce = Math.abs(rr.width / rr.height - 16 / 9) < 0.02 && getComputedStyle(top).objectFit === 'cover';
+          await open();
+          r.positionOffered = labels().includes('✓ Fill a 16:9 frame') && labels().includes('Position: center ▸');
+          pick('Position: center ▸');
+          await settle();
+          r.ninePlaces = labels().filter((t) => t !== '← back').length === 9 && labels().includes('✓ center');
+          pick('top left');
+          await settle(); await settle();
+          r.positionWritten = styles().pop()?.edits?.[0]?.value === 'top left' && /left top|top left/.test(top.style.objectPosition);
+          await open();
+          r.positionReadBack = labels().includes('Position: top left ▸');
+          pick('Rounded');
+          await settle(); await settle();
+          r.cornersWritten = styles().pop()?.edits?.[0]?.prop === 'border-radius' && top.style.borderRadius === '8px';
+          // a refusal: said, and the picture as it was
+          window.PF_REFUSE = true;
+          await open();
+          pick('Circle');
+          await settle(); await settle();
+          r.refusalPutBack = top.style.borderRadius === '8px' && [...document.querySelectorAll('.decklight-toast')].some((n) => /not changed: refused here/.test(n.textContent));
+          window.PF_REFUSE = false;
+          // the whole picture again: the frame and its position go together
+          await open();
+          pick('Whole picture');
+          await settle(); await settle();
+          const back = Object.fromEntries((styles().pop()?.edits ?? []).map((e) => [e.prop, e.value]));
+          r.wholeTakesTheFrameOff = back['aspect-ratio'] === null && back['object-fit'] === null && back['object-position'] === null
+            && !top.style.aspectRatio && !top.style.objectFit && !top.style.objectPosition;
+          r.noReload = reloads === 0;
+          r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        }
+
         if (mode === 'pictureslidetab') {
           // the Slide tab's Background (PRESENTING_EDITING): Picture… is the
           // Slide menu's write, fit, position and dim are written in place and

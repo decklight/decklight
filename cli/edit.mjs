@@ -542,10 +542,19 @@ const LINE_VALUES = {
 // how wide a block may be (a side handle's drag, PRESENTING_EDITING): whole
 // px in deck units, 40 to 4096, and nothing else
 const BLOCK_VALUES = { 'max-width': /^(?:[4-9]\d|[1-9]\d{2}|[1-3]\d{3}|40[0-8]\d|409[0-6])px$/ };
+// how a picture sits in its frame (Picture ▸ Fit, Position, Rounded corners):
+// a frame of one of four shapes, filled or shown whole, nine places, three roundings
+const PLACE = '(?:top|bottom|center)(?: (?:left|right|center))?|left|right';
+const PICTURE_VALUES = {
+  'object-fit': /^(?:cover|contain)$/,
+  'aspect-ratio': /^(?:16 \/ 9|4 \/ 3|3 \/ 2|1 \/ 1)$/,
+  'object-position': new RegExp(`^(?:${PLACE})$`),
+  'border-radius': /^(?:8px|16px|50%)$/,
+};
 const kindOf = (prop) => (STYLE_PROPS.has(prop) ? 'colour' : WIDTH_PROPS.has(prop) ? 'width'
   : Object.hasOwn(TYPE_VALUES, prop) ? prop.replace('-', ' ') : Object.hasOwn(LINE_VALUES, prop) ? 'line style'
-    : Object.hasOwn(BLOCK_VALUES, prop) ? 'block width' : null);
-const valueShape = (prop) => (STYLE_PROPS.has(prop) ? STYLE_VALUE : WIDTH_PROPS.has(prop) ? WIDTH_VALUE : TYPE_VALUES[prop] ?? LINE_VALUES[prop] ?? BLOCK_VALUES[prop]);
+    : Object.hasOwn(BLOCK_VALUES, prop) ? 'block width' : Object.hasOwn(PICTURE_VALUES, prop) ? 'picture fit' : null);
+const valueShape = (prop) => (STYLE_PROPS.has(prop) ? STYLE_VALUE : WIDTH_PROPS.has(prop) ? WIDTH_VALUE : TYPE_VALUES[prop] ?? LINE_VALUES[prop] ?? BLOCK_VALUES[prop] ?? PICTURE_VALUES[prop]);
 
 /**
  * Set style properties on elements INSIDE slide N's element `index` — a shape

@@ -443,7 +443,9 @@ try {
     check('caption', 'the picture\'s rows behind one Picture ▸, just above Slide ▸', top.at(-2) === 'Picture ▸' && !top.includes('Add caption'), top);
     await menuRow(page, /^Picture ▸$/);
     const sub = await page.locator('.decklight-ctxmenu .cm-row').allTextContents();
-    check('caption', 'Picture ▸: Replace…, Add caption, Use as slide background, Reset size', sub.join('|') === '← back|Replace…|Add caption|Use as slide background|Reset size', sub);
+    // then how it sits in its frame: Fit and Corners, the ones it has ticked
+    check('caption', 'Picture ▸: Replace…, Add caption, Use as slide background, Reset size, then Fit and Corners',
+      sub.join('|') === '← back|Replace…|Add caption|Use as slide background|Reset size|✓ Whole picture|Fill a 16:9 frame|Fill a 4:3 frame|Fill a 3:2 frame|Fill a square frame|✓ Square|Rounded|More rounded|Circle', sub);
     await menuRow(page, /^Add caption$/); await wait(400);
     check('caption', 'the caption is in edit at once, nothing written', await page.locator(`${ACTIVE} figure > figcaption[contenteditable]`).count() === 1 && picture.read() === original);
     await page.keyboard.press('Escape'); await wait(800);

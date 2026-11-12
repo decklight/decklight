@@ -39,7 +39,7 @@ export const MODES = [
   'linedraw', 'dasheddraw', 'drawfill', 'nestedfills', 'rolefills', 'dstemplates', 'dsedit', 'concepts', 'conceptsfind',
   'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect',
   'links',
-  'pictureresize', 'picturealt', 'picturebg', 'picturepaste', 'pictureslidetab',
+  'pictureresize', 'picturefit', 'picturealt', 'picturebg', 'picturepaste', 'pictureslidetab',
   'chartdata', 'codeoptions',
   'shapedrag', 'shapeadd', 'shaperesize', 'shapeorder',
   'connectors', 'connectmenu', 'linestyle', 'guides', 'connectdraw',
