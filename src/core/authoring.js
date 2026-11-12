@@ -927,7 +927,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   root.addEventListener('mousedown', (e) => {
     if (!editing || !(editing.list || editing.table) || e.button !== 0) return;
     const el = e.target?.closest?.('li, td, th');
-    if (el && el !== editing.el) lists.claim(editing, el);
+    if (!el || el === editing.el) return;
+    // a point or cell holding a typeset formula is not typed into: its page
+    // is MathML, and the session would write that into the file
+    if (el.querySelector(FORMULA)) { toast(formulaRefusal(el, sectionOf(el)?.sec) ?? 'this text holds a formula', 3600); return; }
+    lists.claim(editing, el);
   }, true);
 
   // ── a link on a slide does not take the deck away (PRESENTING_EDITING) ────
