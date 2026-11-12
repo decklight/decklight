@@ -711,3 +711,91 @@ export function insertElement(html, slide, index, markup) {
 export function insertImage(html, slide, index, { src = '', alt = '' } = {}) {
   return insertElement(html, slide, index, `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`);
 }
+
+/**
+ * The whitespace node `at` (an offset into `seg`) begins its line at, or null
+ * when something else stands before it on that line (a slide written on one
+ * line stays on one line).
+ */
+const lineIndent = (seg, at) => /\n([ \t]*)$/.exec(seg.slice(0, at))?.[1] ?? null;
+
+/**
+ * Where the node at `path` below slide `slide`'s top-level child `index` is:
+ * the slide's parts, its segment, and the node's `[start, end)` in it. A path
+ * the file does not have throws.
+ */
+function nodeRange(html, slide, index, path = []) {
+  const { parts, idx } = locateSlide(html, slide);
+  const seg = parts[idx];
+  const ranges = sectionChildRanges(seg);
+  const top = ranges[index];
+  if (!top) throw new Error(`slide ${slide}: no element at index ${index} (has ${ranges.length})`);
+  let { start, end } = top;
+  for (const n of path) {
+    const kid = elementChildRanges(seg.slice(start, end))[n];
+    if (!kid) throw new Error(`slide ${slide} #${index}: no element at ${path.join('.')}`);
+    end = start + kid.end; start += kid.start;
+  }
+  return { parts, idx, seg, start, end };
+}
+
+/**
+ * A deck with `markup` (one element, written at zero indentation) put INSIDE
+ * the node at `path` below slide `slide`'s top-level child `index` (`[]`: the
+ * child itself), as its own child: after its element child `after`, first
+ * with `after === -1`, last with `after` null (or past its last child). The
+ * markup lands on its own line at its new siblings' indentation, or two
+ * spaces in from the node's own when it has none, the way `insertElement`
+ * writes onto a slide.
+ *
+ * Returns `{ html, path }`: where the new node is below `index`, since the
+ * element routes address a node inside one by that path.
+ */
+export function insertInElement(html, slide, index, { path = [], markup, after = null } = {}) {
+  const { parts, idx, seg, start, end } = nodeRange(String(html ?? ''), slide, index, path);
+  const kids = elementChildRanges(seg.slice(start, end)).map((k) => ({ start: start + k.start, end: start + k.end }));
+  let at; let position; let text;
+  if (!kids.length) {
+    const own = lineIndent(seg, start);
+    const indent = own === null ? null : `${own}  `;
+    const close = seg.lastIndexOf('</', end - 1);
+    if (close <= start) throw new Error(`slide ${slide} #${index}: nothing can go inside a <${readTagName(seg, start + 1)}>`);
+    position = 0;
+    const block = indentMarkup(markup, indent);
+    // the close tag keeps a line of its own when it had one
+    const closeLine = /\n[ \t]*$/.exec(seg.slice(start, close));
+    if (indent === null) { at = close; text = block; }
+    else if (closeLine) { at = start + closeLine.index; text = `\n${indent}${block}`; }
+    else { at = close; text = `\n${indent}${block}\n${own}`; }
+  } else if (after === -1) {
+    const indent = lineIndent(seg, kids[0].start);
+    at = kids[0].start;
+    position = 0;
+    const block = indentMarkup(markup, indent);
+    text = indent === null ? block : `${block}\n${indent}`;
+  } else {
+    const k = Number.isInteger(after) && after >= 0 && after < kids.length ? after : kids.length - 1;
+    const indent = lineIndent(seg, kids[k].start);
+    at = kids[k].end;
+    position = k + 1;
+    const block = indentMarkup(markup, indent);
+    text = indent === null ? block : `\n${indent}${block}`;
+  }
+  parts[idx] = seg.slice(0, at) + text + seg.slice(at);
+  return { html: parts.join(''), path: [...path, position] };
+}
+
+/**
+ * A deck with slide `slide`'s top-level child `index` wrapped in a plain
+ * `<div>`, its lines two spaces further in (a `<pre>`'s own lines kept as
+ * they are): what a column that is one bare block (a lone list, a picture)
+ * needs before anything can go in it beside that block.
+ */
+export function wrapInDiv(html, slide, index) {
+  const { parts, idx, seg, start, end } = nodeRange(String(html ?? ''), slide, index);
+  const own = lineIndent(seg, start);
+  const el = seg.slice(start, end);
+  const wrapped = own === null ? `<div>${el}</div>` : `<div>\n${own}  ${indentMarkup(el, '  ')}\n${own}</div>`;
+  parts[idx] = seg.slice(0, start) + wrapped + seg.slice(end);
+  return parts.join('');
+}

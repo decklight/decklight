@@ -55,7 +55,7 @@ import { setDeckConcepts } from './runtime-link.mjs';
 // are string surgery on a deck's sections, which is what tools/deck-html.mjs
 // is, and nothing about them wants the server.
 import {
-  sectionBodies, insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertImage,
+  sectionBodies, insertBlankSlide, duplicateSlide, deleteSlide, swapSlides,
 } from '../tools/deck-html.mjs';
 // A slide op moves the deck's recordings with their slides (#916): Node-only
 // file moves, which is what tools/ is for.
@@ -63,7 +63,8 @@ import {
   voiceFolders, planSteps, applyPlans,
 } from '../tools/voice-renumber.mjs';
 // What Add and the New slide kinds put in: the server's own closed set
-import { insertStarter, insertSlideOfKind, SLIDE_KINDS } from '../tools/starters.mjs';
+import { insertStarter, insertBlock, insertSlideOfKind, SLIDE_KINDS } from '../tools/starters.mjs';
+import { escapeHtml } from '../tools/escape.mjs';
 
 /**
  * Is `src` a path this deck can carry? Relative, and only relative.
@@ -892,26 +893,33 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   /**
-   * `POST /deck/edit/element/image` — `{ slide, index, src, alt }`, an `<img>` onto a
-   * slide, addressed by the same top-level child index every element route
-   * uses (`sectionChildRanges`).
+   * `POST /deck/edit/element/image` — `{ slide, index, path?, src, alt }`, an
+   * `<img>` onto a slide, addressed by the same top-level child index every
+   * element route uses (`sectionChildRanges`), and placed by the rule every
+   * add follows (`whereNewBlockLands`): a picture dropped on a column, or
+   * added with one selected, goes inside it.
    *
    * `index: null` means "wherever it belongs on this slide": after the last
    * content child and before the asides, so a picture dropped on a slide that
    * has speaker notes lands on the slide instead of inside the notes, where
    * the audience would never see it.
    *
-   * The answer names the new element's index, because everything after the
-   * insertion has just shifted and the caller's next act is usually to open
-   * element edit mode on what it just made.
+   * The answer names the new element's index (and its `path` below it, when
+   * it went inside a column), because everything after the insertion has
+   * just shifted and the caller's next act is usually to open element edit
+   * mode on what it just made.
    */
+  /** An optional `path` below an element: null, or up to 16 child indices. */
+  const pathShape = (path) => path === null
+    || (Array.isArray(path) && path.length <= 16 && path.every((n) => Number.isInteger(n) && n >= 0));
+
   function imageRoute({ body, json }) {
     // `more: true` — another picture of the same drop follows: no reload yet,
     // or the reload this write causes cut the drop off after its first file
-    const { slide, index = null, src, alt, more = false } = JSON.parse(body || '{}');
+    const { slide, index = null, path = null, src, alt, more = false } = JSON.parse(body || '{}');
     const text = alt == null ? '' : alt;
     if (!Number.isInteger(slide) || slide < 1 || typeof text !== 'string'
-        || (index !== null && (!Number.isInteger(index) || index < 0))) {
+        || (index !== null && (!Number.isInteger(index) || index < 0)) || !pathShape(path)) {
       return json(400, { ok: false, error: 'bad payload' });
     }
     if (!relativeSrc(src)) {
@@ -920,53 +928,54 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     let at = null;
     try {
       applyEdit((html) => {
-        const out = insertImage(html, slide, index, { src, alt: text });
-        at = out.index;
-        return out.html;
+        at = insertBlock(html, slide, index, `<img src="${escapeHtml(src)}" alt="${escapeHtml(text)}">`, { path });
+        return at.html;
       });
     } catch (e) { return json(404, { ok: false, error: oneline(e) }); }
     if (more) quiet(readDeck());
-    console.log(`  image added: slide ${slide} #${at} → ${src}${more ? ' (more to come)' : ''}`);
-    return json(200, { ok: true, index: at, ...history.counts() });
+    console.log(`  image added: slide ${slide} #${at.index}${at.path.length ? ` › ${at.path.join('.')}` : ''} → ${src}${more ? ' (more to come)' : ''}`);
+    return json(200, { ok: true, index: at.index, path: at.path, ...history.counts() });
   }
 
   /**
-   * `POST /deck/edit/element/insert` — `{ slide, index, kind, quiet?, from? }`:
-   * a starter of `kind` (heading, text, bullets, numbered, quote, table, code,
-   * columns, diagram, chart) onto a slide, after top-level child `index`, or
-   * with `index: null` after the last content child and before the asides,
-   * the way a dropped picture lands (PRESENTING_EDITING). The markup is the
+   * `POST /deck/edit/element/insert` — `{ slide, index, path?, kind, quiet?,
+   * from? }`: a starter of `kind` (heading, text, bullets, numbered, quote,
+   * table, code, columns, diagram, chart) onto a slide, after top-level child
+   * `index` (or the node at `path` below it), or with `index: null` after the
+   * last content child and before the asides, the way a dropped picture lands
+   * (PRESENTING_EDITING). Where it lands is the server's one rule
+   * (`whereNewBlockLands`): with a column selected, inside that column. The markup is the
    * server's (tools/starters.mjs): a kind outside the set is a 400, a slide
    * that follows a slide template, or two columns with content before them,
    * a 409 that says why.
    *
-   * One applyEdit, so one undo entry, two columns' layout included. The
-   * answer names the new element's index and carries the markup the file
-   * got, so the page that asked shows exactly that IN PLACE: asked `quiet`,
+   * One applyEdit, so one undo entry, two columns' layout (or a bare
+   * column's new wrapper) included. The answer names the new element's index
+   * and `path` below it, and carries the markup the file got, so the page that asked shows exactly that IN PLACE: asked `quiet`,
    * the watcher skips the reload and every other page is sent `content`.
    */
   function elementInsertRoute({ body, json }) {
-    const { slide, index = null, kind, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    const { slide, index = null, path = null, kind, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
     if (!Number.isInteger(slide) || slide < 1 || typeof kind !== 'string'
-        || (index !== null && (!Number.isInteger(index) || index < 0))) {
+        || (index !== null && (!Number.isInteger(index) || index < 0)) || !pathShape(path)) {
       return json(400, { ok: false, error: 'bad payload' });
     }
     let done = null;
     try {
       applyEdit((html) => {
-        done = insertStarter(html, slide, index, kind);
+        done = insertStarter(html, slide, index, kind, { path });
         return done.html;
       });
     } catch (e) {
       return json(e.status ?? 404, { ok: false, error: oneline(e) });
     }
-    console.log(`  element added: slide ${slide} #${done.index} (${kind})`);
+    console.log(`  element added: slide ${slide} #${done.index}${done.path.length ? ` › ${done.path.join('.')}` : ''} (${kind}${done.wrapped ? ', its column wrapped' : ''})`);
     if (inPlace === true) {
       quiet(readDeck());
       broadcast('content', { slide, index: done.index, from: typeof from === 'string' ? from.slice(0, 64) : null });
     }
     return json(200, {
-      ok: true, index: done.index, count: done.count, kind, html: done.markup,
+      ok: true, index: done.index, path: done.path, ...(done.wrapped ? { wrapped: true } : {}), count: done.count, kind, html: done.markup,
       ...(done.layout ? { layout: done.layout } : {}), inPlace: inPlace === true, ...history.counts(),
     });
   }

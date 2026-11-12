@@ -982,16 +982,19 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const where = sectionOf(document.elementFromPoint(e.clientX, e.clientY))
       ?? sectionOf(instance._sections[instance.state.slide - 1]);
     if (!where) return;
-    const under = topLevelChild(where.sec, document.elementFromPoint(e.clientX, e.clientY));
+    const point = document.elementFromPoint(e.clientX, e.clientY);
+    const under = topLevelChild(where.sec, point);
     const index = under && !under.matches('aside') ? authoredIndex(where.sec, under) : null;
-    await placePictures(files, where, index);
+    // dropped on a column: the server puts it inside, after the block it fell on
+    const path = index !== null && point && point !== under && under.contains(point) ? pathFrom(under, point) : null;
+    await placePictures(files, where, index, path);
   });
   /**
    * Upload each picture and place it on the slide after element `index`
    * (last on the slide when null) — the drop, and the editing bar's Picture
    * button, which has no cursor to place by.
    */
-  async function placePictures(files, where, index) {
+  async function placePictures(files, where, index, path = null) {
     // Every picture but the last is placed quietly (`more`): the reload a
     // placement causes used to land before the next upload, and a drop of
     // five pictures stopped after the first. The last one reloads, all of them in.
@@ -1003,9 +1006,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
         });
         const j = await up.json().catch(() => ({}));
         if (!up.ok) throw new Error(j.error || String(up.status));
-        const placed = await commit.send('/deck/edit/element/image', { slide: where.slide, index, src: j.src, alt: altFromName(file.name), more }, { quiet: false });
-        // a second picture goes after the first, not before it
-        if (Number.isInteger(placed.index)) index = placed.index;
+        const placed = await commit.send('/deck/edit/element/image', { slide: where.slide, index, ...(path?.length ? { path } : {}), src: j.src, alt: altFromName(file.name), more }, { quiet: false });
+        // a second picture goes after the first, not before it (in the same column, when it went into one)
+        if (Number.isInteger(placed.index)) { index = placed.index; path = placed.path?.length ? placed.path : null; }
         toast(`${file.name} added to slide ${where.slide} as ${j.src}${more ? '' : ' — reloading'}`, 2200);
       } catch (err) {
         toast(`could not add ${file.name}: ${String(err.message || err)}`, 6000);
@@ -1048,13 +1051,16 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       beginInline(text, where, { selectAll });
       return true;
     },
-    /** Add pictures to the current slide, after element `afterIndex` (last when null) — the bar's Picture button. */
-    addPictures(files, { afterIndex = null } = {}) {
+    /**
+     * Add pictures to the current slide, after element `afterIndex` (last when
+     * null), or after the node at `afterPath` inside it — the bar's Picture button.
+     */
+    addPictures(files, { afterIndex = null, afterPath = null } = {}) {
       if (!available()) return Promise.resolve();
       const list = imageFiles(files);
       if (!list.length) { toast('that is not a picture — PNG, JPEG, GIF, WebP, SVG or AVIF', 3000); return Promise.resolve(); }
       const where = sectionOf(instance._sections[instance.state.slide - 1]);
-      return where ? placePictures(list, where, afterIndex) : Promise.resolve();
+      return where ? placePictures(list, where, afterIndex, afterPath) : Promise.resolve();
     },
   };
 }

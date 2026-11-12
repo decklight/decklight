@@ -110,6 +110,7 @@ import { semverCompare } from '../tools/semver.mjs';
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--agent-model', '--agent-ask-model', '--git-mode', '--tts-port', '--lipsync-port',
   '--host', '--root', '--branch', '--into', '--upstream-every'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag, carriedChild } from '../tools/deck-html.mjs';
+import { splitColumns } from '../tools/starters.mjs';
 import {
   stale, checkPath, locateElement, nodeAt, openElement, attrList, attrOf, withAttr, withStyle, decodeText, withoutNodes,
 } from './edit-address.mjs';
@@ -1285,6 +1286,8 @@ export function duplicateSlideElement(html, slide, index, { path = null, tag = n
   if (!nested) {
     if (tag && r.tag !== String(tag).toLowerCase()) throw stale(`slide ${slide}: the page found <${tag}> at ${index}, the file has <${r.tag}> — reload and try again`);
     if (carriedChild(seg, r)) throw refusedMove(`the slide's ${r.tag === 'aside' ? 'notes and sources are' : `<${r.tag}> is`} not something it shows: nothing to duplicate`);
+    // COMPARISON_SLIDES: a split slide has one pair, and a copy would be a third column
+    if (splitColumns(seg)?.includes(index)) throw refusedMove('a column is not duplicated: a split slide has two columns, and a copy would make a third, which drops underneath as a footer. Duplicate what is inside the column instead');
   }
   const e = openElement(html, slide, index);
   const at = e.at(nested ? path : [], nested ? tag : null);
