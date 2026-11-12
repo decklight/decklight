@@ -40,6 +40,7 @@ import { createDeckSettings } from './deck-settings.js';
 import { createFindReplace } from './find-replace.js';
 import { createOptionsTab } from './options-tab.js';
 import { createTurnInto } from './turn-into.js';
+import { createBlockResize } from './block-resize.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { createPlaylist } from './playlist.js';
@@ -3746,6 +3747,8 @@ export function init(userConfig = {}) {
     inspector: () => inspector,
   });
   editmode.setPictures(pictures);
+  // how wide a block may be: side handles on a chart, text, a list, a quote, a table, code (block-resize.js)
+  instance._blockResize = createBlockResize({ root, instance: () => instance, editmode: () => editmode, editbar: () => editbar, toast });
   // Hide / Unhide this slide on the bar's Slide ▾ and the right-click
   // Slide ▸ too, for the slide the menu was opened on: the palette's row,
   // the same write (setHidden, HIDDEN_SLIDES)

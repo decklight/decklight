@@ -538,9 +538,13 @@ const LINE_VALUES = {
   'stroke-dasharray': new RegExp(`^(?:${Object.values(LINE_DASHES).join('|')})$`),
   'stroke-linecap': /^(?:butt|round|square)$/,
 };
+// how wide a block may be (a side handle's drag, PRESENTING_EDITING): whole
+// px in deck units, 40 to 4096, and nothing else
+const BLOCK_VALUES = { 'max-width': /^(?:[4-9]\d|[1-9]\d{2}|[1-3]\d{3}|40[0-8]\d|409[0-6])px$/ };
 const kindOf = (prop) => (STYLE_PROPS.has(prop) ? 'colour' : WIDTH_PROPS.has(prop) ? 'width'
-  : Object.hasOwn(TYPE_VALUES, prop) ? prop.replace('-', ' ') : Object.hasOwn(LINE_VALUES, prop) ? 'line style' : null);
-const valueShape = (prop) => (STYLE_PROPS.has(prop) ? STYLE_VALUE : WIDTH_PROPS.has(prop) ? WIDTH_VALUE : TYPE_VALUES[prop] ?? LINE_VALUES[prop]);
+  : Object.hasOwn(TYPE_VALUES, prop) ? prop.replace('-', ' ') : Object.hasOwn(LINE_VALUES, prop) ? 'line style'
+    : Object.hasOwn(BLOCK_VALUES, prop) ? 'block width' : null);
+const valueShape = (prop) => (STYLE_PROPS.has(prop) ? STYLE_VALUE : WIDTH_PROPS.has(prop) ? WIDTH_VALUE : TYPE_VALUES[prop] ?? LINE_VALUES[prop] ?? BLOCK_VALUES[prop]);
 
 /**
  * Set style properties on elements INSIDE slide N's element `index` — a shape
@@ -2196,6 +2200,8 @@ export function setSlideBuildOrder(html, slide, groups) {
 
 /** The bounds of a picture's written width, in deck units (the stage is scaled, not the picture). */
 export const PICTURE_WIDTH = Object.freeze({ min: 16, max: 4096 });
+/** What a corner handle sizes by its width: a picture, a diagram, a framed web page. */
+const SIZED = new Set(['img', 'svg', 'iframe']);
 
 /**
  * Change ONE picture: the `<img>` at `path` below slide N's element `index`
@@ -2223,7 +2229,10 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
   if (width === undefined && alt === undefined && src === undefined && caption === undefined) throw new Error('nothing to change on the picture');
   const e = openElement(html, slide, index);
   const at = e.at(path, tag);
-  if (at.found !== 'img') throw new Error(`not a picture: <${at.found}>`);
+  // a diagram and a framed web page are sized the way a picture is, by its
+  // width alone; the rest (alt, a new file, a caption) is a picture's
+  if (!SIZED.has(at.found)) throw new Error(`not a picture: <${at.found}>`);
+  if (at.found !== 'img' && (alt !== undefined || src !== undefined || caption !== undefined)) throw new Error(`a <${at.found}> takes a width, nothing else of a picture's`);
   let { attrs, close, rest } = splitOpenTag(e.src(at));
   if (width !== undefined) {
     attrs = withAttr(withAttr(attrs, 'height', null), 'width', width === null ? null : Math.round(width));
