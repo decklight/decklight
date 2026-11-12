@@ -112,6 +112,7 @@ const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--agent-model', '--
   '--host', '--root', '--branch', '--into', '--upstream-every'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag, carriedChild } from '../tools/deck-html.mjs';
 import { splitColumns } from '../tools/starters.mjs';
+import { attributeEntry } from '../tools/vocabulary.mjs';
 import {
   stale, checkPath, locateElement, nodeAt, openElement, attrList, attrOf, withAttr, withStyle, decodeText, withoutNodes,
 } from './edit-address.mjs';
@@ -1957,6 +1958,40 @@ export function setSlideElementBuild(html, slide, index, effect, { path = [], ta
   return e.html();
 }
 
+/** The looping animations an element can carry (`data-animate`, the vocabulary's list). */
+export const ANIMATIONS = Object.freeze([...attributeEntry('data-animate').values]);
+
+/**
+ * The build settings of ONE node (PRESENTING_EDITING, the Builds tab): slide
+ * N's element `index`, or the node at `path` below it. Each field left out is
+ * left alone, so one write changes what the tab changed and nothing else:
+ *   effect   a BUILD_EFFECTS name (`data-build="…"`), '' for the bare
+ *            default build (`data-build`), null for no build
+ *   stay     true: there from the start (`data-build-stay`, bare); false: not
+ *   self     true: the list, table or group is one step (`data-build-self`,
+ *            bare); false: one step an item
+ *   animate  an ANIMATIONS name (`data-animate`), null for none
+ * Every attribute is changed where it stands, a bare one replaced, never
+ * joined by a second. A path the file does not have is stale.
+ */
+export function setElementBuildAttrs(html, slide, index, { path = [], tag = null, effect, stay, self, animate } = {}) {
+  checkPath(path);
+  if (effect !== undefined && effect !== null && effect !== '' && !BUILD_EFFECTS.includes(effect)) throw new Error(`unknown build effect "${effect}"`);
+  for (const [k, v] of [['stay', stay], ['self', self]]) if (v !== undefined && typeof v !== 'boolean') throw new Error(`${k} is true or false`);
+  if (animate !== undefined && animate !== null && !ANIMATIONS.includes(animate)) throw new Error(`unknown animation "${animate}"`);
+  if ([effect, stay, self, animate].every((v) => v === undefined)) throw new Error('nothing to set');
+  const e = openElement(html, slide, index);
+  e.edit(path, tag, (attrs) => {
+    let a = attrs;
+    if (effect !== undefined) a = withAttr(a, 'data-build', effect === '' ? true : effect);
+    if (stay !== undefined) a = withAttr(a, 'data-build-stay', stay ? true : null);
+    if (self !== undefined) a = withAttr(a, 'data-build-self', self ? true : null);
+    if (animate !== undefined) a = withAttr(a, 'data-animate', animate);
+    return a;
+  });
+  return e.html();
+}
+
 // ── pictures after the drop (PRESENTING_EDITING) ─────────────────────────
 // A dropped picture is an `<img>`, and these are what can be done to it
 // without the HTML: its size, its alt text, the file it points at, a caption
@@ -2146,6 +2181,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/remove': 'element removed',
   '/deck/edit/element/content': 'element content saved',
   '/deck/edit/element/effect': 'build effect set',
+  '/deck/edit/element/build': 'build changed',
   '/deck/edit/element/move': 'element moved',
   '/deck/edit/element/duplicate': 'element duplicated',
   '/deck/edit/element/style': 'colours saved',
@@ -2296,6 +2332,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/remove': 'removed element',
   '/deck/edit/element/content': 'text edit',
   '/deck/edit/element/effect': 'build effect',
+  '/deck/edit/element/build': 'build',
   '/deck/edit/element/move': 'move',
   '/deck/edit/element/duplicate': 'duplicate',
   '/deck/edit/element/style': 'colours',

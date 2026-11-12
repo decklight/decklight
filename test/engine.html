@@ -151,6 +151,7 @@
     };
     LK.tablemenu = LK.tablekeys;
     LK.buildreselect = LK.buildselect;
+    LK.buildsettings = LK.buildpanel;
     let LK_SRC = LK[HARNESS_MODE] ?? null;
     let MX_SRC = [];   // mathedit: the file's markup of slide 3's elements, by index
     // chartdata: a bar chart as an author writes one (a number spelled 80.50,
@@ -796,6 +797,7 @@
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: LK_SRC });
         if (u.includes('/deck/edit/element/content')) { LK_SRC = JSON.parse(init.body).html; return json({ ok: true, changed: true, undo: 1, redo: 0 }); }
         if (u.includes('/deck/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/build')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'mathedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -970,6 +972,7 @@
         if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/element/build')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/slide/hidden')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'wizard') {
@@ -1489,7 +1492,7 @@
     if (LK_SRC !== null) {
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>\n${LK_SRC}`
         + (HARNESS_MODE === 'listkeys' ? '\n<aside class="notes">Here. [click] Alpha. [click] Beta.</aside>' : '')
-        + (HARNESS_MODE === 'buildpanel' ? '\n<aside class="notes">Opening words. [click] The audience first. [click]\n\n[click] Third one. [click] Code one. [click] Code two. [click] A spare beat.</aside>' : '');
+        + (HARNESS_MODE === 'buildpanel' || HARNESS_MODE === 'buildsettings' ? '\n<aside class="notes">Opening words. [click] The audience first. [click]\n\n[click] Third one. [click] Code one. [click] Code two. [click] A spare beat.</aside>' : '');
     }
     // a slide marked for math (CODE_AND_MATH): a paragraph with a formula, one without
     if (HARNESS_MODE === 'mathedit') {
@@ -7141,6 +7144,62 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
+      if (mode === 'buildsettings') {
+        // the Builds tab's settings (PRESENTING_EDITING): each written in
+        // place, quietly, one write each: a row's effect, a point taken off
+        // its click, the list all at once and back, a step added and removed
+        await settle(); await settle();
+        deck.goto(3, 0); await settle();
+        const P = '.decklight-inspector';
+        const sec = document.querySelector('.decklight-stage > section.active');
+        const ul = sec.querySelector('ul');
+        const [one, two] = [...ul.querySelectorAll('li')];
+        const intro = sec.querySelector('p');
+        press('i'); await settle(); await settle();
+        document.querySelector(`${P} .ins-tab[data-tab="builds"]`)?.click(); await settle();
+        const rows = () => [...document.querySelectorAll(`${P} .bl-row`)];
+        const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/build'));
+        const last = () => writes().at(-1)?.body;
+        const groups = () => deck._records[2]?.groups.length;
+        // a row's effect: the same list as Build ▸, the one it has chosen
+        const pick = rows()[0].querySelector('.bl-pick');
+        r.pickerListsTheEffects = [...(pick?.options ?? [])].map((o) => o.value).join() === 'fade,fade-up,fade-down,zoom,pop,draw,highlight,none' && pick?.value === 'fade-up';
+        pick.value = 'zoom'; pick.dispatchEvent(new Event('change')); await settle();
+        r.effectWrittenToThePoint = last()?.effect === 'zoom' && JSON.stringify(last()?.path) === '[0]' && last()?.tag === 'li' && last()?.quiet === true
+          && one.getAttribute('data-build') === 'zoom' && one.getAttribute('data-build-style') === 'zoom';
+        r.rowsFollow = rows()[0]?.querySelector('.bl-pick')?.value === 'zoom';
+        // ✕ on a point of the list: there from the start
+        rows()[1].querySelector('.bl-remove').click(); await settle();
+        r.pointStays = last()?.stay === true && JSON.stringify(last()?.path) === '[1]' && two.hasAttribute('data-build-stay') && groups() === 4
+          && !two.classList.contains('build-step');
+        // the list selected: all at once, then one step per item again
+        deck._selectNode(ul, { exact: true }); await settle();
+        const radios = () => [...document.querySelectorAll(`${P} .bl-radio`)];
+        r.listOffersBoth = radios().map((x) => x.value).join() === 'each,once' && radios()[0].checked;
+        radios()[1].checked = true; radios()[1].dispatchEvent(new Event('change')); await settle();
+        r.wholeListOnce = last()?.self === true && last()?.index === 2 && !('path' in last()) && ul.hasAttribute('data-build-self') && groups() === 4;   // the list one click; the point given its own zoom keeps its own
+        radios()[0].checked = true; radios()[0].dispatchEvent(new Event('change')); await settle();
+        r.perItemAgain = last()?.self === false && !ul.hasAttribute('data-build-self') && groups() === 4;
+        // the point kept back, selected: its box is ticked, and unticking puts it back on its click
+        deck._selectNode(two, { exact: true }); await settle();
+        const stay = document.querySelector(`${P} .bl-stay`);
+        r.stayTicked = stay?.checked === true;
+        stay.checked = false; stay.dispatchEvent(new Event('change')); await settle();
+        r.backOnItsClick = last()?.stay === false && !two.hasAttribute('data-build-stay') && groups() === 5;
+        // the intro line has no build: a step added, then removed
+        deck._selectNode(intro, { exact: true }); await settle();
+        document.querySelector(`${P} .bl-add`)?.click(); await settle();
+        r.stepAdded = last()?.effect === '' && last()?.index === 1 && intro.hasAttribute('data-build') && intro.getAttribute('data-build') === '' && groups() === 6;
+        r.addedShown = intro.getAttribute('data-build-state') !== 'pending';
+        deck._selectNode(intro, { exact: true }); await settle();
+        document.querySelector(`${P} .bl-drop`)?.click(); await settle();
+        r.stepRemoved = last()?.effect === null && !intro.hasAttribute('data-build') && !intro.classList.contains('build-step') && groups() === 5;
+        r.oneWriteEach = writes().length === 7;
+        r.noReload = !CALLS.post.some((c) => c.u.includes('/deck/edit/element/effect'));
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
       if (mode === 'buildselect' || mode === 'buildreselect') {
         // what waits behind a build (PRESENTING_EDITING): with the bar on it
         // is dimmed, not hidden, takes the click, and selecting it steps the
@@ -7181,22 +7240,41 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const bare = rows().find((n) => n.textContent === '✓ the default build — remove it');
         r.defaultBuildNamed = !!bare;
         bare?.click(); await settle();
-        const sent = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/effect')).at(-1)?.body;
-        r.removeSendsNull = sent()?.effect === null && sent()?.index === 1 && !('path' in (sent() ?? {}));
+        const sent = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/build')).at(-1)?.body;
+        // in place: the file is asked quietly, and the page counts its steps again where they stand
+        r.removeSendsNull = sent()?.effect === null && sent()?.index === 1 && !('path' in (sent() ?? {})) && sent()?.quiet === true
+          && !ul.hasAttribute('data-build') && !three.classList.contains('build-step') && deck._records[2]?.groups.length === 0;
         // a point selected on its own: Build ▸ is about it, and writes to it
+        deck.goto(3, 0); await settle();
         deck._selectNode(two, { exact: true }); await settle();
         bar().querySelector('.eb-build').click(); await settle();
         r.pointHasNoBuildOfItsOwn = !rows().some((n) => n.textContent.startsWith('✓ '));
         rows().find((n) => n.textContent === 'zoom')?.click(); await settle();
-        r.writesToThePoint = sent()?.effect === 'zoom' && sent()?.index === 1 && JSON.stringify(sent()?.path) === '[1]' && sent()?.tag === 'li';
-        r.asksToSelectItAgain = JSON.parse(sessionStorage.getItem('decklight-edit-reselect:' + location.pathname) ?? 'null')?.path?.join() === '1';
+        r.writesToThePoint = sent()?.effect === 'zoom' && sent()?.index === 1 && JSON.stringify(sent()?.path) === '[1]' && sent()?.tag === 'li'
+          && two.getAttribute('data-build') === 'zoom' && deck._records[2]?.groups.length === 1;
+        r.givenABuildItStaysShown = deck.state.step === 1 && two.getAttribute('data-build-state') !== 'pending';
+        // a draw build carries more than marks: written the old way, and the page it reloads selects it again
+        deck._selectNode(two, { exact: true }); await settle();
+        bar().querySelector('.eb-build').click(); await settle();
+        rows().find((n) => n.textContent === 'draw')?.click(); await settle();
+        r.drawReloads = sent()?.effect === 'draw' && sent()?.quiet === undefined && two.getAttribute('data-build') === 'zoom'
+          && JSON.parse(sessionStorage.getItem('decklight-edit-reselect:' + location.pathname) ?? 'null')?.path?.join() === '1';
         sessionStorage.removeItem('decklight-edit-reselect:' + location.pathname);
+        // Animate ▸: a loop on what is selected, in place
+        deck._selectNode(sec.querySelector('h2')); await settle();
+        const ctxOn = (el) => { const b = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 5, clientY: b.top + 5 })); };
+        ctxOn(sec.querySelector('h2')); await settle();
+        rows().find((n) => n.textContent.startsWith('Animate ▸'))?.click(); await settle();
+        r.animateListsTheLoops = rows().map((n) => n.textContent).join('|') === '← back|✓ none|pulse|float|shake|spin|blink|bounce|swing|glow|breathe';
+        rows().find((n) => n.textContent === 'pulse')?.click(); await settle();
+        r.animateWrites = sent()?.animate === 'pulse' && sent()?.index === 0 && sec.querySelector('h2').getAttribute('data-animate') === 'pulse';
         // presenting is unchanged: fullscreen hides the bar, and what waits is hidden again
         deck.goto(3, 0); await settle();
+        deckEl.classList.add('decklight-no-anim');   // a rescan's own no-anim spell took the harness's off
         Object.defineProperty(document, 'fullscreenElement', { get: () => deckEl, configurable: true });
         document.dispatchEvent(new Event('fullscreenchange'));
         await settle();
-        r.presentingHidesIt = !deckEl.classList.contains('dl-show-waiting') && look(three).visibility === 'hidden' && look(three).opacity === '0';
+        r.presentingHidesIt = !deckEl.classList.contains('dl-show-waiting') && two.getAttribute('data-build-state') === 'pending' && look(two).visibility === 'hidden' && look(two).opacity === '0';
         Object.defineProperty(document, 'fullscreenElement', { get: () => null, configurable: true });
         document.dispatchEvent(new Event('fullscreenchange'));
         await settle();
@@ -10802,7 +10880,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.opensOnElement = !!document.querySelector(M);
         // Writing tools… sits after Edit content when an agent is on the machine (none here)
         r.fullMenuRows = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…'))
-          === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Slide ▸']);
+          === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build ▸', 'Animate ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Slide ▸']);
         // a row that cannot act here is greyed, not gone: nothing copied yet, so Paste style; the chords said beside their rows
         const rowEl = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.firstChild?.textContent === label);
         r.greyedNotGone = rowEl('Paste style')?.classList.contains('cm-disabled') === true && rowEl('Duplicate')?.classList.contains('cm-disabled') === false
@@ -10855,8 +10933,10 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && fx.includes('none (instant)') && !fx.includes('remove effect') && !fx.some((t) => t.startsWith('✓')) && fx.length === 9;
         clickRow('fade-up');
         await settle();
-        const fxPost = CALLS.post.find((c) => c.u.includes('/deck/edit/element/effect'));
-        r.postsEffect = fxPost?.body.slide === 1 && fxPost?.body.index === 0 && fxPost?.body.effect === 'fade-up';
+        // in place (build-edit.js): the page has it, and the write is quiet
+        const fxPost = CALLS.post.find((c) => c.u.includes('/deck/edit/element/build'));
+        r.postsEffect = fxPost?.body.slide === 1 && fxPost?.body.index === 0 && fxPost?.body.effect === 'fade-up' && fxPost?.body.quiet === true
+          && h1.getAttribute('data-build') === 'fade-up';
         r.closesAfterEffect = !document.querySelector(M);
 
         // "Remove" posts { slide, index }

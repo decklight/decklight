@@ -39,7 +39,7 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles, editedNodes, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setElementStyles, editedNodes, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
   duplicateSlideElement } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
 import { setElementPicture, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
@@ -436,6 +436,32 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
     if (changed) console.log(`  element effect saved: slide ${slide} #${index}${path.length ? ` › ${path.join('.')}` : ''} → ${effect ?? '(removed)'}`);
     return json(200, { ok: true, changed, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/element/build` — `{ slide, index, path?, tag?, effect?,
+   * stay?, self?, animate?, quiet?, from? }`: a node's build settings
+   * (setElementBuildAttrs), one applyEdit so one undo. Asked for in place (the
+   * Builds tab, Build ▸, Animate ▸ shown on the page already), the write is
+   * quiet here and every other page is told, and reloads.
+   */
+  function elementBuildRoute({ body, json }) {
+    const { slide, index, path = [], tag = null, effect, stay, self, animate, quiet: inPlace, from } = JSON.parse(body);
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || (tag !== null && typeof tag !== 'string')) throw new Error('bad payload');
+    let changed;
+    try {
+      changed = applyEdit((html) => setElementBuildAttrs(html, slide, index, { path, tag, effect, stay, self, animate }));
+    } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('builds', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    if (changed) {
+      const said = [effect !== undefined && `effect ${effect === null ? '(removed)' : effect || 'default'}`, stay !== undefined && `stay ${stay}`,
+        self !== undefined && `one step ${self}`, animate !== undefined && `animate ${animate ?? '(none)'}`].filter(Boolean).join(', ');
+      console.log(`  build saved: slide ${slide} #${index}${path.length ? ` › ${path.join('.')}` : ''} → ${said}`);
+    }
+    return json(200, { ok: true, changed, inPlace: inPlace === true, ...history.counts() });
   }
 
   /**
@@ -1106,6 +1132,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/remove', elementRemoveRoute);
   routes.set('POST /deck/edit/element/content', elementContentRoute);
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
+  routes.set('POST /deck/edit/element/build', elementBuildRoute);
   routes.set('POST /deck/edit/element/move', elementMoveRoute);
   routes.set('POST /deck/edit/element/duplicate', elementDuplicateRoute);
   routes.set('POST /deck/edit/element/style', elementStyleRoute);

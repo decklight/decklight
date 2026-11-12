@@ -37,6 +37,15 @@ function eligibleChildren(el) {
 // data-build-self forces leaf.
 function isContainer(el) {
   if (el.hasAttribute('data-build-self')) return false;
+  return buildsPerItem(el);
+}
+
+/**
+ * Could `el` build one step an item (a list, a table, a group of two or more),
+ * whatever its `data-build-self` says: the Builds tab's "one step per item /
+ * all at once" is offered on the ones that could.
+ */
+export function buildsPerItem(el) {
   const tag = el.tagName.toUpperCase();
   if (CONTAINER_TAGS.has(tag)) return true;
   if (tag === 'DIV' || tag === 'G') return eligibleChildren(el).length >= 2;
@@ -772,6 +781,21 @@ export function applyBuildState(record, step) {
       p._last = k;
       p.provider.apply(k);
     }
+  }
+}
+
+/**
+ * Take a slide's build marks off (the classes and states scanSlide put on its
+ * steps), so a scan after an edit in place counts the steps the file has now:
+ * an element whose build was taken off is not left waiting. Not for a draw
+ * build, whose strokes carry more than marks: a change to one reloads.
+ */
+export function clearBuildMarks(section) {
+  for (const el of section.querySelectorAll('.build-step, [data-build-container], .has-current-highlight')) {
+    el.classList.remove('build-step', 'has-current-highlight');
+    el.removeAttribute('data-build-state');
+    el.removeAttribute('data-build-style');
+    el.removeAttribute('data-build-container');
   }
 }
 
