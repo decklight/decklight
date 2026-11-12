@@ -638,6 +638,82 @@ export function setElementText(html, slide, index, { path, tag, was, text }) {
   return e.html();
 }
 
+/**
+ * A label's lines (SVG_DIAGRAMS, labels that wrap): ONE `<text>` at `path`
+ * written as `lines`, its words as the page broke them to fit the shape it
+ * is on (only a page can measure text; the file keeps explicit lines, so the
+ * diagram renders the same with no runtime). One line is plain words; more
+ * are positioned `<tspan>` lines, each at the text's `x` and a `dy` in `em`,
+ * the block centred on the text's `y`. The `<text>` must hold words or such
+ * lines and nothing else: a `<tspan>` with no position is a run inside one
+ * line (bold, code), edited with the words around it, not here. `was` is the
+ * page's reading (its lines joined by line breaks); a file that says other
+ * words is stale.
+ */
+export const LINE_HEIGHT_EM = 1.2;
+const MAX_LINES = 12;
+export function setElementLines(html, slide, index, { path, tag = 'text', was, lines }) {
+  checkPath(path);
+  if (!Array.isArray(lines) || !lines.length || lines.length > MAX_LINES
+    || lines.some((l) => typeof l !== 'string' || !l.trim() || /[\u0000-\u001f\u007f]/.test(l))
+    || lines.join(' ').length > 400) throw new Error(`a label is 1 to ${MAX_LINES} lines of words, at most 400 characters in all`);
+  if (typeof was !== 'string') throw new Error('bad payload');
+  const e = openElement(html, slide, index);
+  const at = e.at(path, tag);
+  if (at.found !== 'text') throw new Error(`lines are written to a diagram's <text>, not a <${at.found}>`);
+  const { attrs, close, rest } = splitOpenTag(e.src(at));
+  const closeAt = rest.toLowerCase().lastIndexOf('</text');
+  if (close.endsWith('/>') || closeAt < 0) throw new Error('this <text> has no words to edit');
+  const inner = rest.slice(0, closeAt).replace(/<!--[\s\S]*?-->/g, '');
+  const now = labelLinesOf(inner);
+  if (!now) throw new Error('this <text> holds runs or other elements: edit its words one line at a time');
+  if (!sameWords(now.join(' '), was.replace(/\n/g, ' '))) {
+    throw stale(`slide ${slide} #${index}: the file's label is not the one the page showed — reload and try again`);
+  }
+  const esc = (t) => t.replace(/\s+/g, ' ').trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  let words;
+  if (lines.length === 1) {
+    // back to one line: plain words, the whitespace the file had around plain words kept
+    const plain = !/</.test(inner);
+    const raw = rest.slice(0, closeAt);
+    words = plain && raw.trim() ? /^\s*/.exec(raw)[0] + esc(lines[0]) + /\s*$/.exec(raw)[0] : esc(lines[0]);
+  } else {
+    const x = attrOf(attrs, 'x');
+    if (x === null || !COORD.test(x.trim())) throw new Error('a label of several lines needs the x it is written at');
+    const first = formatCoord(-((lines.length - 1) * LINE_HEIGHT_EM) / 2);
+    words = lines.map((l, i) => `<tspan x="${x.trim()}" dy="${i ? LINE_HEIGHT_EM : first}em">${esc(l)}</tspan>`).join('');
+  }
+  e.splice(at.start, at.end, attrs + close + words + rest.slice(closeAt));
+  return e.html();
+}
+
+/**
+ * What a `<text>`'s inner markup says as lines: its words as one line, or the
+ * words of each positioned `<tspan>` (one with `x`, `y` or `dy`) when that is
+ * all it holds. Null for anything else: a run without a position, another
+ * element, words beside the lines.
+ */
+export function labelLinesOf(inner) {
+  const src = String(inner ?? '').replace(/<!--[\s\S]*?-->/g, '');
+  if (!/</.test(src)) return [decodeText(src).replace(/\s+/g, ' ').trim()];
+  const out = [];
+  const re = /<tspan\b([^>]*)>([^<]*)<\/tspan\s*>/giy;
+  let at = 0;
+  for (;;) {
+    const gap = /^\s*/.exec(src.slice(at))[0].length;
+    at += gap;
+    if (at >= src.length) break;
+    re.lastIndex = at;
+    const m = re.exec(src);
+    if (!m) return null;
+    const head = `<tspan${m[1]}`;
+    if (attrOf(head, 'x') === null && attrOf(head, 'y') === null && attrOf(head, 'dy') === null) return null;
+    out.push(decodeText(m[2]).replace(/\s+/g, ' ').trim());
+    at = re.lastIndex;
+  }
+  return out.length ? out : null;
+}
+
 /** Replace slide N's element at raw child index `index` with `outerHtml` verbatim. */
 export function setSlideElementHtml(html, slide, index, outerHtml) {
   const e = openElement(html, slide, index);
@@ -849,11 +925,18 @@ function geometryValue(attr, value) {
  * path (pathDataValue) or `points` on a polyline or a polygon (pointsValue),
  * so a move re-routes the wires it drags along in the same write. Only nodes
  * inside an `<svg>` are written, and only the one attribute's text changes.
+ * An edit `{ path, tag: 'text', was, lines }` writes a label's lines instead
+ * (setElementLines): a resize that re-wraps the label on the shape it resized.
  */
 export function setElementGeometry(html, slide, index, edits) {
   if (!Array.isArray(edits) || !edits.length || edits.length > 60) throw new Error('bad edits');
-  const e = openElement(html, slide, index);
+  let e = openElement(html, slide, index);
   for (const ed of edits) {
+    // a label re-wrapped by the resize of its shape: its lines, in the same write (SVG_DIAGRAMS)
+    if (ed && Array.isArray(ed.lines)) {
+      e = openElement(setElementLines(e.html(), slide, index, { path: ed.path, tag: ed.tag ?? 'text', was: ed.was, lines: ed.lines }), slide, index);
+      continue;
+    }
     if (!GEOMETRY_ATTRS.has(ed?.attr)) throw new Error(`not an attribute this server moves: ${String(ed?.attr).slice(0, 40)}`);
     // a box's corners squared again (Corners ▸ square): its rx and ry taken off
     if (ed.value === null && CORNER_ATTRS.has(ed.attr)) {

@@ -899,7 +899,7 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/text')) {
           const b = JSON.parse(init?.body ?? '{}');
-          if (b.text === 'refused') return json({ ok: false, error: 'the file\'s label is not the one the page showed — reload and try again' }, 409);
+          if (b.text === 'refused' || b.lines?.[0] === 'refused') return json({ ok: false, error: 'the file\'s label is not the one the page showed — reload and try again' }, 409);
           return json({ ok: true, changed: true, undo: 1, redo: 0 });
         }
       }
@@ -1371,6 +1371,7 @@
           <path class="sr-store" data-node="store" data-shape="cylinder" d="M 500 120 C 500 113.4 535.8 108 580 108 C 624.2 108 660 113.4 660 120 L 660 228 C 660 234.6 624.2 240 580 240 C 535.8 240 500 234.6 500 228 Z M 500 120 C 500 126.6 535.8 132 580 132 C 624.2 132 660 126.6 660 120" style="fill: var(--d-fill-4)"/>
           <line class="sr-w1" data-from="src" data-to="gate" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="3"/>
           <line class="sr-w2" data-from="gate" data-to="store" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="3"/>
+          <g class="sr-pay"><rect class="sr-pay-box" x="440" y="280" width="300" height="110" style="fill: var(--d-fill-1)"/><text class="sr-pay-text" x="590" y="335" text-anchor="middle" dominant-baseline="central" font-size="16"><tspan x="590" dy="-0.6em">Payment service</tspan><tspan x="590" dy="1.2em">(primary region)</tspan></text></g>
         </svg>
       </section>`);
     }
@@ -3732,10 +3733,12 @@
         return;
       }
       if (mode === 'labeledit') {
-        // SVG_DIAGRAMS: a double-click on a diagram label lays a box over it
-        // in the label's font and ink; ⏎ or leaving it sends the words alone,
-        // addressed by the FILE's path; Esc and an unchanged box write nothing;
-        // one line of two is its own label; a refused save puts it back.
+        // SVG_DIAGRAMS: a double-click on a diagram label lays a box of rows
+        // over it in the label's font and ink; ⏎ or leaving it sends the words
+        // alone, addressed by the FILE's path; Esc and an unchanged box write
+        // nothing; a label of lines opens whole; words too wide for the box
+        // wrap into tspan lines, ⇧⏎ makes one, one that cannot fit marks its
+        // shape and Check deck… lists it; a refused save puts it back.
         await settle();
         deck.goto(deck._sections.length);
         await settle();
@@ -3765,48 +3768,81 @@
           && getComputedStyle(box()).color === 'rgb(242, 236, 228)';
         r.labelHiddenUnderIt = getComputedStyle(label).visibility === 'hidden';
         const w0 = br?.width ?? 0;
-        typeIn('Producer & consumer');
+        typeIn('Producer & co');
         r.boxGrowsAroundTheMiddle = box().getBoundingClientRect().width > w0
           && Math.abs((box().getBoundingClientRect().left + box().getBoundingClientRect().width / 2) - (lr.left + lr.width / 2)) < 3;
+        r.aBoxOfRows = box().tagName === 'TEXTAREA';
         press('ArrowRight');
         r.deckKeysStandAside = deck.state.slide === deck._sections.length;
         key('Enter');
         await settle(); await settle();
         const sent = writes()[0]?.body;
+        // words that fit on one line are sent as words, the way they always were
         r.enterSendsTheWords = !!sent && sent.slide === deck._sections.length && sent.index === 1
-          && JSON.stringify(sent.path) === '[1,1]' && sent.tag === 'text' && sent.was === 'Producer' && sent.text === 'Producer & consumer'
+          && JSON.stringify(sent.path) === '[1,1]' && sent.tag === 'text' && sent.was === 'Producer' && sent.text === 'Producer & co' && !sent.lines
           && sent.quiet === true && typeof sent.from === 'string';   // in place: a quiet write from this page
-        r.labelShowsItAndTheBoxGoes = !box() && label.textContent === 'Producer & consumer' && getComputedStyle(label).visibility === 'visible'
+        r.labelShowsItAndTheBoxGoes = !box() && label.textContent === 'Producer & co' && getComputedStyle(label).visibility === 'visible'
           && ![...document.querySelectorAll('.decklight-toast')].some((n) => /reloading/.test(n.textContent));
 
         dbl(label);
         typeIn('junk');
         key('Escape');
         await settle();
-        r.escapeWritesNothing = !box() && writes().length === 1 && label.textContent === 'Producer & consumer';
+        r.escapeWritesNothing = !box() && writes().length === 1 && label.textContent === 'Producer & co';
         dbl(label);
         key('Enter');
         await settle();
         r.unchangedWritesNothing = !box() && writes().length === 1;
 
-        // one line of two is its own label; the pair is not
-        dbl(document.querySelector('.le-lines'));
-        await settle();
-        r.twoLinesAskForOne = !box();
+        // a label of lines is ONE label: a double-click on either line opens both, one per row
         dbl(document.querySelector('.le-two'));
-        typeIn('Line 2');
+        await settle();
+        r.linesEditTogether = box()?.value === 'Line one\nLine two';
+        typeIn('Line one\nLine 2');
         box().blur();
         await settle(); await settle();
-        const line = writes()[1]?.body;
-        r.leavingSavesTheLine = !!line && JSON.stringify(line.path) === '[2,1]' && line.tag === 'tspan' && line.was === 'Line two' && line.text === 'Line 2'
-          && document.querySelector('.le-one').textContent === 'Line one';
+        const ln = writes()[1]?.body;
+        const pair = document.querySelector('.le-lines');
+        r.leavingSavesTheLines = !!ln && JSON.stringify(ln.path) === '[2]' && ln.tag === 'text' && ln.was === 'Line one\nLine two'
+          && JSON.stringify(ln.lines) === '["Line one","Line 2"]' && !('text' in ln)
+          && [...pair.children].map((t) => `${t.getAttribute('x')} ${t.getAttribute('dy')} ${t.textContent}`).join('|') === '500 -0.6em Line one|500 1.2em Line 2';
+
+        // words wider than the box break to fit it, centred in it, as real tspan lines
+        dbl(label);
+        typeIn('Payment service (primary region)');
+        key('Enter');
+        await settle(); await settle();
+        const wr = writes()[2]?.body;
+        const room = 300 * 0.88;
+        r.wrapsToTheBox = !!wr && JSON.stringify(wr.path) === '[1,1]' && wr.tag === 'text' && wr.was === 'Producer & co'
+          && wr.lines?.length >= 2 && wr.lines.join(' ') === 'Payment service (primary region)'
+          && [...label.children].length === wr.lines.length && [...label.children].every((t) => t.getAttribute('x') === '190' && t.getComputedTextLength() <= room + 0.5);
+        // ⇧⏎ is a new row, ⏎ saves
+        dbl(label);
+        r.reopensAsRows = box()?.value === wr?.lines.join('\n');
+        typeIn('One\nTwo');
+        box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true }));
+        await settle();
+        r.shiftEnterKeepsTyping = !!box() && writes().length === 3;
+        key('Enter');
+        await settle(); await settle();
+        r.typedBreaksKept = JSON.stringify(writes()[3]?.body.lines) === '["One","Two"]';
+
+        // a word too long for the box even wrapped: its shape is marked, and Check deck… says so
+        dbl(label);
+        typeIn('Supercalifragilisticexpialidocious');
+        key('Enter');
+        await settle(); await settle();
+        const rect = document.querySelector('.le-box');
+        r.overflowMarked = rect.classList.contains('dl-label-overflow') && writes().length === 5;
+        r.checkDeckListsIt = deck.check().some((f) => f.rule === 'label-overflow' && f.slide === deck._sections.length && /Supercalifragilistic/.test(f.message));
 
         dbl(label);
         typeIn('refused');
         key('Enter');
         await settle(); await settle();
         // refused, the words stay, marked unsaved, for another try (PRESENTING_EDITING)
-        r.refusedKeepsTheWords = writes().length === 3 && label.textContent === 'refused' && label.classList.contains('dl-unsaved') && !box();
+        r.refusedKeepsTheWords = writes().length === 6 && label.textContent === 'refused' && label.classList.contains('dl-unsaved') && !box();
 
         // the bar's way in: click selects, ⏎ edits the label clicked — the
         // unsaved words, and Esc there puts the file's back
@@ -3817,11 +3853,9 @@
         r.selectThenEnterEdits = !!box() && box().value === 'refused';
         if (box()) key('Escape');
         await settle();
-        r.escapePutsTheFilesBack = label.textContent === 'Producer & consumer' && !label.classList.contains('dl-unsaved');
+        r.escapePutsTheFilesBack = label.textContent === 'Supercalifragilisticexpialidocious' && !label.classList.contains('dl-unsaved');
 
-        r.PASS = r.boxOverTheLabel && r.inTheLabelsType && r.labelHiddenUnderIt && r.boxGrowsAroundTheMiddle && r.deckKeysStandAside
-          && r.enterSendsTheWords && r.labelShowsItAndTheBoxGoes && r.escapeWritesNothing && r.unchangedWritesNothing
-          && r.twoLinesAskForOne && r.leavingSavesTheLine && r.refusedKeepsTheWords && r.selectThenEnterEdits && r.escapePutsTheFilesBack;
+        r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
@@ -4313,6 +4347,34 @@
         const cg = geometry().at(-1);
         const d = cg?.edits.find((e) => e.attr === 'd' && JSON.stringify(e.path) === '[2]')?.value ?? '';
         r.cylinderRedrawn = geometry().length === 2 && /^M 500 \d/.test(d) && d.includes(' Z M ') && cyl.getAttribute('d') === d && !/68 /.test(d.slice(0, 9));
+
+        // a box whose label is two lines: narrower, its lines follow it and break again, in the same write
+        await new Promise((f) => setTimeout(f, 400));
+        const pay = q('.sr-pay-box'); const words = q('.sr-pay-text');
+        const dragHandle = async (hx, hy, dx) => {
+          const h = deck._shapes.handles().find((x) => x.hx === hx && x.hy === hy)?.el;
+          if (!h) return false;
+          const b = h.getBoundingClientRect(); const c = { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+          ptr('pointerdown', h, c.x, c.y);
+          for (const f of [0.5, 1]) ptr('pointermove', document.body, c.x + dx * k * f, c.y);
+          ptr('pointerup', document.body, c.x + dx * k, c.y);
+          await settle(); await settle();
+          await new Promise((f) => setTimeout(f, 400));
+          return true;
+        };
+        await clickAt(pay, toScreen(460, 300));
+        const narrowed = await dragHandle(1, 0, -180);
+        const pg = geometry().at(-1);
+        const relined = pg?.edits.find((e) => Array.isArray(e.lines));
+        const rows = [...words.children];
+        r.narrowerRewraps = narrowed && geometry().length === 3 && pg.edits.at(-1) === relined && JSON.stringify(relined.path) === '[5,1]'
+          && relined.was === 'Payment service\n(primary region)' && relined.lines.length >= 3 && relined.lines.join(' ') === 'Payment service (primary region)'
+          && rows.length === relined.lines.length && rows.every((t) => t.getAttribute('x') === words.getAttribute('x'))
+          && words.getAttribute('x') === '500' && !pg.edits.some((e) => e.path.length === 3);
+        // wider than the words need: one line again, plain words
+        const widened = await dragHandle(1, 0, 400);
+        const wg = geometry().at(-1)?.edits.find((e) => Array.isArray(e.lines));
+        r.widerJoins = widened && JSON.stringify(wg?.lines) === '["Payment service (primary region)"]' && !words.children.length && words.textContent === 'Payment service (primary region)';
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

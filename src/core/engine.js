@@ -29,6 +29,7 @@ import { createElementMove } from './element-move.js';
 import { createAddContent } from './add-content.js';
 import { createPictures } from './pictures.js';
 import { createShapes } from './shapes.js';
+import { overflowingLabels } from './diagram-labels.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
 import { createSlideSettings, applySlideAttrs } from './slide-settings.js';
@@ -3809,10 +3810,17 @@ export function init(userConfig = {}) {
     if (hidden) sec.classList.remove('pin-measure');
     return sec.hasAttribute('data-overflow');
   }
+  // labels too long for their shapes even wrapped (SVG_DIAGRAMS): measured like overflow, the slide shown for a moment
+  function labelOverflows(sec) {
+    const hidden = getComputedStyle(sec).display === 'none';
+    if (hidden) sec.classList.add('pin-measure');
+    try { return overflowingLabels(sec).map((x) => x.text.textContent); } finally { if (hidden) sec.classList.remove('pin-measure'); }
+  }
   const deckCheck = createDeckCheck({
     root, overlays, toast, instance: () => instance,
     goto: (n) => instance.goto(n, 0),
     measureOverflow,
+    labelOverflows,
     slideTitle: (sec, i) => slideTitle(sec, i, slideBody(sec)),
     // labels that recur in different colours: worth a concept, and its fix makes it one in write mode
     suggestions: () => conceptSuggestions(stage),

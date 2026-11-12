@@ -39,7 +39,7 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setElementStyles, editedNodes, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, moveSlideElement,
   duplicateSlideElement } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
 import { setElementPicture, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
@@ -533,15 +533,17 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * `POST /deck/edit/element/text` — `{ slide, index, path, tag, was, text }`:
    * a diagram label edited in place (SVG_DIAGRAMS). The words between one
    * `<text>`/`<tspan>`'s tags change and nothing else in the diagram does; a
-   * label the file no longer says is a 409.
+   * label the file no longer says is a 409. With `lines` instead of `text`
+   * (a label that wraps), the `<text>` is written as those lines.
    */
   function elementTextRoute({ body, json }) {
-    const { slide, index, path = [], tag = null, was, text, quiet: inPlace = false, from = null } = JSON.parse(body);
+    const { slide, index, path = [], tag = null, was, text, lines = null, quiet: inPlace = false, from = null } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
     let changed;
-    try { changed = applyEdit((html) => setElementText(html, slide, index, { path, tag, was, text })); }
+    // `lines`: a label that wraps, as the page broke it (setElementLines); `text`: one line's words
+    try { changed = applyEdit((html) => (lines ? setElementLines(html, slide, index, { path, tag: tag ?? 'text', was, lines }) : setElementText(html, slide, index, { path, tag, was, text }))); }
     catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
-    if (changed) console.log(`  diagram label saved: slide ${slide} #${index} → ${JSON.stringify(text).slice(0, 60)}`);
+    if (changed) console.log(`  diagram label saved: slide ${slide} #${index} → ${JSON.stringify(lines ?? text).slice(0, 60)}`);
     if (changed && inPlace === true) {
       quiet(readDeck());
       broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
