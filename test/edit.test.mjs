@@ -251,6 +251,15 @@ test('setElementBuildAttrs: effect, stay, self and animate, each written where i
   assert.throws(() => setElementBuildAttrs(deck, 1, 1, { path: [0], tag: 'p', stay: true }), (e) => e.code === 'STALE');
 });
 
+test('setElementBuildAttrs: a stroke drawn in stages, at a pace, and back to one draw', () => {
+  const deck = '<div class="decklight">\n<section>\n  <svg data-build="draw" viewBox="0 0 100 10">\n    <path d="M0 5H100"/>\n  </svg>\n</section>\n</div>';
+  const staged = setElementBuildAttrs(deck, 1, 0, { path: [0], tag: 'path', drawStops: '0.333 0.667 1', drawSpeed: 400 });
+  assert.match(staged, /<path d="M0 5H100" data-draw-stops="0.333 0.667 1" data-draw-speed="400"\/>/);
+  assert.match(setElementBuildAttrs(staged, 1, 0, { path: [0], tag: 'path', drawStops: null, drawSpeed: null }), /<path d="M0 5H100"\/>/);
+  for (const bad of ['0.5 0.4 1', '0.5', '0 1', 'a b', '']) assert.throws(() => setElementBuildAttrs(deck, 1, 0, { path: [0], drawStops: bad }), /fractions of its length/, bad);
+  assert.throws(() => setElementBuildAttrs(deck, 1, 0, { path: [0], drawSpeed: 1 }), /path units a second/);
+});
+
 test('setSlideBuildOrder stamps every step with its click, ties sharing a key, and leaves nothing when it is the file\'s own order', async () => {
   const { buildClicks, parseTree } = await import('../cli/check.mjs');
   const deck = '<div class="decklight">\n<section>\n  <h2>T</h2>\n  <ul data-build>\n    <li>a</li>\n    <li>b</li>\n    <li>c</li>\n  </ul>\n  <img data-build src="p.png" alt="">\n</section>\n</div>';

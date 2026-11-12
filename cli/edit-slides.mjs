@@ -441,17 +441,17 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
 
   /**
    * `POST /deck/edit/element/build` — `{ slide, index, path?, tag?, effect?,
-   * stay?, self?, animate?, quiet?, from? }`: a node's build settings
+   * stay?, self?, animate?, drawStops?, drawSpeed?, quiet?, from? }`: a node's build settings
    * (setElementBuildAttrs), one applyEdit so one undo. Asked for in place (the
    * Builds tab, Build ▸, Animate ▸ shown on the page already), the write is
    * quiet here and every other page is told, and reloads.
    */
   function elementBuildRoute({ body, json }) {
-    const { slide, index, path = [], tag = null, effect, stay, self, animate, quiet: inPlace, from } = JSON.parse(body);
+    const { slide, index, path = [], tag = null, effect, stay, self, animate, drawStops, drawSpeed, quiet: inPlace, from } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || (tag !== null && typeof tag !== 'string')) throw new Error('bad payload');
     let changed;
     try {
-      changed = applyEdit((html) => setElementBuildAttrs(html, slide, index, { path, tag, effect, stay, self, animate }));
+      changed = applyEdit((html) => setElementBuildAttrs(html, slide, index, { path, tag, effect, stay, self, animate, drawStops, drawSpeed }));
     } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
     if (changed && inPlace === true) {
       quiet(readDeck());
@@ -459,7 +459,8 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     }
     if (changed) {
       const said = [effect !== undefined && `effect ${effect === null ? '(removed)' : effect || 'default'}`, stay !== undefined && `stay ${stay}`,
-        self !== undefined && `one step ${self}`, animate !== undefined && `animate ${animate ?? '(none)'}`].filter(Boolean).join(', ');
+        self !== undefined && `one step ${self}`, animate !== undefined && `animate ${animate ?? '(none)'}`,
+        drawStops !== undefined && `stages ${drawStops ?? '(none)'}`, drawSpeed !== undefined && `pace ${drawSpeed ?? 'default'}`].filter(Boolean).join(', ');
       console.log(`  build saved: slide ${slide} #${index}${path.length ? ` › ${path.join('.')}` : ''} → ${said}`);
     }
     return json(200, { ok: true, changed, inPlace: inPlace === true, ...history.counts() });

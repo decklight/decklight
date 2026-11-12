@@ -68,3 +68,15 @@ test('orderGroups: one entry a node, a node of several steps named where its fir
   assert.deepEqual(orderGroups([[4], [0, 1], [2], [3]], steps), [[{ node: b, count: 1 }], [{ node: a, count: 1 }, { node: code, count: 3 }]]);
   assert.deepEqual(orderGroups([[0], [1], [2], [3], [4]], steps).map((g) => g.map((n) => n.node.id)), [['a'], ['code'], ['b']]);
 });
+
+import { evenStops, stagesOf } from '../src/core/buildlist.js';
+
+test('evenStops and stagesOf: a stroke in n even stages, and back', () => {
+  assert.equal(evenStops(3), '0.333 0.667 1');
+  assert.equal(evenStops(4), '0.25 0.5 0.75 1');
+  assert.equal(evenStops(1), null);
+  assert.equal(evenStops('2'), '0.5 1');
+  assert.equal(stagesOf('0.333 0.667 1'), 3);
+  assert.equal(stagesOf('347 542 767'), 3);
+  assert.equal(stagesOf(null), 1);
+});

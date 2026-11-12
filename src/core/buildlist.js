@@ -109,3 +109,16 @@ export function orderGroups(groups, steps) {
   }
   return out;
 }
+
+/** A stroke cut in `n` even stages, as `data-draw-stops` fractions (`0.333 0.667 1`); null for one draw. */
+export function evenStops(n) {
+  const k = Math.floor(Number(n));
+  if (!(k > 1)) return null;
+  return Array.from({ length: k }, (_, i) => (i === k - 1 ? '1' : String(Math.round(((i + 1) / k) * 1000) / 1000))).join(' ');
+}
+
+/** How many stages a stroke's `data-draw-stops` cuts it in (1 with none). */
+export function stagesOf(attr) {
+  const n = String(attr ?? '').trim().split(/[\s,]+/).filter(Boolean).length;
+  return n || 1;
+}

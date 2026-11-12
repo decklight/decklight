@@ -211,6 +211,7 @@ const ENGINE_GROUPS = {
     'listmove',
     'buildsettings',
     'buildorder',
+    'drawstages',
     'buildpanel',
     'buildselect',
     'buildreselect',

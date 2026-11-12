@@ -11,12 +11,17 @@
 // This module reads the slide and says what each step is in words; the rows
 // themselves are buildlist.js's, pure. Nothing here writes the file.
 
-import { buildRows, beatsLine, firstWords, moveClick, mergeClick, splitClick, orderGroups } from './buildlist.js';
+import { buildRows, beatsLine, firstWords, moveClick, mergeClick, splitClick, orderGroups, evenStops, stagesOf } from './buildlist.js';
 import { stepShowing, buildsPerItem } from './builds.js';
 import { authoredIndex } from './design-system.js';
 
 /** The entrance effects a step can have: Build ▸'s list, `none` last (a real step that arrives at once). */
 export const EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'none'];
+
+/** What a stroke is, in a diagram that draws. */
+const STROKES = 'path, line, polyline, polygon, circle, ellipse, rect';
+/** The paces a stroke is offered: the default (by its length when it draws in stages), slower, faster. */
+const PACES = [['', 'default'], ['150', 'slow'], ['600', 'fast']];
 
 /** Not what a slide shows: its notes and the like, and what the engine put there. */
 const NOT_SHOWN = 'aside, script, style, template';
@@ -254,6 +259,28 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
       const l = document.createElement('label');
       l.append(c, document.createTextNode(' there from the start'));
       lineOf(l);
+    }
+    // a stroke in a draw build: drawn in stages, at a pace (data-draw-stops, data-draw-speed)
+    if (node.matches?.(STROKES) && (node.getAttribute('data-build') === 'draw' || node.closest('[data-build="draw"]'))) {
+      const n = Object.assign(document.createElement('input'), { type: 'number', min: '1', max: '12', step: '1', className: 'bl-stages', value: String(stagesOf(node.getAttribute('data-draw-stops'))) });
+      n.title = 'one click a stage, each drawing an even part of the stroke';
+      n.addEventListener('change', () => {
+        const k = Math.max(1, Math.min(12, Math.round(Number(n.value) || 1)));
+        edit.set(node, { drawStops: evenStops(k) }, k > 1 ? `drawn in ${k} stages` : 'drawn at once');
+      });
+      const l = document.createElement('label');
+      l.append(document.createTextNode('Draw in '), n, document.createTextNode(' stages'));
+      lineOf(l);
+      const pace = document.createElement('select');
+      pace.className = 'bl-pace';
+      pace.title = 'how fast it draws, in path units a second';
+      const now = node.getAttribute('data-draw-speed');
+      for (const [v, label] of PACES) pace.append(new Option(label, v, false, v === (now ?? '')));
+      if (now && !PACES.some(([v]) => v === now)) pace.append(new Option(`${now} a second`, now, true, true));
+      pace.addEventListener('change', () => edit.set(node, { drawSpeed: pace.value ? Number(pace.value) : null }, `pace: ${pace.selectedOptions[0]?.textContent}`));
+      const pl = document.createElement('label');
+      pl.append(document.createTextNode('Speed '), pace);
+      lineOf(pl);
     }
     // its own step: taken away; none, and not inside one: added
     if (builtHere) lineOf(btn('Remove this step', 'take its build off: it is there from the start', () => edit.set(node, { effect: null }, 'step removed'), 'ins-btn bl-drop'));
