@@ -48,3 +48,23 @@ test('buildRows: beats past the last click are listed after it; notes with no [c
   const none = buildRows({});
   assert.deepEqual([none.rows, none.extra, none.clicks], [[], [], 0]);
 });
+
+import { moveClick, mergeClick, splitClick, orderGroups } from '../src/core/buildlist.js';
+
+test('moveClick, mergeClick, splitClick: the clicks rearranged, nothing lost', () => {
+  const g = [[0], [1], [2, 3], [4]];
+  assert.deepEqual(moveClick(g, 3, 0), [[4], [0], [1], [2, 3]], 'the last first');
+  assert.deepEqual(moveClick(g, 0, 4), [[1], [2, 3], [4], [0]], 'the first last');
+  assert.deepEqual(moveClick(g, 1, 2), g, 'to where it is: no change');
+  assert.deepEqual(mergeClick(g, 3, 1), [[0], [1, 4], [2, 3]], 'arrives with click 2');
+  assert.deepEqual(splitClick(g, 2), [[0], [1], [2], [3], [4]], 'each on its own click, in place');
+  assert.deepEqual(splitClick(g, 0), g);
+  assert.notEqual(moveClick(g, 1, 2), g, 'a copy, never the same lists');
+});
+
+test('orderGroups: one entry a node, a node of several steps named where its first plays', () => {
+  const a = { id: 'a' }; const code = { id: 'code' }; const b = { id: 'b' };
+  const steps = [{ node: a }, { node: code, count: 3 }, { node: code, count: 3 }, { node: code, count: 3 }, { node: b }];
+  assert.deepEqual(orderGroups([[4], [0, 1], [2], [3]], steps), [[{ node: b, count: 1 }], [{ node: a, count: 1 }, { node: code, count: 3 }]]);
+  assert.deepEqual(orderGroups([[0], [1], [2], [3], [4]], steps).map((g) => g.map((n) => n.node.id)), [['a'], ['code'], ['b']]);
+});

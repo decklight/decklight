@@ -105,6 +105,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/slide',
     'POST /deck/edit/slide/attr',
     'POST /deck/edit/slide/background',
+    'POST /deck/edit/slide/builds',
     'POST /deck/edit/slide/face',
     'POST /deck/edit/slide/hidden',
     'POST /deck/edit/slide/layout',
@@ -128,6 +129,24 @@ test('POST /deck/edit/element/build sets a node\'s build settings in one undo en
   assert.equal(again.body.changed, false, 'the same setting again writes nothing');
   const gone = await call(routes, 'POST /deck/edit/element/build', { body: { slide: 1, index: 0, path: [9], effect: 'fade' } });
   assert.equal(gone.code, 409);
+});
+
+test('POST /deck/edit/slide/builds stamps the slide\'s order in one undo entry, and answers each node\'s order', async (t) => {
+  const { routes, readDeck } = harness(t);
+  const deck = readDeck();
+  const sec = deck.slice(deck.indexOf('<section'), deck.indexOf('</section>'));
+  assert.ok(sec, 'the harness deck has a first slide');
+  // the first two elements of slide 1, the second first
+  const r = await call(routes, 'POST /deck/edit/slide/builds', { body: { slide: 1, groups: [[{ index: 1 }], [{ index: 0 }]] } });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.undo, 1);
+  assert.deepEqual(r.body.orders.map((o) => [o.index, o.order]), [[1, '1'], [0, '2']]);
+  assert.equal((readDeck().match(/data-build-order=/g) || []).length, 2);
+  const back = await call(routes, 'POST /deck/edit/slide/builds', { body: { slide: 1, groups: [[{ index: 0 }], [{ index: 1 }]] } });
+  assert.deepEqual(back.body.orders.map((o) => o.order), [null, null]);
+  assert.equal(readDeck(), deck, 'the file\'s own order leaves the file as it was');
+  const bad = await call(routes, 'POST /deck/edit/slide/builds', { body: { slide: 1, groups: [[{ index: 0, path: [42] }]] } });
+  assert.equal(bad.code, 409);
 });
 
 test('POST /deck/edit/slide/notes writes the aside and leaves one undo entry behind', async (t) => {

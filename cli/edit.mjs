@@ -2024,6 +2024,65 @@ export function setElementBuildAttrs(html, slide, index, { path = [], tag = null
   return e.html();
 }
 
+/** Does node `a` come before node `b` in the file (an element's index, then its path below it; an ancestor first)? */
+const fileBefore = (a, b) => {
+  if (a.index !== b.index) return a.index < b.index;
+  for (let i = 0; i < Math.min(a.path.length, b.path.length); i++) if (a.path[i] !== b.path[i]) return a.path[i] < b.path[i];
+  return a.path.length < b.path.length;
+};
+
+/**
+ * Slide N's build order (PRESENTING_EDITING, the Builds tab; SVG_DIAGRAMS'
+ * front and back), as the author arranged it: `groups` is the slide's clicks
+ * in the order they are to play, each a list of the nodes that arrive on it,
+ * `{ index, path?, tag?, count? }` (a node addressed as every element edit
+ * addresses one; `count` the steps it brings, a code block's lines or a
+ * stroke's stages, 1 when left out). Every step of the slide is to be named:
+ * an order key competes with the document position of a step that has none.
+ *
+ * Each node is stamped `data-build-order` with its click's key, the keys
+ * counting up from 1, nodes on one click sharing theirs (equal explicit keys
+ * arrive together, BUILD_SEMANTICS) and a node of several steps taking a key
+ * a step. When the order asked for is the file's own (one node a click, each
+ * after the one before it), every `data-build-order` named is taken off
+ * instead, so a deck put back as it was says nothing about its order.
+ * Returns `{ html, orders }`: the deck, and each node's order as written
+ * (`order` a string, or null where it was taken off) for a page to show.
+ */
+export function setSlideBuildOrder(html, slide, groups) {
+  if (!Array.isArray(groups) || !groups.length || groups.some((g) => !Array.isArray(g) || !g.length)) throw new Error('groups are lists of the nodes each click brings');
+  const flat = groups.flat();
+  if (flat.length > 512) throw new Error('too many steps');
+  for (const n of flat) {
+    if (!n || !Number.isInteger(n.index) || n.index < 0) throw new Error('bad node');
+    checkPath(n.path ?? []);
+    if (n.tag != null && typeof n.tag !== 'string') throw new Error('bad tag');
+    if (n.count !== undefined && (!Number.isInteger(n.count) || n.count < 1 || n.count > 256)) throw new Error('bad count');
+  }
+  const seen = new Set();
+  for (const n of flat) {
+    const k = `${n.index}:${(n.path ?? []).join('.')}`;
+    if (seen.has(k)) throw new Error(`a node is named twice: #${n.index}${n.path?.length ? ` › ${n.path.join('.')}` : ''}`);
+    seen.add(k);
+  }
+  const at = (n) => ({ index: n.index, path: n.path ?? [] });
+  const asWritten = groups.every((g) => g.length === 1) && flat.every((n, i) => i === 0 || fileBefore(at(flat[i - 1]), at(n)));
+  const orders = [];
+  let out = html;
+  let key = 1;
+  for (const g of groups) {
+    for (const n of g) {
+      const order = asWritten ? null : String(key);
+      const e = openElement(out, slide, n.index);
+      e.edit(n.path ?? [], n.tag ?? null, (attrs) => withAttr(attrs, 'data-build-order', order));
+      out = e.html();
+      orders.push({ index: n.index, path: n.path ?? [], order });
+    }
+    key += Math.max(...g.map((n) => n.count ?? 1));
+  }
+  return { html: out, orders };
+}
+
 // ── pictures after the drop (PRESENTING_EDITING) ─────────────────────────
 // A dropped picture is an `<img>`, and these are what can be done to it
 // without the HTML: its size, its alt text, the file it points at, a caption
@@ -2226,6 +2285,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/insert': 'element added',
   '/deck/edit/element/picture': 'picture changed',
   '/deck/edit/slide/background': 'slide background set',
+  '/deck/edit/slide/builds': 'build order set',
   '/deck/edit/concepts': 'concept colours saved',
   '/deck/edit/asset': 'asset added',
   '/deck/edit/undo': 'undo',
@@ -2377,6 +2437,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/insert': 'added element',
   '/deck/edit/element/picture': 'picture',
   '/deck/edit/slide/background': 'slide background',
+  '/deck/edit/slide/builds': 'build order',
   '/deck/edit/concepts': 'concept colours',
   '/deck/edit/restore': 'restore from git',
   '/deck/edit/theme': 'theme',

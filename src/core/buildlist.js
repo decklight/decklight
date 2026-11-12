@@ -55,3 +55,57 @@ export function beatsLine({ beats, clicks }) {
   const c = `${clicks} click${clicks === 1 ? '' : 's'}`;
   return `notes: ${b} · ${c}`;
 }
+
+// ── arranging the clicks (the Builds tab's drag, With previous, On its own click) ──
+// `groups` is a slide's clicks as scanSlide counts them: each a list of step
+// indices. Each change returns new groups; the slide's order is then written
+// from them (orderGroups), so these never touch the page.
+
+/** Click `from` moved so it plays before what is now click `to` (`groups.length`: last). */
+export function moveClick(groups, from, to) {
+  if (from < 0 || from >= groups.length || to < 0 || to > groups.length || to === from || to === from + 1) return groups.map((g) => g.slice());
+  const out = groups.map((g) => g.slice());
+  const [moved] = out.splice(from, 1);
+  out.splice(to > from ? to - 1 : to, 0, moved);
+  return out;
+}
+
+/** Click `from`'s steps arrive with click `into` instead: one click fewer. */
+export function mergeClick(groups, from, into) {
+  if (from === into || !groups[from] || !groups[into]) return groups.map((g) => g.slice());
+  const out = groups.map((g) => g.slice());
+  out[into] = [...out[into], ...out[from]].sort((a, b) => a - b);
+  out.splice(from, 1);
+  return out;
+}
+
+/** Click `g`'s steps each on a click of its own, where it was, in the order the slide has them. */
+export function splitClick(groups, g) {
+  if (!groups[g] || groups[g].length < 2) return groups.map((x) => x.slice());
+  const out = groups.map((x) => x.slice());
+  out.splice(g, 1, ...[...groups[g]].sort((a, b) => a - b).map((i) => [i]));
+  return out;
+}
+
+/**
+ * The groups as the order route takes them: each click the nodes it brings,
+ * `steps[i]` being `{ node, count }` (the node that carries a step's order, the
+ * number of steps it brings). A node of several steps (a code block's lines, a
+ * stroke's stages) is named once, where its first step plays; its steps keep
+ * together after it. A click left with nothing of its own is dropped.
+ */
+export function orderGroups(groups, steps) {
+  const named = new Set();
+  const out = [];
+  for (const g of groups) {
+    const nodes = [];
+    for (const i of g) {
+      const st = steps[i];
+      if (!st || named.has(st.node)) continue;
+      named.add(st.node);
+      nodes.push({ node: st.node, count: st.count ?? 1 });
+    }
+    if (nodes.length) out.push(nodes);
+  }
+  return out;
+}

@@ -101,5 +101,47 @@ export function createBuildEdit({ instance, editmode, toast = () => {} }) {
     }
   }
 
-  return { set, addressOf: (node) => addressOf(inst(), node) };
+  /**
+   * Slide `sec`'s build order, as arranged: `groups` is its clicks in play
+   * order, each `[{ node, count }]` (buildlist.js's orderGroups). The server
+   * stamps every node (`POST /deck/edit/slide/builds`, one undo) and answers
+   * each one's order, which the page then wears, its steps counted again where
+   * they stand: nothing on the slide moves, and nothing reloads.
+   */
+  async function order(sec, groups, said) {
+    if (!editmode.available?.()) { toast(editmode.cannot?.('changing the build order') ?? 'changing the build order needs write mode', 3200); return false; }
+    const it = inst();
+    const slide = it._sections.indexOf(sec) + 1;
+    const flat = groups.flat();
+    const addrs = flat.map(({ node }) => addressOf(it, node));
+    if (!slide || addrs.some((a) => !a || a.slide !== slide)) { toast('a step here is the engine’s, not the file’s: its order cannot be written', 3200); return false; }
+    let k = 0;
+    const body = {
+      slide,
+      groups: groups.map((g) => g.map(({ count }) => {
+        const a = addrs[k++];
+        return { index: a.index, ...(a.path.length ? { path: a.path } : {}), tag: a.tag, ...(count > 1 ? { count } : {}) };
+      })),
+    };
+    try {
+      const j = await commit.post('/deck/edit/slide/builds', body);
+      (j.orders ?? []).forEach((o, i) => {
+        const node = flat[i]?.node;
+        if (!node) return;
+        if (o.order === null) node.removeAttribute('data-build-order'); else node.setAttribute('data-build-order', o.order);
+      });
+      const step = it.state.slide === slide ? it.state.step : 0;
+      clearBuildMarks(sec);
+      it.refreshSlide(sec, { scan: true, relayout: false });
+      // the click on screen stays on screen, now holding what plays there
+      if (it.state.slide === slide && it.state.step !== Math.min(step, it._records[slide - 1]?.groups.length ?? 0)) it.goto(slide, step);
+      toast(said, 1400);
+      return true;
+    } catch (e) {
+      toast(commit.notSaved('the build order', e), 6000);
+      return false;
+    }
+  }
+
+  return { set, order, addressOf: (node) => addressOf(inst(), node) };
 }

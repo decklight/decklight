@@ -39,7 +39,7 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setElementStyles, editedNodes, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setElementStyles, editedNodes, setElementAttr, setElementText, removeNestedElement, moveSlideElement,
   duplicateSlideElement } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
 import { setElementPicture, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
@@ -462,6 +462,29 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       console.log(`  build saved: slide ${slide} #${index}${path.length ? ` › ${path.join('.')}` : ''} → ${said}`);
     }
     return json(200, { ok: true, changed, inPlace: inPlace === true, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/slide/builds` — `{ slide, groups, quiet?, from? }`: the
+   * slide's build order as the Builds tab arranged it (setSlideBuildOrder),
+   * every step stamped in one applyEdit, so one undo. Answers each node's
+   * order as written, for the page to show without a reload; asked for in
+   * place, every other page is told, and reloads.
+   */
+  function slideBuildsRoute({ body, json }) {
+    const { slide, groups, quiet: inPlace, from } = JSON.parse(body);
+    if (!Number.isInteger(slide) || slide < 1) throw new Error('bad payload');
+    let orders = [];
+    let changed;
+    try {
+      changed = applyEdit((html) => { const done = setSlideBuildOrder(html, slide, groups); orders = done.orders; return done.html; });
+    } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('builds', { slide, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    if (changed) console.log(`  build order saved: slide ${slide} → ${groups.length} click${groups.length === 1 ? '' : 's'}${orders.every((o) => o.order === null) ? ' (as written)' : ''}`);
+    return json(200, { ok: true, changed, orders, inPlace: inPlace === true, ...history.counts() });
   }
 
   /**
@@ -1149,5 +1172,6 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/insert', elementInsertRoute);
   routes.set('POST /deck/edit/element/picture', elementPictureRoute);
   routes.set('POST /deck/edit/slide/background', slideBackgroundRoute);
+  routes.set('POST /deck/edit/slide/builds', slideBuildsRoute);
   return routes;
 }

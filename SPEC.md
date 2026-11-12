@@ -975,6 +975,13 @@ slide. The chapters were visible, but they organised nothing.
   **Animate ▸** in the element menu gives the selection one of the looping animations (`data-animate`: none, pulse, float, shake, spin, blink, bounce, swing, glow, breathe), the one it has ticked.
   Every one of these, and Build ▸, is written by `POST /deck/edit/element/build` `{ slide, index, path?, tag?, effect?, stay?, self?, animate?, quiet?, from? }`, each attribute where it stands and a bare one written bare, one undo each, and shown in place: the page makes the same change and counts the slide's steps again, and steps the slide to show the element when it now waits.
   A change that gives or takes a `draw` build is the one exception: a drawn stroke carries more than its marks, so that write reloads the page, which selects the element again.
+  **The order** is arranged by dragging a row by its grip: dropped above or below another row it plays there, dropped onto one it arrives with it.
+  **⤒** (with previous) does the same without a drag, and **split** puts the things sharing a click each on a click of its own.
+  Nothing on the slide moves: the order is written by `POST /deck/edit/slide/builds` `{ slide, groups }`, each click the nodes it brings (`{ index, path?, tag?, count? }`, `count` the steps a code block's lines or a stroke's stages bring).
+  It stamps every step of the slide with `data-build-order` (its click's key, the things on one click sharing it, BUILD_SEMANTICS) in one undo, and takes every key off when the order asked for is the file's own.
+  A code block's lines and a stroke's stages keep together with their block: their rows are not dragged, and nothing is dropped onto them.
+  A step added after an order was written (a new point of a list) has no key, so it plays by its place on the slide; its row says *no place in the order* until it is dragged where it goes, and every other step keeps the place it was given.
+  `decklight check` counts the clicks from the same keys.
   **The picker** (the header's dashed box with an arrow, DevTools' *select an element*): while it is on, whatever is under the pointer on the slide is lit, a diagram's drawn nodes one by one and anything else as the element itself, and a click makes it the element inspected (the selection moves to it) and turns the picker off; the pointer's presses are the picker's alone, captured before the deck, the selection or a build hears them, and `Esc` turns it off.
   Without write mode the picker still inspects, on the Info tab.
   `Esc` lets go of the selection first and closes the panel second.

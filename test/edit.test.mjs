@@ -20,7 +20,7 @@ import http from 'node:http';
 import {
   upsertNarrationTrack, narrationLiteral, initArgument, configuredTrackDirs,
   setSlideLayout, setSlideTiming, setSlideHidden, setSlideFace, createHistory, undoMeta, STRETCH_MS, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS, setElementBuildAttrs, ANIMATIONS,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS, setElementBuildAttrs, ANIMATIONS, setSlideBuildOrder,
 } from '../cli/edit.mjs';
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
@@ -249,6 +249,37 @@ test('setElementBuildAttrs: effect, stay, self and animate, each written where i
   assert.throws(() => setElementBuildAttrs(deck, 1, 0, { stay: 'yes' }), /true or false/);
   assert.throws(() => setElementBuildAttrs(deck, 1, 0, {}), /nothing to set/);
   assert.throws(() => setElementBuildAttrs(deck, 1, 1, { path: [0], tag: 'p', stay: true }), (e) => e.code === 'STALE');
+});
+
+test('setSlideBuildOrder stamps every step with its click, ties sharing a key, and leaves nothing when it is the file\'s own order', async () => {
+  const { buildClicks, parseTree } = await import('../cli/check.mjs');
+  const deck = '<div class="decklight">\n<section>\n  <h2>T</h2>\n  <ul data-build>\n    <li>a</li>\n    <li>b</li>\n    <li>c</li>\n  </ul>\n  <img data-build src="p.png" alt="">\n</section>\n</div>';
+  const li = (i) => ({ index: 1, path: [i], tag: 'li' });
+  const pic = { index: 2, tag: 'img' };
+  // c first, then a with the picture, then b: three clicks
+  const { html, orders } = setSlideBuildOrder(deck, 1, [[li(2)], [li(0), pic], [li(1)]]);
+  assert.match(html, /<li data-build-order="2">a<\/li>\n {4}<li data-build-order="3">b<\/li>\n {4}<li data-build-order="1">c<\/li>/);
+  assert.match(html, /<img data-build src="p.png" alt="" data-build-order="2">/);
+  assert.deepEqual(orders.map((o) => o.order), ['1', '2', '2', '3']);
+  assert.equal(html.indexOf('<h2>T</h2>') > 0 && html.replace(/ data-build-order="\d"/g, '') === deck, true, 'nothing else moved');
+  // decklight check counts the clicks the panel arranged
+  const section = html.slice(html.indexOf('<section>'), html.indexOf('</section>') + 10);
+  assert.equal(buildClicks(parseTree(section)), 3);
+  // the file's own order again: every key taken off, the deck as it was
+  const back = setSlideBuildOrder(html, 1, [[li(0)], [li(1)], [li(2)], [pic]]);
+  assert.equal(back.html, deck);
+  assert.ok(back.orders.every((o) => o.order === null));
+  // a code block's three line steps take three keys: what follows it counts on from there
+  const code = '<div class="decklight">\n<section>\n  <pre data-lines="1|2|3"><code>a\nb\nc</code></pre>\n  <p data-build>x</p>\n</section>\n</div>';
+  const before = setSlideBuildOrder(code, 1, [[{ index: 1, tag: 'p' }], [{ index: 0, tag: 'pre', count: 3 }]]);
+  assert.match(before.html, /<p data-build data-build-order="1">x<\/p>/);
+  assert.match(before.html, /<pre data-lines="1\|2\|3" data-build-order="2">/);
+  const after = setSlideBuildOrder(code, 1, [[{ index: 0, tag: 'pre', count: 3 }], [{ index: 1, tag: 'p' }]]);
+  assert.equal(after.html, code, 'as written: nothing stamped');
+  // refused: a node named twice, an empty click, a path the file does not have
+  assert.throws(() => setSlideBuildOrder(deck, 1, [[li(0)], [li(0)]]), /named twice/);
+  assert.throws(() => setSlideBuildOrder(deck, 1, [[li(0)], []]), /groups are lists/);
+  assert.throws(() => setSlideBuildOrder(deck, 1, [[{ index: 1, path: [7] }]]), (e) => e.code === 'STALE');
 });
 
 test('setSlideElementBuild writes to a nested node: a point of a list, not the list', () => {
