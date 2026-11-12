@@ -85,6 +85,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'GET /deck/edit/element/source',
     'POST /deck/edit/asset',
     'POST /deck/edit/concepts',
+    'POST /deck/edit/element/build',
     'POST /deck/edit/element/concept',
     'POST /deck/edit/element/concepts',
     'POST /deck/edit/element/connector',
@@ -112,6 +113,21 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/slide/template',
     'POST /deck/edit/timings',
   ], 'a route that leaves this list has left the edit server too');
+});
+
+test('POST /deck/edit/element/build sets a node\'s build settings in one undo entry, and a stale path is a 409', async (t) => {
+  const { routes, readDeck } = harness(t);
+  const before = readDeck();
+  const r = await call(routes, 'POST /deck/edit/element/build', { body: { slide: 1, index: 0, effect: 'zoom', animate: 'pulse' } });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.changed, true);
+  assert.equal(r.body.undo, 1, 'both attributes, one step of the undo history');
+  assert.match(readDeck(), /data-build="zoom"[^>]*data-animate="pulse"/);
+  assert.notEqual(readDeck(), before);
+  const again = await call(routes, 'POST /deck/edit/element/build', { body: { slide: 1, index: 0, effect: 'zoom' } });
+  assert.equal(again.body.changed, false, 'the same setting again writes nothing');
+  const gone = await call(routes, 'POST /deck/edit/element/build', { body: { slide: 1, index: 0, path: [9], effect: 'fade' } });
+  assert.equal(gone.code, 409);
 });
 
 test('POST /deck/edit/slide/notes writes the aside and leaves one undo entry behind', async (t) => {

@@ -832,6 +832,11 @@ export function createEditMode({
           es.addEventListener('content', (ev) => {
             try { if (JSON.parse(ev.data).from !== PAGE_ID) reloadWhenSafe('text saved in another tab'); } catch { /* malformed: the next reload settles it */ }
           });
+          // a build changed in place on another page (the Builds tab, Build ▸,
+          // Animate ▸): this page counts the old steps, and reloads for the new
+          es.addEventListener('builds', (ev) => {
+            try { if (JSON.parse(ev.data).from !== PAGE_ID) reloadWhenSafe('builds changed in another tab'); } catch { /* malformed: the next reload settles it */ }
+          });
           // a layout picked on another page: put it on the slide here, no reload
           es.addEventListener('layout', (ev) => {
             try {
@@ -2450,6 +2455,8 @@ export function createEditMode({
   // .decklight-ctxmenu in decklight.css. closeOnBackdrop/selectInList still
   // apply unchanged: nothing about them assumes a dimmed, centered overlay.
   const TEXT_EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight'];
+  /** The looping animations (`data-animate`), as the vocabulary lists them. */
+  const ANIMATIONS = ['pulse', 'float', 'shake', 'spin', 'blink', 'bounce', 'swing', 'glow', 'breathe'];
   /**
    * What Build ▸ is about: the node selected inside the block (a point of a
    * list, a shape) when there is one, else the block itself.
@@ -2550,6 +2557,13 @@ export function createEditMode({
       // the element) — distinct from "remove effect", which strips data-build.
       rows.push(tick('none', 'none (instant)'));
       if (cur !== null) rows.push({ label: cur === '' ? '✓ the default build — remove it' : 'remove effect', run: () => commitEffect(null) });
+    } else if (menuView === 'animate') {
+      // Animate ▸ (PRESENTING_EDITING): a loop the element keeps while its slide is on screen, `data-animate`
+      const node = buildNode(menuTarget);
+      const cur = node?.getAttribute?.('data-animate') ?? null;
+      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      rows.push({ label: `${cur === null ? '✓ ' : ''}none`, current: cur === null, run: () => commitAnimate(null) });
+      for (const a of ANIMATIONS) rows.push({ label: `${a === cur ? '✓ ' : ''}${a}`, current: a === cur, run: () => commitAnimate(a) });
     } else if (menuView === 'concept') {
       // Concept ▸ (SPEC SVG_DIAGRAMS, #718): the shape's data-concept — one of
       // the names the deck already uses, a new one, or none
@@ -2662,6 +2676,10 @@ export function createEditMode({
       }
       const fx = currentEffect(t);
       rows.push({ label: fx ? `Build: ${fx} ▸` : fx === '' ? 'Build: the default ▸' : 'Build ▸', run: drill('effects') });
+      if (buildEdit) {
+        const loop = buildNode(t)?.getAttribute?.('data-animate');
+        rows.push({ label: loop ? `Animate: ${loop} ▸` : 'Animate ▸', run: drill('animate') });
+      }
       // up or down the slide, greyed at the ends and inside a diagram (element-move.js)
       if (elementMove) {
         for (const [dir, label, key] of [[-1, 'Move up', elementMove.keys.up], [1, 'Move down', elementMove.keys.down]]) {
@@ -2928,6 +2946,8 @@ export function createEditMode({
     const { slide, index, top } = menuTarget;
     const node = buildNode(menuTarget);
     closeElementMenu();
+    // in place where it can be (build-edit.js): the page shows it, the slide steps to it, one undo
+    if (buildEdit && node) { await buildEdit.set(node, { effect }, effect === null ? 'build removed' : `effect: ${effect}`); return; }
     const path = node && node !== top ? pathFrom(top, node) : [];
     if (!path) { toast('that node is the engine’s, not the file’s — give its block the build', 2600); return; }
     // the page the write reloads selects it again, and so steps the slide to
@@ -2948,6 +2968,12 @@ export function createEditMode({
     }
   }
 
+  async function commitAnimate(name) {
+    const node = buildNode(menuTarget);
+    closeElementMenu();
+    if (node && buildEdit) await buildEdit.set(node, { animate: name }, name ? `animate: ${name}` : 'animation off');
+  }
+
   // "Concept ▸" — the shape's data-concept (SPEC SVG_DIAGRAMS, #718): set on
   // the shape, or taken off the element that carries it (a group's, when the
   // shape has it from its group). One POST, one undo entry; the reload the
@@ -2966,6 +2992,7 @@ export function createEditMode({
   let conceptTools = null;
   let styleClip = null;   // copy style / paste style (style-clip.js), handed in by the engine
   let elementMove = null;   // moving things within a slide (element-move.js), handed in by the engine
+  let buildEdit = null;     // a node's build settings, changed in place (build-edit.js), handed in by the engine
   let openInEditor = null;  // a slide or an element at its line in the author's editor (open-in-editor.js), handed in by the engine
   let tableRows = null;   // the table menu's rows for a right-clicked cell (list-session.js), handed in by authoring.js
   let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
@@ -4634,6 +4661,7 @@ export function createEditMode({
     setStyleClip: (c) => { styleClip = c; },
     /** Moving things within a slide (element-move.js): the menu's Move rows; and the bar's keys and drag ask for it here. */
     setElementMove: (m) => { elementMove = m; },
+    setBuildEdit: (b) => { buildEdit = b; },
     /** Open in your editor (open-in-editor.js): the element menu's and the slide menu's rows. */
     setOpenInEditor: (o) => { openInEditor = o; },
     elementMove: () => elementMove,

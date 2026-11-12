@@ -20,7 +20,7 @@ import http from 'node:http';
 import {
   upsertNarrationTrack, narrationLiteral, initArgument, configuredTrackDirs,
   setSlideLayout, setSlideTiming, setSlideHidden, setSlideFace, createHistory, undoMeta, STRETCH_MS, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS, setElementBuildAttrs, ANIMATIONS,
 } from '../cli/edit.mjs';
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
@@ -217,6 +217,38 @@ test('setSlideElementBuild replaces and removes a bare data-build (the default b
   assert.doesNotMatch(removed, /data-build/);
   // a single-quoted one keeps its quote, where it stands
   assert.match(setSlideElementBuild(deck.replace('data-build class', "data-build='fade' class"), 1, 1, 'pop'), /<ul data-build='pop' class="tight">/);
+});
+
+test('setElementBuildAttrs: effect, stay, self and animate, each written where it stands and left alone when not given', () => {
+  const deck = '<div class="decklight">\n<section>\n  <h2>T</h2>\n  <ul data-build class="tight">\n    <li>a</li>\n    <li>b</li>\n  </ul>\n</section>\n</div>';
+  // the whole list at once, and its first point there from the start: bare attributes
+  const once = setElementBuildAttrs(deck, 1, 1, { self: true });
+  assert.match(once, /<ul data-build class="tight" data-build-self>/);
+  const stays = setElementBuildAttrs(once, 1, 1, { path: [0], tag: 'li', stay: true });
+  assert.match(stays, /<li data-build-stay>a<\/li>/);
+  // each field left out is left alone
+  const zoomed = setElementBuildAttrs(stays, 1, 1, { effect: 'zoom' });
+  assert.match(zoomed, /<ul data-build="zoom" class="tight" data-build-self>/);
+  assert.match(zoomed, /<li data-build-stay>a<\/li>/);
+  // '' is the bare default, false and null take each off
+  const back = setElementBuildAttrs(zoomed, 1, 1, { effect: '', self: false });
+  assert.match(back, /<ul data-build class="tight">/);
+  assert.match(setElementBuildAttrs(back, 1, 1, { path: [0], tag: 'li', stay: false }), /<li>a<\/li>/);
+  // a step added to a block with none, and taken off
+  const added = setElementBuildAttrs(deck, 1, 0, { effect: 'fade' });
+  assert.match(added, /<h2 data-build="fade">T<\/h2>/);
+  assert.match(setElementBuildAttrs(added, 1, 0, { effect: null }), /<h2>T<\/h2>/);
+  // the looping animations are the vocabulary's
+  assert.deepEqual(ANIMATIONS, ['pulse', 'float', 'shake', 'spin', 'blink', 'bounce', 'swing', 'glow', 'breathe']);
+  const pulsing = setElementBuildAttrs(deck, 1, 0, { animate: 'pulse' });
+  assert.match(pulsing, /<h2 data-animate="pulse">T<\/h2>/);
+  assert.match(setElementBuildAttrs(pulsing, 1, 0, { animate: null }), /<h2>T<\/h2>/);
+  // closed names and values
+  assert.throws(() => setElementBuildAttrs(deck, 1, 0, { effect: 'sideways' }), /unknown build effect/);
+  assert.throws(() => setElementBuildAttrs(deck, 1, 0, { animate: 'wobble' }), /unknown animation/);
+  assert.throws(() => setElementBuildAttrs(deck, 1, 0, { stay: 'yes' }), /true or false/);
+  assert.throws(() => setElementBuildAttrs(deck, 1, 0, {}), /nothing to set/);
+  assert.throws(() => setElementBuildAttrs(deck, 1, 1, { path: [0], tag: 'p', stay: true }), (e) => e.code === 'STALE');
 });
 
 test('setSlideElementBuild writes to a nested node: a point of a list, not the list', () => {
