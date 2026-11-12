@@ -1218,8 +1218,8 @@ export function init(userConfig = {}) {
       // ── Present ─────────────────────────────────────────────────────────
       { label: 'Speaker view — second window', cat: 'Present', hint: editmode.available() ? SPEAKER_CHORD : `S · ${SPEAKER_CHORD}`, alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
       { label: 'Fullscreen', cat: 'Present', hint: 'F · ' + PRESENT_CHORD, run: () => toggleFullscreen() },
-      { label: `${fsChromeHidden() ? 'Show' : 'Hide'} arrows and slide number in fullscreen`, cat: 'Present', hint: '⇧F',
-        alias: 'chevrons controls prev next counter page number chrome clean distraction free', run: () => setFsChrome(!fsChromeHidden()) },
+      { label: `${fsChromeHidden() ? 'Show' : 'Hide'} arrows and slide number in fullscreen and speaker view`, cat: 'Present', hint: '⇧F',
+        alias: 'chevrons controls prev next counter page number chrome clean distraction free presenter second window', run: () => setFsChrome(!fsChromeHidden()) },
       { label: 'Blackout', cat: 'Present', hint: 'B', run: toggleBlackout },
       { label: hud.annotator?.tool === 'pen' ? 'Put the pen away' : 'Draw on the slide', cat: 'Present', hint: 'W', alias: 'pen ink annotate draw scribble marker highlight', run: () => toggleInk('pen') },
       { label: hud.annotator?.tool === 'laser' ? 'Put the laser pointer away' : 'Laser pointer', cat: 'Present', hint: '⇧W', alias: 'laser ink dot glow point at', run: () => toggleInk('laser') },
@@ -1454,7 +1454,7 @@ export function init(userConfig = {}) {
       // up and change it in one place. Each is remembered per deck already;
       // this is the view of what is remembered.
       ...(printMode ? [] : [
-        { label: 'Arrows and slide number in fullscreen', value: fsChromeHidden() ? 'hidden' : 'shown', hint: '⏎ switches · ⇧F', stays: true, run: () => setFsChrome(!fsChromeHidden()) },
+        { label: 'Arrows and slide number in fullscreen and speaker view', value: fsChromeHidden() ? 'hidden' : 'shown', hint: '⏎ switches · ⇧F', stays: true, run: () => setFsChrome(!fsChromeHidden()) },
         { label: 'Clock', value: hud.status().clockOn ? 'on' : 'off', hint: '⏎ switches', stays: true, run: () => toggleClock() },
         { label: 'Progress bar', value: hud.status().progressOn ? 'on' : 'off', hint: '⏎ switches', stays: true, run: () => toggleProgress() },
         { label: 'Captions', value: narration.status().captionsOn ? 'on' : 'off', hint: '⏎ switches', stays: true, run: () => toggleCaptions() },
@@ -2298,20 +2298,33 @@ export function init(userConfig = {}) {
   document.addEventListener('fullscreenchange', () => {
     if (fsBtn) fsBtn.innerHTML = document.fullscreenElement ? TC_ICON.unfull : TC_ICON.full;
   });
-  // The arrows and the slide number, in fullscreen (⇧F, Settings, palette).
-  // Shown by default, as they always were; hidden, a fullscreen talk is the
-  // slides and nothing else. Remembered per deck, like the clock. Only
-  // fullscreen is affected: out of it the arrows are how a mouse moves the
+  // The arrows and the slide number, in fullscreen and while the speaker view
+  // is open (⇧F, Settings, palette). Shown by default, as they always were;
+  // hidden, the room sees the slides and nothing else. Remembered per deck,
+  // like the clock. Only presenting is affected: the speaker view is a talk
+  // driven from the second window, so this one is the room's, whether or not
+  // it went fullscreen. Out of both, the arrows are how a mouse moves the
   // deck, and the number is how an author knows where they are.
   const FS_CHROME_KEY = 'decklight-fs-chrome:' + location.pathname;
   const fsChromeHidden = () => root.classList.contains('fs-chrome-hidden');
   function setFsChrome(hidden, { quiet = false } = {}) {
     root.classList.toggle('fs-chrome-hidden', hidden);
     writePref(FS_CHROME_KEY, hidden ? 'hidden' : null);
-    if (!quiet) toast(hidden ? 'arrows and slide number hidden in fullscreen' : 'arrows and slide number shown in fullscreen');
+    if (!quiet) toast(`arrows and slide number ${hidden ? 'hidden' : 'shown'} in fullscreen and while the speaker view is open`);
     debugLog('nav', `fullscreen chrome ${hidden ? 'hidden' : 'shown'}`);
   }
   if (readPref(FS_CHROME_KEY) === 'hidden') setFsChrome(true, { quiet: true });
+  // `speaker-open` on the root while the speaker window is: set when it
+  // subscribes (speaker.js), cleared by a once-a-second look at `closed`,
+  // which a window's opener can read whatever origin the popup ended up on.
+  let speakerPoll = 0;
+  instance.__onSpeakerWin = function syncSpeakerOpen() {
+    const w = instance.__speakerWin;
+    const open = !!w && !w.closed;
+    root.classList.toggle('speaker-open', open);
+    if (open && !speakerPoll) speakerPoll = setInterval(syncSpeakerOpen, 1000);
+    else if (!open && speakerPoll) { clearInterval(speakerPoll); speakerPoll = 0; }
+  };
   function syncSoundBtn() {
     if (!soundBtn) return;
     const on = narration.status().narrating;
@@ -2666,7 +2679,7 @@ export function init(userConfig = {}) {
       <tr><td>S</td><td>speaker view: notes, next slide, timer (in write mode, the notes card)</td></tr>
       <tr><td>${SPEAKER_CHORD}</td><td>speaker view, in write mode too</td></tr>
       <tr><td>F / ${presentChord}</td><td>fullscreen (${presentChord} outside write mode)</td></tr>
-      <tr><td>⇧F</td><td>the arrows and the slide number in fullscreen</td></tr>
+      <tr><td>⇧F</td><td>the arrows and the slide number in fullscreen and the speaker view</td></tr>
       <tr><td>B / .</td><td>black screen; any key brings the slide back</td></tr>
       <tr><td>W</td><td>pen (⌫ clears)</td></tr>
       <tr><td>⇧W</td><td>laser pointer</td></tr>
