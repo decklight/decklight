@@ -66,3 +66,22 @@ test('what the menu offers: every kind, its own ticked, a title held to a headin
   assert.deepEqual(title.filter((k) => !k.disabled).map((k) => k.kind), ['heading']);
   assert.match(title[0].disabled, /title/);
 });
+
+import { joinBlocks, JOIN_KINDS } from '../src/core/block-kind.js';
+
+test('joinBlocks: several blocks into one list or one quote, what is inside each carried as written', () => {
+  assert.deepEqual(JOIN_KINDS, ['bullets', 'numbered', 'quote']);
+  const list = joinBlocks(['<p>One <strong>bold</strong></p>', '<h3>Two</h3>', '<ul><li>three</li><li>four</li></ul>'], 'bullets');
+  assert.equal(list.html, '<ul>\n  <li>One <strong>bold</strong></li>\n  <li>Two</li>\n  <li>three</li>\n  <li>four</li>\n</ul>');
+  assert.equal(list.pieces, 4);
+  assert.equal(list.build, 'none');
+  // every one built: the list builds a point a step, as they did
+  assert.deepEqual(joinBlocks(['<p data-build>a</p>', '<p data-build="fade">b</p>'], 'numbered'), { html: '<ol data-build>\n  <li>a</li>\n  <li>b</li>\n</ol>', pieces: 2, build: 'same' });
+  // a quote that builds arrives whole; only some built: none, and said
+  assert.equal(joinBlocks(['<p data-build>a</p>', '<p data-build>b</p>'], 'quote').build, 'one');
+  assert.equal(joinBlocks(['<p data-build>a</p>', '<p>b</p>'], 'quote').html, '<blockquote>\n  <p>a</p>\n  <p>b</p>\n</blockquote>');
+  assert.equal(joinBlocks(['<p data-build>a</p>', '<p>b</p>'], 'quote').build, 'some');
+  assert.throws(() => joinBlocks(['<p>a</p>'], 'bullets'), /two blocks or more/);
+  assert.throws(() => joinBlocks(['<p>a</p>', '<img src="x.png">'], 'bullets'), /only text, headings, quotes and lists/);
+  assert.throws(() => joinBlocks(['<p>a</p>', '<p>b</p>'], 'heading'), /a list or a quote/);
+});

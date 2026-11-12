@@ -40,7 +40,7 @@ import {
   setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, moveSlideElement,
-  duplicateSlideElement, removeSlideElements, duplicateSlideElements, moveSlideElements } from './edit.mjs';
+  duplicateSlideElement, removeSlideElements, duplicateSlideElements, moveSlideElements, joinSlideElements } from './edit.mjs';
 import { locateElement, openElement } from './edit-address.mjs';
 import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs, pasteSlideElement } from './edit.mjs';
 import { relativeAssets } from './paste.mjs';
@@ -382,6 +382,19 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
     }
     return json(200, { ok: true, changed, inPlace: !!changed && inPlace === true, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/element/join` — `{ slide, items, html }` (Turn into ▸
+   * with several selected): the joined block the page made from their
+   * sources put where the first of them stands, the others taken out, in one
+   * edit (joinSlideElements). Not quiet: the page that asked reloads onto it.
+   */
+  function elementJoinRoute({ body, json }) {
+    const { slide, items = null, html } = JSON.parse(body || '{}');
+    let done = null;
+    return batchRoute(json, slide, 'joined into one', (deck) => { done = joinSlideElements(deck, slide, items, html); return done.html; }, items,
+      { answer: () => ({ index: done.index }) });
   }
 
   function elementContentRoute({ body, json }) {
@@ -1393,6 +1406,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/move', elementMoveRoute);
   routes.set('POST /deck/edit/element/order', elementOrderRoute);
   routes.set('POST /deck/edit/element/duplicate', elementDuplicateRoute);
+  routes.set('POST /deck/edit/element/join', elementJoinRoute);
   routes.set('POST /deck/edit/element/style', elementStyleRoute);
   routes.set('POST /deck/edit/element/concept', elementConceptRoute);
   routes.set('POST /deck/edit/element/concepts', elementConceptsRoute);

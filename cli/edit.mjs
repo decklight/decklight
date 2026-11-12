@@ -891,6 +891,29 @@ export function moveSlideElements(html, slide, items, dir) {
   return { html: out, indices: at };
 }
 
+/**
+ * Several elements of slide N joined into one (Turn into ▸ with several
+ * selected): `markup`, the joined block the page made from their sources,
+ * goes where the first of them stands, at its indent (the markup's later
+ * lines indented from its first), and the others are taken out with their
+ * lines. One edit. Returns `{ html, index }`, where the joined block is.
+ */
+export function joinSlideElements(html, slide, items, markup) {
+  if (typeof markup !== 'string' || !markup.trim() || markup.length > 200_000) throw new Error('the joined block is its markup');
+  const sorted = batchOf(html, slide, items);
+  if (sorted.length < 2) throw new Error('joining takes two elements or more');
+  const { parts, idx } = locateSlide(String(html), slide);
+  const seg = parts[idx];
+  const ranges = sectionChildRanges(seg);
+  const first = ranges[sorted[0].index];
+  const lead = /\n([ \t]*)$/.exec(seg.slice(0, first.start))?.[1] ?? '';
+  const block = markup.trim().split('\n').map((l, i) => (i && l ? lead + l : l)).join('\n');
+  // the others out first: each lies after the first, so its offsets hold
+  const rest = withoutNodes(seg, sorted.slice(1).map((it) => [ranges[it.index].start, ranges[it.index].end]));
+  parts[idx] = rest.slice(0, first.start) + block + rest.slice(first.end);
+  return { html: parts.join(''), index: sorted[0].index };
+}
+
 // ── front and back (SVG_DIAGRAMS) ─────────────────────────────────────────
 
 /** What a diagram holds that is not drawn: never moved past by front and back, and never counted. */
@@ -2656,6 +2679,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/move': 'element moved',
   '/deck/edit/element/order': 'diagram order changed',
   '/deck/edit/element/duplicate': 'element duplicated',
+  '/deck/edit/element/join': 'elements joined into one',
   '/deck/edit/element/style': 'colours saved',
   '/deck/edit/element/concept': 'concept set',
   '/deck/edit/element/text': 'text saved',
@@ -2814,6 +2838,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/move': 'move',
   '/deck/edit/element/order': 'front and back',
   '/deck/edit/element/duplicate': 'duplicate',
+  '/deck/edit/element/join': 'joined into one',
   '/deck/edit/element/style': 'colours',
   '/deck/edit/element/concept': 'concept',
   '/deck/edit/element/text': 'label edit',

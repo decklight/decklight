@@ -12,7 +12,7 @@
  * slide changed on disk. A build that can no longer mean what it did is said.
  */
 
-import { retagBlock, kindOf, kindsFor, KINDS } from './block-kind.js';
+import { retagBlock, kindOf, kindsFor, KINDS, joinBlocks, JOIN_KINDS } from './block-kind.js';
 import { elementAt } from './list-edit.js';
 import { pathFrom } from './colorpicker.js';
 import { createEditCommit } from './edit-commit.js';
@@ -73,5 +73,50 @@ export function createTurnInto({ instance, editmode, toast }) {
     }
   }
 
-  return { rows, turn, blockOf };
+  // ── several selected: joined into one list or one quote ─────────────────
+  /** Several top-level text blocks of one slide (paragraphs, headings, quotes, lists): what Turn into can join. */
+  const joinable = (many) => many.length > 1 && many.every((t) => t.top && t.node === t.top && kindOf(t.top.tagName) && !t.top.closest('aside'));
+
+  /** The rows Turn into ▸ offers several: a list or a quote, greyed with why when one of them is the slide's title. */
+  function joinRows(many, close) {
+    if (!joinable(many) || !em()?.available?.()) return [];
+    const title = many.find((t) => isTitle(t.top, t.sec));
+    return JOIN_KINDS.map((kind) => {
+      const label = KINDS.find(([k]) => k === kind)?.[1] ?? kind;
+      return title
+        ? { label, disabled: true, run: () => toast('the slide’s title stays a heading: the slide would have none', 3200) }
+        : { label, run: () => { close(); join(many, kind); } };
+    });
+  }
+
+  /** Several blocks made one of `kind`: each one's source read, joined (block-kind.js), written in one write. */
+  async function join(many, kind) {
+    if (!joinable(many)) return false;
+    const slide = many[0].slide;
+    const sorted = [...many].sort((a, b) => a.index - b.index);
+    try {
+      const sources = await Promise.all(sorted.map(async (t) => {
+        const res = await fetch(`${em()?.base?.() ?? ''}/deck/edit/element/source?slide=${slide}&index=${t.index}`);
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || typeof j.html !== 'string') throw new Error(j.error || 'no source for this element');
+        const at = elementAt(j.html, [], t.top.tagName.toLowerCase());
+        if (!at) throw new Error(`the file has no <${t.top.tagName.toLowerCase()}> where this block is: the deck has changed`);
+        return at.html;
+      }));
+      const out = joinBlocks(sources, kind);
+      await commit.post('/deck/edit/element/join', {
+        slide, items: sorted.map((t) => ({ index: t.index, tag: t.top.tagName.toLowerCase() })), html: out.html,
+      }, { quiet: false });
+      const said = out.build === 'some' ? ': only some of them built, so the joined one does not; Build ▸ gives it one'
+        : out.build === 'one' ? ': the quote arrives whole, one step' : '';
+      const one = kind === 'quote' ? 'one quote' : kind === 'numbered' ? 'one numbered list' : 'one bulleted list';
+      toast(`${sorted.length} blocks turned into ${one}, ${out.pieces} ${kind === 'quote' ? 'paragraphs' : 'points'}${said}`, said ? 4200 : 2400);
+      return true;
+    } catch (e) {
+      toast(`not turned: ${commit.why(e)}`, 6000);
+      return false;
+    }
+  }
+
+  return { rows, turn, blockOf, joinRows, join };
 }
