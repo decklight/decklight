@@ -6870,9 +6870,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         return;
       }
       // A slide marked for math is edited like any other (CODE_AND_MATH,
-      // PRESENTING_EDITING): its title and its text without a formula open
-      // for typing, a text holding a formula says why it does not, and a
-      // formula typed into the text is typeset on save, with no reload.
+      // PRESENTING_EDITING): its title and its text open for typing, a text
+      // holding a formula opens as the file's TeX, and a formula typed into
+      // the text is typeset on save, with no reload.
       if (mode === 'mathedit') {
         await settle();                       // /deck/ping: editAvailable
         deck.goto(3, 0);
@@ -6891,16 +6891,38 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.titleOpens = title.isContentEditable;
         key(title, 'Escape');
         await settle();
+        // the formula opens as what the file has, and Esc puts the typeset math back
         dbl(formula);
+        await settle(); await settle();
+        r.formulaOpensAsSource = formula.isContentEditable && !formula.querySelector('math') && formula.textContent === 'Energy is $$E = mc^2$$';
+        formula.textContent = 'junk';
+        key(formula, 'Escape');
         await settle();
-        r.formulaRefusedOutLoud = !formula.isContentEditable && /holds a formula/.test(said());
+        r.escapeTypesetsItAgain = !formula.isContentEditable && !!formula.querySelector('math') && writes().length === 0;
+        // ⏎ saves the source, and the formula is typeset in place
+        dbl(formula);
+        await settle(); await settle();
+        formula.textContent = 'Energy is $$E = mc^3$$';
+        key(formula, 'Enter');
+        await settle(); await settle();
+        r.formulaSavedAsSource = writes()[0]?.body.html === '<p class="mx-formula">Energy is $$E = mc^3$$</p>';
+        r.formulaTypesetInPlace = !formula.isContentEditable && !!formula.querySelector('math') && !formula.querySelector('.temml-error');
+        MX_SRC[1] = writes()[0]?.body.html ?? MX_SRC[1];
+        // one that does not parse is saved anyway, shows its error where it stands, and says so
+        dbl(formula);
+        await settle(); await settle();
+        formula.textContent = 'Broken $$\\frac{$$';
+        key(formula, 'Enter');
+        await settle(); await settle();
+        r.brokenStillSaved = writes()[1]?.body.html === '<p class="mx-formula">Broken $$\\frac{$$</p>';
+        r.brokenShowsItsError = !!formula.querySelector('.temml-error') && /does not parse/.test(said());
         const plain = sec.querySelector('.mx-plain');
         dbl(plain);
         r.plainOpens = plain.isContentEditable;
         plain.textContent = 'Area is $$\\pi r^2$$';
         key(plain, 'Enter');
         await settle(); await settle();
-        const saved = writes()[0];
+        const saved = writes()[2];
         r.savedTheSource = saved?.body.html === '<p class="mx-plain">Area is $$\\pi r^2$$</p>';
         r.typesetInPlace = plain.isConnected && !!plain.querySelector('math') && !plain.isContentEditable;
         // in a list session, a press on a point holding a formula does not take
@@ -6914,7 +6936,14 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.formulaPointNotTaken = !second.isContentEditable && first.isContentEditable && /holds a formula/.test(said());
         key(first, 'Escape');
         await settle();
-        r.listLeftAsItWas = !first.isContentEditable && !!second.querySelector('math') && writes().length === 1;
+        r.listLeftAsItWas = !first.isContentEditable && !!second.querySelector('math') && writes().length === 3;
+        // double-clicked, that point opens as its source in a list session of its own
+        dbl(second);
+        await settle(); await settle();
+        r.formulaPointOpensAsSource = second.isContentEditable && second.textContent === 'Has $$x^2$$';
+        key(second, 'Escape');
+        await settle();
+        r.formulaPointTypesetAgain = !second.isContentEditable && !!second.querySelector('math') && writes().length === 3;
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
       if (mode === 'codeedit') {

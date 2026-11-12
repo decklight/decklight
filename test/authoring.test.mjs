@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EDITABLE, NOT_EDITABLE, altFromName, childPath, droppedNotAdded, editableTarget, formulaRefusal, imageFiles, nodeAtPath,
+  EDITABLE, NOT_EDITABLE, altFromName, childPath, droppedNotAdded, editableTarget, formulaError, formulaTarget, imageFiles, nodeAtPath,
 } from '../src/core/authoring.js';
 
 /** A duck-typed element tree: tag, children, and the two traversal methods used. */
@@ -51,7 +51,7 @@ test('the path from a top-level element to a node counts element children only, 
   assert.equal(nodeAtPath(source, [1, 7]), null, 'a path the source cannot follow is a refusal, not a guess');
 });
 
-test('a slide marked for math is edited like any slide: only text that holds a formula is refused, and says why', () => {
+test('a slide marked for math is edited like any slide: text holding a formula is found, to open as its source', () => {
   const title = el('h2');
   const plain = el('p');
   const formula = el('p', [el('math')]);
@@ -59,15 +59,20 @@ test('a slide marked for math is edited like any slide: only text that holds a f
   const section = el('section', [title, plain, formula, el('ul', [broken])], { 'data-math': '' });
   assert.equal(editableTarget(title, section), title, 'the title of a math slide opens for typing');
   assert.equal(editableTarget(plain, section), plain, 'so does its text with no formula in it');
-  assert.equal(formulaRefusal(plain, section), null, 'and nothing is said about it');
-  assert.equal(editableTarget(formula.children[0], section), null, 'typeset MathML is not the TeX the file has');
-  assert.match(formulaRefusal(formula.children[0], section), /holds a formula/, 'the refusal is said, never silent');
+  assert.equal(formulaTarget(plain, section), null, 'which is not a formula to open as its source');
+  assert.equal(editableTarget(formula.children[0], section), null, 'typeset MathML is not typed into as it is shown');
+  assert.equal(formulaTarget(formula.children[0], section), formula, 'the text holding it opens as its source instead');
   assert.equal(editableTarget(broken, section), null, 'a formula that did not parse is still a formula');
-  assert.match(formulaRefusal(broken, section), /holds a formula/);
+  assert.equal(formulaTarget(broken, section), broken);
   const code = el('span');
   section.children.push(el('pre', [el('code', [code])]));
   section.children.at(-1).parentElement = section;
-  assert.equal(formulaRefusal(code, section), null, 'a refusal for another reason is not blamed on a formula');
+  assert.equal(formulaTarget(code, section), null, 'code refused for its own reason is not taken for a formula');
+});
+
+test('a formula that does not parse says what is wrong, in Temml’s words', () => {
+  assert.equal(formulaError({ textContent: '\\frac{\n\nParseError: Expected group after \'\\frac\'' }), 'Expected group after \'\\frac\'');
+  assert.equal(formulaError({ textContent: '' }), 'it does not parse');
 });
 
 test('a node that is not under the top has no path', () => {
