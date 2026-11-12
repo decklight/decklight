@@ -30,6 +30,7 @@ import { createAddContent } from './add-content.js';
 import { createClipboard } from './clipboard.js';
 import { createPictures } from './pictures.js';
 import { createShapes } from './shapes.js';
+import { createCanvas } from './canvas.js';
 import { overflowingLabels } from './diagram-labels.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
@@ -3772,6 +3773,10 @@ export function init(userConfig = {}) {
   const shapes = createShapes({ root, instance, editmode, editbar, authoring, toast, debugLog });
   editmode.setShapes(shapes);
   instance._shapes = shapes;
+  // a diagram's canvas: more room or less from its edges, fitted to the drawing (canvas.js)
+  const canvas = createCanvas({ root, instance, editmode, editbar, toast, debugLog });
+  editmode.setCanvas?.(canvas);
+  instance._canvas = canvas;
   inspector = createInspector({
     root, overlays, toast, copyText,
     pictures: () => pictures,
