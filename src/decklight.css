@@ -4161,6 +4161,11 @@
 .decklight-inspector .ins-field:focus { outline: none; border-color: #9ecbff; background: rgba(255, 255, 255, .1); }
 .decklight-inspector :is(.ins-ok, .ins-warn) + .ins-field { width: calc(100% - 21px); }
 .decklight-inspector .ins-value + .ins-field { margin-top: 5px; }
+/* the Slide tab: a field a row, the label beside it */
+.decklight-inspector .ins-settings dt { align-self: center; }
+.decklight-inspector .ins-select { width: auto; max-width: 100%; padding: 2px 5px; }
+.decklight-inspector .ins-select option { color: #111; }
+.decklight-inspector .ins-check { margin: 0; accent-color: #9ecbff; width: 15px; height: 15px; vertical-align: middle; }
 .decklight-inspector .ins-btn {
   margin-left: 8px; padding: 1px 8px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, .18);
   background: rgba(255, 255, 255, .06); font: inherit; font-size: .92em; color: #dfe3ea; cursor: pointer;

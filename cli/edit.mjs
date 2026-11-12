@@ -2022,6 +2022,67 @@ export function pictureToBackground(html, slide, index, { path = [], tag = 'img'
 }
 
 /**
+ * What a slide's settings write (the inspector's Slide tab, PRESENTING_EDITING):
+ * each `<section>` attribute the vocabulary lists (DECK_ANATOMY) that has no
+ * route of its own, with the one shape of value it takes. `true` is the
+ * attribute written bare, null takes it off; anything else is refused. Left
+ * out, because a route of their own writes them: `data-layout`,
+ * `data-template`, `data-hidden` (HIDDEN_SLIDES), `data-background-image`
+ * and `data-face`.
+ */
+const SLIDE_NUMBER = /^\d{1,4}(?:\.\d{1,3})?$/;
+const seconds = (max) => (v) => typeof v === 'string' && SLIDE_NUMBER.test(v) && Number(v) <= max;
+const bareOnly = (v) => v === true;
+const oneOf = (...vs) => (v) => vs.includes(v);
+const POSITION_WORD = '(?:left|center|right|top|bottom|\\d{1,3}%)';
+const SLIDE_ATTRS = {
+  // a chapter's name: words on one line, bounded
+  'data-module': (v) => typeof v === 'string' && v.trim() === v && v.length >= 1 && v.length <= 120 && !/[\u0000-\u001f\u007f]/.test(v),
+  'data-transition': oneOf('none', 'fade', 'slide', 'scale', 'flip'),
+  'data-auto-animate': bareOnly,
+  // planned seconds, whole (setSlideTiming writes the same)
+  'data-timing': (v) => typeof v === 'string' && /^[1-9]\d{0,4}$/.test(v),
+  'data-pin': (v) => v === true || v === 'none' || seconds(2000)(v),
+  'data-subtitle': oneOf('none'),
+  'data-background-video': (v) => typeof v === 'string' && relativeSrc(v),
+  'data-background-poster': (v) => typeof v === 'string' && relativeSrc(v),
+  'data-background-size': oneOf('cover', 'contain'),
+  'data-background-position': (v) => typeof v === 'string' && new RegExp(`^${POSITION_WORD}(?: ${POSITION_WORD})?$`).test(v),
+  'data-background-dim': (v) => typeof v === 'string' && /^(?:0(?:\.\d{1,3})?|1(?:\.0{1,3})?)$/.test(v),
+  'data-logo': (v) => v === true || seconds(2000)(v),
+  'data-math': bareOnly,
+  'data-static-ok': bareOnly,
+  'data-dense-ok': bareOnly,
+  'data-narration': oneOf('hold'),
+  'data-narration-pause': seconds(60),
+  'data-narration-beat-pause': seconds(60),
+  'data-narration-sentence-pause': seconds(60),
+  'data-video-hold': seconds(600),
+};
+export const SLIDE_ATTR_NAMES = Object.freeze(Object.keys(SLIDE_ATTRS));
+
+/**
+ * Slide N's `<section>` with each attribute of `set` (`{ name: value }`)
+ * written in its own place, its quote kept (withAttr), or added last: a
+ * string is its value, `true` writes it bare, null takes it off. Every name
+ * and value is checked first (SLIDE_ATTRS), so a refusal writes nothing.
+ */
+export function setSlideAttrs(html, slide, set) {
+  if (!set || typeof set !== 'object' || Array.isArray(set)) throw new Error('bad set');
+  const entries = Object.entries(set);
+  if (!entries.length || entries.length > SLIDE_ATTR_NAMES.length) throw new Error('bad set');
+  for (const [name, value] of entries) {
+    const ok = Object.hasOwn(SLIDE_ATTRS, name) ? SLIDE_ATTRS[name] : null;
+    if (!ok) throw new Error(`not a slide attribute this server writes: ${String(name).slice(0, 40)}`);
+    if (value !== null && !ok(value)) throw new Error(`not a value ${name} takes: ${String(value).slice(0, 40)}`);
+  }
+  const { parts, idx } = locateSlide(html, slide);
+  const { attrs: had, close, rest } = splitOpenTag(parts[idx]);
+  parts[idx] = entries.reduce((a, [name, value]) => withAttr(a, name, value), had) + close + rest;
+  return parts.join('');
+}
+
+/**
  * The edit history: whole-file snapshots, in memory, capped. record() the
  * content a mutation is about to replace; undo()/redo() take the CURRENT
  * file content (which may include edits made outside the server — those
@@ -2041,6 +2102,7 @@ const WRITE_LABELS = {
   '/deck/edit/slide/layout': 'layout picked',
   '/deck/edit/slide/template': 'template switched',
   '/deck/edit/slide/hidden': 'slide hidden or shown',
+  '/deck/edit/slide/attr': 'slide settings changed',
   '/deck/edit/slide/face': 'face placed',
   '/deck/edit/slide': 'slides rearranged',
   '/deck/edit/narration': 'narration track saved',
@@ -2192,6 +2254,7 @@ const UNDO_LABELS = {
   '/deck/edit/slide/layout': 'layout',
   '/deck/edit/slide/template': 'template',
   '/deck/edit/slide/hidden': 'hiding the slide',
+  '/deck/edit/slide/attr': 'slide settings',
   '/deck/edit/slide/face': 'face placement',
   '/deck/edit/slide': 'slide change',
   '/deck/edit/element/remove': 'removed element',

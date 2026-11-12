@@ -838,6 +838,13 @@ export function createEditMode({
               if (d.from !== PAGE_ID) root.dispatchEvent(new CustomEvent('decklight:layout', { detail: { slide: d.slide, layout: d.layout } }));
             } catch { /* malformed: the next reload settles it */ }
           });
+          // a slide's settings changed on another page (the Slide tab): put them on its slides here, no reload
+          es.addEventListener('slide-attrs', (ev) => {
+            try {
+              const d = JSON.parse(ev.data);
+              if (d.from !== PAGE_ID && Array.isArray(d.edits)) root.dispatchEvent(new CustomEvent('decklight:slide-attrs', { detail: { edits: d.edits } }));
+            } catch { /* malformed: the next reload settles it */ }
+          });
           // the deck's concept colours, pinned on another page: repaint here, no reload (#718)
           es.addEventListener('concepts', (ev) => {
             try {

@@ -30,6 +30,7 @@ import { createPictures } from './pictures.js';
 import { createShapes } from './shapes.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
+import { createSlideSettings, applySlideAttrs } from './slide-settings.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { createPlaylist } from './playlist.js';
@@ -1772,6 +1773,12 @@ export function init(userConfig = {}) {
     if (!sec || typeof name !== 'string') return;
     applyLayout(sec, name);
     relayoutSlide(sec, slide);
+  });
+  // a slide's settings changed on another page's Slide tab (slide-settings.js):
+  // the same attributes put on its section here, the inspector following
+  root.addEventListener('decklight:slide-attrs', (e) => {
+    for (const ed of e.detail?.edits ?? []) applySlideAttrs(instance._sections?.[ed?.slide - 1], ed?.set);
+    inspector?.refresh?.();
   });
   // ----- one slide brought up to date in place (PRESENTING_EDITING) ---------
   // An edit this page shows itself (text, a list, a picture, a chart's
@@ -3731,6 +3738,9 @@ export function init(userConfig = {}) {
   // the inspector's tabs are a list a feature adds its own to (addTab); the
   // render harnesses reach it here, as they reach pictures and shapes
   instance._inspector = inspector;
+  // the Slide tab, beside Info with nothing selected (PRESENTING_EDITING):
+  // the slide's chapter, transition, hidden and planned time, set in place
+  inspector.addTab(createSlideSettings({ instance: () => instance, editmode: () => editmode, toast, setHidden }).tab, { after: 'info' });
   // the content editor's way back to the inspector (its HTML tab's other end)
   editmode.setInspectorOpener?.(() => inspector?.open());
   // Check deck… (palette, SPEC PRESENTING): the open deck's own lint, slide by
