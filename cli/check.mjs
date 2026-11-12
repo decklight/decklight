@@ -5,7 +5,7 @@
 /**
  * decklight check — one headless lint of one deck, with one exit code.
  *
- *   decklight check <deck.html> [--no-render] [--json] [--wait <ms>]
+ *   decklight check <deck.html> [--no-render] [--json] [--wait <ms>] [--watch]
  *
  * The promise this repo makes (README, SPEC PRESENTING: the overflow guardrail
  * is assertable headlessly) is that an agent can verify its own work without
@@ -952,7 +952,7 @@ export function formatFindings(findings, { color = false, slides = 0 } = {}) {
   return lines;
 }
 
-const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait <ms>]
+const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait <ms>] [--watch]
   lints one deck and says, per slide, what you would otherwise only find by
   looking — for an AI agent after every edit, and for a human before a talk
 
@@ -979,40 +979,28 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
                  Chrome skips that half by itself, and says so)
   --json         the findings as a JSON array: level, rule, slide, title, message
   --wait <ms>    render budget for heavy decks  [8000]
+  --watch        check, then check again each time the deck is saved: the
+                 screen is cleared and the fresh findings printed under the
+                 time, one Chrome kept open for the whole session. For a
+                 terminal beside your editor; not with --json
 
-  exit 1 if anything is an error, 0 otherwise — warnings and hints never fail the run`;
+  exit 1 if anything is an error, 0 otherwise — warnings and hints never fail the run.
+  --watch runs until Ctrl-C and then exits 0, whatever it found`;
 
-export async function checkMain(args = []) {
-  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return 0; }
-  const { opt } = argReader(args);
-  const deck = firstPositional(args, ['--wait']);
-  if (!deck) { console.error(`decklight check: needs a deck\n\n${USAGE}`); return 1; }
-  const src = resolve(deck);
-  if (!existsSync(src)) { console.error(`decklight check: no such deck: ${deck}`); return 1; }
-
-  const html = readFileSync(src, 'utf8');
+/**
+ * One check of the deck at `src`: both halves, the render through `render`
+ * (`(url, wait) => dom`), or the file half alone when `render` is null.
+ * Returns the findings in order and the slide count; `null` when the deck is
+ * not there to read (a watch catches it mid-save).
+ */
+async function checkOnce(src, deck, { render, wait }) {
+  let html;
+  try { html = readFileSync(src, 'utf8'); } catch { return null; }
   const slides = sectionBodies(html).length;
   const findings = staticFindings(html, { dir: dirname(src), deck });
-
-  // The render half is skipped rather than failed when there is no browser:
-  // `findChrome` and never `chromeBin`, which exits the process — half a lint
-  // is the useful answer on a machine that cannot run the other half.
-  const json = args.includes('--json');
-  const bin = args.includes('--no-render') ? null : findChrome();
-  const notes = [];
-  if (args.includes('--no-render')) notes.push('check: --no-render — the file half only, nothing was rendered');
-  else if (!bin) notes.push('check: no Chrome found — the file half only; clipped slides go unreported (point $CHROME at one)');
-
-  if (bin) {
-    const wait = Number(opt('--wait', 8000));
+  if (render) {
     try {
-      const dom = await runAsync(bin, [
-        ...chromeArgs('--allow-file-access-from-files', `--virtual-time-budget=${wait}`),
-        '--dump-dom', printUrl(src),
-      ], {
-        encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: CODEC_MS,
-        why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach',
-      });
+      const dom = await render(printUrl(src), wait);
       // the browser counted the [click]s against the builds, providers and
       // all: its answer replaces the file's estimate rather than joining it
       const rendered = renderFindings(dom, { slides });
@@ -1025,8 +1013,49 @@ export async function checkMain(args = []) {
         `the deck could not be rendered — ${String(e.message ?? e).split('\n')[0]}`));
     }
   }
+  return { findings: sortFindings(findings), slides };
+}
 
-  const ordered = sortFindings(findings);
+/** A one-shot Chrome per render: `--dump-dom` under a virtual-time budget. */
+const oneShot = (bin) => (url, wait) => runAsync(bin, [
+  ...chromeArgs('--allow-file-access-from-files', `--virtual-time-budget=${wait}`),
+  '--dump-dom', url,
+], {
+  encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: CODEC_MS,
+  why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach',
+});
+
+export async function checkMain(args = [], { watchOpts = {} } = {}) {
+  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return 0; }
+  const { opt } = argReader(args);
+  const deck = firstPositional(args, ['--wait']);
+  if (!deck) { console.error(`decklight check: needs a deck\n\n${USAGE}`); return 1; }
+  const src = resolve(deck);
+  if (!existsSync(src)) { console.error(`decklight check: no such deck: ${deck}`); return 1; }
+
+  // The render half is skipped rather than failed when there is no browser:
+  // `findChrome` and never `chromeBin`, which exits the process — half a lint
+  // is the useful answer on a machine that cannot run the other half.
+  const json = args.includes('--json');
+  const watching = args.includes('--watch');
+  // a stream of JSON arrays over a cleared screen is nobody's input: an agent
+  // checks once per edit, and a watch is a screen for a person
+  if (watching && json) {
+    console.error('decklight check: --watch is for a person at a terminal, and --json is for a program: '
+      + 'run `decklight check <deck> --json` once per edit instead');
+    return 1;
+  }
+  const bin = args.includes('--no-render') ? null : findChrome();
+  const notes = [];
+  if (args.includes('--no-render')) notes.push('check: --no-render — the file half only, nothing was rendered');
+  else if (!bin) notes.push('check: no Chrome found — the file half only; clipped slides go unreported (point $CHROME at one)');
+  const wait = Number(opt('--wait', 8000));
+
+  if (watching) return watchCheck(src, deck, { bin, wait, notes, ...watchOpts });
+
+  const once = await checkOnce(src, deck, { render: bin ? oneShot(bin) : null, wait });
+  if (!once) { console.error(`decklight check: could not read ${deck}`); return 1; }
+  const { findings: ordered, slides } = once;
   const errors = ordered.filter((f) => f.level === 'error').length;
   if (json) {
     console.log(JSON.stringify(ordered, null, 2));
@@ -1036,6 +1065,45 @@ export async function checkMain(args = []) {
     console.log(formatFindings(ordered, { color: !!process.stdout.isTTY, slides }).join('\n'));
   }
   return errors ? 1 : 0;
+}
+
+/**
+ * `--watch`: check, then check again on every save, until Ctrl-C.
+ *
+ * One Chrome for the whole session (persistentRenderer), the screen cleared
+ * and the fresh report printed under a timestamp each time. It runs until
+ * it is interrupted and then exits 0: the findings decide nothing here, a
+ * person reads them. `signals` and `out` are injectable for a test.
+ */
+async function watchCheck(src, deck, { bin, wait, notes, signals = process, out = process.stdout, debounceMs = 150 }) {
+  const { watchDeck, persistentRenderer, watchHeader } = await import('./check-watch.mjs');
+  const renderer = bin ? persistentRenderer(bin) : null;
+  const tty = !!out.isTTY;
+  const print = (lines) => out.write(`${tty ? '\x1b[2J\x1b[3J\x1b[H' : ''}${lines.join('\n')}\n`);
+  let stopping = false;
+  const run = async () => {
+    const r = await checkOnce(src, deck, { render: renderer ? (url, w) => renderer.render(url, w) : null, wait });
+    if (stopping) return;   // Ctrl-C mid-run: the browser it was using is gone, and so is the reader
+    const dim = (x) => (tty ? `\x1b[2m${x}\x1b[0m` : x);
+    if (!r) { print([dim(watchHeader(basename(src), 0)), '', `${deck} is not there right now; waiting for it to be saved again`]); return; }
+    print([dim(watchHeader(basename(src), r.slides)), ...notes.map(dim), '',
+      ...formatFindings(r.findings, { color: tty, slides: r.slides })]);
+  };
+  const watcher = watchDeck({ file: src, run, debounceMs, onError: (e) => out.write(`check: ${e.message ?? e}\n`) });
+  return new Promise((done) => {
+    const stop = async () => {
+      if (stopping) return;
+      stopping = true;
+      signals.off?.('SIGINT', stop);
+      signals.off?.('SIGTERM', stop);
+      watcher.close();
+      await renderer?.close();   // first: a run still rendering fails at once rather than finishing
+      await watcher.settled().catch(() => {});
+      done(0);
+    };
+    signals.once('SIGINT', stop);
+    signals.once('SIGTERM', stop);
+  });
 }
 
 if (isMain(import.meta.url)) process.exit(await runMain('check', () => checkMain(process.argv.slice(2))));
