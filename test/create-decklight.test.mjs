@@ -25,6 +25,15 @@ test('the first positional is the directory; flags pass through in order', () =>
     'a flag before the directory does not become the directory');
 });
 
+test('a flag that takes a value keeps it: `--starter full my-talk` is the full starter in my-talk', () => {
+  assert.deepEqual(initArgs(['--', '--starter', 'full', 'my-talk']),
+    ['init', '--dir', 'my-talk', 'My Talk', '--starter', 'full']);
+  assert.deepEqual(initArgs(['my-talk', '--starter', 'full']), ['init', '--dir', 'my-talk', 'My Talk', '--starter', 'full']);
+  assert.deepEqual(initArgs(['--themes', 'fjord', '--design-system', 'acme', 'q3-review']),
+    ['init', '--dir', 'q3-review', 'Q3 Review', '--themes', 'fjord', '--design-system', 'acme']);
+  assert.deepEqual(initArgs(['--starter', 'full']), ['init', '--starter', 'full'], 'a value alone is no directory');
+});
+
 test('no directory means a plain init, which asks its own questions', () => {
   assert.deepEqual(initArgs([]), ['init']);
   assert.deepEqual(initArgs(['--no-skill']), ['init', '--no-skill']);

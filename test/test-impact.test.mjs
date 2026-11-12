@@ -78,9 +78,10 @@ test('core and the stylesheet reach every BROWSER harness, but not the theme lin
     assert.ok(!harnesses.includes('contrast'), `${p} must not drag in the theme lint`);
     assert.ok(harnesses.includes('narration-render:live') && harnesses.includes('render'));
   }
-  // …and a theme is the mirror image: the lints, plus the deck that renders one.
+  // …and a theme is the mirror image: the lints, plus the decks that render one
+  // (the smoke deck, and the full starter walked in every theme).
   assert.deepEqual(forPath('themes/dark.css').harnesses.sort(),
-    ['contrast', 'palette-rules', 'render'].sort());
+    ['contrast', 'palette-rules', 'render', 'starter-render'].sort());
 });
 
 test('prose and unit tests select no harness at all', () => {

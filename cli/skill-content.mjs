@@ -80,7 +80,8 @@ straight from Decklight's SPEC.md (v${PKG.version}), so it won't drift from
 the installed runtime's actual behavior — trust it over prior training.
 
 **Minimal skeleton** (see \`deck.html\` in this project for a worked example
-with a build and notes already wired):
+with a build and notes already wired; \`decklight init --starter full\` writes a
+reference deck with one slide per feature, each naming the SPEC section to read):
 
 \`\`\`html
 <div class="decklight">

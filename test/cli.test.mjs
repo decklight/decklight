@@ -262,13 +262,13 @@ const ptySkip = process.platform === 'linux' && fs.existsSync('/usr/bin/script')
   ? false : 'needs util-linux script(1)';
 test('init on a real TTY prompts and takes the typed title', { skip: ptySkip }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
-  // two answers typed ahead: the title, "n" to the git offer — one readline
-  // serves both, so neither is dropped. `--inline --no-open`: a self-contained
+  // three answers typed ahead: the title, Enter for the basic starter, "n" to
+  // the git offer — one readline serves them all, so none is dropped. `--inline --no-open`: a self-contained
   // deck opens as a file, and --no-open keeps the browser closed, so nothing
   // is started that the test would have to stop.
   const r = spawnSync('/usr/bin/script',
     ['-qec', `node "${CLI}" init --dir "${dir}" --no-skill --inline --no-open`, '/dev/null'],
-    { encoding: 'utf8', timeout: 60_000, input: 'Ship & Tell\nn\n' });
+    { encoding: 'utf8', timeout: 60_000, input: 'Ship & Tell\n\nn\n' });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /deck title \[My Deck\]:/);
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Ship &amp; Tell<\/title>/);
@@ -997,7 +997,7 @@ test('init on a real TTY asks the skill scope, naming both paths; g installs glo
   const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
   const r = spawnSync('/usr/bin/script',
     ['-qec', `"${process.execPath}" "${CLI}" init "Global Talk" --dir "${dir}" --inline --no-open`, '/dev/null'],
-    { encoding: 'utf8', timeout: 60_000, input: 'g\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
+    { encoding: 'utf8', timeout: 60_000, input: '\ng\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /where should the skill go\? \[P\/g\]/);
   assert.match(r.stdout, /\.claude\/skills\/decklight/, 'the project path is named');
@@ -1013,7 +1013,7 @@ test('init on a real TTY: Enter keeps the project install, byte-for-byte', { ski
   const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
   const r = spawnSync('/usr/bin/script',
     ['-qec', `"${process.execPath}" "${CLI}" init "Local Talk" --dir "${dir}" --inline --no-open`, '/dev/null'],
-    { encoding: 'utf8', timeout: 60_000, input: '\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
+    { encoding: 'utf8', timeout: 60_000, input: '\n\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /where should the skill go\? \[P\/g\]/);
   assert.match(r.stdout, /wrote \.claude\/skills\/decklight\/\{SKILL\.md,reference\.md\}/);

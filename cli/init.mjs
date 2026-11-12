@@ -8,12 +8,13 @@
  * without a web search or a guess from Reveal.js memory.
  *
  *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--inline [--themes …]]
- *                  [--design-system <ref> | --no-design-system]
+ *                  [--starter basic|full] [--design-system <ref> | --no-design-system]
  *                  [--git | --no-git] [--remote <url> | --no-remote]
  *                  [--no-open] [--force] [--no-skill | --global-skill]
  *
- * A terminal run can ask up to five questions, each skipped by its flag or
- * by a non-TTY run: the deck's title ("My Deck" by default), which design
+ * A terminal run can ask up to six questions, each skipped by its flag or
+ * by a non-TTY run: the deck's title ("My Deck" by default), which starter
+ * (basic, two slides, or full, one slide per feature), which design
  * system it is built on (only when a cached catalog offers one), where the
  * skill goes (the project, or each detected agent's config home), whether to
  * create a git repository, and, for a repository it just created, a remote.
@@ -46,6 +47,7 @@ import { TARGETS, detectedTargets, installGlobalSkill, display, syncLibrarySkill
 import { librarySkills } from './units.mjs';
 import { onPath } from './agents.mjs';
 import { escapeHtml } from './edit.mjs';
+import { STARTERS, fullStarterSlides } from './starter-full.mjs';
 import {
   classifyRemoteError, createRepo, foreignWarning, git as gitRun, inGitRepo, isIdentityError,
   looksLikeGitUrl, noPromptEnv, oneline, remoteNames, splitDeckPaths,
@@ -421,6 +423,23 @@ export async function wireDesignSystem(build, qualified, { home = configHome(), 
   return { html, label, installs, warnings, deckRef };
 }
 
+// ── the starter: basic by default, full as the choice offered ───────────────
+// The same shape again: `--starter <name>` (or `--starter=<name>`) decides, a
+// bare terminal run is asked, and a headless run keeps today's basic deck.
+export function planStarter({ args = [], tty = false } = {}) {
+  const eq = args.find((a) => a.startsWith('--starter='));
+  const i = args.indexOf('--starter');
+  if (!eq && i < 0) return tty ? { action: 'ask' } : { action: 'use', starter: STARTERS[0] };
+  const value = eq ? eq.slice('--starter='.length) : args[i + 1];
+  if (!value || value.startsWith('-')) return { action: 'refuse', why: `--starter needs a starter: ${STARTERS.join(' or ')}` };
+  if (!STARTERS.includes(value)) return { action: 'refuse', why: `--starter: no starter "${value}" (${STARTERS.join(' or ')})` };
+  return { action: 'use', starter: value };
+}
+
+/** The question a terminal run asks, and what an answer to it picks (Enter, or the end of input: basic). */
+export const STARTER_QUESTION = 'starter: basic (a title and a build slide) or full (one slide per feature, each naming the spec section to read)? [B/f] ';
+export const pickStarter = (answer = '') => (/^\s*f/i.test(answer) ? 'full' : 'basic');
+
 // ── the skill scope: project by default, global as a proposition ────────────
 // The same shape as planGit: a pure decision table over flags and the TTY
 // gate. --no-skill skips skill AND question, --global-skill preselects the
@@ -484,7 +503,7 @@ export function epilogue({ deckPath, tty = false, noColor = false }) {
 }
 
 
-function starterDeck(title, themeNames, activeTheme, { inline = false, titleSlide = null } = {}) {
+function starterDeck(title, themeNames, activeTheme, { inline = false, titleSlide = null, starter = 'basic' } = {}) {
   title = escapeHtml(title); // a prompt invites &, < and quotes
   // The deck is DATA (#520): slides, plus one JSON block holding its
   // configuration and the version it was written for. No runtime in the file
@@ -503,7 +522,7 @@ ${configBlockHtml({ theme: activeTheme })}
 </head>
 <body>
   <div class="decklight">
-${starterSlides(title, titleSlide)}
+${starterSlides(title, titleSlide, { starter })}
   </div>
 </body>
 </html>
@@ -529,7 +548,7 @@ ${themeBlocks}
 </head>
 <body>
   <div class="decklight">
-${starterSlides(title)}
+${starterSlides(title, null, { starter })}
   </div>
   <script data-decklight-runtime="js">${runtimeJs()}</script>
   <script>Decklight.init({});</script>
@@ -539,15 +558,21 @@ ${starterSlides(title)}
 }
 
 /**
- * The two starter slides, shared by the linked and the self-contained
- * scaffold. `title` is already escaped. `titleSlide` (`titleSlideTemplate`)
- * puts the title slide on a design system's template; the build slide is the
- * same either way: it teaches the one concept every deck needs, on any theme.
+ * The starter slides, shared by the linked and the self-contained scaffold.
+ * `title` is already escaped. `titleSlide` (`titleSlideTemplate`) puts the
+ * title slide on a design system's template. `basic` is two slides: the
+ * title, and a build slide that teaches the one concept every deck needs, on
+ * any theme. `full` is the reference starter (cli/starter-full.mjs): one
+ * slide per thing a slide can hold, each naming the SPEC section to read.
  */
-function starterSlides(title, titleSlide = null) {
-  const open = titleSlide
+function starterSlides(title, titleSlide = null, { starter = 'basic' } = {}) {
+  const template = titleSlide
     ? `<section data-template="${titleSlide.ref}">\n${titleSlide.lines.map((l) => `      ${l}`).join('\n')}`
-    : `<section>
+    : null;
+  if (starter === 'full') {
+    return fullStarterSlides(template ?? `<section>\n      <h1>${title}</h1>`, { templated: Boolean(template) });
+  }
+  const open = template ?? `<section>
       <h1>${title}</h1>
       <p>Made with Decklight — press → to advance, ? for every key</p>`;
   return `
@@ -583,7 +608,7 @@ export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, 
 
 Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--inline [--themes …]]
-                 [--design-system <ref> | --no-design-system]
+                 [--starter basic|full] [--design-system <ref> | --no-design-system]
                  [--git | --no-git] [--remote <url> | --no-remote] [--no-open] [--force]
                  [--no-skill | --global-skill]
 
@@ -600,6 +625,15 @@ Options:
                     all           every shipped theme (default)
                     name,name,…   an explicit list (aurora stays active when
                                   included, else the first listed)
+  --starter <name>
+                  which slides the deck starts with:
+                    basic         a title slide and a slide with a build (default)
+                    full          one slide per feature (builds, notes, two
+                                  columns, a table, code, math, a picture, a
+                                  chart, a diagram with connectors, chapters,
+                                  sources), each under a comment naming the
+                                  SPEC section to read: a reference to copy from
+                  (no flag: init ASKS on a TTY, and off a terminal writes basic)
   --design-system <ref>
                   start the deck on a design system a registered marketplace
                   offers (name or name@marketplace, read from the cached
@@ -641,6 +675,10 @@ Options:
 Without a title argument, a terminal run asks for one (empty keeps "My Deck");
 non-interactive runs scaffold "My Deck" without asking.
 
+A terminal run is then asked which starter ("starter: basic … or full …?
+[B/f]"): Enter keeps the two-slide basic deck, f writes the full one.
+--starter answers it; non-interactive runs write basic without asking.
+
 A terminal run is also asked where the skill should go ("where should the
 skill go? [P/g]"): project — .claude/skills/decklight/ + AGENTS.md next to
 the deck (Enter keeps it) — or global, each detected agent's config home.
@@ -669,6 +707,8 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--no-remote') ;                // likewise
     else if (a === '--design-system') i++;         // consumed by planDesignSystem below
     else if (a === '--no-design-system') ;         // likewise
+    else if (a === '--starter') i++;               // consumed by planStarter below
+    else if (a.startsWith('--starter=')) ;         // likewise
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
   }
@@ -680,6 +720,8 @@ unless --no-skill is given. The deck file is only touched with --force.
   const home = configHome(env);
   let ds = planDesignSystem({ args: argv, inline });
   if (ds.action === 'refuse') fail(ds.why);
+  const starterPlan = planStarter({ args: argv, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) });
+  if (starterPlan.action === 'refuse') fail(starterPlan.why);
   let dsRef = null;
   if (ds.action === 'use') {
     try { dsRef = await resolveDesignSystemFlag(ds.ref, home); } catch (e) { fail(e.message); }
@@ -723,6 +765,7 @@ unless --no-skill is given. The deck file is only touched with --force.
   };
 
   title = await resolveTitle(title, { isTTY: tty, ask: question });
+  const starter = starterPlan.action === 'ask' ? pickStarter(await question(STARTER_QUESTION)) : starterPlan.starter;
   const themeNames = resolveThemes(themesSel);
   const activeTheme = themeNames.includes(STARTER_THEME) ? STARTER_THEME : themeNames[0];
 
@@ -764,7 +807,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     }
   }
   const plainNote = 'slides and a config block, no runtime in the file — decklight bundle embeds it to send';
-  let body = starterDeck(title, themeNames, activeTheme, { inline });
+  let body = starterDeck(title, themeNames, activeTheme, { inline, starter });
   let themeNote = !inline ? `theme: ${activeTheme} · ${plainNote}`
     : themeNames.length === 1
       ? `theme: ${themeNames[0]}`
@@ -773,7 +816,7 @@ unless --no-skill is given. The deck file is only touched with --force.
   if (dsRef) {
     // a failure here costs a note and a plain deck, never the scaffold
     try {
-      wired = await wireDesignSystem((titleSlide) => starterDeck(title, themeNames, activeTheme, { titleSlide }),
+      wired = await wireDesignSystem((titleSlide) => starterDeck(title, themeNames, activeTheme, { titleSlide, starter }),
         dsRef, { home, titleHtml: escapeHtml(title) });
       body = wired.html;
       themeNote = `${wired.label} · ${plainNote}`;
@@ -783,7 +826,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     }
   }
   fs.writeFileSync(deckPath, body);
-  note(`created ${deckRel} (${themeNote})`);
+  note(`created ${deckRel} (${starter === 'full' ? 'full starter: one slide per feature · ' : ''}${themeNote})`);
   if (dsNote) note(dsNote);
   if (ds.action === 'hint') note(designSystemHint(ds.systems));
   if (wired) {
