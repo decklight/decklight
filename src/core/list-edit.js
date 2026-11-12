@@ -261,6 +261,90 @@ export function cleanInline(html, { keepStyle = false } = {}) {
   return textLength(nodes) === 0 && !hasAtomic(nodes) ? '' : serialize(nodes);
 }
 
+// ── what a paste brings ─────────────────────────────────────────────────────
+
+/** The emphasis the editor writes itself (⌘B, ⌘I, ⌘E), and the tags another app writes for it. */
+const PASTE_EMPHASIS = { strong: 'strong', b: 'strong', em: 'em', i: 'em', code: 'code' };
+/** What a paste never brings into the words, content and all: a picture, a frame, a script, the page's head. */
+const PASTE_DROPPED = new Set(['script', 'style', 'title', 'head', 'meta', 'link', 'base', 'template', 'noscript',
+  'img', 'picture', 'svg', 'math', 'video', 'audio', 'canvas', 'iframe', 'object', 'embed', 'input', 'button', 'select', 'textarea']);
+/** A link worth keeping: the web, mail, a slide (`#/3`) or a path beside the deck. Never a `javascript:` or `data:` one. */
+const safeHref = (href) => {
+  const h = String(href ?? '').trim();
+  if (!h) return null;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(h.replace(/[\s\u0000-\u001f]+/g, ''))?.[1]?.toLowerCase();
+  return !scheme || ['http', 'https', 'mailto'].includes(scheme) ? h : null;
+};
+const SPACES = /(?:[ \t\n\r\f ]|&nbsp;|&#160;|&#xa0;)+/gi;
+const escapeText = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * What a paste while typing writes into a paragraph, a heading, a quote, a
+ * caption or a cell (PRESENTING_EDITING): the words, and of their look only
+ * the editor's own emphasis (bold, italic, code) and links. Another app's
+ * clipboard html carries its fonts, sizes and colours as `style`, `class`,
+ * `<span>` and `<font>`, its paragraphs as `<p>` and `<div>`, and its
+ * pictures: none of it reaches the file. Lines and blocks become spaces (the
+ * words go into one element), a picture, a frame or a script goes with its
+ * content, and a link keeps its `href` only when it is the web, mail, a slide
+ * or a path. Google Docs wraps a whole copy in `<b style="font-weight:normal">`,
+ * which is not bold, and writes bold and italic as a `<span>`'s style, which
+ * are. `text` is the fallback when there is no html.
+ */
+export function cleanPasted({ html = '', text = '' } = {}) {
+  const walk = (nodes) => {
+    let out = '';
+    for (const n of nodes) {
+      if (n.t === 'text') { out += n.raw.replace(SPACES, ' '); continue; }
+      if (n.t !== 'el') continue;   // a comment (<!--StartFragment-->), a doctype
+      if (n.tag === 'br') { out += ' '; continue; }
+      if (PASTE_DROPPED.has(n.tag)) continue;
+      const inner = walk(n.kids);
+      const style = attrOf(n.open, 'style') ?? '';
+      let tag = n.tag === 'b' && /font-weight\s*:\s*(?:normal|[1-4]00)\b/i.test(style) ? null : PASTE_EMPHASIS[n.tag];
+      // a span that says bold or italic in its style (how Google Docs writes them) is that emphasis
+      if (n.tag === 'span') {
+        const bold = /font-weight\s*:\s*(?:bold|[6-9]00)\b/i.test(style);
+        const italic = /font-style\s*:\s*italic\b/i.test(style);
+        const words = italic && inner.trim() ? `<em>${inner}</em>` : inner;
+        out += bold && inner.trim() ? `<strong>${words}</strong>` : words;
+        continue;
+      }
+      if (tag) { out += inner.trim() ? `<${tag}>${inner}</${tag}>` : inner; continue; }
+      if (n.tag === 'a') {
+        const href = safeHref(attrOf(n.open, 'href'));
+        out += href && inner.trim() ? `<a href="${href.replace(/"/g, '&quot;')}">${inner}</a>` : inner;
+        continue;
+      }
+      out += BLOCK.has(n.tag) ? ` ${inner} ` : inner;
+    }
+    return out;
+  };
+  const words = html ? walk(parseMarkup(html)) : escapeText(text).replace(SPACES, ' ');
+  // one space between words, none at either end, however the tags fell
+  return words.replace(/ {2,}/g, ' ').replace(/^ +| +$/g, '')
+    .replace(/<(strong|em|code|a)\b([^>]*)> /g, ' <$1$2>').replace(/ <\/(strong|em|code|a)>/g, '</$1> ')
+    .replace(/ {2,}/g, ' ').trim();
+}
+
+/**
+ * What a save writes for words that were typed (PRESENTING_EDITING): the
+ * second guard behind `cleanPasted`, for whatever reached the element some
+ * other way (a drag of text, the browser's own furniture). `cleanInline`, the
+ * cleaning a list's points get, keeping a `style=` only when the element had
+ * one in the file and the white space the file had round the words. Words
+ * that hold blocks of their own (a quote of paragraphs) are left as typed:
+ * flattening them would lose what the author wrote.
+ */
+export function cleanTyped(html, original = '') {
+  const src = String(html ?? '');
+  if (/<(?:p|div|ul|ol|li|blockquote|table|h[1-6]|pre|figure)\b/i.test(String(original))) return src;
+  const lead = /^\s*/.exec(src)[0];
+  const tail = /\s*$/.exec(src.slice(lead.length))[0];
+  const clean = cleanInline(src, { keepStyle: /\sstyle\s*=/i.test(String(original)) });
+  return clean ? lead + clean + tail : clean;
+}
+
 // ── lists ───────────────────────────────────────────────────────────────────
 
 const itemsOf = (list) => list.kids.filter((k) => isEl(k, 'li'));
