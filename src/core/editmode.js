@@ -2614,6 +2614,10 @@ export function createEditMode({
       // Table ▸: rows and columns added and deleted in place (list-session.js)
       rows.push(backTo('main'));
       rows.push(...(tableRows?.(menuTarget, closeElementMenu) ?? []));
+    } else if (menuView === 'kind') {
+      // Turn into ▸: Text, Heading, Small heading, Quote, Bullets, Numbered
+      rows.push(backTo('main'));
+      rows.push(...(turnInto?.rows(menuTarget, closeElementMenu) ?? []));
     } else if (menuView === 'picture') {
       // Picture ▸ (pictures.js): replace, caption, background, its own size
       rows.push(backTo('main'));
@@ -2699,6 +2703,8 @@ export function createEditMode({
       if (openInEditor) rows.push({ label: 'Open in your editor', run: () => { closeElementMenu(); openInEditor.open(editorAddress(t), 'the element'); } });
       if (editAgents.length) rows.push({ label: 'Writing tools…', run: () => { closeElementMenu(); openWriting({ group: 'text' }); } });
       // the contextual rows, each one submenu, only where it applies
+      // Turn into ▸ (turn-into.js): a text block made another kind, the one it is ticked
+      if (turnInto?.rows(t, closeElementMenu)?.length) rows.push({ label: 'Turn into ▸', run: drill('kind') });
       if (tableRows?.(t, closeElementMenu)?.length) rows.push({ label: 'Table ▸', run: drill('table') });
       if (pictures?.elementRows(t)?.length) rows.push({ label: 'Picture ▸', run: drill('picture') });
       if (shapes?.isWire?.(t)) rows.push({ label: 'Wire ▸', run: drill('wire') });
@@ -2998,6 +3004,7 @@ export function createEditMode({
   let buildEdit = null;     // a node's build settings, changed in place (build-edit.js), handed in by the engine
   let openInEditor = null;  // a slide or an element at its line in the author's editor (open-in-editor.js), handed in by the engine
   let tableRows = null;   // the table menu's rows for a right-clicked cell (list-session.js), handed in by authoring.js
+  let turnInto = null;    // Turn into ▸ for a text block (turn-into.js), handed in by the engine
   let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
   let slideRowsOf = null; // the engine's rows for Slide ▸ / Slide ▾, for slide N: Hide this slide (HIDDEN_SLIDES)
   let shapes = null;      // a diagram's shapes moved, added, duplicated (shapes.js), handed in by the engine
@@ -4670,6 +4677,7 @@ export function createEditMode({
     elementMove: () => elementMove,
     /** The rows a right-click on a table's cell adds to the element menu: `fn(target, close)` → rows. */
     setTableRows: (fn) => { tableRows = fn; },
+    setTurnInto: (t) => { turnInto = t; },
     /** The engine's picture tools (pictures.js): the element menu's picture rows and Slide ▸'s background rows. */
     setPictures: (p) => { pictures = p; },
     setSlideRows: (fn) => { slideRowsOf = fn; },
