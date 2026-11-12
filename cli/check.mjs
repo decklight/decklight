@@ -58,6 +58,8 @@ import { markedSources } from './theme-refs.mjs';
 import { parseColor, toOklab } from '../tools/color.mjs';
 import { ON_PALETTE_DISTANCE, offRoleColours, nearestRole, resolveTokenColours } from '../tools/brand-palette.mjs';
 import { printUrl } from './pdf.mjs';
+import { configBlock } from './runtime-link.mjs';
+import { attributeFindings, configFindings } from '../tools/vocabulary.mjs';
 import { runMain } from './util.mjs';
 
 /**
@@ -794,10 +796,27 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
     }
   }
 
+  const tree = parseTree(src);
+
+  // A word Decklight does not know (tools/vocabulary.mjs): `data-buld`, a
+  // build effect spelled `fade-upp`, a configuration key typed `trasition`
+  // all render as if absent, and nothing else would ever say so.
+  const titles = new Map();
+  const titled = (slide) => {
+    if (!titles.has(slide)) titles.set(slide, title(slide));
+    return titles.get(slide);
+  };
+  out.push(...attributeFindings([...descendants(tree)].map((n) => {
+    const slide = slideAt(ranges, n.start);
+    return { slide, title: titled(slide), attrs: readAttrs(n.attrs) };
+  })));
+  const block = configBlock(src);
+  if (block) out.push(...configFindings(block.inner, { line: src.slice(0, block.innerStart).split('\n').length }));
+
   // An asset that is not on disk is the failure with no symptom: the deck
   // renders, the image is a blank box, and whoever exported the PDF finds out
   // afterwards. Resolved the way the browser would, against the deck's folder.
-  for (const ref of assetReferences(parseTree(src))) {
+  for (const ref of assetReferences(tree)) {
     if (exists(resolve(dir, ref.path))) continue;
     const where = at(ref.at);
     out.push(finding('error', 'missing-asset', where.slide, where.title,
@@ -960,7 +979,12 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
     from the file     a <section> that is never closed · an image, video, cast
                       or stylesheet that is not on disk · a data-markdown slide
                       (removed in 0.3.0) · script blocks and inline handlers
-                      --no-trust --strict would strip
+                      --no-trust --strict would strip · a misspelled data-*
+                      attribute, build effect, layout or other value, and a
+                      configuration block that is not JSON or has a key
+                      Decklight does not read, each with what was meant
+                      (an attribute close to nothing Decklight reads is yours,
+                      and left alone)
     from a render     slides the overflow guardrail measured as clipped, slides
                       crowded past SLIDE_DENSITY (~3–4 bullets or ~2 short
                       paragraphs per column; a warning, and data-dense-ok on a

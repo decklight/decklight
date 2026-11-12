@@ -25,6 +25,10 @@
  *   markdown-slide    a data-markdown slide, which comes up empty
  *   static-diagram    (hint) an SVG diagram with no build, landing all at once
  *   concept-suggestion (hint) a label recurring in different colours
+ *   unknown-attribute a data-* name one slip from one Decklight reads (tools/vocabulary.mjs)
+ *   unknown-value     a build effect, layout, route… an attribute does not take
+ *   config-json       the configuration block is not JSON (an error: the deck booted on defaults)
+ *   config-key        a configuration key Decklight does not read; config-value, a value it does not take
  *
  * In write mode the edit server adds the FILE's half for the whole deck
  * (`GET /deck/edit/check`, cli/check.mjs's `staticFindings` with the same
@@ -61,6 +65,7 @@ import { createDock } from './dock.js';
 import { slideDensity } from './density.js';
 import { slideClickMatch } from './narration.js';
 import { clickMismatchText } from '../../tools/click-match.mjs';
+import { attributeFindings, configFindings } from '../../tools/vocabulary.mjs';
 import { injectedIn } from './pick.js';
 import { aiIcon } from './aiicon.js';
 import { IS_MAC } from './undo-chord.js';
@@ -72,6 +77,13 @@ const FIX_ALL_CHORD = IS_MAC ? '⌘⇧⏎' : 'Ctrl+⇧Enter';
 const finding = (level, rule, slide, title, message) => ({ level, rule, slide, title, message });
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** An element's `data-*` attributes, as `{ name: value }`. */
+const dataAttrs = (el) => {
+  const out = {};
+  for (const a of el.attributes) if (a.name.startsWith('data-')) out[a.name] = a.value;
+  return out;
+};
 
 /** Rules no agent can do anything about from inside the deck. */
 const NOT_FOR_AGENT = new Set(['ds-behind', 'ds-unresolved', 'ds-unknown-system', 'render-failed', 'not-rendered']);
@@ -193,6 +205,12 @@ export function createDeckCheck({
       if (sec.hasAttribute('data-split-conflict')) {
         add('warn', 'split-conflict', 'data-layout="split" is fighting its own column flexbox: drop one');
       }
+      // a word Decklight does not know, as the slide has it now: the engine's
+      // own attributes are in the vocabulary, and a design system's template
+      // markup is the design system's, not this deck's
+      out.push(...attributeFindings([sec, ...sec.querySelectorAll('*')]
+        .filter((el) => !el.closest('[data-ds-injected]'))
+        .map((el) => ({ slide: n, title, attrs: dataAttrs(el) }))));
       // the engine's own count, providers included (tools/click-match.mjs, #929)
       const clicks = slideClickMatch(sec, inst._records?.[i]);
       if (clicks) add('warn', 'clicks-vs-builds', clickMismatchText(clicks));
@@ -207,6 +225,10 @@ export function createDeckCheck({
         }
       }
     });
+    // the configuration block, as the page was served it: one the engine
+    // could not parse booted the deck on its defaults
+    const block = document.querySelector('script[type="application/json"][data-decklight-config]');
+    for (const f of configFindings(block ? block.textContent : null)) out.push({ ...f, title: 'the deck' });
     // labels that recur in different colours (SVG_DIAGRAMS): a hint, not a
     // fault, listed on the first slide that has one; the fix makes it the concept
     for (const s of suggestions()) {
