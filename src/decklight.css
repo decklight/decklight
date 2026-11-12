@@ -4274,6 +4274,17 @@
 .decklight-decksettings [hidden] { display: none !important; }
 .decklight-inspector .ins-slider { flex: 1; min-width: 80px; accent-color: #9ecbff; margin: 0; }
 .decklight-inspector .ins-range-value { min-width: 3.2em; text-align: right; color: #c3c8d1; font-variant-numeric: tabular-nums; }
+/* the Options tab: a code block's line steps, a row each (options-tab.js) */
+.decklight-inspector .ins-settings .ins-steps-box { grid-column: 1 / -1; border-top: 0; }
+.decklight-inspector .ins-step { display: grid; grid-template-columns: 1.6em 1fr auto; align-items: center; gap: 4px 8px; margin: 0 0 6px; }
+.decklight-inspector .ins-step-n { color: #8d94a1; text-align: right; font-variant-numeric: tabular-nums; }
+.decklight-inspector .ins-step .ins-btn { margin-left: 0; }
+.decklight-inspector .ins-step-why { grid-column: 2 / -1; color: #f2c46d; font-size: .92em; }
+.decklight-inspector .ins-field.ins-invalid { border-color: #f2c46d; }
+.decklight-inspector .ins-step-add { margin-left: 0; }
+.decklight-inspector .ins-step-hint { margin-top: 6px; color: #8d94a1; font-size: .9em; }
+.decklight-inspector .ins-options-status { margin: 4px 12px 8px; color: #8d94a1; font-size: .85em; }
+.decklight-inspector .ins-options-status.ins-failed { color: #f2c46d; }
 .decklight-inspector .ins-btn {
   margin-left: 8px; padding: 1px 8px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, .18);
   background: rgba(255, 255, 255, .06); font: inherit; font-size: .92em; color: #dfe3ea; cursor: pointer;

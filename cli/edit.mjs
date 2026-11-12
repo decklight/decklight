@@ -36,6 +36,7 @@
 //   POST /deck/edit/element/move    → { slide, index, to, path?, tag? }  move it (or a node inside it) to place `to`
 //   POST /deck/edit/element/duplicate → { slide, index, path?, tag? }  a copy of it (or of a node inside it) right after it
 //   POST /deck/edit/element/picture → { slide, index, path?, width?, alt?, src?, caption? }  one picture's size, alt, file or caption
+//   POST /deck/edit/element/options → { slide, index, path?, tag, set }  a code block's language, line numbers, fit, line steps
 //   POST /deck/edit/slide/background → { slide, src | null, take? }  the slide's background picture, or a picture made it
 //   POST /deck/edit/undo            → step the deck file back through the edit history
 //   POST /deck/edit/redo            → step it forward again
@@ -117,6 +118,7 @@ import {
   stale, checkPath, locateElement, nodeAt, openElement, attrList, attrOf, withAttr, withStyle, decodeText, withoutNodes,
 } from './edit-address.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
+import { CODE_LANGUAGES, languageOf, lineCount, linesError } from '../tools/code-options.mjs';
 import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkReferences } from './deck-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides, trackDrift } from '../tools/narration-manifest.mjs';
@@ -2243,6 +2245,61 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
   return e.html();
 }
 
+/**
+ * The settings an element's Options tab writes (PRESENTING_EDITING), a closed
+ * set per tag. A code block's (CODE_AND_MATH): its language (the `language-`
+ * class of its `<code>`), line numbers and fit (bare attributes), and its line
+ * steps (`data-lines`).
+ */
+export const ELEMENT_OPTIONS = {
+  pre: ['language', 'data-lines-numbers', 'data-fit', 'data-lines'],
+};
+
+/**
+ * Slide N's element `index` (or the node at `path` inside it) given the
+ * settings in `set` (`{ name: value | null }`, null taking one off), each
+ * checked against its tag's closed set, in ONE edit. A code block's language
+ * is one the runtime highlights or '' (plain), its toggles `true` or null,
+ * and its steps lines the block has: a line past its end is refused, in words.
+ */
+export function setElementOptions(html, slide, index, { path = [], tag = 'pre', set } = {}) {
+  const names = ELEMENT_OPTIONS[String(tag)];
+  if (!names) throw new Error(`no settings are written for <${tag}>`);
+  if (!set || typeof set !== 'object' || Array.isArray(set) || !Object.keys(set).length) throw new Error('nothing to change');
+  for (const [k, v] of Object.entries(set)) {
+    if (!names.includes(k)) throw new Error(`a code block has no setting ${JSON.stringify(k).slice(0, 40)}`);
+    if ((k === 'data-lines-numbers' || k === 'data-fit') && v !== true && v !== null) throw new Error(`${k} is on (true) or off (null)`);
+    if (k === 'language' && v !== null && v !== '' && !CODE_LANGUAGES.some(([l]) => l === v)) throw new Error(`not a language the runtime highlights: ${String(v).slice(0, 40)}`);
+    if (k === 'data-lines' && v !== null && (typeof v !== 'string' || v.length > 400)) throw new Error('data-lines is its steps, like 1-2|4, or null');
+  }
+  const e = openElement(html, slide, index);
+  const at = e.at(path, tag);
+  const kids = elementChildRanges(e.src(at));
+  const k = kids.findIndex((r) => r.tag === 'code');
+  if (k < 0) throw new Error('this code block has no <code> in the file');
+  const codeAt = e.at([...path, k], 'code');
+  if (typeof set['data-lines'] === 'string') {
+    const total = lineCount(decodeText(splitOpenTag(e.src(codeAt)).rest.replace(/<\/code>\s*$/i, '')));
+    const why = linesError(set['data-lines'], total);
+    if (why) throw new Error(why);
+  }
+  // the <code> first: it is inside the <pre>, so the <pre>'s edit moves nothing it needs
+  if (Object.hasOwn(set, 'language')) {
+    e.edit([...path, k], 'code', (attrs) => {
+      const had = (attrOf(attrs, 'class') ?? '').split(/\s+/).filter(Boolean);
+      const at0 = had.findIndex((c) => c.startsWith('language-'));
+      // the name the file has stays when it already means this language (js, not javascript)
+      if (at0 >= 0 && languageOf(had[at0].slice(9)) === (set.language ?? '')) return attrs;
+      const rest = had.filter((c) => !c.startsWith('language-'));
+      const cls = set.language ? [...rest.slice(0, Math.max(at0, 0)), `language-${set.language}`, ...rest.slice(Math.max(at0, 0))] : rest;
+      return withAttr(attrs, 'class', cls.length ? cls.join(' ') : null);
+    });
+  }
+  const own = Object.entries(set).filter(([n]) => n !== 'language');
+  if (own.length) e.edit(path, tag, (attrs) => own.reduce((a, [n, v]) => withAttr(a, n, v === '' ? null : v), attrs));
+  return e.html();
+}
+
 /** The background attributes that mean nothing once a slide has no background media. */
 const BACKGROUND_TUNING = ['data-background-size', 'data-background-position', 'data-background-dim'];
 
@@ -2388,6 +2445,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/image': 'image placed',
   '/deck/edit/element/insert': 'element added',
   '/deck/edit/element/picture': 'picture changed',
+  '/deck/edit/element/options': 'element settings changed',
   '/deck/edit/slide/background': 'slide background set',
   '/deck/edit/slide/builds': 'build order set',
   '/deck/edit/concepts': 'concept colours saved',
@@ -2542,6 +2600,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/image': 'picture',
   '/deck/edit/element/insert': 'added element',
   '/deck/edit/element/picture': 'picture',
+  '/deck/edit/element/options': 'settings',
   '/deck/edit/slide/background': 'slide background',
   '/deck/edit/slide/builds': 'build order',
   '/deck/edit/concepts': 'concept colours',
