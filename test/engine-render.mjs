@@ -34,7 +34,7 @@ export const MODES = [
   'inspector', 'inspectortabs', 'slidesettings', 'sourcesedit',
   'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'mathedit', 'editor', 'notessave', 'notesinplace', 'notesbuilds', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'heldreload', 'savefail', 'slideinplace', 'outsideedit', 'esckeeps', 'pinch', 'debugreload', 'lockmode', 'clipbadge', 'notrustmode', 'editingtour', 'editingtourwelcome', 'welcomekeys',
   'bgindex',
-  'addmenu', 'addslidekinds',
+  'addmenu', 'addcolumn', 'addslidekinds',
   'listkeys', 'listplain', 'tablekeys', 'tablemenu', 'listmove',
   'linedraw', 'dasheddraw', 'drawfill', 'nestedfills', 'rolefills', 'dstemplates', 'dsedit', 'concepts', 'conceptsfind',
   'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect',

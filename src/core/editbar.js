@@ -31,6 +31,10 @@ import { editableTarget, formulaRefusal, svgTextTarget, CODE_EDITABLE } from './
 import { pickNode, isDrawn, isWireNode, wireMiddle, createSpotlight, createFrame } from './pick.js';
 import { UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
+import { pathFrom } from './colorpicker.js';
+
+/** The path below its element of what a selection picked inside it (a block in a column), or null for the element itself. */
+export const innerPath = (t) => (t?.node && t.top && t.node !== t.top ? pathFrom(t.top, t.node) : null);
 
 const BUTTONS = [
   { id: 'text', label: 'Text', key: '⏎', title: 'select some text and press Enter, or double-click it' },
@@ -123,7 +127,7 @@ export function createEditBar({
     fileInput.addEventListener('change', () => {
       const files = Array.from(fileInput.files ?? []);
       fileInput.value = '';
-      if (files.length) authoring.addPictures(files, { afterIndex: selected?.index ?? null });
+      if (files.length) authoring.addPictures(files, { afterIndex: selected?.index ?? null, afterPath: innerPath(selected) });
     });
     bar.append(fileInput);
     refresh();
@@ -430,7 +434,7 @@ export function createEditBar({
     pick.addEventListener('change', () => {
       const files = Array.from(pick.files ?? []);
       pick.remove();
-      if (files.length) authoring.addPictures(files, { afterIndex: selected?.index ?? null });
+      if (files.length) authoring.addPictures(files, { afterIndex: selected?.index ?? null, afterPath: innerPath(selected) });
     });
     root.append(pick);
     pick.click();

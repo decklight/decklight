@@ -723,6 +723,24 @@
             section: SECTIONS[b.kind] ?? '<section><h2>New slide</h2><p>Say something here.</p><aside class="notes"></aside></section>' });
         }
       }
+      // Add with a column selected (addcolumn): the server's landing rule as
+      // tools/starters.mjs answers it on the fixture's split slides: inside
+      // the column, after the block picked in it or at its end; two columns
+      // there refused; a bare column wrapped (the page reloads onto it)
+      if (HARNESS_MODE === 'addcolumn') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<p>New text</p>' });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
+        if (u.includes('/deck/edit/element/insert')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          if (b.kind === 'columns') return json({ ok: false, error: 'two columns do not go inside a column: slide 5 already has its pair, and a third column would drop underneath as a footer. Add a new slide in two columns instead (Slide ▾, New slide)' }, 409);
+          const MARKUP = { text: '<p>New text</p>', heading: '<h3>Heading</h3>' };
+          if (b.slide === 6) return json({ ok: true, index: b.index, path: [1], wrapped: true, count: 1, kind: b.kind, html: MARKUP[b.kind], inPlace: b.quiet === true, undo: 1, redo: 0 });
+          const col = document.querySelectorAll('.decklight-stage > section')[b.slide - 1].children[b.index];
+          const at = Array.isArray(b.path) && b.path.length ? b.path[0] + 1 : col.children.length;
+          return json({ ok: true, index: b.index, path: [at], count: 1, kind: b.kind, html: MARKUP[b.kind], inPlace: b.quiet === true, undo: 1, redo: 0 });
+        }
+      }
       // Duplicate and the chords (dupkeys): the copy's markup as the server
       // answers it (a copy of the element, put right after it), in place
       if (HARNESS_MODE === 'dupkeys') {
@@ -1523,6 +1541,12 @@
     // moving things within a slide: three more slides, only for the modes
     // that move things (every other mode counts on four): one to reorder, one
     // with builds, one with something live on it that a move cannot follow
+    // addcolumn: a comparison slide in two columns, and one whose columns are bare blocks
+    if (HARNESS_MODE === 'addcolumn') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
+        <section data-layout="split"><h2>Before and after</h2><div class="ac-l"><h3>Before</h3><ul><li>point</li><li>point</li></ul></div><div class="ac-r"><h3>After</h3><ul><li>point</li><li>point</li></ul></div><aside class="notes"><p>Say it.</p></aside></section>
+        <section data-layout="split"><h2>Bare</h2><ul class="ac-bare"><li>one</li><li>two</li></ul><p class="ac-p">beside it</p></section>`);
+    }
     if (HARNESS_MODE.startsWith('move')) {
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
         <section><h2 class="mv-h">Order</h2><p class="mv-a">alpha</p><ul class="mv-list"><li>one</li><li>two</li><li>three</li></ul><p class="mv-b">beta</p><aside class="notes"><p>Say it.</p></aside></section>
@@ -4688,6 +4712,70 @@
           && r.diagramShownWhole && r.diagramSelectedNotTyped && r.columnsTakeTheSplit && r.columnsHeadingInEdit && r.chartDrawnInPlace
           && r.codeInEdit && r.codeHighlighted && r.paletteRowOpensTheMenu && r.templateSlideTurnsAddOff && r.templateSlideSaysWhy
           && r.lockedAddsNothing && r.noReload;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'addcolumn') {
+        // Adding lands where the selection is (PRESENTING_EDITING, Adding
+        // content): on a two-column slide, with a column selected, Add puts
+        // the new block inside that column and the slide keeps its pair; with
+        // a block inside the column selected, the page says which, and the
+        // new one goes after it; two columns there are refused in the server's
+        // words; a column the server had to wrap reloads onto the new block.
+        await settle(); await settle();
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const bar = () => document.querySelector('.decklight-editbar');
+        const click = (el) => el?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const pick = (label) => click([...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === label));
+        const active = () => document.querySelector('.decklight-stage > section.active');
+        const inserts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/insert')).map((c) => c.body);
+        const toastSays = (re) => [...document.querySelectorAll('.decklight-toast')].some((n) => re.test(n.textContent));
+        const add = async (label) => { click(bar().querySelector('.eb-add')); await settle(); pick(label); await settle(); await settle(); };
+        const stopTyping = async () => {
+          document.querySelector('[contenteditable="true"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          await settle();
+          press('Escape'); await settle();
+        };
+        deck.goto(5, 0); await settle();
+        const left = active().querySelector('.ac-l');
+        const right = active().querySelector('.ac-r');
+        // the left column selected (a click on its heading selects the column), Add ▾ › Text
+        click(left.querySelector('h3')); await settle();
+        r.columnSelected = deck._selection()?.top === left && deck._selection()?.node === left;
+        await add('Text');
+        const sent = inserts().at(-1);
+        r.askedForTheColumn = sent?.slide === 5 && sent?.index === 1 && !sent?.path && sent?.kind === 'text';
+        const p = left.querySelector(':scope > p');
+        r.landsInsideTheColumn = !!p && [...left.children].indexOf(p) === 2 && !active().querySelector(':scope > p');
+        r.slideKeepsItsPair = [...active().querySelectorAll(':scope > div')].length === 2 && !right.classList.contains('split-footer')
+          && !left.classList.contains('split-footer');
+        r.newBlockSelectedAndTyped = deck._selection()?.node === p && deck._selection()?.top === left && !!p?.isContentEditable;
+        await stopTyping();
+        // a block inside the column picked (the breadcrumb's way): the page says which, and the new one goes after it
+        deck._selectNode(right.querySelector('h3'), { exact: true }); await settle();
+        await add('Heading');
+        const inner = inserts().at(-1);
+        r.saysWhichBlock = inner?.index === 2 && JSON.stringify(inner?.path) === '[0]';
+        const h3s = [...right.querySelectorAll(':scope > h3')];
+        r.landsAfterThatBlock = h3s.length === 2 && h3s[1].textContent === 'Heading' && right.children[1] === h3s[1];
+        await stopTyping();
+        // two columns with a column selected: refused, in the server's words, nothing added
+        click(left.querySelector('h3')); await settle();
+        const before = active().children.length;
+        await add('Two columns');
+        r.twoColumnsRefused = toastSays(/do not go inside a column/) && active().children.length === before;
+        press('Escape'); await settle();
+        // a bare column: the server wraps it, and the page reloads onto the new block
+        deck.goto(6, 0); await settle();
+        click(active().querySelector('.ac-bare li')); await settle();
+        await add('Text');
+        let handed = null;
+        try { handed = JSON.parse(sessionStorage.getItem('decklight-add-select:' + location.pathname) ?? 'null'); } catch { /* none */ }
+        r.wrappedReloadsOntoIt = reloads === 1 && handed?.slide === 6 && handed?.index === 1 && JSON.stringify(handed?.path) === '[1]';
+        try { sessionStorage.removeItem('decklight-add-select:' + location.pathname); } catch { /* fine */ }
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

@@ -20,6 +20,7 @@
 import { authoredIndex } from './design-system.js';
 import { createEditCommit } from './edit-commit.js';
 import { pathFrom } from './colorpicker.js';
+import { innerPath } from './editbar.js';
 
 /** What Add offers, in its order: the server's kinds, then the picture the bar always had. */
 export const ADD_KINDS = [
@@ -52,6 +53,10 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
 
   /** The live child that the file's top-level child `index` is, or null. */
   const liveChild = (sec, index) => [...sec.children].find((c) => authoredIndex(sec, c) === index) ?? null;
+  /** A live node's children as the file counts them (pathFrom's way). */
+  const authoredKids = (el) => [...el.children].filter((c) => { const p = pathFrom(el, c); return p && p.length === 1; });
+  /** The live node at `path` below `top`, the inverse of pathFrom, or null. */
+  const nodeAtPath = (top, path) => path.reduce((n, i) => (n ? authoredKids(n)[i] ?? null : null), top);
 
   /** Open the Add menu: above the bar's button when it is on screen, else in the middle of the stage. */
   function open(btn = editbar.addButton()) {
@@ -73,9 +78,12 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     if (!sec) return;
     const sel = editbar.selected();
     const index = sel && sel.sec === sec && Number.isInteger(sel.index) ? sel.index : null;
+    // where it lands is the server's rule (a column selected: inside it); the
+    // page says what is selected, down to the block picked inside a column
+    const path = index !== null ? innerPath(sel) : null;
     const job = (async () => {
       let j;
-      try { j = await commit.send('/deck/edit/element/insert', { slide, index, kind }); } catch (e) {
+      try { j = await commit.send('/deck/edit/element/insert', { slide, index, kind, ...(path?.length ? { path } : {}) }); } catch (e) {
         toast(`could not add ${SAID[kind] ?? kind}: ${commit.why(e)}`, 6000);
         return;
       }
@@ -83,7 +91,7 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
       try { els = place(sec, j); } catch (e) {
         // the file has it and this page cannot show it: the page reloads onto it
         debugLog('edit', `add ${kind} in place failed (${String(e.message || e)}) — reloading`);
-        handOff({ slide, index: j.index, kind });
+        handOff({ slide, index: j.index, path: j.path ?? [], kind });
         commit.reload(`${SAID[kind] ?? kind} added — the page could not show it in place`, { slide });
         return;
       }
@@ -150,13 +158,28 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     await commit.track(job);
   }
 
-  /** Put the file's new markup into the live slide where the file has it. Throws when it cannot. */
+  /**
+   * Put the file's new markup into the live slide where the file has it: after
+   * top-level child `index - 1`, or with a `path` inside top-level child
+   * `index` (a column), at that position among its children. Throws when it
+   * cannot, a column the server had to wrap included: the page reloads then.
+   */
   function place(sec, j) {
     if (typeof j.html !== 'string' || !Number.isInteger(j.index)) throw new Error('no markup came back');
+    if (j.wrapped) throw new Error('its column was wrapped to take it');
     const tpl = document.createElement('template');
     tpl.innerHTML = j.html;
     const els = [...tpl.content.children];
     if (!els.length) throw new Error('no element in the markup');
+    if (Array.isArray(j.path) && j.path.length) {
+      const top = liveChild(sec, j.index);
+      const holder = top && nodeAtPath(top, j.path.slice(0, -1));
+      if (!holder) throw new Error(`no element ${j.index} › ${j.path.join('.')} on the page`);
+      const before = authoredKids(holder)[j.path.at(-1)];
+      if (before) before.before(...els); else holder.append(...els);
+      if (pathFrom(top, els[0])?.join('.') !== j.path.join('.')) { els.forEach((el) => el.remove()); throw new Error('the page and the file disagree on where it went'); }
+      return els;
+    }
     if (j.index === 0) sec.prepend(...els);
     else {
       const anchor = liveChild(sec, j.index - 1);
@@ -175,10 +198,10 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     if (steps > instance.state.step) instance.goto(slide, steps, { force: true });
   }
 
-  /** Select the new element and, for words, start typing them with the placeholder selected. */
+  /** Select the new element (itself, inside a column) and, for words, start typing them with the placeholder selected. */
   function settle(kind, el) {
     if (!el?.isConnected) return;
-    editbar.selectNode(el);
+    editbar.selectNode(el, { exact: !el.parentElement?.matches('section') });
     const words = typingTarget(kind, el);
     if (words) authoring.editInline(words, { selectAll: true });
   }
@@ -212,7 +235,8 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     if (!sec) return;
     if (instance.state.slide !== what.slide) instance.goto(what.slide, 0);
     if (what.title) { editTitle(what.slide); return; }
-    const el = Number.isInteger(what.index) ? liveChild(sec, what.index) : null;
+    const top = Number.isInteger(what.index) ? liveChild(sec, what.index) : null;
+    const el = top && Array.isArray(what.path) ? nodeAtPath(top, what.path) : top;
     if (!el) return;
     reveal(what.slide, [el]);
     settle(what.kind, el);

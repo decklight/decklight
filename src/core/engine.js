@@ -3788,6 +3788,7 @@ export function init(userConfig = {}) {
   // the element menu's Inspect, Colors… and Type… (PRESENTING): select what
   // the menu was opened on, then show it in the inspector on that tab
   instance._selection = () => editbar.selected();   // what is selected, for the render harnesses
+  instance._selectNode = (node, opts) => editbar.selectNode(node, opts);   // and a node inside a block selected, as the breadcrumb does
   editmode.setInspect((t, tab) => {
     if (t?.node) editbar.selectNode(t.node, { exact: true });
     inspector.open({ tab });

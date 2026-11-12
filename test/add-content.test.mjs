@@ -11,8 +11,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { insertElement, insertImage, sectionBodies, sectionChildRanges, locateSlide } from '../tools/deck-html.mjs';
-import { insertStarter, insertSlideOfKind, slideStarter, ELEMENT_KINDS, SLIDE_KINDS } from '../tools/starters.mjs';
+import { insertElement, insertImage, insertInElement, wrapInDiv, sectionBodies, sectionChildRanges, locateSlide } from '../tools/deck-html.mjs';
+import { insertStarter, insertBlock, insertSlideOfKind, slideStarter, whereNewBlockLands, splitColumns, ELEMENT_KINDS, SLIDE_KINDS } from '../tools/starters.mjs';
+import { duplicateSlideElement } from '../cli/edit.mjs';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
 import { createHistory } from '../cli/edit.mjs';
 import { tmp } from './helpers.mjs';
@@ -107,11 +108,12 @@ test('insertImage is insertElement with an <img>, as before', () => {
 test('every kind has a starter that lands on the slide, after the selection, with its index answered', () => {
   for (const kind of ELEMENT_KINDS) {
     if (kind === 'columns') continue;   // its own rule, below
-    const out = insertStarter(DECK, 1, 0, kind);
-    assert.equal(out.index, 1, `${kind}: after the title`);
+    const out = insertStarter(DECK, 1, 1, kind);
+    assert.equal(out.index, 2, `${kind}: after the selection`);
+    assert.deepEqual(out.path, [], `${kind}: on the slide, not inside anything`);
     assert.equal(out.count, 1);
     const { parts, idx } = locateSlide(out.html, 1);
-    const r = sectionChildRanges(parts[idx])[1];
+    const r = sectionChildRanges(parts[idx])[2];
     const written = parts[idx].slice(r.start, r.end);
     const lines = (s) => s.split('\n').map((l) => l.trimStart());
     assert.deepEqual(lines(written), lines(out.markup), `${kind}: the file has the markup the page is told`);
@@ -184,6 +186,185 @@ test('a slide that follows a slide template takes no starter beside its slots (D
   assert.throws(() => insertStarter(DECK, 3, null, 'text'), (e) => e.status === 409 && /"acme\/divider" slide template/.test(e.message) && /slots/.test(e.message));
 });
 
+// ── where a new block lands (PRESENTING_EDITING, Adding content) ────────
+
+const SPLIT = `<!doctype html>
+<html><body>
+  <div class="decklight">
+    <section data-layout="split">
+      <h2>Before and after</h2>
+      <div>
+        <h3>Before</h3>
+        <ul>
+          <li>point</li>
+        </ul>
+      </div>
+      <div>
+        <h3>After</h3>
+        <ul>
+          <li>point</li>
+        </ul>
+      </div>
+      <p>A note under both</p>
+      <aside class="notes">talk</aside>
+    </section>
+    <section data-layout="split">
+      <h2>Bare columns</h2>
+      <p>The subtitle</p>
+      <ul>
+        <li>one</li>
+        <li>two</li>
+      </ul>
+      <img src="a.png" alt="a">
+    </section>
+    <section data-layout="split">
+      <h2>One list</h2>
+      <ul><li>a</li><li>b</li></ul>
+    </section>
+    <section data-layout="split"><h2>One line</h2><div><p>x</p></div><div><p>y</p></div></section>
+  </div>
+</body></html>
+`;
+const seg = (html, n) => { const { parts, idx } = locateSlide(html, n); return parts[idx]; };
+/** The source of slide `n`'s top-level child `i`. */
+const child = (html, n, i) => { const s = seg(html, n); const r = sectionChildRanges(s)[i]; return s.slice(r.start, r.end); };
+
+test('a split slide names its two columns; a lone list, a template or no split has none', () => {
+  assert.deepEqual(splitColumns(seg(SPLIT, 1)), [1, 2]);
+  assert.deepEqual(splitColumns(seg(SPLIT, 2)), [2, 3], 'past the title and its subtitle');
+  assert.equal(splitColumns(seg(SPLIT, 3)), null, 'one list splits across CSS columns: no pair');
+  assert.equal(splitColumns(seg(DECK, 1)), null);
+});
+
+test('with a column selected, Add puts the new block inside it, at its end, and the slide keeps its two columns', () => {
+  const out = insertStarter(SPLIT, 1, 1, 'text');
+  assert.equal(out.index, 1);
+  assert.deepEqual(out.path, [2], 'the column\'s third child');
+  assert.equal(out.wrapped, false);
+  assert.deepEqual(tags(out.html, 1), ['h2', 'div', 'div', 'p', 'aside'], 'still a pair and a footer');
+  assert.equal(child(out.html, 1, 1), [
+    '<div>',
+    '        <h3>Before</h3>',
+    '        <ul>',
+    '          <li>point</li>',
+    '        </ul>',
+    '        <p>New text</p>',
+    '      </div>',
+  ].join('\n'), 'at the column\'s own indentation');
+  assert.equal(insertStarter(SPLIT, 1, 2, 'bullets').index, 2, 'the right column takes it too');
+});
+
+test('with a block inside a column selected, the new one goes right after that block', () => {
+  const out = insertStarter(SPLIT, 1, 1, 'text', { path: [0] });
+  assert.deepEqual(out.path, [1]);
+  assert.match(child(out.html, 1, 1), /<h3>Before<\/h3>\n {8}<p>New text<\/p>\n {8}<ul>/);
+  // a point of the list selected: after the list, never inside it
+  const deep = insertStarter(SPLIT, 1, 2, 'quote', { path: [1, 0] });
+  assert.deepEqual(deep.path, [2]);
+  assert.match(child(deep.html, 1, 2), /<\/ul>\n {8}<blockquote>/);
+});
+
+test('the title selected on a slide with a subtitle: the new block lands after the subtitle, not between them', () => {
+  const out = insertStarter(DECK, 1, 0, 'text');
+  assert.equal(out.index, 2);
+  assert.deepEqual(tags(out.html, 1), ['h2', 'p', 'p', 'ul', 'aside']);
+  assert.match(source(out.html, 1), /<h2>Alpha<\/h2>\n {6}<p>Intro<\/p>\n {6}<p>New text<\/p>/);
+  // no subtitle: right after the title, as before
+  assert.equal(insertStarter(DECK, 2, 0, 'text').index, 1);
+});
+
+test('the header of a split slide selected: the new block goes first in the left column, so the pair stays a pair', () => {
+  const out = insertStarter(SPLIT, 1, 0, 'heading');
+  assert.equal(out.index, 1);
+  assert.deepEqual(out.path, [0]);
+  assert.match(child(out.html, 1, 1), /^<div>\n {8}<h3>Heading<\/h3>\n {8}<h3>Before<\/h3>/);
+  assert.deepEqual(tags(out.html, 1), ['h2', 'div', 'div', 'p', 'aside']);
+});
+
+test('a column that is one bare block is wrapped in the same write, and keeps every byte of its own', () => {
+  const list = insertStarter(SPLIT, 2, 2, 'text');
+  assert.equal(list.wrapped, true);
+  assert.deepEqual(list.path, [1]);
+  assert.deepEqual(tags(list.html, 2), ['h2', 'p', 'div', 'img']);
+  assert.equal(child(list.html, 2, 2), [
+    '<div>',
+    '        <ul>',
+    '          <li>one</li>',
+    '          <li>two</li>',
+    '        </ul>',
+    '        <p>New text</p>',
+    '      </div>',
+  ].join('\n'));
+  const pic = insertStarter(SPLIT, 2, 3, 'text', { path: [] });
+  assert.equal(child(pic.html, 2, 3), '<div>\n        <img src="a.png" alt="a">\n        <p>New text</p>\n      </div>');
+  // a chart is a block of its own, not a wrapper: wrapped too
+  const chart = SPLIT.replace('<img src="a.png" alt="a">', '<div class="chart" data-chart="bar"><script type="application/json">{}</script></div>');
+  assert.equal(insertStarter(chart, 2, 3, 'text').wrapped, true);
+});
+
+test('the footer selected, or a slide written on one line, still land where they should', () => {
+  const footer = insertStarter(SPLIT, 1, 3, 'text');
+  assert.equal(footer.index, 4);
+  assert.deepEqual(footer.path, []);
+  const line = insertStarter(SPLIT, 4, 2, 'text');
+  assert.equal(child(line.html, 4, 2), '<div><p>y</p><p>New text</p></div>');
+});
+
+test('Add › Two columns with a column selected is refused with a sentence; under the title it still goes first', () => {
+  assert.throws(() => insertStarter(SPLIT, 1, 1, 'columns'), (e) => e.status === 409 && /do not go inside a column/.test(e.message) && /New slide/.test(e.message));
+  assert.throws(() => insertStarter(SPLIT, 1, 2, 'columns', { path: [0] }), (e) => e.status === 409);
+  assert.equal(insertStarter(DECK, 1, 0, 'columns').index, 2, 'title selected, subtitle kept: under both');
+});
+
+test('a picture follows the same rule as Add, and so does whatever the next one is', () => {
+  const pic = '<img src="b.png" alt="b">';
+  assert.deepEqual(insertBlock(SPLIT, 1, 1, pic).path, [2]);
+  assert.deepEqual(insertBlock(SPLIT, 1, 1, pic, { path: [0] }).path, [1]);
+  assert.deepEqual(insertBlock(SPLIT, 1, null, pic).path, [], 'nothing selected: after the content, as before');
+  assert.deepEqual(whereNewBlockLands(seg(SPLIT, 1), 3), { index: 3 });
+});
+
+test('insertInElement puts a child first, after another, or into an empty element on a line of its own', () => {
+  const empty = SPLIT.replace('<div>\n        <h3>After</h3>\n        <ul>\n          <li>point</li>\n        </ul>\n      </div>', '<div>\n      </div>');
+  assert.equal(child(insertInElement(empty, 1, 2, { markup: '<p>x</p>' }).html, 1, 2), '<div>\n        <p>x</p>\n      </div>');
+  const flat = SPLIT.replace('<div>\n        <h3>After</h3>\n        <ul>\n          <li>point</li>\n        </ul>\n      </div>', '<div></div>');
+  assert.equal(child(insertInElement(flat, 1, 2, { markup: '<p>x</p>' }).html, 1, 2), '<div>\n        <p>x</p>\n      </div>');
+  const first = insertInElement(SPLIT, 1, 1, { markup: '<p>x</p>', after: -1 });
+  assert.deepEqual(first.path, [0]);
+  assert.match(child(first.html, 1, 1), /^<div>\n {8}<p>x<\/p>\n {8}<h3>Before/);
+  assert.throws(() => insertInElement(SPLIT, 2, 3, { markup: '<p>x</p>' }), /nothing can go inside/);
+  assert.equal(child(wrapInDiv(SPLIT, 2, 3), 2, 3), '<div>\n        <img src="a.png" alt="a">\n      </div>');
+});
+
+test('duplicating a column is refused with a sentence; what is inside one still duplicates', () => {
+  assert.throws(() => duplicateSlideElement(SPLIT, 1, 1), (e) => e.code === 'REFUSED' && /would make a third/.test(e.message));
+  assert.throws(() => duplicateSlideElement(SPLIT, 1, 2, { tag: 'div' }), (e) => e.code === 'REFUSED');
+  const inner = duplicateSlideElement(SPLIT, 1, 1, { path: [0], tag: 'h3' });
+  assert.deepEqual(inner.path, [1]);
+  assert.equal(duplicateSlideElement(SPLIT, 1, 3).index, 4, 'the footer is not a column');
+});
+
+test('the insert and image routes take a path and answer where the new block is', async (t) => {
+  const { routes, readDeck, history } = harness(t, SPLIT);
+  const r = await call(routes, 'POST /deck/edit/element/insert', { slide: 1, index: 1, path: [0], kind: 'text', quiet: true });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.index, 1);
+  assert.deepEqual(r.body.path, [1]);
+  assert.equal(r.body.wrapped, undefined);
+  const bare = await call(routes, 'POST /deck/edit/element/insert', { slide: 2, index: 2, kind: 'text' });
+  assert.equal(bare.body.wrapped, true, 'the page is told, so it reloads rather than guess');
+  assert.equal(history.counts().undo, 2, 'the wrapper and the block are one undo entry');
+  const before = readDeck();
+  const refused = await call(routes, 'POST /deck/edit/element/insert', { slide: 1, index: 1, kind: 'columns' });
+  assert.equal(refused.code, 409);
+  assert.equal(readDeck(), before, 'refused: nothing written');
+  const pic = await call(routes, 'POST /deck/edit/element/image', { slide: 1, index: 2, path: [0], src: 'assets/b.png', alt: 'b' });
+  assert.equal(pic.code, 200);
+  assert.equal(pic.body.index, 2);
+  assert.deepEqual(pic.body.path, [1], 'a picture dropped on the right column\'s heading goes in after it');
+  assert.match(child(readDeck(), 1, 2), /<h3>After<\/h3>\n {8}<img src="assets\/b.png" alt="b">/);
+});
+
 // ── new slides of a kind ────────────────────────────────────────────────
 
 test('each slide kind is a section that lands level with its neighbours, its title placeholder first', () => {
@@ -231,15 +412,16 @@ test('POST /deck/edit/element/insert writes one starter as one undo entry and an
   const quiet = [];
   const told = [];
   const { routes, readDeck, history } = harness(t, DECK, { quiet: (h) => quiet.push(h), broadcast: (event, data) => told.push({ event, data }) });
-  const r = await call(routes, 'POST /deck/edit/element/insert', { slide: 1, index: 0, kind: 'bullets', quiet: true, from: 'page-a' });
+  const r = await call(routes, 'POST /deck/edit/element/insert', { slide: 1, index: 1, kind: 'bullets', quiet: true, from: 'page-a' });
   assert.equal(r.code, 200);
-  assert.equal(r.body.index, 1);
+  assert.equal(r.body.index, 2);
+  assert.deepEqual(r.body.path, []);
   assert.equal(r.body.inPlace, true);
   assert.match(r.body.html, /^<ul>/);
-  assert.deepEqual(tags(readDeck(), 1), ['h2', 'ul', 'p', 'ul', 'aside']);
+  assert.deepEqual(tags(readDeck(), 1), ['h2', 'p', 'ul', 'ul', 'aside']);
   assert.equal(history.counts().undo, 1, 'one undo entry');
   assert.equal(quiet.at(-1), readDeck(), 'quiet: the watcher skips what this write put there');
-  assert.deepEqual(told.at(-1), { event: 'content', data: { slide: 1, index: 1, from: 'page-a' } });
+  assert.deepEqual(told.at(-1), { event: 'content', data: { slide: 1, index: 2, from: 'page-a' } });
   // two columns and their layout are ONE entry, and the answer names the layout
   const cols = await call(routes, 'POST /deck/edit/element/insert', { slide: 2, index: null, kind: 'columns' });
   assert.equal(cols.body.layout, 'split');
@@ -251,7 +433,8 @@ test('POST /deck/edit/element/insert writes one starter as one undo entry and an
 test('the insert route refuses what it cannot honestly write, with a sentence', async (t) => {
   const { routes, readDeck } = harness(t);
   const before = readDeck();
-  for (const body of [{ slide: 0, kind: 'text' }, { slide: 1, index: -1, kind: 'text' }, { slide: 1, index: 1.5, kind: 'text' }, { slide: 1 }]) {
+  for (const body of [{ slide: 0, kind: 'text' }, { slide: 1, index: -1, kind: 'text' }, { slide: 1, index: 1.5, kind: 'text' }, { slide: 1 },
+    { slide: 1, index: 1, path: 'x', kind: 'text' }, { slide: 1, index: 1, path: [-1], kind: 'text' }]) {
     assert.equal((await call(routes, 'POST /deck/edit/element/insert', body)).code, 400, JSON.stringify(body));
   }
   const unknown = await call(routes, 'POST /deck/edit/element/insert', { slide: 1, index: null, kind: 'marquee' });
