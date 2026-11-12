@@ -161,6 +161,10 @@ export function createSlideSettings({ instance, editmode, toast, setHidden }) {
     input.setAttribute('aria-label', field.label);
     input.spellcheck = field.kind === 'text';
     let busy = false;
+    // what the field last read off the slide: typing makes it differ, and a
+    // repaint leaves typing alone until it is saved or put back
+    let filled = '';
+    const reread = () => { input.value = filled = fieldValue(sec(), field); };
     const commitIt = async () => {
       if (busy || input.value.trim() === fieldValue(sec(), field)) return;
       busy = true;
@@ -168,15 +172,18 @@ export function createSlideSettings({ instance, editmode, toast, setHidden }) {
       await save(slide, field, input.value);
       input.disabled = false;
       busy = false;
+      // saved or refused, the field says what the slide says now: what was
+      // typed never stays behind to be written again when the field is left
+      reread();
       after();
     };
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); commitIt(); }
-      else if (e.key === 'Escape') { e.preventDefault(); input.value = fieldValue(sec(), field); input.blur(); }
+      else if (e.key === 'Escape') { e.preventDefault(); reread(); input.blur(); }
     });
     input.addEventListener('blur', () => commitIt());
-    return { el: input, fill: () => { if (document.activeElement !== input) input.value = fieldValue(sec(), field); } };
+    return { el: input, fill: () => { if (input.value === filled || document.activeElement !== input) reread(); } };
   }
 
   /** The tab's pane for slide `slide`: one row a field, read from the slide. */

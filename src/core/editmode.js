@@ -1269,6 +1269,8 @@ export function createEditMode({
       const fresh = tpl.content.firstElementChild;
       if (!fresh || fresh.tagName !== 'SECTION' || tpl.content.childElementCount !== 1) return false;
       if (old.querySelector(LIVE) || fresh.querySelector(LIVE)) return false;
+      // a chapter starting or ending is the deck's, not the slide's: read once, when the deck loads
+      if (old.getAttribute('data-module') !== fresh.getAttribute('data-module')) return false;
       swaps.push({ old, fresh, n: s.slide });
     }
     const follow = follows();

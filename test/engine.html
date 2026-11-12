@@ -2866,6 +2866,11 @@
         await type(field('chapter'), 'Words');
         const t3 = posts('/deck/edit/slide/attr').pop();
         r.chapterWrittenForAReload = t3?.set?.['data-module'] === 'Words' && t3?.quiet !== true;
+        // the field says what the slide says (no chapter until the reload), and leaving it writes nothing more
+        const afterChapter = posts('/deck/edit/slide/attr').length;
+        field('chapter').blur();
+        await settle(); await settle();
+        r.leavingTheFieldWritesNothing = posts('/deck/edit/slide/attr').length === afterChapter;
 
         // another page's edit lands on the slide here, and the tab follows
         window.__es.emit('slide-attrs', { edits: [{ slide: 2, set: { 'data-transition': 'fade' } }], from: 'another-page' });
@@ -4367,8 +4372,12 @@
         // an older server: a reason and nothing else is a reload
         send({ reload: 'changed on disk — an editor, git, or a tool outside this server', from: null });
         r.olderServerReloads = reloads === 4;
+        // a chapter starting on a slide is the deck's (its chapters are read when it loads): a reload, never a swap
+        patch(2, '<section data-module="Words"><h2>Two</h2></section>', 'slide 2 changed: a chapter');
+        await settle();
+        r.chapterReloads = reloads === 5 && !secs()[1].hasAttribute('data-module');
         r.windowSurvived = !!window.__es && secs().length === 4;
-        r.PASS = r.patchedInPlace && r.authorTakenToIt && r.itsBuildsCount && r.saidWhatChanged && r.presenterStays
+        r.PASS = r.chapterReloads && r.patchedInPlace && r.authorTakenToIt && r.itsBuildsCount && r.saidWhatChanged && r.presenterStays
           && r.slideOnScreenKeepsItsStep && r.addedReloadsOnTheContent && r.authorReloadsOntoTheNewSlide
           && r.draftHoldsThePatch && r.letGoItReloads && r.olderServerReloads && r.windowSurvived;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
@@ -8819,7 +8828,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           // the one panel that takes two: the inspector opened ON a selection
           // (Colors…) lets go of it first and closes on the next (PRESENTING)
           if (SELECTS.has(name)) {
-            r[`${name}_firstEscLetsGo`] = !document.querySelector('.dl-frame, .dl-selected') && !document.querySelector('.decklight-inspector .ins-tabs');
+            r[`${name}_firstEscLetsGo`] = !document.querySelector('.dl-frame, .dl-selected') && !document.querySelector('.decklight-inspector .ins-tab[data-tab="colors"]');
             (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
             await settle(); await settle();
           }
