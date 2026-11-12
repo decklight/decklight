@@ -31,6 +31,7 @@ import { createShapes } from './shapes.js';
 import { createSources } from './sources.js';
 import { createInspector } from './inspector.js';
 import { createSlideSettings, applySlideAttrs } from './slide-settings.js';
+import { createBuildsPanel } from './builds-panel.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { createPlaylist } from './playlist.js';
@@ -1925,6 +1926,8 @@ export function init(userConfig = {}) {
         withoutAnim(() => applyBuildState(this._records[idx], 0));
       }
       this._notify();
+      // the slide's steps were counted again (an edit, a provider come late): the Builds tab reads them again
+      this._emit('rescan', { slide: idx + 1 });
     },
 
     _stepLabels(idx) {
@@ -3745,6 +3748,8 @@ export function init(userConfig = {}) {
   // the Slide tab, beside Info with nothing selected (PRESENTING_EDITING):
   // the slide's chapter, transition, hidden, planned time and background, set in place
   inspector.addTab(createSlideSettings({ instance: () => instance, editmode: () => editmode, toast, setHidden, pictures: () => pictures }).tab, { after: 'info' });
+  // the Builds tab (builds-panel.js): the slide's clicks in play order, with or without a selection
+  inspector.addTab(createBuildsPanel({ instance: () => instance, select: (node) => editbar.selectNode(node, { exact: true }) }).tab, { after: 'data' });
   // the content editor's way back to the inspector (its HTML tab's other end)
   editmode.setInspectorOpener?.(() => inspector?.open());
   // Check deck… (palette, SPEC PRESENTING): the open deck's own lint, slide by

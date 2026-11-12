@@ -4200,6 +4200,30 @@
   background: rgba(255, 255, 255, .06); font: inherit; font-size: .92em; color: #dfe3ea; cursor: pointer;
 }
 .decklight-inspector .ins-btn:hover, .decklight-inspector .ins-btn:focus-visible { background: rgba(255, 255, 255, .14); color: #fff; }
+/* the Builds tab (builds-panel.js): one row a click, in play order, with its beat */
+.decklight-inspector .ins-builds { margin: 2px 12px 8px; font-size: 12.5px; }
+.decklight-inspector .ins-builds :is(.bl-start, .bl-extra, .bl-foot) { display: flex; gap: 8px; padding: 5px 0; color: #c3c8d1; }
+.decklight-inspector .ins-builds .bl-head { flex: none; min-width: 7.5em; color: #8d94a1; }
+.decklight-inspector .ins-builds .bl-text { min-width: 0; overflow-wrap: anywhere; }
+.decklight-inspector .ins-builds .bl-extra .bl-text { font-style: italic; }
+.decklight-inspector .ins-builds .bl-foot { margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, .08); color: #8d94a1; }
+.decklight-inspector .ins-builds .bl-list { list-style: none; margin: 0; padding: 0; }
+.decklight-inspector .ins-builds .bl-go {
+  display: grid; grid-template-columns: 1.6em minmax(0, 1fr) minmax(0, 9em); gap: 8px; align-items: baseline;
+  width: 100%; padding: 5px 6px; border: 0; border-top: 1px solid rgba(255, 255, 255, .06); border-radius: 4px;
+  background: none; font: inherit; color: #dfe3ea; text-align: left; cursor: pointer;
+}
+.decklight-inspector .ins-builds .bl-go:hover, .decklight-inspector .ins-builds .bl-go:focus-visible { background: rgba(255, 255, 255, .08); }
+.decklight-inspector .ins-builds .bl-on .bl-go { background: rgba(158, 203, 255, .14); box-shadow: inset 2px 0 0 #9ecbff; }
+.decklight-inspector .ins-builds .bl-past .bl-go { color: #aeb4be; }
+.decklight-inspector .ins-builds .bl-n { color: #9ecbff; font-variant-numeric: tabular-nums; text-align: right; }
+.decklight-inspector .ins-builds .bl-what { display: flex; flex-wrap: wrap; gap: 2px 6px; min-width: 0; }
+.decklight-inspector .ins-builds .bl-item { display: inline-flex; gap: 6px; min-width: 0; }
+.decklight-inspector .ins-builds .bl-fx { flex: none; color: #8d94a1; }
+.decklight-inspector .ins-builds .bl-label { min-width: 0; overflow-wrap: anywhere; }
+.decklight-inspector .ins-builds .bl-with { color: #8d94a1; font-style: italic; }
+.decklight-inspector .ins-builds .bl-beat { color: #aeb4be; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-inspector .ins-builds .bl-nobeat { color: #f2c46d; }
 /* a captioned picture: the figure stands where the picture stood, centred
    as a lone picture is, with its caption under it in the theme's muted ink;
    zero specificity past .decklight, so a deck's own figure rules win */
