@@ -40,6 +40,7 @@ import { UNDO_CHORD, DUPLICATE_CHORD, undoSaid } from './undo-chord.js';
 import { markdownNodes } from './mdtext.js';
 import { aiIcon } from './aiicon.js';
 import { createEditCommit } from './edit-commit.js';
+import { landing } from './outside-edit.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
@@ -739,8 +740,9 @@ export function createEditMode({
           reopenContentEditor();   // …and the HTML editor, on the element its ⌘⏎ saved
           reopenPanel(root);       // …and whichever other panel held the slot (the inspector)
           const es = new EventSource(base + '/deck/events');
-          // the server says what wrote the file; the debug log keeps it across the reload
-          es.onmessage = (ev) => reloadWhenSafe(reloadLine(ev.data, PAGE_ID));
+          // the server says what wrote the file; the debug log keeps it across
+          // the reload. An outside edit of slides alone is swapped in place.
+          es.onmessage = (ev) => fileChanged(ev.data);
           // the server gone (stopped, crashed, the laptop asleep): said at once,
           // because every save from here fails until it is back
           es.onerror = () => { if (!offline && !offlineTimer) offlineTimer = setTimeout(() => { offlineTimer = 0; setOffline(true); }, OFFLINE_GRACE_MS); };
@@ -1145,9 +1147,92 @@ export function createEditMode({
     dropAlert(heldEl);
     heldEl = null;
     debugReload(heldWhy);
+    landHeld();
     // cancelable, for whatever has to see the reload without having it (the
     // engine harness, which a real reload would end)
     if (root.dispatchEvent(new CustomEvent('decklight:reload', { cancelable: true, detail: { why: heldWhy } }))) location.reload();
+  }
+
+  // ── the deck changed on disk (PRESENTING_EDITING, outside edits) ─────────
+  // The server compares what the pages show with the file now
+  // (cli/outside-edit.mjs) and says what changed. When only slides' own
+  // markup did, it sends that markup and the page swaps those slides in place:
+  // no reload, the speaker window and the docked panels left where they are.
+  // Anything else reloads, and lands by the rule in outside-edit.js: a page
+  // that is editing goes to what changed, any other stays on its content.
+  // An open draft holds a patch as it holds a reload: the change waits, then
+  // reloads. An older server sends no `land`, and that is the plain reload.
+  const heldLands = [];
+  let heldSaid = null;
+  /** This page goes to what changed: it may edit, and is not presenting full screen. */
+  const follows = () => editAvailable && !document.fullscreenElement;
+  function fileChanged(data) {
+    const why = reloadLine(data, PAGE_ID);
+    let p = null;
+    try { p = JSON.parse(data); } catch { /* an older server: a bare reload */ }
+    const land = p?.land && typeof p.land === 'object' ? p.land : null;
+    if (p?.patch && land && !heldTimer && !unsavedDrafts().length && patchInPlace(p.patch, land, why)) return;
+    if (land) { heldLands.push(land); heldSaid = typeof p.reload === 'string' ? p.reload : null; }
+    reloadWhenSafe(why);
+  }
+  /** The reload lands where the changes it waited for say, and the author hears what changed once it has. */
+  function landHeld() {
+    if (!heldLands.length) return;
+    const to = landing(instance.state, heldLands.splice(0), { follow: follows() });
+    try { history.replaceState(history.state, '', `#/${to.slide}/${to.step}`); } catch { /* the reload opens where the hash was */ }
+    if (heldSaid && follows()) {
+      try { sessionStorage.setItem(SAID_KEY, JSON.stringify({ said: heldSaid, t: Date.now() })); } catch { /* said in the log only */ }
+    }
+    heldSaid = null;
+  }
+  /**
+   * The changed slides' new markup, swapped in where the old ones are, each
+   * brought up to date as load does it (instance.refreshSlide). False when
+   * the page cannot follow, and the caller reloads: a deck of chapters, a
+   * slide count the file does not have, something live on the slide (a
+   * terminal, a video, a frame: a swap would be a dead copy).
+   */
+  function patchInPlace(patch, land, why) {
+    const secs = instance._sections ?? [];
+    if (!instance.sync || !instance.refreshSlide || instance._slideOpsInPlace?.() === false) return false;
+    if (!Array.isArray(patch.slides) || !patch.slides.length || patch.total !== secs.length) return false;
+    const swaps = [];
+    for (const s of patch.slides) {
+      const old = secs[(s?.slide ?? 0) - 1];
+      if (!old || typeof s.html !== 'string') return false;
+      const tpl = document.createElement('template');
+      tpl.innerHTML = s.html;
+      const fresh = tpl.content.firstElementChild;
+      if (!fresh || fresh.tagName !== 'SECTION' || tpl.content.childElementCount !== 1) return false;
+      if (old.querySelector(LIVE) || fresh.querySelector(LIVE)) return false;
+      swaps.push({ old, fresh, n: s.slide });
+    }
+    const follow = follows();
+    const here = { slide: instance.state.slide, step: instance.state.step };
+    try {
+      for (const { old, fresh } of swaps) old.replaceWith(fresh);
+      instance.sync();
+      for (const { fresh } of swaps) instance.refreshSlide(fresh, { charts: true, math: true, svgs: [fresh], code: [fresh] });
+      // the author goes to the first slide changed; a presenter stays, and the
+      // slide on screen, if it was one, shows again at its step (clamped)
+      const to = landing(here, [land], { follow });
+      if (to.slide !== here.slide || swaps.some(({ n }) => n === to.slide)) instance.goto(to.slide, to.step, { force: true });
+      // the speaker window's previews load the deck again (speaker.js)
+      instance._deckRev = (instance._deckRev ?? 0) + 1;
+      instance._afterSlideOp?.();
+      for (const { n } of swaps) notesRefresh?.(n);
+      if (menuTarget && swaps.some(({ n }) => n === menuTarget.slide)) closeElementMenu();
+      instance._notify();
+    } catch (e) {
+      // the page is part way: the file is right, so the page reloads to it
+      debugLog('edit', `outside edit in place failed (${errText(e)}) — reloading`);
+      heldLands.push(land);
+      reloadWhenSafe(why);
+      return true;
+    }
+    debugLog('edit', `↺ in place — ${why}`);
+    if (follow) toast(why, 2600);
+    return true;
   }
 
   // ── the edit server gone ─────────────────────────────────────────────────

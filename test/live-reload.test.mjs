@@ -82,11 +82,16 @@ test('a rename-replace does not kill live reload', async (t) => {
   const after = await settle(reloads + 1, 8000);
   assert.ok(after >= 3, `the watcher went deaf after the rename (${after} reloads for 3 writes)`);
 
-  // 4 · the reason: a write from outside is "changed on disk"; the server's
-  // own write names its route and the page that asked
+  // 4 · the reason: a write from outside says what it changed, and carries
+  // the slide for the pages to swap in place (PRESENTING_EDITING, outside
+  // edits); the server's own write names its route and the page that asked
   const reasons = () => [...stream.matchAll(/^data: (\{"reload".*)$/gm)].map((m) => JSON.parse(m[1]));
   assert.ok(reasons().length >= 3);
-  assert.deepEqual(reasons()[0], { reload: 'changed on disk — an editor, git, or a tool outside this server', from: null });
+  assert.deepEqual(reasons()[0], {
+    reload: 'slide 1 changed: the title', from: null,
+    patch: { total: 1, slides: [{ slide: 1, html: '<section><h1>One</h1></section>' }] },
+    land: { go: 1, moves: [], was: 1, total: 1 },
+  });
   // (a layout pick without `quiet`: a notes save is updated in place and reloads nobody)
   const saved = await fetch(`${base}/deck/edit/slide/layout`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
