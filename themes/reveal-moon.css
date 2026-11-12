@@ -27,6 +27,8 @@
 
   /* ── accent ─────────────────────────────── */
   --accent: #268bd2;
+  /* a highlight: the blue lighter than the default, or the grey text loses its edge on it */
+  --mark-tint: 15%;
   --accent-contrast: #1c1c17;
 
   /* ── blocks ─────────────────────────────── */

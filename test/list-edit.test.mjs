@@ -315,3 +315,11 @@ test('a save cleans what typing left that the file should not get, and keeps wha
     'words that hold blocks of their own (a quote of paragraphs) are left as typed');
   assert.equal(cleanTyped('<strong>B</strong> <em>i</em> <a href="#/2">s</a> <span class="accent">kept</span>', ''), '<strong>B</strong> <em>i</em> <a href="#/2">s</a> <span class="accent">kept</span>');
 });
+
+test('more emphasis survives a list or table save and a paste: highlight, strikethrough, superscript, subscript', () => {
+  assert.equal(cleanInline('a <mark>b</mark> <s>c</s> x<sup>2</sup> H<sub>2</sub>O <mark></mark>'), 'a <mark>b</mark> <s>c</s> x<sup>2</sup> H<sub>2</sub>O');
+  const doc = listDoc('<ul><li>one <mark>key</mark></li><li>E=mc<sup>2</sup></li></ul>');
+  assert.match(listHtml(doc), /<li>one <mark>key<\/mark><\/li><li>E=mc<sup>2<\/sup><\/li>/);
+  assert.equal(cleanPasted({ html: '<p>H<sub>2</sub>O, mc<sup>2</sup>, <del>old</del> <strike>older</strike> <mark style="background:yellow">key</mark></p>' }),
+    'H<sub>2</sub>O, mc<sup>2</sup>, <s>old</s> <s>older</s> <mark>key</mark>');
+});

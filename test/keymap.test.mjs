@@ -179,7 +179,7 @@ test('the help says which keys answer only in a context', () => {
   // ⏎ and ⌫ on a selection, the formatting chords while typing, the
   // overview's N · D · ⌫ and the inspector's E were bound and listed nowhere.
   const ctx = [...SRC.matchAll(/<tr class="help-ctx"><td>([^<]+)<\/td><td>([^<]*)<\/td><\/tr>/g)].map((m) => m[2]);
-  for (const want of [/selected element/, /while editing text: bold/, /in the overview/, /in the inspector/]) {
+  for (const want of [/selected element/, /while editing text: bold/, /while editing text: highlight · strike through/, /in the overview/, /in the inspector/]) {
     assert.ok(ctx.some((t) => want.test(t)), `no context row matching ${want}`);
   }
 });

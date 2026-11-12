@@ -19,7 +19,7 @@
 // answers the shipped themes' contrast gates (tools/theme-check.mjs).
 
 import { contrast, parseColor, toOklab, fromOklab, rgbToHex } from './color.mjs';
-import { validateTheme, NESTED_MIN_DL } from './theme-check.mjs';
+import { validateTheme, NESTED_MIN_DL, settleMark } from './theme-check.mjs';
 
 /** The weights a scale may define: 100, 200 … 1000. */
 export const WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
@@ -552,6 +552,11 @@ export function expandTheme(read, theme, prefix, { roles = null, contract = null
     if (!has(t)) { plain[t] = live[t] = v; out.chosen.push(t); }
   }
 
+  // a highlight readable on the brand's page (PRESENTING_EDITING): a tint of
+  // its accent only, never a colour off the palette; when no tint will do,
+  // the gate below says so
+  const mark = settleMark(Object.fromEntries(Object.entries(plain).map(([k, v]) => [k.replace(/^--/, ''), v])));
+  if (mark['mark-tint']) { plain['--mark-tint'] = live['--mark-tint'] = mark['mark-tint']; out.chosen.push('--mark-tint'); }
   out.tokens = plain;
   out.gateCss = themeCss(theme.name, plain);
   // the roles ride on the theme block, so switching theme recolours every role;

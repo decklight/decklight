@@ -263,8 +263,11 @@ export function cleanInline(html, { keepStyle = false } = {}) {
 
 // ── what a paste brings ─────────────────────────────────────────────────────
 
-/** The emphasis the editor writes itself (⌘B, ⌘I, ⌘E), and the tags another app writes for it. */
-const PASTE_EMPHASIS = { strong: 'strong', b: 'strong', em: 'em', i: 'em', code: 'code' };
+/** The emphasis the editor writes itself (⌘B, ⌘I, ⌘E, ⌘⇧H, ⌘⇧X, the pill's x² and x₂), and the tags another app writes for it. */
+const PASTE_EMPHASIS = {
+  strong: 'strong', b: 'strong', em: 'em', i: 'em', code: 'code',
+  mark: 'mark', s: 's', strike: 's', del: 's', sup: 'sup', sub: 'sub',
+};
 /** What a paste never brings into the words, content and all: a picture, a frame, a script, the page's head. */
 const PASTE_DROPPED = new Set(['script', 'style', 'title', 'head', 'meta', 'link', 'base', 'template', 'noscript',
   'img', 'picture', 'svg', 'math', 'video', 'audio', 'canvas', 'iframe', 'object', 'embed', 'input', 'button', 'select', 'textarea']);
@@ -281,7 +284,8 @@ const escapeText = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;')
 /**
  * What a paste while typing writes into a paragraph, a heading, a quote, a
  * caption or a cell (PRESENTING_EDITING): the words, and of their look only
- * the editor's own emphasis (bold, italic, code) and links. Another app's
+ * the editor's own emphasis (bold, italic, code, highlight, strikethrough,
+ * superscript, subscript) and links. Another app's
  * clipboard html carries its fonts, sizes and colours as `style`, `class`,
  * `<span>` and `<font>`, its paragraphs as `<p>` and `<div>`, and its
  * pictures: none of it reaches the file. Lines and blocks become spaces (the
@@ -323,7 +327,7 @@ export function cleanPasted({ html = '', text = '' } = {}) {
   const words = html ? walk(parseMarkup(html)) : escapeText(text).replace(SPACES, ' ');
   // one space between words, none at either end, however the tags fell
   return words.replace(/ {2,}/g, ' ').replace(/^ +| +$/g, '')
-    .replace(/<(strong|em|code|a)\b([^>]*)> /g, ' <$1$2>').replace(/ <\/(strong|em|code|a)>/g, '</$1> ')
+    .replace(/<(strong|em|code|mark|s|sup|sub|a)\b([^>]*)> /g, ' <$1$2>').replace(/ <\/(strong|em|code|mark|s|sup|sub|a)>/g, '</$1> ')
     .replace(/ {2,}/g, ' ').trim();
 }
 

@@ -26,6 +26,8 @@
 //   --term-fg         on --term-bg   ≥ 3.0
 //   --term-prompt     on --term-bg   ≥ 3.0   ✦
 //   --ansi-* (16)     on --term-bg   ≥ 3.0
+//   a highlight (<mark>): --fg ≥ 4.5, --heading-color ≥ 3.0, --muted ≥ 2.6 on it,
+//     and it shows (OKLab ≥ 0.05 off --bg); a warning elsewhere, a failure here
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -46,7 +48,11 @@ const summary = [];
 
 for (const file of files) {
   const name = file.replace(/\.css$/, '');
-  const { ok, errors } = validateTheme(readFileSync(join(DIR, file), 'utf8'));
+  // the shipped themes are held to the highlight's gates too, which a theme
+  // from elsewhere is only warned about (tools/theme-check.mjs)
+  const { ok: contractOk, errors: contractErrors, warnings = [] } = validateTheme(readFileSync(join(DIR, file), 'utf8'));
+  const ok = contractOk && !warnings.length;
+  const errors = [...contractErrors, ...warnings];
   if (ok) { summary.push(name); continue; }
   failures++;
   console.log(`✘ ${name}`);

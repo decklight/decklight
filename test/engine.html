@@ -3391,7 +3391,7 @@
         selectWord(h1, 'One');
         await settle();
         // B, I, code, and the link button (links)
-        r.pillOnSelection = !!pill() && [...pill().querySelectorAll('button')].map((b) => b.textContent || b.getAttribute('aria-label')).join('|') === 'B|I|‹›|link';
+        r.pillOnSelection = !!pill() && [...pill().querySelectorAll('button')].map((b) => b.textContent || b.getAttribute('aria-label')).join('|') === 'B|I|‹›|H|S|x²|x₂|link';
         chord('b');
         r.chordWrapsStrong = h1.innerHTML === '<strong>One</strong>';
         r.pillSaysOn = pill()?.querySelector('.fmt-strong')?.classList.contains('on') === true;
@@ -3411,8 +3411,36 @@
         // saved in place: a quiet write from this page, the words stay as typed, no "reloading"
         r.savedInPlace = saved?.body.quiet === true && typeof saved?.body.from === 'string' && h1.isConnected
           && h1.innerHTML === '<em><code>One</code></em>' && ![...document.querySelectorAll('.decklight-toast')].some((n) => /reloading/.test(n.textContent));
-        r.PASS = r.noPillWithoutSelection && r.pillOnSelection && r.chordWrapsStrong && r.pillSaysOn && r.chordAgainUnwraps
-          && r.chordWrapsEm && r.pillWrapsCode && r.stillEditing && r.savedWithTheTags && r.pillGoneAfterSave && r.savedInPlace;
+        // more emphasis (#1028): ⌘⇧H a highlight, ⌘⇧X a strikethrough, the pill's
+        // x² and x₂, each a toggle like bold; the highlight is the theme's tint
+        h1.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        await settle();
+        const word = h1.querySelector('code') ?? h1;
+        const selectAllOf = (el) => { const rg = document.createRange(); rg.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); document.dispatchEvent(new Event('selectionchange')); };
+        const shifted = (k) => h1.dispatchEvent(new KeyboardEvent('keydown', { key: k.toUpperCase(), metaKey: true, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+        selectAllOf(word); await settle();
+        shifted('h');
+        const mark = h1.querySelector('mark');
+        r.shiftHHighlights = !!mark && mark.textContent === 'One' && pill()?.querySelector('.fmt-mark')?.classList.contains('on') === true;
+        const bg = mark ? getComputedStyle(mark).backgroundColor : '';
+        r.highlightIsTheThemesTint = !!bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'rgb(255, 255, 0)' && bg !== 'transparent';
+        shifted('h');
+        r.shiftHAgainTakesItOff = !h1.querySelector('mark') && h1.textContent === 'One';
+        shifted('x');
+        r.shiftXStrikes = h1.querySelector('s')?.textContent === 'One';
+        shifted('b');
+        r.shiftBIsNotBold = !h1.querySelector('strong');
+        pill().querySelector('.fmt-sup').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        r.pillSuperscripts = h1.querySelector('sup')?.textContent === 'One';
+        pill().querySelector('.fmt-sup').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        pill().querySelector('.fmt-sub').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        r.pillSupOffSubOn = !h1.querySelector('sup') && h1.querySelector('sub')?.textContent === 'One';
+        h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const again = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content')).at(-1)?.body.html ?? '';
+        r.savedTheNewTags = /<s>/.test(again) && /<sub>/.test(again) && !/<sup>|<mark>/.test(again) && /One/.test(again);
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        if (!r.PASS) r.lastSave = again;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
