@@ -155,7 +155,7 @@ export function shapeBox(attr, value) {
  * of `[x, y]`: a curve sampled into `steps` points when `curves`, else its
  * control points and its end as they are (the numbers, for shapeBox).
  */
-function flatten(d, { curves = true, steps = 10 } = {}) {
+export function flatten(d, { curves = true, steps = 10 } = {}) {
   const tokens = String(d ?? '').match(/[MLHVCQZ]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? [];
   const subs = []; let cur = null; let pen = [0, 0]; let start = [0, 0]; let cmd = null; let args = [];
   const need = { M: 2, L: 2, H: 1, V: 1, C: 6, Q: 4, Z: 0 };

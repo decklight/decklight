@@ -241,6 +241,7 @@ const ENGINE_GROUPS = {
     'severalshapes',
     'connectors',
     'connectmenu',
+    'wirelabel',
     'linestyle',
     'guides',
     'dupkeys',
