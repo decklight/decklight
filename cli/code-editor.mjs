@@ -153,7 +153,9 @@ export function envEditor(env = process.env) {
 function appPath(editor, { env, platform, exists }) {
   if (platform !== 'darwin') return null;
   const home = env.HOME || homedir();
-  for (const base of ['/Applications', join(home, 'Applications')]) {
+  // posix joins throughout: these are macOS paths whatever machine is asking (the
+  // host's own join wrote ~\Applications on Windows, and nothing was found there)
+  for (const base of ['/Applications', path.posix.join(home, 'Applications')]) {
     for (const rel of editor.apps ?? []) {
       const file = path.posix.join(base, rel);
       if (exists(file)) return file;
