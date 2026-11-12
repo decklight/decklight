@@ -156,6 +156,8 @@
     LK.buildreselect = LK.buildselect;
     LK.buildsettings = LK.buildpanel;
     LK.buildorder = LK.buildpanel;
+    // drawstages: a diagram that draws, its long stroke drawn at once, the short one already in two stages
+    LK.drawstages = '<svg data-build="draw" viewBox="0 0 300 40" width="600">\n  <path d="M10 15H290" stroke="currentColor" stroke-width="4" fill="none"/>\n  <path d="M10 30H150" stroke="currentColor" stroke-width="4" fill="none" data-draw-stops="0.5 1"/>\n</svg>';
     let LK_SRC = LK[HARNESS_MODE] ?? null;
     let MX_SRC = [];   // mathedit: the file's markup of slide 3's elements, by index
     // chartdata: a bar chart as an author writes one (a number spelled 80.50,
@@ -819,7 +821,7 @@
         if (u.includes('/deck/edit/element/build')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
         // the order route, as setSlideBuildOrder answers it: a key a click (a node of n steps taking n), none when it is the file's own order
         if (u.includes('/deck/edit/slide/builds')) {
-          const { groups } = JSON.parse(init.body);
+          const { groups } = JSON.parse(init.body);   // (buildorder)
           const flat = groups.flat();
           const before = (a, b) => a.index !== b.index ? a.index < b.index
             : (() => { const p = a.path ?? [], q = b.path ?? []; for (let i = 0; i < Math.min(p.length, q.length); i++) if (p[i] !== q[i]) return p[i] < q[i]; return p.length < q.length; })();
@@ -7394,6 +7396,43 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         rows()[4].querySelector('.bl-go').click(); await settle(); await settle();
         r.codeRowSelectsTheBlock = deck.state.step === 5 && deck._selection()?.top === sec.querySelector('pre');
         r.infoHasNoBuildsRow = !document.querySelector(`${P} dd[data-key="builds"]`);
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'drawstages') {
+        // a stroke drawn in stages (PRESENTING_EDITING): a staged stroke's
+        // stages are rows of their own; a selected stroke is cut in even
+        // stages and given a pace, written (a draw build reloads the page)
+        await settle(); await settle();
+        deck.goto(3, 0); await settle();
+        const P = '.decklight-inspector';
+        const sec = document.querySelector('.decklight-stage > section.active');
+        const [long, short] = [...sec.querySelectorAll('svg > path')];
+        const writes = () => CALLS.post.filter((q) => q.u.includes('/deck/edit/element/build'));
+        const last = () => writes().at(-1)?.body;
+        press('i'); await settle(); await settle();
+        document.querySelector(`${P} .ins-tab[data-tab="builds"]`)?.click(); await settle();
+        const rows = () => [...document.querySelectorAll(`${P} .bl-row`)];
+        r.stagesAreRows = rows().map((x) => `${x.querySelector('.bl-fx')?.textContent} ${x.querySelector('.bl-label')?.textContent}`).join('|') === 'draw a shape|stroke to stop 1|stroke to stop 2';
+        deck._selectNode(long, { exact: true }); await settle();
+        const stages = document.querySelector(`${P} .bl-stages`);
+        const pace = document.querySelector(`${P} .bl-pace`);
+        r.offeredOnAStroke = stages?.value === '1' && pace?.value === '' && [...pace.options].map((o) => o.textContent).join() === 'default,slow,fast';
+        stages.value = '3'; stages.dispatchEvent(new Event('change')); await settle();
+        r.threeEvenStages = last()?.drawStops === '0.333 0.667 1' && JSON.stringify(last()?.path) === '[0]' && last()?.tag === 'path' && last()?.index === 1;
+        r.aDrawWriteReloads = last()?.quiet === undefined
+          && JSON.parse(sessionStorage.getItem('decklight-edit-reselect:' + location.pathname) ?? 'null')?.path?.join() === '0';
+        sessionStorage.removeItem('decklight-edit-reselect:' + location.pathname);
+        deck._selectNode(short, { exact: true }); await settle();
+        r.readsItsStages = document.querySelector(`${P} .bl-stages`)?.value === '2';
+        const p2 = document.querySelector(`${P} .bl-pace`);
+        p2.value = '600'; p2.dispatchEvent(new Event('change')); await settle();
+        r.paceWritten = last()?.drawSpeed === 600 && JSON.stringify(last()?.path) === '[1]';
+        const s2 = document.querySelector(`${P} .bl-stages`);
+        s2.value = '1'; s2.dispatchEvent(new Event('change')); await settle();
+        r.oneStageTakesItOff = last()?.drawStops === null;
+        sessionStorage.removeItem('decklight-edit-reselect:' + location.pathname);
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

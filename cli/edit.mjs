@@ -2003,15 +2003,32 @@ export const ANIMATIONS = Object.freeze([...attributeEntry('data-animate').value
  *   self     true: the list, table or group is one step (`data-build-self`,
  *            bare); false: one step an item
  *   animate  an ANIMATIONS name (`data-animate`), null for none
+ *   drawStops  a stroke's stages (`data-draw-stops`): fractions of its length,
+ *            rising, the last 1 (`0.333 0.667 1`), or null to draw it at once
+ *   drawSpeed  its pace in path units a second (`data-draw-speed`, DRAW_SPEED),
+ *            or null for the default
  * Every attribute is changed where it stands, a bare one replaced, never
  * joined by a second. A path the file does not have is stale.
  */
-export function setElementBuildAttrs(html, slide, index, { path = [], tag = null, effect, stay, self, animate } = {}) {
+/** The pace a staged stroke can be given, in path units a second. */
+export const DRAW_SPEED = Object.freeze({ min: 20, max: 5000 });
+
+export function setElementBuildAttrs(html, slide, index, { path = [], tag = null, effect, stay, self, animate, drawStops, drawSpeed } = {}) {
   checkPath(path);
   if (effect !== undefined && effect !== null && effect !== '' && !BUILD_EFFECTS.includes(effect)) throw new Error(`unknown build effect "${effect}"`);
   for (const [k, v] of [['stay', stay], ['self', self]]) if (v !== undefined && typeof v !== 'boolean') throw new Error(`${k} is true or false`);
   if (animate !== undefined && animate !== null && !ANIMATIONS.includes(animate)) throw new Error(`unknown animation "${animate}"`);
-  if ([effect, stay, self, animate].every((v) => v === undefined)) throw new Error('nothing to set');
+  if (drawStops !== undefined && drawStops !== null) {
+    const f = typeof drawStops === 'string' ? drawStops.trim().split(/\s+/).map(Number) : [];
+    if (!f.length || f.length > 32 || f.some((x) => !(x > 0 && x <= 1)) || f.some((x, i) => i && x <= f[i - 1]) || f.at(-1) !== 1) {
+      throw new Error('a stroke\'s stages are fractions of its length, rising, the last 1');
+    }
+  }
+  if (drawSpeed !== undefined && drawSpeed !== null
+      && (typeof drawSpeed !== 'number' || !Number.isFinite(drawSpeed) || drawSpeed < DRAW_SPEED.min || drawSpeed > DRAW_SPEED.max)) {
+    throw new Error(`a stroke's pace is ${DRAW_SPEED.min} to ${DRAW_SPEED.max} path units a second, or null`);
+  }
+  if ([effect, stay, self, animate, drawStops, drawSpeed].every((v) => v === undefined)) throw new Error('nothing to set');
   const e = openElement(html, slide, index);
   e.edit(path, tag, (attrs) => {
     let a = attrs;
@@ -2019,6 +2036,8 @@ export function setElementBuildAttrs(html, slide, index, { path = [], tag = null
     if (stay !== undefined) a = withAttr(a, 'data-build-stay', stay ? true : null);
     if (self !== undefined) a = withAttr(a, 'data-build-self', self ? true : null);
     if (animate !== undefined) a = withAttr(a, 'data-animate', animate);
+    if (drawStops !== undefined) a = withAttr(a, 'data-draw-stops', drawStops === null ? null : drawStops.trim().split(/\s+/).join(' '));
+    if (drawSpeed !== undefined) a = withAttr(a, 'data-draw-speed', drawSpeed === null ? null : String(Math.round(drawSpeed)));
     return a;
   });
   return e.html();

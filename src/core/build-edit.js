@@ -25,6 +25,8 @@ const FIELDS = {
   stay: { attr: 'data-build-stay', on: (v) => (v ? '' : null) },
   self: { attr: 'data-build-self', on: (v) => (v ? '' : null) },
   animate: { attr: 'data-animate', on: (v) => v },
+  drawStops: { attr: 'data-draw-stops', on: (v) => v },
+  drawSpeed: { attr: 'data-draw-speed', on: (v) => (v === null ? null : String(Math.round(v))) },
 };
 
 /** Where a node is in the file: its slide, its block's index, the path below it. Null where the file has no such node. */
@@ -44,7 +46,7 @@ export function createBuildEdit({ instance, editmode, toast = () => {} }) {
   const inst = () => (typeof instance === 'function' ? instance() : instance);
 
   /** Does this change give or take a draw build (on the node, or the container it builds in)? */
-  const touchesDraw = (node, fields) => fields.effect === 'draw' || node.getAttribute('data-build') === 'draw'
+  const touchesDraw = (node, fields) => fields.effect === 'draw' || 'drawStops' in fields || 'drawSpeed' in fields || node.getAttribute('data-build') === 'draw'
     || node.getAttribute('data-build-style') === 'draw' || node.closest('[data-build="draw"]') !== null;
 
   /** The slide's steps counted again where they stand, and the slide stepped to show `node` when it now waits. */

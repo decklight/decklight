@@ -89,7 +89,7 @@ const RULES = [
   [/^src\/core\/character-art\.js$/, ['character-render'], 'the head it draws'],
   [/^src\/core\/review\.js$/, ['review-render'], 'the review overlay and its anchor resolver'],
   [/^src\/core\/overflow\.js$/, ['overflow-render', 'pin-render', 'engine-render:authoring', 'engine-render:sources'], 'the overflow guardrail, the pinned-title case, and what clipped says: write mode\'s badge (clipbadge) and the inspector\'s fit row'],
-  [/^src\/core\/(builds-panel|buildlist|build-edit)\.js$/, ['engine-render:authoring', 'engine-render:sources'], 'the inspector\'s Builds tab and what it writes (buildpanel, buildsettings, buildorder, buildselect, contextmenu) and the tab bar it sits in (inspector, inspectortabs)'],
+  [/^src\/core\/(builds-panel|buildlist|build-edit)\.js$/, ['engine-render:authoring', 'engine-render:sources'], 'the inspector\'s Builds tab and what it writes (buildpanel, buildsettings, buildorder, drawstages, buildselect, contextmenu) and the tab bar it sits in (inspector, inspectortabs)'],
   [/^src\/core\/annotate\.js$/, [...ENGINE, 'render'], 'ink rides the engine scale'],
   [/^src\/core\/themes\.js$/, ['render', 'contrast', 'theme-config-render'], 'theme picking, the theme a deck opens on, and the contrast gate behind it'],
   [/^src\/core\/(editmode|history|templates|authoring|links|colorpicker|editbar)\.js$/, [...ENGINE, 'edit-e2e'], 'the author surfaces the engine harness drives, and the real-server pass'],
