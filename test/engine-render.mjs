@@ -40,7 +40,7 @@ export const MODES = [
   'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect',
   'links',
   'pictureresize', 'picturealt', 'picturebg', 'pictureslidetab',
-  'chartdata',
+  'chartdata', 'codeoptions',
   'shapedrag', 'shapeadd', 'shaperesize',
   'connectors', 'connectmenu', 'linestyle', 'guides', 'connectdraw',
   'dupkeys',

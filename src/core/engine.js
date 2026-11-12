@@ -37,6 +37,7 @@ import { createBuildsPanel } from './builds-panel.js';
 import { createBuildEdit } from './build-edit.js';
 import { createDeckSettings } from './deck-settings.js';
 import { createFindReplace } from './find-replace.js';
+import { createOptionsTab } from './options-tab.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { createPlaylist } from './playlist.js';
@@ -3798,6 +3799,8 @@ export function init(userConfig = {}) {
     instance: () => instance, select: (node) => editbar.selectNode(node, { exact: true }),
     edit: buildEdit, writable: () => !!editmode.available?.(),
   }).tab, { after: 'data' });
+  // a selected block's settings as fields: a code block's language, line numbers, fit and steps
+  inspector.addTab(createOptionsTab({ instance: () => instance, editmode: () => editmode, toast }).tab, { after: 'data' });
   // the content editor's way back to the inspector (its HTML tab's other end)
   editmode.setInspectorOpener?.(() => inspector?.open());
   // Check deck… (palette, SPEC PRESENTING): the open deck's own lint, slide by

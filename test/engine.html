@@ -171,6 +171,8 @@
       </div>`;
     const CD_SCATTER = `<div class="chart cd-scatter" data-chart="scatter"><script type="application/json">{ "series": [ { "name": "a", "points": [[1, 2], [3, 4]] } ] }<\/script></div>`;
     const CD_FILE = { 1: CD_BAR, 2: CD_SCATTER };
+    // codeoptions: the code block the file has on slide 5, element 1
+    const CO_FILE = '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\ngo(a, b);\n</code></pre>';
     let FAIL_NEXT_STYLE = false;   // the colours mode: the next style save is refused
     const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url, init) => {
@@ -982,6 +984,17 @@
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<figure>\n<img src="x.svg" alt="">\n<figcaption>Caption</figcaption>\n</figure>' });
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
       }
+      // the Options tab (codeoptions): the file's code block, and a settings
+      // route that refuses a line past the end, as the server would
+      if (HARNESS_MODE === 'codeoptions') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: CO_FILE });
+        if (u.includes('/deck/edit/element/options') && init?.method === 'POST') {
+          const b = JSON.parse(init.body);
+          if (/9/.test(b.set?.['data-lines'] ?? '')) return json({ ok: false, error: 'the block has 3 lines: 9 is past its end' }, 400);
+          return json({ ok: true, changed: true, inPlace: b.quiet === true, undo: 1, redo: 0 });
+        }
+      }
       // the Data tab (chartdata): the file's two charts, as the server would
       // read them, and a content write that the next read sees
       if (HARNESS_MODE === 'chartdata') {
@@ -1305,6 +1318,10 @@
           <g class="cs-c"><rect class="cs-plain2" x="580" y="40" width="120" height="60"/><text x="640" y="75">Other</text></g>`);
         document.querySelector('.cp-text').style.setProperty('font-weight', '700');
       }
+    }
+    // a code block to set up from the Options tab (codeoptions), slide 5
+    if (HARNESS_MODE === 'codeoptions') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Code</h2>\n${CO_FILE}</section>`);
     }
     if (HARNESS_MODE === 'chartdata') {
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Charts</h2>
@@ -10798,6 +10815,72 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.noSelectionSaysHow && r.paletteRows;
       }
 
+      // PRESENTING_EDITING, the inspector's Options tab (CODE_AND_MATH): a code
+      // block's language, line numbers, fit and line steps as fields, read
+      // from the FILE; each change on the slide at once, a burst written as
+      // ONE settings write after a pause; a line past the end refused in its
+      // row and written nowhere; a click on a line fills the step.
+      if (mode === 'codeoptions') {
+        const I = '.decklight-inspector';
+        const q = (s) => document.querySelector(`${I} ${s}`);
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/options'));
+        const pre = () => document.querySelector('.decklight-stage section.active pre');
+        const pause = async () => { for (let i = 0; i < 20; i++) await settle(); };
+        const type = (input, v) => { input.focus(); input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); };
+        await settle();
+        deck.goto(5);
+        await settle();
+        pre().querySelector('.code-line').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+        press('i');
+        await settle();
+        const tabs = [...document.querySelectorAll(`${I} .ins-tab`)].map((b) => b.dataset.tab);
+        r.optionsTabShown = tabs.includes('options') && tabs.indexOf('options') > tabs.indexOf('type');
+        q('.ins-tab[data-tab="options"]').click();
+        await until(() => q('dd[data-key="language"] select'));
+        r.readFromTheFile = CALLS.get.some((u) => u.includes('/deck/edit/element/source?slide=5&index=1'));
+        const lang = q('dd[data-key="language"] select');
+        r.fieldsSayWhatTheFileHas = lang.value === 'javascript' && !q('dd[data-key="numbers"] input').checked
+          && [...document.querySelectorAll(`${I} .ins-step-lines`)].map((i) => i.value).join('|') === '1|2';
+        // a burst: language, line numbers, a step: on the slide at once, written once
+        lang.value = 'python'; lang.dispatchEvent(new Event('change', { bubbles: true }));
+        const nums = q('dd[data-key="numbers"] input');
+        nums.checked = true; nums.dispatchEvent(new Event('change', { bubbles: true }));
+        await settle();
+        r.shownAtOnce = pre().classList.contains('line-numbers') && !!pre().querySelector('code.language-python .code-line')
+          && pre().querySelectorAll('.code-line').length === 3;
+        r.notWrittenYet = posts().length === 0;
+        await pause();
+        const first = posts()[0]?.body;
+        r.oneBurstOneWrite = posts().length === 1 && first.slide === 5 && first.index === 1 && first.tag === 'pre' && first.quiet === true
+          && first.set.language === 'python' && first.set['data-lines-numbers'] === true && !('data-lines' in first.set);
+        // a line past the end: said in its row, kept off the slide and the file
+        const step2 = () => document.querySelectorAll(`${I} .ins-step-lines`)[1];
+        type(step2(), '9');
+        await settle();
+        r.pastTheEndSaid = step2().classList.contains('ins-invalid') && /3 lines: 9 is past its end/.test(q('.ins-step-why:not([hidden])')?.textContent ?? '')
+          && pre().getAttribute('data-lines') === '1|2';
+        await pause();
+        r.pastTheEndNotWritten = posts().length === 1;
+        // fixed, then a click on line 3 goes into that step
+        type(step2(), '2');
+        pre().querySelectorAll('.code-line')[2].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+        r.clickFillsTheStep = step2() && step2().value === '2-3' && pre().getAttribute('data-lines') === '1|2-3';
+        // + a step, and ✕ takes one off
+        q('.ins-step-add').click();
+        await settle();
+        r.aStepAdded = document.querySelectorAll(`${I} .ins-step`).length === 3 && pre().getAttribute('data-lines') === '1|2-3|all';
+        document.querySelectorAll(`${I} .ins-step-drop`)[0].click();
+        await pause();
+        const last = posts().at(-1)?.body;
+        r.stepsWritten = last?.set['data-lines'] === '2-3|all' && pre().getAttribute('data-lines') === '2-3|all';
+        // its steps are the build's: two clicks light the lines
+        deck.goto(5, 1); await settle();
+        r.stepsLightLines = pre().querySelectorAll('.line-hl').length === 2;
+        deck.goto(5, 0); await settle();
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+      }
       if (mode === 'chartdata') {
         // PRESENTING_EDITING, the inspector's Data tab (SPEC CHARTS): a chart's
         // numbers as a grid read from the FILE, every edit drawn on the slide

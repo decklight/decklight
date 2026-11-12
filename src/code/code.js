@@ -141,10 +141,19 @@ export function initCode(root, registerBuildProvider) {
 
     const pre = codeEl.parentElement;
     const lineEls = wrapLines(codeEl);
-    if (pre.hasAttribute('data-lines-numbers')) pre.classList.add('line-numbers');
+    // set up again after its settings changed (the inspector's Options tab):
+    // what the attributes no longer ask for goes, steps included
+    if (pre.hasAttribute('data-lines-numbers')) { pre.classList.add('line-numbers'); pre.__dlNumbered = true; }
+    else if (pre.__dlNumbered) { pre.classList.remove('line-numbers'); pre.__dlNumbered = false; }
 
     const spec = pre.getAttribute('data-lines');
-    if (!spec) return;
+    if (!spec) {
+      if (pre.classList.contains('stepping')) {
+        pre.classList.remove('stepping');
+        registerBuildProvider(pre, null);   // no steps of its own any more
+      }
+      return;
+    }
     const segments = parseLineRanges(spec, lineEls.length);
     pre.classList.add('stepping');
 

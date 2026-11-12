@@ -42,7 +42,7 @@ import {
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, moveSlideElement,
   duplicateSlideElement } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
-import { setElementPicture, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
+import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
 import { findInDeck, replaceInDeck } from './find-replace.mjs';
 import { setElementGeometry, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
@@ -1085,6 +1085,27 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   /**
+   * `POST /deck/edit/element/options` — `{ slide, index, path?, tag, set }`:
+   * the settings the inspector's Options tab changes on one element
+   * (setElementOptions), a closed set per tag, every value checked, and one
+   * undo entry for the lot: the tab sends a burst of changes as one.
+   */
+  function elementOptionsRoute({ body, json }) {
+    const { slide, index, path = [], tag = null, set = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || typeof tag !== 'string'
+      || !set || typeof set !== 'object' || Array.isArray(set)) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    let changed;
+    try { changed = applyEdit((html) => setElementOptions(html, slide, index, { path, tag, set })); }
+    catch (e) { return refusal(e, json); }
+    const said = Object.entries(set).map(([k, v]) => `${k} ${v === null ? '(removed)' : JSON.stringify(v).slice(0, 60)}`).join(', ');
+    if (changed) console.log(`  settings changed: slide ${slide} #${index}${path.length ? ` › ${path.join('.')}` : ''} → ${said}`);
+    const placed = inPlaceWrite(changed, inPlace, slide, index, from);
+    return json(200, { ok: true, changed, inPlace: placed, ...history.counts() });
+  }
+
+  /**
    * `POST /deck/edit/slide/background` — `{ slide, src }`: slide N's
    * background picture (`data-background-image`, DECK_ANATOMY), a relative
    * path beside the deck, or null to take it off. With `take: { index, path?,
@@ -1218,6 +1239,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/image', imageRoute);
   routes.set('POST /deck/edit/element/insert', elementInsertRoute);
   routes.set('POST /deck/edit/element/picture', elementPictureRoute);
+  routes.set('POST /deck/edit/element/options', elementOptionsRoute);
   routes.set('POST /deck/edit/slide/background', slideBackgroundRoute);
   routes.set('POST /deck/edit/slide/builds', slideBuildsRoute);
   return routes;

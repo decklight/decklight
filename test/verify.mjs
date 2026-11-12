@@ -220,6 +220,7 @@ const ENGINE_GROUPS = {
     'picturebg',
     'pictureslidetab',
     'chartdata',
+    'codeoptions',
     'shapedrag',
     'shapeadd',
     'shaperesize',
