@@ -74,6 +74,19 @@ test('one attribute: set where it stands, its quote kept, added last before a se
   assert.equal(withAttr('<rect\n  X="1"', 'x', 2), '<rect\n  X="2"', 'its spelling and the space before it stay');
 });
 
+test('a bare attribute: true writes the name alone, in place or last, and attrOf reads it as present', () => {
+  assert.equal(withAttr('<li class="a"', 'data-build-stay', true), '<li class="a" data-build-stay');
+  assert.equal(withAttr('<img src="a.png" ', 'controls', true), '<img src="a.png" controls ', 'added before a self-close, the tail kept');
+  assert.equal(withAttr('<li data-build-stay="" class="a"', 'data-build-stay', true), '<li data-build-stay class="a"', 'a value it had is dropped where it stands');
+  assert.equal(withAttr("<li\n  Data-Build-Stay='x'", 'data-build-stay', true), '<li\n  Data-Build-Stay', 'its spelling and the space before it stay');
+  const bare = withAttr('<li', 'data-build-stay', true);
+  assert.equal(withAttr(bare, 'data-build-stay', true), bare, 'writing it twice changes nothing');
+  assert.equal(attrOf(bare, 'data-build-stay'), '', 'present, with no value');
+  assert.equal(withAttr(bare, 'data-build-stay', null), '<li', 'null takes it off');
+  assert.equal(withAttr(bare, 'data-build-stay', 'x'), '<li data-build-stay="x"', 'a value given later is written with a quote');
+  assert.equal(withAttr('<li', 'data-x', 'true'), '<li data-x="true"', 'the string "true" is still a value');
+});
+
 test('ONE escaping rule: alt text keeps & < > " as text, a name or a number is written as it is, and attrOf reads back what was set', () => {
   const alt = 'Tom & Jerry say "<hi>"';
   const head = withAttr('<img src="a.png"', 'alt', alt);

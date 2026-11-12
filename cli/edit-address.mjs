@@ -134,11 +134,18 @@ export function attrOf(attrs, name) {
  * quote and the space before it kept), or added last; null takes it off. The
  * value is escaped the one way every attribute is (escapeHtml: `&`, `<`, `>`
  * and `"`; a `'` too inside single quotes), so what attrOf reads back is what
- * was set: alt text with an ampersand, a name, a number alike.
+ * was set: alt text with an ampersand, a name, a number alike. `true` writes
+ * the attribute bare (`data-build-stay`, `controls`), its value dropped if it
+ * had one, its spelling and the space before it kept.
  */
 export function withAttr(attrs, name, value) {
   const a = attrList(attrs).find((x) => x.name === name);
   if (value === null) return a ? attrs.slice(0, a.start) + attrs.slice(a.end) : attrs;
+  if (value === true) {
+    if (a) return attrs.slice(0, a.start) + `${a.lead}${a.written}` + attrs.slice(a.end);
+    const tail = /\s*$/.exec(attrs)[0];
+    return `${attrs.slice(0, attrs.length - tail.length)} ${name}${tail}`;
+  }
   const q = a?.raw?.[0] === "'" ? "'" : '"';
   let v = escapeHtml(value);
   if (q === "'") v = v.replace(/'/g, '&#39;');
