@@ -87,7 +87,6 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/asset',
     'POST /deck/edit/concepts',
     'POST /deck/edit/element/build',
-    'POST /deck/edit/element/canvas',
     'POST /deck/edit/element/concept',
     'POST /deck/edit/element/concepts',
     'POST /deck/edit/element/connector',
@@ -152,6 +151,34 @@ test('POST /deck/edit/slide/builds stamps the slide\'s order in one undo entry, 
   assert.equal(readDeck(), deck, 'the file\'s own order leaves the file as it was');
   const bad = await call(routes, 'POST /deck/edit/slide/builds', { body: { slide: 1, groups: [[{ index: 0, path: [42] }]] } });
   assert.equal(bad.code, 409);
+});
+
+test('several selected: remove, duplicate, move and restyle each take items and are ONE undo entry', async (t) => {
+  const deck = '<!doctype html>\n<html><body>\n  <div class="decklight">\n    <section>\n      <h2>T</h2>\n      <p>a</p>\n      <p>b</p>\n      <p>c</p>\n    </section>\n  </div>\n</body></html>\n';
+  const { routes, readDeck, history } = harness(t, deck);
+  const undoes = () => history.counts().undo;
+  let r = await call(routes, 'POST /deck/edit/element/duplicate', { body: { slide: 1, items: [{ index: 1 }, { index: 3 }], quiet: true } });
+  assert.equal(r.code, 200);
+  assert.deepEqual(r.body.copies, [{ index: 2, html: '<p>a</p>' }, { index: 5, html: '<p>c</p>' }]);
+  assert.equal(undoes(), 1);
+  r = await call(routes, 'POST /deck/edit/element/move', { body: { slide: 1, items: [{ index: 4 }, { index: 5 }], dir: -1 } });
+  assert.deepEqual(r.body.indices, [3, 4]);
+  assert.equal(undoes(), 2);
+  r = await call(routes, 'POST /deck/edit/element/style', { body: { slide: 1, items: [{ index: 1, edits: [{ path: [], prop: 'color', value: '#ff0000' }] }, { index: 2, edits: [{ path: [], prop: 'color', value: '#ff0000' }] }] } });
+  assert.equal(r.code, 200);
+  assert.equal((readDeck().match(/color: #ff0000/g) || []).length, 2);
+  assert.equal(undoes(), 3);
+  r = await call(routes, 'POST /deck/edit/element/remove', { body: { slide: 1, items: [{ index: 1 }, { index: 2 }, { index: 3 }] } });
+  assert.equal(r.code, 200);
+  assert.equal(undoes(), 4, 'three removed, one entry');
+  assert.equal((readDeck().match(/<p/g) || []).length, 2);
+  // a stale page and a move that cannot happen are 409s, and write nothing
+  const before = readDeck();
+  r = await call(routes, 'POST /deck/edit/element/remove', { body: { slide: 1, items: [{ index: 1, tag: 'ul' }] } });
+  assert.equal(r.code, 409);
+  r = await call(routes, 'POST /deck/edit/element/move', { body: { slide: 1, items: [{ index: 0 }], dir: -1 } });
+  assert.equal(r.code, 409);
+  assert.equal(readDeck(), before);
 });
 
 test('POST /deck/edit/slide/notes writes the aside and leaves one undo entry behind', async (t) => {

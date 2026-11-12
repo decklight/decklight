@@ -264,7 +264,18 @@ export function createStyleClip({ save, toast, repaint = () => {}, snap = () => 
     return true;
   }
 
-  return { copy, paste, has, clip: () => clip, keys: STYLE_KEYS };
+  /**
+   * The copied style worked out for `target` as a paste would, kept to what
+   * goes on the element itself (`[{ prop, value }]`): the edits a paste on
+   * several selected puts on each (several.js). Empty when it takes nothing.
+   */
+  function editsFor(target) {
+    if (!clip || !target) return [];
+    const plan = pasteChanges(clip, target, { snap: snap() });
+    return (plan?.changes ?? []).filter((c) => !c.t.path?.length || c.t.el === target.top).map((c) => ({ prop: c.prop, value: c.value }));
+  }
+
+  return { copy, paste, has, editsFor, clip: () => clip, keys: STYLE_KEYS };
 }
 
 /** A concept taken off by a paste: its paint goes too, except where the paste just wrote one. */

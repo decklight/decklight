@@ -320,6 +320,50 @@ export function createEditBar({
   // selected element and goes back to the slide when nothing is selected.
   const selectListeners = new Set();
   const announce = () => { for (const fn of selectListeners) fn(selected); };
+  // Selecting several (PRESENTING_EDITING): ⇧-click adds a top-level element
+  // of the same slide to the selection, or takes it out. `selected` stays the
+  // primary (what the handle, the inspector and every one-element door read);
+  // the others are beside it, outlined the same way. A plain click, Esc and a
+  // new slide go back to one.
+  let extras = [];
+  /** Everything selected, the primary first: one element, or several. */
+  const all = () => (selected ? [selected, ...extras] : []);
+  function dropExtras() {
+    for (const t of extras) t.top.classList.remove('dl-selected', 'dl-also');
+    extras = [];
+  }
+  /** The others put back beside a primary just selected (select() lets go of them first). */
+  function keepExtras(keep) {
+    extras = keep;
+    for (const t of keep) t.top.classList.add('dl-selected', 'dl-also');
+  }
+  /** ⇧-click on `target`: added to the selection, or taken out of it. */
+  function toggleSeveral(target) {
+    if (!selected || selected.slide !== target.slide) { target.node = target.top; select(target); return; }
+    const top = target.top;
+    // several are top-level elements: a node picked inside one stands for its block
+    if (selected.node !== selected.top) { const primary = { ...selected, node: selected.top, clicked: selected.top }; const keep = extras; extras = []; select(primary); keepExtras(keep); }
+    if (top === selected.top) {
+      if (!extras.length) return;
+      // the primary taken out: the next one leads
+      const next = extras.shift();
+      next.top.classList.remove('dl-also');
+      const keep = extras;
+      extras = [];
+      select(next);
+      keepExtras(keep);
+      announce();
+      return;
+    }
+    const i = extras.findIndex((t) => t.top === top);
+    if (i >= 0) { extras[i].top.classList.remove('dl-selected', 'dl-also'); extras.splice(i, 1); }
+    else {
+      extras.push({ ...target, node: top, clicked: top });
+      top.classList.add('dl-selected', 'dl-also');
+    }
+    debugLog('edit', `several selected: ${all().length} on slide ${selected.slide}`);
+    announce();
+  }
   function select(target) {
     deselect({ quiet: true });
     target.node ??= pickNode(target.top, target.clicked);
@@ -381,6 +425,7 @@ export function createEditBar({
     cancelAnimationFrame(following);
     lastBox = '';
     const had = !!selected;
+    dropExtras();
     selected?.top.classList.remove('dl-selected');
     selected = null;
     frame.off();
@@ -398,6 +443,7 @@ export function createEditBar({
   root.addEventListener('click', (e) => {
     if (!on() || authoring.editing() || inOverlay(e.target)) return;
     const target = editmode.elementTargetOf(e.target);
+    if (target?.top && e.shiftKey && !e.altKey) { toggleSeveral(target); return; }
     if (target?.top) {
       // a second click on a selected column is the block under the pointer, ⌥-click the deepest one (pick.js)
       const node = nodeForClick(target.top, target.clicked, selected, { alt: e.altKey });
@@ -431,6 +477,20 @@ export function createEditBar({
    */
   function keydown(e) {
     if (!on() || !selected || authoring.editing()) return false;
+    // several selected: the keys that change them change all of them, as one undo (several.js)
+    const many = extras.length ? all() : null;
+    if (many && editmode.several?.()) {
+      const actions = editmode.several();
+      if (e.key === 'Backspace' || e.key === 'Delete') { deselect(); actions.remove(many); return true; }
+      if (e.key === 'Escape') { const one = selected; deselect({ quiet: true }); select(one); return true; }
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === 'KeyD') { actions.duplicate(many); return true; }
+      if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { actions.move(many, e.key === 'ArrowUp' ? -1 : 1); return true; }
+      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const r = shown(selected).getBoundingClientRect();
+        editmode.openElementMenuAt(r.left + 12, r.top + 12, selected);
+        return true;
+      }
+    }
     if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       const el = textTarget(selected);
       if (el) { authoring.editInline(el); deselect(); }
@@ -536,6 +596,17 @@ export function createEditBar({
 
   return {
     sync, keydown, refresh, selected: () => selected, isOpen: () => !!bar,
+    /** Everything selected, the primary first (one target, or several); empty with nothing selected. */
+    selectedAll: () => all(),
+    /** Select these top-level elements of one slide, the first the primary (several.js, after a duplicate). */
+    selectSeveral(tops) {
+      const targets = tops.map((el) => editmode.elementTargetOf(el)).filter((t) => t?.top);
+      if (!targets.length) return false;
+      select({ ...targets[0], node: targets[0].top });
+      for (const t of targets.slice(1)) { extras.push({ ...t, node: t.top, clicked: t.top }); t.top.classList.add('dl-selected', 'dl-also'); }
+      announce();
+      return true;
+    },
     /** The bar's Add ▾ button while the bar is on screen (the Add menu opens above it), else null. */
     addButton: () => bar?.querySelector('.eb-add') ?? null,
     choosePicture,

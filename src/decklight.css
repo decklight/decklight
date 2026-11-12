@@ -3966,16 +3966,6 @@
 /* a label too long for its shape even wrapped (SVG_DIAGRAMS): its shape glows
    amber in write mode, never in the file (Check deck… lists it too) */
 .decklight.dl-editmode svg .dl-label-overflow { filter: drop-shadow(0 0 2px #ff9f1c) drop-shadow(0 0 1px #ff9f1c); }
-/* a diagram's canvas (src/core/canvas.js): a bar on each edge gives the
-   drawing more room or takes empty room away; its corners are the picture's */
-.decklight .dl-canvas-handle {
-  position: absolute; z-index: 43; box-sizing: border-box; padding: 0;
-  background: var(--bg, #fff); border: 2px solid var(--accent); border-radius: 3px;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg, #fff) 70%, transparent);
-  touch-action: none; transform: translate(-50%, -50%);
-}
-.decklight .dl-canvas-n, .decklight .dl-canvas-s { width: 24px; height: 8px; cursor: ns-resize; }
-.decklight .dl-canvas-e, .decklight .dl-canvas-w { width: 8px; height: 24px; cursor: ew-resize; }
 /* a diagram's shapes moved and resized in place (src/core/shapes.js): a
    selected node drags, and a box wears handles, a line one at each end */
 .decklight.dl-editmode svg .dl-glow { cursor: move; }

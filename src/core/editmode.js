@@ -2602,11 +2602,6 @@ export function createEditMode({
         }
       }
       const svg = shapes.diagramOf(target);
-      // the room round the drawing trimmed to an even margin (canvas.js)
-      if (svg && canvas?.fits(svg)) {
-        rows.push({ sep: true });
-        rows.push({ label: 'Fit the canvas to the drawing', run: () => { closeElementMenu(); canvas.fit(svg); } });
-      }
       if (svg && target.node !== svg && target.node !== target.top) {
         rows.push({ sep: true });
         rows.push({ label: 'Remove the whole diagram', run: () => removeHolder(target, svg) });
@@ -2681,6 +2676,19 @@ export function createEditMode({
       // the slide's <section> in the author's code editor (open-in-editor.js)
       if (openInEditor) { const slide = menuTarget.slide; rows.push({ label: 'Open this slide in your editor', run: () => { closeElementMenu(); openInEditor.openSlide(slide); } }); }
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
+    } else if (severalAt(menuTarget)) {
+      // Several selected, and the menu opened on one of them (PRESENTING_EDITING):
+      // only what applies to all of them, each one write and one undo (several.js)
+      const many = selectionOf();
+      const go = (fn) => () => { closeElementMenu(); fn(); };
+      rows.push({ head: `${many.length} selected` });
+      rows.push({ label: 'Colors…', run: () => openInspect('colors') });
+      rows.push({ label: 'Type…', run: () => openInspect('type') });
+      if (styleClip) rows.push({ label: 'Paste style', key: styleClip.keys.paste, disabled: !styleClip.has(), run: styleClip.has() ? go(() => several.pasteStyle(many)) : () => {} });
+      rows.push({ label: 'Move up', run: go(() => several.move(many, -1)) });
+      rows.push({ label: 'Move down', run: go(() => several.move(many, 1)) });
+      rows.push({ label: 'Duplicate', key: DUPLICATE_CHORD, run: go(() => several.duplicate(many)) });
+      rows.push({ label: 'Remove', key: '⌫', run: go(() => several.remove(many)) });
     } else {
       // The element menu (PRESENTING_EDITING): the same short list for every
       // element, in the same order, so a row is found where it was last time;
@@ -3049,13 +3057,16 @@ export function createEditMode({
   let styleClip = null;   // copy style / paste style (style-clip.js), handed in by the engine
   let elementMove = null;   // moving things within a slide (element-move.js), handed in by the engine
   let buildEdit = null;     // a node's build settings, changed in place (build-edit.js), handed in by the engine
+  let several = null;       // what changes several selected elements at once (several.js), handed in by the engine
+  let selectionOf = null;   // everything selected now, the primary first (editbar.js)
+  /** Is the menu about several selected (opened on one of them, with more than one)? */
+  const severalAt = (t) => { const many = several && selectionOf ? selectionOf() : []; return many.length > 1 && !!t?.top && many.some((x) => x.top === t.top); };
   let openInEditor = null;  // a slide or an element at its line in the author's editor (open-in-editor.js), handed in by the engine
   let tableRows = null;   // the table menu's rows for a right-clicked cell (list-session.js), handed in by authoring.js
   let turnInto = null;    // Turn into ▸ for a text block (turn-into.js), handed in by the engine
   let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
   let slideRowsOf = null; // the engine's rows for Slide ▸ / Slide ▾, for slide N: Hide this slide (HIDDEN_SLIDES)
   let shapes = null;      // a diagram's shapes moved, added, duplicated (shapes.js), handed in by the engine
-  let canvas = null;      // a diagram's canvas: its room and its fit (canvas.js), handed in by the engine
   let addContent = null;  // Add and Duplicate in place (add-content.js), handed in by the engine
   let editConcepts = null;   // the engine's door to Concept colors… (`fn(name)`), for the Concept ▸ submenu
   /**
@@ -4720,6 +4731,9 @@ export function createEditMode({
     /** Moving things within a slide (element-move.js): the menu's Move rows; and the bar's keys and drag ask for it here. */
     setElementMove: (m) => { elementMove = m; },
     setBuildEdit: (b) => { buildEdit = b; },
+    /** Several selected (several.js): its actions, and everything selected now (the primary first). */
+    setSeveral: (actions, all) => { several = actions; selectionOf = all; },
+    several: () => several,
     /** Open in your editor (open-in-editor.js): the element menu's and the slide menu's rows. */
     setOpenInEditor: (o) => { openInEditor = o; },
     elementMove: () => elementMove,
@@ -4731,7 +4745,6 @@ export function createEditMode({
     setSlideRows: (fn) => { slideRowsOf = fn; },
     /** The engine's diagram shapes (shapes.js): a shape's Duplicate, Shape ▸ and a wire's Wire ▸. */
     setShapes: (x) => { shapes = x; },
-    setCanvas: (x) => { canvas = x; },
     /** The diagram's shapes (shapes.js), for the bar's keys: Move up / down on a shape is front and back. */
     shapes: () => shapes,
     /** Add and Duplicate in place (add-content.js): the menu's Duplicate and ⌘D on anything but a diagram's shape. */
