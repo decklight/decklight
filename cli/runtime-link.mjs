@@ -291,23 +291,177 @@ export function setDeckConcepts(html, concepts) {
     clean[name] = v;
   }
   const valueText = Object.keys(clean).length ? '{ ' + Object.entries(clean).map(([k, v]) => `"${k}": ${JSON.stringify(v)}`).join(', ') + ' }' : null;
+  return withDeckConfigText(html, (text) => withObjectKey(text, 'concepts', valueText));
+}
+
+/**
+ * Where this deck carries its configuration, so it can be rewritten in place:
+ * `{ kind: 'block', block }` for the configuration block (a deck that is
+ * data), `{ kind: 'boot', boot }` for a bundle's `Decklight.init({…})` whose
+ * argument is a plain-data literal; or `{ why }`, one sentence saying why it
+ * cannot be (a block that is not JSON, an init call that is code or booted
+ * from a separate script, no configuration at all).
+ */
+export function deckConfigSource(html) {
   const block = configBlock(html);
-  if (block) {
-    if (!block.config) return null;
-    const inner = withObjectKey(block.inner, 'concepts', valueText);
-    if (inner === null) return null;
-    return html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd);
-  }
+  if (block) return block.config ? { kind: 'block', block, config: block.config } : { why: `its configuration block cannot be read: ${block.error}` };
   const boot = bootCall(html);
-  if (!boot) return null;
+  if (!boot) {
+    return /<script\b[^>]*\bsrc\s*=[^>]*>/i.test(html) && /Decklight\s*\.\s*init\b/.test(html) === false
+      ? { why: 'it is booted from a separate script, so its configuration is not in this file' }
+      : { why: 'its configuration is not in a form this editor rewrites: no configuration block, and no Decklight.init({…}) of plain data' };
+  }
   const lit = parseLiteral(boot.arg);
-  if (!lit || typeof lit !== 'object' || Array.isArray(lit)) return null;
-  const call = html.slice(boot.start, boot.end);
-  const argStart = call.indexOf(boot.arg);
-  if (argStart === -1) return null;
-  const arg = withObjectKey(boot.arg, 'concepts', valueText);
-  if (arg === null) return null;
-  return html.slice(0, boot.start) + call.slice(0, argStart) + arg + call.slice(argStart + boot.arg.length) + html.slice(boot.end);
+  if (!lit) return { why: 'its Decklight.init(…) is code, not plain data, so it is the author’s to edit' };
+  return { kind: 'boot', boot, config: lit.value };
+}
+
+/**
+ * `html` with its configuration's text rewritten by `edit(text)` (the block's
+ * JSON, or the init call's literal), spliced in place so nothing else in the
+ * file moves. Null when the deck carries its configuration in neither way, or
+ * `edit` gives null.
+ */
+function withDeckConfigText(html, edit) {
+  const src = deckConfigSource(html);
+  if (src.kind === 'block') {
+    const inner = edit(src.block.inner);
+    return inner === null ? null : html.slice(0, src.block.innerStart) + inner + html.slice(src.block.innerEnd);
+  }
+  if (src.kind === 'boot') {
+    const { boot } = src;
+    const call = html.slice(boot.start, boot.end);
+    const argStart = call.indexOf(boot.arg);
+    if (argStart === -1) return null;
+    const arg = edit(boot.arg);
+    if (arg === null) return null;
+    return html.slice(0, boot.start) + call.slice(0, argStart) + arg + call.slice(argStart + boot.arg.length) + html.slice(boot.end);
+  }
+  return null;
+}
+
+/** The value text of top-level `key` in an object literal's `text` (from after its colon), or null. */
+function valueTextOf(text, key) {
+  const span = keySpan(text, key);
+  if (!span || span.keyStart === null) return null;
+  const colon = text.indexOf(':', span.keyStart);
+  let from = colon + 1;
+  while (/\s/.test(text[from])) from++;
+  return { from, to: span.valueEnd, text: text.slice(from, span.valueEnd) };
+}
+
+/**
+ * What Deck settings… writes (PRESENTING_EDITING), each key with the one
+ * shape it takes and its default: a value set back to its default takes the
+ * key off the file. `narration.*` are the keys of the `narration` object;
+ * the object goes when its last key does.
+ */
+const LOGO_KEYS = ['onLight', 'onDark', 'src', 'height', 'position'];
+const LOGO_POSITIONS = ['bottom-left', 'top-left', 'top-right', 'bottom-right'];
+const relPath = (v) => typeof v === 'string' && v.length <= 200 && !/^(?:[a-z][a-z0-9+.-]*:|\/|#|<)/i.test(v) && !/(?:^|\/)\.\.(?:\/|$)/.test(v) && !/["'<>\\]/.test(v);
+const pause = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 60;
+export const DECK_SETTINGS = {
+  transition: { ok: (v) => ['none', 'fade', 'slide', 'scale', 'flip'].includes(v), dflt: 'fade' },
+  slideNumber: { ok: (v) => v === false || v === 'n' || v === 'n/N', dflt: false },
+  controls: { ok: (v) => typeof v === 'boolean', dflt: true },
+  pinTitles: { ok: (v) => typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 2000), dflt: true },
+  logo: {
+    ok: (v) => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).every((k) => LOGO_KEYS.includes(k))
+      && ['onLight', 'onDark', 'src'].every((k) => v[k] === undefined || relPath(v[k]))
+      && (v.onLight || v.onDark || v.src)
+      && (v.height === undefined || (typeof v.height === 'number' && v.height >= 8 && v.height <= 400))
+      && (v.position === undefined || LOGO_POSITIONS.includes(v.position)),
+    dflt: undefined,
+  },
+  'narration.slidePause': { ok: pause, dflt: 1 },
+  'narration.beatPause': { ok: pause, dflt: 0.5 },
+  'narration.sentencePause': { ok: pause, dflt: 0.25 },
+};
+
+/**
+ * The deck's settings (`set`: `{ key: value | null }`, DECK_SETTINGS), each
+ * written in its place in the configuration block or the init literal: a
+ * value its default (or null) takes the key off. Throws on a key or a value
+ * it does not write; null when the deck's configuration cannot be rewritten
+ * (deckConfigSource says why).
+ */
+export function setDeckConfig(html, set) {
+  if (!set || typeof set !== 'object' || Array.isArray(set) || !Object.keys(set).length) throw new Error('bad set');
+  for (const [key, v] of Object.entries(set)) {
+    const rule = Object.hasOwn(DECK_SETTINGS, key) ? DECK_SETTINGS[key] : null;
+    if (!rule) throw new Error(`not a deck setting this server writes: ${String(key).slice(0, 40)}`);
+    if (v !== null && !rule.ok(v)) throw new Error(`not a value ${key} takes: ${JSON.stringify(v)?.slice(0, 60)}`);
+  }
+  const off = (key, v) => v === null || JSON.stringify(v) === JSON.stringify(DECK_SETTINGS[key].dflt);
+  return withDeckConfigText(html, (text) => {
+    let t = text;
+    for (const [key, v] of Object.entries(set)) {
+      if (!key.startsWith('narration.')) {
+        t = withObjectKey(t, key, off(key, v) ? null : JSON.stringify(v));
+        if (t === null) return null;
+        continue;
+      }
+      // a nested key: spliced inside `narration`, which is made, or taken off with its last key
+      const sub = key.slice('narration.'.length);
+      const had = valueTextOf(t, 'narration');
+      if (had && !/^\{/.test(had.text)) return null;
+      const obj = had ? had.text : '{}';
+      const next = withObjectKey(obj, sub, off(key, v) ? null : JSON.stringify(v));
+      if (next === null) return null;
+      const empty = /^\{\s*\}$/.test(next);
+      if (had) t = empty ? withObjectKey(t, 'narration', null) : t.slice(0, had.from) + next + t.slice(had.to);
+      else if (!empty) t = withObjectKey(t, 'narration', next.replace(/^\{\s*/, '{ ').replace(/\s*\}$/, ' }'));
+      if (t === null) return null;
+    }
+    return t;
+  });
+}
+
+/** Text as it goes between `<title>` and `</title>`: `&` and `<` escaped, one line. */
+const titleText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * The page's `<title>`, set in place (the hud, a commit message and an export
+ * read it), or added at the top of `<head>`; an empty one is left empty.
+ */
+export function setDeckTitle(html, title) {
+  const t = String(title ?? '');
+  if (t.length > 200 || /[\u0000-\u001f\u007f]/.test(t)) throw new Error('a title is one line of up to 200 characters');
+  const masked = maskComments(html);
+  const m = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(masked);
+  if (m) {
+    const at = m.index + m[0].indexOf('>') + 1;
+    return html.slice(0, at) + titleText(t) + html.slice(at + m[1].length);
+  }
+  const head = /<head\b[^>]*>/i.exec(masked);
+  if (!head) throw new Error('the deck has no <head> to put a title in');
+  const at = head.index + head[0].length;
+  const indent = /\n([ \t]*)\S/.exec(html.slice(at))?.[1] ?? '  ';
+  return html.slice(0, at) + `\n${indent}<title>${titleText(t)}</title>` + html.slice(at);
+}
+
+/** The page's title as text (entities read), or ''. */
+export function deckTitle(html) {
+  const m = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(maskComments(html));
+  if (!m) return '';
+  const raw = html.slice(m.index, m.index + m[0].length).replace(/^<title\b[^>]*>/i, '').replace(/<\/title>$/i, '');
+  return raw.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').trim();
+}
+
+/**
+ * What Deck settings… shows: the title, each setting as the file says it (the
+ * default where it says nothing), and whether it can be written here, with
+ * the one sentence saying why not.
+ */
+export function deckSettings(html) {
+  const src = deckConfigSource(html);
+  const cfg = src.config ?? {};
+  const values = {};
+  for (const [key, rule] of Object.entries(DECK_SETTINGS)) {
+    const v = key.startsWith('narration.') ? cfg.narration?.[key.slice('narration.'.length)] : cfg[key];
+    values[key] = v === undefined ? (rule.dflt ?? null) : v;
+  }
+  return { title: deckTitle(html), values, editable: !src.why, why: src.why ?? null };
 }
 
 /**

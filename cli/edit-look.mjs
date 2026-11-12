@@ -31,7 +31,7 @@ import { basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { oneline } from './git.mjs';
-import { setDeckTheme, setDeckBrandThemesOnly } from './runtime-link.mjs';
+import { setDeckTheme, setDeckBrandThemesOnly, setDeckConfig, setDeckTitle, deckSettings } from './runtime-link.mjs';
 
 /**
  * Put the look routes into `routes`, the table cli/edit.mjs dispatches on, and
@@ -95,6 +95,48 @@ export function registerLookRoutes(routes, {
       }
     }
     return json(200, { ok: true, changed, inPlace: changed && inPlace === true, ...history.counts() });
+  }
+
+  /**
+   * `GET /deck/edit/config`: what Deck settings… shows (PRESENTING_EDITING),
+   * read from the file: the page's title, each setting (the default where the
+   * file says nothing), and whether this deck's configuration can be
+   * rewritten, with the one sentence saying why not.
+   */
+  function configGetRoute({ json }) {
+    return json(200, { ok: true, ...deckSettings(readDeck()) });
+  }
+  /**
+   * `POST /deck/edit/config` `{ set?: { key: value | null }, title? }`: the
+   * deck's own settings, saved in the file (setDeckConfig, setDeckTitle), in
+   * one edit and one undo. A value back at its default takes the key off. Not
+   * quiet: the runtime reads these when the deck loads, so every page reloads.
+   * A deck whose configuration is code, or elsewhere, is a 409 saying why.
+   */
+  function configPostRoute({ body, json }) {
+    const { set = null, title } = JSON.parse(body || '{}');
+    if (set === null && title === undefined) return json(400, { ok: false, error: 'nothing to set' });
+    if (title !== undefined && typeof title !== 'string') return json(400, { ok: false, error: 'a title is text' });
+    const before = readDeck();
+    const why = deckSettings(before).why;
+    if (set && why) return json(409, { ok: false, error: `this deck’s settings cannot be saved here: ${why}` });
+    let changed;
+    try {
+      changed = applyEdit((html) => {
+        let out = html;
+        if (set) {
+          const next = setDeckConfig(out, set);
+          if (next === null) throw Object.assign(new Error('this deck’s configuration could not be rewritten in place'), { code: 'UNWRITABLE' });
+          out = next;
+        }
+        if (title !== undefined) out = setDeckTitle(out, title);
+        return out;
+      });
+    } catch (e) {
+      return json(e.code === 'UNWRITABLE' ? 409 : 400, { ok: false, error: String(e.message).split('\n')[0] });
+    }
+    if (changed) console.log(`  deck settings: ${[...Object.entries(set ?? {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`), ...(title !== undefined ? [`title=${JSON.stringify(title)}`] : [])].join(', ')}`);
+    return json(200, { ok: true, changed, ...deckSettings(readDeck()), ...history.counts() });
   }
 
   // ── marketplace themes, and marking (THEME_BROWSE#UI) ─────────────────
@@ -569,6 +611,8 @@ export function registerLookRoutes(routes, {
 
   routes.set('POST /deck/edit/theme', themeRoute);
   routes.set('POST /deck/edit/brand-themes', brandThemesRoute);
+  routes.set('GET /deck/edit/config', configGetRoute);
+  routes.set('POST /deck/edit/config', configPostRoute);
   routes.set('GET /deck/edit/theme/browse', themeBrowseRoute);
   routes.set('POST /deck/edit/theme/add', themeAddRoute);
   routes.set('POST /deck/edit/theme/mark', themeMarkRoute);

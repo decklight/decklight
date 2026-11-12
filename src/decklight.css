@@ -4195,6 +4195,37 @@
 .decklight-inspector .ins-settings .ins-file { display: inline-block; max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .decklight-inspector .ins-range { display: flex; align-items: center; gap: 10px; }
 .decklight-inspector .ins-settings [hidden] { display: none !important; }
+/* Deck settings…: the Slide tab's fields, in a card of their own */
+.decklight-decksettings .narr-card { width: min(560px, 92vw); max-height: 86vh; overflow: auto; }
+.decklight-decksettings .ds-rows { display: grid; grid-template-columns: auto 1fr; column-gap: 14px; margin: 4px 14px 10px; font-size: .92em; }
+.decklight-decksettings .ds-rows :is(dt, dd) { padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, .06); }
+.decklight-decksettings .ds-rows dt { color: #8d94a1; align-self: center; }
+.decklight-decksettings .ds-rows dd { margin: 0; min-width: 0; }
+.decklight-decksettings .ds-rows .ins-group { grid-column: 1 / -1; margin-top: 8px; padding: 6px 0 2px; border-top: 1px solid rgba(255, 255, 255, .1); color: #e4e7ec; font-weight: 600; }
+.decklight-decksettings .ins-field {
+  box-sizing: border-box; width: 100%; padding: 3px 7px; border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .06); font: inherit; color: #fff;
+}
+.decklight-decksettings .ins-field:focus { outline: none; border-color: #9ecbff; background: rgba(255, 255, 255, .1); }
+.decklight-decksettings .ins-field:disabled { opacity: .55; }
+.decklight-decksettings .ins-select { width: auto; max-width: 100%; padding: 2px 5px; }
+.decklight-decksettings .ins-select option { color: #111; }
+.decklight-decksettings .ins-short { width: 6.5em; }
+.decklight-decksettings .ins-check { margin: 0; accent-color: #9ecbff; width: 15px; height: 15px; }
+.decklight-decksettings .ins-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.decklight-decksettings .ins-line input.ins-field:not(.ins-short) { flex: 1; min-width: 8em; width: auto; }
+.decklight-decksettings .ins-extra { opacity: .6; font-size: .88em; }
+.decklight-decksettings .ins-btn {
+  padding: 2px 10px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .06);
+  color: #e4e7ec; font: inherit; cursor: pointer;
+}
+.decklight-decksettings .ins-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .12); }
+.decklight-decksettings .ds-logo { display: grid; gap: 6px; }
+.decklight-decksettings .ds-sub { color: #8d94a1; min-width: 3.2em; }
+.decklight-decksettings .ds-why { margin: 2px 14px 6px; color: #f2c46d; }
+.decklight-decksettings .ds-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px 12px; }
+.decklight-decksettings .ds-save { background: #2f6fd0; border-color: #2f6fd0; color: #fff; font-weight: 600; }
+.decklight-decksettings [hidden] { display: none !important; }
 .decklight-inspector .ins-slider { flex: 1; min-width: 80px; accent-color: #9ecbff; margin: 0; }
 .decklight-inspector .ins-range-value { min-width: 3.2em; text-align: right; color: #c3c8d1; font-variant-numeric: tabular-nums; }
 .decklight-inspector .ins-btn {
