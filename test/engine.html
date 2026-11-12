@@ -985,6 +985,11 @@
         }
         if (u.includes('/deck/edit/slide/attr')) return json({ ok: true, changed: true, inPlace: JSON.parse(init?.body ?? '{}').quiet === true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<figure>\n<img src="x.svg" alt="">\n<figcaption>Caption</figcaption>\n</figure>' });
+        // a picture placed (picturepaste): where the server puts it, after the element asked for
+        if (u.includes('/deck/edit/element/image')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, index: b.index === null ? 3 : b.index + 1, path: [], undo: 1, redo: 0 });
+        }
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
       }
       // the Options tab (codeoptions): the file's code block, and a settings
@@ -5629,6 +5634,54 @@
         const rightClick = (el) => { const b = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 5, clientY: b.top + 5 })); };
         const chooseFile = (name) => deck._pictures.setChooser(async () => new File(['<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"/>'], name, { type: 'image/svg+xml' }));
 
+        if (mode === 'picturepaste') {
+          // A picture from the clipboard (PRESENTING_EDITING): ⌘V with a
+          // screenshot on the clipboard and nothing being typed puts it on the
+          // slide as a dropped file does, after the selection; its alt is left
+          // empty, never "image"; while typing, or in a box, the paste is not
+          // the slide's, and a clipboard of words is left to the browser.
+          const pasteOn = (target, fill) => {
+            const dt = new DataTransfer();
+            fill(dt);
+            const e = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+            target.dispatchEvent(e);
+            return e;
+          };
+          const shot = (dt) => dt.items.add(new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'image.png', { type: 'image/png' }));
+          const images = () => posts('/deck/edit/element/image').map((c) => c.body);
+          // words on the clipboard, nothing being typed: the browser's, nothing placed
+          const words = pasteOn(document.body, (dt) => dt.setData('text/plain', 'some words'));
+          r.wordsLeftToTheBrowser = !words.defaultPrevented && !posts('/deck/edit/asset').length;
+          // a picture pasted into a box (the palette's, a field): the box's
+          const field = document.createElement('input');
+          document.body.append(field);
+          const boxed = pasteOn(field, shot);
+          field.remove();
+          r.aBoxKeepsItsPaste = !boxed.defaultPrevented && !posts('/deck/edit/asset').length;
+          // while the title is being typed: not onto the slide
+          const h2 = sec.querySelector('h2');
+          h2.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+          await settle();
+          pasteOn(h2, shot);
+          await settle();
+          r.typingKeepsItOffTheSlide = !posts('/deck/edit/asset').length && !h2.querySelector('img');
+          h2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          await settle();
+          // the picture selected, a screenshot pasted: uploaded, then placed after it
+          click(top); await settle();
+          const taken = pasteOn(document.body, shot);
+          await until(() => images().length > 0);
+          await settle();
+          const placed = images()[0];
+          r.pasteTaken = taken.defaultPrevented;
+          r.uploadedLikeADrop = posts('/deck/edit/asset').some((c) => c.body.file === 'image.png');
+          r.placedAfterTheSelection = placed?.slide === 1 && placed?.index === 1 && placed?.src === 'assets/image.png';
+          r.altLeftEmpty = placed?.alt === '';
+          r.saysSo = [...document.querySelectorAll('.decklight-toast')].some((n) => /image\.png added to slide 1/.test(n.textContent));
+          r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
         if (mode === 'pictureresize') {
           // A selected picture wears four corner handles; a drag resizes it
           // live, its aspect kept, and ONE write lands on release: its width in

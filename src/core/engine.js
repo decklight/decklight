@@ -27,6 +27,7 @@ import { createAuthoring } from './authoring.js';
 import { createEditBar } from './editbar.js';
 import { createElementMove } from './element-move.js';
 import { createAddContent } from './add-content.js';
+import { createClipboard } from './clipboard.js';
 import { createPictures } from './pictures.js';
 import { createShapes } from './shapes.js';
 import { overflowingLabels } from './diagram-labels.js';
@@ -3734,6 +3735,8 @@ export function init(userConfig = {}) {
   const addContent = createAddContent({ root, instance, editmode, authoring, editbar, toast, debugLog });
   // …and Duplicate (the menu's row, ⌘D), which puts a copy in the same way
   editmode.setAddContent(addContent);
+  // ⌘V in write mode (clipboard.js): a picture on the clipboard goes on the slide as a dropped one does
+  createClipboard({ editmode, authoring, editbar });
   // Pictures after the drop (pictures.js, PRESENTING_EDITING): resize, alt,
   // replace, caption, and the slide's background, each shown at once. A
   // background is the engine's to draw: its layer again for the one slide,
