@@ -43,6 +43,10 @@ export const TABLE_ROWS = [
   ['Delete row', 'row-delete', 'the row deleted'],
   ['Delete column', 'col-delete', 'the column deleted'],
 ];
+/** What a column can be aligned to, under Table ▸ after the six. */
+export const ALIGN_ROWS = [['left', 'Align column left'], ['center', 'Align column center'], ['right', 'Align column right']];
+/** How close to a cell's right edge a press takes its column's width (px). */
+const EDGE = 5;
 
 // ── the live list ──────────────────────────────────────────────────────────
 
@@ -489,7 +493,7 @@ export function createListSessions(ctx) {
   }
 
   // ── the table menu: rows and columns, one write each ─────────────────────
-  async function tableChange(cell, op, said) {
+  async function tableChange(cell, op, said, opts = {}) {
     if (ctx.editing()) await ctx.saveInline();
     const where = ctx.sectionOf(cell);
     const top = where && ctx.topLevelChild(where.sec, cell);
@@ -507,7 +511,7 @@ export function createListSessions(ctx) {
         if (JSON.stringify(tableShape(at.html)) !== JSON.stringify(rows.map((r) => liveCellsOf(r).length))) {
           throw new Error('the table in the file is not the one on the slide: reload, then try again');
         }
-        const html = tableOp(at.html, op, row, col);
+        const html = tableOp(at.html, op, row, col, opts);
         await ctx.post('/deck/edit/element/content', { slide: where.slide, index, html: at.replace(html) });
         showTable(table, html);
         ctx.announce(where.slide, table);
@@ -521,6 +525,68 @@ export function createListSessions(ctx) {
     editmode.trackWrite?.(job);
     return job;
   }
+
+  // ── a column's width, dragged at its edge ────────────────────────────────
+  // While editing, the pointer near a cell's right edge (not the table's
+  // last) shows a column cursor; a drag there sets that column's width as a
+  // share of the table, shown as it goes and written once when it is let go
+  // (Table ▸ › Even widths takes them all off).
+  const root = instance.root;
+  const editingOn = () => root?.classList?.contains('dl-editmode');
+  /** The cell whose right edge is under the pointer, when it is not the last of its row and its table is the file's. */
+  function edgeCell(e) {
+    const cell = e.target?.closest?.('td, th');
+    if (!cell || !editingOn() || cell.closest('[data-chart], aside, .terminal')) return null;
+    const cells = liveCellsOf(cell.parentElement);
+    if (cells.indexOf(cell) === cells.length - 1) return null;
+    const r = cell.getBoundingClientRect();
+    return Math.abs(e.clientX - r.right) <= EDGE ? cell : null;
+  }
+  /** The table's live `<col>` for each column, made for the drag when the table has none (the write puts the file's in its place). */
+  function liveCols(table, count) {
+    let group = [...table.children].find((g) => g.tagName === 'COLGROUP' && g.children.length === count);
+    if (!group) {
+      group = document.createElement('colgroup');
+      for (let i = 0; i < count; i++) group.append(document.createElement('col'));
+      table.prepend(group);
+    }
+    return [...group.children];
+  }
+  let drag = null;
+  root?.addEventListener('pointermove', (e) => {
+    if (drag) {
+      const w = Math.max(drag.min, Math.min(drag.max, drag.start + (e.clientX - drag.x)));
+      drag.col.style.width = `${(w / drag.table) * 100}%`;
+      drag.pct = (w / drag.table) * 100;
+      return;
+    }
+    root.classList.toggle('dl-col-edge', !!edgeCell(e));
+  });
+  root?.addEventListener('pointerdown', (e) => {
+    const cell = e.button === 0 ? edgeCell(e) : null;
+    if (!cell) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const table = cell.closest('table');
+    const count = Math.max(...liveRows(table).map((tr) => liveCellsOf(tr).length));
+    const col = liveCellsOf(cell.parentElement).indexOf(cell);
+    const tw = table.getBoundingClientRect().width || 1;
+    drag = { cell, col: liveCols(table, count)[col], x: e.clientX, start: cell.getBoundingClientRect().width, table: tw, min: tw * 0.05, max: tw * 0.95, pct: null, index: col };
+    root.setPointerCapture?.(e.pointerId);
+  }, true);
+  const endDrag = (e) => {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    root.releasePointerCapture?.(e.pointerId);
+    root.classList.remove('dl-col-edge');
+    // a press that never moved changes nothing
+    if (d.pct === null) return;
+    const pct = Math.round(d.pct);
+    tableChange(d.cell, 'col-width', `column ${d.index + 1} at ${pct}% of the table`, { width: pct });
+  };
+  root?.addEventListener('pointerup', endDrag);
+  root?.addEventListener('pointercancel', endDrag);
 
   return {
     /** A session on the list or table `cur.el` is in, when it is in one. */
@@ -592,7 +658,20 @@ export function createListSessions(ctx) {
       const cell = target?.clicked?.closest?.('td, th');
       if (!cell || !target.top || !(target.top === cell || target.top.contains(cell))) return [];
       if (cell.closest('[data-chart], aside, .terminal')) return [];
-      return TABLE_ROWS.map(([label, op, said]) => ({ label, run: () => { close(); tableChange(cell, op, said); } }));
+      const table = cell.closest('table');
+      const col = liveCellsOf(cell.parentElement).indexOf(cell);
+      const go = (op, said, opts) => () => { close(); tableChange(cell, op, said, opts); };
+      const rows = TABLE_ROWS.map(([label, op, said]) => ({ label, run: go(op, said) }));
+      // its look: a column's alignment (the one every cell of it has, ticked), the header row, the widths
+      const aligns = liveRows(table).map((tr) => liveCellsOf(tr)[col]).filter(Boolean).map((c) => c.style.textAlign || '');
+      const now = aligns.length && aligns.every((a) => a === aligns[0]) ? aligns[0] : '';
+      rows.push({ sep: true });
+      for (const [align, label] of ALIGN_ROWS) rows.push({ label: `${now === align ? '✓ ' : ''}${label}`, current: now === align, run: go(`col-align-${align}`, `column ${col + 1} aligned ${align}`) });
+      const first = liveRows(table)[0];
+      const header = !!first && liveCellsOf(first).every((c) => c.tagName === 'TH');
+      rows.push({ label: header ? '✓ Header row' : 'Header row', current: header, run: go(header ? 'header-off' : 'header-on', header ? 'the header row is a body row' : 'the first row is the header') });
+      if ([...table.querySelectorAll(':scope > colgroup > col')].some((c) => c.style.width)) rows.push({ label: 'Even widths', run: go('col-even', 'the columns share the width evenly') });
+      return rows;
     },
   };
 }

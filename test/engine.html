@@ -8018,7 +8018,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           clickRow('Table ▸');
           const t = rowsText();
           r.menuOffersTheSix = t[0] === '← back'
-            && t.slice(1).join('|') === 'Add row above|Add row below|Add column left|Add column right|Delete row|Delete column';
+            && t.slice(1, 7).join('|') === 'Add row above|Add row below|Add column left|Add column right|Delete row|Delete column';
+          // then its look: a column's alignment, the header row (ticked: this one has one); no Even widths before a width is set
+          r.menuOffersTheLook = t.slice(7).join('|') === 'Align column left|Align column center|Align column right|✓ Header row';
           document.querySelector(M)?.click();
           rightClick(sec.querySelector('h2'));
           r.notOnAHeading = !rowsText().includes('Table ▸');
@@ -8041,6 +8043,40 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           r.deleteColumn = b?.html === '<table>\n  <tr><th>Name</th><th>Role</th><th></th></tr>\n  <tr><td>Ada</td><td>Engineer</td><td></td></tr>\n  <tr><td></td><td></td><td></td></tr>\n</table>'
             && cell(0, 0).textContent === 'Name';
           r.eachOneWrite = writes().length === 6 && !said().some((x) => /reloading|not changed/.test(x));
+          // a column aligned right: every cell of it, the header's too, and the menu ticks it
+          b = await run(1, 1, 'Align column right');
+          r.alignRight = b?.html === '<table>\n  <tr><th>Name</th><th style="text-align: right">Role</th><th></th></tr>\n  <tr><td>Ada</td><td style="text-align: right">Engineer</td><td></td></tr>\n  <tr><td></td><td style="text-align: right"></td><td></td></tr>\n</table>'
+            && getComputedStyle(cell(1, 1)).textAlign === 'right';
+          rightClick(cell(0, 1)); clickRow('Table ▸');
+          r.alignTicked = rowsText().includes('✓ Align column right');
+          document.querySelector(M)?.click();
+          // the header row off, then on again
+          b = await run(1, 0, '✓ Header row');
+          r.headerOff = /^<table>\n  <tr><td>Name<\/td><td style="text-align: right">Role<\/td><td><\/td><\/tr>/.test(b?.html ?? '') && cell(0, 0).tagName === 'TD';
+          b = await run(1, 0, 'Header row');
+          r.headerOn = /^<table>\n  <thead><tr><th>Name<\/th><th style="text-align: right">Role<\/th><th><\/th><\/tr><\/thead>/.test(b?.html ?? '')
+            && cell(0, 0).tagName === 'TH' && !!table.querySelector(':scope > thead');
+          // the first column's edge dragged narrower: one write, a share of the table
+          const c0 = cell(1, 0);
+          const box = c0.getBoundingClientRect();
+          const tw = table.getBoundingClientRect().width;
+          const pe = (type, el, x) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, button: 0, clientX: x, clientY: box.top + box.height / 2 }));
+          pe('pointermove', c0, box.right - 1);
+          r.edgeShowsTheCursor = document.querySelector('.decklight').classList.contains('dl-col-edge');
+          pe('pointerdown', c0, box.right - 1);
+          pe('pointermove', c0, box.right - 1 - tw * 0.1);
+          pe('pointerup', c0, box.right - 1 - tw * 0.1);
+          await settle(); await settle();
+          b = writes().at(-1)?.body;
+          const pct = Number(/<col style="width: (\d+)%">/.exec(b?.html ?? '')?.[1]);
+          r.dragSetsTheWidth = writes().length === 10 && /^<table>\n  <colgroup><col style="width: \d+%"><col><col><\/colgroup>\n  <thead>/.test(b?.html ?? '')
+            && Math.abs(pct - Math.round(((box.width - tw * 0.1) / tw) * 100)) <= 1;
+          // Even widths, offered now, takes it off
+          rightClick(cell(1, 1)); clickRow('Table ▸');
+          r.evenOffered = rowsText().includes('Even widths');
+          clickRow('Even widths'); await settle(); await settle();
+          b = writes().at(-1)?.body;
+          r.evenWidths = !/colgroup/.test(b?.html ?? 'colgroup') && !table.querySelector('colgroup');
         }
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }

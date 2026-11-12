@@ -3929,6 +3929,8 @@
    line's height while editing is on, so a row Tab or the menu added can be
    clicked into */
 .decklight.dl-editmode td:empty, .decklight.dl-editmode th:empty { height: 1.4em; }
+/* a column's edge under the pointer while editing: dragged, it sets the column's width (list-session.js) */
+.decklight.dl-editmode.dl-col-edge, .decklight.dl-editmode.dl-col-edge * { cursor: col-resize !important; }
 /* the panel the keyboard goes to (PRESENTING_EDITING): a box in it has the
    caret, or the comments panel is taking its letters (review.js) */
 .decklight-dockable:focus-within > .narr-card,

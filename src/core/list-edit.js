@@ -121,6 +121,24 @@ const attrOf = (open, name) => {
   return m ? (m[1] ?? m[2] ?? m[3] ?? '') : null;
 };
 
+/** `open` with attribute `name` set to `value` where it stands, or added last; null takes it off. */
+function withOpenAttr(open, name, value) {
+  const re = new RegExp(`\\s${name}(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s"'>]+))?(?=[\\s/>])`, 'i');
+  if (value === null) return open.replace(re, '');
+  const written = ` ${name}="${String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`;
+  if (re.test(open)) return open.replace(re, written);
+  return open.replace(/\s*(\/?)>$/, (m, slash) => `${written}${slash ? ' /' : ''}>`);
+}
+/** `open` with one declaration of its `style` set (null: taken off), and a `style` left empty gone. */
+function withOpenStyle(open, prop, value) {
+  const kept = String(attrOf(open, 'style') ?? '').split(';').map((d) => d.trim()).filter(Boolean)
+    .filter((d) => d.slice(0, d.indexOf(':')).trim().toLowerCase() !== prop);
+  const decls = value === null ? kept : [...kept, `${prop}: ${value}`];
+  return withOpenAttr(open, 'style', decls.length ? decls.join('; ') : null);
+}
+/** A tag's open and close renamed (`td` to `th`), its attributes kept. */
+const retag = (n, tag) => ({ ...n, tag, open: n.open.replace(/^<[a-z0-9]+/i, `<${tag}`), close: n.close ? `</${tag}>` : n.close });
+
 // ── words: length, cut, join, trim ──────────────────────────────────────────
 
 const ENTITY = /&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);/gi;
@@ -715,11 +733,18 @@ const emptyRow = (tr) => ({ ...tr, open: dropAttrs(tr.open, ['id']), kids: tr.ki
  * cell it is put beside, so a header keeps a `<th>`. A table that merges
  * cells (`colspan`, `rowspan`) is refused: which column a merged cell is in
  * has no one answer. Returns the table's new markup.
+ *
+ * Also `col-align-left|center|right` and `header-on|off` (tableLook, which a
+ * merged table takes), and `col-width` (`{ width }`, a percent) and
+ * `col-even` (tableWidths, which it does not).
  */
-export function tableOp(html, op, row, col) {
+export function tableOp(html, op, row, col, { width = null } = {}) {
   const { nodes, table } = tableOf(html);
+  // alignment and the header row need no column arithmetic: a merged table takes them
+  if (TABLE_LOOKS.has(op)) return tableLook(nodes, table, op, col);
   if (spans(table)) throw new Error('this table merges cells (colspan or rowspan): change it in Edit content (HTML)');
   const rows = rowsOf(table);
+  if (op === 'col-width' || op === 'col-even') return tableWidths(nodes, table, op, col, width);
   const at = rows[row];
   if (!at) throw new Error(`the table has no row ${row + 1}`);
   if (op === 'row-above' || op === 'row-below') {
@@ -751,6 +776,108 @@ export function tableOp(html, op, row, col) {
   } else {
     throw new Error(`no such table change: ${op}`);
   }
+  return serialize(nodes);
+}
+
+/** The changes that leave the table's grid as it is: a column's alignment, the header row. */
+const TABLE_LOOKS = new Set(['col-align-left', 'col-align-center', 'col-align-right', 'header-on', 'header-off']);
+/** How a column's cells are aligned: 'left', 'center', 'right' when every cell says so, else null. */
+export function columnAlign(html, col) {
+  const { table } = tableOf(html);
+  const said = rowsOf(table).map(({ tr }) => cellsOf(tr)[col]).filter(Boolean)
+    .map((c) => /(?:^|;)\s*text-align\s*:\s*(left|center|right)/i.exec(attrOf(c.open, 'style') ?? '')?.[1]?.toLowerCase() ?? null);
+  return said.length && said.every((a) => a === said[0]) ? said[0] : null;
+}
+/** Does the table open with a header row (its first row's cells all `<th>`)? */
+export function hasHeaderRow(html) {
+  const first = rowsOf(tableOf(html).table)[0];
+  const cells = first ? cellsOf(first.tr) : [];
+  return cells.length > 0 && cells.every((c) => c.tag === 'th');
+}
+/**
+ * Column `col` aligned (`text-align` on each of its cells, the n-th cell of
+ * each row: a merged table's columns are counted the same way), or the first
+ * row made a header (its cells `<th>`, in a `<thead>` of its own) or a body
+ * row again (`<td>`, out of the `<thead>`, the first of the body).
+ */
+function tableLook(nodes, table, op, col) {
+  const rows = rowsOf(table);
+  if (op.startsWith('col-align-')) {
+    const align = op.slice('col-align-'.length);
+    let any = false;
+    for (const { tr } of rows) {
+      const c = cellsOf(tr)[col];
+      if (!c) continue;
+      c.open = withOpenStyle(c.open, 'text-align', align);
+      any = true;
+    }
+    if (!any) throw new Error(`the table has no column ${col + 1}`);
+    return serialize(nodes);
+  }
+  const first = rows[0];
+  if (!first) throw new Error('the table has no rows');
+  const tbody = table.kids.find((k) => isEl(k, 'tbody'));
+  if (op === 'header-on') {
+    first.tr.kids = first.tr.kids.map((k) => (isEl(k, 'td') ? retag(k, 'th') : k));
+    if (first.parent.tag !== 'thead') {
+      const head = mkEl('thead');
+      head.kids = [first.tr];
+      if (first.parent === table) table.kids[table.kids.indexOf(first.tr)] = head;
+      else {
+        // out of the body, into a header before it, the file's white space kept
+        takeOut(first.parent, first.tr);
+        placeBeside(table, first.parent, head, false);
+      }
+    }
+  } else {
+    first.tr.kids = first.tr.kids.map((k) => (isEl(k, 'th') ? retag(k, 'td') : k));
+    if (first.parent.tag === 'thead') {
+      const head = first.parent;
+      const rest = head.kids.filter((k) => isEl(k, 'tr') && k !== first.tr);
+      if (tbody) {
+        // the first row of the body, before what was there, at its indent
+        const firstBody = tbody.kids.find((k) => isEl(k, 'tr'));
+        if (firstBody) placeBeside(tbody, firstBody, first.tr, false);
+        else tbody.kids.push(first.tr);
+        takeOut(head, first.tr);
+        if (!rest.length) takeOut(table, head);
+      } else if (!rest.length) {
+        table.kids[table.kids.indexOf(head)] = first.tr;
+      } else {
+        takeOut(head, first.tr);
+        placeBeside(table, head, first.tr, false);
+      }
+    }
+  }
+  return serialize(nodes);
+}
+/**
+ * Column `col`'s width (`col-width`, `width` a share of the table from 5 to
+ * 95 percent) in a `<colgroup>` that names every column, made when the table
+ * has none; `col-even` takes every width off again, and a `<colgroup>` left
+ * saying nothing goes with them.
+ */
+function tableWidths(nodes, table, op, col, width) {
+  const rows = rowsOf(table);
+  const count = Math.max(...rows.map((r) => cellsOf(r.tr).length));
+  let group = table.kids.find((k) => isEl(k, 'colgroup') && k.kids.filter((c) => isEl(c, 'col')).length === count);
+  if (op === 'col-even') {
+    if (!group) return serialize(nodes);
+    for (const c of group.kids) if (isEl(c, 'col')) c.open = withOpenStyle(c.open, 'width', null);
+    if (group.kids.every((c) => !isEl(c) || isWs(c) || (isEl(c, 'col') && !/\s[a-z]/i.test(c.open.slice(4))))) takeOut(table, group);
+    return serialize(nodes);
+  }
+  if (col < 0 || col >= count) throw new Error(`the table has no column ${col + 1}`);
+  if (typeof width !== 'number' || !Number.isFinite(width) || width < 5 || width > 95) throw new Error('a column is 5% to 95% of its table');
+  if (!group) {
+    // a colgroup of its own, first in the table, at the indent of what follows it
+    group = mkEl('colgroup');
+    group.kids = Array.from({ length: count }, () => mkEl('col'));
+    const firstEl = table.kids.find((k) => isEl(k));
+    if (firstEl) placeBeside(table, firstEl, group, false); else table.kids.push(group);
+  }
+  const cols = group.kids.filter((c) => isEl(c, 'col'));
+  cols[col].open = withOpenStyle(cols[col].open, 'width', `${Math.round(width)}%`);
   return serialize(nodes);
 }
 
