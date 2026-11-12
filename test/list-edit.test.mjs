@@ -12,7 +12,7 @@ import {
   cleanPasted, cleanTyped,
   parseMarkup, serialize, splitInline, joinInline, textLength, cleanInline, trimInline, dropAttrs,
   listDoc, listHtml, listShape, itemFacts, splitItem, mergeItem, removeItem, indentItem, outdentItem, moveItem, setItemWords,
-  tableOp, tableEdit, tableShape, elementAt,
+  tableOp, tableEdit, tableShape, elementAt, columnAlign, hasHeaderRow,
 } from '../src/core/list-edit.js';
 
 const LIST = '<ul data-build>\n    <li class="x" id="a">Hello <strong>bold</strong> world</li>\n    <li>Second</li>\n  </ul>';
@@ -322,4 +322,45 @@ test('more emphasis survives a list or table save and a paste: highlight, strike
   assert.match(listHtml(doc), /<li>one <mark>key<\/mark><\/li><li>E=mc<sup>2<\/sup><\/li>/);
   assert.equal(cleanPasted({ html: '<p>H<sub>2</sub>O, mc<sup>2</sup>, <del>old</del> <strike>older</strike> <mark style="background:yellow">key</mark></p>' }),
     'H<sub>2</sub>O, mc<sup>2</sup>, <s>old</s> <s>older</s> <mark>key</mark>');
+});
+
+test('tableOp aligns a column: a text-align on each of its cells, any other style kept, and a merged table takes it', () => {
+  const t = '<table>\n  <tr><th>Name</th><th>Cost</th></tr>\n  <tr><td>Ada</td><td style="color: red">12</td></tr>\n</table>';
+  const right = tableOp(t, 'col-align-right', 1, 1);
+  assert.equal(right, '<table>\n  <tr><th>Name</th><th style="text-align: right">Cost</th></tr>\n  <tr><td>Ada</td><td style="color: red; text-align: right">12</td></tr>\n</table>');
+  assert.equal(columnAlign(right, 1), 'right');
+  assert.equal(columnAlign(right, 0), null);
+  assert.equal(columnAlign(tableOp(right, 'col-align-center', 0, 1), 1), 'center', 'one alignment replaces the other');
+  const merged = '<table><tr><td colspan="2">x</td></tr><tr><td>a</td><td>b</td></tr></table>';
+  assert.match(tableOp(merged, 'col-align-left', 1, 0), /<td colspan="2" style="text-align: left">x<\/td><\/tr><tr><td style="text-align: left">a<\/td>/);
+  assert.throws(() => tableOp(merged, 'row-below', 0, 0), /merges cells/, 'rows and columns are still refused');
+  assert.throws(() => tableOp(t, 'col-align-right', 0, 7), /no column 8/);
+});
+
+test('tableOp turns the header row on and off: th in a thead, td back in the body, and on again as it was', () => {
+  const bare = '<table>\n  <tr><td>Name</td><td>Role</td></tr>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n</table>';
+  assert.equal(hasHeaderRow(bare), false);
+  const on = tableOp(bare, 'header-on', 0, 0);
+  assert.equal(on, '<table>\n  <thead><tr><th>Name</th><th>Role</th></tr></thead>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n</table>');
+  assert.equal(hasHeaderRow(on), true);
+  assert.equal(tableOp(on, 'header-off', 0, 0), bare, 'off gives the table back as it was');
+  const sections = '<table>\n  <thead>\n    <tr><th>A</th></tr>\n  </thead>\n  <tbody>\n    <tr><td>1</td></tr>\n  </tbody>\n</table>';
+  const off = tableOp(sections, 'header-off', 0, 0);
+  assert.equal(off, '<table>\n  <tbody>\n    <tr><td>A</td></tr>\n    <tr><td>1</td></tr>\n  </tbody>\n</table>', 'the first row of the body, at its indent');
+  assert.match(tableOp(off, 'header-on', 0, 0), /^<table>\n {2}<thead><tr><th>A<\/th><\/tr><\/thead>\n {2}<tbody>\n {4}<tr><td>1<\/td><\/tr>/);
+  // a merged table takes it too
+  assert.match(tableOp('<table><tr><td colspan="2">x</td></tr></table>', 'header-on', 0, 0), /<thead><tr><th colspan="2">x<\/th><\/tr><\/thead>/);
+});
+
+test('tableOp sets a column\'s width as a share of the table, in a colgroup, and Even widths takes them off', () => {
+  const t = '<table>\n  <tr><th>Name</th><th>Role</th></tr>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n</table>';
+  const w = tableOp(t, 'col-width', 0, 0, { width: 30.4 });
+  assert.equal(w, '<table>\n  <colgroup><col style="width: 30%"><col></colgroup>\n  <tr><th>Name</th><th>Role</th></tr>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n</table>');
+  assert.match(tableOp(w, 'col-width', 0, 1, { width: 60 }), /<colgroup><col style="width: 30%"><col style="width: 60%"><\/colgroup>/, 'the same colgroup, the other column');
+  assert.equal(tableOp(w, 'col-even', 0, 0), t, 'even widths: the colgroup it made goes with them');
+  // a colgroup the author wrote keeps its own attributes
+  const own = '<table><colgroup><col class="k"><col></colgroup><tr><td>a</td><td>b</td></tr></table>';
+  assert.equal(tableOp(tableOp(own, 'col-width', 0, 0, { width: 50 }), 'col-even', 0, 0), own);
+  assert.throws(() => tableOp(t, 'col-width', 0, 0, { width: 99 }), /5% to 95%/);
+  assert.throws(() => tableOp('<table><tr><td colspan="2">x</td></tr></table>', 'col-width', 0, 0, { width: 40 }), /merges cells/);
 });
