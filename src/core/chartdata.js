@@ -239,7 +239,7 @@ export function chartGrid(json, attrs = {}) {
   try { tree = parseJsonTree(String(json ?? '')); } catch (e) { return { ok: false, reason: `its JSON does not parse (${e.message})` }; }
   if (tree.kind !== 'object') return { ok: false, reason: 'its JSON is not an object' };
   const { type, from: typeFrom } = typeOf(tree, attrs);
-  if (type === 'scatter') return { ok: false, type, reason: 'a scatter is x/y pairs, not one value per label' };
+  if (type === 'scatter') return scatterGrid(json, tree, attrs, typeFrom);
   if (!GRID_TYPES.includes(type)) return { ok: false, type, reason: type ? `"${type}" is not a kind of chart` : 'it names no kind of chart' };
   const labelsNode = member(tree, 'labels')?.value;
   const seriesNode = member(tree, 'series')?.value;
@@ -267,6 +267,110 @@ export function chartGrid(json, attrs = {}) {
   const titleFrom = attrs.title != null || !jsonTitle ? 'attr' : 'json';
   const title = titleFrom === 'attr' ? attrs.title ?? '' : String(jsonTitle.value ?? '');
   return { ok: true, type, typeFrom, title, titleFrom, labels, series };
+}
+
+/**
+ * A scatter as the grid shows it (CHARTS): its series as x / y pairs, and its
+ * axis titles. `{ ok: true, type: 'scatter', typeFrom, title, titleFrom,
+ * x, y, series: [{ name, named, points: [[x, y]] }] }`, each number the text
+ * it is written as, or `{ ok: false, reason }`: a series without a `points`
+ * list, or a point that is not two numbers (the chart drops one; the grid
+ * would write it back, so it says so instead).
+ */
+function scatterGrid(json, tree, attrs, typeFrom) {
+  const seriesNode = member(tree, 'series')?.value;
+  if (seriesNode?.kind !== 'array' || !seriesNode.items.length) return { ok: false, type: 'scatter', reason: 'it has no "series" list' };
+  const series = [];
+  for (const [si, s] of seriesNode.items.entries()) {
+    const pts = member(s, 'points')?.value;
+    if (s.kind !== 'object' || pts?.kind !== 'array') return { ok: false, type: 'scatter', reason: `series ${si + 1} has no "points" list` };
+    const points = [];
+    for (const [pi, pt] of pts.items.entries()) {
+      if (pt.kind !== 'array' || pt.items.length !== 2 || pt.items.some((v) => v.kind !== 'number')) {
+        return { ok: false, type: 'scatter', reason: `point ${pi + 1} of series ${si + 1} is not two numbers` };
+      }
+      points.push(pt.items.map((v) => json.slice(v.start, v.end)));
+    }
+    const name = member(s, 'name')?.value;
+    series.push({ name: name?.value != null ? String(name.value) : `series ${si + 1}`, named: !!name, points });
+  }
+  const text = (k) => { const v = member(tree, k)?.value; return v?.value != null ? String(v.value) : ''; };
+  const jsonTitle = member(tree, 'title')?.value;
+  const titleFrom = attrs.title != null || !jsonTitle ? 'attr' : 'json';
+  const title = titleFrom === 'attr' ? attrs.title ?? '' : String(jsonTitle.value ?? '');
+  return { ok: true, type: 'scatter', typeFrom, title, titleFrom, x: text('x'), y: text('y'), series };
+}
+
+/** The series list alone: what naming and removing a series need, whatever kind of chart it is. */
+function seriesParts(json) {
+  const tree = parseJsonTree(json);
+  learnSeparator(json, tree);
+  const series = member(tree, 'series')?.value;
+  if (series?.kind !== 'array') throw new Error('this chart has no series list');
+  return { tree, series };
+}
+/** A scatter's series, each with its `points` list, or a refusal. */
+function scatterParts(json) {
+  const p = seriesParts(json);
+  const points = p.series.items.map((s) => member(s, 'points')?.value ?? null);
+  if (points.some((x) => x?.kind !== 'array')) throw new Error('this scatter has a series without points');
+  return { ...p, points };
+}
+
+/** Point `pi` of series `si` takes `input` as its x (`axis` 0) or its y (1); both must be numbers. */
+export function setPoint(json, si, pi, axis, input) {
+  const n = cellNumber(input);
+  if (!n.ok || n.value === null) throw new Error(`"${String(input).trim()}" is not a number: a point needs both its x and its y`);
+  const p = scatterParts(json);
+  const pt = p.points[si]?.items[pi];
+  if (pt?.kind !== 'array' || !pt.items[axis] || (axis !== 0 && axis !== 1)) throw new Error('no such point');
+  return splice(json, [replaceEdit(pt.items[axis], n.raw)]);
+}
+
+/** A point after point `at` of series `si` (at the end by default), a copy of the one before it, written as its neighbours are. */
+export function addPoint(json, si, at = null) {
+  const p = scatterParts(json);
+  const pts = p.points[si];
+  if (!pts) throw new Error('no such series');
+  const k = at == null ? pts.items.length : Math.max(0, Math.min(pts.items.length, at + 1));
+  const like = pts.items[k - 1] ?? pts.items[0];
+  const raw = like ? json.slice(like.start, like.end) : '[0, 0]';
+  return splice(json, [arrayInsert(json, pts, k, [raw])]);
+}
+
+/** Point `pi` of series `si` goes; a series keeps at least one. */
+export function removePoint(json, si, pi) {
+  const p = scatterParts(json);
+  const pts = p.points[si];
+  if (!pts || pi < 0 || pi >= pts.items.length) throw new Error('no such point');
+  if (pts.items.length <= 1) throw new Error('a series keeps at least one point');
+  return splice(json, [arrayRemove(pts, pi)]);
+}
+
+/** A new scatter series at the end, called `name`, one point at the origin, written the way the last series is (one line or several). */
+export function addScatterSeries(json, name = null) {
+  const p = scatterParts(json);
+  const last = p.series.items.at(-1);
+  const lastText = last ? json.slice(last.start, last.end) : '{ }';
+  const colon = last?.kind === 'object' && last.members.length ? json.slice(last.members[0].key.end, last.members[0].value.start) : ': ';
+  const nm = jsonString(name ?? `series ${p.series.items.length + 1}`);
+  let raw;
+  if (/\n/.test(lastText) && last?.kind === 'object' && last.members.length) {
+    const inner = indentAt(json, last.members[0].key.start);
+    const outer = indentAt(json, last.end - 1);
+    raw = `{\n${inner}"name"${colon}${nm},\n${inner}"points"${colon}[[0, 0]]\n${outer}}`;
+  } else {
+    const pad = /^\{\s/.test(lastText) ? ' ' : '';
+    raw = `{${pad}"name"${colon}${nm}, "points"${colon}[[0, 0]]${pad}}`;
+  }
+  return splice(json, [arrayInsert(json, p.series, p.series.items.length, [raw])]);
+}
+
+/** A scatter's axis title, `"x"` or `"y"` in its JSON; empty takes it off. */
+export function setAxisTitle(json, axis, text) {
+  if (axis !== 'x' && axis !== 'y') throw new Error('an axis is x or y');
+  const t = String(text ?? '');
+  return setTopKey(json, axis, t ? jsonString(t) : null);
 }
 
 /** The parts every edit below needs, or a refusal. */
@@ -306,7 +410,7 @@ export function setLabel(json, row, text) {
 
 /** Series `col` is called `name`; a series that had no name gets one, first. */
 export function setSeriesName(json, col, name) {
-  const p = parts(json);
+  const p = seriesParts(json);
   const s = p.series.items[col];
   if (s?.kind !== 'object') throw new Error('no such series');
   const m = member(s, 'name');
@@ -387,7 +491,7 @@ export function addSeries(json, name = null) {
 
 /** Series `col` goes; the last one stays. */
 export function removeSeries(json, col) {
-  const p = parts(json);
+  const p = seriesParts(json);
   if (p.series.items.length <= 1) throw new Error('a chart keeps at least one series');
   if (col < 0 || col >= p.series.items.length) throw new Error('no such series');
   return splice(json, [arrayRemove(p.series, col)]);

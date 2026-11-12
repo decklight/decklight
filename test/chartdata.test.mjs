@@ -13,6 +13,7 @@ import {
   parseJsonTree, chartGrid, cellNumber, setCell, setLabel, setSeriesName, addRow, removeRow, moveRow,
   addSeries, removeSeries, setType, setTitle, findChart, rewriteChart, jsonString,
   ASPECTS, aspectOf, setAspect, legendOf, setLegend,
+  setPoint, addPoint, removePoint, addScatterSeries, setAxisTitle,
 } from '../src/core/chartdata.js';
 import { parseChart } from '../src/core/charts.js';
 
@@ -63,7 +64,8 @@ test('chartGrid: the type is the attribute, else the JSON; a pie with "donut": t
 
 test('chartGrid: every shape a grid cannot show says so, never a broken grid', () => {
   const no = (json, attrs = BAR) => { const g = chartGrid(json, attrs); assert.equal(g.ok, false, json); assert.ok(g.reason, json); return g.reason; };
-  assert.match(no('{"series":[{"points":[[1,2]]}]}', { type: 'scatter' }), /scatter/);
+  assert.match(no('{"series":[{"points":[[1,"2"]]}]}', { type: 'scatter' }), /point 1 of series 1 is not two numbers/, 'a scatter is a grid of pairs, but only of numbers');
+  assert.match(no('{"series":[{"data":[1]}]}', { type: 'scatter' }), /no "points" list/);
   assert.match(no('{ "labels": [', BAR), /does not parse/);
   assert.match(no('{"labels":["a"],"series":[{"data":[1]}]}', { type: 'radar' }), /not a kind/);
   assert.match(no('{"series":[{"data":[1]}]}'), /labels/);
@@ -270,4 +272,29 @@ test('findChart reads data-aspect, and rewriteChart writes it beside data-chart'
   const out = rewriteChart(html, 0, { attrs: { 'data-aspect': '1:1' } });
   assert.equal(out, '<div class="chart" data-chart="bar" data-aspect="1:1"><script type="application/json">{}</script></div>');
   assert.equal(findChart(out).aspect, '1:1');
+});
+
+test('a scatter opens as x / y pairs per series, with its axis titles', () => {
+  const j = '{ "x": "load", "series": [ { "name": "a", "points": [[1, 2.50], [3, 4]] }, { "points": [[5, 6]] } ] }';
+  const g = chartGrid(j, { type: 'scatter' });
+  assert.equal(g.ok, true);
+  assert.equal(g.type, 'scatter');
+  assert.equal(g.x, 'load');
+  assert.equal(g.y, '');
+  assert.deepEqual(g.series.map((s) => [s.name, s.named, s.points]), [['a', true, [['1', '2.50'], ['3', '4']]], ['series 2', false, [['5', '6']]]]);
+});
+
+test('a scatter’s pairs are edited as text: a number where it stood, a point added like its neighbour, one removed', () => {
+  const j = '{ "series": [ { "name": "a", "points": [[1, 2], [3, 4]] } ] }';
+  assert.equal(setPoint(j, 0, 1, 1, '40'), '{ "series": [ { "name": "a", "points": [[1, 2], [3, 40]] } ] }');
+  assert.throws(() => setPoint(j, 0, 0, 0, ''), /needs both its x and its y/);
+  assert.throws(() => setPoint(j, 0, 0, 0, '1a'), /not a number/);
+  assert.equal(addPoint(j, 0, 0), '{ "series": [ { "name": "a", "points": [[1, 2], [1, 2], [3, 4]] } ] }');
+  assert.equal(addPoint(j, 0), '{ "series": [ { "name": "a", "points": [[1, 2], [3, 4], [3, 4]] } ] }');
+  assert.equal(removePoint(j, 0, 0), '{ "series": [ { "name": "a", "points": [[3, 4]] } ] }');
+  assert.throws(() => removePoint(removePoint(j, 0, 0), 0, 0), /at least one point/);
+  assert.equal(addScatterSeries(j), '{ "series": [ { "name": "a", "points": [[1, 2], [3, 4]] }, { "name": "series 2", "points": [[0, 0]] } ] }');
+  assert.equal(setSeriesName(j, 0, 'b'), '{ "series": [ { "name": "b", "points": [[1, 2], [3, 4]] } ] }', 'naming a series needs no labels');
+  assert.equal(setAxisTitle(j, 'y', 'ms'), '{ "series": [ { "name": "a", "points": [[1, 2], [3, 4]] } ], "y": "ms" }');
+  assert.equal(setAxisTitle(setAxisTitle(j, 'y', 'ms'), 'y', ''), j);
 });

@@ -173,7 +173,9 @@
         <\/script>
       </div>`;
     const CD_SCATTER = `<div class="chart cd-scatter" data-chart="scatter"><script type="application/json">{ "series": [ { "name": "a", "points": [[1, 2], [3, 4]] } ] }<\/script></div>`;
-    const CD_FILE = { 1: CD_BAR, 2: CD_SCATTER };
+    // and a chart whose value is a word: no grid can show it
+    const CD_ODD = `<div class="chart cd-odd" data-chart="bar"><script type="application/json">{ "labels": ["a"], "series": [ { "data": ["many"] } ] }<\/script></div>`;
+    const CD_FILE = { 1: CD_BAR, 2: CD_SCATTER, 3: CD_ODD };
     // codeoptions: the code block the file has on slide 5, element 1
     const CO_FILE = '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\ngo(a, b);\n</code></pre>';
     let FAIL_NEXT_STYLE = false;   // the colours mode: the next style save is refused
@@ -1370,6 +1372,7 @@
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Charts</h2>
       ${CD_BAR}
       ${CD_SCATTER}
+      ${CD_ODD}
       </section>`);
     }
     // diagram labels to type into (SVG_DIAGRAMS): a box and its label, a
@@ -11261,14 +11264,46 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         window.__es.emit('lock', { locked: false });
         await settle();
 
-        // a scatter is x/y pairs: a note and the HTML editor, never a broken grid
+        // a scatter is x / y pairs per series, its axis titles fields (CHARTS)
+        const pt = (si, pi, axis) => q(`.dg-pt[data-series="${si}"][data-point="${pi}"][data-axis="${axis}"]`);
+        const scatterSvg = () => document.querySelector('.cd-scatter > svg.chart-svg');
         fire(document.querySelector('.cd-scatter .chart-dot'), 'click');
         await settle();
         if (!document.querySelector(I)) press('i');
         await settle();
         q('.ins-tab[data-tab="data"]')?.click();
+        await until(() => pt(0, 0, 0));
+        r.scatterAsPairs = pt(0, 0, 0)?.value === '1' && pt(0, 0, 1)?.value === '2' && pt(0, 1, 1)?.value === '4'
+          && q('.dg-name')?.value === 'a' && q('.dg-axis[data-axis="x"]')?.value === '' && !q('.dg-add-row')
+          && q('.dg-seg-btn[data-type="scatter"]')?.getAttribute('aria-checked') === 'true';
+        const before5 = posts().length;
+        const svg0 = scatterSvg();
+        const typePt = (input, v) => { input.focus(); input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); };
+        typePt(pt(0, 1, 1), '40');
+        r.scatterDrawnAtOnce = scatterSvg() !== svg0;
+        typePt(q('.dg-axis[data-axis="x"]'), 'load');
+        await pause();
+        const sp = posts().slice(before5);
+        // leaving the point for the axis field writes the point: two writes, the file's bytes kept around each change
+        r.scatterOneBurst = sp.length === 2 && sp.every((x) => x.body.index === 2)
+          && sp[1].body.html === CD_SCATTER.replace('[3, 4]] } ] }', '[3, 40]] } ], "x": "load" }');
+        q('.dg-add-point').click();
+        await settle();
+        r.scatterPointAdded = !!pt(0, 2, 0) && posts().length === before5 + 3 && /\[3, 40\], \[3, 40\]/.test(posts().at(-1).body.html);
+        typePt(pt(0, 0, 0), 'x1');
+        r.scatterBadMarked = pt(0, 0, 0).classList.contains('dg-bad');
+        pt(0, 0, 0).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await pause();
+        r.scatterBadNotWritten = posts().length === before5 + 3;
+
+        // a chart no grid can show (a value that is a word): a note and the HTML editor, never a broken grid
+        q('.ins-tab[data-tab="info"]')?.click();
+        await settle();
+        fire(document.querySelector('.cd-odd .chart-broken') ?? document.querySelector('.cd-odd'), 'click');
+        await settle();
+        q('.ins-tab[data-tab="data"]')?.click();
         await until(() => q('.dg-note'));
-        r.scatterIsANote = /scatter/.test(q('.dg-note')?.textContent ?? '') && !q('.dg-cell') && !!q('.dg-html');
+        r.scatterIsANote = /not a number/.test(q('.dg-note')?.textContent ?? '') && !q('.dg-cell') && !!q('.dg-html');
         q('.dg-html')?.click();
         await until(() => document.querySelector('.decklight-editor'));
         r.scatterOpensTheHtmlEditor = !!document.querySelector('.decklight-editor');
@@ -11278,7 +11313,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.enterAndTabWalk && r.addRowPosted && r.addRowDrawn && r.addSeriesPosted && r.addSeriesDrawn && r.renamePosted
           && r.pieTakesOneSeries && r.typePosted && r.typeDrawn && r.unknownKeyKept
           && r.shapeAndLegendShown && r.shapePosted && r.shapeDrawn && r.legendPosted && r.legendDrawn
-          && r.lockedReadsOnly && r.scatterIsANote
+          && r.lockedReadsOnly && r.scatterAsPairs && r.scatterDrawnAtOnce && r.scatterOneBurst && r.scatterPointAdded
+          && r.scatterBadMarked && r.scatterBadNotWritten && r.scatterIsANote
           && r.scatterOpensTheHtmlEditor;
       }
 

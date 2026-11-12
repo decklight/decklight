@@ -21,6 +21,7 @@ import {
   chartGrid, cellNumber, setCell, setLabel, setSeriesName, addRow, removeRow, moveRow,
   addSeries, removeSeries, setType, setTitle, findChart, rewriteChart, GRID_TYPES,
   ASPECTS, aspectOf, setAspect, legendOf, setLegend,
+  setPoint, addPoint, removePoint, addScatterSeries, setAxisTitle,
 } from './chartdata.js';
 import { renderChart } from './charts.js';
 import { boundedFetch } from './devmode.js';
@@ -208,21 +209,24 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
       el.append(h('div', 'dg-note dg-readonly', why));
     }
     const pie = grid.type === 'pie' || grid.type === 'donut';
+    const scatter = grid.type === 'scatter';
 
-    // the kind of chart: the ones a grid's numbers can draw
+    // the kind of chart: the ones a grid's numbers can draw (a scatter's
+    // pairs are not one value per label: it stays a scatter)
     const typeRow = h('div', 'dg-field');
     typeRow.append(h('span', 'dg-key', 'Type'));
     const seg = h('div', 'dg-seg');
     seg.setAttribute('role', 'radiogroup');
     seg.setAttribute('aria-label', 'chart type');
-    for (const t of GRID_TYPES) {
+    for (const t of scatter ? ['scatter'] : GRID_TYPES) {
       const b = h('button', 'dg-seg-btn', t);
       b.type = 'button';
       b.dataset.type = t;
       b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', String(grid.type === t));
       const one = (t === 'pie' || t === 'donut') && grid.series.length > 1;
-      b.disabled = readOnly || one;
+      b.disabled = readOnly || one || scatter;
+      if (scatter) b.title = 'a scatter is x / y pairs: it stays a scatter';
       if (one) b.title = 'a pie takes one series: remove the others first';
       b.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -297,6 +301,7 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     if (shape.aspect === null) shapeRow.append(h('span', 'dg-note dg-own', `its own: ${shape.written}`));
     el.append(shapeRow);
     el.append(choices('legend', 'Legend', [['auto', 'auto'], ['on', 'on'], ['off', 'off']], legendOf(json), (src, v) => setLegend(src, v)));
+    if (scatter) { paintPairs(to, keep); return; }
 
     // the grid
     const scroll = h('div', 'dg-scroll');
@@ -355,6 +360,145 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     el.append(h('div', 'narr-head ins-foot', readOnly ? 'esc lets go of it' : 'tab and enter walk the cells'));
     if (to) focusCell(to.row, to.col);
     else if (keep && keep.dataset.row != null) focusCell(Number(keep.dataset.row), Number(keep.dataset.col));
+  }
+
+  // ── a scatter: x / y pairs per series, and what its axes measure ─────────
+  let curP = { s: 0, p: 0 };
+  const pairAt = (si, pi, axis) => el.querySelector(`.dg-pt[data-series="${si}"][data-point="${pi}"][data-axis="${axis}"]`);
+  function axisField(axis, value) {
+    const row = h('label', 'dg-field');
+    row.append(h('span', 'dg-key', axis === 'x' ? 'X axis' : 'Y axis'));
+    const input = h('input', 'dg-title dg-axis');
+    input.type = 'text';
+    input.dataset.axis = axis;
+    input.value = value;
+    input.placeholder = `what ${axis} measures`;
+    input.readOnly = readOnly;
+    input.spellcheck = false;
+    input.addEventListener('focus', () => { input.dataset.was = input.value; });
+    input.addEventListener('input', () => { apply(setAxisTitle(json, axis, input.value)); later(); });
+    input.addEventListener('blur', () => flush());
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (input.value !== input.dataset.was) { input.value = input.dataset.was ?? ''; input.dispatchEvent(new Event('input')); } else input.blur();
+      } else if (e.key === 'Enter') { e.preventDefault(); flush(); }
+    });
+    row.append(input);
+    return row;
+  }
+  function pairInput(si, pi, axis, value, label) {
+    const c = h('input', 'dg-cell dg-num dg-pt');
+    c.type = 'text';
+    c.value = value;
+    c.dataset.series = String(si);
+    c.dataset.point = String(pi);
+    c.dataset.axis = String(axis);
+    c.setAttribute('aria-label', label);
+    c.spellcheck = false;
+    c.autocomplete = 'off';
+    c.inputMode = 'decimal';
+    c.readOnly = readOnly;
+    c.addEventListener('focus', () => { c.dataset.was = c.value; curP = { s: si, p: pi }; });
+    c.addEventListener('input', () => {
+      if (readOnly) return;
+      const n = cellNumber(c.value);
+      const ok = n.ok && n.value !== null;
+      c.classList.toggle('dg-bad', !ok);
+      c.setAttribute('aria-invalid', String(!ok));
+      c.title = ok ? '' : 'a point needs a number here: not saved';
+      if (!ok) { const w = cellNumber(c.dataset.was ?? ''); if (w.ok && w.value !== null) { apply(setPoint(json, si, pi, axis, c.dataset.was)); later(); } return; }
+      apply(setPoint(json, si, pi, axis, c.value));
+      later();
+    });
+    c.addEventListener('blur', () => flush());
+    c.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (c.value !== c.dataset.was) { c.value = c.dataset.was ?? ''; c.dispatchEvent(new Event('input')); c.select(); } else c.blur();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        flush();
+        const to = pairAt(si, pi + (e.shiftKey ? -1 : 1), axis);
+        if (to) { to.focus(); to.select(); }
+      }
+    });
+    return c;
+  }
+  function paintPairs(to, keep) {
+    el.append(axisField('x', grid.x), axisField('y', grid.y));
+    const scroll = h('div', 'dg-scroll');
+    const table = h('table', 'dg-grid dg-pairs');
+    const names = h('tr');
+    const axes = h('tr');
+    names.append(h('th', 'dg-corner', 'point'));
+    axes.append(h('th', 'dg-corner'));
+    grid.series.forEach((s, si) => {
+      const th = h('th');
+      th.colSpan = 2;
+      const name = h('input', 'dg-cell dg-name');
+      name.type = 'text';
+      name.value = s.named ? s.name : '';
+      name.placeholder = s.named ? '' : s.name;
+      name.dataset.series = String(si);
+      name.setAttribute('aria-label', `series ${si + 1} name`);
+      name.spellcheck = false;
+      name.readOnly = readOnly;
+      name.addEventListener('focus', () => { curP = { s: si, p: curP.s === si ? curP.p : 0 }; });
+      name.addEventListener('input', () => { if (!readOnly) { apply(setSeriesName(json, si, name.value)); later(); } });
+      name.addEventListener('blur', () => flush());
+      name.addEventListener('keydown', (e) => e.stopPropagation());
+      th.append(name);
+      names.append(th);
+      axes.append(h('th', 'dg-axis-head', 'x'), h('th', 'dg-axis-head', 'y'));
+    });
+    const thead = h('thead');
+    thead.append(names, axes);
+    const tbody = h('tbody');
+    const rows = Math.max(...grid.series.map((s) => s.points.length));
+    for (let pi = 0; pi < rows; pi++) {
+      const tr = h('tr');
+      tr.append(h('th', 'dg-pt-n', String(pi + 1)));
+      grid.series.forEach((s, si) => {
+        for (const axis of [0, 1]) {
+          const td = h('td');
+          const v = s.points[pi]?.[axis];
+          if (v !== undefined) td.append(pairInput(si, pi, axis, v, `${s.name}, point ${pi + 1}, ${axis ? 'y' : 'x'}`));
+          tr.append(td);
+        }
+      });
+      tbody.append(tr);
+    }
+    table.append(thead, tbody);
+    scroll.append(table);
+    el.append(scroll);
+
+    // the buttons act on the point the caret was last in
+    const actions = h('div', 'dg-actions');
+    const sAt = () => Math.max(0, Math.min(curP.s, grid.series.length - 1));
+    const pAt = () => Math.max(0, Math.min(curP.p, grid.series[sAt()].points.length - 1));
+    const add = button('dg-add-point', '+ point', 'add a point after this one', () => act((src) => addPoint(src, sAt(), pAt()), () => ({ s: sAt(), p: pAt() + 1 })));
+    const del = button('dg-del-point', '− point', 'remove this point', () => act((src) => removePoint(src, sAt(), pAt()), () => ({ s: sAt(), p: Math.max(0, pAt() - 1) })));
+    const addS = button('dg-add-series', '+ series', 'add a series', () => act((src) => addScatterSeries(src), () => ({ s: grid.series.length, p: 0 })));
+    const delS = button('dg-del-series', '− series', 'remove this series', () => act((src) => removeSeries(src, sAt()), () => ({ s: Math.max(0, sAt() - 1), p: 0 })));
+    del.disabled = grid.series[sAt()].points.length <= 1;
+    delS.disabled = grid.series.length <= 1;
+    for (const b of [add, del, addS, delS]) if (readOnly) b.disabled = true;
+    actions.append(add, del, h('span', 'dg-spacer'), addS, delS);
+    el.append(actions);
+
+    statusEl = h('div', 'dg-status');
+    el.append(statusEl);
+    status();
+    el.append(h('div', 'narr-head ins-foot', readOnly ? 'esc lets go of it' : 'enter walks down a column'));
+    const at = to && to.s != null ? to : keep?.dataset.point != null ? { s: Number(keep.dataset.series), p: Number(keep.dataset.point), axis: Number(keep.dataset.axis) } : null;
+    if (at) {
+      curP = { s: at.s, p: at.p };
+      const c = pairAt(at.s, at.p, at.axis ?? 0);
+      if (c) { c.focus(); c.select(); }
+    }
   }
 
   /** One cell: a label, a series' name (row -1) or a number. */
