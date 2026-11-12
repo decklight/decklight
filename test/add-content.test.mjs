@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { insertElement, insertImage, insertInElement, wrapInDiv, sectionBodies, sectionChildRanges, locateSlide } from '../tools/deck-html.mjs';
-import { insertStarter, insertBlock, insertSlideOfKind, slideStarter, whereNewBlockLands, splitColumns, ELEMENT_KINDS, SLIDE_KINDS } from '../tools/starters.mjs';
+import { insertStarter, insertBlock, insertSlideOfKind, slideStarter, whereNewBlockLands, splitColumns, inlineWords, ELEMENT_KINDS, SLIDE_KINDS } from '../tools/starters.mjs';
 import { duplicateSlideElement } from '../cli/edit.mjs';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
 import { createHistory } from '../cli/edit.mjs';
@@ -374,6 +374,44 @@ test('the insert and image routes take a path and answer where the new block is'
   assert.equal(pic.body.index, 2);
   assert.deepEqual(pic.body.path, [1], 'a picture dropped on the right column\'s heading goes in after it');
   assert.match(child(readDeck(), 1, 2), /<h3>After<\/h3>\n {8}<img src="assets\/b.png" alt="b">/);
+});
+
+// ── words pasted from another app (PRESENTING_EDITING, the clipboard) ────
+
+test('pasted words become a paragraph or a list the server builds, placed by the rule every add follows', () => {
+  const p = insertStarter(DECK, 2, 0, 'text', { words: ['Some <strong>pasted</strong> words'] });
+  assert.equal(p.markup, '<p>Some <strong>pasted</strong> words</p>');
+  assert.equal(p.index, 1);
+  const list = insertStarter(SPLIT, 1, 1, 'bullets', { words: ['one', 'two <em>2</em>'] });
+  assert.equal(list.markup, '<ul>\n  <li>one</li>\n  <li>two <em>2</em></li>\n</ul>');
+  assert.deepEqual(list.path, [2], 'a column selected: inside it, as Add lands');
+  assert.match(insertStarter(DECK, 2, 0, 'numbered', { words: ['a', 'b'] }).markup, /^<ol>\n {2}<li>a<\/li>/);
+});
+
+test('pasted words are words and the editor\'s emphasis only: anything else is a 400, never written', () => {
+  for (const bad of ['<script>alert(1)</script>', '<img src=x onerror=alert(1)>', '<a href="javascript:alert(1)">x</a>', '<a href="javascript&#58;x">x</a>',
+    '<strong onclick="x">b</strong>', '<span style="color:red">x</span>', 'a < b', '<strong>open', '<em><strong>x</em></strong>', 'two\nlines', '']) {
+    assert.throws(() => inlineWords(bad), (e) => e.status === 400, bad);
+  }
+  for (const good of ['plain', 'a &lt; b &amp; c', 'x<sup>2</sup> H<sub>2</sub>O <mark>m</mark> <s>s</s> <code>c</code>',
+    '<a href="https://e.io/?a=1&amp;b">web</a> <a href="mailto:a@b.c">mail</a> <a href="#/3">slide</a> <a href="notes.html">file</a>']) {
+    assert.equal(inlineWords(good), good);
+  }
+  assert.throws(() => insertStarter(DECK, 2, 0, 'text', { words: ['one', 'two'] }), (e) => e.status === 400 && /one line/.test(e.message));
+  assert.throws(() => insertStarter(DECK, 2, 0, 'table', { words: ['x'] }), (e) => e.status === 400);
+  assert.throws(() => insertStarter(DECK, 2, 0, 'bullets', { words: [] }), (e) => e.status === 400);
+  assert.throws(() => insertStarter(DECK, 3, null, 'text', { words: ['x'] }), (e) => e.status === 409, 'a template slide takes nothing beside its slots');
+});
+
+test('the insert route takes pasted words, and refuses words that are not strings', async (t) => {
+  const { routes, readDeck } = harness(t);
+  const r = await call(routes, 'POST /deck/edit/element/insert', { slide: 2, index: 0, kind: 'bullets', words: ['first', 'second'], quiet: true });
+  assert.equal(r.code, 200);
+  assert.match(readDeck(), /<h2>Beta<\/h2>\n {6}<ul>\n {8}<li>first<\/li>\n {8}<li>second<\/li>\n {6}<\/ul>/);
+  const before = readDeck();
+  assert.equal((await call(routes, 'POST /deck/edit/element/insert', { slide: 2, index: 0, kind: 'text', words: [{ x: 1 }] })).code, 400);
+  assert.equal((await call(routes, 'POST /deck/edit/element/insert', { slide: 2, index: 0, kind: 'text', words: ['<script>x</script>'] })).code, 400);
+  assert.equal(readDeck(), before, 'nothing written');
 });
 
 // ── new slides of a kind ────────────────────────────────────────────────

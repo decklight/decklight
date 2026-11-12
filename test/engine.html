@@ -751,7 +751,7 @@
       // as tools/starters.mjs writes it, placed where the server places it;
       // the new element's source for the save that follows; and a new slide
       // of a kind, answered in place
-      if (HARNESS_MODE === 'addmenu' || HARNESS_MODE === 'addslidekinds') {
+      if (HARNESS_MODE === 'addmenu' || HARNESS_MODE === 'addslidekinds' || HARNESS_MODE === 'addpaste') {
         window.__total ??= 4;
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: window.__lastInsert ?? '<p>x</p>' });
@@ -767,6 +767,11 @@
             chart: '<div class="chart" data-chart="bar" data-title="New chart">\n  <script type="application/json">\n  { "labels": ["A", "B", "C"], "series": [ { "name": "Series", "data": [3, 5, 2] } ] }\n  <\/script>\n</div>',
             diagram: '<svg viewBox="0 0 640 200" width="640" data-build="draw" role="img" aria-label="New diagram">\n  <defs><marker id="dl-wire-1" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>\n  <g><rect x="40" y="56" width="200" height="88" rx="10" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/><text x="140" y="106" text-anchor="middle">Box A</text></g>\n  <line x1="244" y1="100" x2="392" y2="100" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#dl-wire-1)"/>\n  <g><rect x="400" y="56" width="200" height="88" rx="10" style="fill: var(--d-fill-2); stroke: var(--d-stroke)" stroke-width="2"/><text x="500" y="106" text-anchor="middle">Box B</text></g>\n</svg>',
           };
+          // words pasted from another app (addpaste): the block the server builds round them
+          if (Array.isArray(b.words)) {
+            MARKUP.text = `<p>${b.words[0]}</p>`;
+            MARKUP.bullets = `<ul>\n${b.words.map((w) => `  <li>${w}</li>`).join('\n')}\n</ul>`;
+          }
           if (!MARKUP[b.kind]) return json({ ok: false, error: `no kind "${b.kind}" to add` }, 400);
           const kids = [...document.querySelectorAll('.decklight-stage > section')[b.slide - 1].children];
           let k = kids.length;
@@ -5528,6 +5533,55 @@
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
+      if (mode === 'addpaste') {
+        // Words from another app, outside typing (PRESENTING_EDITING, the
+        // clipboard): ⌘V with words on the clipboard and nothing being typed
+        // adds them after the selection, one line a paragraph and several a
+        // list, cleaned as a paste while typing is; selected, not opened for
+        // typing; a field keeps its own paste.
+        await settle(); await settle();
+        const deckEl = document.querySelector('.decklight');
+        let reloads = 0;
+        deckEl.addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const click = (el) => el?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const active = () => document.querySelector('.decklight-stage > section.active');
+        const inserts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/insert')).map((c) => c.body);
+        const paste = (target, fill) => {
+          const dt = new DataTransfer(); fill(dt);
+          const e = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+          target.dispatchEvent(e);
+          return e;
+        };
+        deck.goto(1, 0); await settle();
+        click(active().querySelector('h1')); await settle();
+        // several lines from a mail: a list after the title
+        const lines = paste(document.body, (dt) => {
+          dt.setData('text/html', '<div style="font: 31px Comic Sans; color: red">First <b>point</b></div><div>Second point</div>');
+          dt.setData('text/plain', 'First point\nSecond point');
+        });
+        await settle(); await settle();
+        const sent = inserts().at(-1);
+        r.linesTaken = lines.defaultPrevented;
+        r.askedAsAList = sent?.kind === 'bullets' && JSON.stringify(sent?.words) === '["First <strong>point</strong>","Second point"]' && sent?.index === 0 && sent?.quiet === true;
+        const ul = active().querySelector(':scope > ul');
+        r.listAfterTheTitle = !!ul && [...active().children].indexOf(ul) === 1 && ul.querySelectorAll('li').length === 2 && !ul.querySelector('[style], span, div');
+        r.selectedNotTyped = deck._selection()?.top === ul && !document.querySelector('[contenteditable="true"]');
+        // one line of plain text: a paragraph after the list
+        paste(document.body, (dt) => dt.setData('text/plain', 'Just a <sentence>'));
+        await settle(); await settle();
+        const one = inserts().at(-1);
+        r.oneLineIsAParagraph = one?.kind === 'text' && JSON.stringify(one?.words) === '["Just a &lt;sentence&gt;"]' && one?.index === 1;
+        // a field keeps its paste; nothing is added
+        const field = document.createElement('input'); document.body.append(field);
+        const boxed = paste(field, (dt) => dt.setData('text/plain', 'in the box'));
+        field.remove();
+        await settle();
+        r.aFieldKeepsItsPaste = !boxed.defaultPrevented && inserts().length === 2;
+        r.noReload = reloads === 0;
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
       if (mode === 'addmenu') {
         // Add ▾ (add-content.js, PRESENTING_EDITING): the bar's menu of kinds
         // and the palette's one row; a starter lands after the selection (or
@@ -5845,7 +5899,7 @@
           // screenshot on the clipboard and nothing being typed puts it on the
           // slide as a dropped file does, after the selection; its alt is left
           // empty, never "image"; while typing, or in a box, the paste is not
-          // the slide's, and a clipboard of words is left to the browser.
+          // the slide's.
           const pasteOn = (target, fill) => {
             const dt = new DataTransfer();
             fill(dt);
@@ -5855,9 +5909,7 @@
           };
           const shot = (dt) => dt.items.add(new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'image.png', { type: 'image/png' }));
           const images = () => posts('/deck/edit/element/image').map((c) => c.body);
-          // words on the clipboard, nothing being typed: the browser's, nothing placed
-          const words = pasteOn(document.body, (dt) => dt.setData('text/plain', 'some words'));
-          r.wordsLeftToTheBrowser = !words.defaultPrevented && !posts('/deck/edit/asset').length;
+          // (words on the clipboard are a paragraph or a list: addpaste)
           // a picture pasted into a box (the palette's, a field): the box's
           const field = document.createElement('input');
           document.body.append(field);

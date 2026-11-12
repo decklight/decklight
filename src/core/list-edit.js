@@ -314,12 +314,46 @@ const escapeText = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;')
  * are. `text` is the fallback when there is no html.
  */
 export function cleanPasted({ html = '', text = '' } = {}) {
+  return tidyWords(html ? pastedMarkup(html, ' ') : escapeText(text).replace(SPACES, ' '));
+}
+
+/** One space between words, none at either end, however the tags fell. */
+const tidyWords = (words) => words.replace(/ {2,}/g, ' ').replace(/^ +| +$/g, '')
+  .replace(/<(strong|em|code|mark|s|sup|sub|a)\b([^>]*)> /g, ' <$1$2>').replace(/ <\/(strong|em|code|mark|s|sup|sub|a)>/g, '</$1> ')
+  .replace(/ {2,}/g, ' ').trim();
+
+/** A list marker another app's text starts a line with: a bullet, or a number. */
+const BULLET = /^(?:[-*•‣◦▪–]\s+)/;
+const NUMBER = /^(?:\d{1,3}[.)]\s+)/;
+/** How many lines a paste may make one list of; more is a document, not a slide. */
+export const PASTE_MAX_LINES = 30;
+
+/**
+ * What a paste outside typing adds to a slide (PRESENTING_EDITING): the
+ * clipboard's words cut into lines (another app's paragraphs, list items and
+ * line breaks; plain text's lines), each cleaned as a paste while typing is
+ * (`cleanPasted`), empty lines dropped. One line is a paragraph (`text`);
+ * several are a list, `numbered` when every line was numbered (`1.`, `2)`),
+ * else `bullets`, their markers taken off. Nothing to add is `{ kind: null }`.
+ */
+export function pastedWords({ html = '', text = '' } = {}) {
+  const raw = html ? pastedMarkup(html, '\n').split('\n') : String(text).split(/\r?\n/).map((l) => escapeText(l).replace(SPACES, ' '));
+  let lines = raw.map(tidyWords).filter((l) => l.replace(/<[^>]*>/g, '').trim());
+  if (!lines.length) return { kind: null, words: [] };
+  if (lines.length === 1) return { kind: 'text', words: lines };
+  const numbered = lines.every((l) => NUMBER.test(l));
+  lines = lines.map((l) => l.replace(numbered ? NUMBER : BULLET, '')).filter(Boolean).slice(0, PASTE_MAX_LINES);
+  return { kind: numbered ? 'numbered' : 'bullets', words: lines };
+}
+
+/** Another app's clipboard html as inline words: its blocks and line breaks become `brk`. */
+function pastedMarkup(html, brk) {
   const walk = (nodes) => {
     let out = '';
     for (const n of nodes) {
       if (n.t === 'text') { out += n.raw.replace(SPACES, ' '); continue; }
       if (n.t !== 'el') continue;   // a comment (<!--StartFragment-->), a doctype
-      if (n.tag === 'br') { out += ' '; continue; }
+      if (n.tag === 'br') { out += brk; continue; }
       if (PASTE_DROPPED.has(n.tag)) continue;
       const inner = walk(n.kids);
       const style = attrOf(n.open, 'style') ?? '';
@@ -338,15 +372,11 @@ export function cleanPasted({ html = '', text = '' } = {}) {
         out += href && inner.trim() ? `<a href="${href.replace(/"/g, '&quot;')}">${inner}</a>` : inner;
         continue;
       }
-      out += BLOCK.has(n.tag) ? ` ${inner} ` : inner;
+      out += BLOCK.has(n.tag) ? `${brk}${inner}${brk}` : inner;
     }
     return out;
   };
-  const words = html ? walk(parseMarkup(html)) : escapeText(text).replace(SPACES, ' ');
-  // one space between words, none at either end, however the tags fell
-  return words.replace(/ {2,}/g, ' ').replace(/^ +| +$/g, '')
-    .replace(/<(strong|em|code|mark|s|sup|sub|a)\b([^>]*)> /g, ' <$1$2>').replace(/ <\/(strong|em|code|mark|s|sup|sub|a)>/g, '</$1> ')
-    .replace(/ {2,}/g, ' ').trim();
+  return walk(parseMarkup(html));
 }
 
 /**

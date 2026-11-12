@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cleanPasted, cleanTyped,
+  cleanPasted, cleanTyped, pastedWords, PASTE_MAX_LINES,
   parseMarkup, serialize, splitInline, joinInline, textLength, cleanInline, trimInline, dropAttrs,
   listDoc, listHtml, listShape, itemFacts, splitItem, mergeItem, removeItem, indentItem, outdentItem, moveItem, setItemWords,
   tableOp, tableEdit, tableShape, elementAt, columnAlign, hasHeaderRow,
@@ -363,4 +363,26 @@ test('tableOp sets a column\'s width as a share of the table, in a colgroup, and
   assert.equal(tableOp(tableOp(own, 'col-width', 0, 0, { width: 50 }), 'col-even', 0, 0), own);
   assert.throws(() => tableOp(t, 'col-width', 0, 0, { width: 99 }), /5% to 95%/);
   assert.throws(() => tableOp('<table><tr><td colspan="2">x</td></tr></table>', 'col-width', 0, 0, { width: 40 }), /merges cells/);
+});
+
+// ── a paste outside typing (PRESENTING_EDITING, the clipboard) ─────────────
+
+test('words pasted onto a slide: one line a paragraph, several a list, each line cleaned', () => {
+  assert.deepEqual(pastedWords({ text: 'one line' }), { kind: 'text', words: ['one line'] });
+  assert.deepEqual(pastedWords({ text: 'alpha\r\nbeta\n\n  gamma <x>  ' }), { kind: 'bullets', words: ['alpha', 'beta', 'gamma &lt;x&gt;'] });
+  assert.deepEqual(pastedWords({ html: '<meta charset="utf-8"><p class="x" style="color:red">One <b>bold</b></p><div>Two<br>three</div><ul><li>four</li></ul>' }),
+    { kind: 'bullets', words: ['One <strong>bold</strong>', 'Two', 'three', 'four'] });
+  assert.deepEqual(pastedWords({ html: '<span style="font: 31px Comic Sans">just <a href="https://x.io">words</a></span>' }),
+    { kind: 'text', words: ['just <a href="https://x.io">words</a>'] });
+  assert.deepEqual(pastedWords({ text: '  \n\t\n' }), { kind: null, words: [] });
+  assert.deepEqual(pastedWords({ html: '<img src="a.png">' }), { kind: null, words: [] }, 'a picture is no words');
+});
+
+test('a pasted list keeps its kind and loses its markers; a long one is cut at the most a slide should hold', () => {
+  assert.deepEqual(pastedWords({ text: '- alpha\n* beta\n• gamma' }), { kind: 'bullets', words: ['alpha', 'beta', 'gamma'] });
+  assert.deepEqual(pastedWords({ text: '1. first\n2) second\n10. tenth' }), { kind: 'numbered', words: ['first', 'second', 'tenth'] });
+  assert.deepEqual(pastedWords({ text: '1. first\nnot numbered' }).kind, 'bullets', 'numbered only when every line is');
+  assert.equal(pastedWords({ text: '-not a bullet\nx' }).words[0], '-not a bullet', 'a dash with no space is a word');
+  const many = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join('\n');
+  assert.equal(pastedWords({ text: many }).words.length, PASTE_MAX_LINES);
 });
