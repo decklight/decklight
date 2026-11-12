@@ -218,6 +218,7 @@ const ENGINE_GROUPS = {
     'pictureresize',
     'picturealt',
     'picturebg',
+    'picturepaste',
     'pictureslidetab',
     'chartdata',
     'codeoptions',

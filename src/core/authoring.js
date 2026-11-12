@@ -94,9 +94,26 @@ export function nodeAtPath(top, path) {
 }
 
 /** `alt` for a dropped picture: the filename, without its extension, words apart. */
+/**
+ * Alt text from a picture's file name: `team-offsite.jpg` says "team
+ * offsite". A name that says nothing about the picture says nothing at all:
+ * what a pasted screenshot is called (`image.png`), a screenshot tool's or a
+ * camera's timestamp or counter, a download's "unnamed". Alt that reads
+ * "image" is worse than none, and the picture's Alt text row is where it is written.
+ */
 export function altFromName(name) {
-  return String(name ?? '').replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ').trim();
+  const words = String(name ?? '').replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ').trim();
+  return GENERIC_PICTURE_NAME.test(words) ? '' : words;
 }
+// image, image 1, image (2), pasted image, clipboard, untitled, unnamed,
+// download, photo, picture, blob; Screenshot / Screen Shot / Capture d'écran /
+// Bildschirmfoto … at a time (never one with words of its own: "Screenshot of the pricing page"); IMG 1234, DSC01234, PXL 20261112 …; a bare number or hash
+const GENERIC_PICTURE_NAME = new RegExp('^(?:'
+  + "(?:pasted |copied )?(?:image|img|picture|pic|photo|clipboard|untitled|unnamed|download|blob|file|screenshot|screen shot|capture)(?: ?\\(?\\d+\\)?)?"
+  + "|(?:screenshot|screen shot|screen recording|capture d.écran|bildschirmfoto|captura de pantalla|schermata|snímek obrazovky)(?: (?:at |from |à |vom |de |del |\\d).*)?"
+  + '|(?:img|dsc|dscn|dcim|pxl|mvimg|photo|vid|gopr|p) ?\\d[\\d ]*.*'
+  + '|[\\d ]+|[0-9a-f]{8}(?: ?[0-9a-f]{4}){3} ?[0-9a-f]{12}|[0-9a-f]{16,}'
+  + ')$', 'i');
 
 /** The dropped files worth uploading, in order; anything that is not an image is left where it was. */
 export function imageFiles(list) {
