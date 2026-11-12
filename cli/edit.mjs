@@ -74,7 +74,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, wa
 // edit server rewrites the whole file on every small edit, and a truncate
 // that is interrupted leaves a prefix of a talk where the talk was.
 import { writeFileAtomic } from '../tools/atomic-write.mjs';
-import { LINE_DASHES } from '../tools/diagram-shapes.mjs';
+import { LINE_DASHES, SHAPES, SHAPE_LABELS, shapeGeometry, shapeBox } from '../tools/diagram-shapes.mjs';
 import { resolve, relative, dirname, sep, basename } from 'node:path';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
@@ -1030,6 +1030,10 @@ function middleOf(n) {
     case 'circle': case 'ellipse': return { x: at.x + num(a, 'cx'), y: at.y + num(a, 'cy') };
     case 'line': return { x: at.x + (num(a, 'x1') + num(a, 'x2')) / 2, y: at.y + (num(a, 'y1') + num(a, 'y2')) / 2 };
     case 'text': return { x: at.x + num(a, 'x'), y: at.y + num(a, 'y') };
+    case 'polygon': case 'path': {
+      const b = shapeBox(n.tag === 'path' ? 'd' : 'points', attrOf(a, n.tag === 'path' ? 'd' : 'points'));
+      return b ? { x: at.x + b.x + b.w / 2, y: at.y + b.y + b.h / 2 } : null;
+    }
     default: return null;
   }
 }
@@ -1150,13 +1154,18 @@ function layoutOf(svgSrc, svgLineIndent) {
  *   label    a text, from the nearest label
  *   line     a line ending in an arrowhead: the marker the svg already
  *            defines, or the shipped one added to its `<defs>`
+ *   diamond, hexagon, cylinder, document, note, cloud
+ *            a group of one shape marked `data-shape` (its geometry from
+ *            shapeGeometry, tools/diagram-shapes.mjs) and a centred label,
+ *            the look and the size of the nearest of its kind, else of the
+ *            nearest box, else theme tokens
  *
  * Returns `{ html, added: { path, html }, defs }`: the deck, the new node's
  * path and markup (the page puts the same node on the slide), and, when an
  * arrowhead had to be added, where (`{ path, html, created }`: a new
  * `<defs>`, or a marker appended to the one there).
  */
-export const SHAPE_KINDS = ['box', 'ellipse', 'label', 'line'];
+export const SHAPE_KINDS = ['box', 'ellipse', 'label', 'line', ...Object.keys(SHAPES)];
 export function addDiagramShape(html, slide, index, { path, tag = 'svg', kind, at = null }) {
   if (!SHAPE_KINDS.includes(kind)) throw new Error(`not a shape this server adds: ${String(kind).slice(0, 20)}`);
   if (at !== null && (typeof at !== 'object' || !Number.isFinite(coordOf(at.x)) || !Number.isFinite(coordOf(at.y)))) throw new Error('bad position');
@@ -1178,17 +1187,40 @@ export function addDiagramShape(html, slide, index, { path, tag = 'svg', kind, a
   const outer = lay.lines ? `\n${lay.indent}` : '';
   let markup;
   let defs = null;
-  if (kind === 'box') {
+  // a box group: one shape and its labels; `which` says what the shape must be
+  const boxGroups = (which) => drawn.filter((n) => n.tag === 'g').map((g) => {
+    const kids = drawnNodes(g.src).filter((k) => k.path.length === 1);
+    const shapes = kids.filter((k) => k.tag !== 'text'); const texts = kids.filter((k) => k.tag === 'text');
+    if (shapes.length !== 1 || !texts.length || !which(shapes[0])) return null;
+    const rect = { ...shapes[0], at: { x: 0, y: 0 } };
+    const m = middleOf(rect);
+    if (!m) return null;
+    const t = translateOf(attrOf(g.attrs, 'transform'));
+    return { g, rect, text: texts[0], middle: { x: g.at.x + t.x + m.x, y: g.at.y + t.y + m.y }, local: m };
+  }).filter(Boolean);
+  const isBox = (k) => k.tag === 'rect';
+  if (Object.hasOwn(SHAPES, kind)) {
+    // the nearest of its kind gives its look and its size; else the nearest box its look, its size kept to its height
+    const own = nearest(boxGroups((k) => attrOf(k.attrs, 'data-shape') === kind), at && c);
+    const model = own ?? nearest(boxGroups(isBox), at && c);
+    const sized = own ? shapeBox(SHAPES[kind] === 'path' ? 'd' : 'points', attrOf(own.rect.attrs, SHAPES[kind] === 'path' ? 'd' : 'points')) : null;
+    const w = sized?.w ?? (model ? num(model.rect.attrs, 'width', 160) : Math.round(vb.w * 0.2));
+    const h = sized?.h ?? (model ? num(model.rect.attrs, 'height', 64) : Math.round(w * 0.5));
+    const geom = shapeGeometry(kind, { x: c.x - w / 2, y: c.y - h / 2, w, h });
+    const drop = { x: null, y: null, width: null, height: null, rx: null, ry: null, points: null, d: null };
+    const shape = model
+      ? openTag(geom.tag, model.rect.attrs, { ...drop, 'data-shape': kind, [geom.attr]: geom.value })
+      : openTag(geom.tag, null, { 'data-shape': kind, [geom.attr]: geom.value, style: 'fill: var(--d-fill-1); stroke: var(--d-stroke)', 'stroke-width': '2' });
+    const label = labelModel(drawn, c);
+    const text = model
+      ? openTag('text', model.text.attrs, { x: f(c.x), y: f(c.y) })
+      : openTag('text', label?.attrs ?? null, { x: f(c.x), y: f(c.y), 'text-anchor': 'middle', 'dominant-baseline': 'central',
+        ...(label ? {} : { 'font-size': f(Math.max(8, Math.round(h * 0.3))), style: 'fill: var(--d-text)' }) });
+    const g = model ? openTag('g', model.g.attrs, {}) : '<g';
+    markup = `${g}>${inner}${shape}/>${inner}${text}>${SHAPE_LABELS[kind]}</text>${outer}</g>`;
+  } else if (kind === 'box') {
     // a box is a group holding one rect and its labels
-    const boxes = drawn.filter((n) => n.tag === 'g').map((g) => {
-      const kids = drawnNodes(g.src).filter((k) => k.path.length === 1);
-      const rects = kids.filter((k) => k.tag === 'rect'); const texts = kids.filter((k) => k.tag === 'text');
-      if (rects.length !== 1 || !texts.length || kids.some((k) => !['rect', 'text'].includes(k.tag))) return null;
-      const rect = { ...rects[0], at: { x: 0, y: 0 } };
-      const m = middleOf(rect);
-      const t = translateOf(attrOf(g.attrs, 'transform'));
-      return { g, rect, text: texts[0], middle: { x: g.at.x + t.x + m.x, y: g.at.y + t.y + m.y }, local: m };
-    }).filter(Boolean);
+    const boxes = boxGroups(isBox);
     const model = nearest(boxes, at && c);
     const w = model ? num(model.rect.attrs, 'width', 160) : Math.round(vb.w * 0.2);
     const h = model ? num(model.rect.attrs, 'height', 64) : Math.round(w * 0.4);

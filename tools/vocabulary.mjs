@@ -73,6 +73,7 @@ export const ATTRIBUTES = [
   { name: 'data-from' },
   { name: 'data-to' },
   { name: 'data-route', kind: 'route', values: ['straight', 'elbow', 'curve'] },
+  { name: 'data-shape', kind: 'shape', values: ['diamond', 'hexagon', 'cylinder', 'document', 'note', 'cloud'] },
   { name: 'data-concept' },
   { name: 'data-nest', kind: 'nesting setting', values: ['on', 'off'] },
   { name: 'data-id' },

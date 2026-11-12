@@ -41,6 +41,8 @@
  * geometry is unit-tested without a browser.
  */
 
+import { outlineOf, outlineToward } from '../../tools/diagram-shapes.mjs';
+
 // ── matrices ─────────────────────────────────────────────────────────────────
 
 export const IDENTITY = Object.freeze({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
@@ -115,6 +117,9 @@ export function edgeToward(b, p) {
   const c = centreOf(b);
   const dx = p.x - c.x; const dy = p.y - c.y;
   if (!(b.w > 0 || b.h > 0) || (!dx && !dy)) return c;
+  // a shape that is neither a box nor an ellipse (a diamond, a cylinder): its own outline
+  const hit = b.outline ? outlineToward(b.outline, c, p) : null;
+  if (hit) return hit;
   let t;
   if (b.round && b.w > 0 && b.h > 0) t = 1 / Math.hypot(dx / (b.w / 2), dy / (b.h / 2));
   else t = Math.min(dx ? b.w / 2 / Math.abs(dx) : Infinity, dy ? b.h / 2 / Math.abs(dy) : Infinity);
@@ -375,7 +380,16 @@ export function nodeBox(node, space, svg = svgOf(node)) {
   const shapes = kids.filter((k) => tagOf(k) !== 'text');
   const boxes = (shapes.length ? shapes : kids).map((k) => {
     const b = localBox(k);
-    return b && Number.isFinite(b.x) && Number.isFinite(b.y) ? boxThrough(multiply(space, toRoot(k, svg)), b) : null;
+    if (!b || !Number.isFinite(b.x) || !Number.isFinite(b.y)) return null;
+    const m = multiply(space, toRoot(k, svg));
+    const out = boxThrough(m, b);
+    // a shape marked with its kind (a diamond, a cylinder…): a wire stops at its outline, not at its box
+    const geom = k.hasAttribute?.('data-shape') ? (tagOf(k) === 'polygon' ? 'points' : tagOf(k) === 'path' ? 'd' : null) : null;
+    if (geom) {
+      const line = outlineOf(geom, k.getAttribute(geom)).map(([x, y]) => applyTo(m, { x, y })).map((q) => [q.x, q.y]);
+      if (line.length > 2) out.outline = line;
+    }
+    return out;
   }).filter(Boolean);
   if (!boxes.length) return null;
   return boxes.length === 1 ? boxes[0] : union(boxes);
