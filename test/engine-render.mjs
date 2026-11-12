@@ -32,7 +32,7 @@ export const MODES = [
   'restore', 'historydetails', 'historycaptions', 'historychanges', 'historybuilds', 'escapeall', 'hidden', 'hidden&all', 'shiftarrows', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'exportmodule', 'publish',
   'inspector', 'inspectortabs', 'slidesettings', 'sourcesedit',
-  'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesbuilds', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'heldreload', 'savefail', 'slideinplace', 'outsideedit', 'esckeeps', 'pinch', 'debugreload', 'lockmode', 'clipbadge', 'notrustmode', 'editingtour', 'editingtourwelcome', 'welcomekeys',
+  'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'mathedit', 'editor', 'notessave', 'notesinplace', 'notesbuilds', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'heldreload', 'savefail', 'slideinplace', 'outsideedit', 'esckeeps', 'pinch', 'debugreload', 'lockmode', 'clipbadge', 'notrustmode', 'editingtour', 'editingtourwelcome', 'welcomekeys',
   'bgindex',
   'addmenu', 'addslidekinds',
   'listkeys', 'listplain', 'tablekeys', 'tablemenu', 'listmove',
