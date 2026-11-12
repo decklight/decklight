@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildClicks, buildSteps, checkMain, clickSegments, formatFindings, localAsset, parseTree,
+  buildClicks, buildSteps, checkMain, clickSegments, foldRepeats, formatFindings, localAsset, parseTree,
   renderFindings, sectionRanges, staticFindings,
 } from '../cli/check.mjs';
 
@@ -57,8 +57,40 @@ test('a concept shape that also sets its own fill is a warning: the concept pain
   assert.equal(found[0].level, 'warn');
   assert.equal(found[0].slide, 1);
   assert.match(found[0].message, /fill="#f00"/);
-  assert.match(found[1].message, /a fill in its style/);
+  assert.match(found[1].message, /fill: var\(--d-fill-2\) in its style/, 'the fill it found is quoted');
   assert.match(found[0].message, /Detach from concept/);
+  assert.deepEqual(found.map((f) => f.at), [{ path: [1, 0], tag: 'rect' }, { path: [1, 1], tag: 'rect' }],
+    'each carries its element: the path below the section, title included');
+  assert.ok(found[0].message.startsWith('<rect data-concept="agent"> (1st of 2)'), found[0].message);
+  assert.ok(found[1].message.startsWith('<rect data-concept="agent"> (2nd of 2)'), found[1].message);
+});
+
+test('two concept-fill findings on one slide never read as one row: a class names it, else its place (#1033)', () => {
+  const html = deck(`  <section><h2>Context Management</h2>
+    <svg viewBox="0 0 300 100">
+      <rect x="50" y="75" style="fill: var(--cf-fill-1); stroke: currentColor" data-concept="full"/>
+      <rect x="50" y="75" class="cm-grow" style="fill: var(--cf-accent)" data-concept="full"/>
+      <rect x="50" y="75" fill="none" class="cm-flash" style="stroke: currentColor" data-concept="full"/>
+    </svg>
+  </section>`);
+  const found = only(staticFindings(html, everything), 'concept-fill');
+  assert.equal(found.length, 2);
+  assert.match(found[0].message, /^<rect data-concept="full"> also carries fill: var\(--cf-fill-1\) in its style/);
+  assert.match(found[1].message, /^<rect class="cm-grow" data-concept="full"> also carries fill: var\(--cf-accent\) in its style/);
+  assert.notEqual(found[0].message, found[1].message);
+  const lines = formatFindings(found, { slides: 1 }).join('\n');
+  assert.match(lines, /class="cm-grow"/, 'decklight check prints the same names');
+});
+
+test('findings that would read alike fold into one row that says how many it stands for', () => {
+  const at = (i) => ({ path: [i], tag: 'p' });
+  const f = (msg, i) => ({ level: 'warn', rule: 'r', slide: 2, title: 'T', message: msg, at: at(i) });
+  const folded = foldRepeats([f('same', 0), f('other', 1), f('same', 2)]);
+  assert.equal(folded.length, 2);
+  assert.equal(folded[0].count, 2);
+  assert.equal(folded[0].message, 'same (2 alike here)');
+  assert.deepEqual(folded[0].ats, [at(0), at(2)], 'a Fix it on the row reaches both');
+  assert.equal(folded[1].count, undefined);
 });
 
 test('a local asset that is not on disk is an error; one that is, is silent', () => {
@@ -532,4 +564,14 @@ three</code></pre>
   assert.match(rendered[1], /^3: 1 \[click\] marker, \d+ build clicks$/, 'code stepping counted by the runtime');
   assert.deepEqual(await json(['--no-render']), ['2: 2 [click] markers, 3 build clicks'],
     'from the file alone, a provider\'s steps cannot be counted, so that slide is left out');
+});
+
+test('Fix it and Explain further name the element a finding is about, every one a folded row stands for (#1033)', async () => {
+  const { agentPrompt, explainPrompt } = await import('../src/core/deckcheck.js');
+  const f = { level: 'warn', slide: 3, title: 'T', rule: 'concept-fill', message: 'm', at: { path: [1, 1], tag: 'rect' } };
+  assert.match(agentPrompt(f), /The element: the <rect> at element path 1\.1 /);
+  assert.match(explainPrompt(f), /the <rect> at element path 1\.1 /);
+  const folded = { ...f, ats: [{ path: [1, 0], tag: 'rect' }, { path: [1, 2], tag: 'rect' }] };
+  assert.match(agentPrompt(folded), /The 2 elements: the <rect> at element path 1\.0, the <rect> at element path 1\.2/);
+  assert.doesNotMatch(agentPrompt({ ...f, at: undefined }), /element path/, 'a finding about no one element says nothing of one');
 });

@@ -48,6 +48,19 @@ function authoredList(sec) {
 export const contentOf = (sec) => authoredList(sec).filter((c) => !c.matches(CARRIED));
 /** An element's raw index among its slide's children in the file: what the element routes address. */
 const rawIndexOf = (sec, el) => fileIndexOf(el) ?? authoredList(sec).indexOf(el);
+/**
+ * The live element the FILE's element-child `path` below the slide's section
+ * names (cli/check.mjs's `at`): its first step a raw index among
+ * the section's children in the file, the rest element children below it.
+ * Null when the page has no such node, or one of another tag.
+ */
+export function fileElementAt(sec, path, tag = null) {
+  if (!sec || !Array.isArray(path) || !path.length) return null;
+  const top = authoredList(sec).find((e) => rawIndexOf(sec, e) === path[0]);
+  let node = top ?? null;
+  for (const i of path.slice(1)) node = node?.children?.[i] ?? null;
+  return node && (!tag || node.tagName.toLowerCase() === String(tag).toLowerCase()) ? node : null;
+}
 /** Can this slide follow a move in its own DOM? Not one a template built, nor one with something live on it. */
 const followsInPlace = (sec, instance) => !!instance.sync && !sec.hasAttribute('data-template') && !sec.querySelector(LIVE);
 

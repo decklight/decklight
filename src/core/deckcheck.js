@@ -66,7 +66,8 @@ import { slideDensity } from './density.js';
 import { slideClickMatch } from './narration.js';
 import { clickMismatchText } from '../../tools/click-match.mjs';
 import { attributeFindings, configFindings } from '../../tools/vocabulary.mjs';
-import { injectedIn } from './pick.js';
+import { injectedIn, createSpotlight } from './pick.js';
+import { fileElementAt } from './element-move.js';
 import { aiIcon } from './aiicon.js';
 import { IS_MAC } from './undo-chord.js';
 
@@ -107,12 +108,25 @@ export const isAuthoredDiagram = (svg) => !svg.parentElement?.closest('svg')
 const diagramsOf = (sec) => [...sec.querySelectorAll('svg')].filter(isAuthoredDiagram);
 
 /**
+ * Where a finding about one element is, for the agent: its tag and its
+ * element-child path below the slide's section (cli/check.mjs, `at`),
+ * every one of them when the row folds several. Empty for any other finding.
+ */
+export const elementsOf = (f) => {
+  const ats = f.ats ?? (f.at ? [f.at] : []);
+  if (!ats.length) return '';
+  const one = (a) => `the <${a.tag}> at element path ${a.path.join('.')}`;
+  return ` ${ats.length === 1 ? 'The element' : `The ${ats.length} elements`}: ${ats.map(one).join(', ')}`
+    + ' (element children only, counted from the slide\'s section element: the first number is its top-level child).';
+};
+
+/**
  * The ask a judgement fix hands the A agent: the finding and its rule, and
  * nothing else to do. The agent-review findings carry their own prepared
  * instruction (cli/agent-review.mjs) and keep it.
  */
 export const agentPrompt = (f) => `${f.slide ? `On slide ${f.slide} ("${f.title}"), ` : 'In this deck, '}fix this one problem that decklight check found`
-  + ` (rule ${f.rule}) and nothing else. The problem: ${f.message}`
+  + ` (rule ${f.rule}) and nothing else. The problem: ${f.message}${elementsOf(f)}`
   + (f.fix?.skills?.length ? ` Use the ${f.fix.skills.join(' and ')} skill.` : '');
 
 /**
@@ -120,7 +134,7 @@ export const agentPrompt = (f) => `${f.slide ? `On slide ${f.slide} ("${f.title}
  * full, and what to say about it. The server adds the slide's source.
  */
 export const explainPrompt = (f) => `${f.slide ? `On slide ${f.slide} ("${f.title}"), ` : 'In this deck, '}decklight check found this problem`
-  + ` (rule ${f.rule}, ${f.level === 'agent' ? 'from the agent review' : f.level}): ${f.message}`
+  + ` (rule ${f.rule}, ${f.level === 'agent' ? 'from the agent review' : f.level}): ${f.message}${elementsOf(f)}`
   + ' Explain it. What is wrong here, why it matters, and the ways to fix it. Be brief and concrete. This is a question: change no file.';
 
 /**
@@ -154,6 +168,8 @@ export function createDeckCheck({
   let served = null;      // true once the server answered, false once it refused — for the foot
   let want = null;        // a row to select once it is on screen: { rule, ref }
   let refreshTimer = null;
+  // the element a selected row is about, outlined on the stage like a selection
+  const spot = createSpotlight(root);
 
   const dock = createDock({
     root,
@@ -251,7 +267,9 @@ export function createDeckCheck({
       const slide = f.slide ?? null;
       out.push({
         ...finding(f.level, f.rule, slide, slide ? slideTitle(sections[slide - 1], slide - 1) : 'the deck', f.message),
-        ...(f.fix ? { fix: f.fix } : {}), fromFile: true,
+        ...(f.fix ? { fix: f.fix } : {}),
+        ...(f.at ? { at: f.at } : {}), ...(f.ats ? { ats: f.ats } : {}), ...(f.count ? { count: f.count } : {}),
+        fromFile: true,
       });
     }
     const rank = { error: 0, warn: 1, hint: 2 };
@@ -482,13 +500,21 @@ export function createDeckCheck({
   function select(i) {
     const list = el.querySelectorAll('.dc-row');
     if (list.length) sel = selectInList(list, i, 'narr-sel');
+    outline(rows[sel]);
+  }
+  /** Outline the element a row is about, when it is on the slide showing; else nothing. */
+  function outline(f) {
+    const inst = instance();
+    const node = f?.at && f.slide === inst?.state?.slide
+      ? fileElementAt(inst._sections?.[f.slide - 1], f.at.path, f.at.tag) : null;
+    if (node) spot.show(node, { dim: false }); else spot.hide();
   }
   /** ⏎ or a click: to the slide, the panel staying put. */
   function run(i) {
     const f = rows[i];
     if (!f) return;
     select(i);
-    if (f.slide) goto(f.slide);
+    if (f.slide) { goto(f.slide); outline(f); }
   }
   /** `f` on a row: its fix, on its slide; `all` for a batchable rule across the deck. */
   async function runFix(i, all = false) {
@@ -519,6 +545,7 @@ export function createDeckCheck({
   }
   function close() {
     if (!el) return;
+    spot.hide();
     el.remove();
     el = null;
     if (onResize) { window.removeEventListener('resize', onResize); onResize = null; }
