@@ -772,6 +772,11 @@
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: LK_SRC });
         if (u.includes('/deck/edit/element/content')) { LK_SRC = JSON.parse(init.body).html; return json({ ok: true, changed: true, undo: 1, redo: 0 }); }
       }
+      if (HARNESS_MODE === 'mathedit') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: '<p class="mx-plain">No formula here</p>' });
+        if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'codeedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) {
@@ -1394,6 +1399,12 @@
     if (LK_SRC !== null) {
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>\n${LK_SRC}`
         + (HARNESS_MODE === 'listkeys' ? '\n<aside class="notes">Here. [click] Alpha. [click] Beta.</aside>' : '');
+    }
+    // a slide marked for math (CODE_AND_MATH): a paragraph with a formula, one without
+    if (HARNESS_MODE === 'mathedit') {
+      const sec = document.querySelectorAll('.decklight > section')[2];
+      sec.setAttribute('data-math', '');
+      sec.insertAdjacentHTML('beforeend', '<p class="mx-formula">Energy is $$E = mc^2$$</p><p class="mx-plain">No formula here</p>');
     }
     if (HARNESS_MODE === 'codeedit') {
       document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
@@ -6500,6 +6511,42 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
+      }
+      // A slide marked for math is edited like any other (CODE_AND_MATH,
+      // PRESENTING_EDITING): its title and its text without a formula open
+      // for typing, a text holding a formula says why it does not, and a
+      // formula typed into the text is typeset on save, with no reload.
+      if (mode === 'mathedit') {
+        await settle();                       // /deck/ping: editAvailable
+        deck.goto(3, 0);
+        await settle();
+        const sec = document.querySelector('.decklight-stage > section.active');
+        const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content'));
+        press('e');
+        await settle();
+        const title = sec.querySelector('h2');
+        const formula = sec.querySelector('.mx-formula');
+        r.formulaRendered = !!formula?.querySelector('math');
+        dbl(title);
+        r.titleOpens = title.isContentEditable;
+        key(title, 'Escape');
+        await settle();
+        dbl(formula);
+        await settle();
+        r.formulaRefusedOutLoud = !formula.isContentEditable && /holds a formula/.test(said());
+        const plain = sec.querySelector('.mx-plain');
+        dbl(plain);
+        r.plainOpens = plain.isContentEditable;
+        plain.textContent = 'Area is $$\\pi r^2$$';
+        key(plain, 'Enter');
+        await settle(); await settle();
+        const saved = writes()[0];
+        r.savedTheSource = saved?.body.html === '<p class="mx-plain">Area is $$\\pi r^2$$</p>';
+        r.typesetInPlace = plain.isConnected && !!plain.querySelector('math') && !plain.isContentEditable;
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
       if (mode === 'codeedit') {
         await settle();                       // /deck/ping: editAvailable

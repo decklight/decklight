@@ -27,7 +27,7 @@
 // key or the gesture already used, so each one lands on the same undo stack.
 
 import { authoredTop } from './design-system.js';
-import { editableTarget, svgTextTarget, CODE_EDITABLE } from './authoring.js';
+import { editableTarget, formulaRefusal, svgTextTarget, CODE_EDITABLE } from './authoring.js';
 import { pickNode, isDrawn, isWireNode, wireMiddle, createSpotlight, createFrame } from './pick.js';
 import { UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
@@ -230,7 +230,7 @@ export function createEditBar({
       case 'text': {
         const el = selected && textTarget(selected);
         if (el) authoring.editInline(el);
-        else toast('double-click any text to edit it — or click it, then press ⏎', 3200);
+        else toast((selected && formulaOf(selected)) || 'double-click any text to edit it — or click it, then press ⏎', 3200);
         break;
       }
       case 'add': addMenu?.(btn); break;
@@ -265,6 +265,8 @@ export function createEditBar({
     if (code && target.sec.contains(code)) return code;
     return svgTextTarget(target.clicked, target.sec) ?? editableTarget(target.clicked, target.sec) ?? editableTarget(target.top, target.sec);
   }
+  /** Why the selection's text does not open for typing when the reason is a formula it holds, else null. */
+  const formulaOf = (target) => formulaRefusal(target.clicked, target.sec) ?? formulaRefusal(target.top, target.sec);
   /** What the selection outlines: the node picked inside a diagram, else the block. */
   const shown = (t) => t.node ?? t.top;
   /** Where a selected wire's ⋯ goes: beside the middle of its stroke, not at the corner of the box its route spans. */

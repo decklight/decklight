@@ -32,7 +32,14 @@ import { createEditCommit } from './edit-commit.js';
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
 /** Where a double-click must NOT edit: generated or structured content the source does not spell out. */
-export const NOT_EDITABLE = 'pre, code, svg, .terminal, [data-chart], [data-math], aside, table[data-chart]';
+export const NOT_EDITABLE = 'pre, code, svg, .terminal, [data-chart], aside, table[data-chart]';
+/**
+ * A formula as the runtime typeset it (or the error it shows in its place). A
+ * slide marked for math is edited like any slide; only an element that HOLDS
+ * one of these is refused, since its DOM is MathML and the TeX lives only in
+ * the file: writing the DOM back would put the MathML in the deck.
+ */
+export const FORMULA = 'math, .temml-error';
 /**
  * A code block: edited as its SOURCE text, never its rendered DOM. code.js
  * highlights a block into spans and wraps every line, so writing that DOM back
@@ -114,7 +121,19 @@ export function editableTarget(target, sec) {
   const el = target?.closest?.(EDITABLE);
   if (!el || !sec?.contains?.(el)) return null;
   if (el.closest(NOT_EDITABLE)) return null;
+  if (el.querySelector?.(FORMULA)) return null;
   return el;
+}
+
+/**
+ * Why a double-click on `target` opens nothing, when the reason is a formula
+ * it holds (so the gesture is never silent), else null.
+ */
+export function formulaRefusal(target, sec) {
+  const el = target?.closest?.(EDITABLE);
+  if (!el || !sec?.contains?.(el) || el.closest(NOT_EDITABLE)) return null;
+  if (!el.querySelector?.(FORMULA)) return null;
+  return 'this text holds a formula: for now it is changed in its HTML (the inspector’s HTML tab)';
 }
 
 export function createAuthoring({ root, instance, toast, editmode, debugLog = () => {} }) {
@@ -130,7 +149,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   const commit = createEditCommit(editmode);
   const post = (path, body) => commit.send(path, body);
   /** The slide refreshed around what was saved (a code block highlighted and lined again). */
-  const announce = (slide, el, code = false) => instance.refreshSlide?.(instance._sections?.[slide - 1], { scan: el, code: code ? [el] : [] });
+  // math: a slide marked for it typesets what was typed (a formula the text gained)
+  const announce = (slide, el, code = false) => instance.refreshSlide?.(instance._sections?.[slide - 1], { scan: el, code: code ? [el] : [], math: true });
   const sectionOf = (node) => {
     const sec = node?.closest?.('section');
     const slide = sec ? instance._sections.indexOf(sec) + 1 : 0;
@@ -862,7 +882,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const label = svgTextTarget(e.target, where.sec);
     if (label) { e.preventDefault(); beginLabel(label, where); return; }
     const el = editableTarget(e.target, where.sec);
-    if (!el) return;
+    if (!el) {
+      const why = formulaRefusal(e.target, where.sec);
+      if (why) { e.preventDefault(); toast(why, 3600); }
+      return;
+    }
     e.preventDefault();
     beginInline(el, where);
   });
@@ -1012,7 +1036,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       const label = svgTextTarget(el, where.sec);
       if (label) { beginLabel(label, where); return true; }
       const text = editableTarget(el, where.sec);
-      if (!text) return false;
+      if (!text) {
+        const why = formulaRefusal(el, where.sec);
+        if (why) toast(why, 3600);
+        return false;
+      }
       beginInline(text, where, { selectAll });
       return true;
     },
