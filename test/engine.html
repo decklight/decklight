@@ -1037,6 +1037,11 @@
           return json({ ok: true, changed: true, mode: 'switch', said: `now ${body.template} — content stays by slot name`, undo: 1, redo: 0 });
         }
       }
+      // a block resized (blockresize): its width and a diagram's answered as the server does
+      if (HARNESS_MODE === 'blockresize') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+      }
       // Turn into ▸ (turninto): each block's source as the file has it, a content write answered
       if (HARNESS_MODE === 'turninto') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -11514,6 +11519,117 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.themePickPlain = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'))[1]?.body.edits[0]?.value === 'var(--accent)';
         r.PASS = r.groupsAfterTheTheme && r.itsOwnNames && r.undefinedLeftOut && r.previews && r.writesTheFallback
           && r.markedByTheToken && r.customOpensOnWhatShows && r.themePickPlain;
+      }
+
+      if (mode === 'blockresize') {
+        // PRESENTING_EDITING, resizing a block: a selected text, list, chart,
+        // table, quote or code block has a handle on each side that sets how
+        // wide it may be (max-width, one write); a diagram selected whole has
+        // the pictures' corners (its width); never wider than its container or
+        // its split half; never narrower than the slide fits; a double-click is
+        // automatic again
+        const secs = document.querySelectorAll('.decklight-stage > section');
+        const s1 = secs[0], s2 = secs[1], s3 = secs[2];
+        s1.innerHTML = '<h2>Blocks</h2><p class="br-p">A paragraph of words that wraps at the width it may be.</p><ul class="br-list"><li>one</li><li>two</li></ul>'
+          + '<svg class="br-svg" viewBox="0 0 200 100" width="300"><rect x="10" y="10" width="80" height="40"/></svg>';
+        s2.setAttribute('data-layout', 'split');
+        s2.innerHTML = '<h2>Split</h2><p class="br-half">The left half of a split slide.</p><ul><li>right</li></ul>';
+        s3.innerHTML = '<h2>Tall</h2><p class="br-tall" style="font-size:44px"></p>';
+        for (const sec of [s1, s2, s3]) deck.refreshSlide(sec, { scan: false });
+        const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const pe = (target, type, x, y) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 9, clientX: x, clientY: y, button: 0 }));
+        const handles = () => [...document.querySelectorAll('.dl-pic-handle')];
+        const handle = (c) => handles().find((h) => h.dataset.corner === c);
+        const styles = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style')).map((c) => c.body);
+        const pics = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/picture')).map((c) => c.body);
+        const inner = (el) => { const cs = getComputedStyle(el); return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); };
+        const dragBy = async (c, dx) => { const h = handle(c).getBoundingClientRect(); const x = h.left + h.width / 2, y = h.top + h.height / 2;
+          pe(handle(c), 'pointerdown', x, y); pe(window, 'pointermove', x + dx / 2, y); pe(window, 'pointermove', x + dx, y); pe(window, 'pointerup', x + dx, y); await settle(); };
+        await settle(); await settle();
+        deck.goto(1, 0); await settle();
+        const p = s1.querySelector('.br-p');
+
+        click(p); await settle();
+        r.twoSideHandles = handles().length === 2 && handle('w') && handle('e') && deck._blockResize.handled() === p;
+        const pr = p.getBoundingClientRect(), er = handle('e').getBoundingClientRect();
+        r.handleOnTheSide = Math.abs(er.left + er.width / 2 - (pr.right + 4)) <= 2 && Math.abs(er.top + er.height / 2 - (pr.top + pr.height / 2)) <= 2;
+        const w0 = Math.round(pr.width / deck._scale);
+        // narrower from the right: live, then one write in deck px
+        const h = handle('e').getBoundingClientRect();
+        pe(handle('e'), 'pointerdown', h.left + 4, h.top + 10);
+        pe(window, 'pointermove', h.left - 60, h.top + 10);
+        r.liveWithNoWriteYet = !!p.style.maxWidth && styles().length === 0 && !!document.querySelector('.dl-pic-size');
+        pe(window, 'pointerup', h.left - 60, h.top + 10);
+        await settle();
+        const st = styles()[0];
+        const ed = st?.edits?.[0] ?? {};
+        r.oneWriteOfMaxWidth = styles().length === 1 && ed.prop === 'max-width' && ed.tag === 'p' && JSON.stringify(ed.path) === '[]'
+          && /^\d+px$/.test(ed.value) && parseInt(ed.value, 10) < w0 && st.index === 1 && st.quiet === true && p.style.maxWidth === ed.value;
+        // as wide as the pointer goes, never wider than the slide holds
+        await dragBy('e', 4000);
+        r.neverWiderThanTheSlide = parseInt(styles().pop()?.edits[0].value, 10) <= Math.floor(inner(s1)) && p.getBoundingClientRect().right <= s1.getBoundingClientRect().right + 1;
+        // a double-click is automatic again
+        handle('w').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        await settle();
+        r.doubleClickIsAutomatic = styles().pop()?.edits[0].value === null && !p.style.maxWidth;
+        // a point means its list
+        click(s1.querySelector('.br-list li')); await settle();
+        r.aPointMeansItsList = deck._blockResize.handled() === s1.querySelector('.br-list') && handles().length === 2;
+        // a diagram selected whole: the pictures' corners, its width written
+        const svg = s1.querySelector('.br-svg');
+        const sr = svg.getBoundingClientRect();
+        svg.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: sr.right - 4, clientY: sr.bottom - 4 }));
+        await settle();
+        r.diagramHasCorners = handles().length === 4 && deck._pictures.handled() === svg;
+        if (r.diagramHasCorners) {
+          await dragBy('se', -60);
+          const pw = pics().pop() ?? {};
+          r.diagramWidthWritten = pw.tag === 'svg' && Number.isInteger(pw.width) && pw.width < 300 && svg.getAttribute('width') === String(pw.width) && !svg.hasAttribute('height');
+        } else r.diagramWidthWritten = false;
+
+        // half of a split slide: never wider than its half
+        deck.goto(2, 0); await settle();
+        const half = s2.querySelector('.br-half');
+        click(half); await settle();
+        await dragBy('e', 4000);
+        r.neverWiderThanItsHalf = parseInt(styles().pop()?.edits[0].value, 10) <= Math.floor(inner(s2) * 0.48) + 1;
+
+        // a slide that fits is kept fitting: narrower stops where the words would clip it
+        deck.goto(3, 0); await settle();
+        const tall = s3.querySelector('.br-tall');
+        const over = () => s3.scrollHeight > s3.clientHeight + 2;
+        tall.style.maxWidth = '360px';
+        for (let i = 0; i < 60 && !over(); i++) tall.append(' Words that wrap and wrap.');
+        tall.style.maxWidth = '';
+        while (over() && tall.lastChild) tall.lastChild.remove();
+        const fitsAtFullWidth = !over();
+        click(tall); await settle();
+        await dragBy('e', -4000);
+        const narrowed = parseInt(styles().pop()?.edits[0].value, 10);
+        r.stopsBeforeTheSlideClips = fitsAtFullWidth && !over() && narrowed > 360;
+
+        // in a column: never wider than the column
+        const s4 = secs[3];
+        // the columns as a theme lays them out (no theme is loaded here): two halves side by side
+        s4.innerHTML = '<h2>Columns</h2><div class="columns" style="display:flex;gap:40px;width:100%"><div style="flex:1;min-width:0"><p class="br-col">In the left column.</p></div><div style="flex:1;min-width:0"><p>Right.</p></div></div>';
+        deck.refreshSlide(s4, { scan: false });
+        deck.goto(4, 0); await settle();
+        const col = s4.querySelector('.br-col');
+        // a click selects the whole columns block; the inspector's picker selects the block inside one
+        press('i'); await settle(); await settle();
+        document.querySelector('.decklight-inspector .ins-pick').click();
+        for (const t of ['pointerdown', 'mousedown', 'mouseup', 'click']) col.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
+        await settle();
+        r.columnBlockSelected = deck._selection()?.node === col && deck._blockResize.handled() === col;
+        // narrower first (it fills its column), then as wide as the pointer goes
+        await dragBy('e', -150);
+        const narrowedInColumn = styles().length;
+        await dragBy('e', 4000);
+        const cw = parseInt(styles().pop()?.edits[0].value, 10);
+        const cst = styles()[styles().length - 1];
+        r.neverWiderThanItsColumn = styles().length === narrowedInColumn + 1 && cw <= Math.floor(inner(col.parentElement)) + 1 && inner(col.parentElement) < inner(s4) * 0.6
+          && JSON.stringify(cst?.edits[0].path) === '[0,0]' && col.getBoundingClientRect().right <= col.parentElement.getBoundingClientRect().right + 1;
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
       if (mode === 'turninto') {

@@ -4185,6 +4185,8 @@
 }
 .decklight .dl-pic-nw, .decklight .dl-pic-se { cursor: nwse-resize; }
 .decklight .dl-pic-ne, .decklight .dl-pic-sw { cursor: nesw-resize; }
+/* a block's side handles: how wide it may be (block-resize.js), a bar rather than a square */
+.decklight .dl-pic-w, .decklight .dl-pic-e { cursor: ew-resize; width: 8px; height: 22px; margin: -11px 0 0 -4px; border-radius: 3px; }
 .decklight .dl-pic-handle:hover, .decklight.dl-pic-resizing .dl-pic-handle { background: var(--accent, #6af); }
 .decklight.dl-pic-handles .dl-handle { transform: translate(14px, -16px); }
 .decklight.dl-pic-resizing, .decklight.dl-pic-resizing * { cursor: nwse-resize !important; user-select: none; }

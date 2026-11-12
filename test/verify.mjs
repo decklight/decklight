@@ -217,6 +217,7 @@ const ENGINE_GROUPS = {
     'buildselect',
     'buildreselect',
     'pictureresize',
+    'blockresize',
     'picturealt',
     'picturebg',
     'pictureslidetab',

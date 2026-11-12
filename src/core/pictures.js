@@ -39,19 +39,29 @@
 import { pathFrom } from './colorpicker.js';
 import { imageFiles } from './authoring.js';
 import { createEditCommit } from './edit-commit.js';
+import { createResizeHandles, CORNERS, contentWidth, dragWidth as dragAny } from './resize-handles.js';
 
 /** The bounds the server writes a width within (cli/edit.mjs PICTURE_WIDTH), in deck units. */
 export const PICTURE_MIN = 16;
 export const PICTURE_MAX = 4096;
-const CORNERS = ['nw', 'ne', 'sw', 'se'];
 
-/** Does the slide's content run past it? The overflow guardrail's own test, on the section (engine.js checkOverflow). */
-const overflows = (sec) => sec.scrollHeight > sec.clientHeight + 2;
 
 /** The picture a selection is about: the `<img>` itself, selected or picked inside a figure or a column. */
 export function pictureOf(target) {
   const n = target?.node ?? target?.top;
   return n?.tagName === 'IMG' && n.isConnected ? n : null;
+}
+
+/**
+ * What a selection sizes by its width, with corner handles: a picture, a
+ * diagram selected whole (its canvas, not a shape in it), or a framed web
+ * page. Null for anything else.
+ */
+export function sizedOf(target) {
+  const n = target?.node ?? target?.top;
+  if (!n?.isConnected) return null;
+  if (n.tagName === 'IMG' || n.tagName === 'IFRAME') return n;
+  return n.tagName === 'svg' && !n.parentElement?.closest('svg') && !n.closest('[data-chart]') ? n : null;
 }
 
 /**
@@ -63,10 +73,7 @@ export function pictureOf(target) {
  * along wins; the answer is whole and inside `[PICTURE_MIN, max]`.
  */
 export function dragWidth({ w0, dx, dy, perX, perY, east, south, max }) {
-  const byX = (east ? dx : -dx) / (perX || 1);
-  const byY = (south ? dy : -dy) / (perY || 1);
-  const dw = Math.abs(byX) >= Math.abs(byY) ? byX : byY;
-  return Math.round(Math.min(Math.max(w0 + dw, PICTURE_MIN), Math.max(PICTURE_MIN, Math.min(max, PICTURE_MAX))));
+  return dragAny({ w0, dx, dy, perX, perY, east, south, min: PICTURE_MIN, max: Math.min(max, PICTURE_MAX) });
 }
 
 export function createPictures({
@@ -105,7 +112,7 @@ export function createPictures({
     const t = editmode.elementTargetOf?.(img);
     if (!t?.top || t.index === null || t.index < 0) return null;
     const path = t.top === img ? [] : pathFrom(t.top, img);
-    return path ? { slide: t.slide, index: t.index, path, tag: 'img', sec: t.sec, top: t.top } : null;
+    return path ? { slide: t.slide, index: t.index, path, tag: img.tagName.toLowerCase(), sec: t.sec, top: t.top } : null;
   }
 
   /** The slide was changed in place: rescanned and laid out again, as a reload would have (engine.js). */
@@ -113,83 +120,44 @@ export function createPictures({
   /** A background is the engine's to draw: its layer again for the one slide, and the bleed when it is on screen. */
   const refreshBackground = (sec) => instance.refreshSlide?.(sec, { background: true, scan: false });
 
-  // ── the handles ─────────────────────────────────────────────────────────
-  let img = null;        // the picture wearing them
-  let handles = [];
-  let sizeTag = null;    // the size, said while a drag is on
-  let following = 0;
-  let drag = null;
-
-  function place() {
-    if (!img?.isConnected) { unmount(); return; }
-    const r = img.getBoundingClientRect();
-    const b = root.getBoundingClientRect();
-    // on the selection's outline, which stands 4px off the picture
-    const x = { w: r.left - b.left - 4, e: r.right - b.left + 4 };
-    const y = { n: r.top - b.top - 4, s: r.bottom - b.top + 4 };
-    for (const h of handles) {
-      const c = h.dataset.corner;
-      h.style.left = `${x[c[1]]}px`;
-      h.style.top = `${y[c[0]]}px`;
-    }
-    if (sizeTag) {
-      sizeTag.style.left = `${(r.left + r.right) / 2 - b.left}px`;
-      sizeTag.style.top = `${r.bottom - b.top + 10}px`;
-    }
-  }
-  function follow() {
-    cancelAnimationFrame(following);
-    let last = '';
-    const tick = () => {
-      if (!img) return;
-      const r = img.getBoundingClientRect();
-      const box = `${r.left},${r.top},${r.width},${r.height}`;
-      if (box !== last) { last = box; place(); }
-      following = requestAnimationFrame(tick);
-    };
-    following = requestAnimationFrame(tick);
-  }
+  // ── the handles (resize-handles.js) ──────────────────────────────────────
+  // corners on a picture, a diagram or a framed web page, scaling it by its width
+  const handles = createResizeHandles({ root, instance: () => instance, editmode: () => editmode, toast, say });
+  const LABEL = { IMG: 'picture', svg: 'diagram', IFRAME: 'web page' };
+  /** What sizes a picture, a diagram or a frame on the page, as the file will have it: the width alone. */
+  const SIZING = {
+    handles: CORNERS,
+    snapshot: (pic) => sizeOf(pic),
+    restore: (pic, s) => putSize(pic, s),
+    apply: (pic, w) => setWidth(pic, w),
+    // never bigger than the slide's own content box holds, either way
+    max: (pic) => {
+      const sec = pic.closest('section');
+      const r = pic.getBoundingClientRect();
+      const aspect = r.height / (r.width || 1);
+      const cs = getComputedStyle(sec);
+      const innerH = sec.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      return Math.min(contentWidth(sec), innerH / (aspect || 1), PICTURE_MAX);
+    },
+    min: PICTURE_MIN,
+    commit: (pic, w, was) => savePicture(pic, { width: w }, { undo: () => putSize(pic, was), said: `${labelOf(pic)} ${w} wide` }),
+    reset: (pic) => naturalSize(pic),
+  };
+  const labelOf = (pic) => LABEL[pic.tagName] ?? 'picture';
   function mount(pic) {
-    unmount();
     // a full-bleed picture covers the slide: there is nothing to resize
-    if (!pic || pic.classList.contains('full-bleed') || !editmode.available?.()) return;
-    img = pic;
-    root.classList.add('dl-pic-handles');
-    handles = CORNERS.map((c) => {
-      const h = document.createElement('button');
-      h.type = 'button';
-      h.className = `dl-pic-handle dl-pic-${c}`;
-      h.dataset.corner = c;
-      h.title = 'drag to resize · double-click for its own size';
-      h.setAttribute('aria-label', `resize the picture from its ${{ nw: 'top left', ne: 'top right', sw: 'bottom left', se: 'bottom right' }[c]} corner`);
-      h.addEventListener('mousedown', (e) => e.preventDefault());
-      h.addEventListener('click', (e) => e.stopPropagation());
-      h.addEventListener('pointerdown', (e) => startDrag(e, c));
-      h.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); naturalSize(); });
-      root.appendChild(h);
-      return h;
-    });
-    place();
-    follow();
+    if (!pic || pic.classList.contains('full-bleed')) { handles.unmount(); return; }
+    handles.mount(pic, { ...SIZING, label: labelOf(pic) });
   }
-  function unmount() {
-    cancelAnimationFrame(following);
-    for (const h of handles) h.remove();
-    handles = [];
-    sizeTag?.remove();
-    sizeTag = null;
-    root.classList.remove('dl-pic-handles');
-    img = null;
-  }
-  editbar.onSelect?.((t) => { if (!drag) mount(pictureOf(t)); });
+  editbar.onSelect?.((t) => { if (!handles.dragging()) mount(sizedOf(t)); });
 
-  /** What the picture's size is in the markup, to put back when a write is refused. */
+  /** What the element's size is in the markup, to put back when a write is refused. */
   const sizeOf = (pic) => ({ width: pic.getAttribute('width'), height: pic.getAttribute('height'), sw: pic.style.width, sh: pic.style.height });
   function putSize(pic, s) {
     for (const k of ['width', 'height']) { if (s[k] === null) pic.removeAttribute(k); else pic.setAttribute(k, s[k]); }
     pic.style.width = s.sw; pic.style.height = s.sh;
   }
-  /** The picture at `w` deck units wide, as the file will have it: the width attribute, nothing fighting it. */
+  /** The element at `w` deck units wide, as the file will have it: the width attribute, nothing fighting it. */
   function setWidth(pic, w) {
     if (w === null) pic.removeAttribute('width'); else pic.setAttribute('width', String(w));
     pic.removeAttribute('height');
@@ -197,95 +165,16 @@ export function createPictures({
     pic.style.removeProperty('height');
   }
 
-  function startDrag(e, corner) {
-    if (e.button !== 0 || !img) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (!editmode.available?.()) { toast(say('resizing a picture'), 3200); return; }
-    const pic = img;
-    const scale = instance._scale || 1;
-    const was = sizeOf(pic);
-    const r0 = pic.getBoundingClientRect();
-    const w0 = Math.round(r0.width / scale);
-    const aspect = r0.height / (r0.width || 1);
-    // how far a unit of width moves this corner on screen: once the scale for
-    // a picture anchored on the other side, twice for a centred one
-    const east = corner[1] === 'e', south = corner[0] === 's';
-    setWidth(pic, w0 + 20);
-    const r1 = pic.getBoundingClientRect();
-    putSize(pic, was);
-    const perX = Math.max(scale * 0.5, Math.abs(east ? r1.right - r0.right : r0.left - r1.left) / 20);
-    const perY = Math.max(scale * 0.5 * aspect, Math.abs(south ? r1.bottom - r0.bottom : r0.top - r1.top) / 20);
-    // never bigger than the slide's own content box holds
-    const sec = pic.closest('section');
-    const cs = getComputedStyle(sec);
-    const innerW = sec.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const innerH = sec.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    const max = Math.floor(Math.min(innerW, innerH / (aspect || 1)));
-    // a slide that fits when the drag starts is kept fitting: the picture
-    // grows only as far as the room the rest of the slide leaves it
-    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, w0, w: w0, perX, perY, east, south, max, was, pic, sec, fits: !overflows(sec) };
-    root.classList.add('dl-pic-resizing');
-    sizeTag = Object.assign(document.createElement('div'), { className: 'dl-pic-size' });
-    root.appendChild(sizeTag);
-    sizeTag.textContent = `${w0} × ${Math.round(w0 * aspect)}`;
-    place();
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-  }
-  function onMove(e) {
-    if (!drag || e.pointerId !== drag.id) return;
-    let w = dragWidth({ w0: drag.w0, dx: e.clientX - drag.x, dy: e.clientY - drag.y, perX: drag.perX, perY: drag.perY, east: drag.east, south: drag.south, max: drag.max });
-    if (w === drag.w) return;
-    setWidth(drag.pic, w);
-    if (drag.fits && w > drag.w && overflows(drag.sec)) {
-      // the widest that still fits, between the last that did and this one
-      let lo = drag.w, hi = w;
-      while (hi - lo > 1) {
-        const mid = (lo + hi) >> 1;
-        setWidth(drag.pic, mid);
-        if (overflows(drag.sec)) hi = mid; else lo = mid;
-      }
-      w = lo;
-      setWidth(drag.pic, w);
-    }
-    drag.w = w;
-    drag.moved = true;
-    const r = drag.pic.getBoundingClientRect();
-    if (sizeTag) sizeTag.textContent = `${w} × ${Math.round(r.height / (instance._scale || 1))}`;
-    place();
-  }
-  function onUp(e) {
-    if (!drag || e.pointerId !== drag.id) return;
-    window.removeEventListener('pointermove', onMove);
-    window.removeEventListener('pointerup', onUp);
-    window.removeEventListener('pointercancel', onUp);
-    const d = drag;
-    drag = null;
-    root.classList.remove('dl-pic-resizing');
-    sizeTag?.remove();
-    sizeTag = null;
-    // a drag released off its handle clicks whatever is under it, which would
-    // let go of the picture: that one click is the drag's, not the slide's
-    if (d.moved) {
-      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
-      window.addEventListener('click', swallow, { capture: true, once: true });
-      setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
-    }
-    if (d.w === d.w0) { putSize(d.pic, d.was); return; }
-    savePicture(d.pic, { width: d.w }, { undo: () => putSize(d.pic, d.was), said: `picture ${d.w} wide` });
-  }
   /** Has `pic` a size in the markup (a width, a height, an inline one) for Reset size to take off? */
   const sized = (pic) => { const s = sizeOf(pic); return s.width !== null || s.height !== null || !!s.sw || !!s.sh; };
   /** The picture at its own size again: a double-click on a handle, or Picture ▸ Reset size. */
-  function naturalSize(pic = img) {
+  function naturalSize(pic = handles.current()) {
     if (!pic) return;
     if (!editmode.available?.()) { toast(say('resizing a picture'), 3200); return; }
     const was = sizeOf(pic);
-    if (!sized(pic)) { toast('the picture is at its own size already', 2000); return; }
+    if (!sized(pic)) { toast(`the ${labelOf(pic)} is at its own size already`, 2000); return; }
     setWidth(pic, null);
-    savePicture(pic, { width: null }, { undo: () => putSize(pic, was), said: 'picture at its own size' });
+    savePicture(pic, { width: null }, { undo: () => putSize(pic, was), said: `${labelOf(pic)} at its own size` });
   }
 
   /**
@@ -464,7 +353,7 @@ export function createPictures({
     /** Can this page change pictures? The inspector shows its alt field and Replace… only then. */
     editable: () => editmode.available?.() === true,
     /** The picture wearing the handles (a harness reads it). */
-    handled: () => img,
+    handled: () => handles.current(),
     /** Stand in for the file chooser (`() => Promise<File|null>`): what a harness does. */
     setChooser: (fn) => { chooser = fn; },
   };
