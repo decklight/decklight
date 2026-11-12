@@ -27,13 +27,15 @@ import { pastedWords } from './list-edit.js';
 export const ELEMENT_MARK = '<!--decklight:element-->';
 /** A diagram's shape: copied and pasted inside its own diagram, the way Duplicate does it. */
 export const SHAPE_MARK = '<!--decklight:shape-->';
+/** A whole slide (Copy slide, ⌘C in the overview): pasted after a slide, here or in another deck. */
+export const SLIDE_MARK = '<!--decklight:slide-->';
 /**
  * The editor's own clip out of clipboard html, whatever a browser wrapped it
  * in (a `<meta charset>`, `<html><body>`, the fragment markers): `{ mark,
  * html }`, or null for html that is not ours.
  */
 export function ownClip(html) {
-  const m = /<!--\s*decklight:(element|shape)\s*-->/.exec(String(html ?? ''));
+  const m = /<!--\s*decklight:(element|shape|slide)\s*-->/.exec(String(html ?? ''));
   if (!m) return null;
   const rest = String(html).slice(m.index + m[0].length)
     .replace(/<!--\s*EndFragment\s*-->[\s\S]*$/i, '')
@@ -46,6 +48,7 @@ export function ownClip(html) {
  *
  *   { kind: 'element', html, text } an element a deck's editor copied (ELEMENT_MARK)
  *   { kind: 'shape', html, text }   a diagram's shape a deck's editor copied (SHAPE_MARK)
+ *   { kind: 'slide', html, text }   a whole slide a deck's editor copied (SLIDE_MARK)
  *   { kind: 'pictures', files }   one or more pictures (a screenshot, "Copy image")
  *   { kind: 'html', html, text }  rich text from another app
  *   { kind: 'text', text }        plain text
@@ -86,7 +89,7 @@ export function wordsOf(el) {
   return (copy.innerText ?? copy.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-export function createClipboard({ editmode, authoring, editbar, addContent = null, toast = () => {} }) {
+export function createClipboard({ editmode, authoring, editbar, addContent = null, toast = () => {}, overviewSlide = () => null, currentSlide = () => null }) {
   /** Write mode with editing on and nothing being typed: the only time a paste is the editor's. */
   const ours = (e) => editmode.elementEditOn?.() && editmode.available?.() !== false
     && !authoring.editing() && !typingTarget(e.target);
@@ -115,6 +118,34 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
   }
   editbar.onSelect?.((t) => { hold(t); });
 
+  // A slide's source, read when it is about to be copied (the Slide menu
+  // opened, a cell chosen in the overview), for the same reason.
+  let slideHeld = null;   // { slide, html }
+  let wantSlide = null;   // Copy slide from a menu: the slide the next copy event is for
+  async function holdSlide(n) {
+    if (!Number.isInteger(n) || !editmode.available?.()) return;
+    if (slideHeld?.slide === n && slideHeld.html) return;
+    const mine = { slide: n, html: null };
+    slideHeld = mine;
+    try {
+      const res = await fetch(`${editmode.base?.() ?? ''}/deck/edit/slide/source?slide=${n}`);
+      const j = await res.json().catch(() => ({}));
+      if (slideHeld === mine && res.ok && typeof j.html === 'string') mine.html = j.html;
+    } catch { /* the copy says it is not ready */ }
+  }
+  /** Put slide `n` on `e`'s clipboard; true when it did. */
+  function fillSlide(e, n) {
+    e.preventDefault();
+    if (slideHeld?.slide !== n || !slideHeld.html) { holdSlide(n); toast('still reading the slide from the file: copy again in a moment', 2400); return false; }
+    e.clipboardData.setData('text/html', SLIDE_MARK + slideHeld.html);
+    const tpl = document.createElement('template');
+    tpl.innerHTML = slideHeld.html;
+    e.clipboardData.setData('text/plain', wordsOf(tpl.content.querySelector('section')));
+    return true;
+  }
+  /** Every deck that a slide's paste is after: the overview's chosen cell, else the slide on screen. */
+  const pasteAfter = () => overviewSlide() ?? currentSlide();
+
   /** Put the selection on `e`'s clipboard; true when it did. */
   function fill(e, verb) {
     const t = editbar.selected();
@@ -131,6 +162,13 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
     return true;
   }
   function onCopy(e) {
+    // a slide: Copy slide from a menu, or ⌘C on a cell of the overview
+    const slide = wantSlide ?? overviewSlide();
+    wantSlide = null;
+    if (slide && editmode.elementEditOn?.() && editmode.available?.() !== false && !typingTarget(e.target)) {
+      if (fillSlide(e, slide)) toast(`slide ${slide} copied: ⌘V pastes it after a slide, here or in another deck`, 2400);
+      return;
+    }
     if (!ours(e) || textSelected()) return;
     if (fill(e, 'copy')) { lastShape = held.shape ? held.target : null; toast(held.shape ? 'shape copied: paste it in its diagram' : 'copied: ⌘V pastes it here, on another slide or in another deck', 2200); }
   }
@@ -155,11 +193,24 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
     editmode.duplicateElement?.(lastShape);
   }
 
+  /** A slide from the clipboard, after the overview's chosen cell or the slide on screen. */
+  function pasteSlide(section) {
+    const after = pasteAfter();
+    if (!after) return;
+    editmode.slideOp?.('paste', { slide: after, section }).catch(() => { /* said by slideOp */ });
+  }
+
   function onPaste(e) {
+    // a slide pastes in the overview too, where nothing is selected on a slide
+    if (overviewSlide() && editmode.elementEditOn?.() && !typingTarget(e.target)) {
+      const clip = classifyClipboard(e.clipboardData);
+      if (clip.kind === 'slide') { e.preventDefault(); pasteSlide(clip.html); return; }
+    }
     if (!ours(e)) return;
     const clip = classifyClipboard(e.clipboardData);
     if (clip.kind === 'element' && addContent) { e.preventDefault(); addContent.paste(clip.html); return; }
     if (clip.kind === 'shape') { e.preventDefault(); pasteShape(); return; }
+    if (clip.kind === 'slide') { e.preventDefault(); pasteSlide(clip.html); return; }
     if (clip.kind === 'pictures') {
       e.preventDefault();
       const sel = editbar.selected();
@@ -195,6 +246,7 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
         const own = ownClip(await (await item.getType('text/html')).text());
         if (own?.mark === 'element' && own.html) return addContent?.paste(own.html);
         if (own?.mark === 'shape') return pasteShape();
+        if (own?.mark === 'slide' && own.html) return pasteSlide(own.html);
       }
       toast('nothing of an editor’s on the clipboard: ⌘V pastes a picture or text', 3200);
     } catch {
@@ -204,6 +256,10 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
   return {
     classify: classifyClipboard,
     copy: () => run('copy'), cut: () => run('cut'), paste: pasteFromMenu,
+    /** Copy slide `n` (Slide ▸ Copy slide): its source read already when the menu opened. */
+    copySlide: (n) => { wantSlide = n; if (!run('copy')) { wantSlide = null; toast('the browser keeps the clipboard from a menu: choose the slide in the overview and press ⌘C', 3600); } },
+    holdSlide,
+    slideReady: (n) => slideHeld?.slide === n && !!slideHeld.html,
     /** Is the selection's source read, so a copy can answer at once (a harness waits on it)? */
     ready: () => !!(held?.html && held.key === keyOf(editbar.selected())),
     destroy: () => { document.removeEventListener('paste', onPaste); document.removeEventListener('copy', onCopy); document.removeEventListener('cut', onCut); },

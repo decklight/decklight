@@ -84,6 +84,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
   assert.deepEqual([...routes.keys()].sort(), [
     'GET /deck/edit/element/source',
     'GET /deck/edit/find',
+    'GET /deck/edit/slide/source',
     'POST /deck/edit/asset',
     'POST /deck/edit/concepts',
     'POST /deck/edit/element/build',
@@ -579,6 +580,30 @@ test('POST /deck/edit/element/paste: cleaned, placed, one undo, and a picture th
   assert.equal((await call(routes, 'POST /deck/edit/element/paste', { body: { slide: 1, index: 1, html: '<script>z()</script>' } })).code, 400);
   assert.equal((await call(routes, 'POST /deck/edit/element/paste', { body: { slide: 9, html: '<p>x</p>' } })).code, 404);
   assert.equal((await call(routes, 'POST /deck/edit/element/paste', { body: { slide: 1, html: 7 } })).code, 400);
+  assert.equal(history.counts().undo, 1, 'a refusal writes nothing');
+});
+
+test('Copy slide and Paste slide: a slide\'s source as the file has it, pasted after a slide cleaned, in one undo', async (t) => {
+  const quiet = [];
+  const { routes, readDeck, history } = harness(t, DECK, { quiet: (h) => quiet.push(h) });
+  const src = await call(routes, 'GET /deck/edit/slide/source', { query: '?slide=2' });
+  assert.equal(src.code, 200);
+  assert.equal(src.body.html, '<section data-layout="centered">\n      <h2>Beta</h2>\n    </section>');
+  assert.equal((await call(routes, 'GET /deck/edit/slide/source', { query: '?slide=9' })).code, 404);
+  const pasted = '<section id="s" data-layout="split" onclick="x()"><h2>From another deck</h2><script>y()</script><aside class="notes"><p>Say this.</p></aside></section>';
+  const r = await call(routes, 'POST /deck/edit/slide', { body: { op: 'paste', slide: 1, section: pasted, quiet: true, from: 'p' } });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.slide, 2);
+  assert.equal(r.body.total, 3);
+  assert.deepEqual(r.body.dropped, ['a script', 'an onclick handler']);
+  assert.equal(r.body.inPlace, true);
+  assert.match(r.body.section, /^<section data-layout="split"><h2>From another deck<\/h2><aside class="notes"><p>Say this\.<\/p><\/aside><\/section>$/, 'its notes come with it, its id and what runs do not');
+  assert.equal(history.counts().undo, 1);
+  const order = [...readDeck().matchAll(/<h2>([^<]+)<\/h2>/g)].map((m) => m[1]);
+  assert.deepEqual(order, ['Alpha', 'From another deck', 'Beta']);
+  for (const bad of ['<div>not a slide</div>', '<section><h2>a</h2></section><section><h2>b</h2></section>', '']) {
+    assert.equal((await call(routes, 'POST /deck/edit/slide', { body: { op: 'paste', slide: 1, section: bad } })).code, 400, JSON.stringify(bad));
+  }
   assert.equal(history.counts().undo, 1, 'a refusal writes nothing');
 });
 
