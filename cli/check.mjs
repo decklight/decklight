@@ -66,8 +66,81 @@ import { runMain } from './util.mjs';
  * One finding. `slide` is null for anything outside a section (the head), and
  * `rule` is there for the `--json` reader: an agent filters on a stable name,
  * never on the wording of a message a human reads.
+ *
+ * A finding about ONE element carries its address, `at: { path, tag }`: the
+ * element-child path below the slide's `<section>` (its first step is the
+ * raw index among the section's children, the edit routes' `index`; the rest
+ * is their `path`), and the tag found there. The panel's Fix it hands it to
+ * the agent, and a row's hover outlines the element on the stage.
  */
-const finding = (level, rule, slide, title, message) => ({ level, rule, slide, title, message });
+const finding = (level, rule, slide, title, message, at = null) => ({ level, rule, slide, title, message, ...(at ? { at } : {}) });
+
+/** `n` as an ordinal: 1st, 2nd, 3rd, 11th, 22nd. */
+const ordinal = (n) => `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th')}`;
+
+/**
+ * How a finding names one element: its tag, what tells it apart from its
+ * neighbours (its class, else its id, else its data-node), then the
+ * attributes the finding is about. `<rect class="cm-grow" data-concept="full">`.
+ */
+function elementName(node, shown) {
+  const a = readAttrs(node.attrs);
+  const cls = String(a.class ?? '').trim().replace(/\s+/g, ' ');
+  const own = cls ? ['class', cls] : a.id ? ['id', a.id] : a['data-node'] && !('data-node' in shown) ? ['data-node', a['data-node']] : null;
+  const parts = [own, ...Object.entries(shown)].filter(Boolean).map(([k, v]) => `${k}="${v}"`);
+  return `<${node.tag}${parts.length ? ` ${parts.join(' ')}` : ''}>`;
+}
+
+/**
+ * Names for `nodes` that tell them apart: each one's `elementName`, and where
+ * two of them would read alike, its place among those that do
+ * (`<rect data-concept="full"> (2nd of 3)`), in document order. Two findings
+ * about two elements never read as one.
+ */
+function namesApart(nodes, shown) {
+  const named = nodes.map((n) => [n, elementName(n, shown(n))]);
+  const alike = new Map();
+  for (const [, name] of named) alike.set(name, (alike.get(name) ?? 0) + 1);
+  const seen = new Map();
+  return new Map(named.map(([n, name]) => {
+    const total = alike.get(name);
+    if (total === 1) return [n, name];
+    const i = (seen.get(name) ?? 0) + 1;
+    seen.set(name, i);
+    return [n, `${name} (${ordinal(i)} of ${total})`];
+  }));
+}
+
+/** Every node under `root` mapped to its element-child path from it, `[2, 0]`. */
+function pathsBelow(root) {
+  const out = new Map();
+  const walk = (node, path) => node.children.forEach((c, i) => {
+    const p = [...path, i];
+    out.set(c, p);
+    walk(c, p);
+  });
+  walk(root, []);
+  return out;
+}
+
+/**
+ * Findings that would read as the same row (same level, rule, slide and
+ * message) folded into one, which says how many it stands for (`count`) and
+ * carries every element's address (`ats`) when they had one.
+ */
+export function foldRepeats(findings) {
+  const out = [];
+  const byKey = new Map();
+  for (const f of findings) {
+    const key = JSON.stringify([f.level, f.rule, f.slide, f.message]);
+    const first = byKey.get(key);
+    if (!first) { byKey.set(key, f); out.push(f); continue; }
+    first.count = (first.count ?? 1) + 1;
+    if (f.at) first.ats = [...(first.ats ?? (first.at ? [first.at] : [])), f.at];
+  }
+  for (const f of out) if (f.count > 1) f.message = `${f.message} (${f.count} alike here)`;
+  return out;
+}
 
 // ── a deck as a tree, just enough of one ─────────────────────────────────────
 // Both static halves need the same two things — which element carries which
@@ -676,19 +749,23 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
     }
 
     const tree = parseTree(inner);
-    const push = (rule, message) => out.push(finding('warn', rule, slide, head, message));
+    const pathOf = pathsBelow(tree);
+    const addressOf = (node) => ({ path: pathOf.get(node), tag: node.tag });
+    const push = (rule, message, node = null) => out.push(finding('warn', rule, slide, head, message, node && addressOf(node)));
     // a slashed data-layout was how a slide named a template before 0.9.0
     if (isTemplateRef(attrs['data-layout'])) {
       push('ds-layout-attr', `data-layout="${attrs['data-layout']}" — a slide template is named by data-template now: write data-template="${attrs['data-layout']}" (data-layout is for the built-in layouts, L)`);
     }
     // a concept shape with its own fill (SVG_DIAGRAMS, #718): the concept
     // repaints the fill on every load, so the hand-set one is never seen
-    for (const node of descendants(tree)) {
-      if (!SHAPE_TAGS.has(node.tag)) continue;
+    // — each named apart from the slide's other concept shapes, quoting the fill it found
+    const conceptShapes = [...descendants(tree)].filter((n) => SHAPE_TAGS.has(n.tag) && readAttrs(n.attrs)['data-concept']);
+    const conceptNames = namesApart(conceptShapes, (n) => ({ 'data-concept': readAttrs(n.attrs)['data-concept'] }));
+    for (const node of conceptShapes) {
       const a = readAttrs(node.attrs);
-      if (!a['data-concept']) continue;
-      const own = a.fill && a.fill !== 'none' ? `fill="${a.fill}"` : /(?:^|;)\s*fill\s*:\s*(?!none\b)[^;]+/i.test(a.style ?? '') ? 'a fill in its style' : null;
-      if (own) push('concept-fill', `<${node.tag} data-concept="${a['data-concept']}"> also carries ${own} — the concept colours it, and the fill is painted over; pin the concept's slot (Concept colors…) or take the concept off (Colors… → Detach from concept)`);
+      const styled = /(?:^|;)\s*fill\s*:\s*(?!none\b)([^;]+)/i.exec(a.style ?? '');
+      const own = a.fill && a.fill !== 'none' ? `fill="${a.fill}"` : styled ? `fill: ${styled[1].trim()} in its style` : null;
+      if (own) push('concept-fill', `${conceptNames.get(node)} also carries ${own} — the concept colours it, and the fill is painted over; pin the concept's slot (Concept colors…) or take the concept off (Colors… → Detach from concept)`, node);
     }
     // a connector naming a node its svg does not have (SVG_DIAGRAMS): the
     // runtime leaves it where the file draws it, attached to nothing
@@ -696,11 +773,13 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       if (svg.tag !== 'svg') continue;
       const inside = [...descendants(svg)];
       const names = new Set(inside.map((n) => readAttrs(n.attrs)['data-node']).filter(Boolean));
-      for (const n of inside) {
-        const a = readAttrs(n.attrs);
-        for (const end of ['data-from', 'data-to']) {
-          if (a[end] === undefined || names.has(a[end])) continue;
-          push('connector-node', `<${n.tag} ${end}="${a[end]}"> names no data-node in its svg — the wire stays where the file draws it, joined to nothing: give the shape it joins data-node="${a[end]}", or take ${end} off`);
+      for (const end of ['data-from', 'data-to']) {
+        const wires = inside.filter((n) => readAttrs(n.attrs)[end] !== undefined);
+        const called = namesApart(wires, (n) => ({ [end]: readAttrs(n.attrs)[end] }));
+        for (const n of wires) {
+          const value = readAttrs(n.attrs)[end];
+          if (names.has(value)) continue;
+          push('connector-node', `${called.get(n)} names no data-node in its svg — the wire stays where the file draws it, joined to nothing: give the shape it joins data-node="${value}", or take ${end} off`, n);
         }
       }
     }
@@ -841,7 +920,7 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       `line ${h.line}: ${h.kind} on <${h.tag}> (${h.attr}) — --no-trust --strict would strip this`));
   }
 
-  return sortFindings(out);
+  return foldRepeats(sortFindings(out));
 }
 
 /** Head first, then slides in order; within a slide, the order they were found. */
