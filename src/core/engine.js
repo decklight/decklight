@@ -3693,6 +3693,13 @@ export function init(userConfig = {}) {
     inspector: () => inspector,
   });
   editmode.setPictures(pictures);
+  // Hide / Unhide this slide on the bar's Slide ▾ and the right-click
+  // Slide ▸ too, for the slide the menu was opened on: the palette's row,
+  // the same write (setHidden, HIDDEN_SLIDES)
+  editmode.setSlideRows((slide) => {
+    const hidden = !!instance._sections?.[slide - 1]?.hasAttribute('data-hidden');
+    return [{ label: `${hidden ? 'Unhide' : 'Hide'} this slide`, run: () => setHidden(slide, !hidden) }];
+  });
   instance._pictures = pictures;
   // A diagram's shapes moved, resized, added and duplicated (shapes.js): over
   // the selection the bar makes, through the element menu's rows

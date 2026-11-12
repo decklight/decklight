@@ -2590,6 +2590,8 @@ export function createEditMode({
       rows.push({ label: 'Move slide up', run: () => { closeElementMenu(); slideOp('up'); } });
       rows.push({ label: 'Move slide down', run: () => { closeElementMenu(); slideOp('down'); } });
       rows.push({ label: 'Delete this slide', run: () => { closeElementMenu(); slideOp('delete'); } });
+      // the engine's own rows for the slide: Hide / Unhide (HIDDEN_SLIDES), the palette's row
+      for (const p of slideRowsOf?.(menuTarget.slide) ?? []) rows.push({ label: p.label, run: () => { closeElementMenu(); p.run(); } });
       for (const p of pictures?.slideRows(menuTarget.slide) ?? []) rows.push({ label: p.label, run: () => { closeElementMenu(); p.run(); } });
     } else if (menuView === 'newslide') {
       // a new slide of a kind (PRESENTING_EDITING): a short choice, its title
@@ -2932,6 +2934,7 @@ export function createEditMode({
   let openInEditor = null;  // a slide or an element at its line in the author's editor (open-in-editor.js), handed in by the engine
   let tableRows = null;   // the table menu's rows for a right-clicked cell (list-session.js), handed in by authoring.js
   let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
+  let slideRowsOf = null; // the engine's rows for Slide ▸ / Slide ▾, for slide N: Hide this slide (HIDDEN_SLIDES)
   let shapes = null;      // a diagram's shapes moved, added, duplicated (shapes.js), handed in by the engine
   let addContent = null;  // Add and Duplicate in place (add-content.js), handed in by the engine
   let editConcepts = null;   // the engine's door to Concept colors… (`fn(name)`), for the Concept ▸ submenu
@@ -4603,6 +4606,7 @@ export function createEditMode({
     setTableRows: (fn) => { tableRows = fn; },
     /** The engine's picture tools (pictures.js): the element menu's picture rows and Slide ▸'s background rows. */
     setPictures: (p) => { pictures = p; },
+    setSlideRows: (fn) => { slideRowsOf = fn; },
     /** The engine's diagram shapes (shapes.js): a shape's Duplicate, Shape ▸ and a wire's Wire ▸. */
     setShapes: (x) => { shapes = x; },
     /** Add and Duplicate in place (add-content.js): the menu's Duplicate and ⌘D on anything but a diagram's shape. */
