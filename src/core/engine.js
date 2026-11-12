@@ -1777,7 +1777,11 @@ export function init(userConfig = {}) {
   // a slide's settings changed on another page's Slide tab (slide-settings.js):
   // the same attributes put on its section here, the inspector following
   root.addEventListener('decklight:slide-attrs', (e) => {
-    for (const ed of e.detail?.edits ?? []) applySlideAttrs(instance._sections?.[ed?.slide - 1], ed?.set);
+    for (const ed of e.detail?.edits ?? []) {
+      const sec = instance._sections?.[ed?.slide - 1];
+      applySlideAttrs(sec, ed?.set);
+      if (sec && Object.keys(ed?.set ?? {}).some((k) => k.startsWith('data-background-'))) refreshSlide(sec, { background: true, scan: false, relayout: false });
+    }
     inspector?.refresh?.();
   });
   // ----- one slide brought up to date in place (PRESENTING_EDITING) ---------
@@ -3739,8 +3743,8 @@ export function init(userConfig = {}) {
   // render harnesses reach it here, as they reach pictures and shapes
   instance._inspector = inspector;
   // the Slide tab, beside Info with nothing selected (PRESENTING_EDITING):
-  // the slide's chapter, transition, hidden and planned time, set in place
-  inspector.addTab(createSlideSettings({ instance: () => instance, editmode: () => editmode, toast, setHidden }).tab, { after: 'info' });
+  // the slide's chapter, transition, hidden, planned time and background, set in place
+  inspector.addTab(createSlideSettings({ instance: () => instance, editmode: () => editmode, toast, setHidden, pictures: () => pictures }).tab, { after: 'info' });
   // the content editor's way back to the inspector (its HTML tab's other end)
   editmode.setInspectorOpener?.(() => inspector?.open());
   // Check deck… (palette, SPEC PRESENTING): the open deck's own lint, slide by
