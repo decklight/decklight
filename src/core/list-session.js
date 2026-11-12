@@ -26,6 +26,7 @@ import {
 } from './list-edit.js';
 import { slideClickMatch } from './narration.js';
 import { clickMismatchText } from '../../tools/click-match.mjs';
+import { placeUnordered, orderGroups } from './buildlist.js';
 
 const isList = (n) => n?.nodeType === 1 && (n.tagName === 'UL' || n.tagName === 'OL');
 const isCell = (n) => n?.nodeType === 1 && (n.tagName === 'TD' || n.tagName === 'TH');
@@ -167,6 +168,33 @@ export function createListSessions(ctx) {
     const now = clicksOf(slide);
     if (now && !sameClicks(now, before)) toast(`${said}. Slide ${slide}: ${clickMismatchText(now)}`, 7000);
     else toast(said, 1200);
+  }
+
+  /**
+   * A point added to a list on a slide whose build order was written (the
+   * Builds tab's drag) has no key, and would play by its place among the
+   * others' keys. Given one right after the point before it (placeUnordered),
+   * every other step keeping its click, and written as the order is (one more
+   * write, build-edit.js). A slide with no written order is left alone.
+   */
+  function placeNewPoints(slide) {
+    const rec = instance._records?.[slide - 1];
+    const sec = instance._sections?.[slide - 1];
+    const edit = editmode.buildEdit?.();
+    if (!rec || !sec || !edit?.order) return;
+    const has = (el) => !!el?.hasAttribute?.('data-build-order');
+    if (!rec.steps.some((st) => has(st.el))) return;
+    const stepOf = (el) => (el ? rec.steps.findIndex((st) => st.el === el) : -1);
+    const steps = rec.steps.map((st) => {
+      const el = st.el;
+      const after = el?.tagName === 'LI' ? stepOf(el.previousElementSibling) : -1;
+      const before = el?.tagName === 'LI' ? stepOf(el.nextElementSibling) : -1;
+      return { ordered: has(el), after: after >= 0 ? after : null, before: before >= 0 ? before : null };
+    });
+    const groups = placeUnordered(rec.groups, steps);
+    if (!groups) return;
+    const nodes = rec.steps.map((st) => ({ node: st.el, count: st.kind === 'provider' ? st.provider?.count ?? 1 : 1 }));
+    edit.order(sec, orderGroups(groups, nodes), 'the new point plays right after the one before it');
   }
 
   // ── a list session ───────────────────────────────────────────────────────
@@ -386,6 +414,7 @@ export function createListSessions(ctx) {
       ctx.unstrand(s.root);
       ctx.announce(cur.slide, s.root);
       afterWrite(cur.slide, cur.el, s.before, 'saved');
+      placeNewPoints(cur.slide);
     } catch (e) {
       ctx.strand(cur, s.root);
       toast(ctx.notSaved('the list', e), 7000);

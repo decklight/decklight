@@ -4750,6 +4750,8 @@ export function createEditMode({
     /** Moving things within a slide (element-move.js): the menu's Move rows; and the bar's keys and drag ask for it here. */
     setElementMove: (m) => { elementMove = m; },
     setBuildEdit: (b) => { buildEdit = b; },
+    /** A node's build settings and the slide's order, changed in place (build-edit.js); null before the engine hands it in. */
+    buildEdit: () => buildEdit,
     /** Several selected (several.js): its actions, and everything selected now (the primary first). */
     setSeveral: (actions, all) => { several = actions; selectionOf = all; },
     several: () => several,

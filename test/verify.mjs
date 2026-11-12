@@ -212,6 +212,7 @@ const ENGINE_GROUPS = {
     'tablekeys',
     'tablemenu',
     'listmove',
+    'neworderpoint',
     'buildsettings',
     'buildorder',
     'drawstages',

@@ -35,7 +35,7 @@ export const MODES = [
   'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'pasteclean', 'editbar', 'codeedit', 'mathedit', 'editor', 'notessave', 'notesinplace', 'notesbuilds', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'heldreload', 'savefail', 'slideinplace', 'outsideedit', 'esckeeps', 'pinch', 'debugreload', 'lockmode', 'clipbadge', 'notrustmode', 'editingtour', 'editingtourwelcome', 'welcomekeys',
   'bgindex',
   'addmenu', 'addcolumn', 'addpaste', 'turninto', 'blockresize', 'elementpaste', 'addslidekinds',
-  'listkeys', 'listplain', 'tablekeys', 'tablemenu', 'listmove', 'buildsettings', 'buildorder', 'multiselect', 'drawstages', 'buildpanel', 'buildselect', 'buildreselect',
+  'listkeys', 'listplain', 'tablekeys', 'tablemenu', 'listmove', 'neworderpoint', 'buildsettings', 'buildorder', 'multiselect', 'drawstages', 'buildpanel', 'buildselect', 'buildreselect',
   'linedraw', 'dasheddraw', 'drawfill', 'nestedfills', 'rolefills', 'dstemplates', 'dsedit', 'concepts', 'conceptsfind',
   'movemenu', 'movekeys', 'movedrag', 'moveinplace', 'movereselect', 'moveatdepth',
   'links',

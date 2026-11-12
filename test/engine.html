@@ -163,6 +163,8 @@
     LK.buildreselect = LK.buildselect;
     LK.buildsettings = LK.buildpanel;
     LK.buildorder = LK.buildpanel;
+    // neworderpoint: a list whose build order was written (Two plays first), a point to be added after One
+    LK.neworderpoint = '<ul data-build>\n  <li data-build-order="2">One</li>\n  <li data-build-order="1">Two</li>\n</ul>';
     // multiselect (PRESENTING_EDITING, selecting several): four paragraphs under a title
     LK.multiselect = '<p class="ms-a">Alpha</p>\n<p class="ms-b">Beta</p>\n<p class="ms-c">Gamma</p>\n<p class="ms-d">Delta</p>';
     // drawstages: a diagram that draws, its long stroke drawn at once, the short one already in two stages
@@ -8451,7 +8453,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
-      if (mode === 'listkeys' || mode === 'listplain' || mode === 'tablekeys' || mode === 'tablemenu' || mode === 'listmove') {
+      if (mode === 'listkeys' || mode === 'listplain' || mode === 'tablekeys' || mode === 'tablemenu' || mode === 'listmove' || mode === 'neworderpoint') {
         await settle();
         deck.goto(3, mode === 'listkeys' ? 2 : mode === 'listmove' ? 3 : 0);
         await settle();
@@ -8470,6 +8472,29 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/content'));
         const hint = () => document.querySelector('.dl-edit-hint')?.textContent ?? null;
         const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+        if (mode === 'neworderpoint') {
+          // a point added to a list whose order was written gets its place in
+          // the order: right after the point before it, every other step where it was
+          const ul = sec.querySelector('ul');
+          const [one] = ul.querySelectorAll('li');
+          dbl(one); await settle(); await settle();
+          caretEnd(one);
+          key('Enter'); await settle();
+          type('New');
+          key('Enter', { metaKey: true, ctrlKey: true }); await settle(); await settle(); await settle();
+          const orders = CALLS.post.filter((q) => q.u.includes('/deck/edit/slide/builds'));
+          const fresh = [...ul.querySelectorAll('li')].find((li) => li.textContent === 'New');
+          r.contentSaved = writes().length === 1;
+          r.orderWrittenOnce = orders.length === 1 && orders[0].body.quiet === true;
+          // the list is One, New, Two on the slide; it plays Two, One, New: the new point right after One, the others where the author put them
+          r.placedAfterThePointBefore = JSON.stringify(orders[0]?.body.groups) === JSON.stringify([[{ index: 1, path: [2], tag: 'li' }], [{ index: 1, path: [0], tag: 'li' }], [{ index: 1, path: [1], tag: 'li' }]]);
+          r.thePageHasItsKey = fresh?.getAttribute('data-build-order') === '3' && ul.children[2].getAttribute('data-build-order') === '1' && ul.children[0].getAttribute('data-build-order') === '2';
+          const rec = deck._records[2];
+          r.playsAfterOne = rec?.groups.length === 3 && rec.steps[rec.groups[2][0]]?.el === fresh;
+          r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
         if (mode === 'listmove') {
           // Control-Shift-↑ / ↓ moves the point being typed in among its own
           // list's points, its sublist with it, in the same session: one write
