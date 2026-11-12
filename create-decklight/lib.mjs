@@ -17,9 +17,15 @@ export function titleFromDir(dir) {
   return words.map((w) => (/^[a-z][a-z0-9]*$/.test(w) ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
 }
 
+/**
+ * init's flags that take the next word as their value (`--starter full`): that
+ * word is the flag's, never the directory, wherever the flag sits on the line.
+ */
+export const VALUE_FLAGS = ['-o', '--dir', '--themes', '--remote', '--design-system', '--starter'];
+
 export function initArgs(argv = []) {
   const rest = argv.filter((a) => a !== '--');
-  const i = rest.findIndex((a) => !a.startsWith('-'));
+  const i = rest.findIndex((a, j) => !a.startsWith('-') && !VALUE_FLAGS.includes(rest[j - 1]));
   if (i === -1) return ['init', ...rest];
   const dir = rest[i];
   const others = rest.filter((_, j) => j !== i);
