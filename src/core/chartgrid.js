@@ -20,6 +20,7 @@
 import {
   chartGrid, cellNumber, setCell, setLabel, setSeriesName, addRow, removeRow, moveRow,
   addSeries, removeSeries, setType, setTitle, findChart, rewriteChart, GRID_TYPES,
+  ASPECTS, aspectOf, setAspect, legendOf, setLegend,
 } from './chartdata.js';
 import { renderChart } from './charts.js';
 import { boundedFetch } from './devmode.js';
@@ -61,7 +62,9 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
   const canWrite = () => !!em?.available?.() && em?.base?.() != null;
   let readOnly = !canWrite();
   let json = null;
-  let attrs = { type: null, title: null };
+  let attrs = { type: null, title: null, aspect: null };
+  // the attributes the tab writes, and the key of `attrs` each one is
+  const ATTR_KEYS = { 'data-chart': 'type', 'data-title': 'title', 'data-aspect': 'aspect' };
   let grid = null;
   let problem = null;          // why the grid cannot show this chart, or null
   let loading = !readOnly;
@@ -80,7 +83,7 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
 
   function fromLive() {
     json = live()?.textContent ?? '';
-    attrs = { type: chart.getAttribute('data-chart'), title: chart.getAttribute('data-title') };
+    attrs = { type: chart.getAttribute('data-chart'), title: chart.getAttribute('data-title'), aspect: chart.getAttribute('data-aspect') };
   }
   async function load() {
     if (readOnly) { fromLive(); settleGrid(); paint(); return; }
@@ -92,7 +95,7 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
       if (!c) throw new Error('the chart is not in the file where the page has it');
       if (!c.json) { problem = 'it has no JSON of its own in the file'; json = ''; }
       else json = j.html.slice(c.json.start, c.json.end);
-      attrs = { type: c.type, title: c.title };
+      attrs = { type: c.type, title: c.title, aspect: c.aspect };
     } catch (e) {
       // the grid still shows what the slide has; it writes nothing it could not read
       fromLive();
@@ -120,8 +123,7 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     json = next;
     for (const [name, v] of changedAttrs) {
       touched.add(name);
-      if (name === 'data-chart') attrs.type = v;
-      if (name === 'data-title') attrs.title = v;
+      if (ATTR_KEYS[name]) attrs[ATTR_KEYS[name]] = v;
       if (v == null) chart.removeAttribute(name); else chart.setAttribute(name, v);
     }
     const s = live();
@@ -142,7 +144,7 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     clearTimeout(timer);
     if (!dirty || readOnly) return queue;
     dirty = false;
-    const want = { json, attrs: Object.fromEntries([...touched].map((n) => [n, n === 'data-chart' ? attrs.type : attrs.title])) };
+    const want = { json, attrs: Object.fromEntries([...touched].map((n) => [n, attrs[ATTR_KEYS[n]]])) };
     saving++;
     status();
     const p = queue.then(() => send(want)).then(() => { failed = null; }, (e) => {
@@ -264,6 +266,37 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     });
     titleRow.append(title);
     el.append(titleRow);
+
+    // its shape and its legend: a choice each, written as one change
+    const choices = (key, label, options, now, pickIt) => {
+      const row = h('div', 'dg-field');
+      row.append(h('span', 'dg-key', label));
+      const box = h('div', 'dg-seg');
+      box.setAttribute('role', 'radiogroup');
+      box.setAttribute('aria-label', `chart ${label.toLowerCase()}`);
+      box.dataset.key = key;
+      for (const [value, name] of options) {
+        const b = h('button', 'dg-seg-btn', name);
+        b.type = 'button';
+        b.dataset.value = value;
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(now === value));
+        b.disabled = readOnly;
+        b.addEventListener('click', (e) => { e.stopPropagation(); if (now !== value) act((src) => pickIt(src, value)); });
+        box.append(b);
+      }
+      row.append(box);
+      return row;
+    };
+    const shape = aspectOf(json, attrs);
+    const shapeRow = choices('aspect', 'Shape', ASPECTS, shape.aspect, (src, v) => {
+      const r = setAspect(src, attrs, v);
+      return { json: r.json, set: { 'data-aspect': r.attr } };
+    });
+    // a shape of its own (5:2) is said as written, none of the four ticked
+    if (shape.aspect === null) shapeRow.append(h('span', 'dg-note dg-own', `its own: ${shape.written}`));
+    el.append(shapeRow);
+    el.append(choices('legend', 'Legend', [['auto', 'auto'], ['on', 'on'], ['off', 'off']], legendOf(json), (src, v) => setLegend(src, v)));
 
     // the grid
     const scroll = h('div', 'dg-scroll');

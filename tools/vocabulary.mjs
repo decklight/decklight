@@ -137,7 +137,7 @@ export const ENGINE_ATTRIBUTES = [
   'data-poster', 'data-rate', 'data-redo', 'data-redo-beat', 'data-ref', 'data-roles', 'data-row', 'data-rule',
   'data-scope', 'data-series', 'data-sig', 'data-slide', 'data-slide-index', 'data-split-conflict', 'data-state',
   'data-tab', 'data-tag', 'data-takes', 'data-theme-added', 'data-theme-marketplace', 'data-theme-source',
-  'data-token', 'data-tone', 'data-type', 'data-type-wpm', 'data-version', 'data-view', 'data-viseme', 'data-was',
+  'data-token', 'data-tone', 'data-type', 'data-type-wpm', 'data-value', 'data-version', 'data-view', 'data-viseme', 'data-was',
 ];
 
 /**

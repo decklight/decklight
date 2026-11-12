@@ -11078,6 +11078,21 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && q('.dg-seg-btn[aria-checked="true"]')?.dataset.type === 'line';
         r.unknownKeyKept = posts()[4]?.body.html.includes('"x-from": "grafana"');
 
+        // its shape and its legend (CHARTS): drawn at once, written as data-aspect and "legend"
+        const seg = (key, v) => q(`.dg-seg[data-key="${key}"] .dg-seg-btn[data-value="${v}"]`);
+        r.shapeAndLegendShown = seg('aspect', '16:9')?.getAttribute('aria-checked') === 'true' && seg('legend', 'auto')?.getAttribute('aria-checked') === 'true';
+        seg('aspect', '1:1').click();
+        await settle();
+        const want6 = want5.replace('data-chart="line"', 'data-chart="line" data-aspect="1:1"');
+        r.shapePosted = posts().length === 6 && posts()[5].body.html === want6;
+        r.shapeDrawn = chart().getAttribute('data-aspect') === '1:1' && svgOf().getAttribute('viewBox') === '0 0 640 640'
+          && seg('aspect', '1:1')?.getAttribute('aria-checked') === 'true';
+        const legends = svgOf().querySelectorAll('.chart-legend').length;
+        seg('legend', 'off').click();
+        await settle();
+        r.legendPosted = posts().length === 7 && /"x-from": "grafana",\s*"legend": false/.test(posts()[6].body.html);
+        r.legendDrawn = legends > 0 && svgOf().querySelectorAll('.chart-legend').length === 0 && seg('legend', 'off')?.getAttribute('aria-checked') === 'true';
+
         // locked: the selection lets go, the picker still inspects, and the grid only reads, saying why
         window.__es.emit('lock', { locked: true });
         await settle();
@@ -11105,7 +11120,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.PASS = r.chartSelected && r.dataTabBesideTheOthers && r.readFromTheFile && r.gridShown && r.redrawnAtOnce && r.buildKeptOnTheRedraw
           && r.notPostedWhileTyping && r.oneBurstOnePost && r.postedExactly && r.badMarked && r.escPutsTheCellBack && r.badNotWritten
           && r.enterAndTabWalk && r.addRowPosted && r.addRowDrawn && r.addSeriesPosted && r.addSeriesDrawn && r.renamePosted
-          && r.pieTakesOneSeries && r.typePosted && r.typeDrawn && r.unknownKeyKept && r.lockedReadsOnly && r.scatterIsANote
+          && r.pieTakesOneSeries && r.typePosted && r.typeDrawn && r.unknownKeyKept
+          && r.shapeAndLegendShown && r.shapePosted && r.shapeDrawn && r.legendPosted && r.legendDrawn
+          && r.lockedReadsOnly && r.scatterIsANote
           && r.scatterOpensTheHtmlEditor;
       }
 
