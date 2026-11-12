@@ -248,7 +248,17 @@ export function createReview({
     incomingNow = state.incoming?.reviews ?? [];
 
     const head = el_('div', 'narr-head');
-    head.append(el_('span', 'rv-heading', 'comments'));
+    // how many are still asking something: yours, and what reviewers sent
+    const mine = foldReview(state.records);
+    const sent = (state.incoming?.reviews ?? []).flatMap((v) => {
+      const doneIds = new Set(v.doneIds ?? []);
+      return foldReview(v.records ?? []).filter((c) => !c.resolved).map((c) => doneIds.has(c.id));
+    });
+    const openN = mine.filter((c) => !c.resolved).length + sent.filter((d) => !d).length;
+    const doneN = mine.length + sent.length - openN;
+    head.append(el_('span', 'rv-heading dk-title', mine.length + sent.length
+      ? `${openN} open${doneN ? ` · ${doneN} done` : ''}`
+      : 'none yet'));
     head.append(dock.controls(close));
     dock.wireHeader(head);
     card.append(head);
@@ -349,13 +359,13 @@ export function createReview({
       card.append(row);
     }
 
-    card.append(el_('div', 'rec-hint', state.can === 'resolve'
+    card.append(dock.foot(state.can === 'resolve'
       ? (incomingNow.length
         ? '⏎ jumps · R marks one done, again reopens it · D hides done · A moves here · ⌫ deletes yours · ⇧M writes · Esc closes'
         : '⏎ jumps (on a gone slide: shows what it said) · R marks one done, again reopens it · D hides done · A moves here · ⌫ deletes yours · ⇧M writes · Esc closes')
       : state.can === 'comment'
         ? '⏎ jumps to the slide · ⇧M writes · ⌫ deletes yours · S submits the review · Esc closes'
-        : '⏎ jumps to the slide · Esc closes'));
+        : '⏎ jumps to the slide · Esc closes', 'rec-hint'));
     // Last, so it is the card's foot — where the sticky pin holds it while the
     // list scrolls above.
     if (writable) {

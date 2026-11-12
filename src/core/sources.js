@@ -111,7 +111,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
     const head = document.createElement('div');
     head.className = 'narr-head';
     head.append(Object.assign(document.createElement('span'), {
-      className: 'src-heading', textContent: text,
+      className: 'src-heading dk-title', textContent: text,
     }));
     head.append(dock.controls(close));
     dock.wireHeader(head);
@@ -148,7 +148,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
   function renderEdit() {
     const card = el.querySelector('.narr-card');
     card.textContent = '';
-    card.append(header(`sources — slide ${slideOf()}`));
+    card.append(header(`slide ${slideOf()}`));
 
     const group = (text) => {
       const g = document.createElement('div');
@@ -181,10 +181,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
     });
     card.append(adder('+ a link', () => { draft.links.push({ title: '', href: '', note: '' }); renderEdit(); }));
 
-    const foot = document.createElement('div');
-    foot.className = 'narr-head';
-    foot.textContent = '⏎ saves · esc closes, keeping what you typed';
-    card.append(foot);
+    card.append(dock.foot('⏎ saves · Esc closes, keeping what you typed', 'src-foot'));
     // the first empty field, so adding a row puts the caret in it
     card.querySelector('.src-field[value=""], .src-field:placeholder-shown')?.focus();
   }

@@ -415,7 +415,7 @@ export function createInspector({
     const head = document.createElement('div');
     head.className = 'narr-head ins-head';
     const title = document.createElement('span');
-    title.className = 'ins-title';
+    title.className = 'ins-title dk-title';
     const n = slideNo();
     const sec = sectionAt(n);
     // the number quiet, the slide's name bright, the name the one that gives way to an ellipsis
@@ -458,7 +458,7 @@ export function createInspector({
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.className = 'dk-btn ins-copy';
-    copy.textContent = '⧉';
+    copy.innerHTML = COPY_ICON;
     copy.title = 'copy these facts';
     copy.setAttribute('aria-label', 'copy');
     copy.addEventListener('click', () => copyText(lastText));
@@ -674,10 +674,7 @@ export function createInspector({
     }
     if (target && tab !== 'info') {
       card.append(editorPane());
-      const hint = document.createElement('div');
-      hint.className = 'narr-head ins-foot';
-      hint.textContent = 'esc lets go of it';
-      card.append(hint);
+      card.append(dock.foot('esc lets go of it', 'ins-foot'));
       return;
     }
     const rows = target ? elementRows() : slideRows();
@@ -716,13 +713,10 @@ export function createInspector({
     const where = target ? `slide ${n}, ${crumbs().map(crumbLabel).join(' › ')}` : `slide ${n}`;
     lastText = [where, ...text].join('\n');
 
-    const foot = document.createElement('div');
-    foot.className = 'narr-head ins-foot';
-    foot.textContent = [
+    card.append(dock.foot([
       !target && editmode()?.available?.() && 'e edits sources',
       target ? 'esc lets go of it' : 'esc closes',
-    ].filter(Boolean).join(' · ');
-    card.append(foot);
+    ].filter(Boolean).join(' · '), 'ins-foot'));
     if (!target) fetchAsync(n);
   }
 
@@ -856,6 +850,8 @@ export function createInspector({
 
   overlays.register({ isOpen, close, keydown, modal: false, panel: true });
 
+  // the copy button's icon: two sheets, in the frame's stroke (dock.js)
+  const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="5.65" y="5.65" width="8.7" height="8.7" rx="1.6"/><path d="M10.4 3.4V3A1.4 1.4 0 0 0 9 1.6H3A1.4 1.4 0 0 0 1.6 3v6A1.4 1.4 0 0 0 3 10.4h.4"/></svg>';
   // the picker's icon: DevTools' own, a dashed box with an arrow into its corner
   const PICK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">'
     + '<path d="M6.5 13.5h-4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v4" stroke-dasharray="2 1.6"/>'

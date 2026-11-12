@@ -29,10 +29,34 @@
 
 import { readJson, writeJson } from './prefs.js';
 
-const GLYPH = { float: '❏', left: '◧', right: '◨', bottom: '⬓', window: '⧉' };
+// The placements, drawn: a frame, and where in it the panel sits. One stroke
+// weight and one box for all five, where the glyphs they replace (❏ ◧ ◨ ⬓ ⧉)
+// came from five corners of a font and sat at five sizes.
+const svg = (inner) => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">${inner}</svg>`;
+const FRAME = '<rect x="1.65" y="2.65" width="12.7" height="10.7" rx="2"/>';
+const ICON = {
+  float: svg(`${FRAME}<rect x="7.5" y="5" width="4.6" height="3.8" rx=".8" fill="currentColor" stroke="none"/>`),
+  left: svg(`${FRAME}<path d="M2 4.6a1.6 1.6 0 0 1 1.6-1.6H6v10H3.6A1.6 1.6 0 0 1 2 11.4z" fill="currentColor" stroke="none"/>`),
+  right: svg(`${FRAME}<path d="M14 4.6A1.6 1.6 0 0 0 12.4 3H10v10h2.4a1.6 1.6 0 0 0 1.6-1.6z" fill="currentColor" stroke="none"/>`),
+  bottom: svg(`${FRAME}<path d="M2 9.5h12v1.9a1.6 1.6 0 0 1-1.6 1.6H3.6A1.6 1.6 0 0 1 2 11.4z" fill="currentColor" stroke="none"/>`),
+  window: svg('<rect x="1.65" y="5.65" width="8.7" height="7.7" rx="1.6"/><path d="M5.6 3.4V3a1.4 1.4 0 0 1 1.4-1.4H13A1.4 1.4 0 0 1 14.4 3v5a1.4 1.4 0 0 1-1.4 1.4h-.4"/>'),
+  close: svg('<path d="M4 4l8 8M12 4l-8 8" stroke-width="1.5" stroke-linecap="round"/>'),
+};
+const LABEL = { float: 'Float', left: 'Left', right: 'Right', bottom: 'Bottom', window: 'Window' };
 const MODES = ['float', 'left', 'right', 'bottom'];
+// The tabs in the order of the work, whichever panel was built first: write
+// the notes, look at the slide, check the deck, read what was said about it,
+// cite it, ask for help.
+const TAB_ORDER = ['Notes', 'Inspector', 'Check', 'Comments', 'Sources', 'Agent'];
+// what starts a hint and is a key: a chord (⌘⏎, ⇧M, Ctrl+Enter, Ctrl+⇧Enter),
+// a named key (Esc, ⏎, ⌫), or one letter (R, e; not the word "a")
+const MOD = '(?:Ctrl\\+|Alt\\+|Shift\\+|[⌘⇧⌥⌃])';
+const NAMED = '(?:Esc|esc|Enter|Tab|Space|[⏎↵⌫⇥]|↑\\/↓|←\\/→)';
+const KEY_RE = new RegExp(`^(${MOD}+(?:${NAMED}|[A-Za-z])|${NAMED}|[A-Zb-z])(?= |$)`);
+const tabRank = (name) => { const i = TAB_ORDER.indexOf(name); return i < 0 ? TAB_ORDER.length : i; };
 const SIDES = ['left', 'right', 'bottom'];
 const DEFAULT_MODE = 'right';   // where every panel opens until one is moved
+const MIN_W = 320, MIN_H = 160;  // the least a docked panel is dragged to: its six tabs on one line, a few rows
 
 // Every docked panel on a root CLAIMS its side, and the root's gutter on each
 // side is the widest claim there. Each panel used to write all three --dock-*
@@ -204,11 +228,17 @@ export function createDock({
   // is kept for a caller that still names one, and no longer read.
   void defaultMode;
   const key = 'decklight-panel-dock:' + (typeof location !== 'undefined' ? location.pathname : '');
-  const dock = { mode: DEFAULT_MODE, x: null, y: null };
+  // `w` and `h`: the docked panel's size once it has been dragged (px; a side
+  // panel's width, the bottom tray's height). Null is the size it opens at.
+  const dock = { mode: DEFAULT_MODE, x: null, y: null, w: null, h: null };
+  const size = (v) => (Number.isFinite(v) && v > 0 ? v : null);
   const load = () => {
     // first run, or storage denied — either way the default placement is fine
     const s = readJson(key);
-    if (s?.mode) { dock.mode = s.mode; dock.x = s.x ?? null; dock.y = s.y ?? null; }
+    if (s?.mode) {
+      dock.mode = s.mode; dock.x = s.x ?? null; dock.y = s.y ?? null;
+      dock.w = size(s.w); dock.h = size(s.h);
+    }
   };
   load();
   const persist = () => writeJson(key, dock);
@@ -221,10 +251,120 @@ export function createDock({
   // The gutter a docked panel reserves, in px — the same figure drives the
   // panel's own width/height (CSS var) and the stage's inset (root var), so the
   // slide reflows into exactly what is left. Viewport-relative, re-read on resize.
-  const gutter = () => ({
-    w: Math.min(360, Math.round(root.clientWidth * 0.32)),
-    h: Math.min(320, Math.round(root.clientHeight * 0.40)),
-  });
+  // The size it opens at, and how far a drag of its edge can take it: never
+  // narrower than its own header needs, never so wide the slide beside it is
+  // a thumbnail. A remembered size is clamped again on every read, so one
+  // set in a wide window is still a panel AND a slide in a narrow one.
+  const limits = () => {
+    const W = root.clientWidth, H = root.clientHeight;
+    return {
+      w: { open: Math.min(360, Math.round(W * 0.32)), min: Math.min(MIN_W, Math.round(W * 0.32)), max: Math.max(MIN_W, Math.round(Math.min(W * 0.7, W - 320))) },
+      h: { open: Math.min(320, Math.round(H * 0.40)), min: Math.min(MIN_H, Math.round(H * 0.40)), max: Math.max(MIN_H, Math.round(Math.min(H * 0.7, H - 200))) },
+    };
+  };
+  const clamp = (v, l) => Math.round(Math.min(Math.max(v, l.min), Math.max(l.min, l.max)));
+  const gutter = () => {
+    const l = limits();
+    return {
+      w: dock.w == null ? l.w.open : clamp(dock.w, l.w),
+      h: dock.h == null ? l.h.open : clamp(dock.h, l.h),
+    };
+  };
+
+  /**
+   * The docked panel's inner edge, to drag: a side panel wider or narrower, the
+   * bottom tray taller or shorter, the slide refitting beside it as it goes.
+   * A double-click puts the size it opens at back; the arrows move it from
+   * the keyboard. One size per deck, like the placement, for every panel.
+   *
+   * It lives on the panel's frame, beside the card: a card redraws itself by
+   * emptying itself, and would take a handle inside it along.
+   */
+  function resizer(el) {
+    let h = el.querySelector(':scope > .dk-resize');
+    if (h) return h;
+    // made in the frame's own document; a frame without one has no edge to drag
+    const doc = el.ownerDocument;
+    if (!doc || !el.append) return null;
+    h = doc.createElement('div');
+    h.className = 'dk-resize';
+    h.setAttribute('role', 'separator');
+    h.setAttribute('aria-label', 'resize the panel');
+    h.title = 'drag to resize · double-click for the usual size';
+    h.tabIndex = 0;
+    const axis = () => (dock.mode === 'bottom' ? 'h' : 'w');
+    const set = (px) => {
+      const a = axis();
+      dock[a] = px == null ? null : clamp(px, limits()[a]);
+      applySize();
+    };
+    const move = (e) => {
+      const R = root.getBoundingClientRect();
+      set(dock.mode === 'bottom' ? R.bottom - e.clientY : dock.mode === 'left' ? e.clientX - R.left : R.right - e.clientX);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      root.classList.remove('dk-resizing');
+      h.classList.remove('dk-dragging');
+      persist();
+    };
+    h.addEventListener('pointerdown', (e) => {
+      if (!SIDES.includes(dock.mode) || popoutOf(root) || (e.button != null && e.button !== 0)) return;
+      e.preventDefault(); e.stopPropagation();
+      try { h.setPointerCapture?.(e.pointerId); } catch { /* a synthetic event */ }
+      root.classList.add('dk-resizing');
+      h.classList.add('dk-dragging');
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+    h.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); set(null); persist(); });
+    // from the keyboard: an arrow towards the slide grows the panel, Home and
+    // End are its limits. Stopped here, or the same arrow would turn the slide.
+    h.addEventListener('keydown', (e) => {
+      if (!SIDES.includes(dock.mode)) return;
+      const a = axis(), l = limits()[a], now = gutter()[a];
+      const grow = dock.mode === 'bottom' ? 'ArrowUp' : dock.mode === 'left' ? 'ArrowRight' : 'ArrowLeft';
+      const shrink = dock.mode === 'bottom' ? 'ArrowDown' : dock.mode === 'left' ? 'ArrowLeft' : 'ArrowRight';
+      const step = e.shiftKey ? 64 : 16;
+      let to = null;
+      if (e.key === grow) to = now + step;
+      else if (e.key === shrink) to = now - step;
+      else if (e.key === 'Home') to = l.min;
+      else if (e.key === 'End') to = l.max;
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); set(null); persist(); return; }
+      else return;
+      e.preventDefault(); e.stopPropagation();
+      set(to); persist();
+    });
+    el.append(h);
+    return h;
+  }
+
+  /** The gutter and the card at the size `dock` holds now: what a drag of the edge calls on every frame. */
+  function applySize() {
+    const el = getEl();
+    if (!el || popoutOf(root)) return;
+    const side = SIDES.includes(dock.mode) ? dock.mode : null;
+    const g = gutter();
+    const px = dock.mode === 'bottom' ? g.h : g.w;
+    claim(root, token, side, px);
+    el.style.setProperty('--dock-size', px + 'px');
+    describeResizer(el, px);
+    reflow?.();
+  }
+  /** What the edge is to a screen reader: a separator, which way it moves, where it is between its limits. */
+  function describeResizer(el, px) {
+    const h = el.querySelector(':scope > .dk-resize');
+    if (!h || !SIDES.includes(dock.mode)) return;
+    const l = limits()[dock.mode === 'bottom' ? 'h' : 'w'];
+    h.setAttribute('aria-orientation', dock.mode === 'bottom' ? 'horizontal' : 'vertical');
+    h.setAttribute('aria-valuenow', String(px));
+    h.setAttribute('aria-valuemin', String(l.min));
+    h.setAttribute('aria-valuemax', String(Math.max(l.min, l.max)));
+  }
 
   /** Reserve the stage gutter for the current mode (or clear it for float). */
   function reserveGutter() {
@@ -248,10 +388,12 @@ export function createDock({
       return;
     }
     el.dataset.dock = dock.mode;
+    resizer(el);
     const g = gutter();
     const side = SIDES.includes(dock.mode) ? dock.mode : null;
     claim(root, token, side, dock.mode === 'bottom' ? g.h : g.w);
     el.style.setProperty('--dock-size', dock.mode === 'bottom' ? g.h + 'px' : g.w + 'px');
+    describeResizer(el, dock.mode === 'bottom' ? g.h : g.w);
     // Float positions the card with INLINE left/top, and an inline style beats
     // the stylesheet: leaving them set pinned a docked panel to wherever it last
     // floated while the stage dutifully reflowed away from an empty gutter.
@@ -279,8 +421,12 @@ export function createDock({
   function paintControls() {
     const el = getEl();
     const now = popoutOf(root) ? 'window' : dock.mode;
-    el?.querySelectorAll('.dk-btn[data-mode]').forEach(
-      (b) => b.classList.toggle('dk-on', b.dataset.mode === now));
+    el?.querySelectorAll('.dk-btn[data-mode]').forEach((b) => {
+      b.classList.toggle('dk-on', b.dataset.mode === now);
+      b.setAttribute('aria-checked', String(b.dataset.mode === now));
+    });
+    const place = el?.querySelector('.dk-place-btn');
+    if (place) place.innerHTML = ICON[now] ?? ICON.right;
     const head = el?.querySelector('.narr-head');
     if (head) head.style.cursor = now === 'float' ? 'move' : '';
   }
@@ -378,43 +524,72 @@ export function createDock({
   }
 
   /**
-   * The four placement buttons plus a close — the row a panel puts in its
-   * header. `onClose` is the panel's own, because closing is the one thing
-   * here that is not about placement.
+   * Where the panel sits, and a close: the two buttons a panel puts at the end
+   * of its header. The placement is ONE button, drawn as where the panel is
+   * now, which opens the five choices as a labelled strip under the header.
+   * It used to be five glyphs side by side in every header, which is five
+   * buttons for a choice made once a deck, in the room the title needed.
+   * `onClose` is the panel's own, because closing is the one thing here that
+   * is not about placement.
    */
   function controls(onClose, closeHint = closeLabel) {
     const ctl = document.createElement('div');
     ctl.className = 'dk-ctl';
-    const popped = !!popoutOf(root);
-    for (const m of MODES) {
+    // the placement is every panel's, and another may have moved it since this
+    // one last drew: a header built from the stale one drew the wrong place
+    load();
+    const now = popoutOf(root) ? 'window' : dock.mode;
+    const place = document.createElement('button');
+    place.className = 'dk-btn dk-place-btn';
+    place.type = 'button';
+    place.innerHTML = ICON[now] ?? ICON.right;
+    place.title = 'move this panel';
+    place.setAttribute('aria-label', 'move this panel');
+    place.setAttribute('aria-haspopup', 'true');
+    place.setAttribute('aria-expanded', 'false');
+    // the choices: built here, shown by wireHeader's row under the header
+    const menu = document.createElement('div');
+    menu.className = 'dk-menu';
+    menu.setAttribute('role', 'radiogroup');
+    menu.setAttribute('aria-label', 'where the panel sits');
+    menu.hidden = true;
+    const show = (on) => {
+      menu.hidden = !on;
+      place.setAttribute('aria-expanded', String(on));
+      place.classList.toggle('dk-open', on);
+    };
+    for (const m of [...MODES, 'window']) {
       const b = document.createElement('button');
-      b.className = 'dk-btn' + (!popped && dock.mode === m ? ' dk-on' : '');
+      b.className = 'dk-btn dk-opt' + (now === m ? ' dk-on' : '');
       b.type = 'button';
-      b.textContent = GLYPH[m];
+      b.innerHTML = `${ICON[m]}<span>${LABEL[m]}</span>`;
       b.dataset.mode = m;
-      b.title = m === 'float' ? 'float (movable)' : `dock ${m}`;
-      b.setAttribute('aria-label', m === 'float' ? 'float' : `dock ${m}`);
-      b.addEventListener('click', () => setDock(m));
-      ctl.append(b);
+      b.title = m === 'float' ? 'float (movable)'
+        : m === 'window' ? 'own window (or drag the panel out of the browser)' : `dock ${m}`;
+      b.setAttribute('aria-label', m === 'float' ? 'float' : m === 'window' ? 'own window' : `dock ${m}`);
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(now === m));
+      b.addEventListener('click', () => { show(false); setDock(m); });
+      menu.append(b);
     }
-    // the fifth placement: a window of its own (dragging the card out does it too)
-    const w = document.createElement('button');
-    w.className = 'dk-btn' + (popoutOf(root) ? ' dk-on' : '');
-    w.type = 'button';
-    w.textContent = GLYPH.window;
-    w.dataset.mode = 'window';
-    w.title = 'own window (or drag the panel out of the browser)';
-    w.setAttribute('aria-label', 'own window');
-    w.addEventListener('click', () => setDock('window'));
-    ctl.append(w);
+    place.addEventListener('click', (e) => { e.stopPropagation(); show(menu.hidden); });
+    // Esc with the choices open closes them, not the panel
+    const esc = (e) => {
+      if (e.key !== 'Escape' || menu.hidden) return;
+      e.preventDefault(); e.stopPropagation();
+      show(false);
+      place.focus();
+    };
+    place.addEventListener('keydown', esc);
+    menu.addEventListener('keydown', esc);
     const x = document.createElement('button');
     x.className = 'dk-btn dk-close';
     x.type = 'button';
-    x.textContent = '×';
+    x.innerHTML = ICON.close;
     x.title = closeHint;
     x.setAttribute('aria-label', 'close');
     x.addEventListener('click', onClose);
-    ctl.append(x);
+    ctl.append(place, x, menu);
     return ctl;
   }
 
@@ -425,7 +600,8 @@ export function createDock({
    * the placement buttons. Absent while this is the only panel on offer.
    */
   function tabs() {
-    const offered = [...panelsOf(root)].filter(([t, p]) => p.tab && (t === token || p.available()));
+    const offered = [...panelsOf(root)].filter(([t, p]) => p.tab && (t === token || p.available()))
+      .sort(([, a], [, b]) => tabRank(a.name) - tabRank(b.name));
     if (!panelsOf(root).get(token)?.tab || offered.length < 2) return null;
     const row = document.createElement('div');
     row.className = 'dk-tabs';
@@ -445,11 +621,43 @@ export function createDock({
 
   /** Give a header the drag handle, the cursor that advertises it, and the tabs. */
   function wireHeader(head) {
+    head.classList.add('dk-head');
     head.style.cursor = dock.mode === 'float' && !popoutOf(root) ? 'move' : '';
     head.addEventListener('pointerdown', startDrag);
     head.querySelector(':scope > .dk-tabs')?.remove();
+    head.querySelector(':scope > .dk-name')?.remove();
     const row = tabs();
     if (row) head.prepend(row);
+    // no tabs to say which panel this is (it is the only one on offer): the
+    // header says it itself
+    else if (name && panelsOf(root).get(token)?.tab) {
+      head.prepend(Object.assign(document.createElement('span'), { className: 'dk-name', textContent: name }));
+    }
+    // the placement choices open as a row of their own, under the title's
+    const menu = head.querySelector('.dk-ctl > .dk-menu');
+    if (menu) head.append(menu);
+  }
+
+  /**
+   * The keys line at the foot of a panel: `a · b · c`, each hint kept whole
+   * when the line wraps, and the key that starts one drawn as a key. One look
+   * for all of them; they used to be a header here, a paragraph there, small
+   * capitals in a third. The text reads as it was written (`textContent`).
+   */
+  function foot(text, className = '') {
+    const el = document.createElement('div');
+    el.className = ('dk-foot ' + className).trim();
+    String(text).split(' · ').forEach((hint, i) => {
+      if (i) el.append(' · ');
+      const span = document.createElement('span');
+      span.className = 'dk-hint';
+      const m = KEY_RE.exec(hint);
+      if (m) {
+        span.append(Object.assign(document.createElement('kbd'), { textContent: m[1] }), hint.slice(m[1].length));
+      } else span.textContent = hint;
+      el.append(span);
+    });
+    return el;
   }
 
   /**
@@ -474,6 +682,7 @@ export function createDock({
     popIn,
     controls,
     wireHeader,
+    foot,
     release,
   };
 }
