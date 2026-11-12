@@ -89,3 +89,19 @@ test('isDashed: what an authored stroke-dasharray must say to draw through a mas
   assert.equal(isDashed(null), false);
   assert.equal(isDashed(undefined), false);
 });
+
+import { stepShowing } from '../src/core/builds.js';
+
+test('stepShowing: the clicks that show a node, through the steps that hold it', () => {
+  // a stand-in for a node: `contains` walks its own parent chain
+  const node = (parent = null) => ({ parent, contains(n) { for (let x = n; x; x = x.parent) if (x === this) return true; return false; } });
+  const box = node(); const a = node(box); const b = node(box); const inB = node(b); const start = node();
+  const record = { steps: [{ kind: 'dom', el: box }, { kind: 'dom', el: a }, { kind: 'provider', el: null }, { kind: 'dom', el: b }], groups: [[0], [1, 2], [3]] };
+  const list = node(); const p1 = node(list); const p2 = node(list);
+  assert.equal(stepShowing({ steps: [{ kind: 'dom', el: p1 }, { kind: 'dom', el: p2 }], groups: [[0], [1]] }, list), 2, 'a list is shown whole: its last point');
+  assert.equal(stepShowing(record, a), 2);
+  assert.equal(stepShowing(record, inB), 3, 'a word inside the third step needs its click');
+  assert.equal(stepShowing(record, box), 3, 'what is inside the box is shown too');
+  assert.equal(stepShowing(record, start), 0, 'there from the start');
+  assert.equal(stepShowing(null, a), 0);
+});

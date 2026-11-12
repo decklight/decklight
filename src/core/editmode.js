@@ -21,6 +21,7 @@ import { reloadLine } from './debuglog.js';
 import { holdDraft, unsavedDrafts, draftList, heldReloadText } from './drafts.js';
 import { conceptOf, pathFrom } from './colorpicker.js';
 import { pickNode } from './pick.js';
+import { reselectAfterReload, forgetReselect } from './editbar.js';
 import { rangeLabel } from './ranges.js';
 import { agentChipText, boundedFetch, commitChipParts, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
@@ -2449,8 +2450,13 @@ export function createEditMode({
   // .decklight-ctxmenu in decklight.css. closeOnBackdrop/selectInList still
   // apply unchanged: nothing about them assumes a dimmed, centered overlay.
   const TEXT_EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight'];
+  /**
+   * What Build ▸ is about: the node selected inside the block (a point of a
+   * list, a shape) when there is one, else the block itself.
+   */
+  const buildNode = (t) => t?.node ?? t?.top ?? null;
   /** The build effect the menu's element carries: its `data-build`, '' for the default, null for none. */
-  const currentEffect = (t) => (t?.top?.hasAttribute?.('data-build') ? t.top.getAttribute('data-build') : null);
+  const currentEffect = (t) => { const n = buildNode(t); return n?.hasAttribute?.('data-build') ? n.getAttribute('data-build') : null; };
   let elementEditOn = false;
   let menuEl = null, menuRows = [], menuSel = 0, menuView = 'main', menuTarget = null;
   let menuOwnRows = null;   // the 'rows' view: rows another module hands in (the bar's Add ▾)
@@ -2907,17 +2913,25 @@ export function createEditMode({
   }
 
   async function commitEffect(effect) {
-    const { slide, index } = menuTarget;
+    const { slide, index, top } = menuTarget;
+    const node = buildNode(menuTarget);
     closeElementMenu();
+    const path = node && node !== top ? pathFrom(top, node) : [];
+    if (!path) { toast('that node is the engine’s, not the file’s — give its block the build', 2600); return; }
+    // the page the write reloads selects it again, and so steps the slide to
+    // the click that shows it: a build given on step 0 does not hide it
+    reselectAfterReload({ slide, index, path });
     try {
       const res = await writeFetch(editBase + '/deck/edit/element/effect', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ slide, index, effect }),
+        body: JSON.stringify(path.length ? { slide, index, path, tag: node.tagName.toLowerCase(), effect } : { slide, index, effect }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || res.status);
+      if (j.changed === false) forgetReselect();
       toast(effect === null ? 'effect removed — reloading' : `effect: ${effect} — reloading`);
     } catch (e) {
+      forgetReselect();
       toast(`effect save failed: ${String(e.message || e)}`, 6000);
     }
   }

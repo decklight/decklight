@@ -1127,6 +1127,23 @@
 /* the reveal inside the mask a dashed stroke draws through (#737): moved by
    the same frame loop, its duration read the same way */
 .decklight .draw-mask-stroke { transition: opacity calc(var(--build-duration) * 2.2) ease; }
+/* write mode with the bar on (PRESENTING_EDITING): a step still to come is
+   shown dimmed where it will land instead of hidden, so it takes a click and
+   can be selected, typed in and removed. Its strokes are drawn and its fades
+   in, as the overview shows them; the dimming is the one difference. The bar
+   off (presenting, fullscreen, the lock), print and export keep the builds. */
+.decklight.dl-show-waiting .build-step[data-build-state="pending"] {
+  visibility: visible !important;
+  opacity: var(--dl-waiting-opacity, 0.35) !important;
+  transform: none !important;
+}
+.decklight.dl-show-waiting .build-step[data-build-state="pending"] .draw-stroke,
+.decklight.dl-show-waiting .build-step.draw-stroke[data-build-state="pending"] { stroke-dashoffset: 0 !important; }
+.decklight.dl-show-waiting .build-step[data-build-state="pending"] .draw-fade { opacity: 1 !important; }
+.decklight.dl-show-waiting .build-step[data-build-state="pending"] .draw-fill,
+.decklight.dl-show-waiting .build-step.draw-fill[data-build-state="pending"] { fill-opacity: var(--draw-fill-op, 1) !important; }
+.decklight.dl-show-waiting .build-step[data-build-state="pending"] [data-draw-masked],
+.decklight.dl-show-waiting .build-step[data-draw-masked][data-build-state="pending"] { mask: none !important; }
 
 /* instant application (slide entry, deep links, back-nav restore) */
 .decklight.decklight-no-anim .build-step,

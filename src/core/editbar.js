@@ -16,7 +16,9 @@
 //   are learnt by using the bar rather than needed before it.
 //
 //   SELECTION: a click on an element selects it (outlined, with a ⋯ handle at
-//   its corner that opens the element's menu by left-click). With something
+//   its corner that opens the element's menu by left-click). With the bar on,
+//   what waits behind a build is shown dimmed rather than hidden, so it takes
+//   the click too, and selecting it steps the slide to the click that shows it. With something
 //   selected, ⏎ edits it in place when it is text and opens its menu when it
 //   is not, ⌫ removes it (the undo chord takes it back), Esc lets it go. The right-click
 //   menu and the drop still work exactly as before, and the double-click
@@ -26,7 +28,8 @@
 // Nothing here writes to the file. Every action goes through the route the
 // key or the gesture already used, so each one lands on the same undo stack.
 
-import { authoredTop } from './design-system.js';
+import { authoredTop, authoredIndex } from './design-system.js';
+import { stepShowing } from './builds.js';
 import { editableTarget, formulaRefusal, svgTextTarget, CODE_EDITABLE } from './authoring.js';
 import { pickNode, isDrawn, isWireNode, wireMiddle, createSpotlight, createFrame } from './pick.js';
 import { UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
@@ -48,6 +51,29 @@ const BUTTONS = [
   { id: 'redo', label: 'Redo', key: REDO_CHORD, title: 'put it back' },
   { id: 'lock', label: 'Lock', key: '', title: 'lock the deck: nothing changes the file until you unlock it' },
 ];
+
+// ── a selection across a reload ─────────────────────────────────────────────
+// A write that reloads the page (a build effect chosen) asks for the same node
+// to be selected on the page that comes, which steps the slide to show it.
+const RESELECT_KEY = 'decklight-edit-reselect:' + (typeof location !== 'undefined' ? location.pathname : '');
+/** Select slide `slide`'s element `index` (the node at `path` below it) again once the reload has come. */
+export function reselectAfterReload({ slide, index, path = [] }) {
+  try { sessionStorage.setItem(RESELECT_KEY, JSON.stringify({ slide, index, path, t: Date.now() })); } catch { /* no storage: the reload lands on the slide, nothing selected */ }
+}
+/** Taken back on a write that did not land: nothing to reselect. */
+export function forgetReselect() {
+  try { sessionStorage.removeItem(RESELECT_KEY); } catch { /* fine */ }
+}
+const INJECTED_ON_PATH = '.draw-head, .draw-mask, [data-ds-injected]';
+/** The live node at the file's `path` below `top`, counted as pathFrom counts it (the engine's own nodes skipped). */
+function nodeAtFilePath(top, path) {
+  let cur = top;
+  for (const i of path) {
+    cur = [...cur.children].filter((c) => !c.matches(INJECTED_ON_PATH))[i];
+    if (!cur) return null;
+  }
+  return cur;
+}
 
 export function createEditBar({
   root, instance, editmode, authoring, toast, debugLog = () => {},
@@ -299,6 +325,7 @@ export function createEditBar({
     deselect({ quiet: true });
     target.node ??= pickNode(target.top, target.clicked);
     selected = target;
+    stepToShow(target);
     if (target.node === target.top) target.top.classList.add('dl-selected');
     else frame.on(target.node);
     handle = document.createElement('button');
@@ -319,6 +346,17 @@ export function createEditBar({
     follow();
     debugLog('edit', `selected slide ${target.slide} element #${target.index}${target.node !== target.top ? ` › <${target.node.tagName.toLowerCase()}>` : ''}`);
     announce();
+  }
+  /**
+   * A selection waiting behind a build (shown dimmed, PRESENTING_EDITING)
+   * steps the slide forward to the click that shows it: the point clicked,
+   * not the whole list it is in. Never back: what is shown stays shown.
+   */
+  function stepToShow(target) {
+    if (instance.state.slide !== target.slide) return;
+    const at = target.clicked && target.top.contains(target.clicked) ? target.clicked : shown(target);
+    const want = stepShowing(instance._records?.[target.slide - 1], at);
+    if (want > instance.state.step) instance.goto(target.slide, want);
   }
   // The stage moves under a selection without telling anyone: a panel docking
   // beside it reflows it, a build slides a group in. While something is
@@ -359,7 +397,10 @@ export function createEditBar({
   root.addEventListener('click', (e) => {
     if (!on() || authoring.editing() || inOverlay(e.target)) return;
     const target = editmode.elementTargetOf(e.target);
-    if (target?.top) { if (selected?.node !== pickNode(target.top, target.clicked)) select(target); }
+    if (target?.top) {
+      if (selected?.node !== pickNode(target.top, target.clicked)) select(target);
+      else stepToShow(target);   // another waiting point of the list already selected
+    }
     else deselect();
   });
   root.addEventListener('mousemove', (e) => {
@@ -444,8 +485,28 @@ export function createEditBar({
   function sync() {
     if (on()) mount(); else unmount();
     root.classList.toggle('dl-editmode', editingOn());
+    // the steps still to come, dimmed and clickable: the bar on screen only,
+    // so presenting (fullscreen, the bar hidden, the lock) shows the builds as built
+    root.classList.toggle('dl-show-waiting', on());
   }
   editmode.onElementEditChange(sync);
+  function reselect() {
+    let kept = null;
+    try { kept = JSON.parse(sessionStorage.getItem(RESELECT_KEY) || 'null'); sessionStorage.removeItem(RESELECT_KEY); } catch { /* nothing kept */ }
+    if (!kept || Date.now() - kept.t > 60_000 || !Array.isArray(kept.path)) return;
+    const sec = instance._sections[kept.slide - 1];
+    const top = sec && [...sec.children].find((c) => authoredIndex(sec, c) === kept.index);
+    const node = top && nodeAtFilePath(top, kept.path);
+    if (!node) return;
+    if (instance.state.slide !== kept.slide) instance.goto(kept.slide, 0);
+    const target = editmode.elementTargetOf(node);
+    if (!target?.top) return;
+    if (target.top.contains(node)) { target.node = node; target.clicked = node; }
+    select(target);
+  }
+  // once editing is on (write mode answered): the selection is the bar's, and it steps the slide
+  editmode.onElementEditChange((now) => { if (now && editingOn()) reselect(); });
+  if (editingOn()) reselect();
   // Undo and Redo greyed out when there is nothing to take back or put back
   // (PRESENTING_EDITING); before the server has said, both are live
   function paintHistory() {

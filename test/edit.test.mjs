@@ -207,6 +207,28 @@ test('setSlideElementBuild writes data-build, "none" is a real value, null strip
   assert.ok(BUILD_EFFECTS.includes('none') && BUILD_EFFECTS.length === 8);
 });
 
+test('setSlideElementBuild replaces and removes a bare data-build (the default build), never adds a second', () => {
+  const deck = '<div class="decklight">\n<section>\n  <h2>T</h2>\n  <ul data-build class="tight">\n    <li>a</li>\n  </ul>\n</section>\n</div>';
+  const zoomed = setSlideElementBuild(deck, 1, 1, 'zoom');
+  assert.match(zoomed, /<ul data-build="zoom" class="tight">/);
+  assert.equal((zoomed.match(/data-build/g) || []).length, 1);
+  const removed = setSlideElementBuild(deck, 1, 1, null);
+  assert.match(removed, /<ul class="tight">/);
+  assert.doesNotMatch(removed, /data-build/);
+  // a single-quoted one keeps its quote, where it stands
+  assert.match(setSlideElementBuild(deck.replace('data-build class', "data-build='fade' class"), 1, 1, 'pop'), /<ul data-build='pop' class="tight">/);
+});
+
+test('setSlideElementBuild writes to a nested node: a point of a list, not the list', () => {
+  const deck = '<div class="decklight">\n<section>\n  <h2>T</h2>\n  <ul data-build>\n    <li>a</li>\n    <li>b</li>\n  </ul>\n</section>\n</div>';
+  const pointed = setSlideElementBuild(deck, 1, 1, 'zoom', { path: [1], tag: 'li' });
+  assert.match(pointed, /<ul data-build>\n {4}<li>a<\/li>\n {4}<li data-build="zoom">b<\/li>/);
+  assert.match(setSlideElementBuild(pointed, 1, 1, null, { path: [1], tag: 'li' }), /<ul data-build>\n {4}<li>a<\/li>\n {4}<li>b<\/li>/);
+  // the page saw another tag there: stale, not a guess
+  assert.throws(() => setSlideElementBuild(deck, 1, 1, 'zoom', { path: [1], tag: 'p' }), (e) => e.code === 'STALE');
+  assert.throws(() => setSlideElementBuild(deck, 1, 1, 'zoom', { path: [5] }), (e) => e.code === 'STALE');
+});
+
 // ── the history: one stack for every mutation, independent of git ─────────
 
 test('history: record/undo/redo round-trips, external edits are never lost', () => {

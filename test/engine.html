@@ -143,9 +143,12 @@
       listplain: '<ul>\n  <li><p>A paragraph</p></li>\n  <li>Two</li>\n</ul>',
       tablekeys: '<table>\n  <tr><th>Name</th><th>Role</th></tr>\n  <tr><td>Ada</td><td>Engineer</td></tr>\n</table>',
       // Control-Shift-↑/↓ (listmove): a point with a sublist of its own, in a list that builds
+      // buildselect, buildreselect (PRESENTING_EDITING): a list that builds, its points waiting at step 0
+      buildselect: '<ul data-build>\n  <li>One</li>\n  <li>Two</li>\n  <li>Three</li>\n</ul>',
       listmove: '<ul data-build>\n  <li>One</li>\n  <li>Two\n    <ul>\n      <li>Two a</li>\n    </ul>\n  </li>\n  <li>Three</li>\n</ul>',
     };
     LK.tablemenu = LK.tablekeys;
+    LK.buildreselect = LK.buildselect;
     let LK_SRC = LK[HARNESS_MODE] ?? null;
     let MX_SRC = [];   // mathedit: the file's markup of slide 3's elements, by index
     // chartdata: a bar chart as an author writes one (a number spelled 80.50,
@@ -790,6 +793,7 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: LK_SRC });
         if (u.includes('/deck/edit/element/content')) { LK_SRC = JSON.parse(init.body).html; return json({ ok: true, changed: true, undo: 1, redo: 0 }); }
+        if (u.includes('/deck/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'mathedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -1415,6 +1419,11 @@
         <section class="ds-nosystem" data-template="other/x"><h2>Also plain</h2></section>
         <section class="ds-booby" data-template="acme/booby"><h2 data-slot="title">Booby-trapped layout</h2></section>
         <section class="ds-diagram" data-template="acme/statement"><h2 data-slot="title">Diagram</h2><svg viewBox="0 0 400 200" width="400"><rect class="dd-box" x="10" y="10" width="120" height="60"/><circle cx="200" cy="40" r="20"/><path d="M130 40h50"/><text class="dd-label" x="70" y="45">Label</text></svg></section>`);
+    }
+    // buildreselect: the page an effect write reloaded, which selects the third point again
+    if (HARNESS_MODE === 'buildreselect') {
+      try { sessionStorage.setItem('decklight-edit-reselect:' + location.pathname, JSON.stringify({ slide: 3, index: 1, path: [2], t: Date.now() })); } catch { /* fine */ }
+      location.hash = '#/3/0';
     }
     if (LK_SRC !== null) {
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>\n${LK_SRC}`
@@ -4584,9 +4593,12 @@
           const rec = () => deck._records[5];
           r.buildsInFileOrder = rec().steps[0]?.el === b1 && rec().steps[1]?.el === b2;
           click(b2); await settle();
+          // a waiting step selected is shown: the slide steps to its click (PRESENTING_EDITING)
+          r.selectingStepsToIt = deck.state.step === 2;
           moveKey('ArrowUp'); await settle(); await settle();
           r.movedInPlace = order(6) === 'h2,mv-b2,mv-b1' && lastMove()?.quiet === true && reloads === 0;
           r.buildsFollowTheNewOrder = rec().steps[0]?.el === b2 && rec().steps[1]?.el === b1;
+          deck.goto(6, 0); await settle();
           deck.next(); await settle();
           r.firstStepIsTheMovedOne = deck.state.slide === 6 && deck.state.step === 1 && b2.getAttribute('data-build-state') !== 'pending' && b1.getAttribute('data-build-state') === 'pending';
           // a slide with something live on it: the move is the ordinary reload, and the page selects it again after
@@ -4597,7 +4609,7 @@
           try { kept = JSON.parse(sessionStorage.getItem('decklight-move-select:' + location.pathname) || 'null'); } catch { /* none */ }
           r.liveSlideReloads = lastMove()?.slide === 7 && lastMove()?.quiet === undefined && order(7) === 'h2,mv-l,mv-v' && kept?.slide === 7 && kept?.index === 2
             && [...document.querySelectorAll('.decklight-toast')].some((n) => /moved down — reloading/.test(n.textContent));
-          r.PASS = r.buildsInFileOrder && r.movedInPlace && r.buildsFollowTheNewOrder && r.firstStepIsTheMovedOne && r.liveSlideReloads;
+          r.PASS = r.buildsInFileOrder && r.selectingStepsToIt && r.movedInPlace && r.buildsFollowTheNewOrder && r.firstStepIsTheMovedOne && r.liveSlideReloads;
         } else if (mode === 'movereselect') {
           await settle();
           r.landsOnTheSlide = deck.state.slide === 5;
@@ -6805,6 +6817,69 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
       // and Shift-Tab nest it and take it out, Enter on an empty last point
       // ends the list; the whole session is ONE write of the list, built from
       // its source, and Esc gives every bit of it back.
+      if (mode === 'buildselect' || mode === 'buildreselect') {
+        // what waits behind a build (PRESENTING_EDITING): with the bar on it
+        // is dimmed, not hidden, takes the click, and selecting it steps the
+        // slide to the click that shows it; Build ▸ writes to the node
+        // selected, and the page its write reloads selects it again
+        await settle(); await settle();
+        if (mode === 'buildselect') { deck.goto(3, 0); await settle(); }
+        const sec = document.querySelector('.decklight-stage > section.active');
+        const ul = sec?.querySelector('ul');
+        const [, two, three] = [...(ul?.querySelectorAll('li') ?? [])];
+        const deckEl = document.querySelector('.decklight');
+        // no frames here, so no transition ever ends: read the styles as they land
+        deckEl.classList.add('decklight-no-anim');
+        if (mode === 'buildreselect') {
+          await settle();
+          r.keyTaken = sessionStorage.getItem('decklight-edit-reselect:' + location.pathname) === null;
+          r.landsOnTheSlide = deck.state.slide === 3;
+          r.stepsToShowIt = deck.state.step === 3;
+          r.selectsThePoint = deck._selection()?.top === ul && deck._selection()?.node === three;
+          r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+        const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const bar = () => document.querySelector('.decklight-editbar');
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+        const look = (el) => getComputedStyle(el);
+        r.waitingIsPending = three?.getAttribute('data-build-state') === 'pending';
+        r.waitingIsDimmed = deckEl.classList.contains('dl-show-waiting') && look(three).visibility === 'visible'
+          && Math.abs(parseFloat(look(three).opacity) - 0.35) < 0.01;
+        const box = three.getBoundingClientRect();
+        r.waitingTakesTheClick = three.contains(document.elementFromPoint(box.left + 8, box.top + box.height / 2));
+        click(three); await settle();
+        r.selectsTheList = deck._selection()?.top === ul && ul.classList.contains('dl-selected');
+        r.stepsToThePoint = deck.state.step === 3 && three.getAttribute('data-build-state') !== 'pending';
+        // the bare default build: the menu says so, and its remove row sends null
+        bar().querySelector('.eb-build').click(); await settle();
+        const bare = rows().find((n) => n.textContent === '✓ the default build — remove it');
+        r.defaultBuildNamed = !!bare;
+        bare?.click(); await settle();
+        const sent = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/effect')).at(-1)?.body;
+        r.removeSendsNull = sent()?.effect === null && sent()?.index === 1 && !('path' in (sent() ?? {}));
+        // a point selected on its own: Build ▸ is about it, and writes to it
+        deck._selectNode(two, { exact: true }); await settle();
+        bar().querySelector('.eb-build').click(); await settle();
+        r.pointHasNoBuildOfItsOwn = !rows().some((n) => n.textContent.startsWith('✓ '));
+        rows().find((n) => n.textContent === 'zoom')?.click(); await settle();
+        r.writesToThePoint = sent()?.effect === 'zoom' && sent()?.index === 1 && JSON.stringify(sent()?.path) === '[1]' && sent()?.tag === 'li';
+        r.asksToSelectItAgain = JSON.parse(sessionStorage.getItem('decklight-edit-reselect:' + location.pathname) ?? 'null')?.path?.join() === '1';
+        sessionStorage.removeItem('decklight-edit-reselect:' + location.pathname);
+        // presenting is unchanged: fullscreen hides the bar, and what waits is hidden again
+        deck.goto(3, 0); await settle();
+        Object.defineProperty(document, 'fullscreenElement', { get: () => deckEl, configurable: true });
+        document.dispatchEvent(new Event('fullscreenchange'));
+        await settle();
+        r.presentingHidesIt = !deckEl.classList.contains('dl-show-waiting') && look(three).visibility === 'hidden' && look(three).opacity === '0';
+        Object.defineProperty(document, 'fullscreenElement', { get: () => null, configurable: true });
+        document.dispatchEvent(new Event('fullscreenchange'));
+        await settle();
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
       if (mode === 'listkeys' || mode === 'listplain' || mode === 'tablekeys' || mode === 'tablemenu' || mode === 'listmove') {
         await settle();
         deck.goto(3, mode === 'listkeys' ? 2 : mode === 'listmove' ? 3 : 0);
