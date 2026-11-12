@@ -11,6 +11,7 @@ import { initCharts, renderChart } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath, renderMathIn } from '../math/math.js';
+import { createSlideMedia } from './slide-media.js';
 import { initCode } from '../code/code.js';
 import { fitCode } from '../code/fit.js';
 import { openSpeakerView, installSpeakerBridge } from './speaker.js';
@@ -1809,6 +1810,7 @@ export function init(userConfig = {}) {
   //               connectors before a draw measures them), true for the slide, false for none
   //   relayout    its pinned title and subtitle, a split's sides, the overflow guardrail
   let addedSvgs = 0;
+  let adoptSlideMedia = null;   // set where the slide's own media are driven, below
   function refreshSlide(sec, {
     charts = null, math = false, svgs = [], code = [], layout: name = null, connectors = null, strokes = [], paint = null,
     background = false, scan = true, relayout = true,
@@ -1825,6 +1827,7 @@ export function init(userConfig = {}) {
       else rescopeSvgIds(el, `svgadd${addedSvgs}-`);
     }
     for (const el of code) if (el?.isConnected) initCode(el, registerBuildProvider);
+    adoptSlideMedia?.();   // a clip an edit put on the slide plays only as the others do
     if (typeof name === 'string') applyLayout(sec, name);
     const routed = !connectors ? [] : Array.isArray(connectors) ? connectors.filter((w) => routeWire(w)) : routeConnectors(connectors);
     for (const n of [...strokes, ...routed]) {
@@ -3314,9 +3317,24 @@ export function init(userConfig = {}) {
     };
     instance.on('slide', syncBgVideos);
   }
+  // A slide's own videos and sounds (SPEC DECK_ANATOMY, slide-media.js): paused
+  // and back to their start when their slide is left, played on arrival only
+  // when the author wrote `autoplay`, never while their slide is not the one
+  // on screen; a page that only shows (print, a capture, an embedded preview)
+  // plays none of them.
+  const slideMediaDriver = createSlideMedia({
+    root,
+    sections: () => instance._sections,
+    current: () => instance._sections[instance.state.slide - 1],
+    live: !printMode && !captureMode && !params.has('embedded'),
+  });
+  adoptSlideMedia = slideMediaDriver.adopt;
+  slideMediaDriver.adopt();
+  instance.on('slide', slideMediaDriver.sync);
 
   // ----- go ----------------------------------------------------------------
   instance.sync();
+  slideMediaDriver.sync();   // the first slide's clips that asked play, the rest stay where they are
 
   // Print stacks slides as pages; root-level chrome would appear once. Give
   // every printed slide its own copy of the brand mark (hero slides already

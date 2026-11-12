@@ -29,7 +29,7 @@ export const MODES = [
   'palette', 'paletteinput', 'settings', 'deckcheck', 'display', 'exclusive', 'presenterkeys', 'touchmenu', 'a11y', 'contextmenu', 'commit', 'agentlog', 'enhance', 'reviewpanel', 'agentreview', 'designsystems', 'marketplaces', 'skeys', 'skeys&nosrv',
   'narration', 'nonarration', 'panel',
   'chromescale',
-  'restore', 'historydetails', 'historycaptions', 'historychanges', 'historybuilds', 'escapeall', 'hidden', 'hidden&all', 'shiftarrows', 'chapters', 'chaptersplaylist',
+  'restore', 'historydetails', 'historycaptions', 'historychanges', 'historybuilds', 'escapeall', 'hidden', 'hidden&all', 'videoslide', 'videoslide&print', 'shiftarrows', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'exportmodule', 'publish',
   'inspector', 'inspectortabs', 'slidesettings', 'slidemorph', 'sourcesedit',
   'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'mathedit', 'editor', 'notessave', 'notesinplace', 'notesbuilds', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'heldreload', 'savefail', 'slideinplace', 'outsideedit', 'esckeeps', 'pinch', 'debugreload', 'lockmode', 'clipbadge', 'notrustmode', 'editingtour', 'editingtourwelcome', 'welcomekeys',

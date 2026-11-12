@@ -1010,6 +1010,20 @@
     const sink = document.getElementById('test-sink');
     const params = new URLSearchParams(location.search);
     const mode = params.get('mode') ?? 'themepicker';
+    // `videoslide` (DECK_ANATOMY): a clip on slide 2 with controls, one on slide 3
+    // marked autoplay, put there BEFORE init as an author would. The media
+    // element is stubbed: headless Chrome has no clip to decode, and what is
+    // asserted is what the engine asks of it (play, pause, the playhead).
+    if (mode === 'videoslide') {
+      const P = HTMLMediaElement.prototype;
+      Object.defineProperty(P, 'paused', { configurable: true, get() { return !this.__playing; } });
+      Object.defineProperty(P, 'currentTime', { configurable: true, get() { return this.__t ?? 0; }, set(v) { this.__t = v; } });
+      P.play = function play() { this.__playing = true; this.__plays = (this.__plays ?? 0) + 1; this.dispatchEvent(new Event('play')); return Promise.resolve(); };
+      P.pause = function pause() { this.__playing = false; };
+      const secs = document.querySelectorAll('.decklight > section');
+      secs[1].insertAdjacentHTML('beforeend', '<video class="vs-plain" controls src="plain.mp4"></video>');
+      secs[2].insertAdjacentHTML('beforeend', '<video class="vs-auto" autoplay muted src="auto.mp4"></video>');
+    }
     // `hidden`: slide 2 is hidden BEFORE init, the way an author would mark it
     if (mode === 'hidden') document.querySelectorAll('.decklight > section')[1].setAttribute('data-hidden', '');
     // `presenterkeys`: a link on slide 1, for a click that must not advance
@@ -7848,6 +7862,38 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
+      }
+      // A video on a slide (DECK_ANATOMY): never playing while its slide is not
+      // on screen, paused and back at its start when its slide is left, played
+      // on arrival only when the author wrote autoplay; in print (the &print
+      // variant) nothing plays and the first frame is loaded.
+      if (mode === 'videoslide') {
+        await settle();
+        const plain = document.querySelector('.decklight-stage .vs-plain');
+        const auto = document.querySelector('.decklight-stage .vs-auto');
+        if (params.has('print')) {
+          r.autoplayTakenOff = !auto.hasAttribute('autoplay') && auto.paused && plain.paused;
+          auto.play();                        // a native autoplay starting after all
+          r.nothingPlaysInPrint = auto.paused;
+          r.firstFrameLoaded = auto.preload === 'auto' && plain.preload === 'auto';
+        } else {
+          deck.goto(1, 0); await settle();
+          r.autoplayTakenOff = !auto.hasAttribute('autoplay');
+          r.nothingPlaysAtLoad = plain.paused && auto.paused;
+          auto.play();                        // a native autoplay starting off its slide
+          r.neverPlaysOffItsSlide = auto.paused;
+          deck.goto(2, 0); await settle();
+          r.noAutoplayNoPlay = plain.paused && (plain.__plays ?? 0) === 0;
+          plain.play(); plain.currentTime = 4;   // the presenter presses its play
+          r.itsOwnControlsPlayIt = !plain.paused;
+          deck.goto(3, 0); await settle();
+          r.leavingPausesAndRewinds = plain.paused && plain.currentTime === 0;
+          r.autoplayPlaysOnArrival = !auto.paused;
+          auto.currentTime = 2;
+          deck.goto(1, 0); await settle();
+          r.leftAgain = auto.paused && auto.currentTime === 0;
+        }
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
       if (mode === 'hidden') {
         // DECK_ANATOMY HIDDEN_SLIDES: slide 2 keeps its number and is stepped
