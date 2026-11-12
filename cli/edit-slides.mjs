@@ -31,7 +31,7 @@
 // both sides is a hoisted function declaration, and nothing is read until a
 // request arrives.
 
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve, sep } from 'node:path';
 
 import {
@@ -41,8 +41,9 @@ import {
   upsertNarrationTrack, configuredTrackDirs,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, moveSlideElement,
   duplicateSlideElement, removeSlideElements, duplicateSlideElements, moveSlideElements } from './edit.mjs';
-import { locateElement } from './edit-address.mjs';
-import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
+import { locateElement, openElement } from './edit-address.mjs';
+import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs, pasteSlideElement } from './edit.mjs';
+import { relativeAssets } from './paste.mjs';
 import { findInDeck, replaceInDeck } from './find-replace.mjs';
 import { setElementGeometry, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
@@ -313,14 +314,22 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   function elementSourceRoute({ url, json }) {
     const slide = Number(url.searchParams.get('slide'));
     const index = Number(url.searchParams.get('index'));
-    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) {
+    // `path=0.2` and `tag=li`: the node there below the element, as a copy of it takes it
+    const rawPath = url.searchParams.get('path');
+    const path = rawPath ? rawPath.split('.').map(Number) : null;
+    const tag = url.searchParams.get('tag');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !pathShape(path)) {
       return json(400, { ok: false, error: 'bad payload' });
     }
     try {
+      if (path?.length) {
+        const e = openElement(readDeck(), slide, index);
+        return json(200, { ok: true, html: e.src(e.at(path, tag || null)) });
+      }
       const { parts, idx, r } = locateElement(readDeck(), slide, index);
       return json(200, { ok: true, html: parts[idx].slice(r.start, r.end) });
     } catch (e) {
-      return json(404, { ok: false, error: oneline(e) });
+      return json(e.code === 'STALE' ? 409 : 404, { ok: false, error: oneline(e) });
     }
   }
 
@@ -1109,6 +1118,47 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * and `path` below it, and carries the markup the file got, so the page that asked shows exactly that IN PLACE: asked `quiet`,
    * the watcher skips the reload and every other page is sent `content`.
    */
+  /**
+   * `POST /deck/edit/element/paste` — `{ slide, index | null, path?, html,
+   * quiet?, from? }`: an element from the clipboard onto slide N
+   * (PRESENTING_EDITING), where a new block lands (pasteSlideElement): what
+   * would run is left out first and named (`dropped`), and a picture the
+   * deck's folder does not have is named too (`missing`), since its file is
+   * still beside the deck it came from. One applyEdit, one undo. The answer
+   * carries where it is and the markup the file got, for the page to put in.
+   */
+  function elementPasteRoute({ body, json }) {
+    const { slide, index = null, path = null, html, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || typeof html !== 'string' || html.length > 400_000
+        || (index !== null && (!Number.isInteger(index) || index < 0)) || !pathShape(path)) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    let done = null;
+    try {
+      applyEdit((deck) => {
+        done = pasteSlideElement(deck, slide, { index, path, markup: html });
+        return done.html;
+      });
+    } catch (e) {
+      return json(e.status ?? (/^no slide \d|no element at index/.test(e.message) ? 404 : 400), { ok: false, error: oneline(e) });
+    }
+    const here = dirname(deckPath);
+    const missing = relativeAssets(done.markup).filter((p) => {
+      const at = resolve(here, p);
+      return !at.startsWith(here + sep) || !existsSync(at);
+    });
+    console.log(`  element pasted: slide ${slide} #${done.index}${done.path.length ? ` › ${done.path.join('.')}` : ''}`
+      + (done.dropped.length ? ` — left out ${done.dropped.join(', ')}` : '') + (missing.length ? ` — not in this deck's folder: ${missing.join(', ')}` : ''));
+    if (inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index: done.index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, {
+      ok: true, index: done.index, path: done.path, wrapped: done.wrapped, html: done.markup,
+      dropped: done.dropped, missing, ...history.counts(),
+    });
+  }
+
   function elementInsertRoute({ body, json }) {
     const { slide, index = null, path = null, kind, words = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
     if (!Number.isInteger(slide) || slide < 1 || typeof kind !== 'string'
@@ -1316,6 +1366,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/narration', narrationRoute);
   routes.set('GET /deck/edit/element/source', elementSourceRoute);
   routes.set('POST /deck/edit/element/remove', elementRemoveRoute);
+  routes.set('POST /deck/edit/element/paste', elementPasteRoute);
   routes.set('POST /deck/edit/element/content', elementContentRoute);
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
   routes.set('POST /deck/edit/element/build', elementBuildRoute);

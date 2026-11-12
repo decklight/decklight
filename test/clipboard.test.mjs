@@ -61,3 +61,25 @@ test('a picture\'s alt from its name says nothing when the name says nothing: ne
   assert.equal(altFromName('image-of-the-team.png'), 'image of the team');
   assert.equal(altFromName('photo booth night.png'), 'photo booth night');
 });
+
+// ── an element or a shape copied in a deck's editor (#1027 slice 3) ─────────
+
+import { ELEMENT_MARK, SHAPE_MARK, ownClip } from '../src/core/clipboard.js';
+
+test('an element a deck copied is the editor\'s own, whatever the browser wrapped it in', () => {
+  const src = '<p class="lead" data-build>Words <b>here</b></p>';
+  assert.deepEqual(classifyClipboard(clip({ html: ELEMENT_MARK + src, text: 'Words here' })), { kind: 'element', html: src, text: 'Words here' });
+  // Chrome's and Windows' wrappers around clipboard html
+  const wrapped = `<html><body>\n<!--StartFragment--><meta charset="utf-8">${ELEMENT_MARK}${src}<!--EndFragment-->\n</body>\n</html>`;
+  assert.equal(classifyClipboard(clip({ html: wrapped })).html, src);
+  assert.deepEqual(classifyClipboard(clip({ html: SHAPE_MARK + '<g data-node="a"><rect/></g>' })).kind, 'shape');
+});
+
+test('our element wins over a picture it carries; other html and text are not ours', () => {
+  const png = new File([new Uint8Array([1])], 'x.png', { type: 'image/png' });
+  assert.equal(classifyClipboard(clip({ files: [png], html: ELEMENT_MARK + '<figure><img src="a.png"></figure>' })).kind, 'element');
+  assert.equal(classifyClipboard(clip({ html: '<p>from a web page</p>' })).kind, 'html');
+  assert.equal(ownClip('<p>no marker</p>'), null);
+  assert.equal(ownClip('<!-- decklight:element -->  <p>x</p>').html, '<p>x</p>', 'spaces in the marker are read');
+  assert.equal(classifyClipboard(clip({ html: ELEMENT_MARK, text: 'x' })).kind, 'html', 'a marker with nothing after it is not an element');
+});

@@ -136,6 +136,10 @@
       sentTo: 'answers go to its own bridge on this machine (127.0.0.1:8787/validate), then ~/.decklight/credentials.json (0600)',
     };
     const CALLS = { get: [], post: [] };
+    // elementpaste: slide 1's blocks as the file writes them, and a node inside the diagram by its path
+    const EP_SOURCE = ['<h2>Clip</h2>', '<p class="ep-p" data-build>Words to <b>copy</b></p>', '<ul class="ep-list"><li>a</li><li>b</li></ul>',
+      '<svg class="ep-svg" viewBox="0 0 200 100"><g data-node="a"><rect class="ep-box" x="10" y="10" width="40" height="20"/></g></svg>'];
+    const EP_NODE = { '0': '<g data-node="a"><rect class="ep-box" x="10" y="10" width="40" height="20"/></g>', '0.0': '<rect class="ep-box" x="10" y="10" width="40" height="20"/>' };
     // turninto: slide 1's blocks, as the file writes them (and as the page shows them)
     const TI_SOURCE = ['<h2>Kinds</h2>', '<p class="ti-p">Some <em>words</em></p>',
       '<ul class="ti-list" data-build>\n  <li>a</li>\n  <li>b <strong>bold</strong></li>\n</ul>', '<table class="ti-table"><tr><td>x</td></tr></table>'];
@@ -1094,6 +1098,24 @@
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, mode: 'switch', said: `now ${body.template} — content stays by slot name`, undo: 1, redo: 0 });
         }
+      }
+      // copy, cut and paste an element (elementpaste): each block's source as the file has it,
+      // a paste answered with what the server cleaned (EP_SAYS: what it left out and missed)
+      if (HARNESS_MODE === 'elementpaste') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) {
+          const q = new URL(u, location.href).searchParams;
+          const i = Number(q.get('index'));
+          const live = document.querySelectorAll('.decklight-stage > section')[Number(q.get('slide')) - 1]?.children[i];
+          return json({ ok: true, html: q.get('path') ? (EP_NODE[q.get('path')] ?? '') : (EP_SOURCE.find((x) => live && x.startsWith(`<${live.tagName.toLowerCase()} class="${live.classList[0]}"`)) ?? EP_SOURCE[i] ?? '') });
+        }
+        if (u.includes('/deck/edit/element/paste')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          const index = b.index === null ? EP_SOURCE.length : b.index + 1;
+          return json({ ok: true, index, path: [], wrapped: false, html: b.html.replace(/<script[\s\S]*?<\/script>/g, ''),
+            dropped: window.EP_SAYS?.dropped ?? [], missing: window.EP_SAYS?.missing ?? [], undo: 1, redo: 0 });
+        }
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0, index: 4, path: [0, 1], markup: '<g data-node="a-2"><rect x="30" y="30" width="40" height="20"/></g>', html: '' });
       }
       // a block resized (blockresize): its width and a diagram's answered as the server does
       if (HARNESS_MODE === 'blockresize') {
@@ -12000,6 +12022,111 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.markedByTheToken && r.customOpensOnWhatShows && r.themePickPlain;
       }
 
+      if (mode === 'elementpaste') {
+        // PRESENTING_EDITING, the clipboard: ⌘C puts the selected element on
+        // the system clipboard as the file has it (marked as the editor's,
+        // its words as plain text); ⌘V sends it to the server, which cleans
+        // and places it, and the page shows it and selects it; ⌘X is copy and
+        // remove; words selected on the page and typing are the browser's; a
+        // shape pastes only in its own diagram
+        let reloads = 0;
+        // a reload would start the mode again: none is let through, and the pastes must not ask for one
+        document.querySelector('.decklight').addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        const sec = document.querySelectorAll('.decklight-stage > section')[0];
+        sec.innerHTML = EP_SOURCE.join('\n');
+        deck.refreshSlide(sec, { scan: false });
+        const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const clip = (type, dt = new DataTransfer(), target = document.body) => {
+          const e = new ClipboardEvent(type, { bubbles: true, cancelable: true, clipboardData: dt });
+          target.dispatchEvent(e);
+          return { dt, prevented: e.defaultPrevented };
+        };
+        const posts = (route) => CALLS.post.filter((c) => c.u.includes(route)).map((c) => c.body);
+        const toasts = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        const until = async (f, n = 40) => { for (let i = 0; i < n && !f(); i++) await settle(); return f(); };
+        await settle(); await settle();
+        deck.goto(1, 0); await settle();
+        const p = sec.querySelector('.ep-p');
+        click(p); await settle();
+        r.sourceReadOnSelect = await until(() => deck._clipboard.ready());
+        const c1 = clip('copy');
+        const html = c1.dt.getData('text/html');
+        r.copyIsTheFilesSource = c1.prevented && html === '<!--decklight:element-->' + EP_SOURCE[1];
+        r.plainTextIsTheWords = c1.dt.getData('text/plain') === 'Words to copy';
+        r.copySaid = /copied/.test(toasts());
+
+        // paste: the server's, after the selection; shown and selected
+        const pd = new DataTransfer();
+        pd.setData('text/html', '<meta charset="utf-8">' + html + '<script>evil()<\/script>');
+        pd.setData('text/plain', 'Words to copy');
+        const before = sec.children.length;
+        const c2 = clip('paste', pd);
+        await settle(); await settle();
+        const sent = posts('/deck/edit/element/paste').pop();
+        r.pasteSentAfterTheSelection = c2.prevented && sent?.slide === 1 && sent?.index === 1 && sent?.html.startsWith(EP_SOURCE[1]) && !sent?.html.includes('decklight:element');
+        const pasted = sec.children[2];
+        r.shownAndSelected = sec.children.length === before + 1 && pasted?.matches('p.ep-p') && deck._selection()?.top === pasted;
+
+        // what the server left out, and a picture this deck lacks, are said
+        window.EP_SAYS = { dropped: ['a script'], missing: ['assets/chart.png'] };
+        clip('paste', pd);
+        await settle(); await settle();
+        r.leftOutAndMissingSaid = /Pasted\. A script left out; assets\/chart\.png is not in this deck's folder/.test(toasts());
+        window.EP_SAYS = null;
+        r.pastesNeverReload = reloads === 0;
+
+        // cut: the clipboard filled, then the remove ⌫ makes
+        const list = sec.querySelector('.ep-list');
+        click(list); await settle();
+        await until(() => deck._clipboard.ready());
+        const c3 = clip('cut');
+        await settle(); await settle();
+        r.cutIsCopyAndRemove = c3.dt.getData('text/html') === '<!--decklight:element-->' + EP_SOURCE[2]
+          && posts('/deck/edit/element/remove').some((b) => b.index === sec.children.length - 1 || b.index >= 0);
+
+        // words selected on the page are the browser's to copy, and so is a box being typed in
+        click(p); await settle();
+        await until(() => deck._clipboard.ready());
+        const range = document.createRange(); range.selectNodeContents(p.querySelector('b'));
+        getSelection().removeAllRanges(); getSelection().addRange(range);
+        r.selectedWordsAreTheBrowsers = !clip('copy').prevented;
+        getSelection().removeAllRanges();
+        const box = document.createElement('input'); document.body.append(box);
+        r.typingIsTheBrowsers = !clip('paste', pd, box).prevented;
+        box.remove();
+        // text from another app is not an element: left alone here
+        const td = new DataTransfer(); td.setData('text/plain', 'just words');
+        const pastes = posts('/deck/edit/element/paste').length;
+        clip('paste', td);
+        await settle();
+        r.otherTextLeftAlone = posts('/deck/edit/element/paste').length === pastes;
+
+        // a shape: copied as a shape, pasted in its own diagram as a duplicate, refused elsewhere
+        const rect = sec.querySelector('.ep-box');
+        rect.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+        await until(() => deck._clipboard.ready());
+        const c4 = clip('copy');
+        r.shapeCopiedAsAShape = c4.dt.getData('text/html').startsWith('<!--decklight:shape-->');
+        const sd = new DataTransfer(); sd.setData('text/html', c4.dt.getData('text/html'));
+        const before2 = CALLS.post.length;
+        clip('paste', sd);
+        await settle(); await settle();
+        r.shapePastedInItsDiagram = CALLS.post.slice(before2).some((c) => /\/deck\/edit\/element\/(shape|duplicate)/.test(c.u));
+        click(sec.querySelector('h2')); await settle();
+        clip('paste', sd);
+        await settle();
+        r.shapeElsewhereSaysNotYet = /only into its own diagram/.test(toasts());
+
+        // the menu has Copy, Cut and Paste
+        sec.querySelector('h2').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        await settle();
+        const rows = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.firstChild?.textContent ?? '');
+        r.menuRows = ['Copy', 'Cut', 'Paste'].every((x) => rows.includes(x)) && rows.indexOf('Copy') === rows.indexOf('Duplicate') + 1;
+        press('Escape');
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+      }
+
       if (mode === 'blockresize') {
         // PRESENTING_EDITING, resizing a block: a selected text, list, chart,
         // table, quote or code block has a handle on each side that sets how
@@ -12194,7 +12321,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // Writing tools… sits after Edit content when an agent is on the machine (none here);
         // a heading is text, so Turn into ▸ is its one contextual row, above Slide ▸
         r.fullMenuRows = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…'))
-          === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build ▸', 'Animate ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Turn into ▸', 'Slide ▸']);
+          === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build ▸', 'Animate ▸', 'Move up', 'Move down', 'Duplicate', 'Copy', 'Cut', 'Paste', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Turn into ▸', 'Slide ▸']);
         // a row that cannot act here is greyed, not gone: nothing copied yet, so Paste style; the chords said beside their rows
         const rowEl = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.firstChild?.textContent === label);
         r.greyedNotGone = rowEl('Paste style')?.classList.contains('cm-disabled') === true && rowEl('Duplicate')?.classList.contains('cm-disabled') === false
