@@ -328,17 +328,53 @@ export function createEditBar({
   let extras = [];
   /** Everything selected, the primary first: one element, or several. */
   const all = () => (selected ? [selected, ...extras] : []);
+  /** Is a target a shape of a diagram (several shapes of one diagram are selected together: SVG_DIAGRAMS)? */
+  const isShape = (t) => !!t?.node && t.node !== t.top && isDrawn(t.node) && !!t.node.ownerSVGElement;
+  /** How an extra shows: a block outlined, a shape glowing in the accent. */
+  const markExtra = (t, on) => {
+    if (isShape(t)) t.node.classList.toggle('dl-shape-also', on);
+    else { t.top.classList.toggle('dl-selected', on); t.top.classList.toggle('dl-also', on); }
+  };
   function dropExtras() {
-    for (const t of extras) t.top.classList.remove('dl-selected', 'dl-also');
+    for (const t of extras) markExtra(t, false);
     extras = [];
   }
   /** The others put back beside a primary just selected (select() lets go of them first). */
   function keepExtras(keep) {
     extras = keep;
-    for (const t of keep) t.top.classList.add('dl-selected', 'dl-also');
+    for (const t of keep) markExtra(t, true);
+  }
+  /**
+   * ⇧-click on a shape of the diagram the selected shape is in: that shape
+   * added to the selection, or taken out of it (several shapes of one
+   * diagram, SVG_DIAGRAMS). False when it is not that case.
+   */
+  function toggleShape(target) {
+    const node = pickNode(target.top, target.clicked);
+    if (!node || !isDrawn(node) || node === target.top || !node.ownerSVGElement) return false;
+    if (!selected) { select({ ...target, node }); return true; }
+    if (!isShape(selected) || selected.node.ownerSVGElement !== node.ownerSVGElement) return false;
+    if (node === selected.node) {
+      if (!extras.length) return true;
+      const next = extras.shift();
+      markExtra(next, false);
+      const keep = extras;
+      extras = [];
+      select(next);
+      keepExtras(keep);
+      announce();
+      return true;
+    }
+    const i = extras.findIndex((t) => t.node === node);
+    if (i >= 0) { markExtra(extras[i], false); extras.splice(i, 1); }
+    else { const t = { ...target, node, clicked: node }; extras.push(t); markExtra(t, true); }
+    debugLog('edit', `several shapes selected: ${all().length}`);
+    announce();
+    return true;
   }
   /** ⇧-click on `target`: added to the selection, or taken out of it. */
   function toggleSeveral(target) {
+    if (toggleShape(target)) return;
     if (!selected || selected.slide !== target.slide) { target.node = target.top; select(target); return; }
     const top = target.top;
     // several are top-level elements: a node picked inside one stands for its block
@@ -481,7 +517,10 @@ export function createEditBar({
     const many = extras.length ? all() : null;
     if (many && editmode.several?.()) {
       const actions = editmode.several();
-      if (e.key === 'Backspace' || e.key === 'Delete') { deselect(); actions.remove(many); return true; }
+      // several shapes of one diagram: the arrows nudge them all, a unit (⇧: ten), one write
+      const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (arrow && !e.metaKey && !e.ctrlKey && !e.altKey && actions.areShapes?.(many)) { const k = e.shiftKey ? 10 : 1; actions.nudge(many, arrow[0] * k, arrow[1] * k); return true; }
+      if (e.key === 'Backspace' || e.key === 'Delete') { if (!actions.areShapes?.(many)) deselect(); actions.remove(many).then?.((ok) => { if (ok && actions.areShapes) deselect(); }); return true; }
       if (e.key === 'Escape') { const one = selected; deselect({ quiet: true }); select(one); return true; }
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === 'KeyD') { actions.duplicate(many); return true; }
       if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { actions.move(many, e.key === 'ArrowUp' ? -1 : 1); return true; }
@@ -598,6 +637,17 @@ export function createEditBar({
     sync, keydown, refresh, selected: () => selected, isOpen: () => !!bar,
     /** Everything selected, the primary first (one target, or several); empty with nothing selected. */
     selectedAll: () => all(),
+    /** Several shapes of one diagram selected (SVG_DIAGRAMS): the primary first, else null. */
+    selectedShapes: () => (extras.length && isShape(selected) && extras.every(isShape) ? all() : null),
+    /** Select these shapes of one diagram, the first the primary (a marquee, shapes.js); none lets go. */
+    selectShapes(nodes) {
+      const targets = nodes.map((n) => { const t = editmode.elementTargetOf(n); return t?.top ? { ...t, node: n, clicked: n } : null; }).filter(Boolean);
+      if (!targets.length) { deselect(); return false; }
+      select(targets[0]);
+      keepExtras(targets.slice(1));
+      announce();
+      return true;
+    },
     /** Select these top-level elements of one slide, the first the primary (several.js, after a duplicate). */
     selectSeveral(tops) {
       const targets = tops.map((el) => editmode.elementTargetOf(el)).filter((t) => t?.top);

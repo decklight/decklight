@@ -3740,7 +3740,7 @@ export function init(userConfig = {}) {
     root, instance, editmode, toast, debugLog, select: (el) => editbar.selectNode(el, { exact: true }),
   }));
   // Several selected (several.js): ⇧-click adds to the selection, and what changes one changes all, one undo
-  const several = createSeveral({ instance, editmode, editbar, toast, styleClip: () => styleClip });
+  const several = createSeveral({ instance, editmode, editbar, toast, styleClip: () => styleClip, shapes: () => instance._shapes });
   editmode.setSeveral(several, () => editbar.selectedAll());
   // Open in your editor (open-in-editor.js): a slide or an element at its
   // line in the deck file, in the author's code editor, asked once which

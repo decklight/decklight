@@ -175,6 +175,45 @@ export function followLabel({ x, y, anchor = 'start' }, was, now) {
   return { x: nx, y: ny };
 }
 
+// ── several shapes: Arrange ▸ (SVG_DIAGRAMS) ─────────────────────────────────
+export const ARRANGE = ['left', 'center', 'right', 'top', 'middle', 'bottom', 'across', 'down', 'width', 'height'];
+/**
+ * What Arrange ▸ `how` does to each of `boxes` (`{ x, y, w, h }`, one
+ * space; the first is the primary): `{ dx, dy }` to move it and, for the same
+ * width or height, `{ w }` or `{ h }`. Aligning lines them up on the edge or
+ * the middle of the box round them all; spacing evenly keeps the outermost
+ * two where they are and makes the gaps between all of them equal; the same
+ * width or height is the primary's.
+ */
+export function arrangeBoxes(boxes, how) {
+  const out = boxes.map(() => ({ dx: 0, dy: 0 }));
+  if (boxes.length < 2) return out;
+  const x0 = Math.min(...boxes.map((b) => b.x)); const x1 = Math.max(...boxes.map((b) => b.x + b.w));
+  const y0 = Math.min(...boxes.map((b) => b.y)); const y1 = Math.max(...boxes.map((b) => b.y + b.h));
+  boxes.forEach((b, i) => {
+    if (how === 'left') out[i].dx = x0 - b.x;
+    if (how === 'right') out[i].dx = x1 - (b.x + b.w);
+    if (how === 'center') out[i].dx = (x0 + x1) / 2 - (b.x + b.w / 2);
+    if (how === 'top') out[i].dy = y0 - b.y;
+    if (how === 'bottom') out[i].dy = y1 - (b.y + b.h);
+    if (how === 'middle') out[i].dy = (y0 + y1) / 2 - (b.y + b.h / 2);
+    if (how === 'width' && i) out[i].w = boxes[0].w;
+    if (how === 'height' && i) out[i].h = boxes[0].h;
+  });
+  if ((how === 'across' || how === 'down') && boxes.length > 2) {
+    const [p, s] = how === 'across' ? ['x', 'w'] : ['y', 'h'];
+    const order = boxes.map((b, i) => i).sort((a, b) => (boxes[a][p] + boxes[a][s] / 2) - (boxes[b][p] + boxes[b][s] / 2));
+    const first = boxes[order[0]]; const last = boxes[order.at(-1)];
+    const gap = (last[p] + last[s] - first[p] - order.reduce((t, i) => t + boxes[i][s], 0)) / (order.length - 1);
+    let at = first[p] + first[s] + gap;
+    for (const i of order.slice(1, -1)) {
+      out[i][how === 'across' ? 'dx' : 'dy'] = at - boxes[i][p];
+      at += boxes[i][s] + gap;
+    }
+  }
+  return out;
+}
+
 /** Where along a box its three lines are, on one axis: its start, its middle, its end. */
 const FEATURES = [0, 0.5, 1];
 /**
@@ -358,6 +397,12 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     }
     return wires;
   }
+  /** `attrs` of `el` remembered in `before` as they are now, unless they already are. */
+  function keepAttrs(before, el, attrs) {
+    const rec = before.get(el) ?? {};
+    for (const a of attrs) if (!(a in rec)) rec[a] = el.getAttribute(a);
+    before.set(el, rec);
+  }
   /** Put the attributes `before` remembers back (a refused write, an Esc mid-drag). */
   function restore(before) {
     for (const [el, attrs] of before) for (const [a, v] of Object.entries(attrs)) { if (v === null) el.removeAttribute(a); else el.setAttribute(a, v); }
@@ -398,7 +443,11 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     if (root.classList.contains('dl-picking')) return;   // the inspector's picker takes the click
     const sel = editbar.selected();
     let node = null; let target = null;
-    if (sel?.node && isDrawn(sel.node) && (sel.node === e.target || sel.node.contains(e.target) || membersOf(sel.node).some((m) => m === e.target || m.contains(e.target)))) {
+    const hits = (n) => n === e.target || n.contains(e.target) || membersOf(n).some((m) => m === e.target || m.contains(e.target));
+    const many = editbar.selectedShapes?.();
+    const inMany = many?.find((t) => hits(t.node));
+    if (inMany) { node = inMany.node; target = inMany; }
+    else if (sel?.node && isDrawn(sel.node) && hits(sel.node)) {
       node = sel.node; target = sel;
     } else {
       const t = editmode.elementTargetOf(e.target);
@@ -407,35 +456,46 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     if (!node || !diagramOf(target) || tagOf(node) === 'tspan') return;
     // a connector goes where its nodes are: its ends drag (its handles), its body does not
     if (isConnector(node)) return;
-    press = { id: e.pointerId, x: e.clientX, y: e.clientY, node, target };
+    press = { id: e.pointerId, x: e.clientX, y: e.clientY, node, target, many: inMany ? many : null };
   }, true);
 
   function beginMove(e) {
     const { node } = press;
     let { target } = press;
+    // several shapes selected: a drag on one moves them all, their wires with them (SVG_DIAGRAMS)
+    if (press.many) return moveState(target, press.many.map((t) => t.node), press.x, press.y);
     if (editbar.selected()?.node !== node) {
       editbar.selectNode(node, { exact: true });
       target = editbar.selected() ?? target;
     }
-    const members = membersOf(node);
+    return moveState(target, [node], press.x, press.y);
+  }
+  /**
+   * What moving `nodes` (one, or several shapes of one diagram) takes: each
+   * one's members (its box group, its labels) and how each moves, their
+   * attributes remembered in `before` (shared, when several moves make one
+   * write), the connectors they drag along. Null when one cannot move.
+   */
+  function moveState(target, nodes, x, y, before = new Map()) {
+    const node = nodes[0];
+    const members = [...new Set(nodes.flatMap((n) => membersOf(n)))].filter((m, i, all) => !all.some((o) => o !== m && o.contains(m)));
     const specs = members.map(moveSpec);
     if (specs.some((s) => !s)) {
       toast('this one is a build step, and its build owns where it is: move what it holds, or the group it is in', 3600);
       return null;
     }
-    const before = new Map();
     const parts = members.map((m, i) => {
       const s = specs[i];
       if (s.translate) {
-        before.set(m, { ...(before.get(m) ?? {}), transform: m.getAttribute('transform') });
+        if (!('transform' in (before.get(m) ?? {}))) before.set(m, { ...(before.get(m) ?? {}), transform: m.getAttribute('transform') });
         const inv = m.parentNode.getScreenCTM?.()?.inverse();
         return { m, translate: true, inv, t0: m.getAttribute('transform'), at: leadingTranslate(m.getAttribute('transform')) };
       }
       const inv = m.getScreenCTM?.()?.inverse();
       const pairs = s.attrs.map(([el, ax, ay]) => {
         const rec = before.get(el) ?? {};
-        if (ax) rec[ax] = el.getAttribute(ax);
-        if (ay) rec[ay] = el.getAttribute(ay);
+        if (ax && !(ax in rec)) rec[ax] = el.getAttribute(ax);
+        if (ay && !(ay in rec)) rec[ay] = el.getAttribute(ay);
         before.set(el, rec);
         return { el, ax, ay, x0: ax ? num(el, ax) : 0, y0: ay ? num(el, ay) : 0 };
       });
@@ -447,7 +507,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     const wires = keepWires(svg, before);
     root.classList.add('dl-shape-dragging');
     window.getSelection?.()?.removeAllRanges();
-    return { target, node, members, parts, before, svg, wires, guide: guideFor(svg, members), hold: holdFor(svg, members), x: press.x, y: press.y, moved: false };
+    return { target, node, members, parts, before, svg, wires, guide: guideFor(svg, members), hold: holdFor(svg, members), x, y, moved: false };
   }
 
   function applyMove(e) {
@@ -1323,6 +1383,219 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     return unit;
   }
 
+  // ── several shapes of one diagram (SVG_DIAGRAMS) ──────────────────────────
+  // Selected together (⇧-click, a marquee: editbar.js and below), they move
+  // together, nudge together, are arranged, removed, duplicated, recoloured
+  // and given a concept together: each ONE write, one undo.
+  /** Are these targets shapes of one diagram? */
+  const areShapes = (targets) => targets?.length > 1 && targets.every((t) => t.node && t.node !== t.top && isDrawn(t.node) && t.top === targets[0].top
+    && t.node.ownerSVGElement && t.node.ownerSVGElement === targets[0].node.ownerSVGElement);
+  /** The nodes these targets move as: each one's box group or itself, none inside another. */
+  function unitsOf(targets) {
+    const units = [...new Set(targets.map((t) => duplicateUnit(t.node)))];
+    return units.filter((u) => !units.some((o) => o !== u && o.contains(u)));
+  }
+  /** Each of `units` moved by its own step (`moves[i]`: `{ dx, dy }` in the svg's units), into one `before`. */
+  function moveUnits(target, units, moves, before) {
+    const svg = units[0].ownerSVGElement;
+    const ctm = svg.getScreenCTM?.();
+    if (!ctm) return [];
+    const states = [];
+    units.forEach((u, i) => {
+      const m = moves[i];
+      if (!m || (!m.dx && !m.dy)) return;
+      const st = moveState(target, [u], 0, 0, before);
+      if (!st) return;
+      const sx = ctm.a * m.dx + ctm.c * m.dy; const sy = ctm.b * m.dx + ctm.d * m.dy;
+      for (const p of st.parts) {
+        const d = localStep(p.inv, sx, sy);
+        if (p.translate) {
+          const t = setTranslate(p.t0, keepGrain(p.at.x, p.at.x + d.x), keepGrain(p.at.y, p.at.y + d.y));
+          if (t) p.m.setAttribute('transform', t); else p.m.removeAttribute('transform');
+          continue;
+        }
+        for (const q of p.pairs) {
+          if (q.ax) q.el.setAttribute(q.ax, String(keepGrain(q.x0, q.x0 + d.x)));
+          if (q.ay) q.el.setAttribute(q.ay, String(keepGrain(q.y0, q.y0 + d.y)));
+        }
+      }
+      refit(st.members, st.svg, st.wires);
+      states.push(st);
+    });
+    root.classList.remove('dl-shape-dragging');
+    return states;
+  }
+  /** ←↑→↓ with several shapes selected: all of them a unit (⇧: ten), one write. */
+  async function nudge(targets, dx, dy) {
+    if (!areShapes(targets) || !editmode.available?.()) return false;
+    const units = unitsOf(targets);
+    const before = new Map();
+    moveUnits(targets[0], units, units.map(() => ({ dx, dy })), before);
+    return save(targets[0], before, 'nudge');
+  }
+  /** Arrange ▸ `how` (ARRANGE) on several shapes: one write, its wires and labels with it. */
+  async function arrange(targets, how) {
+    if (!areShapes(targets)) { toast('Arrange is for several shapes of one diagram', 2400); return false; }
+    if (!editmode.available?.()) { toast(editmode.cannot?.('arranging shapes') ?? 'this page cannot write the deck', 3200); return false; }
+    if ((how === 'across' || how === 'down') && targets.length < 3) { toast('spacing evenly needs three shapes or more', 2400); return false; }
+    const units = unitsOf(targets);
+    const svg = units[0].ownerSVGElement;
+    const boxes = units.map((u) => nodeBox(u, IDENTITY, svg));
+    if (boxes.some((b) => !b)) return false;
+    const plan = arrangeBoxes(boxes, how);
+    const before = new Map();
+    const extra = [];
+    if (how === 'width' || how === 'height') {
+      // the same size as the primary: each shape's box made so, its labels following and wrapped again
+      units.forEach((u, i) => {
+        const want = plan[i];
+        if (!('w' in want) && !('h' in want)) return;
+        const r = resizable({ node: u, top: targets[0].top, clicked: u });
+        if (r?.kind !== 'box') return;
+        const shape = r.shape;
+        const was = {};
+        for (const a of ['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry']) if (shape.hasAttribute(a)) was[a] = num(shape, a);
+        keepAttrs(before, shape, Object.keys(was));
+        const marked = markedShape(shape);
+        if (marked) keepAttrs(before, shape, [marked.attr]);
+        const old = boxOf(shape);
+        const m = toRoot(shape, svg);
+        const nb = { ...old, ...('w' in want ? { w: want.w / (Math.hypot(m.a, m.b) || 1) } : {}), ...('h' in want ? { h: want.h / (Math.hypot(m.c, m.d) || 1) } : {}) };
+        const labels = labelsOn(shape).filter((t) => !t.hasAttribute('transform') && numericAttr(t, 'x') && numericAttr(t, 'y')).map((t) => {
+          keepAttrs(before, t, ['x', 'y']);
+          const rows = linesOf(t) && t.children.length ? [...t.children].filter((k) => k.hasAttribute('x')) : [];
+          for (const k of rows) keepAttrs(before, k, ['x']);
+          return { t, x: num(t, 'x'), y: num(t, 'y'), anchor: t.getAttribute('text-anchor') ?? getComputedStyle(t).textAnchor ?? 'start', rows: rows.map((k) => ({ k, x: num(k, 'x') })), html: t.innerHTML };
+        });
+        setBox(shape, nb, was);
+        const now = boxOf(shape);
+        for (const l of labels) {
+          const q = followLabel(l, old, now);
+          const nx = keepGrain(l.x, q.x);
+          l.t.setAttribute('x', String(nx));
+          l.t.setAttribute('y', String(keepGrain(l.y, q.y)));
+          for (const row of l.rows) row.k.setAttribute('x', String(keepGrain(row.x, row.x + (nx - l.x))));
+        }
+        keepWires(svg, before);
+        refit([shape], svg, connectorsIn(svg));
+        extra.push(...rewrap(labels, before, targets[0].top).map((x) => x.edit));
+      });
+    } else moveUnits(targets[0], units, plan, before);
+    const ok = await save(targets[0], before, 'arrange', extra);
+    markOverflow(svg);
+    if (ok) toast(ARRANGE_SAID[how], 1400);
+    return ok;
+  }
+  const ARRANGE_SAID = {
+    left: 'aligned left', center: 'centred', right: 'aligned right', top: 'aligned top', middle: 'aligned in the middle',
+    bottom: 'aligned bottom', across: 'spaced evenly across', down: 'spaced evenly down', width: 'made the same width', height: 'made the same height',
+  };
+  /** Remove several shapes: one write, their connectors with them. */
+  async function removeMany(targets) {
+    if (!areShapes(targets) || !editmode.available?.()) return false;
+    const t0 = targets[0];
+    const svg = t0.node.ownerSVGElement;
+    const units = unitsOf(targets);
+    const paths = units.map((u) => ({ path: pathFrom(t0.top, u), tag: tagOf(u) }));
+    if (paths.some((p) => !p.path)) { toast('one of them is the engine’s, not the file’s', 2600); return false; }
+    try { await post('/deck/edit/element/remove', { slide: t0.slide, index: t0.index, paths }); }
+    catch (e) { toast(commit.notSaved(`${units.length} shapes`, e), 6000); return false; }
+    // the page as the file now is: the shapes, and the wires their names held
+    const names = new Set(units.flatMap((u) => [u, ...u.querySelectorAll('[data-node]')].map((n) => n.getAttribute('data-node')).filter(Boolean)));
+    for (const w of connectorsIn(svg)) if (names.has(w.getAttribute('data-from')) || names.has(w.getAttribute('data-to'))) { for (const h of Object.values(w._drawHeads ?? {})) h.el?.remove(); w.remove(); }
+    for (const u of units) u.remove();
+    refit([], svg);
+    hideHandles();
+    toast(`${units.length} shapes removed · ${editmode.undoChord?.() ?? 'undo'} takes them back`, 2400);
+    return true;
+  }
+  /** Duplicate several shapes: one write, the copies selected. */
+  async function duplicateMany(targets) {
+    if (!areShapes(targets) || !editmode.available?.()) return false;
+    const t0 = targets[0];
+    const svg = t0.node.ownerSVGElement;
+    const units = unitsOf(targets);
+    const paths = units.map((u) => ({ path: pathFrom(t0.top, u), tag: tagOf(u) }));
+    if (paths.some((p) => !p.path)) return false;
+    let j;
+    try { j = await post('/deck/edit/element/shape', { slide: t0.slide, index: t0.index, op: 'duplicate', paths }); }
+    catch (e) { toast(`not duplicated: ${commit.why(e)}`, 6000); return false; }
+    let copies;
+    try {
+      // where the file put each, the lowest first, so each path is right as it lands
+      const order = j.added.map((a, i) => ({ a, i })).sort((x, y) => x.a.path.at(-1) - y.a.path.at(-1));
+      copies = [];
+      for (const { a, i } of order) { const c = liveNode(a.html, svg); insertAt(t0.top, a.path, c); copies[i] = c; }
+    } catch (e) { reloadFor('the copies could not be put on the page', e); return false; }
+    refit([], svg, copies.flatMap((c) => connectorsIn(c)));
+    editbar.selectShapes?.(copies.map((c, i) => {
+      const u = units[i]; const n = targets.find((t) => duplicateUnit(t.node) === u)?.node ?? u;
+      const rel = u === n ? [] : pathFrom(u, n);
+      return (rel && liveAt(c, rel)) || c;
+    }));
+    toast(`${copies.length} shapes duplicated`, 1600);
+    return true;
+  }
+  /** Style edits (`[{ prop, value }]`) on each of several shapes: shown at once, one write. */
+  async function styleMany(targets, edits) {
+    if (!areShapes(targets) || !editmode.available?.()) return false;
+    const t0 = targets[0];
+    const shapesOf = targets.map((t) => (BOX_SHAPES.has(tagOf(t.node)) || WIRE_TAGS.has(tagOf(t.node)) ? t.node : null)).filter(Boolean);
+    const was = shapesOf.map((n) => [n, n.getAttribute('style'), n.dataset.nestFill]);
+    for (const n of shapesOf) {
+      for (const ed of edits) {
+        if (ed.value === null) n.style.removeProperty(ed.prop); else n.style.setProperty(ed.prop, ed.value);
+        // the nesting pass paints a shape from the fill it was authored with (svg.js): this is that fill now
+        if (ed.prop === 'fill') { if (ed.value === null) delete n.dataset.nestFill; else n.dataset.nestFill = ed.value; }
+      }
+    }
+    try {
+      await post('/deck/edit/element/style', { slide: t0.slide, index: t0.index, edits: shapesOf.flatMap((n) => edits.map((ed) => ({ path: pathFrom(t0.top, n), tag: tagOf(n), prop: ed.prop, value: ed.value }))) });
+    } catch (e) {
+      for (const [n, v, nest] of was) { if (v === null) n.removeAttribute('style'); else n.setAttribute('style', v); if (nest === undefined) delete n.dataset.nestFill; else n.dataset.nestFill = nest; }
+      toast(commit.notSaved('the colour', e), 6000);
+      return false;
+    }
+    // a nested shape takes its panel's tone of the new colour: the nesting painted again
+    refit([], targets[0].node.ownerSVGElement);
+    return true;
+  }
+
+  // the marquee: a drag on a diagram's empty canvas selects every shape it covers
+  let marquee = null;
+  root.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.altKey || drag || resizing || !active()) return;
+    const svg = e.target?.tagName?.toLowerCase?.() === 'svg' ? e.target : null;
+    if (!svg || svg.parentElement?.closest('svg') || svg.closest('[data-chart]') || !editmode.elementTargetOf(svg)?.top) return;
+    marquee = { svg, x0: e.clientX, y0: e.clientY, id: e.pointerId, el: null };
+  }, true);
+  window.addEventListener('pointermove', (e) => {
+    if (!marquee || e.pointerId !== marquee.id) return;
+    if (!marquee.el) {
+      if (Math.hypot(e.clientX - marquee.x0, e.clientY - marquee.y0) < DRAG_AFTER) return;
+      marquee.el = Object.assign(document.createElement('div'), { className: 'dl-marquee' });
+      root.appendChild(marquee.el);
+    }
+    const x = Math.min(e.clientX, marquee.x0); const y = Math.min(e.clientY, marquee.y0);
+    Object.assign(marquee.el.style, { left: `${x}px`, top: `${y}px`, width: `${Math.abs(e.clientX - marquee.x0)}px`, height: `${Math.abs(e.clientY - marquee.y0)}px` });
+  });
+  window.addEventListener('pointerup', (e) => {
+    const m = marquee;
+    if (!m || e.pointerId !== m.id) return;
+    marquee = null;
+    if (!m.el) return;
+    const box = m.el.getBoundingClientRect();
+    m.el.remove();
+    swallowClick = true;
+    setTimeout(() => { swallowClick = false; }, 350);
+    // what it covers whole: each drawn thing of the canvas, a box group by its shape, never a wire
+    const inside = (r) => r.width + r.height > 0 && r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom;
+    const picked = authoredKids(m.svg).filter((k) => isDrawn(k) && !isConnector(k) && !/^(defs|title|desc|style|metadata)$/.test(tagOf(k)) && inside(k.getBoundingClientRect()))
+      .map((k) => (tagOf(k) === 'g' ? authoredKids(k).find((c) => BOX_SHAPES.has(tagOf(c)) && boxGroupOf(c) === k) ?? k : k));
+    editbar.selectShapes?.(picked);
+    debugLog('edit', `marquee: ${picked.length} shape${picked.length === 1 ? '' : 's'}`);
+  });
+
   editbar.onSelect?.((t) => { if (t) showHandles(t); else hideHandles(); });
   editmode.onElementEditChange?.(() => { if (!active()) hideHandles(); });
   instance.on?.('slide', () => hideHandles());
@@ -1443,6 +1716,8 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     hasCorners: (target) => !!cornerBox(target), cornerState, setCorners,
     /** Order ▸ (and Move up / down on a shape): is there a node to move, can it go `to`, and the move. */
     canOrder, order, isOrderable: (target) => !!orderUnit(target),
+    /** Several shapes of one diagram (editbar's selectedShapes): are these such, and what changes them all. */
+    areShapes, nudge, arrange, removeMany, duplicateMany, styleMany,
     /** Is a drag, a resize or a wire being drawn under way? (the harnesses) */
     busy: () => !!(drag || resizing || wiring),
     /** The handles on screen, for the harnesses: `[{ el, hx, hy, end }]`. */

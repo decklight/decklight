@@ -489,8 +489,12 @@ export function removeSlideElement(html, slide, index) {
  * takes the wires that name it along, in the same write (SVG_DIAGRAMS).
  */
 export function removeNestedElement(html, slide, index, { path, tag }) {
+  return removeNestedElements(html, slide, index, [{ path, tag }]);
+}
+
+/** What removing the node at `path` takes out of `e`: its range, and its connectors' (offsets into `e.el`). */
+function removalRanges(e, path, tag) {
   checkPath(path, { nested: true });
-  const e = openElement(html, slide, index);
   const at = e.at(path, tag);
   // a node's connectors go with it (SVG_DIAGRAMS): a wire left naming a node
   // that is gone would be drawn where the file last put it, joined to nothing
@@ -503,7 +507,24 @@ export function removeNestedElement(html, slide, index, { path, tag }) {
       if (names.includes(attrOf(n.attrs, 'data-from')) || names.includes(attrOf(n.attrs, 'data-to'))) ranges.push([s, end]);
     }
   }
-  e.el = withoutNodes(e.el, ranges);
+  return ranges;
+}
+
+/**
+ * Several nodes inside slide N's element `index` removed in ONE write
+ * (several shapes of a diagram, SVG_DIAGRAMS): each `{ path, tag }` as
+ * removeNestedElement addresses one, every path read in the file as it is
+ * before any goes, their connectors with them, and a node inside another
+ * that goes taken with it, never twice.
+ */
+export function removeNestedElements(html, slide, index, nodes) {
+  if (!Array.isArray(nodes) || !nodes.length || nodes.length > 200) throw new Error('bad nodes');
+  const e = openElement(html, slide, index);
+  const all = nodes.flatMap((n) => removalRanges(e, n?.path, n?.tag ?? null)).sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  // one range a node: what another holds goes with it
+  const kept = [];
+  for (const r of all) if (!kept.some((k) => r[0] >= k[0] && r[1] <= k[1])) kept.push(r);
+  e.el = withoutNodes(e.el, kept);
   return e.html();
 }
 
@@ -576,7 +597,7 @@ const valueShape = (prop) => (STYLE_PROPS.has(prop) ? STYLE_VALUE : WIDTH_PROPS.
  * legible where it sits — `data-nest="off"` in the markup is the opt-out.
  */
 export function setElementStyles(html, slide, index, edits) {
-  if (!Array.isArray(edits) || !edits.length || edits.length > 40) throw new Error('bad edits');
+  if (!Array.isArray(edits) || !edits.length || edits.length > 400) throw new Error('bad edits');
   const e = openElement(html, slide, index);
   // each edit re-walks from the top: the one before it changed the offsets
   for (const ed of edits) {
@@ -1127,7 +1148,8 @@ function geometryValue(attr, value) {
  * (setElementLines): a resize that re-wraps the label on the shape it resized.
  */
 export function setElementGeometry(html, slide, index, edits) {
-  if (!Array.isArray(edits) || !edits.length || edits.length > 60) throw new Error('bad edits');
+  // several shapes moved together, their wires and labels with them, are one write (SVG_DIAGRAMS)
+  if (!Array.isArray(edits) || !edits.length || edits.length > 600) throw new Error('bad edits');
   let e = openElement(html, slide, index);
   for (const ed of edits) {
     // a label re-wrapped by the resize of its shape: its lines, in the same write (SVG_DIAGRAMS)
@@ -1594,6 +1616,37 @@ function withMarker(svgSrc, marker, lay, path) {
  * connector between them is a second pair joined by a second connector.
  * Returns `{ html, added: { path, html } }`.
  */
+/**
+ * Several nodes of a diagram duplicated in ONE write (SVG_DIAGRAMS), each as
+ * duplicateDiagramNode duplicates one, right after itself: the last in the
+ * file first, so each path still names what the page saw. Returns `{ html,
+ * added: [{ path, html }] }`, in the order asked, each copy where it ends up.
+ */
+export function duplicateDiagramNodes(html, slide, index, nodes, { by = null } = {}) {
+  if (!Array.isArray(nodes) || !nodes.length || nodes.length > 100) throw new Error('bad nodes');
+  for (const n of nodes) checkPath(n?.path);
+  const later = (a, b) => { for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return b[i] - a[i]; return b.length - a.length; };
+  const order = nodes.map((n, i) => ({ ...n, i })).sort((a, b) => later(a.path, b.path));
+  let out = html;
+  const added = [];
+  for (const n of order) {
+    const d = duplicateDiagramNode(out, slide, index, { path: n.path, tag: n.tag ?? null, by });
+    out = d.html;
+    added[n.i] = d.added;
+  }
+  // a copy put in before another's moves it one along among its siblings
+  const final = added.map((a, i) => {
+    const p = [...a.path];
+    for (const m of nodes) {
+      const q = m.path;
+      if (m === nodes[i] || q.length !== p.length || q.slice(0, -1).join('.') !== p.slice(0, -1).join('.')) continue;
+      if (q.at(-1) < nodes[i].path.at(-1)) p[p.length - 1] += 1;
+    }
+    return { path: p, html: a.html };
+  });
+  return { html: out, added: final };
+}
+
 export function duplicateDiagramNode(html, slide, index, { path, tag = null, by = null }) {
   checkPath(path, { nested: true });
   if (by !== null && (typeof by !== 'object' || !Number.isFinite(coordOf(by.dx)) || !Number.isFinite(coordOf(by.dy)))) throw new Error('bad step');

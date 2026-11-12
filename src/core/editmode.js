@@ -2576,6 +2576,25 @@ export function createEditMode({
       rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
       rows.push({ label: `${cur === null ? '✓ ' : ''}none`, current: cur === null, run: () => commitAnimate(null) });
       for (const a of ANIMATIONS) rows.push({ label: `${a === cur ? '✓ ' : ''}${a}`, current: a === cur, run: () => commitAnimate(a) });
+    } else if (menuView === 'arrange') {
+      // Arrange ▸ (SVG_DIAGRAMS): several shapes lined up on the box round them, spaced evenly, or sized as the first
+      const many = selectionOf();
+      rows.push(backTo('main'));
+      const go = (how) => () => { closeElementMenu(); several.arrange(many, how); };
+      rows.push({ head: 'Align' });
+      for (const [how, label] of [['left', 'Left'], ['center', 'Center'], ['right', 'Right'], ['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']]) rows.push({ label, run: go(how) });
+      rows.push({ head: 'Space evenly' });
+      for (const [how, label] of [['across', 'Across'], ['down', 'Down']]) rows.push({ label, disabled: many.length < 3, run: many.length < 3 ? () => {} : go(how) });
+      rows.push({ head: 'Same size' });
+      for (const [how, label] of [['width', 'Width'], ['height', 'Height']]) rows.push({ label, run: go(how) });
+    } else if (menuView === 'concepts') {
+      // Concept ▸ on several shapes: one of the deck's concepts, or none, on every one of them in one write
+      const many = selectionOf();
+      rows.push(backTo('main'));
+      const els = many.map((t) => conceptOf(t.top, t.node)?.el).filter(Boolean);
+      const go = (name) => () => { closeElementMenu(); if (conceptTools) conceptTools.attach(els, name); };
+      for (const name of knownConcepts()) rows.push({ label: name, run: go(name) });
+      rows.push({ label: 'none (detach)', run: go(null) });
     } else if (menuView === 'concept') {
       // Concept ▸ (SPEC SVG_DIAGRAMS, #718): the shape's data-concept — one of
       // the names the deck already uses, a new one, or none
@@ -2699,12 +2718,19 @@ export function createEditMode({
       const go = (fn) => () => { closeElementMenu(); fn(); };
       rows.push({ head: `${many.length} selected` });
       rows.push({ label: 'Colors…', run: () => openInspect('colors') });
-      rows.push({ label: 'Type…', run: () => openInspect('type') });
-      if (styleClip) rows.push({ label: 'Paste style', key: styleClip.keys.paste, disabled: !styleClip.has(), run: styleClip.has() ? go(() => several.pasteStyle(many)) : () => {} });
-      rows.push({ label: 'Move up', run: go(() => several.move(many, -1)) });
-      rows.push({ label: 'Move down', run: go(() => several.move(many, 1)) });
-      // several paragraphs, headings, quotes or lists: one list or one quote (turn-into.js)
-      if (turnInto?.joinRows?.(many, closeElementMenu)?.length) rows.push({ label: 'Turn into ▸', run: () => { menuView = 'joinkind'; renderElementMenu(); } });
+      // several shapes of one diagram: lined up, spaced, sized together, and one concept (SVG_DIAGRAMS)
+      const shapesHere = several.areShapes?.(many);
+      if (shapesHere) {
+        rows.push({ label: 'Arrange ▸', run: keepSelection('arrange') });
+        rows.push({ label: 'Concept ▸', run: keepSelection('concepts') });
+      } else {
+        rows.push({ label: 'Type…', run: () => openInspect('type') });
+        if (styleClip) rows.push({ label: 'Paste style', key: styleClip.keys.paste, disabled: !styleClip.has(), run: styleClip.has() ? go(() => several.pasteStyle(many)) : () => {} });
+        rows.push({ label: 'Move up', run: go(() => several.move(many, -1)) });
+        rows.push({ label: 'Move down', run: go(() => several.move(many, 1)) });
+        // several paragraphs, headings, quotes or lists: one list or one quote (turn-into.js)
+        if (turnInto?.joinRows?.(many, closeElementMenu)?.length) rows.push({ label: 'Turn into ▸', run: () => { menuView = 'joinkind'; renderElementMenu(); } });
+      }
       rows.push({ label: 'Duplicate', key: DUPLICATE_CHORD, run: go(() => several.duplicate(many)) });
       rows.push({ label: 'Remove', key: '⌫', run: go(() => several.remove(many)) });
     } else {
@@ -2806,6 +2832,8 @@ export function createEditMode({
   }
   /** A submenu row's run: the menu redrawn as `view`. */
   function drill(view) { return () => { menuView = view; renderElementMenu(); }; }
+  /** A submenu opened on several selected: the click stays in the menu, so the slide never hears it and lets go of them. */
+  function keepSelection(view) { return (e) => { e?.stopPropagation?.(); menuView = view; renderElementMenu(); }; }
   /** A submenu's way back to `view`. */
   function backTo(view) { return { label: '← back', back: true, run: drill(view) }; }
 

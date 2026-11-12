@@ -3889,6 +3889,14 @@
 /* a wire is never boxed (the box its route spans is mostly empty): selected, it glows along its own stroke,
    tighter and fuller than the hover's glow, and winning over it */
 .decklight svg .dl-wire-selected, .decklight svg .dl-wire-selected.dl-glow { filter: drop-shadow(0 0 1.5px var(--accent)) drop-shadow(0 0 4px var(--accent)); }
+/* several shapes of one diagram selected (SVG_DIAGRAMS): the others beside the
+   framed one glow in the accent, as a selected wire does */
+.decklight svg .dl-shape-also { filter: drop-shadow(0 0 1.5px var(--accent)) drop-shadow(0 0 5px var(--accent)); }
+/* the marquee a drag on a diagram's empty canvas draws (shapes.js) */
+.decklight .dl-marquee {
+  position: fixed; z-index: 31; pointer-events: none;
+  border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 
 /* The sources editor. A draft, so it looks like a form and not like the card
    it was reading a moment ago. */
