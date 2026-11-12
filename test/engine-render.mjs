@@ -41,7 +41,7 @@ export const MODES = [
   'links',
   'pictureresize', 'picturealt', 'picturebg', 'picturepaste', 'pictureslidetab',
   'chartdata', 'codeoptions',
-  'shapedrag', 'shapeadd', 'shaperesize',
+  'shapedrag', 'shapeadd', 'shaperesize', 'shapeorder',
   'connectors', 'connectmenu', 'linestyle', 'guides', 'connectdraw',
   'dupkeys',
 ];

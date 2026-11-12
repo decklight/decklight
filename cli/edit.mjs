@@ -34,6 +34,7 @@
 //   POST /deck/edit/element/content → { slide, index, html }    replace its outerHTML
 //   POST /deck/edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
 //   POST /deck/edit/element/move    → { slide, index, to, path?, tag? }  move it (or a node inside it) to place `to`
+//   POST /deck/edit/element/order   → { slide, index, path, tag, to, groups? }  a diagram's node to the front, forward, backward or back
 //   POST /deck/edit/element/duplicate → { slide, index, path?, tag? }  a copy of it (or of a node inside it) right after it
 //   POST /deck/edit/element/picture → { slide, index, path?, width?, alt?, src?, caption? }  one picture's size, alt, file or caption
 //   POST /deck/edit/element/options → { slide, index, path?, tag, set }  a code block's language, line numbers, fit, line steps
@@ -794,6 +795,40 @@ export function moveSlideElement(html, slide, index, { to, path = null, tag = nu
   return { html: parts.join(''), index: content[to].raw, path: null };
 }
 
+// ── front and back (SVG_DIAGRAMS) ─────────────────────────────────────────
+
+/** What a diagram holds that is not drawn: never moved past by front and back, and never counted. */
+const NOT_PAINTED = new Set(['defs', 'title', 'desc', 'style', 'metadata', 'script']);
+export const ORDER_MOVES = ['front', 'forward', 'backward', 'back'];
+
+/**
+ * A node of a diagram brought to the front, forward one, backward one or
+ * sent to the back (`to`) among its drawn siblings: what covers what is the
+ * order they are written in. Its `<defs>`, `<title>` and the like are not
+ * drawn and stay where they are. The node moves textually with its line
+ * (moveSlideElement). Returns `{ html, path }`, the path it is at now.
+ * Refused: a node outside a diagram, a move it is already at the end for.
+ */
+export function setDiagramOrder(html, slide, index, { path, tag = null, to }) {
+  if (!ORDER_MOVES.includes(to)) throw new Error(`front, forward, backward or back, not: ${String(to).slice(0, 20)}`);
+  checkPath(path);
+  if (!path?.length) throw new Error('front and back is for a node inside a diagram');
+  const e = openElement(html, slide, index);
+  const at = e.at(path, tag);
+  if (!at.inSvg || at.found === 'svg') throw new Error(`front and back is for a node inside a diagram, not a <${at.found}>`);
+  const parentPath = path.slice(0, -1);
+  const parent = parentPath.length ? e.at(parentPath) : { start: 0, end: e.el.length };
+  const kids = elementChildRanges(e.el.slice(parent.start, parent.end));
+  const from = path.at(-1);
+  if (NOT_PAINTED.has(kids[from]?.tag)) throw new Error(`a <${kids[from]?.tag}> is not drawn: it has no front or back`);
+  const drawn = kids.map((k, i) => ({ ...k, i })).filter((k) => !NOT_PAINTED.has(k.tag));
+  const here = drawn.findIndex((k) => k.i === from);
+  const want = to === 'front' ? drawn.length - 1 : to === 'back' ? 0 : here + (to === 'forward' ? 1 : -1);
+  if (want < 0 || want >= drawn.length || want === here) throw refusedMove(`it is already ${want > here || to === 'front' || to === 'forward' ? 'at the front' : 'at the back'}`);
+  const moved = moveSlideElement(html, slide, index, { to: drawn[want].i, path, tag });
+  return { html: moved.html, path: moved.path };
+}
+
 // ── a diagram's shapes: moved, resized, added, duplicated (SVG_DIAGRAMS) ────
 // Write mode drags a box, pulls a handle, adds a shape from the element menu
 // and duplicates one. The page shows each at once; these are what the file
@@ -1344,6 +1379,14 @@ export function addDiagramShape(html, slide, index, { path, tag = 'svg', kind, a
     ({ svgSrc, defs, marker } = arrowheadFor(svgSrc, lay, path, { prefer: model && attrOf(model.attrs, 'marker-end') }));
     markup = `${model ? openTag('line', model.attrs, { x1: f(c.x - half), y1: f(c.y), x2: f(c.x + half), y2: f(c.y), 'marker-end': marker })
       : openTag('line', null, { x1: f(c.x - half), y1: f(c.y), x2: f(c.x + half), y2: f(c.y), 'stroke-width': '2', style: 'stroke: var(--d-stroke)', 'marker-end': marker })}/>`;
+  }
+  // a diagram whose builds were frozen (front and back stamps every step) plays
+  // its steps by key: a new one takes the next, so it arrives last, not mid-order
+  if (/\sdata-build-order\s*=/i.test(svgSrc)) {
+    const { parts, idx } = locateSlide(html, slide);
+    const keys = [...parts[idx].matchAll(/\sdata-build-order\s*=\s*["']?(\d+)/gi)].map((m) => Number(m[1]));
+    const head = /^<[a-z]+/i.exec(markup)[0];
+    markup = `${head} data-build-order="${Math.max(0, ...keys) + 1}"${markup.slice(head.length)}`;
   }
   // last in the svg, on a line of its own at its siblings' indentation
   let at2;
@@ -2156,8 +2199,11 @@ const fileBefore = (a, b) => {
  * instead, so a deck put back as it was says nothing about its order.
  * Returns `{ html, orders }`: the deck, and each node's order as written
  * (`order` a string, or null where it was taken off) for a page to show.
+ * `freeze` stamps every node even when the order is the file's own: what
+ * front and back needs before it moves a node (setDiagramOrder), since the
+ * order the file's positions give is about to change.
  */
-export function setSlideBuildOrder(html, slide, groups) {
+export function setSlideBuildOrder(html, slide, groups, { freeze = false } = {}) {
   if (!Array.isArray(groups) || !groups.length || groups.some((g) => !Array.isArray(g) || !g.length)) throw new Error('groups are lists of the nodes each click brings');
   const flat = groups.flat();
   if (flat.length > 512) throw new Error('too many steps');
@@ -2174,7 +2220,7 @@ export function setSlideBuildOrder(html, slide, groups) {
     seen.add(k);
   }
   const at = (n) => ({ index: n.index, path: n.path ?? [] });
-  const asWritten = groups.every((g) => g.length === 1) && flat.every((n, i) => i === 0 || fileBefore(at(flat[i - 1]), at(n)));
+  const asWritten = !freeze && groups.every((g) => g.length === 1) && flat.every((n, i) => i === 0 || fileBefore(at(flat[i - 1]), at(n)));
   const orders = [];
   let out = html;
   let key = 1;
@@ -2444,6 +2490,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/effect': 'build effect set',
   '/deck/edit/element/build': 'build changed',
   '/deck/edit/element/move': 'element moved',
+  '/deck/edit/element/order': 'diagram order changed',
   '/deck/edit/element/duplicate': 'element duplicated',
   '/deck/edit/element/style': 'colours saved',
   '/deck/edit/element/concept': 'concept set',
@@ -2599,6 +2646,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/effect': 'build effect',
   '/deck/edit/element/build': 'build',
   '/deck/edit/element/move': 'move',
+  '/deck/edit/element/order': 'front and back',
   '/deck/edit/element/duplicate': 'duplicate',
   '/deck/edit/element/style': 'colours',
   '/deck/edit/element/concept': 'concept',

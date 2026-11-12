@@ -55,6 +55,9 @@
 import { pathFrom } from './colorpicker.js';
 import { injectedIn, isDrawn } from './pick.js';
 import { createEditCommit } from './edit-commit.js';
+import { clearBuildMarks } from './builds.js';
+import { orderGroups } from './buildlist.js';
+import { addressOf } from './build-edit.js';
 import { linesOf, setLines, fitOnShape, overflowingLabels } from './diagram-labels.js';
 import { LINE_DASHES, LINES, lineOf, CORNERS, cornersOf, cornerRadius, SHAPES, shapeGeometry, shapeBox } from '../../tools/diagram-shapes.mjs';
 import {
@@ -1237,6 +1240,89 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     return ok ? b : null;
   }
 
+  // ── front and back (SVG_DIAGRAMS): Shape ▸ Order ▸, and Move up / down on a shape ──
+  /** What is not drawn in a diagram: never moved past, never counted. */
+  const NOT_PAINTED = new Set(['defs', 'title', 'desc', 'style', 'metadata', 'script']);
+  /** What front and back moves for a selection: its box group when it is the shape of one, else the node. */
+  const orderUnit = (target) => {
+    const n = target?.node;
+    if (!n || !isDrawn(n) || tagOf(n) === 'tspan' || !diagramOf(target) || n === diagramOf(target)) return null;
+    const u = duplicateUnit(n);
+    return pathFrom(target.top, u)?.length ? u : null;
+  };
+  /** Its drawn siblings and where it stands among them. */
+  function paintOrder(unit) {
+    const drawn = authoredKids(unit.parentElement).filter((k) => !NOT_PAINTED.has(tagOf(k)));
+    return { drawn, here: drawn.indexOf(unit) };
+  }
+  /** Can the selection go `to` ('front', 'forward', 'backward', 'back')? Not when it is already there. */
+  function canOrder(target, to) {
+    const u = orderUnit(target);
+    if (!u) return false;
+    const { drawn, here } = paintOrder(u);
+    return to === 'front' || to === 'forward' ? here < drawn.length - 1 : here > 0;
+  }
+  const ORDER_SAID = { front: 'brought to the front', forward: 'brought forward', backward: 'sent backward', back: 'sent to the back' };
+  /**
+   * The selection to the front, forward, backward or to the back. When the
+   * diagram builds, the slide's clicks as they play now go with it, so the
+   * server freezes them (a key on every step) before the node moves: the
+   * builds and the notes' beats stay as they were. The page then makes the
+   * same move, the engine's nodes riding with it, and counts the steps again.
+   */
+  async function order(target, to) {
+    if (!editmode.available?.()) { toast(editmode.cannot?.('changing what covers what') ?? 'this page cannot write the deck', 3200); return null; }
+    const unit = orderUnit(target);
+    if (!unit || !canOrder(target, to)) { toast(unit ? `it is already ${to === 'front' || to === 'forward' ? 'at the front' : 'at the back'}` : 'select a shape in a diagram to change what covers it', 2400); return null; }
+    const svg = diagramOf(target);
+    const sec = svg.closest('section');
+    const slideAt = instance._sections?.indexOf(sec) ?? -1;
+    const rec = instance._records?.[slideAt];
+    // the diagram builds: freeze the slide's play order (build-edit.js's shape of it)
+    const built = !!rec?.steps?.some((st) => st.el && (st.el === svg || svg.contains(st.el)));
+    let flat = []; let groups = null;
+    if (built) {
+      const g = orderGroups(rec.groups, rec.steps.map((st) => ({ node: st.el, count: st.kind === 'provider' ? st.provider?.count ?? 1 : 1 })));
+      flat = g.flat();
+      const addrs = flat.map(({ node }) => addressOf(instance, node));
+      if (addrs.some((a) => !a)) { toast('a step on this slide is the engine’s, not the file’s: its order cannot be frozen', 3200); return null; }
+      let k = 0;
+      groups = g.map((grp) => grp.map(({ count }) => { const a = addrs[k++]; return { index: a.index, ...(a.path.length ? { path: a.path } : {}), tag: a.tag, ...(count > 1 ? { count } : {}) }; }));
+    }
+    const path = pathFrom(target.top, unit);
+    let j;
+    try {
+      j = await post('/deck/edit/element/order', { slide: target.slide, index: target.index, path, tag: tagOf(unit), to, ...(groups ? { groups } : {}) });
+    } catch (e) { toast(commit.notSaved('the order', e), 6000); return null; }
+    try {
+      (j.orders ?? []).forEach((o, i) => {
+        const node = flat[i]?.node;
+        if (node) { if (o.order === null) node.removeAttribute('data-build-order'); else node.setAttribute('data-build-order', o.order); }
+      });
+      // the node and what the engine drew for it (a riding head, a dashed line's mask) move together
+      const riders = [];
+      for (let n = unit.nextElementSibling; n?.matches(ENGINE_NODES); n = n.nextElementSibling) riders.push(n);
+      unit.remove(); for (const r of riders) r.remove();
+      insertAt(target.top, j.path, unit);
+      unit.after(...riders);
+    } catch (e) {
+      reloadFor('a shape could not be put where the file now has it', e);
+      return null;
+    }
+    const step = instance.state?.slide === slideAt + 1 ? instance.state.step : 0;
+    if (built) {
+      clearBuildMarks(sec);
+      instance.refreshSlide?.(sec, { scan: true, relayout: false });
+      if (instance.state?.slide === slideAt + 1 && instance.state.step !== step) instance.goto(slideAt + 1, step);
+    }
+    // a nested shape's tone is by what it sits on (data-nest): painted again
+    refit([], svg);
+    editbar.selectNode(target.node.isConnected ? target.node : unit, { exact: true });
+    toast(ORDER_SAID[to], 1400);
+    debugLog('edit', `order ${to}: slide ${target.slide} element #${target.index} › ${path.join('.')} → ${j.path.join('.')}`);
+    return unit;
+  }
+
   editbar.onSelect?.((t) => { if (t) showHandles(t); else hideHandles(); });
   editmode.onElementEditChange?.(() => { if (!active()) hideHandles(); });
   instance.on?.('slide', () => hideHandles());
@@ -1355,6 +1441,8 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     /** Line ▸ on a stroke and Corners ▸ on a box: is there one, which is ticked, and the write. */
     isStroke: (target) => !!strokeOf(target), lineState, setLine,
     hasCorners: (target) => !!cornerBox(target), cornerState, setCorners,
+    /** Order ▸ (and Move up / down on a shape): is there a node to move, can it go `to`, and the move. */
+    canOrder, order, isOrderable: (target) => !!orderUnit(target),
     /** Is a drag, a resize or a wire being drawn under way? (the harnesses) */
     busy: () => !!(drag || resizing || wiring),
     /** The handles on screen, for the harnesses: `[{ el, hx, hy, end }]`. */
