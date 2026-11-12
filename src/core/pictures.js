@@ -41,6 +41,24 @@ import { imageFiles } from './authoring.js';
 import { createEditCommit } from './edit-commit.js';
 import { createResizeHandles, CORNERS, contentWidth, dragWidth as dragAny } from './resize-handles.js';
 
+/** Picture ▸ Fit: the whole picture, or a frame of one of four shapes that it fills (cli/edit.mjs PICTURE_VALUES). */
+const FITS = [['', 'Whole picture'], ['16 / 9', 'Fill a 16:9 frame'], ['4 / 3', 'Fill a 4:3 frame'], ['3 / 2', 'Fill a 3:2 frame'], ['1 / 1', 'Fill a square frame']];
+/** Picture ▸ Position: where a filled frame shows it; '' is the centre. */
+const PLACES = ['top left', 'top', 'top right', 'left', '', 'right', 'bottom left', 'bottom', 'bottom right'];
+/**
+ * A position as the menu names it, whichever way the browser spells it back
+ * (`top left` reads `left top`, `top` reads `center top`): the vertical word
+ * first, '' for the centre.
+ */
+export function placeOf(css) {
+  const w = String(css ?? '').toLowerCase().split(/\s+/);
+  const v = w.find((x) => x === 'top' || x === 'bottom') ?? '';
+  const h = w.find((x) => x === 'left' || x === 'right') ?? '';
+  return [v, h].filter(Boolean).join(' ');
+}
+/** Picture ▸ Corners: square, or rounded a little, more, or into a circle. */
+const ROUNDS = [['', 'Square'], ['8px', 'Rounded'], ['16px', 'More rounded'], ['50%', 'Circle']];
+
 /** The bounds the server writes a width within (cli/edit.mjs PICTURE_WIDTH), in deck units. */
 export const PICTURE_MIN = 16;
 export const PICTURE_MAX = 4096;
@@ -277,6 +295,43 @@ export function createPictures({
     }
   }
 
+  // ── how a picture sits in its frame (Picture ▸ Fit, Position, Corners) ────
+  /** What the picture's own style says about its frame: `{ ratio, position, radius }` ('' where it says nothing). */
+  const lookOf = (pic) => ({
+    ratio: pic.style.objectFit === 'cover' ? pic.style.aspectRatio.replace(/\s*\/\s*/, ' / ') : '',
+    position: placeOf(pic.style.objectPosition),
+    radius: pic.style.borderRadius || '',
+  });
+  /**
+   * Set some of the picture's frame properties (`{ prop: value | null }`),
+   * shown at once and written in one write through the style route; a
+   * refusal puts back what it had.
+   */
+  async function setLook(pic, props, said) {
+    if (!editmode.available?.()) { toast(say('changing a picture'), 3200); return false; }
+    const at = addressOf(pic);
+    if (!at) { toast('that picture is the engine’s, not the file’s', 2600); return false; }
+    const was = Object.fromEntries(Object.keys(props).map((k) => [k, pic.style.getPropertyValue(k)]));
+    const put = (vals) => { for (const [k, v] of Object.entries(vals)) { if (v) pic.style.setProperty(k, v); else pic.style.removeProperty(k); } };
+    put(props);
+    announce(at.slide, pic);
+    try {
+      await post('/deck/edit/element/style', { slide: at.slide, index: at.index, edits: Object.entries(props).map(([prop, value]) => ({ path: at.path, tag: 'img', prop, value })) });
+      toast(`picture ${said}`, 1600);
+      inspector()?.refresh?.();
+      return true;
+    } catch (e) {
+      put(was);
+      announce(at.slide, pic);
+      toast(`the picture was not changed: ${commit.why(e)}`, 6000);
+      return false;
+    }
+  }
+  /** Fill a frame of `ratio` ('16 / 9' …), or the whole picture again (''): the position goes with a frame. */
+  const setFit = (pic, ratio) => (ratio
+    ? setLook(pic, { 'aspect-ratio': ratio, 'object-fit': 'cover' }, `filling a ${ratio.replace(' / ', ':')} frame`)
+    : setLook(pic, { 'aspect-ratio': null, 'object-fit': null, 'object-position': null }, 'shown whole'));
+
   // ── a caption ───────────────────────────────────────────────────────────
   const inFigure = (pic) => pic.parentElement?.tagName === 'FIGURE';
   async function addCaption(pic) {
@@ -333,12 +388,26 @@ export function createPictures({
     elementRows(target) {
       const pic = pictureOf(target);
       if (!pic || !editmode.available?.()) return [];
+      const look = lookOf(pic);
+      const tick = (on, label) => `${on ? '✓ ' : ''}${label}`;
       return [
         { label: 'Replace…', run: () => replace(pic) },
         { label: 'Add caption', disabled: inFigure(pic), run: () => addCaption(pic) },
         { label: 'Use as slide background', run: () => toBackground(pic) },
         { label: 'Reset size', disabled: !sized(pic), run: () => naturalSize(pic) },
+        { head: 'Fit' },
+        ...FITS.map(([ratio, label]) => ({ label: tick(look.ratio === ratio, label), current: look.ratio === ratio, run: () => setFit(pic, ratio) })),
+        ...(look.ratio ? [{ label: `Position: ${look.position || 'center'} ▸`, drill: 'picposition' }] : []),
+        { head: 'Corners' },
+        ...ROUNDS.map(([r, label]) => ({ label: tick(look.radius === r, label), current: look.radius === r, run: () => setLook(pic, { 'border-radius': r }, `corners ${label.toLowerCase()}`) })),
       ];
+    },
+    /** Picture ▸ Position ▸: the nine places a filled frame can show, the one it shows ticked. */
+    positionRows(target) {
+      const pic = pictureOf(target);
+      if (!pic || !editmode.available?.()) return [];
+      const at = lookOf(pic).position;
+      return PLACES.map((p) => ({ label: `${at === p ? '✓ ' : ''}${p || 'center'}`, current: at === p, run: () => setLook(pic, { 'object-position': p || null }, `shown from the ${p || 'center'}`) }));
     },
     /** Slide ▸'s rows: a background picture to choose, and one to take off when the slide has one. */
     slideRows(slide = instance.state.slide) {

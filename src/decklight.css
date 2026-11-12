@@ -3360,6 +3360,10 @@
   padding: 6px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, .55);
   font: 14px/1.4 system-ui, sans-serif;
+  /* a menu taller than the deck scrolls inside itself rather than running off it */
+  max-height: calc(100% - 8px);
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 .decklight-ctxmenu .cm-row {
   padding: 7px 12px;
