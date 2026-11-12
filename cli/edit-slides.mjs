@@ -1100,7 +1100,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     }
     return json(200, {
       ok: true, index: done.index, path: done.path, ...(done.wrapped ? { wrapped: true } : {}), count: done.count, kind, html: done.markup,
-      ...(done.layout ? { layout: done.layout } : {}), inPlace: inPlace === true, ...history.counts(),
+      ...(done.layout ? { layout: done.layout } : {}), ...(done.section ? { section: done.section } : {}), inPlace: inPlace === true, ...history.counts(),
     });
   }
 

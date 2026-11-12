@@ -760,6 +760,7 @@
           const MARKUP = {
             bullets: '<ul>\n  <li>New point</li>\n  <li>Another point</li>\n</ul>',
             code: '<pre><code class="language-js">// New code\nconst answer = 42;</code></pre>',
+            formula: '<p>$$e^{i\\pi} + 1 = 0$$</p>',
             columns: `${COL}\n${COL}`,
             chart: '<div class="chart" data-chart="bar" data-title="New chart">\n  <script type="application/json">\n  { "labels": ["A", "B", "C"], "series": [ { "name": "Series", "data": [3, 5, 2] } ] }\n  <\/script>\n</div>',
             diagram: '<svg viewBox="0 0 640 200" width="640" data-build="draw" role="img" aria-label="New diagram">\n  <defs><marker id="dl-wire-1" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>\n  <g><rect x="40" y="56" width="200" height="88" rx="10" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/><text x="140" y="106" text-anchor="middle">Box A</text></g>\n  <line x1="244" y1="100" x2="392" y2="100" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#dl-wire-1)"/>\n  <g><rect x="400" y="56" width="200" height="88" rx="10" style="fill: var(--d-fill-2); stroke: var(--d-stroke)" stroke-width="2"/><text x="500" y="106" text-anchor="middle">Box B</text></g>\n</svg>',
@@ -771,7 +772,8 @@
           const index = b.index === null ? k : b.index + 1;
           window.__lastInsert = MARKUP[b.kind];
           return json({ ok: true, index, count: b.kind === 'columns' ? 2 : 1, kind: b.kind, html: MARKUP[b.kind],
-            ...(b.kind === 'columns' ? { layout: 'split' } : {}), inPlace: b.quiet === true, undo: 1, redo: 0 });
+            ...(b.kind === 'columns' ? { layout: 'split' } : {}), ...(b.kind === 'formula' ? { section: { 'data-math': '' } } : {}),
+            inPlace: b.quiet === true, undo: 1, redo: 0 });
         }
         if (u.includes('/deck/edit/slide')) {
           const b = JSON.parse(init?.body ?? '{}');
@@ -5611,7 +5613,7 @@
         const pick = (label) => click([...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === label));
         const active = () => document.querySelector('.decklight-stage > section.active');
         const inserts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/insert'));
-        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Table', 'Code', 'Two columns', 'Diagram', 'Chart', 'Picture'];
+        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Table', 'Code', 'Formula', 'Two columns', 'Diagram', 'Chart', 'Picture'];
         deck.goto(1, 0); await settle();
         const labels = [...(bar()?.querySelectorAll('.eb-btn .eb-label') ?? [])].map((n) => n.textContent);
         r.addSitsBesidePicture = labels.indexOf('Add ▾') === labels.indexOf('Picture') - 1;
@@ -5673,6 +5675,17 @@
         await settle();
         r.codeHighlighted = !!code?.classList.contains('hljs') && !!code.querySelector('.code-line');
         press('Escape'); await settle();
+        // a formula: the slide marked for math in the same write, typeset, and open as its TeX
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Formula'); await settle(); await settle(); await settle();
+        const formula = [...active().querySelectorAll(':scope > p')].at(-1);
+        r.formulaMarksTheSlide = active().hasAttribute('data-math') && inserts().at(-1)?.body.kind === 'formula';
+        r.formulaOpenAsSource = !!formula?.isContentEditable && formula.textContent === '$$e^{i\\pi} + 1 = 0$$'
+          && window.getSelection().toString() === '$$e^{i\\pi} + 1 = 0$$';
+        formula?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        r.formulaTypeset = !!formula?.querySelector('math') && !formula.isContentEditable;
+        press('Escape'); await settle();
         // the palette's one row opens the same menu
         runRow('add to slide'); await settle();
         r.paletteRowOpensTheMenu = JSON.stringify(menuRows()) === JSON.stringify(KINDS);
@@ -5698,7 +5711,7 @@
         r.PASS = r.addSitsBesidePicture && r.menuListsEveryKind && r.askedAfterTheSelection && r.landsAfterTheSelection && r.landsSelected
           && r.landsInEdit && r.placeholderSelected && r.typingReplacesThePlaceholder && r.diagramBeforeTheAsides && r.diagramIdsNamespaced
           && r.diagramShownWhole && r.diagramSelectedNotTyped && r.columnsTakeTheSplit && r.columnsHeadingInEdit && r.chartDrawnInPlace
-          && r.codeInEdit && r.codeHighlighted && r.paletteRowOpensTheMenu && r.templateSlideTurnsAddOff && r.templateSlideSaysWhy
+          && r.codeInEdit && r.codeHighlighted && r.formulaMarksTheSlide && r.formulaOpenAsSource && r.formulaTypeset && r.paletteRowOpensTheMenu && r.templateSlideTurnsAddOff && r.templateSlideSaysWhy
           && r.lockedAddsNothing && r.noReload;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

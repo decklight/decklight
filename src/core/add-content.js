@@ -25,18 +25,18 @@ import { innerPath } from './editbar.js';
 /** What Add offers, in its order: the server's kinds, then the picture the bar always had. */
 export const ADD_KINDS = [
   ['heading', 'Heading'], ['text', 'Text'], ['bullets', 'Bullets'], ['numbered', 'Numbered list'],
-  ['quote', 'Quote'], ['table', 'Table'], ['code', 'Code'], ['columns', 'Two columns'],
+  ['quote', 'Quote'], ['table', 'Table'], ['code', 'Code'], ['formula', 'Formula'], ['columns', 'Two columns'],
   ['diagram', 'Diagram'], ['chart', 'Chart'], ['picture', 'Picture'],
 ];
 const SAID = {
   heading: 'a heading', text: 'text', bullets: 'a bullet list', numbered: 'a numbered list', quote: 'a quote',
-  table: 'a table', code: 'a code block', columns: 'two columns', diagram: 'a diagram', chart: 'a chart',
+  table: 'a table', code: 'a code block', formula: 'a formula', columns: 'two columns', diagram: 'a diagram', chart: 'a chart',
 };
 
 /** The node a new element's words are typed into, or null for a kind that is not words (a diagram, a chart). */
 export function typingTarget(kind, el) {
   switch (kind) {
-    case 'heading': case 'text': case 'quote': return el;
+    case 'heading': case 'text': case 'quote': case 'formula': return el;
     case 'bullets': case 'numbered': return el.querySelector('li');
     case 'table': return el.querySelector('th, td');
     case 'columns': return el.querySelector('h3, li');
@@ -95,11 +95,14 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
         commit.reload(`${SAID[kind] ?? kind} added — the page could not show it in place`, { slide });
         return;
       }
+      // the slide's own attributes the write gave it (a formula's data-math)
+      for (const [name, v] of Object.entries(j.section ?? {})) if (/^data-[a-z-]+$/.test(name)) sec.setAttribute(name, v === true ? '' : String(v));
       // what the engine does to content at load, done to it now: a chart
-      // drawn, a diagram's ids namespaced, code highlighted and lined, the
-      // split two columns ask for, and the slide rescanned and laid out again
+      // drawn, a formula typeset, a diagram's ids namespaced, code highlighted
+      // and lined, the split two columns ask for, and the slide rescanned and
+      // laid out again
       instance.refreshSlide?.(sec, {
-        charts: true, svgs: els, code: els.filter((el) => el.matches('pre') || el.querySelector('pre > code')), layout: j.layout ?? null, paint: sec,
+        charts: true, math: true, svgs: els, code: els.filter((el) => el.matches('pre') || el.querySelector('pre > code')), layout: j.layout ?? null, paint: sec,
       });
       editbar.refresh();
       reveal(slide, els);

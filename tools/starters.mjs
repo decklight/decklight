@@ -21,7 +21,7 @@ import {
 } from './deck-html.mjs';
 
 /** The kinds of element Add offers, in its order (Picture is the page's file chooser, not a starter). */
-export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'table', 'code', 'columns', 'diagram', 'chart'];
+export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'table', 'code', 'formula', 'columns', 'diagram', 'chart'];
 
 /** The kinds of slide New slide offers; no kind is today's blank slide (`BLANK_SLIDE`). */
 export const SLIDE_KINDS = ['bullets', 'text', 'columns', 'section', 'blank'];
@@ -65,6 +65,9 @@ function elementStarter(kind, { titled = true, wire = 'dl-wire-1' } = {}) {
     // lines start at the margin, since inside <pre> every space is shown
     case 'code': return `<pre><code class="language-js">// New code
 const answer = 42;</code></pre>`;
+    // CODE_AND_MATH: a display formula in a paragraph, typed as its TeX
+    // source; the route marks the slide for math in the same write
+    case 'formula': return '<p>$$e^{i\\pi} + 1 = 0$$</p>';
     // COMPARISON_SLIDES: two sibling blocks under a split layout (the route
     // sets the layout), never a column flexbox of our own
     case 'columns': return `${COLUMN('Column')}\n${COLUMN('Column')}`;
@@ -238,8 +241,9 @@ function freeWireId(html) {
  * top-level index and its path below it (`[]` on the slide itself, one step
  * inside a column), whether its column was wrapped to take it, how many
  * siblings went in (two columns are two), the markup exactly as written
- * (unindented), and the layout the slide was given, when one was (`split`,
- * for two columns).
+ * (unindented), the layout the slide was given, when one was (`split`,
+ * for two columns), and the attributes its `<section>` was given (`section`,
+ * `{ 'data-math': '' }` for a formula on a slide not yet marked for math).
  *
  * Refused (thrown, with the status the route answers): a kind outside the set
  * (400); a slide that follows a design system's slide template (409), whose
@@ -283,5 +287,11 @@ export function insertStarter(html, slide, index, kind, { path = null } = {}) {
       layout = 'split';
     }
   } else out = insertBlock(deck, slide, index, markup, { path });
-  return { html: out.html, index: out.index, path: out.path, wrapped: out.wrapped, count, markup, layout };
+  // a formula renders only on a slide marked for math: marked in the same write, one undo for both
+  let section = null;
+  if (kind === 'formula' && !Object.hasOwn(sectionAttrs, 'data-math')) {
+    out.html = setSectionAttrs(out.html, slide, { set: { 'data-math': '' } }).html;
+    section = { 'data-math': '' };
+  }
+  return { html: out.html, index: out.index, path: out.path, wrapped: out.wrapped, count, markup, layout, section };
 }

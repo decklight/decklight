@@ -156,6 +156,17 @@ test('a second diagram gets an arrowhead id of its own', () => {
   assert.match(twice.markup, /id="dl-wire-2"[\s\S]*url\(#dl-wire-2\)/);
 });
 
+test('a formula is a display formula in a paragraph, and marks its slide for math in the same write (CODE_AND_MATH)', () => {
+  const out = insertStarter(DECK, 2, 0, 'formula');
+  assert.equal(out.markup, '<p>$$e^{i\\pi} + 1 = 0$$</p>');
+  assert.deepEqual(out.section, { 'data-math': '' });
+  assert.match(source(out.html, 2), /^<section data-math>/);
+  // a slide already marked keeps its mark, and says nothing about it
+  const marked = insertStarter(out.html, 2, null, 'formula');
+  assert.equal(marked.section, null);
+  assert.equal((source(marked.html, 2).match(/data-math/g) ?? []).length, 1);
+});
+
 test('two columns are two sibling blocks under a split layout, first under the title (COMPARISON_SLIDES)', () => {
   const out = insertStarter(DECK, 2, 0, 'columns');
   assert.equal(out.index, 1);
