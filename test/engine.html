@@ -944,6 +944,22 @@
         if (u.includes('/deck/edit/element/geometry') || u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/connector')) return json({ ok: true, changed: true, undo: 1, redo: 0, ...window.__fakeConnector(JSON.parse(init?.body ?? '{}')) });
       }
+      // front and back (SVG_DIAGRAMS): the order route answers where the server would put the node, and each step's key
+      if (HARNESS_MODE === 'shapeorder') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/order')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          const svg = document.querySelectorAll('.so-svg, .so-plain')[b.index - 1];
+          const kids = [...svg.children].filter((c) => !c.matches('.draw-head, .draw-mask'));
+          const drawn = kids.map((k, i) => ({ k, i })).filter(({ k }) => !/^(defs|title|desc)$/.test(k.tagName.toLowerCase()));
+          const here = drawn.findIndex(({ i }) => i === b.path[0]);
+          const want = b.to === 'front' ? drawn.length - 1 : b.to === 'back' ? 0 : here + (b.to === 'forward' ? 1 : -1);
+          let key = 0;
+          const orders = (b.groups ?? []).flatMap((g) => { key += 1; return g.map((n) => ({ index: n.index, path: n.path ?? [], order: String(key) })); });
+          return json({ ok: true, changed: true, undo: 1, redo: 0, path: [drawn[want].i], orders });
+        }
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       // more shapes (SVG_DIAGRAMS): a marked shape's resize is a geometry write
       if (HARNESS_MODE === 'shaperesize') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -1387,6 +1403,22 @@
           <line class="cn-hand" x1="300" y1="20" x2="380" y2="20" stroke="#888" stroke-width="6"/>
           <rect class="cn-panel" x="560" y="160" width="220" height="130" style="fill: var(--d-fill-1)"/>
           <rect class="cn-inner" x="600" y="200" width="60" height="40" style="fill: var(--d-fill-5)"/>
+        </svg>
+      </section>`);
+    }
+    // front and back: three overlapping boxes in a diagram that builds (a fade
+    // a box), and two in one that does not
+    if (HARNESS_MODE === 'shapeorder') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Layers</h2>
+        <svg class="so-svg" viewBox="0 0 400 200" width="400" data-build="fade">
+          <title>three boxes</title>
+          <g class="so-a"><rect x="10" y="10" width="120" height="80" style="fill: var(--d-fill-1)"/><text x="70" y="50">A</text></g>
+          <rect class="so-b" x="60" y="40" width="120" height="80" style="fill: var(--d-fill-2)"/>
+          <rect class="so-c" x="110" y="70" width="120" height="80" style="fill: var(--d-fill-3)"/>
+        </svg>
+        <svg class="so-plain" viewBox="0 0 400 200" width="400">
+          <rect class="so-p" x="10" y="10" width="120" height="80" style="fill: var(--d-fill-1)"/>
+          <rect class="so-q" x="60" y="40" width="120" height="80" style="fill: var(--d-fill-2)"/>
         </svg>
       </section>`);
     }
@@ -4315,6 +4347,66 @@
           r.othersStay = a.getAttribute('x') === '40';
           r.PASS = Object.values(r).every((v) => v === true);
         }
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'shapeorder') {
+        // SVG_DIAGRAMS, front and back (shapes.js): Shape ▸ Order ▸ moves a
+        // node among its drawn siblings; in a diagram that builds, the slide's
+        // clicks go with it to be frozen, and still play the same nodes in the
+        // same order after; Move up / Move down and ⌃⇧↑ ↓ on a shape are forward and backward
+        await settle();
+        const n = deck._sections.length;
+        deck.goto(n, 0);
+        await settle(); await settle();
+        const svg = document.querySelector('.so-svg');
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+        const row = (t) => rows().find((x) => (x.firstChild?.textContent ?? '').trim() === t);
+        const listed = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-list > *')].map((x) => (x.classList.contains('cm-head') ? `#${x.textContent}` : x.textContent));
+        const centre = (el) => { const b = el.getBoundingClientRect(); return { x: Math.round(b.left + 8), y: Math.round(b.top + 8) }; };
+        const menuOn = async (el) => { const c = centre(el); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: c.x, clientY: c.y })); await settle(); };
+        const orders = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/order')).map((c) => c.body);
+        const plays = () => (deck._records[n - 1]?.groups ?? []).map((g) => g.map((i) => deck._records[n - 1].steps[i].el.classList[0]).join('+')).join(' ');
+        const drawnOrder = (s) => [...s.children].filter((c) => !c.matches('.draw-head, .draw-mask, title')).map((c) => c.classList[0]).join(' ');
+        const before = plays();
+        r.buildsAtLoad = before === 'so-a so-b so-c';
+
+        // the shapes under each other: Order with four rows, the ends greyed
+        const a = svg.querySelector('.so-a rect');
+        await menuOn(a);
+        row('Shape ▸')?.click(); await settle();
+        const sub = listed();
+        r.orderGroup = JSON.stringify(sub.slice(sub.indexOf('#Order'), sub.indexOf('#Order') + 5)) === JSON.stringify(['#Order', 'To front', 'Forward', 'Backward', 'To back'])
+          && row('To back')?.classList.contains('cm-disabled') && row('Backward')?.classList.contains('cm-disabled') && !row('To front')?.classList.contains('cm-disabled');
+        row('To front')?.click(); await settle(); await settle();
+        const o1 = orders()[0];
+        r.frontAsked = o1?.to === 'front' && o1.index === 1 && JSON.stringify(o1.path) === '[1]' && o1.tag === 'g'
+          && JSON.stringify(o1.groups?.map((g) => g.map((x) => x.path.join('.')))) === '[["1"],["2"],["3"]]';
+        r.frontOnThePage = drawnOrder(svg) === 'so-b so-c so-a';
+        r.keysWorn = ['so-a', 'so-b', 'so-c'].map((c) => svg.querySelector(`.${c}`).getAttribute('data-build-order')).join(',') === '1,2,3';
+        r.playsAsBefore = plays() === before;
+        r.stillSelected = deck._selection()?.node === a;
+
+        // at the front: Move up greyed, Move down is backward
+        await menuOn(a);
+        r.moveUpGreyedAtTheFront = row('Move up')?.classList.contains('cm-disabled') && !row('Move down')?.classList.contains('cm-disabled');
+        row('Move down')?.click(); await settle(); await settle();
+        r.moveDownIsBackward = orders()[1]?.to === 'backward' && drawnOrder(svg) === 'so-b so-a so-c' && plays() === before;
+        // the chord on a selected shape
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        r.chordIsBackward = orders()[2]?.to === 'backward' && drawnOrder(svg) === 'so-a so-b so-c';
+
+        // a diagram with no builds: nothing to freeze
+        const plain = document.querySelector('.so-plain');
+        const p = plain.querySelector('.so-p');
+        await menuOn(p);
+        row('Shape ▸')?.click(); await settle();
+        row('To front')?.click(); await settle(); await settle();
+        const o4 = orders()[3];
+        r.plainSendsNoGroups = o4?.to === 'front' && o4.index === 2 && !('groups' in o4) && drawnOrder(plain) === 'so-q so-p' && !p.hasAttribute('data-build-order');
+        r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

@@ -225,6 +225,7 @@ const ENGINE_GROUPS = {
     'shapedrag',
     'shapeadd',
     'shaperesize',
+    'shapeorder',
     'connectors',
     'connectmenu',
     'linestyle',

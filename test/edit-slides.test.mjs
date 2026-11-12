@@ -98,6 +98,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/element/insert',
     'POST /deck/edit/element/move',
     'POST /deck/edit/element/options',
+    'POST /deck/edit/element/order',
     'POST /deck/edit/element/picture',
     'POST /deck/edit/element/remove',
     'POST /deck/edit/element/shape',

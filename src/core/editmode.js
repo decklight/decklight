@@ -2465,6 +2465,8 @@ export function createEditMode({
   // Line ▸ and Corners ▸ (SVG_DIAGRAMS): a stroke's dashes, a box's corners
   const LINE_CHOICES = [['solid', 'Solid'], ['dashed', 'Dashed'], ['dotted', 'Dotted']];
   const CORNER_CHOICES = [['square', 'Square'], ['rounded', 'Rounded'], ['pill', 'Pill']];
+  // Order ▸ (SVG_DIAGRAMS, front and back): what covers what in a diagram
+  const ORDER_CHOICES = [['front', 'To front'], ['forward', 'Forward'], ['backward', 'Backward'], ['back', 'To back']];
   // Add a shape (SVG_DIAGRAMS): the four it always had, then the six marked with `data-shape`
   const SHAPE_CHOICES = [['box', 'Box'], ['ellipse', 'Ellipse'], ['label', 'Label'], ['line', 'Line / arrow'],
     ['diamond', 'Diamond'], ['hexagon', 'Hexagon'], ['cylinder', 'Cylinder'], ['document', 'Document'], ['note', 'Note'], ['cloud', 'Cloud']];
@@ -2591,6 +2593,14 @@ export function createEditMode({
       // what the shape the menu was opened on looks like: a box's corners, a stroke's line
       if (shapes.hasCorners?.(target)) tickGroup(rows, target, 'Corners', CORNER_CHOICES, shapes.cornerState(target), shapes.setCorners);
       if (shapes.isStroke?.(target) && !shapes.isWire?.(target)) tickGroup(rows, target, 'Line', LINE_CHOICES, shapes.lineState(target), shapes.setLine);
+      // what covers what (front and back): greyed where it already is
+      if (shapes.isOrderable?.(target)) {
+        rows.push({ head: 'Order' });
+        for (const [to, label] of ORDER_CHOICES) {
+          const can = shapes.canOrder(target, to);
+          rows.push({ label, disabled: !can, run: can ? () => { closeElementMenu(); shapes.order(target, to); } : () => {} });
+        }
+      }
       const svg = shapes.diagramOf(target);
       if (svg && target.node !== svg && target.node !== target.top) {
         rows.push({ sep: true });
@@ -2690,8 +2700,11 @@ export function createEditMode({
       // up or down the slide, greyed at the ends and inside a diagram (element-move.js)
       if (elementMove) {
         for (const [dir, label, key] of [[-1, 'Move up', elementMove.keys.up], [1, 'Move down', elementMove.keys.down]]) {
-          const can = !nested && elementMove.canMove(t, dir);
-          rows.push({ label, key, disabled: !can, run: can ? () => { closeElementMenu(); elementMove.move(t, dir); } : noop });
+          // on a diagram's shape, up is forward and down is backward: what covers what (front and back)
+          const shape = nested && shapes?.isOrderable?.(t);
+          const to = dir < 0 ? 'forward' : 'backward';
+          const can = shape ? shapes.canOrder(t, to) : !nested && elementMove.canMove(t, dir);
+          rows.push({ label, key, disabled: !can, run: !can ? noop : shape ? () => { closeElementMenu(); shapes.order(t, to); } : () => { closeElementMenu(); elementMove.move(t, dir); } });
         }
       }
       const dup = canDuplicate(t);
@@ -4683,6 +4696,8 @@ export function createEditMode({
     setSlideRows: (fn) => { slideRowsOf = fn; },
     /** The engine's diagram shapes (shapes.js): a shape's Duplicate, Shape ▸ and a wire's Wire ▸. */
     setShapes: (x) => { shapes = x; },
+    /** The diagram's shapes (shapes.js), for the bar's keys: Move up / down on a shape is front and back. */
+    shapes: () => shapes,
     /** Add and Duplicate in place (add-content.js): the menu's Duplicate and ⌘D on anything but a diagram's shape. */
     setAddContent: (a) => { addContent = a; },
     /** The door to the concept list (Concept colors…), opened on a concept: the submenu's Edit concepts…. */

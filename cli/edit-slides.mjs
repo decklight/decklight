@@ -39,7 +39,7 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, moveSlideElement,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, moveSlideElement,
   duplicateSlideElement } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
 import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
@@ -393,6 +393,43 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       broadcast('content', { slide, index: moved.index, from: typeof from === 'string' ? from.slice(0, 64) : null });
     }
     return json(200, { ok: true, changed, index: moved.index, path: moved.path, inPlace: !!changed && inPlace === true, ...history.counts() });
+  }
+
+  /**
+   * `POST /deck/edit/element/order` — `{ slide, index, path, tag, to, groups?,
+   * quiet?, from? }` (SVG_DIAGRAMS, front and back): a node of a diagram
+   * brought to the front, forward, backward or sent to the back
+   * (setDiagramOrder). What covers what is the order the nodes are written
+   * in, and so, unless a key says otherwise, is the order they build in: so
+   * `groups`, the slide's clicks as they play now (the Builds tab's shape),
+   * are stamped first, every step frozen where it plays (setSlideBuildOrder
+   * with `freeze`), and the narration's beats stay with their clicks. One
+   * applyEdit, one undo. Answers the node's path now and each stamped order.
+   */
+  function elementOrderRoute({ body, json }) {
+    const { slide, index, path, tag = null, to, groups = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !Array.isArray(path) || (groups !== null && !Array.isArray(groups))) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    let done = null; let orders = [];
+    let changed;
+    try {
+      changed = applyEdit((html) => {
+        let out = html;
+        if (groups?.length) { const st = setSlideBuildOrder(out, slide, groups, { freeze: true }); out = st.html; orders = st.orders; }
+        done = setDiagramOrder(out, slide, index, { path, tag, to });
+        return done.html;
+      });
+    } catch (e) {
+      if (e.code !== 'STALE' && e.code !== 'REFUSED') throw e;
+      return json(409, { ok: false, error: oneline(e), ...(e.code === 'STALE' ? { stale: true } : {}) });
+    }
+    if (changed) console.log(`  diagram order: slide ${slide} #${index} › ${path.join('.')} → ${to}${orders.length ? ` (${orders.length} steps frozen)` : ''}`);
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    return json(200, { ok: true, changed, path: done.path, orders, inPlace: !!changed && inPlace === true, ...history.counts() });
   }
 
   /**
@@ -1225,6 +1262,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
   routes.set('POST /deck/edit/element/build', elementBuildRoute);
   routes.set('POST /deck/edit/element/move', elementMoveRoute);
+  routes.set('POST /deck/edit/element/order', elementOrderRoute);
   routes.set('POST /deck/edit/element/duplicate', elementDuplicateRoute);
   routes.set('POST /deck/edit/element/style', elementStyleRoute);
   routes.set('POST /deck/edit/element/concept', elementConceptRoute);

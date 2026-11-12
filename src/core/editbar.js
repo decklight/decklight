@@ -452,6 +452,9 @@ export function createEditBar({
     if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       const mover = editmode.elementMove?.();
       if (!mover) return false;
+      // a diagram's shape: up is forward, down is backward (front and back, SVG_DIAGRAMS)
+      const shapes = editmode.shapes?.();
+      if (selected.node !== selected.top && shapes?.isOrderable?.(selected)) { shapes.order(selected, e.key === 'ArrowUp' ? 'forward' : 'backward'); return true; }
       if (selected.node !== selected.top) { toast('this moves whole elements: click the diagram\'s empty canvas to select all of it, then move that', 2600); return true; }
       mover.move(selected, e.key === 'ArrowUp' ? -1 : 1);
       return true;
