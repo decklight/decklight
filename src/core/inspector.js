@@ -33,7 +33,6 @@
 
 import { createDock } from './dock.js';
 import { readJson } from './prefs.js';
-import { stepLabels } from './builds.js';
 import { notesSegments } from './speaker.js';
 import { slideDensity } from './density.js';
 import { clipReport } from './overflow.js';
@@ -196,11 +195,8 @@ export function createInspector({
     const ds = sec.getAttribute('data-template');
     rows.push(row('layout', [sec.getAttribute('data-layout') || 'auto', ds].filter(Boolean).join(' · ')));
 
-    const rec = inst()._records[n - 1];
-    const steps = rec?.groups.length ?? 0;
-    const labels = steps ? stepLabels(rec) : [];
-    rows.push(row('builds', steps ? `${steps} step${steps === 1 ? '' : 's'} · on ${inst().state.step}` : 'none',
-      null, labels.length ? labels.map((l, i) => `${i + 1} ${l}`).join(' · ') : null));
+    // the slide's builds are the Builds tab's (builds-panel.js): one row a click, with its beat
+    const steps = inst()._records[n - 1]?.groups.length ?? 0;   // the notes row below says when their clicks do not match
 
     // crowded past SLIDE_DENSITY: said here only when it is, the way a slide
     // with no heading is (the same count Check deck… and decklight check use)

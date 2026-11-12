@@ -145,6 +145,8 @@
       // Control-Shift-↑/↓ (listmove): a point with a sublist of its own, in a list that builds
       // buildselect, buildreselect (PRESENTING_EDITING): a list that builds, its points waiting at step 0
       buildselect: '<ul data-build>\n  <li>One</li>\n  <li>Two</li>\n  <li>Three</li>\n</ul>',
+      // buildpanel: an intro line there from the start, then a list that builds, its notes cut in beats
+      buildpanel: '<p>Intro line here</p>\n<ul data-build="fade-up">\n  <li>Start from the audience</li>\n  <li>One idea per slide</li>\n  <li>Three</li>\n</ul>\n<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>',
       listmove: '<ul data-build>\n  <li>One</li>\n  <li>Two\n    <ul>\n      <li>Two a</li>\n    </ul>\n  </li>\n  <li>Three</li>\n</ul>',
     };
     LK.tablemenu = LK.tablekeys;
@@ -1472,7 +1474,8 @@
     }
     if (LK_SRC !== null) {
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>\n${LK_SRC}`
-        + (HARNESS_MODE === 'listkeys' ? '\n<aside class="notes">Here. [click] Alpha. [click] Beta.</aside>' : '');
+        + (HARNESS_MODE === 'listkeys' ? '\n<aside class="notes">Here. [click] Alpha. [click] Beta.</aside>' : '')
+        + (HARNESS_MODE === 'buildpanel' ? '\n<aside class="notes">Opening words. [click] The audience first. [click]\n\n[click] Third one. [click] Code one. [click] Code two. [click] A spare beat.</aside>' : '');
     }
     // a slide marked for math (CODE_AND_MATH): a paragraph with a formula, one without
     if (HARNESS_MODE === 'mathedit') {
@@ -2825,7 +2828,7 @@
         r.opens = !!document.querySelector(P);
         r.docksRightByDefault = document.querySelector(P)?.dataset.dock === 'right' && gutter('right') > 100;
         r.titleNamesTheSlide = /slide 1 \/ 6 · One/.test(title());
-        r.slideRows = ['title', 'layout', 'builds', 'notes', 'time', 'fit'].every((k) => k in facts());
+        r.slideRows = ['title', 'layout', 'notes', 'time', 'fit'].every((k) => k in facts());
         // the title row leads: the heading, with its level, and no mark
         r.titleRowLeads = [...document.querySelectorAll(`${P} .ins-rows:first-of-type dd[data-key]`)][0]?.dataset.key === 'title';
         r.titleRowNamesTheHeading = /^One/.test(val('title')) && /h[1-3]/.test(facts().title?.textContent ?? '') && !marked('title', 'warn');
@@ -2846,10 +2849,10 @@
         r.linksAreLinks = links.length === 2 && links.every((a) => a.tagName === 'A' && a.target === '_blank' && /noopener/.test(a.rel))
           && links[0].getAttribute('href') === 'https://example.invalid/kip-98' && /the original proposal/.test(links[0].textContent);
 
-        // builds and notes: slide 3 has two steps and two ⟨CLICK⟩s
+        // builds: slide 3 has two steps, and they are the Builds tab's now, not a row of Info
         deck.goto(3, 1);
         await settle();
-        r.buildsCounted = val('builds') === '2 steps · on 1';
+        r.buildsCounted = !('builds' in facts()) && !!document.querySelector(`${P} .ins-tab[data-tab="builds"], ${P} [data-tab="builds"]`);
 
         // a slide that clips says by how much
         deck.goto(5, 0);
@@ -2927,7 +2930,7 @@
         await settle();
         press('i');
         await settle(); await settle();
-        r.slideTabBesideInfo = tabIds() === 'info,slide' && chosen() === 'info';
+        r.slideTabBesideInfo = tabIds() === 'info,slide,builds' && chosen() === 'info';
         r.infoStillReports = !q('.ins-rows input, .ins-rows select');
         q('.ins-tab[data-tab="slide"]').click();
         await settle();
@@ -2992,7 +2995,7 @@
         r.goneWithASelection = !tabIds().includes('slide') && chosen() === 'info';
         press('Escape');
         await settle();
-        r.backWithNothingSelected = tabIds() === 'info,slide';
+        r.backWithNothingSelected = tabIds() === 'info,slide,builds';
         press('Escape');
         await settle();
         try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
@@ -3015,7 +3018,7 @@
         await settle();
         press('i');
         await settle(); await settle();
-        r.onlyTheSlidesTabsWithNothingSelected = !!document.querySelector(P) && tabIds() === 'info,slide';
+        r.onlyTheSlidesTabsWithNothingSelected = !!document.querySelector(P) && tabIds() === 'info,slide,builds';
         let made = 0, destroyed = 0;
         ins.addTab({
           id: 'probe', label: 'Probe', showsWithoutSelection: true, showsWithSelection: false,
@@ -3027,11 +3030,11 @@
         let offered = false;
         ins.addTab({ id: 'unseen', label: 'Unseen', showsWithoutSelection: true, shows: (ctx) => offered && ctx.slide === 1, pane: () => ({ el: document.createElement('div') }) });
         await settle();
-        r.barBesideInfo = tabIds() === 'info,probe,slide,later' && chosen() === 'info';
+        r.barBesideInfo = tabIds() === 'info,probe,slide,builds,later' && chosen() === 'info';
         offered = true;
         ins.onSlide();
         await settle();
-        r.showsWhenItSays = tabIds() === 'info,probe,slide,later,unseen';
+        r.showsWhenItSays = tabIds() === 'info,probe,slide,builds,later,unseen';
         offered = false;
         ins.onSlide();
         await settle();
@@ -3054,11 +3057,11 @@
         const sec = document.querySelector('.decklight-stage > section.active');
         sec.querySelector('.ins-grey').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         await settle();
-        r.selectionBarHasTheElementTabs = tabIds().startsWith('info,colors,type,data,later');
+        r.selectionBarHasTheElementTabs = tabIds().startsWith('info,colors,type,data,builds,later');
         r.backToInfoWithASelection = chosen() === 'info' && !probe() && made === 3 && destroyed === 3;
         press('Escape');
         await settle();
-        r.nothingSelectedAgain = tabIds() === 'info,probe,slide,later';
+        r.nothingSelectedAgain = tabIds() === 'info,probe,slide,builds,later';
         let threw = false;
         try { ins.addTab({ id: 'probe', label: 'Again', pane: () => ({ el: document.createElement('div') }) }); } catch { threw = true; }
         r.oneTabPerId = threw;
@@ -6971,6 +6974,49 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
       // and Shift-Tab nest it and take it out, Enter on an empty last point
       // ends the list; the whole session is ONE write of the list, built from
       // its source, and Esc gives every bit of it back.
+      if (mode === 'buildpanel') {
+        // the Builds tab (PRESENTING_EDITING): one row a click in play order,
+        // what is there from the start above them, each row's beat or none,
+        // the spare beats after; a row steps the slide and selects its point
+        await settle(); await settle();
+        deck.goto(3, 0); await settle();
+        const P = '.decklight-inspector';
+        const sec = document.querySelector('.decklight-stage > section.active');
+        const [, two] = [...sec.querySelectorAll('li')];
+        press('i'); await settle(); await settle();
+        const tabIds = () => [...document.querySelectorAll(`${P} .ins-tab`)].map((b) => b.dataset.tab).join(',');
+        r.tabWithNothingSelected = tabIds().split(',').includes('builds');
+        document.querySelector(`${P} .ins-tab[data-tab="builds"]`)?.click(); await settle();
+        const rows = () => [...document.querySelectorAll(`${P} .bl-row`)];
+        const text = (sel) => document.querySelector(`${P} ${sel}`)?.textContent ?? '';
+        r.oneRowAClick = rows().length === 5 && rows().map((x) => x.value).join() === '1,2,3,4,5';
+        r.fromTheStart = text('.bl-start .bl-text') === 'Three · Intro line here';
+        r.namesWhatArrives = rows().slice(0, 3).map((x) => x.querySelector('.bl-label')?.textContent).join('|') === 'Start from the audience|One idea per slide|Three'
+          && rows().slice(0, 3).every((x) => x.querySelector('.bl-fx')?.textContent === 'fade-up');
+        // the code block's line steps are rows of their own, owned by the block
+        r.codeLinesOwnedByTheirBlock = rows().slice(3).map((x) => `${x.querySelector('.bl-fx')?.textContent} ${x.querySelector('.bl-label')?.textContent}`).join('|') === 'code lines 1|code lines 2';
+        r.beatsPaired = rows().map((x) => x.querySelector('.bl-beat')?.textContent).join('|') === 'The audience first.|no beat|Third one.|Code one.|Code two.'
+          && !!rows()[1].querySelector('.bl-nobeat');
+        r.spareBeatAfter = text('.bl-extra .bl-head') === 'beat 6' && text('.bl-extra .bl-text') === 'A spare beat.';
+        r.footCounts = text('.bl-foot') === 'notes: 6 beats · 5 clicks';
+        r.noRowOnAtStart = !document.querySelector(`${P} .bl-on`);
+        rows()[1].querySelector('.bl-go').click(); await settle(); await settle();
+        r.rowStepsTheSlide = deck.state.slide === 3 && deck.state.step === 2;
+        r.rowSelectsItsPoint = deck._selection()?.node === two;
+        r.tabStaysWithASelection = document.querySelector(`${P} .ins-tab[data-tab="builds"]`)?.getAttribute('aria-selected') === 'true'
+          || document.querySelector(`${P} .ins-tab[data-tab="builds"]`)?.classList.contains('ins-on') === true;
+        r.rowMarkedOn = rows()[1]?.classList.contains('bl-on') && rows()[0]?.classList.contains('bl-past');
+        // the keys move the slide: the mark follows
+        deck.next(); await settle();
+        r.markFollowsTheKeys = deck.state.step === 3 && rows()[2]?.classList.contains('bl-on');
+        // a code row selects its block
+        rows()[4].querySelector('.bl-go').click(); await settle(); await settle();
+        r.codeRowSelectsTheBlock = deck.state.step === 5 && deck._selection()?.top === sec.querySelector('pre');
+        r.infoHasNoBuildsRow = !document.querySelector(`${P} dd[data-key="builds"]`);
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
       if (mode === 'buildselect' || mode === 'buildreselect') {
         // what waits behind a build (PRESENTING_EDITING): with the bar on it
         // is dimmed, not hidden, takes the click, and selecting it steps the
