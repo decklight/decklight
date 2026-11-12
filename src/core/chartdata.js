@@ -435,6 +435,72 @@ export function setTitle(json, attrs, title) {
   return { json, attr: t || null };
 }
 
+/**
+ * The shapes a chart can take (CHARTS, `data-aspect` or the JSON's
+ * `"aspect"`), as the Data tab names them; wide is the 640 × 360 a chart has
+ * when it says nothing.
+ */
+export const ASPECTS = [['16:9', 'wide'], ['4:3', 'standard'], ['1:1', 'square'], ['3:4', 'tall']];
+const ratioOf = (v) => {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*[:x]\s*(\d+(?:\.\d+)?)\s*$/i.exec(String(v ?? ''));
+  return m && +m[1] > 0 && +m[2] > 0 ? +m[2] / +m[1] : null;
+};
+
+/**
+ * The chart's shape: `{ aspect, from, written }`. `aspect` is one of ASPECTS'
+ * values, or null for a shape of its own (`5:2`, shown as it is written);
+ * `from` says where it is written, `'attr'`, `'json'`, or null when nowhere
+ * (wide). The attribute wins, as it does when the chart is drawn.
+ */
+export function aspectOf(json, attrs = {}) {
+  let written = attrs.aspect ?? null;
+  let from = written != null ? 'attr' : null;
+  if (from === null) {
+    try {
+      const t = parseJsonTree(String(json ?? ''));
+      const a = t.kind === 'object' ? member(t, 'aspect')?.value : null;
+      if (a && a.value != null) { written = String(a.value); from = 'json'; }
+    } catch { /* the grid says why it cannot read the JSON */ }
+  }
+  if (from === null) return { aspect: '16:9', from, written: null };
+  const r = ratioOf(written);
+  const hit = r === null ? null : ASPECTS.find(([v]) => Math.abs(ratioOf(v) - r) < 1e-6);
+  return { aspect: hit ? hit[0] : null, from, written };
+}
+
+/**
+ * The chart takes shape `aspect` (one of ASPECTS): `{ json, attr }` as
+ * setTitle, said where the chart says it now. Wide is the shape of a chart
+ * that says nothing, so it takes the attribute or the key off, unless the
+ * attribute is there over a JSON shape it would then let through.
+ */
+export function setAspect(json, attrs, aspect) {
+  if (!ASPECTS.some(([v]) => v === aspect)) throw new Error(`a chart's shape is one of ${ASPECTS.map(([, n]) => n).join(', ')}`);
+  const now = aspectOf(json, attrs);
+  if (now.aspect === aspect) return { json, attr: undefined };
+  const wide = aspect === '16:9';
+  if (now.from === 'json') return { json: setTopKey(json, 'aspect', wide ? null : jsonString(aspect)), attr: undefined };
+  if (now.from === 'attr' && wide) {
+    const under = aspectOf(json, {});
+    return { json, attr: under.from === 'json' && under.aspect !== '16:9' ? aspect : null };
+  }
+  return { json, attr: aspect };
+}
+
+/** The legend's setting: `'auto'` (the JSON says nothing), `'on'` or `'off'`. */
+export function legendOf(json) {
+  try {
+    const t = parseJsonTree(String(json ?? ''));
+    const v = t.kind === 'object' ? member(t, 'legend')?.value : null;
+    return v?.value === true ? 'on' : v?.value === false ? 'off' : 'auto';
+  } catch { return 'auto'; }
+}
+/** The legend set (`"legend": true | false` in the JSON), or its key taken off for auto. */
+export function setLegend(json, legend) {
+  if (!['auto', 'on', 'off'].includes(legend)) throw new Error('a legend is auto, on or off');
+  return setTopKey(json, 'legend', legend === 'auto' ? null : legend === 'on' ? 'true' : 'false');
+}
+
 // ---------------------------------------------------------------------------
 // the chart, in its element's source
 
@@ -523,7 +589,8 @@ export function findChart(html, ordinal = 0) {
       if (!VOID.has(u.name) && !u.selfClosing && u.name !== 'script' && u.name !== 'style') depth++;
     }
     const title = attrs.find((a) => a.name === 'data-title');
-    return { open: { start: t.start, end: t.end }, type: chart.value, title: title ? title.value : null, json };
+    const aspect = attrs.find((a) => a.name === 'data-aspect');
+    return { open: { start: t.start, end: t.end }, type: chart.value, title: title ? title.value : null, aspect: aspect ? aspect.value : null, json };
   }
   return null;
 }

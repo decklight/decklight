@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {
   parseJsonTree, chartGrid, cellNumber, setCell, setLabel, setSeriesName, addRow, removeRow, moveRow,
   addSeries, removeSeries, setType, setTitle, findChart, rewriteChart, jsonString,
+  ASPECTS, aspectOf, setAspect, legendOf, setLegend,
 } from '../src/core/chartdata.js';
 import { parseChart } from '../src/core/charts.js';
 
@@ -229,4 +230,44 @@ test('rewriteChart: only the JSON and the attributes asked for change; data-buil
     `<div data-chart='donut'><script type="application/json">{}</script></div>`);
   assert.equal(rewriteChart('<div data-chart=pie></div>', 0, { attrs: { 'data-chart': 'bar' } }), '<div data-chart="bar"></div>');
   assert.throws(() => rewriteChart(EL, 3, { json }), /not in the file/);
+});
+
+test('a chart’s shape is read where it is written, the attribute first, and named as the Data tab names it', () => {
+  const j = '{ "labels": ["a"], "series": [{ "data": [1] }] }';
+  assert.deepEqual(aspectOf(j, {}), { aspect: '16:9', from: null, written: null });
+  assert.deepEqual(aspectOf(j, { aspect: '4x3' }), { aspect: '4:3', from: 'attr', written: '4x3' });
+  assert.deepEqual(aspectOf('{ "aspect": "2:2", "labels": [] }', {}), { aspect: '1:1', from: 'json', written: '2:2' });
+  assert.deepEqual(aspectOf(j, { aspect: '5:2' }), { aspect: null, from: 'attr', written: '5:2' }, 'a shape of its own is said as written');
+  assert.deepEqual(ASPECTS.map(([, n]) => n), ['wide', 'standard', 'square', 'tall']);
+});
+
+test('setAspect writes the shape where the chart says it, and wide takes it off', () => {
+  const j = '{ "labels": ["a"], "series": [{ "data": [1] }] }';
+  assert.deepEqual(setAspect(j, {}, '1:1'), { json: j, attr: '1:1' }, 'said nowhere: the attribute');
+  assert.deepEqual(setAspect(j, { aspect: '1:1' }, '16:9'), { json: j, attr: null }, 'wide is no attribute');
+  assert.deepEqual(setAspect(j, {}, '16:9'), { json: j, attr: undefined }, 'already wide: nothing');
+  const inJson = '{ "aspect": "4:3", "labels": ["a"], "series": [{ "data": [1] }] }';
+  assert.equal(setAspect(inJson, {}, '3:4').json, '{ "aspect": "3:4", "labels": ["a"], "series": [{ "data": [1] }] }');
+  assert.equal(setAspect(inJson, {}, '16:9').json, '{ "labels": ["a"], "series": [{ "data": [1] }] }');
+  assert.deepEqual(setAspect(inJson, { aspect: '1:1' }, '16:9'), { json: inJson, attr: '16:9' }, 'over a JSON shape, wide stays written');
+  assert.throws(() => setAspect(j, {}, '2:1'), /wide, standard, square, tall/);
+});
+
+test('the legend is auto, on or off, written as the JSON’s "legend"', () => {
+  const j = '{ "labels": ["a"], "series": [{ "data": [1] }] }';
+  assert.equal(legendOf(j), 'auto');
+  const off = setLegend(j, 'off');
+  assert.equal(off, '{ "labels": ["a"], "series": [{ "data": [1] }], "legend": false }');
+  assert.equal(legendOf(off), 'off');
+  assert.equal(legendOf(setLegend(off, 'on')), 'on');
+  assert.equal(setLegend(off, 'auto'), j);
+  assert.throws(() => setLegend(j, 'maybe'), /auto, on or off/);
+});
+
+test('findChart reads data-aspect, and rewriteChart writes it beside data-chart', () => {
+  const html = '<div class="chart" data-chart="bar"><script type="application/json">{}</script></div>';
+  assert.equal(findChart(html).aspect, null);
+  const out = rewriteChart(html, 0, { attrs: { 'data-aspect': '1:1' } });
+  assert.equal(out, '<div class="chart" data-chart="bar" data-aspect="1:1"><script type="application/json">{}</script></div>');
+  assert.equal(findChart(out).aspect, '1:1');
 });
