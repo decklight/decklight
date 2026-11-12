@@ -35,6 +35,7 @@ import { createSlideSettings, applySlideAttrs } from './slide-settings.js';
 import { createBuildsPanel } from './builds-panel.js';
 import { createBuildEdit } from './build-edit.js';
 import { createDeckSettings } from './deck-settings.js';
+import { createFindReplace } from './find-replace.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { createPlaylist } from './playlist.js';
@@ -1302,6 +1303,9 @@ export function init(userConfig = {}) {
         run: () => openInEditor.choose() },
       { label: 'Settings…', cat: 'Preferences', alias: 'config configuration preferences options about version build release which version',
         run: openSettings },
+      // a phrase found and replaced across the deck's file (find-replace.js, PRESENTING_EDITING); ⌘F stays the browser's
+      write({ label: 'Find and replace…', cat: 'Slide', alias: 'find replace search substitute rename word phrase everywhere across the deck',
+        run: () => findReplace.open() }),
       // the deck's own settings, saved in its file (deck-settings.js, PRESENTING_EDITING)
       write({ label: 'Deck settings…', cat: 'Preferences', alias: 'deck title transition slide numbers arrows pin titles logo narration pauses saved in the file',
         run: () => deckSettings.open() }),
@@ -3741,6 +3745,8 @@ export function init(userConfig = {}) {
   // …and Deck settings…, what the whole deck's file says (deck-settings.js)
   const deckSettings = createDeckSettings({ root, overlays, editmode: () => editmode, toast });
   instance._deckSettings = deckSettings;
+  const findReplace = createFindReplace({ root, overlays, toast, instance: () => instance, editmode: () => editmode });
+  instance._findReplace = findReplace;
   editmode.setSlideRows((slide) => {
     const hidden = !!instance._sections?.[slide - 1]?.hasAttribute('data-hidden');
     return [

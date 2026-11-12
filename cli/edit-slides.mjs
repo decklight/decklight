@@ -43,6 +43,7 @@ import {
   duplicateSlideElement } from './edit.mjs';
 import { locateElement } from './edit-address.mjs';
 import { setElementPicture, setSlideBackground, pictureToBackground, setSlideAttrs } from './edit.mjs';
+import { findInDeck, replaceInDeck } from './find-replace.mjs';
 import { setElementGeometry, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
@@ -1119,6 +1120,47 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     return json(200, { ok: true, changed, inPlace: placed, ...history.counts() });
   }
 
+  /**
+   * Find and replace (PRESENTING_EDITING, find-replace.mjs). `GET
+   * /deck/edit/find?q=&notes=1&code=1&case=1&word=1`: every match in the
+   * file's text, with its slide and the words around it. `POST
+   * /deck/edit/replace` `{ find, replace, opts, only?, expect }`: those
+   * matches (all of them, or the ids in `only`) replaced in ONE edit and one
+   * undo; `expect` is how many the search found, and a deck that has changed
+   * since (another count) is a 409 that says so, nothing written.
+   */
+  const findOpts = (o = {}) => ({ notes: o.notes === true, code: o.code === true, caseSensitive: o.caseSensitive === true, wholeWord: o.wholeWord === true });
+  function findRoute({ url, json }) {
+    const q = url.searchParams;
+    const opts = findOpts({ notes: q.get('notes') === '1', code: q.get('code') === '1', caseSensitive: q.get('case') === '1', wholeWord: q.get('word') === '1' });
+    let matches;
+    try { matches = findInDeck(readDeck(), q.get('q') ?? '', opts); } catch (e) { return json(400, { ok: false, error: oneline(e) }); }
+    return json(200, { ok: true, count: matches.length, matches: matches.slice(0, 500).map(({ id, slide, notes, before, text, after }) => ({ id, slide, notes, before, text, after })) });
+  }
+  function replaceRoute({ body, json }) {
+    const b = JSON.parse(body || '{}');
+    const opts = findOpts(b.opts ?? {});
+    const only = Array.isArray(b.only) ? b.only.filter((x) => typeof x === 'string').slice(0, 500) : null;
+    if (typeof b.find !== 'string' || typeof b.replace !== 'string' || !Number.isInteger(b.expect)) return json(400, { ok: false, error: 'bad payload' });
+    let count = 0;
+    let drift = null;
+    try {
+      const changed = applyEdit((html) => {
+        const found = findInDeck(html, b.find, opts);
+        const want = only ? found.filter((m) => only.includes(m.id)) : found;
+        if (found.length !== b.expect || (only && want.length !== only.length)) { drift = found.length; return html; }
+        const out = replaceInDeck(html, { find: b.find, replace: b.replace, opts, only });
+        count = out.count;
+        return out.html;
+      });
+      if (drift !== null) {
+        return json(409, { ok: false, error: `the deck has changed since the search: it now has ${drift} match${drift === 1 ? '' : 'es'}, not ${b.expect}. Search again.`, count: drift });
+      }
+      if (changed) console.log(`  replaced ${count}× ${JSON.stringify(b.find).slice(0, 60)} → ${JSON.stringify(b.replace).slice(0, 60)}`);
+      return json(200, { ok: true, changed, count, ...history.counts() });
+    } catch (e) { return json(400, { ok: false, error: oneline(e) }); }
+  }
+
   routes.set('POST /deck/edit/slide/notes', notesRoute);
   routes.set('POST /deck/edit/slide/sources', sourcesRoute);
   routes.set('POST /deck/edit/timings', timingsRoute);
@@ -1126,6 +1168,8 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/slide/template', slideTemplateRoute);
   routes.set('POST /deck/edit/slide/hidden', hiddenRoute);
   routes.set('POST /deck/edit/slide/attr', slideAttrRoute);
+  routes.set('GET /deck/edit/find', findRoute);
+  routes.set('POST /deck/edit/replace', replaceRoute);
   routes.set('POST /deck/edit/slide/face', faceRoute);
   routes.set('POST /deck/edit/narration', narrationRoute);
   routes.set('GET /deck/edit/element/source', elementSourceRoute);

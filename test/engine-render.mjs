@@ -26,7 +26,7 @@ let bad = 0;
 /** Every mode this harness drives, grouped by concern (see test/verify.mjs). */
 export const MODES = [
   'themepicker', 'markedread', 'dsrecommended', 'fonts', 'fontslegacy', 'fontswrite', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard',
-  'palette', 'paletteinput', 'settings', 'decksettings', 'deckcheck', 'display', 'exclusive', 'presenterkeys', 'touchmenu', 'a11y', 'contextmenu', 'commit', 'agentlog', 'enhance', 'reviewpanel', 'agentreview', 'designsystems', 'marketplaces', 'skeys', 'skeys&nosrv',
+  'palette', 'paletteinput', 'settings', 'decksettings', 'findreplace', 'deckcheck', 'display', 'exclusive', 'presenterkeys', 'touchmenu', 'a11y', 'contextmenu', 'commit', 'agentlog', 'enhance', 'reviewpanel', 'agentreview', 'designsystems', 'marketplaces', 'skeys', 'skeys&nosrv',
   'narration', 'nonarration', 'panel',
   'chromescale',
   'restore', 'historydetails', 'historycaptions', 'historychanges', 'historybuilds', 'escapeall', 'hidden', 'hidden&all', 'videoslide', 'videoslide&print', 'shiftarrows', 'chapters', 'chaptersplaylist',

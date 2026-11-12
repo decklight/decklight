@@ -4195,6 +4195,29 @@
 .decklight-inspector .ins-settings .ins-file { display: inline-block; max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .decklight-inspector .ins-range { display: flex; align-items: center; gap: 10px; }
 .decklight-inspector .ins-settings [hidden] { display: none !important; }
+/* Find and replace: a docked panel, its two fields, its matches with the words around them */
+.decklight-findreplace .fr-form { display: grid; gap: 6px; margin: 2px 12px 8px; }
+.decklight-findreplace .fr-input {
+  box-sizing: border-box; width: 100%; padding: 4px 8px; border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .06); font: inherit; color: #fff;
+}
+.decklight-findreplace .fr-input:focus { outline: none; border-color: #9ecbff; background: rgba(255, 255, 255, .1); }
+.decklight-findreplace .fr-opts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .86em; color: #c3c8d1; }
+.decklight-findreplace .fr-opts input { accent-color: #9ecbff; margin: 0; vertical-align: -2px; }
+.decklight-findreplace .fr-list { overflow: auto; max-height: 60vh; margin: 0 4px; }
+.decklight-findreplace .fr-said { padding: 6px 8px; color: #8d94a1; font-size: .86em; }
+.decklight-findreplace .fr-more { color: #f2c46d; }
+.decklight-findreplace .fr-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; cursor: pointer; }
+.decklight-findreplace .fr-where { color: #8d94a1; font-size: .86em; white-space: nowrap; }
+.decklight-findreplace .fr-ctx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-findreplace .fr-ctx mark { background: rgba(158, 203, 255, .28); color: #fff; border-radius: 2px; padding: 0 1px; }
+.decklight-findreplace .fr-btn {
+  padding: 1px 9px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .06);
+  color: #e4e7ec; font: inherit; font-size: .86em; cursor: pointer;
+}
+.decklight-findreplace .fr-btn:disabled { opacity: .4; cursor: default; }
+.decklight-findreplace .fr-foot { display: flex; justify-content: flex-end; padding: 8px 12px 4px; }
+.decklight-findreplace .fr-all:not(:disabled) { background: #2f6fd0; border-color: #2f6fd0; color: #fff; font-weight: 600; }
 /* Deck settings…: the Slide tab's fields, in a card of their own */
 .decklight-decksettings .narr-card { width: min(560px, 92vw); max-height: 86vh; overflow: auto; }
 .decklight-decksettings .ds-rows { display: grid; grid-template-columns: auto 1fr; column-gap: 14px; margin: 4px 14px 10px; font-size: .92em; }

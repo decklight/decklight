@@ -83,6 +83,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
   const { routes } = harness();
   assert.deepEqual([...routes.keys()].sort(), [
     'GET /deck/edit/element/source',
+    'GET /deck/edit/find',
     'POST /deck/edit/asset',
     'POST /deck/edit/concepts',
     'POST /deck/edit/element/build',
@@ -102,6 +103,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/element/style',
     'POST /deck/edit/element/text',
     'POST /deck/edit/narration',
+    'POST /deck/edit/replace',
     'POST /deck/edit/slide',
     'POST /deck/edit/slide/attr',
     'POST /deck/edit/slide/background',
@@ -470,6 +472,31 @@ test('POST /deck/edit/slide/attr refuses what it does not write, and writes noth
   assert.equal((await call(routes, 'POST /deck/edit/slide/attr', { body: { slide: 1 } })).code, 400);
   assert.equal((await call(routes, 'POST /deck/edit/slide/attr', { body: { edits: Array(5).fill({ slide: 1, set: { 'data-math': true } }) } })).code, 400);
   assert.equal(readDeck(), before, 'a refusal is a refusal: not one byte written');
+});
+
+test('GET /deck/edit/find and POST /deck/edit/replace: the matches, replaced in one undo, refused when the deck changed since', async (t) => {
+  const { routes, readDeck, history } = harness(t);
+  const call2 = (key, body, query) => call(routes, key, { body, query });
+  const found = await call2('GET /deck/edit/find', undefined, '?q=e&word=0');
+  assert.equal(found.code, 200);
+  assert.equal(found.body.count, found.body.matches.length);
+  const alpha = await call2('GET /deck/edit/find', undefined, '?q=alpha');
+  assert.deepEqual(alpha.body.matches.map((m) => [m.slide, m.text]), [[1, 'Alpha']]);
+  const stale = await call2('POST /deck/edit/replace', { find: 'alpha', replace: 'Gamma', expect: 3 });
+  assert.equal(stale.code, 409);
+  assert.match(stale.body.error, /changed since the search: it now has 1 match, not 3/);
+  assert.equal(history.counts().undo, 0, 'refused: nothing written');
+  const ok = await call2('POST /deck/edit/replace', { find: 'alpha', replace: 'Gamma', expect: 1 });
+  assert.equal(ok.body.count, 1);
+  assert.equal(ok.body.undo, 1);
+  assert.match(readDeck(), /<h2>Gamma<\/h2>/);
+  const one = await call2('GET /deck/edit/find', undefined, '?q=a');
+  const pick = one.body.matches[0].id;
+  const r1 = await call2('POST /deck/edit/replace', { find: 'a', replace: 'A', expect: one.body.count, only: [pick] });
+  assert.equal(r1.body.count, 1, 'replace one is only the one named');
+  assert.equal((await call2('POST /deck/edit/replace', { find: 'a', replace: 'b', expect: 0, only: ['9:9'] })).code, 409, 'a match that is no longer there');
+  assert.equal((await call2('GET /deck/edit/find', undefined, '?q=')).code, 400);
+  assert.equal((await call2('POST /deck/edit/replace', { find: 'a' })).code, 400);
 });
 
 test('GET /deck/edit/element/source reads the FILE, and 404s past the last element', async (t) => {
