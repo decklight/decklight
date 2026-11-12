@@ -121,7 +121,7 @@ test('only image files are uploaded; a stray PDF in the same drop is left alone'
 });
 
 test('a drop says what it left out: the files that are not pictures, or that pictures need write mode', () => {
-  assert.equal(droppedNotAdded([{ name: 'notes.txt' }]), 'notes.txt is not a picture: only PNG, JPEG, GIF, WebP, SVG or AVIF can be added');
+  assert.equal(droppedNotAdded([{ name: 'notes.txt' }]), 'notes.txt is not a picture: only PNG, JPEG, GIF, WebP, SVG or AVIF can be added, or an mp4 or webm video');
   assert.match(droppedNotAdded(['a.txt', 'b.pdf', 'c.zip', 'd.doc', 'e.md'].map((name) => ({ name }))), /^a\.txt, b\.pdf, c\.zip and 2 more are not pictures/);
   assert.match(droppedNotAdded([{ name: 'x.png' }], { writeMode: false }), /adds it in write mode/);
 });

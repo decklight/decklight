@@ -126,3 +126,30 @@ test('POST /deck/edit/element/options writes a burst as one undo entry, and refu
   assert.equal(undoMeta('/deck/edit/element/options', '{"slide":1}').what, 'settings');
   assert.ok(whatWrote('/deck/edit/element/options'));
 });
+
+const VDECK = `<!doctype html>
+<html><body>
+  <div class="decklight">
+    <section>
+      <h2>Clip</h2>
+      <video src="assets/a.mp4" controls playsinline preload="metadata"></video>
+    </section>
+  </div>
+</body></html>
+`;
+
+test('a video’s settings: its file, its toggles written bare, its poster, in ONE edit', () => {
+  const out = setElementOptions(VDECK, 1, 1, { tag: 'video', set: { src: 'assets/b.webm', loop: true, muted: true, autoplay: true, poster: 'assets/b.jpg', controls: null } });
+  assert.match(out, /<video src="assets\/b\.webm" playsinline preload="metadata" loop muted autoplay poster="assets\/b\.jpg"><\/video>/);
+  const back = setElementOptions(out, 1, 1, { tag: 'video', set: { autoplay: null, poster: null } });
+  assert.match(back, /<video src="assets\/b\.webm" playsinline preload="metadata" loop muted><\/video>/);
+});
+
+test('a video that plays on arrival is muted, and its files are beside the deck; anything else is refused in words', () => {
+  assert.throws(() => setElementOptions(VDECK, 1, 1, { tag: 'video', set: { autoplay: true } }), /plays when its slide arrives is muted/);
+  const playing = setElementOptions(VDECK, 1, 1, { tag: 'video', set: { autoplay: true, muted: true } });
+  assert.throws(() => setElementOptions(playing, 1, 1, { tag: 'video', set: { muted: null } }), /is muted/, 'unmuting one that plays on arrival is refused too');
+  assert.throws(() => setElementOptions(VDECK, 1, 1, { tag: 'video', set: { src: 'https://x.test/a.mp4' } }), /mp4 or a webm beside the deck/);
+  assert.throws(() => setElementOptions(VDECK, 1, 1, { tag: 'video', set: { poster: '../p.png' } }), /a poster is a picture beside the deck/);
+  assert.throws(() => setElementOptions(VDECK, 1, 1, { tag: 'video', set: { onplay: 'x' } }), /a video has no setting "onplay"/);
+});

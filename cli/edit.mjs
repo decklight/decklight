@@ -2471,7 +2471,11 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
  */
 export const ELEMENT_OPTIONS = {
   pre: ['language', 'data-lines-numbers', 'data-fit', 'data-lines'],
+  // a video on a slide (DECK_ANATOMY): its file, its toggles (bare), its poster
+  video: ['src', 'controls', 'loop', 'muted', 'autoplay', 'poster'],
 };
+const OPTION_HOLDER = { pre: 'a code block', video: 'a video' };
+const BARE_OPTIONS = new Set(['data-lines-numbers', 'data-fit', 'controls', 'loop', 'muted', 'autoplay']);
 
 /**
  * Slide N's element `index` (or the node at `path` inside it) given the
@@ -2485,13 +2489,23 @@ export function setElementOptions(html, slide, index, { path = [], tag = 'pre', 
   if (!names) throw new Error(`no settings are written for <${tag}>`);
   if (!set || typeof set !== 'object' || Array.isArray(set) || !Object.keys(set).length) throw new Error('nothing to change');
   for (const [k, v] of Object.entries(set)) {
-    if (!names.includes(k)) throw new Error(`a code block has no setting ${JSON.stringify(k).slice(0, 40)}`);
-    if ((k === 'data-lines-numbers' || k === 'data-fit') && v !== true && v !== null) throw new Error(`${k} is on (true) or off (null)`);
+    if (!names.includes(k)) throw new Error(`${OPTION_HOLDER[tag]} has no setting ${JSON.stringify(k).slice(0, 40)}`);
+    if (BARE_OPTIONS.has(k) && v !== true && v !== null) throw new Error(`${k} is on (true) or off (null)`);
+    if (k === 'src' && !(relativeSrc(v) && /\.(mp4|webm)$/i.test(v))) throw new Error('a video is an mp4 or a webm beside the deck, given by its relative path');
+    if (k === 'poster' && v !== null && !(relativeSrc(v) && /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(v))) throw new Error('a poster is a picture beside the deck, given by its relative path, or null for none');
     if (k === 'language' && v !== null && v !== '' && !CODE_LANGUAGES.some(([l]) => l === v)) throw new Error(`not a language the runtime highlights: ${String(v).slice(0, 40)}`);
     if (k === 'data-lines' && v !== null && (typeof v !== 'string' || v.length > 400)) throw new Error('data-lines is its steps, like 1-2|4, or null');
   }
   const e = openElement(html, slide, index);
   const at = e.at(path, tag);
+  if (tag === 'video') {
+    // one that plays on arrival is muted: a browser refuses to start one with sound
+    const had = splitOpenTag(e.src(at)).attrs;
+    const on = (k) => (Object.hasOwn(set, k) ? set[k] === true : attrOf(had, k) !== null);
+    if (on('autoplay') && !on('muted')) throw new Error('a video that plays when its slide arrives is muted: a browser will not start one with sound');
+    e.edit(path, tag, (attrs) => Object.entries(set).reduce((a, [n, v]) => withAttr(a, n, v), attrs));
+    return e.html();
+  }
   const kids = elementChildRanges(e.src(at));
   const k = kids.findIndex((r) => r.tag === 'code');
   if (k < 0) throw new Error('this code block has no <code> in the file');
@@ -5545,7 +5559,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // concat and its 1 MB ceiling would both be wrong, and it reads the stream
   // itself under its own 64 MB limit. `/deck/edit/asset` is the same case with a
   // different payload — an image dropped on the stage, read under its own
-  // 25 MB limit. The other three carry no body, and never had one read for them.
+  // 25 MB limit, or a video put on a slide, streamed to disk under 200 MB. The other three carry no body, and never had one read for them.
   const BEFORE_BODY = new Set([
     'POST /deck/tts',
     'POST /deck/edit/narration/record', 'POST /deck/edit/asset',

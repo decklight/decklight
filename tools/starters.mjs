@@ -21,7 +21,7 @@ import {
 } from './deck-html.mjs';
 
 /** The kinds of element Add offers, in its order (Picture is the page's file chooser, not a starter). */
-export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'table', 'code', 'formula', 'columns', 'diagram', 'chart'];
+export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'table', 'code', 'formula', 'columns', 'diagram', 'chart', 'video'];
 
 /** The kinds of slide New slide offers; no kind is today's blank slide (`BLANK_SLIDE`). */
 export const SLIDE_KINDS = ['bullets', 'text', 'columns', 'section', 'blank'];
@@ -41,11 +41,20 @@ const COLUMN = (name) => `<div>
 </div>`;
 
 /**
+ * A file a starter points at (a video): a path beside the deck, written
+ * relative (no scheme, not absolute, no `..`), of one of `exts`.
+ */
+const besideDeck = (src, exts) => typeof src === 'string' && src.length <= 300 && !!src.trim()
+  && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(src) && !/^[/\\]/.test(src) && !src.split(/[/\\]/).includes('..')
+  && !/["<>\u0000-\u001f]/.test(src) && exts.test(src);
+const attrText = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+/**
  * The starter for `kind`. `ctx.titled` says the slide already has its title
  * (a heading added then is a subheading, h3, rather than a second title);
  * `ctx.wire` is an arrowhead id no other element of the deck uses.
  */
-function elementStarter(kind, { titled = true, wire = 'dl-wire-1' } = {}) {
+function elementStarter(kind, { titled = true, wire = 'dl-wire-1', src = null } = {}) {
   switch (kind) {
     case 'heading': return titled ? '<h3>Heading</h3>' : '<h2>Heading</h2>';
     case 'text': return '<p>New text</p>';
@@ -92,6 +101,9 @@ const answer = 42;</code></pre>`;
     "series": [ { "name": "Series", "data": [3, 5, 2] } ] }
   </script>
 </div>`;
+    // DECK_ANATOMY: a video beside the deck, with its controls; the engine
+    // plays it only on its slide (slide-media.js), and loads its first frame
+    case 'video': return `<video src="${attrText(src)}" controls playsinline preload="metadata"></video>`;
     default: return null;
   }
 }
@@ -305,10 +317,14 @@ function wordsMarkup(kind, words) {
  * blocks the columns, so the columns go first under the title; and two
  * columns asked for inside a column (409).
  */
-export function insertStarter(html, slide, index, kind, { path = null, words = null } = {}) {
+export function insertStarter(html, slide, index, kind, { path = null, words = null, with: given = {} } = {}) {
   const deck = String(html ?? '');
   if (!ELEMENT_KINDS.includes(kind)) {
     throw new StarterError(`no kind "${kind}" to add (one of: ${ELEMENT_KINDS.join(', ')})`, 400);
+  }
+  // a kind that carries a file is given its path, and only one beside the deck
+  if (kind === 'video' && !besideDeck(given?.src, /\.(mp4|webm)$/i)) {
+    throw new StarterError('a video is an mp4 or a webm beside the deck, given by its relative path (assets/clip.mp4)', 400);
   }
   const { parts, idx } = locateSlide(deck, slide);
   const seg = parts[idx];
@@ -319,7 +335,7 @@ export function insertStarter(html, slide, index, kind, { path = null, words = n
   }
   const titled = sectionChildRanges(seg).some((r) => r.tag === 'h1' || r.tag === 'h2');
   // words pasted from another app: their block around them, else the kind's starter
-  const markup = words !== null ? wordsMarkup(kind, words) : elementStarter(kind, { titled, wire: kind === 'diagram' ? freeWireId(deck) : undefined });
+  const markup = words !== null ? wordsMarkup(kind, words) : elementStarter(kind, { titled, wire: kind === 'diagram' ? freeWireId(deck) : undefined, src: given?.src ?? null });
   const count = kind === 'columns' ? 2 : 1;
   let layout = null;
   let out;

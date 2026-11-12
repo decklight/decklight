@@ -21,16 +21,21 @@ import { authoredIndex } from './design-system.js';
 import { createEditCommit } from './edit-commit.js';
 import { pathFrom } from './colorpicker.js';
 import { innerPath } from './editbar.js';
+import { boundedFetch } from './devmode.js';
+import { videoFiles } from './authoring.js';
+
+/** The largest video the edit server takes (cli/edit-slides.mjs MAX_VIDEO_BYTES), said before anything is sent. */
+export const MAX_VIDEO_BYTES = 200e6;
 
 /** What Add offers, in its order: the server's kinds, then the picture the bar always had. */
 export const ADD_KINDS = [
   ['heading', 'Heading'], ['text', 'Text'], ['bullets', 'Bullets'], ['numbered', 'Numbered list'],
   ['quote', 'Quote'], ['table', 'Table'], ['code', 'Code'], ['formula', 'Formula'], ['columns', 'Two columns'],
-  ['diagram', 'Diagram'], ['chart', 'Chart'], ['picture', 'Picture'],
+  ['diagram', 'Diagram'], ['chart', 'Chart'], ['picture', 'Picture'], ['video', 'Video'],
 ];
 const SAID = {
   heading: 'a heading', text: 'text', bullets: 'a bullet list', numbered: 'a numbered list', quote: 'a quote',
-  table: 'a table', code: 'a code block', formula: 'a formula', columns: 'two columns', diagram: 'a diagram', chart: 'a chart',
+  table: 'a table', code: 'a code block', formula: 'a formula', columns: 'two columns', diagram: 'a diagram', chart: 'a chart', video: 'a video',
 };
 
 /** The node a new element's words are typed into, or null for a kind that is not words (a diagram, a chart). */
@@ -74,6 +79,7 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
   /** Add a starter of `kind` to the slide on screen, after the selected element (or last on the slide). */
   async function add(kind) {
     if (kind === 'picture') { editbar.choosePicture(); return; }
+    if (kind === 'video') { chooseVideo(); return; }
     return insert(kind);
   }
 
@@ -132,6 +138,71 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     })();
     await commit.track(job);   // Z waits for it, as for every write
   }
+
+  // ── a video: chosen or dropped, copied beside the deck, then placed ─────
+  /** Add ▾ › Video: a chooser for mp4 or webm, placed after the selection as Add places anything. */
+  function chooseVideo() {
+    const pick = Object.assign(document.createElement('input'), { type: 'file', accept: 'video/mp4,video/webm', hidden: true });
+    pick.addEventListener('change', () => {
+      const files = videoFiles(pick.files);
+      const picked = pick.files?.length ?? 0;
+      pick.remove();
+      if (picked && !files.length) { toast('a slide takes an mp4 or a webm video', 3200); return; }
+      const { slide, sec } = current();
+      const sel = editbar.selected();
+      const index = sel && sel.sec === sec && Number.isInteger(sel.index) ? sel.index : null;
+      if (files.length && sec) addVideos(files, { slide, sec, index, path: index !== null ? innerPath(sel) : null });
+    });
+    root.append(pick);
+    pick.click();
+  }
+
+  /**
+   * Upload each video into assets/ beside the deck (POST /deck/edit/asset,
+   * streamed there) and put a `<video controls>` for it on slide `slide`
+   * after element `index` (or the block at `path` inside it), in place and
+   * selected. One over the server's cap is refused before a byte is sent,
+   * with the cap in the sentence.
+   */
+  async function addVideos(files, { slide, sec, index = null, path = null }) {
+    if (!editmode.elementEditOn()) { toast(editmode.cannot('adding to a slide'), 3200); return; }
+    if (sec.hasAttribute('data-template')) { toast(templatedSay(slide), 5200); return; }
+    const job = (async () => {
+      for (const file of files) {
+        if (file.size > MAX_VIDEO_BYTES) {
+          toast(`${file.name} was not added: a video on a slide is at most ${Math.round(MAX_VIDEO_BYTES / 1e6)} MB, and it is ${Math.round(file.size / 1e6)} MB`, 6000);
+          continue;
+        }
+        let up;
+        try {
+          const res = await boundedFetch((editmode.base?.() ?? '') + '/deck/edit/asset', {
+            method: 'POST', headers: { 'content-type': file.type, 'x-decklight-name': file.name }, body: file,
+          }, { ms: 600000 });
+          up = await res.json().catch(() => ({}));
+          if (!res.ok || !up.src) throw new Error(up.error || `the edit server answered ${res.status}`);
+        } catch (e) { toast(`could not add ${file.name}: ${commit.why(e)}`, 6000); continue; }
+        let j;
+        try {
+          j = await commit.send('/deck/edit/element/insert', { slide, index, kind: 'video', with: { src: up.src }, ...(path?.length ? { path } : {}) });
+        } catch (e) { toast(`${file.name} is in ${up.src}, but could not go on the slide: ${commit.why(e)}`, 7000); continue; }
+        let els;
+        try { els = place(sec, j); } catch (e) {
+          debugLog('edit', `add video in place failed (${String(e.message || e)}) — reloading`);
+          handOff({ slide, index: j.index, path: j.path ?? [], kind: 'video' });
+          commit.reload(`${file.name} added — the page could not show it in place`, { slide });
+          return;
+        }
+        instance.refreshSlide?.(sec, { scan: sec });
+        editbar.refresh();
+        settle('video', els[0]);
+        // the next one goes after this one
+        index = j.index; path = j.path?.length ? j.path : null;
+        toast(`${file.name} is on slide ${slide} as ${up.src}${up.committed === false ? ' (the deck’s automatic commits carry the deck alone: commit the video yourself)' : ''}`, 5200);
+      }
+    })();
+    await commit.track(job);
+  }
+  authoring.setVideoDrop?.((files, where) => addVideos(files, where));
 
   /**
    * An element from the clipboard (PRESENTING_EDITING, the clipboard): `markup`
@@ -312,5 +383,5 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
   editmode.onElementEditChange(resumeWhenOn);
   if (editmode.elementEditOn()) resume();
 
-  return { open, add, pasteWords, paste, duplicate, kinds: () => ADD_KINDS.map(([kind, label]) => ({ kind, label })) };
+  return { open, add, pasteWords, paste, duplicate, addVideos, kinds: () => ADD_KINDS.map(([kind, label]) => ({ kind, label })) };
 }

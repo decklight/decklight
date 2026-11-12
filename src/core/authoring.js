@@ -119,6 +119,10 @@ const GENERIC_PICTURE_NAME = new RegExp('^(?:'
 export function imageFiles(list) {
   return Array.from(list ?? []).filter((f) => /^image\/(png|jpeg|gif|webp|svg\+xml|avif)$/.test(f.type));
 }
+/** The videos a slide can carry, of `list` (a drop, a chooser): mp4 and webm (DECK_ANATOMY). */
+export function videoFiles(list) {
+  return Array.from(list ?? []).filter((f) => /^video\/(mp4|webm)$/.test(f.type));
+}
 
 /**
  * What a drop says about the files it did not add: not pictures (named, the
@@ -129,7 +133,7 @@ export function droppedNotAdded(files, { writeMode = true } = {}) {
   if (!writeMode) return 'dropping a picture adds it in write mode: open the deck with decklight <deck.html>';
   const names = Array.from(files ?? []).map((f) => f.name).filter(Boolean);
   const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ');
-  return `${shown || 'that'} ${names.length > 1 ? 'are not pictures' : 'is not a picture'}: only PNG, JPEG, GIF, WebP, SVG or AVIF can be added`;
+  return `${shown || 'that'} ${names.length > 1 ? 'are not pictures' : 'is not a picture'}: only PNG, JPEG, GIF, WebP, SVG or AVIF can be added, or an mp4 or webm video`;
 }
 
 /**
@@ -1111,6 +1115,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   root.addEventListener('dragleave', (e) => {
     if (e.target === root || !root.contains(e.relatedTarget)) root.classList.remove('dl-dropping');
   });
+  let videoDrop = null;
   root.addEventListener('drop', async (e) => {
     root.classList.remove('dl-dropping');
     if (!carriesFiles(e)) return;
@@ -1118,9 +1123,10 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const dropped = Array.from(e.dataTransfer?.files ?? []);
     if (!available()) { toast(droppedNotAdded(dropped, { writeMode: false }), 3600); return; }
     const files = imageFiles(dropped);
-    const rest = dropped.filter((f) => !files.includes(f));
+    const videos = videoDrop ? videoFiles(dropped) : [];
+    const rest = dropped.filter((f) => !files.includes(f) && !videos.includes(f));
     if (rest.length) toast(droppedNotAdded(rest), 4200);
-    if (!files.length) return;
+    if (!files.length && !videos.length) return;
     const where = sectionOf(document.elementFromPoint(e.clientX, e.clientY))
       ?? sectionOf(instance._sections[instance.state.slide - 1]);
     if (!where) return;
@@ -1129,7 +1135,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const index = under && !under.matches('aside') ? authoredIndex(where.sec, under) : null;
     // dropped on a column: the server puts it inside, after the block it fell on
     const path = index !== null && point && point !== under && under.contains(point) ? pathFrom(under, point) : null;
-    await placePictures(files, where, index, path);
+    if (files.length) await placePictures(files, where, index, path);
+    // a video is Add › Video's to place (add-content.js): copied beside the deck, then put where it fell
+    if (videos.length) await videoDrop(videos, { slide: where.slide, sec: where.sec, index, path });
   });
   /**
    * Upload each picture and place it on the slide after element `index`
@@ -1162,6 +1170,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   }
 
   return {
+    /** `fn(files, { slide, sec, index, path })` places videos dropped on a slide (add-content.js). */
+    setVideoDrop: (fn) => { videoDrop = fn; },
     /** Is an inline edit in progress? The deck's shortcuts stand aside while one is. */
     editing: () => !!editing,
     /**

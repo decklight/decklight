@@ -3355,6 +3355,7 @@ export function init(userConfig = {}) {
     live: !printMode && !captureMode && !params.has('embedded'),
   });
   adoptSlideMedia = slideMediaDriver.adopt;
+  instance._slideMedia = slideMediaDriver;   // the Options tab tells it a clip's ask changed
   slideMediaDriver.adopt();
   instance.on('slide', slideMediaDriver.sync);
 
@@ -3754,6 +3755,7 @@ export function init(userConfig = {}) {
   const clipboard = createClipboard({ editmode, authoring, editbar, addContent, toast });
   editmode.setClipboard?.(clipboard);
   instance._clipboard = clipboard;
+  instance._addContent = addContent;   // the render harness drives Add's video path through it
   // Pictures after the drop (pictures.js, PRESENTING_EDITING): resize, alt,
   // replace, caption, and the slide's background, each shown at once. A
   // background is the engine's to draw: its layer again for the one slide,

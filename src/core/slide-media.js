@@ -73,5 +73,10 @@ export function createSlideMedia({ root, sections, current, live }) {
     adopt: adoptAll,
     /** Did the author ask this clip to play when its slide arrives? */
     playsOnArrival: (m) => onArrival.has(m),
+    /** The ask changed in place (the inspector's Options tab): the clip plays on arrival from now, or no longer does. */
+    setPlaysOnArrival(m, on) {
+      if (on) onArrival.add(m); else onArrival.delete(m);
+      m.removeAttribute('autoplay');
+    },
   };
 }
