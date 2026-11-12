@@ -551,7 +551,7 @@
         }
       }
       // `editbar` is the same server, driven from the bar and the selection
-      if (HARNESS_MODE === 'inspector') {
+      if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/review/comments')) return json({ ok: true, records: [] });
         if (u.includes('/deck/edit/inspect')) {
@@ -1026,7 +1026,7 @@
     }
     // the inspector (I): a slide that clips, and one with shapes to select —
     // an SVG node, grey text on white just under AA, an image with no alt
-    if (HARNESS_MODE === 'inspector') {
+    if (HARNESS_MODE === 'inspector' || HARNESS_MODE === 'inspectortabs') {
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Tall</h2>
         <ul>${Array.from({ length: 40 }, (_, i) => `<li>line ${i + 1}</li>`).join('')}</ul></section>
         <section><h2>Shapes</h2>
@@ -2800,6 +2800,75 @@
         press('Escape');
         try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || k === 'crumbs' || k === 'contrast' || v === true);
+      }
+
+      if (mode === 'inspectortabs') {
+        // PRESENTING, the inspector's tabs as a list a feature adds to: none
+        // of them the slide's, no bar with nothing selected; one that is, a
+        // bar beside Info there, its pane kept while its key holds and
+        // destroyed when the slide, the tab or the selection moves on
+        const P = '.decklight-inspector';
+        const ins = deck._inspector;
+        const tabIds = () => [...document.querySelectorAll(`${P} .ins-tab`)].map((b) => b.dataset.tab).join(',');
+        const chosen = () => document.querySelector(`${P} .ins-tab[aria-selected="true"]`)?.dataset.tab ?? null;
+        const probe = () => document.querySelector(`${P} .probe-pane`);
+        await settle(); await settle();
+        deck.goto(1, 0);
+        await settle();
+        press('i');
+        await settle(); await settle();
+        r.noBarWithNothingSelected = !!document.querySelector(P) && !document.querySelector(`${P} .ins-tabs`);
+        let made = 0, destroyed = 0;
+        ins.addTab({
+          id: 'probe', label: 'Probe', showsWithoutSelection: true, showsWithSelection: false,
+          key: (ctx) => ctx.slide,
+          pane: (ctx) => { made++; const el = Object.assign(document.createElement('div'), { className: 'probe-pane', textContent: `slide ${ctx.slide}` }); return { el, destroy: () => { destroyed++; } }; },
+          foot: 'esc closes',
+        }, { after: 'info' });
+        ins.addTab({ id: 'later', label: 'Later', showsWithoutSelection: true, enabled: () => 'not on this slide', pane: () => ({ el: document.createElement('div') }) });
+        let offered = false;
+        ins.addTab({ id: 'unseen', label: 'Unseen', showsWithoutSelection: true, shows: (ctx) => offered && ctx.slide === 1, pane: () => ({ el: document.createElement('div') }) });
+        await settle();
+        r.barBesideInfo = tabIds() === 'info,probe,later' && chosen() === 'info';
+        offered = true;
+        ins.onSlide();
+        await settle();
+        r.showsWhenItSays = tabIds() === 'info,probe,later,unseen';
+        offered = false;
+        ins.onSlide();
+        await settle();
+        const later = document.querySelector(`${P} .ins-tab[data-tab="later"]`);
+        r.disabledSaysWhy = !!later?.disabled && later.title === 'not on this slide';
+        document.querySelector(`${P} .ins-tab[data-tab="probe"]`).click();
+        await settle();
+        r.paneShows = chosen() === 'probe' && probe()?.textContent === 'slide 1' && made === 1
+          && /esc closes/.test(document.querySelector(`${P} .ins-foot`)?.textContent ?? '');
+        const first = probe();
+        ins.onSlide();
+        await settle();
+        r.keptAcrossRepaints = probe() === first && made === 1 && destroyed === 0;
+        deck.goto(2, 0);
+        await settle(); await settle();
+        r.remadeForTheNextSlide = probe()?.textContent === 'slide 2' && made === 2 && destroyed === 1;
+        // a selection: the slide's tab is not in its bar, and Info comes back
+        deck.goto(6, 0);
+        await settle();
+        const sec = document.querySelector('.decklight-stage > section.active');
+        sec.querySelector('.ins-grey').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+        r.selectionBarHasTheElementTabs = tabIds().startsWith('info,colors,type,data,later');
+        r.backToInfoWithASelection = chosen() === 'info' && !probe() && made === 3 && destroyed === 3;
+        press('Escape');
+        await settle();
+        r.nothingSelectedAgain = tabIds() === 'info,probe,later';
+        let threw = false;
+        try { ins.addTab({ id: 'probe', label: 'Again', pane: () => ({ el: document.createElement('div') }) }); } catch { threw = true; }
+        r.oneTabPerId = threw;
+        press('Escape');
+        await settle();
+        r.closes = !document.querySelector(P);
+        try { localStorage.removeItem('decklight-panel-dock:' + location.pathname); } catch {}
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
       // Writing sources back (SLIDE_SOURCES). The editor is a DRAFT: nothing

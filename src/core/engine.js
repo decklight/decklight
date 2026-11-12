@@ -3721,6 +3721,9 @@ export function init(userConfig = {}) {
     // a chart's numbers changed in the Data tab (chartgrid.js): drawn again from its element
     redrawChart: (el) => { const sec = el?.isConnected ? el.closest('section') : null; if (sec) refreshSlide(sec, { charts: el, scan: el }); },
   });
+  // the inspector's tabs are a list a feature adds its own to (addTab); the
+  // render harnesses reach it here, as they reach pictures and shapes
+  instance._inspector = inspector;
   // the content editor's way back to the inspector (its HTML tab's other end)
   editmode.setInspectorOpener?.(() => inspector?.open());
   // Check deck… (palette, SPEC PRESENTING): the open deck's own lint, slide by

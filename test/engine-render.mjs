@@ -31,7 +31,7 @@ export const MODES = [
   'chromescale',
   'restore', 'historydetails', 'historycaptions', 'historychanges', 'historybuilds', 'escapeall', 'hidden', 'hidden&all', 'shiftarrows', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'exportmodule', 'publish',
-  'inspector', 'sourcesedit',
+  'inspector', 'inspectortabs', 'sourcesedit',
   'decktheme', 'palettecategories', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'emphasis', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesbuilds', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'copystyle', 'brandthemes', 'brandoffconfig', 'brandunlocked', 'designroles', 'inspectpick', 'labeledit', 'typingdock', 'notesauto', 'notesautofail', 'heldreload', 'savefail', 'slideinplace', 'outsideedit', 'esckeeps', 'pinch', 'debugreload', 'lockmode', 'clipbadge', 'notrustmode', 'editingtour', 'editingtourwelcome', 'welcomekeys',
   'bgindex',
   'addmenu', 'addslidekinds',
