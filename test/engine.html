@@ -920,6 +920,7 @@
         if (u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/deck/edit/slide/hidden')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'wizard') {
         if (u.includes('/deck/ping')) {
@@ -5706,6 +5707,18 @@
         bar().querySelector('.eb-slide').click();
         await settle();
         r.slideButtonOpensTheSlideMenu = rows().includes('Duplicate this slide') && rows().includes('Delete this slide');
+        // Hide this slide is a row of it (HIDDEN_SLIDES), the palette's row: the same write
+        const menuRow = (label) => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === label);
+        const hides = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/hidden')).map((c) => c.body);
+        menuRow('Hide this slide')?.click();
+        await new Promise((res) => setTimeout(res, 300)); await settle();
+        r.slideMenuHides = hides().length === 1 && hides()[0].slide === 1 && hides()[0].hidden === true
+          && sec1.hasAttribute('data-hidden') && !document.querySelector('.decklight-ctxmenu');
+        // a jump never lands on a hidden slide, so the bar's menu cannot come
+        // back to it; Unhide is the right-click menu's check (contextmenu)
+        sec1.removeAttribute('data-hidden');
+        deck.goto(1, 0);
+        await settle();
         press('Escape');
         await settle();
         // Layout cycles the slide and says where it landed
@@ -5749,7 +5762,7 @@
         r.PASS = r.bareLWritesNothing && r.barAtOnce && r.barNamesEveryDoor && r.barShowsTheKeys && r.hasGrip && r.gripMoves && r.placeRemembered && r.dblclickPutsItBack
           && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordStaysInWriteMode && r.buildWantsASelection && r.clickSelects && r.buildOpensTheEffects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
-          && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
+          && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu && r.slideMenuHides
           && r.layoutButtonCycles && r.layoutWriteIsQuiet && r.layoutFromElsewhereLands && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
           && r.doneCloses && r.paletteOffersEditing;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
@@ -10030,6 +10043,27 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // the background has no element to act on, so the slide itself is what is offered
         r.backgroundOnlyNotes = JSON.stringify(rowsText().filter((t) => t !== 'Writing tools…')) === JSON.stringify(['Edit speaker notes', 'Open this slide in your editor', 'Slide ▸']);
         press('Escape');
+        // Slide ▸ carries Hide this slide (HIDDEN_SLIDES), the palette's row:
+        // the same write, and Unhide once it is hidden
+        const hidePosts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/hidden')).map((c) => c.body);
+        rightClick(sections[0]);
+        clickRow('Slide ▸');
+        await settle();
+        r.slideSubmenuOffersHide = rowsText().includes('Hide this slide');
+        clickRow('Hide this slide');
+        await settle(); await settle();
+        r.slideSubmenuHides = hidePosts().length === 1 && hidePosts()[0].slide === 1 && hidePosts()[0].hidden === true
+          && sections[0].hasAttribute('data-hidden') && !document.querySelector(M);
+        deck.goto(1, 0);
+        await settle();
+        rightClick(sections[0]);
+        clickRow('Slide ▸');
+        await settle();
+        clickRow('Unhide this slide');
+        await settle(); await settle();
+        r.slideSubmenuUnhides = hidePosts().length === 2 && hidePosts()[1].hidden === false && !sections[0].hasAttribute('data-hidden');
+        deck.goto(1, 0);
+        await settle();
 
         // "Build ▸" drills into a submenu — the 7 SPEC entrance
         // styles, 'none' (a real, instant build step), "remove effect", and a
@@ -10107,6 +10141,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
 
         r.PASS = r.armingOpensNoMenu && r.opensOnElement && r.fullMenuRows && r.greyedNotGone && r.hasSelection && r.downMoves
           && r.escapeCloses && r.opensOnBackground && r.backgroundOnlyNotes
+          && r.slideSubmenuOffersHide && r.slideSubmenuHides && r.slideSubmenuUnhides
           && r.submenuShape && r.postsEffect && r.closesAfterEffect && r.postsRemove
           && r.contentMounts && r.contentLoadedFromSource && r.postsContent && r.escapeClosesContentEditor
           && r.inspectorOffersHtml && r.htmlTabOpensTheEditor && r.editorGoesBackToTheInspector
