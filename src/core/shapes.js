@@ -55,6 +55,7 @@
 import { pathFrom } from './colorpicker.js';
 import { injectedIn, isDrawn } from './pick.js';
 import { createEditCommit } from './edit-commit.js';
+import { linesOf, setLines, fitOnShape, overflowingLabels } from './diagram-labels.js';
 import { LINE_DASHES, LINES, lineOf, CORNERS, cornersOf, cornerRadius, SHAPES, shapeGeometry, shapeBox } from '../../tools/diagram-shapes.mjs';
 import {
   IDENTITY, WIRE_TAGS, connectorsIn, isConnector, nodeNamed, nodeBox, endsOf, geometryFor, wireGeometry, setGeometry,
@@ -366,9 +367,11 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
   const refit = (nodes, svg, wires = []) => instance.refreshSlide?.(svg?.closest('section'), {
     connectors: wires, strokes: nodes, paint: svg?.parentElement, scan: false, relayout: false,
   });
-  async function save(target, before, what) {
-    const edits = editsFor(target.top, before);
-    if (!edits) { restore(before); toast('that node is the engine’s, not the file’s — nothing to move', 2600); return false; }
+  async function save(target, before, what, extra = []) {
+    const found = editsFor(target.top, before);
+    if (!found) { restore(before); toast('that node is the engine’s, not the file’s — nothing to move', 2600); return false; }
+    // a label's lines go last: they rewrite what is inside the text, after its own x and y
+    const edits = [...found, ...extra];
     if (!edits.length) return true;
     try {
       await post('/deck/edit/element/geometry', { slide: target.slide, index: target.index, edits });
@@ -725,7 +728,10 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       .map((t) => {
         keep(t, ['x', 'y']);
         const anchor = t.getAttribute('text-anchor') ?? getComputedStyle(t).textAnchor ?? 'start';
-        return { t, x: num(t, 'x'), y: num(t, 'y'), anchor };
+        // a label of several lines: each line's x goes with the text's (they used to stay behind)
+        const rows = linesOf(t) && t.children.length ? [...t.children].filter((k) => numericAttr(k, 'x') && k.hasAttribute('x')) : [];
+        for (const k of rows) keep(k, ['x']);
+        return { t, x: num(t, 'x'), y: num(t, 'y'), anchor, rows: rows.map((k) => ({ k, x: num(k, 'x') })), html: t.innerHTML };
       });
     const svg = shape.ownerSVGElement;
     // a wire's end: its own geometry kept (a path's data, a polyline's points), and whether that end is attached
@@ -806,8 +812,10 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       const now = boxOf(R.shape);
       for (const l of R.labels) {
         const q = followLabel(l, R.box, now);
-        l.t.setAttribute('x', String(keepGrain(l.x, q.x)));
+        const nx = keepGrain(l.x, q.x);
+        l.t.setAttribute('x', String(nx));
         l.t.setAttribute('y', String(keepGrain(l.y, q.y)));
+        for (const r of l.rows) r.k.setAttribute('x', String(keepGrain(r.x, r.x + (nx - l.x))));
       }
     }
     R.moved = true;
@@ -835,9 +843,54 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       }
       if (R.attached[end]) { await wireOp(R.target, R.shape, 'detach', { end }, { before: R.before }); return; }
     }
-    await save(R.target, R.before, R.data.end ? 'line end' : 'resize');
+    // its labels wrapped again for the new size, in the same write (SVG_DIAGRAMS, labels that wrap)
+    const relined = R.data.end ? [] : rewrap(R.labels, R.before, R.target.top);
+    const ok = await save(R.target, R.before, R.data.end ? 'line end' : 'resize', relined.map((x) => x.edit));
+    if (!ok) for (const x of relined) x.t.innerHTML = x.html;
+    markOverflow(R.svg);
     placeHandles();
   }
+
+  // ── labels that wrap ──────────────────────────────────────────────────────
+  /**
+   * The labels a resize carried, broken again to fit the shape's new size:
+   * each one whose lines change is put up as its new lines, its old lines
+   * taken out of `before` (they are no longer on the page; the lines edit
+   * rewrites them), and handed back with the edit that writes it. The words
+   * are joined first, so a line break typed by hand becomes an ordinary one.
+   */
+  function rewrap(labels, before, top) {
+    const out = [];
+    for (const l of labels) {
+      const was = linesOf(l.t);
+      if (!was) continue;
+      const fit = fitOnShape(l.t, was.join(' '));
+      if (!fit || fit.lines.join('\n') === was.join('\n')) continue;
+      const path = pathFrom(top, l.t);
+      if (!path) continue;
+      for (const r of l.rows) before.delete(r.k);
+      setLines(l.t, fit.lines);
+      out.push({ t: l.t, html: l.html, edit: { path, tag: 'text', was: was.join('\n'), lines: fit.lines } });
+    }
+    return out;
+  }
+  /** Mark the shapes of `svg` whose label does not fit even wrapped (write mode only); the rest unmarked. */
+  function markOverflow(svg) {
+    if (!svg) return;
+    for (const s of svg.querySelectorAll('.dl-label-overflow')) s.classList.remove('dl-label-overflow');
+    if (!editmode.elementEditOn?.()) return;
+    for (const { shape } of overflowingLabels(svg)) shape.classList.add('dl-label-overflow');
+  }
+  const markSlide = () => {
+    const sec = root.querySelector('section.active');
+    for (const svg of sec?.querySelectorAll('svg') ?? []) markOverflow(svg);
+  };
+  authoring.setLabelHooks?.({
+    fit: (text, words) => fitOnShape(text, words),
+    saved: (text) => markOverflow(text.ownerSVGElement),
+  });
+  instance.on?.('slide', () => markSlide());
+  editmode.onElementEditChange?.(() => markSlide());
 
   // ── connect (CONNECT) ─────────────────────────────────────────────────────
   /**

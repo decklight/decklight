@@ -29,6 +29,7 @@ import { slideTitle, slideBody } from './finder.js';
 import { createListSessions } from './list-session.js';
 import { createEditCommit } from './edit-commit.js';
 import { cleanPasted, cleanTyped } from './list-edit.js';
+import { labelOf, linesOf, setLines } from './diagram-labels.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -191,7 +192,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     el.removeAttribute('data-dl-unsaved');
   };
   const notSaved = (what, e) => `${commit.notSaved(what, e)}. Your words stay on the slide, marked: double-click to try again (Esc there puts the old ones back)`;
-  const changedNow = (cur) => (cur.list || cur.table ? lists.changed(cur) : cur.svg ? cur.input.value.replace(/\s+/g, ' ').trim() !== cur.was.replace(/\s+/g, ' ').trim()
+  const changedNow = (cur) => (cur.list || cur.table ? lists.changed(cur) : cur.svg ? rowsOf(cur.input.value).join('\n') !== rowsOf(cur.was).join('\n')
     : cur.code ? cur.el.textContent.replace(/\n$/, '') !== cur.text
       : cur.el.innerHTML !== cur.original);
   holdDraft(() => {
@@ -310,7 +311,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     }
     if (cur.svg) {
       endLabel(cur);
-      if (stranded.has(cur.el)) { cur.el.textContent = cur.was; unstrand(cur.el); }
+      if (stranded.has(cur.el)) { cur.el.innerHTML = cur.html; unstrand(cur.el); }
       return;
     }
     if (cur.list || cur.table) { lists.cancel(cur); if (cur.formula) typesetAgain(cur); return; }
@@ -839,6 +840,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   // and sends the words alone: the diagram's markup is never re-serialised,
   // so `viewBox`, self-closing shapes and the file's own layout all survive.
   let measure = null;
+  // a label that wraps: the diagram's fit and its news of a save (setLabelHooks, shapes.js)
+  let labelFit = null; let labelSaved = null;
   function placeLabel(cur, { again = false } = {}) {
     const { input, el } = cur;
     if (again || !cur.at) {
@@ -851,35 +854,47 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       cur.at = { px, anchor, x, y: r.top + r.height / 2, font: `${cs.fontStyle} ${cs.fontWeight} ${px}px ${cs.fontFamily}` };
       Object.assign(input.style, {
         font: cur.at.font, lineHeight: '1.25', textAlign: anchor === 'middle' ? 'center' : anchor === 'end' ? 'right' : 'left',
-        color: /^rgb/.test(cs.fill) ? cs.fill : '', height: `${px * 1.25 + 6}px`,
+        color: /^rgb/.test(cs.fill) ? cs.fill : '',
       });
     }
     const { px, anchor, x, y, font } = cur.at;
     measure ??= document.createElement('canvas').getContext('2d');
     measure.font = font;
-    const w = Math.ceil(measure.measureText(input.value || ' ').width + px * 0.6 + 8);
+    // as many rows as it has lines (⇧⏎ makes one), as wide as its longest
+    const rows = (input.value || ' ').split('\n');
+    const w = Math.ceil(Math.max(...rows.map((r) => measure.measureText(r || ' ').width)) + px * 0.6 + 8);
+    const h = px * 1.25 * rows.length + 6;
     input.style.width = `${w}px`;
+    input.style.height = `${h}px`;
     input.style.left = `${anchor === 'middle' ? x - w / 2 : anchor === 'end' ? x - w + 4 : x - 4}px`;
-    input.style.top = `${y - (px * 1.25 + 6) / 2}px`;
+    input.style.top = `${y - h / 2}px`;
   }
   window.addEventListener('resize', () => { if (editing?.svg) placeLabel(editing, { again: true }); });
 
   async function beginLabel(el, { sec, slide }) {
     if (editing) await saveInline();
-    if (el.firstElementChild) { toast('this label is several lines: double-click the one to change', 2600); return; }
+    // a line of a label is the label: its lines are edited together, one per row
+    el = labelOf(el);
+    const lines = linesOf(el);
+    if (el.firstElementChild && !lines) { toast('this label holds runs of its own: double-click the one to change', 2600); return; }
     const top = topLevelChild(sec, el);
     if (!top) return;
     const index = authoredIndex(sec, top);
     const path = pathFrom(top, el);
     if (path === null) return;
     window.getSelection()?.removeAllRanges();
-    const input = document.createElement('input');
-    input.type = 'text';
+    // a box that takes several lines: ⇧⏎ starts one, ⏎ saves (SVG_DIAGRAMS, labels that wrap)
+    const input = document.createElement('textarea');
+    input.rows = 1;
     input.className = 'dl-label-edit';
-    input.value = el.textContent.replace(/\s+/g, ' ').trim();
+    input.spellcheck = false;
+    input.value = lines ? lines.join('\n') : el.textContent.replace(/\s+/g, ' ').trim();
     input.setAttribute('aria-label', 'diagram label');
-    // a label whose save failed shows the typed words; the file still has `was`
-    const cur = { svg: true, el, input, was: stranded.get(el)?.was ?? el.textContent, vis: el.style.visibility, slide, index, path, tag: el.tagName.toLowerCase() };
+    // a label whose save failed shows the typed words; the file still has `was` (its lines, one per row)
+    const was = lines ? lines.join('\n') : el.textContent;
+    const prior = stranded.get(el);
+    const cur = { svg: true, el, input, was: prior?.was ?? was, html: prior?.html ?? el.innerHTML, plain: prior?.plain ?? !el.firstElementChild,
+      vis: el.style.visibility, slide, index, path, tag: el.tagName.toLowerCase() };
     editing = cur;
     root.appendChild(input);
     placeLabel(cur);
@@ -888,7 +903,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     // keys typed here are the label's: ⏎ saves, Esc gives up, the deck hears none
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
-      if (e.key === 'Enter') { e.preventDefault(); saveInline(); }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveInline(); }
       else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
       else if (isLinkChord(e)) { e.preventDefault(); toast('a link goes on words of the slide’s text, not on a diagram’s label', 2200); }
     });
@@ -907,21 +922,30 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   async function saveLabel(cur) {
     editing = null;
     syncHint();
-    const text = cur.input.value.replace(/\s+/g, ' ').trim();
+    const typed = rowsOf(cur.input.value);
     endLabel(cur);
-    if (text === cur.was.replace(/\s+/g, ' ').trim()) { if (stranded.has(cur.el)) { cur.el.textContent = cur.was; unstrand(cur.el); } return; } // nothing changed: nothing written
-    if (!text) { toast('kept the label: an empty one could not be clicked again (remove the shape instead)', 3200); return; }
-    cur.el.textContent = text;
+    if (!typed.length) { toast('kept the label: an empty one could not be clicked again (remove the shape instead)', 3200); return; }
+    // broken to fit the shape it is on (only this page can measure), the breaks typed kept; a line of a run-holding label stays one line
+    const fit = cur.tag === 'text' ? labelFit?.(cur.el, typed.join('\n')) : null;
+    const lines = cur.tag === 'text' ? (fit?.lines ?? typed) : [typed.join(' ')];
+    if (lines.join('\n') === rowsOf(cur.was).join('\n')) { if (stranded.has(cur.el)) { cur.el.innerHTML = cur.html; unstrand(cur.el); } return; } // nothing changed: nothing written
+    if (cur.tag === 'text') setLines(cur.el, lines); else cur.el.textContent = lines[0];
+    const body = lines.length === 1 && cur.plain
+      ? { slide: cur.slide, index: cur.index, path: cur.path, tag: cur.tag, was: cur.was, text: lines[0] }
+      : { slide: cur.slide, index: cur.index, path: cur.path, tag: 'text', was: cur.was, lines };
     try {
-      await post('/deck/edit/element/text', { slide: cur.slide, index: cur.index, path: cur.path, tag: cur.tag, was: cur.was, text });
+      await post('/deck/edit/element/text', body);
       unstrand(cur.el);
-      toast('saved', 1200);
+      toast(fit?.overflow ? 'saved — too long for its shape even wrapped: make the shape bigger or the words fewer' : 'saved', fit?.overflow ? 4200 : 1200);
       announce(cur.slide, cur.el);
     } catch (e) {
       strand(cur);
       toast(notSaved('the label', e), 7000);
     }
+    labelSaved?.(cur.el);
   }
+  /** A label's typed rows: each one's spaces collapsed, the empty ones gone. */
+  const rowsOf = (v) => String(v ?? '').split('\n').map((r) => r.replace(/\s+/g, ' ').trim()).filter(Boolean);
 
   function beginInline(el, { sec, slide }, { selectAll = false, provisional = null, formula = false } = {}) {
     // another point of the list being edited, another cell of its table: the same session
@@ -1112,6 +1136,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   return {
     /** Is an inline edit in progress? The deck's shortcuts stand aside while one is. */
     editing: () => !!editing,
+    /**
+     * The diagram's half of a label that wraps (shapes.js): `fit(text, words)`
+     * breaks words to fit the shape a label is on, `{ lines, overflow }` or
+     * null on no shape; `saved(text)` is told once a label is written.
+     */
+    setLabelHooks({ fit = null, saved = null } = {}) { labelFit = fit; labelSaved = saved; },
     /**
      * Edit `el` in place as a double-click would — text, or a code block as
      * its source. False when it is neither. `selectAll`: its words selected

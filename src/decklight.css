@@ -3936,7 +3936,12 @@
   background: transparent; color: var(--d-text, var(--fg));
   outline: 2px solid var(--accent); outline-offset: 1px;
   caret-color: currentColor;
+  /* a textarea (⇧⏎ makes a line): sized by the page, its rows the label's lines */
+  resize: none; overflow: hidden; white-space: pre; line-height: 1.25;
 }
+/* a label too long for its shape even wrapped (SVG_DIAGRAMS): its shape glows
+   amber in write mode, never in the file (Check deck… lists it too) */
+.decklight.dl-editmode svg .dl-label-overflow { filter: drop-shadow(0 0 2px #ff9f1c) drop-shadow(0 0 1px #ff9f1c); }
 /* a diagram's shapes moved and resized in place (src/core/shapes.js): a
    selected node drags, and a box wears handles, a line one at each end */
 .decklight.dl-editmode svg .dl-glow { cursor: move; }

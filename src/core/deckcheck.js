@@ -24,6 +24,7 @@
  *   missing-media     an image or a video that did not load
  *   markdown-slide    a data-markdown slide, which comes up empty
  *   static-diagram    (hint) an SVG diagram with no build, landing all at once
+ *   label-overflow    a diagram label too long for its shape even wrapped (SVG_DIAGRAMS)
  *   concept-suggestion (hint) a label recurring in different colours
  *   unknown-attribute a data-* name one slip from one Decklight reads (tools/vocabulary.mjs)
  *   unknown-value     a build effect, layout, route… an attribute does not take
@@ -152,7 +153,7 @@ export const slideCalled = (f) => {
 const fixSubject = (f) => `fix: ${f.rule}${f.slide ? ` on ${slideCalled(f)}` : ''}`;
 
 export function createDeckCheck({
-  root, overlays, toast = () => {}, instance, goto, measureOverflow, slideTitle,
+  root, overlays, toast = () => {}, instance, goto, measureOverflow, labelOverflows = () => [], slideTitle,
   suggestions = () => [], accept = () => null,
   agentFindings = () => [],
   // the edit server behind the page: `available()` and `base()` for the
@@ -208,6 +209,12 @@ export function createDeckCheck({
         add('error', 'markdown-slide', 'a markdown slide, which comes up empty: data-markdown was removed in 0.3.0');
       }
       if (measureOverflow(sec, n)) add('error', 'overflow', 'content is clipped: the audience never sees the rest');
+      // a label that does not fit its shape even wrapped: one row a slide, naming the first
+      const long = labelOverflows(sec);
+      if (long.length) {
+        const said = long[0].replace(/\s+/g, ' ').trim().slice(0, 40);
+        add('warn', 'label-overflow', `${long.length === 1 ? 'a diagram label is' : plural(long.length, 'diagram label') + ' are'} too long for ${long.length === 1 ? 'its shape' : 'their shapes'} even wrapped (“${said}”): make the shape bigger or the words fewer`);
+      }
       for (const m of sec.querySelectorAll('img')) {
         if (m.getAttribute('src') && m.complete && m.naturalWidth === 0) {
           add('error', 'missing-media', `an image did not load: ${m.getAttribute('src')}`);
