@@ -799,6 +799,8 @@
           // preload none here: the harness has no such file, and a clip loading
           // one would hold Chrome's virtual clock (the server writes metadata)
           if (b.kind === 'video') MARKUP.video = `<video src="${b.with?.src}" controls playsinline preload="none"></video>`;
+          // about:blank here: the harness fetches no page (the server writes the address)
+          if (b.kind === 'webpage') MARKUP.webpage = `<iframe src="about:blank" title="Web page: ${new URL(b.with?.url).host}" loading="lazy"></iframe>`;
           if (b.kind === 'terminal') MARKUP.terminal = `<div class="terminal" data-cast="${b.with?.cast}" data-mode="step"></div>`;
           if (!MARKUP[b.kind]) return json({ ok: false, error: `no kind "${b.kind}" to add` }, 400);
           const kids = [...document.querySelectorAll('.decklight-stage > section')[b.slide - 1].children];
@@ -5776,7 +5778,7 @@
         const pick = (label) => click([...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === label));
         const active = () => document.querySelector('.decklight-stage > section.active');
         const inserts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/insert'));
-        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Table', 'Code', 'Formula', 'Two columns', 'Diagram', 'Chart', 'Picture', 'Video', 'Terminal recording'];
+        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Table', 'Code', 'Formula', 'Two columns', 'Diagram', 'Chart', 'Picture', 'Video', 'Terminal recording', 'Web page'];
         deck.goto(1, 0); await settle();
         const labels = [...(bar()?.querySelectorAll('.eb-btn .eb-label') ?? [])].map((n) => n.textContent);
         r.addSitsBesidePicture = labels.indexOf('Add ▾') === labels.indexOf('Picture') - 1;
@@ -5896,6 +5898,21 @@
         r.recordingReloadsOntoIt = reloads === reloadsBefore + 1;
         const terminalReloads = reloads - reloadsBefore;
         press('Escape'); await settle();
+        // a web page: an https address asked above the bar, anything else said in the field
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Web page'); await settle();
+        const ask = document.querySelector('.dl-url-ask input');
+        const enter = (v) => { ask.value = v; ask.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
+        const beforeW = inserts().length;
+        if (ask) enter('http://example.com/');
+        r.webPageAsksForHttps = !!ask && inserts().length === beforeW && /an https address/.test(document.querySelector('.dl-url-why')?.textContent ?? '');
+        if (ask) enter('https://example.com/board');
+        await settle(); await settle();
+        const frame = active().querySelector(':scope > iframe');
+        r.webPagePlaced = inserts().at(-1)?.body.kind === 'webpage' && inserts().at(-1)?.body.with?.url === 'https://example.com/board'
+          && !!frame?.classList.contains('dl-selected') && getComputedStyle(frame).pointerEvents === 'none' && !document.querySelector('.dl-url-ask');
+        r.webPageSaysWhereItIsBlank = [...document.querySelectorAll('.decklight-toast')].some((n) => /blank in no-trust mode, in a video export and offline/.test(n.textContent));
+        press('Escape'); await settle();
         // the palette's one row opens the same menu
         runRow('add to slide'); await settle();
         r.paletteRowOpensTheMenu = JSON.stringify(menuRows()) === JSON.stringify(KINDS);
@@ -5924,6 +5941,7 @@
           && r.codeInEdit && r.codeHighlighted && r.formulaMarksTheSlide && r.formulaOpenAsSource && r.formulaTypeset
           && r.videoChooserTakesVideos && r.videoCopiedThenPlaced && r.videoOnTheSlide && r.videoSaysItIsNotCommitted && r.videoOverTheCapRefused && r.videoDropPlaced
           && r.noRecordingSaysHow && r.recordingsListed && r.recordingPlaced && r.recordingReloadsOntoIt
+          && r.webPageAsksForHttps && r.webPagePlaced && r.webPageSaysWhereItIsBlank
           && r.paletteRowOpensTheMenu && r.templateSlideTurnsAddOff && r.templateSlideSaysWhy
           && r.lockedAddsNothing && r.noReload;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);

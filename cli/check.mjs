@@ -756,6 +756,16 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
     if (isTemplateRef(attrs['data-layout'])) {
       push('ds-layout-attr', `data-layout="${attrs['data-layout']}" — a slide template is named by data-template now: write data-template="${attrs['data-layout']}" (data-layout is for the built-in layouts, L)`);
     }
+    // a framed web page (Add ▾ › Web page): someone else's page, fetched as
+    // the slide shows, so wherever the deck cannot reach it the frame is blank
+    for (const node of descendants(tree)) {
+      if (node.tag !== 'iframe') continue;
+      const at = readAttrs(node.attrs).src ?? '';
+      if (!/^https?:\/\//i.test(at)) continue;
+      let host = at;
+      try { host = new URL(at).host; } catch { /* said as written */ }
+      push('web-page', `the web page from ${host} is blank in no-trust mode, in a video export and offline: the frame fetches it as the slide shows, so present it where it can be reached, or show a picture of it`, node);
+    }
     // a concept shape with its own fill (SVG_DIAGRAMS, #718): the concept
     // repaints the fill on every load, so the hand-set one is never seen
     // — each named apart from the slide's other concept shapes, quoting the fill it found

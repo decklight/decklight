@@ -21,7 +21,7 @@ import {
 } from './deck-html.mjs';
 
 /** The kinds of element Add offers, in its order (Picture is the page's file chooser, not a starter). */
-export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'table', 'code', 'formula', 'columns', 'diagram', 'chart', 'video', 'terminal'];
+export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'table', 'code', 'formula', 'columns', 'diagram', 'chart', 'video', 'terminal', 'webpage'];
 
 /** The kinds of slide New slide offers; no kind is today's blank slide (`BLANK_SLIDE`). */
 export const SLIDE_KINDS = ['bullets', 'text', 'columns', 'section', 'blank'];
@@ -47,6 +47,9 @@ const COLUMN = (name) => `<div>
 const besideDeck = (src, exts) => typeof src === 'string' && src.length <= 300 && !!src.trim()
   && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(src) && !/^[/\\]/.test(src) && !src.split(/[/\\]/).includes('..')
   && !/["<>\u0000-\u001f]/.test(src) && exts.test(src);
+/** A web page a frame shows: an https address, one line, no quote or bracket that could leave the attribute. */
+export const webAddress = (url) => typeof url === 'string' && url.length <= 2000 && /^https:\/\/[^\s"'<>`]+$/i.test(url)
+  && (() => { try { return new URL(url).protocol === 'https:'; } catch { return false; } })();
 const attrText = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 /**
@@ -54,7 +57,7 @@ const attrText = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
  * (a heading added then is a subheading, h3, rather than a second title);
  * `ctx.wire` is an arrowhead id no other element of the deck uses.
  */
-function elementStarter(kind, { titled = true, wire = 'dl-wire-1', src = null, cast = null } = {}) {
+function elementStarter(kind, { titled = true, wire = 'dl-wire-1', src = null, cast = null, url = null, title = null } = {}) {
   switch (kind) {
     case 'heading': return titled ? '<h3>Heading</h3>' : '<h2>Heading</h2>';
     case 'text': return '<p>New text</p>';
@@ -105,6 +108,9 @@ const answer = 42;</code></pre>`;
     // plays it only on its slide (slide-media.js), and loads its first frame
     case 'video': return `<video src="${attrText(src)}" controls playsinline preload="metadata"></video>`;
     // TERMINAL_PLAYER: a recording beside the deck, played a command a click
+    // a framed web page: https only, a title for a screen reader, loaded as it
+    // comes near; blank in no-trust mode, a video export and offline (Check deck says so)
+    case 'webpage': return `<iframe src="${attrText(url)}" title="${attrText(title || `Web page: ${new URL(url).host}`)}" loading="lazy"></iframe>`;
     case 'terminal': return `<div class="terminal" data-cast="${attrText(cast)}" data-mode="step"></div>`;
     default: return null;
   }
@@ -328,6 +334,12 @@ export function insertStarter(html, slide, index, kind, { path = null, words = n
   if (kind === 'video' && !besideDeck(given?.src, /\.(mp4|webm)$/i)) {
     throw new StarterError('a video is an mp4 or a webm beside the deck, given by its relative path (assets/clip.mp4)', 400);
   }
+  if (kind === 'webpage' && !webAddress(given?.url)) {
+    throw new StarterError('a web page is an https address (https://example.com/page)', 400);
+  }
+  if (kind === 'webpage' && given?.title != null && (typeof given.title !== 'string' || given.title.length > 120 || /[\u0000-\u001f]/.test(given.title))) {
+    throw new StarterError('a web page’s title is one line of at most 120 characters', 400);
+  }
   if (kind === 'terminal' && !besideDeck(given?.cast, /\.cast(\.json)?$/i)) {
     throw new StarterError('a terminal recording is a .cast.json (or an asciicast .cast) beside the deck, given by its relative path (casts/demo.cast.json)', 400);
   }
@@ -340,7 +352,7 @@ export function insertStarter(html, slide, index, kind, { path = null, words = n
   }
   const titled = sectionChildRanges(seg).some((r) => r.tag === 'h1' || r.tag === 'h2');
   // words pasted from another app: their block around them, else the kind's starter
-  const markup = words !== null ? wordsMarkup(kind, words) : elementStarter(kind, { titled, wire: kind === 'diagram' ? freeWireId(deck) : undefined, src: given?.src ?? null, cast: given?.cast ?? null });
+  const markup = words !== null ? wordsMarkup(kind, words) : elementStarter(kind, { titled, wire: kind === 'diagram' ? freeWireId(deck) : undefined, src: given?.src ?? null, cast: given?.cast ?? null, url: given?.url ?? null, title: given?.title ?? null });
   const count = kind === 'columns' ? 2 : 1;
   let layout = null;
   let out;

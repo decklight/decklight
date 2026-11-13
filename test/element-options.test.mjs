@@ -180,3 +180,11 @@ test('a terminal’s settings are refused outside their shapes, and only a termi
   for (const [set, why] of bad) assert.throws(() => setElementOptions(TDECK, 1, 1, { tag: 'div', set }), why);
   assert.throws(() => setElementOptions(TDECK, 1, 2, { tag: 'div', set: { 'data-mode': 'play' } }), /only a terminal/);
 });
+
+test('a web page’s settings: its https address and its title, and nothing else', () => {
+  const W = VDECK.replace('<video src="assets/a.mp4" controls playsinline preload="metadata"></video>', '<iframe src="https://a.test/" title="Web page: a.test" loading="lazy"></iframe>');
+  assert.match(setElementOptions(W, 1, 1, { tag: 'iframe', set: { src: 'https://b.test/x', title: 'Status board' } }), /<iframe src="https:\/\/b\.test\/x" title="Status board" loading="lazy">/);
+  assert.throws(() => setElementOptions(W, 1, 1, { tag: 'iframe', set: { src: 'http://b.test/' } }), /an https address/);
+  assert.throws(() => setElementOptions(W, 1, 1, { tag: 'iframe', set: { title: '' } }), /keeps a title/);
+  assert.throws(() => setElementOptions(W, 1, 1, { tag: 'iframe', set: { srcdoc: '<b>' } }), /a web page has no setting "srcdoc"/);
+});

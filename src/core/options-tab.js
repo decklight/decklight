@@ -62,6 +62,17 @@ export function terminalOf(target) {
   return all.length === 1 ? all[0] : null;
 }
 
+/** The framed web page the selection is, or the only one in the element selected. */
+export function frameOf(target) {
+  const top = target?.top;
+  if (!top) return null;
+  if (top.matches?.('iframe')) return top;
+  const all = [...top.querySelectorAll('iframe')];
+  return all.length === 1 ? all[0] : null;
+}
+/** Where a framed page is blank, said in its Options and by Check deck. */
+export const FRAME_BLANK = 'blank in no-trust mode, in a video export and offline: the page is someone else’s, fetched as the slide shows';
+
 export function codeBlockOf(target) {
   const top = target?.top;
   if (!top) return null;
@@ -87,7 +98,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
   // was clicked to select it is gone, and the block is still the one selected
   let last = null;
   const blockFor = (t) => {
-    const b = terminalOf(t) ?? codeBlockOf(t) ?? videoOf(t);
+    const b = terminalOf(t) ?? codeBlockOf(t) ?? videoOf(t) ?? frameOf(t);
     if (b) return (last = b);
     return last?.isConnected && t?.top?.contains(last) && !t.clicked?.isConnected ? last : null;
   };
@@ -506,6 +517,49 @@ export function createOptionsTab({ instance, editmode, toast }) {
     return { el, video, destroy() { const p = flush(); p.finally(letGo); return p; } };
   }
 
+  // ── a framed web page's settings ─────────────────────────────────────────
+  /**
+   * The pane for frame `frame`: its address and title, each written as it is
+   * entered (⏎, or leaving the field; Esc puts it back), and where it is blank.
+   */
+  function framePane(target, frame) {
+    const commit = createEditCommit(em());
+    const { slide, index } = target;
+    const path = target.top === frame ? [] : pathFrom(target.top, frame);
+    const el = h('div', 'ins-options');
+    const grid = h('dl', 'ins-rows ins-settings');
+    const field = (key, label, placeholder) => {
+      const input = Object.assign(document.createElement('input'), { type: key === 'src' ? 'url' : 'text', className: 'ins-field', value: frame.getAttribute(key) ?? '', placeholder, spellcheck: false });
+      input.setAttribute('aria-label', label);
+      let was = input.value;
+      const commitIt = async () => {
+        const v = input.value.trim();
+        if (v === was) return;
+        try {
+          await commit.post('/deck/edit/element/options', { slide, index, path, tag: 'iframe', set: { [key]: v } });
+          frame.setAttribute(key, v);
+          was = v;
+        } catch (e) { toast(commit.notSaved(`the web page’s ${label.toLowerCase()}`, e), 6000); input.value = was; }
+      };
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); commitIt(); }
+        else if (e.key === 'Escape') { e.preventDefault(); input.value = was; input.blur(); }
+      });
+      input.addEventListener('blur', () => commitIt());
+      grid.append(h('dt', null, label));
+      const dd = h('dd');
+      dd.dataset.key = key;
+      dd.append(input);
+      grid.append(dd);
+    };
+    field('src', 'Address', 'https://…');
+    field('title', 'Title', 'what a screen reader says it is');
+    grid.append(h('div', 'ins-opt-note', `It is ${FRAME_BLANK}.`));
+    el.append(grid);
+    return { el, frame, destroy() {} };
+  }
+
   // ── a terminal's settings (TERMINAL_PLAYER) ─────────────────────────────
   /** The fields, as the player reads them; '' is the player's default (the attribute off). */
   const TERMINAL_FIELDS = [
@@ -619,6 +673,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
     keeps: true,
     pane: (ctx) => {
       const b = blockFor(ctx.target);
+      if (b.matches('iframe')) return framePane(ctx.target, b);
       return b.matches('.terminal') ? terminalPane(ctx.target, b) : b.matches('video') ? videoPane(ctx.target, b) : codePane(ctx.target, b);
     },
     foot: 'esc lets go of it',
