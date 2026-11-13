@@ -113,8 +113,9 @@ import { semverCompare } from '../tools/semver.mjs';
 // "agent". (`decklight <deck>` builds this argv itself and was never affected.)
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--agent-model', '--agent-ask-model', '--git-mode', '--tts-port', '--lipsync-port',
   '--host', '--root', '--branch', '--into', '--upstream-every'];
-import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag, carriedChild } from '../tools/deck-html.mjs';
-import { splitColumns } from '../tools/starters.mjs';
+import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag, carriedChild, readAttrs } from '../tools/deck-html.mjs';
+import { splitColumns, insertBlock } from '../tools/starters.mjs';
+import { sanitizePasted } from './paste.mjs';
 import { attributeEntry } from '../tools/vocabulary.mjs';
 import {
   stale, checkPath, locateElement, nodeAt, openElement, attrList, attrOf, withAttr, withStyle, decodeText, withoutNodes,
@@ -1705,6 +1706,36 @@ function ownNames(copy, svgSrc) {
   });
 }
 
+/**
+ * An element pasted onto slide N (PRESENTING_EDITING, the clipboard): `markup`
+ * is what a copy took from a deck's file, this one's or another's, and
+ * anything else a web page put on the clipboard. It is cleaned first
+ * (sanitizePasted: nothing that runs is ever written), loses its page ids
+ * (withoutPageIds) and has its diagrams' node names made its own on this
+ * slide (ownNames), then lands where a new block does (insertBlock): after
+ * top-level child `index`, or the node at `path` below it, inside a column
+ * when that is where the selection is, or last on the slide with `index`
+ * null. A slide that follows a design-system template takes its content in
+ * its slots: refused (409). Returns `{ html, index, path, wrapped, markup,
+ * dropped }`: where it is, what the file got, and what was left out.
+ */
+export function pasteSlideElement(html, slide, { index = null, path = null, markup }) {
+  if (typeof markup !== 'string' || !markup.trim()) throw Object.assign(new Error('nothing to paste'), { status: 400 });
+  const { html: clean, dropped } = sanitizePasted(markup);
+  if (!/<[a-zA-Z]/.test(clean)) {
+    throw Object.assign(new Error(`nothing left to paste${dropped.length ? `: ${dropped.join(', ')} ${dropped.length === 1 ? 'was' : 'were'} left out` : ''}`), { status: 400 });
+  }
+  const { parts, idx } = locateSlide(html, slide);
+  const seg = parts[idx];
+  const template = readAttrs(splitOpenTag(seg).attrs)['data-template'];
+  if (template) {
+    throw Object.assign(new Error(`slide ${slide} follows the "${template}" slide template: what it says goes in the template's slots, so nothing is pasted beside them. Paste on a plain slide, or take this one out of the template first`), { status: 409 });
+  }
+  const copy = ownNames(withoutPageIds(clean.trim()), seg);
+  const out = insertBlock(html, slide, index, copy, { path });
+  return { html: out.html, index: out.index, path: out.path, wrapped: out.wrapped, markup: copy, dropped };
+}
+
 /** A wire's geometry as a `<tag>` is written with it, each value in its closed shape: `{ attr: value }`, or a refusal. */
 function connectorGeometry(tag, geometry) {
   if (!geometry || typeof geometry !== 'object' || Array.isArray(geometry)) throw new Error('a connector is written with its geometry');
@@ -2613,6 +2644,7 @@ const WRITE_LABELS = {
   '/deck/edit/slide/attr': 'slide settings changed',
   '/deck/edit/config': 'deck settings changed',
   '/deck/edit/replace': 'text replaced',
+  '/deck/edit/element/paste': 'element pasted',
   '/deck/edit/slide/face': 'face placed',
   '/deck/edit/slide': 'slides rearranged',
   '/deck/edit/narration': 'narration track saved',
@@ -2772,6 +2804,7 @@ const UNDO_LABELS = {
   '/deck/edit/slide/attr': 'slide settings',
   '/deck/edit/config': 'deck settings',
   '/deck/edit/replace': 'find and replace',
+  '/deck/edit/element/paste': 'pasted element',
   '/deck/edit/slide/face': 'face placement',
   '/deck/edit/slide': 'slide change',
   '/deck/edit/element/remove': 'removed element',

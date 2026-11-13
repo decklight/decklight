@@ -2736,6 +2736,12 @@ export function createEditMode({
       }
       const dup = canDuplicate(t);
       rows.push({ label: 'Duplicate', key: DUPLICATE_CHORD, disabled: !dup, run: dup ? () => { closeElementMenu(); duplicateElement(t); } : noop });
+      // the system clipboard (clipboard.js): the element as the file has it, here or in another deck
+      if (clipboardOps) {
+        rows.push({ label: 'Copy', key: IS_MAC ? '⌘C' : 'Ctrl+C', run: () => { closeElementMenu(); clipboardOps.copy(); } });
+        rows.push({ label: 'Cut', key: IS_MAC ? '⌘X' : 'Ctrl+X', run: () => { closeElementMenu(); clipboardOps.cut(); } });
+        rows.push({ label: 'Paste', key: IS_MAC ? '⌘V' : 'Ctrl+V', run: () => { closeElementMenu(); clipboardOps.paste(); } });
+      }
       // what is selected: a shape picked in a diagram goes alone (its holder is under Shape ▸)
       rows.push({ label: 'Remove', key: '⌫', run: () => commitRemove(t) });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(t); } });
@@ -3069,6 +3075,7 @@ export function createEditMode({
   let openInEditor = null;  // a slide or an element at its line in the author's editor (open-in-editor.js), handed in by the engine
   let tableRows = null;   // the table menu's rows for a right-clicked cell (list-session.js), handed in by authoring.js
   let turnInto = null;    // Turn into ▸ for a text block (turn-into.js), handed in by the engine
+  let clipboardOps = null; // Copy, Cut and Paste on the element menu (clipboard.js), handed in by the engine
   let pictures = null;    // a picture's rows and Slide ▸'s background ones (pictures.js), handed in by the engine
   let slideRowsOf = null; // the engine's rows for Slide ▸ / Slide ▾, for slide N: Hide this slide (HIDDEN_SLIDES)
   let shapes = null;      // a diagram's shapes moved, added, duplicated (shapes.js), handed in by the engine
@@ -4746,6 +4753,7 @@ export function createEditMode({
     /** The rows a right-click on a table's cell adds to the element menu: `fn(target, close)` → rows. */
     setTableRows: (fn) => { tableRows = fn; },
     setTurnInto: (t) => { turnInto = t; },
+    setClipboard: (c) => { clipboardOps = c; },
     /** The engine's picture tools (pictures.js): the element menu's picture rows and Slide ▸'s background rows. */
     setPictures: (p) => { pictures = p; },
     setSlideRows: (fn) => { slideRowsOf = fn; },

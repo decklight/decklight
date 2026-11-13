@@ -410,7 +410,7 @@ try {
     const box = await page.locator(`${ACTIVE} > ul`).boundingBox();
     await page.mouse.click(box.x + 6, box.y + 6, { button: 'right' }); await wait(400);
     const rows = (await labels()).filter((t) => t !== 'Writing tools…');
-    check('menus', 'the top level on a list', JSON.stringify(rows) === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build: fade-up ▸', 'Animate ▸', 'Move up', 'Move down', 'Duplicate', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Turn into ▸', 'Slide ▸']), rows);
+    check('menus', 'the top level on a list', JSON.stringify(rows) === JSON.stringify(['Inspect', 'Colors…', 'Type…', 'Copy style', 'Paste style', 'Build: fade-up ▸', 'Animate ▸', 'Move up', 'Move down', 'Duplicate', 'Copy', 'Cut', 'Paste', 'Remove', 'Edit content (HTML)', 'Open in your editor', 'Turn into ▸', 'Slide ▸']), rows);
     const original = text.read();
     await menuRow(page, /^Duplicate/); await wait(1500);
     const lists = section(text.read(), 1).match(/<ul data-build="fade-up">[\s\S]*?<\/ul>/g) ?? [];

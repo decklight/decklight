@@ -100,6 +100,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/element/move',
     'POST /deck/edit/element/options',
     'POST /deck/edit/element/order',
+    'POST /deck/edit/element/paste',
     'POST /deck/edit/element/picture',
     'POST /deck/edit/element/remove',
     'POST /deck/edit/element/shape',
@@ -547,6 +548,33 @@ test('GET /deck/edit/find and POST /deck/edit/replace: the matches, replaced in 
   assert.equal((await call2('POST /deck/edit/replace', { find: 'a', replace: 'b', expect: 0, only: ['9:9'] })).code, 409, 'a match that is no longer there');
   assert.equal((await call2('GET /deck/edit/find', undefined, '?q=')).code, 400);
   assert.equal((await call2('POST /deck/edit/replace', { find: 'a' })).code, 400);
+});
+
+test('POST /deck/edit/element/paste: cleaned, placed, one undo, and a picture this deck does not have named', async (t) => {
+  const { routes, readDeck, history, dir } = harness(t);
+  writeFileSync(path.join(dir, 'here.png'), 'x');
+  const r = await call(routes, 'POST /deck/edit/element/paste', {
+    body: { slide: 1, index: 1, html: '<figure><img src="here.png" alt=""><img src="assets/elsewhere.png" alt="" onerror="x()"></figure><script>y()</script>', quiet: true, from: 'p1' },
+  });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.index, 2);
+  assert.deepEqual(r.body.dropped, ['a script', 'an onerror handler']);
+  assert.deepEqual(r.body.missing, ['assets/elsewhere.png'], 'the file beside the deck is there; the other deck\'s is named');
+  assert.equal(history.counts().undo, 1);
+  assert.match(readDeck(), /<ul><li>one<\/li><\/ul>\s*<figure><img src="here\.png" alt=""><img src="assets\/elsewhere\.png" alt=""><\/figure>/);
+  assert.doesNotMatch(readDeck(), /script|onerror/);
+  assert.equal((await call(routes, 'POST /deck/edit/element/paste', { body: { slide: 1, index: 1, html: '<script>z()</script>' } })).code, 400);
+  assert.equal((await call(routes, 'POST /deck/edit/element/paste', { body: { slide: 9, html: '<p>x</p>' } })).code, 404);
+  assert.equal((await call(routes, 'POST /deck/edit/element/paste', { body: { slide: 1, html: 7 } })).code, 400);
+  assert.equal(history.counts().undo, 1, 'a refusal writes nothing');
+});
+
+test('GET /deck/edit/element/source by path: the node below the element, as the file has it', async (t) => {
+  const { routes } = harness(t);
+  const li = await call(routes, 'GET /deck/edit/element/source', { query: '?slide=1&index=1&path=0&tag=li' });
+  assert.equal(li.code, 200);
+  assert.equal(li.body.html, '<li>one</li>');
+  assert.equal((await call(routes, 'GET /deck/edit/element/source', { query: '?slide=1&index=1&path=0&tag=p' })).code, 409, 'a stale tag');
 });
 
 test('GET /deck/edit/element/source reads the FILE, and 404s past the last element', async (t) => {

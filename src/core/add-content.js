@@ -134,6 +134,49 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
   }
 
   /**
+   * An element from the clipboard (PRESENTING_EDITING, the clipboard): `markup`
+   * as a copy took it from a deck's file, put where a new block lands (after
+   * the selection, inside its column; last on the slide with nothing
+   * selected) by the server, which cleans it first and answers what it left
+   * out and which pictures this deck's folder does not have. Shown in place
+   * as Add's new block is, selected; one write, one undo.
+   */
+  async function paste(markup) {
+    const { slide, sec } = current();
+    if (!sec) return false;
+    const sel = editbar.selected();
+    const index = sel && sel.sec === sec && Number.isInteger(sel.index) ? sel.index : null;
+    const path = index !== null ? innerPath(sel) : null;
+    let ok = false;
+    const job = (async () => {
+      let j;
+      try { j = await commit.send('/deck/edit/element/paste', { slide, index, html: markup, ...(path?.length ? { path } : {}) }); } catch (e) {
+        toast(`not pasted: ${commit.why(e)}`, 6000);
+        return;
+      }
+      ok = true;
+      const said = [
+        j.dropped?.length ? `${j.dropped.join(', ')} left out` : '',
+        j.missing?.length ? `${j.missing.join(', ')} ${j.missing.length === 1 ? 'is' : 'are'} not in this deck's folder: the picture is empty until it is` : '',
+      ].filter(Boolean).join('; ');
+      let els;
+      try { els = place(sec, j); } catch (e) {
+        debugLog('edit', `paste in place failed (${String(e.message || e)}) — reloading`);
+        handOff({ slide, index: j.index, path: j.path ?? [], kind: null });
+        commit.reload(`pasted${said ? `. ${said}` : ''}`, { slide });
+        return;
+      }
+      instance.refreshSlide?.(sec, { charts: true, svgs: els, code: els.filter((el) => el.matches('pre') || el.querySelector('pre > code')), paint: sec });
+      editbar.refresh();
+      reveal(slide, els);
+      settle(null, els[0]);
+      toast(said ? `Pasted. ${said[0].toUpperCase()}${said.slice(1)}.` : 'pasted', said ? 6000 : 1800);
+    })();
+    await commit.track(job);
+    return ok;
+  }
+
+  /**
    * Duplicate what `target` selects (PRESENTING_EDITING, Duplicate): the
    * element, or the node picked inside it (a picture in a figure), copied
    * right after itself by the server, which answers with the copy's markup.
@@ -269,5 +312,5 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
   editmode.onElementEditChange(resumeWhenOn);
   if (editmode.elementEditOn()) resume();
 
-  return { open, add, pasteWords, duplicate, kinds: () => ADD_KINDS.map(([kind, label]) => ({ kind, label })) };
+  return { open, add, pasteWords, paste, duplicate, kinds: () => ADD_KINDS.map(([kind, label]) => ({ kind, label })) };
 }

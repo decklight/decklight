@@ -1158,6 +1158,13 @@ export function init(userConfig = {}) {
       write({ label: 'Undo', cat: 'Edit', hint: UNDO_CHORD, alias: 'undo deck edit revert back history', run: () => deckHistory('undo') }),
       write({ label: 'Redo', cat: 'Edit', hint: REDO_CHORD, alias: 'redo deck edit forward history repeat', run: () => deckHistory('redo') }),
       write({ label: 'Ask agent…', cat: 'Edit', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk }),
+      // the selected element, on the system clipboard as the file has it (clipboard.js)
+      editmode.elementEditOn() && editbar.selected() && write({ label: 'Copy', cat: 'Edit', hint: IS_MAC ? '⌘C' : 'Ctrl+C',
+        alias: 'copy element clipboard', run: () => clipboard.copy() }),
+      editmode.elementEditOn() && editbar.selected() && write({ label: 'Cut', cat: 'Edit', hint: IS_MAC ? '⌘X' : 'Ctrl+X',
+        alias: 'cut element clipboard move', run: () => clipboard.cut() }),
+      editmode.elementEditOn() && write({ label: 'Paste', cat: 'Edit', hint: IS_MAC ? '⌘V' : 'Ctrl+V',
+        alias: 'paste element clipboard from another deck', run: () => clipboard.paste() }),
       // the format painter, on whatever is selected while editing (style-clip.js)
       editmode.elementEditOn() && editbar.selected() && write({ label: 'Copy style', cat: 'Edit', hint: styleClip.keys.copy,
         alias: 'format painter copy formatting colours colors fill border font look match',
@@ -2740,6 +2747,7 @@ export function init(userConfig = {}) {
       <tr><td>A</td><td>ask an AI agent to edit the deck</td></tr>
       <tr><td>K</td><td>commit (${COMMIT_CHORD} while typing)</td></tr>
       <tr><td>H</td><td>history: every version, ${enter} restores one</td></tr>
+      <tr><td>${IS_MAC ? '⌘C · ⌘X · ⌘V' : 'Ctrl+C · Ctrl+X · Ctrl+V'}</td><td>copy · cut · paste the selected element, here or in another deck</td></tr>
       <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a shape's style</td></tr>
       <tr class="help-ctx"><td>${enter} · ⌫ · ${IS_MAC ? '⌘D' : 'Ctrl+D'} · Esc</td><td>on a selected element: edit · remove · duplicate · let go</td></tr>
       <tr class="help-ctx"><td>${IS_MAC ? '⌃⇧↑ / ⌃⇧↓' : 'Ctrl+Shift+↑ / ↓'}</td><td>on a selected element: move it up / down (or drag its ⋯)</td></tr>
@@ -3740,8 +3748,12 @@ export function init(userConfig = {}) {
   const addContent = createAddContent({ root, instance, editmode, authoring, editbar, toast, debugLog });
   // …and Duplicate (the menu's row, ⌘D), which puts a copy in the same way
   editmode.setAddContent(addContent);
-  // ⌘V in write mode (clipboard.js): a picture goes on the slide as a dropped one does, words as a paragraph or a list
-  createClipboard({ editmode, authoring, editbar, addContent });
+  // ⌘C / ⌘X / ⌘V in write mode (clipboard.js): a selected element copied as the
+  // file has it, cut, and pasted after the selection here or in another deck;
+  // a picture on the clipboard goes on the slide as a dropped one does, words as a paragraph or a list
+  const clipboard = createClipboard({ editmode, authoring, editbar, addContent, toast });
+  editmode.setClipboard?.(clipboard);
+  instance._clipboard = clipboard;
   // Pictures after the drop (pictures.js, PRESENTING_EDITING): resize, alt,
   // replace, caption, and the slide's background, each shown at once. A
   // background is the engine's to draw: its layer again for the one slide,
