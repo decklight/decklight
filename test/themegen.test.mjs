@@ -285,3 +285,34 @@ test('the theme name cannot close the comment it is written into', () => {
   assert.match(header, /token contract: SPEC\.md THEMING/, 'the first closer is the header\u2019s own, not the name\u2019s');
   assert.doesNotMatch(css.slice(css.indexOf('*/')), /color:red/, 'nothing from the name reaches the rules');
 });
+
+test('property: a highlight is readable in every generated theme, across 3000 seeds (PRESENTING_EDITING)', () => {
+  // the page composites the accent at --mark-tint (25% by default) over each
+  // background stop, in sRGB by alpha, unless the theme sets its own --mark-bg
+  const over = (tint, bg, a) => tint.map((c, i) => Math.round(c * a + bg[i] * (1 - a)));
+  let tinted = 0;
+  for (let seed = 1; seed <= 3000; seed++) {
+    const { tokens } = generateTheme(seed);
+    const accent = colorsIn(tokens['--accent'])[0];
+    const own = tokens['--mark-bg'] ? colorsIn(tokens['--mark-bg'])[0] : null;
+    const alpha = tokens['--mark-tint'] ? parseFloat(tokens['--mark-tint']) / 100 : 0.25;
+    if (tokens['--mark-tint']) tinted++;
+    const ink = (k) => colorsIn(tokens['--mark-fg'] ?? tokens[k])[0];
+    for (const stop of colorsIn(tokens['--bg'])) {
+      const tone = own ?? over(accent, stop, alpha);
+      for (const [k, min] of [['--fg', 4.5], ['--heading-color', 3.0], ['--muted', 2.6]]) {
+        const r = contrast(ink(k), tone);
+        assert.ok(r >= min, `seed ${seed}: ${k} on a highlight ${r.toFixed(2)} < ${min}`);
+      }
+      const [A, B] = [oklab(tone), oklab(stop)];
+      assert.ok(Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]) >= 0.05, `seed ${seed}: the highlight does not show`);
+    }
+  }
+  assert.ok(tinted > 0 && tinted < 300, `a lighter tint is the exception, not the rule (${tinted} of 3000)`);
+});
+
+test('a generated theme that needs a lighter highlight carries --mark-tint, written beside the accent', () => {
+  const { tokens } = generateTheme(70);   // one of the seeds whose muted ink was under the gate at 25%
+  assert.match(tokens['--mark-tint'] ?? '', /^\d+%$/);
+  assert.match(tokensToCss('x', tokens), /--accent-contrast: [^;]+;\n {2}--mark-tint: \d+%;/, 'written beside the accent');
+});
