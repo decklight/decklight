@@ -4320,6 +4320,7 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
 .decklight-inspector .ins-step-hint { margin-top: 6px; color: #8d94a1; font-size: .9em; }
 .decklight-inspector .ins-options-status { margin: 4px 12px 8px; color: #8d94a1; font-size: .85em; }
 .decklight-inspector .ins-options-status.ins-failed { color: #f2c46d; }
+.decklight-inspector .ins-options > .ins-apply { margin: 6px 12px 2px; }
 .decklight-inspector .ins-settings .ins-opt-note { grid-column: 1 / -1; color: #f2c46d; font-size: .9em; padding: 2px 0 6px; }
 .decklight-inspector .ins-btn {
   margin-left: 8px; padding: 1px 8px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, .18);

@@ -50,6 +50,18 @@ export function videoOf(target) {
   return all.length === 1 ? all[0] : null;
 }
 
+/** The terminal the selection is in (TERMINAL_PLAYER), or the only one in the element selected. */
+export function terminalOf(target) {
+  const top = target?.top;
+  if (!top) return null;
+  for (const n of [target.node, target.clicked]) {
+    const t = n?.isConnected ? n.closest?.('.terminal') : null;
+    if (t && top.contains(t) && t.matches('div')) return t;
+  }
+  const all = [...(top.matches?.('div.terminal') ? [top] : []), ...top.querySelectorAll('div.terminal')];
+  return all.length === 1 ? all[0] : null;
+}
+
 export function codeBlockOf(target) {
   const top = target?.top;
   if (!top) return null;
@@ -75,7 +87,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
   // was clicked to select it is gone, and the block is still the one selected
   let last = null;
   const blockFor = (t) => {
-    const b = codeBlockOf(t) ?? videoOf(t);
+    const b = terminalOf(t) ?? codeBlockOf(t) ?? videoOf(t);
     if (b) return (last = b);
     return last?.isConnected && t?.top?.contains(last) && !t.clicked?.isConnected ? last : null;
   };
@@ -494,13 +506,121 @@ export function createOptionsTab({ instance, editmode, toast }) {
     return { el, video, destroy() { const p = flush(); p.finally(letGo); return p; } };
   }
 
+  // ── a terminal's settings (TERMINAL_PLAYER) ─────────────────────────────
+  /** The fields, as the player reads them; '' is the player's default (the attribute off). */
+  const TERMINAL_FIELDS = [
+    ['data-mode', 'Plays', 'choice', [['step', 'a command a click'], ['play', 'by itself']], 'step'],
+    ['data-title', 'Title', 'text', null, ''],
+    ['data-rows', 'Rows', 'number', [4, 60], ''],
+    ['data-type-speed', 'Typing speed', 'choice', [['', 'the player’s (5)'], ...Array.from({ length: 10 }, (_, i) => [String(i + 1), String(i + 1)])], ''],
+    ['data-type-sound', 'Typing sound', 'choice', [['', 'the player’s (thocky)'], ['thocky', 'thocky'], ['creamy', 'creamy'], ['clacky', 'clacky'], ['off', 'off']], ''],
+    ['data-poster', 'Poster', 'number', [0, 99], ''],
+  ];
+  /**
+   * The pane for terminal `term`: which recording, how it plays, its title,
+   * rows, typing speed and sound, its poster. A terminal is set up when the
+   * deck loads, so the changes are gathered and written with one button, and
+   * the deck reloads to show them.
+   */
+  function terminalPane(target, term) {
+    const commit = createEditCommit(em());
+    const { slide, index } = target;
+    const path = target.top === term ? [] : pathFrom(target.top, term);
+    const el = h('div', 'ins-options');
+    let saved = null;
+    let state = null;
+    let casts = [];
+    let problem = null;
+    let busy = false;
+    const letGo = holdDraft(() => (state && saved && changed().length ? `the terminal’s settings on slide ${slide}` : null));
+    const changed = () => ['data-cast', ...TERMINAL_FIELDS.map(([k]) => k)].filter((k) => (state[k] ?? '') !== (saved[k] ?? ''));
+    async function load() {
+      try {
+        if (!path) throw new Error('the terminal is not where the file has it');
+        const [src, list] = await Promise.all([
+          boundedFetch(`${em().base()}/deck/edit/element/source?slide=${slide}&index=${index}`).then((r) => r.json().then((j) => (r.ok ? j : Promise.reject(new Error(j.error || r.status))))),
+          boundedFetch(`${em().base()}/deck/edit/casts`).then((r) => r.json()).catch(() => ({ casts: [] })),
+        ]);
+        const tpl = document.createElement('template');
+        tpl.innerHTML = src.html;
+        const node = nodeAtPath(tpl.content.firstElementChild, path);
+        if (!node?.matches?.('div.terminal')) throw new Error('the file has no terminal where the page has it');
+        saved = Object.fromEntries(['data-cast', ...TERMINAL_FIELDS.map(([k]) => k)].map((k) => [k, node.getAttribute(k) ?? '']));
+        if (!saved['data-mode']) saved['data-mode'] = 'step';
+        state = { ...saved };
+        casts = (list.casts ?? []).map((c) => c.path);
+        if (saved['data-cast'] && !casts.includes(saved['data-cast'])) casts.unshift(saved['data-cast']);
+      } catch (e) { problem = `could not read the terminal from the file: ${String(e.message || e)}`; }
+      paint();
+    }
+    async function save() {
+      const keys = changed();
+      if (!keys.length || busy) return;
+      const set = Object.fromEntries(keys.map((k) => [k, state[k] === '' ? null : state[k]]));
+      busy = true;
+      paint();
+      try {
+        await commit.post('/deck/edit/element/options', { slide, index, path, tag: 'div', set });
+        saved = { ...state };
+        letGo();
+        commit.reload('the terminal’s settings saved — the deck reloads to set it up again', { slide });
+      } catch (e) { toast(commit.notSaved('the terminal’s settings', e), 6000); }
+      busy = false;
+      paint();
+    }
+    function paint() {
+      el.textContent = '';
+      if (problem) { el.append(h('div', 'ins-none', problem)); return; }
+      if (!state) { el.append(h('div', 'ins-none', 'reading the terminal from the file…')); return; }
+      const grid = h('dl', 'ins-rows ins-settings');
+      const row = (key, label, ...nodes) => {
+        grid.append(h('dt', null, label));
+        const dd = h('dd');
+        dd.dataset.key = key;
+        dd.append(...nodes);
+        grid.append(dd);
+      };
+      const select = (key, options) => {
+        const pick = Object.assign(document.createElement('select'), { className: 'ins-field ins-select' });
+        for (const [v, label] of options) pick.append(Object.assign(document.createElement('option'), { value: v, textContent: label }));
+        pick.value = state[key] ?? '';
+        pick.addEventListener('keydown', (e) => e.stopPropagation());
+        pick.addEventListener('change', () => { state[key] = pick.value; paint(); });
+        return pick;
+      };
+      row('data-cast', 'Recording', select('data-cast', casts.map((c) => [c, c])));
+      for (const [key, label, kind, opts] of TERMINAL_FIELDS) {
+        if (kind === 'choice') { row(key, label, select(key, opts)); continue; }
+        const input = Object.assign(document.createElement('input'), { type: kind === 'number' ? 'number' : 'text', className: 'ins-field', value: state[key] ?? '' });
+        if (kind === 'number') { input.min = String(opts[0]); input.max = String(opts[1]); input.placeholder = 'the player’s'; }
+        else input.placeholder = 'none';
+        input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); save(); } });
+        input.addEventListener('input', () => { state[key] = input.value.trim(); apply.disabled = busy || !changed().length; });
+        row(key, label, input);
+      }
+      el.append(grid);
+      const apply = Object.assign(document.createElement('button'), { type: 'button', className: 'ins-btn ins-apply', textContent: busy ? 'saving…' : 'Save and reload' });
+      apply.title = 'a terminal is set up when the deck loads: the deck reloads to show these';
+      apply.disabled = busy || !changed().length;
+      apply.addEventListener('click', (e) => { e.stopPropagation(); save(); });
+      const foot = h('div', 'ins-options-status', 'a terminal is set up when the deck loads, so these are saved together and the deck reloads');
+      el.append(apply, foot);
+    }
+    paint();
+    load();
+    return { el, term, destroy() { letGo(); } };
+  }
+
   const tab = {
     id: 'options', label: 'Options', title: 'this block’s settings',
     enabled: (ctx) => (blockFor(ctx.target) ? true : 'no settings here'),
     shows: (ctx) => editing() && !!blockFor(ctx.target),
     key: (ctx) => blockFor(ctx.target),
     keeps: true,
-    pane: (ctx) => { const b = blockFor(ctx.target); return b.matches('video') ? videoPane(ctx.target, b) : codePane(ctx.target, b); },
+    pane: (ctx) => {
+      const b = blockFor(ctx.target);
+      return b.matches('.terminal') ? terminalPane(ctx.target, b) : b.matches('video') ? videoPane(ctx.target, b) : codePane(ctx.target, b);
+    },
     foot: 'esc lets go of it',
   };
   return { tab };

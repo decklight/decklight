@@ -153,3 +153,30 @@ test('a video that plays on arrival is muted, and its files are beside the deck;
   assert.throws(() => setElementOptions(VDECK, 1, 1, { tag: 'video', set: { poster: '../p.png' } }), /a poster is a picture beside the deck/);
   assert.throws(() => setElementOptions(VDECK, 1, 1, { tag: 'video', set: { onplay: 'x' } }), /a video has no setting "onplay"/);
 });
+
+const TDECK = `<!doctype html>
+<html><body>
+  <div class="decklight">
+    <section>
+      <h2>Shell</h2>
+      <div class="terminal" data-cast="casts/demo.cast.json" data-mode="step"></div>
+      <div class="note">not a terminal</div>
+    </section>
+  </div>
+</body></html>
+`;
+
+test('a terminal’s settings: its recording, how it plays, title, rows, typing speed and sound, poster, in ONE edit', () => {
+  const out = setElementOptions(TDECK, 1, 1, { tag: 'div', set: { 'data-cast': 'casts/b.cast', 'data-mode': 'play', 'data-title': 'zsh', 'data-rows': 18, 'data-type-speed': '7', 'data-type-sound': 'off', 'data-poster': 1 } });
+  assert.match(out, /<div class="terminal" data-cast="casts\/b\.cast" data-mode="play" data-title="zsh" data-rows="18" data-type-speed="7" data-type-sound="off" data-poster="1"><\/div>/);
+  assert.match(setElementOptions(out, 1, 1, { tag: 'div', set: { 'data-title': null, 'data-rows': null } }), /<div class="terminal" data-cast="casts\/b\.cast" data-mode="play" data-type-speed="7"/);
+});
+
+test('a terminal’s settings are refused outside their shapes, and only a terminal has them', () => {
+  const bad = [
+    [{ 'data-mode': 'loop' }, /step .* or play/], [{ 'data-rows': 2 }, /4 to 60/], [{ 'data-type-speed': 11 }, /1 \(slow\) to 10/],
+    [{ 'data-type-sound': 'loud' }, /thocky, creamy, clacky or off/], [{ 'data-cast': '../x.cast' }, /beside the deck/], [{ 'data-cast': null }, /keeps its recording/],
+  ];
+  for (const [set, why] of bad) assert.throws(() => setElementOptions(TDECK, 1, 1, { tag: 'div', set }), why);
+  assert.throws(() => setElementOptions(TDECK, 1, 2, { tag: 'div', set: { 'data-mode': 'play' } }), /only a terminal/);
+});

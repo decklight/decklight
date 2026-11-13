@@ -31,11 +31,11 @@ export const MAX_VIDEO_BYTES = 200e6;
 export const ADD_KINDS = [
   ['heading', 'Heading'], ['text', 'Text'], ['bullets', 'Bullets'], ['numbered', 'Numbered list'],
   ['quote', 'Quote'], ['table', 'Table'], ['code', 'Code'], ['formula', 'Formula'], ['columns', 'Two columns'],
-  ['diagram', 'Diagram'], ['chart', 'Chart'], ['picture', 'Picture'], ['video', 'Video'],
+  ['diagram', 'Diagram'], ['chart', 'Chart'], ['picture', 'Picture'], ['video', 'Video'], ['terminal', 'Terminal recording'],
 ];
 const SAID = {
   heading: 'a heading', text: 'text', bullets: 'a bullet list', numbered: 'a numbered list', quote: 'a quote',
-  table: 'a table', code: 'a code block', formula: 'a formula', columns: 'two columns', diagram: 'a diagram', chart: 'a chart', video: 'a video',
+  table: 'a table', code: 'a code block', formula: 'a formula', columns: 'two columns', diagram: 'a diagram', chart: 'a chart', video: 'a video', terminal: 'a terminal',
 };
 
 /** The node a new element's words are typed into, or null for a kind that is not words (a diagram, a chart). */
@@ -80,6 +80,7 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
   async function add(kind) {
     if (kind === 'picture') { editbar.choosePicture(); return; }
     if (kind === 'video') { chooseVideo(); return; }
+    if (kind === 'terminal') { chooseRecording(); return; }
     return insert(kind);
   }
 
@@ -203,6 +204,46 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
     await commit.track(job);
   }
   authoring.setVideoDrop?.((files, where) => addVideos(files, where));
+  // ── a terminal: one of the recordings beside the deck ───────────────────
+  /** What a deck with no recording is told: how one is made, since recording is the CLI's (RECORDER_CLI). */
+  const NO_CASTS = 'there is no terminal recording beside the deck yet: write the commands in a .term.yaml script, record it with decklight cast, then add it here';
+  /**
+   * Add ▾ › Terminal recording: the recordings found beside the deck
+   * (`GET /deck/edit/casts`), one row each; the one picked is placed after
+   * the selection, a command a click. With none, nothing is added and the
+   * toast says how one is made. A terminal is set up when the deck loads, so
+   * the page reloads onto it, selected.
+   */
+  async function chooseRecording() {
+    const { slide, sec } = current();
+    if (!sec) return;
+    const sel = editbar.selected();
+    const index = sel && sel.sec === sec && Number.isInteger(sel.index) ? sel.index : null;
+    const path = index !== null ? innerPath(sel) : null;
+    let casts;
+    try {
+      const res = await boundedFetch(`${editmode.base?.() ?? ''}/deck/edit/casts`);
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(j.casts)) throw new Error(j.error || `the edit server answered ${res.status}`);
+      casts = j.casts;
+    } catch (e) { toast(`could not list the recordings: ${commit.why(e)}`, 6000); return; }
+    if (!casts.length) { toast(NO_CASTS, 7000); return; }
+    const r = (editbar.addButton() ?? root).getBoundingClientRect();
+    const target = { sec, slide, index: null, top: null, clicked: null, fromBar: true };
+    const rows = () => casts.map((c) => ({ label: c.path, run: () => { editmode.closeMenu?.(); placeRecording(c.path, { slide, index, path }); } }));
+    editmode.openElementMenuAt(r.left, r.top - 8, target, 'rows', { above: true, rows, label: 'Terminal recording' });
+  }
+  async function placeRecording(cast, { slide, index, path }) {
+    const job = (async () => {
+      let j;
+      try {
+        j = await commit.send('/deck/edit/element/insert', { slide, index, kind: 'terminal', with: { cast }, ...(path?.length ? { path } : {}) });
+      } catch (e) { toast(`could not add ${cast}: ${commit.why(e)}`, 6000); return; }
+      handOff({ slide, index: j.index, path: j.path ?? [], kind: 'terminal' });
+      commit.reload(`${cast} added — the deck reloads to set the terminal up`, { slide });
+    })();
+    await commit.track(job);
+  }
 
   /**
    * An element from the clipboard (PRESENTING_EDITING, the clipboard): `markup`

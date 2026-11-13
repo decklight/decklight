@@ -108,7 +108,7 @@ test('insertImage is insertElement with an <img>, as before', () => {
 test('every kind has a starter that lands on the slide, after the selection, with its index answered', () => {
   for (const kind of ELEMENT_KINDS) {
     if (kind === 'columns') continue;   // its own rule, below
-    const out = insertStarter(DECK, 1, 1, kind, { with: { src: 'assets/clip.mp4' } });
+    const out = insertStarter(DECK, 1, 1, kind, { with: { src: 'assets/clip.mp4', cast: 'casts/demo.cast.json' } });
     assert.equal(out.index, 2, `${kind}: after the selection`);
     assert.deepEqual(out.path, [], `${kind}: on the slide, not inside anything`);
     assert.equal(out.count, 1);
@@ -172,6 +172,15 @@ test('a video is the file it is given, beside the deck, with its controls; anyth
   assert.equal(out.markup, '<video src="assets/demo clip.mp4" controls playsinline preload="metadata"></video>');
   for (const src of [undefined, '', 'https://x.test/a.mp4', '/abs/a.mp4', '../a.mp4', 'assets/a.mov', 'a".mp4']) {
     assert.throws(() => insertStarter(DECK, 2, 0, 'video', { with: { src } }), (e) => e.status === 400 && /mp4 or a webm beside the deck/.test(e.message), String(src));
+  }
+});
+
+test('a terminal plays the recording it is given, beside the deck, a command a click; anything else is refused', () => {
+  const out = insertStarter(DECK, 2, 0, 'terminal', { with: { cast: 'casts/demo.cast.json' } });
+  assert.equal(out.markup, '<div class="terminal" data-cast="casts/demo.cast.json" data-mode="step"></div>');
+  assert.match(insertStarter(DECK, 2, 0, 'terminal', { with: { cast: 'talk.cast' } }).markup, /data-cast="talk\.cast"/, 'an asciicast too');
+  for (const cast of [undefined, '', 'https://x.test/a.cast.json', '/abs/a.cast.json', '../a.cast.json', 'casts/a.json', 'a".cast.json']) {
+    assert.throws(() => insertStarter(DECK, 2, 0, 'terminal', { with: { cast } }), (e) => e.status === 400 && /terminal recording is a \.cast\.json/.test(e.message), String(cast));
   }
 });
 
