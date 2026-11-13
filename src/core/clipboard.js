@@ -89,7 +89,7 @@ export function wordsOf(el) {
   return (copy.innerText ?? copy.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-export function createClipboard({ editmode, authoring, editbar, addContent = null, toast = () => {}, overviewSlide = () => null, currentSlide = () => null }) {
+export function createClipboard({ editmode, authoring, editbar, addContent = null, toast = () => {}, overviewSlide = () => null, currentSlide = () => null, several = null }) {
   /** Write mode with editing on and nothing being typed: the only time a paste is the editor's. */
   const ours = (e) => editmode.elementEditOn?.() && editmode.available?.() !== false
     && !authoring.editing() && !typingTarget(e.target);
@@ -98,13 +98,38 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
 
   // A copy event is answered at once, so the selected element's source is
   // read from the file when it is selected, kept until the selection changes.
-  let held = null;   // { target, html, shape } for the selection, or a promise of it
-  const keyOf = (t) => (t ? `${t.slide}:${t.index}:${(innerPath(t) ?? []).join('.')}` : '');
+  let held = null;   // { key, html, shape, count } for the selection
+  // several selected (⇧-click): every one of them, in the slide's order
+  const allOf = () => {
+    const all = editbar.selectedAll?.() ?? [];
+    return all.length > 1 ? [...all].sort((a, b) => a.index - b.index) : null;
+  };
+  const keyOf = (t) => {
+    const many = allOf();
+    if (many) return `${t?.slide}:several:${many.map((x) => x.index).join(',')}`;
+    return t ? `${t.slide}:${t.index}:${(innerPath(t) ?? []).join('.')}` : '';
+  };
   const inDiagram = (t) => !!(t?.node && t.node !== t.top && t.node.closest?.('svg') && t.top.contains(t.node.closest('svg')));
   async function hold(t) {
     held = null;
     if (!t || !Number.isInteger(t.index) || !editmode.available?.()) return;
     const key = keyOf(t);
+    const many = allOf();
+    if (many) {
+      // several: each one's source, written back to back in the slide's order
+      const mine = { key, html: null, shape: false, count: many.length };
+      held = mine;
+      try {
+        const parts = await Promise.all(many.map(async (x) => {
+          const res = await fetch(`${editmode.base?.() ?? ''}/deck/edit/element/source?slide=${x.slide}&index=${x.index}`);
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok || typeof j.html !== 'string') throw new Error('no source');
+          return j.html;
+        }));
+        if (held === mine) mine.html = parts.join('\n');
+      } catch { /* the copy says it is not ready */ }
+      return;
+    }
     const path = innerPath(t);
     const tag = (t.node ?? t.top)?.tagName?.toLowerCase();
     const mine = { key, target: t, html: null, shape: inDiagram(t) };
@@ -157,7 +182,8 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
       return false;
     }
     e.clipboardData.setData('text/html', (held.shape ? SHAPE_MARK : ELEMENT_MARK) + held.html);
-    e.clipboardData.setData('text/plain', wordsOf(t.node ?? t.top));
+    const many = allOf();
+    e.clipboardData.setData('text/plain', many ? many.map((x) => wordsOf(x.top)).filter(Boolean).join('\n\n') : wordsOf(t.node ?? t.top));
     e.preventDefault();
     return true;
   }
@@ -170,15 +196,23 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
       return;
     }
     if (!ours(e) || textSelected()) return;
-    if (fill(e, 'copy')) { lastShape = held.shape ? held.target : null; toast(held.shape ? 'shape copied: paste it in its diagram' : 'copied: ⌘V pastes it here, on another slide or in another deck', 2200); }
+    if (fill(e, 'copy')) {
+      lastShape = held.shape ? held.target : null;
+      toast(held.shape ? 'shape copied: paste it in its diagram'
+        : held.count > 1 ? `${held.count} elements copied: ⌘V pastes them here, on another slide or in another deck`
+          : 'copied: ⌘V pastes it here, on another slide or in another deck', 2200);
+    }
   }
   function onCut(e) {
     if (!ours(e) || textSelected()) return;
     const t = editbar.selected();
     if (held?.shape) { e.preventDefault(); toast('a shape is not cut: copy it, or remove it with ⌫', 2600); return; }
+    const many = allOf();
     if (!fill(e, 'cut')) return;
-    // cut is copy and the remove the menu and ⌫ already make: one undo for the remove
-    setTimeout(() => editmode.removeElement?.(t), 0);
+    // cut is copy and the remove the menu and ⌫ already make: one undo for the
+    // remove, of all of them when several are selected
+    if (many && several) setTimeout(() => several.remove(editbar.selectedAll()), 0);
+    else setTimeout(() => editmode.removeElement?.(t), 0);
   }
 
   // the shape last copied in this tab: pasted in its own diagram, it is a duplicate
