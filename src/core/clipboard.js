@@ -100,11 +100,16 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
   // read from the file when it is selected, kept until the selection changes.
   let held = null;   // { key, html, shape, count } for the selection
   // several selected (⇧-click): every one of them, in the slide's order
+  // several shapes of one diagram (SVG_DIAGRAMS) are not several elements: they share one, the diagram
+  const shapesOf = () => editbar.selectedShapes?.() ?? null;
   const allOf = () => {
+    if (shapesOf()) return null;
     const all = editbar.selectedAll?.() ?? [];
     return all.length > 1 ? [...all].sort((a, b) => a.index - b.index) : null;
   };
   const keyOf = (t) => {
+    const shapes = shapesOf();
+    if (shapes) return `${t?.slide}:${t?.index}:shapes:${shapes.map((x) => (innerPath(x) ?? []).join('.')).join(',')}`;
     const many = allOf();
     if (many) return `${t?.slide}:several:${many.map((x) => x.index).join(',')}`;
     return t ? `${t.slide}:${t.index}:${(innerPath(t) ?? []).join('.')}` : '';
@@ -114,6 +119,23 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
     held = null;
     if (!t || !Number.isInteger(t.index) || !editmode.available?.()) return;
     const key = keyOf(t);
+    const shapes = shapesOf();
+    if (shapes) {
+      // several shapes: each one's source by its path, back to back; a paste in their diagram duplicates them all
+      const mine = { key, html: null, shape: true, count: shapes.length, targets: shapes };
+      held = mine;
+      try {
+        const parts = await Promise.all(shapes.map(async (x) => {
+          const q = new URLSearchParams({ slide: String(x.slide), index: String(x.index), path: (innerPath(x) ?? []).join('.'), tag: x.node.tagName.toLowerCase() });
+          const res = await fetch(`${editmode.base?.() ?? ''}/deck/edit/element/source?${q}`);
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok || typeof j.html !== 'string') throw new Error('no source');
+          return j.html;
+        }));
+        if (held === mine) mine.html = parts.join('\n');
+      } catch { /* the copy says it is not ready */ }
+      return;
+    }
     const many = allOf();
     if (many) {
       // several: each one's source, written back to back in the slide's order
@@ -183,7 +205,9 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
     }
     e.clipboardData.setData('text/html', (held.shape ? SHAPE_MARK : ELEMENT_MARK) + held.html);
     const many = allOf();
-    e.clipboardData.setData('text/plain', many ? many.map((x) => wordsOf(x.top)).filter(Boolean).join('\n\n') : wordsOf(t.node ?? t.top));
+    const shapes = shapesOf();
+    e.clipboardData.setData('text/plain', shapes ? shapes.map((x) => wordsOf(x.node)).filter(Boolean).join('\n')
+      : many ? many.map((x) => wordsOf(x.top)).filter(Boolean).join('\n\n') : wordsOf(t.node ?? t.top));
     e.preventDefault();
     return true;
   }
@@ -197,8 +221,8 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
     }
     if (!ours(e) || textSelected()) return;
     if (fill(e, 'copy')) {
-      lastShape = held.shape ? held.target : null;
-      toast(held.shape ? 'shape copied: paste it in its diagram'
+      lastShape = held.shape ? (held.targets ?? held.target) : null;
+      toast(held.shape ? (held.count > 1 ? `${held.count} shapes copied: paste them in their diagram` : 'shape copied: paste it in its diagram')
         : held.count > 1 ? `${held.count} elements copied: ⌘V pastes them here, on another slide or in another deck`
           : 'copied: ⌘V pastes it here, on another slide or in another deck', 2200);
     }
@@ -206,7 +230,7 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
   function onCut(e) {
     if (!ours(e) || textSelected()) return;
     const t = editbar.selected();
-    if (held?.shape) { e.preventDefault(); toast('a shape is not cut: copy it, or remove it with ⌫', 2600); return; }
+    if (held?.shape || shapesOf()) { e.preventDefault(); toast('a shape is not cut: copy it, or remove it with ⌫', 2600); return; }
     const many = allOf();
     if (!fill(e, 'cut')) return;
     // cut is copy and the remove the menu and ⌫ already make: one undo for the
@@ -220,11 +244,14 @@ export function createClipboard({ editmode, authoring, editbar, addContent = nul
   function pasteShape() {
     const t = editbar.selected();
     const svgOf = (x) => x?.node?.closest?.('svg') ?? (x?.top?.matches?.('svg') ? x.top : null);
-    if (!lastShape?.node?.isConnected || !t || svgOf(t) !== svgOf(lastShape)) {
+    const copied = Array.isArray(lastShape) ? lastShape : lastShape ? [lastShape] : [];
+    if (!copied.length || !copied.every((x) => x.node?.isConnected) || !t || svgOf(t) !== svgOf(copied[0])) {
       toast('a shape pastes only into its own diagram for now: select something in it, then paste', 3600);
       return;
     }
-    editmode.duplicateElement?.(lastShape);
+    // several shapes copied: all of them duplicated in one write, the copies selected (shapes.js)
+    if (copied.length > 1 && several) { several.duplicate(copied); return; }
+    editmode.duplicateElement?.(copied[0]);
   }
 
   /** A slide from the clipboard, after the overview's chosen cell or the slide on screen. */

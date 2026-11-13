@@ -1029,6 +1029,34 @@
         }
         if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // several shapes (SVG_DIAGRAMS): the writes answer, a duplicate of several with each copy where the server puts it
+      if (HARNESS_MODE === 'severalshapes') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/shape')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          const svg = document.querySelector('.ss-svg');
+          const kids = [...svg.children].filter((c) => !c.matches('.draw-head, .draw-mask'));
+          const sorted = [...b.paths].sort((x, y) => x.path[0] - y.path[0]);
+          const added = b.paths.map((p) => {
+            const k = sorted.findIndex((q) => q.path[0] === p.path[0]);
+            const el = kids[p.path[0]].cloneNode(true);
+            el.classList.add('ss-copy');
+            el.setAttribute('transform', 'translate(16 16)');
+            return { path: [p.path[0] + 1 + k], html: el.outerHTML };
+          });
+          return json({ ok: true, changed: true, undo: 1, redo: 0, added });
+        }
+        // a shape's source as the file has it: the live node, without the engine's marks
+        if (u.includes('/deck/edit/element/source')) {
+          const path = (new URL(u, location.href).searchParams.get('path') ?? '').split('.').filter(Boolean).map(Number);
+          const svg = document.querySelector('.ss-svg');
+          const node = path.reduce((el, i) => [...el.children].filter((c) => !c.matches('.draw-head, .draw-mask'))[i], svg);
+          const c = node.cloneNode(true);
+          c.classList?.remove('dl-shape-also');
+          return json({ ok: true, html: c.outerHTML });
+        }
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       // a diagram's canvas (SVG_DIAGRAMS): its write answers
       if (HARNESS_MODE === 'canvas') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -1561,6 +1589,17 @@
         <svg class="so-plain" viewBox="0 0 400 200" width="400">
           <rect class="so-p" x="10" y="10" width="120" height="80" style="fill: var(--d-fill-1)"/>
           <rect class="so-q" x="60" y="40" width="120" height="80" style="fill: var(--d-fill-2)"/>
+        </svg>
+      </section>`);
+    }
+    // several shapes: three box groups, a wire from the first to the third, room around them
+    if (HARNESS_MODE === 'severalshapes') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Several</h2>
+        <svg class="ss-svg" viewBox="0 0 800 400" width="800" aria-label="three boxes">
+          <g class="ss-a" data-node="a"><rect x="40" y="40" width="120" height="60" style="fill: var(--d-fill-1)"/><text x="100" y="70" text-anchor="middle" dominant-baseline="central" font-size="20">A</text></g>
+          <g class="ss-b"><rect x="260" y="80" width="80" height="60" style="fill: var(--d-fill-2)"/><text x="300" y="110" text-anchor="middle" dominant-baseline="central" font-size="20">B</text></g>
+          <g class="ss-c" data-node="c"><rect x="560" y="60" width="160" height="60" style="fill: var(--d-fill-3)"/><text x="640" y="90" text-anchor="middle" dominant-baseline="central" font-size="20">C</text></g>
+          <line class="ss-wire" data-from="a" data-to="c" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="3"/>
         </svg>
       </section>`);
     }
@@ -4561,6 +4600,122 @@
         row('To front')?.click(); await settle(); await settle();
         const o4 = orders()[3];
         r.plainSendsNoGroups = o4?.to === 'front' && o4.index === 2 && !('groups' in o4) && drawnOrder(plain) === 'so-q so-p' && !p.hasAttribute('data-build-order');
+        r.PASS = Object.values(r).every((v) => v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'severalshapes') {
+        // SVG_DIAGRAMS, several shapes (editbar.js, shapes.js, several.js):
+        // ⇧-click adds a shape, a drag on one moves all with their wires,
+        // the arrows nudge all, Arrange ▸ lines up, spaces and sizes them,
+        // Colors and Duplicate and Remove act on all, each one write; a
+        // marquee on the empty canvas selects what it covers
+        await settle();
+        deck.goto(deck._sections.length, 0);
+        await settle(); await settle();
+        const svg = document.querySelector('.ss-svg');
+        const q = (c) => svg.querySelector(c);
+        const k = svg.getScreenCTM().a;
+        const toScreen = (x, y) => { const m = svg.getScreenCTM(); return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f }; };
+        const ptr = (type, el, x, y, o = {}) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0, ...o }));
+        const click = async (el, p, o = {}) => { ptr('pointerdown', el, p.x, p.y, o); ptr('pointerup', el, p.x, p.y, o); el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y, ...o })); await settle(); };
+        const posts = (what) => CALLS.post.filter((c) => c.u.includes(`/deck/edit/element/${what}`)).map((c) => c.body);
+        const wait = () => new Promise((f) => setTimeout(f, 400));
+        const rect = (g) => g.querySelector('rect');
+        const sel = () => deck._selectionAll?.() ?? [];
+        const A = q('.ss-a'); const B = q('.ss-b'); const C = q('.ss-c');
+
+        // ⇧-click: one shape, then two more of the same diagram
+        await click(rect(A), toScreen(60, 50));
+        await click(rect(B), toScreen(270, 90), { shiftKey: true });
+        await click(rect(C), toScreen(570, 70), { shiftKey: true });
+        r.threeSelected = sel().length === 3 && sel()[0].node === rect(A) && rect(B).classList.contains('dl-shape-also') && rect(C).classList.contains('dl-shape-also');
+
+        // a drag on one moves all three, the wire routed with them, in one write
+        await wait();
+        const from = toScreen(280, 100); const to = toScreen(280, 140);
+        ptr('pointerdown', rect(B), from.x, from.y);
+        for (const f of [0.3, 0.7, 1]) ptr('pointermove', document.body, from.x, from.y + (to.y - from.y) * f, { metaKey: true });
+        ptr('pointerup', document.body, to.x, to.y, { metaKey: true });
+        rect(B).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: to.x, clientY: to.y }));
+        await settle(); await settle();
+        const g1 = posts('geometry');
+        const paths1 = new Set(g1[0]?.edits.map((e) => e.path[0]));
+        r.dragMovesAll = g1.length === 1 && [0, 1, 2, 3].every((i) => paths1.has(i)) && sel().length === 3;
+
+        // ←: all three a unit to the left, one write
+        await wait();
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const g2 = posts('geometry')[1];
+        r.arrowNudgesAll = !!g2 && [0, 1, 2].every((i) => g2.edits.some((e) => e.path[0] === i && e.attr === 'transform' && /^translate\(-1 /.test(e.value))) && deck.state.slide === deck._sections.length;
+
+        // Arrange ▸ from the menu on one of them
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+        const row = (t) => rows().find((x) => (x.firstChild?.textContent ?? '').trim() === t);
+        const menu = async () => { const c = toScreen(80, 80); rect(A).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: Math.round(c.x + 20 * k), clientY: Math.round(c.y + 20 * k) })); await settle(); };
+        const arrange = async (label) => { await wait(); await menu(); row('Arrange ▸')?.click(); await settle(); row(label)?.click(); await settle(); await settle(); };
+        await menu();
+        r.severalMenu = !!row('Arrange ▸') && !!row('Concept ▸') && !!row('Colors…') && !!row('Duplicate') && !!row('Remove') && !row('Move up');
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        const box = (g) => g.getBoundingClientRect();
+        await arrange('Top');
+        r.alignTop = Math.abs(box(rect(A)).top - box(rect(B)).top) < 0.6 && Math.abs(box(rect(B)).top - box(rect(C)).top) < 0.6 && posts('geometry').length === 3;
+        await arrange('Across');
+        const gapL = box(rect(B)).left - box(rect(A)).right; const gapR = box(rect(C)).left - box(rect(B)).right;
+        r.spacedEvenly = Math.abs(gapL - gapR) < 1 && posts('geometry').length === 4;
+        await arrange('Width');
+        r.sameWidth = Math.abs(box(rect(B)).width - box(rect(A)).width) < 0.6 && Math.abs(box(rect(C)).width - box(rect(A)).width) < 0.6
+          && Math.abs(parseFloat(B.querySelector('text').getAttribute('x')) - (parseFloat(rect(B).getAttribute('x')) + parseFloat(rect(B).getAttribute('width')) / 2)) < 0.6;
+
+        // Colors: a fill picked for all of them, one write
+        await deck._shapes.styleMany(sel(), [{ prop: 'fill', value: 'var(--d-fill-5)' }]);
+        await settle();
+        const st = posts('style').at(-1);
+        r.colorsOnAll = st?.edits.length === 3 && [A, B, C].every((g) => rect(g).style.fill === 'var(--d-fill-5)');
+
+        // ⌘C: the three shapes' sources, one clip; ⌘V in their diagram: all three duplicated in one write, the copies selected
+        r.sourcesRead = await until(() => deck._clipboard.ready());
+        const cd = new DataTransfer();
+        document.dispatchEvent(new ClipboardEvent('copy', { clipboardData: cd, bubbles: true, cancelable: true }));
+        const clipHtml = cd.getData('text/html');
+        // what is selected is each box's shape, as one shape's copy is: three rects, back to back
+        r.copiesAllThree = clipHtml.startsWith('<!--decklight:shape-->') && (clipHtml.match(/<rect /g) ?? []).length === 3 && !clipHtml.includes('dl-shape-also');
+        const pd = new DataTransfer();
+        pd.setData('text/html', clipHtml);
+        document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: pd, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const pp = posts('shape').at(-1);
+        r.pasteDuplicatesAll = pp?.op === 'duplicate' && pp.paths?.length === 3 && svg.querySelectorAll('.ss-copy').length === 3
+          && sel().length === 3 && sel().every((t) => t.node.closest('.ss-copy'));
+
+        // ⌫: the copies removed in one write
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const rm = posts('remove').at(-1);
+        r.removeAll = rm?.paths?.length === 3 && !svg.querySelector('.ss-copy') && !!q('.ss-a');
+
+        // a marquee on the empty canvas round A and B: those two selected
+        await wait();
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await settle();
+        const ra = box(rect(A)); const rb = box(rect(B));
+        const m0 = { x: Math.min(ra.left, rb.left) - 8, y: Math.min(ra.top, rb.top) - 8 }; const m1 = { x: Math.max(ra.right, rb.right) + 8, y: Math.max(ra.bottom, rb.bottom) + 30 };
+        ptr('pointerdown', svg, m0.x, m0.y);
+        for (const f of [0.3, 0.7, 1]) ptr('pointermove', document.body, m0.x + (m1.x - m0.x) * f, m0.y + (m1.y - m0.y) * f);
+        ptr('pointerup', document.body, m1.x, m1.y);
+        svg.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: m1.x, clientY: m1.y }));
+        await settle();
+        r.marqueeSelects = sel().length === 2 && sel().map((t) => t.node).every((n) => n === rect(A) || n === rect(B)) && !document.querySelector('.dl-marquee');
+
+        // ⌘D: the two copied in one write, the copies selected
+        const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', code: 'KeyD', metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const dp = posts('shape').at(-1);
+        r.duplicateAll = dp?.op === 'duplicate' && dp.paths?.length === 2 && svg.querySelectorAll('.ss-copy').length === 2
+          && sel().length === 2 && sel().every((t) => t.node.closest('.ss-copy'));
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

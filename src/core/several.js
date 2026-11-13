@@ -18,7 +18,9 @@ import { contentOf } from './element-move.js';
 /** Something live on a slide: moved or copied in the DOM, it would restart. */
 const LIVE = '.terminal, video, audio, iframe, canvas';
 
-export function createSeveral({ instance, editmode, editbar, toast, styleClip = () => null }) {
+export function createSeveral({ instance, editmode, editbar, toast, styleClip = () => null, shapes = () => null }) {
+  // several shapes of one diagram (SVG_DIAGRAMS): the diagram's own writes, by path (shapes.js)
+  const ofShapes = (targets) => (shapes()?.areShapes?.(targets) ? shapes() : null);
   const commit = createEditCommit(editmode);
   const inst = () => (typeof instance === 'function' ? instance() : instance);
 
@@ -45,6 +47,7 @@ export function createSeveral({ instance, editmode, editbar, toast, styleClip = 
 
   /** Remove them all: one write, one undo. */
   async function remove(targets) {
+    if (ofShapes(targets)) return ofShapes(targets).removeMany(targets);
     const b = batchOf(targets);
     if (!b) return refuse();
     if (!canWrite()) return false;
@@ -61,6 +64,7 @@ export function createSeveral({ instance, editmode, editbar, toast, styleClip = 
 
   /** Each copied right after itself: one write; the copies are shown where the file put them, and selected. */
   async function duplicate(targets) {
+    if (ofShapes(targets)) return ofShapes(targets).duplicateMany(targets);
     const b = batchOf(targets);
     if (!b) return refuse();
     if (!canWrite()) return false;
@@ -113,6 +117,7 @@ export function createSeveral({ instance, editmode, editbar, toast, styleClip = 
    * selected, and Paste style.
    */
   async function style(targets, edits, said = 'restyled') {
+    if (ofShapes(targets) && typeof edits !== 'function') return ofShapes(targets).styleMany(targets, edits);
     const b = batchOf(targets);
     if (!b) return refuse();
     if (!canWrite()) return false;
@@ -142,5 +147,5 @@ export function createSeveral({ instance, editmode, editbar, toast, styleClip = 
     return style(targets, (el) => clip.editsFor(byEl.get(el)), 'given the copied style');
   }
 
-  return { remove, duplicate, move, style, pasteStyle };
+  return { remove, duplicate, move, style, pasteStyle, areShapes: (targets) => !!ofShapes(targets), arrange: (targets, how) => ofShapes(targets)?.arrange(targets, how), nudge: (targets, dx, dy) => ofShapes(targets)?.nudge(targets, dx, dy) };
 }

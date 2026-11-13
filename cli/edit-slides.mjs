@@ -39,13 +39,13 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, moveSlideElement,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, removeNestedElements, moveSlideElement,
   duplicateSlideElement, removeSlideElements, duplicateSlideElements, moveSlideElements, joinSlideElements } from './edit.mjs';
 import { locateElement, openElement } from './edit-address.mjs';
 import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs, pasteSlideElement, withoutPageIds } from './edit.mjs';
 import { relativeAssets, pasteSection } from './paste.mjs';
 import { findInDeck, replaceInDeck } from './find-replace.mjs';
-import { setElementGeometry, setDiagramCanvas, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
+import { setElementGeometry, setDiagramCanvas, addDiagramShape, duplicateDiagramNode, duplicateDiagramNodes, editConnector, CONNECTOR_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
@@ -368,13 +368,15 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   // inside a column, which the page takes off itself), the write is in place:
   // no reload there, and every other page is sent `content`.
   function elementRemoveRoute({ body, json }) {
-    const { slide, index, path = null, tag = null, quiet: inPlace = false, from = null, items = null } = JSON.parse(body);
+    const { slide, index, path = null, tag = null, quiet: inPlace = false, from = null, items = null, paths = null } = JSON.parse(body);
     // several selected (`items: [{ index, tag? }]`): all of them, one edit, one undo
     if (items !== null) return batchRoute(json, slide, 'removed', (html) => removeSlideElements(html, slide, items), items, { inPlace, from });
-    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || (paths !== null && !Array.isArray(paths))) throw new Error('bad payload');
     let changed;
     try {
-      changed = applyEdit((html) => (path ? removeNestedElement(html, slide, index, { path, tag }) : removeSlideElement(html, slide, index)));
+      // several shapes of one diagram (`paths: [{ path, tag }]`): all of them, one undo
+      changed = applyEdit((html) => (paths ? removeNestedElements(html, slide, index, paths)
+        : path ? removeNestedElement(html, slide, index, { path, tag }) : removeSlideElement(html, slide, index)));
     } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
     if (changed) console.log(`  element removed: slide ${slide} #${index}${path ? ` › ${path.join('.')}` : ''}`);
     if (changed && inPlace === true) {
@@ -718,17 +720,19 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * slide. One undo entry; a stale path is a 409.
    */
   function elementShapeRoute({ body, json }) {
-    const { slide, index, path, tag = null, op, kind = null, at = null, by = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
-    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !['add', 'duplicate'].includes(op)) throw new Error('bad payload');
+    const { slide, index, path, tag = null, op, kind = null, at = null, by = null, paths = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !['add', 'duplicate'].includes(op) || (paths !== null && !Array.isArray(paths))) throw new Error('bad payload');
     let out = null;
     let changed;
     try {
       changed = applyEdit((html) => {
-        out = op === 'add' ? addDiagramShape(html, slide, index, { path, tag: tag ?? 'svg', kind, at }) : duplicateDiagramNode(html, slide, index, { path, tag, by });
+        // several shapes duplicated together (`paths: [{ path, tag }]`): one write, `added` a list
+        out = op === 'add' ? addDiagramShape(html, slide, index, { path, tag: tag ?? 'svg', kind, at })
+          : paths ? duplicateDiagramNodes(html, slide, index, paths, { by }) : duplicateDiagramNode(html, slide, index, { path, tag, by });
         return out.html;
       });
     } catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
-    if (changed) console.log(`  diagram ${op === 'add' ? `${kind} added` : 'node duplicated'}: slide ${slide} #${index} › ${out.added.path.join('.')}`);
+    if (changed) console.log(`  diagram ${op === 'add' ? `${kind} added` : paths ? `${paths.length} nodes duplicated` : 'node duplicated'}: slide ${slide} #${index}`);
     if (changed && inPlace === true) {
       quiet(readDeck());
       broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });

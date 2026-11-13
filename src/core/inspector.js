@@ -31,6 +31,7 @@
  * the selection, and arrow keys keep driving the deck.
  */
 
+import { pathFrom } from './colorpicker.js';
 import { createDock } from './dock.js';
 import { readJson } from './prefs.js';
 import { notesSegments } from './speaker.js';
@@ -618,6 +619,12 @@ export function createInspector({
           const many = manyNow();
           const own = edits.filter((ed) => !ed.path?.length);
           if (many && own.length === edits.length && editmode().several?.()) return editmode().several().style(many, own.map((ed) => ({ prop: ed.prop, value: ed.value })));
+          // several shapes of one diagram: a pick on the primary shape's own paint goes on every one of them (SVG_DIAGRAMS)
+          const sev = editmode().several?.();
+          if (many && sev?.areShapes?.(many)) {
+            const at = JSON.stringify(pathFrom(many[0].top, many[0].node));
+            if (edits.every((ed) => JSON.stringify(ed.path) === at)) return sev.style(many, edits.map((ed) => ({ prop: ed.prop, value: ed.value })));
+          }
           return editmode().saveStyles({ slide, index, edits });
         },
         onError: (m) => toast(`not saved: ${m}`, 6000),
