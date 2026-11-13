@@ -209,6 +209,18 @@
   column-gap: 2em;
 }
 .decklight-stage > section[data-layout|="split"] > .split-columns > li { break-inside: avoid; }
+/* A column the editor wrapped round a bare block (`<div class="column">`,
+   COMPARISON_SLIDES): its blocks take the column's whole width, as the bare
+   block did as a column of its own, where a plain <div>'s are sized to their
+   content and centred. Lists are blocks, tables, pictures and code fill it. */
+.decklight-stage > section[data-layout|="split"] > .column > *,
+.decklight-overview-grid .ov-clone[data-layout|="split"] > .column > * { margin-left: 0; margin-right: 0; max-width: 100%; box-sizing: border-box; }
+.decklight-stage > section[data-layout|="split"] > .column > :is(ul, ol, dl),
+.decklight-overview-grid .ov-clone[data-layout|="split"] > .column > :is(ul, ol, dl) { display: block; }
+.decklight-stage > section[data-layout|="split"] > .column > :is(table, img, pre),
+.decklight-overview-grid .ov-clone[data-layout|="split"] > .column > :is(table, img, pre) { width: 100%; }
+.decklight-stage > section[data-layout|="split"] > .column > img,
+.decklight-overview-grid .ov-clone[data-layout|="split"] > .column > img { height: auto; }
 
 /* A third content block is a FOOTER, not a third column (SPEC PRESENTING): the note
    under a comparison applies to both sides, so it spans them and centres

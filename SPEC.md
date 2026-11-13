@@ -181,8 +181,13 @@ The most common structured slide, and the one with a trap in it. Use `split`
 ```
 
 The two `<div>`s become the columns and **share a top edge**; the trailing `<p>`
-becomes a full-width centred footer under both. Nothing else is needed, in
-particular:
+becomes a full-width centred footer under both. A column's blocks are sized to
+their content and centred, the list under its heading; a column written as
+`<div class="column">` lays its blocks across its whole width instead, the way
+a bare block (a lone list, a picture) fills a column by itself. The editor
+writes that class when it wraps a bare column to add a block beside it
+(PRESENTING_EDITING, Adding content), so the column looks as it did. Nothing
+else is needed, in particular:
 
 > **Do not combine `data-layout="split"` with your own column flexbox.** A
 > hand-rolled `display:flex` shell inside a section that also carries
@@ -796,7 +801,7 @@ slide. The chapters were visible, but they organised nothing.
   The palette has one row for it, *Slide: Add to slide…*, which opens the same menu.
   What is added lands **after the selected element**, or, with nothing selected, after the slide's last content and before its asides, where a dropped picture goes.
   **Where it lands is one rule, on the server** (`whereNewBlockLands`, `tools/starters.mjs`), the same for Add, the Picture button, a picture dropped on a block and a paste, so that none of them can break the slide's shape: with the **title** selected on a slide that has a subtitle, the new block goes after the subtitle, not between the two (where it would become the subtitle); on a **two-column slide** (`split`, COMPARISON_SLIDES), with a column selected, or anything inside one, it goes **inside that column**, after the column's own child the selection is in, or at the column's end (beside the column it would become a column itself, and the real second column would drop underneath as a footer); with the header of a two-column slide selected, it goes first in the left column.
-  A column that is one bare block (a lone list, a picture, no wrapper) is wrapped in a plain `<div>`, the column COMPARISON_SLIDES writes, in the same write, so the new block has somewhere to go; the page reloads onto it then.
+  A column that is one bare block (a lone list, a picture, no wrapper) is wrapped in a `<div class="column">` in the same write, so the new block has somewhere to go, and keeps the look it had: a `.column`'s blocks take the column's whole width, as the bare block did (a plain `<div>`'s are sized to their content and centred, COMPARISON_SLIDES); the page reloads onto it then.
   Two columns asked for with a column selected are refused (409) with what to do instead, and a column is not duplicated (Duplicate, below).
   **The server owns the markup**: `POST /deck/edit/element/insert` `{ slide, index, path?, kind, quiet, from }` takes a kind from a closed set (anything else is a 400), writes that kind's starter at the slide's own indentation, or a column's (the lines of a code block stay at the margin, since inside `<pre>` every space shows), as one undo entry, and answers the new element's `index`, its `path` below it when it went inside a column, and the markup the file got.
   `POST /deck/edit/element/image` takes the same `path` and lands by the same rule.
