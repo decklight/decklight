@@ -12414,6 +12414,25 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await settle();
         r.shapeElsewhereSaysNotYet = /only into its own diagram/.test(toasts());
 
+        // several selected (⇧-click): copied back to back in the slide's order, cut as one remove
+        const shift = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }));
+        const firstP = sec.querySelector('.ep-p');
+        const theList = sec.querySelector('.ep-list') ?? sec.querySelector('ul');
+        click(theList); await settle();
+        shift(firstP); await settle();
+        r.severalSelected = (deck._selectionAll?.() ?? []).length === 2;
+        await until(() => deck._clipboard.ready());
+        const c5 = clip('copy');
+        const many = c5.dt.getData('text/html');
+        r.severalCopiedInOrder = c5.prevented && many.startsWith('<!--decklight:element-->' + EP_SOURCE[1]) && many.includes('\n<ul') && many.indexOf('<p') < many.indexOf('<ul')
+          && c5.dt.getData('text/plain').startsWith('Words to copy\n\n');
+        r.severalSaid = /2 elements copied/.test(toasts());
+        const removes = posts('/deck/edit/element/remove').length;
+        clip('cut');
+        await settle(); await settle();
+        const rm = posts('/deck/edit/element/remove').slice(removes);
+        r.severalCutAsOneRemove = rm.length === 1 && Array.isArray(rm[0].items) && rm[0].items.length === 2;
+
         // the menu has Copy, Cut and Paste
         sec.querySelector('h2').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
         await settle();

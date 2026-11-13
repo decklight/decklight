@@ -3740,7 +3740,8 @@ export function init(userConfig = {}) {
     root, instance, editmode, toast, debugLog, select: (el) => editbar.selectNode(el, { exact: true }),
   }));
   // Several selected (several.js): ⇧-click adds to the selection, and what changes one changes all, one undo
-  editmode.setSeveral(createSeveral({ instance, editmode, editbar, toast, styleClip: () => styleClip }), () => editbar.selectedAll());
+  const several = createSeveral({ instance, editmode, editbar, toast, styleClip: () => styleClip });
+  editmode.setSeveral(several, () => editbar.selectedAll());
   // Open in your editor (open-in-editor.js): a slide or an element at its
   // line in the deck file, in the author's code editor, asked once which
   const openInEditor = createOpenInEditor({ editmode, choiceCard, toast, actionToast, debugLog });
@@ -3754,7 +3755,7 @@ export function init(userConfig = {}) {
   // ⌘C / ⌘X / ⌘V in write mode (clipboard.js): a selected element copied as the
   // file has it, cut, and pasted after the selection here or in another deck;
   // a picture on the clipboard goes on the slide as a dropped one does, words as a paragraph or a list
-  const clipboard = createClipboard({ editmode, authoring, editbar, addContent, toast,
+  const clipboard = createClipboard({ editmode, authoring, editbar, addContent, toast, several,
     // a slide copied and pasted (Slide ▸, ⌘C / ⌘V in the overview): the overview's chosen cell, else the slide on screen
     overviewSlide: () => (overviewEl ? ovSel + 1 : null), currentSlide: () => instance.state.slide });
   editmode.setClipboard?.(clipboard);
