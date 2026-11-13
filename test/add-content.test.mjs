@@ -300,13 +300,13 @@ test('the header of a split slide selected: the new block goes first in the left
   assert.deepEqual(tags(out.html, 1), ['h2', 'div', 'div', 'p', 'aside']);
 });
 
-test('a column that is one bare block is wrapped in the same write, and keeps every byte of its own', () => {
+test('a column that is one bare block is wrapped in a .column in the same write, and keeps every byte of its own', () => {
   const list = insertStarter(SPLIT, 2, 2, 'text');
   assert.equal(list.wrapped, true);
   assert.deepEqual(list.path, [1]);
   assert.deepEqual(tags(list.html, 2), ['h2', 'p', 'div', 'img']);
   assert.equal(child(list.html, 2, 2), [
-    '<div>',
+    '<div class="column">',
     '        <ul>',
     '          <li>one</li>',
     '          <li>two</li>',
@@ -315,7 +315,11 @@ test('a column that is one bare block is wrapped in the same write, and keeps ev
     '      </div>',
   ].join('\n'));
   const pic = insertStarter(SPLIT, 2, 3, 'text', { path: [] });
-  assert.equal(child(pic.html, 2, 3), '<div>\n        <img src="a.png" alt="a">\n        <p>New text</p>\n      </div>');
+  assert.equal(child(pic.html, 2, 3), '<div class="column">\n        <img src="a.png" alt="a">\n        <p>New text</p>\n      </div>');
+  // a column the editor wrapped is a wrapper the next add goes into, not wrapped again
+  const again = insertStarter(pic.html, 2, 3, 'quote');
+  assert.equal(again.wrapped, false);
+  assert.deepEqual(again.path, [2]);
   // a chart is a block of its own, not a wrapper: wrapped too
   const chart = SPLIT.replace('<img src="a.png" alt="a">', '<div class="chart" data-chart="bar"><script type="application/json">{}</script></div>');
   assert.equal(insertStarter(chart, 2, 3, 'text').wrapped, true);
@@ -352,7 +356,7 @@ test('insertInElement puts a child first, after another, or into an empty elemen
   assert.deepEqual(first.path, [0]);
   assert.match(child(first.html, 1, 1), /^<div>\n {8}<p>x<\/p>\n {8}<h3>Before/);
   assert.throws(() => insertInElement(SPLIT, 2, 3, { markup: '<p>x</p>' }), /nothing can go inside/);
-  assert.equal(child(wrapInDiv(SPLIT, 2, 3), 2, 3), '<div>\n        <img src="a.png" alt="a">\n      </div>');
+  assert.equal(child(wrapInDiv(SPLIT, 2, 3), 2, 3), '<div class="column">\n        <img src="a.png" alt="a">\n      </div>');
 });
 
 test('duplicating a column is refused with a sentence; what is inside one still duplicates', () => {

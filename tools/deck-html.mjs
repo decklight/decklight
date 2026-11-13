@@ -786,16 +786,18 @@ export function insertInElement(html, slide, index, { path = [], markup, after =
 }
 
 /**
- * A deck with slide `slide`'s top-level child `index` wrapped in a plain
- * `<div>`, its lines two spaces further in (a `<pre>`'s own lines kept as
- * they are): what a column that is one bare block (a lone list, a picture)
- * needs before anything can go in it beside that block.
+ * A deck with slide `slide`'s top-level child `index` wrapped in a
+ * `<div class="column">`, its lines two spaces further in (a `<pre>`'s own
+ * lines kept as they are): what a column that is one bare block (a lone list,
+ * a picture) needs before anything can go in it beside that block. The class
+ * keeps the look the bare block had (COMPARISON_SLIDES): its blocks take the
+ * column's whole width, where a plain `<div>`'s are sized to their content.
  */
 export function wrapInDiv(html, slide, index) {
   const { parts, idx, seg, start, end } = nodeRange(String(html ?? ''), slide, index);
   const own = lineIndent(seg, start);
   const el = seg.slice(start, end);
-  const wrapped = own === null ? `<div>${el}</div>` : `<div>\n${own}  ${indentMarkup(el, '  ')}\n${own}</div>`;
+  const wrapped = own === null ? `<div class="column">${el}</div>` : `<div class="column">\n${own}  ${indentMarkup(el, '  ')}\n${own}</div>`;
   parts[idx] = seg.slice(0, start) + wrapped + seg.slice(end);
   return parts.join('');
 }
