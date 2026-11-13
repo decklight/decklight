@@ -73,3 +73,20 @@ export function relativeAssets(html) {
   }
   return [...out];
 }
+
+/**
+ * A slide from the clipboard, as the deck will take it (PRESENTING_EDITING):
+ * exactly one `<section>…</section>`, cleaned the way an element is
+ * (sanitizePasted), its page ids left behind (`withoutPageIds`, handed in so
+ * this file stays free of the editor's). Returns `{ section, dropped }`, or
+ * throws a sentence (status 400) for anything else.
+ */
+export function pasteSection(markup, withoutPageIds = (x) => x) {
+  const { html, dropped } = sanitizePasted(markup);
+  const t = html.trim();
+  const opens = t.match(/<section\b/gi) ?? [];
+  if (!/^<section\b[^>]*>[\s\S]*<\/section>$/i.test(t) || opens.length !== 1) {
+    throw Object.assign(new Error('a pasted slide is one <section>, and this is not one'), { status: 400 });
+  }
+  return { section: withoutPageIds(t), dropped };
+}

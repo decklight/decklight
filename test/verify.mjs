@@ -224,6 +224,7 @@ const ENGINE_GROUPS = {
     'picturefit',
     'blockresize',
     'elementpaste',
+    'slidepaste',
     'picturealt',
     'picturebg',
     'picturepaste',

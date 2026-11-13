@@ -2397,6 +2397,8 @@ export function init(userConfig = {}) {
   function ovSelect(i) {
     const cells = overviewEl.querySelectorAll('.ov-cell');
     ovSel = Math.max(0, Math.min(i, cells.length - 1));
+    // its source read now, so ⌘C on it can answer at once (clipboard.js)
+    if (editmode.elementEditOn?.()) instance._clipboard?.holdSlide?.(ovSel + 1);
     cells.forEach((c, j) => { c.classList.toggle('ov-selected', j === ovSel); c.setAttribute('aria-selected', String(j === ovSel)); });
     cells[ovSel]?.scrollIntoView({ block: 'nearest' });
   }
@@ -2755,7 +2757,7 @@ export function init(userConfig = {}) {
       <tr class="help-ctx"><td>${enter} · ⇥ · ${IS_MAC ? '⌃⇧↑ / ⌃⇧↓' : 'Ctrl+Shift+↑ / ↓'}</td><td>while typing in a bullet: new point · indent · move it up or down</td></tr>
       <tr class="help-ctx"><td>${IS_MAC ? '⌘B · ⌘I · ⌘E · ⌘K' : 'Ctrl+B · Ctrl+I · Ctrl+E · Ctrl+K'}</td><td>while editing text: bold · italic · code · link the selected words (${PALETTE_CHORD} is the palette everywhere else)</td></tr>
       <tr class="help-ctx"><td>${IS_MAC ? '⌘⇧H · ⌘⇧X' : 'Ctrl+Shift+H · Ctrl+Shift+X'}</td><td>while editing text: highlight · strike through the selected words (superscript and subscript are on the pill above them)</td></tr>
-      <tr class="help-ctx"><td>N · D · ⌫</td><td>in the overview: new slide · duplicate · delete</td></tr>
+      <tr class="help-ctx"><td>N · D · ⌫ · ${IS_MAC ? '⌘C · ⌘V' : 'Ctrl+C · Ctrl+V'}</td><td>in the overview: new slide · duplicate · delete · copy · paste after it</td></tr>
       <tr class="help-ctx"><td>E</td><td>in the inspector: edit this slide's sources</td></tr>
       <tr class="help-ctx"><td>⇧-click Layout</td><td>on the bar: the layout before</td></tr>`) : ''}
       </div></div>`;
@@ -3752,7 +3754,9 @@ export function init(userConfig = {}) {
   // ⌘C / ⌘X / ⌘V in write mode (clipboard.js): a selected element copied as the
   // file has it, cut, and pasted after the selection here or in another deck;
   // a picture on the clipboard goes on the slide as a dropped one does, words as a paragraph or a list
-  const clipboard = createClipboard({ editmode, authoring, editbar, addContent, toast });
+  const clipboard = createClipboard({ editmode, authoring, editbar, addContent, toast,
+    // a slide copied and pasted (Slide ▸, ⌘C / ⌘V in the overview): the overview's chosen cell, else the slide on screen
+    overviewSlide: () => (overviewEl ? ovSel + 1 : null), currentSlide: () => instance.state.slide });
   editmode.setClipboard?.(clipboard);
   instance._clipboard = clipboard;
   instance._addContent = addContent;   // the render harness drives Add's video path through it
@@ -3781,6 +3785,11 @@ export function init(userConfig = {}) {
     const hidden = !!instance._sections?.[slide - 1]?.hasAttribute('data-hidden');
     return [
       { label: `${hidden ? 'Unhide' : 'Hide'} this slide`, run: () => setHidden(slide, !hidden) },
+      // copy and paste a whole slide, here or in another deck (clipboard.js); its source read as the menu opens
+      ...(clipboard ? (clipboard.holdSlide(slide), [
+        { label: 'Copy slide', run: () => clipboard.copySlide(slide) },
+        { label: 'Paste slide', run: () => clipboard.paste() },
+      ]) : []),
       { label: 'Deck settings…', run: () => deckSettings.open() },
     ];
   });

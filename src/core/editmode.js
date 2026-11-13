@@ -2900,6 +2900,8 @@ export function createEditMode({
     if (op === 'duplicate' && instance._sections[slide - 1]?.querySelector(LIVE)) return false;
     return true;
   }
+  /** A pasted slide with something live on it (a terminal, a video, a frame) is taken in by a reload, as a duplicate's is. */
+  const liveIn = (section) => { const t = document.createElement('template'); t.innerHTML = section; return !!t.content.querySelector(LIVE); };
   function applySlideOp(op, slide, to, j) {
     const secs = instance._sections;
     const at = (n) => secs[n - 1];
@@ -2919,7 +2921,7 @@ export function createEditMode({
         at(slide).after(copy);
         break;
       }
-      case 'new': {
+      case 'new': case 'paste': {
         const tpl = document.createElement('template');
         tpl.innerHTML = j.section ?? '';
         const fresh = tpl.content.querySelector('section');
@@ -2934,12 +2936,19 @@ export function createEditMode({
     instance.goto(j.slide, 0, { force: true });
     instance._afterSlideOp?.();
   }
-  async function slideOp(op, { slide = instance.state.slide, to = null, kind = null, typeTitle = true } = {}) {
+  async function slideOp(op, { slide = instance.state.slide, to = null, kind = null, typeTitle = true, section = null } = {}) {
     if (!editAvailable) { toast(cannot('editing slides'), 3200); return; }
-    const inPlace = canDoInPlace(op, slide);
+    const inPlace = canDoInPlace(op, slide) && !(op === 'paste' && liveIn(section ?? ''));
     try {
-      const j = await commit.post('/deck/edit/slide', { op, slide, ...(op === 'move' ? { to } : {}), ...(kind ? { kind } : {}) }, { quiet: inPlace });
+      const j = await commit.post('/deck/edit/slide', { op, slide, ...(op === 'move' ? { to } : {}), ...(kind ? { kind } : {}), ...(op === 'paste' ? { section } : {}) }, { quiet: inPlace });
+      // a pasted slide: what was left out, a picture this deck does not have, and its recordings, which stay behind
+      const pasteSaid = op === 'paste' ? [
+        j.dropped?.length ? `${j.dropped.join(', ')} left out` : '',
+        j.missing?.length ? `${j.missing.join(', ')} ${j.missing.length === 1 ? 'is' : 'are'} not in this deck's folder` : '',
+        'its recorded narration stays with the deck it came from',
+      ].filter(Boolean).join('; ') : '';
       const said = {
+        paste: `slide pasted after ${slide}: ${pasteSaid}`,
         new: kind ? `new slide (${NEW_SLIDE_KINDS.find(([k]) => k === kind)?.[1].toLowerCase() ?? kind}) added after ${slide}` : `new slide added after ${slide}`,
         duplicate: `slide ${slide} duplicated`,
         delete: `slide ${slide} deleted`,
@@ -2960,7 +2969,7 @@ export function createEditMode({
       if (op === 'new' && kind) for (const fn of slideAddedListeners) fn({ slide: j.slide, kind, placed, typeTitle });
       // a delete says how to take it back with a button, not in words
       if (op === 'delete') undoToast(said);
-      else toast(placed || !j.inPlace ? (placed ? said : `${said} — reloading`) : said, 2000);
+      else toast(placed || !j.inPlace ? (placed ? said : `${said} — reloading`) : said, op === 'paste' ? 5200 : 2000);
     } catch (e) {
       toast(`could not ${op === 'new' ? 'add a slide' : `${op} the slide`}: ${errText(e)}`, 6000);
       throw e;

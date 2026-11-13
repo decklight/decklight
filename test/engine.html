@@ -194,8 +194,15 @@
       const u = String(url);
       // a file's bytes (a picture, a video) are not JSON: recorded by name and type
       if (init?.method === 'POST') CALLS.post.push({ u, body: init.body instanceof Blob ? { file: init.body.name, type: init.headers?.['content-type'] } : JSON.parse(init.body ?? '{}') });
-      if (HARNESS_MODE === 'decksettings' && init?.body instanceof Blob) return json({ ok: true, src: `assets/${init.body.name}`, bytes: init.body.size });
       else CALLS.get.push(u);
+      if (HARNESS_MODE === 'decksettings' && init?.body instanceof Blob) return json({ ok: true, src: `assets/${init.body.name}`, bytes: init.body.size });
+      // a slide's source (Copy slide reads it when the Slide menu opens or an
+      // overview cell is chosen): answered here, before any mode's catch-all
+      // for /deck/edit/slide takes the read for a slide op
+      if (new URL(u, location.href).pathname.endsWith('/deck/edit/slide/source')) {   // not …/sources, the sources editor's
+        const n = Number(new URL(u, location.href).searchParams.get('slide'));
+        return json({ ok: true, html: `<section data-layout="centered"><h2>Slide ${n} as filed</h2><aside class="notes"><p>Its notes.</p></aside></section>` });
+      }
       // every panel, one Esc each (escapeall): enough of each route for its
       // panel to open; anything else is a plain ok
       if (HARNESS_MODE === 'escapeall') {
@@ -1129,6 +1136,16 @@
         if (u.includes('/deck/edit/slide/template')) {
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, mode: 'switch', said: `now ${body.template} — content stays by slot name`, undo: 1, redo: 0 });
+        }
+      }
+      // copy and paste a slide (slidepaste): a slide's source as the file has it, a paste answered in place
+      if (HARNESS_MODE === 'slidepaste') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/slide') && init?.method === 'POST') {
+          const b = JSON.parse(init?.body ?? '{}');
+          const total = document.querySelectorAll('.decklight-stage > section').length;
+          if (b.op === 'paste') return json({ ok: true, slide: b.slide + 1, total: total + 1, inPlace: b.quiet === true, section: b.section, dropped: [], missing: [], undo: 1, redo: 0 });
+          return json({ ok: true, undo: 1, redo: 0 });
         }
       }
       // copy, cut and paste an element (elementpaste): each block's source as the file has it,
@@ -12258,6 +12275,47 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.themePickPlain = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/style'))[1]?.body.edits[0]?.value === 'var(--accent)';
         r.PASS = r.groupsAfterTheTheme && r.itsOwnNames && r.undefinedLeftOut && r.previews && r.writesTheFallback
           && r.markedByTheToken && r.customOpensOnWhatShows && r.themePickPlain;
+      }
+
+      if (mode === 'slidepaste') {
+        // PRESENTING_EDITING, copy and paste a slide: ⌘C on the overview's
+        // chosen cell puts the slide as the file has it (with its notes) on
+        // the clipboard; ⌘V pastes one after the chosen cell, in place, one
+        // write; Slide ▸ has Copy slide and Paste slide; the toast says its
+        // recorded narration stays behind
+        const clip = (type, dt = new DataTransfer()) => { const e = new ClipboardEvent(type, { bubbles: true, cancelable: true, clipboardData: dt }); document.body.dispatchEvent(e); return { dt, prevented: e.defaultPrevented }; };
+        const posts = () => CALLS.post.filter((c) => /\/deck\/edit\/slide$/.test(new URL(c.u, location.href).pathname)).map((c) => c.body);
+        const toasts = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        const until = async (f, n = 40) => { for (let i = 0; i < n && !f(); i++) await settle(); return f(); };
+        let reloads = 0;
+        document.querySelector('.decklight').addEventListener('decklight:reload', (e) => { e.preventDefault(); reloads++; });
+        await settle(); await settle();
+        deck.goto(1, 0); await settle();
+        const total0 = deck.state.totalSlides;
+        press('o'); await settle();
+        press('ArrowRight'); await settle();   // slide 2 chosen
+        r.readOnChoosing = await until(() => deck._clipboard.slideReady(2));
+        const c1 = clip('copy');
+        const html = c1.dt.getData('text/html');
+        r.copiesTheFilesSlide = c1.prevented && html === '<!--decklight:slide--><section data-layout="centered"><h2>Slide 2 as filed</h2><aside class="notes"><p>Its notes.</p></aside></section>';
+        r.plainTextIsItsWords = c1.dt.getData('text/plain') === 'Slide 2 as filed';
+        const pd = new DataTransfer(); pd.setData('text/html', html);
+        clip('paste', pd);
+        await settle(); await settle(); await settle();
+        const p = posts().pop();
+        r.pastedAfterTheChosenCell = p?.op === 'paste' && p?.slide === 2 && p?.section === html.replace('<!--decklight:slide-->', '') && p?.quiet === true;
+        r.placedInPlace = deck.state.totalSlides === total0 + 1 && /Slide 2 as filed/.test(document.querySelectorAll('.decklight-stage > section')[2]?.textContent ?? '') && reloads === 0;
+        r.saysTheNarrationStays = /recorded narration stays with the deck it came from/.test(toasts());
+        if (document.querySelector('.decklight-overview')) press('Escape');
+        await settle();
+        // Slide ▸ has Copy slide and Paste slide, the source read as it opens
+        document.querySelector('.decklight-editbar .eb-slide')?.click();
+        await settle();
+        const rows = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.firstChild?.textContent ?? n.textContent);
+        r.slideMenuRows = rows.includes('Copy slide') && rows.includes('Paste slide');
+        r.menuReadsTheSlide = await until(() => deck._clipboard.slideReady(deck.state.slide));
+        press('Escape');
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
       if (mode === 'elementpaste') {

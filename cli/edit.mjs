@@ -1615,7 +1615,7 @@ export function duplicateDiagramNode(html, slide, index, { path, tag = null, by 
  * stay, since the engine scopes each diagram's ids to it (namespaceSvgIds)
  * and a copied diagram's arrowheads and gradients need their own.
  */
-function withoutPageIds(src) {
+export function withoutPageIds(src) {
   return src.split(/(<svg\b[^>]*>[\s\S]*?<\/svg>)/i).map((part, i) => {
     if (!(i % 2)) return withoutIds(part);
     const gt = part.indexOf('>') + 1;

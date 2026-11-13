@@ -42,8 +42,8 @@ import {
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, moveSlideElement,
   duplicateSlideElement, removeSlideElements, duplicateSlideElements, moveSlideElements, joinSlideElements } from './edit.mjs';
 import { locateElement, openElement } from './edit-address.mjs';
-import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs, pasteSlideElement } from './edit.mjs';
-import { relativeAssets } from './paste.mjs';
+import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs, pasteSlideElement, withoutPageIds } from './edit.mjs';
+import { relativeAssets, pasteSection } from './paste.mjs';
 import { findInDeck, replaceInDeck } from './find-replace.mjs';
 import { setElementGeometry, setDiagramCanvas, addDiagramShape, duplicateDiagramNode, editConnector, CONNECTOR_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
@@ -57,7 +57,7 @@ import { setDeckConcepts } from './runtime-link.mjs';
 // are string surgery on a deck's sections, which is what tools/deck-html.mjs
 // is, and nothing about them wants the server.
 import {
-  sectionBodies, insertBlankSlide, duplicateSlide, deleteSlide, swapSlides,
+  sectionBodies, insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertSectionsAfter, slideRange,
 } from '../tools/deck-html.mjs';
 // A slide op moves the deck's recordings with their slides (#916): Node-only
 // file moves, which is what tools/ is for.
@@ -877,7 +877,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     return { changed: true };
   }
 
-  const SLIDE_OPS = new Set(['new', 'duplicate', 'delete', 'up', 'down', 'move']);
+  const SLIDE_OPS = new Set(['new', 'duplicate', 'delete', 'up', 'down', 'move', 'paste']);
 
   /**
    * Slide `from` moved so that it ends up at position `to` — what a drag in
@@ -915,9 +915,15 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * the moves.
    */
   function slideRoute({ body, json }) {
-    const { op, slide, to, kind = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    const { op, slide, to, kind = null, section: pasted = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
     if (!SLIDE_OPS.has(op) || !Number.isInteger(slide) || slide < 1) {
       return json(400, { ok: false, error: 'bad payload' });
+    }
+    // a slide from the clipboard (paste): cleaned as an element is, one <section>, after slide N
+    let paste = null;
+    if (op === 'paste') {
+      if (typeof pasted !== 'string' || pasted.length > 1_000_000) return json(400, { ok: false, error: 'bad payload' });
+      try { paste = pasteSection(pasted, withoutPageIds); } catch (e) { return json(e.status ?? 400, { ok: false, error: oneline(e) }); }
     }
     // a new slide of a kind (PRESENTING_EDITING): one of a closed set, and
     // only a new slide has one; no kind is the blank slide it always was
@@ -939,18 +945,21 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     const after = op === 'delete' ? total - 1 : (op === 'up' || op === 'down' || op === 'move') ? total : total + 1;
     const show = {
       new: slide + 1,
+      paste: slide + 1,
       duplicate: slide + 1,
       delete: Math.min(slide, after),   // deleting the last slide leaves you on the new last
       up: slide - 1,
       down: slide + 1,
       move: to,
     }[op];
-    // every recording goes where its slide goes, in the same step (#916)
-    const voices = voicePlans(before, op, slide, to);
+    // every recording goes where its slide goes, in the same step (#916); a
+    // pasted slide comes without its recordings, so the later ones move as for a new one
+    const voices = voicePlans(before, op === 'paste' ? 'new' : op, slide, to);
     if (voices.error) return json(409, { ok: false, error: voices.error });
     const done = editWithVoices((html) => {
       switch (op) {
         case 'new': return kind ? insertSlideOfKind(html, slide, kind) : insertBlankSlide(html, slide);
+        case 'paste': return insertSectionsAfter(html, slide, [paste.section]);
         case 'duplicate': return duplicateSlide(html, slide);
         case 'delete': return deleteSlide(html, slide);
         case 'up': return swapSlides(html, slide - 1, slide);
@@ -973,13 +982,33 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       const now = readDeck();
       quiet(now);
       broadcast('content', { from: typeof from === 'string' ? from.slice(0, 64) : null, slide: show });
-      if (op === 'new') {
+      if (op === 'new' || op === 'paste') {
         const b = sectionBodies(now)[slide] ?? '';
         const end = b.lastIndexOf('</section>');
         if (end >= 0) section = `<section${b.slice(0, end + '</section>'.length)}`;
       }
     }
-    return json(200, { ok: true, slide: show, total: after, inPlace: quietly, ...(section ? { section } : {}), ...history.counts() });
+    const extra = paste ? { dropped: paste.dropped, missing: missingFiles(paste.section) } : {};
+    return json(200, { ok: true, slide: show, total: after, inPlace: quietly, ...(section ? { section } : {}), ...extra, ...history.counts() });
+  }
+
+  /** The relative files `markup` points at that the deck's folder does not have: a copy's pictures, still beside the deck it came from. */
+  function missingFiles(markup) {
+    const here = dirname(deckPath);
+    return relativeAssets(markup).filter((p) => { const at = resolve(here, p); return !at.startsWith(here + sep) || !existsSync(at); });
+  }
+
+  /** `GET /deck/edit/slide/source?slide=N`: slide N's `<section>` as the file has it, for Copy slide. */
+  function slideSourceRoute({ url, json }) {
+    const slide = Number(url.searchParams.get('slide'));
+    if (!Number.isInteger(slide) || slide < 1) return json(400, { ok: false, error: 'bad payload' });
+    try {
+      const html = readDeck();
+      const r = slideRange(html, slide);
+      return json(200, { ok: true, html: html.slice(r.start, r.end) });
+    } catch (e) {
+      return json(404, { ok: false, error: oneline(e) });
+    }
   }
 
   // ── an image dropped on the stage ────────────────────────────────────────
@@ -1234,11 +1263,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     } catch (e) {
       return json(e.status ?? (/^no slide \d|no element at index/.test(e.message) ? 404 : 400), { ok: false, error: oneline(e) });
     }
-    const here = dirname(deckPath);
-    const missing = relativeAssets(done.markup).filter((p) => {
-      const at = resolve(here, p);
-      return !at.startsWith(here + sep) || !existsSync(at);
-    });
+    const missing = missingFiles(done.markup);
     console.log(`  element pasted: slide ${slide} #${done.index}${done.path.length ? ` › ${done.path.join('.')}` : ''}`
       + (done.dropped.length ? ` — left out ${done.dropped.join(', ')}` : '') + (missing.length ? ` — not in this deck's folder: ${missing.join(', ')}` : ''));
     if (inPlace === true) {
@@ -1460,6 +1485,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('GET /deck/edit/element/source', elementSourceRoute);
   routes.set('POST /deck/edit/element/remove', elementRemoveRoute);
   routes.set('POST /deck/edit/element/paste', elementPasteRoute);
+  routes.set('GET /deck/edit/slide/source', slideSourceRoute);
   routes.set('POST /deck/edit/element/content', elementContentRoute);
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
   routes.set('POST /deck/edit/element/build', elementBuildRoute);
