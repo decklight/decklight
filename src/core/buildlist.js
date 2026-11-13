@@ -151,3 +151,20 @@ export function placeUnordered(groups, steps) {
   }
   return out;
 }
+
+/**
+ * A stroke's stops (`data-draw-stops` fractions) with one more at `f`, a
+ * fraction of its length placed by a click on the stroke: sorted, rounded
+ * to three places, the last always 1 (the stroke drawn whole), and a stop
+ * within 2% of one already there taken as that one. `lengths` are the stops
+ * it has, as path lengths (parseDrawStops), and `total` its length. Returns
+ * the attribute's new text, or null when `f` adds nothing.
+ */
+export function stopsWith(lengths, total, f) {
+  if (!(total > 0) || !(f > 0) || f > 1) return null;
+  const have = (lengths ?? []).map((l) => Math.min(1, Math.max(0, l / total))).filter((x) => x > 0);
+  if (!have.length || have.at(-1) < 1) have.push(1);
+  if (have.some((x) => Math.abs(x - f) < 0.02)) return null;
+  const all = [...have, f].sort((a, b) => a - b).map((x) => (x >= 1 ? 1 : Math.round(x * 1000) / 1000));
+  return all.map((x) => (x === 1 ? '1' : String(x))).join(' ');
+}

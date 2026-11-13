@@ -1045,7 +1045,7 @@ slide. The chapters were visible, but they organised nothing.
   `decklight check` counts the clicks from the same keys.
   **A stroke drawn in stages**: a stroke selected in a `draw` build has **Draw in [n] stages** (1 to 12, even parts of its length, written as `data-draw-stops` fractions such as `0.333 0.667 1`; 1 takes it off) and a **Speed** (default, slow or fast: `data-draw-speed` 150 or 600 path units a second, BUILD_AUTHORING).
   Both go through the same `POST /deck/edit/element/build` (`drawStops`, `drawSpeed`); a draw build is the reload case above, so the page that comes selects the stroke again, and its stages are then rows of the tab, owned by the stroke.
-  Placing a stop by a click on the stroke is not offered yet.
+  **Place a stop…** on such a stroke makes the next press on the slide say where a stage ends: the nearest point along the stroke to the press, as a fraction of its length, joins its stops in order (the last always 1, a stop within 2% of one already there taken as that one), written the same way; Esc gives it up.
   **The picker** (the header's dashed box with an arrow, DevTools' *select an element*): while it is on, whatever is under the pointer on the slide is lit, a diagram's drawn nodes one by one and anything else as the element itself, and a click makes it the element inspected (the selection moves to it) and turns the picker off; the pointer's presses are the picker's alone, captured before the deck, the selection or a build hears them, and `Esc` turns it off.
   Without write mode the picker still inspects, on the Info tab.
   `Esc` lets go of the selection first and closes the panel second.

@@ -99,3 +99,14 @@ test('placeUnordered: a point added after the order was written plays right afte
   assert.equal(placeUnordered([[0], [1]], [{ ordered: true }, { ordered: true }]), null);
   assert.equal(placeUnordered([[0], [1]], [{ ordered: false }, { ordered: false }]), null);
 });
+
+import { stopsWith } from '../src/core/buildlist.js';
+
+test('stopsWith: a stop placed on the stroke joins its stops, in order, the last 1', () => {
+  assert.equal(stopsWith([], 300, 0.4), '0.4 1', 'a stroke with none: the stop and the whole');
+  assert.equal(stopsWith([150, 300], 300, 0.25), '0.25 0.5 1', 'lengths read as fractions, the new one in its place');
+  assert.equal(stopsWith([150, 300], 300, 0.51), null, 'within 2% of one there: nothing new');
+  assert.equal(stopsWith([100], 300, 0.6667), '0.333 0.667 1', 'a list that stopped short still ends whole');
+  assert.equal(stopsWith([], 300, 1), null);
+  assert.equal(stopsWith([], 0, 0.5), null);
+});

@@ -11,8 +11,8 @@
 // This module reads the slide and says what each step is in words; the rows
 // themselves are buildlist.js's, pure. Nothing here writes the file.
 
-import { buildRows, beatsLine, firstWords, moveClick, mergeClick, splitClick, orderGroups, evenStops, stagesOf } from './buildlist.js';
-import { stepShowing, buildsPerItem } from './builds.js';
+import { buildRows, beatsLine, firstWords, moveClick, mergeClick, splitClick, orderGroups, evenStops, stagesOf, stopsWith } from './buildlist.js';
+import { stepShowing, buildsPerItem, parseDrawStops } from './builds.js';
 import { authoredIndex } from './design-system.js';
 
 /** The entrance effects a step can have: Build ▸'s list, `none` last (a real step that arrives at once). */
@@ -60,7 +60,7 @@ function describe(st) {
  * build-edit.js's, and `writable()` says whether this page may write now
  * (without it, the tab is to read and move around).
  */
-export function createBuildsPanel({ instance, select = null, edit = null, writable = () => false }) {
+export function createBuildsPanel({ instance, select = null, edit = null, writable = () => false, toast = () => {} }) {
   const inst = () => instance();
 
   /** The slide's rows, read from the slide as it is now. */
@@ -281,6 +281,10 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
       const pl = document.createElement('label');
       pl.append(document.createTextNode('Speed '), pace);
       lineOf(pl);
+      // a stage that ends where the author points: the next click on the slide places it
+      if (typeof node.getTotalLength === 'function') {
+        lineOf(btn('Place a stop…', 'click on the stroke where a stage should end', () => placeStop(node), 'ins-btn bl-place-stop'));
+      }
     }
     // its own step: taken away; none, and not inside one: added
     if (builtHere) lineOf(btn('Remove this step', 'take its build off: it is there from the start', () => edit.set(node, { effect: null }, 'step removed'), 'ins-btn bl-drop'));
@@ -288,6 +292,51 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
       lineOf(btn('Add a step', 'it arrives on a click of its own, faded in', () => edit.set(node, { effect: '' }, 'a step added'), 'ins-btn bl-add'));
     }
     return box;
+  }
+
+  /**
+   * Where along `stroke` a click at (`x`, `y`) on the screen falls: a fraction
+   * of its length, the nearest of 400 points sampled along it in the stroke's
+   * own coordinates and brought to the screen through its CTM.
+   */
+  function fractionAt(stroke, x, y) {
+    const total = stroke.getTotalLength();
+    const ctm = stroke.getScreenCTM?.();
+    if (!(total > 0) || !ctm) return null;
+    let best = 0; let bestD = Infinity;
+    for (let i = 1; i <= 400; i++) {
+      const p = stroke.getPointAtLength((total * i) / 400);
+      const sx = ctm.a * p.x + ctm.c * p.y + ctm.e;
+      const sy = ctm.b * p.x + ctm.d * p.y + ctm.f;
+      const d = (sx - x) ** 2 + (sy - y) ** 2;
+      if (d < bestD) { bestD = d; best = i / 400; }
+    }
+    return best;
+  }
+  /** Place a stop: the next press on the slide says where; Esc gives it up. */
+  function placeStop(stroke) {
+    const say = toast;
+    say('click on the stroke where a stage should end · Esc cancels', 4000);
+    const done = () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      document.removeEventListener('keydown', onKey, true);
+      document.documentElement.classList.remove('dl-placing-stop');
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(); say('no stop placed', 1400); } };
+    const onDown = (e) => {
+      if (!e.target?.closest?.('.decklight-stage')) return;   // a press on the panel is the panel's
+      e.preventDefault();
+      e.stopPropagation();
+      done();
+      const f = fractionAt(stroke, e.clientX, e.clientY);
+      const total = stroke.getTotalLength();
+      const v = f === null ? null : stopsWith(parseDrawStops(stroke.getAttribute('data-draw-stops'), total), total, f);
+      if (!v) { say(f === null ? 'that stroke cannot be measured' : 'a stop is already there, or that is its end', 2400); return; }
+      edit.set(stroke, { drawStops: v }, `a stop placed at ${Math.round(f * 100)}% of the stroke`);
+    };
+    document.documentElement.classList.add('dl-placing-stop');
+    document.addEventListener('pointerdown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
   }
 
   function line(cls, head, text) {
