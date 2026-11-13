@@ -10,6 +10,10 @@
 //   generateTheme(seed?) → { name, seed, tokens: { '--bg': …, … } }
 //   tokensToCss(name, tokens) → theme-file-shaped CSS text
 
+// The highlight's gate (THEMING, PRESENTING_EDITING) is the shipped one, from
+// tools/: a generated theme settles its --mark-tint the way a template's does.
+import { settleMark } from '../../tools/theme-check.mjs';
+
 // ── seeded PRNG (mulberry32: tiny, deterministic) ───────────────────────────
 function mulberry32(a) {
   return function () {
@@ -309,6 +313,13 @@ export function generateTheme(seed) {
     '--dim-opacity': (0.25 + Math.round(rnd() * 15) / 100).toFixed(2),
   };
 
+  // a highlight (<mark>) readable on what was generated: the accent's default
+  // tint over this canvas can drown the muted ink, so the tint is the nearest
+  // that clears every gate (settleMark), and only when the default does not.
+  // No colour changes: a seed is the same theme it always was, plus the tint.
+  const plain = Object.fromEntries(Object.entries(tokens).map(([k, v]) => [k.slice(2), v]));
+  for (const [k, v] of Object.entries(settleMark(plain))) tokens[`--${k}`] = v;
+
   return { name, seed, dark, harmony: harmonyName, tokens };
 }
 
@@ -316,7 +327,7 @@ export function generateTheme(seed) {
 const SECTIONS = [
   ['canvas', ['--bg', '--bg-accent', '--fg', '--muted']],
   ['type', ['--font-body', '--font-heading', '--font-mono', '--heading-color', '--heading-weight', '--link']],
-  ['accent', ['--accent', '--accent-contrast']],
+  ['accent', ['--accent', '--accent-contrast', '--mark-tint', '--mark-bg', '--mark-fg']],
   ['blocks', ['--block-bg', '--block-border', '--block-radius', '--shadow']],
   ['code', ['--code-bg', '--code-fg', '--hl-keyword', '--hl-string', '--hl-number', '--hl-comment', '--hl-function', '--hl-type', '--hl-punct']],
   ['diagram', ['--d-stroke', '--d-text', '--d-muted', '--d-accent', '--d-fill-1', '--d-fill-2', '--d-fill-3', '--d-fill-4', '--d-fill-5', '--d-fill-6']],
