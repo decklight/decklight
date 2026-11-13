@@ -122,3 +122,32 @@ export function stagesOf(attr) {
   const n = String(attr ?? '').trim().split(/[\s,]+/).filter(Boolean).length;
   return n || 1;
 }
+
+/**
+ * A slide's clicks once the steps that have no place in a written order are
+ * given one (a point added to a list after the order was set): `groups` as
+ * they play now, `steps[i]` `{ ordered, after }`, `after` the step it comes
+ * right after on the slide (the point before it), null when it is the first.
+ * Each unordered step gets a click of its own right after its `after`'s
+ * click, or, first of its list, right before the click of the step after it
+ * (`before`). Every ordered step keeps its click and its order. Returns the
+ * new groups, or null when there is nothing to place.
+ */
+export function placeUnordered(groups, steps) {
+  const loose = steps.map((s, i) => (s && !s.ordered ? i : -1)).filter((i) => i >= 0);
+  if (!loose.length || loose.length === steps.length) return null;
+  const isLoose = new Set(loose);
+  // the ordered steps' clicks, as they play
+  const out = groups.map((g) => g.filter((i) => !isLoose.has(i))).filter((g) => g.length);
+  const clickOf = (i) => out.findIndex((g) => g.includes(i));
+  // in slide order, so a run of new points lands in the order they are written
+  for (const i of loose) {
+    const { after = null, before = null } = steps[i];
+    let at = after !== null ? clickOf(after) : -1;
+    if (at >= 0) { out.splice(at + 1, 0, [i]); continue; }
+    at = before !== null ? clickOf(before) : -1;
+    if (at >= 0) out.splice(at, 0, [i]);
+    else out.push([i]);
+  }
+  return out;
+}

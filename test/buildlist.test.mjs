@@ -80,3 +80,22 @@ test('evenStops and stagesOf: a stroke in n even stages, and back', () => {
   assert.equal(stagesOf('347 542 767'), 3);
   assert.equal(stagesOf(null), 1);
 });
+
+import { placeUnordered } from '../src/core/buildlist.js';
+
+test('placeUnordered: a point added after the order was written plays right after the point before it, every other step where it was', () => {
+  // the order: c (2) first, then a (0), then b (1); d (3) added after b, e (4) added first of the list
+  const groups = [[3], [4], [2], [0], [1]];
+  const steps = [
+    { ordered: true, after: null }, { ordered: true, after: 0 }, { ordered: true, after: 1 },
+    { ordered: false, after: 1 }, { ordered: false, after: null, before: 0 },
+  ];
+  assert.deepEqual(placeUnordered(groups, steps), [[2], [4], [0], [1], [3]]);
+  // two new points in a row: in the order they are written
+  assert.deepEqual(placeUnordered([[0], [1], [2]], [{ ordered: true }, { ordered: false, after: 0 }, { ordered: false, after: 1 }]), [[0], [1], [2]]);
+  // a tie the author made is kept
+  assert.deepEqual(placeUnordered([[0, 1], [2]], [{ ordered: true }, { ordered: true }, { ordered: false, after: 1 }]), [[0, 1], [2]]);
+  // nothing to place, or no order at all: null
+  assert.equal(placeUnordered([[0], [1]], [{ ordered: true }, { ordered: true }]), null);
+  assert.equal(placeUnordered([[0], [1]], [{ ordered: false }, { ordered: false }]), null);
+});
