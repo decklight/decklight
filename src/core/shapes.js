@@ -63,6 +63,7 @@ import { LINE_DASHES, LINES, lineOf, CORNERS, cornersOf, cornerRadius, SHAPES, s
 import {
   IDENTITY, WIRE_TAGS, connectorsIn, isConnector, nodeNamed, nodeBox, endsOf, geometryFor, wireGeometry, setGeometry,
   routeOf, tagForRoute, svgOf, invert, toRoot, union, applyTo, boxThrough,
+  wirePoints, pointAlong, nearestAlong, wireLabels, placeWireLabels,
 } from './connectors.js';
 
 /** Nodes in the page that are not in the file: the engine's and a template's. */
@@ -394,6 +395,11 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       const rec = before.get(w) ?? {};
       for (const a of WIRE_GEOMETRY) if (w.hasAttribute(a) && !(a in rec)) rec[a] = w.getAttribute(a);
       before.set(w, rec);
+      // its label rides on it (a label on a wire): its place, and its lines' x, go in the same write
+      for (const l of wireLabels(w)) {
+        keepAttrs(before, l, ['x', 'y']);
+        for (const t of l.children) if (tagOf(t) === 'tspan' && t.hasAttribute('x')) keepAttrs(before, t, ['x']);
+      }
     }
     return wires;
   }
@@ -468,6 +474,15 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       editbar.selectNode(node, { exact: true });
       target = editbar.selected() ?? target;
     }
+    // a label on a wire slides along it: where it sits is a fraction of the wire's length
+    const wire = wireOfLabel(node);
+    if (wire) {
+      const before = new Map();
+      keepAttrs(before, node, ['x', 'y', 'data-along']);
+      for (const t of node.children) if (tagOf(t) === 'tspan' && t.hasAttribute('x')) keepAttrs(before, t, ['x']);
+      root.classList.add('dl-shape-dragging');
+      return { target, node, members: [node], before, svg: node.ownerSVGElement, wires: [], along: wire, x: press.x, y: press.y, moved: false };
+    }
     return moveState(target, [node], press.x, press.y);
   }
   /**
@@ -511,6 +526,15 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
   }
 
   function applyMove(e) {
+    if (drag.along) {
+      const m = drag.along.getScreenCTM?.()?.inverse();
+      if (!m) return;
+      const p = { x: m.a * e.clientX + m.c * e.clientY + m.e, y: m.b * e.clientX + m.d * e.clientY + m.f };
+      drag.node.setAttribute('data-along', String(Math.round(nearestAlong(wirePoints(drag.along), p) * 1000) / 1000));
+      placeWireLabels(drag.along);
+      drag.moved = true;
+      return;
+    }
     let dx = e.clientX - drag.x; let dy = e.clientY - drag.y;
     const lock = e.shiftKey ? (Math.abs(dx) >= Math.abs(dy) ? 'y' : 'x') : null;   // ⇧: the axis held still
     if (lock === 'y') dy = 0; else if (lock === 'x') dx = 0;
@@ -1502,7 +1526,13 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     catch (e) { toast(commit.notSaved(`${units.length} shapes`, e), 6000); return false; }
     // the page as the file now is: the shapes, and the wires their names held
     const names = new Set(units.flatMap((u) => [u, ...u.querySelectorAll('[data-node]')].map((n) => n.getAttribute('data-node')).filter(Boolean)));
-    for (const w of connectorsIn(svg)) if (names.has(w.getAttribute('data-from')) || names.has(w.getAttribute('data-to'))) { for (const h of Object.values(w._drawHeads ?? {})) h.el?.remove(); w.remove(); }
+    for (const w of connectorsIn(svg)) {
+      if (!names.has(w.getAttribute('data-from')) && !names.has(w.getAttribute('data-to'))) continue;
+      // a wire's label goes with it, as the file's does (a label on a wire)
+      for (const l of wireLabels(w)) l.remove();
+      for (const h of Object.values(w._drawHeads ?? {})) h.el?.remove();
+      w.remove();
+    }
     for (const u of units) u.remove();
     refit([], svg);
     hideHandles();
@@ -1595,6 +1625,49 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     editbar.selectShapes?.(picked);
     debugLog('edit', `marquee: ${picked.length} shape${picked.length === 1 ? '' : 's'}`);
   });
+
+  // ── a label on a wire (SVG_DIAGRAMS): Wire ▸ Label… ────────────────────────
+  /** The wire a label rides on, or null: a text of the diagram naming a wire it has. */
+  function wireOfLabel(el) {
+    const name = tagOf(el) === 'text' ? el.getAttribute('data-on-wire') : null;
+    const svg = name && el.ownerSVGElement;
+    return svg ? connectorsIn(svg).find((w) => w.getAttribute('data-wire') === name) ?? null : null;
+  }
+  /** The label the wire a target is has, or null. */
+  const labelOfWire = (target) => { const w = wireOf(target); return w ? wireLabels(w)[0] ?? null : null; };
+  /**
+   * Wire ▸ Label…: a wire's label put at its middle and typed into straight
+   * away (the server names the wire and writes the label: `op: 'label'`), or
+   * its label, when it has one, typed into.
+   */
+  async function labelWire(target) {
+    const w = wireOf(target);
+    if (!w) return null;
+    const had = wireLabels(w)[0];
+    if (had) { editbar.selectNode(had, { exact: true }); authoring.editInline(had); return had; }
+    if (!isConnector(w)) { toast('a label rides on a wire that joins two shapes: attach this line first', 3200); return null; }
+    const svg = svgOf(w);
+    const mid = applyTo(toRoot(w, svg), pointAlong(wirePoints(w), 0.5));
+    const path = pathFrom(target.top, w);
+    let j;
+    try {
+      j = await post('/deck/edit/element/connector', { slide: target.slide, index: target.index, op: 'label', wire: { path, tag: tagOf(w) }, text: 'Label', at: { x: Math.round(mid.x * 10) / 10, y: Math.round(mid.y * 10) / 10 } });
+    } catch (e) { toast(`the label was not added: ${commit.why(e)}`, 6000); return null; }
+    let label;
+    try {
+      if (j.named?.wire) w.setAttribute('data-wire', j.named.wire);
+      label = liveNode(j.added.html, svg);
+      insertAt(target.top, j.added.path, label);
+    } catch (e) {
+      reloadFor('a wire\'s label could not be put on the page', e);
+      return null;
+    }
+    placeWireLabels(w);
+    editbar.selectNode(label, { exact: true });
+    authoring.editInline(label);
+    debugLog('edit', `wire label added: slide ${target.slide} element #${target.index} › ${j.added.path.join('.')}`);
+    return label;
+  }
 
   editbar.onSelect?.((t) => { if (t) showHandles(t); else hideHandles(); });
   editmode.onElementEditChange?.(() => { if (!active()) hideHandles(); });
@@ -1711,6 +1784,8 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     diagramOf, canDuplicate, add, duplicate,
     /** The element menu's rows on a wire: is it one, its route and arrows, and the three edits. */
     isWire: (target) => !!wireOf(target), wireState, setRoute, setArrows, reverse,
+    /** Wire ▸ Label…: does the wire have a label, and the add (or the edit of the one it has). */
+    hasLabel: (target) => !!labelOfWire(target), labelWire,
     /** Line ▸ on a stroke and Corners ▸ on a box: is there one, which is ticked, and the write. */
     isStroke: (target) => !!strokeOf(target), lineState, setLine,
     hasCorners: (target) => !!cornerBox(target), cornerState, setCorners,

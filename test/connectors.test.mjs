@@ -14,9 +14,11 @@ import path from 'node:path';
 import {
   parseTransform, multiply, invert, applyTo, boxThrough, edgeToward, routeStraight, routeElbow, routeCurve,
   geometryFor, endsOf, tagForRoute, wireGeometry, routeConnectors, connectorsOf, nodeNamed, nodeBox, IDENTITY,
+  pointAlong, nearestAlong, wirePoints, wireLabels, placeWireLabels,
 } from '../src/core/connectors.js';
 import {
   editConnector, setElementGeometry, removeNestedElement, duplicateDiagramNode, pathDataValue, pointsValue, slugNode, createHistory,
+  duplicateSlideElement,
 } from '../cli/edit.mjs';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
 import { staticFindings } from '../cli/check.mjs';
@@ -361,4 +363,83 @@ test('a wire stops at the outline of a shape marked data-shape, not at its box; 
   routeConnectors(svg);
   assert.deepEqual([toGate.attrs.x2, toGate.attrs.y2], ['200', '50'], 'into the diamond\'s left tip');
   assert.deepEqual([toPlain.attrs.x1, toPlain.attrs.x2], ['400', '500'], 'out of its right tip, into the plain polygon\'s box edge');
+});
+
+// ── a label on a wire (SVG_DIAGRAMS) ────────────────────────────────────────
+
+const WIRED = `<!doctype html><html><body><div class="decklight">
+  <section>
+    <h2>Flow</h2>
+    <svg viewBox="0 0 400 200">
+      <rect data-node="api" x="0" y="0" width="50" height="50"/>
+      <rect data-node="db" x="300" y="0" width="50" height="50"/>
+      <line data-from="api" data-to="db" x1="50" y1="25" x2="300" y2="25" stroke="#888"/>
+    </svg>
+  </section>
+</div></body></html>`;
+const svgOfDeck = (html) => /<svg[^]*<\/svg>/.exec(html)[0];
+
+test('a label put on a wire: the wire named from its nodes, the label after it at its middle, in tokens with a halo', () => {
+  const out = editConnector(WIRED, 1, 1, { op: 'label', wire: { path: [2], tag: 'line' }, text: 'HTTPS & gRPC', at: { x: 175, y: 25 } });
+  assert.deepEqual(out.named, { wire: 'api-db' });
+  assert.deepEqual(out.added.path, [3]);
+  assert.match(out.wire.html, /data-wire="api-db"\/>$/);
+  assert.equal(out.added.html, '<text data-on-wire="api-db" x="175" y="25" text-anchor="middle" dominant-baseline="central" '
+    + 'style="fill: var(--d-text); paint-order: stroke; stroke: var(--bg); stroke-width: 6px; stroke-linejoin: round">HTTPS &amp; gRPC</text>');
+  assert.match(svgOfDeck(out.html), /<line [^\n]*data-wire="api-db"\/>\n {6}<text data-on-wire="api-db"/, 'on its own line, after the wire');
+  assert.throws(() => editConnector(out.html, 1, 1, { op: 'label', wire: { path: [2], tag: 'line' }, text: 'again', at: { x: 1, y: 1 } }), /has a label/);
+  assert.throws(() => editConnector(WIRED, 1, 1, { op: 'label', wire: { path: [2], tag: 'line' }, text: ' ', at: { x: 1, y: 1 } }), /one line of at most 120/);
+  assert.throws(() => editConnector(WIRED, 1, 1, { op: 'label', wire: { path: [2], tag: 'line' }, text: 'x', at: { x: 'a', y: 1 } }), /bad position/);
+  assert.throws(() => editConnector(WIRED, 1, 1, { op: 'label', wire: { path: [0], tag: 'rect' }, text: 'x', at: { x: 1, y: 1 } }), /not a wire/);
+});
+
+test('a wire\'s label goes with it: removing a node takes its wires and their labels; a copy\'s wire is its own', () => {
+  const labelled = editConnector(WIRED, 1, 1, { op: 'label', wire: { path: [2], tag: 'line' }, text: 'calls', at: { x: 175, y: 25 } }).html;
+  const gone = removeNestedElement(labelled, 1, 1, { path: [1], tag: 'rect' });
+  assert.doesNotMatch(gone, /data-from|data-on-wire/);
+  const wireGone = removeNestedElement(labelled, 1, 1, { path: [2], tag: 'line' });
+  assert.doesNotMatch(wireGone, /data-on-wire/, 'the wire removed alone takes its label');
+  const copied = duplicateSlideElement(labelled, 1, 1);
+  const second = /<svg[^]*?<\/svg>[^]*?(<svg[^]*?<\/svg>)/.exec(copied.html)[1];
+  assert.match(second, /data-wire="api-db-2"/);
+  assert.match(second, /data-on-wire="api-db-2"/);
+});
+
+test('where a label sits along its wire is a fraction, written to three places; outside 0 to 1 is refused', () => {
+  const labelled = editConnector(WIRED, 1, 1, { op: 'label', wire: { path: [2], tag: 'line' }, text: 'calls', at: { x: 175, y: 25 } }).html;
+  const moved = setElementGeometry(labelled, 1, 1, [{ path: [3], tag: 'text', attr: 'data-along', value: 0.25 }, { path: [3], tag: 'text', attr: 'x', value: 112.5 }]);
+  assert.match(moved, /<text data-on-wire="api-db" x="112.5" [^>]*data-along="0.25">/);
+  assert.match(setElementGeometry(labelled, 1, 1, [{ path: [3], tag: 'text', attr: 'data-along', value: 1 / 3 }]), /data-along="0.333"/);
+  assert.throws(() => setElementGeometry(labelled, 1, 1, [{ path: [3], tag: 'text', attr: 'data-along', value: 1.2 }]), /0 to 1/);
+});
+
+test('along a wire: a point by its fraction of the length, and the fraction nearest a point', () => {
+  const pts = [[0, 0], [100, 0], [100, 100]];
+  assert.deepEqual(pointAlong(pts, 0), { x: 0, y: 0 });
+  assert.deepEqual(pointAlong(pts, 0.5), { x: 100, y: 0 });
+  assert.deepEqual(pointAlong(pts, 0.75), { x: 100, y: 50 });
+  assert.deepEqual(pointAlong(pts, 2), { x: 100, y: 100 }, 'held to the wire');
+  assert.equal(nearestAlong(pts, { x: 50, y: -20 }), 0.25);
+  assert.equal(nearestAlong(pts, { x: 140, y: 50 }), 0.75);
+  assert.equal(nearestAlong([[5, 5], [5, 5]], { x: 0, y: 0 }), 0.5, 'a wire of no length: its middle');
+});
+
+test('routing a wire puts its label back at its fraction: the middle by default, in the label\'s own space', () => {
+  const api = h('rect', { 'data-node': 'api', x: 0, y: 0, width: 50, height: 50 });
+  const db = h('rect', { 'data-node': 'db', x: 300, y: 0, width: 50, height: 50 });
+  const wire = h('line', { 'data-from': 'api', 'data-to': 'db', 'data-wire': 'api-db', x1: 0, y1: 0, x2: 1, y2: 1 });
+  const mid = h('text', { 'data-on-wire': 'api-db', x: 0, y: 0 }, 'calls');
+  const quarter = h('g', { transform: 'translate(10 5)' }, h('text', { 'data-on-wire': 'api-db', 'data-along': '0.25', x: 0, y: 0 }, h('tspan', { x: 0, dy: '-0.6em' }, 'two'), h('tspan', { x: 0, dy: '1.2em' }, 'lines')));
+  const stray = h('text', { 'data-on-wire': 'nowhere', x: 7, y: 8 }, 'left alone');
+  const svg = h('svg', { viewBox: '0 0 400 200' }, api, db, wire, mid, quarter, stray);
+  routeConnectors(svg);
+  assert.deepEqual([wire.attrs.x1, wire.attrs.x2], ['50', '300']);
+  assert.deepEqual([mid.attrs.x, mid.attrs.y], ['175', '25']);
+  const q = quarter.children[0];
+  assert.deepEqual([q.attrs.x, q.attrs.y], ['102.5', '20'], 'a quarter along, in its translated group\'s units');
+  assert.deepEqual(q.children.map((t) => t.attrs.x), ['102.5', '102.5'], 'its lines with it');
+  assert.deepEqual([stray.attrs.x, stray.attrs.y], [7, 8]);
+  assert.deepEqual(wireLabels(wire), [mid, q]);
+  assert.equal(placeWireLabels(wire), false, 'placed again: nothing moves');
+  assert.deepEqual(wirePoints(wire), [[50, 25], [300, 25]]);
 });

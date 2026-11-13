@@ -500,11 +500,23 @@ function removalRanges(e, path, tag) {
   // that is gone would be drawn where the file last put it, joined to nothing
   const ranges = [[at.start, at.end]];
   const names = nodeNamesIn(e.src(at));
+  // the wires going with it, and the node itself when it is one: their labels go too
+  const wires = new Set(wireNamesIn(e.src(at)));
   if (names.length && at.svg) {
     for (const n of drawnNodes(e.src(at.svg))) {
       const s = at.svg.start + n.start; const end = at.svg.start + n.end;
       if (!WIRE_TAGS.has(n.tag) || (s >= at.start && end <= at.end)) continue;
-      if (names.includes(attrOf(n.attrs, 'data-from')) || names.includes(attrOf(n.attrs, 'data-to'))) ranges.push([s, end]);
+      if (names.includes(attrOf(n.attrs, 'data-from')) || names.includes(attrOf(n.attrs, 'data-to'))) {
+        ranges.push([s, end]);
+        const w = attrOf(n.attrs, 'data-wire');
+        if (w) wires.add(w);
+      }
+    }
+  }
+  if (wires.size && at.svg) {
+    for (const n of drawnNodes(e.src(at.svg))) {
+      const s = at.svg.start + n.start; const end = at.svg.start + n.end;
+      if (n.tag === 'text' && wires.has(attrOf(n.attrs, 'data-on-wire')) && !(s >= at.start && end <= at.end)) ranges.push([s, end]);
     }
   }
   return ranges;
@@ -1017,7 +1029,7 @@ export function setDiagramCanvas(html, slide, index, { path = [], tag = 'svg', v
 // indentation its neighbours have, so every other byte of the diagram stays.
 
 /** Attributes a move or a resize writes, and the ones that can never be negative. */
-const GEOMETRY_ATTRS = new Set(['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'transform', 'd', 'points']);
+const GEOMETRY_ATTRS = new Set(['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'transform', 'd', 'points', 'data-along']);
 /** The attributes that are a shape of their own, and the only tags that may carry them. */
 const SHAPE_DATA = { d: new Set(['path']), points: new Set(['polyline', 'polygon']) };
 const NON_NEGATIVE = new Set(['width', 'height', 'r', 'rx', 'ry']);
@@ -1117,6 +1129,12 @@ export function pointsValue(value) {
 /** One geometry value as the file gets it, or a refusal naming what was sent. */
 function geometryValue(attr, value) {
   if (attr === 'd') return pathDataValue(value);
+  // where a wire's label sits along it (SVG_DIAGRAMS): a fraction of its length
+  if (attr === 'data-along') {
+    const n = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error(`a label sits 0 to 1 along its wire, not: ${String(value).slice(0, 20)}`);
+    return String(Math.round(n * 1000) / 1000);
+  }
   if (attr === 'points') return pointsValue(value);
   if (attr === 'transform') {
     const m = TRANSLATE_VALUE.exec(String(value ?? '').trim());
@@ -1720,7 +1738,7 @@ export function duplicateSlideElement(html, slide, index, { path = null, tag = n
 
 const WIRE_TAGS = new Set(['line', 'path', 'polyline']);
 const NODE_TAGS = new Set(['g', 'rect', 'circle', 'ellipse', 'polygon', 'path', 'image', 'use', 'text', 'foreignobject']);
-export const CONNECTOR_OPS = ['add', 'reconnect', 'detach', 'route', 'arrows', 'reverse'];
+export const CONNECTOR_OPS = ['add', 'reconnect', 'detach', 'route', 'arrows', 'reverse', 'label'];
 export const CONNECTOR_ROUTES = ['straight', 'elbow', 'curve'];
 export const CONNECTOR_ARROWS = ['none', 'end', 'both'];
 const LINE_GEOMETRY = ['x1', 'y1', 'x2', 'y2'];
@@ -1750,6 +1768,46 @@ function uniqueName(base, taken) {
   while (taken.has(`${stem}-${k}`)) k++;
   return `${stem}-${k}`;
 }
+/** The wire names a source uses (`data-wire`), in order. */
+function wireNamesIn(src) {
+  const out = [];
+  eachOpenTag(src, (head) => { const n = attrOf(head, 'data-wire'); if (n) out.push(n); return head; });
+  return out;
+}
+
+/**
+ * A label on a wire (SVG_DIAGRAMS, a label on a wire): the wire named
+ * `data-wire` when it is not, and a `<text data-on-wire>` naming it
+ * appended last in its svg at `req.at`, the page's measure of its middle.
+ */
+function labelWire(e, { wPath, tag, svgPath, head, ends }, req) {
+  const text = typeof req.text === 'string' ? req.text.replace(/\s+/g, ' ').trim() : '';
+  if (!text || text.length > 120 || /[\u0000-\u001f\u007f]/.test(text)) throw new Error('a wire\'s label is one line of at most 120 characters');
+  const x = coordOf(req.at?.x); const y = coordOf(req.at?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('bad position');
+  let svg = e.at(svgPath, 'svg');
+  let name = attrOf(head, 'data-wire');
+  if (name && new RegExp(`\\sdata-on-wire\\s*=\\s*["']${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`).test(e.src(svg))) throw new Error('this wire has a label: double-click it to change its words');
+  if (!name) {
+    name = uniqueName(slugNode([ends.from, ends.to].filter(Boolean).join(' ') || 'wire'), new Set(wireNamesIn(e.src(svg))));
+    e.edit(wPath, tag, (a) => withAttr(a, 'data-wire', name));
+    svg = e.at(svgPath, 'svg');
+  }
+  let svgSrc = e.src(svg);
+  const lay = layoutOf(svgSrc, svgIndentOf(e, svg));
+  const drawn = drawnNodes(svgSrc);
+  const c = { x, y };
+  // the look of the diagram's other wire labels, else of its labels, else tokens and a halo
+  const model = nearest(drawn.filter((n) => n.tag === 'text' && attrOf(n.attrs, 'data-on-wire') !== null), c);
+  const place = { 'data-on-wire': name, x: formatCoord(x), y: formatCoord(y), 'text-anchor': 'middle', 'dominant-baseline': 'central', 'data-along': null };
+  const markup = `${model ? openTag('text', model.attrs, place)
+    : openTag('text', labelModel(drawn, c)?.attrs ?? null, { ...place, style: 'fill: var(--d-text); paint-order: stroke; stroke: var(--bg); stroke-width: 6px; stroke-linejoin: round' })}>${escapeHtml(text)}</text>`;
+  let at;
+  ({ svgSrc, index: at } = appendToSvg(svgSrc, markup, lay, svgIndentOf(e, svg)));
+  e.splice(svg.start, svg.end, svgSrc);
+  return { wire: { path: wPath, html: e.src(e.at(wPath, tag)) }, added: { path: [...svgPath, at], html: markup }, defs: [], named: { wire: name } };
+}
+
 /** What a node says: the words of its own text, or of the first label inside it. */
 function wordsOf(src) {
   const t = /<text\b[^>]*>([\s\S]*?)<\/text>/i.exec(src);
@@ -1760,7 +1818,9 @@ function wordsOf(src) {
  * A copy's node names made its own (Duplicate): each `data-node` renamed to
  * one `svgSrc` does not have, the copy's wires following their nodes; a
  * wire's end on a node outside the copy is let go, its coordinates kept, so
- * a copy is never joined to its original's neighbours.
+ * a copy is never joined to its original's neighbours. A copied wire's
+ * `data-wire` name is made its own too, its label following it, so a label
+ * never rides on two wires.
  */
 function ownNames(copy, svgSrc) {
   const taken = new Set(nodeNamesIn(svgSrc));
@@ -1770,7 +1830,14 @@ function ownNames(copy, svgSrc) {
     taken.add(n);
     renamed.set(name, n);
   }
-  if (!renamed.size && !/\sdata-(?:from|to)\s*=/i.test(copy)) return copy;
+  const wiresTaken = new Set(wireNamesIn(svgSrc));
+  const wires = new Map();
+  for (const name of wireNamesIn(copy)) {
+    const n = uniqueName(name, wiresTaken);
+    wiresTaken.add(n);
+    wires.set(name, n);
+  }
+  if (!renamed.size && !wires.size && !/\sdata-(?:from|to)\s*=/i.test(copy)) return copy;
   return eachOpenTag(copy, (head, close) => {
     let h = head;
     const own = attrOf(h, 'data-node');
@@ -1778,6 +1845,10 @@ function ownNames(copy, svgSrc) {
     for (const a of ['data-from', 'data-to']) {
       const v = attrOf(h, a);
       if (v !== null) h = withAttr(h, a, renamed.get(v) ?? null);
+    }
+    for (const a of ['data-wire', 'data-on-wire']) {
+      const v = attrOf(h, a);
+      if (v !== null && wires.has(v)) h = withAttr(h, a, wires.get(v));
     }
     return h + close;
   });
@@ -1857,6 +1928,13 @@ function retag(src, to) {
  *              is a marker oriented `auto-start-reverse`)
  *   reverse    `{ wire, geometry }`: from and to swapped, the geometry run
  *              the other way, so the arrowhead points the other way
+ *   label      `{ wire, text, at }`: a label put on the wire, at `at` (its
+ *              middle, as the page measured it): a `<text data-on-wire>`
+ *              naming the wire, which is given a `data-wire` name when it
+ *              has none (from the nodes it joins), last in the svg so it is
+ *              drawn over the line; written like the diagram's other wire
+ *              labels, else in theme tokens with a halo of the slide's
+ *              background. One label a wire: a second is refused.
  *
  * A node without a `data-node` is given one, from its words (a group's
  * label, else the `label` the page read beside it), slugged and unique in
@@ -1928,6 +2006,7 @@ export function editConnector(html, slide, index, req) {
   let tag = wAt.found;
   const head0 = splitOpenTag(e.src(wAt)).attrs;
   const ends = { from: attrOf(head0, 'data-from'), to: attrOf(head0, 'data-to') };
+  if (op === 'label') return finish(labelWire(e, { wPath, tag, svgPath, head: head0, ends }, req));
   if ((op === 'reconnect' || op === 'detach') && !['from', 'to'].includes(req.end)) throw new Error('which end: from or to?');
   if (op === 'route' && !CONNECTOR_ROUTES.includes(req.route)) throw new Error(`a route is straight, elbow or curve, not: ${String(req.route).slice(0, 20)}`);
   if (op === 'arrows' && !CONNECTOR_ARROWS.includes(req.arrows)) throw new Error(`arrows are none, end or both, not: ${String(req.arrows).slice(0, 20)}`);

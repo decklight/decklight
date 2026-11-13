@@ -2649,6 +2649,8 @@ export function createEditMode({
       group('Line', LINE_CHOICES, shapes.lineState(target), shapes.setLine);
       // its weight lives with its colour (Colors… › Stroke › Width): this row opens it there
       rows.push({ label: 'Width…', run: () => openInspect('colors', 'stroke') });
+      // a label at its middle, that follows it (SVG_DIAGRAMS); the one it has, typed into
+      rows.push({ label: shapes.hasLabel?.(target) ? 'Edit label…' : 'Label…', run: () => { closeElementMenu(); shapes.labelWire(target); } });
       rows.push({ sep: true });
       rows.push({ label: 'Reverse', run: () => { closeElementMenu(); shapes.reverse(target); } });
     } else if (menuView === 'table') {

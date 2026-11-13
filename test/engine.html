@@ -1008,8 +1008,9 @@
       // Connectors (SVG_DIAGRAMS, shapes.js / connectors.js): the geometry
       // and remove writes answer, and the connector route answers the way the
       // server does, the markup it would write handed back (window.__fakeConnector)
-      if (['connectors', 'connectmenu', 'guides', 'connectdraw'].includes(HARNESS_MODE)) {
+      if (['connectors', 'connectmenu', 'wirelabel', 'guides', 'connectdraw'].includes(HARNESS_MODE)) {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/text')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/geometry') || u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/connector')) return json({ ok: true, changed: true, undo: 1, redo: 0, ...window.__fakeConnector(JSON.parse(init?.body ?? '{}')) });
       }
@@ -1562,7 +1563,7 @@
     // connectors (SVG_DIAGRAMS): a named box group, an unnamed one, a named
     // ellipse, a connector whose file coordinates are wrong (the runtime
     // routes it), and a line drawn by hand; at half the viewBox, scaled
-    if (HARNESS_MODE === 'connectors' || HARNESS_MODE === 'connectmenu') {
+    if (HARNESS_MODE === 'connectors' || HARNESS_MODE === 'connectmenu' || HARNESS_MODE === 'wirelabel') {
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Connect</h2>
         <svg class="cn-svg" viewBox="0 0 800 300" width="400" aria-label="connectors">
           <defs><marker id="cn-arr" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4"/></marker></defs>
@@ -1698,6 +1699,12 @@
       }
       const w = at(b.wire.path);
       let tag = w.tagName.toLowerCase();
+      // a label on the wire (SVG_DIAGRAMS): the wire named, the label written last in the svg at the middle the page sent
+      if (b.op === 'label') {
+        const name = `${w.getAttribute('data-from')}-${w.getAttribute('data-to')}`;
+        const html = `<text class="cn-label" data-on-wire="${name}" x="${b.at.x}" y="${b.at.y}" text-anchor="middle" dominant-baseline="central" font-size="22">${b.text}</text>`;
+        return { wire: { path: b.wire.path, html: w.outerHTML }, added: { path: [kids(svg).length], html }, defs: [], named: { wire: name } };
+      }
       const a = new Map([...w.attributes].filter((x) => !/^(style|mask|data-build-|data-draw-)/.test(x.name))
         .map((x) => [x.name, x.name === 'class' ? x.value.split(/\s+/).filter((c) => /^c[nd]-/.test(c)).join(' ') : x.value.replace(/#svg\d+-/g, '#')]));
       let named = null; let defs = [];
@@ -4333,7 +4340,7 @@
         return;
       }
 
-      if (mode === 'connectors' || mode === 'connectmenu' || mode === 'guides') {
+      if (mode === 'connectors' || mode === 'connectmenu' || mode === 'wirelabel' || mode === 'guides') {
         // SVG_DIAGRAMS, connectors (shapes.js, connectors.js): wires that stay
         // attached, drawn from a dot, re-routed by a move in the same write,
         // reconnected and let go by their ends; the menu's rows; the guides
@@ -4463,6 +4470,67 @@
           r.handLineAttaches = hc?.op === 'reconnect' && hc.end === 'to' && at(hc.node.path) === '[3]' && hc.node.tag === 'ellipse'
             && hand.getAttribute('data-to') === 'cache' && onEllipse(num(hand, 'x2'), num(hand, 'y2'), 420, 100);
           r.PASS = Object.values(r).every((v) => v === true);
+        } else if (mode === 'wirelabel') {
+          // SVG_DIAGRAMS, a label on a wire: Wire ▸ Label… puts one at its
+          // middle, typed into; it follows the wire when a node moves and when
+          // the route changes, and a drag slides it along the wire, never off it
+          const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+          const row = (t) => rows().find((x) => x.textContent.trim() === t);
+          const menuOn = async (el, p = centre(el)) => { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: Math.round(p.x), clientY: Math.round(p.y) })); await settle(); };
+          const wire = q('.cn-wire');
+          const midOf = (w) => { const L = w.getTotalLength(); const p = w.getPointAtLength(L / 2); return { x: p.x, y: p.y }; };
+          const offWire = (w, x, y) => { const L = w.getTotalLength(); let best = Infinity; for (let i = 0; i <= 200; i++) { const p = w.getPointAtLength((L * i) / 200); best = Math.min(best, Math.hypot(p.x - x, p.y - y)); } return best; };
+          await menuOn(wire);
+          row('Wire ▸')?.click(); await settle();
+          r.labelRow = !!row('Label…') && !row('Edit label…');
+          row('Label…')?.click(); await settle(); await settle();
+          const lb = posts('connector').at(-1);
+          const m0 = midOf(wire);
+          r.labelAsked = lb?.op === 'label' && at(lb.wire) === at({ path: [4], tag: 'line' }) && lb.text === 'Label' && Math.abs(lb.at.x - m0.x) < 0.2 && Math.abs(lb.at.y - m0.y) < 0.2;
+          const label = q('.cn-label');
+          r.labelOnTheWire = !!label && wire.getAttribute('data-wire') === 'api-cache' && label.getAttribute('data-on-wire') === 'api-cache'
+            && Math.abs(num(label, 'x') - m0.x) < 0.2 && Math.abs(num(label, 'y') - m0.y) < 0.2;
+          const typing = document.querySelector('.dl-label-edit');
+          r.straightIntoItsWords = !!typing && typing.value === 'Label';
+          if (typing) { typing.value = 'cache reads'; typing.dispatchEvent(new Event('input', { bubbles: true })); typing.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
+          await settle(); await settle();
+          r.wordsSaved = label?.textContent === 'cache reads' && CALLS.post.some((c) => c.u.includes('/deck/edit/element/text') && c.body.text === 'cache reads');
+          await menuOn(wire);
+          row('Wire ▸')?.click(); await settle();
+          r.editLabelRow = !!row('Edit label…') && !row('Label…');
+          press('Escape'); await settle();
+
+          // the cache moved: the wire routed again, and its label with it, in the same write
+          await new Promise((f) => setTimeout(f, 400));
+          const cache = q('.cn-cache');
+          await clickAt(cache, toScreen(400, 255));
+          await drag(cache, toScreen(400, 255), toScreen(400, 205));
+          const g1 = posts('geometry').at(-1);
+          const m1 = midOf(wire);
+          const lp = (attr) => g1?.edits.find((e) => JSON.stringify(e.path) === `[${authored().indexOf(label)}]` && e.attr === attr)?.value;
+          r.followsAMove = Math.abs(num(label, 'x') - m1.x) < 0.2 && Math.abs(num(label, 'y') - m1.y) < 0.2 && Math.abs(lp('y') - m1.y) < 0.2;
+
+          // dragged, it slides along the wire: never off it, its fraction written
+          await new Promise((f) => setTimeout(f, 400));
+          await clickAt(label, centre(label));
+          const start = centre(label);
+          const q1 = wire.getPointAtLength(wire.getTotalLength() * 0.25);
+          const toward = toScreen(q1.x + 30, q1.y - 30);
+          await drag(label, start, toward);
+          const g2 = posts('geometry').at(-1);
+          const along = parseFloat(label.getAttribute('data-along'));
+          r.slidesAlongIt = along > 0.1 && along < 0.4 && offWire(wire, num(label, 'x'), num(label, 'y')) < 0.5
+            && g2?.edits.some((e) => e.attr === 'data-along' && Math.abs(e.value - along) < 0.001);
+
+          // the route changed: it rides the elbow, at the same fraction
+          await new Promise((f) => setTimeout(f, 400));
+          await menuOn(wire);
+          row('Wire ▸')?.click(); await settle();
+          row('Elbow')?.click(); await settle(); await settle();
+          const bent = q('.cn-wire');
+          const want = bent.getPointAtLength(bent.getTotalLength() * along);
+          r.followsTheRoute = bent.tagName === 'path' && Math.abs(num(label, 'x') - want.x) < 1 && Math.abs(num(label, 'y') - want.y) < 1;
+          r.PASS = Object.values(r).every((v) => v === true);
         } else if (mode === 'connectmenu') {
           const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
           const row = (t) => rows().find((n) => n.textContent.trim() === t);
@@ -4474,7 +4542,7 @@
           r.wireRows = !!row('Wire ▸') && !row('Route ▸') && !row('Arrows ▸') && !row('Reverse');
           row('Wire ▸')?.click(); await settle();
           const sub = [...document.querySelectorAll('.decklight-ctxmenu .cm-list > *')].map((n) => (n.classList.contains('cm-head') ? `#${n.textContent}` : n.classList.contains('cm-sep') ? '—' : n.textContent));
-          r.wireSubmenu = JSON.stringify(sub) === JSON.stringify(['← back', '#Route', '✓ Straight', 'Elbow', 'Curved', '#Arrows', 'None', '✓ End', 'Both ends', '#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', '—', 'Reverse']);
+          r.wireSubmenu = JSON.stringify(sub) === JSON.stringify(['← back', '#Route', '✓ Straight', 'Elbow', 'Curved', '#Arrows', 'None', '✓ End', 'Both ends', '#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', 'Label…', '—', 'Reverse']);
           r.routeTicked = !!row('✓ Straight') && !!row('Elbow') && !!row('Curved');
           // the arrows skip the headings: ↓ from the back row lands on Straight
           press('ArrowDown');
@@ -4907,7 +4975,7 @@
         // Wire ▸: Line, ticked solid, and a Width… row, between the arrows and Reverse
         await into(wire, 'Wire ▸');
         const sub = listed();
-        r.wireLineGroup = at(sub.slice(sub.indexOf('#Line'))) === at(['#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', '—', 'Reverse']);
+        r.wireLineGroup = at(sub.slice(sub.indexOf('#Line'))) === at(['#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', 'Label…', '—', 'Reverse']);
         await choose('Dashed');
         const d1 = posts('style')[0];
         r.dashedAsked = d1?.echo === true && at(d1.edits) === at([{ path: [2], tag: 'line', prop: 'stroke-dasharray', value: '6 4' }]);

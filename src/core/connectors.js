@@ -41,7 +41,7 @@
  * geometry is unit-tested without a browser.
  */
 
-import { outlineOf, outlineToward } from '../../tools/diagram-shapes.mjs';
+import { outlineOf, outlineToward, flatten } from '../../tools/diagram-shapes.mjs';
 
 // ── matrices ─────────────────────────────────────────────────────────────────
 
@@ -439,7 +439,87 @@ export function setGeometry(wire, geom) {
 /** Route one connector where it stands; true when its geometry changed. */
 export function routeWire(wire, opts) {
   const g = wireGeometry(wire, opts);
-  return !!g && setGeometry(wire, g);
+  const changed = !!g && setGeometry(wire, g);
+  placeWireLabels(wire);
+  return changed;
+}
+
+// ── a label on a wire (SVG_DIAGRAMS) ─────────────────────────────────────────
+
+/** A wire as the points it runs through, in its own coordinates: a line's ends, a polyline's points, a path's, its curves followed. */
+export function wirePoints(wire) {
+  const tag = tagOf(wire);
+  const n = (a) => { const v = parseFloat(wire.getAttribute(a)); return Number.isFinite(v) ? v : 0; };
+  if (tag === 'line') return [[n('x1'), n('y1')], [n('x2'), n('y2')]];
+  if (tag === 'polyline') {
+    const v = String(wire.getAttribute('points') ?? '').trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    const out = [];
+    for (let i = 0; i + 1 < v.length; i += 2) out.push([v[i], v[i + 1]]);
+    return out;
+  }
+  return flatten(wire.getAttribute('d') ?? '', { steps: 16 })[0] ?? [];
+}
+/** The point a fraction `t` (0 to 1) of the way along `pts`, by length. */
+export function pointAlong(pts, t) {
+  if (!pts.length) return { x: 0, y: 0 };
+  const seg = pts.slice(1).map((p, i) => Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]));
+  const total = seg.reduce((a, b) => a + b, 0);
+  let left = Math.min(1, Math.max(0, t)) * total;
+  for (let i = 0; i < seg.length; i++) {
+    if (left <= seg[i] || i === seg.length - 1) {
+      const f = seg[i] ? Math.min(1, left / seg[i]) : 0;
+      return { x: pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, y: pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f };
+    }
+    left -= seg[i];
+  }
+  return { x: pts[0][0], y: pts[0][1] };
+}
+/** The fraction along `pts` (0 to 1, by length) of the point on it nearest `p`. */
+export function nearestAlong(pts, p) {
+  const seg = pts.slice(1).map((q, i) => Math.hypot(q[0] - pts[i][0], q[1] - pts[i][1]));
+  const total = seg.reduce((a, b) => a + b, 0);
+  if (!total) return 0.5;
+  let best = Infinity; let at = 0; let run = 0;
+  for (let i = 0; i < seg.length; i++) {
+    const [ax, ay] = pts[i]; const [bx, by] = pts[i + 1];
+    const L = seg[i] ** 2;
+    const f = L ? Math.min(1, Math.max(0, ((p.x - ax) * (bx - ax) + (p.y - ay) * (by - ay)) / L)) : 0;
+    const d = Math.hypot(ax + (bx - ax) * f - p.x, ay + (by - ay) * f - p.y);
+    if (d < best) { best = d; at = (run + seg[i] * f) / total; }
+    run += seg[i];
+  }
+  return at;
+}
+/** How far along its wire a label sits: its `data-along`, else halfway. */
+export const alongOf = (label) => { const v = parseFloat(label.getAttribute('data-along')); return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.5; };
+/** The labels on a wire (texts of its svg whose `data-on-wire` is its `data-wire`). */
+export function wireLabels(wire) {
+  const name = wire.getAttribute?.('data-wire');
+  const svg = name ? svgOf(wire) : null;
+  return svg ? [...below(svg)].filter((n) => tagOf(n) === 'text' && n.getAttribute('data-on-wire') === name && !outsideDrawing(n)) : [];
+}
+/**
+ * Each label on `wire` put where it says it sits along it, in the label's own
+ * coordinates (it may be in another group), its lines' `x` with it: what keeps
+ * a label on its wire when the wire's ends move or its route changes. True
+ * when one moved.
+ */
+export function placeWireLabels(wire) {
+  const labels = wireLabels(wire);
+  if (!labels.length) return false;
+  const svg = svgOf(wire);
+  const pts = wirePoints(wire);
+  let moved = false;
+  for (const l of labels) {
+    const into = invert(toRoot(l, svg));
+    if (!into) continue;
+    const q = applyTo(multiply(into, toRoot(wire, svg)), pointAlong(pts, alongOf(l)));
+    const x = fmt(q.x); const y = fmt(q.y);
+    if (l.getAttribute('x') !== x || l.getAttribute('y') !== y) moved = true;
+    l.setAttribute('x', x); l.setAttribute('y', y);
+    for (const t of l.children ?? []) if (tagOf(t) === 'tspan' && t.hasAttribute('x')) t.setAttribute('x', x);
+  }
+  return moved;
 }
 
 /** Route every connector in `scope`: the ones whose geometry changed. */
