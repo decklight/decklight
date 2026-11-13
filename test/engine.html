@@ -5504,6 +5504,16 @@
           r.buildAtDepth = bu?.index === 1 && JSON.stringify(bu?.path) === '[1]' && bu?.effect === 'fade' && $('.mv-cp').getAttribute('data-build') === 'fade';
           press('Escape'); await settle();
           if (sel()?.node !== $('.mv-cp')) { click($('.mv-c3')); await settle(); click($('.mv-cp')); await settle(); }
+          // a right-click inside the column: the menu is about the block at depth,
+          // the heading beside the selected paragraph (first in its column: Move up
+          // greyed, where the column's own would not be), and on the paragraph itself
+          ctx($('.mv-c3')); await settle();
+          r.rightClickBesideIsThatBlock = row('Move up')?.classList.contains('cm-disabled') === true && row('Move down')?.classList.contains('cm-disabled') === false;
+          press('Escape'); await settle();
+          ctx($('.mv-cp')); await settle();
+          r.rightClickOnItIsIt = row('Move up')?.classList.contains('cm-disabled') === false && row('Move down')?.classList.contains('cm-disabled') === false;
+          press('Escape'); await settle();
+          if (sel()?.node !== $('.mv-cp')) { click($('.mv-c3')); await settle(); click($('.mv-cp')); await settle(); }
           // ⌘D: a copy right after it, by its path, in place
           chordD(); await settle(); await settle();
           const d = posts('/deck/edit/element/duplicate').at(-1);
