@@ -872,6 +872,13 @@
         if (u.includes('/deck/edit/slide/notes')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (LK_SRC !== null) {
+        // several selected (multiselect): an element's own source, as the file has it
+        if (HARNESS_MODE === 'multiselect' && u.includes('/deck/edit/element/source')) {
+          const i = Number(new URL(u, location.href).searchParams.get('index'));
+          const kid = [...document.querySelectorAll('.decklight-stage > section')[2].children][i];
+          return json({ ok: true, html: kid ? kid.outerHTML.replace(/ class="([^"]*)"/, (m, c) => { const k = c.split(' ').filter((x) => x.startsWith('ms-')); return k.length ? ` class="${k.join(' ')}"` : ''; }) : '' });
+        }
+        if (HARNESS_MODE === 'multiselect' && u.includes('/deck/edit/element/join')) return json({ ok: true, changed: true, index: JSON.parse(init.body).items[0].index, undo: 1, redo: 0 });
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: LK_SRC });
         if (u.includes('/deck/edit/element/content')) { LK_SRC = JSON.parse(init.body).html; return json({ ok: true, changed: true, undo: 1, redo: 0 }); }
@@ -8147,7 +8154,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         // the menu on one of them: only what applies to all
         $s('.ms-b').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
         await settle();
-        r.menuForAll = rowsText().join('|') === '3 selected|Colors…|Type…|Paste style|Move up|Move down|Duplicate|Remove';
+        r.menuForAll = rowsText().join('|') === '3 selected|Colors…|Type…|Paste style|Move up|Move down|Turn into ▸|Duplicate|Remove';
         document.querySelector(M)?.click();
         // the inspector: how many, and only Info, Colors and Type
         press('i'); await settle(); await settle();
@@ -8185,6 +8192,20 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         [...document.querySelectorAll(`${M} .cm-row`)].find((x) => x.firstChild?.textContent === 'Paste style')?.click(); await settle(); await settle();
         r.pasteStyleOnAll = posts('style').length === 1 && last('style')?.items.length === 3
           && ['.ms-a', '.ms-b', '.ms-c'].every((c) => getComputedStyle($s(c)).color === 'rgb(200, 30, 30)');
+        // Turn into ▸ › Bullets: the three paragraphs one list, their words as its points, one write
+        $s('.ms-b').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })); await settle();
+        [...document.querySelectorAll(`${M} .cm-row`)].find((x) => x.firstChild?.textContent === 'Turn into ▸')?.click(); await settle();
+        r.joinOffersListOrQuote = rowsText().join('|') === '← back|Bullets|Numbered|Quote';
+        [...document.querySelectorAll(`${M} .cm-row`)].find((x) => x.firstChild?.textContent === 'Bullets')?.click(); await settle(); await settle();
+        const j = posts('join').at(-1)?.body;
+        r.joinOneWrite = posts('join').length === 1 && JSON.stringify(j?.items.map((i) => i.index)) === '[2,3,4]'
+          && /^<ul>\n  <li>Alpha<\/li>\n  <li>Beta<\/li>\n  <li>Gamma<\/li>\n<\/ul>$/.test(j?.html ?? '');
+        // the title among them: offered, greyed, with why
+        click(sec.querySelector('h2')); click($s('.ms-a'), { shiftKey: true });
+        $s('.ms-a').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })); await settle();
+        [...document.querySelectorAll(`${M} .cm-row`)].find((x) => x.firstChild?.textContent === 'Turn into ▸')?.click(); await settle();
+        r.titleKeepsItsHeading = [...document.querySelectorAll(`${M} .cm-row`)].filter((x) => x.classList.contains('cm-disabled')).length === 3;
+        document.querySelector(M)?.click();
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

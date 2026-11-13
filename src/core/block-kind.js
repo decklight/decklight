@@ -127,3 +127,42 @@ export function kindsFor(tag, { isTitle = false } = {}) {
     disabled: isTitle && kind !== 'heading' ? 'the slide’s title stays a heading: the slide would have none' : null,
   }));
 }
+
+/** What several blocks can be joined into (Turn into ▸ with several selected): one list, or one quote. */
+export const JOIN_KINDS = ['bullets', 'numbered', 'quote'];
+
+/**
+ * Several blocks (`htmls`, each one block's source, in slide order) joined
+ * into ONE of kind `to`: a list with a point for each paragraph, heading or
+ * point of theirs, or a quote with a paragraph for each. What is inside each
+ * is carried as written. The markup comes back on several lines, indented
+ * from its first, for the server to set at the first block's indent.
+ * `build` says what a build means now: 'same' when every block built (the
+ * list then builds a step a point, as they did), 'one' for a quote they all
+ * built (it arrives whole), 'none' when none did, and 'some' when only some
+ * did (the joined block takes none, and says so).
+ */
+export function joinBlocks(htmls, to) {
+  if (!JOIN_KINDS.includes(to)) throw new Error(`several blocks join into a list or a quote, not: ${to}`);
+  if (!Array.isArray(htmls) || htmls.length < 2) throw new Error('joining takes two blocks or more');
+  const pieces = [];
+  const builds = [];
+  for (const html of htmls) {
+    const el = parseMarkup(String(html ?? '')).find((n) => n.t === 'el');
+    const kind = el ? kindOf(el.tag) : null;
+    if (!kind) throw new Error('only text, headings, quotes and lists join into one');
+    builds.push(/\sdata-build\b/i.test(el.open));
+    if (LIST.has(el.tag)) pieces.push(...points(el));
+    else if (el.tag === 'blockquote') pieces.push(...paragraphs(el));
+    else pieces.push(trimText(serialize(el.kids)));
+  }
+  const kept = pieces.filter((p) => p !== '');
+  if (!kept.length) throw new Error('the blocks have nothing in them to join');
+  const all = builds.every(Boolean);
+  const tag = TAG_OF[to];
+  // a list keeps a step a point; a quote that builds arrives whole, one step for all of them
+  const build = all ? (tag === 'blockquote' ? 'one' : 'same') : builds.some(Boolean) ? 'some' : 'none';
+  const open = `<${tag}${all ? ' data-build' : ''}>`;
+  const inner = kept.map((p) => (tag === 'blockquote' ? `<p>${p}</p>` : `<li>${p}</li>`));
+  return { html: `${open}\n  ${inner.join('\n  ')}\n</${tag}>`, pieces: kept.length, build };
+}

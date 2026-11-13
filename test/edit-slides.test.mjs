@@ -97,6 +97,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /deck/edit/element/geometry',
     'POST /deck/edit/element/image',
     'POST /deck/edit/element/insert',
+    'POST /deck/edit/element/join',
     'POST /deck/edit/element/move',
     'POST /deck/edit/element/options',
     'POST /deck/edit/element/order',
@@ -181,6 +182,18 @@ test('several selected: remove, duplicate, move and restyle each take items and 
   r = await call(routes, 'POST /deck/edit/element/move', { body: { slide: 1, items: [{ index: 0 }], dir: -1 } });
   assert.equal(r.code, 409);
   assert.equal(readDeck(), before);
+});
+
+test('POST /deck/edit/element/join puts the joined block where the first stood and takes the others out, one undo', async (t) => {
+  const deck = '<!doctype html>\n<html><body>\n  <div class="decklight">\n    <section>\n      <h2>T</h2>\n      <p>a</p>\n      <p>b</p>\n    </section>\n  </div>\n</body></html>\n';
+  const { routes, readDeck, history } = harness(t, deck);
+  const r = await call(routes, 'POST /deck/edit/element/join', { body: { slide: 1, items: [{ index: 1, tag: 'p' }, { index: 2, tag: 'p' }], html: '<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>' } });
+  assert.equal(r.code, 200);
+  assert.equal(r.body.index, 1);
+  assert.equal(history.counts().undo, 1);
+  assert.match(readDeck(), /<h2>T<\/h2>\n {6}<ul>\n {8}<li>a<\/li>\n {8}<li>b<\/li>\n {6}<\/ul>\n {4}<\/section>/);
+  const one = await call(routes, 'POST /deck/edit/element/join', { body: { slide: 1, items: [{ index: 1 }], html: '<p>x</p>' } });
+  assert.equal(one.code, 400, 'one element is not a join');
 });
 
 test('POST /deck/edit/slide/notes writes the aside and leaves one undo entry behind', async (t) => {

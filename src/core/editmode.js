@@ -2633,6 +2633,10 @@ export function createEditMode({
       // Turn into ▸: Text, Heading, Small heading, Quote, Bullets, Numbered
       rows.push(backTo('main'));
       rows.push(...(turnInto?.rows(menuTarget, closeElementMenu) ?? []));
+    } else if (menuView === 'joinkind') {
+      // Turn into ▸ with several selected: one list or one quote, made of all of them
+      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      rows.push(...(turnInto?.joinRows?.(selectionOf?.() ?? [], closeElementMenu) ?? []));
     } else if (menuView === 'picture') {
       // Picture ▸ (pictures.js): replace, caption, background, its own size,
       // then how it sits in its frame (a heading names each group; Position ▸ drills)
@@ -2692,6 +2696,8 @@ export function createEditMode({
       if (styleClip) rows.push({ label: 'Paste style', key: styleClip.keys.paste, disabled: !styleClip.has(), run: styleClip.has() ? go(() => several.pasteStyle(many)) : () => {} });
       rows.push({ label: 'Move up', run: go(() => several.move(many, -1)) });
       rows.push({ label: 'Move down', run: go(() => several.move(many, 1)) });
+      // several paragraphs, headings, quotes or lists: one list or one quote (turn-into.js)
+      if (turnInto?.joinRows?.(many, closeElementMenu)?.length) rows.push({ label: 'Turn into ▸', run: () => { menuView = 'joinkind'; renderElementMenu(); } });
       rows.push({ label: 'Duplicate', key: DUPLICATE_CHORD, run: go(() => several.duplicate(many)) });
       rows.push({ label: 'Remove', key: '⌫', run: go(() => several.remove(many)) });
     } else {
