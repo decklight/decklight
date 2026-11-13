@@ -500,7 +500,19 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
       const pr = prop ?? t.prop;
       remember(t, pr);
       if (value === null) t.el.style.removeProperty(pr); else t.el.style.setProperty(pr, value);
+      if (pr === 'fill') authoredFillIs(t.el, value);
     }
+  }
+  /**
+   * A shape's fill as the nesting pass reads it (svg.js applyNesting paints a
+   * nested shape from the fill it was authored with, stashed in
+   * `data-nest-fill`): kept in step with a pick, so the next repaint (a drag,
+   * a shape added, a concept) does not put the old colour back. Null: the
+   * stash goes, and the pass reads the file's fill again.
+   */
+  function authoredFillIs(el, value) {
+    if (!(el instanceof SVGElement)) return;
+    if (value) el.dataset.nestFill = value; else delete el.dataset.nestFill;
   }
   /**
    * Write `changes` (`[{ t, prop, value }]`), after any write still going: the
@@ -515,6 +527,7 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
       for (const c of changes) {
         const [v, pr] = written.get(key(c.t, c.prop)) ?? ['', ''];
         if (v) c.t.el.style.setProperty(c.prop, v, pr); else c.t.el.style.removeProperty(c.prop);
+        if (c.prop === 'fill') authoredFillIs(c.t.el, v || null);
       }
       onError(String(e?.message || e));
       render();
