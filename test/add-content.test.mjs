@@ -108,7 +108,7 @@ test('insertImage is insertElement with an <img>, as before', () => {
 test('every kind has a starter that lands on the slide, after the selection, with its index answered', () => {
   for (const kind of ELEMENT_KINDS) {
     if (kind === 'columns') continue;   // its own rule, below
-    const out = insertStarter(DECK, 1, 1, kind);
+    const out = insertStarter(DECK, 1, 1, kind, { with: { src: 'assets/clip.mp4' } });
     assert.equal(out.index, 2, `${kind}: after the selection`);
     assert.deepEqual(out.path, [], `${kind}: on the slide, not inside anything`);
     assert.equal(out.count, 1);
@@ -165,6 +165,14 @@ test('a formula is a display formula in a paragraph, and marks its slide for mat
   const marked = insertStarter(out.html, 2, null, 'formula');
   assert.equal(marked.section, null);
   assert.equal((source(marked.html, 2).match(/data-math/g) ?? []).length, 1);
+});
+
+test('a video is the file it is given, beside the deck, with its controls; anything else is refused', () => {
+  const out = insertStarter(DECK, 2, 0, 'video', { with: { src: 'assets/demo clip.mp4' } });
+  assert.equal(out.markup, '<video src="assets/demo clip.mp4" controls playsinline preload="metadata"></video>');
+  for (const src of [undefined, '', 'https://x.test/a.mp4', '/abs/a.mp4', '../a.mp4', 'assets/a.mov', 'a".mp4']) {
+    assert.throws(() => insertStarter(DECK, 2, 0, 'video', { with: { src } }), (e) => e.status === 400 && /mp4 or a webm beside the deck/.test(e.message), String(src));
+  }
 });
 
 test('two columns are two sibling blocks under a split layout, first under the title (COMPARISON_SLIDES)', () => {

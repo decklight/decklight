@@ -229,6 +229,7 @@ const ENGINE_GROUPS = {
     'pictureslidetab',
     'chartdata',
     'codeoptions',
+    'videooptions',
     'shapedrag',
     'shapeadd',
     'shaperesize',

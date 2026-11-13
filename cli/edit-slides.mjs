@@ -31,7 +31,7 @@
 // both sides is a hoisted function declaration, and nothing is read until a
 // request arrives.
 
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync, createWriteStream, linkSync, rmSync } from 'node:fs';
 import { basename, dirname, resolve, sep } from 'node:path';
 
 import {
@@ -981,6 +981,14 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     ['image/webp', 'webp'], ['image/svg+xml', 'svg'], ['image/avif', 'avif'],
   ]);
   const MAX_ASSET_BYTES = 25e6;
+  /**
+   * A video put on a slide (Add ▾ › Video, DECK_ANATOMY): mp4 and webm, the
+   * two every browser plays, under a cap of its own and said in its refusal.
+   * Never buffered: written to a scratch file as it arrives.
+   */
+  const VIDEO_TYPES = new Map([['video/mp4', 'mp4'], ['video/webm', 'webm']]);
+  const MAX_VIDEO_BYTES = 200e6;
+  const mb = (n) => `${Math.round(n / 1e6)} MB`;
 
   /**
    * The basename an upload is saved under: lower-case, `[a-z0-9._-]`, no
@@ -1025,8 +1033,9 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    */
   async function assetRoute({ req, json }) {
     const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    if (VIDEO_TYPES.has(type)) return videoAsset({ req, json, ext: VIDEO_TYPES.get(type) });
     const ext = IMAGE_TYPES.get(type);
-    if (!ext) return json(415, { ok: false, error: `${type || 'that'} is not an image a slide can carry` });
+    if (!ext) return json(415, { ok: false, error: `${type || 'that'} is not an image a slide can carry, nor an mp4 or webm video` });
     const declared = Number(req.headers['content-length']);
     if (Number.isFinite(declared) && declared > MAX_ASSET_BYTES) {
       return json(413, { ok: false, error: 'image too large' });
@@ -1070,6 +1079,56 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
     console.log(`  image saved: assets/${name} (${Math.round(size / 1024)} kB)`);
     return json(200, { ok: true, src: `assets/${name}`, bytes: size });
+  }
+
+  /**
+   * A video's bytes, saved into `assets/` as the image's are, but streamed:
+   * to a scratch file (a dotfile, which no-trust mode never serves) as they
+   * arrive, then linked to its own name with the same de-duplication, so a
+   * half-written file never stands under a real name. The cap is refused on
+   * `content-length` before a byte is read, and again on the stream. The
+   * deck's autocommits carry the deck alone, so the answer says the file is
+   * not in them (`committed: false`).
+   */
+  async function videoAsset({ req, json, ext }) {
+    const tooBig = (n) => json(413, { ok: false, error: `a video on a slide is at most ${mb(MAX_VIDEO_BYTES)}${n ? `: this one is ${mb(n)}` : ''}` });
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > MAX_VIDEO_BYTES) return tooBig(declared);
+    const dir = resolve(deckPath, '..', 'assets');
+    const stem = safeStem(req.headers['x-decklight-name']).replace(/^image$/, 'video');
+    const scratch = resolve(dir, `.upload-${process.pid}-${Date.now()}.${ext}`);
+    let size = 0;
+    try {
+      mkdirSync(dir, { recursive: true });
+      const out = createWriteStream(scratch, { flags: 'wx' });
+      const done = new Promise((ok, fail) => { out.on('finish', ok); out.on('error', fail); });
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > MAX_VIDEO_BYTES) { out.destroy(); rmSync(scratch, { force: true }); return tooBig(0); }
+        if (!out.write(chunk)) await new Promise((ok) => out.once('drain', ok));
+      }
+      out.end();
+      await done;
+      if (!size) { rmSync(scratch, { force: true }); return json(400, { ok: false, error: 'no video in the request body' }); }
+      let name = `${stem}.${ext}`;
+      for (let i = 2; ; i++) {
+        const at = resolve(dir, name);
+        if (at !== resolve(dir, basename(at)) || !at.startsWith(dir + sep)) { rmSync(scratch, { force: true }); return json(400, { ok: false, error: 'bad video name' }); }
+        // a link takes the name only if it is free, as `wx` does for an image
+        try { linkSync(scratch, at); break; }
+        catch (e) {
+          if (e.code !== 'EEXIST') throw e;
+          if (i > 999) { rmSync(scratch, { force: true }); return json(409, { ok: false, error: `too many videos called ${stem}` }); }
+          name = `${stem}-${i}.${ext}`;
+        }
+      }
+      rmSync(scratch, { force: true });
+      console.log(`  video saved: assets/${name} (${mb(size)})`);
+      return json(200, { ok: true, src: `assets/${name}`, bytes: size, video: true, committed: false });
+    } catch (e) {
+      rmSync(scratch, { force: true });
+      return json(500, { ok: false, error: oneline(e) });
+    }
   }
 
   /**
@@ -1180,16 +1239,17 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   function elementInsertRoute({ body, json }) {
-    const { slide, index = null, path = null, kind, words = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    const { slide, index = null, path = null, kind, words = null, with: given = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
     if (!Number.isInteger(slide) || slide < 1 || typeof kind !== 'string'
         || (index !== null && (!Number.isInteger(index) || index < 0)) || !pathShape(path)
-        || (words !== null && (!Array.isArray(words) || words.some((w) => typeof w !== 'string')))) {
+        || (words !== null && (!Array.isArray(words) || words.some((w) => typeof w !== 'string')))
+        || (given !== null && (typeof given !== 'object' || Array.isArray(given)))) {
       return json(400, { ok: false, error: 'bad payload' });
     }
     let done = null;
     try {
       applyEdit((html) => {
-        done = insertStarter(html, slide, index, kind, { path, words });
+        done = insertStarter(html, slide, index, kind, { path, words, with: given ?? {} });
         return done.html;
       });
     } catch (e) {

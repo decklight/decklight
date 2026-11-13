@@ -183,12 +183,15 @@
     const CD_ODD = `<div class="chart cd-odd" data-chart="bar"><script type="application/json">{ "labels": ["a"], "series": [ { "data": ["many"] } ] }<\/script></div>`;
     const CD_FILE = { 1: CD_BAR, 2: CD_SCATTER, 3: CD_ODD };
     // codeoptions: the code block the file has on slide 5, element 1
+    // videooptions: the video the file has on slide 5, element 1 (preload none: no file to load here)
+    const VO_FILE = '<video src="assets/demo.mp4" controls playsinline preload="none"></video>';
     const CO_FILE = '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\ngo(a, b);\n</code></pre>';
     let FAIL_NEXT_STYLE = false;   // the colours mode: the next style save is refused
     const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url, init) => {
       const u = String(url);
-      if (init?.method === 'POST') CALLS.post.push({ u, body: init.body instanceof Blob ? { file: init.body.name } : JSON.parse(init.body ?? '{}') });
+      // a file's bytes (a picture, a video) are not JSON: recorded by name and type
+      if (init?.method === 'POST') CALLS.post.push({ u, body: init.body instanceof Blob ? { file: init.body.name, type: init.headers?.['content-type'] } : JSON.parse(init.body ?? '{}') });
       if (HARNESS_MODE === 'decksettings' && init?.body instanceof Blob) return json({ ok: true, src: `assets/${init.body.name}`, bytes: init.body.size });
       else CALLS.get.push(u);
       // every panel, one Esc each (escapeall): enough of each route for its
@@ -757,6 +760,10 @@
       // of a kind, answered in place
       if (HARNESS_MODE === 'addmenu' || HARNESS_MODE === 'addslidekinds' || HARNESS_MODE === 'addpaste') {
         window.__total ??= 4;
+        // a video's bytes, saved beside the deck (the asset route answers its path)
+        if (u.includes('/deck/edit/asset') && init?.body instanceof Blob) {
+          return json({ ok: true, src: `assets/${init.body.name}`, bytes: init.body.size, video: true, committed: false });
+        }
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: window.__lastInsert ?? '<p>x</p>' });
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
@@ -776,6 +783,9 @@
             MARKUP.text = `<p>${b.words[0]}</p>`;
             MARKUP.bullets = `<ul>\n${b.words.map((w) => `  <li>${w}</li>`).join('\n')}\n</ul>`;
           }
+          // preload none here: the harness has no such file, and a clip loading
+          // one would hold Chrome's virtual clock (the server writes metadata)
+          if (b.kind === 'video') MARKUP.video = `<video src="${b.with?.src}" controls playsinline preload="none"></video>`;
           if (!MARKUP[b.kind]) return json({ ok: false, error: `no kind "${b.kind}" to add` }, 400);
           const kids = [...document.querySelectorAll('.decklight-stage > section')[b.slide - 1].children];
           let k = kids.length;
@@ -1053,6 +1063,14 @@
           return json({ ok: true, index: b.index === null ? 3 : b.index + 1, path: [], undo: 1, redo: 0 });
         }
         if (u.includes('/deck/edit/element/content')) return json({ ok: true, changed: true, undo: 2, redo: 0 });
+      }
+      // the Options tab for a video (videooptions): the file's video, its
+      // settings route, and a poster's upload
+      if (HARNESS_MODE === 'videooptions') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/source')) return json({ ok: true, html: VO_FILE });
+        if (u.includes('/deck/edit/asset') && init?.body instanceof Blob) return json({ ok: true, src: `assets/${init.body.name}`, bytes: init.body.size });
+        if (u.includes('/deck/edit/element/options') && init?.method === 'POST') return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
       }
       // the Options tab (codeoptions): the file's code block, and a settings
       // route that refuses a line past the end, as the server would
@@ -1420,6 +1438,10 @@
           <g class="cs-c"><rect class="cs-plain2" x="580" y="40" width="120" height="60"/><text x="640" y="75">Other</text></g>`);
         document.querySelector('.cp-text').style.setProperty('font-weight', '700');
       }
+    }
+    // a video to set up from the Options tab (videooptions), slide 5
+    if (HARNESS_MODE === 'videooptions') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Clip</h2>\n${VO_FILE}</section>`);
     }
     // a code block to set up from the Options tab (codeoptions), slide 5
     if (HARNESS_MODE === 'codeoptions') {
@@ -5701,7 +5723,7 @@
         const pick = (label) => click([...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === label));
         const active = () => document.querySelector('.decklight-stage > section.active');
         const inserts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/insert'));
-        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Table', 'Code', 'Formula', 'Two columns', 'Diagram', 'Chart', 'Picture'];
+        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Table', 'Code', 'Formula', 'Two columns', 'Diagram', 'Chart', 'Picture', 'Video'];
         deck.goto(1, 0); await settle();
         const labels = [...(bar()?.querySelectorAll('.eb-btn .eb-label') ?? [])].map((n) => n.textContent);
         r.addSitsBesidePicture = labels.indexOf('Add ▾') === labels.indexOf('Picture') - 1;
@@ -5773,6 +5795,36 @@
         formula?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
         await settle();
         r.formulaTypeset = !!formula?.querySelector('math') && !formula.isContentEditable;
+        // a video: chosen (mp4 or webm), copied beside the deck, placed with its controls and selected
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Video'); await settle(); 
+        const chooser = [...document.querySelectorAll('input[type=file]')].find((i) => i.accept === 'video/mp4,video/webm');
+        r.videoChooserTakesVideos = !!chooser;
+        const giveFiles = (input, files) => { const dt = new DataTransfer(); for (const f of files) dt.items.add(f); input.files = dt.files; input.dispatchEvent(new Event('change')); };
+        if (chooser) giveFiles(chooser, [new File(['abc'], 'demo.mp4', { type: 'video/mp4' })]);
+        await settle(); await settle(); await settle();
+        const video = active().querySelector(':scope > video');
+        const sentV = inserts().at(-1)?.body;
+        const upV = CALLS.post.filter((c) => c.u.includes('/deck/edit/asset')).at(-1)?.body;
+        r.videoCopiedThenPlaced = upV?.file === 'demo.mp4' && upV?.type === 'video/mp4' && sentV?.kind === 'video' && sentV?.with?.src === 'assets/demo.mp4';
+        r.videoOnTheSlide = !!video && video.getAttribute('src') === 'assets/demo.mp4' && video.hasAttribute('controls') && video.classList.contains('dl-selected');
+        r.videoSaysItIsNotCommitted = [...document.querySelectorAll('.decklight-toast')].some((n) => /demo\.mp4 is on slide 4 as assets\/demo\.mp4.*commit the video yourself/.test(n.textContent));
+        press('Escape'); await settle();
+        // one over the cap is refused before it is sent, the cap in the sentence
+        const beforeUp = CALLS.post.filter((c) => c.u.includes('/deck/edit/asset')).length;
+        const big = new File(['x'], 'huge.mp4', { type: 'video/mp4' });
+        Object.defineProperty(big, 'size', { value: 250e6 });
+        await deck._addContent?.addVideos?.([big], { slide: 4, sec: active() });
+        r.videoOverTheCapRefused = CALLS.post.filter((c) => c.u.includes('/deck/edit/asset')).length === beforeUp
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /huge\.mp4 was not added: a video on a slide is at most 200 MB, and it is 250 MB/.test(n.textContent));
+        // dropped on the slide: placed the same way
+        const dt = new DataTransfer();
+        dt.items.add(new File(['def'], 'drop.webm', { type: 'video/webm' }));
+        const at = active().querySelector('h2') ?? active();
+        const rr = at.getBoundingClientRect();
+        at.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rr.left + 5, clientY: rr.top + 5 }));
+        await settle(); await settle(); await settle();
+        r.videoDropPlaced = inserts().at(-1)?.body.with?.src === 'assets/drop.webm' && !!active().querySelector(':scope > video[src="assets/drop.webm"]');
         press('Escape'); await settle();
         // the palette's one row opens the same menu
         runRow('add to slide'); await settle();
@@ -5799,7 +5851,9 @@
         r.PASS = r.addSitsBesidePicture && r.menuListsEveryKind && r.askedAfterTheSelection && r.landsAfterTheSelection && r.landsSelected
           && r.landsInEdit && r.placeholderSelected && r.typingReplacesThePlaceholder && r.diagramBeforeTheAsides && r.diagramIdsNamespaced
           && r.diagramShownWhole && r.diagramSelectedNotTyped && r.columnsTakeTheSplit && r.columnsHeadingInEdit && r.chartDrawnInPlace
-          && r.codeInEdit && r.codeHighlighted && r.formulaMarksTheSlide && r.formulaOpenAsSource && r.formulaTypeset && r.paletteRowOpensTheMenu && r.templateSlideTurnsAddOff && r.templateSlideSaysWhy
+          && r.codeInEdit && r.codeHighlighted && r.formulaMarksTheSlide && r.formulaOpenAsSource && r.formulaTypeset
+          && r.videoChooserTakesVideos && r.videoCopiedThenPlaced && r.videoOnTheSlide && r.videoSaysItIsNotCommitted && r.videoOverTheCapRefused && r.videoDropPlaced
+          && r.paletteRowOpensTheMenu && r.templateSlideTurnsAddOff && r.templateSlideSaysWhy
           && r.lockedAddsNothing && r.noReload;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -11405,6 +11459,53 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
       // from the FILE; each change on the slide at once, a burst written as
       // ONE settings write after a pause; a line past the end refused in its
       // row and written nowhere; a click on a line fills the step.
+      // The Options tab for a video (DECK_ANATOMY): its file, controls, loop,
+      // muted, play on arrival (which turns muted on, and says so), its poster;
+      // shown at once, a burst written as one settings write.
+      if (mode === 'videooptions') {
+        const I = '.decklight-inspector';
+        const q = (s) => document.querySelector(`${I} ${s}`);
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/options'));
+        const video = () => document.querySelector('.decklight-stage section.active video');
+        const pause = async () => { for (let i = 0; i < 20; i++) await settle(); };
+        const box = (k) => q(`dd[data-key="${k}"] input`);
+        const tick = (k, v) => { const b = box(k); b.checked = v; b.dispatchEvent(new Event('change', { bubbles: true })); };
+        await settle();
+        deck.goto(5);
+        await settle();
+        video().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+        press('i');
+        await settle();
+        q('.ins-tab[data-tab="options"]')?.click();
+        await until(() => box('controls'));
+        r.fieldsSayWhatTheFileHas = box('controls').checked && !box('loop').checked && !box('muted').checked && !box('autoplay').checked
+          && q('dd[data-key="file"] .ins-file')?.textContent === 'demo.mp4' && q('dd[data-key="poster"] .ins-file')?.textContent === 'none';
+        tick('autoplay', true);
+        await settle();
+        r.arrivalTurnsMutedOn = box('muted')?.checked && /muted with it/.test(q('.ins-opt-note')?.textContent ?? '');
+        r.shownAtOnce = video().hasAttribute('muted') && !video().hasAttribute('autoplay') && deck._slideMedia?.playsOnArrival?.(video()) === true;
+        tick('loop', true);
+        await pause();
+        const first = posts()[0]?.body;
+        r.oneBurstOneWrite = posts().length === 1 && first?.tag === 'video' && first.set.autoplay === true && first.set.muted === true && first.set.loop === true;
+        // unmuting one that plays on arrival stops it playing on arrival, and says so
+        tick('muted', false);
+        await settle();
+        r.unmutingStopsArrival = !box('autoplay')?.checked && /no longer plays/.test(q('.ins-opt-note')?.textContent ?? '')
+          && deck._slideMedia?.playsOnArrival?.(video()) === false;
+        await pause();
+        r.unmuteWritten = posts().at(-1)?.body.set.muted === null && posts().at(-1)?.body.set.autoplay === null;
+        // a poster, chosen and copied beside the deck
+        q('.ins-poster')?.click();
+        await settle();
+        const chooser = [...document.querySelectorAll('input[type=file]')].filter((i) => i.accept === 'image/*').at(-1);   // the one just opened, not the bar's
+        if (chooser) { const dt = new DataTransfer(); dt.items.add(new File(['p'], 'still.png', { type: 'image/png' })); chooser.files = dt.files; chooser.dispatchEvent(new Event('change')); }
+        await until(() => video().getAttribute('poster') === 'assets/still.png');
+        await pause();
+        r.posterChosen = video().getAttribute('poster') === 'assets/still.png' && posts().at(-1)?.body.set.poster === 'assets/still.png';
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+      }
       if (mode === 'codeoptions') {
         const I = '.decklight-inspector';
         const q = (s) => document.querySelector(`${I} ${s}`);

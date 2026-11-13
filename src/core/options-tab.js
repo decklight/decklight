@@ -35,6 +35,21 @@ const isCodeBlock = (n) => !!n?.matches?.('pre') && !!n.querySelector(':scope > 
  * The code block the selection is: the one the click landed in, else the only
  * one in the element selected, else null.
  */
+/** A video the author put on a slide (not the engine's background clip). */
+const isSlideVideo = (n) => !!n?.matches?.('video') && !n.closest('.slide-bg, .terminal, aside');
+
+/** The video the selection is: itself, or the only one in the element selected. */
+export function videoOf(target) {
+  const top = target?.top;
+  if (!top) return null;
+  for (const n of [target.node, target.clicked]) {
+    const v = n?.isConnected ? n.closest?.('video') : null;
+    if (v && top.contains(v) && isSlideVideo(v)) return v;
+  }
+  const all = [...(isSlideVideo(top) ? [top] : []), ...[...top.querySelectorAll('video')].filter(isSlideVideo)];
+  return all.length === 1 ? all[0] : null;
+}
+
 export function codeBlockOf(target) {
   const top = target?.top;
   if (!top) return null;
@@ -60,7 +75,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
   // was clicked to select it is gone, and the block is still the one selected
   let last = null;
   const blockFor = (t) => {
-    const b = codeBlockOf(t);
+    const b = codeBlockOf(t) ?? videoOf(t);
     if (b) return (last = b);
     return last?.isConnected && t?.top?.contains(last) && !t.clicked?.isConnected ? last : null;
   };
@@ -326,13 +341,166 @@ export function createOptionsTab({ instance, editmode, toast }) {
     };
   }
 
+  // ── a video's settings (DECK_ANATOMY) ───────────────────────────────────
+  /** Choose a file of `accept` and upload it beside the deck (POST /deck/edit/asset): its path, or null. */
+  function upload(accept, label) {
+    return new Promise((done) => {
+      const pick = Object.assign(document.createElement('input'), { type: 'file', accept, hidden: true });
+      pick.addEventListener('change', async () => {
+        const file = pick.files?.[0] ?? null;
+        pick.remove();
+        if (!file) { done(null); return; }
+        try {
+          const res = await boundedFetch(`${em().base()}/deck/edit/asset`, {
+            method: 'POST', headers: { 'content-type': file.type, 'x-decklight-name': file.name }, body: file,
+          }, { ms: 600000 });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok || !j.src) throw new Error(j.error || String(res.status));
+          done(j.src);
+        } catch (e) { toast(`could not use ${file.name} as the ${label}: ${String(e.message || e)}`, 6000); done(null); }
+      });
+      document.body.append(pick);
+      pick.click();
+    });
+  }
+
+  /**
+   * The pane for video `video` of `target`: its file (Replace…), controls,
+   * loop, muted, play on arrival (which needs muted, and says so) and its
+   * poster. Shown on the slide at once and written after a pause, as the
+   * code block's are.
+   */
+  function videoPane(target, video) {
+    const commit = createEditCommit(em());
+    const { slide, index } = target;
+    const path = target.top === video ? [] : pathFrom(target.top, video);
+    const media = () => instance()._slideMedia;
+    const el = h('div', 'ins-options');
+    const TOGGLES = [['controls', 'Controls', 'the player’s own play, pause and timeline'], ['loop', 'Loop', 'starts again when it ends'],
+      ['muted', 'Muted', 'no sound'], ['autoplay', 'Play when the slide arrives', 'it starts as its slide comes on, muted']];
+    let saved = null;
+    let state = null;
+    let problem = null;
+    const dirty = new Set();
+    let timer = 0;
+    let saving = 0;
+    let queue = Promise.resolve();
+    let note = '';
+    const letGo = holdDraft(() => (dirty.size || saving ? `the video’s settings on slide ${slide}` : null));
+    const read = (node) => ({
+      src: node.getAttribute('src') ?? '', poster: node.getAttribute('poster'),
+      ...Object.fromEntries(TOGGLES.map(([k]) => [k, node.hasAttribute(k)])),
+    });
+    async function load() {
+      try {
+        if (!path) throw new Error('the video is not where the file has it');
+        const res = await boundedFetch(`${em().base()}/deck/edit/element/source?slide=${slide}&index=${index}`);
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || typeof j.html !== 'string') throw new Error(j.error || String(res.status));
+        const tpl = document.createElement('template');
+        tpl.innerHTML = j.html;
+        const node = nodeAtPath(tpl.content.firstElementChild, path);
+        if (!node?.matches?.('video')) throw new Error('the file has no video where the page has it');
+        saved = read(node);
+        state = { ...saved };
+      } catch (e) { problem = `could not read the video from the file: ${String(e.message || e)}`; }
+      paint();
+    }
+    function show() {
+      if (!video.isConnected) return;
+      if (video.getAttribute('src') !== state.src) video.setAttribute('src', state.src);
+      if (state.poster) video.setAttribute('poster', state.poster); else video.removeAttribute('poster');
+      for (const k of ['controls', 'loop', 'muted']) video.toggleAttribute(k, state[k]);
+      video.muted = state.muted;
+      // play on arrival is the runtime's to keep (slide-media.js), never a live autoplay
+      media()?.setPlaysOnArrival?.(video, state.autoplay);
+    }
+    const NAMES = { src: 'src', poster: 'poster', controls: 'controls', loop: 'loop', muted: 'muted', autoplay: 'autoplay' };
+    function change(k) { dirty.add(k); show(); clearTimeout(timer); timer = setTimeout(() => flush(), QUIET_MS); paint(); }
+    function flush() {
+      clearTimeout(timer);
+      if (!dirty.size || !saved) return queue;
+      const set = {};
+      for (const k of dirty) {
+        const v = state[k];
+        set[NAMES[k]] = k === 'src' ? v : k === 'poster' ? (v || null) : (v ? true : null);
+      }
+      dirty.clear();
+      saving++;
+      const was = { ...saved };
+      const next = { ...state };
+      const p = queue.then(() => commit.send('/deck/edit/element/options', { slide, index, path, tag: 'video', set }))
+        .then(() => { saved = { ...saved, ...Object.fromEntries(Object.keys(set).map((k) => [k, next[k]])) }; },
+          (e) => { state = { ...was }; show(); toast(commit.notSaved('the video’s settings', e), 6000); paint(); })
+        .finally(() => { saving--; });
+      queue = p;
+      return commit.track(p);
+    }
+    const leaf = (p) => (p ? String(p).split('/').pop() : 'none');
+    function paint() {
+      el.textContent = '';
+      if (problem) { el.append(h('div', 'ins-none', problem)); return; }
+      if (!state) { el.append(h('div', 'ins-none', 'reading the video from the file…')); return; }
+      const grid = h('dl', 'ins-rows ins-settings');
+      const row = (key, label, title, ...nodes) => {
+        const dt = h('dt', null, label);
+        if (title) dt.title = title;
+        const dd = h('dd');
+        dd.dataset.key = key;
+        dd.append(...nodes);
+        grid.append(dt, dd);
+      };
+      const btn = (cls, text, title, run) => {
+        const b = Object.assign(document.createElement('button'), { type: 'button', className: `ins-btn ${cls}`, textContent: text, title });
+        b.addEventListener('click', (e) => { e.stopPropagation(); run(); });
+        return b;
+      };
+      const file = h('span', 'ins-value ins-file', leaf(state.src));
+      file.title = state.src;
+      const line = h('span', 'ins-line');
+      line.append(file, btn('ins-replace', 'Replace…', 'another mp4 or webm, copied beside the deck', async () => {
+        const src = await upload('video/mp4,video/webm', 'video');
+        if (src) { state.src = src; change('src'); }
+      }));
+      row('file', 'File', 'the video beside the deck', line);
+      for (const [k, label, title] of TOGGLES) {
+        const box = Object.assign(document.createElement('input'), { type: 'checkbox', className: 'ins-check', checked: state[k] });
+        box.setAttribute('aria-label', label);
+        box.addEventListener('keydown', (e) => e.stopPropagation());
+        box.addEventListener('change', () => {
+          state[k] = box.checked;
+          note = '';
+          // a browser will not start a video with sound: arriving needs muted, and says so
+          if (k === 'autoplay' && box.checked && !state.muted) { state.muted = true; dirty.add('muted'); note = 'muted with it: a browser will not start a video with sound'; }
+          if (k === 'muted' && !box.checked && state.autoplay) { state.autoplay = false; dirty.add('autoplay'); note = 'it no longer plays when the slide arrives: a browser will not start a video with sound'; }
+          change(k);
+        });
+        row(k, label, title, box);
+      }
+      if (note) grid.append(h('div', 'ins-opt-note', note));
+      const pline = h('span', 'ins-line');
+      const pfile = h('span', 'ins-value ins-file', leaf(state.poster));
+      pfile.title = state.poster ?? '';
+      pline.append(pfile, btn('ins-poster', state.poster ? 'Replace…' : 'Choose…', 'the picture shown before it plays, and in print', async () => {
+        const src = await upload('image/*', 'poster');
+        if (src) { state.poster = src; change('poster'); }
+      }));
+      if (state.poster) pline.append(btn('ins-poster-off', 'Remove', 'no poster: its first frame instead', () => { state.poster = null; change('poster'); }));
+      row('poster', 'Poster', 'the picture shown before it plays, and in print', pline);
+      el.append(grid);
+    }
+    paint();
+    load();
+    return { el, video, destroy() { const p = flush(); p.finally(letGo); return p; } };
+  }
+
   const tab = {
     id: 'options', label: 'Options', title: 'this block’s settings',
     enabled: (ctx) => (blockFor(ctx.target) ? true : 'no settings here'),
     shows: (ctx) => editing() && !!blockFor(ctx.target),
     key: (ctx) => blockFor(ctx.target),
     keeps: true,
-    pane: (ctx) => codePane(ctx.target, blockFor(ctx.target)),
+    pane: (ctx) => { const b = blockFor(ctx.target); return b.matches('video') ? videoPane(ctx.target, b) : codePane(ctx.target, b); },
     foot: 'esc lets go of it',
   };
   return { tab };

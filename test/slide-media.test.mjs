@@ -77,3 +77,17 @@ test('a page that only shows (print, capture, an embedded preview) plays nothing
   d.started(asked);
   assert.equal(asked.paused, true);
 });
+
+test('the Options tab can change a clip’s ask in place: it plays on arrival from then on, or no longer does', () => {
+  const clip1 = clip({});
+  const d = deck([slide(), slide(clip1)]);
+  d.go(0);
+  d.media.setPlaysOnArrival(clip1, true);
+  assert.equal(clip1.hasAttribute('autoplay'), false, 'never a live autoplay');
+  d.go(1);
+  assert.equal(clip1.paused, false);
+  d.go(0);
+  d.media.setPlaysOnArrival(clip1, false);
+  d.go(1);
+  assert.equal(clip1.paused, true);
+});

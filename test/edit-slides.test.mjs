@@ -17,7 +17,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
@@ -829,6 +829,28 @@ test('POST /deck/edit/asset de-duplicates rather than overwriting a picture alre
     'two pictures called logo are two pictures');
   assert.equal(readFileSync(path.join(dir, 'assets', 'logo.png'), 'utf8'), 'one',
     'overwriting the first would change a slide the author was not editing');
+});
+
+test('POST /deck/edit/asset saves an mp4 or a webm under assets/, streamed, its name its own, and says it is not in the autocommits', async (t) => {
+  const { routes, dir } = harness(t, THREE);
+  const r = await upload(routes, { type: 'video/mp4', name: 'Demo Clip.MOV', chunks: ['aa', 'bb', 'cc'] });
+  assert.equal(r.code, 200);
+  assert.deepEqual(r.body, { ok: true, src: 'assets/demo-clip.mp4', bytes: 6, video: true, committed: false });
+  assert.equal(readFileSync(path.join(dir, 'assets', 'demo-clip.mp4'), 'utf8'), 'aabbcc');
+  const again = await upload(routes, { type: 'video/webm', name: 'demo-clip.webm', chunks: ['x'] });
+  assert.equal(again.body.src, 'assets/demo-clip.webm');
+  const twice = await upload(routes, { type: 'video/mp4', name: 'demo clip', chunks: ['y'] });
+  assert.equal(twice.body.src, 'assets/demo-clip-2.mp4', 'two videos of one name are two videos');
+  assert.deepEqual(readdirSync(path.join(dir, 'assets')).filter((f) => f.startsWith('.')), [], 'no scratch file is left behind');
+});
+
+test('POST /deck/edit/asset refuses a video over its cap with the cap in the sentence, before reading it when it says its size', async (t) => {
+  const { routes, dir } = harness(t, THREE);
+  const declared = await upload(routes, { type: 'video/mp4', chunks: ['x', 'x', 'x'], length: 300e6 });
+  assert.equal(declared.code, 413);
+  assert.match(declared.body.error, /a video on a slide is at most 200 MB: this one is 300 MB/);
+  assert.equal(declared.pulled, 0, 'refused on content-length, not after reading it');
+  assert.ok(!existsSync(path.join(dir, 'assets')), 'nothing written');
 });
 
 test('POST /deck/edit/asset refuses anything that is not an image a slide can carry', async (t) => {
