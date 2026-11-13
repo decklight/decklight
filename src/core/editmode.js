@@ -20,7 +20,7 @@ import { closeOnBackdrop, selectInList } from './overlay.js';
 import { reloadLine } from './debuglog.js';
 import { holdDraft, unsavedDrafts, draftList, heldReloadText } from './drafts.js';
 import { conceptOf, pathFrom } from './colorpicker.js';
-import { pickNode, atDepth } from './pick.js';
+import { pickNode, atDepth, nodeForClick } from './pick.js';
 import { reselectAfterReload, forgetReselect } from './editbar.js';
 import { rangeLabel } from './ranges.js';
 import { agentChipText, boundedFetch, commitChipParts, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
@@ -2529,6 +2529,13 @@ export function createEditMode({
     e.preventDefault();
     const target = elementTargetOf(e.target);
     if (!target) return;
+    // inside a selected column the menu is about the block at depth, the one
+    // the ⋯ handle carries: the selected block itself, or one beside it as a
+    // click would select it (pick.js)
+    const sel = selectionOf?.()?.[0];
+    if (sel?.top && sel.top === target.top && target.node === target.top) {
+      target.node = sel.node?.contains(target.clicked) ? sel.node : nodeForClick(target.top, target.clicked, sel);
+    }
     overlays.opening();
     openElementMenu(e.clientX, e.clientY, target);
   });
