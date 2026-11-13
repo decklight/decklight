@@ -508,10 +508,12 @@ export function createColorEditor({ root, targets, systems = [], side: startSide
    * nested shape from the fill it was authored with, stashed in
    * `data-nest-fill`): kept in step with a pick, so the next repaint (a drag,
    * a shape added, a concept) does not put the old colour back. Null: the
-   * stash goes, and the pass reads the file's fill again.
+   * stash goes, and the pass reads the file's fill again. Only a shape the
+   * pass has stashed is touched: one it never painted reads its inline fill
+   * (and so does Copy style, style-clip.js), and must not gain a stash here.
    */
   function authoredFillIs(el, value) {
-    if (!(el instanceof SVGElement)) return;
+    if (!(el instanceof SVGElement) || el.dataset.nestFill === undefined) return;
     if (value) el.dataset.nestFill = value; else delete el.dataset.nestFill;
   }
   /**
