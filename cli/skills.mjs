@@ -33,7 +33,7 @@ import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 import { zipSync } from './zip.mjs';
 import {
-  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, homePath, referenceDoc, skillVersionOf, SIBLING_SKILLS,
+  PKG, AGENTS_MARKER, sharedSkillsHref, agentsSection, claudeSkillMd, homePath, referenceDoc, skillVersionOf, SIBLING_SKILLS,
 } from './skill-content.mjs';
 import { semverCompare } from '../tools/semver.mjs';
 import { librarySkills } from './units.mjs';
@@ -105,9 +105,11 @@ and IBM Bob get a marked section in AGENTS.md. Both point at a reference
 sliced from this version's SPEC.md, so the contract never drifts from the
 installed runtime.
 
-Claude Code also gets three skills beside it, each in its own directory:
-decklight-slide-writing (what goes on a slide), decklight-voiceover (what is
-said over it) and decklight-report-bug.
+Every agent also gets the two writing skills, decklight-slide-writing (what
+goes on a slide) and decklight-voiceover (what is said over it): Claude Code
+as skills of their own beside the authoring one, with decklight-report-bug;
+the others as files under .decklight/skills/ that their AGENTS.md section
+names.
 
 Marketplace skills (decklight library add skill <name>) are a different thing and
 live somewhere else — ~/.decklight/skills/ — so they sit ALONGSIDE the
@@ -209,6 +211,19 @@ function installClaudeSkill(skillDir, force, written) {
 function installSiblingSkills(skillsRoot, force, written) {
   for (const { name, md } of SIBLING_SKILLS) {
     written.push(wrote(writeIfAbsent(path.join(skillsRoot, name, 'SKILL.md'), md(), force)));
+  }
+}
+
+/**
+ * What an AGENTS.md agent reads beside its section, under `root`: the
+ * reference, and the writing skills the section names. An agent with no
+ * skills directory of its own still gets the same files Claude does.
+ */
+function installSharedDocs(root, force, written) {
+  written.push(wrote(writeIfAbsent(path.join(root, SHARED_REF), referenceDoc(), force)));
+  const dir = path.join(root, sharedSkillsHref(SHARED_REF));
+  for (const { name, md } of SIBLING_SKILLS.filter((s) => s.shared)) {
+    written.push(wrote(writeIfAbsent(path.join(dir, name, 'SKILL.md'), md(), force)));
   }
 }
 
@@ -408,7 +423,7 @@ function installProject(targets, dir, force) {
     // one reference copy: Claude's skill dir when Claude is also a target,
     // else a standalone .decklight/ copy the AGENTS.md agents point at.
     const refHref = wantsClaude ? CLAUDE_REF : SHARED_REF;
-    if (!wantsClaude) written.push(wrote(writeIfAbsent(path.join(root, SHARED_REF), referenceDoc(), force)));
+    if (!wantsClaude) installSharedDocs(root, force, written);
     written.push(mergeAgentsMd(root, refHref));
   }
   return written.filter(Boolean);
@@ -426,7 +441,7 @@ function installGlobal(targets, env, force) {
       installSiblingSkills(path.join(home, 'skills'), force, written);
       syncLibrarySkills(path.join(home, 'skills'), written);
     } else {
-      written.push(wrote(writeIfAbsent(path.join(home, SHARED_REF), referenceDoc(), force)));
+      installSharedDocs(home, force, written);
       written.push(mergeAgentsMd(home, SHARED_REF));
     }
   }
@@ -482,7 +497,9 @@ export function refreshSkills(stale, { dir = '.', env = process.env } = {}) {
   }
   if (project.some((s) => s.target === 'agents')) {
     const hasClaude = fs.existsSync(path.join(root, CLAUDE_REF));
-    if (!hasClaude) written.push(wrote(writeIfAbsent(path.join(root, SHARED_REF), referenceDoc(), false)));
+    // the section names the writing skills where the reference is: make sure they are there
+    if (hasClaude) installSiblingSkills(path.join(root, '.claude', 'skills'), false, written);
+    else installSharedDocs(root, false, written);
     written.push(mergeAgentsMd(root, hasClaude ? CLAUDE_REF : SHARED_REF));
   }
   const globals = [...new Set(stale.filter((s) => s.scope === 'global').map((s) => s.target))];
