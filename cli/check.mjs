@@ -383,12 +383,20 @@ function buildItems(node) {
     }
     push(attrs['data-build-order'], n);
   };
+  // a diagram's group that builds (builds.js isBuildingGroup): its members are steps of their own
+  const stepsIn = (container) => {
+    for (const c of stepSource(container)) {
+      const a = readAttrs(c.attrs);
+      if (c.tag === 'g' && 'data-group' in a && 'data-build' in a && isContainer(c)) stepsIn(c);
+      else stepsOf(c);
+    }
+  };
   const walk = (parent) => {
     for (const child of parent.children) {
       if (child.tag === 'aside' || OPAQUE_ELEMENTS.has(child.tag)) continue;
       const attrs = readAttrs(child.attrs);
       if ('data-build' in attrs) {
-        if (isContainer(child)) { for (const c of stepSource(child)) stepsOf(c); continue; }
+        if (isContainer(child)) { stepsIn(child); continue; }
         stepsOf(child);    // a leaf is one step, and the engine keeps walking into it
       } else if ('data-draw-stops' in attrs && stops(child)) {
         stepsOf(child);    // a staged stroke outside any build container is its own provider

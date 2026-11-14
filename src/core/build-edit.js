@@ -41,6 +41,17 @@ export function addressOf(instance, node) {
   return { sec, slide, index: authoredIndex(sec, top), top, path, tag: node.tagName.toLowerCase() };
 }
 
+/**
+ * The key a diagram's group (`<g data-group>`, SVG_DIAGRAMS) takes when it is
+ * made one step: its members' lowest, the click its first member played on,
+ * when it has none of its own. Null otherwise.
+ */
+export function groupKeyOf(node) {
+  if (!node?.matches?.('g[data-group]') || node.hasAttribute('data-build-order')) return null;
+  const keys = [...node.children].map((c) => Number.parseInt(c.getAttribute('data-build-order') ?? '', 10)).filter(Number.isFinite);
+  return keys.length ? String(Math.min(...keys)) : null;
+}
+
 export function createBuildEdit({ instance, editmode, toast = () => {} }) {
   const commit = createEditCommit(editmode);
   const inst = () => (typeof instance === 'function' ? instance() : instance);
@@ -84,20 +95,24 @@ export function createBuildEdit({ instance, editmode, toast = () => {} }) {
     }
     // in place: the page first, as the file will be
     const before = Object.fromEntries(Object.keys(fields).map((k) => [k, node.getAttribute(FIELDS[k].attr)]));
-    const paint = (vals) => {
-      for (const [k, v] of Object.entries(vals)) {
-        const a = FIELDS[k].attr;
+    // a diagram's group made one step plays on its first member's click, as the server writes it (setElementBuildAttrs)
+    const key = fields.self === true ? groupKeyOf(node) : null;
+    const keyWas = node.getAttribute('data-build-order');
+    const paint = (vals, k = null) => {
+      for (const [f, v] of Object.entries(vals)) {
+        const a = FIELDS[f].attr;
         if (v === null || v === undefined) node.removeAttribute(a); else node.setAttribute(a, v);
       }
+      if (key !== null) { if (k === null) node.removeAttribute('data-build-order'); else node.setAttribute('data-build-order', k); }
       if (!animateOnly) rescan(at.sec, node);
     };
-    paint(Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, FIELDS[k].on(v)])));
+    paint(Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, FIELDS[k].on(v)])), key);
     try {
       await commit.post('/deck/edit/element/build', body);
       toast(said, 1400);
       return true;
     } catch (e) {
-      paint(before);
+      paint(before, keyWas);
       toast(commit.notSaved('the build', e), 6000);
       return false;
     }

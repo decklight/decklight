@@ -52,6 +52,15 @@ export function buildsPerItem(el) {
   return false;
 }
 
+/**
+ * A diagram's group (`<g data-group>`, SVG_DIAGRAMS) that carries its own
+ * `data-build` and builds one step an item: inside a building container its
+ * members are steps, so grouping shapes never changes a diagram's clicks.
+ */
+export function isBuildingGroup(el) {
+  return el.tagName.toUpperCase() === 'G' && el.hasAttribute('data-group') && el.hasAttribute('data-build') && isContainer(el);
+}
+
 function stepSource(el) {
   const tag = el.tagName.toUpperCase();
   if (tag === 'TABLE') {
@@ -706,25 +715,33 @@ export function scanSlide(section) {
     if (!el.hasAttribute('data-build')) continue;
     const style = el.getAttribute('data-build') || 'fade';
     if (isContainer(el)) {
-      for (const child of stepSource(el)) {
-        claimed.add(child);
-        // a claimed child's own subtree is not re-scanned for builds
-        child.querySelectorAll('[data-build]').forEach((d) => claimed.add(d));
-        // a child stroke drawing in stages contributes its stops, not one step
-        if (child.hasAttribute('data-draw-stops')) {
-          const stops = providerRegistry.get(child) ?? drawStopsProvider(child);
-          if (stops) {
-            registerProvider(child, stops);
-            const base = orderBase(child);
-            for (let sub = 0; sub < stops.count; sub++) push({ kind: 'provider', provider: stops, el: child, sub }, base === null ? null : String(base + sub));
-            continue;
+      const claim = (container, style) => {
+        for (const child of stepSource(container)) {
+          claimed.add(child);
+          // a claimed child's own subtree is not re-scanned for builds
+          child.querySelectorAll('[data-build]').forEach((d) => claimed.add(d));
+          // a child stroke drawing in stages contributes its stops, not one step
+          if (child.hasAttribute('data-draw-stops')) {
+            const stops = providerRegistry.get(child) ?? drawStopsProvider(child);
+            if (stops) {
+              registerProvider(child, stops);
+              const base = orderBase(child);
+              for (let sub = 0; sub < stops.count; sub++) push({ kind: 'provider', provider: stops, el: child, sub }, base === null ? null : String(base + sub));
+              continue;
+            }
           }
+          const childStyle = child.getAttribute('data-build') || style;
+          // a diagram's group that builds (SVG_DIAGRAMS, groups): its members
+          // are steps of their own, as if they stood where it stands; "all at
+          // once" (data-build-self) makes it one step, and a group without
+          // data-build is one step, as any <g> is
+          if (isBuildingGroup(child)) { claim(child, childStyle); continue; }
+          markStep(child, childStyle);
+          push({ kind: 'dom', el: child, container }, child.getAttribute('data-build-order'));
         }
-        const childStyle = child.getAttribute('data-build') || style;
-        markStep(child, childStyle);
-        push({ kind: 'dom', el: child, container: el }, child.getAttribute('data-build-order'));
-      }
-      el.setAttribute('data-build-container', '');
+        container.setAttribute('data-build-container', '');
+      };
+      claim(el, style);
     } else {
       markStep(el, style);
       push({ kind: 'dom', el, container: null }, el.getAttribute('data-build-order'));

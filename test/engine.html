@@ -1106,6 +1106,33 @@
         }
         if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // groups in a diagram that builds: the group route freezes the clicks it
+      // is sent (a key a click) and answers each step's key, as the server does
+      if (HARNESS_MODE === 'groupbuild') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/element/group')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          const svg = document.querySelector('.gb-svg');
+          const kidsOf = (el) => [...el.children].filter((c) => !c.matches('.draw-head, .draw-mask'));
+          const keys = new Map();
+          const orders = (b.groups ?? []).flatMap((g, k) => g.map((n) => { keys.set((n.path ?? []).join('.'), String(k + 1)); return { index: n.index, path: n.path ?? [], order: String(k + 1) }; }));
+          if (b.op === 'group') {
+            const idx = b.paths.map((p) => p.path.at(-1)).sort((x, y) => x - y);
+            return json({ ok: true, changed: true, undo: 1, redo: 0, orders, path: [idx.at(-1) - (idx.length - 1)], markup: '<g data-group data-build="fade">' });
+          }
+          const g = kidsOf(svg)[b.path[0]];
+          const members = kidsOf(g).map((k, i) => {
+            const c = k.cloneNode(true);
+            c.classList.remove('build-step', 'dl-glow', 'dl-shape-also');
+            for (const a of ['data-build-state', 'data-build-style']) c.removeAttribute(a);
+            const key = keys.get(`${b.path[0]}.${i}`) ?? keys.get(String(b.path[0]));
+            if (key) c.setAttribute('data-build-order', key);
+            return { path: [b.path[0] + i], html: c.outerHTML, tag: c.tagName.toLowerCase() };
+          });
+          return json({ ok: true, changed: true, undo: 1, redo: 0, orders, members, wires: [] });
+        }
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       // a diagram's canvas (SVG_DIAGRAMS): its write answers
       if (HARNESS_MODE === 'canvas') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -1663,6 +1690,17 @@
           <g class="sg-c" data-node="c"><rect x="440" y="40" width="120" height="60" style="fill: var(--d-fill-1)"/><text x="500" y="70" text-anchor="middle" dominant-baseline="central" font-size="20">Cache</text></g>
           <line class="sg-wire" data-from="a" data-to="c" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="3"/>
           <g class="sg-unit"><line x1="60" y1="300" x2="200" y2="300" stroke="#888" stroke-width="3"/><rect class="sg-ubox" x="220" y="270" width="120" height="60" style="fill: var(--d-fill-3)"/><text x="280" y="300" text-anchor="middle" dominant-baseline="central" font-size="20">Unit</text></g>
+        </svg>
+      </section>`);
+    }
+    // groups in a diagram that builds: four boxes, one a click
+    if (HARNESS_MODE === 'groupbuild') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Builds</h2>
+        <svg class="gb-svg" viewBox="0 0 800 200" width="800" data-build="fade" aria-label="four boxes">
+          <g class="gb-a"><rect x="20" y="40" width="140" height="60" style="fill: var(--d-fill-1)"/><text x="90" y="70" text-anchor="middle" dominant-baseline="central" font-size="20">A</text></g>
+          <g class="gb-b"><rect x="220" y="40" width="140" height="60" style="fill: var(--d-fill-2)"/><text x="290" y="70" text-anchor="middle" dominant-baseline="central" font-size="20">B</text></g>
+          <g class="gb-c"><rect x="420" y="40" width="140" height="60" style="fill: var(--d-fill-3)"/><text x="490" y="70" text-anchor="middle" dominant-baseline="central" font-size="20">C</text></g>
+          <g class="gb-d"><rect x="620" y="40" width="140" height="60" style="fill: var(--d-fill-4)"/><text x="690" y="70" text-anchor="middle" dominant-baseline="central" font-size="20">D</text></g>
         </svg>
       </section>`);
     }
@@ -4974,6 +5012,64 @@
         await key('Escape');
         await click(ubox);
         r.markedPicksWhole = one() === unit;
+        r.PASS = Object.values(r).every((v) => v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'groupbuild') {
+        // SVG_DIAGRAMS, groups in a diagram that builds (builds.js, shapes.js):
+        // Group sends the clicks as they play, frozen, and the group builds its
+        // members one by one, so every click plays what it did; "all at once"
+        // makes the group one step on its first member's click; Ungroup keeps
+        // the clicks again
+        await settle();
+        deck.goto(deck._sections.length, 0);
+        await settle(); await settle();
+        const svg = document.querySelector('.gb-svg');
+        const q = (c) => svg.querySelector(c);
+        const slide = deck._sections.length;
+        const ptr = (type, el, x, y, o = {}) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0, ...o }));
+        const centre = (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; };
+        const click = async (el, o = {}) => { const p = centre(el); ptr('pointerdown', el, p.x, p.y, o); ptr('pointerup', el, p.x, p.y, o); el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y, ...o })); await settle(); };
+        const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+        const chord = async (o = {}) => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', code: 'KeyG', metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true, ...o })); await settle(); await settle(); };
+        const posts = (what) => CALLS.post.filter((c) => c.u.includes(`/deck/edit/element/${what}`)).map((c) => c.body);
+        // each click, the boxes it brings, by name
+        const clicks = () => { const rec = deck._records[slide - 1]; return JSON.stringify(rec.groups.map((g) => g.map((i) => rec.steps[i].el.getAttribute('class')?.split(' ').find((c) => c.startsWith('gb-'))))); };
+        const was = clicks();
+        r.fourClicks = was === JSON.stringify([['gb-a'], ['gb-b'], ['gb-c'], ['gb-d']]);
+        const rect = (c) => q(`.${c} rect`);
+
+        // B and D grouped (C stood between them): the clicks sent, frozen, and the same four clicks after
+        deck.goto(slide, 4); await settle();
+        await click(rect('gb-b'));
+        await click(rect('gb-d'), { shiftKey: true });
+        await chord();
+        const gp = posts('group')[0];
+        const G = svg.querySelector('g[data-group]');
+        r.sentClicks = gp?.op === 'group' && gp.groups?.length === 4 && gp.groups.every((g) => g.length === 1);
+        r.groupBuilds = !!G && G.getAttribute('data-build') === 'fade' && G.contains(q('.gb-b')) && G.contains(q('.gb-d')) && !G.classList.contains('build-step');
+        r.sameClicks = clicks() === was;
+        r.stepKept = deck.state.step === 4;
+
+        // "all at once": the group one step, on B's click, C and D's after it
+        await deck._buildEdit.set(G, { self: true }, 'the whole of it on one click');
+        await settle(); await settle();
+        r.allAtOnce = clicks() === JSON.stringify([['gb-a'], [null], ['gb-c']]) && G.getAttribute('data-build-order') === '2' && G.classList.contains('build-step');
+        await deck._buildEdit.set(G, { self: false }, 'one step per item');
+        await settle(); await settle();
+        r.perItemAgain = clicks() === was;
+
+        // Ungroup (⇧⌘G): the four clicks still as they were
+        await click(rect('gb-b'));
+        // a second click went inside the group: Esc steps back up to it
+        if (deck._selection?.()?.node !== G) { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await settle(); }
+        r.groupSelected = deck._selection?.()?.node === G;
+        await chord({ shiftKey: true });
+        const up = posts('group').at(-1);
+        r.ungrouped = up?.op === 'ungroup' && up.groups?.length === 4 && !svg.querySelector('g[data-group]');
+        r.clicksAfterUngroup = clicks() === was;
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
