@@ -3840,6 +3840,7 @@ export function init(userConfig = {}) {
   // a node's build settings changed in place (build-edit.js): the Builds tab's, Build ▸'s, Animate ▸'s
   const buildEdit = createBuildEdit({ instance, editmode, toast });
   editmode.setBuildEdit(buildEdit);
+  instance._buildEdit = buildEdit;   // a build changed in place, for the render harnesses
   inspector.addTab(createBuildsPanel({
     instance: () => instance, select: (node) => editbar.selectNode(node, { exact: true }),
     edit: buildEdit, writable: () => !!editmode.available?.(), toast,

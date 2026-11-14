@@ -991,10 +991,13 @@ export function setDiagramOrder(html, slide, index, { path, tag = null, to }) {
 
 export const GROUP_OPS = ['group', 'ungroup', 'mark'];
 /** What a group's `<g>` may carry and still come apart with nothing lost: its move, its mark, its name. */
-const GROUP_OWN = new Set(['transform', 'data-group', 'data-node']);
+const GROUP_OWN = new Set(['transform', 'data-group', 'data-node', 'data-build', 'data-build-self', 'data-build-order', 'data-build-stay']);
 /** Does this diagram build: a `data-build` on it or in it, or a stroke drawn in stages? */
 const buildsIn = (svgSrc) => /\sdata-(?:build|draw-stops)(?=[\s=/>])/i.test(svgSrc);
-const NO_GROUPS_WHILE_BUILDING = 'this diagram builds, and a group would change its clicks: group and ungroup in a diagram without builds for now';
+const NOT_FROZEN = 'this diagram builds, and the slide\'s clicks were not sent with the change: reload the page and try again';
+/** Does a node with these attributes build its children one by one (builds.js isContainer, over the file)? */
+const buildsChildren = (tag, attrs, kids) => attrOf(attrs, 'data-build') !== null && attrOf(attrs, 'data-build-self') === null
+  && (tag === 'svg' || ((tag === 'g' || tag === 'div') && kids.filter((k) => !NOT_PAINTED.has(k.tag)).length >= 2));
 const ONLY_SPACE = /^[ \t]*$/;
 
 /**
@@ -1006,7 +1009,7 @@ const ONLY_SPACE = /^[ \t]*$/;
  * members stay. Returns `{ src, members }`: the text and each member's
  * markup, in order.
  */
-function ungroupedSource(src, lead, dx, dy) {
+function ungroupedSource(src, lead, dx, dy, adjust = (m) => m) {
   const { attrs, close } = splitOpenTag(src);
   const open = attrs.length + close.length;
   const kids = elementChildRanges(src);
@@ -1018,7 +1021,7 @@ function ungroupedSource(src, lead, dx, dy) {
     if (t !== null) { const at = translateOf(t); return withAttr(head.attrs, 'transform', withTranslate(t, at.x + dx, at.y + dy) || null) + head.close + head.rest; }
     try { return shiftSource(s, dx, dy, { step: true }); } catch { return shiftSource(s, dx, dy); }
   };
-  const members = kids.map((k) => (NOT_PAINTED.has(k.tag) ? src.slice(k.start, k.end) : shift(src.slice(k.start, k.end))));
+  const members = kids.map((k) => (NOT_PAINTED.has(k.tag) ? src.slice(k.start, k.end) : shift(adjust(src.slice(k.start, k.end)))));
   let inner = src.slice(open, src.lastIndexOf('</'));
   for (let i = kids.length - 1; i >= 0; i--) inner = inner.slice(0, kids[i].start - open) + members[i] + inner.slice(kids[i].end - open);
   const first = kids[0] ? src.slice(src.lastIndexOf('\n', kids[0].start - 1) + 1, kids[0].start) : '';
@@ -1060,13 +1063,16 @@ function wireEnd(n, which) {
  *             when it is not, so no wire is left naming a node that is gone.
  *   `mark`    the `<g>` at `path` (one the author wrote) given `data-group`.
  *
- * Refused in a diagram that builds: the steps are its children, and a group
- * would change the clicks. Returns `{ html, path, markup }` (the group's path
+ * In a diagram that builds, the caller freezes the slide's play order first
+ * (`frozen`; refused without it) and the clicks are kept: a group made in a
+ * container that builds its children takes the container's `data-build`, so
+ * its members stay steps (builds.js isBuildingGroup); Ungroup gives a group
+ * that was one step's key, effect or stay to each member. Returns `{ html, path, markup }` (the group's path
  * and markup) for group and mark; `{ html, members: [{ path, html }], wires }`
  * for ungroup, `wires` the new ends of each wire that was joined to the
  * group, in the file's order.
  */
-export function groupDiagramNodes(html, slide, index, { op, paths = null, path = null, tag = null }) {
+export function groupDiagramNodes(html, slide, index, { op, paths = null, path = null, tag = null, frozen = false }) {
   if (!GROUP_OPS.includes(op)) throw new Error(`group, ungroup or mark, not: ${String(op).slice(0, 20)}`);
   const e = openElement(html, slide, index);
   if (op === 'group') {
@@ -1076,7 +1082,7 @@ export function groupDiagramNodes(html, slide, index, { op, paths = null, path =
     for (const a of ats) if (!a.inSvg || !DIAGRAM_NODES.has(a.found) || a.found === 'tspan') throw new Error(`a group is made of a diagram's shapes, not a <${a.found}>`);
     if (new Set(ats.map((a) => a.path.slice(0, -1).join('.'))).size !== 1) throw refusedMove('these do not stand side by side in the file (one is inside a group or a box of its own): group shapes that share a parent');
     if (new Set(ats.map((a) => a.path.at(-1))).size !== ats.length) throw new Error('the same shape twice');
-    if (buildsIn(e.src(ats[0].svg))) throw refusedMove(NO_GROUPS_WHILE_BUILDING);
+    if (buildsIn(e.src(ats[0].svg)) && !frozen) throw refusedMove(NOT_FROZEN);
     const sorted = [...ats].sort((a, b) => a.start - b.start);
     const front = sorted.at(-1);
     const lead = e.lead(front);
@@ -1084,9 +1090,20 @@ export function groupDiagramNodes(html, slide, index, { op, paths = null, path =
     // one level in: the step from the parent's indentation to the front member's, else two spaces
     const parentLead = e.lead(front.parent);
     const step = own && lead.startsWith(parentLead) && lead.length > parentLead.length ? lead.slice(parentLead.length) : '  ';
+    // in a container that builds its children one by one, the group builds its members the same way,
+    // so each keeps its step (builds.js isBuildingGroup); every one of them there from the start, so is it
+    const parentSrc = e.src(front.parent);
+    const parentAttrs = splitOpenTag(parentSrc).attrs;
+    let open = '<g data-group';
+    if (buildsChildren(front.parent.tag, parentAttrs, elementChildRanges(parentSrc))) {
+      const stays = sorted.every((a) => attrOf(splitOpenTag(e.src(a)).attrs, 'data-build-stay') !== null);
+      const effect = attrOf(parentAttrs, 'data-build');
+      open += stays ? ' data-build-stay' : effect ? ` data-build="${escapeHtml(effect)}"` : ' data-build';
+    }
+    open += '>';
     const markup = own
-      ? `<g data-group>\n${sorted.map((a) => `${lead}${step}${e.src(a).replace(/\n/g, `\n${step}`)}`).join('\n')}\n${lead}</g>`
-      : `<g data-group>${sorted.map((a) => e.src(a)).join('')}</g>`;
+      ? `${open}\n${sorted.map((a) => `${lead}${step}${e.src(a).replace(/\n/g, `\n${step}`)}`).join('\n')}\n${lead}</g>`
+      : `${open}${sorted.map((a) => e.src(a)).join('')}</g>`;
     e.splice(front.start, front.end, markup);
     e.el = withoutNodes(e.el, sorted.slice(0, -1).map((a) => [a.start, a.end]));
     return { html: e.html(), path: [...front.path.slice(0, -1), front.path.at(-1) - (sorted.length - 1)], markup };
@@ -1099,7 +1116,7 @@ export function groupDiagramNodes(html, slide, index, { op, paths = null, path =
     e.edit(path, 'g', (a) => withAttr(a, 'data-group', true));
     return { html: e.html(), path, markup: e.src(e.at(path, 'g')) };
   }
-  if (buildsIn(e.src(at.svg))) throw refusedMove(NO_GROUPS_WHILE_BUILDING);
+  if (buildsIn(e.src(at.svg)) && !frozen) throw refusedMove(NOT_FROZEN);
   const { attrs } = splitOpenTag(e.src(at));
   const extra = attrList(attrs).find((a) => !GROUP_OWN.has(a.name));
   if (extra) throw refusedMove(`this group carries ${extra.written}${extra.raw === null ? '' : `="${extra.value.slice(0, 40)}"`}, which its shapes would lose: take it off in the HTML first, or keep the group`);
@@ -1148,7 +1165,25 @@ export function groupDiagramNodes(html, slide, index, { op, paths = null, path =
     }
     at = e.at(path, 'g');
   }
-  const out = ungroupedSource(e.src(at), e.lead(at), dx, dy);
+  // its builds kept (BUILD_SEMANTICS): members that were steps keep their keys (the order was
+  // frozen first); a group that was one step gives each member its key, so they still arrive
+  // together; its own effect and "there from the start" go to each member
+  const building = buildsIn(e.src(at.svg));
+  const stepsInside = buildsChildren('g', attrs, elementChildRanges(e.src(at)));
+  const key = attrOf(attrs, 'data-build-order');
+  const effect = attrOf(attrs, 'data-build');
+  const parentEffect = attrOf(splitOpenTag(e.src(at.parent)).attrs, 'data-build');
+  const stays = attrOf(attrs, 'data-build-stay') !== null;
+  const adjust = (m) => {
+    if (!building) return m;
+    const h = splitOpenTag(m);
+    let a = h.attrs;
+    if (stays) a = withAttr(a, 'data-build-stay', true);
+    else if (!stepsInside && key !== null) a = withAttr(a, 'data-build-order', key);
+    if (effect && effect !== parentEffect && attrOf(a, 'data-build') === null) a = withAttr(a, 'data-build', effect);
+    return a + h.close + h.rest;
+  };
+  const out = ungroupedSource(e.src(at), e.lead(at), dx, dy, adjust);
   e.splice(at.start, at.end, out.src);
   const kidsAt = elementChildRanges(`<g>${out.members.join('')}</g>`);
   return {
@@ -2657,11 +2692,23 @@ export function setElementBuildAttrs(html, slide, index, { path = [], tag = null
   }
   if ([effect, stay, self, animate, drawStops, drawSpeed].every((v) => v === undefined)) throw new Error('nothing to set');
   const e = openElement(html, slide, index);
+  // a diagram's group made one step ("all at once", SVG_DIAGRAMS): it plays on its first member's click,
+  // the key its members had (Group froze them); made one step an item again, they play on their own
+  let groupKey = null;
+  if (self === true && path.length) {
+    const g = e.src(e.at(path, tag));
+    const head = splitOpenTag(g).attrs;
+    if (/^<g\b/i.test(g) && attrOf(head, 'data-group') !== null && attrOf(head, 'data-build-order') === null) {
+      const keys = elementChildRanges(g).map((k) => Number.parseInt(attrOf(splitOpenTag(g.slice(k.start, k.end)).attrs, 'data-build-order') ?? '', 10)).filter(Number.isFinite);
+      if (keys.length) groupKey = String(Math.min(...keys));
+    }
+  }
   e.edit(path, tag, (attrs) => {
     let a = attrs;
     if (effect !== undefined) a = withAttr(a, 'data-build', effect === '' ? true : effect);
     if (stay !== undefined) a = withAttr(a, 'data-build-stay', stay ? true : null);
     if (self !== undefined) a = withAttr(a, 'data-build-self', self ? true : null);
+    if (groupKey !== null) a = withAttr(a, 'data-build-order', groupKey);
     if (animate !== undefined) a = withAttr(a, 'data-animate', animate);
     if (drawStops !== undefined) a = withAttr(a, 'data-draw-stops', drawStops === null ? null : drawStops.trim().split(/\s+/).join(' '));
     if (drawSpeed !== undefined) a = withAttr(a, 'data-draw-speed', drawSpeed === null ? null : String(Math.round(drawSpeed)));

@@ -1356,35 +1356,59 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
    * builds and the notes' beats stay as they were. The page then makes the
    * same move, the engine's nodes riding with it, and counts the steps again.
    */
+  /**
+   * The slide's play order as the server freezes it (setSlideBuildOrder with
+   * `freeze`) before a change that moves what plays in document order: front
+   * and back, Group, Ungroup. `{ sec, slideAt, step, built, flat, groups }`:
+   * `groups` null when nothing of the diagram builds; null (said) when a
+   * step is the engine's and cannot be named.
+   */
+  function playOrder(svg) {
+    const sec = svg.closest('section');
+    const slideAt = instance._sections?.indexOf(sec) ?? -1;
+    const rec = instance._records?.[slideAt];
+    const step = instance.state?.slide === slideAt + 1 ? instance.state.step : 0;
+    // the diagram builds: freeze the slide's play order (build-edit.js's shape of it)
+    const built = !!rec?.steps?.some((st) => st.el && (st.el === svg || svg.contains(st.el)));
+    if (!built) return { sec, slideAt, step, built, flat: [], groups: null };
+    const g = orderGroups(rec.groups, rec.steps.map((st) => ({ node: st.el, count: st.kind === 'provider' ? st.provider?.count ?? 1 : 1 })));
+    const flat = g.flat();
+    const addrs = flat.map(({ node }) => addressOf(instance, node));
+    if (addrs.some((a) => !a)) { toast('a step on this slide is the engine’s, not the file’s: its order cannot be frozen', 3200); return null; }
+    let k = 0;
+    const groups = g.map((grp) => grp.map(({ count }) => { const a = addrs[k++]; return { index: a.index, ...(a.path.length ? { path: a.path } : {}), tag: a.tag, ...(count > 1 ? { count } : {}) }; }));
+    return { sec, slideAt, step, built, flat, groups };
+  }
+  /** Each step's key as the server stamped it, on the page. */
+  function stampOrders(flat, orders) {
+    (orders ?? []).forEach((o, i) => {
+      const node = flat[i]?.node;
+      if (node) { if (o.order === null) node.removeAttribute('data-build-order'); else node.setAttribute('data-build-order', o.order); }
+    });
+  }
+  /** The slide's steps counted again after such a change, the slide left on the click it was on. */
+  function rescan({ sec, slideAt, step, built }) {
+    if (!built) return;
+    clearBuildMarks(sec);
+    instance.refreshSlide?.(sec, { scan: true, relayout: false });
+    if (instance.state?.slide === slideAt + 1 && instance.state.step !== step) instance.goto(slideAt + 1, step);
+  }
+
   async function order(target, to) {
     if (!editmode.available?.()) { toast(editmode.cannot?.('changing what covers what') ?? 'this page cannot write the deck', 3200); return null; }
     const unit = orderUnit(target);
     if (!unit || !canOrder(target, to)) { toast(unit ? `it is already ${to === 'front' || to === 'forward' ? 'at the front' : 'at the back'}` : 'select a shape in a diagram to change what covers it', 2400); return null; }
     const svg = diagramOf(target);
-    const sec = svg.closest('section');
-    const slideAt = instance._sections?.indexOf(sec) ?? -1;
-    const rec = instance._records?.[slideAt];
-    // the diagram builds: freeze the slide's play order (build-edit.js's shape of it)
-    const built = !!rec?.steps?.some((st) => st.el && (st.el === svg || svg.contains(st.el)));
-    let flat = []; let groups = null;
-    if (built) {
-      const g = orderGroups(rec.groups, rec.steps.map((st) => ({ node: st.el, count: st.kind === 'provider' ? st.provider?.count ?? 1 : 1 })));
-      flat = g.flat();
-      const addrs = flat.map(({ node }) => addressOf(instance, node));
-      if (addrs.some((a) => !a)) { toast('a step on this slide is the engine’s, not the file’s: its order cannot be frozen', 3200); return null; }
-      let k = 0;
-      groups = g.map((grp) => grp.map(({ count }) => { const a = addrs[k++]; return { index: a.index, ...(a.path.length ? { path: a.path } : {}), tag: a.tag, ...(count > 1 ? { count } : {}) }; }));
-    }
+    const play = playOrder(svg);
+    if (!play) return null;
+    const { sec, slideAt, built, flat, groups } = play;
     const path = pathFrom(target.top, unit);
     let j;
     try {
       j = await post('/deck/edit/element/order', { slide: target.slide, index: target.index, path, tag: tagOf(unit), to, ...(groups ? { groups } : {}) });
     } catch (e) { toast(commit.notSaved('the order', e), 6000); return null; }
     try {
-      (j.orders ?? []).forEach((o, i) => {
-        const node = flat[i]?.node;
-        if (node) { if (o.order === null) node.removeAttribute('data-build-order'); else node.setAttribute('data-build-order', o.order); }
-      });
+      stampOrders(flat, j.orders);
       // the node and what the engine drew for it (a riding head, a dashed line's mask) move together
       const riders = [];
       for (let n = unit.nextElementSibling; n?.matches(ENGINE_NODES); n = n.nextElementSibling) riders.push(n);
@@ -1395,12 +1419,7 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       reloadFor('a shape could not be put where the file now has it', e);
       return null;
     }
-    const step = instance.state?.slide === slideAt + 1 ? instance.state.step : 0;
-    if (built) {
-      clearBuildMarks(sec);
-      instance.refreshSlide?.(sec, { scan: true, relayout: false });
-      if (instance.state?.slide === slideAt + 1 && instance.state.step !== step) instance.goto(slideAt + 1, step);
-    }
+    rescan(play);
     // a nested shape's tone is by what it sits on (data-nest): painted again
     refit([], svg);
     editbar.selectNode(target.node.isConnected ? target.node : unit, { exact: true });
@@ -1719,19 +1738,25 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     if (units.some((u) => u.parentElement !== units[0].parentElement)) { toast('these do not stand side by side in the file (one is inside a group): group shapes that share a parent', 3600); return null; }
     const paths = units.map((u) => ({ path: pathFrom(t0.top, u), tag: tagOf(u) }));
     if (paths.some((p) => !p.path?.length)) { toast('one of them is the engine’s, not the file’s', 2600); return null; }
+    // in a diagram that builds, the clicks as they play go with it, frozen first: none of them changes
+    const play = playOrder(svg);
+    if (!play) return null;
     let j;
-    try { j = await post('/deck/edit/element/group', { slide: t0.slide, index: t0.index, op: 'group', paths }); }
+    try { j = await post('/deck/edit/element/group', { slide: t0.slide, index: t0.index, op: 'group', paths, ...(play.groups ? { groups: play.groups } : {}) }); }
     catch (e) { toast(`not grouped: ${commit.why(e)}`, 6000); return null; }
     // what stood between them that is not one of them is behind the group now
     const kids = drawnKids(units[0].parentElement);
     const between = kids.slice(kids.indexOf(units[0]), kids.indexOf(units.at(-1)) + 1).some((k) => !units.includes(k));
-    const g = document.createElementNS(SVG_NS, 'g');
-    g.setAttribute('data-group', '');
+    let g;
     try {
+      stampOrders(play.flat, j.orders);
+      // the group as the file has it (its build, when the diagram builds), round the very nodes on the page
+      g = liveNode(`${/^<g\b[^>]*>/.exec(j.markup ?? '')?.[0] ?? '<g data-group>'}</g>`, svg);
       withRiders(units.at(-1)).at(-1).after(g);
       for (const u of units) g.append(...withRiders(u));
       if (pathFrom(t0.top, g)?.join('.') !== j.path?.join('.')) throw new Error(`the page has it at ${pathFrom(t0.top, g)?.join('.')}, the file at ${j.path?.join('.')}`);
     } catch (e) { reloadFor('a group could not be made where the file made it', e); return null; }
+    rescan(play);
     refit([], svg);
     editbar.selectNode(g, { exact: true });
     toast(`${units.length} shapes grouped${between ? ' · what stood between them is behind the group now' : ''}`, between ? 3200 : 1600);
@@ -1754,16 +1779,20 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     const name = g.getAttribute('data-node');
     const joined = name ? connectorsIn(svg).filter((w) => w.getAttribute('data-from') === name || w.getAttribute('data-to') === name) : [];
     const path = pathFrom(target.top, g);
+    const play = playOrder(svg);
+    if (!play) return null;
     let j;
-    try { j = await post('/deck/edit/element/group', { slide: target.slide, index: target.index, op: 'ungroup', path, tag: 'g' }); }
+    try { j = await post('/deck/edit/element/group', { slide: target.slide, index: target.index, op: 'ungroup', path, tag: 'g', ...(play.groups ? { groups: play.groups } : {}) }); }
     catch (e) { toast(`not taken apart: ${commit.why(e)}`, 6000); return null; }
     let fresh;
     try {
+      stampOrders(play.flat, j.orders);
       fresh = j.members.map((m) => liveNode(m.html, svg, { ids: true }));
       g.replaceWith(...fresh);
       joined.forEach((w, i) => { for (const end of ['from', 'to']) { const v = j.wires?.[i]?.[end]; if (v) w.setAttribute(`data-${end}`, v); } });
       if (fresh[0] && pathFrom(target.top, fresh[0])?.join('.') !== j.members[0].path.join('.')) throw new Error('the members are not where the file put them');
     } catch (e) { reloadFor('a group could not be taken apart as the file was', e); return null; }
+    rescan(play);
     refit(fresh, svg, connectorsIn(svg));
     const drawn = fresh.filter((m) => isDrawn(m) && !NOT_PAINTED_TAGS.test(tagOf(m))).map(pickableOf);
     if (drawn.length > 1) editbar.selectShapes?.(drawn); else if (drawn[0]) editbar.selectNode(drawn[0], { exact: true });

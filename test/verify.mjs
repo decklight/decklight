@@ -242,6 +242,7 @@ const ENGINE_GROUPS = {
     'canvas',
     'severalshapes',
     'shapegroup',
+    'groupbuild',
     'connectors',
     'connectmenu',
     'wirelabel',

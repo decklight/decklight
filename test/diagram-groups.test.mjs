@@ -11,7 +11,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { groupDiagramNodes, duplicateDiagramNode, removeNestedElement, createHistory, GROUP_OPS } from '../cli/edit.mjs';
+import { groupDiagramNodes, duplicateDiagramNode, removeNestedElement, setSlideBuildOrder, setElementBuildAttrs, createHistory, GROUP_OPS } from '../cli/edit.mjs';
+import { buildSteps, buildClicks, parseTree } from '../cli/check.mjs';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
 import { tmp } from './helpers.mjs';
 
@@ -61,7 +62,7 @@ test('Group refuses one shape, shapes under different parents, a build, and what
   assert.throws(() => group([[1, 'g'], [1, 'g']]), /the same shape twice/);
   assert.throws(() => group([[1, 'g'], [2, 'circle']]), (e) => e.code === 'STALE');
   const built = DECK.replace('<svg viewBox="0 0 600 200">', '<svg viewBox="0 0 600 200" data-build="draw">');
-  assert.throws(() => group([[1, 'g'], [3, 'g']], built), (e) => e.code === 'REFUSED' && /builds/.test(e.message));
+  assert.throws(() => group([[1, 'g'], [3, 'g']], built), (e) => e.code === 'REFUSED' && /clicks were not sent/.test(e.message), 'in a diagram that builds, only with the order frozen');
   assert.throws(() => groupDiagramNodes(DECK, 1, 0, { op: 'group', paths: [{ path: [0] }, { path: [1] }] }), /bad path|no element/);
   assert.throws(() => groupDiagramNodes(DECK, 1, 1, { op: 'wrap', paths: [] }), /group, ungroup or mark/);
 });
@@ -97,7 +98,8 @@ test('Ungroup refuses another transform, paint of its own, and a diagram that bu
   const at = { op: 'ungroup', path: [2], tag: 'g' };
   assert.throws(() => groupDiagramNodes(g.replace('<g data-group>', '<g data-group transform="rotate(10)">'), 1, 1, at), (e) => e.code === 'REFUSED' && /rotate\(10\)/.test(e.message));
   assert.throws(() => groupDiagramNodes(g.replace('<g data-group>', '<g data-group fill="red">'), 1, 1, at), (e) => e.code === 'REFUSED' && /fill="red"/.test(e.message));
-  assert.throws(() => groupDiagramNodes(g.replace('<svg viewBox="0 0 600 200">', '<svg viewBox="0 0 600 200" data-build>'), 1, 1, at), (e) => e.code === 'REFUSED');
+  assert.throws(() => groupDiagramNodes(g.replace('<svg viewBox="0 0 600 200">', '<svg viewBox="0 0 600 200" data-build>'), 1, 1, at), (e) => e.code === 'REFUSED' && /clicks were not sent/.test(e.message));
+  assert.throws(() => groupDiagramNodes(g.replace('<g data-group>', '<g data-group data-animate="pulse">'), 1, 1, at), (e) => e.code === 'REFUSED' && /data-animate/.test(e.message));
   assert.throws(() => groupDiagramNodes(DECK, 1, 1, { op: 'ungroup', path: [2], tag: 'rect' }), /for a group in a diagram/);
 });
 
@@ -130,6 +132,52 @@ test('a group duplicated is one node, its names its own; removed, it takes its m
   const r = removeNestedElement(labelled, 1, 1, { path: [2], tag: 'g' });
   assert.doesNotMatch(r, /data-group|class="w"|calls/);
   assert.match(r, /<circle class="o"/);
+});
+
+// ── in a diagram that builds (BUILD_SEMANTICS) ──────────────────────────────
+
+const BUILT = DECK.replace('<svg viewBox="0 0 600 200">', '<svg viewBox="0 0 600 200" data-build="draw">');
+/** Each drawn child of the svg its own click, as the Builds tab sends them. */
+const CLICKS = [1, 2, 3, 4, 5, 6].map((p) => [{ index: 1, path: [p] }]);
+const freeze = (html) => setSlideBuildOrder(html, 1, CLICKS, { freeze: true }).html;
+const keyOf = (html, cls) => new RegExp(`class="${cls}"[^>]*data-build-order="(\\d+)"`).exec(html)?.[1] ?? null;
+const clicks = (html) => [buildSteps(parseTree(html)), buildClicks(parseTree(html))];
+
+test('Group in a diagram that builds: the order frozen, the group builds its members one by one, every click kept', () => {
+  assert.deepEqual(clicks(BUILT), [6, 6]);
+  const g = groupDiagramNodes(freeze(BUILT), 1, 1, { op: 'group', paths: [{ path: [1], tag: 'g' }, { path: [3], tag: 'g' }, { path: [4], tag: 'rect' }], frozen: true });
+  assert.match(g.markup, /^<g data-group data-build="draw">/, 'the svg\'s effect, so each member is a step');
+  assert.deepEqual(['a', 'x', 'b', 'c'].map((c) => keyOf(g.html, c)), ['1', '2', '3', '4'], 'each keeps the key it played on');
+  assert.deepEqual(clicks(g.html), [6, 6], 'six steps, six clicks, as before');
+  // a bare data-build on the svg: a bare one on the group
+  const bare = groupDiagramNodes(freeze(DECK.replace('<svg viewBox="0 0 600 200">', '<svg viewBox="0 0 600 200" data-build>')), 1, 1, { op: 'group', paths: [{ path: [1], tag: 'g' }, { path: [3], tag: 'g' }], frozen: true });
+  assert.match(bare.markup, /^<g data-group data-build>/);
+  // shapes there from the start make a group there from the start
+  const stay = BUILT.replace('<rect class="x"', '<rect class="x" data-build-stay').replace('<rect class="c"', '<rect class="c" data-build-stay');
+  assert.match(groupDiagramNodes(stay, 1, 1, { op: 'group', paths: [{ path: [2], tag: 'rect' }, { path: [4], tag: 'rect' }], frozen: true }).markup, /^<g data-group data-build-stay>/);
+  // a diagram that does not build: no build on the group
+  assert.match(group([[1, 'g'], [3, 'g']]).markup, /^<g data-group>/);
+});
+
+test('"all at once" makes the group one step, on its first member\'s click; Ungroup then gives each member that key', () => {
+  const g = groupDiagramNodes(freeze(BUILT), 1, 1, { op: 'group', paths: [{ path: [3], tag: 'g' }, { path: [4], tag: 'rect' }], frozen: true });
+  const once = setElementBuildAttrs(g.html, 1, 1, { path: [3], tag: 'g', self: true });
+  assert.match(once, /<g data-group data-build="draw" data-build-self data-build-order="3">/);
+  assert.deepEqual(clicks(once), [5, 5], 'the two arrive on one click');
+  const u = groupDiagramNodes(once, 1, 1, { op: 'ungroup', path: [3], tag: 'g', frozen: true });
+  assert.deepEqual(['b', 'c'].map((c) => keyOf(u.html, c)), ['3', '3'], 'still together, where the group arrived');
+  assert.deepEqual(clicks(u.html), [6, 5]);
+  assert.doesNotMatch(u.html, /data-group|data-build-self/);
+});
+
+test('Ungroup in a diagram that builds: members that were steps keep their keys; a group\'s own effect goes to each', () => {
+  const g = groupDiagramNodes(freeze(BUILT), 1, 1, { op: 'group', paths: [{ path: [1], tag: 'g' }, { path: [3], tag: 'g' }], frozen: true });
+  const u = groupDiagramNodes(g.html, 1, 1, { op: 'ungroup', path: [2], tag: 'g', frozen: true });
+  assert.deepEqual(['a', 'x', 'b', 'c'].map((c) => keyOf(u.html, c)), ['1', '2', '3', '4']);
+  assert.deepEqual(clicks(u.html), [6, 6]);
+  assert.doesNotMatch(u.html, /<g class="a"[^>]*data-build=/, 'the svg\'s own effect is not written on each');
+  const faded = g.html.replace('<g data-group data-build="draw">', '<g data-group data-build="fade">');
+  assert.match(groupDiagramNodes(faded, 1, 1, { op: 'ungroup', path: [2], tag: 'g', frozen: true }).html, /<g class="a" data-node="api" data-build-order="1" data-build="fade">/);
 });
 
 function harness(t) {

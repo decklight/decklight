@@ -471,23 +471,31 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    */
   /**
    * `POST /deck/edit/element/group` — `{ slide, index, op, paths? | path, tag,
-   * quiet?, from? }` (SVG_DIAGRAMS, groups): `op: 'group'` wraps the nodes at
+   * groups?, quiet?, from? }` (SVG_DIAGRAMS, groups): `op: 'group'` wraps the nodes at
    * `paths` in one `<g data-group>`, `'ungroup'` puts the members of the `<g>`
    * at `path` back where it stood, `'mark'` gives that `<g>` `data-group`
-   * (groupDiagramNodes). One applyEdit, one undo; a refusal or a stale path
+   * (groupDiagramNodes). When the diagram builds, `groups` (the slide's clicks
+   * as they play) are stamped first, every step frozen where it plays, as
+   * front and back does. One applyEdit, one undo; a refusal or a stale path
    * is a 409. Answers the group's `path` and `markup`, or the `members` and
    * the `wires` joined to them now.
    */
   function elementGroupRoute({ body, json }) {
-    const { slide, index, op, paths = null, path = null, tag = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    const { slide, index, op, paths = null, path = null, tag = null, groups = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !GROUP_OPS.includes(op)
-      || (op === 'group' ? !Array.isArray(paths) : !Array.isArray(path))) {
+      || (op === 'group' ? !Array.isArray(paths) : !Array.isArray(path)) || (groups !== null && !Array.isArray(groups))) {
       return json(400, { ok: false, error: 'bad payload' });
     }
-    let done = null;
+    let done = null; let orders = [];
     let changed;
     try {
-      changed = applyEdit((html) => { done = groupDiagramNodes(html, slide, index, { op, paths, path, tag }); return done.html; });
+      changed = applyEdit((html) => {
+        // the diagram builds: the slide's clicks as they play, frozen first, so grouping changes none of them
+        let out = html;
+        if (groups?.length) { const st = setSlideBuildOrder(out, slide, groups, { freeze: true }); out = st.html; orders = st.orders; }
+        done = groupDiagramNodes(out, slide, index, { op, paths, path, tag, frozen: !!groups?.length });
+        return done.html;
+      });
     } catch (e) {
       if (e.code !== 'STALE' && e.code !== 'REFUSED') throw e;
       return json(409, { ok: false, error: oneline(e), ...(e.code === 'STALE' ? { stale: true } : {}) });
@@ -498,7 +506,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
       broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
     }
     const { html: _, ...answer } = done;
-    return json(200, { ok: true, changed, ...answer, inPlace: !!changed && inPlace === true, ...history.counts() });
+    return json(200, { ok: true, changed, ...answer, orders, inPlace: !!changed && inPlace === true, ...history.counts() });
   }
 
   function elementOrderRoute({ body, json }) {
