@@ -8840,6 +8840,26 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         const writes = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/build'));
         const last = () => writes().at(-1)?.body;
         const groups = () => deck._records[2]?.groups.length;
+        // at the panel's docked width, and at its narrowest, a row reads: what
+        // arrives keeps room for its words, and its effect, its beat and its
+        // tools are not drawn over it or over one another (#1172)
+        const reads = () => rows().length > 0 && rows().every((row) => {
+          const parts = ['.bl-fx', '.bl-label', '.bl-beat', '.bl-tools'].map((q) => row.querySelector(q)?.getBoundingClientRect());
+          const hit = (x, y) => x.left < y.right - 0.5 && y.left < x.right - 0.5 && x.top < y.bottom - 0.5 && y.top < x.bottom - 0.5;
+          const label = row.querySelector('.bl-label');
+          const em = parseFloat(getComputedStyle(label).fontSize);
+          const lines = parts[1].height / (parseFloat(getComputedStyle(label).lineHeight) || em * 1.3);
+          return parts.every(Boolean) && parts[1].width + 1 >= Math.min(4 * em, label.scrollWidth) && lines < 2.5
+            && parts.every((x, i) => parts.every((y, j) => j <= i || !hit(x, y)));
+        });
+        // the harness's window is too small for the docked 360px: the tab is given the
+        // width it has in one (360 less the panel's and the tab's margins), then in 320
+        const tab = document.querySelector(`${P} .ins-builds`);
+        tab.style.width = '308px';
+        r.rowsReadAtTheDockedWidth = reads();
+        tab.style.width = '268px';
+        r.rowsReadAtTheNarrowest = reads();
+        tab.style.width = '';
         // a row's effect: the same list as Build ▸, the one it has chosen
         const pick = rows()[0].querySelector('.bl-pick');
         r.pickerListsTheEffects = [...(pick?.options ?? [])].map((o) => o.value).join() === 'fade,fade-up,fade-down,zoom,pop,draw,highlight,none' && pick?.value === 'fade-up';
