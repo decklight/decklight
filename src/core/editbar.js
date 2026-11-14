@@ -31,7 +31,7 @@
 import { authoredTop, authoredIndex } from './design-system.js';
 import { stepShowing } from './builds.js';
 import { editableTarget, formulaTarget, svgTextTarget, CODE_EDITABLE } from './authoring.js';
-import { pickNode, isDrawn, isWireNode, wireMiddle, createSpotlight, createFrame, nodeForClick, atDepth } from './pick.js';
+import { pickNode, isDrawn, isWireNode, wireMiddle, createSpotlight, createFrame, nodeForClick, atDepth, groupAbove } from './pick.js';
 import { UNDO_CHORD, REDO_CHORD } from './undo-chord.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
 import { pathFrom } from './colorpicker.js';
@@ -494,10 +494,10 @@ export function createEditBar({
     const sec = e.target.closest?.('section');
     const top = sec ? authoredTop(sec, e.target) : null;
     // a shape in a diagram gets a dashed accent box and a glow, and the stage around it dims; a block keeps its own dashed outline
-    const node = top ? pickNode(top, e.target) : null;
+    // what a click would select: inside a selected column, the block under the pointer; inside a selected group, the level below
+    const node = top ? nodeForClick(top, e.target, selected, { alt: e.altKey }) : null;
     if (node && isDrawn(node)) { hover(null); spot.show(node, { dim: true }); }
-    // what a click would select: inside a selected column, the block under the pointer
-    else { spot.hide(); hover(top ? nodeForClick(top, e.target, selected, { alt: e.altKey }) : null); }
+    else { spot.hide(); hover(node); }
   });
   root.addEventListener('mouseleave', () => { hover(null); spot.hide(); });
   window.addEventListener('resize', placeHandle);
@@ -523,6 +523,12 @@ export function createEditBar({
       if (e.key === 'Backspace' || e.key === 'Delete') { if (!actions.areShapes?.(many)) deselect(); actions.remove(many).then?.((ok) => { if (ok && actions.areShapes) deselect(); }); return true; }
       if (e.key === 'Escape') { const one = selected; deselect({ quiet: true }); select(one); return true; }
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === 'KeyD') { actions.duplicate(many); return true; }
+      // ⌘G / Ctrl+G: several shapes of one diagram made one group (SVG_DIAGRAMS)
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === 'KeyG') {
+        if (actions.areShapes?.(many)) editmode.shapes?.()?.group(many);
+        else toast('Group is for shapes of one diagram', 2400);
+        return true;
+      }
       if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { actions.move(many, e.key === 'ArrowUp' ? -1 : 1); return true; }
       if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const r = shown(selected).getBoundingClientRect();
@@ -545,9 +551,9 @@ export function createEditBar({
       editmode.removeElement(target);
       return true;
     }
-    // Esc goes up a level: a block at depth to the block holding it, else lets go
+    // Esc goes up a level: a block at depth to the block holding it, a diagram's shape to its group (SVG_DIAGRAMS), else lets go
     if (e.key === 'Escape') {
-      const up = atDepth(selected.top, selected.node) ? selected.node.parentElement : null;
+      const up = atDepth(selected.top, selected.node) ? selected.node.parentElement : isDrawn(selected.node) ? groupAbove(selected.node) : null;
       if (up) select({ ...selected, node: up, clicked: up });
       else deselect();
       return true;
@@ -555,6 +561,13 @@ export function createEditBar({
     // ⌘D / Ctrl+D: a copy right after it, selected (the gate in engine.js lets the chord through only with a selection)
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === 'KeyD') {
       editmode.duplicateElement?.(selected);
+      return true;
+    }
+    // ⌘G / Ctrl+G and ⇧⌘G / Ctrl+Shift+G: a diagram's group made, or taken apart (SVG_DIAGRAMS)
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.code === 'KeyG') {
+      const shapes = editmode.shapes?.();
+      if (e.shiftKey && shapes?.canUngroup?.(selected)) shapes.ungroup(selected);
+      else toast(e.shiftKey ? 'select a group to take it apart' : '⇧-click another shape of the diagram, then group them', 2600);
       return true;
     }
     // Control-Shift-↑ / ↓: the element one place up or down the slide (element-move.js),

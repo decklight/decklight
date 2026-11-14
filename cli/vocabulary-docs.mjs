@@ -53,6 +53,7 @@ export const ATTRIBUTE_DOCS = {
   'data-on-wire': { on: 'svg text', desc: 'The data-wire this label rides on: it follows the wire when its ends move or its route changes.' },
   'data-along': { on: 'svg text with data-on-wire', desc: 'How far along its wire the label sits, 0 to 1 (default 0.5, the middle).' },
   'data-shape': { on: 'svg polygon or path', desc: 'Which shape it is, so write mode redraws it when it is resized and a wire stops at its outline.' },
+  'data-group': { on: 'svg g', desc: 'A group of shapes: one click selects it whole, a second click a shape in it.' },
   'data-concept': { on: 'svg shape or group', desc: 'Colours the shape by meaning: one concept, one colour, deck-wide.' },
   'data-nest': { on: 'svg shape or group', desc: 'off: keep the authored fill inside a filled panel; on: nest a shape the box test misses.' },
   'data-id': { desc: 'Matches this element across two auto-animate slides.' },

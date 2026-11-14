@@ -1058,6 +1058,54 @@
         }
         if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // groups (SVG_DIAGRAMS): the group route answers as the server would, an
+      // ungroup with the members as the file would have them (the group's move
+      // given to each); a duplicate puts the copy after the original
+      if (HARNESS_MODE === 'shapegroup') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        const svg = document.querySelector('.sg-svg');
+        const kidsOf = (el) => [...el.children].filter((c) => !c.matches('.draw-head, .draw-mask'));
+        const at = (p) => p.reduce((el, i) => kidsOf(el)[i], svg);
+        // a live node as the file has it: the engine's paint and the page's marks off
+        const asFile = (n) => {
+          const c = n.cloneNode(true);
+          for (const el of [c, ...c.querySelectorAll('*')]) {
+            el.classList?.remove('dl-glow', 'dl-shape-also', 'dl-wire-lit', 'dl-wire-selected');
+            if (el.dataset?.nestFill !== undefined) { el.style.fill = el.dataset.nestFill; delete el.dataset.nestFill; }
+          }
+          return c;
+        };
+        if (u.includes('/deck/edit/element/group')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          if (b.op === 'group') {
+            const idx = b.paths.map((p) => p.path.at(-1)).sort((x, y) => x - y);
+            return json({ ok: true, changed: true, undo: 1, redo: 0, path: [...b.paths[0].path.slice(0, -1), idx.at(-1) - (idx.length - 1)], markup: '<g data-group></g>' });
+          }
+          if (b.op === 'mark') return json({ ok: true, changed: true, undo: 1, redo: 0, path: b.path, markup: '<g data-group></g>' });
+          const g = at(b.path);
+          const m = /translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)/.exec(g.getAttribute('transform') ?? '');
+          const dx = m ? Number(m[1]) : 0; const dy = m ? Number(m[2]) : 0;
+          const members = kidsOf(g).map((k, i) => {
+            const c = asFile(k);
+            if (c.tagName.toLowerCase() === 'rect') { c.setAttribute('x', Number(c.getAttribute('x')) + dx); c.setAttribute('y', Number(c.getAttribute('y')) + dy); }
+            else if (dx || dy) c.setAttribute('transform', `translate(${dx} ${dy})`);
+            return { path: [...b.path.slice(0, -1), b.path.at(-1) + i], html: c.outerHTML, tag: c.tagName.toLowerCase() };
+          });
+          return json({ ok: true, changed: true, undo: 1, redo: 0, members, wires: [] });
+        }
+        if (u.includes('/deck/edit/element/shape')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          const c = asFile(at(b.path));
+          c.classList.add('sg-copy');
+          c.setAttribute('transform', 'translate(16 16)');
+          return json({ ok: true, changed: true, undo: 1, redo: 0, added: { path: [...b.path.slice(0, -1), b.path.at(-1) + 1], html: c.outerHTML } });
+        }
+        if (u.includes('/deck/edit/element/source')) {
+          const path = (new URL(u, location.href).searchParams.get('path') ?? '').split('.').filter(Boolean).map(Number);
+          return json({ ok: true, html: asFile(at(path)).outerHTML });
+        }
+        if (u.includes('/deck/edit/element/')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       // a diagram's canvas (SVG_DIAGRAMS): its write answers
       if (HARNESS_MODE === 'canvas') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -1601,6 +1649,20 @@
           <g class="ss-b"><rect x="260" y="80" width="80" height="60" style="fill: var(--d-fill-2)"/><text x="300" y="110" text-anchor="middle" dominant-baseline="central" font-size="20">B</text></g>
           <g class="ss-c" data-node="c"><rect x="560" y="60" width="160" height="60" style="fill: var(--d-fill-3)"/><text x="640" y="90" text-anchor="middle" dominant-baseline="central" font-size="20">C</text></g>
           <line class="ss-wire" data-from="a" data-to="c" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="3"/>
+        </svg>
+      </section>`);
+    }
+    // groups: a panel, three box groups on it (a wire from the first to the
+    // third), and a step unit an author wrote (an arrow, a box and its label)
+    if (HARNESS_MODE === 'shapegroup') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Groups</h2>
+        <svg class="sg-svg" viewBox="0 0 800 400" width="800" aria-label="groups">
+          <rect class="sg-panel" x="20" y="20" width="620" height="140" style="fill: var(--d-fill-2)"/>
+          <g class="sg-a" data-node="a"><rect x="40" y="40" width="120" height="60" style="fill: var(--d-fill-1)"/><text x="100" y="70" text-anchor="middle" dominant-baseline="central" font-size="20">API</text></g>
+          <g class="sg-b"><rect x="240" y="40" width="120" height="60" style="fill: var(--d-fill-1)"/><text x="300" y="70" text-anchor="middle" dominant-baseline="central" font-size="20">DB</text></g>
+          <g class="sg-c" data-node="c"><rect x="440" y="40" width="120" height="60" style="fill: var(--d-fill-1)"/><text x="500" y="70" text-anchor="middle" dominant-baseline="central" font-size="20">Cache</text></g>
+          <line class="sg-wire" data-from="a" data-to="c" x1="0" y1="0" x2="1" y2="1" stroke="#888" stroke-width="3"/>
+          <g class="sg-unit"><line x1="60" y1="300" x2="200" y2="300" stroke="#888" stroke-width="3"/><rect class="sg-ubox" x="220" y="270" width="120" height="60" style="fill: var(--d-fill-3)"/><text x="280" y="300" text-anchor="middle" dominant-baseline="central" font-size="20">Unit</text></g>
         </svg>
       </section>`);
     }
@@ -4784,6 +4846,134 @@
         const dp = posts('shape').at(-1);
         r.duplicateAll = dp?.op === 'duplicate' && dp.paths?.length === 2 && svg.querySelectorAll('.ss-copy').length === 2
           && sel().length === 2 && sel().every((t) => t.node.closest('.ss-copy'));
+        r.PASS = Object.values(r).every((v) => v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'shapegroup') {
+        // SVG_DIAGRAMS, groups (pick.js, shapes.js): ⇧-click three shapes,
+        // Group, one frame round all three; a second click reaches a member,
+        // Esc steps back up, ⌥-click goes straight to a shape; the group
+        // drags, copies, pastes and is removed as one write; Ungroup puts
+        // everything back with nothing moving; the nesting tones read the
+        // same; a step unit an author wrote keeps its click, and its menu
+        // selects it whole or makes it a group
+        await settle();
+        deck.goto(deck._sections.length, 0);
+        await settle(); await settle();
+        const svg = document.querySelector('.sg-svg');
+        const q = (c) => svg.querySelector(c);
+        const toScreen = (x, y) => { const m = svg.getScreenCTM(); return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f }; };
+        const ptr = (type, el, x, y, o = {}) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0, ...o }));
+        const centre = (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; };
+        const click = async (el, o = {}) => { const p = centre(el); ptr('pointerdown', el, p.x, p.y, o); ptr('pointerup', el, p.x, p.y, o); el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y, ...o })); await settle(); };
+        const key = async (k, o = {}) => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...o })); await settle(); await settle(); };
+        const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+        const chord = (code, o = {}) => key(code.slice(3).toLowerCase(), { code, metaKey: mac, ctrlKey: !mac, ...o });
+        const posts = (what) => CALLS.post.filter((c) => c.u.includes(`/deck/edit/element/${what}`)).map((c) => c.body);
+        const wait = () => new Promise((f) => setTimeout(f, 400));
+        const sel = () => deck._selectionAll?.() ?? [];
+        const one = () => deck._selection?.()?.node ?? null;
+        const pathOf = (n) => { const p = []; for (let e = n; e !== svg; e = e.parentElement) p.unshift([...e.parentElement.children].filter((c) => !c.matches('.draw-head, .draw-mask')).indexOf(e)); return p; };
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
+        const row = (t) => rows().find((x) => (x.firstChild?.textContent ?? '').trim() === t);
+        const menuOn = async (el) => { const p = centre(el); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: Math.round(p.x), clientY: Math.round(p.y) })); await settle(); };
+        const A = q('.sg-a'); const B = q('.sg-b'); const C = q('.sg-c');
+        const rect = (g) => g.querySelector('rect');
+        const fills = () => [A, B, C].map((g) => getComputedStyle(rect(g)).fill).join('|');
+        const fillsBefore = fills();
+        const boxes = () => [A, B, C].map((g) => { const b = rect(g).getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
+
+        // ⇧-click three shapes, then Group from their menu: one write, one <g data-group> round them, selected
+        await click(rect(A));
+        await click(rect(B), { shiftKey: true });
+        await click(rect(C), { shiftKey: true });
+        await menuOn(rect(A));
+        r.groupRow = !!row('Group') && /G$/.test(row('Group')?.querySelector('.cm-key')?.textContent ?? '');
+        row('Group')?.click();
+        await settle(); await settle();
+        const gp = posts('group')[0];
+        const G = svg.querySelector('g[data-group]');
+        r.grouped = gp?.op === 'group' && gp.paths.map((p) => p.path.join('.')).join(',') === '1,2,3'
+          && !!G && G.parentElement === svg && [...G.children].filter((c) => !c.matches('.draw-head, .draw-mask')).every((c, i) => c === [A, B, C][i])
+          && one() === G && !!document.querySelector('.dl-frame') && pathOf(G).join('.') === '1';
+        r.nestSame = fills() === fillsBefore && fillsBefore.length > 0;
+
+        // a second click on a member selects it; Esc steps back up to the group; a click from nothing selects the group
+        await click(rect(B));
+        r.secondClickInside = one() === rect(B);
+        await key('Escape');
+        r.escUp = one() === G;
+        await key('Escape');
+        await click(rect(C));
+        r.firstClickGroup = one() === G;
+        await key('Escape');
+        await click(rect(C), { altKey: true });
+        r.altDeep = one() === rect(C);
+        await key('Escape'); await key('Escape');
+
+        // a drag on a member moves the group: one write, a translate on the <g>, the wire routed in it
+        await click(rect(B));
+        await wait();
+        const from = centre(rect(B)); const k = svg.getScreenCTM().a;
+        ptr('pointerdown', rect(B), from.x, from.y);
+        for (const f of [0.3, 0.7, 1]) ptr('pointermove', document.body, from.x, from.y + 40 * k * f, { metaKey: true });
+        ptr('pointerup', document.body, from.x, from.y + 40 * k, { metaKey: true });
+        rect(B).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const geo = posts('geometry');
+        r.dragMovesGroup = geo.length === 1 && geo[0].edits.some((e) => e.path.join('.') === '1' && e.attr === 'transform' && /^translate\(0 40\)$/.test(e.value))
+          && !geo[0].edits.some((e) => e.path.length > 1) && geo[0].edits.some((e) => e.path.join('.') === '2') && one() === G;
+
+        // ⌘C ⌘V: the group's source on the clipboard, pasted as a duplicate of it, the copy selected; ⌫ removes the copy as one node
+        r.sourceRead = await until(() => deck._clipboard.ready());
+        const cd = new DataTransfer();
+        document.dispatchEvent(new ClipboardEvent('copy', { clipboardData: cd, bubbles: true, cancelable: true }));
+        const pd = new DataTransfer();
+        pd.setData('text/html', cd.getData('text/html'));
+        document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: pd, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const dp = posts('shape').at(-1);
+        const copy = svg.querySelector('.sg-copy');
+        r.pasteDuplicatesGroup = dp?.op === 'duplicate' && dp.path?.join('.') === '1' && dp.tag === 'g' && !!copy && copy.hasAttribute('data-group') && one() === copy;
+        await key('Delete');
+        const rm = posts('remove').at(-1);
+        r.removeAsOne = rm?.path?.join('.') === '2' && rm.tag === 'g';
+        copy?.remove();
+        await settle();
+
+        // Ungroup (⇧⌘G): the members back where the group stood, nothing moving on screen, the three selected
+        await click(rect(A));
+        r.ungroupRow = await (async () => { await menuOn(rect(A)); row('Shape ▸')?.click(); await settle(); const ok = !!row('Ungroup') && !row('Select the whole group'); document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await settle(); return ok; })();
+        r.noColorsOnGroup = await (async () => { await menuOn(rect(A)); const c = row('Colors…'); const ok = !!c && c.classList.contains('cm-disabled') && !row('Concept ▸'); document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await settle(); return ok; })();
+        if (one() !== G) await click(rect(A));
+        const was = boxes();
+        await chord('KeyG', { shiftKey: true });
+        const up = posts('group').at(-1);
+        const A2 = q('.sg-a'); const B2 = q('.sg-b'); const C2 = q('.sg-c');
+        const now = [A2, B2, C2].map((g) => { const b = g?.querySelector('rect')?.getBoundingClientRect(); return b ? [b.left, b.top, b.width, b.height] : [NaN]; });
+        r.ungrouped = up?.op === 'ungroup' && up.path.join('.') === '1' && !svg.querySelector('g[data-group]') && [A2, B2, C2].every((g) => g?.parentElement === svg)
+          && was.every((b, i) => b.every((v, j) => Math.abs(v - now[i][j]) < 0.6)) && sel().length === 3;
+        await key('Escape'); await key('Escape');
+
+        // a step unit an author wrote: a click still selects its box; Shape ▸ selects it whole, or makes it a group
+        const unit = q('.sg-unit'); const ubox = q('.sg-ubox');
+        await click(ubox);
+        r.unitKeepsClick = one() === ubox;
+        await menuOn(ubox); row('Shape ▸')?.click(); await settle();
+        r.bridgeRows = !!row('Select the whole group') && !!row('Make it a group') && !row('Ungroup');
+        row('Select the whole group')?.click(); await settle();
+        r.selectWhole = one() === unit;
+        await key('Escape');
+        await click(ubox);
+        await menuOn(ubox); row('Shape ▸')?.click(); await settle();
+        row('Make it a group')?.click(); await settle(); await settle();
+        const mk = posts('group').at(-1);
+        r.markGroup = mk?.op === 'mark' && mk.path.join('.') === pathOf(unit).join('.') && unit.hasAttribute('data-group') && one() === unit;
+        await key('Escape');
+        await click(ubox);
+        r.markedPicksWhole = one() === unit;
         r.PASS = Object.values(r).every((v) => v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

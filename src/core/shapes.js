@@ -53,7 +53,7 @@
  */
 
 import { pathFrom } from './colorpicker.js';
-import { injectedIn, isDrawn } from './pick.js';
+import { injectedIn, isDrawn, isGroup, nodeForClick } from './pick.js';
 import { createEditCommit } from './edit-commit.js';
 import { clearBuildMarks } from './builds.js';
 import { orderGroups } from './buildlist.js';
@@ -457,6 +457,8 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
       node = sel.node; target = sel;
     } else {
       const t = editmode.elementTargetOf(e.target);
+      // what a click here would select: inside a selected group, the level below it (pick.js)
+      if (t?.top) t.node = nodeForClick(t.top, e.target, sel);
       if (t?.node && isDrawn(t.node) && diagramOf(t)) { node = t.node; target = t; }
     }
     if (!node || !diagramOf(target) || tagOf(node) === 'tspan') return;
@@ -1669,6 +1671,127 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     return label;
   }
 
+  // ── groups (SVG_DIAGRAMS): Group, Ungroup, and a <g> the author wrote ────
+  // A group is a `<g data-group>`: picked whole by a first click, a level
+  // down by the next (pick.js), and moved, duplicated, copied, removed and
+  // sent to the front or the back as one node, which those already do for a
+  // `<g>`. A plain `<g>` (a box group, a step unit) keeps its clicks; the
+  // menu offers to select it whole, or to make it a group.
+  const NOT_PAINTED_TAGS = /^(defs|title|desc|style|metadata|script)$/;
+  /** The drawn things a `<g>` holds, as the file has them. */
+  const drawnKids = (g) => authoredKids(g).filter((k) => isDrawn(k) && !NOT_PAINTED_TAGS.test(tagOf(k)));
+  /** What a member of a group is selected as: a box group by its shape, anything else itself. */
+  const pickableOf = (m) => (tagOf(m) === 'g' ? authoredKids(m).find((c) => BOX_SHAPES.has(tagOf(c)) && boxGroupOf(c) === m) ?? m : m);
+  /** A plain `<g>` of the diagram (not a group, not the engine's) holding two drawn things or more, or null. */
+  const plainGroup = (g, svg) => (g && g !== svg && tagOf(g) === 'g' && !isGroup(g) && !g.matches(ENGINE_NODES) && svg?.contains(g) && drawnKids(g).length >= 2 ? g : null);
+  /** The plain `<g>` a selection stands in (its box group's parent, else its own): "Select the whole group" selects it. */
+  function wholeOf(target) {
+    const n = target?.node; const svg = diagramOf(target);
+    if (!n || !svg || n === svg || !isDrawn(n) || tagOf(n) === 'tspan') return null;
+    const g = plainGroup(duplicateUnit(n).parentElement, svg);
+    return g && pathFrom(target.top, g) ? g : null;
+  }
+  /** The `<g>` Ungroup takes apart for a selection: a group, or a plain `<g>` selected whole. */
+  function ungroupable(target) {
+    const n = target?.node; const svg = diagramOf(target);
+    return n && svg && pathFrom(target.top, n)?.length && (isGroup(n) || plainGroup(n, svg)) ? n : null;
+  }
+  /** The `<g>` "Make it a group" marks for a selection: the plain `<g>` selected, or the one it stands in. */
+  const markable = (target) => (plainGroup(target?.node, diagramOf(target)) && pathFrom(target.top, target.node) ? target.node : wholeOf(target));
+  const cannotWrite = (what) => { toast(editmode.cannot?.(what) ?? 'this page cannot write the deck', 3200); };
+  /** Is `a` before `b` in the page? */
+  const paintsBefore = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+  /** `n` and what the engine drew right after it for it (a riding head, a dashed line's mask). */
+  const withRiders = (n) => { const out = [n]; for (let r = n.nextElementSibling; r?.matches(ENGINE_NODES); r = r.nextElementSibling) out.push(r); return out; };
+
+  /**
+   * Group: several shapes of one diagram, siblings in the file, wrapped in one
+   * `<g data-group>` where the frontmost stood, in one write and one undo.
+   * The page makes the same `<g>` round the very nodes it shows, and selects it.
+   */
+  async function group(targets) {
+    if (!areShapes(targets)) { toast('⇧-click two shapes or more of one diagram, then group them', 2600); return null; }
+    if (!editmode.available?.()) { cannotWrite('grouping shapes'); return null; }
+    const t0 = targets[0];
+    const svg = diagramOf(t0);
+    const units = unitsOf(targets).sort((a, b) => (paintsBefore(a, b) ? -1 : 1));
+    if (units.length < 2) { toast('these are one shape: ⇧-click another to group them', 2400); return null; }
+    if (units.some((u) => u.parentElement !== units[0].parentElement)) { toast('these do not stand side by side in the file (one is inside a group): group shapes that share a parent', 3600); return null; }
+    const paths = units.map((u) => ({ path: pathFrom(t0.top, u), tag: tagOf(u) }));
+    if (paths.some((p) => !p.path?.length)) { toast('one of them is the engine’s, not the file’s', 2600); return null; }
+    let j;
+    try { j = await post('/deck/edit/element/group', { slide: t0.slide, index: t0.index, op: 'group', paths }); }
+    catch (e) { toast(`not grouped: ${commit.why(e)}`, 6000); return null; }
+    // what stood between them that is not one of them is behind the group now
+    const kids = drawnKids(units[0].parentElement);
+    const between = kids.slice(kids.indexOf(units[0]), kids.indexOf(units.at(-1)) + 1).some((k) => !units.includes(k));
+    const g = document.createElementNS(SVG_NS, 'g');
+    g.setAttribute('data-group', '');
+    try {
+      withRiders(units.at(-1)).at(-1).after(g);
+      for (const u of units) g.append(...withRiders(u));
+      if (pathFrom(t0.top, g)?.join('.') !== j.path?.join('.')) throw new Error(`the page has it at ${pathFrom(t0.top, g)?.join('.')}, the file at ${j.path?.join('.')}`);
+    } catch (e) { reloadFor('a group could not be made where the file made it', e); return null; }
+    refit([], svg);
+    editbar.selectNode(g, { exact: true });
+    toast(`${units.length} shapes grouped${between ? ' · what stood between them is behind the group now' : ''}`, between ? 3200 : 1600);
+    debugLog('edit', `group: slide ${t0.slide} element #${t0.index} › ${j.path.join('.')} (${units.length} nodes)`);
+    return g;
+  }
+
+  /**
+   * Ungroup: the members of a group (or of a plain `<g>` selected whole) put
+   * back where it stood, its move given to each, in one write; a wire joined
+   * to the group is joined to its nearest member (the server picks it and
+   * names it). The page puts the members as the file has them now, and
+   * selects them.
+   */
+  async function ungroup(target) {
+    if (!editmode.available?.()) { cannotWrite('taking a group apart'); return null; }
+    const g = ungroupable(target);
+    if (!g) { toast('select a group to take it apart', 2400); return null; }
+    const svg = diagramOf(target);
+    const name = g.getAttribute('data-node');
+    const joined = name ? connectorsIn(svg).filter((w) => w.getAttribute('data-from') === name || w.getAttribute('data-to') === name) : [];
+    const path = pathFrom(target.top, g);
+    let j;
+    try { j = await post('/deck/edit/element/group', { slide: target.slide, index: target.index, op: 'ungroup', path, tag: 'g' }); }
+    catch (e) { toast(`not taken apart: ${commit.why(e)}`, 6000); return null; }
+    let fresh;
+    try {
+      fresh = j.members.map((m) => liveNode(m.html, svg, { ids: true }));
+      g.replaceWith(...fresh);
+      joined.forEach((w, i) => { for (const end of ['from', 'to']) { const v = j.wires?.[i]?.[end]; if (v) w.setAttribute(`data-${end}`, v); } });
+      if (fresh[0] && pathFrom(target.top, fresh[0])?.join('.') !== j.members[0].path.join('.')) throw new Error('the members are not where the file put them');
+    } catch (e) { reloadFor('a group could not be taken apart as the file was', e); return null; }
+    refit(fresh, svg, connectorsIn(svg));
+    const drawn = fresh.filter((m) => isDrawn(m) && !NOT_PAINTED_TAGS.test(tagOf(m))).map(pickableOf);
+    if (drawn.length > 1) editbar.selectShapes?.(drawn); else if (drawn[0]) editbar.selectNode(drawn[0], { exact: true });
+    toast(`taken apart: ${drawn.length} shape${drawn.length === 1 ? '' : 's'}${joined.length ? `, ${joined.length === 1 ? 'its wire' : 'its wires'} joined to the nearest` : ''}`, 1800);
+    debugLog('edit', `ungroup: slide ${target.slide} element #${target.index} › ${path.join('.')} (${fresh.length} members)`);
+    return fresh;
+  }
+
+  /** "Make it a group": the plain `<g>` a selection stands in given `data-group`, then selected whole. */
+  async function markGroup(target) {
+    if (!editmode.available?.()) { cannotWrite('making a group'); return null; }
+    const g = markable(target);
+    if (!g) { toast('this is not inside a group of shapes', 2400); return null; }
+    try { await post('/deck/edit/element/group', { slide: target.slide, index: target.index, op: 'mark', path: pathFrom(target.top, g), tag: 'g' }); }
+    catch (e) { toast(`not made a group: ${commit.why(e)}`, 6000); return null; }
+    g.setAttribute('data-group', '');
+    editbar.selectNode(g, { exact: true });
+    toast('a group now: a click selects it whole, a second click a shape in it', 2600);
+    return g;
+  }
+
+  /** "Select the whole group": the plain `<g>` a selection stands in, selected, to move, copy or remove as one. */
+  function selectWhole(target) {
+    const g = wholeOf(target);
+    if (g) editbar.selectNode(g, { exact: true });
+    return g;
+  }
+
   editbar.onSelect?.((t) => { if (t) showHandles(t); else hideHandles(); });
   editmode.onElementEditChange?.(() => { if (!active()) hideHandles(); });
   instance.on?.('slide', () => hideHandles());
@@ -1793,6 +1916,10 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     canOrder, order, isOrderable: (target) => !!orderUnit(target),
     /** Several shapes of one diagram (editbar's selectedShapes): are these such, and what changes them all. */
     areShapes, nudge, arrange, removeMany, duplicateMany, styleMany,
+    /** Groups (SVG_DIAGRAMS): Group on several shapes; Ungroup, Select the whole group and Make it a group on one, and whether each applies. */
+    group, ungroup, markGroup, selectWhole,
+    canUngroup: (target) => !!ungroupable(target), hasWhole: (target) => !!wholeOf(target),
+    canMark: (target) => !!markable(target), isGroup: (target) => isGroup(target?.node),
     /** Is a drag, a resize or a wire being drawn under way? (the harnesses) */
     busy: () => !!(drag || resizing || wiring),
     /** The handles on screen, for the harnesses: `[{ el, hx, hy, end }]`. */

@@ -241,6 +241,7 @@ const ENGINE_GROUPS = {
     'shapeorder',
     'canvas',
     'severalshapes',
+    'shapegroup',
     'connectors',
     'connectmenu',
     'wirelabel',

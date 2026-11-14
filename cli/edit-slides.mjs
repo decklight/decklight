@@ -39,13 +39,13 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
-  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, removeNestedElements, moveSlideElement,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, groupDiagramNodes, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, removeNestedElements, moveSlideElement,
   duplicateSlideElement, removeSlideElements, duplicateSlideElements, moveSlideElements, joinSlideElements } from './edit.mjs';
 import { locateElement, openElement } from './edit-address.mjs';
 import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs, pasteSlideElement, withoutPageIds } from './edit.mjs';
 import { relativeAssets, pasteSection } from './paste.mjs';
 import { findInDeck, replaceInDeck } from './find-replace.mjs';
-import { setElementGeometry, setDiagramCanvas, addDiagramShape, duplicateDiagramNode, duplicateDiagramNodes, editConnector, CONNECTOR_OPS } from './edit.mjs';
+import { setElementGeometry, setDiagramCanvas, addDiagramShape, duplicateDiagramNode, duplicateDiagramNodes, editConnector, CONNECTOR_OPS, GROUP_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
 import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
@@ -469,6 +469,38 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * with `freeze`), and the narration's beats stay with their clicks. One
    * applyEdit, one undo. Answers the node's path now and each stamped order.
    */
+  /**
+   * `POST /deck/edit/element/group` — `{ slide, index, op, paths? | path, tag,
+   * quiet?, from? }` (SVG_DIAGRAMS, groups): `op: 'group'` wraps the nodes at
+   * `paths` in one `<g data-group>`, `'ungroup'` puts the members of the `<g>`
+   * at `path` back where it stood, `'mark'` gives that `<g>` `data-group`
+   * (groupDiagramNodes). One applyEdit, one undo; a refusal or a stale path
+   * is a 409. Answers the group's `path` and `markup`, or the `members` and
+   * the `wires` joined to them now.
+   */
+  function elementGroupRoute({ body, json }) {
+    const { slide, index, op, paths = null, path = null, tag = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !GROUP_OPS.includes(op)
+      || (op === 'group' ? !Array.isArray(paths) : !Array.isArray(path))) {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    let done = null;
+    let changed;
+    try {
+      changed = applyEdit((html) => { done = groupDiagramNodes(html, slide, index, { op, paths, path, tag }); return done.html; });
+    } catch (e) {
+      if (e.code !== 'STALE' && e.code !== 'REFUSED') throw e;
+      return json(409, { ok: false, error: oneline(e), ...(e.code === 'STALE' ? { stale: true } : {}) });
+    }
+    if (changed) console.log(`  diagram ${op === 'group' ? `${paths.length} nodes grouped` : op === 'mark' ? 'group marked' : 'group taken apart'}: slide ${slide} #${index}`);
+    if (changed && inPlace === true) {
+      quiet(readDeck());
+      broadcast('content', { slide, index, from: typeof from === 'string' ? from.slice(0, 64) : null });
+    }
+    const { html: _, ...answer } = done;
+    return json(200, { ok: true, changed, ...answer, inPlace: !!changed && inPlace === true, ...history.counts() });
+  }
+
   function elementOrderRoute({ body, json }) {
     const { slide, index, path, tag = null, to, groups = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !Array.isArray(path) || (groups !== null && !Array.isArray(groups))) {
@@ -1528,6 +1560,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/build', elementBuildRoute);
   routes.set('POST /deck/edit/element/move', elementMoveRoute);
   routes.set('POST /deck/edit/element/order', elementOrderRoute);
+  routes.set('POST /deck/edit/element/group', elementGroupRoute);
   routes.set('POST /deck/edit/element/duplicate', elementDuplicateRoute);
   routes.set('POST /deck/edit/element/join', elementJoinRoute);
   routes.set('POST /deck/edit/element/style', elementStyleRoute);

@@ -37,7 +37,7 @@ import { createWritingPicker, WRITING_TOOLS } from './writing.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { notesParts, withPart, hasClick, partFor, partLabel, wholeWhy } from './notesparts.js';
 import { hljs } from '../code/code.js';
-import { UNDO_CHORD, DUPLICATE_CHORD, IS_MAC, undoSaid } from './undo-chord.js';
+import { UNDO_CHORD, DUPLICATE_CHORD, GROUP_CHORD, UNGROUP_CHORD, IS_MAC, undoSaid } from './undo-chord.js';
 
 /** The chord that sends or saves from a panel's box, as this platform writes it (the panels' foot). */
 const SAVE_CHORD_HINT = IS_MAC ? '⌘⏎' : 'Ctrl+Enter';
@@ -2627,6 +2627,13 @@ export function createEditMode({
           rows.push({ label, disabled: !can, run: can ? () => { closeElementMenu(); shapes.order(target, to); } : () => {} });
         }
       }
+      // groups (SVG_DIAGRAMS): a group taken apart; a <g> the author wrote selected whole, or made a group
+      const groupRows = [
+        shapes.canUngroup?.(target) && { label: 'Ungroup', key: UNGROUP_CHORD, run: () => { closeElementMenu(); shapes.ungroup(target); } },
+        shapes.hasWhole?.(target) && { label: 'Select the whole group', run: () => { closeElementMenu(); shapes.selectWhole(target); } },
+        shapes.canMark?.(target) && { label: 'Make it a group', run: () => { closeElementMenu(); shapes.markGroup(target); } },
+      ].filter(Boolean);
+      if (groupRows.length) rows.push({ head: 'Group' }, ...groupRows);
       const svg = shapes.diagramOf(target);
       // the room round the drawing trimmed to an even margin (canvas.js)
       if (svg && canvas?.fits(svg)) {
@@ -2723,6 +2730,8 @@ export function createEditMode({
       // several shapes of one diagram: lined up, spaced, sized together, and one concept (SVG_DIAGRAMS)
       const shapesHere = several.areShapes?.(many);
       if (shapesHere) {
+        // Group (SVG_DIAGRAMS): one `<g data-group>` round them, picked as one from then on
+        if (shapes?.group) rows.push({ label: 'Group', key: GROUP_CHORD, run: go(() => shapes.group(many)) });
         rows.push({ label: 'Arrange ▸', run: keepSelection('arrange') });
         rows.push({ label: 'Concept ▸', run: keepSelection('concepts') });
       } else {
@@ -2749,7 +2758,9 @@ export function createEditMode({
       const nested = t.node && t.node !== t.top;
       const noop = () => {};
       if (inspectHook) rows.push({ label: 'Inspect', run: () => openInspect() });
-      rows.push({ label: 'Colors…', run: () => openInspect('colors') });
+      // a diagram's group has no paint of its own (SVG_DIAGRAMS): its members keep theirs
+      const aGroup = !!shapes?.isGroup?.(t);
+      rows.push({ label: 'Colors…', disabled: aGroup, run: aGroup ? noop : () => openInspect('colors') });
       rows.push({ label: 'Type…', run: () => openInspect('type') });
       // the format painter: this element's look onto another (style-clip.js)
       if (styleClip) {
@@ -2796,7 +2807,7 @@ export function createEditMode({
       if (pictures?.elementRows(t)?.length) rows.push({ label: 'Picture ▸', run: drill('picture') });
       if (shapes?.isWire?.(t)) rows.push({ label: 'Wire ▸', run: drill('wire') });
       if (shapes?.diagramOf(t)) rows.push({ label: 'Shape ▸', run: drill('shape') });
-      if (conceptOf(t.top, t.clicked)) rows.push({ label: 'Concept ▸', run: drill('concept') });
+      if (!aGroup && conceptOf(t.top, t.clicked)) rows.push({ label: 'Concept ▸', run: drill('concept') });
       rows.push({ label: 'Slide ▸', run: drill('slide') });
     }
     // a heading (`head`) names the rows under it and a `sep` rules a line:
