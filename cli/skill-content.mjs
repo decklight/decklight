@@ -392,10 +392,43 @@ recorded voice tracks, run \`decklight narrate --check deck.html --realign\`
 straight away, while the moved slides' notes still match their recordings
 (a running server moves the recordings with the slides itself).
 
-${librarySkillLines(librarySkills)}Hit a Decklight bug? Run \`npx decklight@latest report-bug\` for the environment
+${writingSkillLines(referenceHref)}${librarySkillLines(librarySkills)}Hit a Decklight bug? Run \`npx decklight@latest report-bug\` for the environment
 facts, then ask the user what happened, what they expected, and the smallest
 repro — and show them the whole issue before filing anything.
 ${AGENTS_MARKER}
+`;
+}
+
+/**
+ * Where the writing skills sit for a reader of AGENTS.md, from where its
+ * reference does: Claude's skills directory when the reference is Claude's
+ * copy (one set of files for a repo that has both), else `skills/` beside the
+ * shared reference. Always with forward slashes: it is written into a file.
+ */
+export function sharedSkillsHref(referenceHref) {
+  const claude = /^(.*skills\/)decklight\/reference\.md$/.exec(referenceHref);
+  if (claude) return claude[1];
+  const dir = referenceHref.includes('/') ? referenceHref.slice(0, referenceHref.lastIndexOf('/') + 1) : '';
+  return `${dir}skills/`;
+}
+
+/**
+ * The two writing skills, named for an agent that reads AGENTS.md and
+ * nothing else: no directory of skills is indexed for it, so these lines are
+ * the only way it learns they exist, and where.
+ */
+function writingSkillLines(referenceHref) {
+  const at = sharedSkillsHref(referenceHref);
+  return `Two writing skills come with this contract. Before you draft, review or
+rewrite a deck's content, read the one that fits the task and follow it, and
+plan a new deck with both before writing its first slide:
+- what goes on a slide (one point per slide, a visual in place of a bullet
+  wall, reviewing slides as the viewer sees them): read
+  \`${at}decklight-slide-writing/SKILL.md\`.
+- what is said over it (notes that add to the slide instead of reading it,
+  written for the ear, a story, a script every voice can speak): read
+  \`${at}decklight-voiceover/SKILL.md\`.
+
 `;
 }
 
@@ -501,6 +534,7 @@ export const voiceoverSkillMd = () => writingSkillMd('voiceover.md');
  */
 export const SIBLING_SKILLS = [
   { name: 'decklight-report-bug', md: reportBugSkillMd },
-  { name: 'decklight-slide-writing', md: slideWritingSkillMd },
-  { name: 'decklight-voiceover', md: voiceoverSkillMd },
+  // `shared`: also written for the agents that read AGENTS.md, which names them
+  { name: 'decklight-slide-writing', md: slideWritingSkillMd, shared: true },
+  { name: 'decklight-voiceover', md: voiceoverSkillMd, shared: true },
 ];

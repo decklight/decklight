@@ -1387,6 +1387,45 @@ test('skills installs the two writing skills beside the authoring one, stamped',
   assert.match(claudeSkillMd(), /decklight-voiceover/);
 });
 
+test('an AGENTS.md agent gets the writing skills as files its section names', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-ws-'));
+  t.after(() => rmTemp(dir));
+
+  // on its own: the files sit beside the shared reference
+  let res = spawnSync(process.execPath, [CLI, 'skills', 'codex', 'bob'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(res.status ?? 0, 0, res.stderr);
+  let agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  for (const [name, md] of [['decklight-slide-writing', slideWritingSkillMd()], ['decklight-voiceover', voiceoverSkillMd()]]) {
+    const rel = `.decklight/skills/${name}/SKILL.md`;
+    assert.ok(agents.includes(`\`${rel}\``), `the section names ${rel}`);
+    assert.equal(fs.readFileSync(path.join(dir, rel), 'utf8'), md, 'one source, no drift');
+  }
+  assert.ok(!fs.existsSync(path.join(dir, '.claude')), 'no Claude skill it never asked for');
+
+  // with Claude beside it: one set of files, Claude's, and the section follows
+  res = spawnSync(process.execPath, [CLI, 'skills', 'claude', 'codex', '--force'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(res.status ?? 0, 0, res.stderr);
+  agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  for (const name of ['decklight-slide-writing', 'decklight-voiceover']) {
+    const rel = `.claude/skills/${name}/SKILL.md`;
+    assert.ok(agents.includes(`\`${rel}\``), `the section names ${rel}`);
+    assert.ok(fs.existsSync(path.join(dir, rel)));
+  }
+  assert.equal(agents.split('decklight-voiceover/SKILL.md').length, 2, 'named once, never a second copy of the block');
+});
+
+test('--global gives each AGENTS.md agent its own copy of the writing skills', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-ws-'));
+  t.after(() => rmTemp(root));
+  const env = { ...process.env, CODEX_HOME: path.join(root, 'codex'), DECKLIGHT_HOME: path.join(root, 'dl') };
+  const res = spawnSync(process.execPath, [CLI, 'skills', 'codex', '--global'], { cwd: root, encoding: 'utf8', env });
+  assert.equal(res.status ?? 0, 0, res.stderr);
+  const agents = fs.readFileSync(path.join(root, 'codex/AGENTS.md'), 'utf8');
+  assert.match(agents, /`\.decklight\/skills\/decklight-voiceover\/SKILL\.md`/);
+  assert.equal(fs.readFileSync(path.join(root, 'codex/.decklight/skills/decklight-voiceover/SKILL.md'), 'utf8'), voiceoverSkillMd());
+  assert.ok(fs.existsSync(path.join(root, 'codex/.decklight/skills/decklight-slide-writing/SKILL.md')));
+});
+
 test('the writing skills agree on the plan, and the voiceover one on how a sentence is spoken', async () => {
   const slides = slideWritingSkillMd(), voice = voiceoverSkillMd();
   // one planning outline, word for word, so slide and voice are designed together
