@@ -4348,13 +4348,14 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
 }
 .decklight-inspector .ins-btn:hover, .decklight-inspector .ins-btn:focus-visible { background: rgba(255, 255, 255, .14); color: #fff; }
 /* the Builds tab (builds-panel.js): one row a click, in play order, with its beat */
-.decklight-inspector .ins-builds { margin: 2px 12px 8px; font-size: 12.5px; }
+.decklight-inspector .ins-builds { margin: 2px 12px 8px; font-size: 12.5px; container-type: inline-size; }
 .decklight-inspector .ins-builds :is(.bl-start, .bl-extra, .bl-foot) { display: flex; gap: 8px; padding: 5px 0; color: #c3c8d1; }
 .decklight-inspector .ins-builds .bl-head { flex: none; min-width: 7.5em; color: #8d94a1; }
-.decklight-inspector .ins-builds .bl-text { min-width: 0; overflow-wrap: anywhere; }
+.decklight-inspector .ins-builds .bl-text { min-width: 0; overflow-wrap: break-word; }
 .decklight-inspector .ins-builds .bl-extra .bl-text { font-style: italic; }
 .decklight-inspector .ins-builds .bl-foot { margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, .08); color: #8d94a1; }
-.decklight-inspector .ins-builds .bl-list { list-style: none; margin: 0; padding: 0; }
+/* the rows are the panel's width, not a slide list's 34em inline block (`.decklight ol`) */
+.decklight-inspector .ins-builds .bl-list { display: block; max-width: none; list-style: none; margin: 0; padding: 0; }
 .decklight-inspector .ins-builds .bl-go {
   display: grid; grid-template-columns: 1.6em minmax(0, 1fr) minmax(0, 9em); gap: 8px; align-items: baseline;
   width: 100%; padding: 5px 6px; border: 0; border-top: 1px solid rgba(255, 255, 255, .06); border-radius: 4px;
@@ -4367,7 +4368,7 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
 .decklight-inspector .ins-builds .bl-what { display: flex; flex-wrap: wrap; gap: 2px 6px; min-width: 0; }
 .decklight-inspector .ins-builds .bl-item { display: inline-flex; gap: 6px; min-width: 0; }
 .decklight-inspector .ins-builds .bl-fx { flex: none; color: #8d94a1; }
-.decklight-inspector .ins-builds .bl-label { min-width: 0; overflow-wrap: anywhere; }
+.decklight-inspector .ins-builds .bl-label { min-width: 0; overflow-wrap: break-word; }
 .decklight-inspector .ins-builds .bl-with { color: #8d94a1; font-style: italic; }
 .decklight-inspector .ins-builds .bl-beat { color: #aeb4be; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .decklight-inspector .ins-builds .bl-nobeat { color: #f2c46d; }
@@ -4377,7 +4378,18 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
 .decklight-inspector .ins-builds .bl-row:not([draggable="true"]) .bl-grip { cursor: default; opacity: .4; }
 .decklight-inspector .ins-builds .bl-tools { flex: none; display: inline-flex; gap: 4px; align-items: center; }
 .decklight-inspector .ins-builds .bl-tools .ins-btn { margin-left: 0; padding: 0 6px; }
+.decklight-inspector .ins-builds .bl-tools:empty { display: none; }   /* a code line's row: its block's, nothing to set */
 .decklight-inspector .ins-builds .bl-pick { font: inherit; font-size: 11.5px; color: #dfe3ea; background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .18); border-radius: 5px; padding: 0 2px; max-width: 7.5em; }
+/* a panel at its docked width (360px, 320 at its narrowest) has no room for a
+   row on one line: what arrives would be left a few pixels beside its beat and
+   its tools. There the beat goes under what arrives, and the tools under both. */
+@container (max-width: 42em) {
+  .decklight-inspector .ins-builds .bl-go { grid-template-columns: 1.6em minmax(0, 1fr); row-gap: 2px; }
+  .decklight-inspector .ins-builds .bl-beat { grid-column: 2; }
+  .decklight-inspector .ins-builds .bl-row { flex-wrap: wrap; }
+  .decklight-inspector .ins-builds .bl-row > .bl-go { flex: 1 1 0; width: auto; }
+  .decklight-inspector .ins-builds .bl-tools { flex: 0 0 100%; flex-wrap: wrap; justify-content: flex-end; padding: 0 6px 5px; box-sizing: border-box; }
+}
 .decklight-inspector .ins-builds .bl-dragging { opacity: .45; }
 .decklight-inspector .ins-builds .bl-drop-before { box-shadow: inset 0 2px 0 #9ecbff; }
 .decklight-inspector .ins-builds .bl-drop-after { box-shadow: inset 0 -2px 0 #9ecbff; }
