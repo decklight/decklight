@@ -35,6 +35,7 @@
 //   POST /deck/edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
 //   POST /deck/edit/element/move    → { slide, index, to, path?, tag? }  move it (or a node inside it) to place `to`
 //   POST /deck/edit/element/order   → { slide, index, path, tag, to, groups? }  a diagram's node to the front, forward, backward or back
+//   POST /deck/edit/element/group   → { slide, index, op, paths? | path, tag }  a diagram's shapes grouped, a group taken apart, a <g> marked
 //   POST /deck/edit/element/canvas  → { slide, index, path, viewBox, width?, height? }  a diagram's canvas: more room, or less
 //   POST /deck/edit/element/duplicate → { slide, index, path?, tag? }  a copy of it (or of a node inside it) right after it
 //   POST /deck/edit/element/picture → { slide, index, path?, width?, alt?, src?, caption? }  one picture's size, alt, file or caption
@@ -980,6 +981,181 @@ export function setDiagramOrder(html, slide, index, { path, tag = null, to }) {
   if (want < 0 || want >= drawn.length || want === here) throw refusedMove(`it is already ${want > here || to === 'front' || to === 'forward' ? 'at the front' : 'at the back'}`);
   const moved = moveSlideElement(html, slide, index, { to: drawn[want].i, path, tag });
   return { html: moved.html, path: moved.path };
+}
+
+// ── groups (SVG_DIAGRAMS) ────────────────────────────────────────────────────
+// A group is a `<g data-group>` in a diagram, holding two or more drawn
+// things. Write mode's Group wraps several shapes in one, Ungroup puts a
+// group's members back where it stood, and "Make it a group" marks a `<g>`
+// the author wrote. The `<g>` carries no paint: its members keep their own.
+
+export const GROUP_OPS = ['group', 'ungroup', 'mark'];
+/** What a group's `<g>` may carry and still come apart with nothing lost: its move, its mark, its name. */
+const GROUP_OWN = new Set(['transform', 'data-group', 'data-node']);
+/** Does this diagram build: a `data-build` on it or in it, or a stroke drawn in stages? */
+const buildsIn = (svgSrc) => /\sdata-(?:build|draw-stops)(?=[\s=/>])/i.test(svgSrc);
+const NO_GROUPS_WHILE_BUILDING = 'this diagram builds, and a group would change its clicks: group and ungroup in a diagram without builds for now';
+const ONLY_SPACE = /^[ \t]*$/;
+
+/**
+ * What a group's `<g>` at `at` holds, put back as its siblings would stand:
+ * each member moved by the group's translate (`dx`, `dy`) in its own
+ * coordinates (shiftSource, as a build step's are), or by its own
+ * `transform` when it has one, so nothing moves on screen; then one level
+ * of indentation taken off, `lead` being the group's. Comments between the
+ * members stay. Returns `{ src, members }`: the text and each member's
+ * markup, in order.
+ */
+function ungroupedSource(src, lead, dx, dy) {
+  const { attrs, close } = splitOpenTag(src);
+  const open = attrs.length + close.length;
+  const kids = elementChildRanges(src);
+  const shift = (s) => {
+    if (!dx && !dy) return s;
+    const head = splitOpenTag(s);
+    const t = attrOf(head.attrs, 'transform');
+    // a member that is rotated or scaled takes the move in front of its own transform: exact
+    if (t !== null) { const at = translateOf(t); return withAttr(head.attrs, 'transform', withTranslate(t, at.x + dx, at.y + dy) || null) + head.close + head.rest; }
+    try { return shiftSource(s, dx, dy, { step: true }); } catch { return shiftSource(s, dx, dy); }
+  };
+  const members = kids.map((k) => (NOT_PAINTED.has(k.tag) ? src.slice(k.start, k.end) : shift(src.slice(k.start, k.end))));
+  let inner = src.slice(open, src.lastIndexOf('</'));
+  for (let i = kids.length - 1; i >= 0; i--) inner = inner.slice(0, kids[i].start - open) + members[i] + inner.slice(kids[i].end - open);
+  const first = kids[0] ? src.slice(src.lastIndexOf('\n', kids[0].start - 1) + 1, kids[0].start) : '';
+  const own = ONLY_SPACE.test(lead) && kids.every((k) => { const nl = src.lastIndexOf('\n', k.start - 1); return nl >= 0 && ONLY_SPACE.test(src.slice(nl + 1, k.start)); });
+  if (!own) return { src: inner.trim(), members };
+  // one level of indentation off: what the first member stands at past the group's
+  const step = first.startsWith(lead) ? first.slice(lead.length) : '';
+  const lines = inner.split('\n').map((l) => (step && l.startsWith(lead + step) ? lead + l.slice(lead.length + step.length) : l));
+  while (lines.length && !lines[0].trim()) lines.shift();
+  while (lines.length && !lines.at(-1).trim()) lines.pop();
+  if (lines.length) lines[0] = lines[0].slice(lead.length);
+  return { src: lines.join('\n'), members: members.map((m) => (step ? m.split('\n').map((l, i) => (i && l.startsWith(lead + step) ? lead + l.slice(lead.length + step.length) : l)).join('\n') : m)) };
+}
+
+/** Where a wire's end is (`which`: 'from' its start, 'to' its end), in the svg's coordinates, or null. */
+function wireEnd(n, which) {
+  const a = n.attrs; const t = translateOf(attrOf(a, 'transform'));
+  const off = (p) => (p ? { x: n.at.x + t.x + p.x, y: n.at.y + t.y + p.y } : null);
+  if (n.tag === 'line') return off(which === 'from' ? { x: num(a, 'x1'), y: num(a, 'y1') } : { x: num(a, 'x2'), y: num(a, 'y2') });
+  const nums = String(attrOf(a, n.tag === 'path' ? 'd' : 'points') ?? '').match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+  if (nums.length < 2) return null;
+  return off(which === 'from' ? { x: nums[0], y: nums[1] } : { x: nums.at(-2), y: nums.at(-1) });
+}
+
+/**
+ * Group, Ungroup and "Make it a group" in a diagram (SVG_DIAGRAMS, groups),
+ * each one write:
+ *
+ *   `group`   the nodes at `paths` (`[{ path, tag }]`, two or more, siblings
+ *             in the file) wrapped in one `<g data-group>` standing where the
+ *             frontmost of them stood, their order kept. A node between them
+ *             that is not one ends up behind the group.
+ *   `ungroup` the `<g>` at `path` taken apart: its members put back where it
+ *             stood, in their order, its translate given to each (nothing
+ *             moves). A `<g>` with another transform, or with paint or a
+ *             name of its own its members would lose, is refused. A wire
+ *             joined to the group itself (its `data-node`) is joined to the
+ *             member nearest where it meets the group, that member named
+ *             when it is not, so no wire is left naming a node that is gone.
+ *   `mark`    the `<g>` at `path` (one the author wrote) given `data-group`.
+ *
+ * Refused in a diagram that builds: the steps are its children, and a group
+ * would change the clicks. Returns `{ html, path, markup }` (the group's path
+ * and markup) for group and mark; `{ html, members: [{ path, html }], wires }`
+ * for ungroup, `wires` the new ends of each wire that was joined to the
+ * group, in the file's order.
+ */
+export function groupDiagramNodes(html, slide, index, { op, paths = null, path = null, tag = null }) {
+  if (!GROUP_OPS.includes(op)) throw new Error(`group, ungroup or mark, not: ${String(op).slice(0, 20)}`);
+  const e = openElement(html, slide, index);
+  if (op === 'group') {
+    if (!Array.isArray(paths) || paths.length > 100) throw new Error('bad paths');
+    if (paths.length < 2) throw refusedMove('a group is two shapes or more: ⇧-click another to add it');
+    const ats = paths.map((p) => { checkPath(p?.path, { nested: true }); return { ...e.at(p.path, p.tag ?? null), path: p.path }; });
+    for (const a of ats) if (!a.inSvg || !DIAGRAM_NODES.has(a.found) || a.found === 'tspan') throw new Error(`a group is made of a diagram's shapes, not a <${a.found}>`);
+    if (new Set(ats.map((a) => a.path.slice(0, -1).join('.'))).size !== 1) throw refusedMove('these do not stand side by side in the file (one is inside a group or a box of its own): group shapes that share a parent');
+    if (new Set(ats.map((a) => a.path.at(-1))).size !== ats.length) throw new Error('the same shape twice');
+    if (buildsIn(e.src(ats[0].svg))) throw refusedMove(NO_GROUPS_WHILE_BUILDING);
+    const sorted = [...ats].sort((a, b) => a.start - b.start);
+    const front = sorted.at(-1);
+    const lead = e.lead(front);
+    const own = sorted.every((a) => ONLY_SPACE.test(e.lead(a)));
+    // one level in: the step from the parent's indentation to the front member's, else two spaces
+    const parentLead = e.lead(front.parent);
+    const step = own && lead.startsWith(parentLead) && lead.length > parentLead.length ? lead.slice(parentLead.length) : '  ';
+    const markup = own
+      ? `<g data-group>\n${sorted.map((a) => `${lead}${step}${e.src(a).replace(/\n/g, `\n${step}`)}`).join('\n')}\n${lead}</g>`
+      : `<g data-group>${sorted.map((a) => e.src(a)).join('')}</g>`;
+    e.splice(front.start, front.end, markup);
+    e.el = withoutNodes(e.el, sorted.slice(0, -1).map((a) => [a.start, a.end]));
+    return { html: e.html(), path: [...front.path.slice(0, -1), front.path.at(-1) - (sorted.length - 1)], markup };
+  }
+  checkPath(path, { nested: true });
+  let at = e.at(path, tag);
+  if (at.found !== 'g' || !at.inSvg) throw new Error(`${op === 'mark' ? 'Make it a group' : 'Ungroup'} is for a group in a diagram, not a <${at.found}>`);
+  if (op === 'mark') {
+    if (attrOf(splitOpenTag(e.src(at)).attrs, 'data-group') !== null) throw refusedMove('it is a group already');
+    e.edit(path, 'g', (a) => withAttr(a, 'data-group', true));
+    return { html: e.html(), path, markup: e.src(e.at(path, 'g')) };
+  }
+  if (buildsIn(e.src(at.svg))) throw refusedMove(NO_GROUPS_WHILE_BUILDING);
+  const { attrs } = splitOpenTag(e.src(at));
+  const extra = attrList(attrs).find((a) => !GROUP_OWN.has(a.name));
+  if (extra) throw refusedMove(`this group carries ${extra.written}${extra.raw === null ? '' : `="${extra.value.slice(0, 40)}"`}, which its shapes would lose: take it off in the HTML first, or keep the group`);
+  const transform = attrOf(attrs, 'transform');
+  if (transform !== null && transform.trim() && !/^\s*translate\([^)]*\)\s*$/i.test(transform)) throw refusedMove(`this group is ${transform.trim().slice(0, 40)}: only a group that was moved comes apart, its move given to each shape`);
+  if (!elementChildRanges(e.src(at)).length) throw refusedMove('this group holds nothing');
+  const { x: dx, y: dy } = translateOf(transform);
+  // a wire joined to the group: joined to the member nearest where it meets it
+  const name = attrOf(attrs, 'data-node');
+  const svgDepth = at.chain.indexOf(at.svg);
+  const svgPath = path.slice(0, svgDepth);
+  const wires = [];
+  if (name) {
+    const drawn = drawnNodes(e.src(at.svg));
+    const gRel = at.start - at.svg.start;
+    const gNode = drawn.find((n) => n.start === gRel);
+    const kids = drawn.filter((n) => n.path.length === gNode.path.length + 1 && n.start > gNode.start && n.end <= gNode.end);
+    // a member's middle in the svg's space: its own, or the first shape's inside it (a box group)
+    const middle = (k) => middleOf(k) ?? drawn.filter((n) => n.start >= k.start && n.end <= k.end && !WIRE_TAGS.has(n.tag) && n.tag !== 'text').map(middleOf).find(Boolean)
+      ?? drawn.filter((n) => n.start >= k.start && n.end <= k.end).map(middleOf).find(Boolean) ?? null;
+    const shapes = kids.filter((k) => !WIRE_TAGS.has(k.tag) || k.tag === 'path').map((k) => ({ ...k, middle: middle(k) })).filter((k) => k.middle);
+    if (!shapes.length) throw refusedMove('a wire is joined to this group and it holds no shape to join it to instead: remove the wire first');
+    const taken = new Set(nodeNamesIn(e.src(at.svg)));
+    const named = new Map();   // a member's path below the svg → the name it has now
+    const nameOf = (k) => {
+      const key = k.path.join('.');
+      if (named.has(key)) return named.get(key);
+      const own = attrOf(k.attrs, 'data-node');
+      const n = own ?? uniqueName(slugNode(wordsOf(k.src) || 'node'), taken);
+      taken.add(n);
+      named.set(key, n);
+      if (own === null) e.edit([...svgPath, ...k.path], k.tag, (a) => withAttr(a, 'data-node', n));
+      return n;
+    };
+    const attached = drawn.filter((n) => WIRE_TAGS.has(n.tag) && !(n.start >= gNode.start && n.end <= gNode.end)
+      && (attrOf(n.attrs, 'data-from') === name || attrOf(n.attrs, 'data-to') === name));
+    for (const w of attached) {
+      const ends = {};
+      for (const end of ['from', 'to']) {
+        if (attrOf(w.attrs, `data-${end}`) !== name) continue;
+        const p = wireEnd(w, end);
+        ends[end] = nameOf(nearest(shapes, p) ?? shapes[0]);
+      }
+      e.edit([...svgPath, ...w.path], w.tag, (a) => Object.entries(ends).reduce((h, [end, n]) => withAttr(h, `data-${end}`, n), a));
+      wires.push({ from: ends.from ?? attrOf(w.attrs, 'data-from'), to: ends.to ?? attrOf(w.attrs, 'data-to') });
+    }
+    at = e.at(path, 'g');
+  }
+  const out = ungroupedSource(e.src(at), e.lead(at), dx, dy);
+  e.splice(at.start, at.end, out.src);
+  const kidsAt = elementChildRanges(`<g>${out.members.join('')}</g>`);
+  return {
+    html: e.html(),
+    members: out.members.map((m, i) => ({ path: [...path.slice(0, -1), path.at(-1) + i], html: m, tag: kidsAt[i]?.tag ?? null })),
+    wires,
+  };
 }
 
 // ── a diagram's canvas (SVG_DIAGRAMS) ────────────────────────────────────────
@@ -2852,6 +3028,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/build': 'build changed',
   '/deck/edit/element/move': 'element moved',
   '/deck/edit/element/order': 'diagram order changed',
+  '/deck/edit/element/group': 'diagram shapes grouped',
   '/deck/edit/element/duplicate': 'element duplicated',
   '/deck/edit/element/join': 'elements joined into one',
   '/deck/edit/element/style': 'colours saved',
@@ -3011,6 +3188,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/build': 'build',
   '/deck/edit/element/move': 'move',
   '/deck/edit/element/order': 'front and back',
+  '/deck/edit/element/group': 'group',
   '/deck/edit/element/duplicate': 'duplicate',
   '/deck/edit/element/join': 'joined into one',
   '/deck/edit/element/style': 'colours',

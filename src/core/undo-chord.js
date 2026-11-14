@@ -24,6 +24,9 @@ export const UNDO_CHORD = IS_MAC ? '⌘Z' : 'Ctrl+Z';
 export const REDO_CHORD = IS_MAC ? '⌘⇧Z' : 'Ctrl+⇧Z';
 /** Duplicate the selection (PRESENTING_EDITING): the browser's bookmark chord, taken in write mode with something selected, as Keynote and Slides do. */
 export const DUPLICATE_CHORD = IS_MAC ? '⌘D' : 'Ctrl+D';
+/** Group and Ungroup a diagram's shapes (SVG_DIAGRAMS): the chords Keynote, Slides and PowerPoint use. */
+export const GROUP_CHORD = IS_MAC ? '⌘G' : 'Ctrl+G';
+export const UNGROUP_CHORD = IS_MAC ? '⇧⌘G' : 'Ctrl+Shift+G';
 
 /**
  * What the page says for an undo or redo, from what the server said the step

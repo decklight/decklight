@@ -77,6 +77,7 @@ export const ATTRIBUTES = [
   { name: 'data-on-wire' },
   { name: 'data-along', number: true },
   { name: 'data-shape', kind: 'shape', values: ['diamond', 'hexagon', 'cylinder', 'document', 'note', 'cloud'] },
+  { name: 'data-group', bare: true },
   { name: 'data-concept' },
   { name: 'data-nest', kind: 'nesting setting', values: ['on', 'off'] },
   { name: 'data-id' },

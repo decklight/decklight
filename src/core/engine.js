@@ -2952,7 +2952,11 @@ export function init(userConfig = {}) {
     // Keynote and Slides take it; with nothing selected the browser keeps it
     const duplicateChord = (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && e.code === 'KeyD'
       && editmode.elementEditOn() && !!editbar.selected();
-    if (!undoChord && !speakerChord && !styleChord && !moveChord && !duplicateChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
+    // ⌘G / Ctrl+G, ⇧ to take apart — group a diagram's shapes (SVG_DIAGRAMS):
+    // the browser's find-again chord, taken only with a diagram's shape selected
+    const groupChord = (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && e.code === 'KeyG'
+      && editmode.elementEditOn() && !!editbar.selected()?.node?.ownerSVGElement;
+    if (!undoChord && !speakerChord && !styleChord && !moveChord && !duplicateChord && !groupChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
     // An overlay that is up owns the keyboard — whether or not it wants this
     // particular key. Registration order (see `overlays.register` calls) is the
     // priority order the long if-chain here used to encode.

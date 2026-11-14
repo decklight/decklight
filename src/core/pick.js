@@ -36,6 +36,42 @@ export const injectedIn = (n, svg) => {
   return false;
 };
 
+/**
+ * The deepest drawn node under `clicked` in a diagram of `top` (a box, a
+ * label, a wire), the diagram's `<svg>` for its canvas, or null when the
+ * click is not in an author's diagram.
+ */
+function drawnAt(top, clicked) {
+  const svg = clicked.closest('svg');
+  if (!svg || !top.contains(svg) || svg.closest('[data-chart], .terminal') || svg.hasAttribute?.('data-ds-injected')) return null;
+  if (clicked.closest(NOT_THE_FILES) || injectedIn(clicked, svg)) return svg;
+  const drawn = clicked.closest(DRAWN);
+  return drawn && svg.contains(drawn) ? drawn : svg;
+}
+
+// ── groups (SVG_DIAGRAMS) ─────────────────────────────────────────────────
+// A group is a `<g data-group>` in a diagram. The first click on any of its
+// members selects the outermost group under the pointer; a click inside the
+// selected group goes one level down, to a group inside it or to the shape
+// under the pointer, as a second click reaches a block in a column; ⌥-click
+// goes straight to the shape; Escape steps back up one level. A `<g>`
+// without the mark (a box group, a step unit) is picked by the shape under
+// the pointer, as it always was.
+
+/** Is `n` a group: a `<g data-group>`? */
+export const isGroup = (n) => !!n?.matches?.('g[data-group]');
+/** The group right above `n` in its diagram, or null. */
+export function groupAbove(n) {
+  for (let p = n?.parentElement; p && !p.matches('svg'); p = p.parentElement) if (isGroup(p)) return p;
+  return null;
+}
+/** What `drawn` is, seen from inside `holder` (null: the diagram): the outermost group below `holder` holding it, else itself. */
+function levelBelow(holder, drawn) {
+  let out = drawn;
+  for (let g = groupAbove(drawn); g && g !== holder; g = groupAbove(g)) out = g;
+  return out;
+}
+
 /** The node a click on `clicked` selects inside the top-level block `top`. */
 export function pickNode(top, clicked) {
   if (!top || !clicked?.closest || !top.contains(clicked)) return top;
@@ -43,12 +79,26 @@ export function pickNode(top, clicked) {
   // what you resize, caption or make the background is it, not its box
   const img = clicked.closest('img');
   if (img && img !== top && top.contains(img) && !img.closest('svg, [data-chart], .terminal')) return img;
-  const svg = clicked.closest('svg');
-  if (!svg || !top.contains(svg) || svg.closest('[data-chart], .terminal')) return top;
-  if (svg.hasAttribute?.('data-ds-injected')) return top;
-  if (clicked.closest(NOT_THE_FILES) || injectedIn(clicked, svg)) return svg;
-  const drawn = clicked.closest(DRAWN);
-  return drawn && svg.contains(drawn) ? drawn : svg;
+  const drawn = drawnAt(top, clicked);
+  if (!drawn) return top;
+  // a member of a group: the outermost group holding it
+  return drawn.matches('svg') ? drawn : levelBelow(null, drawn);
+}
+
+/**
+ * What a click on `clicked` in a diagram selects while `cur` (a node of it,
+ * or null) is selected: inside the selected group, or beside a selected
+ * member of one, the next level down under the pointer; with ⌥, the shape
+ * itself; else what pickNode says. Undefined when the click is not on a
+ * diagram's drawn node.
+ */
+function groupLevel(top, clicked, cur, alt) {
+  const drawn = drawnAt(top, clicked);
+  if (!drawn || drawn.matches('svg')) return undefined;
+  if (alt) return drawn;
+  let holder = isGroup(cur) && cur.contains(clicked) ? cur : null;
+  for (let g = cur && !holder ? groupAbove(cur) : null; g && !holder; g = groupAbove(g)) if (g.contains(clicked)) holder = g;
+  return holder ? levelBelow(holder, drawn) : levelBelow(null, drawn);
 }
 
 // ── blocks at depth (PRESENTING_EDITING, Selection) ───────────────────────
@@ -89,10 +139,13 @@ export const atDepth = (top, node) => !!node && !!top && node !== top && top.con
  * the selected inner block itself, that block still; else the top-level block.
  */
 export function nodeForClick(top, clicked, current, { alt = false } = {}) {
+  const cur = current?.top === top ? current.node : null;
+  // a diagram's groups: one level a click (above)
+  const level = top?.contains?.(clicked) && !clicked.closest('img') ? groupLevel(top, clicked, cur, alt) : undefined;
+  if (level !== undefined) return level;
   const picked = pickNode(top, clicked);
   if (picked !== top) return picked;
   if (alt) return innermostBlock(top, clicked);
-  const cur = current?.top === top ? current.node : null;
   if (!cur || !top.contains(clicked)) return top;
   const holder = cur.contains(clicked) ? cur
     : atDepth(top, cur) && cur.parentElement.contains(clicked) ? cur.parentElement : null;
