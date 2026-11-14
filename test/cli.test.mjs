@@ -20,7 +20,7 @@ import { deckAt, deckHistory, restoreDeck } from '../cli/restore.mjs';
 import * as restoreMod from '../cli/restore.mjs';
 import { packSkill } from '../cli/skills.mjs';
 import { zipSync, crc32 } from '../cli/zip.mjs';
-import { claudeSkillMd, referenceDoc, reportBugSkillMd, agentsSection } from '../cli/skill-content.mjs';
+import { claudeSkillMd, referenceDoc, reportBugSkillMd, agentsSection, slideWritingSkillMd, voiceoverSkillMd, skillVersionOf, PKG } from '../cli/skill-content.mjs';
 import { probe, environmentBlock, issuesUrl } from '../cli/report-bug.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
@@ -1363,6 +1363,45 @@ test('skills installs the bug-reporting skill beside the authoring one', (t) => 
   // the authoring skill is untouched by its new sibling
   assert.ok(fs.existsSync(path.join(dir, '.claude/skills/decklight/SKILL.md')));
   assert.ok(fs.existsSync(path.join(dir, '.claude/skills/decklight/reference.md')));
+});
+
+test('skills installs the two writing skills beside the authoring one, stamped', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-ws-'));
+  t.after(() => rmTemp(dir));
+
+  const res = spawnSync(process.execPath, [CLI, 'skills', 'claude'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(res.status ?? 0, 0, res.stderr);
+
+  for (const [name, md] of [['decklight-slide-writing', slideWritingSkillMd()], ['decklight-voiceover', voiceoverSkillMd()]]) {
+    const skill = path.join(dir, '.claude/skills', name, 'SKILL.md');
+    assert.ok(fs.existsSync(skill), `wrote ${name}`);
+    assert.equal(fs.readFileSync(skill, 'utf8'), md, 'one source, no drift');
+    // the frontmatter Claude indexes on opens the file, and the stamp follows it
+    assert.match(md, new RegExp(`^---\\nname: ${name}\\ndescription: .+\\n---\\n<!-- decklight skill `));
+    assert.equal(skillVersionOf(md), PKG.version, 'stamped, so an older copy is refreshed');
+    // no skill of ours carries an em dash, and SPEC is cited by mnemonic
+    assert.doesNotMatch(md, /—|§/);
+  }
+  // the authoring skill sends its reader to both
+  assert.match(claudeSkillMd(), /decklight-slide-writing/);
+  assert.match(claudeSkillMd(), /decklight-voiceover/);
+});
+
+test('the writing skills agree on the plan, and the voiceover one on how a sentence is spoken', async () => {
+  const slides = slideWritingSkillMd(), voice = voiceoverSkillMd();
+  // one planning outline, word for word, so slide and voice are designed together
+  const outline = (md) => md.slice(md.indexOf('5. **Per slide**'), md.indexOf('| Beats |'));
+  assert.ok(outline(slides).length > 100);
+  assert.equal(outline(slides), outline(voice));
+  // each names the other, and both state the rule they share
+  assert.match(slides, /decklight-voiceover/);
+  assert.match(voice, /decklight-slide-writing/);
+  for (const md of [slides, voice]) assert.match(md, /\*\*The slide shows, the voice explains\.\*\*/);
+  // the skill's claim about periods is the splitter's behaviour: if the
+  // splitter learns to keep "2.5" whole, this fails and the skill is reworded
+  const { splitSentences } = await import('../tools/sentences.mjs');
+  assert.ok(splitSentences('Version 2.5 ships today.').length > 1);
+  assert.match(voice, /no periods inside a\s+sentence/);
 });
 
 test('the report-bug skill gates both consent moments in order', () => {

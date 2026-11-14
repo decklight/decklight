@@ -290,6 +290,15 @@ the pauses. Notes that drifted from their slide (another name for a term, a
 number the slide gives differently) are brought back in line with
 \`decklight enhance deck.html --match-slide --slides 3\`, the same checks again.
 
+**Two writing skills sit beside this one.** This skill is the contract for how
+a deck is built. What to put on a slide and what to say over it are their own
+skills, installed with this one: \`decklight-slide-writing\` (one point per
+slide, a visual in place of a bullet wall, reviewing slides as the viewer sees
+them) and \`decklight-voiceover\` (notes that add to the slide instead of
+reading it, written for the ear, a story, and a script every voice can speak).
+Use them whenever you draft, review or rewrite a deck's content, and plan a new
+deck with them before writing its first slide.
+
 **Installed marketplace skills sit beside this one.** \`decklight library add
 skill <name>\` installs a skill from a marketplace into
 \`~/.decklight/skills/<name>/SKILL.md\` (\`$DECKLIGHT_HOME/skills/\` when that is
@@ -469,3 +478,29 @@ telling them to drag it into the issue.
 them plainly that nothing was uploaded and nothing was filed.
 `;
 }
+
+/**
+ * The two writing skills: what goes on a slide, and what is said over it.
+ * Craft, where the authoring skill is contract, so each is its own skill an
+ * agent loads when the task is writing, and its own markdown file under
+ * `cli/skills/` because prose this long is edited as prose. The stamp goes in
+ * after the frontmatter, where the other skills carry theirs, so `decklight
+ * skills` refreshes an older copy the same way.
+ */
+function writingSkillMd(file) {
+  const text = fs.readFileSync(path.join(PKG_ROOT, 'cli', 'skills', file), 'utf8');
+  const end = text.indexOf('\n---\n', 4) + 5;
+  return `${text.slice(0, end)}${SKILL_STAMP()}\n${text.slice(end)}`;
+}
+export const slideWritingSkillMd = () => writingSkillMd('slide-writing.md');
+export const voiceoverSkillMd = () => writingSkillMd('voiceover.md');
+
+/**
+ * Every skill installed beside the authoring one, each in its own directory
+ * (Claude indexes one skill per SKILL.md) and none with a reference doc.
+ */
+export const SIBLING_SKILLS = [
+  { name: 'decklight-report-bug', md: reportBugSkillMd },
+  { name: 'decklight-slide-writing', md: slideWritingSkillMd },
+  { name: 'decklight-voiceover', md: voiceoverSkillMd },
+];

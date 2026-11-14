@@ -33,7 +33,7 @@ import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 import { zipSync } from './zip.mjs';
 import {
-  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, homePath, referenceDoc, reportBugSkillMd, skillVersionOf,
+  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, homePath, referenceDoc, skillVersionOf, SIBLING_SKILLS,
 } from './skill-content.mjs';
 import { semverCompare } from '../tools/semver.mjs';
 import { librarySkills } from './units.mjs';
@@ -104,6 +104,10 @@ Claude Code gets a real skill (.claude/skills/decklight/); Codex, OpenCode
 and IBM Bob get a marked section in AGENTS.md. Both point at a reference
 sliced from this version's SPEC.md, so the contract never drifts from the
 installed runtime.
+
+Claude Code also gets three skills beside it, each in its own directory:
+decklight-slide-writing (what goes on a slide), decklight-voiceover (what is
+said over it) and decklight-report-bug.
 
 Marketplace skills (decklight library add skill <name>) are a different thing and
 live somewhere else — ~/.decklight/skills/ — so they sit ALONGSIDE the
@@ -197,13 +201,15 @@ function installClaudeSkill(skillDir, force, written) {
 }
 
 /**
- * The bug-reporting skill, a sibling of the authoring one (#73). Its own
- * directory because Claude indexes one skill per SKILL.md, and it carries no
- * reference doc — the authoring contract is not what filing a bug needs.
+ * The skills that sit beside the authoring one: filing a bug (#73), and the
+ * two writing skills. Each has its own directory because Claude indexes one
+ * skill per SKILL.md, and none carries a reference doc: the authoring
+ * contract is not what filing a bug or wording a slide needs.
  */
-function installReportBugSkill(skillsRoot, force, written) {
-  const dir = path.join(skillsRoot, 'decklight-report-bug');
-  written.push(wrote(writeIfAbsent(path.join(dir, 'SKILL.md'), reportBugSkillMd(), force)));
+function installSiblingSkills(skillsRoot, force, written) {
+  for (const { name, md } of SIBLING_SKILLS) {
+    written.push(wrote(writeIfAbsent(path.join(skillsRoot, name, 'SKILL.md'), md(), force)));
+  }
 }
 
 // --- marketplace skills, handed on to the agents (#880) ----------------------
@@ -395,7 +401,7 @@ function installProject(targets, dir, force) {
   if (wantsClaude) {
     const skillsRoot = path.join(root, '.claude', 'skills');
     installClaudeSkill(path.join(skillsRoot, 'decklight'), force, written);
-    installReportBugSkill(skillsRoot, force, written);
+    installSiblingSkills(skillsRoot, force, written);
     syncLibrarySkills(skillsRoot, written);
   }
   if (mdAgents.length) {
@@ -417,7 +423,7 @@ function installGlobal(targets, env, force) {
     const home = t.home(env);
     if (t.kind === 'skill') {
       installClaudeSkill(path.join(home, 'skills', 'decklight'), force, written);
-      installReportBugSkill(path.join(home, 'skills'), force, written);
+      installSiblingSkills(path.join(home, 'skills'), force, written);
       syncLibrarySkills(path.join(home, 'skills'), written);
     } else {
       written.push(wrote(writeIfAbsent(path.join(home, SHARED_REF), referenceDoc(), force)));
@@ -472,7 +478,7 @@ export function refreshSkills(stale, { dir = '.', env = process.env } = {}) {
   const project = stale.filter((s) => s.scope === 'project');
   if (project.some((s) => s.target === 'claude')) {
     installClaudeSkill(path.join(root, '.claude', 'skills', 'decklight'), false, written);
-    installReportBugSkill(path.join(root, '.claude', 'skills'), false, written);
+    installSiblingSkills(path.join(root, '.claude', 'skills'), false, written);
   }
   if (project.some((s) => s.target === 'agents')) {
     const hasClaude = fs.existsSync(path.join(root, CLAUDE_REF));
