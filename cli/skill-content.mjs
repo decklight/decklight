@@ -208,7 +208,10 @@ deck's normal code size, and does it again when the slide changes: a caption
 removed, ten lines added, another theme. A \`font-size\` set by hand on the
 section or the \`<pre>\` is right for one layout and clipped or tiny after the
 next edit. Several blocks that should match go in one \`<div data-fit>\`
-(CODE_AND_MATH in the reference).
+(CODE_AND_MATH in the reference). When the code is the slide, a few lines on
+an otherwise empty slide, write \`data-fit="fill"\`: short code grows into the
+room, up to the theme's \`--code-max-size\`, and long code still shrinks.
+\`decklight check\` warns (\`code-font-size\`) at a hand-set size on code.
 
 **A line walk that should finish on the whole block ends with
 \`data-lines-end="all"\`, not a trailing \`|all\` step.** \`|all\` is one more click,

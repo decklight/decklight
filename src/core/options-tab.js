@@ -23,7 +23,7 @@ import { createEditCommit } from './edit-commit.js';
 import { pathFrom } from './colorpicker.js';
 import { nodeAtPath } from './authoring.js';
 import { UNDO_CHORD } from './undo-chord.js';
-import { CODE_LANGUAGES, languageOf, lineCount, specOf, stepError, stepsOf, toggleLine } from '../../tools/code-options.mjs';
+import { CODE_LANGUAGES, FIT_MODES, fitAttr, fitOf, languageOf, lineCount, specOf, stepError, stepsOf, toggleLine } from '../../tools/code-options.mjs';
 
 /** How long the fields rest before what they say is written: the chart grid's. */
 const QUIET_MS = 700;
@@ -130,7 +130,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
       return {
         raw, language: languageOf(raw),
         numbers: node.hasAttribute('data-lines-numbers'),
-        fit: node.hasAttribute('data-fit'),
+        fit: fitOf(node.getAttribute('data-fit')),
         steps: stepsOf(node.getAttribute('data-lines')),
         endLit: node.getAttribute('data-lines-end') === 'all',
       };
@@ -165,8 +165,9 @@ export function createOptionsTab({ instance, editmode, toast }) {
       for (const c of [...code.classList]) if (c.startsWith('language-') || c === 'hljs') code.classList.remove(c);
       if (lang) code.classList.add(`language-${lang}`);
       pre.toggleAttribute('data-lines-numbers', state.numbers);
-      pre.toggleAttribute('data-fit', state.fit);
-      if (!state.fit) {
+      const fit = fitAttr(state.fit);
+      if (fit === null) pre.removeAttribute('data-fit'); else pre.setAttribute('data-fit', fit === true ? '' : fit);
+      if (fit === null) {
         // the size data-fit set goes with it: the block's own style is the file's
         pre.removeAttribute('data-fit-scale');
         if (srcStyle === null) pre.removeAttribute('style'); else pre.setAttribute('style', srcStyle);
@@ -192,7 +193,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
       const set = {};
       if (dirty.has('language') && state.language !== null) set.language = state.language;
       if (dirty.has('numbers')) set['data-lines-numbers'] = state.numbers ? true : null;
-      if (dirty.has('fit')) set['data-fit'] = state.fit ? true : null;
+      if (dirty.has('fit')) set['data-fit'] = fitAttr(state.fit);
       if (dirty.has('steps') && validSteps()) set['data-lines'] = specOf(state.steps);
       if (dirty.has('endLit')) set['data-lines-end'] = state.endLit ? 'all' : null;
       return set;
@@ -312,8 +313,14 @@ export function createOptionsTab({ instance, editmode, toast }) {
       row(grid, 'language', 'Language', 'how its words are coloured', pick);
       row(grid, 'numbers', 'Line numbers', 'a number in front of every line',
         check('numbers', 'Line numbers', null, () => state.numbers, (v) => { state.numbers = v; }));
-      row(grid, 'fit', 'Fit to its space', 'as large as the slide has room for, never larger than its own size',
-        check('fit', 'Fit to its space', null, () => state.fit, (v) => { state.fit = v; }));
+      // fit: off, shrink (never past its own size), or fill (grows short code into the room too)
+      const fitPick = Object.assign(document.createElement('select'), { className: 'ins-field ins-select' });
+      fitPick.setAttribute('aria-label', 'Fit');
+      for (const [v, label] of FIT_MODES) fitPick.append(Object.assign(document.createElement('option'), { value: v, textContent: label }));
+      fitPick.value = state.fit;
+      keys(fitPick);
+      fitPick.addEventListener('change', () => { state.fit = fitPick.value; change('fit'); });
+      row(grid, 'fit', 'Fit', 'shrink to fit: as large as the slide has room for, never larger than its own size · fill: short code grows into the room too', fitPick);
       grid.append(h('div', 'ins-group', 'Light up lines, one click each'));
       const list = h('div', 'ins-steps');
       stepRows(list);

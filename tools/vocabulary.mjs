@@ -93,7 +93,7 @@ export const ATTRIBUTES = [
   { name: 'data-lines-numbers', bare: true },
   { name: 'data-lines-end', kind: 'line walk ending', values: ['all'] },
   { name: 'data-lines-print', kind: 'printed line walk', values: ['all', 'last'] },
-  { name: 'data-fit', bare: true },
+  { name: 'data-fit', kind: 'fit', values: ['fill'], bare: true },
 
   // ── terminals ─────────────────────────────────────────────────────────────
   { name: 'data-cast' },

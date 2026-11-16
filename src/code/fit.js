@@ -1,12 +1,14 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Code that fits its space — SPEC CODE_AND_MATH, `data-fit` (#958).
+// Code that fits its space — SPEC CODE_AND_MATH, `data-fit` (#958, #1185).
 //
 // `data-fit` on a `<pre>`, or on an element holding several, sizes the code to
 // the room its slide gives it: as large as fits, never larger than the size the
-// block has with no `font-size` of its own. Every block under one fit host
-// shares one size.
+// block has with no `font-size` of its own. `data-fit="fill"` lifts that cap to
+// the theme's `--code-max-size` (twice the code's own size when unset), so five
+// lines on an empty slide grow into it; long code still shrinks. Every block
+// under one fit host shares one size.
 //
 // IT MEASURES, IT NEVER ASKS THE GUARDRAIL. A design-system slot can set
 // `overflow: hidden`, and a slot that centres its content overflows past its
@@ -24,6 +26,20 @@
 
 /** The smallest a fitted block goes, as a share of its own size. */
 export const FIT_MIN = 0.3;
+/** `data-fit="fill"`'s cap with no `--code-max-size`: twice the code's own size. */
+export const FILL_MAX = 2;
+
+/**
+ * The scale a fit host comes to: `largestFitting` up to 1 for a plain fit, and
+ * for fill up to `cap` (never below 1: fill never leaves code smaller than a
+ * plain fit would). Fill looks above 1 only when the block fits at its own
+ * size, so long code costs fill what it costs a plain fit. Pure, for the test.
+ */
+export function fitScale(fits, { fill = false, cap = FILL_MAX, min = FIT_MIN } = {}) {
+  const max = fill ? Math.max(1, cap) : 1;
+  if (max > 1 && fits(1)) return largestFitting(fits, { min: 1, max });
+  return largestFitting(fits, { min, max: 1 });
+}
 
 /**
  * The largest scale in [min, max] for which `fits(scale)` holds, by bisection.
@@ -67,10 +83,18 @@ function contentBox(el) {
   };
 }
 
+/**
+ * Width a block keeps free at its right, in its own CSS px, that its lines may
+ * not grow into. Nothing yet: it is the hook for the callouts' gutter (#1182),
+ * which returns the gutter's width here for a block that has one, so fill
+ * stops short of it while the block itself keeps its full width.
+ */
+const reservedWidth = (/* pre */) => 0;
+
 /** Does the code, at its current size, sit inside every box between it and the slide? */
 function fitsNow(pres, chain) {
   for (const pre of pres) {
-    if (pre.scrollWidth > pre.clientWidth + TOL || pre.scrollHeight > pre.clientHeight + TOL) return false;
+    if (pre.scrollWidth + reservedWidth(pre) > pre.clientWidth + TOL || pre.scrollHeight > pre.clientHeight + TOL) return false;
   }
   for (let i = 0; i < chain.length; i++) {
     const box = contentBox(chain[i]);
@@ -92,6 +116,24 @@ function fitsNow(pres, chain) {
   return true;
 }
 
+/**
+ * The largest scale `--code-max-size` allows `pre`'s code, measured where the
+ * token is read (so a template's or a theme's own value counts): a length,
+ * `em` being the block's own text size. Unset: FILL_MAX.
+ */
+function capScale(pre) {
+  const cs = getComputedStyle(pre);
+  if (!cs.getPropertyValue('--code-max-size').trim()) return FILL_MAX;
+  const code = pre.querySelector(':scope > code') ?? pre;
+  const own = parseFloat(getComputedStyle(code).fontSize) || parseFloat(cs.fontSize) || 16;
+  const probe = document.createElement('span');
+  probe.style.cssText = 'position:absolute;visibility:hidden;font-size:var(--code-max-size)';
+  pre.append(probe);
+  const px = parseFloat(getComputedStyle(probe).fontSize);
+  probe.remove();
+  return px > 0 ? px / own : FILL_MAX;
+}
+
 /** One fit host: its blocks share the largest size that fits. */
 function fitHost(host, section) {
   const pres = host.matches('pre') ? [host] : [...host.querySelectorAll('pre')];
@@ -110,10 +152,12 @@ function fitHost(host, section) {
   const apply = (scale) => pres.forEach((pre, i) => {
     pre.style.setProperty('font-size', `${(basePx * scale / parentPx[i]).toFixed(4)}em`);
   });
-  const scale = largestFitting((s) => { apply(s); return fitsNow(pres, chain); });
-  if (scale >= 1) for (const pre of pres) pre.style.removeProperty('font-size');
+  const fill = (host.getAttribute('data-fit') ?? '').trim().toLowerCase() === 'fill';
+  const cap = fill ? Math.min(...pres.map(capScale)) : 1;
+  const scale = fitScale((s) => { apply(s); return fitsNow(pres, chain); }, { fill, cap });
+  if (scale === 1) for (const pre of pres) pre.style.removeProperty('font-size');
   else apply(scale);
-  host.setAttribute('data-fit-scale', scale >= 1 ? '1' : scale.toFixed(3));
+  host.setAttribute('data-fit-scale', scale === 1 ? '1' : scale.toFixed(3));
 }
 
 /**

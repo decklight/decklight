@@ -581,6 +581,19 @@ test('Fix it and Explain further name the element a finding is about, every one 
   assert.doesNotMatch(agentPrompt({ ...f, at: undefined }), /element path/, 'a finding about no one element says nothing of one');
 });
 
+test('code sized by hand is a warning that names data-fit (#1185)', () => {
+  const html = deck(`  <section><h2>Pre</h2><pre style="font-size: 1.4em"><code>SELECT 1;</code></pre></section>
+  <section style="font-size:30px"><h2>Section</h2><pre data-fit><code>SELECT 1;</code></pre></section>
+  <section style="font-size:30px"><h2>No code</h2><p>words</p></section>
+  <section><h2>Fitted</h2><pre data-fit="fill" style="color: red"><code>SELECT 1;</code></pre></section>`);
+  const found = only(staticFindings(html, everything), 'code-font-size');
+  assert.deepEqual(found.map((f) => f.slide), [1, 2], 'a section with no code, and a block with no size, are left alone');
+  assert.ok(found.every((f) => f.level === 'warn' && /data-fit/.test(f.message) && /data-fit="fill"/.test(f.message)));
+  assert.match(found[0].message, /<pre> sets font-size: 1\.4em/);
+  assert.deepEqual(found[0].at, { path: [1], tag: 'pre' }, 'the block is named, for Fix it');
+  assert.match(found[1].message, /the slide sets font-size: 30px and holds code/);
+});
+
 test('a framed web page is a warning: blank in no-trust mode, in a video export and offline', () => {
   const html = deck(`  <section><h2>Live</h2><iframe src="https://status.example.com/board" title="Status"></iframe></section>
   <section><h2>Ours</h2><iframe src="local/page.html" title="Ours"></iframe></section>`);

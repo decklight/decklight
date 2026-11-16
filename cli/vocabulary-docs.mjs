@@ -65,7 +65,7 @@ export const ATTRIBUTE_DOCS = {
   'data-lines-numbers': { on: 'pre', desc: 'Shows line numbers.' },
   'data-lines-end': { on: 'pre', desc: 'all: the line walk ends with every line lit, with no extra click.' },
   'data-lines-print': { on: 'pre', desc: 'last: print and export the walk\'s last step, dimming and all (by default a stepped block prints whole).' },
-  'data-fit': { on: 'pre, or what holds several', desc: 'Sizes the code to the room the slide gives it.' },
+  'data-fit': { on: 'pre, or what holds several', desc: 'Sizes the code to the room the slide gives it: bare, it only shrinks long code; fill, it grows short code too, up to --code-max-size.' },
   'data-cast': { on: 'div.terminal', desc: 'The recorded session to play, a .cast.json file.' },
   'data-cast-inline': { on: 'div.terminal', desc: 'The recorded session embedded in this page, as #id of its script block.' },
   'data-mode': { on: 'div.terminal', desc: 'step: one command per click; play: it plays through.' },

@@ -35,14 +35,14 @@ const SLOT = 'flex:1; min-height:0; display:flex; flex-direction:column; justify
  * first fit has landed; `act` may change the slide in between, and the sample
  * at 700ms is after the watch has heard it and refitted.
  */
-function page(name, body, { act = '', print = false } = {}) {
+function page(name, body, { act = '', print = false, head = '', attrs = '' } = {}) {
   const file = path.join(dir, `${name}.html`);
   writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="${path.join(root, 'dist/decklight.css')}">
-<link rel="stylesheet" href="${path.join(root, 'themes/aurora.css')}"></head>
+<link rel="stylesheet" href="${path.join(root, 'themes/aurora.css')}">${head}</head>
 <body><div class="decklight">
 <section><h1>Cover</h1></section>
-<section id="s">${body}</section>
+<section id="s"${attrs}>${body}</section>
 </div>
 <pre id="test-sink">running…</pre>
 <script src="${path.join(root, 'dist/decklight.js')}"></script>
@@ -58,6 +58,7 @@ const sample = () => {
   const slot = sec.querySelector('.slot') || sec;
   return {
     sizes: pres.map((p) => parseFloat(getComputedStyle(p).fontSize)),
+    codeSizes: pres.map((p) => parseFloat(getComputedStyle(p.querySelector('code')).fontSize)),
     scale: sec.querySelector('[data-fit-scale]')?.getAttribute('data-fit-scale') ?? null,
     inline: pres.map((p) => p.style.fontSize),
     inSlot: pres.every((p) => inside(p, slot)),
@@ -150,6 +151,52 @@ const caption = '<p class="cap">A caption under the code, taking its share of th
   const r = run(page('hand', slot(code(30, 'style="font-size:0.5em"'))));
   check('no data-fit: the author\'s font-size stands', r.before.inline[0] === '0.5em' && r.before.scale === null,
     `inline="${r.before.inline[0]}" scale=${r.before.scale}`);
+}
+
+// ── data-fit="fill" (#1185): short code grows into the room ────────────────
+{
+  const own = run(page('fill-own', slot(code(3, ''))));
+  const r = run(page('fill', slot(code(3, 'data-fit="fill"'))));
+  check('fill: short code grows past its own size', r.before.sizes[0] > own.before.sizes[0] && Number(r.before.scale) > 1,
+    `${own.before.sizes[0]}px → ${r.before.sizes[0]}px scale=${r.before.scale}`);
+  check('fill: no further than twice its own size', Number(r.before.scale) <= 2, `scale=${r.before.scale}`);
+  check('fill: and still fits', r.before.inSlot && !r.before.scrolls && !r.before.overflow,
+    `inSlot=${r.before.inSlot} scrolls=${r.before.scrolls} overflow=${r.before.overflow}`);
+}
+{
+  // two long lines in a tall slot: the width runs out before the height
+  const r = run(page('fill-wide', slot(code(2, 'data-fit="fill"', 60))));
+  check('fill: stops where the width runs out', Number(r.before.scale) > 1 && Number(r.before.scale) < 2 && !r.before.scrolls && r.before.inSlot,
+    `scale=${r.before.scale} scrolls=${r.before.scrolls}`);
+}
+{
+  const r = run(page('fill-long', slot(code(30, 'data-fit="fill"') + caption)));
+  check('fill: long code still shrinks', Number(r.before.scale) < 1 && r.before.inSlot && r.before.captionInSlot && !r.before.scrolls,
+    `scale=${r.before.scale} inSlot=${r.before.inSlot}`);
+}
+{
+  const r = run(page('fill-cap', slot(code(1, 'data-fit="fill"', 4)), { head: '<style>.decklight { --code-max-size: 22px }</style>' }));
+  check('fill: capped at --code-max-size', Math.abs(r.before.codeSizes[0] - 22) < 0.5, `code text ${r.before.codeSizes[0]}px`);
+}
+{
+  // a design system's template sets its own cap (DESIGN_SYSTEMS)
+  const r = run(page('fill-template', slot(code(1, 'data-fit="fill"', 4)), {
+    head: '<style>.decklight section[data-template="acme/code"] { --code-max-size: 26px }</style>', attrs: ' data-template="acme/code"',
+  }));
+  check('fill: a template\'s own cap', Math.abs(r.before.codeSizes[0] - 26) < 0.5, `code text ${r.before.codeSizes[0]}px`);
+}
+{
+  const r = run(page('fill-shared', slot(`<div data-fit="fill">${code(2, '')}${code(4, '')}</div>`)));
+  check('fill, one host, two blocks: one size, grown', r.before.sizes[0] === r.before.sizes[1] && Number(r.before.scale) > 1,
+    `${r.before.sizes.join('px, ')}px scale=${r.before.scale}`);
+  check('fill, one host, two blocks: both fit', r.before.inSlot && !r.before.scrolls, `inSlot=${r.before.inSlot}`);
+}
+{
+  const r = run(page('fill-caption', slot(code(5, 'data-fit="fill"')), {
+    act: "sec.querySelector('.slot').insertAdjacentHTML('beforeend', '<p class=\"cap\">A caption added under the code.</p><p>And another.</p><p>And a third.</p>');",
+  }));
+  check('fill, a caption added: the code gives it room', r.after.sizes[0] < r.before.sizes[0] && r.after.inSlot && r.after.captionInSlot,
+    `${r.before.sizes[0]}px → ${r.after.sizes[0]}px captionInSlot=${r.after.captionInSlot}`);
 }
 
 // ── print: the same fit, so `decklight pdf` sees what the browser shows ────
