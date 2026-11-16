@@ -470,6 +470,11 @@ export function init(userConfig = {}) {
     console.warn('Decklight: init() called again on a running deck — returning the existing instance');
     return root.__decklight;
   }
+  // a render is a still: a line walk that ends lit is drawn lit at its last
+  // step, and `?capture=print` (the pptx export) is the printed page, whose
+  // stepped blocks print whole (CODE_AND_MATH)
+  if (captureMode) root.classList.add('decklight-capture');
+  if (params.get('capture') === 'print') root.classList.add('decklight-capture-print');
 
   // Which dialog owns the keyboard right now. Filled in below the features, in
   // priority order; consulted by onKey before the deck's own shortcuts.

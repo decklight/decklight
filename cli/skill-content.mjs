@@ -210,6 +210,14 @@ section or the \`<pre>\` is right for one layout and clipped or tiny after the
 next edit. Several blocks that should match go in one \`<div data-fit>\`
 (CODE_AND_MATH in the reference).
 
+**A line walk that should finish on the whole block ends with
+\`data-lines-end="all"\`, not a trailing \`|all\` step.** \`|all\` is one more click,
+so the notes need one more \`[click]\` beat with nothing new to say.
+\`<pre data-lines="1-2|3-5|6" data-lines-end="all">\` lifts the dimming after
+the last step's beat (at the next build, or as the slide leaves) and costs no
+click. Printed and exported, a stepped block shows whole anyway;
+\`data-lines-print="last"\` keeps the last step's dimming on the page.
+
 **A diagram line that draws is one stroke, with everything on it.** A
 \`data-build="draw"\` container draws its strokes in; an arrowhead is a
 \`<marker>\` on the stroke's \`marker-end\` (it rides the tip), a dashed line is

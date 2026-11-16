@@ -1319,6 +1319,19 @@
 }
 .decklight .code-line.line-dim { opacity: var(--dim-opacity); }
 .decklight .code-line.line-hl { opacity: 1; }
+/* data-lines-end="all": the walk ends lit with no step of its own. Its last
+   step keeps its dimming while it is the click on screen; the dimming lifts at
+   the next build of the slide, as the slide leaves, and wherever the slide is
+   a picture of its end (the overview, print, a still). CODE_AND_MATH */
+.decklight pre[data-lines-end="all"].lines-past .code-line.line-dim,
+.decklight section.leaving pre[data-lines-end="all"].lines-last .code-line.line-dim,
+.decklight .ov-clone pre[data-lines-end="all"].lines-last .code-line.line-dim,
+.decklight.decklight-print pre[data-lines-end="all"].lines-last .code-line.line-dim,
+.decklight.decklight-capture pre[data-lines-end="all"].lines-last .code-line.line-dim { opacity: 1; }
+/* the printed page (?print, PDF, PPTX) shows a stepped block whole, whatever
+   its last step lit; data-lines-print="last" keeps that step's dimming */
+.decklight.decklight-print pre.stepping:not([data-lines-print="last"]) .code-line.line-dim,
+.decklight.decklight-capture-print pre.stepping:not([data-lines-print="last"]) .code-line.line-dim { opacity: 1; }
 
 /* hljs token → theme token mapping (no separate hljs theme files) */
 .decklight .hljs-keyword, .decklight .hljs-literal, .decklight .hljs-selector-tag { color: var(--hl-keyword, #c792ea); }

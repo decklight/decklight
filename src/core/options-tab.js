@@ -112,7 +112,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
     // what the file has: the block's code, and its settings as last written
     let text = null;
     let total = 0;
-    let saved = null;     // { language, raw, numbers, fit, steps }
+    let saved = null;     // { language, raw, numbers, fit, steps, endLit }
     let state = null;     // what the slide shows now
     let srcStyle = null;  // the block's own style attribute in the file
     let problem = null;
@@ -132,6 +132,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
         numbers: node.hasAttribute('data-lines-numbers'),
         fit: node.hasAttribute('data-fit'),
         steps: stepsOf(node.getAttribute('data-lines')),
+        endLit: node.getAttribute('data-lines-end') === 'all',
       };
     };
     async function load() {
@@ -171,6 +172,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
         if (srcStyle === null) pre.removeAttribute('style'); else pre.setAttribute('style', srcStyle);
       }
       if (validSteps()) { const spec = specOf(state.steps); if (spec) pre.setAttribute('data-lines', spec); else pre.removeAttribute('data-lines'); }
+      if (state.endLit) pre.setAttribute('data-lines-end', 'all'); else pre.removeAttribute('data-lines-end');
       // set up again from its source: highlighted, lined and stepped as at load
       code.textContent = text;
       const sec = pre.closest('section');
@@ -192,6 +194,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
       if (dirty.has('numbers')) set['data-lines-numbers'] = state.numbers ? true : null;
       if (dirty.has('fit')) set['data-fit'] = state.fit ? true : null;
       if (dirty.has('steps') && validSteps()) set['data-lines'] = specOf(state.steps);
+      if (dirty.has('endLit')) set['data-lines-end'] = state.endLit ? 'all' : null;
       return set;
     }
     function flush() {
@@ -199,7 +202,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
       if (!dirty.size || !saved) return queue;
       const set = wanted();
       // steps a row refuses wait in the field; the rest of the burst goes
-      for (const k of ['language', 'numbers', 'fit']) dirty.delete(k);
+      for (const k of ['language', 'numbers', 'fit', 'endLit']) dirty.delete(k);
       if (Object.hasOwn(set, 'data-lines')) dirty.delete('steps');
       if (!Object.keys(set).length) { status(); return queue; }
       saving++;
@@ -212,6 +215,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
           if (Object.hasOwn(set, 'data-lines-numbers')) saved.numbers = next.numbers;
           if (Object.hasOwn(set, 'data-fit')) saved.fit = next.fit;
           if (Object.hasOwn(set, 'data-lines')) saved.steps = [...next.steps];
+          if (Object.hasOwn(set, 'data-lines-end')) saved.endLit = next.endLit;
         }, (e) => {
           // refused: the slide and the fields go back to what the file has
           failed = commit.notSaved('the code block’s settings', e);
@@ -327,6 +331,9 @@ export function createOptionsTab({ instance, editmode, toast }) {
       box.dataset.key = 'steps';
       box.append(list, add, hint);
       grid.append(box);
+      // the walk's end, lit with no click of its own (data-lines-end)
+      row(grid, 'endLit', 'End with every line lit', 'after its last step the dimming lifts: at the next click, as the slide leaves, and in print, with no extra click',
+        check('endLit', 'End with every line lit', null, () => state.endLit, (v) => { state.endLit = v; }));
       el.append(grid);
       statusEl = h('div', 'ins-options-status');
       el.append(statusEl);
