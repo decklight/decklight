@@ -774,6 +774,18 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       try { host = new URL(at).host; } catch { /* said as written */ }
       push('web-page', `the web page from ${host} is blank in no-trust mode, in a video export and offline: the frame fetches it as the slide shows, so present it where it can be reached, or show a picture of it`, node);
     }
+    // code sized by hand (CODE_AND_MATH, #1185): a font-size on a <pre>, or on
+    // a section that holds one, is right for one layout and clipped or tiny
+    // after the next edit; data-fit sizes the code to the room instead
+    const sizeOf = (a) => /(?:^|;)\s*font-size\s*:\s*([^;]+)/i.exec(a.style ?? '')?.[1].trim();
+    const pres = [...descendants(tree)].filter((n) => n.tag === 'pre');
+    if (pres.length && sizeOf(attrs)) {
+      push('code-font-size', `the slide sets font-size: ${sizeOf(attrs)} and holds code — a size set by hand is right for one layout and clipped or tiny after the next edit: take it off and mark the code data-fit (data-fit="fill" to grow short code into the room)`);
+    }
+    for (const node of pres) {
+      const size = sizeOf(readAttrs(node.attrs));
+      if (size) push('code-font-size', `<pre> sets font-size: ${size} — a size set by hand is right for one layout and clipped or tiny after the next edit: take it off and mark the block data-fit (data-fit="fill" to grow short code into the room)`, node);
+    }
     // a concept shape with its own fill (SVG_DIAGRAMS, #718): the concept
     // repaints the fill on every load, so the hand-set one is never seen
     // — each named apart from the slide's other concept shapes, quoting the fill it found

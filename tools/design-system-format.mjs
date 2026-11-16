@@ -78,6 +78,14 @@ export const THEME_CONTRACT = [
   'ansi-bright-blue', 'ansi-bright-magenta', 'ansi-bright-cyan', 'ansi-bright-white',
 ].map((t) => `--${t}`);
 const CONTRACT = new Set(THEME_CONTRACT);
+/**
+ * Tokens a theme MAY set and a design system may set too, per template, with
+ * no prefix and no exception: knobs the runtime reads rather than colours or
+ * type a theme answers for. `--code-max-size` is how large `data-fit="fill"`
+ * grows code (CODE_AND_MATH), which a template with a big code slot raises.
+ */
+export const OPEN_TOKENS = ['--code-max-size'];
+const OPEN = new Set(OPEN_TOKENS);
 
 const lineAt = (text, index) => text.slice(0, index).split('\n').length;
 const ext = (path) => (/\.([A-Za-z0-9]+)$/.exec(path)?.[1] ?? '').toLowerCase();
@@ -263,7 +271,7 @@ function styleProblems(css, { file, prefix, files }) {
       if (!excepted.has(t.name)) {
         push(t.line, 'contract-token', `${t.name} is a theme-contract token — a design system sits beside any theme; set it only with a /* ds-exception: ${t.name} <reason> */ comment`);
       }
-    } else if (prefix && !t.name.startsWith(prefix)) {
+    } else if (prefix && !t.name.startsWith(prefix) && !OPEN.has(t.name)) {
       push(t.line, 'unprefixed-token', `${t.name} does not start with this package's tokenPrefix ${prefix}`);
     }
   }

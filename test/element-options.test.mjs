@@ -10,7 +10,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
 import { createHistory, setElementOptions, undoMeta, whatWrote } from '../cli/edit.mjs';
-import { CODE_LANGUAGES, languageOf, lineCount, linesError, specOf, stepError, stepsOf, toggleLine } from '../tools/code-options.mjs';
+import { CODE_LANGUAGES, FIT_MODES, fitAttr, fitOf, languageOf, lineCount, linesError, specOf, stepError, stepsOf, toggleLine } from '../tools/code-options.mjs';
 import { hljs } from '../src/code/code.js';
 import { tmp } from './helpers.mjs';
 
@@ -82,11 +82,22 @@ test('a line walk that ends lit is one attribute on the <pre>, set and taken off
   assert.throws(() => setElementOptions(DECK, 1, 1, { tag: 'pre', set: { 'data-lines-end': 'last' } }), /ends lit \(all\) or on its last step \(null\)/);
 });
 
+test('a fit is off, shrink (bare) or fill, and moves between them in place (#1185)', () => {
+  const fill = setElementOptions(DECK, 1, 1, { tag: 'pre', set: { 'data-fit': 'fill' } });
+  assert.match(fill, /<pre data-lines="1\|2" data-fit="fill"><code class="language-js">/);
+  const shrink = setElementOptions(fill, 1, 1, { tag: 'pre', set: { 'data-fit': true } });
+  assert.match(shrink, /<pre data-lines="1\|2" data-fit><code class="language-js">/);
+  assert.equal(setElementOptions(shrink, 1, 1, { tag: 'pre', set: { 'data-fit': null } }), DECK, 'off, the file is as it was');
+  assert.deepEqual([null, '', 'fill', 'FILL', 'yes'].map(fitOf), ['off', 'shrink', 'fill', 'fill', 'shrink']);
+  assert.deepEqual(['off', 'shrink', 'fill'].map(fitAttr), [null, true, 'fill']);
+  assert.deepEqual(FIT_MODES.map(([v]) => v), ['off', 'shrink', 'fill']);
+});
+
 test('setElementOptions refuses what the block cannot take, with a sentence', () => {
   const bad = [
     [{ 'data-lines': '1|7' }, /step 2: the block has 3 lines: 7 is past its end/],
     [{ language: 'cobol' }, /not a language the runtime highlights/],
-    [{ 'data-fit': 'yes' }, /on \(true\) or off \(null\)/],
+    [{ 'data-fit': 'yes' }, /shrink \(true\), fill \("fill"\) or off \(null\)/],
     [{ onclick: 'x' }, /no setting "onclick"/],
     [{}, /nothing to change/],
   ];

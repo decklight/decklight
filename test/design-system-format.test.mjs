@@ -138,6 +138,11 @@ test('css: a theme-contract token needs a ds-exception, and a declared one is pr
   assert.equal(checkPackage(edit(okPkg(), 'design-system.css', 'color: var(--acme-coral);', 'color: var(--fg);')).ok, true);
 });
 
+test('css: a template may set --code-max-size, how large data-fit="fill" grows code, with no prefix and no exception (#1185)', () => {
+  const pkg = edit(okPkg(), 'design-system.css', '--acme-ink: #14213d;', '--acme-ink: #14213d;\n}\n.decklight section[data-template="acme/code"] {\n  --code-max-size: 1.6em;');
+  assert.equal(checkPackage(pkg).ok, true, JSON.stringify(checkPackage(pkg).problems));
+});
+
 test('css: a custom tokenPrefix is the one held to', () => {
   const pkg = edit(okPkg(), 'design-system.json', '"title": "Acme Brand",', '"title": "Acme Brand",\n  "tokenPrefix": "--ax-",');
   const r = checkPackage(pkg);

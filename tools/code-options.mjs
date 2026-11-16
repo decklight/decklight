@@ -31,6 +31,19 @@ export function languageOf(name) {
   return CODE_LANGUAGES.some(([v]) => v === n) ? n : null;
 }
 
+/**
+ * How a block fits its space, as the field offers it: `off` (no `data-fit`),
+ * `shrink` (bare `data-fit`: as large as fits, never past its own size) or
+ * `fill` (`data-fit="fill"`: grows short code too, up to `--code-max-size`).
+ */
+export const FIT_MODES = [['off', 'off'], ['shrink', 'shrink to fit'], ['fill', 'fill']];
+
+/** `data-fit`'s value (null when absent) as one of FIT_MODES: any value but fill reads as a plain fit, as the runtime reads it. */
+export const fitOf = (value) => (value == null ? 'off' : String(value).trim().toLowerCase() === 'fill' ? 'fill' : 'shrink');
+
+/** A FIT_MODES value as the edit route's `data-fit`: null takes it off, true writes it bare. */
+export const fitAttr = (mode) => (mode === 'fill' ? 'fill' : mode === 'shrink' ? true : null);
+
 /** The lines a block's code has, counted as the runtime counts them (its file's first newline and trailing space are layout). */
 export function lineCount(code) {
   const text = String(code ?? '').replace(/^\n/, '').replace(/\s+$/, '');

@@ -12280,6 +12280,24 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.endLitShown = pre().getAttribute('data-lines-end') === 'all' && deck._records?.[4]?.groups.length === steps;
         await pause();
         r.endLitWritten = posts().at(-1)?.body.set['data-lines-end'] === 'all';
+        // Fit (#1185): off, shrink to fit, fill; each shown at once and written
+        const fit = q('dd[data-key="fit"] select');
+        r.fitOffersThree = !!fit && [...fit.options].map((o) => o.value).join(',') === 'off,shrink,fill' && fit.value === 'off';
+        fit.value = 'fill'; fit.dispatchEvent(new Event('change', { bubbles: true }));
+        await settle();
+        r.fillShown = pre().getAttribute('data-fit') === 'fill';
+        await pause();
+        r.fillWritten = posts().at(-1)?.body.set['data-fit'] === 'fill';
+        fit.value = 'shrink'; fit.dispatchEvent(new Event('change', { bubbles: true }));
+        await settle();
+        r.shrinkShown = pre().getAttribute('data-fit') === '';
+        await pause();
+        r.shrinkWritten = posts().at(-1)?.body.set['data-fit'] === true;
+        fit.value = 'off'; fit.dispatchEvent(new Event('change', { bubbles: true }));
+        await settle();
+        r.offShown = !pre().hasAttribute('data-fit') && !pre().hasAttribute('data-fit-scale');
+        await pause();
+        r.offWritten = posts().at(-1)?.body.set['data-fit'] === null;
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
       if (mode === 'chartdata') {

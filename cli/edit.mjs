@@ -2845,7 +2845,8 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
 /**
  * The settings an element's Options tab writes (PRESENTING_EDITING), a closed
  * set per tag. A code block's (CODE_AND_MATH): its language (the `language-`
- * class of its `<code>`), line numbers and fit (bare attributes), its line
+ * class of its `<code>`), line numbers (bare), its fit (`data-fit` bare, or
+ * `"fill"`, CODE_AND_MATH), its line
  * steps (`data-lines`), and whether the walk ends with every line lit
  * (`data-lines-end="all"`).
  */
@@ -2869,7 +2870,7 @@ const TERMINAL_SHAPES = {
   'data-type-sound': [(v) => ['thocky', 'creamy', 'clacky', 'off'].includes(v), 'a typing sound is thocky, creamy, clacky or off'],
   'data-poster': [(v) => /^\d+$/.test(String(v)) && +v >= 0 && +v <= 99, 'a poster is how many steps show before it plays, 0 to 99'],
 };
-const BARE_OPTIONS = new Set(['data-lines-numbers', 'data-fit', 'controls', 'loop', 'muted', 'autoplay']);
+const BARE_OPTIONS = new Set(['data-lines-numbers', 'controls', 'loop', 'muted', 'autoplay']);
 
 /**
  * Slide N's element `index` (or the node at `path` inside it) given the
@@ -2893,6 +2894,7 @@ export function setElementOptions(html, slide, index, { path = [], tag = 'pre', 
     if (tag === 'div' && k === 'data-cast' && v === null) throw new Error('a terminal keeps its recording: remove the terminal instead');
     if (k === 'language' && v !== null && v !== '' && !CODE_LANGUAGES.some(([l]) => l === v)) throw new Error(`not a language the runtime highlights: ${String(v).slice(0, 40)}`);
     if (k === 'data-lines' && v !== null && (typeof v !== 'string' || v.length > 400)) throw new Error('data-lines is its steps, like 1-2|4, or null');
+    if (k === 'data-fit' && v !== true && v !== 'fill' && v !== null) throw new Error('a fit is shrink (true), fill ("fill") or off (null)');
     if (k === 'data-lines-end' && v !== null && v !== 'all') throw new Error('a line walk ends lit (all) or on its last step (null)');
   }
   const e = openElement(html, slide, index);
