@@ -298,6 +298,7 @@ const HARNESSES = [
   'overflow-render',
   'split-render',
   'fit-render',
+  'lines-render',
   'strict-render',
   'shot-render',
   'plugin-render',

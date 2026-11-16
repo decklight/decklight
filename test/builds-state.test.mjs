@@ -251,6 +251,32 @@ test('a provider is applied once per distinct count, never again for the same on
   assert.deepEqual(calls, [0, 1, 3, 0], 'and stepping back is a change like any other');
 });
 
+test('a provider is told when a later build has followed its last step, and it costs no step (#1186)', (t) => {
+  installDom(t);
+  const calls = [];
+  const past = [];
+  const code = el('pre');
+  registerProvider(code, { count: 2, apply: (k) => calls.push(k), past: (on) => past.push(on) });
+  const after = el('p', { attrs: { 'data-build': '' }, text: 'then this' });
+  const record = scanSlide(el('section', { children: [code, after] }));
+
+  assert.equal(record.groups.length, 3, 'two steps of its own and the paragraph: the end is not one more');
+  applyBuildState(record, 2);
+  assert.deepEqual(past, [false], 'its last step is the click on screen: not past yet');
+  applyBuildState(record, 3);
+  assert.deepEqual(calls, [2], 'the build after it does not re-apply the provider');
+  assert.deepEqual(past, [false, true], 'the next build puts its walk behind the slide');
+  applyBuildState(record, 3);
+  assert.deepEqual(past, [false, true], 'told once per change, like apply');
+  applyBuildState(record, 2);
+  assert.deepEqual(past, [false, true, false], 'stepping back onto its last step puts it on screen again');
+
+  const plain = el('pre');
+  registerProvider(plain, { count: 1, apply: () => {} });
+  const r2 = scanSlide(el('section', { children: [plain, el('p', { attrs: { 'data-build': '' }, text: 'x' })] }));
+  assert.doesNotThrow(() => applyBuildState(r2, 2), 'a provider with no past hook is left alone');
+});
+
 // ── stepLabels (speaker view) ──────────────────────────────────────────────
 
 test('a step is labelled by its own text, with whitespace collapsed', (t) => {

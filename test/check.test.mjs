@@ -555,11 +555,16 @@ test('in Chrome, the [click] count is the browser\'s: a provider counts, and the
 two
 three</code></pre>
     <aside class="notes">Code. [click] Line two.</aside></section>
+  <section><h2>Ends lit</h2><pre data-lines="1|2|3" data-lines-end="all"><code>one
+two
+three</code></pre>
+    <aside class="notes">Code. [click] One. [click] Two. [click] Three, and the whole of it.</aside></section>
 </div><script src="${join(dist, 'decklight.js')}"></script><script>Decklight.init({});</script></body></html>`);
   const json = async (args) => JSON.parse((await run([file, '--json', ...args])).out)
     .filter((f) => f.rule === 'clicks-vs-builds').map((f) => `${f.slide}: ${f.message.split(':')[0]}`);
   const rendered = await json([]);
   assert.equal(rendered.length, 2, `one finding a slide, not the file's and the browser's both: ${JSON.stringify(rendered)}`);
+  assert.ok(!rendered.some((f) => f.startsWith('4:')), 'a walk that ends lit costs no click of its own (#1186)');
   assert.equal(rendered[0], '2: 2 [click] markers, 3 build clicks');
   assert.match(rendered[1], /^3: 1 \[click\] marker, \d+ build clicks$/, 'code stepping counted by the runtime');
   assert.deepEqual(await json(['--no-render']), ['2: 2 [click] markers, 3 build clicks'],

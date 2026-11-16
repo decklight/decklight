@@ -798,6 +798,13 @@ export function applyBuildState(record, step) {
       p._last = k;
       p.provider.apply(k);
     }
+    // its last step shown and a later build come since: its walk is behind
+    // the slide now (a line walk that ends lit lifts its dimming, CODE_AND_MATH)
+    const past = k === p.stepIdxs.length && !p.stepIdxs.some((i) => currentSet.has(i));
+    if (p.provider.past && p._past !== past) {
+      p._past = past;
+      p.provider.past(past);
+    }
   }
 }
 

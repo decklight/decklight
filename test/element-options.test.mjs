@@ -75,6 +75,13 @@ test('setElementOptions writes language, toggles and steps in ONE edit, and touc
   assert.match(inner, /<pre><code class="language-bash">plain<\/code><\/pre>/);
 });
 
+test('a line walk that ends lit is one attribute on the <pre>, set and taken off (#1186)', () => {
+  const on = setElementOptions(DECK, 1, 1, { tag: 'pre', set: { 'data-lines-end': 'all' } });
+  assert.match(on, /<pre data-lines="1\|2" data-lines-end="all"><code class="language-js">/);
+  assert.equal(setElementOptions(on, 1, 1, { tag: 'pre', set: { 'data-lines-end': null } }), DECK, 'taken off, the file is as it was');
+  assert.throws(() => setElementOptions(DECK, 1, 1, { tag: 'pre', set: { 'data-lines-end': 'last' } }), /ends lit \(all\) or on its last step \(null\)/);
+});
+
 test('setElementOptions refuses what the block cannot take, with a sentence', () => {
   const bad = [
     [{ 'data-lines': '1|7' }, /step 2: the block has 3 lines: 7 is past its end/],

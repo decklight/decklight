@@ -12271,6 +12271,15 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         deck.goto(5, 1); await settle();
         r.stepsLightLines = pre().querySelectorAll('.line-hl').length === 2;
         deck.goto(5, 0); await settle();
+        // the walk ends lit (#1186): on the slide at once, written, no step added
+        const steps = deck._records?.[4]?.groups.length;
+        const endLit = q('dd[data-key="endLit"] input');
+        r.endLitOffFromTheFile = !!endLit && !endLit.checked;
+        endLit.checked = true; endLit.dispatchEvent(new Event('change', { bubbles: true }));
+        await settle();
+        r.endLitShown = pre().getAttribute('data-lines-end') === 'all' && deck._records?.[4]?.groups.length === steps;
+        await pause();
+        r.endLitWritten = posts().at(-1)?.body.set['data-lines-end'] === 'all';
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
       if (mode === 'chartdata') {

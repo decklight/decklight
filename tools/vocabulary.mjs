@@ -91,6 +91,8 @@ export const ATTRIBUTES = [
   // ── code ──────────────────────────────────────────────────────────────────
   { name: 'data-lines' },
   { name: 'data-lines-numbers', bare: true },
+  { name: 'data-lines-end', kind: 'line walk ending', values: ['all'] },
+  { name: 'data-lines-print', kind: 'printed line walk', values: ['all', 'last'] },
   { name: 'data-fit', bare: true },
 
   // ── terminals ─────────────────────────────────────────────────────────────

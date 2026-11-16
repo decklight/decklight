@@ -111,7 +111,9 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
   // --theme rides the URL (`?theme=`), which the runtime applies to any kind
   // of theme the deck holds — a <link> to themes/<name>.css reached only file
   // themes, and missed a deck whose themes are inline blocks (#547).
-  const renderQuery = `?${['capture', ...themeParams].join('&')}`;
+  // `capture=print`: each picture is the slide as it prints, so a stepped code
+  // block is whole unless it asks for its last step (CODE_AND_MATH)
+  const renderQuery = `?${['capture=print', ...themeParams].join('&')}`;
   const server = await serveForRender(root);
   const scratch = mkdtempSync(join(tmpdir(), 'decklight-pptx-'));
   const slides = [];

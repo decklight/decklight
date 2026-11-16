@@ -149,7 +149,7 @@ export function initCode(root, registerBuildProvider) {
     const spec = pre.getAttribute('data-lines');
     if (!spec) {
       if (pre.classList.contains('stepping')) {
-        pre.classList.remove('stepping');
+        pre.classList.remove('stepping', 'lines-last', 'lines-past');
         registerBuildProvider(pre, null);   // no steps of its own any more
       }
       return;
@@ -157,10 +157,17 @@ export function initCode(root, registerBuildProvider) {
     const segments = parseLineRanges(spec, lineEls.length);
     pre.classList.add('stepping');
 
+    // The walk's end is marked, never undone in the lines themselves: on its
+    // last step the block wears `lines-last`, and `lines-past` once a later
+    // build of the slide has followed it. decklight.css reads them with
+    // `data-lines-end` and `data-lines-print` (where the walk ends lit: the
+    // slide leaving, the overview, print, a still), so how a walk ends is
+    // never one more step for `check` to count.
     registerBuildProvider(pre, {
       count: segments.length,
       label: (i) => (i === 0 ? 'code' : segmentLabel(segments[i - 1], lineEls.length)),
       apply(i) {
+        pre.classList.toggle('lines-last', i === segments.length);
         lineEls.forEach((l) => l.classList.remove('line-hl', 'line-dim'));
         if (i === 0) return;
         const seg = new Set(segments[i - 1]);
@@ -170,6 +177,7 @@ export function initCode(root, registerBuildProvider) {
           else if (!highlightAll) l.classList.add('line-dim');
         });
       },
+      past(on) { pre.classList.toggle('lines-past', on); },
     });
   });
 }

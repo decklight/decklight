@@ -2845,11 +2845,12 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
 /**
  * The settings an element's Options tab writes (PRESENTING_EDITING), a closed
  * set per tag. A code block's (CODE_AND_MATH): its language (the `language-`
- * class of its `<code>`), line numbers and fit (bare attributes), and its line
- * steps (`data-lines`).
+ * class of its `<code>`), line numbers and fit (bare attributes), its line
+ * steps (`data-lines`), and whether the walk ends with every line lit
+ * (`data-lines-end="all"`).
  */
 export const ELEMENT_OPTIONS = {
-  pre: ['language', 'data-lines-numbers', 'data-fit', 'data-lines'],
+  pre: ['language', 'data-lines-numbers', 'data-fit', 'data-lines', 'data-lines-end'],
   // a video on a slide (DECK_ANATOMY): its file, its toggles (bare), its poster
   video: ['src', 'controls', 'loop', 'muted', 'autoplay', 'poster'],
   // a terminal (TERMINAL_PLAYER): a `<div class="terminal">`, its recording and how it plays
@@ -2892,6 +2893,7 @@ export function setElementOptions(html, slide, index, { path = [], tag = 'pre', 
     if (tag === 'div' && k === 'data-cast' && v === null) throw new Error('a terminal keeps its recording: remove the terminal instead');
     if (k === 'language' && v !== null && v !== '' && !CODE_LANGUAGES.some(([l]) => l === v)) throw new Error(`not a language the runtime highlights: ${String(v).slice(0, 40)}`);
     if (k === 'data-lines' && v !== null && (typeof v !== 'string' || v.length > 400)) throw new Error('data-lines is its steps, like 1-2|4, or null');
+    if (k === 'data-lines-end' && v !== null && v !== 'all') throw new Error('a line walk ends lit (all) or on its last step (null)');
   }
   const e = openElement(html, slide, index);
   const at = e.at(path, tag);
