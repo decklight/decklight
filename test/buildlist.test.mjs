@@ -62,6 +62,23 @@ test('moveClick, mergeClick, splitClick: the clicks rearranged, nothing lost', (
   assert.notEqual(moveClick(g, 1, 2), g, 'a copy, never the same lists');
 });
 
+import { detachStep, clickOfStep } from '../src/core/buildlist.js';
+
+test('detachStep: one row of a table (or point of a list) back on its own click, where it plays', () => {
+  // rows 1 and 2 of a four-row table on one click, as Arrive with the one before left them
+  const tied = [[0, 1], [2], [3]];
+  assert.deepEqual(detachStep(tied, 0, 1), [[0], [1], [2], [3]], 'the second row after the first: the order as written');
+  assert.deepEqual(detachStep(tied, 0, 0), [[0], [1], [2], [3]], 'the first row before the second');
+  assert.deepEqual(detachStep([[0], [1, 2, 3]], 1, 2), [[0], [1, 3], [2]], 'one of three: the other two keep their click');
+  assert.deepEqual(detachStep(tied, 1, 2), tied, 'alone already: no change');
+  assert.deepEqual(detachStep(tied, 0, 3), tied, 'not on that click: no change');
+  assert.equal(clickOfStep(tied, 1), 0);
+  assert.equal(clickOfStep(tied, 9), -1);
+  // merge then detach is the identity: one undo's worth each way
+  const four = [[0], [1], [2], [3]];
+  assert.deepEqual(detachStep(mergeClick(four, 1, 0), 0, 1), four);
+});
+
 test('orderGroups: one entry a node, a node of several steps named where its first plays', () => {
   const a = { id: 'a' }; const code = { id: 'code' }; const b = { id: 'b' };
   const steps = [{ node: a }, { node: code, count: 3 }, { node: code, count: 3 }, { node: code, count: 3 }, { node: b }];

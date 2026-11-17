@@ -123,6 +123,29 @@ FIXTURES.outside = deckOf(`    <section>
       <h2>Gamma</h2>
       <aside class="notes">Notes.</aside>
     </section>`);
+// a four-row table that builds and a list that builds, for the Builds tab's ties (#1187)
+FIXTURES.ties = deckOf(`    <section>
+      <h2>Tools fail, models guess and loops repeat</h2>
+      <table data-build="fade-up">
+        <thead><tr><th>Risk</th><th>Bound</th></tr></thead>
+        <tbody>
+          <tr><td>Tools fail</td><td>Retry budget</td></tr>
+          <tr><td>Models guess</td><td>Schema checks</td></tr>
+          <tr><td>Loops repeat</td><td>Step limit</td></tr>
+          <tr><td>Costs grow</td><td>Token cap</td></tr>
+        </tbody>
+      </table>
+      <aside class="notes">Intro. [click] Tools. [click] Models. [click] Loops. [click] Costs.</aside>
+    </section>
+    <section>
+      <h2>Three points</h2>
+      <ul data-build>
+        <li>Alpha one</li>
+        <li>Beta two</li>
+        <li>Gamma three</li>
+      </ul>
+      <aside class="notes">Notes.</aside>
+    </section>`);
 // a 4×4 PNG, for the picture a file chooser is handed
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGNgYGD4z4AKMFAAKX0B/9g5w2kAAAAASUVORK5CYII=', 'base64');
 
@@ -576,6 +599,66 @@ try {
     check('editor', 'the palette opens the slide at its <section>, without asking again',
       asked.length === 1 && args?.[1] === String(line(/<section>/)) && args?.[2] === String(lines[line(/<section>/) - 1].indexOf('<section') + 1), args);
     check('editor', 'nothing written to the deck', ed.read() === FIXTURES.text);
+    await page.close();
+  });
+
+  // 13 · the Builds tab's ties (#1187): a table's body rows and a list's points
+  //      are rows of their own, named by their first words; one dropped onto
+  //      another, or Build ▸'s Arrive with the one before, shares a key and
+  //      renumbers the rest, in one write that one undo takes back; On its own
+  //      click puts the file back as it was
+  await scenario('ties', async () => {
+    const ties = await serve('ties');
+    ties.reset(); await wait(400);
+    const page = await open(ties, '#/1/0');
+    const original = ties.read();
+    const saves = () => ties.saves(/build order saved/g);
+    const rows = () => page.locator('.decklight-inspector .bl-row');
+    const labels = () => rows().evaluateAll((rs) => rs.map((r) => [...r.querySelectorAll('.bl-label')].map((l) => l.textContent).join('+')));
+    const keys = (re, n = 1) => [...(section(ties.read(), n).match(re) ?? [''])[0].matchAll(/<(?:tr|li)(?: data-build-order="(\d+)")?>/g)].map((m) => m[1] ?? '-').join(' ');
+    await page.keyboard.press('i'); await wait(500);
+    await page.locator('.ins-tab[data-tab="builds"]').click(); await wait(500);
+    check('ties', 'each body row a row of the tab, named by its first words', JSON.stringify(await labels())
+      === JSON.stringify(['Tools fail Retry budget', 'Models guess Schema checks', 'Loops repeat Step limit', 'Costs grow Token cap']), await labels());
+    const was = saves();
+    const first = await rows().nth(0).boundingBox();
+    await rows().nth(1).dragTo(rows().nth(0), { targetPosition: { x: first.width / 2, y: first.height / 2 } }); await wait(1500);
+    check('ties', 'dropped onto the first: one key on both, the rest renumbered', keys(/<tbody>[\s\S]*?<\/tbody>/) === '1 1 2 3', keys(/<tbody>[\s\S]*?<\/tbody>/));
+    check('ties', 'one write', saves() - was === 1, saves() - was);
+    check('ties', 'nothing else in the file changed', ties.read().replace(/ data-build-order="\d+"/g, '') === original);
+    check('ties', 'the rows and the beats follow: three clicks, the second beat on the third row',
+      (await rows().count()) === 3 && /Loops\./.test(await rows().nth(2).locator('.bl-beat').textContent()) && /Tools fail Retry budget\+Models guess/.test((await labels())[0]), await labels());
+    // the deck as printed counts each slide's [click]s against its clicks (what check reads): the tie is one click
+    const print = await browser.newPage();
+    await print.goto(`${ties.url}?print`); await wait(1500);
+    const stamp = await print.evaluate(() => document.querySelector('section')?.getAttribute('data-click-mismatch'));
+    await print.close();
+    await page.keyboard.press(`${MOD}+z`); await wait(1500);
+    check('ties', 'one undo takes it back', ties.read() === original);
+    // Build ▸ on a cell of the second row: Arrive with the one before, then On its own click
+    await page.goto(ties.url + '#/1/4'); await wait(1500);
+    const menuOn = async (cell) => {
+      const box = await page.locator(`${ACTIVE} td`, { hasText: cell }).boundingBox();
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' }); await wait(400);
+      await menuRow(page, /^Build/);
+    };
+    await menuOn('Models guess');
+    await menuRow(page, /^Arrive with the one before$/); await wait(1200);
+    check('ties', 'Build ▸ Arrive with the one before ties the row to the one above', keys(/<tbody>[\s\S]*?<\/tbody>/) === '1 1 2 3', keys(/<tbody>[\s\S]*?<\/tbody>/));
+    await page.goto(ties.url + '#/1/3'); await wait(1500);
+    await menuOn('Models guess');
+    await menuRow(page, /^On its own click$/); await wait(1200);
+    check('ties', 'On its own click puts the file back as it was', ties.read() === original, keys(/<tbody>[\s\S]*?<\/tbody>/));
+    check('ties', 'the runtime counted the tie as one click against the four beats', stamp === '4 3', stamp);
+    // a list's points, the same way
+    await page.goto(ties.url + '#/2/0'); await wait(1500);
+    await page.keyboard.press('i'); await wait(300);
+    if (!(await page.locator('.ins-tab[data-tab="builds"]').count())) { await page.keyboard.press('i'); await wait(400); }
+    await page.locator('.ins-tab[data-tab="builds"]').click(); await wait(500);
+    check('ties', 'each point a row of its own', JSON.stringify(await labels()) === JSON.stringify(['Alpha one', 'Beta two', 'Gamma three']), await labels());
+    const second = await rows().nth(1).boundingBox();
+    await rows().nth(2).dragTo(rows().nth(1), { targetPosition: { x: second.width / 2, y: second.height / 2 } }); await wait(1500);
+    check('ties', 'the third point dropped onto the second: one key on both', keys(/<ul[\s\S]*?<\/ul>/, 2) === '1 2 2', keys(/<ul[\s\S]*?<\/ul>/, 2));
     await page.close();
   });
 } finally {
