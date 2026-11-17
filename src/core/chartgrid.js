@@ -23,6 +23,7 @@ import {
   ASPECTS, aspectOf, setAspect, legendOf, setLegend,
   setPoint, addPoint, removePoint, addScatterSeries, setAxisTitle,
   setBandCell, addBand, removeBand, setMarker, setMarkerLabel,
+  setDashFrom, setNow, setNowLabel, setThreshold, addBandSeries,
 } from './chartdata.js';
 import { renderChart } from './charts.js';
 import { boundedFetch } from './devmode.js';
@@ -310,6 +311,8 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     el.append(shapeRow);
     el.append(choices('legend', 'Legend', [['auto', 'auto'], ['on', 'on'], ['off', 'off']], legendOf(json), (src, v) => setLegend(src, v)));
     if (scatter) { paintPairs(to, keep); return; }
+    // a chart with a value axis (bar, line, area) has its two rules (CHARTS)
+    if (grid.now !== undefined) el.append(nowField(), thresholdField());
 
     // the grid: a column a series, and on a line or area chart (CHARTS) its
     // band's low and high as two more, and its markers as a ticked cell
@@ -337,6 +340,24 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     const thead = h('thead');
     thead.append(head);
     if (extras) thead.append(sub);
+    // under a line or area chart's grid, where each line turns dashed
+    const lines = grid.type === 'line' || grid.type === 'area';
+    const tfoot = h('tfoot', 'dg-foot');
+    if (lines) {
+      const tr = h('tr');
+      const th = h('th', 'dg-corner', 'dashed from');
+      th.title = 'where each line turns dashed: solid up to that label, dashed after it';
+      tr.append(th);
+      grid.series.forEach((s, ci) => {
+        const td = h('td');
+        td.colSpan = partsOf(s).length;
+        if (s.kind === 'line') {
+          td.append(rowPicker(`dash-${ci}`, s.dash, 'solid', `${s.name}: dashed from`, (row) => act((src) => setDashFrom(src, ci, row))));
+        }
+        tr.append(td);
+      });
+      tfoot.append(tr);
+    }
     const tbody = h('tbody');
     grid.labels.forEach((lab, ri) => {
       const tr = h('tr');
@@ -355,6 +376,7 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
       tbody.append(tr);
     });
     table.append(thead, tbody);
+    if (lines) table.append(tfoot);
     scroll.append(table);
     el.append(scroll);
 
@@ -370,21 +392,28 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     const addS = button('dg-add-series', '+ series', 'add a series', () => act((src) => addSeries(src), () => ({ row: -1, col: m })));
     const delS = button('dg-del-series', '− series', 'remove this series', () => act((src) => removeSeries(src, colAt()), () => ({ row: cur.row, col: Math.max(0, colAt() - (colAt() === m - 1 ? 1 : 0)) })));
     // a band round the series the caret is in: its low and high start as its values
-    const lines = grid.type === 'line' || grid.type === 'area';
     const sCur = grid.series[colAt()];
     const bandBtn = lines ? (sCur.band
       ? button('dg-del-band', '− band', 'take the band off this series', () => act((src) => removeBand(src, colAt()), () => ({ row: Math.max(0, cur.row), col: colAt(), part: 'value' })))
       : button('dg-add-band', '+ band', 'add a band round this series: a low and a high a label', () => act((src) => addBand(src, colAt()), () => ({ row: Math.max(0, cur.row), col: colAt(), part: 'low' }))))
       : null;
     if (bandBtn && sCur.kind === 'band') { bandBtn.disabled = true; bandBtn.title = 'a band series is its band'; }
+    // a band series: a range with no line of its own (a learned normal range),
+    // starting as the values of the series the caret is in, to be widened
+    const bandSeries = lines
+      ? button('dg-add-band-series', '+ band series', 'add a band series: a range of its own, a low and a high a label, with no line',
+        () => act((src) => addBandSeries(src, colAt()), () => ({ row: Math.max(0, cur.row), col: m, part: 'low' })))
+      : null;
     del.disabled = n <= 1;
     up.disabled = rowAt() <= 0 || cur.row < 0;
     down.disabled = rowAt() >= n - 1 || cur.row < 0;
     addS.disabled = pie;
     if (pie) addS.title = 'a pie takes one series';
     delS.disabled = m <= 1;
-    for (const b of [add, del, up, down, addS, delS, bandBtn]) if (b && readOnly) b.disabled = true;
-    actions.append(add, del, up, down, h('span', 'dg-spacer'), ...(bandBtn ? [bandBtn] : []), addS, delS);
+    for (const b of [add, del, up, down, addS, delS, bandBtn, bandSeries]) if (b && readOnly) b.disabled = true;
+    actions.append(add, del, up, down, h('span', 'dg-spacer'), addS, delS);
+    // the bands on a line of their own: the rows and the series fill the first
+    if (bandBtn) actions.append(h('span', 'dg-break'), h('span', 'dg-spacer'), bandBtn, bandSeries);
     el.append(actions);
 
     statusEl = h('div', 'dg-status');
@@ -392,12 +421,106 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     status();
     el.append(h('div', 'narr-head ins-foot', readOnly ? 'esc lets go of it' : 'tab and enter walk the cells'));
     if (to) focusCell(to.row, to.col, to.part);
+    else if (keep?.dataset.key && keep.tagName === 'SELECT') el.querySelector(`select[data-key="${keep.dataset.key}"]`)?.focus();
     else if (keep && keep.dataset.row != null) {
       const at = [Number(keep.dataset.row), Number(keep.dataset.col)];
       if (keep.classList.contains('dg-mark') || keep.classList.contains('dg-mark-label')) {
         el.querySelector(`.${keep.classList.contains('dg-mark') ? 'dg-mark' : 'dg-mark-label'}[data-row="${at[0]}"][data-col="${at[1]}"]`)?.focus();
       } else focusCell(...at, keep.dataset.part ?? null);
     }
+  }
+
+  // ── the rules and the dashes: a row picked from the labels (CHARTS) ────────
+
+  /**
+   * A choice of the chart's labels, or `none` (a reference to no row): the
+   * picked row handed to `pick` (null for none), as one write. A reference
+   * naming no label is shown as written, picked, until another is.
+   */
+  function rowPicker(key, ref, none, label, pick) {
+    const sel = h('select', 'dg-select');
+    sel.dataset.key = key;
+    sel.setAttribute('aria-label', label);
+    sel.disabled = readOnly;
+    const opt = (value, text, on) => { const o = h('option', null, text); o.value = value; o.selected = on; sel.append(o); };
+    opt('', none, !ref);
+    if (ref && ref.row === -1) { opt('?', `${ref.written} (no such label)`, true); sel.lastChild.disabled = true; }
+    grid.labels.forEach((lab, k) => opt(String(k), lab === '' ? `(row ${k + 1})` : lab, ref?.row === k));
+    sel.addEventListener('keydown', (e) => e.stopPropagation());
+    sel.addEventListener('change', (e) => { e.stopPropagation(); pick(sel.value === '' ? null : Number(sel.value)); });
+    return sel;
+  }
+
+  /** A text field's keys: its own, Esc puts back what it held, Enter writes. */
+  function wordsKeys(input) {
+    input.addEventListener('focus', () => { input.dataset.was = input.value; });
+    input.addEventListener('blur', () => flush());
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (input.value !== input.dataset.was) { input.value = input.dataset.was ?? ''; input.dispatchEvent(new Event('input')); } else input.blur();
+      } else if (e.key === 'Enter') { e.preventDefault(); flush(); }
+    });
+  }
+  const textInput = (cls, value, placeholder, label) => {
+    const i = h('input', `dg-title ${cls}`);
+    i.type = 'text';
+    i.value = value;
+    i.placeholder = placeholder;
+    i.readOnly = readOnly;
+    i.spellcheck = false;
+    i.autocomplete = 'off';
+    i.setAttribute('aria-label', label);
+    return i;
+  };
+
+  /** Now: the label the vertical rule stands at (or none), and its words (*now* when it says none). */
+  function nowField() {
+    const row = h('div', 'dg-field dg-rule');
+    row.append(h('span', 'dg-key', 'Now'));
+    const now = grid.now;
+    row.append(rowPicker('now', now, 'none', 'now: the label the rule stands at', (r) => act((src) => setNow(src, r))));
+    const words = textInput('dg-rule-words dg-now-label', now?.words ?? '', 'now', 'the words on the now rule');
+    words.disabled = !now;
+    words.addEventListener('input', () => { if (!readOnly && grid.now) { apply(setNowLabel(json, words.value)); later(); } });
+    wordsKeys(words);
+    row.append(words);
+    return row;
+  }
+
+  /** Threshold: the value the horizontal rule is drawn at (empty: none), and its words. */
+  function thresholdField() {
+    const row = h('div', 'dg-field dg-rule');
+    row.append(h('span', 'dg-key', 'Threshold'));
+    const t = grid.threshold;
+    const y = textInput('dg-threshold-y', t?.y ?? '', 'none', 'threshold: the value the rule is drawn at');
+    y.inputMode = 'decimal';
+    const words = textInput('dg-rule-words dg-threshold-label', t?.words ?? '', 'its words', 'the words on the threshold');
+    words.disabled = !t;
+    // a number or nothing (no threshold), as a cell takes one: anything else is marked and kept off
+    y.addEventListener('input', () => {
+      if (readOnly) return;
+      const n = cellNumber(y.value);
+      y.classList.toggle('dg-bad', !n.ok);
+      y.setAttribute('aria-invalid', String(!n.ok));
+      y.title = n.ok ? '' : 'not a number: not saved';
+      const v = n.ok ? y.value : y.dataset.was ?? '';
+      if (!n.ok && !cellNumber(v).ok) return;
+      words.disabled = cellNumber(v).value === null;
+      apply(setThreshold(json, v, words.value));
+      later();
+    });
+    words.addEventListener('input', () => {
+      const n = cellNumber(y.value);
+      if (readOnly || !n.ok || n.value === null) return;
+      apply(setThreshold(json, y.value, words.value));
+      later();
+    });
+    wordsKeys(y);
+    wordsKeys(words);
+    row.append(y, words);
+    return row;
   }
 
   /**

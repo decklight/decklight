@@ -146,6 +146,17 @@ FIXTURES.ties = deckOf(`    <section>
       </ul>
       <aside class="notes">Notes.</aside>
     </section>`);
+// a line chart with no rules yet, for the Data tab's now, threshold, dashes and band series (CHARTS, #1189)
+FIXTURES.forecast = deckOf(`    <section>
+      <h2>Load</h2>
+      <div class="chart" data-chart="line">
+        <script type="application/json">
+        { "labels": ["Mon", "Tue", "Wed", "Thu"],
+          "series": [ { "name": "load", "data": [3, 4, 6, 7] } ] }
+        </script>
+      </div>
+      <aside class="notes">Notes.</aside>
+    </section>`);
 // a 4×4 PNG, for the picture a file chooser is handed
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGNgYGD4z4AKMFAAKX0B/9g5w2kAAAAASUVORK5CYII=', 'base64');
 
@@ -738,6 +749,44 @@ try {
     check('turns', 'one undo each takes them back', text.read() === before);
     for (let i = 0; i < 3; i++) { await page.keyboard.press(`${MOD}+z`); await wait(1300); }
     check('turns', 'and the two typings and the conversation itself', text.read() === original);
+    await page.close();
+  });
+
+  // 13 · a forecast from the Data tab (CHARTS): the now rule picked and worded,
+  //      a threshold typed, the line dashed from a label, a band series added,
+  //      a row renamed carrying what named it; each one write, one undo each
+  await scenario('forecast', async () => {
+    const fc = await serve('forecast');
+    const page = await open(fc, '#/1/0');
+    const original = fc.read();
+    const json = () => JSON.parse((fc.read().match(/<script type="application\/json">([\s\S]*?)<\/script>/) ?? ['', '{}'])[1]);
+    const writes = () => fc.saves(/element content saved/g);
+    await page.click(`${ACTIVE} .chart`); await wait(300);
+    await page.keyboard.press('i'); await wait(500);
+    await page.locator('.ins-tab', { hasText: /^Data$/ }).click(); await wait(800);
+    const was = writes();
+    await page.selectOption('.dg-select[data-key="now"]', { label: 'Wed' }); await wait(1500);
+    check('forecast', 'now picked: "now" names the label', json().now === 'Wed', JSON.stringify(json().now));
+    check('forecast', 'and drawn', await page.locator(`${ACTIVE} .chart .chart-now`).count() === 1);
+    await page.locator('.dg-now-label').fill('today'); await page.keyboard.press('Enter'); await wait(1500);
+    check('forecast', 'its words: { at, label }', JSON.stringify(json().now) === '{"at":"Wed","label":"today"}', JSON.stringify(json().now));
+    await page.locator('.dg-threshold-y').fill('6.5');
+    await page.locator('.dg-threshold-label').fill('capacity'); await page.keyboard.press('Enter'); await wait(1500);
+    check('forecast', 'a threshold typed: its y and its words', JSON.stringify(json().threshold) === '{"y":6.5,"label":"capacity"}', JSON.stringify(json().threshold));
+    await page.selectOption('.dg-select[data-key="dash-0"]', { label: 'Wed' }); await wait(1500);
+    check('forecast', 'the line dashed from a label', json().series[0].dashFrom === 'Wed' && await page.locator(`${ACTIVE} .chart .chart-dashed`).count() > 0);
+    await page.locator('.dg-add-band-series').click(); await wait(1500);
+    check('forecast', 'a band series added, a copy of the line to widen', JSON.stringify(json().series[1]) === '{"name":"range","type":"band","band":{"low":[3,4,6,7],"high":[3,4,6,7]}}', JSON.stringify(json().series[1]));
+    const label = page.locator('.dg-label').nth(2);
+    await label.fill('Wednesday'); await page.keyboard.press('Enter'); await wait(1500);
+    check('forecast', 'a row renamed carries the now and the dash', json().now.at === 'Wednesday' && json().series[0].dashFrom === 'Wednesday', JSON.stringify(json()));
+    const n = writes() - was;
+    check('forecast', 'one write each: now, its words, the y, its words, the dash, the band series, the label', n === 7, n);
+    for (let i = 0; i < n; i++) {
+      await page.evaluate(() => document.activeElement?.blur()); await wait(100);
+      await page.keyboard.press(`${MOD}+z`); await wait(1300);
+    }
+    check('forecast', 'one undo each takes them all back', fc.read() === original, fc.read().match(/<script type="application\/json">([\s\S]*?)<\/script>/)?.[1]);
     await page.close();
   });
 } finally {

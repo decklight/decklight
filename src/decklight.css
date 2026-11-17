@@ -4189,7 +4189,7 @@
    numbers right-aligned in the mono face so their digits line up */
 .decklight-inspector .dl-chartgrid { padding: 0 12px 4px; font-size: 12.5px; }
 .decklight-inspector .dg-field { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.decklight-inspector .dg-key { flex: none; width: 40px; color: #b9bec8; }
+.decklight-inspector .dg-key { flex: none; width: 64px; color: #b9bec8; }
 .decklight-inspector .dg-seg { display: flex; flex: 1; min-width: 0; gap: 2px; padding: 2px; border-radius: 8px; background: rgba(255, 255, 255, .07); }
 .decklight-inspector .dg-seg-btn {
   flex: 1; min-width: 0; padding: 4px 4px; border: 0; border-radius: 6px; background: none;
@@ -4242,6 +4242,23 @@
 .decklight-inspector .dg-status.dg-failed { color: #f08a7e; opacity: 1; }
 .decklight-inspector .dg-note { margin: 2px 0 10px; color: #b9bec8; font-size: .95em; line-height: 1.45; }
 .decklight-inspector .dg-readonly { color: #f2c46d; }
+/* the chart's now and threshold, and where each line turns dashed (CHARTS):
+   a label picked from the chart's own, never one typed */
+.decklight-inspector .dg-select {
+  box-sizing: border-box; min-width: 0; max-width: 100%; padding: 4px 5px;
+  border: 1px solid rgba(255, 255, 255, .14); border-radius: 6px; background: rgba(0, 0, 0, .3);
+  color: inherit; font: inherit; color-scheme: dark; cursor: pointer;
+}
+.decklight-inspector .dg-select:focus { outline: none; border-color: #9ecbff; box-shadow: 0 0 0 1px #9ecbff; }
+.decklight-inspector .dg-select:disabled { opacity: .5; cursor: default; }
+.decklight-inspector .dg-rule :is(.dg-select, .dg-threshold-y) { flex: none; width: 7.5em; }
+.decklight-inspector .dg-rule .dg-rule-words { flex: 1; }
+.decklight-inspector .dg-threshold-y { text-align: right; font: 12.5px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+.decklight-inspector .dg-threshold-y.dg-bad { border-color: #f08a7e; box-shadow: 0 0 0 1px #f08a7e; background: rgba(240, 138, 126, .12); }
+.decklight-inspector .dg-title:disabled { opacity: .4; }
+.decklight-inspector .dg-foot .dg-select { width: 100%; margin-top: 3px; }
+.decklight-inspector .dg-foot .dg-corner { padding-top: 3px !important; white-space: nowrap; }
+.decklight-inspector .dg-break { flex-basis: 100%; height: 0; }
 /* the panel's foot, set inside the pane that already has the panel's margin */
 .decklight-inspector .dl-chartgrid .ins-foot { margin: 0 -12px; }
 

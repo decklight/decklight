@@ -12691,6 +12691,56 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && fc().querySelectorAll('.chart-marker').length === 2 && document.activeElement === q('.dg-mark-label[data-row="0"]');
         r.fcDashedDrawn = !!fc().querySelector('.chart-line.chart-dashed') && !!fc().querySelector('.chart-now');
 
+        // the rest of a forecast is picked, never typed as JSON (CHARTS, #1189): the now rule and
+        // its words, the threshold and its words, where each line turns dashed, a band series;
+        // each one change drawn at once and one POST
+        const pick = (sel, v) => { sel.focus(); sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); };
+        const nowSel = () => q('select[data-key="now"]'), dashSel = () => q('select[data-key="dash-0"]');
+        const ruleWords = () => [...fc().querySelectorAll('.chart-rule-label')].map((t) => t.textContent);
+        r.fcRulesShown = nowSel()?.value === '1' && [...nowSel().options].map((o) => o.textContent).join() === 'none,Mon,Tue,Wed'
+          && q('.dg-threshold-y')?.value === '' && q('.dg-threshold-label')?.disabled === true && q('.dg-now-label')?.disabled === false
+          && dashSel()?.value === '1' && !q('select[data-key="dash-1"]') && /dashed from/.test(q('.dg-foot')?.textContent ?? '');
+        const before7 = posts().length;
+        const nowX = () => fc().querySelector('.chart-now')?.getAttribute('x1');
+        const x0 = nowX();
+        pick(nowSel(), '2');
+        await settle();
+        r.fcNowPicked = nowX() !== x0 && posts().length === before7 + 1 && posts().at(-1).body.html.includes('"now": "Wed"')
+          && document.activeElement === nowSel() && nowSel().value === '2';
+        type(q('.dg-now-label'), 'to');
+        type(q('.dg-now-label'), 'today');
+        r.fcNowWordsDrawn = ruleWords().includes('today');
+        await pause();
+        r.fcNowWordsWritten = posts().length === before7 + 2 && posts().at(-1).body.html.includes('"now": { "at": "Wed", "label": "today" }');
+        const y = q('.dg-threshold-y');
+        type(y, '2x');
+        r.fcThresholdBadMarked = y.classList.contains('dg-bad') && !fc().querySelector('.chart-threshold');
+        type(y, '2.5');
+        r.fcThresholdDrawn = !!fc().querySelector('.chart-threshold') && !y.classList.contains('dg-bad') && q('.dg-threshold-label').disabled === false;
+        type(q('.dg-threshold-label'), 'alert');
+        await pause();
+        r.fcThresholdWritten = posts().length === before7 + 4 && posts().at(-2).body.html.includes('"threshold": { "y": 2.5 }') && posts().at(-1).body.html.includes('"threshold": { "y": 2.5, "label": "alert" }')
+          && ruleWords().includes('alert');
+        pick(dashSel(), '');
+        await settle();
+        r.fcSolid = !fc().querySelector('.chart-dashed') && posts().length === before7 + 5 && !posts().at(-1).body.html.includes('dashFrom');
+        pick(dashSel(), '0');
+        await settle();
+        r.fcDashedFromMon = !!fc().querySelector('.chart-line.chart-dashed') && posts().length === before7 + 6
+          && posts().at(-1).body.html.includes('"dashFrom": "Mon"') && dashSel().value === '0';
+        const bands = () => fc().querySelectorAll('.chart-band').length;
+        const b0 = bands();
+        q('.dg-add-band-series').click();
+        await settle();
+        r.fcBandSeriesAdded = bands() === b0 + 1 && posts().length === before7 + 7
+          && posts().at(-1).body.html.includes('{ "name": "range", "type": "band", "band": { "low": [1, 2, 3], "high": [1, 2, 3] } }')
+          && !!edge(0, 'low') && !!q('.dg-cell[data-row="0"][data-col="1"][data-part="low"]') && !q('select[data-key="dash-1"]')
+          && document.activeElement === q('.dg-cell[data-row="0"][data-col="1"][data-part="low"]');
+        // a row renamed carries the now and the dash it named
+        type(q('.dg-cell[data-row="0"][data-col="-1"]'), 'Monday');
+        await pause();
+        r.fcRefsFollowRename = posts().at(-1).body.html.includes('"dashFrom": "Monday"') && dashSel().value === '0';
+
         // a chart no grid can show (a value that is a word): a note and the HTML editor, never a broken grid
         q('.ins-tab[data-tab="info"]')?.click();
         await settle();
@@ -12711,6 +12761,8 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.lockedReadsOnly && r.scatterAsPairs && r.scatterDrawnAtOnce && r.scatterOneBurst && r.scatterPointAdded
           && r.scatterBadMarked && r.scatterBadNotWritten && r.scatterIsANote
           && r.fcBandColumns && r.fcMarkerTicked && r.fcBandDrawnAtOnce && r.fcBandWritten && r.fcMarkerAdded && r.fcDashedDrawn
+          && r.fcRulesShown && r.fcNowPicked && r.fcNowWordsDrawn && r.fcNowWordsWritten && r.fcThresholdBadMarked && r.fcThresholdDrawn
+          && r.fcThresholdWritten && r.fcSolid && r.fcDashedFromMon && r.fcBandSeriesAdded && r.fcRefsFollowRename
           && r.scatterOpensTheHtmlEditor;
       }
 
