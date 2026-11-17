@@ -533,8 +533,35 @@ export function firstExecutableScript(html) {
 }
 
 /**
+ * Does the document open with a doctype? Read past a byte-order mark,
+ * whitespace and comments, case-insensitively, as the HTML parser does.
+ * Without one a browser lays the page out in quirks mode, where a `<table>`
+ * takes neither the colour nor the size of the text around it (#1190).
+ */
+export function hasDoctype(html) {
+  const lead = /^\uFEFF?(?:\s|<!--[\s\S]*?-->)*/.exec(html)[0].length;
+  return /^<!doctype\s+html\b/i.test(html.slice(lead));
+}
+
+/** Where the document's prolog ends: past a byte-order mark, comments, whitespace and the doctype. */
+const prologEnd = (html) => /^\uFEFF?(?:\s|<!--[\s\S]*?-->|<!doctype\b[^>]*>)*/i.exec(html)[0].length;
+
+/**
+ * The document with `<!doctype html>` in front, after any byte-order mark,
+ * and unchanged when it already has one. Every server and every render adds
+ * it to a deck through `linkRuntime`, so a deck written as only its slides
+ * renders in standards mode; `bundle` keeps it in the file it writes.
+ */
+export function withDoctype(html) {
+  if (hasDoctype(html)) return html;
+  const bom = html.startsWith('\uFEFF') ? 1 : 0;
+  return `${html.slice(0, bom)}<!doctype html>\n${html.slice(bom)}`;
+}
+
+/**
  * The document with the runtime referenced — and unchanged when it already
- * is, or when it is not a deck. Idempotent and ordered: the stylesheet and
+ * is, or when it is not a deck. A deck with no doctype gets one either way
+ * (`withDoctype`). Idempotent and ordered: the stylesheet and
  * the theme go at the end of `<head>` (each only when the document has none
  * of its own), the engine before the first script that executes — an
  * author's own script, or a `Decklight.init` call kept as the JS API's
@@ -543,7 +570,9 @@ export function firstExecutableScript(html) {
  * package (`packageAsset`), the same ones `init` used to write (#517).
  */
 export function linkRuntime(html, { theme = null } = {}) {
-  if (!isDeck(html) || hasRuntime(html)) return html;
+  if (!isDeck(html)) return html;
+  html = withDoctype(html);
+  if (hasRuntime(html)) return html;
   const head = [];
   if (!hasRuntimeCss(html)) head.push('<link rel="stylesheet" href="decklight.css" data-decklight-runtime="css">');
   if (!hasTheme(html)) head.push(`<link rel="stylesheet" href="themes/${theme ?? baseTheme(html)}.css">`);
@@ -552,7 +581,8 @@ export function linkRuntime(html, { theme = null } = {}) {
     const masked = maskComments(out);
     const headEnd = masked.search(/<\/head>/i);
     const bodyAt = masked.search(/<body\b/i);
-    const at = headEnd !== -1 ? headEnd : bodyAt !== -1 ? bodyAt : 0;
+    // with neither, after the doctype: anything ahead of it is quirks mode
+    const at = headEnd !== -1 ? headEnd : bodyAt !== -1 ? bodyAt : prologEnd(out);
     out = `${out.slice(0, at)}${head.join('\n')}\n${out.slice(at)}`;
   }
   const engine = '<script src="decklight.js" data-decklight-runtime="js"></script>';

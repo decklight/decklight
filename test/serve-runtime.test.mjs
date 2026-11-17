@@ -150,3 +150,60 @@ test('a data deck carrying a theme `theme add` pasted in keeps its own theme —
     assert.match(out, /<style data-theme="nord-deep" data-theme-added media="not all">/, 'and the added one still an extra');
   } finally { rmTemp(dir); }
 });
+
+test('a deck with no doctype gets one in front, served and bundled, and one that has it is left alone (#1190)', async (t) => {
+  // Without a doctype a browser lays the page out in quirks mode, where a
+  // table takes neither the colour nor the size of the text around it: dark
+  // on a dark theme. Every server and every render goes through linkRuntime.
+  const { linkRuntime, hasDoctype, withDoctype } = await import('../cli/runtime-link.mjs');
+  const { execFileSync } = await import('node:child_process');
+  const fragment = '<div class="decklight">\n<section><h2>T</h2><table><tr><td>a</td></tr></table></section>\n</div>\n';
+
+  assert.equal(hasDoctype(fragment), false);
+  for (const has of ['<!doctype html>', '<!DOCTYPE HTML>', '﻿<!DOCTYPE html>', '  \n<!-- written by hand -->\n<!doctype html>']) {
+    assert.equal(hasDoctype(`${has}\n${fragment}`), true, has);
+    assert.equal(withDoctype(`${has}\n${fragment}`), `${has}\n${fragment}`, `${has}: not doubled`);
+  }
+  assert.equal(withDoctype(`﻿${fragment}`), `﻿<!doctype html>\n${fragment}`, 'after a byte-order mark');
+
+  const linked = linkRuntime(fragment);
+  assert.ok(linked.startsWith('<!doctype html>\n<link rel="stylesheet" href="decklight.css"'), 'the doctype first, the references after it');
+  assert.equal(linkRuntime(linked), linked, 'idempotent');
+  assert.equal((linked.match(/<!doctype/gi) || []).length, 1);
+  // a doctype that is there already stays first: nothing is put ahead of it
+  assert.ok(linkRuntime(`<!DOCTYPE html>\n${fragment}`).startsWith('<!DOCTYPE html>\n<link '));
+  // a deck that carries its runtime still gets one; a page that is not a deck does not
+  const carrying = `${fragment}<script src="decklight.js"></script>\n`;
+  assert.equal(linkRuntime(carrying), `<!doctype html>\n${carrying}`);
+  assert.equal(linkRuntime('<p>not a deck</p>'), '<p>not a deck</p>');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-doctype-'));
+  t.after(() => rmTemp(dir));
+  fs.writeFileSync(path.join(dir, 'deck.html'), fragment);
+  const files = staticFiles(dir, { index: '/deck.html' });
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (!files(req, res, url)) { res.writeHead(405); res.end(); }
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  t.after(() => server.close());
+  const page = await (await fetch(`http://127.0.0.1:${server.address().port}/`)).text();
+  assert.ok(page.startsWith('<!doctype html>\n'), 'served with a doctype');
+  assert.equal(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), fragment, 'the file is what it was');
+
+  // a bundle is served from wherever it lands, by a server that adds nothing:
+  // it carries the doctype in the file, for a deck that carries its runtime too
+  fs.mkdirSync(path.join(dir, 'themes'));
+  for (const [from, to] of [['dist/decklight.js', 'decklight.js'], ['dist/decklight.css', 'decklight.css'], ['themes/aurora.css', 'themes/aurora.css']]) {
+    fs.copyFileSync(path.join(PKG_ROOT, from), path.join(dir, to));
+  }
+  fs.writeFileSync(path.join(dir, 'carrying.html'),
+    `<link rel="stylesheet" href="decklight.css">\n<link rel="stylesheet" href="themes/aurora.css">\n${carrying}`);
+  for (const name of ['deck.html', 'carrying.html']) {
+    execFileSync(process.execPath, [path.join(PKG_ROOT, 'cli/decklight.mjs'), 'bundle', name, '-o', `out-${name}`],
+      { cwd: dir, stdio: 'pipe' });
+    const out = fs.readFileSync(path.join(dir, `out-${name}`), 'utf8');
+    assert.ok(out.startsWith('<!doctype html>\n'), `${name}: bundled with a doctype`);
+    assert.equal((out.slice(0, 2000).match(/<!doctype/gi) || []).length, 1, `${name}: once`);
+  }
+});

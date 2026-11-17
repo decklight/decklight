@@ -81,9 +81,12 @@ the installed runtime's actual behavior — trust it over prior training.
 
 **Minimal skeleton** (see \`deck.html\` in this project for a worked example
 with a build and notes already wired; \`decklight init --starter full\` writes a
-reference deck with one slide per feature, each naming the SPEC section to read):
+reference deck with one slide per feature, each naming the SPEC section to read).
+Keep the doctype on the first line: without it a browser opening the file lays
+it out in quirks mode, where a table loses the theme's text colour.
 
 \`\`\`html
+<!doctype html>
 <div class="decklight">
   <section>
     <h1>Title</h1>
