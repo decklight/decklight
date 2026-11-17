@@ -12205,6 +12205,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
       if (mode === 'figureoptions') {
+        // a runner may ask for reduced motion (a CI Mac does): the count played is what is under test
+        const realMM = window.matchMedia.bind(window);
+        window.matchMedia = (q) => (/reduced-motion/.test(q) ? { matches: false, media: q, addEventListener() {}, removeEventListener() {} } : realMM(q));
         const I = '.decklight-inspector';
         const q = (s) => document.querySelector(`${I} ${s}`);
         const posts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/options'));

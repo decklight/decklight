@@ -48,6 +48,11 @@ const deckFile = (theme) => {
 <section><h2>End</h2></section>
 </div>
 <pre id="test-sink">running…</pre>
+<script>
+// a runner may ask for reduced motion (a CI Mac does): the count is what is under test, so motion is on here, and the reduced check asks for it below
+const realMM = window.matchMedia.bind(window);
+window.matchMedia = (q) => (/reduced-motion/.test(q) ? { matches: false, media: q, addEventListener() {}, removeEventListener() {} } : realMM(q));
+</script>
 <script src="${path.join(root, 'dist/decklight.js')}"></script>
 <script>
 const deck = Decklight.init({ hash: true, transition: 'none' });
