@@ -63,9 +63,9 @@ test('the custom data is the table: every authored attribute, its values, and no
 
 // ── the snippets ─────────────────────────────────────────────────────────────
 
-test('the snippets: six, each an HTML snippet with a dl- prefix, and every choice the table\'s', () => {
+test('the snippets: eight, each an HTML snippet with a dl- prefix, and every choice the table\'s', () => {
   const all = snippets();
-  assert.deepEqual(Object.values(all).map((s) => s.prefix), ['dl-slide', 'dl-build', 'dl-notes', 'dl-diagram', 'dl-chart', 'dl-compare', 'dl-figure']);
+  assert.deepEqual(Object.values(all).map((s) => s.prefix), ['dl-slide', 'dl-build', 'dl-notes', 'dl-diagram', 'dl-chart', 'dl-compare', 'dl-figure', 'dl-conversation']);
   for (const s of Object.values(all)) {
     assert.equal(s.scope, 'html');
     assert.ok(s.description && Array.isArray(s.body));
@@ -103,6 +103,10 @@ ${x('Decklight diagram')}
 </section>
 <section><h2>A chart</h2>
 ${x('Decklight chart')}
+</section>
+<section><h2>A conversation</h2>
+${x('Decklight conversation')}
+<aside class="notes">[click] [click] [click] [click]</aside>
 </section>
 ${x('Decklight comparison slide')}
 </div></body></html>`;

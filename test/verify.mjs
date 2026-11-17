@@ -303,6 +303,7 @@ const HARNESSES = [
   'figure-render',
   'steps-render',
   'travel-render',
+  'conversation-render',
   'strict-render',
   'shot-render',
   'plugin-render',

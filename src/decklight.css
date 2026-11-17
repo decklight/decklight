@@ -431,6 +431,124 @@
 }
 .decklight .figures > .figure { flex: 1 1 0; min-width: 0; margin: 0; }
 
+/* ---------- a conversation (SPEC DECK_ANATOMY, #1179) ---------------------------------
+   `<div class="conversation">` of turns, each `data-role` (user, agent, tool,
+   system, any word: its label) and `data-kind` (thought, tool-call; speech when
+   absent), `data-name` naming a tool. Drawn from the attributes alone: the
+   label is the turn's ::before, the user's turns sit on the right and everyone
+   else's on the left. Bubbles in theme tokens: `--turn-bg` / `--turn-ink`
+   (the block's ground and the body ink unless the theme sets them) and
+   `--turn-border` (a border shorthand, the block's by default), the user's
+   `--turn-user-bg` / `--turn-user-ink` (the accent and its contrast), a tool's
+   the code's ground and ink. A turn in a concept (`data-concept`, or its role
+   in the config's `roleConcepts`) is the concept's slot, as a diagram shape is.
+   Live, conversation.js holds it to the room its slide leaves and it scrolls
+   inside itself, the newest turn in view; in print it is whole, shrunk to fit. */
+.decklight .conversation {
+  position: relative;            /* the turns' offsetTop, for scroll-to-newest */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.42em;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 36em;
+  min-height: 0;
+  flex: 0 1 auto;                /* a slide's flex column may take room from it: it scrolls, never pushes */
+  margin: 0.3em auto;
+  padding: 0.15em 0.35em;
+  font-size: 0.72em;
+  line-height: 1.38;
+  text-align: left;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.decklight .conversation > :not(aside, script, style, template) {
+  box-sizing: border-box;
+  flex: none;
+  max-width: 82%;
+  margin: 0;
+  padding: 0.42em 0.8em 0.48em;
+  border-radius: calc(var(--block-radius, 8px) + 4px);
+  border: var(--turn-border, var(--block-border, 1px solid transparent));
+  background: var(--turn-bg, var(--block-bg, rgba(127, 127, 127, 0.12)));
+  color: var(--turn-ink, var(--fg, inherit));
+  overflow-wrap: anywhere;
+}
+/* who speaks: the role as written, a tool's name after it */
+.decklight .conversation > [data-role]::before {
+  content: attr(data-role);
+  display: block;
+  margin-bottom: 0.12em;
+  font-family: var(--font-body, system-ui, sans-serif);
+  font-size: 0.66em;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  white-space: normal;
+  opacity: 0.8;
+}
+.decklight .conversation > [data-role][data-name]::before { content: attr(data-role) " \00b7  " attr(data-name); }
+.decklight .conversation > [data-role][data-kind="thought"]::before { content: attr(data-role) " \00b7  thinking"; }
+.decklight .conversation > [data-role][data-kind="tool-call"]::before { content: attr(data-role) " \00b7  calls a tool"; }
+.decklight .conversation > [data-role="user"] {
+  align-self: flex-end;
+  border: 1px solid transparent;
+  background: var(--turn-user-bg, var(--accent, #6af));
+  color: var(--turn-user-ink, var(--accent-contrast, #fff));
+}
+.decklight .conversation > [data-role="system"] {
+  align-self: center;
+  max-width: 90%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted, inherit);
+  font-size: 0.86em;
+  text-align: center;
+}
+.decklight .conversation > [data-kind="thought"] {
+  background: transparent;
+  border: 1px dashed var(--muted, currentColor);
+  color: var(--muted, inherit);
+  font-style: italic;
+}
+.decklight .conversation > [data-kind="tool-call"],
+.decklight .conversation > [data-role="tool"] {
+  background: var(--code-bg, rgba(127, 127, 127, 0.15));
+  color: var(--code-fg, inherit);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.84em;
+}
+.decklight .conversation > .turn-code { white-space: pre-wrap; }
+/* a turn in a concept: the concept's slot, the diagram's ink, as a shape is
+   painted; a thought or a tool's turn keeps its own ground (muted words, code
+   colours) and wears the concept as its outline */
+.decklight .conversation > .turn-concept {
+  background: var(--turn-concept);
+  color: var(--d-text, inherit);
+  border: 1px solid var(--d-stroke, transparent);
+}
+.decklight .conversation > .turn-concept:is([data-kind="tool-call"], [data-role="tool"]) {
+  background: var(--code-bg, rgba(127, 127, 127, 0.15));
+  color: var(--code-fg, inherit);
+  border: 2px solid var(--turn-concept);
+}
+.decklight .conversation > .turn-concept[data-kind="thought"] {
+  background: transparent;
+  color: var(--muted, inherit);
+  border: 2px dashed var(--turn-concept);
+}
+/* scrolled past its first turns: the top edge fades, so the box reads as one that scrolls */
+.decklight .conversation.conversation-scrolled {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 1.6em);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 1.6em);
+}
+/* print and the PDF: every turn, the whole conversation, shrunk to fit by conversation.js */
+.decklight.decklight-print .conversation { overflow: visible; max-height: none !important; flex-shrink: 0; }
+
 .decklight table {
   margin: 0.6em auto;
   border-collapse: collapse;

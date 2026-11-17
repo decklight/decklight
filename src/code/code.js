@@ -42,6 +42,16 @@ hljs.registerAliases(['html'], { languageName: 'xml' });
 hljs.registerAliases(['text', 'plain'], { languageName: 'plaintext' });
 
 /**
+ * `source` highlighted as `language` (one hljs registers), as the markup of
+ * hljs spans, or null for a language it does not know. For a conversation's
+ * tool turns (DECK_ANATOMY), coloured as code without being a code block.
+ */
+export function highlightText(source, language) {
+  if (!hljs.getLanguage(language)) return null;
+  return hljs.highlight(String(source), { language, ignoreIllegals: true }).value;
+}
+
+/**
  * Parse `data-lines` ("1|3-5|all") into 1-based line-number segments.
  * Pure — unit-tested in test/builds.test.mjs.
  */

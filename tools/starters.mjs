@@ -21,7 +21,7 @@ import {
 } from './deck-html.mjs';
 
 /** The kinds of element Add offers, in its order (Picture is the page's file chooser, not a starter). */
-export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'figure', 'table', 'code', 'formula', 'columns', 'diagram', 'chart', 'video', 'terminal', 'webpage'];
+export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'figure', 'conversation', 'table', 'code', 'formula', 'columns', 'diagram', 'chart', 'video', 'terminal', 'webpage'];
 
 /** The kinds of slide New slide offers; no kind is today's blank slide (`BLANK_SLIDE`). */
 export const SLIDE_KINDS = ['bullets', 'text', 'columns', 'section', 'big-number', 'blank'];
@@ -36,6 +36,14 @@ const FIGURE = `<div class="figure">
   <p data-figure>42%</p>
   <p>What the number counts</p>
   <small>One line of context</small>
+</div>`;
+
+// a conversation (DECK_ANATOMY): a user, an agent and its tool, one turn a click
+const CONVERSATION = `<div class="conversation" data-build>
+  <p data-role="user">A question the user asks</p>
+  <p data-role="agent" data-kind="tool-call">look_up("the question")</p>
+  <p data-role="tool" data-name="look_up">{ "answer": "what the tool found" }</p>
+  <p data-role="agent">The agent's answer</p>
 </div>`;
 
 // one column of a comparison slide (COMPARISON_SLIDES): a heading over its points
@@ -72,6 +80,7 @@ function elementStarter(kind, { titled = true, wire = 'dl-wire-1', src = null, c
     case 'numbered': return '<ol>\n  <li>First step</li>\n  <li>Next step</li>\n</ol>';
     case 'quote': return '<blockquote>A quote worth repeating</blockquote>';
     case 'figure': return FIGURE;
+    case 'conversation': return CONVERSATION;
     case 'table': return `<table>
   <thead>
     <tr><th>Column</th><th>Column</th></tr>
@@ -223,7 +232,7 @@ export function whereNewBlockLands(seg, index, path = null) {
 const isWrapper = (src) => {
   if (!/^<div\b/i.test(src)) return false;
   const attrs = openTagOf(src);
-  return !/\b(?:chart|terminal|figures?)\b/.test(attrs.class ?? '') && !('data-chart' in attrs) && !('data-cast' in attrs);
+  return !/\b(?:chart|terminal|figures?|conversation)\b/.test(attrs.class ?? '') && !('data-chart' in attrs) && !('data-cast' in attrs);
 };
 
 /**

@@ -166,6 +166,31 @@ function featureSlides() {
       </aside>
     </section>
 
+    <!-- A conversation: turns with data-role (user on the right), data-kind for a thought or a tool call, a turn a click with data-build; a call and JSON are coloured as code. ${SPEC('DECK_ANATOMY')} -->
+    <section>
+      <h2>An agent, one turn at a time</h2>
+      <div class="conversation" data-build>
+        <p data-role="user">Make me a deck about our cache.</p>
+        <p data-role="agent" data-kind="thought">One file, plain HTML: I can write that.</p>
+        <p data-role="agent" data-kind="tool-call">write_file("cache.html")</p>
+        <p data-role="tool" data-name="write_file">{ "ok": true, "slides": 6 }</p>
+        <p data-role="agent">Six slides in cache.html, ready to edit.</p>
+      </div>
+      <aside class="notes">
+        <p>An exchange with an agent is a conversation: written as turns, drawn as a transcript.</p>
+        <p>[click]</p>
+        <p>The user asks.</p>
+        <p>[click]</p>
+        <p>The agent thinks.</p>
+        <p>[click]</p>
+        <p>It calls a tool.</p>
+        <p>[click]</p>
+        <p>The tool answers.</p>
+        <p>[click]</p>
+        <p>And the agent replies.</p>
+      </aside>
+    </section>
+
     <!-- A code block: a language class to highlight it, data-fit to size it, data-lines to step through its lines. ${SPEC('CODE_AND_MATH')} -->
     <section>
       <h2>Code, one part at a time</h2>

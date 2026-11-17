@@ -113,6 +113,11 @@ export const ATTRIBUTES = [
   { name: 'data-count', bare: true },
   { name: 'data-count-from', number: true },
 
+  // ── conversations ─────────────────────────────────────────────────────────
+  { name: 'data-role' },
+  { name: 'data-kind', kind: 'turn kind', values: ['speech', 'thought', 'tool-call'] },
+  { name: 'data-name' },
+
   // ── terminals ─────────────────────────────────────────────────────────────
   { name: 'data-cast' },
   { name: 'data-cast-inline' },
@@ -156,7 +161,7 @@ export const ENGINE_ATTRIBUTES = [
   'data-ds-injected', 'data-ds-missing', 'data-ds-required-empty', 'data-eyelid', 'data-filmed', 'data-fit-scale',
   'data-font', 'data-font-meta', 'data-font-preview', 'data-font-version', 'data-generated', 'data-go', 'data-how',
   'data-href', 'data-i', 'data-idle', 'data-key', 'data-markdown', 'data-markdown-removed', 'data-mouth',
-  'data-n', 'data-name', 'data-nest-fill', 'data-noise', 'data-off', 'data-off-fix', 'data-off-undo', 'data-overflow',
+  'data-n', 'data-nest-fill', 'data-noise', 'data-off', 'data-off-fix', 'data-off-undo', 'data-overflow',
   'data-overflow-by', 'data-part', 'data-phase', 'data-pinned', 'data-play', 'data-play-beat', 'data-plugin', 'data-point', 'data-pos',
   'data-poster', 'data-rate', 'data-redo', 'data-redo-beat', 'data-ref', 'data-roles', 'data-row', 'data-rule',
   'data-scope', 'data-series', 'data-side', 'data-sig', 'data-slide', 'data-slide-index', 'data-split-conflict', 'data-state',
@@ -188,6 +193,7 @@ export const CONFIG_KEYS = [
   { name: 'fonts', type: 'array' },
   { name: 'font', type: 'string' },
   { name: 'concepts', type: 'object' },
+  { name: 'roleConcepts', type: 'object' },
   { name: 'logo', type: 'object' },
   { name: 'playlist', type: 'array' },
   { name: 'narration', type: 'object' },

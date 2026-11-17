@@ -156,8 +156,10 @@ export function validateTheme(css) {
   // `--callout-ink`, the accent unless the theme says otherwise, on the code's
   // ground: a warning too, for the same reason. So is a figure's value
   // (DECK_ANATOMY), `--figure-ink`, else the accent, on the slide, and a
-  // run's current group in its strip, `--steps-ink`, else the accent.
-  const warnings = [...markGates(tokens), ...calloutGates(tokens), ...figureGates(tokens), ...stepsGates(tokens)].map((m) => m.message);
+  // run's current group in its strip, `--steps-ink`, else the accent; and a
+  // conversation's bubbles (DECK_ANATOMY), `--turn-*`, else the block's
+  // ground and the body ink, and the accent and its contrast for the user.
+  const warnings = [...markGates(tokens), ...calloutGates(tokens), ...figureGates(tokens), ...stepsGates(tokens), ...turnGates(tokens)].map((m) => m.message);
 
   return { ok: errors.length === 0, tokens, exceptions, missing, failures, errors, warnings, empty: false };
 }
@@ -284,6 +286,60 @@ export function stepsGates(tokens) {
   if (ratio === null || ratio >= STEPS_MIN) return [];
   return [{ fg: name, bg: 'bg', min: STEPS_MIN, ratio,
     message: `--${name} on --bg: ${ratio.toFixed(2)} < ${STEPS_MIN} — a run's current step would not read: set --steps-ink` }];
+}
+
+/** A conversation's words on their bubble are body text: WCAG 1.4.3's 4.5:1. */
+export const TURN_MIN = 4.5;
+
+/** A colour literal's alpha (rgba(), hsla(), #rrggbbaa, #rgba), 1 when it has none. */
+function alphaOf(value) {
+  const v = String(value ?? '').trim();
+  const fn = /^(?:rgb|hsl)a?\(([^)]*)\)$/i.exec(v);
+  if (fn) {
+    const parts = fn[1].split(/[\s,/]+/).filter(Boolean);
+    if (parts.length < 4) return 1;
+    const a = parts[3].endsWith('%') ? parseFloat(parts[3]) / 100 : parseFloat(parts[3]);
+    return Number.isFinite(a) ? Math.min(1, Math.max(0, a)) : 1;
+  }
+  const hex = /^#([0-9a-f]{4}|[0-9a-f]{8})$/i.exec(v);
+  if (hex) return parseInt(hex[1].length === 4 ? hex[1][3].repeat(2) : hex[1].slice(6), 16) / 255;
+  return 1;
+}
+
+/**
+ * A conversation's gates (DECK_ANATOMY, #1179) for a theme's tokens, as
+ * failures (none: it passes). An agent's, a tool's or a system's bubble is
+ * `--turn-bg`, else `--block-bg` (a translucent one over every stop of
+ * `--bg`), its words `--turn-ink`, else `--fg`; the user's is `--turn-user-bg`,
+ * else `--accent`, its words `--turn-user-ink`, else `--accent-contrast`. Both
+ * are read as body text. A thought is `--muted` on the slide and a tool's turn
+ * the code's ink on the code's ground, which the contract gates.
+ */
+export function turnGates(tokens) {
+  const out = [];
+  const bgName = tokens['turn-bg'] ? 'turn-bg' : 'block-bg';
+  const inkName = tokens['turn-ink'] ? 'turn-ink' : 'fg';
+  const ink = colorsIn(tokens[inkName] ?? '')[0];
+  const ground = colorsIn(tokens[bgName] ?? '')[0];
+  const stops = colorsIn(tokens.bg ?? '');
+  if (ink && ground && stops.length) {
+    const alpha = alphaOf(tokens[bgName]);
+    const ratio = Math.min(...stops.map((s) => contrast(ink, tintOver(ground, s, alpha))));
+    if (ratio < TURN_MIN) {
+      out.push({ fg: inkName, bg: bgName, min: TURN_MIN, ratio,
+        message: `--${inkName} on --${bgName}: ${ratio.toFixed(2)} < ${TURN_MIN} — a conversation's turn would not read: set --turn-bg and --turn-ink` });
+    }
+  }
+  const userBg = tokens['turn-user-bg'] ? 'turn-user-bg' : 'accent';
+  const userInk = tokens['turn-user-ink'] ? 'turn-user-ink' : 'accent-contrast';
+  if (tokens[userBg] && tokens[userInk]) {
+    const ratio = minContrast(tokens[userInk], tokens[userBg]);
+    if (ratio !== null && ratio < TURN_MIN) {
+      out.push({ fg: userInk, bg: userBg, min: TURN_MIN, ratio,
+        message: `--${userInk} on --${userBg}: ${ratio.toFixed(2)} < ${TURN_MIN} — a user's turn would not read: set --turn-user-bg and --turn-user-ink` });
+    }
+  }
+  return out;
 }
 
 /** The least OKLab lightness step between a panel and the tone of a box nested in it. */

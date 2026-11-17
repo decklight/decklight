@@ -147,6 +147,12 @@ export function snippets() {
   <p data-figure data-count>\${1:94%}</p>
   <p>\${2:of requests never reach the database}</p>
 </div>$0`),
+    'Decklight conversation': s('dl-conversation', 'Turns between a user, an agent and its tools, one a click (DECK_ANATOMY).', `<div class="conversation" data-build>
+  <p data-role="user">\${1:Where is my order 4417?}</p>
+  <p data-role="agent" data-kind="tool-call">\${2:get_order(4417)}</p>
+  <p data-role="tool" data-name="\${3:get_order}">{ "status": "delayed", "eta": "Friday" }</p>
+  <p data-role="agent">\${4:It is delayed and should arrive Friday.}</p>
+</div>$0`),
   };
 }
 
@@ -257,7 +263,8 @@ const USAGE = `usage: decklight vscode [dir | deck.html]
     ${DATA_FILE}    typing data- completes data-build, data-layout and
                                 the rest, with their values and a line on each
     ${SNIPPETS_FILE}     dl-slide, dl-build, dl-notes, dl-diagram,
-                                dl-chart, dl-compare, dl-figure
+                                dl-chart, dl-compare, dl-figure,
+                                dl-conversation
     settings.json               html.customData added, the rest of the file
                                 kept (a list of your own there: the line to
                                 add is said)

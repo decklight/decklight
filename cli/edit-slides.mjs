@@ -42,7 +42,7 @@ import {
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, groupDiagramNodes, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, removeNestedElements, moveSlideElement,
   duplicateSlideElement, removeSlideElements, duplicateSlideElements, moveSlideElements, joinSlideElements } from './edit.mjs';
 import { locateElement, openElement } from './edit-address.mjs';
-import { setElementPicture, setElementOptions, setSlideBackground, pictureToBackground, setSlideAttrs, pasteSlideElement, withoutPageIds } from './edit.mjs';
+import { setElementPicture, setElementOptions, setConversationTurn, setSlideBackground, pictureToBackground, setSlideAttrs, pasteSlideElement, withoutPageIds } from './edit.mjs';
 import { relativeAssets, pasteSection } from './paste.mjs';
 import { findInDeck, replaceInDeck } from './find-replace.mjs';
 import { setElementGeometry, setDiagramCanvas, addDiagramShape, duplicateDiagramNode, duplicateDiagramNodes, editConnector, CONNECTOR_OPS, GROUP_OPS } from './edit.mjs';
@@ -1447,6 +1447,31 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   /**
+   * `POST /deck/edit/element/turn` — `{ slide, index, path, tag, op, value? }`:
+   * one turn of a conversation (DECK_ANATOMY) given a role or a kind, a turn
+   * added after it, or it removed (setConversationTurn), one undo entry.
+   * Answers the path of the turn it leaves selected: the new one after an add.
+   */
+  function elementTurnRoute({ body, json }) {
+    const { slide, index, path = null, tag = 'p', op = null, value = null, quiet: inPlace = false, from = null } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || !Array.isArray(path) || typeof tag !== 'string' || typeof op !== 'string') {
+      return json(400, { ok: false, error: 'bad payload' });
+    }
+    let changed;
+    let at = path;
+    try {
+      changed = applyEdit((html) => {
+        const out = setConversationTurn(html, slide, index, { path, tag, op, value });
+        at = out.path;
+        return out.html;
+      });
+    } catch (e) { return refusal(e, json); }
+    if (changed) console.log(`  conversation turn: slide ${slide} #${index} › ${path.join('.')} → ${op}${value === null ? '' : ` ${JSON.stringify(value).slice(0, 40)}`}`);
+    const placed = inPlaceWrite(changed, inPlace, slide, index, from);
+    return json(200, { ok: true, changed, inPlace: placed, path: at, ...history.counts() });
+  }
+
+  /**
    * `POST /deck/edit/slide/background` — `{ slide, src }`: slide N's
    * background picture (`data-background-image`, DECK_ANATOMY), a relative
    * path beside the deck, or null to take it off. With `take: { index, path?,
@@ -1588,6 +1613,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/insert', elementInsertRoute);
   routes.set('POST /deck/edit/element/picture', elementPictureRoute);
   routes.set('POST /deck/edit/element/options', elementOptionsRoute);
+  routes.set('POST /deck/edit/element/turn', elementTurnRoute);
   routes.set('POST /deck/edit/slide/background', slideBackgroundRoute);
   routes.set('POST /deck/edit/slide/builds', slideBuildsRoute);
   return routes;

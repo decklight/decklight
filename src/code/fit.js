@@ -95,8 +95,13 @@ function intoGutter(pre) {
   return !!code && code.scrollWidth > code.clientWidth + TOL;
 }
 
-/** Does the code, at its current size, sit inside every box between it and the slide? */
-function fitsNow(pres, chain) {
+/**
+ * Does the code, at its current size, sit inside every box between it and the
+ * slide? `pres` are blocks that must not scroll inside themselves; `chain` the
+ * boxes from the one holding them up to the section. A conversation
+ * (DECK_ANATOMY) asks the same of itself, with no blocks of its own to judge.
+ */
+export function fitsNow(pres, chain) {
   for (const pre of pres) {
     if (pre.scrollWidth > pre.clientWidth + TOL || pre.scrollHeight > pre.clientHeight + TOL || intoGutter(pre)) return false;
   }
@@ -138,16 +143,22 @@ function capScale(pre) {
   return px > 0 ? px / own : FILL_MAX;
 }
 
-/** One fit host: its blocks share the largest size that fits. */
-function fitHost(host, section) {
-  const pres = host.matches('pre') ? [host] : [...host.querySelectorAll('pre')];
-  if (!pres.length) return;
-  const container = host.matches('pre') ? host.parentElement : host;
+/** The boxes from `container` up to `section`, each one `fitsNow` holds the content inside. */
+export function chainTo(container, section) {
   const chain = [];
   for (let n = container; n; n = n.parentElement) {
     chain.push(n);
     if (n === section) break;
   }
+  return chain;
+}
+
+/** One fit host: its blocks share the largest size that fits. */
+function fitHost(host, section) {
+  const pres = host.matches('pre') ? [host] : [...host.querySelectorAll('pre')];
+  if (!pres.length) return;
+  const container = host.matches('pre') ? host.parentElement : host;
+  const chain = chainTo(container, section);
   // The cap: each block's size with no font-size of its own — the author's
   // hand-set size is exactly what data-fit replaces.
   for (const pre of pres) pre.style.removeProperty('font-size');

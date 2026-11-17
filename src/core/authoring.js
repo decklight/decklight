@@ -30,6 +30,7 @@ import { createListSessions } from './list-session.js';
 import { createEditCommit } from './edit-commit.js';
 import { cleanPasted, cleanTyped } from './list-edit.js';
 import { labelOf, linesOf, setLines } from './diagram-labels.js';
+import { plainTurn } from './conversation.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -995,6 +996,8 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     // picked up again after a save that failed: the file still has the original
     // a formula's text is shown as its source while it is typed, and typeset again after
     const prior = stranded.get(el);
+    // a conversation's tool turn is coloured as code (DECK_ANATOMY): typed as its words, never its spans
+    plainTurn(el);
     editing = { el, original: prior?.original ?? el.innerHTML, slide, index, path, provisional, formula: formula || !!prior?.formula };
     // a point of a list, a cell of a table: Enter and Tab work as a document's (list-session.js)
     if (!provisional) lists.begin(editing, top);

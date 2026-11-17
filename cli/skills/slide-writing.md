@@ -89,6 +89,7 @@ and draw that instead:
 | Steps, a flow, cause and effect | A diagram that builds step by step, labels on the parts | SVG_DIAGRAMS, `draw` builds (BUILD_ENTRANCES) |
 | Parts of a system | A labelled diagram, four or fewer new things per step | `data-build` with `highlight` |
 | One fact that carries the slide | One large number and a short label | A figure, `<div class="figure">`, alone on the slide (DECK_ANATOMY) |
+| An agent at work: a user asks, it thinks, calls a tool, answers | The exchange as a transcript, a turn a click | A conversation, `<div class="conversation" data-build>` (DECK_ANATOMY) |
 | A claim resting on data | One chart, a takeaway title, one highlighted series | CHARTS |
 | A forecast, a normal range, a line crossing a limit | A line dashed from now with a band round it, a marked point, a threshold | `dashFrom`, `band`, `markers`, `threshold`, `now` in the chart's JSON (CHARTS) |
 | Two options, before and after | A side-by-side with identical layout | `data-layout="split"` (COMPARISON_SLIDES) |
