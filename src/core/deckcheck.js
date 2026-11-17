@@ -208,7 +208,14 @@ export function createDeckCheck({
       if (sec.hasAttribute('data-markdown-removed')) {
         add('error', 'markdown-slide', 'a markdown slide, which comes up empty: data-markdown was removed in 0.3.0');
       }
-      if (measureOverflow(sec, n)) add('error', 'overflow', 'content is clipped: the audience never sees the rest');
+      if (measureOverflow(sec, n)) {
+        // what the guardrail named (#1183): "a diagram runs 77px past …", as `decklight check` says it
+        const what = sec.getAttribute('data-overflow');
+        const by = Number(sec.getAttribute('data-overflow-by'));
+        add('error', 'overflow', what && by > 0
+          ? `content is clipped: ${what} runs ${by}px past what the slide shows, and the audience never sees the rest`
+          : 'content is clipped: the audience never sees the rest');
+      }
       // a label that does not fit its shape even wrapped: one row a slide, naming the first
       const long = labelOverflows(sec);
       if (long.length) {

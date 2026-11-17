@@ -8187,9 +8187,9 @@
         await until(() => sec.hasAttribute('data-overflow') && !!badge());
         r.showsOnLoad = deck.state.slide === 5 && !!badge() && badge().tagName === 'BUTTON';
         r.numberStillReads = num()?.querySelector('.sn-n')?.textContent === '5 / 5';
-        // the slide itself is the box that clips most here: its content runs off the bottom
-        r.saysWhatAndHowMuch = /^slide 5 is clipped: content runs \d+px past the bottom of the slide/.test(badge()?.getAttribute('aria-label') ?? '')
-          && /^clipped: content runs \d+px past the bottom of the slide.*Check deck/.test(badge()?.title ?? '');
+        // the slide itself is the box that clips most here, and what it cuts is named: the list (#1183)
+        r.saysWhatAndHowMuch = /^slide 5 is clipped: a list runs \d+px past the bottom of the slide/.test(badge()?.getAttribute('aria-label') ?? '')
+          && /^clipped: a list runs \d+px past the bottom of the slide.*Check deck/.test(badge()?.title ?? '');
         const nb = num()?.getBoundingClientRect(), bb = badge()?.getBoundingClientRect();
         r.onTheNumber = !!nb && !!bb && bb.left >= nb.left && bb.right <= nb.right + 1 && bb.top >= nb.top - 4 && bb.bottom <= nb.bottom + 4
           && getComputedStyle(badge()).pointerEvents === 'auto';
@@ -8198,6 +8198,8 @@
         await until(() => !!document.querySelector('.decklight-deckcheck .dc-row.narr-sel'));
         const picked = document.querySelector('.decklight-deckcheck .dc-row.narr-sel');
         r.clickOpensCheckOnTheRow = picked?.dataset.rule === 'overflow' && picked.querySelector('.dc-where')?.textContent === '5';
+        // and Check deck's row says what the badge says (#1183)
+        r.checkRowNamesIt = /a list runs \d+px past what the slide shows/.test(picked?.textContent ?? '');
         deck._deckCheck.close();
         await settle();
         deck.goto(1); await settle();
@@ -8217,7 +8219,7 @@
         window.__es.emit('lock', { locked: true });
         await settle();
         r.goesWithTheLock = !num() && !document.querySelector('.sn-clip');
-        r.PASS = r.showsOnLoad && r.numberStillReads && r.saysWhatAndHowMuch && r.onTheNumber && r.notTheAccent && r.clickOpensCheckOnTheRow
+        r.PASS = r.showsOnLoad && r.numberStillReads && r.saysWhatAndHowMuch && r.onTheNumber && r.notTheAccent && r.clickOpensCheckOnTheRow && r.checkRowNamesIt
           && r.goneOnACleanSlide && r.backOnTheClippedOne && r.goneOnceItFits && r.backWhenItClipsAgain && r.goesWithTheLock;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

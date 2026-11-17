@@ -318,8 +318,8 @@ test('a clipped slide in the dumped DOM is an error, by slide number', () => {
   assert.equal(found[1].slide, 3);
   assert.equal(found[1].level, 'warn');
   assert.match(found[1].message, /COMPARISON_SLIDES/);
-  // the boolean attribute the engine writes today, and the px figure a future
-  // one might: neither is invented
+  // a bare mark (an older runtime), and a figure with nothing named: neither is invented
+  // (the runtime today names what is cut too, #1183: tested below)
   assert.match(renderFindings('<section data-overflow data-overflow-by="42"></section>')[0].message,
     /\(42 px over\)/);
   assert.deepEqual(renderFindings('<section><h2>Clean</h2></section>', { slides: 1 }), []);
@@ -360,6 +360,16 @@ test('fewer sections on the page than in the file means the runtime never mounte
   assert.equal(found[0].level, 'error');
   assert.equal(found[0].slide, null, 'a deck that did not render is not one slide’s fault');
   assert.match(found[0].message, /4 sections in the file, 1 on the page/);
+});
+
+test('a clipped slide is reported with what is cut and by how much, as the runtime named it (#1183)', () => {
+  const [named] = renderFindings('<section data-overflow="a diagram" data-overflow-by="77"><h2>A</h2></section>', { slides: 1 });
+  assert.equal(named.rule, 'overflow');
+  assert.equal(named.level, 'error');
+  assert.match(named.message, /^content is clipped: a diagram runs 77px past what the slide shows/);
+  // a deck on an older runtime: a bare mark, and no figure made up for it
+  const [bare] = renderFindings('<section data-overflow><h2>A</h2></section>', { slides: 1 });
+  assert.match(bare.message, /^content is clipped — it does not fit the slide/);
 });
 
 // ── output ───────────────────────────────────────────────────────────────────
