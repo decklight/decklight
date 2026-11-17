@@ -18,6 +18,8 @@
  * node:test without a browser.
  */
 
+import { cellNumber, resolveAt } from '../../tools/chart-spec.mjs';
+
 // ---------------------------------------------------------------------------
 // the JSON, as offsets
 
@@ -194,26 +196,9 @@ const replaceEdit = (node, text) => ({ start: node.start, end: node.end, text })
 export const GRID_TYPES = ['bar', 'line', 'area', 'pie', 'donut'];
 const isPie = (t) => t === 'pie' || t === 'donut';
 
-/**
- * Cell text → the JSON it writes. `''` is a gap (`null`, which the chart
- * skips); a number is kept as typed when it is already JSON (`1.50` stays
- * `1.50`), and put in JSON's spelling when it is a plain decimal JSON does
- * not spell that way (`+3`, `.5`, `007`). Anything else (`12a`, `1,5`, `0x10`,
- * `Infinity`) is refused: `{ ok: false }`.
- */
-export function cellNumber(input) {
-  const t = String(input ?? '').trim();
-  if (t === '') return { ok: true, raw: 'null', value: null };
-  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(t)) {
-    const v = Number(t);
-    return Number.isFinite(v) ? { ok: true, raw: t, value: v } : { ok: false };
-  }
-  if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(t)) {
-    const v = Number(t);
-    return Number.isFinite(v) ? { ok: true, raw: String(v), value: v } : { ok: false };
-  }
-  return { ok: false };
-}
+// Cell text → the JSON it writes: shared with the chart itself, which reads
+// a value the way a cell does (tools/chart-spec.mjs).
+export { cellNumber };
 
 /** The type a chart is, from its `data-chart` attribute or else its JSON, donut told apart: `{ type, from }`. */
 function typeOf(tree, attrs) {
@@ -226,6 +211,11 @@ function typeOf(tree, attrs) {
 
 /**
  * The grid a chart's JSON shows, or why it cannot be one.
+ *
+ * On a line or area chart a series also shows its band (`band`, `{ low,
+ * high }` as cells, null when it has none) and its markers (`marks`, a row's
+ * marker words, '' for a marker without, null for none); a band series
+ * (`kind: 'band'`) has no values of its own, only its band.
  *
  * `attrs` is what the element says: `{ type, title }` (its `data-chart` and
  * `data-title`, null when absent). Returns `{ ok: true, type, typeFrom,
@@ -247,21 +237,56 @@ export function chartGrid(json, attrs = {}) {
   if (seriesNode?.kind !== 'array' || !seriesNode.items.length) return { ok: false, type, reason: 'it has no "series" list' };
   if (labelsNode.items.some((n) => n.kind === 'object' || n.kind === 'array')) return { ok: false, type, reason: 'a label is not a word or a number' };
   const labels = labelsNode.items.map((n) => (n.value == null ? '' : String(n.value)));
-  const series = [];
-  for (const [si, s] of seriesNode.items.entries()) {
-    const data = member(s, 'data')?.value;
-    if (s.kind !== 'object' || data?.kind !== 'array') return { ok: false, type, reason: `series ${si + 1} has no "data" list` };
-    if (data.items.length > labels.length) return { ok: false, type, reason: `series ${si + 1} has more values than there are labels` };
+  // a list of values as cells, or why it is not one
+  const cellsOf = (list, what) => {
+    if (list.items.length > labels.length) return `${what} has more values than there are labels`;
     const cells = [];
-    for (const v of data.items) {
+    for (const v of list.items) {
       if (v.kind === 'number') cells.push(json.slice(v.start, v.end));
       else if (v.kind === 'null') cells.push('');
       else if (v.kind === 'string' && cellNumber(v.value).ok) cells.push(v.value.trim());
-      else return { ok: false, type, reason: `series ${si + 1} has a value that is not a number` };
+      else return `${what} has a value that is not a number`;
     }
     while (cells.length < labels.length) cells.push('');
+    return cells;
+  };
+  // a line or area chart shows a series' band and its markers too (CHARTS)
+  const lines = type === 'line' || type === 'area';
+  const series = [];
+  for (const [si, s] of seriesNode.items.entries()) {
+    const kind = s.kind === 'object' && member(s, 'type')?.value?.value === 'band' ? 'band' : 'line';
+    const data = member(s, 'data')?.value;
+    if (s.kind !== 'object' || (kind === 'line' && data?.kind !== 'array')) return { ok: false, type, reason: `series ${si + 1} has no "data" list` };
+    let cells = data?.kind === 'array' ? cellsOf(data, `series ${si + 1}`) : labels.map(() => '');
+    if (typeof cells === 'string') return { ok: false, type, reason: cells };
+    if (kind === 'band') cells = labels.map(() => '');
+    let band = null;
+    const b = member(s, 'band')?.value;
+    if (b && b.kind !== 'null') {
+      const low = member(b, 'low')?.value, high = member(b, 'high')?.value;
+      if (b.kind !== 'object' || low?.kind !== 'array' || high?.kind !== 'array') return { ok: false, type, reason: `series ${si + 1} has a band that is not a "low" and a "high" list` };
+      band = { low: cellsOf(low, `the band of series ${si + 1}`), high: cellsOf(high, `the band of series ${si + 1}`) };
+      for (const e of [band.low, band.high]) if (typeof e === 'string') return { ok: false, type, reason: e };
+    } else if (kind === 'band') return { ok: false, type, reason: `series ${si + 1} is a band with no "band" lists` };
+    // the markers, a ticked cell a row: null where there is none, else its words
+    let marks = null;
+    const ms = member(s, 'markers')?.value;
+    if (ms && ms.kind !== 'null') {
+      if (ms.kind !== 'array') return { ok: false, type, reason: `series ${si + 1} has "markers" that are not a list` };
+      marks = labels.map(() => null);
+      for (const m of ms.items) {
+        const k = m.kind === 'object' ? resolveAt(labels, member(m, 'at')?.value?.value) : -1;
+        if (k === -1) return { ok: false, type, reason: `series ${si + 1} has a marker at no label of the chart` };
+        if (marks[k] != null) return { ok: false, type, reason: `series ${si + 1} has two markers at "${labels[k]}"` };
+        const label = member(m, 'label')?.value?.value;
+        marks[k] = label != null ? String(label) : '';
+      }
+    }
     const name = member(s, 'name')?.value;
-    series.push({ name: name?.value != null ? String(name.value) : `series ${si + 1}`, named: !!name, cells });
+    series.push({
+      name: name?.value != null ? String(name.value) : `series ${si + 1}`, named: !!name, kind, cells,
+      band: lines ? band : null, marks: lines && kind === 'line' ? marks ?? labels.map(() => null) : null,
+    });
   }
   const jsonTitle = member(tree, 'title')?.value;
   const titleFrom = attrs.title != null || !jsonTitle ? 'attr' : 'json';
@@ -389,6 +414,19 @@ function padEdits(json, p, len) {
   return p.data.flatMap((d) => (d && d.items.length < len ? [arrayInsert(json, d, d.items.length, Array(len - d.items.length).fill('null'))] : []));
 }
 
+/** A series' band lists, `{ band, low, high }` (null where it has none). */
+function bandOf(s) {
+  const band = member(s, 'band')?.value;
+  if (band?.kind !== 'object') return null;
+  const low = member(band, 'low')?.value, high = member(band, 'high')?.value;
+  return low?.kind === 'array' && high?.kind === 'array' ? { band, low, high } : null;
+}
+/** Every list that holds a value a row: each series' data and its band's two edges. */
+const rowLists = (p) => p.series.items.flatMap((s, k) => {
+  const b = bandOf(s);
+  return [p.data[k], b?.low, b?.high].filter(Boolean);
+});
+
 /** Value `row` of series `col` becomes the number typed (`''` a gap); a bad number throws. */
 export function setCell(json, row, col, input) {
   const n = cellNumber(input);
@@ -405,7 +443,9 @@ export function setLabel(json, row, text) {
   const p = parts(json);
   const node = p.labels.items[row];
   if (!node) throw new Error('no such row');
-  return splice(json, [replaceEdit(node, jsonString(text))]);
+  const before = labelsOf(p);
+  // a reference that names the row by its label follows it to its new one
+  return followRefs(splice(json, [replaceEdit(node, jsonString(text))]), before, (k) => k, row);
 }
 
 /** Series `col` is called `name`; a series that had no name gets one, first. */
@@ -423,11 +463,18 @@ export function addRow(json, at = null, label = null) {
   const n = p.labels.items.length;
   const k = at == null ? n : Math.max(0, Math.min(n, at));
   // a series shorter than the place the row goes is filled with gaps first
+  const before = labelsOf(p);
   const padded = splice(json, padEdits(json, p, k));
   p = parts(padded);
   const edits = [arrayInsert(padded, p.labels, k, [jsonString(label ?? `label ${n + 1}`)])];
   for (const d of p.data) if (d) edits.push(arrayInsert(padded, d, k, ['0']));
-  return splice(padded, edits);
+  // a band has no range there yet: a gap, never a pinch to 0
+  for (const s of p.series.items) {
+    const b = bandOf(s);
+    if (!b) continue;
+    for (const e of [b.low, b.high]) if (e.items.length >= k) edits.push(arrayInsert(padded, e, k, ['null']));
+  }
+  return followRefs(splice(padded, edits), before, (r) => (r >= k ? r + 1 : r));
 }
 
 /** Row `row` goes, its label and its value in every series; the last row stays. */
@@ -435,9 +482,11 @@ export function removeRow(json, row) {
   const p = parts(json);
   if (p.labels.items.length <= 1) throw new Error('a chart keeps at least one row');
   if (row < 0 || row >= p.labels.items.length) throw new Error('no such row');
+  const before = labelsOf(p);
   const edits = [arrayRemove(p.labels, row)];
-  for (const d of p.data) if (d && row < d.items.length) edits.push(arrayRemove(d, row));
-  return splice(json, edits);
+  for (const d of rowLists(p)) if (row < d.items.length) edits.push(arrayRemove(d, row));
+  // a marker at the row goes with it; a dashFrom or now there comes off
+  return followRefs(splice(json, edits), before, (r) => (r === row ? -1 : r > row ? r - 1 : r));
 }
 
 /** Row `row` trades places with the one `by` (±1) from it. */
@@ -448,8 +497,9 @@ export function moveRow(json, row, by) {
   if (row < 0 || row >= n || to < 0 || to >= n) throw new Error('no row to move it past');
   // a series holding one of the two values but not the other is given a gap
   // for the missing one, so the value moves; one holding neither is left alone
+  const before = labelsOf(p);
   const lo = Math.min(row, to), hi = Math.max(row, to);
-  const pads = p.data.flatMap((d) => (d && d.items.length > lo && d.items.length <= hi
+  const pads = rowLists(p).flatMap((d) => (d.items.length > lo && d.items.length <= hi
     ? [arrayInsert(json, d, d.items.length, Array(hi + 1 - d.items.length).fill('null'))] : []));
   const padded = splice(json, pads);
   p = parts(padded);
@@ -458,7 +508,7 @@ export function moveRow(json, row, by) {
     if (!a || !b) return [];
     return [replaceEdit(a, padded.slice(b.start, b.end)), replaceEdit(b, padded.slice(a.start, a.end))];
   };
-  return splice(padded, [p.labels, ...p.data.filter(Boolean)].flatMap(swap));
+  return followRefs(splice(padded, [p.labels, ...rowLists(p)].flatMap(swap)), before, (r) => (r === row ? to : r === to ? row : r));
 }
 
 /**
@@ -497,6 +547,171 @@ export function removeSeries(json, col) {
   return splice(json, [arrayRemove(p.series, col)]);
 }
 
+// ---------------------------------------------------------------------------
+// a series' band and its markers (CHARTS): low / high as two more columns,
+// a marker a ticked cell
+
+/** The chart's labels as text, as the references name them. */
+const labelsOf = (p) => p.labels.items.map((n) => (n.value == null ? '' : String(n.value)));
+
+/**
+ * Every place that names a row (`now`, each series' `dashFrom`, each marker's
+ * `at`): `{ node, remove }`, the value node and the edit that takes the
+ * reference away (the key, or the whole marker).
+ */
+function refsOf(tree) {
+  const out = [];
+  const now = member(tree, 'now');
+  if (now) {
+    const at = now.value.kind === 'object' ? member(now.value, 'at')?.value : now.value;
+    if (at) out.push({ node: at, remove: () => objectRemove(tree, 'now') });
+  }
+  for (const s of member(tree, 'series')?.value?.items ?? []) {
+    if (s.kind !== 'object') continue;
+    const dash = member(s, 'dashFrom');
+    if (dash) out.push({ node: dash.value, remove: () => objectRemove(s, 'dashFrom') });
+    const ms = member(s, 'markers')?.value;
+    if (ms?.kind !== 'array') continue;
+    ms.items.forEach((m, j) => {
+      const at = member(m, 'at')?.value;
+      if (at) out.push({ node: at, remove: () => (ms.items.length === 1 ? objectRemove(s, 'markers') : arrayRemove(ms, j)) });
+    });
+  }
+  return out;
+}
+
+/**
+ * After a row edit, every reference to a row still names the row it did:
+ * `move(oldRow)` is where that row is now (-1: gone, and the reference with
+ * it). One named by its label needs nothing, unless the label itself was
+ * `renamed` (the row whose label changed); one named by its position is
+ * renumbered. Applied one edit at a time, so two in one list never collide.
+ */
+function followRefs(json, before, move, renamed = -1) {
+  const done = new Set();
+  for (let guard = 0; guard < 256; guard++) {
+    const tree = parseJsonTree(json);
+    learnSeparator(json, tree);
+    const after = (member(tree, 'labels')?.value?.items ?? []).map((n) => (n.value == null ? '' : String(n.value)));
+    let edit = null;
+    for (const ref of refsOf(tree)) {
+      if (done.has(ref.node.start)) continue;
+      const v = ref.node.value;
+      const old = resolveAt(before, v);
+      if (old === -1) continue;
+      const byLabel = before.indexOf(String(v)) !== -1;
+      const to = move(old);
+      if (to === -1) edit = ref.remove();
+      else if (byLabel && old === renamed) edit = replaceEdit(ref.node, jsonString(after[to]));
+      else if (!byLabel && to !== old) edit = replaceEdit(ref.node, String(to));
+      if (edit) break;
+      done.add(ref.node.start);
+    }
+    if (!edit) return json;
+    // offsets before the edit hold; after it, they move by what it changed
+    const delta = edit.text.length - (edit.end - edit.start);
+    const kept = [...done].map((at) => (at >= edit.end ? at + delta : at));
+    done.clear();
+    for (const at of kept) done.add(at);
+    if (edit.text) done.add(edit.start);
+    json = splice(json, [edit]);
+  }
+  return json;
+}
+
+/** A series of a grid chart, by column. */
+function seriesAt(json, col) {
+  const p = parts(json);
+  const s = p.series.items[col];
+  if (s?.kind !== 'object') throw new Error('no such series');
+  return { p, s };
+}
+
+/** Edge `edge` ('low' or 'high') of series `col`'s band, at `row`, becomes the number typed (`''` a gap). */
+export function setBandCell(json, row, col, edge, input) {
+  const n = cellNumber(input);
+  if (!n.ok) throw new Error(`"${String(input).trim()}" is not a number`);
+  if (edge !== 'low' && edge !== 'high') throw new Error('a band edge is low or high');
+  const { p, s } = seriesAt(json, col);
+  const b = bandOf(s);
+  if (!b) throw new Error('this series has no band');
+  const e = b[edge];
+  if (row < 0 || row >= p.labels.items.length) throw new Error('no such cell');
+  if (row < e.items.length) return splice(json, [replaceEdit(e.items[row], n.raw)]);
+  return splice(json, [arrayInsert(json, e, e.items.length, [...Array(row - e.items.length).fill('null'), n.raw])]);
+}
+
+/**
+ * Series `col` gets a band, its low and its high each a copy of its values
+ * (to be widened), after its `data`; a series that has one keeps it.
+ */
+export function addBand(json, col) {
+  const { p, s } = seriesAt(json, col);
+  if (bandOf(s)) return json;
+  const d = p.data[col];
+  const n = p.labels.items.length;
+  const vals = Array.from({ length: n }, (_, k) => (d?.items[k] ? json.slice(d.items[k].start, d.items[k].end) : 'null'));
+  const sep = d && d.items.length >= 2 ? json.slice(d.items[0].end, d.items[1].start) : ', ';
+  const list = `[${vals.join(/\n/.test(sep) ? ', ' : sep)}]`;
+  const colon = s.members.length ? json.slice(s.members[0].key.end, s.members[0].value.start) : ': ';
+  const raw = `{ "low"${colon}${list}, "high"${colon}${list} }`;
+  const at = s.members.findIndex((m) => m.name === 'data');
+  const edits = [objectInsert(json, s, at === -1 ? s.members.length : at + 1, 'band', raw)];
+  const old = member(s, 'band');
+  if (old) edits[0] = replaceEdit(old.value, raw);
+  return splice(json, edits);
+}
+
+/** Series `col`'s band comes off; a band series is nothing else, so it keeps its own. */
+export function removeBand(json, col) {
+  const { s } = seriesAt(json, col);
+  if (member(s, 'type')?.value?.value === 'band') throw new Error('a band series is its band: remove the series instead');
+  const e = objectRemove(s, 'band');
+  return e ? splice(json, [e]) : json;
+}
+
+/**
+ * Series `col` has a marker at `row` (`on`), or none there. A new one names
+ * the row by its label; taking one off takes every marker at that row, and
+ * the `markers` key with the last.
+ */
+export function setMarker(json, row, col, on) {
+  const { p, s } = seriesAt(json, col);
+  const labels = labelsOf(p);
+  if (row < 0 || row >= labels.length) throw new Error('no such row');
+  const ms = member(s, 'markers')?.value;
+  const at = (m) => resolveAt(labels, member(m, 'at')?.value?.value);
+  const here = ms?.kind === 'array' ? ms.items.map((m, j) => (at(m) === row ? j : -1)).filter((j) => j !== -1) : [];
+  if (on) {
+    if (here.length) return json;
+    const colon = s.members.length ? json.slice(s.members[0].key.end, s.members[0].value.start) : ': ';
+    const raw = `{ "at"${colon}${jsonString(labels[row])} }`;
+    if (ms?.kind === 'array') return splice(json, [arrayInsert(json, ms, ms.items.length, [raw])]);
+    if (ms) return splice(json, [replaceEdit(ms, `[${raw}]`)]);
+    return splice(json, [objectInsert(json, s, s.members.length, 'markers', `[${raw}]`)]);
+  }
+  if (!here.length) return json;
+  if (here.length === ms.items.length) return splice(json, [objectRemove(s, 'markers')]);
+  let out = json;
+  for (const j of here.reverse()) {
+    const t = seriesAt(out, col).s;
+    out = splice(out, [arrayRemove(member(t, 'markers').value, j)]);
+  }
+  return out;
+}
+
+/** The words of series `col`'s marker at `row` become `text` (empty takes them off); a row with no marker gets one. */
+export function setMarkerLabel(json, row, col, text) {
+  let out = setMarker(json, row, col, true);
+  const { p, s } = seriesAt(out, col);
+  const labels = labelsOf(p);
+  const m = member(s, 'markers').value.items.find((x) => resolveAt(labels, member(x, 'at')?.value?.value) === row);
+  const t = String(text ?? '');
+  const has = member(m, 'label');
+  if (!t) { const e = has ? objectRemove(m, 'label') : null; return e ? splice(out, [e]) : out; }
+  return splice(out, [has ? replaceEdit(has.value, jsonString(t)) : objectInsert(out, m, m.members.length, 'label', jsonString(t))]);
+}
+
 /** Top-level key `name` set to `raw` (JSON text), or removed with `raw` null; appended when new. */
 export function setTopKey(json, name, raw) {
   const tree = parseJsonTree(json);
@@ -519,6 +734,7 @@ export function setType(json, attrs, type) {
   const g = chartGrid(json, attrs);
   if (!g.ok) throw new Error(g.reason);
   if (isPie(type) && g.series.length > 1) throw new Error('a pie takes one series');
+  if (type !== 'line' && type !== 'area' && g.series.some((x) => x.kind === 'band')) throw new Error('a band series needs a line or area chart');
   const tree = parseJsonTree(json);
   let next = member(tree, 'donut') ? setTopKey(json, 'donut', null) : json;
   if (g.typeFrom === 'attr') return { json: next, attr: type };

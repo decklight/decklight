@@ -202,6 +202,29 @@
       </aside>
     </section>
 
+    <!-- ══ 7b · a forecast, as data ══ -->
+    <section>
+      <h2>A Forecast Is Data Too</h2>
+      <p>A line that turns dashed at now, a band round what comes next, a threshold to read it against</p>
+      <div class="chart" data-chart="line" data-title="Requests per second" data-build="draw" style="max-width:62%">
+        <script type="application/json">
+        { "labels": ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00"],
+          "now": "14:00",
+          "threshold": { "y": 900, "label": "capacity" },
+          "series": [ { "name": "requests", "data": [310, 420, 560, 640, 730, 820, 870], "dashFrom": "14:00",
+                        "band": { "low": [null, null, null, 640, 680, 720, 740], "high": [null, null, null, 640, 790, 920, 1010] },
+                        "markers": [{ "at": "18:00", "label": "may cross" }] } ] }
+        </script>
+      </div>
+      <aside class="notes">
+        <p>Same chart block, three more keys. The line is solid up to now and dashed after it, and the band round the dashed part is how sure the forecast is. The dotted rule is capacity.</p><p>[click]</p><p>It draws like any series, dashes and all, and the band arrives with it. Nobody computed a coordinate: the forecast is numbers in the JSON, so next week's run is a new list, not a new drawing.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Forecast: dashed at now, band, threshold</p>
+        <p>[click]</p><p>draws in, band with it</p>
+      </aside>
+    </section>
+
     <!-- ══ 8 · split layout ══ -->
     <section data-layout="split">
       <h2>Comparison Slides</h2>

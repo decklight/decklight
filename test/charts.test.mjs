@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseChart, niceTicks, barRects, linePath, areaPath, pieArcs, chartSvg,
+  parseChart, niceTicks, barRects, linePath, areaPath, bandPath, splitAt, pieArcs, chartSvg,
 } from '../src/core/charts.js';
 
 const BAR_JSON = JSON.stringify({
@@ -255,4 +255,141 @@ test('chartSvg: user strings are escaped', () => {
   assert.ok(!svg.includes('<script>'));
   assert.ok(svg.includes('&lt;b&gt;&amp;'));
   assert.ok(svg.includes('&quot;quoted&quot;'));
+});
+
+// ---------- a gap is a gap (#1125) ------------------------------------------
+
+test('parseChart: only a number (or a string a cell reads as one) is a value; the rest are gaps, never zeros (#1125)', () => {
+  const line = parseChart(JSON.stringify({ type: 'line', labels: ['a', 'b', 'c'], series: [{ name: 's', data: [1, null, 3] }] }));
+  assert.deepEqual(line.series[0].data, [1, null, 3]);
+  const bar = parseChart(JSON.stringify({ type: 'bar', labels: ['a', 'b', 'c', 'd', 'e', 'f'], series: [{ data: ['', true, [], 'x', '2.5', {}] }] }));
+  assert.deepEqual(bar.series[0].data, [null, null, null, null, 2.5, null]);
+  assert.throws(() => parseChart(JSON.stringify({ type: 'bar', labels: ['a'], series: [{ data: [1] }], aspect: '4:0' })), /bad aspect "4:0" — use "w:h", e.g. "4:3"/);
+  // a pie with a gap skips the slice, and still needs a positive value
+  const pie = chartSvg(parseChart(JSON.stringify({ type: 'pie', labels: ['a', 'b', 'c'], series: [{ data: [2, null, 1] }] })));
+  assert.equal((pie.match(/class="chart-slice/g) || []).length, 2);
+  assert.ok(!/>b</.test(pie), 'the gap has no name label');
+  assert.throws(() => parseChart(JSON.stringify({ type: 'pie', labels: ['a'], series: [{ data: [null] }] })), /at least one positive/);
+});
+
+test('chartSvg: a line and an area break at a gap, and the axis is set by the numbers there (#1125)', () => {
+  const json = { labels: ['a', 'b', 'c', 'd'], series: [{ data: [10, null, 30, 40] }] };
+  const line = chartSvg(parseChart(JSON.stringify(json), { type: 'line' }));
+  const d = /<path class="chart-line" d="([^"]+)"/.exec(line)[1];
+  assert.equal((d.match(/M/g) || []).length, 2, 'two pieces');
+  assert.equal((line.match(/chart-dot/g) || []).length, 3, 'no point drawn at the gap');
+  assert.ok(!/class="chart-tick"[^>]*>-/.test(line));
+  assert.equal(areaPath([{ x: 0, y: 1 }, null, { x: 2, y: 3 }, { x: 3, y: 4 }], 9), 'M0 9L0 1L0 9ZM2 9L2 3L3 4L3 9Z', 'an area per run, never a bridge');
+  const bars = chartSvg(parseChart(JSON.stringify(json), { type: 'bar' }));
+  assert.equal((bars.match(/class="chart-bar/g) || []).length, 3, 'the slot stays empty');
+});
+
+// ---------- forecasts, ranges and rules (#1189) -----------------------------
+
+const FORECAST = {
+  type: 'line', labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May'], now: 'Mar',
+  threshold: { y: 90, label: 'capacity' },
+  series: [{ name: 'load', data: [40, 50, 60, 70, 80], dashFrom: 'Mar',
+    band: { low: [null, null, 60, 62, 64], high: [null, null, 60, 78, 96] },
+    markers: [{ at: 4, label: 'peak' }] }],
+};
+
+test('parseChart: dashFrom, band, markers, threshold and now, each reference a label or a position', () => {
+  const spec = parseChart(JSON.stringify(FORECAST));
+  const s = spec.series[0];
+  assert.equal(s.dashFrom, 2);
+  assert.deepEqual(s.band.high, [null, null, 60, 78, 96]);
+  assert.deepEqual(s.markers, [{ at: 4, label: 'peak' }]);
+  assert.deepEqual(spec.threshold, { y: 90, label: 'capacity' });
+  assert.deepEqual(spec.now, { at: 2, label: 'now' });
+  assert.deepEqual(spec.notes, []);
+  // a label wins over a position: the years say "now": 2025
+  const years = parseChart(JSON.stringify({ type: 'line', labels: [2024, 2025, 2026], now: 2025, series: [{ data: [1, 2, 3], dashFrom: 1 }] }));
+  assert.equal(years.now.at, 1);
+  assert.equal(years.series[0].dashFrom, 1, 'no label "1": the position');
+  assert.deepEqual(parseChart(JSON.stringify({ ...FORECAST, now: { at: 'Feb', label: 'today' } })).now, { at: 1, label: 'today' });
+});
+
+test('parseChart: a band series is only its range, and needs one', () => {
+  const spec = parseChart(JSON.stringify({ type: 'area', labels: ['a', 'b'], series: [
+    { name: 'normal', type: 'band', band: { low: [1, 2], high: [3, 4] } }, { name: 'spend', data: [2, 9] }] }));
+  assert.equal(spec.series[0].kind, 'band');
+  assert.deepEqual(spec.series[0].data, [null, null]);
+  assert.throws(() => parseChart(JSON.stringify({ type: 'line', labels: ['a'], series: [{ type: 'band' }] })), /is a band: it needs "band"/);
+  assert.throws(() => parseChart(JSON.stringify({ type: 'bar', labels: ['a'], series: [{ type: 'band', band: { low: [1], high: [2] } }] })), /a band needs a line or area chart/);
+});
+
+test('parseChart: what it refuses, and what it draws without and only notes', () => {
+  const bad = (patch, re) => assert.throws(() => parseChart(JSON.stringify({ ...FORECAST, ...patch })), re);
+  const one = (s) => ({ series: [{ ...FORECAST.series[0], ...s }] });
+  bad(one({ band: { low: [1] } }), /"band" must be \{ "low": \[…\], "high": \[…\] \}/);
+  bad(one({ type: 'area' }), /"type" is "band"/);
+  bad(one({ markers: { at: 1 } }), /"markers" must be a list/);
+  bad(one({ markers: [{ label: 'x' }] }), /marker 1 must be/);
+  bad(one({ dashFrom: true }), /"dashFrom" is a label or a position/);
+  bad({ threshold: { label: 'no y' } }, /"threshold" must be/);
+  bad({ now: [1] }, /"now" is a label or a position/);
+  const notes = (patch, type) => parseChart(JSON.stringify({ ...FORECAST, ...patch, ...(type ? { type } : {}) })).notes;
+  assert.match(notes(one({ dashFrom: 'June' })).join(), /"dashFrom": "June" names no label/);
+  assert.match(notes({ now: 9 }).join(), /"now": 9 names no label/);
+  assert.match(notes(one({ band: { low: [1, 2], high: [3, 4, 5, 6, 7, 8] } })).join(), /"low" has 2 values for 5 labels — the rest is a gap.*"high" has 6 values for 5 labels — the extra values are not drawn/);
+  assert.match(notes(one({ band: { low: [5, 5, 5, 5, 5], high: [6, 6, 4, 6, 6] } })).join(), /low is above its high at "Mar"/);
+  assert.match(notes(one({ markers: [{ at: 'Jun' }, { at: 'Jan' }], data: [null, 1, 2, 3, 4] })).join('|'), /marker 1 is at "Jun", which names no label.*\|.*marker 2 is at "Jan", where the series has no value/);
+  assert.match(notes({}, 'bar').join(), /a bar chart draws no band/);
+  assert.match(notes({ type: 'pie', series: [{ data: [1, 2, 3, 4, 5] }] }).join(), /"threshold": a pie chart has no value axis.*"now": a pie chart has no category axis/);
+});
+
+test('chartSvg: a forecast is solid to now, dashed after, its band under it, its marker ringed, its rules in the chrome', () => {
+  const svg = chartSvg(parseChart(JSON.stringify(FORECAST)));
+  const series = svg.slice(svg.indexOf('<g class="chart-series"'));
+  const chrome = svg.slice(0, svg.indexOf('<g class="chart-series"'));
+  // two cores, the second dashed, sharing the point they meet at (Mar)
+  const cores = [...series.matchAll(/<path class="chart-line( chart-dashed)?" d="([^"]+)"[^>]*\/>/g)];
+  assert.equal(cores.length, 2);
+  assert.ok(!cores[0][1] && cores[1][1], 'solid first, then dashed');
+  assert.ok(!/stroke-dasharray/.test(cores[0][0]) && /stroke-dasharray="9 7"/.test(cores[1][0]));
+  assert.equal(cores[0][2].split('L').at(-1), cores[1][2].slice(1).split('L')[0], 'they meet at Mar');
+  assert.equal((series.match(/<g class="chart-casing">(?:<path [^>]*\/>){2}<\/g>/g) || []).length, 1, 'each part on its casing');
+  assert.match(series, /<g class="chart-casing">[^]*?stroke-dasharray="9 7"[^]*?<\/g>/, 'the casing dashes with its core');
+  // the band, under the line, in the series' fill slot, its edges a group down
+  assert.ok(series.indexOf('chart-band') < series.indexOf('chart-casing'), 'the band is under the line');
+  assert.match(series, /<path class="chart-band draw-fade" d="M[^"]+Z" fill="var\(--d-fill-1\)" fill-opacity="0\.45"\/>/);
+  assert.match(series, /<g class="chart-band-edge">(<path [^>]*stroke="var\(--d-stroke\)"[^>]*\/>){2}<\/g>/);
+  // the marker: larger, ringed, its words, all fading in with the series
+  assert.match(series, /<circle class="chart-marker draw-fade"[^>]*r="6\.5"/);
+  assert.match(series, /<g class="chart-marker-ring"><circle class="draw-fade"/);
+  assert.match(series, /class="chart-marker-label draw-fade"[^>]*>peak</);
+  // the rules stand for the whole build: in the chrome, not a series; their
+  // words in a layer over the series, on a halo of the slide's ground
+  assert.match(chrome, /<line class="chart-threshold"[^>]*stroke="var\(--d-stroke\)"/);
+  assert.match(chrome, /<line class="chart-now"/);
+  const over = svg.slice(svg.lastIndexOf('<g class="chart-over" data-build-stay>'));
+  assert.ok(svg.lastIndexOf('chart-series') < svg.indexOf('chart-over'), 'over the series');
+  assert.match(over, /class="chart-rule-label"[^>]*stroke="var\(--bg\)"[^>]*paint-order="stroke">capacity</);
+  assert.match(over, /class="chart-rule-label"[^>]*>now</);
+  // the axis reaches the band's top (96) and the threshold
+  assert.match(chrome, /class="chart-tick"[^>]*>100</);
+  assert.ok(!/#[0-9a-f]{3,6}/i.test(svg), 'no hardcoded colors');
+});
+
+test('chartSvg: a band series draws only its area, and a marker beside it carries its words', () => {
+  const svg = chartSvg(parseChart(JSON.stringify({ type: 'line', labels: ['a', 'b', 'c'], series: [
+    { name: 'normal', type: 'band', band: { low: [1, 2, null], high: [3, 4, 5] } },
+    { name: 'spend', data: [2, 3, 9], markers: [{ at: 'c', label: 'is_anomaly = true' }] }] })));
+  const band = svg.slice(svg.indexOf('data-series="1"'), svg.indexOf('data-series="2"'));
+  assert.match(band, /chart-band draw-fade/);
+  assert.ok(!/chart-line|chart-dot|chart-casing/.test(band), 'only the area');
+  assert.match(band, /fill-opacity="0\.6"/);
+  assert.equal((band.match(/Z/g) || []).length, 1, 'the run before the gap only');
+  assert.match(svg, /class="chart-legend"[^>]*>normal</);
+  assert.match(svg, /class="chart-marker-label draw-fade"[^>]*>is_anomaly = true</);
+});
+
+test('bandPath and splitAt: runs between gaps, the dashed part sharing the point it starts at', () => {
+  const p = (x, y) => ({ x, y });
+  assert.equal(bandPath([p(0, 1), p(1, 1), null, p(3, 1)], [p(0, 5), p(1, 5), p(2, 5), p(3, 5)]), 'M0 1L1 1L1 5L0 5Z');
+  const { solid, dashed } = splitAt([p(0, 0), p(1, 1), p(2, 2)], 1);
+  assert.deepEqual(solid, [p(0, 0), p(1, 1)]);
+  assert.deepEqual(dashed, [null, p(1, 1), p(2, 2)]);
+  assert.deepEqual(splitAt([p(0, 0)], null).dashed, []);
 });

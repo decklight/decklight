@@ -183,7 +183,9 @@
     const CD_SCATTER = `<div class="chart cd-scatter" data-chart="scatter"><script type="application/json">{ "series": [ { "name": "a", "points": [[1, 2], [3, 4]] } ] }<\/script></div>`;
     // and a chart whose value is a word: no grid can show it
     const CD_ODD = `<div class="chart cd-odd" data-chart="bar"><script type="application/json">{ "labels": ["a"], "series": [ { "data": ["many"] } ] }<\/script></div>`;
-    const CD_FILE = { 1: CD_BAR, 2: CD_SCATTER, 3: CD_ODD };
+    // and a forecast (CHARTS, #1189): a line dashed from now, a band round it, a marker
+    const CD_FORECAST = `<div class="chart cd-fc" data-chart="line"><script type="application/json">{ "labels": ["Mon", "Tue", "Wed"], "now": "Tue", "series": [ { "name": "load", "data": [1, 2, 3], "dashFrom": "Tue", "band": { "low": [1, 2, 2], "high": [1, 2, 4] }, "markers": [{ "at": "Wed", "label": "spike" }] } ] }<\/script></div>`;
+    const CD_FILE = { 1: CD_BAR, 2: CD_SCATTER, 3: CD_ODD, 4: CD_FORECAST };
     // codeoptions: the code block the file has on slide 5, element 1
     // terminaloptions: the terminal the file has on slide 5, element 1 (its recording is not here: the player shows its broken box)
     const TO_FILE = '<div class="terminal" data-cast="casts/demo.cast.json" data-mode="step"></div>';
@@ -1616,6 +1618,7 @@
       ${CD_BAR}
       ${CD_SCATTER}
       ${CD_ODD}
+      ${CD_FORECAST}
       </section>`);
     }
     // diagram labels to type into (SVG_DIAGRAMS): a box and its label, a
@@ -12593,6 +12596,36 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         await pause();
         r.scatterBadNotWritten = posts().length === before5 + 3;
 
+        // a forecast's band and markers are columns of its series (CHARTS, #1189): low and
+        // high after its values, a tick a row for its markers, each edit drawn and written
+        const fc = () => document.querySelector('.cd-fc');
+        const edge = (row, part) => q(`.dg-cell[data-row="${row}"][data-col="0"][data-part="${part}"]`);
+        const tick = (row) => q(`.dg-mark[data-row="${row}"][data-col="0"]`);
+        q('.ins-tab[data-tab="info"]')?.click();
+        await settle();
+        fire(fc().querySelector('.chart-dot'), 'click');
+        await settle();
+        if (!document.querySelector(I)) press('i');
+        await settle();
+        q('.ins-tab[data-tab="data"]')?.click();
+        await until(() => edge(0, 'high'));
+        r.fcBandColumns = edge(2, 'high')?.value === '4' && edge(2, 'low')?.value === '2' && edge(2, 'value')?.value === '3'
+          && [...document.querySelectorAll(`${I} .dg-part-head`)].map((x) => x.textContent).join(',') === 'value,low,high,◆'
+          && !!q('.dg-del-band') && !q('.dg-add-band');
+        r.fcMarkerTicked = tick(2)?.checked === true && tick(0)?.checked === false && q('.dg-mark-label[data-row="2"]')?.value === 'spike';
+        const before6 = posts().length;
+        const bandD = () => fc().querySelector('.chart-band')?.getAttribute('d');
+        const d0 = bandD();
+        type(edge(2, 'high'), '9');
+        r.fcBandDrawnAtOnce = !!d0 && bandD() !== d0;
+        await pause();
+        r.fcBandWritten = posts().length === before6 + 1 && posts().at(-1).body.index === 4 && posts().at(-1).body.html.includes('"high": [1, 2, 9]');
+        tick(0).click();
+        await settle();
+        r.fcMarkerAdded = posts().length === before6 + 2 && posts().at(-1).body.html.includes('{ "at": "Mon" }')
+          && fc().querySelectorAll('.chart-marker').length === 2 && document.activeElement === q('.dg-mark-label[data-row="0"]');
+        r.fcDashedDrawn = !!fc().querySelector('.chart-line.chart-dashed') && !!fc().querySelector('.chart-now');
+
         // a chart no grid can show (a value that is a word): a note and the HTML editor, never a broken grid
         q('.ins-tab[data-tab="info"]')?.click();
         await settle();
@@ -12612,6 +12645,7 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && r.shapeAndLegendShown && r.shapePosted && r.shapeDrawn && r.legendPosted && r.legendDrawn
           && r.lockedReadsOnly && r.scatterAsPairs && r.scatterDrawnAtOnce && r.scatterOneBurst && r.scatterPointAdded
           && r.scatterBadMarked && r.scatterBadNotWritten && r.scatterIsANote
+          && r.fcBandColumns && r.fcMarkerTicked && r.fcBandDrawnAtOnce && r.fcBandWritten && r.fcMarkerAdded && r.fcDashedDrawn
           && r.scatterOpensTheHtmlEditor;
       }
 

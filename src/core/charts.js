@@ -24,12 +24,11 @@
 // of appearing before their step.
 
 import { escapeHtml as esc } from './escape.js';
+import { parseChart } from '../../tools/chart-spec.mjs';
 
-const VB_W = 640;
-const VB_H = 360;
-const TYPES = ['bar', 'line', 'area', 'pie', 'donut', 'scatter'];
-/** The one type whose data is x/y pairs rather than a value per category. */
-const isXY = (type) => type === 'scatter';
+// Reading a chart's JSON is shared with the Data tab and `decklight check`
+// (tools/chart-spec.mjs); this file draws what it returns.
+export { parseChart };
 
 // coordinate formatting: 2 decimals, no FP noise, no "-0"
 const f = (n) => {
@@ -38,102 +37,6 @@ const f = (n) => {
 };
 
 const fillVar = (i) => `var(--d-fill-${(i % 6) + 1})`;
-
-/**
- * Normalize and validate a chart declaration. `source` is the JSON text (or
- * an already-parsed object); `attrs` carries the wrapper's data-* attributes,
- * which win over the same keys in the JSON (the fence form has no attribute
- * surface, so the JSON may carry type/title/aspect/build itself).
- * Throws with a message meant to be READ — it lands in the error box.
- */
-export function parseChart(source, attrs = {}) {
-  let json;
-  if (typeof source === 'string') {
-    try { json = JSON.parse(source); } catch (e) {
-      throw new Error(`invalid JSON — ${e.message}`);
-    }
-  } else if (source && typeof source === 'object') {
-    json = source;
-  } else {
-    throw new Error('no data — expected a <script type="application/json"> child (or the fence body)');
-  }
-
-  const type = String(attrs.type || json.type || '').toLowerCase();
-  if (!TYPES.includes(type)) {
-    throw new Error(`unknown type "${type}" — use ${TYPES.join(' | ')}`);
-  }
-
-  // A scatter has no categories: its x is a number, not a label, which is the
-  // whole difference between "sales by region" and "latency against load".
-  if (!isXY(type) && (!Array.isArray(json.labels) || json.labels.length === 0)) {
-    throw new Error('"labels" must be a non-empty array');
-  }
-  if (!Array.isArray(json.series) || json.series.length === 0) {
-    throw new Error('"series" must be a non-empty array');
-  }
-  const labels = isXY(type) ? [] : json.labels.map(String);
-  const series = json.series.map((s, i) => {
-    if (isXY(type)) {
-      if (!s || !Array.isArray(s.points)) {
-        throw new Error(`series ${i + 1}: "points" must be an array of [x, y] pairs`);
-      }
-      const points = s.points
-        .map((pt) => (Array.isArray(pt) ? [Number(pt[0]), Number(pt[1])] : [NaN, NaN]))
-        .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-      if (!points.length) throw new Error(`series ${i + 1}: no usable [x, y] pairs`);
-      return {
-        name: s.name != null ? String(s.name) : `series ${i + 1}`,
-        concept: s.concept != null ? String(s.concept) : null,
-        points,
-        data: points.map(([, y]) => y),   // so anything reading `data` still can
-      };
-    }
-    if (!s || !Array.isArray(s.data)) {
-      throw new Error(`series ${i + 1}: "data" must be an array of numbers`);
-    }
-    return {
-      name: s.name != null ? String(s.name) : `series ${i + 1}`,
-      concept: s.concept != null ? String(s.concept) : null,
-      // pad/trim to the label count; non-numbers become gaps, not NaN geometry
-      data: labels.map((_, k) => {
-        const v = Number(s.data[k]);
-        return Number.isFinite(v) ? v : null;
-      }),
-    };
-  });
-
-  const isPie = type === 'pie' || type === 'donut';
-  if (isPie && series.length > 1) {
-    throw new Error('pie takes exactly one series (labels are the slices)');
-  }
-  if (isPie && !series[0].data.some((v) => v > 0)) {
-    throw new Error('pie needs at least one positive value');
-  }
-
-  let height = VB_H;
-  const aspect = attrs.aspect ?? json.aspect ?? null;
-  if (aspect != null) {
-    const m = String(aspect).match(/^\s*(\d+(?:\.\d+)?)\s*[:x]\s*(\d+(?:\.\d+)?)\s*$/i);
-    if (!m || +m[1] === 0) throw new Error(`bad aspect "${aspect}" — use "w:h", e.g. "4:3"`);
-    height = Math.round((VB_W * +m[2]) / +m[1]);
-  }
-
-  return {
-    type: isPie ? 'pie' : type,
-    donut: type === 'donut' || json.donut === true,
-    title: attrs.title ?? (json.title != null ? String(json.title) : null),
-    // What the two axes MEAN. Only a scatter asks for them: a category chart's
-    // x axis is already labelled, one value at a time.
-    xTitle: json.x != null ? String(json.x) : null,
-    yTitle: json.y != null ? String(json.y) : null,
-    labels,
-    series,
-    legend: json.legend, // true forces, false suppresses, undefined = auto
-    width: VB_W,
-    height,
-    build: json.build, // fence form only; the div form authors data-build
-  };
-}
 
 /**
  * Nice linear ticks covering [lo, hi]: step from the {1, 2, 2.5, 5} × 10^k
@@ -206,14 +109,59 @@ export function linePath(points) {
   return d;
 }
 
-/** Closed area path: the line, dropped to baseY at both ends (gaps skipped). */
+/** The runs of a point list between its gaps: [[p, p, …], …], each at least one point. */
+function runs(points) {
+  const out = [];
+  let cur = null;
+  for (const p of points) {
+    if (!p) { cur = null; continue; }
+    if (!cur) out.push(cur = []);
+    cur.push(p);
+  }
+  return out;
+}
+
+/**
+ * Closed area path: each run of the line between its gaps dropped to baseY
+ * at both ends, a closed shape of its own, so a gap is a gap in the area too
+ * and never a bridge across it (#1125).
+ */
 export function areaPath(points, baseY) {
-  const pts = points.filter(Boolean);
-  if (!pts.length) return '';
-  let d = `M${f(pts[0].x)} ${f(baseY)}`;
-  for (const p of pts) d += `L${f(p.x)} ${f(p.y)}`;
-  d += `L${f(pts[pts.length - 1].x)} ${f(baseY)}Z`;
+  let d = '';
+  for (const run of runs(points)) {
+    d += `M${f(run[0].x)} ${f(baseY)}`;
+    for (const p of run) d += `L${f(p.x)} ${f(p.y)}`;
+    d += `L${f(run[run.length - 1].x)} ${f(baseY)}Z`;
+  }
   return d;
+}
+
+/**
+ * A band's area: along its high edge and back along its low, one closed shape
+ * per run where both edges have a value. `high` and `low` are [{x, y} | null]
+ * of one length. A run of one point has no width and draws nothing.
+ */
+export function bandPath(high, low) {
+  const both = high.map((h, k) => (h && low[k] ? { h, l: low[k] } : null));
+  let d = '';
+  for (const run of runs(both)) {
+    if (run.length < 2) continue;
+    d += `M${f(run[0].h.x)} ${f(run[0].h.y)}`;
+    for (const p of run.slice(1)) d += `L${f(p.h.x)} ${f(p.h.y)}`;
+    for (const p of run.slice().reverse()) d += `L${f(p.l.x)} ${f(p.l.y)}`;
+    d += 'Z';
+  }
+  return d;
+}
+
+/**
+ * A line split where it turns dashed (`from`, an index into `points`): the
+ * solid part up to that point and the dashed part from it, sharing it, so the
+ * two meet with no seam. `from` null leaves it whole and solid.
+ */
+export function splitAt(points, from) {
+  if (from == null) return { solid: points, dashed: [] };
+  return { solid: points.slice(0, from + 1), dashed: points.map((p, k) => (k >= from ? p : null)) };
 }
 
 /**
@@ -283,8 +231,11 @@ function seriesOpen(s, si) {
 
 // non-stroke series content carries .draw-fade, so under data-build="draw" it
 // fades in on the existing draw CSS channel instead of appearing instantly
-function axisChart(spec, chrome, out) {
-  const vals = spec.series.flatMap((s) => s.data).filter((v) => v != null);
+function axisChart(spec, chrome, out, over) {
+  // the value axis covers every number drawn: the values, the bands, the threshold
+  const vals = spec.series.flatMap((s) => [...s.data, ...(s.band && spec.type !== 'bar' ? [...s.band.low, ...s.band.high] : [])])
+    .concat(spec.threshold ? [spec.threshold.y] : [])
+    .filter((v) => v != null);
   const lo = Math.min(0, ...vals);
   const hi = Math.max(0, ...vals);
   const y = niceTicks(lo, hi === lo ? lo + 1 : hi, 5);
@@ -314,6 +265,7 @@ function axisChart(spec, chrome, out) {
   spec.labels.forEach((lab, ci) => {
     chrome.push(`<text class="chart-cat" x="${f(plot.x + (ci + 0.5) * band)}" y="${f(plot.y + plot.h + 20)}" text-anchor="middle" font-size="12" ${TEXT}>${esc(lab)}</text>`);
   });
+  rules(spec, plot, yFor, band, chrome, over);
 
   if (spec.type === 'bar') {
     const rects = barRects(spec.series, spec.labels.length, plot, y);
@@ -329,24 +281,118 @@ function axisChart(spec, chrome, out) {
     // line / area: points at category band centers. The casing sits in a
     // nested <g> so concept pinning (direct-child shapes only) recolors the
     // core stroke and the dot fills, never the --d-stroke ink under them.
+    const at = (v, ci) => (v == null ? null : { x: plot.x + (ci + 0.5) * band, y: yFor(v) });
+    const joins = 'stroke-linejoin="round" stroke-linecap="round"';
     spec.series.forEach((s, si) => {
-      const pts = s.data.map((v, ci) =>
-        v == null ? null : { x: plot.x + (ci + 0.5) * band, y: yFor(v) });
-      const d = linePath(pts);
-      const joins = 'stroke-linejoin="round" stroke-linecap="round"';
+      const pts = s.data.map(at);
       out.push(seriesOpen(s, si));
+      // the band first, under everything of its series: the range in the
+      // series' fill slot, translucent so the grid reads through it, its two
+      // edges in faint ink one group down (concepts repaint the fill, not them)
+      if (s.band) {
+        const hi = s.band.high.map(at), lo = s.band.low.map(at);
+        const d = bandPath(hi, lo);
+        if (d) {
+          out.push(`<path class="chart-band draw-fade" d="${d}" fill="${fillVar(si)}" fill-opacity="${s.kind === 'band' ? 0.6 : 0.45}"/>`);
+          out.push(`<g class="chart-band-edge">${[hi, lo].map((e) => `<path d="${linePath(e)}" fill="none" stroke="var(--d-stroke)" stroke-opacity="0.4" stroke-width="1" ${joins}/>`).join('')}</g>`);
+        }
+      }
+      if (s.kind === 'band') { out.push('</g>'); return; }
       if (spec.type === 'area') {
         out.push(`<path class="chart-area draw-fade" d="${areaPath(pts, baseY)}" fill="${fillVar(si)}" fill-opacity="0.35"/>`);
       }
-      out.push(`<g class="chart-casing"><path d="${d}" fill="none" stroke="var(--d-stroke)" stroke-width="4.5" ${joins}/></g>`);
-      out.push(`<path class="chart-line" d="${d}" fill="none" stroke="${fillVar(si)}" stroke-width="2.5" ${joins}/>`);
+      // solid up to dashFrom, dashed after it: two strokes, each on its casing,
+      // the dashed one drawn by the draw build through its mask as a dashed wire is
+      const { solid, dashed } = splitAt(pts, s.dashFrom);
+      // (a part that is only lone points draws no stroke: it is left out once the line is split)
+      const parts = [[linePath(solid), ''], [linePath(dashed), ` stroke-dasharray="${DASH}"`]]
+        .filter(([d]) => d && (s.dashFrom == null || /L/.test(d)));
+      out.push(`<g class="chart-casing">${parts.map(([d, dash]) => `<path d="${d}" fill="none" stroke="var(--d-stroke)" stroke-width="4.5" ${joins}${dash}/>`).join('')}</g>`);
+      for (const [d, dash] of parts) {
+        out.push(`<path class="chart-line${dash ? ' chart-dashed' : ''}" d="${d}" fill="none" stroke="${fillVar(si)}" stroke-width="2.5" ${joins}${dash}/>`);
+      }
       if (spec.type === 'line') {
         for (const p of pts) {
           if (p) out.push(`<circle class="chart-dot draw-fade" cx="${f(p.x)}" cy="${f(p.y)}" r="4" fill="${fillVar(si)}" stroke="var(--d-stroke)" stroke-width="1"/>`);
         }
       }
+      // a marker: the point made larger, ringed, and its words beside it
+      for (const m of s.markers) {
+        const p = pts[m.at];
+        if (!p) continue;
+        out.push(`<g class="chart-marker-ring"><circle class="draw-fade" cx="${f(p.x)}" cy="${f(p.y)}" r="11" fill="none" stroke="var(--d-stroke)" stroke-width="1.5"/></g>`);
+        out.push(`<circle class="chart-marker draw-fade" cx="${f(p.x)}" cy="${f(p.y)}" r="6.5" fill="${fillVar(si)}" stroke="var(--d-stroke)" stroke-width="2.5"/>`);
+        if (m.label) {
+          const t = markerLabelAt(pts, m.at, plot, m.label.length * 6.8);
+          out.push(`<text class="chart-marker-label draw-fade" x="${f(t.x)}" y="${f(t.y)}" text-anchor="${t.anchor}" font-size="12" font-weight="600" ${TEXT} ${HALO}>${esc(m.label)}</text>`);
+        }
+      }
       out.push('</g>');
     });
+  }
+}
+
+/** The dashes of a series' dashed part: long enough to read as a line, gapped enough to read as not one. */
+const DASH = '9 7';
+
+/**
+ * Words laid over a chart's ink (a rule's, a marker's) sit on a thin halo of
+ * the slide's own ground, so a line or a band passing under them never cuts
+ * a letter. A ground the halo cannot be (a gradient) leaves the words bare.
+ */
+const HALO = 'stroke="var(--bg)" stroke-width="4" stroke-linejoin="round" paint-order="stroke"';
+
+/**
+ * Where a marker's words go, `{ x, y, anchor }`, so its own line does not run
+ * through them: over a peak, under a dip, and beside a point on a slope, on
+ * the side the line leaves free (below a rise to the right, above a fall),
+ * mirrored to the left near the plot's right edge, and kept inside the plot.
+ * `w` is the words' rough width.
+ */
+function markerLabelAt(pts, k, plot, w) {
+  const p = pts[k];
+  const ys = [pts[k - 1], pts[k + 1]].filter(Boolean).map((q) => q.y);
+  const peak = ys.length && ys.every((y) => y > p.y);
+  const dip = ys.length && ys.every((y) => y < p.y);
+  const centred = () => {
+    if (p.x - w / 2 < plot.x + 2) return { x: plot.x + 2, anchor: 'start' };
+    if (p.x + w / 2 > plot.x + plot.w - 2) return { x: plot.x + plot.w - 2, anchor: 'end' };
+    return { x: p.x, anchor: 'middle' };
+  };
+  if ((peak || !ys.length) && p.y - 20 > plot.y + 4) return { ...centred(), y: p.y - 18 };
+  if (dip && p.y + 30 < plot.y + plot.h) return { ...centred(), y: p.y + 28 };
+  const left = p.x + 16 + w > plot.x + plot.w;
+  const next = pts[k + 1] ?? null, prev = pts[k - 1] ?? null;
+  // which way the line runs on the side the words go: rising there frees the space below
+  const rising = left ? (prev ? prev.y > p.y : false) : (next ? next.y < p.y : prev ? prev.y > p.y : false);
+  const y = peak || dip ? p.y + 4 : left === rising ? p.y - 10 : p.y + 18;
+  return { x: left ? p.x - 16 : p.x + 16, y: Math.max(plot.y + 12, Math.min(plot.y + plot.h - 4, y)), anchor: left ? 'end' : 'start' };
+}
+
+/**
+ * The chart's own rules (they stand for the whole build): a horizontal
+ * `threshold`, its words on it at the left where a line has usually not yet
+ * reached it, and a vertical `now`, its word at the top. Ink, not a series
+ * colour: --d-stroke for the rule, --d-text for the words, as the axes are.
+ * The rules go in the chrome, under the series; their words in `over`, a
+ * layer above them, so a band or a line never covers them.
+ */
+function rules(spec, plot, yFor, band, chrome, over) {
+  if (spec.threshold) {
+    const ty = yFor(spec.threshold.y);
+    chrome.push(`<line class="chart-threshold" x1="${f(plot.x)}" y1="${f(ty)}" x2="${f(plot.x + plot.w)}" y2="${f(ty)}" stroke="var(--d-stroke)" stroke-width="1.5" stroke-dasharray="2 5" stroke-linecap="round"/>`);
+    if (spec.threshold.label) {
+      const above = ty - 16 > plot.y;
+      over.push(`<text class="chart-rule-label" x="${f(plot.x + 6)}" y="${f(above ? ty - 6 : ty + 15)}" text-anchor="start" font-size="11" font-weight="600" ${TEXT} ${HALO}>${esc(spec.threshold.label)}</text>`);
+    }
+  }
+  if (spec.now) {
+    const nx = plot.x + (spec.now.at + 0.5) * band;
+    chrome.push(`<line class="chart-now" x1="${f(nx)}" y1="${f(plot.y)}" x2="${f(nx)}" y2="${f(plot.y + plot.h)}" stroke="var(--d-stroke)" stroke-width="1.5" stroke-dasharray="2 5" stroke-linecap="round"/>`);
+    if (spec.now.label) {
+      const right = nx + 6 + spec.now.label.length * 6.6 < plot.x + plot.w;
+      over.push(`<text class="chart-rule-label" x="${f(right ? nx + 6 : nx - 6)}" y="${f(plot.y + 11)}" text-anchor="${right ? 'start' : 'end'}" font-size="11" font-weight="600" ${TEXT} ${HALO}>${esc(spec.now.label)}</text>`);
+    }
   }
 }
 
@@ -435,6 +481,7 @@ function legendOn(spec) {
 export function chartSvg(spec) {
   const chrome = [];
   const out = [];
+  const over = []; // words over the series: a rule's (they stand for the whole build, as the chrome does)
 
   if (spec.title) {
     chrome.push(`<text class="chart-title" x="14" y="24" font-size="15" font-weight="600" ${TEXT}>${esc(spec.title)}</text>`);
@@ -451,12 +498,13 @@ export function chartSvg(spec) {
 
   if (spec.type === 'pie') pieChart(spec, out);
   else if (spec.type === 'scatter') scatterChart(spec, chrome, out);
-  else axisChart(spec, chrome, out);
+  else axisChart(spec, chrome, out, over);
 
   const label = spec.title ? `${spec.title} — ${spec.type} chart` : `${spec.type} chart`;
   return `<svg class="chart-svg" viewBox="0 0 ${spec.width} ${spec.height}" role="img" aria-label="${esc(label)}" preserveAspectRatio="xMidYMid meet">` +
     `<g class="chart-chrome" data-build-stay>${chrome.join('')}</g>` +
     out.join('') +
+    (over.length ? `<g class="chart-over" data-build-stay>${over.join('')}</g>` : '') +
     '</svg>';
 }
 

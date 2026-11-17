@@ -151,7 +151,7 @@ export const ENGINE_ATTRIBUTES = [
   'data-font', 'data-font-meta', 'data-font-preview', 'data-font-version', 'data-generated', 'data-go', 'data-how',
   'data-href', 'data-i', 'data-idle', 'data-key', 'data-label', 'data-markdown', 'data-markdown-removed', 'data-mouth',
   'data-n', 'data-name', 'data-nest-fill', 'data-noise', 'data-off', 'data-off-fix', 'data-off-undo', 'data-overflow',
-  'data-overflow-by', 'data-phase', 'data-pinned', 'data-play', 'data-play-beat', 'data-plugin', 'data-point', 'data-pos',
+  'data-overflow-by', 'data-part', 'data-phase', 'data-pinned', 'data-play', 'data-play-beat', 'data-plugin', 'data-point', 'data-pos',
   'data-poster', 'data-rate', 'data-redo', 'data-redo-beat', 'data-ref', 'data-roles', 'data-row', 'data-rule',
   'data-scope', 'data-series', 'data-side', 'data-sig', 'data-slide', 'data-slide-index', 'data-split-conflict', 'data-state',
   'data-tab', 'data-tag', 'data-takes', 'data-theme-added', 'data-theme-marketplace', 'data-theme-source',
