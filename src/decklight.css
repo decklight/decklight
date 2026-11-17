@@ -565,6 +565,17 @@
 .decklight th { color: var(--accent, #6af); }
 .decklight img, .decklight svg { max-width: 100%; }
 .decklight section > svg, .decklight section > img { margin: 0.3em auto; display: block; }
+/* A diagram or picture that is a template slot's one block takes the room the
+   slot is given, no more: a second title line shrinks it, keeping its aspect
+   ratio, instead of the slot cutting off its bottom (PRESENTING_FIT, #1183).
+   It sits on the top of its line, so the gap a baseline leaves under an
+   inline box is not cut either. A slot with no definite height leaves 100%
+   unresolved, so nothing changes. */
+.decklight :where([data-slot][data-ds-injected]) > :where(svg, img):only-child,
+.decklight :where([data-slot][data-ds-injected]) > picture:only-child > img { max-height: 100%; vertical-align: top; }
+.decklight :where([data-slot][data-ds-injected]) > img:only-child,
+.decklight :where([data-slot][data-ds-injected]) > picture:only-child > img { object-fit: contain; }
+.decklight :where([data-slot][data-ds-injected]) > picture:only-child { display: contents; }
 /* a framed web page (Add ▾ › Web page): the content's width at 16:9 unless it
    says its own size, at zero specificity so a deck's own rules win */
 .decklight :where(section iframe:not([width])) { width: 100%; }

@@ -202,40 +202,81 @@ export function createOverflowWatch({
 // The guardrail's own test (checkOverflow in engine.js), the inspector's "clips
 // by" and write mode's badge on the slide number all ask the same question, so
 // they share one answer: the box that overflows its own height the most.
+//
+// ANY box that hides or scrolls its overflow can clip, not only the slide (#1183).
+// A design-system slot is often a plain block with `overflow: hidden`: a
+// diagram taller than the room it is given is cut by the slot, and because the
+// slot hides the excess, the slide's own scrollHeight never sees it. So every
+// box on the slide is asked, and the answer names what it cuts ("a diagram"),
+// not the anonymous box doing the cutting.
 
-/** The boxes that can clip: the slide itself, and what scrolls inside it. */
-const CLIP_BOXES = 'pre, table, svg, ul, ol, blockquote';
-const CLIP_WHAT = { SECTION: 'the slide', PRE: 'a code block', TABLE: 'a table', SVG: 'a diagram',
+/** The boxes that scroll by design, named for what they are: the excess is THEIR content. */
+const CLIP_WHAT = { PRE: 'a code block', TABLE: 'a table', SVG: 'a diagram',
   UL: 'a list', OL: 'a list', BLOCKQUOTE: 'a quote' };
+/** What a clipped element is called, in a sentence the author reads. */
+const CONTENT_WHAT = { ...CLIP_WHAT, IMG: 'an image', PICTURE: 'an image', VIDEO: 'a video', CANVAS: 'a drawing',
+  FIGURE: 'a figure', P: 'a paragraph', H1: 'a heading', H2: 'a heading', H3: 'a heading', H4: 'a heading',
+  H5: 'a heading', H6: 'a heading', IFRAME: 'an embed' };
+/** Boxes that scroll on purpose: a terminal's scrollback (SPEC TERMINAL_PLAYER), a conversation held to its newest turn. */
+const SCROLLS_BY_DESIGN = '.terminal, .conversation';
+/** Never content: what a slide carries that is not on it. */
+const NOT_CONTENT = 'aside, script, style, template, .slide-bg';
+
+/**
+ * What `box` cuts off at its bottom edge: the element running furthest past
+ * it, followed down through anonymous wrappers to the first thing with a name
+ * ("a diagram", "a list"). `content` when nothing nameable is found.
+ */
+function clippedContent(box) {
+  const r = box.getBoundingClientRect();
+  const k = box.offsetHeight ? r.height / box.offsetHeight : 1;
+  const bottom = r.top + (box.clientTop + box.clientHeight) * k + 2 * k;
+  let node = box;
+  for (let depth = 0; depth < 24; depth++) {
+    let worst = null, low = bottom;
+    for (const c of node.children) {
+      if (c.matches(NOT_CONTENT)) continue;
+      const b = c.getBoundingClientRect().bottom;
+      if (b > low) { low = b; worst = c; }
+    }
+    if (!worst) return 'content';
+    const what = worst.matches('.chart') ? 'a chart' : CONTENT_WHAT[worst.tagName.toUpperCase()];
+    if (what) return what;
+    node = worst;
+  }
+  return 'content';
+}
 
 /**
  * The slide's worst clipped box, or null when nothing is clipped.
  *
- * `{ el, what, by }`: the box, a few words for it ("a code block", "the
- * slide"), and how far its content runs past it, in deck px. Terminals scroll
- * by design (SPEC TERMINAL_PLAYER) and `data-scroll-ok` opts any other
- * scroller out; an `overflow: visible` box clips nothing. Under 3 px is
- * rounding, not clipping.
+ * `{ el, what, by }`: the box, a few words for what it cuts off ("a code
+ * block", "a diagram"), and how far that runs past it, in deck px. A box that
+ * scrolls by design (a terminal, a conversation) and `data-scroll-ok` on any
+ * other opt out; an `overflow: visible` box clips nothing. Under 3 px is
+ * rounding, not clipping. `inSlide` is true when the box is the slide itself.
  */
 export function clipReport(section) {
   if (!section) return null;
   let worst = null;
-  for (const el of [section, ...section.querySelectorAll(CLIP_BOXES)]) {
+  for (const el of [section, ...section.querySelectorAll('*')]) {
+    // inside a diagram, only the diagram itself is a box (its shapes are not)
+    if (el !== section && el.ownerSVGElement) continue;
     const by = el.scrollHeight - el.clientHeight;
     if (by <= 2 || (worst && by <= worst.by)) continue;
-    if (el.closest('.terminal') || el.hasAttribute('data-scroll-ok')) continue;
+    if (el.hasAttribute('data-scroll-ok') || (el !== section && el.closest(SCROLLS_BY_DESIGN))) continue;
     if (getComputedStyle(el).overflowY === 'visible') continue;
     worst = { el, by };
   }
   if (!worst) return null;
-  return { el: worst.el, what: CLIP_WHAT[worst.el.tagName.toUpperCase()] ?? 'a box', by: Math.round(worst.by) };
+  const { el } = worst;
+  const what = (el !== section && CLIP_WHAT[el.tagName.toUpperCase()]) || clippedContent(el);
+  return { el, what, by: Math.round(worst.by), inSlide: el === section };
 }
 
 /** The sentence a clipped slide says about itself: what, by how much, and that nobody sees it. */
 export function clipSentence(report) {
   if (!report) return '';
-  const where = report.what === 'the slide'
-    ? `content runs ${report.by}px past the bottom of the slide`
-    : `${report.what} runs ${report.by}px past the bottom of its box`;
+  const where = `${report.what} runs ${report.by}px past the bottom of ${report.inSlide ? 'the slide' : 'its box'}`;
   return `clipped: ${where}, and the audience never sees the rest`;
 }

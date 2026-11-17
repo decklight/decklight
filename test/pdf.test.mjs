@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { pdfOut, printUrl, pdfPageCount, overflowSlides, splitConflictSlides, slideCount, expectedPages, HANDOUT_PER_PAGE } from '../cli/pdf.mjs';
+import { pdfOut, printUrl, pdfPageCount, overflowSlides, overflowReport, clipSaid, splitConflictSlides, slideCount, expectedPages, HANDOUT_PER_PAGE } from '../cli/pdf.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -59,6 +59,18 @@ test('overflowing slides are reported by their slide NUMBER, in document order',
   assert.deepEqual(overflowSlides(dom), [2, 4]);
   assert.equal(slideCount(dom), 4);
   assert.deepEqual(overflowSlides('<section></section>'), [], 'a clean deck reports nothing');
+});
+
+test('pdf says what a clipped slide cuts and by how much, when the runtime named it (#1183)', () => {
+  const dom = '<section><h2>a</h2></section>'
+    + '<section data-overflow="a diagram" data-overflow-by="141"><h2>b</h2></section>'
+    + '<section data-overflow=""><h2>c</h2></section>';
+  assert.deepEqual(overflowReport(dom), [
+    { n: 2, said: 'a diagram runs 141px past what the slide shows' },
+    { n: 3, said: '' },
+  ]);
+  assert.deepEqual(overflowSlides(dom), [2, 3], 'the same slides, by number');
+  assert.equal(clipSaid('<section data-overflow="content">'), '', 'no figure, nothing made up');
 });
 
 test('a deck that merely TALKS about data-overflow does not report itself', () => {

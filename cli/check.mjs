@@ -1097,14 +1097,17 @@ export function renderFindings(domHtml, { slides = 0 } = {}) {
     const head = slideHeading(sectionInner(bodies[i] ?? ''), i);
     const attrs = readAttrs(m[0].slice('<section'.length).replace(/>$/, ''));
     if ('data-overflow' in attrs) {
-      // The guardrail is a boolean today (engine.js `checkOverflow` toggles the
-      // attribute), so the px figure is reported only if a future one writes it
-      // — better than printing a number this file made up.
+      // The guardrail names what is cut and by how much (engine.js
+      // `checkOverflow`: data-overflow="a diagram", data-overflow-by, #1183);
+      // a deck on an older runtime carries a bare attribute, and is told only
+      // that it is clipped, rather than a figure this file made up.
+      const what = attrs['data-overflow'];
       const by = Number(attrs['data-overflow-by']);
+      const over = Number.isFinite(by) && by > 0;
       out.push(finding('error', 'overflow', slide, head,
-        Number.isFinite(by) && by > 0
-          ? `content is clipped (${Math.round(by)} px over)`
-          : 'content is clipped — it does not fit the slide, and the audience never sees the rest'));
+        what && over ? `content is clipped: ${what} runs ${Math.round(by)}px past what the slide shows, and the audience never sees the rest`
+          : over ? `content is clipped (${Math.round(by)} px over)`
+            : 'content is clipped — it does not fit the slide, and the audience never sees the rest'));
     }
     // crowded past SLIDE_DENSITY: the runtime counts it as it lays the deck
     // out (src/core/density.js) and marks the section, like data-overflow

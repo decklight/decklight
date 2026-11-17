@@ -129,6 +129,30 @@ function flaggedSlides(html, attr) {
 export const overflowSlides = (html) => flaggedSlides(html, 'data-overflow');
 
 /**
+ * What the guardrail said about a clipped slide's section tag: what is cut
+ * (`data-overflow="a diagram"`) and by how much (`data-overflow-by`), as the
+ * runtime measured it (#1183). An older runtime wrote a bare attribute: then
+ * only that the slide is clipped.
+ */
+export function clipSaid(tag) {
+  const what = /\sdata-overflow="([^"]+)"/.exec(tag)?.[1]?.replace(/&amp;/g, '&');
+  const by = Number(/\sdata-overflow-by="(\d+)"/.exec(tag)?.[1]);
+  if (!what || !(by > 0)) return '';
+  return `${what} runs ${by}px past what the slide shows`;
+}
+
+/** Each flagged slide with what its guardrail said: `[{ n, said }]`. */
+export function overflowReport(html) {
+  const out = [];
+  let n = 0;
+  for (const m of html.matchAll(/<section\b[^>]*>/g)) {
+    n += 1;
+    if (/\bdata-overflow\b/.test(m[0])) out.push({ n, said: clipSaid(m[0]) });
+  }
+  return out;
+}
+
+/**
  * Slides mixing data-layout="split" with their own column flexbox (SPEC
  * COMPARISON_SLIDES) — the engine marks the cause the overflow guardrail
  * only ever catches the symptom of.
@@ -220,8 +244,8 @@ async function printDeck({ src, out, url, bin, shared, variant, theme, signal })
     return 1;
   }
 
-  for (const n of overflowSlides(html)) {
-    console.error(`pdf: ⚠ slide ${n} overflows — it will be clipped in the PDF`);
+  for (const { n, said } of overflowReport(html)) {
+    console.error(`pdf: ⚠ slide ${n} overflows${said ? `: ${said}` : ''} — it will be clipped in the PDF`);
   }
   for (const n of splitConflictSlides(html)) {
     console.error(`pdf: ⚠ slide ${n} mixes data-layout="split" with its own column flexbox — `

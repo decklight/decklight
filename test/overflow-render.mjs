@@ -159,5 +159,116 @@ check('late: the added node really clips at read time', lateGrew.lateScrolls ===
 check('late: flagged anyway', lateGrew.flagged === true, `data-overflow=${lateGrew.flagged}`);
 check('late: warned exactly once', lateGrew.warns === 1, `${lateGrew.warns} warning(s)`);
 
+// ---- a diagram cut by the box that holds it (#1183) -------------------------
+// A title long enough to wrap to two lines, above a 16:9 diagram with its own
+// width. When the diagram sits in a block box that hides its overflow (a
+// design-system slot is often one), the box does the cutting: the slide itself
+// is not over, so nothing reached the section's scrollHeight and the slide
+// passed every check with the bottom of the diagram missing.
+const TITLE = 'A title long enough that it has to wrap onto a second line on this slide';
+const DIAGRAM = `<svg viewBox="0 0 800 420" width="1100">
+  <rect x="10" y="10" width="780" height="400" rx="12" fill="none" stroke="currentColor" stroke-width="4"/>
+  <rect id="last-row" x="40" y="330" width="720" height="60" rx="8" fill="currentColor" opacity=".35"/>
+</svg>`;
+// the slot, as a template writes it: flexible, a plain block, overflow hidden
+const SLOT = 'flex:1; min-height:0; display:block; overflow:hidden';
+// a design system on the page, as the servers inject one (DESIGN_SYSTEMS): a diagram template
+const DS = `<script type="application/json" data-design-system-meta="acme">{"name":"acme","version":"1.0.0","title":"Acme"}</script>
+<template data-design-system-templates="acme"><template data-template="diagram" data-title="Diagram">
+  <div class="acme-diagram"><div data-slot="title" data-slot-hint="h2"></div><div data-slot="diagram" data-slot-default></div></div>
+</template></template>
+<style>
+.decklight .acme-diagram { position: absolute; inset: 0; box-sizing: border-box; padding: 40px 60px; display: flex; flex-direction: column; }
+.decklight .acme-diagram > [data-slot="diagram"] { ${SLOT}; }
+</style>`;
+
+/**
+ * Slide 2 is `body`, read at 600ms: whether the guardrail flagged it, what the
+ * flag names, and whether the diagram's last row is inside the slide, the box
+ * that holds it, and the slide's own box.
+ */
+function clipDeck(name, body, { head = '', attrs = '', print = false } = {}) {
+  const file = path.join(dir, `${name}.html`);
+  writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="${path.join(root, 'dist/decklight.css')}">
+<link rel="stylesheet" href="${path.join(root, 'themes/aurora.css')}">${head}</head>
+<body><div class="decklight">
+<section><h1>Cover</h1></section>
+<section id="s"${attrs}>${body}</section>
+</div>
+<pre id="test-sink">running…</pre>
+<script src="${path.join(root, 'dist/decklight.js')}"></script>
+<script>
+const warns = [];
+console.warn = ((orig) => (...a) => { warns.push(a.join(' ')); orig(...a); })(console.warn);
+Decklight.init();
+setTimeout(() => {
+  const sec = document.getElementById('s');
+  const svg = sec.querySelector('svg');
+  const row = sec.querySelector('[id$="last-row"]');
+  const holder = svg.closest('[data-ds-injected][data-slot]') || svg.parentElement;
+  const r = row.getBoundingClientRect(), h = holder.getBoundingClientRect(), s = sec.getBoundingClientRect();
+  const k = s.width / sec.offsetWidth;
+  const title = sec.querySelector('h2');
+  document.getElementById('test-sink').textContent = 'DECKLIGHT-CLIP-RESULTS ' + JSON.stringify({
+    flagged: sec.hasAttribute('data-overflow'),
+    what: sec.getAttribute('data-overflow'),
+    by: Number(sec.getAttribute('data-overflow-by')),
+    titleLines: Math.round(title.getBoundingClientRect().height / k / parseFloat(getComputedStyle(title).lineHeight)),
+    rowInHolder: r.bottom <= h.bottom + 1,
+    rowInSlide: r.bottom <= s.bottom + 1,
+    svgHeight: Math.round(svg.getBoundingClientRect().height / k),
+    warns: warns.filter((w) => /overflows/.test(w)),
+  });
+}, 600);
+</script></body></html>`);
+  return `file://${file}${print ? '?print' : '#/2/0'}`;
+}
+const clipRun = (url) => {
+  const html = dumpDom(url, { fileAccess: true, budget: 5000, quietStderr: true, who: 'overflow-render',
+    extraFlags: ['--window-size=1280,720'] });
+  const m = html.match(/DECKLIGHT-CLIP-RESULTS ([^<]+)/);
+  if (!m) throw new Error(`overflow-render: no clip results for ${url}`);
+  return JSON.parse(m[1]);
+};
+
+{
+  // a plain deck: the author's own block box, hiding its overflow. Nothing
+  // gives the diagram the room, so it is cut, and the slide must say so.
+  for (const print of [false, true]) {
+    const r = clipRun(clipDeck(`box${print ? '-print' : ''}`,
+      `<h2>${TITLE}</h2><div style="${SLOT}">${DIAGRAM}</div>`, { print }));
+    const t = print ? 'box, print:' : 'box:';
+    check(`${t} the title wraps to two lines`, r.titleLines === 2, `${r.titleLines} line(s)`);
+    check(`${t} the diagram really is cut`, !r.rowInHolder, `rowInHolder=${r.rowInHolder}`);
+    check(`${t} flagged`, r.flagged, `data-overflow=${r.flagged}`);
+    check(`${t} the flag names the diagram`, r.what === 'a diagram' && r.by > 2, `what="${r.what}" by=${r.by}`);
+    if (!print) check(`${t} the warning names it too`, r.warns.length === 1 && /a diagram/.test(r.warns[0]), JSON.stringify(r.warns));
+  }
+}
+{
+  // a design-system template's diagram slot: the diagram is the slot's main
+  // block, so it is given the room left under the title and scales into it
+  for (const print of [false, true]) {
+    const r = clipRun(clipDeck(`slot${print ? '-print' : ''}`,
+      `<h2 data-slot="title">${TITLE}</h2>${DIAGRAM.replace('<svg ', '<svg data-slot="diagram" ')}`,
+      { head: DS, attrs: ' data-template="acme/diagram"', print }));
+    const t = print ? 'template slot, print:' : 'template slot:';
+    check(`${t} the title wraps to two lines`, r.titleLines === 2, `${r.titleLines} line(s)`);
+    check(`${t} the diagram shrinks to the room`, r.svgHeight < 577, `${r.svgHeight}px tall`);
+    check(`${t} its last row is whole`, r.rowInHolder && r.rowInSlide, `inSlot=${r.rowInHolder} inSlide=${r.rowInSlide}`);
+    check(`${t} so nothing is flagged`, !r.flagged, `data-overflow=${r.flagged} "${r.what}"`);
+  }
+}
+{
+  // the same slot with a caption under the diagram: the diagram is not the
+  // slot's only block, so it is left at its size, and what is cut is reported
+  const r = clipRun(clipDeck('slot-caption',
+    `<h2 data-slot="title">${TITLE}</h2><div data-slot="diagram">${DIAGRAM}<p>A caption under it.</p></div>`,
+    { head: DS, attrs: ' data-template="acme/diagram"' }));
+  check('template slot, not alone: cut, and flagged', !r.rowInHolder && r.flagged,
+    `rowInSlot=${r.rowInHolder} data-overflow=${r.flagged} "${r.what}"`);
+}
+
 if (bad) { console.error('overflow-render: FAILED'); process.exit(1); }
 console.log('overflow-render: PASS');

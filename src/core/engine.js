@@ -378,13 +378,25 @@ function checkOverflow(section, slideNo) {
   fitConversations(section);
   // Terminals scroll internally by design (SPEC TERMINAL_PLAYER scrollback viewport);
   // any other intentional scroller can opt out with data-scroll-ok (overflow.js clipReport).
-  const clipped = !!clipReport(section);
+  // Any box that hides its overflow counts, a template's slot included (#1183).
+  // The mark names what is cut ("a diagram") and by how much, so `decklight
+  // check` and `pdf` can say it without measuring anything themselves.
+  const clip = clipReport(section);
   const was = section.hasAttribute('data-overflow');
-  section.toggleAttribute('data-overflow', clipped);
+  if (clip) {
+    if (section.getAttribute('data-overflow') !== clip.what) section.setAttribute('data-overflow', clip.what);
+    if (section.getAttribute('data-overflow-by') !== String(clip.by)) section.setAttribute('data-overflow-by', String(clip.by));
+  } else {
+    section.removeAttribute('data-overflow');
+    section.removeAttribute('data-overflow-by');
+  }
   // Only on the way IN. The check re-runs whenever the slide's content changes
   // size (watchOverflow), so warning on every pass would turn one clipped slide
   // into a console full of the same line.
-  if (clipped && !was) console.warn(`Decklight: slide ${slideNo} content overflows and is clipped — reduce content or font size`);
+  if (clip && !was) {
+    console.warn(`Decklight: slide ${slideNo} content overflows and is clipped: ${clip.what} runs ${clip.by}px past the bottom of `
+      + `${clip.inSlide ? 'the slide' : 'the box that holds it'} — reduce content or font size`);
+  }
 }
 
 /**
