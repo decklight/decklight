@@ -152,6 +152,40 @@ export function overflowReport(html) {
   return out;
 }
 
+/** An attribute's value out of a dumped section tag, its entities undone. */
+const attrOf = (tag, name) => new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]
+  ?.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+
+/**
+ * What a slide's section tag says it does not show in print (#1184): the
+ * runtime names the first element still at opacity 0 or visibility hidden once
+ * builds are complete and the deck's own animations finished
+ * (`data-invisible="a box “Batch” (opacity 0)"`) and counts the others
+ * (`data-invisible-more`). '' when it shows everything.
+ */
+export function invisibleSaid(tag) {
+  const what = attrOf(tag, 'data-invisible');
+  if (!what) return '';
+  const more = Number(attrOf(tag, 'data-invisible-more'));
+  return `${what}${more > 0 ? `, and ${more} more element${more === 1 ? '' : 's'}` : ''}`;
+}
+
+/** Each slide with something invisible in print, and what: `[{ n, said }]`. */
+export function invisibleReport(html) {
+  const out = [];
+  let n = 0;
+  for (const m of html.matchAll(/<section\b[^>]*>/g)) {
+    n += 1;
+    const said = invisibleSaid(m[0]);
+    if (said) out.push({ n, said });
+  }
+  return out;
+}
+
+/** What usually makes such a hole, and the way out of it: said by pdf and check alike. */
+export const INVISIBLE_ADVICE = 'print shows an entrance the deck animates with its own CSS as it ends, '
+  + 'and this one does not end visible: make it a build (SPEC BUILDS), or mark it data-invisible-ok if it is meant';
+
 /**
  * Slides mixing data-layout="split" with their own column flexbox (SPEC
  * COMPARISON_SLIDES) — the engine marks the cause the overflow guardrail
@@ -246,6 +280,9 @@ async function printDeck({ src, out, url, bin, shared, variant, theme, signal })
 
   for (const { n, said } of overflowReport(html)) {
     console.error(`pdf: ⚠ slide ${n} overflows${said ? `: ${said}` : ''} — it will be clipped in the PDF`);
+  }
+  for (const { n, said } of invisibleReport(html)) {
+    console.error(`pdf: ⚠ slide ${n} prints with a hole: ${said} is invisible — ${INVISIBLE_ADVICE}`);
   }
   for (const n of splitConflictSlides(html)) {
     console.error(`pdf: ⚠ slide ${n} mixes data-layout="split" with its own column flexbox — `

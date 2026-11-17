@@ -209,6 +209,14 @@ does not know, or a block that is not JSON, each with what was meant
 person who writes the deck in VS Code gets the same words as completions and
 \`dl-\` snippets from \`decklight vscode\` (or \`decklight init --vscode\`).
 
+**Bring an element in with a build, not with your own keyframes.** A
+\`section.active .box { animation: in .6s forwards }\` entrance from
+\`opacity: 0\` plays on screen, and a printed or exported slide shows it at its
+end; one that does not end visible (no \`forwards\`, or an element left at
+\`opacity: 0\`) is a hole in the PDF, and \`check\` and \`pdf\` name it
+(\`invisible-in-print\`, with the element). \`data-build\` (BUILDS) arrives on
+a click and prints whole.
+
 **For a comparison slide, use \`data-layout="split"\` — and do not also write
 your own column flexbox.** Two sibling blocks become the columns, a third
 becomes a full-width footer. A hand-rolled flex shell inside a section that

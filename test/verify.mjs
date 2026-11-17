@@ -304,6 +304,7 @@ const HARNESSES = [
   'steps-render',
   'travel-render',
   'conversation-render',
+  'print-visibility-render',
   'strict-render',
   'shot-render',
   'plugin-render',
