@@ -64,7 +64,7 @@ export function reselectAfterReload({ slide, index, path = [] }) {
 export function forgetReselect() {
   try { sessionStorage.removeItem(RESELECT_KEY); } catch { /* fine */ }
 }
-const INJECTED_ON_PATH = '.draw-head, .draw-mask, [data-ds-injected]';
+const INJECTED_ON_PATH = '.draw-head, .draw-mask, .travel-token, [data-ds-injected]';
 /** The live node at the file's `path` below `top`, counted as pathFrom counts it (the engine's own nodes skipped). */
 function nodeAtFilePath(top, path) {
   let cur = top;

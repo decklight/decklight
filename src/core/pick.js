@@ -21,7 +21,7 @@
 import { WIRE_TAGS, isConnector } from './connectors.js';
 
 const DRAWN = 'rect, circle, ellipse, polygon, polyline, path, line, text, image, use, foreignObject';
-const NOT_THE_FILES = 'defs, marker, mask, .draw-head, .draw-mask';
+const NOT_THE_FILES = 'defs, marker, mask, .draw-head, .draw-mask, .travel-token';
 
 /**
  * Did a slide template bring `n` (SPEC DESIGN_SYSTEMS): the `<svg>` itself, or
@@ -112,7 +112,7 @@ function groupLevel(top, clicked, cur, alt) {
 // one block.
 
 /** What the engine put there: never a block of the file's. */
-const ENGINE_NODE = '.slide-bg, .decklight-hero-logo, .decklight-steps, [data-ds-injected], .draw-head, .draw-mask';
+const ENGINE_NODE = '.slide-bg, .decklight-hero-logo, .decklight-steps, [data-ds-injected], .draw-head, .draw-mask, .travel-token';
 const NOT_A_WRAPPER = `.chart, [data-chart], .terminal, ${ENGINE_NODE}`;
 /** Is `el` a plain wrapper of blocks: a `<div>` that is not a chart, a terminal or the engine's? */
 export const isWrapper = (el) => el?.tagName === 'DIV' && !el.matches(NOT_A_WRAPPER) && !el.closest('svg');

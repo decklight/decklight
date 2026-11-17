@@ -50,9 +50,9 @@ export function slideBody(section) {
   const content = [...section.children].filter((el) => !el.matches('aside, script, style, .decklight-steps, nav.steps'));
   // …nor is the strip a template's steps slot holds, inside the template's own markup
   const said = (el) => {
-    if (!el.querySelector?.('.decklight-steps')) return el.textContent;
+    if (!el.querySelector?.('.decklight-steps, .travel-token')) return el.textContent;
     const copy = el.cloneNode(true);
-    for (const n of copy.querySelectorAll('.decklight-steps')) n.remove();
+    for (const n of copy.querySelectorAll('.decklight-steps, .travel-token')) n.remove();
     return copy.textContent;
   };
   return content.map(said).join(' ').replace(/\s+/g, ' ').trim();

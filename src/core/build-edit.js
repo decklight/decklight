@@ -17,6 +17,7 @@ import { createEditCommit } from './edit-commit.js';
 import { authoredTop, authoredIndex } from './design-system.js';
 import { pathFrom } from './colorpicker.js';
 import { clearBuildMarks, stepShowing } from './builds.js';
+import { dropToken } from './travel.js';
 import { reselectAfterReload, forgetReselect } from './editbar.js';
 import { mergeClick, detachStep, clickOfStep, orderGroups } from './buildlist.js';
 
@@ -28,6 +29,9 @@ const FIELDS = {
   animate: { attr: 'data-animate', on: (v) => v },
   drawStops: { attr: 'data-draw-stops', on: (v) => v },
   drawSpeed: { attr: 'data-draw-speed', on: (v) => (v === null ? null : String(Math.round(v))) },
+  travelMs: { attr: 'data-travel-ms', on: (v) => (v === null ? null : String(Math.round(v))) },
+  arrive: { attr: 'data-arrive', on: (v) => (v === null || v === 'fade' ? null : v) },
+  repeat: { attr: 'data-travel-repeat', on: (v) => (v ? '' : null) },
 };
 
 /** Where a node is in the file: its slide, its block's index, the path below it. Null where the file has no such node. */
@@ -194,5 +198,26 @@ export function createBuildEdit({ instance, editmode, toast = () => {} }) {
     };
   }
 
-  return { set, order, clickMoves, addressOf: (node) => addressOf(inst(), node) };
+  /**
+   * A step that is an element of its own and nothing else, taken off the
+   * slide: a token along a wire (`<g data-build="travel">`, BUILD_ENTRANCES),
+   * whose element is the step. `POST /deck/edit/element/remove`, one undo;
+   * the page takes it off as the file does and counts its steps again.
+   */
+  async function drop(node, said) {
+    if (!editmode.available?.()) { toast(editmode.cannot?.('removing a step') ?? 'removing a step needs write mode', 3200); return false; }
+    const at = addressOf(inst(), node);
+    if (!at || !at.path.length) { toast('that node is the engine’s, not the file’s', 2600); return false; }
+    try {
+      const j = await commit.post('/deck/edit/element/remove', { slide: at.slide, index: at.index, path: at.path, tag: at.tag });
+      if (j.changed === false) { toast('nothing to remove', 1600); return false; }
+    } catch (e) { toast(commit.notSaved('the step', e), 6000); return false; }
+    dropToken(node);
+    node.remove();
+    rescan(at.sec, null);
+    toast(said, 1400);
+    return true;
+  }
+
+  return { set, order, clickMoves, drop, addressOf: (node) => addressOf(inst(), node) };
 }

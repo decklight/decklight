@@ -2667,6 +2667,8 @@ export function createEditMode({
       rows.push({ label: 'Width…', run: () => openInspect('colors', 'stroke') });
       // a label at its middle, that follows it (SVG_DIAGRAMS); the one it has, typed into
       rows.push({ label: shapes.hasLabel?.(target) ? 'Edit label…' : 'Label…', run: () => { closeElementMenu(); shapes.labelWire(target); } });
+      // a click that sends a token along it, start to end (BUILD_ENTRANCES, travel)
+      if (shapes.sendToken) rows.push({ label: 'Send a token along it', run: () => { closeElementMenu(); shapes.sendToken(target); } });
       rows.push({ sep: true });
       rows.push({ label: 'Reverse', run: () => { closeElementMenu(); shapes.reverse(target); } });
     } else if (menuView === 'table') {

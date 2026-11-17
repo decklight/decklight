@@ -79,7 +79,7 @@ export function childPath(top, node) {
 export function svgTextTarget(target, sec) {
   const el = target?.closest?.('tspan, text');
   if (!el || !sec?.contains?.(el) || !el.closest('svg')) return null;
-  if (el.closest('[data-chart], .terminal, aside, .draw-head, .draw-mask') || injectedIn(el, el.closest('svg'))) return null;
+  if (el.closest('[data-chart], .terminal, aside, .draw-head, .draw-mask, .travel-token') || injectedIn(el, el.closest('svg'))) return null;
   return el;
 }
 

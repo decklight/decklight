@@ -74,7 +74,7 @@ export function createCanvas({ root, instance, editmode, editbar, toast, debugLo
     const walk = (el) => {
       for (const k of el.children) {
         const tag = k.tagName.toLowerCase();
-        if (NOT_DRAWN.has(tag) || k.matches('.draw-head, .draw-mask, [data-ds-injected]')) continue;
+        if (NOT_DRAWN.has(tag) || k.matches('.draw-head, .draw-mask, .travel-token, [data-ds-injected]')) continue;
         const r = k.getBoundingClientRect();
         if (!r.width && !r.height) continue;
         const pts = [[r.left, r.top], [r.right, r.bottom]].map(([cx, cy]) => ({ x: m.a * cx + m.c * cy + m.e, y: m.b * cx + m.d * cy + m.f }));

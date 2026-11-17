@@ -38,7 +38,7 @@ const SHAPES = 'rect, circle, ellipse, polygon, path';
 // and whatever the runtime GENERATES (a chart, a terminal cast), which is
 // nowhere in the file to be given an attribute — nor what a slide template
 // drew, tested against the svg (a slot container above it holds the author's)
-const NOT_A_SHAPE = 'defs, marker, clipPath, mask, pattern, symbol, .draw-head, .draw-mask, .chart, .terminal';
+const NOT_A_SHAPE = 'defs, marker, clipPath, mask, pattern, symbol, .draw-head, .draw-mask, .travel-token, .chart, .terminal';
 
 /** Is `el` a shape an author drew, one a concept can be attached to? */
 export const isAuthoredShape = (el) => !el.closest(NOT_A_SHAPE) && !injectedIn(el, el.closest('svg'));

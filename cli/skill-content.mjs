@@ -280,6 +280,19 @@ write mode reroutes it whenever either shape moves, so a box moved by hand or
 in the browser never leaves its arrow behind. \`decklight check\` names a wire
 whose \`data-from\` or \`data-to\` matches no shape in its diagram.
 
+**To show a message moving, send a token along the wire; never draw the wire
+again.** A wire that redraws says a new connection appeared. Name the wire
+(\`data-wire="orders-agent"\`) and add an empty step to its svg:
+\`<g data-build="travel" data-along-wire="orders-agent"></g>\`. On its click a
+dot leaves the wire's start and follows its route to its end;
+\`data-label="order 4417"\` makes it a chip, \`data-arrive="pulse"\` makes the
+node it reaches glow once (\`stay\` leaves it there, \`fade\` is the default),
+\`data-travel-repeat\` keeps it flowing while the click is on. Keep the
+pipeline on screen from the start and give each hop its own click and
+\`[click]\` beat; \`data-build-with\` sends a second token on the same click.
+\`decklight check\` warns (\`travel-wire\`) at a \`data-along-wire\` its svg has
+no wire for (BUILD_ENTRANCES in the reference).
+
 **On a deck that uses a design system, fill its templates' slots — never
 recreate a template's structure by hand.** A slide names a template and
 supplies one element per slot (\`<section data-template="acme/section-divider">\`

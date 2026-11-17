@@ -5,6 +5,7 @@
 // scaling, print. SPEC BUILD_SEMANTICS, SLIDE_TRANSITIONS, PRESENTING, JS_API.
 
 import { scanSlide, applyBuildState, stepLabels, registerProvider, refitStroke } from './builds.js';
+import { configureTravel, finishTravel, tick as travelTick, travelling, tokenOf } from './travel.js';
 import { routeWire, routeConnectors } from './connectors.js';
 import { namespaceSvgIds, rescopeSvgIds, prefixSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf } from './svg.js';
 import { initCharts, renderChart } from './charts.js';
@@ -2558,6 +2559,7 @@ export function init(userConfig = {}) {
   }
   function toggleOverview() {
     instance._figures?.finish();   // a value mid-count is cloned as written, never half-way
+    finishTravel();                // a token mid-trip is cloned where its step leaves it
     if (overviewEl) {
       window.removeEventListener('resize', layoutOverview);
       overviewEl.remove(); overviewEl = null;
@@ -3436,6 +3438,9 @@ export function init(userConfig = {}) {
     live: !printMode && !captureMode && !params.has('embedded'),
   });
   instance._figures = figures;
+  // a token along a wire (BUILD_ENTRANCES, travel.js): coloured by the deck's concepts; its clock, for a harness
+  configureTravel({ concepts: () => config.concepts ?? {} });
+  instance._travel = { tick: travelTick, running: travelling, finish: finishTravel, tokenOf };
   // the slide a deck opens on (a load, a deep link) is not an arrival: its values stand as written
   let figuresArrive = false;
   instance.on('slide', (e) => figures.arrive(figuresArrive ? e : {}, instance.state.step));

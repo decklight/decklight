@@ -14,6 +14,7 @@
 import { buildRows, beatsLine, firstWords, moveClick, mergeClick, splitClick, orderGroups, evenStops, stagesOf, stopsWith } from './buildlist.js';
 import { stepShowing, buildsPerItem, parseDrawStops } from './builds.js';
 import { authoredIndex } from './design-system.js';
+import { travelLabel, arrivalOf, ARRIVALS } from './travel.js';
 
 /** The entrance effects a step can have: Build ▸'s list, `none` last (a real step that arrives at once). */
 export const EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'none'];
@@ -22,6 +23,10 @@ export const EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', '
 const STROKES = 'path, line, polyline, polygon, circle, ellipse, rect';
 /** The paces a stroke is offered: the default (by its length when it draws in stages), slower, faster. */
 const PACES = [['', 'default'], ['150', 'slow'], ['600', 'fast']];
+/** The paces a token along a wire is offered (`data-travel-ms`): the deck's, slower, faster. */
+const TRIPS = [['', 'default'], ['2400', 'slow'], ['600', 'fast']];
+/** How a token arrives, in words. */
+const ARRIVE_SAID = { fade: 'fades', stay: 'stays', pulse: 'pulses the node' };
 
 /** Not what a slide shows: its notes and the like, and what the engine put there. */
 const NOT_SHOWN = 'aside, script, style, template';
@@ -77,7 +82,10 @@ function describe(st) {
     const said = st.provider?.label ? st.provider.label(st.sub + 1) : `stage ${st.sub + 1}`;
     return { label: code ? said : said.replace(/^draw /, ''), effect: code ? 'lines' : 'draw', owner: code ? 'code' : 'stroke', el: st.el };
   }
-  return { label: whatIs(st.el), effect: st.el.getAttribute('data-build-style') || 'fade', owner: null, el: st.el, container: st.container ?? null };
+  const effect = st.el.getAttribute('data-build-style') || 'fade';
+  // a token along a wire (BUILD_ENTRANCES): named by the nodes it goes between, its element an empty <g>
+  if (effect === 'travel') return { label: travelLabel(st.el), effect, owner: null, el: st.el, container: st.container ?? null, travel: true };
+  return { label: whatIs(st.el), effect, owner: null, el: st.el, container: st.container ?? null };
 }
 
 /**
@@ -139,7 +147,7 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
           if (i) what.append(Object.assign(document.createElement('span'), { className: 'bl-with', textContent: 'with' }));
           const item = Object.assign(document.createElement('span'), { className: 'bl-item' });
           item.append(
-            Object.assign(document.createElement('span'), { className: 'bl-fx', textContent: it.owner ?? it.effect }),
+            Object.assign(document.createElement('span'), { className: 'bl-fx', textContent: it.travel ? 'travel ·' : it.owner ?? it.effect }),
             Object.assign(document.createElement('span'), { className: 'bl-label', textContent: it.label }),
           );
           what.append(item);
@@ -242,6 +250,7 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
     }
     for (const it of row.items) {
       if (it.owner || !it.el?.isConnected) continue;   // a code line or a stroke's stage is its block's
+      if (it.travel) { tools.append(...travelTools(it, row)); continue; }
       const pick = document.createElement('select');
       pick.className = 'bl-pick';
       pick.title = `how “${it.label}” arrives`;
@@ -255,6 +264,35 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
         : btn('✕', 'remove this step: it is there from the start', () => edit.set(it.el, { effect: null }, 'step removed'), 'ins-btn bl-remove'));
     }
     return tools;
+  }
+  /**
+   * A token's row (BUILD_ENTRANCES, travel): its pace and how it arrives, as
+   * the effect is for an element, whether it keeps flowing, and taking the
+   * step away, which takes its element off the slide (it is nothing else).
+   */
+  function travelTools(it, row) {
+    const el = it.el;
+    const pace = document.createElement('select');
+    pace.className = 'bl-trip';
+    pace.title = `how long the token takes along the wire`;
+    const now = el.getAttribute('data-travel-ms');
+    for (const [v, label] of TRIPS) pace.append(new Option(label, v, false, v === (now ?? '')));
+    if (now && !TRIPS.some(([v]) => v === now)) pace.append(new Option(`${now} ms`, now, true, true));
+    pace.addEventListener('click', (e) => e.stopPropagation());
+    pace.addEventListener('change', () => edit.set(el, { travelMs: pace.value ? Number(pace.value) : null }, `click ${row.click}: ${pace.selectedOptions[0]?.textContent} trip`));
+    const arrive = document.createElement('select');
+    arrive.className = 'bl-arrive';
+    arrive.title = 'what the token does at the end of the wire';
+    for (const a of ARRIVALS) arrive.append(new Option(ARRIVE_SAID[a] ?? a, a, false, a === arrivalOf(el)));
+    arrive.addEventListener('click', (e) => e.stopPropagation());
+    arrive.addEventListener('change', () => edit.set(el, { arrive: arrive.value }, `click ${row.click}: the token ${ARRIVE_SAID[arrive.value]}`));
+    const loop = Object.assign(document.createElement('input'), { type: 'checkbox', checked: el.hasAttribute('data-travel-repeat'), className: 'bl-repeat' });
+    loop.addEventListener('click', (e) => e.stopPropagation());
+    loop.addEventListener('change', () => edit.set(el, { repeat: loop.checked }, loop.checked ? 'it keeps flowing while its click is on' : 'it travels once'));
+    const l = Object.assign(document.createElement('label'), { className: 'bl-repeat-l', title: 'it keeps travelling while this click is the current one' });
+    l.append(loop, document.createTextNode(' repeat'));
+    return [pace, arrive, l,
+      btn('✕', 'remove this step: no token travels', () => (edit.drop ? edit.drop(el, 'step removed') : edit.set(el, { effect: null }, 'step removed')), 'ins-btn bl-remove')];
   }
   /** The selected element's settings: there from the start, one step an item or all at once, a step added or taken away. */
   function selectedTools(node, slide) {
