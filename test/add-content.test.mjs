@@ -147,6 +147,8 @@ test('the starters say what they are and look like Decklight: placeholders, them
   const json = /<script type="application\/json">([\s\S]*?)<\/script>/.exec(chart)[1];
   assert.deepEqual(JSON.parse(json).labels, ['A', 'B', 'C']);
   assert.doesNotMatch(chart, /#[0-9a-f]{3,8}\b/i);
+  // DECK_ANATOMY: a figure, its value first, then what it counts and a line of context
+  assert.equal(m('figure'), '<div class="figure">\n  <p data-figure>42%</p>\n  <p>What the number counts</p>\n  <small>One line of context</small>\n</div>');
 });
 
 test('a second diagram gets an arrowhead id of its own', () => {
@@ -341,6 +343,9 @@ test('a column that is one bare block is wrapped in a .column in the same write,
   // a chart is a block of its own, not a wrapper: wrapped too
   const chart = SPLIT.replace('<img src="a.png" alt="a">', '<div class="chart" data-chart="bar"><script type="application/json">{}</script></div>');
   assert.equal(insertStarter(chart, 2, 3, 'text').wrapped, true);
+  // and so is a figure: its value and label are one block
+  const fig = SPLIT.replace('<img src="a.png" alt="a">', '<div class="figure"><p data-figure>94%</p><p>hit rate</p></div>');
+  assert.equal(insertStarter(fig, 2, 3, 'text').wrapped, true);
 });
 
 test('the footer selected, or a slide written on one line, still land where they should', () => {
@@ -454,11 +459,13 @@ test('each slide kind is a section that lands level with its neighbours, its tit
     assert.match(sec, /^<section[^>]*>\n {6}</, `${kind}: indented like the others`);
     assert.match(sec, /\n {6}<aside class="notes"><\/aside>\n {4}<\/section>$/, `${kind}: with notes, closed at the base`);
     assert.doesNotMatch(sec, /[ \t]\n/, `${kind}: no line ends in spaces nobody typed`);
-    if (kind !== 'blank') assert.match(sec, /^<section[^>]*>\n\s*<h[12]>(Slide title|Section title)<\/h[12]>/, `${kind}: the title comes first`);
+    if (kind !== 'blank' && kind !== 'big-number') assert.match(sec, /^<section[^>]*>\n\s*<h[12]>(Slide title|Section title)<\/h[12]>/, `${kind}: the title comes first`);
   }
   assert.match(slideStarter('columns'), /^<section data-layout="split">[\s\S]*<div>[\s\S]*<div>/);
   assert.match(slideStarter('section'), /<h1>Section title<\/h1>\n {2}<p>/);
   assert.doesNotMatch(slideStarter('blank'), /<h[12]/, 'blank is blank');
+  // the number is the slide: a figure alone, no title, its value typed first (DECK_ANATOMY)
+  assert.equal(slideStarter('big-number'), '<section>\n  <div class="figure">\n    <p data-figure>42%</p>\n    <p>What the number counts</p>\n    <small>One line of context</small>\n  </div>\n  <aside class="notes"></aside>\n</section>');
   assert.throws(() => insertSlideOfKind(DECK, 1, 'poster'), (e) => e.status === 400);
 });
 

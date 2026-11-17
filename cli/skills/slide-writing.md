@@ -88,7 +88,7 @@ and draw that instead:
 |---|---|---|
 | Steps, a flow, cause and effect | A diagram that builds step by step, labels on the parts | SVG_DIAGRAMS, `draw` builds (BUILD_ENTRANCES) |
 | Parts of a system | A labelled diagram, four or fewer new things per step | `data-build` with `highlight` |
-| One fact that carries the slide | One large number and a short label | A centered statement slide |
+| One fact that carries the slide | One large number and a short label | A figure, `<div class="figure">`, alone on the slide (DECK_ANATOMY) |
 | A claim resting on data | One chart, a takeaway title, one highlighted series | CHARTS |
 | Two options, before and after | A side-by-side with identical layout | `data-layout="split"` (COMPARISON_SLIDES) |
 | A memorable line or a voice of authority | A short quote | A quote or statement slide |
@@ -148,8 +148,10 @@ After, a claim and its evidence, with the story moved to the voice:
 ```html
 <section>
   <h2>Nineteen requests in twenty never reach the database</h2>
-  <p class="stat">94%</p>
-  <p>cache hit rate since March</p>
+  <div class="figure">
+    <p data-figure data-count>94%</p>
+    <p>cache hit rate since March</p>
+  </div>
   <aside class="notes">
     In March we put a cache in front of the database. Here's what it did.
     [pause] Almost everything is answered before the database is even asked.
@@ -158,8 +160,9 @@ After, a claim and its evidence, with the story moved to the voice:
 </section>
 ```
 
-(`stat` here stands for whatever large-number treatment the deck's theme or
-design system offers; use the real one.)
+(A figure: the value set large by the theme, its label under it, and
+`data-count` counting it up as the slide arrives. Two or three facts of the
+same weight go side by side in one `<div class="figures">`.)
 
 ## Review: watch it as the viewer would
 

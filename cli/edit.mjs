@@ -2859,8 +2859,10 @@ export const ELEMENT_OPTIONS = {
   div: ['data-cast', 'data-mode', 'data-title', 'data-rows', 'data-type-speed', 'data-type-sound', 'data-poster'],
   // a framed web page: its address (https only) and the title a screen reader says
   iframe: ['src', 'title'],
+  // a figure's value (DECK_ANATOMY): whether it counts up as it arrives, and from where
+  p: ['data-count', 'data-count-from'],
 };
-const OPTION_HOLDER = { pre: 'a code block', video: 'a video', div: 'a terminal', iframe: 'a web page' };
+const OPTION_HOLDER = { pre: 'a code block', video: 'a video', div: 'a terminal', iframe: 'a web page', p: 'a figure' };
 /** A terminal's settings, each its one shape (TERMINAL_PLAYER); null takes one off. */
 const TERMINAL_SHAPES = {
   'data-cast': [(v) => relativeSrc(v) && /\.cast(\.json)?$/i.test(v), 'a recording is a .cast.json (or .cast) beside the deck, given by its relative path'],
@@ -2871,7 +2873,9 @@ const TERMINAL_SHAPES = {
   'data-type-sound': [(v) => ['thocky', 'creamy', 'clacky', 'off'].includes(v), 'a typing sound is thocky, creamy, clacky or off'],
   'data-poster': [(v) => /^\d+$/.test(String(v)) && +v >= 0 && +v <= 99, 'a poster is how many steps show before it plays, 0 to 99'],
 };
-const BARE_OPTIONS = new Set(['data-lines-numbers', 'data-callouts-keep', 'controls', 'loop', 'muted', 'autoplay']);
+const BARE_OPTIONS = new Set(['data-lines-numbers', 'data-callouts-keep', 'controls', 'loop', 'muted', 'autoplay', 'data-count']);
+/** Where a figure's count starts: a plain number, as the runtime reads it (figure.js countFrom). */
+const COUNT_FROM = /^-?\d{1,12}(?:\.\d{1,6})?$/;
 
 /**
  * Slide N's element `index` (or the node at `path` inside it) given the
@@ -2897,12 +2901,18 @@ export function setElementOptions(html, slide, index, { path = [], tag = 'pre', 
     if (k === 'data-lines' && v !== null && (typeof v !== 'string' || v.length > 400)) throw new Error('data-lines is its steps, like 1-2|4, or null');
     if (k === 'data-fit' && v !== true && v !== 'fill' && v !== null) throw new Error('a fit is shrink (true), fill ("fill") or off (null)');
     if (k === 'data-lines-end' && v !== null && v !== 'all') throw new Error('a line walk ends lit (all) or on its last step (null)');
+    if (k === 'data-count-from' && v !== null && !COUNT_FROM.test(String(v))) throw new Error('a count starts from a plain number, like 0, 50 or 1.5, or null for 0');
     if (k === 'data-callouts' && v !== null && !(typeof v === 'string' && v.length <= 2000 && !/[\u0000-\u001f]/.test(v))) throw new Error('data-callouts is a label a step, like The model|The tools, or null');
   }
   const e = openElement(html, slide, index);
   const at = e.at(path, tag);
   if (tag === 'iframe') {
     e.edit(path, tag, (attrs) => Object.entries(set).reduce((a, [n, v]) => withAttr(a, n, v), attrs));
+    return e.html();
+  }
+  if (tag === 'p') {
+    if (attrOf(splitOpenTag(e.src(at)).attrs, 'data-figure') === null) throw new Error('only a figure\'s value (data-figure) has these settings');
+    e.edit(path, tag, (attrs) => Object.entries(set).reduce((a, [n, v]) => withAttr(a, n, v === null || v === true ? v : String(v)), attrs));
     return e.html();
   }
   if (tag === 'div') {

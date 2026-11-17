@@ -83,9 +83,11 @@ const CONTRACT = new Set(THEME_CONTRACT);
  * no prefix and no exception: knobs the runtime reads rather than colours or
  * type a theme answers for. `--code-max-size` is how large `data-fit="fill"`
  * grows code (CODE_AND_MATH), which a template with a big code slot raises;
- * `--code-callout-width` the gutter a line walk's callouts take beside it.
+ * `--code-callout-width` the gutter a line walk's callouts take beside it;
+ * `--figure-size` the size a figure's value is set at (DECK_ANATOMY), which a
+ * template built round one large number raises.
  */
-export const OPEN_TOKENS = ['--code-max-size', '--code-callout-width'];
+export const OPEN_TOKENS = ['--code-max-size', '--code-callout-width', '--figure-size'];
 const OPEN = new Set(OPEN_TOKENS);
 
 const lineAt = (text, index) => text.slice(0, index).split('\n').length;

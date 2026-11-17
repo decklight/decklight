@@ -30,6 +30,8 @@
 //     and it shows (OKLab ≥ 0.05 off --bg); a warning elsewhere, a failure here
 //   --callout-ink (else --accent) on --code-bg ≥ 3.0  ✦ (a code callout's bracket);
 //     a warning elsewhere, a failure here
+//   --figure-ink (else --accent) on --bg ≥ 3.0  ✦ (a figure's value, large type);
+//     a warning elsewhere, a failure here
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -30,11 +30,11 @@ export const MAX_VIDEO_BYTES = 200e6;
 /** What Add offers, in its order: the server's kinds, then the picture the bar always had. */
 export const ADD_KINDS = [
   ['heading', 'Heading'], ['text', 'Text'], ['bullets', 'Bullets'], ['numbered', 'Numbered list'],
-  ['quote', 'Quote'], ['table', 'Table'], ['code', 'Code'], ['formula', 'Formula'], ['columns', 'Two columns'],
+  ['quote', 'Quote'], ['figure', 'Figure'], ['table', 'Table'], ['code', 'Code'], ['formula', 'Formula'], ['columns', 'Two columns'],
   ['diagram', 'Diagram'], ['chart', 'Chart'], ['picture', 'Picture'], ['video', 'Video'], ['terminal', 'Terminal recording'], ['webpage', 'Web page'],
 ];
 const SAID = {
-  heading: 'a heading', text: 'text', bullets: 'a bullet list', numbered: 'a numbered list', quote: 'a quote',
+  heading: 'a heading', text: 'text', bullets: 'a bullet list', numbered: 'a numbered list', quote: 'a quote', figure: 'a figure',
   table: 'a table', code: 'a code block', formula: 'a formula', columns: 'two columns', diagram: 'a diagram', chart: 'a chart', video: 'a video', terminal: 'a terminal', webpage: 'a web page',
 };
 
@@ -46,6 +46,7 @@ export function typingTarget(kind, el) {
     case 'table': return el.querySelector('th, td');
     case 'columns': return el.querySelector('h3, li');
     case 'code': return el.querySelector('code');
+    case 'figure': return el.querySelector('[data-figure]');
     default: return null;
   }
 }
@@ -445,9 +446,10 @@ export function createAddContent({ root, instance, editmode, authoring, editbar,
   }
 
   // ── a new slide of a kind: its title is typed next ──────────────────────
+  // (a Big number has none: its figure's value is what is typed first)
   function editTitle(slide) {
     const sec = instance._sections[slide - 1];
-    const title = sec?.querySelector(':scope > h1, :scope > h2');
+    const title = sec?.querySelector(':scope > h1, :scope > h2') ?? sec?.querySelector(':scope > .figure > [data-figure]');
     if (!title) return;
     // once the slide change has run, or the focus lands on a slide still coming in
     setTimeout(() => { if (title.isConnected) authoring.editInline(title, { selectAll: true }); }, 0);

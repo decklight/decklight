@@ -34,7 +34,8 @@ function eligibleChildren(el) {
 
 // Container vs leaf: fixed tags are always containers; div/g are containers
 // only with ≥2 eligible children (resolves the spec's "one g is a leaf");
-// data-build-self forces leaf.
+// data-build-self forces leaf. A figure (`div.figure`, DECK_ANATOMY) is one
+// fact, its value and its label arriving together: always a leaf.
 function isContainer(el) {
   if (el.hasAttribute('data-build-self')) return false;
   return buildsPerItem(el);
@@ -48,6 +49,7 @@ function isContainer(el) {
 export function buildsPerItem(el) {
   const tag = el.tagName.toUpperCase();
   if (CONTAINER_TAGS.has(tag)) return true;
+  if (tag === 'DIV' && el.classList.contains('figure')) return false;
   if (tag === 'DIV' || tag === 'G') return eligibleChildren(el).length >= 2;
   return false;
 }

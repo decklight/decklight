@@ -21,15 +21,22 @@ import {
 } from './deck-html.mjs';
 
 /** The kinds of element Add offers, in its order (Picture is the page's file chooser, not a starter). */
-export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'table', 'code', 'formula', 'columns', 'diagram', 'chart', 'video', 'terminal', 'webpage'];
+export const ELEMENT_KINDS = ['heading', 'text', 'bullets', 'numbered', 'quote', 'figure', 'table', 'code', 'formula', 'columns', 'diagram', 'chart', 'video', 'terminal', 'webpage'];
 
 /** The kinds of slide New slide offers; no kind is today's blank slide (`BLANK_SLIDE`). */
-export const SLIDE_KINDS = ['bullets', 'text', 'columns', 'section', 'blank'];
+export const SLIDE_KINDS = ['bullets', 'text', 'columns', 'section', 'big-number', 'blank'];
 
 /** A refusal the route answers with its own status: 400 for a kind outside the set, 409 for a slide that cannot take it. */
 class StarterError extends Error {
   constructor(message, status) { super(message); this.status = status; }
 }
+
+// a figure (DECK_ANATOMY): one large value over what it counts, with a line of context
+const FIGURE = `<div class="figure">
+  <p data-figure>42%</p>
+  <p>What the number counts</p>
+  <small>One line of context</small>
+</div>`;
 
 // one column of a comparison slide (COMPARISON_SLIDES): a heading over its points
 const COLUMN = (name) => `<div>
@@ -64,6 +71,7 @@ function elementStarter(kind, { titled = true, wire = 'dl-wire-1', src = null, c
     case 'bullets': return '<ul>\n  <li>New point</li>\n  <li>Another point</li>\n</ul>';
     case 'numbered': return '<ol>\n  <li>First step</li>\n  <li>Next step</li>\n</ol>';
     case 'quote': return '<blockquote>A quote worth repeating</blockquote>';
+    case 'figure': return FIGURE;
     case 'table': return `<table>
   <thead>
     <tr><th>Column</th><th>Column</th></tr>
@@ -125,6 +133,8 @@ export function slideStarter(kind) {
     case 'columns': return `<section data-layout="split">\n  <h2>Slide title</h2>\n${[COLUMN('Column'), COLUMN('Column')].map((c) => c.replace(/^/gm, '  ')).join('\n')}\n${notes}\n</section>`;
     // a title card: the engine keeps a slide with nothing past its subtitle centred
     case 'section': return `<section>\n  <h1>Section title</h1>\n  <p>What this part is about</p>\n${notes}\n</section>`;
+    // the number is the slide: a figure alone, centred, its value typed first
+    case 'big-number': return `<section>\n${FIGURE.replace(/^/gm, '  ')}\n${notes}\n</section>`;
     case 'blank': return `<section>\n${notes}\n</section>`;
     default: return null;
   }
@@ -213,7 +223,7 @@ export function whereNewBlockLands(seg, index, path = null) {
 const isWrapper = (src) => {
   if (!/^<div\b/i.test(src)) return false;
   const attrs = openTagOf(src);
-  return !/\b(?:chart|terminal)\b/.test(attrs.class ?? '') && !('data-chart' in attrs) && !('data-cast' in attrs);
+  return !/\b(?:chart|terminal|figures?)\b/.test(attrs.class ?? '') && !('data-chart' in attrs) && !('data-cast' in attrs);
 };
 
 /**

@@ -138,6 +138,34 @@ function featureSlides() {
       </aside>
     </section>
 
+    <!-- Figures: one large value over its label; a row of them in div.figures, one a click with data-build, and data-count counts a value up as it arrives. ${SPEC('DECK_ANATOMY')} -->
+    <section>
+      <h2>When a number is the point</h2>
+      <div class="figures" data-build>
+        <div class="figure">
+          <p data-figure data-count>1</p>
+          <p>file to hand over</p>
+        </div>
+        <div class="figure">
+          <p data-figure data-count>100%</p>
+          <p>plain HTML</p>
+        </div>
+        <div class="figure">
+          <p data-figure>0</p>
+          <p>build steps</p>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>When one number carries a slide, the number is the slide: a figure, set large by the theme.</p>
+        <p>[click]</p>
+        <p>One file to hand over.</p>
+        <p>[click]</p>
+        <p>All of it plain HTML.</p>
+        <p>[click]</p>
+        <p>And no build step at all.</p>
+      </aside>
+    </section>
+
     <!-- A code block: a language class to highlight it, data-fit to size it, data-lines to step through its lines. ${SPEC('CODE_AND_MATH')} -->
     <section>
       <h2>Code, one part at a time</h2>

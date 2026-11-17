@@ -35,6 +35,7 @@
   /* ── code ───────────────────────────────── */
   --code-bg: #e2eef7;
   --callout-ink: #b8462b;  /* a code callout's bracket (CODE_AND_MATH): the accent is too faint on the code's ground */
+  --figure-ink: #c4543a;  /* a figure's value (DECK_ANATOMY): the accent is too faint on the slide for type this size */
   --code-fg: #1d3650;
   --hl-keyword: #0e5e8a;
   --hl-string: #276b46;

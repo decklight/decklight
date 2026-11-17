@@ -228,6 +228,7 @@ const ENGINE_GROUPS = {
     'codeoptions',
     'videooptions',
     'terminaloptions',
+    'figureoptions',
     'dupkeys',
   ],
   // inside a diagram: its shapes, wires, labels and concepts
@@ -299,6 +300,7 @@ const HARNESSES = [
   'split-render',
   'fit-render',
   'lines-render',
+  'figure-render',
   'strict-render',
   'shot-render',
   'plugin-render',

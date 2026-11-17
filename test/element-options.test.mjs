@@ -237,3 +237,16 @@ test('a web page’s settings: its https address and its title, and nothing else
   assert.throws(() => setElementOptions(W, 1, 1, { tag: 'iframe', set: { title: '' } }), /keeps a title/);
   assert.throws(() => setElementOptions(W, 1, 1, { tag: 'iframe', set: { srcdoc: '<b>' } }), /a web page has no setting "srcdoc"/);
 });
+
+test('a figure’s count: Count up written bare on its value, Start from a plain number, and nothing else (DECK_ANATOMY)', () => {
+  const F = VDECK.replace('<video src="assets/a.mp4" controls playsinline preload="metadata"></video>',
+    '<div class="figure">\n        <p data-figure>94%</p>\n        <p>hit rate</p>\n      </div>');
+  const on = setElementOptions(F, 1, 1, { path: [0], tag: 'p', set: { 'data-count': true, 'data-count-from': '50' } });
+  assert.match(on, /<p data-figure data-count data-count-from="50">94%<\/p>\n {8}<p>hit rate<\/p>/);
+  assert.match(setElementOptions(on, 1, 1, { path: [0], tag: 'p', set: { 'data-count': null, 'data-count-from': null } }), /<p data-figure>94%<\/p>/);
+  assert.match(setElementOptions(F, 1, 1, { path: [0], tag: 'p', set: { 'data-count-from': '-1.5' } }), /data-count-from="-1\.5"/);
+  assert.throws(() => setElementOptions(F, 1, 1, { path: [0], tag: 'p', set: { 'data-count-from': 'fifty' } }), /a count starts from a plain number/);
+  assert.throws(() => setElementOptions(F, 1, 1, { path: [0], tag: 'p', set: { 'data-count': 'yes' } }), /data-count is on \(true\) or off \(null\)/);
+  assert.throws(() => setElementOptions(F, 1, 1, { path: [0], tag: 'p', set: { style: 'color: red' } }), /a figure has no setting "style"/);
+  assert.throws(() => setElementOptions(F, 1, 1, { path: [1], tag: 'p', set: { 'data-count': true } }), /only a figure's value/, 'its label is not a value');
+});

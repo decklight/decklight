@@ -6,7 +6,8 @@
  * settings as plain fields, the way a chart has its Data tab. For a code
  * block (CODE_AND_MATH): its language, line numbers, fit to its space, and its
  * line steps, a row each, filled by typing or by clicking lines in the block,
- * each with the callout it shows beside its lines (#1182).
+ * each with the callout it shows beside its lines (#1182). For a figure's
+ * value (DECK_ANATOMY): whether it counts up as it arrives, and from where.
  *
  * It works as the Data tab does: the block's source is read from the file once,
  * a change shows on the slide at once (the block set up again from its source,
@@ -71,6 +72,22 @@ export function frameOf(target) {
   const all = [...top.querySelectorAll('iframe')];
   return all.length === 1 ? all[0] : null;
 }
+/**
+ * The figure's value the selection is (DECK_ANATOMY): the value of the figure
+ * the click landed in, else the only one in the element selected, else null.
+ */
+export function figureOf(target) {
+  const top = target?.top;
+  if (!top) return null;
+  for (const n of [target.node, target.clicked]) {
+    if (!n?.isConnected) continue;
+    const v = n.closest?.('[data-figure]') ?? n.closest?.('.figure')?.querySelector(':scope > [data-figure]') ?? null;
+    if (v && top.contains(v)) return v;
+  }
+  const all = [...(top.matches?.('[data-figure]') ? [top] : []), ...(top.querySelectorAll?.('[data-figure]') ?? [])];
+  return all.length === 1 ? all[0] : null;
+}
+
 /** Where a framed page is blank, said in its Options and by Check deck. */
 export const FRAME_BLANK = 'blank in no-trust mode, in a video export and offline: the page is someone else’s, fetched as the slide shows';
 
@@ -99,7 +116,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
   // was clicked to select it is gone, and the block is still the one selected
   let last = null;
   const blockFor = (t) => {
-    const b = terminalOf(t) ?? codeBlockOf(t) ?? videoOf(t) ?? frameOf(t);
+    const b = terminalOf(t) ?? codeBlockOf(t) ?? videoOf(t) ?? frameOf(t) ?? figureOf(t);
     if (b) return (last = b);
     return last?.isConnected && t?.top?.contains(last) && !t.clicked?.isConnected ? last : null;
   };
@@ -604,6 +621,69 @@ export function createOptionsTab({ instance, editmode, toast }) {
     return { el, frame, destroy() {} };
   }
 
+  // ── a figure's count (DECK_ANATOMY) ─────────────────────────────────────
+  /**
+   * The pane for figure value `value`: **Count up** (`data-count`) and
+   * **Start from** (`data-count-from`, 0 when empty). Each change is one write
+   * and shows at once: the attribute set on the slide and the count played.
+   */
+  function figurePane(target, value) {
+    const commit = createEditCommit(em());
+    const { slide, index } = target;
+    const path = target.top === value ? [] : pathFrom(target.top, value);
+    const el = h('div', 'ins-options');
+    const grid = h('dl', 'ins-rows ins-settings');
+    const row = (key, label, title, node) => {
+      const dt = h('dt', null, label);
+      if (title) dt.title = title;
+      const dd = h('dd');
+      dd.dataset.key = key;
+      dd.append(node);
+      grid.append(dt, dd);
+    };
+    const play = () => { const f = instance()?._figures; f?.stop(value); f?.start(value); };
+    const write = async (set, undo) => {
+      try {
+        if (!path) throw new Error('the figure is not where the file has it');
+        await commit.post('/deck/edit/element/options', { slide, index, path, tag: 'p', set });
+        for (const [k, v] of Object.entries(set)) { if (v === null) value.removeAttribute(k); else value.setAttribute(k, v === true ? '' : String(v)); }
+        if (value.hasAttribute('data-count')) play();
+      } catch (e) { toast(commit.notSaved('the figure’s count', e), 6000); undo(); }
+    };
+    const on = Object.assign(document.createElement('input'), { type: 'checkbox', checked: value.hasAttribute('data-count') });
+    on.setAttribute('aria-label', 'Count up');
+    const from = Object.assign(document.createElement('input'), {
+      type: 'text', inputMode: 'decimal', className: 'ins-field', value: value.getAttribute('data-count-from') ?? '', placeholder: '0', spellcheck: false,
+    });
+    from.setAttribute('aria-label', 'Start from');
+    from.disabled = !on.checked;
+    let was = from.value;
+    on.addEventListener('keydown', (e) => e.stopPropagation());
+    on.addEventListener('change', () => {
+      from.disabled = !on.checked;
+      write({ 'data-count': on.checked ? true : null }, () => { on.checked = !on.checked; from.disabled = !on.checked; });
+    });
+    const commitFrom = () => {
+      const v = from.value.trim();
+      if (v === was) return;
+      if (v && !/^-?\d{1,12}(?:\.\d{1,6})?$/.test(v)) { toast('a count starts from a plain number, like 0, 50 or 1.5', 4000); from.value = was; return; }
+      const before = was;
+      was = v;
+      write({ 'data-count-from': v || null }, () => { from.value = was = before; });
+    };
+    from.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); commitFrom(); }
+      else if (e.key === 'Escape') { e.preventDefault(); from.value = was; from.blur(); }
+    });
+    from.addEventListener('blur', commitFrom);
+    row('data-count', 'Count up', 'counts up to the value when its slide or its build step arrives', on);
+    row('data-count-from', 'Start from', 'where the count starts (0 when empty)', from);
+    grid.append(h('div', 'ins-opt-note', 'Print, the overview and reduced motion show the value as written.'));
+    el.append(grid);
+    return { el, value, destroy() { instance()?._figures?.stop(value); } };
+  }
+
   // ── a terminal's settings (TERMINAL_PLAYER) ─────────────────────────────
   /** The fields, as the player reads them; '' is the player's default (the attribute off). */
   const TERMINAL_FIELDS = [
@@ -718,6 +798,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
     pane: (ctx) => {
       const b = blockFor(ctx.target);
       if (b.matches('iframe')) return framePane(ctx.target, b);
+      if (b.matches('[data-figure]')) return figurePane(ctx.target, b);
       return b.matches('.terminal') ? terminalPane(ctx.target, b) : b.matches('video') ? videoPane(ctx.target, b) : codePane(ctx.target, b);
     },
     foot: 'esc lets go of it',

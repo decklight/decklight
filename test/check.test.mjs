@@ -625,3 +625,26 @@ test('a framed web page is a warning: blank in no-trust mode, in a video export 
   assert.equal(found[0].level, 'warn');
   assert.match(found[0].message, /status\.example\.com is blank in no-trust mode, in a video export and offline/);
 });
+
+// ── figures (DECK_ANATOMY, #1181) ───────────────────────────────────────────
+
+test('a figure that builds is one click, value and label together; a row of them builds one a click', () => {
+  const one = '<div class="figure" data-build><p data-figure>94%</p><p>of requests</p><small>since March</small></div>';
+  assert.equal(buildClicks(parseTree(one)), 1, 'never a click for the value, one for the label');
+  const row = `<div class="figures" data-build>${['$1.2M', '94%', '3×'].map((v) => `<div class="figure"><p data-figure>${v}</p><p>label</p></div>`).join('')}</div>`;
+  assert.equal(buildClicks(parseTree(row)), 3);
+  const html = deck(`  <section><h2>Row</h2>${row}<aside class="notes">Three. [click] One. [click] Two. [click] Three.</aside></section>`);
+  assert.deepEqual(only(staticFindings(html, everything), 'clicks-vs-builds'), [], 'a [click] beat a figure');
+});
+
+test('a figure whose value is more than a few characters is a warning: a sentence is not a figure', () => {
+  const html = deck(`  <section><div class="figure"><p data-figure data-count>$12.5M</p><p>a year</p></div></section>
+  <section><div class="figure"><p data-figure>Most of our requests</p><p>never reach the database</p></div></section>
+  <section><div class="figure"><p data-figure>3&times;</p><p>faster</p></div><div class="figure"><p data-figure> <strong>1,500,000</strong> </p></div></section>`);
+  const found = only(staticFindings(html, everything), 'figure-long');
+  assert.deepEqual(found.map((f) => f.slide), [2, 3]);
+  assert.equal(found[0].level, 'warn');
+  assert.match(found[0].message, /the figure's value "Most of our requests" is 20 characters — a figure is a number and its unit \(94%, \$1\.2M, 3×\), at most 8: put the words in its label/);
+  assert.deepEqual(found[0].at, { path: [0, 0], tag: 'p' });
+  assert.match(found[1].message, /"1,500,000" is 9 characters/, 'read as a reader sees it: tags out, spaces trimmed');
+});

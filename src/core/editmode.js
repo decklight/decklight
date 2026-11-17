@@ -2935,7 +2935,7 @@ export function createEditMode({
   // with the slides (the server says so, and the voice reloads with them).
   const LIVE = '.terminal, video, audio, iframe, canvas';
   // the kinds New slide ▸ offers (tools/starters.mjs owns their markup)
-  const NEW_SLIDE_KINDS = [['bullets', 'Title and bullets'], ['text', 'Title and text'], ['columns', 'Two columns'], ['section', 'Section title'], ['blank', 'Blank']];
+  const NEW_SLIDE_KINDS = [['bullets', 'Title and bullets'], ['text', 'Title and text'], ['columns', 'Two columns'], ['section', 'Section title'], ['big-number', 'Big number'], ['blank', 'Blank']];
   function canDoInPlace(op, slide) {
     if (!instance.sync || instance._slideOpsInPlace?.() === false) return false;
     if (op === 'duplicate' && instance._sections[slide - 1]?.querySelector(LIVE)) return false;

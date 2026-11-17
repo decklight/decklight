@@ -99,6 +99,11 @@ export const ATTRIBUTES = [
   { name: 'data-step', number: true },
   { name: 'data-fit', kind: 'fit', values: ['fill'], bare: true },
 
+  // ── figures ───────────────────────────────────────────────────────────────
+  { name: 'data-figure', bare: true },
+  { name: 'data-count', bare: true },
+  { name: 'data-count-from', number: true },
+
   // ── terminals ─────────────────────────────────────────────────────────────
   { name: 'data-cast' },
   { name: 'data-cast-inline' },
@@ -134,7 +139,7 @@ export const ATTRIBUTES = [
 export const ENGINE_ATTRIBUTES = [
   'data-action', 'data-axis', 'data-beat', 'data-beat-of', 'data-beats', 'data-bled', 'data-bleed', 'data-build-container',
   'data-build-state', 'data-build-style', 'data-builds', 'data-canvas', 'data-chan', 'data-click-mismatch', 'data-col',
-  'data-concept-hints', 'data-corner', 'data-count', 'data-custom', 'data-decklight-audio', 'data-decklight-runtime',
+  'data-concept-hints', 'data-corner', 'data-custom', 'data-decklight-audio', 'data-decklight-runtime',
   'data-decklight-terminal', 'data-decklight-version', 'data-decklight-visemes', 'data-decklight-voices', 'data-dense',
   'data-design-system', 'data-design-system-meta', 'data-design-system-palette', 'data-design-system-templates',
   'data-design-system-theme', 'data-design-system-version', 'data-display-fill', 'data-dl-unsaved', 'data-dock',
