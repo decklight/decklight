@@ -279,7 +279,9 @@ them: \`<pre data-lines="1-2|3-5|6" data-callouts="The model it reasons
 with|The tools it may call|Where its answers go">\`. The label sits beside its
 lines while its step is on screen and costs no click, so the notes keep one
 \`[click]\` beat a step. Add \`data-callouts-keep\` when the last step should show
-the whole block annotated. A label with markup goes in \`<aside
+the whole block annotated. In a narrow column, kept (and printed) labels become
+numbered markers beside the lines with the labels listed under the code: that
+list takes height, so give the block \`data-fit\`. A label with markup goes in \`<aside
 class="callouts"><p data-step="2">…</p></aside>\` on the slide. Keep labels
 short, a few words: they share the slide with the code. \`decklight check\`
 warns (\`code-callouts\`) at more labels than steps.

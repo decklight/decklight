@@ -143,11 +143,16 @@ export { hljs };
 // A line step can name what it lights: `data-callouts="a|b|c"` on the <pre>,
 // or `<aside class="callouts"><p data-step="2">…</p></aside>` on the slide for
 // a label with markup. The current step's label is drawn in a gutter at the
-// block's right, level with the middle of its lines, a bracket spanning them;
-// a block whose room is too narrow for a gutter shows it just under its lines
-// instead, over the dimmed code, pushing nothing. The labels are a layer the
-// runtime adds inside the <pre> (after its <code>, so a path to the code is
-// unchanged); they arrive and leave with their step, so they cost no click.
+// block's right, level with the middle of its lines, a bracket spanning them.
+// A block whose room is too narrow for a gutter shows the one current label
+// just under its lines instead, pushing nothing. When a narrow block must show
+// several at once (`data-callouts-keep`, the printed page), each step gets a
+// numbered marker in a slim column at the block's right, level with its lines,
+// and the labels are listed under the code, by number: a legend in the block's
+// own flow, so `data-fit` sizes the code to leave it room. The labels are
+// layers the runtime adds inside the <pre> (after its <code>, so a path to the
+// code is unchanged); they arrive and leave with their step, so they cost no
+// click.
 
 /** The room (CSS px of the slide) a block needs beside it before its callouts take a gutter. */
 export const CALLOUT_GUTTER_ROOM = 640;
@@ -175,36 +180,55 @@ function asideCallouts(pre) {
  */
 function buildCallouts(pre, segments) {
   pre.querySelector(':scope > .code-callouts')?.remove();
+  pre.querySelector(':scope > .code-callout-legend')?.remove();
   const fromAttr = calloutsOf(pre.getAttribute('data-callouts'));
   const fromAside = asideCallouts(pre);
+  const span = (cls, text) => {
+    const el = document.createElement('span');
+    el.className = cls;
+    if (text != null) el.textContent = text;
+    return el;
+  };
+  let num = 0;
+  const entries = [];
   const items = segments.map((_, k) => {
     const node = fromAside.get(k + 1);
     const text = fromAttr[k];
-    if (!node && !text) return null;
+    if (!node && !text) { entries.push(null); return null; }
+    const n = String(++num);
+    const words = () => {
+      const label = span('code-callout-label');
+      if (node) label.append(...[...node.childNodes].map((x) => x.cloneNode(true)));
+      else label.textContent = text;
+      return label;
+    };
     const c = document.createElement('div');
     c.className = 'code-callout';
     c.dataset.step = String(k + 1);
-    const bracket = document.createElement('span');
-    bracket.className = 'code-callout-bracket';
-    const label = document.createElement('span');
-    label.className = 'code-callout-label';
-    if (node) label.append(...[...node.childNodes].map((n) => n.cloneNode(true)));
-    else label.textContent = text;
-    c.append(bracket, label);
+    c.append(span('code-callout-bracket'), words(), span('code-callout-mark', n));
+    // the same label in the legend a narrow block lists under its code
+    const e = document.createElement('div');
+    e.className = 'code-callout-entry';
+    e.dataset.step = String(k + 1);
+    e.append(span('code-callout-mark', n), words());
+    entries.push(e);
     return c;
   });
   const has = items.some(Boolean);
   pre.classList.toggle('has-callouts', has);
   if (!has) {
-    pre.classList.remove('callouts-gutter', 'callouts-under');
+    pre.classList.remove('callouts-gutter', 'callouts-under', 'callouts-legend');
     pre.__dlCallouts = null;
     return items;
   }
   const layer = document.createElement('div');
   layer.className = 'code-callouts';
   layer.append(...items.filter(Boolean));
-  pre.append(layer);
-  pre.__dlCallouts = { layer, items, segments };
+  const legend = document.createElement('div');
+  legend.className = 'code-callout-legend';
+  legend.append(...entries.filter(Boolean));
+  pre.append(layer, legend);
+  pre.__dlCallouts = { layer, legend, items, entries, segments };
   return items;
 }
 
@@ -215,10 +239,20 @@ const setPx = (el, prop, v) => {
 };
 
 /**
+ * Does `pre` show its walk whole here (the printed page, the pptx picture),
+ * so every one of its labels at once?
+ */
+function printedWhole(pre) {
+  return !!pre.closest('.decklight-print, .decklight-capture-print') && pre.getAttribute('data-lines-print') !== 'last';
+}
+
+/**
  * Lay `pre`'s callouts out against its lines as they stand: which side they
- * take (a gutter, or under the lines when the room is narrow), and where each
- * one sits. Every callout is placed, shown or not, so a step only changes
- * which are seen. Nothing is measured on a block that is not laid out.
+ * take (a gutter; under the lines when the room is narrow; or, narrow and
+ * showing several at once, numbered markers beside the lines and a legend
+ * under them), and where each one sits. Every callout is placed, shown or
+ * not, so a step only changes which are seen. Nothing is measured on a block
+ * that is not laid out.
  */
 export function placeCallouts(pre) {
   const c = pre.__dlCallouts;
@@ -227,15 +261,19 @@ export function placeCallouts(pre) {
   const pcs = getComputedStyle(parent);
   const room = parent.clientWidth - px(pcs.paddingLeft) - px(pcs.paddingRight);
   const gutter = room >= CALLOUT_GUTTER_ROOM;
+  const legend = !gutter && (pre.hasAttribute('data-callouts-keep') || printedWhole(pre));
   pre.classList.toggle('callouts-gutter', gutter);
-  pre.classList.toggle('callouts-under', !gutter);
+  pre.classList.toggle('callouts-legend', legend);
+  pre.classList.toggle('callouts-under', !gutter && !legend);
+  // the markers' column, like the gutter, is the block's right padding
+  const side = gutter || legend;
   const lines = [...pre.querySelectorAll(':scope > code > .code-line')];
   const cs = getComputedStyle(pre);
   const padL = px(cs.paddingLeft), padR = px(cs.paddingRight), padT = px(cs.paddingTop), padB = px(cs.paddingBottom);
   const { layer, items, segments } = c;
   const width = pre.clientWidth;
   const bottom = pre.clientHeight - padB;
-  if (gutter) {
+  if (side) {
     setPx(layer, 'left', width - padR);
     setPx(layer, 'width', Math.max(0, padR - padL));
   } else {
@@ -246,16 +284,17 @@ export function placeCallouts(pre) {
   items.forEach((item, k) => {
     if (!item) return;
     const mine = segments[k].map((n) => lines[n - 1]).filter(Boolean);
-    if (!mine.length) { item.hidden = true; return; }
-    item.hidden = false;
+    item.hidden = c.entries[k].hidden = !mine.length;
+    if (!mine.length) return;
     const top = Math.min(...mine.map((l) => l.offsetTop));
     const end = Math.max(...mine.map((l) => l.offsetTop + l.offsetHeight));
     const label = item.querySelector('.code-callout-label');
     const h = label.offsetHeight;
-    if (gutter) {
+    if (side) {
       setPx(item, 'top', top);
       setPx(item, 'height', end - top);
-      placed.push({ label, top, want: (top + end) / 2 - h / 2, h });
+      // a marker sits at the middle of its bracket (CSS); a label is placed
+      if (gutter) placed.push({ label, top, want: (top + end) / 2 - h / 2, h });
     } else {
       // just under its lines (its bottom padding is room too), or just over
       // them when the block ends there
@@ -283,15 +322,17 @@ export function placeAllCallouts(section) {
   for (const pre of section.querySelectorAll('pre.has-callouts')) placeCallouts(pre);
 }
 
-/** Show the callouts for step `i` of `count`: its own, and the earlier ones too with `data-callouts-keep`. */
+/** Show the callouts for step `i`, in the code and in its legend: its own, and the earlier ones too with `data-callouts-keep`. */
 function showCallouts(pre, i) {
   const c = pre.__dlCallouts;
   if (!c) return;
   const keep = pre.hasAttribute('data-callouts-keep');
   c.items.forEach((item, k) => {
     if (!item) return;
-    item.classList.toggle('callout-on', k + 1 === i);
-    item.classList.toggle('callout-kept', keep && k + 1 < i);
+    for (const el of [item, c.entries[k]]) {
+      el.classList.toggle('callout-on', k + 1 === i);
+      el.classList.toggle('callout-kept', keep && k + 1 < i);
+    }
   });
   placeCallouts(pre);
 }

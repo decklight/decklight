@@ -85,12 +85,14 @@ function contentBox(el) {
 
 /**
  * Do a block's lines run into the gutter it keeps at its right for its
- * callouts (#1182)? The gutter is the block's own padding, so the block does
- * not scroll until a line is past the gutter too: the lines must end where it
- * starts, which is the width of their `<code>`.
+ * callouts (#1182), or into a narrow block's column of numbered markers? Both
+ * are the block's own padding, so the block does not scroll until a line is
+ * past them too: the lines must end where they start, which is the width of
+ * their `<code>`. A narrow block's legend of labels is in its flow, under the
+ * code, so it is measured as the block's height like any line.
  */
 function intoGutter(pre) {
-  if (!pre.classList.contains('callouts-gutter')) return false;
+  if (!pre.matches('.callouts-gutter, .callouts-legend')) return false;
   const code = pre.querySelector(':scope > code');
   return !!code && code.scrollWidth > code.clientWidth + TOL;
 }

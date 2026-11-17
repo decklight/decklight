@@ -42,7 +42,7 @@ const ENGINE_KEYFRAMES = /^(dl-|decklight-|terminal-)/;
  * that is not on it: notes, callout asides, scripts.
  */
 const ENGINE_NODE = '.slide-bg, .decklight-hero-logo, .decklight-steps, nav.steps, '
-  + '.draw-head, .draw-mask, .travel-token, .code-callout, .terminal, .aa-fresh';
+  + '.draw-head, .draw-mask, .travel-token, .code-callout, .code-callout-entry, .terminal, .aa-fresh';
 const NOT_ON_THE_SLIDE = 'aside, script, style, template, noscript, link, meta';
 /** Hidden on purpose: `hidden`, aria-hidden decoration, a build still to come, and the author's own opt-out. */
 const MEANT_HIDDEN = '[hidden], [aria-hidden="true"], [data-invisible-ok], .build-step[data-build-state="pending"]';
