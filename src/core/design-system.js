@@ -31,7 +31,7 @@ import { NAME_RE, isTemplateRef, parseTemplateRef } from '../../tools/design-sys
 export { isTemplateRef, parseTemplateRef };
 
 /** Direct children that stay where they are: what the slide carries, not what it shows. */
-const KEEP = 'aside.notes, aside.sources, aside.rehearse, aside.callouts, script, style, .slide-bg, .decklight-hero-logo';
+const KEEP = 'aside.notes, aside.sources, aside.rehearse, aside.callouts, script, style, .slide-bg, .decklight-hero-logo, .decklight-steps, nav.steps';
 
 /** Tags a template clone may never contain, whatever its checks said — the last line. */
 const FORBIDDEN = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'FOREIGNOBJECT', 'LINK', 'META', 'BASE', 'FRAME', 'FRAMESET']);
@@ -119,9 +119,10 @@ export function authoredTop(sec, target) {
  * background layer (`data-background-*`, media.js) and the hero logo
  * (`data-logo`, engine.js). Both are PREPENDED, so counting them shifted every
  * element after them by one, and on a slide with a background a text save,
- * a removal or a recolour addressed the element after the one clicked.
+ * a removal or a recolour addressed the element after the one clicked. A run's
+ * strip (`data-steps`, steps.js) is appended, and left out for the same reason.
  */
-export const ENGINE_MADE = '.slide-bg, .decklight-hero-logo';
+export const ENGINE_MADE = '.slide-bg, .decklight-hero-logo, .decklight-steps';
 
 /** A section's children as the file has them: what the engine prepended left out. */
 export const fileChildren = (sec) => [...sec.children].filter((el) => !el.matches(ENGINE_MADE));

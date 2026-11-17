@@ -96,6 +96,7 @@ and draw that instead:
 | How to do something in code | A trimmed snippet, one region highlighted at a time, each named beside it | `data-lines` with `data-callouts` (CODE_AND_MATH) |
 | How to do something in a terminal | A real recording | `decklight cast` (TERMINAL_RECORDINGS) |
 | Truly parallel items | A list of at most four, revealed one at a time | `data-build` on the list |
+| "Step 3 of 7" typed into a subtitle | A run of steps: the strip says where the slide is, and renumbers itself | `data-steps` on the first slide, `data-step` on the rest (DECK_ANATOMY) |
 
 A list that is really several ideas is several slides.
 

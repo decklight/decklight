@@ -3624,6 +3624,27 @@
         r.fieldsShown = chosen() === 'slide' && ['chapter', 'transition', 'hidden', 'timing'].every((k) => !!field(k))
           && field('transition').value === '' && field('timing').value === '' && field('hidden').checked === false;
 
+        // a slide in a run of steps (DECK_ANATOMY, #1188): Step lists the run's
+        // groups, writes data-step quietly, and the strip is drawn again at once;
+        // a slide in no run has no Step row
+        const stepRow = () => q('.ins-settings dd[data-key="step"]');
+        r.noStepOutsideARun = !!stepRow() && stepRow().hidden === true;
+        sec(2).setAttribute('data-steps', 'Plan, Build');
+        deck._redrawSteps();
+        await settle(); await settle();
+        r.stepListsTheGroups = stepRow()?.hidden === false
+          && [...field('step').options].map((o) => o.textContent).join('|') === 'the first: Plan|Plan|Build' && field('step').value === '';
+        await choose(field('step'), 'Build');
+        const s1 = posts('/deck/edit/slide/attr').pop();
+        r.stepWritten = s1?.slide === 2 && s1?.set?.['data-step'] === 'Build' && s1?.quiet === true
+          && sec(2).getAttribute('data-step') === 'Build' && sec(2).querySelector('.decklight-steps .steps-current')?.textContent === 'Build';
+        await choose(field('step'), '');
+        r.stepBackToTheFirst = posts('/deck/edit/slide/attr').pop()?.set?.['data-step'] === null && !sec(2).hasAttribute('data-step')
+          && sec(2).querySelector('.decklight-steps .steps-current')?.textContent === 'Plan';
+        sec(2).removeAttribute('data-steps');
+        deck._redrawSteps();
+        await settle();
+
         // a transition: on the slide at once, one quiet write, and "the deck's" takes it off
         await choose(field('transition'), 'flip');
         const t1 = posts('/deck/edit/slide/attr').pop();

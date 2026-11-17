@@ -19,7 +19,7 @@ import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { validateTheme, themeNameFrom, validThemeName, REQUIRED, markGates, MARK_TINT, calloutGates, figureGates } from '../tools/theme-check.mjs';
+import { validateTheme, themeNameFrom, validThemeName, REQUIRED, markGates, MARK_TINT, calloutGates, figureGates, stepsGates } from '../tools/theme-check.mjs';
 import { reportLines } from '../cli/theme.mjs';
 import { addedThemeLink, addedThemeStyle, setMarked, markedRefs, markedEntries, parseRef } from '../cli/theme-refs.mjs';
 import { MarketplaceError } from '../cli/marketplace.mjs';
@@ -447,5 +447,23 @@ test('a figure\'s value is the accent on the slide, unless the theme sets its ow
   const r = validateTheme(older);
   assert.equal(r.ok, true);
   assert.ok(r.warnings.some((w) => /set --figure-ink/.test(w)), JSON.stringify(r.warnings));
+  assert.deepEqual(validateTheme(shipped).warnings, [], 'the shipped one sets its own ink');
+});
+
+// ── a run's strip (DECK_ANATOMY, #1188) ─────────────────────────────────────
+
+test('a run\'s current step is the accent on the slide, unless the theme sets its own ink, at bold type\'s 3:1', () => {
+  const light = { bg: '#fafaf8', accent: '#eb811b' };
+  const faint = stepsGates(light);
+  assert.equal(faint.length, 1);
+  assert.match(faint[0].message, /--accent on --bg: 2\.\d\d < 3 — a run's current step would not read: set --steps-ink/);
+  assert.deepEqual(stepsGates({ ...light, 'steps-ink': '#c4660f' }), [], 'its own ink reads');
+  assert.equal(stepsGates({ ...light, 'steps-ink': '#f0c090' })[0].fg, 'steps-ink', 'and is what is judged once set');
+  const shipped = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'themes', 'coastal.css'), 'utf8');
+  const older = shipped.replace(/\n\s*--steps-ink:[^\n]*/, '');
+  assert.notEqual(older, shipped, 'the fixture took the ink off');
+  const r = validateTheme(older);
+  assert.equal(r.ok, true, 'a theme from before the strip still applies');
+  assert.ok(r.warnings.some((w) => /set --steps-ink/.test(w)), JSON.stringify(r.warnings));
   assert.deepEqual(validateTheme(shipped).warnings, [], 'the shipped one sets its own ink');
 });

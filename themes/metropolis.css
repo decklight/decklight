@@ -31,6 +31,7 @@
   --accent: #eb811b;
   --accent-contrast: #333329;
   --figure-ink: #c4660f;  /* a figure's value (DECK_ANATOMY): the accent is too faint on the slide for type this size */
+  --steps-ink: #c4660f;  /* a run's current step (DECK_ANATOMY): the accent is too faint on the slide */
 
   /* ── blocks ─────────────────────────────── */
   --block-bg: #f2f2eb;

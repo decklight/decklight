@@ -174,6 +174,7 @@ import { deckAt } from './restore.mjs';
 import { escapeHtml, staticFiles, listenTakingOverIfNeeded, allowEditRequest, allowRemote, lanAddress, isOwnOrigin, CSP } from './serve.mjs';
 import { reviewsWaiting, reviewLine, reviewCheckSuppressed } from './review-remote.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
+import { parseSteps, STEP_NAME_MAX } from '../tools/steps.mjs';
 
 // The `/deck/edit/*` surface answers loopback only — but "loopback" is the wrong
 // boundary for the threat (#222). The dangerous caller is not off-machine: it
@@ -3010,9 +3011,16 @@ const seconds = (max) => (v) => typeof v === 'string' && SLIDE_NUMBER.test(v) &&
 const bareOnly = (v) => v === true;
 const oneOf = (...vs) => (v) => vs.includes(v);
 const POSITION_WORD = '(?:left|center|right|top|bottom|\\d{1,3}%)';
+/** Words on one line, trimmed, 1 to `max` characters. */
+const oneLine = (v, max) => v.trim() === v && v.length >= 1 && v.length <= max && !/[\u0000-\u001f\u007f]/.test(v);
 const SLIDE_ATTRS = {
   // a chapter's name: words on one line, bounded
   'data-module': (v) => typeof v === 'string' && v.trim() === v && v.length >= 1 && v.length <= 120 && !/[\u0000-\u001f\u007f]/.test(v),
+  // a run of slides (DECK_ANATOMY, #1188): its groups, a slide's group, its count and where it ends
+  'data-steps': (v) => typeof v === 'string' && oneLine(v, 600) && parseSteps(v).length >= 1,
+  'data-step': (v) => typeof v === 'string' && oneLine(v, STEP_NAME_MAX),
+  'data-steps-count': bareOnly,
+  'data-steps-end': bareOnly,
   'data-transition': oneOf('none', 'fade', 'slide', 'scale', 'flip'),
   'data-auto-animate': bareOnly,
   // planned seconds, whole (setSlideTiming writes the same)

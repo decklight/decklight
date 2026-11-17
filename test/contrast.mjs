@@ -32,6 +32,8 @@
 //     a warning elsewhere, a failure here
 //   --figure-ink (else --accent) on --bg ≥ 3.0  ✦ (a figure's value, large type);
 //     a warning elsewhere, a failure here
+//   --steps-ink (else --accent) on --bg ≥ 3.0  ✦ (a run's current step, bold);
+//     a warning elsewhere, a failure here
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

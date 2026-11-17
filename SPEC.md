@@ -71,6 +71,39 @@ being moved, and it says what it points at.
   slide finder shows the deck as a foldable outline of them (`PRESENTING`), and the
   palette navigates between them. A marked section is still an ordinary slide;
   it is shown, numbered and presented like any other.
+- **Runs of steps** (optional, #1188): a walkthrough spread over several slides
+  shows where it is. `data-steps="Foundation, Fresh context, Tools, The agent"`
+  on the slide a run starts on names its groups, in order (or a
+  `<nav class="steps"><ol><li>Foundation</li>…</ol></nav>` on that slide: the
+  list is the declaration, never shown on the slide); every slide after it says
+  which group it is in with `data-step="Fresh context"` (any case), or
+  continues the group of the slide before when it says nothing. The run ends at
+  the next chapter marker (`data-module`), at the next run, or at a slide marked
+  `data-steps-end`, which is the first slide after it. `data-steps-count` on the
+  first slide numbers the run: *3 of 7*, counted over the slides an audience
+  sees (a hidden slide keeps its group and takes no number).
+  **The runtime draws the strip** on every slide of the run (`src/core/steps.js`
+  over `tools/steps.mjs`, the one reading the strip, the finder and the check
+  share): the groups in order, the slide's own in `--steps-ink` (the accent
+  unless the theme sets its own, THEMING) and bold, the ones done in `--muted`,
+  the ones to come in `--fg`, then the count. Nothing is typed per slide, so a
+  slide inserted, split, moved or hidden renumbers the run on the next sync, and
+  `?print`, a still (`?capture`) and the overview show it as the slide does.
+  It sits in the middle of the slide's top padding (12 design px down, the
+  middle 60% of the width), above where a pinned title starts and clear of the
+  corner chrome, and it takes no click: no content can reach it, so the fit
+  guardrail (PRESENTING_FIT) never sees it, and a slide with only a title is not
+  pinned because of it. A group name too long for the room is cut short (…),
+  never the slide's own. A theme or a design system places it with
+  `--steps-top`, `--steps-bottom`, `--steps-inset` (each side, 20% by default)
+  and `--steps-align`, and sizes it with `--steps-size` (19px); a slide
+  template with an empty `data-slot="steps"` holds it in that slot instead
+  (DESIGN_SYSTEMS). The strip is the engine's, like the background layer: it is
+  never written to the file, never selected, counted or searched as the slide's
+  words. The slide finder lists a run's slides under their group names
+  (PRESENTING_NAVIGATION), and `decklight check` names a `data-step` that is
+  none of its run's groups, or that sits on a slide in no run (`step-group`, a
+  warning: the strip shows such a slide as still in the group before).
 - **Sources** (`SLIDE_SOURCES`, optional): `<aside class="sources">`, a sibling
   of the notes aside, holding what the slide is standing on: a `<dl>` of named
   facts (owner, last reviewed, the document a claim came from) and a `<ul>` of
@@ -361,13 +394,13 @@ Themes set (all required):
 |---|---|
 | Canvas | `--bg` (canvas: color **or** gradient), `--bg-accent` (gradient values paint as an overlay above `--bg`; color values are ignored on the canvas and serve as a secondary-surface token), `--fg`, `--muted` |
 | Type | `--font-body`, `--font-heading`, `--font-mono`, `--heading-color`, `--heading-weight`, `--link` |
-| Accent | `--accent`, `--accent-contrast` (text on accent); optionally the highlight (`<mark>`): `--mark-tint` (the accent's share in it, 25% when absent), or `--mark-bg` and `--mark-fg` of the theme's own; optionally `--callout-ink`, a code callout's bracket (the accent when absent, CODE_AND_MATH), and `--figure-ink`, a figure's value (the accent when absent, DECK_ANATOMY) |
+| Accent | `--accent`, `--accent-contrast` (text on accent); optionally the highlight (`<mark>`): `--mark-tint` (the accent's share in it, 25% when absent), or `--mark-bg` and `--mark-fg` of the theme's own; optionally `--callout-ink`, a code callout's bracket (the accent when absent, CODE_AND_MATH), `--figure-ink`, a figure's value, and `--steps-ink`, a run's current step (each the accent when absent, DECK_ANATOMY) |
 | Blocks | `--block-bg`, `--block-border`, `--block-radius`, `--shadow` |
 | Code | `--code-bg`, `--code-fg`, plus highlight token colors `--hl-keyword`, `--hl-string`, `--hl-number`, `--hl-comment`, `--hl-function`, `--hl-type`, `--hl-punct` |
 | Diagram | `--d-stroke`, `--d-text`, `--d-muted`, `--d-accent`, `--d-fill-1` … `--d-fill-6`; optionally the nested tones `--d-fill-1-in` … `--d-fill-6-in` (derived from the slot and the ink when absent, SVG_DIAGRAMS) |
 | Terminal | `--term-bg`, `--term-fg`, `--term-prompt`, `--term-cursor`, `--term-selection`, ANSI 16: `--ansi-black` … `--ansi-bright-white` |
 | Builds | optionally override `--build-duration`, dim level `--dim-opacity` |
-| Layout | optionally `--code-max-size`, the largest `data-fit="fill"` grows code (CODE_AND_MATH; twice the code's own size when unset), `--code-callout-width`, the gutter a line walk's callouts take (26% of the room when unset), and `--figure-size`, the size a figure's value is set at before it is clamped to its column (DECK_ANATOMY; 4.5em when unset), which a design system may also set per template (DESIGN_SYSTEMS) |
+| Layout | optionally `--code-max-size`, the largest `data-fit="fill"` grows code (CODE_AND_MATH; twice the code's own size when unset), `--code-callout-width`, the gutter a line walk's callouts take (26% of the room when unset), `--figure-size`, the size a figure's value is set at before it is clamped to its column (DECK_ANATOMY; 4.5em when unset), and a run's strip's place and size, `--steps-top`, `--steps-bottom`, `--steps-inset`, `--steps-align` and `--steps-size` (DECK_ANATOMY), each of which a design system may also set (DESIGN_SYSTEMS) |
 
 Requirements for the shipped themes:
 - Body text ≥ WCAG AA contrast on `--bg`; code tokens ≥ AA on `--code-bg` (validated by `test/contrast.mjs`).
@@ -376,6 +409,7 @@ Requirements for the shipped themes:
 - **A highlight reads, and shows** (`<mark>`, PRESENTING_EDITING): over every stop of `--bg`, the highlight (`--mark-bg`, else `--accent` at `--mark-tint` over the slide) carries `--fg` (or `--mark-fg`) at ≥ 4.5, `--heading-color` at ≥ 3.0 and `--muted` at ≥ 2.6, and sits at least 0.05 OKLab off the background. Checked in `tools/theme-check.mjs`, as a **warning** for a theme from elsewhere (one written before highlights existed still applies, and `decklight theme gate` names what to set) and as a failure for the shipped ones (`test/contrast.mjs`); a theme with no contrast to spare lowers its tint (reveal-league, reveal-moon) or declares its own pair (reveal-solarized), and a theme made from a template or a brand palette is given the tint that passes.
 - **A code callout's bracket shows** (CODE_AND_MATH): `--callout-ink`, else `--accent`, at ≥ 3.0 on every stop of `--code-bg` (a graphic, not words; the label is `--code-fg`, gated above). A warning for a theme from elsewhere and a failure for the shipped ones, as the highlight's; a theme whose accent is faint on its code declares its own ink (coastal, reveal-blood, reveal-serif, reveal-sky).
 - **A figure's value reads** (DECK_ANATOMY): `--figure-ink`, else `--accent`, at ≥ 3.0 on every stop of `--bg` (large type, WCAG 1.4.3). A warning for a theme from elsewhere and a failure for the shipped ones, as the callout's; a theme whose accent is faint on its slide declares its own ink (coastal, metropolis, reveal-blood).
+- **A run's current step reads** (DECK_ANATOMY): `--steps-ink`, else `--accent`, at ≥ 3.0 on every stop of `--bg` (bold at 19 design px, large text in WCAG 1.4.3; the other groups are `--fg` and `--muted`, gated above). A warning for a theme from elsewhere and a failure for the shipped ones; coastal, metropolis and reveal-blood declare their own.
 - Variety: ≥10 dark, ≥10 light, ≥4 serif-headed, ≥4 gradient/duotone canvases, ≤2 that are safe-corporate-boring.
 - Fonts: system stacks or bundled-safe Google-font `@import` (deck authors may be offline: every theme must degrade to a system stack gracefully).
 
@@ -617,7 +651,11 @@ One section with nine parts, each its own mnemonic: `PRESENTING_NAVIGATION`, `PR
 `data-module` markers (`DECK_ANATOMY`) and nothing typed, `G` shows each chapter
 as a `▸ <title> — module · N slides` row folding its own slides, from the
 marked slide up to the next marker, underneath it, with any slides before the
-first chapter left top-level. It opens folded except for the chapter you are
+first chapter left top-level. A run of steps (`DECK_ANATOMY`) folds under its
+chapter by its groups: a `<group> · step 2 of 4 · 3 slides` row stands over
+the slides of each group, and goes to the first of them (a deck with runs and
+no chapters is outlined the same way, its runs at the top level). A slide is
+also found by its group's name. It opens folded except for the chapter you are
 standing in, cursor on your slide. `→` unfolds a chapter (and steps into an open
 one), `←` folds it (and climbs from a slide back to its chapter), and the
 `▸`/`▾` glyph folds in place on a click; `⏎` or a click on the row itself still
@@ -1070,7 +1108,7 @@ slide. The chapters were visible, but they organised nothing.
   **With an element selected** (write mode, `Editing` above) it shows that element: what it is (`ul · 5 items`, `svg · 14 nodes`), its box in deck units and share of the slide, its type (`family size/line-height · weight`) and colour, named by the theme token that holds it when one does (`var(--heading-color) · #fafafa`), its **contrast** against what is really behind it (composited up the tree; a gradient stands in by its first stop and is marked `≈`) with ! under the WCAG AA floor for its size, and the figure cut rather than rounded so a fail never reads as the floor, which build step shows it, an image's natural size and whether it has alt text, whether it clips or runs off the slide, and its lines in the file.
   A **breadcrumb** runs from the selected block down to the node selected (`svg › g.node › "API"`): hovering a crumb lights that node on the slide, clicking one makes it the node selected and inspected.
   **Colors and Type tabs**: with an element selected in write mode, beside Info, the colour card's two halves (below), on the node inspected, each pick saved as it is made.
-  **Slide tab**: with nothing selected in write mode, beside Info, the slide's own settings as fields, each a `<section>` attribute (`DECK_ANATOMY`): **Chapter starts here** (`data-module`; emptied, the slide starts none), **Transition** (*the deck's*, which takes `data-transition` off, or none, fade, slide, scale, flip), **Hidden when presenting** (the Slide menu's own write, `HIDDEN_SLIDES`) and **Planned time** (m:ss, stored as whole seconds in `data-timing`; empty takes it off).
+  **Slide tab**: with nothing selected in write mode, beside Info, the slide's own settings as fields, each a `<section>` attribute (`DECK_ANATOMY`): **Chapter starts here** (`data-module`; emptied, the slide starts none), **Step** (shown only on a slide in a run of steps, DECK_ANATOMY: the run's groups, first what saying none means, *the first: Foundation* on the slide the run starts on or *continues: Tools* after it; written as `data-step` and drawn again in place, the whole run renumbered), **Transition** (*the deck's*, which takes `data-transition` off, or none, fade, slide, scale, flip), **Hidden when presenting** (the Slide menu's own write, `HIDDEN_SLIDES`) and **Planned time** (m:ss, stored as whole seconds in `data-timing`; empty takes it off).
   Under **Background**: the picture by its file name, with **Picture…** (or **Replace…**) and **Remove**, which are the Slide menu's background rows; **Video**, a muted looping video typed as a path beside the deck (`data-background-video`), and once there its **Poster** (`data-background-poster`); then, once there is a picture or a video, **Fit** (fill the slide or show it whole, `data-background-size`), **Position** (nine places, `data-background-position`) and **Dim** (0 to 100%, stored 0 to 1 in `data-background-dim`).
   The slide's background is drawn again at each change; a dragged dim follows the slider and is written once, when it rests.
   Remove takes a video off with its poster, and takes the fit, position and dim along unless a picture is still there.
@@ -1683,14 +1721,14 @@ Applying is **offered, never automatic**: the page and the type are the author's
 
 **`data-ds-bleed`** on a template's **top-level** element (at most one per template) marks it as the slide's art: its background (colour, image, size, position, repeat) is painted on the screen-sized bleed layer instead of inside the stage (`DECK_ANATOMY` Bleed), so a 16:9 slide's art reaches the edges of a 16:10 or 4:3 screen while the slots stay on the stage. Its own size and position are resolved against the viewport: a `100% 100%` background stretches to the screen's height. `design-system gate` refuses it anywhere else (`bleed-placement`) or twice in a template (`bleed-twice`).
 
-A template carries **structure only**: containers marked `data-slot="<name>"` (children are the default content), `data-slot-hint` (what an author is expected to put there, e.g. `h1,h2`), `data-slot-required`, and at most one `data-slot-default` (where unslotted content lands). Backgrounds and per-template tokens live in the CSS, keyed on the slide's namespaced template (`.decklight section[data-template="acme/section-divider"] { background-image: url(assets/divider.svg) }`), so every `url()` resolves inside the package. A template built round one large number holds a figure (DECK_ANATOMY) as a slot's default content, `<div data-slot="figure" data-slot-hint="div.figure" data-slot-required><div class="figure"><p data-figure>42%</p><p>What it counts</p></div></div>`, and its CSS may size it, `.decklight section[data-template="acme/figure"] { --figure-size: 6em }`; the value's colour is the theme's accent, which a design system with roles maps to one (DESIGN_SYSTEM_ROLES), and a colour a slide writes on a figure by hand is held to the roles like any other (`off-role`).
+A template carries **structure only**: containers marked `data-slot="<name>"` (children are the default content), `data-slot-hint` (what an author is expected to put there, e.g. `h1,h2`), `data-slot-required`, and at most one `data-slot-default` (where unslotted content lands). Backgrounds and per-template tokens live in the CSS, keyed on the slide's namespaced template (`.decklight section[data-template="acme/section-divider"] { background-image: url(assets/divider.svg) }`), so every `url()` resolves inside the package. A template built round one large number holds a figure (DECK_ANATOMY) as a slot's default content, `<div data-slot="figure" data-slot-hint="div.figure" data-slot-required><div class="figure"><p data-figure>42%</p><p>What it counts</p></div></div>`, and its CSS may size it, `.decklight section[data-template="acme/figure"] { --figure-size: 6em }`; a template may hold a run's strip (DECK_ANATOMY) in an empty `<div data-slot="steps"></div>`, where the runtime draws it in place of the top of the slide, and the CSS may restyle `.decklight-steps` and its `.steps-current`, `.steps-done` and `.steps-count` (Northwind's walkthrough template does both); the value's colour is the theme's accent, which a design system with roles maps to one (DESIGN_SYSTEM_ROLES), and a colour a slide writes on a figure by hand is held to the roles like any other (`off-role`).
 
 **`DESIGN_SYSTEM_API_VERSION`** (2: a palette of scales and the themes drawn from it, BRAND_PALETTE) is the format's own counter, additive only, the doctrine `UNIT_COMPAT` sets for `TRANSFORM_API_VERSION`: bumped only when the format would break an existing package. A package's `apiVersion` above it is refused ("needs a newer decklight"). The package's semver `version` is a different fact (`UNIT_VERSIONS`).
 
 **`decklight design-system gate <dir>`** is the admission gate a catalog's CI runs, in the mould of `library gate transform` (`EXTENSIONS_CHECK`): ✔ and a summary (tokens, templates and their slots, assets) and exit 0, or ✘ naming the file, the line and the rule for every problem and exit 1, never a stack. The rules, all in `tools/design-system-format.mjs` (pure over texts, so the serving path and the engine run the same ones):
 
 - **the manifest**: valid JSON; the fields and shapes above; `apiVersion` not above this decklight's; `styles` and `templates` present and inside the package (no scheme, not absolute, no `..`);
-- **the CSS**: no `@import`; no `url()` that names a scheme (`https:`, `data:`, any), is absolute or contains `..`; every relative `url()` a file in the package (a `#fragment` is fine); every custom property **declared** (not merely read through `var()`) starts with the `tokenPrefix`, but for the runtime's open knobs a template may set as they are (`--code-max-size` and `--code-callout-width`, CODE_AND_MATH; `--figure-size`, DECK_ANATOMY); a **theme-contract token** (`THEMING`) is set only with a `/* ds-exception: --token reason */` comment, the `rule-exception:` idiom, and every declared exception is printed on every run so it stays reviewable;
+- **the CSS**: no `@import`; no `url()` that names a scheme (`https:`, `data:`, any), is absolute or contains `..`; every relative `url()` a file in the package (a `#fragment` is fine); every custom property **declared** (not merely read through `var()`) starts with the `tokenPrefix`, but for the runtime's open knobs a template may set as they are (`--code-max-size` and `--code-callout-width`, CODE_AND_MATH; `--figure-size`, and a run's strip's `--steps-top`, `--steps-bottom`, `--steps-inset`, `--steps-align` and `--steps-size`, DECK_ANATOMY); a **theme-contract token** (`THEMING`) is set only with a `/* ds-exception: --token reason */` comment, the `rule-exception:` idiom, and every declared exception is printed on every run so it stays reviewable;
 - **the templates**: everything inside `<template data-template>` blocks; no `script`, `style`, `iframe`, `object`, `embed`, `foreignObject`, `link`, `meta`, `base`, `frame`; no `on*` attribute, no `srcdoc`, no `javascript:` URL (entities decoded first); no `src`/`href`/`srcset`/`poster` reference other than a `#fragment`: art lives in the CSS; template ids and slot names `[a-z][a-z0-9-]*`, template ids unique, a slot name once per template, at most one `data-slot-default`;
 - **SVG assets**: no `<script>`, no `<foreignObject>`, no `on*` attribute, no `href`/`xlink:href` other than a `#fragment`;
 - **the palette**: a list palette's every `token` is defined in the CSS; a palette of scales and its themes are held to BRAND_PALETTE's rules;

@@ -102,6 +102,21 @@ fifteen-slide talk does not need chapters:
 <section data-module="Foundations"><h2>Foundations</h2></section>
 \`\`\`
 
+A walkthrough spread over several slides (seven steps across eleven slides)
+shows where it is with a **run of steps**: name the groups once, on the slide
+the run starts on, and say on each later slide which group it is in; a slide
+that says nothing continues the group before. The runtime draws a small strip
+on every slide of the run (the groups, the current one in the accent, the
+done ones muted, and "3 of 7" with \`data-steps-count\`), so never type
+"Step 3 of 7" into a subtitle: it goes stale the moment a slide is added. The
+run ends at the next chapter or at a slide marked \`data-steps-end\`:
+
+\`\`\`html
+<section data-steps="Foundation, Fresh context, Tools, The agent" data-steps-count>…</section>
+<section>…</section>                          <!-- still Foundation -->
+<section data-step="Fresh context">…</section>
+\`\`\`
+
 Two asides, and they are not the same thing. \`notes\` is what the speaker SAYS.
 \`sources\` is where the slide got what it says — named facts and links a reader
 can follow, hidden on the slide and opened with **I**. Add it when a slide makes

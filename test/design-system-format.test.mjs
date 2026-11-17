@@ -150,6 +150,14 @@ test('a template may hold a figure in a slot and size it with --figure-size, wit
   assert.equal(r.ok, true, JSON.stringify(r.problems));
 });
 
+test('a design system ships a run\'s strip: its slot in a template, its place and size with no prefix and no exception (#1188)', () => {
+  const pkg = edit(okPkg(), 'design-system.css', '--acme-ink: #14213d;',
+    '--acme-ink: #14213d;\n}\n.decklight .decklight-steps {\n  --steps-top: auto;\n  --steps-bottom: 14px;\n  --steps-inset: 6%;\n  --steps-align: flex-start;\n  --steps-size: 15px;\n  text-transform: uppercase;');
+  pkg.files.get('templates.html').text += '\n<template data-template="walk" data-title="Walkthrough step">\n  <div data-slot="steps"></div>\n  <div data-slot="title" data-slot-hint="h2" data-slot-required></div>\n</template>\n';
+  const r = checkPackage(pkg);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+});
+
 test('css: a custom tokenPrefix is the one held to', () => {
   const pkg = edit(okPkg(), 'design-system.json', '"title": "Acme Brand",', '"title": "Acme Brand",\n  "tokenPrefix": "--ax-",');
   const r = checkPackage(pkg);

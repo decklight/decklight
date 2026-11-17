@@ -155,8 +155,9 @@ export function validateTheme(css) {
   // A line walk's callout (CODE_AND_MATH, #1182) draws its bracket in
   // `--callout-ink`, the accent unless the theme says otherwise, on the code's
   // ground: a warning too, for the same reason. So is a figure's value
-  // (DECK_ANATOMY), `--figure-ink`, else the accent, on the slide.
-  const warnings = [...markGates(tokens), ...calloutGates(tokens), ...figureGates(tokens)].map((m) => m.message);
+  // (DECK_ANATOMY), `--figure-ink`, else the accent, on the slide, and a
+  // run's current group in its strip, `--steps-ink`, else the accent.
+  const warnings = [...markGates(tokens), ...calloutGates(tokens), ...figureGates(tokens), ...stepsGates(tokens)].map((m) => m.message);
 
   return { ok: errors.length === 0, tokens, exceptions, missing, failures, errors, warnings, empty: false };
 }
@@ -265,6 +266,24 @@ export function figureGates(tokens) {
   if (ratio === null || ratio >= FIGURE_MIN) return [];
   return [{ fg: name, bg: 'bg', min: FIGURE_MIN, ratio,
     message: `--${name} on --bg: ${ratio.toFixed(2)} < ${FIGURE_MIN} — a figure's value would not read: set --figure-ink` }];
+}
+
+/** How far a run's current group stands from the slide: bold type at 19 design px, WCAG 1.4.3's large-text 3:1. */
+export const STEPS_MIN = 3.0;
+
+/**
+ * A run's strip's gate (DECK_ANATOMY, #1188) for a theme's tokens, as
+ * failures (none: it passes): the group the slide is in, `--steps-ink`, else
+ * `--accent`, on every stop of `--bg`. The other groups and the count are
+ * `--fg` and `--muted`, which the contract gates.
+ */
+export function stepsGates(tokens) {
+  const name = tokens['steps-ink'] ? 'steps-ink' : 'accent';
+  if (!tokens[name] || !tokens.bg) return [];   // missing: already reported
+  const ratio = minContrast(tokens[name], tokens.bg);
+  if (ratio === null || ratio >= STEPS_MIN) return [];
+  return [{ fg: name, bg: 'bg', min: STEPS_MIN, ratio,
+    message: `--${name} on --bg: ${ratio.toFixed(2)} < ${STEPS_MIN} — a run's current step would not read: set --steps-ink` }];
 }
 
 /** The least OKLab lightness step between a panel and the tone of a box nested in it. */

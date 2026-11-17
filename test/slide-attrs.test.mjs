@@ -11,7 +11,8 @@ import assert from 'node:assert/strict';
 import { setSlideAttrs, SLIDE_ATTR_NAMES } from '../cli/edit.mjs';
 import { ATTRIBUTES } from '../tools/vocabulary.mjs';
 import { ATTRIBUTE_DOCS } from '../cli/vocabulary-docs.mjs';
-import { SLIDE_FIELDS, BACKGROUND_FIELDS, TITLE_FIELDS, NARRATION_FIELDS, TRANSITIONS, POSITIONS, parseClock, clockText, writeFor, fieldValue, dimValue, morphEdits } from '../src/core/slide-settings.js';
+import { SLIDE_FIELDS, BACKGROUND_FIELDS, TITLE_FIELDS, NARRATION_FIELDS, TRANSITIONS, POSITIONS, parseClock, clockText, writeFor, fieldValue, dimValue, morphEdits, stepChoices } from '../src/core/slide-settings.js';
+import { stepRuns } from '../tools/steps.mjs';
 
 const DECK = `<!doctype html>
 <html><body>
@@ -258,4 +259,34 @@ test('subtitle auto or none; narration pauses in seconds, empty the deck\'s', ()
   const sec = (v) => ({ getAttribute: () => v });
   assert.equal(fieldValue(sec('0.500'), by.beat), '0.5');
   assert.equal(fieldValue(sec(null), by.beat), '');
+});
+
+// ── a run's Step (DECK_ANATOMY, #1188) ─────────────────────────────────────
+
+test('the Step field lists its run\'s groups, what an absent one means first, and shows only in a run', () => {
+  const steps = stepRuns([{}, { steps: 'Foundation, Tools, The agent' }, {}, { step: 'Tools' }, { module: true }]);
+  assert.equal(stepChoices(steps, 1), null, 'a slide in no run has no Step');
+  assert.equal(stepChoices(steps, 5), null, 'nor one past the chapter that ends it');
+  assert.deepEqual(stepChoices(steps, 2), [['', 'the first: Foundation'], ['Foundation', 'Foundation'], ['Tools', 'Tools'], ['The agent', 'The agent']]);
+  assert.deepEqual(stepChoices(steps, 3)[0], ['', 'continues: Foundation']);
+  assert.deepEqual(stepChoices(steps, 4)[0], ['', 'continues: Foundation'], 'what the slide before is in, whatever this one says');
+  const step = SLIDE_FIELDS.find((f) => f.key === 'step');
+  assert.equal(step.attr, 'data-step');
+  assert.equal(step.when(null, null), false);
+  assert.equal(step.when(null, steps.at[1]), true);
+});
+
+test('a Step written is one of the run\'s groups or none, and the server takes exactly that', () => {
+  const step = { ...SLIDE_FIELDS.find((f) => f.key === 'step'), choices: [['', 'continues: A'], ['A', 'A'], ['Fresh context', 'Fresh context']] };
+  assert.deepEqual(writeFor(step, 'Fresh context', ''), { set: { 'data-step': 'Fresh context' } });
+  assert.deepEqual(writeFor(step, '', 'Fresh context'), { set: { 'data-step': null } });
+  assert.equal(writeFor(step, 'A', 'A'), null);
+  assert.match(writeFor(step, 'Elsewhere', '').error, /not a group of this run/);
+  const D = '<div class="decklight"><section data-steps="A, Fresh context"><h2>A</h2></section><section><h2>B</h2></section></div>';
+  assert.match(setSlideAttrs(D, 2, { 'data-step': 'Fresh context' }), /<section data-step="Fresh context">/);
+  assert.match(setSlideAttrs(D, 1, { 'data-steps-count': true, 'data-steps': 'A, B' }), /<section data-steps="A, B" data-steps-count>/);
+  assert.match(setSlideAttrs(D, 2, { 'data-steps-end': true }), /<section data-steps-end>/);
+  assert.throws(() => setSlideAttrs(D, 2, { 'data-step': 'two\nlines' }), /not a value data-step takes/);
+  assert.throws(() => setSlideAttrs(D, 2, { 'data-step': 'x'.repeat(61) }), /not a value data-step takes/);
+  assert.throws(() => setSlideAttrs(D, 1, { 'data-steps': ' , ' }), /not a value data-steps takes/, 'a run names one group at least');
 });

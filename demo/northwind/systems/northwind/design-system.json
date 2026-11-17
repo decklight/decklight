@@ -3,7 +3,7 @@
   "name": "northwind",
   "version": "1.0.0",
   "title": "Northwind",
-  "description": "The invented company brand the decklight.io showcase puts its postmortem talk on: navy, ember and sand, two themes, three slide templates.",
+  "description": "The invented company brand the decklight.io showcase puts its postmortem talk on: navy, ember and sand, two themes, four slide templates.",
   "styles": "design-system.css",
   "templates": "templates.html",
   "palette": {
