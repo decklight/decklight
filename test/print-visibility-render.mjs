@@ -41,7 +41,10 @@ const KEYFRAMES = `
   /* the shape the report had: hidden at rest, faded in once the slide is on */
   section.active .kf { animation: kf-in 3s ease 1s forwards; }
   /* no fill: on screen too it fades in and drops back out, so print shows it gone */
-  section.active .gone { animation: kf-in 3s ease 1s; }`;
+  section.active .gone { animation: kf-in 3s ease 1s; }
+  /* the deck's own loop: it never ends, so it is never finished */
+  @keyframes kf-turn { to { transform: rotate(360deg); } }
+  section.active .spin { animation: kf-turn 2s linear infinite; }`;
 /** The same deck with the boxes simply there: what page 2 should print as. */
 const CONTROL = '.box { border: 3px solid currentColor; padding: 10px; margin: 8px; }';
 
@@ -66,14 +69,18 @@ function deck(name, css, { probe = true } = {}) {
   <div class="box gone" id="gone">ends hidden</div>
   <p style="visibility:hidden">never shown</p>
   <div class="box">plain</div></section>
-<section><h2>A loop</h2><div class="box" id="loop" data-animate="pulse">pulsing</div></section>
+<section><h2>A loop</h2><div class="box" id="loop" data-animate="pulse">pulsing</div>
+  <div class="box spin" id="spin">turning</div></section>
 <section><h2>A build</h2><p>first</p><p data-build="fade-up">second</p></section>
 </div>
 ${probe ? `<pre id="test-sink">running…</pre>` : ''}
 <script src="${path.join(root, 'dist/decklight.js')}"></script>
 <script>
-// the hosted macOS runner reports reduced motion: the loop must exist to be left alone
+// the hosted macOS runner reports reduced motion, and the stylesheet then turns
+// data-animate loops off in CSS (no stub reaches that): noted, so the loop is
+// asserted only where it runs. The deck's own loop runs either way.
 const mm = window.matchMedia.bind(window);
+const reduced = mm('(prefers-reduced-motion: reduce)').matches;
 window.matchMedia = (q) => /reduce/.test(q) ? { matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} } : mm(q);
 Decklight.init();
 ${probe ? `setTimeout(() => {
@@ -85,6 +92,8 @@ ${probe ? `setTimeout(() => {
     kfState: document.getElementById('kf1').getAnimations().map((a) => a.playState),
     loopAnims: loop.getAnimations().map((a) => a.animationName),
     loopFinished: loop.getAnimations().some((a) => a.playState === 'finished'),
+    reduced,
+    spin: document.getElementById('spin').getAnimations().map((a) => a.playState),
     marks: secs.map((s) => s.getAttribute('data-invisible')),
     more: secs.map((s) => s.getAttribute('data-invisible-more')),
   });
@@ -120,8 +129,10 @@ const kf = deck('keyframes', KEYFRAMES);
   check('print: ...and counts the other', r.more[2] === '1', `data-invisible-more=${r.more[2]}`);
   check('print: the loop slide and the build slide are clean', r.marks[3] === null && r.marks[4] === null && r.marks[0] === null,
     JSON.stringify(r.marks));
-  check('print: the data-animate loop still runs, unfinished', r.loopAnims.includes('dl-pulse') && !r.loopFinished,
-    `${JSON.stringify(r.loopAnims)} finished=${r.loopFinished}`);
+  check('print: the data-animate loop still runs, unfinished',
+    (r.reduced ? r.loopAnims.length === 0 : r.loopAnims.includes('dl-pulse')) && !r.loopFinished,
+    `${JSON.stringify(r.loopAnims)} finished=${r.loopFinished}${r.reduced ? ' (reduced motion: the stylesheet turns it off)' : ''}`);
+  check('print: the deck\'s own endless loop is left running', r.spin.length === 1 && r.spin[0] === 'running', JSON.stringify(r.spin));
 }
 
 // ---- ?print=handout: the sections are moved into pages, which restarts ----
