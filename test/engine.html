@@ -906,6 +906,8 @@
         if (u.includes('/deck/edit/element/content')) { LK_SRC = JSON.parse(init.body).html; return json({ ok: true, changed: true, undo: 1, redo: 0 }); }
         if (u.includes('/deck/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/deck/edit/element/build')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+        // a token's step taken off the slide by its row's ✕ (buildsettings): the element at its path, removed
+        if (HARNESS_MODE === 'buildsettings' && u.includes('/deck/edit/element/remove')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
         // several selected (multiselect): each batch answered as the server's batch transforms would
         if (HARNESS_MODE === 'multiselect' && /\/deck\/edit\/element\/(remove|duplicate|move|style)$/.test(u.split('?')[0])) {
           const b = JSON.parse(init.body);
@@ -1806,7 +1808,7 @@
     // (the engine's attributes left out, the ids the file's), the op applied
     window.__fakeConnector = (b) => {
       const svg = document.querySelector('.cn-svg');
-      const kids = (el) => [...el.children].filter((c) => !c.matches('.draw-head, .draw-mask'));
+      const kids = (el) => [...el.children].filter((c) => !c.matches('.draw-head, .draw-mask, .travel-token'));
       const at = (p) => p.reduce((el, i) => kids(el)[i], svg);
       const nameOf = (n) => n.getAttribute('data-node') ?? (n.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || n.tagName.toLowerCase());
       const write = (tag, attrs) => `<${tag}${[...attrs].map(([k, v]) => ` ${k}="${v}"`).join('')}/>`;
@@ -1821,6 +1823,12 @@
       if (b.op === 'label') {
         const name = `${w.getAttribute('data-from')}-${w.getAttribute('data-to')}`;
         const html = `<text class="cn-label" data-on-wire="${name}" x="${b.at.x}" y="${b.at.y}" text-anchor="middle" dominant-baseline="central" font-size="22">${b.text}</text>`;
+        return { wire: { path: b.wire.path, html: w.outerHTML }, added: { path: [kids(svg).length], html }, defs: [], named: { wire: name } };
+      }
+      // a token along the wire (BUILD_ENTRANCES, travel): the wire named, its step written last in the svg
+      if (b.op === 'token') {
+        const name = w.getAttribute('data-wire') ?? `${w.getAttribute('data-from')}-${w.getAttribute('data-to')}`;
+        const html = `<g class="cn-token" data-build="travel" data-along-wire="${name}"></g>`;
         return { wire: { path: b.wire.path, html: w.outerHTML }, added: { path: [kids(svg).length], html }, defs: [], named: { wire: name } };
       }
       const a = new Map([...w.attributes].filter((x) => !/^(style|mask|data-build-|data-draw-)/.test(x.name))
@@ -4669,6 +4677,23 @@
           const bent = q('.cn-wire');
           const want = bent.getPointAtLength(bent.getTotalLength() * along);
           r.followsTheRoute = bent.tagName === 'path' && Math.abs(num(label, 'x') - want.x) < 1 && Math.abs(num(label, 'y') - want.y) < 1;
+
+          // Wire ▸ Send a token along it (BUILD_ENTRANCES, travel): a click of its own, the slide stepped to it
+          await new Promise((f) => setTimeout(f, 400));
+          await menuOn(bent);
+          row('Wire ▸')?.click(); await settle();
+          r.tokenRow = !!row('Send a token along it');
+          row('Send a token along it')?.click(); await settle(); await settle();
+          const tk = posts('connector').at(-1);
+          r.tokenAsked = tk?.op === 'token' && at(tk.wire) === at({ path: [4], tag: 'path' });
+          const step = q('.cn-token');
+          const sec = step?.closest('section');
+          const slideNo = deck._sections.indexOf(sec) + 1;
+          r.tokenStep = !!step && step.getAttribute('data-along-wire') === 'api-cache' && step.getAttribute('data-build-style') === 'travel'
+            && deck.state.slide === slideNo && deck.state.step === deck._records[slideNo - 1].groups.length;
+          const token = deck._travel.tokenOf(step);
+          r.tokenDrawn = !!token && token.previousElementSibling !== null && [...bent.parentNode.children].indexOf(token) > [...bent.parentNode.children].indexOf(bent)
+            && [...bent.parentNode.children].indexOf(token) < [...bent.parentNode.children].indexOf(label);
           r.PASS = Object.values(r).every((v) => v === true);
         } else if (mode === 'connectmenu') {
           const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')];
@@ -4681,7 +4706,7 @@
           r.wireRows = !!row('Wire ▸') && !row('Route ▸') && !row('Arrows ▸') && !row('Reverse');
           row('Wire ▸')?.click(); await settle();
           const sub = [...document.querySelectorAll('.decklight-ctxmenu .cm-list > *')].map((n) => (n.classList.contains('cm-head') ? `#${n.textContent}` : n.classList.contains('cm-sep') ? '—' : n.textContent));
-          r.wireSubmenu = JSON.stringify(sub) === JSON.stringify(['← back', '#Route', '✓ Straight', 'Elbow', 'Curved', '#Arrows', 'None', '✓ End', 'Both ends', '#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', 'Label…', '—', 'Reverse']);
+          r.wireSubmenu = JSON.stringify(sub) === JSON.stringify(['← back', '#Route', '✓ Straight', 'Elbow', 'Curved', '#Arrows', 'None', '✓ End', 'Both ends', '#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', 'Label…', 'Send a token along it', '—', 'Reverse']);
           r.routeTicked = !!row('✓ Straight') && !!row('Elbow') && !!row('Curved');
           // the arrows skip the headings: ↓ from the back row lands on Straight
           press('ArrowDown');
@@ -5300,7 +5325,7 @@
         // Wire ▸: Line, ticked solid, and a Width… row, between the arrows and Reverse
         await into(wire, 'Wire ▸');
         const sub = listed();
-        r.wireLineGroup = at(sub.slice(sub.indexOf('#Line'))) === at(['#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', 'Label…', '—', 'Reverse']);
+        r.wireLineGroup = at(sub.slice(sub.indexOf('#Line'))) === at(['#Line', '✓ Solid', 'Dashed', 'Dotted', 'Width…', 'Label…', 'Send a token along it', '—', 'Reverse']);
         await choose('Dashed');
         const d1 = posts('style')[0];
         r.dashedAsked = d1?.echo === true && at(d1.edits) === at([{ path: [2], tag: 'line', prop: 'stroke-dasharray', value: '6 4' }]);
@@ -9065,6 +9090,31 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.stepRemoved = last()?.effect === null && !intro.hasAttribute('data-build') && !intro.classList.contains('build-step') && groups() === 5;
         r.oneWriteEach = writes().length === 7;
         r.noReload = !CALLS.post.some((c) => c.u.includes('/deck/edit/element/effect'));
+        // a token along a wire (BUILD_ENTRANCES, travel): its row names the nodes its wire
+        // joins, and has its pace, its arrival and repeat in place of an effect; ✕ takes its element off
+        deck._selectNode(null); await settle();
+        sec.insertAdjacentHTML('beforeend', `<svg class="bt-svg" viewBox="0 0 300 100" width="300"><rect data-node="orders" x="0" y="30" width="60" height="40"/>`
+          + `<rect data-node="agent" x="240" y="30" width="60" height="40"/><line data-from="orders" data-to="agent" data-wire="orders-agent" x1="60" y1="50" x2="240" y2="50" stroke="#888" stroke-width="2"/>`
+          + `<g class="bt-step" data-build="travel" data-along-wire="orders-agent"></g></svg>`);
+        deck.refreshSlide(sec, { scan: true, relayout: false }); await settle();
+        const travelRow = () => rows().find((x) => x.querySelector('.bl-fx')?.textContent === 'travel ·');
+        const tStep = sec.querySelector('.bt-step');
+        r.travelRowNamed = travelRow()?.querySelector('.bl-label')?.textContent === 'orders → agent' && !travelRow()?.querySelector('.bl-pick');
+        const arrive = travelRow()?.querySelector('.bl-arrive');
+        r.travelArrivals = [...(arrive?.options ?? [])].map((o) => o.value).join() === 'fade,stay,pulse' && arrive?.value === 'fade';
+        arrive.value = 'pulse'; arrive.dispatchEvent(new Event('change')); await settle();
+        r.travelArriveWritten = last()?.arrive === 'pulse' && last()?.tag === 'g' && tStep.getAttribute('data-arrive') === 'pulse';
+        const trip = travelRow()?.querySelector('.bl-trip');
+        trip.value = '600'; trip.dispatchEvent(new Event('change')); await settle();
+        r.travelPaceWritten = last()?.travelMs === 600 && tStep.getAttribute('data-travel-ms') === '600';
+        const loop = travelRow()?.querySelector('.bl-repeat');
+        loop.checked = true; loop.dispatchEvent(new Event('change')); await settle();
+        r.travelRepeatWritten = last()?.repeat === true && tStep.hasAttribute('data-travel-repeat');
+        const before = groups();
+        travelRow()?.querySelector('.bl-remove')?.click();
+        for (let k = 0; k < 20 && tStep.isConnected; k++) await settle();
+        const removed = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/remove')).at(-1)?.body;
+        r.travelRemoved = removed?.tag === 'g' && Array.isArray(removed?.path) && !tStep.isConnected && groups() === before - 1 && !sec.querySelector('.travel-token');
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

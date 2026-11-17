@@ -1950,7 +1950,7 @@ export function duplicateSlideElement(html, slide, index, { path = null, tag = n
 
 const WIRE_TAGS = new Set(['line', 'path', 'polyline']);
 const NODE_TAGS = new Set(['g', 'rect', 'circle', 'ellipse', 'polygon', 'path', 'image', 'use', 'text', 'foreignobject']);
-export const CONNECTOR_OPS = ['add', 'reconnect', 'detach', 'route', 'arrows', 'reverse', 'label'];
+export const CONNECTOR_OPS = ['add', 'reconnect', 'detach', 'route', 'arrows', 'reverse', 'label', 'token'];
 export const CONNECTOR_ROUTES = ['straight', 'elbow', 'curve'];
 export const CONNECTOR_ARROWS = ['none', 'end', 'both'];
 const LINE_GEOMETRY = ['x1', 'y1', 'x2', 'y2'];
@@ -2014,6 +2014,31 @@ function labelWire(e, { wPath, tag, svgPath, head, ends }, req) {
   const place = { 'data-on-wire': name, x: formatCoord(x), y: formatCoord(y), 'text-anchor': 'middle', 'dominant-baseline': 'central', 'data-along': null };
   const markup = `${model ? openTag('text', model.attrs, place)
     : openTag('text', labelModel(drawn, c)?.attrs ?? null, { ...place, style: 'fill: var(--d-text); paint-order: stroke; stroke: var(--bg); stroke-width: 6px; stroke-linejoin: round' })}>${escapeHtml(text)}</text>`;
+  let at;
+  ({ svgSrc, index: at } = appendToSvg(svgSrc, markup, lay, svgIndentOf(e, svg)));
+  e.splice(svg.start, svg.end, svgSrc);
+  return { wire: { path: wPath, html: e.src(e.at(wPath, tag)) }, added: { path: [...svgPath, at], html: markup }, defs: [], named: { wire: name } };
+}
+
+/**
+ * A token along a wire (BUILD_ENTRANCES, travel; Wire ▸ Send a token along
+ * it): the wire named `data-wire` when it is not, and a build step
+ * `<g data-build="travel" data-along-wire>` naming it appended last in its
+ * svg, so it plays on a click of its own after the diagram's others. An
+ * empty `<g>`: the token is the runtime's, drawn from the wire as it runs.
+ */
+function tokenWire(e, { wPath, tag, svgPath, head, ends }) {
+  let svg = e.at(svgPath, 'svg');
+  if (/\sdata-chart\b/i.test(splitOpenTag(e.src(svg)).attrs)) throw new Error('a chart draws itself from its data');
+  let name = attrOf(head, 'data-wire');
+  if (!name) {
+    name = uniqueName(slugNode([ends.from, ends.to].filter(Boolean).join(' ') || 'wire'), new Set(wireNamesIn(e.src(svg))));
+    e.edit(wPath, tag, (a) => withAttr(a, 'data-wire', name));
+    svg = e.at(svgPath, 'svg');
+  }
+  let svgSrc = e.src(svg);
+  const lay = layoutOf(svgSrc, svgIndentOf(e, svg));
+  const markup = `${openTag('g', null, { 'data-build': 'travel', 'data-along-wire': name })}></g>`;
   let at;
   ({ svgSrc, index: at } = appendToSvg(svgSrc, markup, lay, svgIndentOf(e, svg)));
   e.splice(svg.start, svg.end, svgSrc);
@@ -2219,6 +2244,7 @@ export function editConnector(html, slide, index, req) {
   const head0 = splitOpenTag(e.src(wAt)).attrs;
   const ends = { from: attrOf(head0, 'data-from'), to: attrOf(head0, 'data-to') };
   if (op === 'label') return finish(labelWire(e, { wPath, tag, svgPath, head: head0, ends }, req));
+  if (op === 'token') return finish(tokenWire(e, { wPath, tag, svgPath, head: head0, ends }));
   if ((op === 'reconnect' || op === 'detach') && !['from', 'to'].includes(req.end)) throw new Error('which end: from or to?');
   if (op === 'route' && !CONNECTOR_ROUTES.includes(req.route)) throw new Error(`a route is straight, elbow or curve, not: ${String(req.route).slice(0, 20)}`);
   if (op === 'arrows' && !CONNECTOR_ARROWS.includes(req.arrows)) throw new Error(`arrows are none, end or both, not: ${String(req.arrows).slice(0, 20)}`);
@@ -2670,13 +2696,23 @@ export const ANIMATIONS = Object.freeze([...attributeEntry('data-animate').value
  *            rising, the last 1 (`0.333 0.667 1`), or null to draw it at once
  *   drawSpeed  its pace in path units a second (`data-draw-speed`, DRAW_SPEED),
  *            or null for the default
+ *   travelMs   a token's trip along its wire, in ms (`data-travel-ms`,
+ *            TRAVEL_MS), or null for the deck's pace (BUILD_ENTRANCES, travel)
+ *   arrive     what the token does at the wire's end (`data-arrive`, ARRIVALS):
+ *            'fade' is the default and is written as no attribute
+ *   repeat     true: it keeps travelling while its step is current
+ *            (`data-travel-repeat`, bare); false: once
  * Every attribute is changed where it stands, a bare one replaced, never
  * joined by a second. A path the file does not have is stale.
  */
 /** The pace a staged stroke can be given, in path units a second. */
 export const DRAW_SPEED = Object.freeze({ min: 20, max: 5000 });
+/** A travelling token's pace (BUILD_ENTRANCES, travel), in ms: the runtime's own bounds (src/core/travel.js). */
+export const TRAVEL_MS = Object.freeze({ min: 100, max: 20000 });
+/** How a travelling token arrives (`data-arrive`, the vocabulary's list): the default first. */
+export const ARRIVALS = Object.freeze([...attributeEntry('data-arrive').values]);
 
-export function setElementBuildAttrs(html, slide, index, { path = [], tag = null, effect, stay, self, animate, drawStops, drawSpeed } = {}) {
+export function setElementBuildAttrs(html, slide, index, { path = [], tag = null, effect, stay, self, animate, drawStops, drawSpeed, travelMs, arrive, repeat } = {}) {
   checkPath(path);
   if (effect !== undefined && effect !== null && effect !== '' && !BUILD_EFFECTS.includes(effect)) throw new Error(`unknown build effect "${effect}"`);
   for (const [k, v] of [['stay', stay], ['self', self]]) if (v !== undefined && typeof v !== 'boolean') throw new Error(`${k} is true or false`);
@@ -2691,7 +2727,13 @@ export function setElementBuildAttrs(html, slide, index, { path = [], tag = null
       && (typeof drawSpeed !== 'number' || !Number.isFinite(drawSpeed) || drawSpeed < DRAW_SPEED.min || drawSpeed > DRAW_SPEED.max)) {
     throw new Error(`a stroke's pace is ${DRAW_SPEED.min} to ${DRAW_SPEED.max} path units a second, or null`);
   }
-  if ([effect, stay, self, animate, drawStops, drawSpeed].every((v) => v === undefined)) throw new Error('nothing to set');
+  if (travelMs !== undefined && travelMs !== null
+      && (typeof travelMs !== 'number' || !Number.isFinite(travelMs) || travelMs < TRAVEL_MS.min || travelMs > TRAVEL_MS.max)) {
+    throw new Error(`a token's trip takes ${TRAVEL_MS.min} to ${TRAVEL_MS.max} ms, or null`);
+  }
+  if (arrive !== undefined && arrive !== null && !ARRIVALS.includes(arrive)) throw new Error(`a token arrives ${ARRIVALS.join(', ')}, not "${String(arrive).slice(0, 20)}"`);
+  if (repeat !== undefined && typeof repeat !== 'boolean') throw new Error('repeat is true or false');
+  if ([effect, stay, self, animate, drawStops, drawSpeed, travelMs, arrive, repeat].every((v) => v === undefined)) throw new Error('nothing to set');
   const e = openElement(html, slide, index);
   // a diagram's group made one step ("all at once", SVG_DIAGRAMS): it plays on its first member's click,
   // the key its members had (Group froze them); made one step an item again, they play on their own
@@ -2713,6 +2755,9 @@ export function setElementBuildAttrs(html, slide, index, { path = [], tag = null
     if (animate !== undefined) a = withAttr(a, 'data-animate', animate);
     if (drawStops !== undefined) a = withAttr(a, 'data-draw-stops', drawStops === null ? null : drawStops.trim().split(/\s+/).join(' '));
     if (drawSpeed !== undefined) a = withAttr(a, 'data-draw-speed', drawSpeed === null ? null : String(Math.round(drawSpeed)));
+    if (travelMs !== undefined) a = withAttr(a, 'data-travel-ms', travelMs === null ? null : String(Math.round(travelMs)));
+    if (arrive !== undefined) a = withAttr(a, 'data-arrive', arrive === null || arrive === ARRIVALS[0] ? null : arrive);
+    if (repeat !== undefined) a = withAttr(a, 'data-travel-repeat', repeat ? true : null);
     return a;
   });
   return e.html();

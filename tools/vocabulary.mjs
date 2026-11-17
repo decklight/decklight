@@ -64,12 +64,18 @@ export const ATTRIBUTES = [
   { name: 'data-video-hold', number: true },
 
   // ── builds ────────────────────────────────────────────────────────────────
-  { name: 'data-build', kind: 'build effect', values: ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'none'], bare: true },
+  { name: 'data-build', kind: 'build effect', values: ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'travel', 'none'], bare: true },
   { name: 'data-build-order', number: true },
   { name: 'data-build-stay', bare: true },
   { name: 'data-build-self', bare: true },
+  { name: 'data-build-with', bare: true },
   { name: 'data-draw-stops' },
   { name: 'data-draw-speed', number: true },
+  { name: 'data-along-wire' },
+  { name: 'data-label' },
+  { name: 'data-travel-ms', number: true },
+  { name: 'data-arrive', kind: 'arrival', values: ['fade', 'stay', 'pulse'] },
+  { name: 'data-travel-repeat', bare: true },
 
   // ── diagrams ──────────────────────────────────────────────────────────────
   { name: 'data-node' },
@@ -149,7 +155,7 @@ export const ENGINE_ATTRIBUTES = [
   'data-draw-marker-end', 'data-draw-marker-start', 'data-draw-masked', 'data-draw-orig', 'data-ds-expanded',
   'data-ds-injected', 'data-ds-missing', 'data-ds-required-empty', 'data-eyelid', 'data-filmed', 'data-fit-scale',
   'data-font', 'data-font-meta', 'data-font-preview', 'data-font-version', 'data-generated', 'data-go', 'data-how',
-  'data-href', 'data-i', 'data-idle', 'data-key', 'data-label', 'data-markdown', 'data-markdown-removed', 'data-mouth',
+  'data-href', 'data-i', 'data-idle', 'data-key', 'data-markdown', 'data-markdown-removed', 'data-mouth',
   'data-n', 'data-name', 'data-nest-fill', 'data-noise', 'data-off', 'data-off-fix', 'data-off-undo', 'data-overflow',
   'data-overflow-by', 'data-part', 'data-phase', 'data-pinned', 'data-play', 'data-play-beat', 'data-plugin', 'data-point', 'data-pos',
   'data-poster', 'data-rate', 'data-redo', 'data-redo-beat', 'data-ref', 'data-roles', 'data-row', 'data-rule',

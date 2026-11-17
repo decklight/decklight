@@ -157,6 +157,47 @@
       </aside>
     </section>
 
+    <!-- ══ 5b · a message moves ══ -->
+    <section>
+      <h2>A Message Moves Along the Wire</h2>
+      <p>The pipeline is there from the start: each click sends the event one hop further</p>
+      <svg viewBox="0 0 800 280" width="800" aria-label="An order event flows from the producer through the topic to its consumers">
+        <defs><marker id="fx-flow-arr" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>
+        <g data-node="orders">
+          <rect x="30" y="115" width="150" height="70" rx="10" style="fill: var(--d-fill-2); stroke: var(--d-stroke)" stroke-width="2"/>
+          <text x="105" y="150" text-anchor="middle" dominant-baseline="central" font-size="16" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">Orders</text>
+        </g>
+        <g data-node="topic">
+          <rect x="325" y="115" width="150" height="70" rx="10" style="fill: var(--d-fill-3); stroke: var(--d-stroke)" stroke-width="2"/>
+          <text x="400" y="150" text-anchor="middle" dominant-baseline="central" font-size="16" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">orders topic</text>
+        </g>
+        <g data-node="agent">
+          <rect x="620" y="40" width="150" height="70" rx="10" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/>
+          <text x="695" y="75" text-anchor="middle" dominant-baseline="central" font-size="16" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">Agent</text>
+        </g>
+        <g data-node="audit">
+          <rect x="620" y="190" width="150" height="70" rx="10" style="fill: var(--d-fill-4); stroke: var(--d-stroke)" stroke-width="2"/>
+          <text x="695" y="225" text-anchor="middle" dominant-baseline="central" font-size="16" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">Audit log</text>
+        </g>
+        <line data-from="orders" data-to="topic" data-wire="orders-topic" x1="180" y1="150" x2="325" y2="150" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#fx-flow-arr)"/>
+        <path data-from="topic" data-to="agent" data-route="curve" data-wire="topic-agent" d="M 475 150 C 547.5 150 547.5 75 620 75" fill="none" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#fx-flow-arr)"/>
+        <path data-from="topic" data-to="audit" data-route="curve" data-wire="topic-audit" d="M 475 150 C 547.5 150 547.5 225 620 225" fill="none" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#fx-flow-arr)"/>
+        <g data-build="travel" data-along-wire="orders-topic" data-label="order 4417" data-arrive="pulse"></g>
+        <g data-build="travel" data-along-wire="topic-agent" data-arrive="pulse"></g>
+        <g data-build="travel" data-along-wire="topic-audit" data-arrive="pulse" data-build-with></g>
+        <g data-build="travel" data-along-wire="orders-topic" data-travel-repeat></g>
+      </svg>
+      <aside class="notes">
+        <p>Here is a pipeline that is already on screen, and nothing on it is going to be drawn again. A wire that redraws says a new connection appeared, and that is not what happens when a message moves.</p><p>[click]</p><p>So the build sends a token along the wire instead. Order forty-four seventeen leaves the producer, follows the line, and the topic pulses as it lands.</p><p>[click]</p><p>One click, two consumers: the agent and the audit log both receive it, each token on its own wire, each box pulsing as it arrives.</p><p>[click]</p><p>And when the point is that events keep coming, the token repeats for as long as this click is on screen, and stops on the next one.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Pipeline on screen, nothing redrawn</p>
+        <p>[click]</p><p>order 4417 → topic pulses</p>
+        <p>[click]</p><p>fan-out: agent + audit on one click</p>
+        <p>[click]</p><p>repeat: events keep flowing</p>
+      </aside>
+    </section>
+
     <!-- ══ 6 · charts ══ -->
     <section>
       <h2>Charts From Data</h2>

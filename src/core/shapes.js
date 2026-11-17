@@ -55,7 +55,7 @@
 import { pathFrom } from './colorpicker.js';
 import { injectedIn, isDrawn, isGroup, nodeForClick } from './pick.js';
 import { createEditCommit } from './edit-commit.js';
-import { clearBuildMarks } from './builds.js';
+import { clearBuildMarks, stepShowing } from './builds.js';
 import { orderGroups } from './buildlist.js';
 import { addressOf } from './build-edit.js';
 import { linesOf, setLines, fitOnShape, overflowingLabels } from './diagram-labels.js';
@@ -67,7 +67,7 @@ import {
 } from './connectors.js';
 
 /** Nodes in the page that are not in the file: the engine's and a template's. */
-const ENGINE_NODES = '.draw-head, .draw-mask, [data-ds-injected]';
+const ENGINE_NODES = '.draw-head, .draw-mask, .travel-token, [data-ds-injected]';
 /** A shape a label can sit on. */
 const BOX_SHAPES = new Set(['rect', 'circle', 'ellipse', 'image', 'polygon', 'path']);
 const NUMERIC = /^\s*-?\d+(?:\.\d+)?\s*$/;
@@ -1690,6 +1690,44 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     return label;
   }
 
+  // ── a token along a wire (BUILD_ENTRANCES, travel): Wire ▸ Send a token along it ──
+  /**
+   * A build step that sends a token along the wire, start to end, on a click
+   * of its own after the diagram's others: the server names the wire and
+   * appends `<g data-build="travel" data-along-wire>` to its svg (`op:
+   * 'token'`), the page puts the same element there, counts the slide's
+   * steps again and steps to the new click, so the token is seen travelling.
+   */
+  async function sendToken(target) {
+    const w = wireOf(target);
+    if (!w) return null;
+    const svg = svgOf(w);
+    if (svg?.closest('[data-chart]')) { toast('a chart draws itself from its data', 2600); return null; }
+    const path = pathFrom(target.top, w);
+    let j;
+    try {
+      j = await post('/deck/edit/element/connector', { slide: target.slide, index: target.index, op: 'token', wire: { path, tag: tagOf(w) } });
+    } catch (e) { toast(`the token was not added: ${commit.why(e)}`, 6000); return null; }
+    let step;
+    try {
+      if (j.named?.wire) w.setAttribute('data-wire', j.named.wire);
+      step = liveNode(j.added.html, svg);
+      insertAt(target.top, j.added.path, step);
+    } catch (e) {
+      reloadFor('a token\'s step could not be put on the page', e);
+      return null;
+    }
+    const sec = svg.closest('section');
+    clearBuildMarks(sec);
+    instance.refreshSlide?.(sec, { scan: true, relayout: false });
+    const slide = instance._sections?.indexOf(sec) + 1;
+    const want = stepShowing(instance._records?.[slide - 1], step);
+    if (slide && want && instance.state?.slide === slide) instance.goto(slide, want);
+    toast(`a token travels along it on click ${want}: the Builds tab sets its pace and how it arrives`, 3200);
+    debugLog('edit', `token added: slide ${target.slide} element #${target.index} › ${j.added.path.join('.')}`);
+    return step;
+  }
+
   // ── groups (SVG_DIAGRAMS): Group, Ungroup, and a <g> the author wrote ────
   // A group is a `<g data-group>`: picked whole by a first click, a level
   // down by the next (pick.js), and moved, duplicated, copied, removed and
@@ -1938,6 +1976,8 @@ export function createShapes({ root, instance, editmode, editbar, authoring, toa
     isWire: (target) => !!wireOf(target), wireState, setRoute, setArrows, reverse,
     /** Wire ▸ Label…: does the wire have a label, and the add (or the edit of the one it has). */
     hasLabel: (target) => !!labelOfWire(target), labelWire,
+    /** Wire ▸ Send a token along it: a click that sends a token from its start to its end. */
+    sendToken,
     /** Line ▸ on a stroke and Corners ▸ on a box: is there one, which is ticked, and the write. */
     isStroke: (target) => !!strokeOf(target), lineState, setLine,
     hasCorners: (target) => !!cornerBox(target), cornerState, setCorners,

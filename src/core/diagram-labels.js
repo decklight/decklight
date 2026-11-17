@@ -160,7 +160,7 @@ export function overflows(text, shape, box) {
 
 /** The shapes a label can be on, and what the engine adds that never is one. */
 const SHAPE_SEL = 'rect, ellipse, circle, polygon, path[data-shape], image';
-const NOT_A_SHAPE = '.draw-head, .draw-mask, defs, marker, mask, clipPath, pattern, symbol, [data-ds-injected]';
+const NOT_A_SHAPE = '.draw-head, .draw-mask, .travel-token, defs, marker, mask, clipPath, pattern, symbol, [data-ds-injected]';
 
 /** A shape's box in its own coordinates, from the attributes that say it (a marked shape's from its numbers). */
 export function ownBox(shape) {

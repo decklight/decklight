@@ -271,8 +271,8 @@ const tagOf = (el) => String(el?.tagName ?? '').toLowerCase();
 export const WIRE_TAGS = new Set(['line', 'path', 'polyline']);
 const NOT_DRAWN = new Set(['defs', 'marker', 'mask', 'clippath', 'pattern', 'symbol', 'lineargradient', 'radialgradient', 'filter', 'style', 'title', 'desc', 'metadata']);
 const SHAPES = new Set(['rect', 'circle', 'ellipse', 'image', 'use', 'foreignobject', 'line', 'polyline', 'polygon', 'path']);
-/** Nodes the engine made beside the author's: a riding head, a dash's mask. */
-const ENGINE_CLASS = /(?:^|\s)(?:draw-head|draw-mask)(?:\s|$)/;
+/** Nodes the engine made beside the author's: a riding head, a dash's mask, a token along a wire. */
+const ENGINE_CLASS = /(?:^|\s)(?:draw-head|draw-mask|travel-token)(?:\s|$)/;
 
 /** Is `el` (or something it sits in, below its svg) not the author's drawing: a marker, a mask, an engine copy? */
 export function outsideDrawing(el) {

@@ -376,7 +376,7 @@ export function buildSteps(node) {
 function buildItems(node) {
   const items = [];
   let auto = 0;
-  const push = (orderAttr, n) => { items.push({ ...orderItem(orderAttr, auto), node: n }); auto++; };
+  const push = (orderAttr, n, withPrev = false) => { items.push({ ...orderItem(orderAttr, auto, withPrev), node: n }); auto++; };
   const stops = (n) => parseDrawStops(readAttrs(n.attrs)['data-draw-stops']).length;
   const stepsOf = (n) => {
     const attrs = readAttrs(n.attrs);
@@ -386,7 +386,7 @@ function buildItems(node) {
       for (let i = 0; i < stops(n); i++) push(Number.isFinite(base) ? String(base + i) : null, n);
       return;
     }
-    push(attrs['data-build-order'], n);
+    push(attrs['data-build-order'], n, 'data-build-with' in attrs);
   };
   // a diagram's group that builds (builds.js isBuildingGroup): its members are steps of their own
   const stepsIn = (container) => {
@@ -436,7 +436,8 @@ const PAINTS = new Set(['img', 'picture', 'video', 'canvas', 'iframe', 'object',
  */
 export function emptyBuildClick(node, html) {
   const items = buildItems(node);
-  const blank = (n) => !PAINTS.has(n.tag) && ![...descendants(n)].some((d) => PAINTS.has(d.tag))
+  // a token along a wire is an empty <g> the runtime draws in: its click shows the token, never nothing
+  const blank = (n) => readAttrs(n.attrs)['data-build'] !== 'travel' && !PAINTS.has(n.tag) && ![...descendants(n)].some((d) => PAINTS.has(d.tag))
     && !html.slice(n.start, n.end).replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;/g, ' ').trim();
   return computeGroups(items).some((g) => g.length && g.every((k) => blank(items[k].node)));
 }
@@ -885,6 +886,15 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
           if (names.has(value)) continue;
           push('connector-node', `${called.get(n)} names no data-node in its svg — the wire stays where the file draws it, joined to nothing: give the shape it joins data-node="${value}", or take ${end} off`, n);
         }
+      }
+      // a token along a wire (BUILD_ENTRANCES, travel) naming a wire its svg does not have: its click shows nothing
+      const wires = new Set(inside.filter((n) => /^(line|path|polyline)$/.test(n.tag)).map((n) => readAttrs(n.attrs)['data-wire']).filter(Boolean));
+      const tokens = inside.filter((n) => readAttrs(n.attrs)['data-along-wire'] !== undefined);
+      const tokenNames = namesApart(tokens, (n) => ({ 'data-along-wire': readAttrs(n.attrs)['data-along-wire'] }));
+      for (const n of tokens) {
+        const value = readAttrs(n.attrs)['data-along-wire'];
+        if (wires.has(value)) continue;
+        push('travel-wire', `${tokenNames.get(n)} names no data-wire in its svg — its click sends nothing along anything: name the wire data-wire="${value}" (Wire ▸ Send a token along it does), or point it at one the svg has${wires.size ? ` (${[...wires].slice(0, 4).join(', ')})` : ''}`, n);
       }
     }
     // a deck on a design system with roles: every colour its slides name is a role (SPEC DESIGN_SYSTEM_ROLES)

@@ -406,6 +406,25 @@ try {
     await menuRow(page, /^Wire ▸$/);
     await menuRow(page, /^Curved$/); await wait(1200);
     check('diagram', 'a dashed wire stays dashed when its route changes', /data-route="curve"/.test(wire()) && /stroke-dasharray: 6 4/.test(wire()), wire());
+    // Wire ▸ Send a token along it (BUILD_ENTRANCES, travel): the wire named, a step that sends a token
+    // along it written last in its svg; the slide steps to its click and the token is on its way
+    await page.keyboard.press('Escape'); await wait(200);
+    const mid2 = await page.locator(`${ACTIVE} svg [data-from]`).evaluate((p) => {
+      const q = p.getPointAtLength(p.getTotalLength() / 2); const m = p.getScreenCTM();
+      return { x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f };
+    });
+    await page.mouse.click(mid2.x, mid2.y, { button: 'right' }); await wait(400);
+    await menuRow(page, /^Wire ▸$/);
+    await menuRow(page, /^Send a token along it$/); await wait(1200);
+    const named = (wire().match(/data-wire="([^"]+)"/) ?? [])[1];
+    check('diagram', 'Send a token along it: the wire named, a travel step naming it in its svg', !!named
+      && new RegExp(`<g data-build="travel" data-along-wire="${named}"></g>\\s*</svg>`).test(section(diagram.read(), 1)), section(diagram.read(), 1).slice(-300));
+    const shown = await page.evaluate(() => {
+      const d = document.querySelector('.decklight').__decklight;
+      const g = document.querySelector('.decklight-stage > section.active g[data-build="travel"]');
+      return { step: d.state.step, steps: d._records[d.state.slide - 1].groups.length, tok: !!d._travel.tokenOf(g) };
+    });
+    check('diagram', '… on a click of its own, the slide stepped to it, its token drawn', shown.step === 1 && shown.steps === 1 && shown.tok, JSON.stringify(shown));
     // the whole diagram duplicated from its canvas by ⌘D: a second diagram, its node names its own
     await page.goto(diagram.url + '#/1/0'); await wait(1500);
     await page.keyboard.press('Escape'); await wait(200);

@@ -8,6 +8,7 @@
 import { computeGroups, orderItem } from '../../tools/build-groups.mjs';
 import { pointAlong, shapeLength } from './stroke-geometry.js';
 import { routeConnectors } from './connectors.js';
+import { syncTravel, travelLabel } from './travel.js';
 
 const CONTAINER_TAGS = new Set(['UL', 'OL', 'TABLE', 'TBODY', 'DL', 'SVG']);
 const SVG_SKIP = new Set(['defs', 'title', 'desc', 'style', 'metadata', 'mask', 'clippath']);
@@ -27,7 +28,7 @@ function eligibleChildren(el) {
     if (c.hasAttribute('data-build-stay')) return false;
     // the engine's own nodes (a riding head, a dashed stroke's mask) are
     // not steps: a rescan must find the same steps the first scan did
-    if (c.classList.contains('draw-head') || c.classList.contains('draw-mask')) return false;
+    if (c.classList.contains('draw-head') || c.classList.contains('draw-mask') || c.classList.contains('travel-token')) return false;
     return true;
   });
 }
@@ -690,7 +691,8 @@ export function scanSlide(section) {
 
   const push = (step, orderAttr) => {
     steps.push(step);
-    items.push(orderItem(orderAttr, auto));
+    // a DOM step marked data-build-with arrives with the step before it (BUILD_AUTHORING)
+    items.push(orderItem(orderAttr, auto, step.kind === 'dom' && step.el.hasAttribute('data-build-with')));
     auto++;
   };
 
@@ -785,7 +787,10 @@ export function applyBuildState(record, step) {
     if (s.kind !== 'dom') return;
     const state = currentSet.has(i) ? 'current' : revealedSteps.has(i) ? 'done' : 'pending';
     s.el.setAttribute('data-build-state', state);
-    if (s.el.getAttribute('data-build-style') === 'draw') syncDrawRestore(s.el, state);
+    const style = s.el.getAttribute('data-build-style');
+    if (style === 'draw') syncDrawRestore(s.el, state);
+    // a token along a wire (BUILD_ENTRANCES, travel): its end state now, its trip when it has just arrived
+    else if (style === 'travel') syncTravel(s.el, state);
     if (s.container) touchedContainers.add(s.container);
   });
   // highlight style: container dims siblings while one step is current
@@ -851,6 +856,7 @@ export function stepLabels(record) {
       const sub = s.sub;
       return s.provider.label ? s.provider.label(sub + 1) : 'step';
     }
+    if (s.el.getAttribute('data-build-style') === 'travel') return `travel · ${travelLabel(s.el)}`;
     const text = s.el.textContent.trim().replace(/\s+/g, ' ');
     return text.slice(0, 60) || s.el.tagName.toLowerCase();
   });
