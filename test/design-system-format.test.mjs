@@ -143,6 +143,13 @@ test('css: a template may set --code-max-size, how large data-fit="fill" grows c
   assert.equal(checkPackage(pkg).ok, true, JSON.stringify(checkPackage(pkg).problems));
 });
 
+test('a template may hold a figure in a slot and size it with --figure-size, with no prefix and no exception (#1181)', () => {
+  const pkg = edit(okPkg(), 'design-system.css', '--acme-ink: #14213d;', '--acme-ink: #14213d;\n}\n.decklight section[data-template="acme/figure"] {\n  --figure-size: 6em;');
+  pkg.files.get('templates.html').text += '\n<template data-template="figure" data-title="Big number">\n  <div data-slot="figure" data-slot-hint="div.figure" data-slot-required><div class="figure"><p data-figure data-count>42%</p><p>What it counts</p></div></div>\n</template>\n';
+  const r = checkPackage(pkg);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+});
+
 test('css: a custom tokenPrefix is the one held to', () => {
   const pkg = edit(okPkg(), 'design-system.json', '"title": "Acme Brand",', '"title": "Acme Brand",\n  "tokenPrefix": "--ax-",');
   const r = checkPackage(pkg);

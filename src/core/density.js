@@ -44,6 +44,8 @@ const NOT_PROSE = 'aside, script, style, template, pre, svg, canvas, .chart, .te
 const TITLE_COMPANION = '.subtitle, .pin-subtitle, '
   + '[data-slot="number"], [data-slot="eyebrow"], [data-slot="subtitle"]';
 
+/** A figure, or a row of them (DECK_ANATOMY): one paragraph's worth of reading. */
+const FIGURE_UNIT = '.figures, .figure';
 const words = (text) => (String(text ?? '').match(/[\p{L}\p{N}][\p{L}\p{N}'’.-]*/gu) ?? []).length;
 const outsideProse = (el, top) => {
   for (let n = el; n && n !== top; n = n.parentElement) if (n.matches?.(NOT_PROSE)) return true;
@@ -66,11 +68,14 @@ function measureColumn(col, halves = 1) {
     .filter((el) => !outsideProse(el, col.parentElement));
   const bullets = Math.ceil(all('li').length / halves);
   const paras = all('p').filter((p) => !p.closest('li'));
+  // a figure is one fact, and a row of them (`.figures`) one statement: each
+  // counts as one paragraph, never as its value, label and context apart
+  const figures = all(FIGURE_UNIT).filter((f) => !f.parentElement?.closest(FIGURE_UNIT)).length;
   return {
     bullets,
     // the subtitle is the title's second line, and a template's number and
     // eyebrow sit with the title too: none is one of the slide's paragraphs
-    paragraphs: paras.filter((p) => !p.matches(TITLE_COMPANION)).length,
+    paragraphs: paras.filter((p) => !p.matches(TITLE_COMPANION) && !p.closest(FIGURE_UNIT)).length + figures,
     longest: paras.reduce((m, p) => Math.max(m, words(p.textContent)), 0),
     words: Math.ceil(proseWords(col) / halves),
   };

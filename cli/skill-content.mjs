@@ -202,6 +202,18 @@ COMPARISON_SLIDES has the markup. The engine marks the mixed state
 same \`decklight pdf\` run above names such slides — one render check catches
 both.
 
+**When one number carries the slide, write a figure, not a big \`h1\` or a
+styled paragraph.** \`<div class="figure"><p data-figure>94%</p><p>of requests
+never reach the database</p><small>cache hit rate since March</small></div>\`:
+the value is set at the theme's \`--figure-size\` in its accent and never
+overflows its column. Alone it is the slide; two or three go in one \`<div
+class="figures" data-build>\`, one a click; in a split slide a figure is a
+column. \`data-count\` on the value counts it up as it arrives, its \`$\`, \`%\`,
+decimals and commas kept (\`data-count-from="50"\` to start elsewhere); print
+and reduced motion show the value as written. The value is a number and its
+unit, a few characters: the words go in the label, and \`decklight check\` warns
+(\`figure-long\`) at a longer one (DECK_ANATOMY in the reference).
+
 **On a code slide, mark the block \`data-fit\` — never hand-tune its size.**
 \`<pre data-fit>\` sizes the code to the room the slide gives it, up to the
 deck's normal code size, and does it again when the slide changes: a caption

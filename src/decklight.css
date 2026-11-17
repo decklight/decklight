@@ -338,6 +338,48 @@
   border-radius: var(--block-radius, 8px);
   font-style: italic;
 }
+/* ---------- figures (SPEC DECK_ANATOMY) ---------------------------------------------
+   One oversized value with its label: `<div class="figure"><p data-figure>94%</p>
+   <p>label</p><small>context</small></div>`. The value is set at the theme's
+   --figure-size (4.5× the body by default) in --figure-ink (the accent unless
+   the theme sets its own, THEMING), tabular figures, and clamped to its column:
+   the figure is a size container and the runtime gives each value its length
+   (--figure-chars, figure.js), so the value is never wider than the column it
+   stands in, alone on a slide, in a split column or three in a row. */
+.decklight .figure {
+  container-type: inline-size;   /* sized by its column, never by its value: hence the width */
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.3em auto;
+  text-align: center;
+}
+.decklight .figure > [data-figure] {
+  font-family: var(--font-heading, var(--font-body, system-ui, sans-serif));
+  font-weight: var(--heading-weight, 700);
+  color: var(--figure-ink, var(--accent, #6af));
+  font-variant-numeric: tabular-nums lining-nums;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  max-width: none;
+  margin: 0 auto 0.14em;
+  /* the theme's size, or the size at which this many characters fit the column (a figure's glyphs average under 0.66em) */
+  font-size: min(var(--figure-size, 4.5em), calc(100cqi / (var(--figure-chars, 4) * 0.66 + 0.1)));
+}
+.decklight .figure > p:not([data-figure]) { font-size: 1em; margin: 0 auto; max-width: 32em; color: var(--fg, inherit); }
+.decklight .figure > small { display: block; font-size: 0.72em; line-height: 1.4; margin: 0.35em auto 0; max-width: 40em; }
+/* two or three figures side by side: evenly, sharing a top edge */
+.decklight .figures {
+  display: flex;
+  justify-content: space-evenly;
+  align-items: flex-start;
+  gap: 4%;
+  width: 100%;
+  margin: 0.3em auto;
+}
+.decklight .figures > .figure { flex: 1 1 0; min-width: 0; margin: 0; }
+
 .decklight table {
   margin: 0.6em auto;
   border-collapse: collapse;

@@ -472,13 +472,13 @@ try {
     await page.keyboard.press('Enter'); await wait(400);
     const listed = await kinds();
     check('newslide', 'the palette\'s New slide… opens the kinds, Title and bullets ready',
-      listed[0] === 'Title and bullets' && listed.length === 5 && await page.locator('.decklight-ctxmenu .cm-row.cm-selected').textContent() === 'Title and bullets', listed);
+      listed[0] === 'Title and bullets' && listed.length === 6 && await page.locator('.decklight-ctxmenu .cm-row.cm-selected').textContent() === 'Title and bullets', listed);
     await page.keyboard.press('Enter'); await wait(1500);
     check('newslide', '⏎ adds Title and bullets after this slide', (text.read().match(/<section\b/g) ?? []).length === 3 && /<li>/.test(section(text.read(), 2)), section(text.read(), 2).slice(0, 200));
     await page.keyboard.press('Escape'); await wait(300);   // its title was in edit
     await page.keyboard.press('o'); await wait(500);
     await page.keyboard.press('n'); await wait(400);
-    check('newslide', 'the overview\'s N opens the same kinds', (await kinds()).length === 5);
+    check('newslide', 'the overview\'s N opens the same kinds', (await kinds()).length === 6);
     await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter'); await wait(1500);
     check('newslide', 'a pick adds that kind, the overview still up', (text.read().match(/<section\b/g) ?? []).length === 4
       && await page.locator('.decklight-overview-grid').count() === 1 && await page.locator('.decklight-stage [contenteditable="true"]').count() === 0);

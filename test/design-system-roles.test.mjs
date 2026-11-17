@@ -242,6 +242,19 @@ test('decklight check warns off-role once per slide on a deck held to the brand,
   assert.equal(staticFindings(deck({ brandThemesOnly: false }), { designSystems: systems }).filter((f) => f.rule === 'off-role').length, 0, 'unlocked: the deck may wear anything');
 });
 
+test('a figure is held to the roles like any block: its own colours in roles pass, a hand-set one is off-role (#1181)', () => {
+  const systems = () => new Map([['acme', checkEntry('acme@acme-mkt', packageVerdict(ROLES))]]);
+  const deck = (style) => `<!doctype html><html><head><script type="application/json" data-decklight-config>${JSON.stringify({ decklight: '0.9.0', designSystems: ['acme@acme-mkt'], theme: 'acme-dark' })}</script></head><body><div class="decklight">
+    <section><div class="figure"><p data-figure data-count${style}>94%</p><p>hit rate</p></div></section>
+  </div></body></html>`;
+  const offRole = (style) => staticFindings(deck(style), { designSystems: systems }).filter((f) => f.rule === 'off-role');
+  assert.deepEqual(offRole(''), [], 'a figure as written takes the theme\'s accent, which the roles map');
+  assert.deepEqual(offRole(' style="color: var(--acme-color-text-accent, #f5a623)"'), [], 'a role passes');
+  const found = offRole(' style="color: #ff0000"');
+  assert.equal(found.length, 1);
+  assert.match(found[0].message, /#ff0000 \(nearest role [a-z-]+\)/);
+});
+
 test("decklight check names a design system's own non-role token as off-role, nearest the role its value resolves to, and leaves a width in a border be", () => {
   const systems = () => new Map([['acme', checkEntry('acme@acme-mkt', packageVerdict(ROLES))]]);
   const deck = (slide) => `<!doctype html><html><head><script type="application/json" data-decklight-config>${JSON.stringify({ decklight: '0.9.0', designSystems: ['acme@acme-mkt'], theme: 'acme-light' })}</script></head><body><div class="decklight">

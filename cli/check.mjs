@@ -333,6 +333,8 @@ function eligibleChildren(node) {
 function isContainer(node) {
   if ('data-build-self' in readAttrs(node.attrs)) return false;
   if (CONTAINER_TAGS.has(node.tag)) return true;
+  // a figure (DECK_ANATOMY) is one step, its value and label together
+  if (node.tag === 'div' && /(^|\s)figure(\s|$)/.test(readAttrs(node.attrs).class ?? '')) return false;
   if (node.tag === 'div' || node.tag === 'g') return eligibleChildren(node).length >= 2;
   return false;
 }
@@ -644,6 +646,13 @@ function designSystemFindings(value, tree, systems, configured, push) {
 
 // ── whether a slide's diagram builds ─────────────────────────────────────────
 
+/** The longest a figure's value reads as one (DECK_ANATOMY): `$12.5M`, `1,500`, `-12.5%`. */
+export const FIGURE_MAX_CHARS = 8;
+/** A figure's value as a reader sees it, from its source: tags out, the common entities read, spaces folded. */
+const figureText = (src) => src.replace(/^<[^>]*>/, '').replace(/<[^>]*>/g, '')
+  .replace(/&nbsp;|&#160;/g, ' ').replace(/&times;/g, '×').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&[a-z]+;|&#\d+;/gi, '·')
+  .replace(/\s+/g, ' ').trim();
+
 const hasClass = (node, cls) => new RegExp(`(?:^|\\s)${cls}(?:\\s|$)`).test(readAttrs(node.attrs).class ?? '');
 /** Generated, not drawn: a chart or a terminal cast has nothing an author would build. */
 const generated = (node) => hasClass(node, 'chart') || hasClass(node, 'terminal');
@@ -774,6 +783,16 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       let host = at;
       try { host = new URL(at).host; } catch { /* said as written */ }
       push('web-page', `the web page from ${host} is blank in no-trust mode, in a video export and offline: the frame fetches it as the slide shows, so present it where it can be reached, or show a picture of it`, node);
+    }
+    // a figure's value (DECK_ANATOMY): a number and its unit, a few
+    // characters set several times the body size; a sentence there is not a
+    // figure, and is shrunk to fit its column until it is no longer large
+    for (const node of descendants(tree)) {
+      if (!('data-figure' in readAttrs(node.attrs))) continue;
+      const text = figureText(inner.slice(node.start, node.end));
+      if ([...text].length > FIGURE_MAX_CHARS) {
+        push('figure-long', `the figure's value "${text.length > 40 ? `${text.slice(0, 40)}…` : text}" is ${[...text].length} characters — a figure is a number and its unit (94%, $1.2M, 3×), at most ${FIGURE_MAX_CHARS}: put the words in its label, the <p> under it`, node);
+      }
     }
     // code sized by hand (CODE_AND_MATH, #1185): a font-size on a <pre>, or on
     // a section that holds one, is right for one layout and clipped or tiny

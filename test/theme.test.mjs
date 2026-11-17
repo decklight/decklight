@@ -19,7 +19,7 @@ import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { validateTheme, themeNameFrom, validThemeName, REQUIRED, markGates, MARK_TINT, calloutGates } from '../tools/theme-check.mjs';
+import { validateTheme, themeNameFrom, validThemeName, REQUIRED, markGates, MARK_TINT, calloutGates, figureGates } from '../tools/theme-check.mjs';
 import { reportLines } from '../cli/theme.mjs';
 import { addedThemeLink, addedThemeStyle, setMarked, markedRefs, markedEntries, parseRef } from '../cli/theme-refs.mjs';
 import { MarketplaceError } from '../cli/marketplace.mjs';
@@ -426,5 +426,26 @@ test('a code callout\'s bracket is the accent on the code\'s ground, unless the 
   const r = validateTheme(older);
   assert.equal(r.ok, true);
   assert.ok(r.warnings.some((w) => /set --callout-ink/.test(w)), JSON.stringify(r.warnings));
+  assert.deepEqual(validateTheme(shipped).warnings, [], 'the shipped one sets its own ink');
+});
+
+// ── a figure's value (DECK_ANATOMY, #1181) ──────────────────────────────────
+
+test('a figure\'s value is the accent on the slide, unless the theme sets its own ink, at large type\'s 3:1', () => {
+  const light = { bg: '#fafaf8', accent: '#eb811b' };
+  const faint = figureGates(light);
+  assert.equal(faint.length, 1);
+  assert.equal(faint[0].fg, 'accent');
+  assert.match(faint[0].message, /--accent on --bg: 2\.\d\d < 3 — a figure's value would not read: set --figure-ink/);
+  assert.deepEqual(figureGates({ ...light, 'figure-ink': '#c4660f' }), [], 'its own ink reads');
+  assert.equal(figureGates({ ...light, 'figure-ink': '#f0c090' })[0].fg, 'figure-ink', 'and is what is judged once set');
+  assert.equal(figureGates({ bg: 'linear-gradient(180deg, #ffffff 0%, #1a1a1a 100%)', accent: '#444444' }).length, 1, 'on every stop of the slide: dark on the light end, too dark on the dark one');
+  // a theme from elsewhere still applies: a warning, as the callout's
+  const shipped = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'themes', 'metropolis.css'), 'utf8');
+  const older = shipped.replace(/\n\s*--figure-ink:[^\n]*/, '');
+  assert.notEqual(older, shipped, 'the fixture took the ink off');
+  const r = validateTheme(older);
+  assert.equal(r.ok, true);
+  assert.ok(r.warnings.some((w) => /set --figure-ink/.test(w)), JSON.stringify(r.warnings));
   assert.deepEqual(validateTheme(shipped).warnings, [], 'the shipped one sets its own ink');
 });

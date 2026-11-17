@@ -12,6 +12,7 @@ import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath, renderMathIn } from '../math/math.js';
 import { createSlideMedia } from './slide-media.js';
+import { createFigures } from './figure.js';
 import { initCode, placeAllCallouts } from '../code/code.js';
 import { fitCode } from '../code/fit.js';
 import { openSpeakerView, installSpeakerBridge } from './speaker.js';
@@ -2507,6 +2508,7 @@ export function init(userConfig = {}) {
     });
   }
   function toggleOverview() {
+    instance._figures?.finish();   // a value mid-count is cloned as written, never half-way
     if (overviewEl) {
       window.removeEventListener('resize', layoutOverview);
       overviewEl.remove(); overviewEl = null;
@@ -3374,8 +3376,26 @@ export function init(userConfig = {}) {
   slideMediaDriver.adopt();
   instance.on('slide', slideMediaDriver.sync);
 
+  // Figures (SPEC DECK_ANATOMY, figure.js): each value's length for the clamp
+  // to its column, and the count up a value asks for when its slide or its
+  // step arrives, forwards, in a live talk; a page that only shows counts none.
+  const figures = createFigures({
+    sections: () => instance._sections,
+    current: () => instance._sections[instance.state.slide - 1],
+    live: !printMode && !captureMode && !params.has('embedded'),
+  });
+  instance._figures = figures;
+  // the slide a deck opens on (a load, a deep link) is not an arrival: its values stand as written
+  let figuresArrive = false;
+  instance.on('slide', (e) => figures.arrive(figuresArrive ? e : {}, instance.state.step));
+  instance.on('build', figures.built);
+  instance.on('rescan', ({ slide }) => figures.adopt(instance._sections[slide - 1]));
+  // a value typed over in place is measured again as it changes
+  root.addEventListener('input', (e) => { const f = e.target?.closest?.('[data-figure]'); if (f?.parentElement) figures.adopt(f.parentElement); });
+
   // ----- go ----------------------------------------------------------------
   instance.sync();
+  figures.adopt();
   slideMediaDriver.sync();   // the first slide's clips that asked play, the rest stay where they are
 
   // Print stacks slides as pages; root-level chrome would appear once. Give
@@ -4016,6 +4036,7 @@ export function init(userConfig = {}) {
     if (i !== target.slide - 1) applyBuildState(instance._records[i], 0);
   });
   instance.goto(target.slide, target.step, { force: true });
+  figuresArrive = true;
 
   root.__decklight = instance;
   activeInstance = instance;

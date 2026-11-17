@@ -143,6 +143,10 @@ export function snippets() {
 
   <aside class="notes">\${9:Pros first, then the two that bite.}</aside>
 </section>$0`),
+    'Decklight figure': s('dl-figure', 'One large number over its label, counted up as it arrives (DECK_ANATOMY).', `<div class="figure">
+  <p data-figure data-count>\${1:94%}</p>
+  <p>\${2:of requests never reach the database}</p>
+</div>$0`),
   };
 }
 
@@ -253,7 +257,7 @@ const USAGE = `usage: decklight vscode [dir | deck.html]
     ${DATA_FILE}    typing data- completes data-build, data-layout and
                                 the rest, with their values and a line on each
     ${SNIPPETS_FILE}     dl-slide, dl-build, dl-notes, dl-diagram,
-                                dl-chart, dl-compare
+                                dl-chart, dl-compare, dl-figure
     settings.json               html.customData added, the rest of the file
                                 kept (a list of your own there: the line to
                                 add is said)
