@@ -14,6 +14,7 @@ import {
   addSeries, removeSeries, setType, setTitle, findChart, rewriteChart, jsonString,
   ASPECTS, aspectOf, setAspect, legendOf, setLegend,
   setPoint, addPoint, removePoint, addScatterSeries, setAxisTitle,
+  setBandCell, addBand, removeBand, setMarker, setMarkerLabel,
 } from '../src/core/chartdata.js';
 import { parseChart } from '../src/core/charts.js';
 
@@ -297,4 +298,87 @@ test('a scatter’s pairs are edited as text: a number where it stood, a point a
   assert.equal(setSeriesName(j, 0, 'b'), '{ "series": [ { "name": "b", "points": [[1, 2], [3, 4]] } ] }', 'naming a series needs no labels');
   assert.equal(setAxisTitle(j, 'y', 'ms'), '{ "series": [ { "name": "a", "points": [[1, 2], [3, 4]] } ], "y": "ms" }');
   assert.equal(setAxisTitle(setAxisTitle(j, 'y', 'ms'), 'y', ''), j);
+});
+
+// ---------- a series' band and markers (CHARTS, #1189) -----------------------
+
+const FC = `{ "labels": ["Mon", "Tue", "Wed"],
+  "now": "Tue",
+  "series": [ { "name": "load", "data": [1, 2, 3], "dashFrom": 1, "markers": [{ "at": "Wed", "label": "spike" }] },
+              { "name": "normal", "type": "band", "band": { "low": [0, 1, 2], "high": [2, 3, 4] } } ] }`;
+const LINE = { type: 'line', title: null };
+
+test('chartGrid: on a line chart a series shows its band as low / high and its markers as ticks', () => {
+  const g = chartGrid(FC, LINE);
+  assert.equal(g.ok, true);
+  assert.deepEqual(g.series[0].marks, [null, null, 'spike']);
+  assert.equal(g.series[0].band, null);
+  assert.equal(g.series[1].kind, 'band');
+  assert.deepEqual(g.series[1].band, { low: ['0', '1', '2'], high: ['2', '3', '4'] });
+  assert.equal(g.series[1].marks, null, 'a band series has no point to mark');
+  // a bar chart draws neither: the grid shows neither
+  assert.equal(chartGrid('{"labels":["a"],"series":[{"data":[1],"markers":[{"at":"a"}]}]}', BAR).series[0].marks, null);
+  const no = (json) => chartGrid(json, LINE).reason;
+  assert.match(no(FC.replace('"low": [0, 1, 2]', '"low": 3')), /band that is not a "low" and a "high" list/);
+  assert.match(no(FC.replace('"at": "Wed"', '"at": "Sun"')), /marker at no label/);
+  assert.match(no(FC.replace('"high": [2, 3, 4]', '"high": [2, 3, 4, 5]')), /band of series 2 has more values/);
+});
+
+test('setBandCell / addBand / removeBand: the band edited as text, added as a copy of the values', () => {
+  let j = addBand(FC, 0);
+  assert.match(j, /"data": \[1, 2, 3\], "band": \{ "low": \[1, 2, 3\], "high": \[1, 2, 3\] \}, "dashFrom"/);
+  j = setBandCell(j, 1, 0, 'high', '9');
+  assert.deepEqual(JSON.parse(j).series[0].band.high, [1, 9, 3]);
+  assert.equal(setBandCell(j, 0, 1, 'low', ''), j.replace('"low": [0, 1, 2]', '"low": [null, 1, 2]'));
+  assert.throws(() => setBandCell(j, 0, 0, 'low', 'x'), /not a number/);
+  assert.equal(removeBand(j, 0), FC);
+  assert.throws(() => setType(FC, LINE, 'bar'), /a band series needs a line or area chart/);
+  assert.equal(setType(FC, LINE, 'area').attr, 'area');
+  assert.throws(() => removeBand(j, 1), /a band series is its band/);
+  assert.equal(parseChart(j, LINE).series[0].band.high[1], 9);
+});
+
+test('setMarker / setMarkerLabel: a tick is a marker at the row, named by its label; its words beside it', () => {
+  let j = setMarker(FC, 0, 0, true);
+  assert.match(j, /\[\{ "at": "Wed", "label": "spike" \}, \{ "at": "Mon" \}\]/);
+  assert.equal(setMarker(j, 0, 0, true), j, 'one marker a row');
+  j = setMarkerLabel(j, 0, 0, 'start');
+  assert.match(j, /\{ "at": "Mon", "label": "start" \}/);
+  assert.equal(setMarkerLabel(j, 0, 0, ''), setMarker(FC, 0, 0, true), 'no words takes the words off');
+  assert.equal(setMarker(setMarker(j, 0, 0, false), 2, 0, false), FC.replace(', "markers": [{ "at": "Wed", "label": "spike" }]', ''), 'the last one takes the key');
+  assert.match(setMarkerLabel(FC, 1, 0, 'new'), /\{ "at": "Tue", "label": "new" \}/, 'words on an unticked row tick it');
+  assert.deepEqual(chartGrid(j, LINE).series[0].marks, ['start', null, 'spike']);
+});
+
+test('row edits keep the band in step and every reference on the row it named', () => {
+  const j = addBand(FC, 0);
+  // a renamed label carries the references that name it by that label
+  const renamed = setLabel(j, 1, 'Tuesday');
+  assert.equal(JSON.parse(renamed).now, 'Tuesday');
+  assert.equal(JSON.parse(setLabel(j, 2, 'Weds')).series[0].markers[0].at, 'Weds');
+  // a move swaps the band's values too, and renumbers a position
+  const moved = JSON.parse(moveRow(j, 0, 1));
+  assert.deepEqual(moved.series[1].band.low, [1, 0, 2]);
+  assert.equal(moved.series[0].dashFrom, 0, 'Tue, by its position, moved to 0');
+  assert.equal(moved.now, 'Tue');
+  // an added row is a gap in a band, never a pinch to 0
+  const added = JSON.parse(addRow(j, 0));
+  assert.deepEqual(added.series[1].band.high, [null, 2, 3, 4]);
+  assert.deepEqual(added.series[0].band.low, [null, 1, 2, 3]);
+  assert.equal(added.series[0].dashFrom, 2);
+  // a removed row takes its marker, and a dashFrom or now there comes off
+  const gone = JSON.parse(removeRow(j, 2));
+  assert.equal(gone.series[0].markers, undefined);
+  assert.deepEqual(gone.series[1].band.low, [0, 1]);
+  const goneTue = JSON.parse(removeRow(j, 1));
+  assert.equal(goneTue.now, undefined);
+  assert.equal(goneTue.series[0].dashFrom, undefined);
+  assert.equal(parseChart(removeRow(j, 1), LINE).notes.length, 0, 'nothing left naming no label');
+});
+
+test('a grid cell cleared is a gap the chart skips, and reopens empty (#1125)', () => {
+  const cleared = setCell(SRC, 1, 0, '');
+  assert.equal(parseChart(cleared, { type: 'line' }).series[0].data[1], null);
+  assert.equal(chartGrid(cleared, BAR).series[0].cells[1], '');
+  assert.match(cleared, /\[120, null, 45\]/);
 });

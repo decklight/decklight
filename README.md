@@ -147,7 +147,9 @@ itself (`<script src="decklight/dist/decklight.js">` and a
 - **Code and math.** highlight.js styled through theme tokens, LaTeX rendered
   to MathML with bundled Temml. No webfonts, no build step.
 - **Charts.** `data-chart` plus a small JSON block gives you a theme-aware SVG
-  chart: bar, line, area, pie, donut, scatter.
+  chart: bar, line, area, pie, donut, scatter. A line can turn dashed at
+  "now" and carry a shaded band, so a forecast, a learned range, a marked
+  anomaly and a threshold are data too.
 - **Terminals.** `decklight cast` records a real PTY session and the deck
   replays it, typing and streaming. Never a video.
 - **Narration.** Text-to-speech reads your notes in sync with the builds, or you

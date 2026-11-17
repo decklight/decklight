@@ -90,6 +90,7 @@ and draw that instead:
 | Parts of a system | A labelled diagram, four or fewer new things per step | `data-build` with `highlight` |
 | One fact that carries the slide | One large number and a short label | A figure, `<div class="figure">`, alone on the slide (DECK_ANATOMY) |
 | A claim resting on data | One chart, a takeaway title, one highlighted series | CHARTS |
+| A forecast, a normal range, a line crossing a limit | A line dashed from now with a band round it, a marked point, a threshold | `dashFrom`, `band`, `markers`, `threshold`, `now` in the chart's JSON (CHARTS) |
 | Two options, before and after | A side-by-side with identical layout | `data-layout="split"` (COMPARISON_SLIDES) |
 | A memorable line or a voice of authority | A short quote | A quote or statement slide |
 | A concrete thing, place or feeling | A relevant full-bleed picture | `data-background-image`, `data-background-dim` |

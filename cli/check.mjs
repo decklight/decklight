@@ -47,6 +47,7 @@ import {
   sectionInner, slideHeading, splitOpenTag,
 } from '../tools/deck-html.mjs';
 import { CLICK_MARK } from '../tools/sentences.mjs';
+import { parseChart } from '../tools/chart-spec.mjs';
 import { calloutBlocks, calloutSteps, calloutsOf, stepsOf as lineStepsOf } from '../tools/code-options.mjs';
 import { clickMismatch, clickMismatchText, readClickMismatch } from '../tools/click-match.mjs';
 import { isTemplateRef, parseTemplateRef } from '../tools/design-system-format.mjs';
@@ -807,6 +808,22 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       if ([...text].length > FIGURE_MAX_CHARS) {
         push('figure-long', `the figure's value "${text.length > 40 ? `${text.slice(0, 40)}…` : text}" is ${[...text].length} characters — a figure is a number and its unit (94%, $1.2M, 3×), at most ${FIGURE_MAX_CHARS}: put the words in its label, the <p> under it`, node);
       }
+    }
+    // a chart's JSON (CHARTS), read as the runtime reads it: what it refuses
+    // is the error box on the slide, and what it draws without (a band
+    // shorter than the labels, a dashFrom naming no label) is said here only
+    for (const node of descendants(tree)) {
+      const a = readAttrs(node.attrs);
+      if (!('data-chart' in a)) continue;
+      const body = /<script\b[^>]*\btype\s*=\s*["']?application\/json["']?[^>]*>([\s\S]*?)<\/script\s*>/i.exec(inner.slice(node.start, node.end));
+      let spec = null;
+      try {
+        spec = parseChart(body ? body[1] : null, { type: a['data-chart'] || undefined, title: a['data-title'] || undefined, aspect: a['data-aspect'] || undefined });
+      } catch (e) {
+        out.push(finding('error', 'chart', slide, head, `the chart shows an error box instead of a chart: ${e.message}`, addressOf(node)));
+        continue;
+      }
+      for (const note of spec.notes) push('chart', `the chart: ${note}`, node);
     }
     // code sized by hand (CODE_AND_MATH, #1185): a font-size on a <pre>, or on
     // a section that holds one, is right for one layout and clipped or tiny

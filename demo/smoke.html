@@ -184,14 +184,19 @@ Markdown notes body.
     </div>
   </section>
 
-  <!-- 13: charts — line series build in via the draw machinery; area static -->
+  <!-- 13: charts — line series build in via the draw machinery; area static.
+       p50 has a gap (two pieces, never a zero) and a marker; p99 turns dashed
+       at v3 with a band round it, which arrives with it; a threshold and a
+       now rule stand in the chrome for the whole build -->
   <section>
     <h2>Charts: line draw builds + area</h2>
     <div class="chart" data-chart="line" data-build="draw" style="max-width:46%">
       <script type="application/json">
       { "labels": ["v1", "v2", "v3", "v4", "v5"],
-        "series": [ { "name": "p50", "data": [120, 90, 80, 60, 45] },
-                    { "name": "p99", "data": [340, 300, 260, 220, 190] } ] }
+        "now": "v3", "threshold": { "y": 350, "label": "budget" },
+        "series": [ { "name": "p50", "data": [120, null, 80, 60, 45], "markers": [{ "at": "v4", "label": "fix" }] },
+                    { "name": "p99", "data": [340, 300, 260, 220, 190], "dashFrom": "v3",
+                      "band": { "low": [null, null, 260, 200, 160], "high": [null, null, 260, 250, 240] } } ] }
       </script>
     </div>
     <div class="chart" data-chart="area" data-aspect="4:1" style="max-width:46%">
@@ -356,6 +361,19 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
       rec('chartbroken', !!document.querySelector('section[data-slide-index="12"] .chart-broken')),
       rec('chartsteps', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .build-step').length),
       rec('chartdraw', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .chart-line.draw-stroke').length),
+      // a forecast (CHARTS, #1189): the dashed part draws through its mask as a
+      // dashed wire does, the band is in its series' step, the rules are chrome,
+      // and a gap breaks the line into two pieces (#1125)
+      rec('chartdashdraw', (() => {
+        const d = document.querySelector('section[data-slide-index="13"] svg.chart-svg .chart-line.chart-dashed');
+        return !!d && d.classList.contains('draw-stroke') && d.hasAttribute('data-draw-masked') && /^9(px)?,? 7(px)?$/.test(d.style.strokeDasharray.trim()) ? true : `${d?.className.baseVal} ${d?.hasAttribute('data-draw-masked')} ${d?.style.strokeDasharray}`;
+      })()),
+      rec('chartbandstep', (() => {
+        const b = document.querySelector('section[data-slide-index="13"] svg.chart-svg .chart-band');
+        return !!b && b.closest('.build-step')?.getAttribute('data-name') === 'p99' && !!document.querySelector('section[data-slide-index="13"] .chart-chrome .chart-threshold')
+          && !!document.querySelector('section[data-slide-index="13"] .chart-chrome .chart-now') && !!document.querySelector('section[data-slide-index="13"] [data-name="p50"] .chart-marker');
+      })()),
+      rec('chartgap', (document.querySelector('section[data-slide-index="13"] [data-name="p50"] .chart-line')?.getAttribute('d').match(/M/g) || []).length),
       rec('chartnomdfence', !document.querySelector('section[data-slide-index="5"] .chart')),
       // math (data-math, SPEC CODE_AND_MATH): MathML on HTML and markdown slides alike,
       // code and no-data-math sections untouched, \$ unescaped to a dollar

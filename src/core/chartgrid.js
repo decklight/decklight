@@ -22,6 +22,7 @@ import {
   addSeries, removeSeries, setType, setTitle, findChart, rewriteChart, GRID_TYPES,
   ASPECTS, aspectOf, setAspect, legendOf, setLegend,
   setPoint, addPoint, removePoint, addScatterSeries, setAxisTitle,
+  setBandCell, addBand, removeBand, setMarker, setMarkerLabel,
 } from './chartdata.js';
 import { renderChart } from './charts.js';
 import { boundedFetch } from './devmode.js';
@@ -185,9 +186,13 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     statusEl.textContent = failed ?? (readOnly ? '' : saving ? 'saving…' : `saved as you type · ${UNDO_CHORD} takes back each burst`);
   }
 
-  function cellAt(row, col) { return el.querySelector(`.dg-cell[data-row="${row}"][data-col="${col}"]`); }
-  function focusCell(row, col) {
-    const c = cellAt(row, col) ?? cellAt(Math.min(row, (grid?.labels.length ?? 1) - 1), Math.min(col, (grid?.series.length ?? 1) - 1));
+  // a number cell is a series' value, or one edge of its band (`part`)
+  function cellAt(row, col, part = null) {
+    const p = part ? `[data-part="${part}"]` : '';
+    return el.querySelector(`.dg-cell[data-row="${row}"][data-col="${col}"]${p}`);
+  }
+  function focusCell(row, col, part = null) {
+    const c = cellAt(row, col, part) ?? cellAt(row, col) ?? cellAt(Math.min(row, (grid?.labels.length ?? 1) - 1), Math.min(col, (grid?.series.length ?? 1) - 1));
     if (!c) return;
     c.focus();
     c.select?.();
@@ -225,9 +230,12 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
       b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', String(grid.type === t));
       const one = (t === 'pie' || t === 'donut') && grid.series.length > 1;
-      b.disabled = readOnly || one || scatter;
+      // a band series is a range round a line: only a line or area chart draws one
+      const ranged = t !== 'line' && t !== 'area' && grid.series.some((x) => x.kind === 'band');
+      b.disabled = readOnly || one || scatter || ranged;
       if (scatter) b.title = 'a scatter is x / y pairs: it stays a scatter';
       if (one) b.title = 'a pie takes one series: remove the others first';
+      if (ranged) b.title = 'a band series needs a line or area chart: remove it first';
       b.addEventListener('click', (e) => {
         e.stopPropagation();
         if (grid.type === t) return;
@@ -303,19 +311,32 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     el.append(choices('legend', 'Legend', [['auto', 'auto'], ['on', 'on'], ['off', 'off']], legendOf(json), (src, v) => setLegend(src, v)));
     if (scatter) { paintPairs(to, keep); return; }
 
-    // the grid
+    // the grid: a column a series, and on a line or area chart (CHARTS) its
+    // band's low and high as two more, and its markers as a ticked cell
     const scroll = h('div', 'dg-scroll');
     const table = h('table', 'dg-grid');
     const head = h('tr');
     const corner = h('th', 'dg-corner', pie ? 'slice' : 'label');
     head.append(corner);
+    const partsOf = (s) => [...(s.kind === 'band' ? [] : ['value']), ...(s.band ? ['low', 'high'] : []), ...(s.marks ? ['mark'] : [])];
+    const extras = grid.series.some((s) => partsOf(s).length > 1 || s.kind === 'band');
+    const sub = h('tr', 'dg-sub');
+    if (extras) { sub.append(h('th', 'dg-corner')); table.classList.add('dg-wide'); }
     grid.series.forEach((s, ci) => {
       const th = h('th');
+      th.colSpan = partsOf(s).length;
       th.append(cellInput(-1, ci, s.name, `series ${ci + 1} name`, 'dg-name', s.named ? '' : s.name));
       head.append(th);
+      for (const part of partsOf(s)) {
+        const word = { value: 'value', low: 'low', high: 'high', mark: 'marker' }[part];
+        const sh = h('th', `dg-part-head dg-part-${part}`, part === 'mark' ? '◆' : word);
+        sh.title = part === 'mark' ? 'a marker: the point emphasised, with its words' : `the ${word === 'value' ? 'values' : `band's ${word} edge`}`;
+        sub.append(sh);
+      }
     });
     const thead = h('thead');
     thead.append(head);
+    if (extras) thead.append(sub);
     const tbody = h('tbody');
     grid.labels.forEach((lab, ri) => {
       const tr = h('tr');
@@ -323,9 +344,13 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
       th.append(cellInput(ri, -1, lab, `label ${ri + 1}`, 'dg-label'));
       tr.append(th);
       grid.series.forEach((s, ci) => {
-        const td = h('td');
-        td.append(cellInput(ri, ci, s.cells[ri], `${s.name}, ${lab}`, 'dg-num'));
-        tr.append(td);
+        for (const part of partsOf(s)) {
+          const td = h('td');
+          if (part === 'value') td.append(cellInput(ri, ci, s.cells[ri], `${s.name}, ${lab}`, 'dg-num', '', 'value'));
+          else if (part === 'mark') { td.className = 'dg-mark-cell'; td.append(...markCell(ri, ci, s, lab)); }
+          else td.append(cellInput(ri, ci, s.band[part][ri], `${s.name}, ${lab}, band ${part}`, 'dg-num dg-band', '', part));
+          tr.append(td);
+        }
       });
       tbody.append(tr);
     });
@@ -344,22 +369,76 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     const down = button('dg-down', '↓', 'move this row down', () => act((src) => moveRow(src, rowAt(), +1), (c) => ({ row: rowAt() + 1, col: c.col })));
     const addS = button('dg-add-series', '+ series', 'add a series', () => act((src) => addSeries(src), () => ({ row: -1, col: m })));
     const delS = button('dg-del-series', '− series', 'remove this series', () => act((src) => removeSeries(src, colAt()), () => ({ row: cur.row, col: Math.max(0, colAt() - (colAt() === m - 1 ? 1 : 0)) })));
+    // a band round the series the caret is in: its low and high start as its values
+    const lines = grid.type === 'line' || grid.type === 'area';
+    const sCur = grid.series[colAt()];
+    const bandBtn = lines ? (sCur.band
+      ? button('dg-del-band', '− band', 'take the band off this series', () => act((src) => removeBand(src, colAt()), () => ({ row: Math.max(0, cur.row), col: colAt(), part: 'value' })))
+      : button('dg-add-band', '+ band', 'add a band round this series: a low and a high a label', () => act((src) => addBand(src, colAt()), () => ({ row: Math.max(0, cur.row), col: colAt(), part: 'low' }))))
+      : null;
+    if (bandBtn && sCur.kind === 'band') { bandBtn.disabled = true; bandBtn.title = 'a band series is its band'; }
     del.disabled = n <= 1;
     up.disabled = rowAt() <= 0 || cur.row < 0;
     down.disabled = rowAt() >= n - 1 || cur.row < 0;
     addS.disabled = pie;
     if (pie) addS.title = 'a pie takes one series';
     delS.disabled = m <= 1;
-    for (const b of [add, del, up, down, addS, delS]) if (readOnly) b.disabled = true;
-    actions.append(add, del, up, down, h('span', 'dg-spacer'), addS, delS);
+    for (const b of [add, del, up, down, addS, delS, bandBtn]) if (b && readOnly) b.disabled = true;
+    actions.append(add, del, up, down, h('span', 'dg-spacer'), ...(bandBtn ? [bandBtn] : []), addS, delS);
     el.append(actions);
 
     statusEl = h('div', 'dg-status');
     el.append(statusEl);
     status();
     el.append(h('div', 'narr-head ins-foot', readOnly ? 'esc lets go of it' : 'tab and enter walk the cells'));
-    if (to) focusCell(to.row, to.col);
-    else if (keep && keep.dataset.row != null) focusCell(Number(keep.dataset.row), Number(keep.dataset.col));
+    if (to) focusCell(to.row, to.col, to.part);
+    else if (keep && keep.dataset.row != null) {
+      const at = [Number(keep.dataset.row), Number(keep.dataset.col)];
+      if (keep.classList.contains('dg-mark') || keep.classList.contains('dg-mark-label')) {
+        el.querySelector(`.${keep.classList.contains('dg-mark') ? 'dg-mark' : 'dg-mark-label'}[data-row="${at[0]}"][data-col="${at[1]}"]`)?.focus();
+      } else focusCell(...at, keep.dataset.part ?? null);
+    }
+  }
+
+  /**
+   * A marker's cell: ticked where the series has a marker at the row, and
+   * then its words beside the tick. Ticking is its own write; the words are
+   * written as a cell's number is, once the typing pauses.
+   */
+  function markCell(row, col, s, lab) {
+    const words = s.marks[row];
+    const tick = h('input', 'dg-mark');
+    tick.type = 'checkbox';
+    tick.checked = words != null;
+    tick.disabled = readOnly;
+    tick.dataset.row = String(row);
+    tick.dataset.col = String(col);
+    tick.setAttribute('aria-label', `${s.name}, ${lab}: a marker`);
+    tick.addEventListener('focus', () => { const moved = cur.row !== row; cur = { row, col }; if (moved) syncRowButtons(); });
+    tick.addEventListener('keydown', (e) => keys(e, tick));
+    tick.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const on = tick.checked;
+      act((src) => setMarker(src, row, col, on));
+      el.querySelector(`.${on ? 'dg-mark-label' : 'dg-mark'}[data-row="${row}"][data-col="${col}"]`)?.focus();
+    });
+    if (words == null) return [tick];
+    const text = h('input', 'dg-cell dg-mark-label');
+    text.type = 'text';
+    text.value = words;
+    text.placeholder = 'its words';
+    text.readOnly = readOnly;
+    text.spellcheck = false;
+    text.autocomplete = 'off';
+    text.dataset.row = String(row);
+    text.dataset.col = String(col);
+    text.dataset.part = 'label';
+    text.setAttribute('aria-label', `${s.name}, ${lab}: the marker's words`);
+    text.addEventListener('focus', () => { text.dataset.was = text.value; cur = { row, col }; });
+    text.addEventListener('input', () => edit(text));
+    text.addEventListener('blur', () => flush());
+    text.addEventListener('keydown', (e) => keys(e, text));
+    return [tick, text];
   }
 
   // ── a scatter: x / y pairs per series, and what its axes measure ─────────
@@ -501,18 +580,19 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     }
   }
 
-  /** One cell: a label, a series' name (row -1) or a number. */
-  function cellInput(row, col, value, label, cls, placeholder = '') {
+  /** One cell: a label, a series' name (row -1) or a number, a value or an edge of a band (`part`). */
+  function cellInput(row, col, value, label, cls, placeholder = '', part = null) {
     const c = h('input', `dg-cell ${cls}`);
     c.type = 'text';
     c.value = placeholder && value === placeholder ? '' : value;
     if (placeholder) c.placeholder = placeholder;
     c.dataset.row = String(row);
     c.dataset.col = String(col);
+    if (part) c.dataset.part = part;
     c.setAttribute('aria-label', label);
     c.spellcheck = false;
     c.autocomplete = 'off';
-    if (cls === 'dg-num') c.inputMode = 'decimal';
+    if (cls.startsWith('dg-num')) c.inputMode = 'decimal';
     c.readOnly = readOnly;
     c.addEventListener('focus', () => {
       c.dataset.was = c.value;
@@ -540,15 +620,18 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     let next;
     if (row === -1) next = setSeriesName(json, col, c.value);
     else if (col === -1) next = setLabel(json, row, c.value);
+    else if (c.dataset.part === 'label') next = setMarkerLabel(json, row, col, c.value);
     else {
+      const part = c.dataset.part;
+      const put = (v) => (part === 'low' || part === 'high' ? setBandCell(json, row, col, part, v) : setCell(json, row, col, v));
       const ok = cellNumber(c.value).ok;
       c.classList.toggle('dg-bad', !ok);
       c.setAttribute('aria-invalid', String(!ok));
       c.title = ok ? '' : 'not a number: not saved';
       // not a number: the cell keeps, on the slide and in the file, what it
       // held when the caret came in, never the `19` on the way to `19o`
-      if (!ok) { if (cellNumber(c.dataset.was ?? '').ok) { apply(setCell(json, row, col, c.dataset.was ?? '')); later(); } return; }
-      next = setCell(json, row, col, c.value);
+      if (!ok) { if (cellNumber(c.dataset.was ?? '').ok) { apply(put(c.dataset.was ?? '')); later(); } return; }
+      next = put(c.value);
     }
     apply(next);
     later();
@@ -559,24 +642,28 @@ export function createChartGrid({ chart, target, ordinal, editmode, toast = () =
     // a cell's keys are its own: the deck never hears what is typed here
     e.stopPropagation();
     const row = Number(c.dataset.row), col = Number(c.dataset.col);
+    const box = c.type === 'checkbox';
     if (e.key === 'Escape') {
       e.preventDefault();
-      if (c.value !== c.dataset.was) { c.value = c.dataset.was ?? ''; edit(c); c.select(); } else c.blur();
+      if (!box && c.value !== c.dataset.was) { c.value = c.dataset.was ?? ''; edit(c); c.select(); } else c.blur();
       return;
     }
     if (e.key === 'Enter') {
       e.preventDefault();
       flush();
       const to = row + (e.shiftKey ? -1 : 1);
-      if (cellAt(to, col)) focusCell(to, col);
+      const same = box ? el.querySelector(`.dg-mark[data-row="${to}"][data-col="${col}"]`) : cellAt(to, col, c.dataset.part ?? null);
+      if (same && box) same.focus();
+      else if (same) focusCell(to, col, c.dataset.part ?? null);
       return;
     }
     if (e.key === 'Tab' && grid) {
-      // across, then on to the next row's label; past either end, the tab order's
-      const last = grid.series.length - 1;
-      const [r, k] = e.shiftKey ? (col > -1 ? [row, col - 1] : [row - 1, last]) : (col < last ? [row, col + 1] : [row + 1, -1]);
-      const to = r === -1 && k === -1 ? null : cellAt(r, k);
-      if (to) { e.preventDefault(); to.focus(); to.select(); }
+      // across, then on to the next row's label: the grid's cells in reading
+      // order (a band's edges and a marker after their series' value); past
+      // either end, the tab order's
+      const walk = [...el.querySelectorAll('.dg-grid :is(.dg-cell, .dg-mark)')];
+      const to = walk[walk.indexOf(c) + (e.shiftKey ? -1 : 1)];
+      if (to) { e.preventDefault(); to.focus(); to.select?.(); }
     }
   }
 

@@ -4057,6 +4057,17 @@
 /* a scatter's pairs: an x and a y under each series' name, a number per point */
 .decklight-inspector .dg-pairs .dg-axis-head, .decklight-inspector .dg-pairs .dg-pt-n { color: #8d94a1; font-size: 10.5px; font-weight: 400; text-align: center; }
 .decklight-inspector .dg-pairs .dg-pt-n { text-align: right; padding-right: 6px; }
+/* a line series' band edges and its markers (CHARTS): a second header row
+   names the columns, a band's edges sit a shade back from its values */
+.decklight-inspector .dg-part-head { color: #8d94a1; font-size: 10.5px; font-weight: 400; text-align: center; }
+.decklight-inspector .dg-part-mark { min-width: 22px; }
+.decklight-inspector .dg-band { background: rgba(255, 255, 255, .06); }
+.decklight-inspector .dg-mark-cell { white-space: nowrap; }
+.decklight-inspector .dg-mark { margin: 0 4px; vertical-align: middle; accent-color: #9ecbff; cursor: pointer; }
+.decklight-inspector .dg-cell.dg-mark-label { width: 7.5em; min-width: 7.5em; vertical-align: middle; }
+/* a grid with band and marker columns is wide: its numbers take less room each */
+.decklight-inspector .dg-grid.dg-wide .dg-num { min-width: 44px; }
+.decklight-inspector .dg-grid.dg-wide .dg-label { min-width: 64px; }
 .decklight-inspector .dg-label { min-width: 84px; color: #e4e7ec; }
 .decklight-inspector .dg-num { text-align: right; font: 12.5px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
 .decklight-inspector .dg-cell.dg-bad { border-color: #f08a7e; box-shadow: 0 0 0 1px #f08a7e; background: rgba(240, 138, 126, .12); }

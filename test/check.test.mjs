@@ -648,3 +648,18 @@ test('a figure whose value is more than a few characters is a warning: a sentenc
   assert.deepEqual(found[0].at, { path: [0, 0], tag: 'p' });
   assert.match(found[1].message, /"1,500,000" is 9 characters/, 'read as a reader sees it: tags out, spaces trimmed');
 });
+
+test('a chart is read as the runtime reads it: what it refuses is an error, what it draws without a warning (#1189)', () => {
+  const chart = (json, type = 'line') => `<div class="chart" data-chart="${type}"><script type="application/json">${JSON.stringify(json)}</script></div>`;
+  const fine = { labels: ['Q1', 'Q2', 'Q3'], now: 'Q2', threshold: { y: 5, label: 'alert' },
+    series: [{ name: 's', data: [1, 2, 3], dashFrom: 'Q2', band: { low: [1, 1, 2], high: [1, 3, 4] }, markers: [{ at: 'Q3', label: 'x' }] }] };
+  const html = deck(`  <section><h2>Fine</h2>${chart(fine)}${chart({ labels: ['a'], series: [{ data: [1] }] }, 'bar')}</section>
+  <section><h2>Refused</h2>${chart({ ...fine, series: [{ data: [1], band: { low: 1 } }] })}<div class="chart" data-chart="bar"><script type="application/json">{ not json }</script></div></section>
+  <section><h2>Drawn without</h2>${chart({ ...fine, now: 'Q9', series: [{ ...fine.series[0], dashFrom: 7, band: { low: [1], high: [2, 3, 4] } }] })}</section>`);
+  const found = only(staticFindings(html, everything), 'chart');
+  assert.deepEqual(found.map((f) => [f.slide, f.level]), [[2, 'error'], [2, 'error'], [3, 'warn'], [3, 'warn'], [3, 'warn']], 'a fine chart says nothing');
+  assert.match(found[0].message, /error box instead of a chart: series 1: "band" must be/);
+  assert.match(found[1].message, /invalid JSON/);
+  assert.deepEqual(found[0].at, { path: [1], tag: 'div' }, 'the chart is named, for Fix it');
+  assert.match(found.slice(2).map((f) => f.message).join('\n'), /band's "low" has 1 value for 3 labels[^]*"dashFrom": 7 names no label[^]*"now": "Q9" names no label/);
+});
