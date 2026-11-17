@@ -85,9 +85,12 @@ const CONTRACT = new Set(THEME_CONTRACT);
  * grows code (CODE_AND_MATH), which a template with a big code slot raises;
  * `--code-callout-width` the gutter a line walk's callouts take beside it;
  * `--figure-size` the size a figure's value is set at (DECK_ANATOMY), which a
- * template built round one large number raises.
+ * template built round one large number raises; `--steps-top`,
+ * `--steps-bottom`, `--steps-inset`, `--steps-align` and `--steps-size`
+ * where a run's strip sits and how large it is (DECK_ANATOMY), which a design
+ * system places.
  */
-export const OPEN_TOKENS = ['--code-max-size', '--code-callout-width', '--figure-size'];
+export const OPEN_TOKENS = ['--code-max-size', '--code-callout-width', '--figure-size', '--steps-top', '--steps-bottom', '--steps-inset', '--steps-align', '--steps-size'];
 const OPEN = new Set(OPEN_TOKENS);
 
 const lineAt = (text, index) => text.slice(0, index).split('\n').length;

@@ -301,6 +301,7 @@ const HARNESSES = [
   'fit-render',
   'lines-render',
   'figure-render',
+  'steps-render',
   'strict-render',
   'shot-render',
   'plugin-render',

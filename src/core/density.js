@@ -39,7 +39,7 @@ export const DENSITY = Object.freeze({
  * any other. It is only left out of the paragraph COUNT (measureColumn).
  */
 const NOT_PROSE = 'aside, script, style, template, pre, svg, canvas, .chart, .terminal, table, '
-  + '.slide-bg, .decklight-hero-logo, h1, h2, h3, h4, h5, h6, .pin-title';
+  + '.slide-bg, .decklight-hero-logo, .decklight-steps, nav.steps, h1, h2, h3, h4, h5, h6, .pin-title';
 
 const TITLE_COMPANION = '.subtitle, .pin-subtitle, '
   + '[data-slot="number"], [data-slot="eyebrow"], [data-slot="subtitle"]';
@@ -92,7 +92,7 @@ function columnsOf(sec) {
     const list = sec.querySelector(':scope > .split-columns');
     if (list) return [{ el: list, halves: 2 }];
     const sides = [...sec.children].filter((el) => !el.matches('h1, h2, .subtitle, aside, script, style, '
-      + '.decklight-hero-logo, .slide-bg, .split-footer, .pin-title, .pin-subtitle'));
+      + '.decklight-hero-logo, .slide-bg, .decklight-steps, nav.steps, .split-footer, .pin-title, .pin-subtitle'));
     if (sides.length >= 2) return sides.slice(0, 2).map((el) => ({ el, halves: 1 }));
   }
   return [{ el: sec, halves: 1 }];

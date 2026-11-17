@@ -13,6 +13,7 @@ import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath, renderMathIn } from '../math/math.js';
 import { createSlideMedia } from './slide-media.js';
 import { createFigures } from './figure.js';
+import { setupSteps } from './steps.js';
 import { initCode, placeAllCallouts } from '../code/code.js';
 import { fitCode } from '../code/fit.js';
 import { openSpeakerView, installSpeakerBridge } from './speaker.js';
@@ -165,7 +166,7 @@ function markClickMismatch(section, record) {
 
 function leadingHeading(section) {
   for (const el of section.children) {
-    if (el.matches('aside, script, style, .decklight-hero-logo, .slide-bg')) continue;
+    if (el.matches('aside, script, style, .decklight-hero-logo, .slide-bg, .decklight-steps, nav.steps')) continue;
     // Heading first, BEFORE any position test: pinning is what makes a title
     // absolute, so asking "is this out of flow?" about the heading unpins it on
     // the next sync() and the whole thing oscillates.
@@ -226,7 +227,7 @@ function autoPinY(sec, config) {
   if (attr === '') return deckY ?? PIN_DEFAULT_Y; // bare data-pin forces even when config is off
   if (deckY === null) return null;
   const hasContent = [...sec.querySelectorAll(PINNABLE_CONTENT)]
-    .some((el) => !el.closest('aside') && !el.closest('.decklight-hero-logo'));
+    .some((el) => !el.closest('aside') && !el.closest('.decklight-hero-logo') && !el.closest('nav.steps'));
   return hasContent ? deckY : null;
 }
 
@@ -311,7 +312,7 @@ function setupPinnedTitles(sections, config) {
  */
 function splitContent(sec) {
   return [...sec.children].filter((el) =>
-    !el.matches('h1, h2, .subtitle, aside, script, style, .decklight-hero-logo, .slide-bg'));
+    !el.matches('h1, h2, .subtitle, aside, script, style, .decklight-hero-logo, .slide-bg, .decklight-steps, nav.steps'));
 }
 
 function setupSplit(sections, slideNumber = (i) => i + 1) {
@@ -832,6 +833,14 @@ export function init(userConfig = {}) {
       modules: playlist?.modules ?? [],
       skipModule: playlistIndex,
     });
+    // a slide in a run is found by its group's name too (#1188): "fresh context" finds its slides
+    const steps = instance._steps;
+    if (steps?.runs.length) {
+      for (const r of rows) {
+        const w = r.href ? null : steps.at[r.slide - 1];
+        if (w) r.haystack += ' ' + steps.runs[w.run].groups[w.group].toLowerCase();
+      }
+    }
     // A multi-module deck's chapters get rows of their own, ahead of the slide list.
     // `buildIndex` used to hold that in-file chapters "need nothing special —
     // they are already indexed as ordinary slides", which is true of FINDING
@@ -858,7 +867,36 @@ export function init(userConfig = {}) {
   // ranked list, because a query's answer is sorted by relevance and a tree
   // would hide half of it — folding is a BROWSING aid, not a search one.
   let finderOpen = new Set();        // chapter slide numbers currently unfolded
-  const finderOutlined = () => hasMarkersDOM && !playlist && !finderQuery;
+  // a deck with runs of slides (DECK_ANATOMY, #1188) is an outline too: its slides under their groups
+  const hasRuns = () => !!instance._steps?.runs.length;
+  const finderOutlined = () => (hasMarkersDOM || hasRuns()) && !playlist && !finderQuery;
+  /**
+   * `rows` (slides, in deck order) with a row for each group of a run ahead of
+   * its slides: `{ group: true, title, step, of, count }`, standing where its
+   * first slide does (⏎ goes there), the slides under it marked `inGroup`.
+   * A group is the slides in a row that share it; each row keeps its place in
+   * the fold (`child`, `parent`) so ← climbs out of a group as out of a slide.
+   */
+  function withGroups(rows) {
+    const steps = instance._steps;
+    if (!steps?.runs.length) return rows;
+    const keyOf = (r) => { const w = steps.at[r.slide - 1]; return w ? `${w.run}:${w.group}` : null; };
+    const out = [];
+    rows.forEach((r, i) => {
+      const key = keyOf(r);
+      if (!key) { out.push(r); return; }
+      if (i === 0 || keyOf(rows[i - 1]) !== key) {
+        let count = 1;
+        while (i + count < rows.length && keyOf(rows[i + count]) === key) count++;
+        const w = steps.at[r.slide - 1];
+        const run = steps.runs[w.run];
+        out.push({ slide: r.slide, title: run.groups[w.group], group: true, step: w.group + 1, of: run.groups.length, count,
+          ...(r.child ? { child: true, parent: r.parent } : {}) });
+      }
+      out.push({ ...r, inGroup: true });
+    });
+    return out;
+  }
   /** The chapter a slide belongs to — the last marker at or before it — or null. */
   const chapterOf = (slide) => {
     let at = null;
@@ -870,13 +908,13 @@ export function init(userConfig = {}) {
     const marks = moduleNav.markers();
     const out = [];
     // slides before the first chapter belong to none, and stay top-level
-    for (const sl of slides) if (!marks.length || sl.slide < marks[0].slide) out.push(sl);
+    out.push(...withGroups(slides.filter((sl) => !marks.length || sl.slide < marks[0].slide)));
     marks.forEach((mk, i) => {
       const end = marks[i + 1]?.slide ?? Infinity;
       const kids = slides.filter((sl) => sl.slide >= mk.slide && sl.slide < end);
       const open = finderOpen.has(mk.slide);
       out.push({ slide: mk.slide, title: mk.title, chapter: true, count: kids.length, open });
-      if (open) for (const k of kids) out.push({ ...k, child: true, parent: mk.slide });
+      if (open) out.push(...withGroups(kids.map((k) => ({ ...k, child: true, parent: mk.slide }))));
     });
     return out;
   }
@@ -912,8 +950,9 @@ export function init(userConfig = {}) {
     finderMatches.forEach((m, i) => {
       const row = document.createElement('div');
       row.setAttribute('role', 'option');
-      row.className = 'tp-row' + (m.slide === instance.state.slide && !m.chapter ? ' tp-current' : '')
-        + (m.href || m.chapter ? ' tp-module' : '') + (m.child ? ' tp-child' : '');
+      row.className = 'tp-row' + (m.slide === instance.state.slide && !m.chapter && !m.group ? ' tp-current' : '')
+        + (m.href || m.chapter ? ' tp-module' : '') + (m.child ? ' tp-child' : '')
+        + (m.group ? ' tp-group' : '') + (m.inGroup ? ' tp-in-group' : '');
       // Both shapes read the same, because they mean the same thing to the
       // person looking for one (`playlist.js`: two shapes, one vocabulary).
       // What differs is what happens on ⏎ — a page load or a goto — and the
@@ -934,6 +973,13 @@ export function init(userConfig = {}) {
         const count = document.createElement('span');
         count.className = 'tp-count';
         count.textContent = ` · ${m.count} slide${m.count === 1 ? '' : 's'}`;
+        row.append(count);
+      } else if (m.group) {
+        // a run's group (#1188): its name, its place in the run, and how many slides it holds
+        row.append(m.title);
+        const count = document.createElement('span');
+        count.className = 'tp-count';
+        count.textContent = ` · step ${m.step} of ${m.of} · ${m.count} slide${m.count === 1 ? '' : 's'}`;
         row.append(count);
       } else {
         row.textContent = m.href || m.chapter ? `▸ ${m.title} — module` : `${m.slide} · ${m.title}`;
@@ -960,7 +1006,8 @@ export function init(userConfig = {}) {
     finderEl.querySelector('.tp-caption').textContent = m.href
       ? `module — ${m.title} (${m.href})`
       : m.chapter ? `module — ${m.title} (slide ${m.slide} of this deck)`
-        : `slide ${m.slide} — ${m.title}`;
+        : m.group ? `step ${m.step} of ${m.of} — ${m.title} (from slide ${m.slide})`
+          : `slide ${m.slide} — ${m.title}`;
     clearTimeout(finderDebounce);
     const frame = finderEl.querySelector('iframe');
     if (immediate) finderPreviewSwap(frame, m);
@@ -976,7 +1023,7 @@ export function init(userConfig = {}) {
       const ch = had.chapter ? had.slide : chapterOf(had.slide);
       if (ch != null) finderOpen.add(ch);
       renderFinderList();
-      const i = finderMatches.findIndex((r) => r.slide === had.slide && !!r.chapter === !!had.chapter);
+      const i = finderMatches.findIndex((r) => r.slide === had.slide && !!r.chapter === !!had.chapter && !!r.group === !!had.group);
       selectFinderRow(Math.max(0, i), false);
       return;
     }
@@ -1035,7 +1082,7 @@ export function init(userConfig = {}) {
     renderFinderList();
     closeOnBackdrop(finderEl, closeSlideFinder);
     root.appendChild(finderEl);
-    selectFinderRow(Math.max(0, finderMatches.findIndex((m) => !m.chapter && m.slide === instance.state.slide)), true);
+    selectFinderRow(Math.max(0, finderMatches.findIndex((m) => !m.chapter && !m.group && m.slide === instance.state.slide)), true);
     finderEl.querySelector('.tp-filter')?.focus({ preventScroll: true });
   }
   function closeSlideFinder() {
@@ -1076,6 +1123,7 @@ export function init(userConfig = {}) {
       if (!r.ok) throw new Error(String(r.status));
     } catch (e) { toast(`could not ${hidden ? 'hide' : 'unhide'} slide ${slide} — ${e.message}`); return; }
     sec.toggleAttribute('data-hidden', hidden);
+    instance._redrawSteps?.();   // a run counts the slides shown: renumbered (DECK_ANATOMY)
     toast(hidden ? `slide ${slide} hidden — the audience will not see it (?all shows it)` : `slide ${slide} shown again`);
     if (hidden && !showHidden && instance.state.slide === slide) {
       const to = instance._visibleFrom(slide + 1, +1) ?? instance._visibleFrom(slide - 1, -1);
@@ -1930,6 +1978,7 @@ export function init(userConfig = {}) {
       applyConcepts(stage, config.concepts); // idempotent; covers dynamic slides
       setupHeroLogos(this._sections);        // idempotent; before pin measurement
       setupMedia(this._sections, { printMode }); // backgrounds first — .slide-bg must not read as content
+      this._steps = setupSteps(this._sections); // a run's strip, numbered from the slides as they are now (DECK_ANATOMY)
       setupPinnedTitles(this._sections, config);
       setupSplit(this._sections);            // after pins — .subtitle is marked there
       markDensity(this._sections);           // after split — it counts per column (SLIDE_DENSITY)
@@ -3281,6 +3330,8 @@ export function init(userConfig = {}) {
   // A slide op made in place (editmode.js): not in a deck of chapters, whose
   // outline is built once; and an overview that is open is drawn again.
   instance._slideOpsInPlace = () => !hasMarkersDOM && !playlist;
+  // a slide's group changed in place (the Slide tab's Step): its run is numbered and drawn again
+  instance._redrawSteps = () => { instance._steps = setupSteps(instance._sections); };
   instance._afterSlideOp = () => {
     try { sessionStorage.removeItem(OVERVIEW_OPEN_KEY); } catch { /* nothing kept */ }
     if (overviewEl) { toggleOverview(); toggleOverview(); }

@@ -25,3 +25,19 @@
   color: var(--northwind-color-text-accent); font-size: .6em;
   letter-spacing: .1em; text-transform: uppercase;
 }
+
+/* A run's strip (SPEC DECK_ANATOMY): Northwind sets it as a kicker, small
+   capitals in its accent role. On a walkthrough slide it stands in the
+   template's steps slot, above the title, left-aligned like the rest. */
+.decklight .decklight-steps {
+  --steps-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.decklight .decklight-steps .steps-current { color: var(--northwind-color-text-accent); }
+.decklight .nw-walkthrough { text-align: left; }
+.decklight .nw-walkthrough [data-ds-injected][data-slot="steps"] {
+  border-bottom: 2px solid var(--northwind-color-text-accent);
+  padding-bottom: .5em; margin-bottom: 1em;
+}
+.decklight .nw-walkthrough .decklight-steps { --steps-align: flex-start; }

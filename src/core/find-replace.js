@@ -32,7 +32,7 @@ export function acrossFormatting(sections, find, { caseSensitive = false, wholeW
   const body = escapeRe(find);
   const re = new RegExp(wholeWord ? `(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])` : body, `gu${caseSensitive ? '' : 'i'}`);
   const count = (s) => (s.match(re) ?? []).length;
-  const SKIP = `script, style, aside, .slide-bg, .decklight-hero-logo${code ? '' : ', pre, code'}`;
+  const SKIP = `script, style, aside, .slide-bg, .decklight-hero-logo, .decklight-steps${code ? '' : ', pre, code'}`;
   let more = 0;
   for (const sec of sections) {
     for (const block of sec.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, td, th, figcaption, blockquote, dt, dd, text')) {

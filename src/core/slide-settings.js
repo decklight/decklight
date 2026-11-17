@@ -34,6 +34,9 @@ export const TRANSITIONS = ['none', 'fade', 'slide', 'scale', 'flip'];
 export const SLIDE_FIELDS = [
   { key: 'chapter', attr: 'data-module', label: 'Chapter starts here', kind: 'text', placeholder: 'no chapter',
     title: 'a chapter of this name starts on this slide; empty, none does', reload: 'a chapter is read when the deck loads' },
+  // a slide in a run (DECK_ANATOMY, #1188): which of the run's groups it is in
+  { key: 'step', attr: 'data-step', label: 'Step', kind: 'step',
+    title: 'the group of its run this slide is in; the first choice continues the slide before', when: (sec, run) => !!run },
   { key: 'transition', attr: 'data-transition', label: 'Transition', kind: 'choice',
     choices: [['', 'the deck’s'], ...TRANSITIONS.map((t) => [t, t])], title: 'how this slide arrives' },
   { key: 'morph', attr: 'data-auto-animate', label: 'Morph from previous', kind: 'morph',
@@ -72,6 +75,7 @@ export function fieldValue(sec, field) {
   if (field.kind === 'toggle') return raw !== null;
   if (field.kind === 'clock') return raw && Number(raw) > 0 ? clockText(raw) : '';
   if (field.kind === 'choice') return raw !== null && field.choices.some(([v]) => v === raw) ? raw : '';
+  if (field.kind === 'step') return raw === null ? '' : raw.trim();
   if (field.kind === 'range') { const d = Number(raw); return Number.isFinite(d) ? Math.round(Math.min(Math.max(d, 0), 1) * 100) : 0; }
   if (field.kind === 'seconds') { const d = Number(raw); return raw !== null && raw.trim() !== '' && Number.isFinite(d) && d >= 0 ? secondsText(d) : ''; }
   // a pin: { mode: '' the deck's | 'none' off | 'pin' pinned, y: its height or '' }
@@ -120,6 +124,11 @@ export function writeFor(field, input, current) {
   }
   const v = String(input ?? '').trim();
   if (v === String(current ?? '')) return null;
+  if (field.kind === 'step') {
+    // one of the run's groups, as the run names it, or none: the group before continues
+    if (v !== '' && !(field.choices ?? []).some(([c]) => c === v)) return { error: `not a group of this run: ${v}` };
+    return { set: { [field.attr]: v === '' ? null : v } };
+  }
   if (field.kind === 'path' && v !== '' && !pathOk(v)) return { error: 'a file beside the deck, written as a relative path: media/loop.mp4' };
   if (field.kind === 'choice' && v !== '' && !field.choices.some(([c]) => c === v)) return { error: `not a ${field.label.toLowerCase()}: ${v}` };
   if (field.kind === 'text' && !chapterOk(v)) return { error: 'a chapter name is one line of up to 120 characters' };
@@ -198,6 +207,22 @@ export const dimValue = (pct) => {
 /** A path the server takes for a background file: relative, beside the deck. */
 const pathOk = (v) => /^(?![a-z][a-z0-9+.-]*:)(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\s"'<>\\?#][^"'<>\\?#]{0,199}$/i.test(v);
 
+/**
+ * The Step field's choices for slide `slide` (1-based) given what the runtime
+ * read of the deck's runs (`{ runs, at }`, tools/steps.mjs), or null when the
+ * slide is in no run: first what an absent `data-step` means (the run's first
+ * group on the slide that starts it, else the group of the slide before),
+ * then every group of the run.
+ */
+export function stepChoices(steps, slide) {
+  const where = steps?.at?.[slide - 1];
+  if (!where) return null;
+  const run = steps.runs[where.run];
+  const before = slide > run.start ? steps.at[slide - 2] : null;
+  const absent = before ? `continues: ${run.groups[before.group]}` : `the first: ${run.groups[0]}`;
+  return [['', absent], ...run.groups.map((g) => [g, g])];
+}
+
 /** Put `set` (`{ name: value }`, as the server wrote it) on a slide's `<section>`: a string its value, true bare, null off. */
 export function applySlideAttrs(sec, set) {
   if (!sec || !set || typeof set !== 'object') return;
@@ -225,6 +250,8 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
   const touchesBackground = (set) => Object.keys(set).some((k) => k.startsWith('data-background-'));
   // the pin and the subtitle are the slide's layout: laid out again for them
   const touchesLayout = (set) => Object.hasOwn(set, 'data-pin') || Object.hasOwn(set, 'data-subtitle');
+  // a slide's group renumbers its run: every strip of it is drawn again
+  const touchesSteps = (set) => Object.keys(set).some((k) => k === 'data-step' || k.startsWith('data-steps'));
   /**
    * The slide shown as its attributes now say: its background layer drawn
    * again when that changed, its title laid out again for a pin or a
@@ -232,6 +259,7 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
    */
   function show(sec, set) {
     applySlideAttrs(sec, set);
+    if (touchesSteps(set)) instance()._redrawSteps?.();
     const background = touchesBackground(set);
     const relayout = touchesLayout(set);
     if (background || relayout) instance().refreshSlide?.(sec, { background, scan: false, relayout });
@@ -351,6 +379,26 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
       box.addEventListener('change', async () => { box.disabled = true; await save(slide, field, box.checked); box.disabled = false; after(); });
       return { el: box, fill: () => { box.checked = fieldValue(sec(), field); } };
     }
+    if (field.kind === 'step') {
+      // the run's groups, read again on every fill: a group renamed, or the slide before changed, changes them
+      const pick = Object.assign(document.createElement('select'), { className: 'ins-field ins-select' });
+      pick.setAttribute('aria-label', field.label);
+      keys(pick);
+      let choices = [];
+      const fillStep = () => {
+        choices = stepChoices(instance()._steps, slide) ?? [['', 'not in a run']];
+        pick.replaceChildren(...choices.map(([v, label]) => Object.assign(document.createElement('option'), { value: v, textContent: label })));
+        const raw = fieldValue(sec(), field).toLowerCase();
+        pick.value = choices.find(([v]) => v && v.toLowerCase() === raw)?.[0] ?? '';
+      };
+      pick.addEventListener('change', async () => {
+        pick.disabled = true;
+        await save(slide, { ...field, choices }, pick.value);
+        pick.disabled = false;
+        after();
+      });
+      return { el: pick, fill: fillStep };
+    }
     if (field.kind === 'choice') {
       const pick = Object.assign(document.createElement('select'), { className: 'ins-field ins-select' });
       pick.setAttribute('aria-label', field.label);
@@ -457,7 +505,8 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
     for (const field of SLIDE_FIELDS) {
       const c = control(slide, field, () => fill());
       controls.push(c);
-      rowOf(grid, field.key, field.label, field.title, c.el);
+      const row = rowOf(grid, field.key, field.label, field.title, c.el);
+      if (field.when) shown.push([field, row]);
     }
     // ── the background: a picture (the Slide menu's rows) or a video beside the deck
     grid.append(Object.assign(document.createElement('div'), { className: 'ins-group', textContent: 'Background' }));
@@ -493,13 +542,14 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
       pick.textContent = image ? 'Replace…' : 'Picture…';
       pick.hidden = !pictures()?.chooseBackground;
       remove.hidden = !(image || sec?.hasAttribute('data-background-video'));
-      for (const [field, row] of shown) row.dt.hidden = row.dd.hidden = !field.when(sec);
+      const run = instance()._steps?.at?.[slide - 1] ?? null;
+      for (const [field, row] of shown) row.dt.hidden = row.dd.hidden = !field.when(sec, run);
       for (const c of controls) c.fill();
     }
     fill();
     const sec = sectionAt(slide);
     const watch = typeof MutationObserver === 'function' && sec ? new MutationObserver(() => fill()) : null;
-    watch?.observe(sec, { attributes: true, attributeFilter: [...SLIDE_FIELDS, ...BACKGROUND_FIELDS, ...TITLE_FIELDS, ...NARRATION_FIELDS].map((f) => f.attr).concat('data-background-image') });
+    watch?.observe(sec, { attributes: true, attributeFilter: [...SLIDE_FIELDS, ...BACKGROUND_FIELDS, ...TITLE_FIELDS, ...NARRATION_FIELDS].map((f) => f.attr).concat('data-background-image', 'data-steps') });
     return {
       el,
       destroy() {
@@ -511,7 +561,7 @@ export function createSlideSettings({ instance, editmode, toast, setHidden, pict
   }
 
   const tab = {
-    id: 'slide', label: 'Slide', title: 'this slide’s settings: chapter, transition, morph, hidden, planned time, background, title, narration',
+    id: 'slide', label: 'Slide', title: 'this slide’s settings: chapter, step, transition, morph, hidden, planned time, background, title, narration',
     showsWithoutSelection: true, showsWithSelection: false,
     shows: () => editing(),
     key: (ctx) => ctx.slide,

@@ -85,7 +85,7 @@ export function typingTarget(target) {
 export function wordsOf(el) {
   if (!el) return '';
   const copy = el.cloneNode(true);
-  for (const n of copy.querySelectorAll('script, style, .slide-bg, .draw-head, .draw-mask, [data-ds-injected], aside')) n.remove();
+  for (const n of copy.querySelectorAll('script, style, .slide-bg, .decklight-steps, .draw-head, .draw-mask, [data-ds-injected], aside')) n.remove();
   return (copy.innerText ?? copy.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim();
 }
 

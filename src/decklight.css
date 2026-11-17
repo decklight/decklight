@@ -139,6 +139,8 @@
 /* `sources` joins the list deliberately: this rule names the asides that are
    NOT the slide, so a new kind renders on the slide until it is added here. */
 .decklight aside.notes, .decklight aside.rehearse, .decklight aside.sources, .decklight aside.callouts { display: none; }
+/* a run's groups written as a list (DECK_ANATOMY): the runtime draws them as the strip below */
+.decklight section nav.steps { display: none; }
 
 /* ---------- pinned titles (SPEC PRESENTING) ---------------------------------------
    The engine marks pinnable sections with data-pinned + inline --pin-y /
@@ -338,6 +340,55 @@
   border-radius: var(--block-radius, 8px);
   font-style: italic;
 }
+/* ---------- a run's strip (SPEC DECK_ANATOMY, #1188) ---------------------------------
+   `data-steps` on the slide a run starts on, `data-step` on the slides after
+   it: every slide of the run shows the groups in order, its own lit in
+   --steps-ink (the accent unless the theme sets its own, THEMING), the ones
+   done muted, and "3 of 7" when the run numbers its slides. The runtime draws
+   it (steps.js). It sits in the slide's top padding (3.5% of the width, 44.8
+   design px), above where a pinned title starts and clear of the corner
+   chrome, so no content can reach it; a theme or a design system moves it
+   with --steps-top / --steps-bottom / --steps-inset / --steps-align and
+   sizes it with --steps-size, and a template's `data-slot="steps"` holds it
+   in place. A group name too long for the room is cut short (…), never the
+   one the slide is in.
+   It takes no click: a click on it is a click on the slide. */
+.decklight .decklight-steps {
+  display: flex;
+  align-items: baseline;
+  justify-content: var(--steps-align, center);
+  gap: 1em;
+  box-sizing: border-box;
+  margin: 0;
+  font-family: var(--font-body, system-ui, sans-serif);
+  font-size: var(--steps-size, 19px);
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-align: left;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+.decklight :is(.decklight-stage > section, .ov-clone) > .decklight-steps {
+  position: absolute;
+  top: var(--steps-top, 12px);
+  bottom: var(--steps-bottom, auto);
+  /* the middle of the slide: the corners are the chrome's (the slide number and
+     its chapter top right, messages and a logo top left) */
+  left: var(--steps-inset, 20%);
+  right: var(--steps-inset, 20%);
+  max-width: none;
+  flex: none;
+  z-index: 1;
+}
+.decklight .decklight-steps .steps-groups { display: flex; align-items: baseline; gap: 0.45em; min-width: 0; overflow: hidden; }
+.decklight .decklight-steps .steps-group { color: var(--fg); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.decklight .decklight-steps .steps-group + .steps-group::before { content: "›"; color: var(--muted); font-weight: 400; margin-right: 0.45em; }
+.decklight .decklight-steps .steps-done { color: var(--muted); }
+.decklight .decklight-steps .steps-current { color: var(--steps-ink, var(--accent, #6af)); font-weight: 700; flex: none; }
+.decklight .decklight-steps .steps-count { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+
 /* ---------- figures (SPEC DECK_ANATOMY) ---------------------------------------------
    One oversized value with its label: `<div class="figure"><p data-figure>94%</p>
    <p>label</p><small>context</small></div>`. The value is set at the theme's
@@ -1958,6 +2009,11 @@
 .decklight-finder .tp-fold { display: inline-block; width: 1em; text-align: center; cursor: pointer; }
 .decklight-finder .tp-fold:hover { color: #fff; }
 .decklight-finder .tp-count { opacity: .55; }
+/* a run's groups (#1188): a group's name over its slides, one step further in */
+.decklight-finder .tp-row.tp-group { font-weight: 600; }
+.decklight-finder .tp-row.tp-in-group { padding-left: 30px; }
+.decklight-finder .tp-row.tp-child.tp-group { padding-left: 30px; }
+.decklight-finder .tp-row.tp-child.tp-in-group { padding-left: 50px; }
 
 /* overview */
 .decklight-overview-grid {

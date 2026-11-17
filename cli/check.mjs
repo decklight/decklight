@@ -61,6 +61,7 @@ import { ON_PALETTE_DISTANCE, offRoleColours, nearestRole, resolveTokenColours }
 import { printUrl } from './pdf.mjs';
 import { configBlock } from './runtime-link.mjs';
 import { attributeFindings, configFindings } from '../tools/vocabulary.mjs';
+import { stepRuns } from '../tools/steps.mjs';
 import { runMain } from './util.mjs';
 
 /**
@@ -743,6 +744,8 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
     return { slide, title: title(slide) };
   };
 
+  // a run of slides (DECK_ANATOMY, #1188), read slide by slide below, judged once the deck is read
+  const stepSlides = [];
   for (const range of ranges) {
     const { slide, body } = range;
     const attrs = readAttrs(splitOpenTag(body).attrs);
@@ -767,6 +770,17 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
     }
 
     const tree = parseTree(inner);
+    const stepsNav = [...descendants(tree)].find((n) => n.tag === 'nav' && hasClass(n, 'steps'));
+    stepSlides.push({
+      // an attribute's value as the page reads it: its entities decoded (`Ship &amp; tell`)
+      steps: attrs['data-steps'] == null ? null : figureText(attrs['data-steps']),
+      list: stepsNav ? [...descendants(stepsNav)].filter((n) => n.tag === 'li').map((n) => figureText(inner.slice(n.start, n.end))) : null,
+      step: attrs['data-step'] == null ? null : figureText(attrs['data-step']),
+      module: 'data-module' in attrs,
+      end: 'data-steps-end' in attrs,
+      count: 'data-steps-count' in attrs,
+      hidden: 'data-hidden' in attrs,
+    });
     const pathOf = pathsBelow(tree);
     const addressOf = (node) => ({ path: pathOf.get(node), tag: node.tag });
     const push = (rule, message, node = null) => out.push(finding('warn', rule, slide, head, message, node && addressOf(node)));
@@ -946,6 +960,14 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
           + ' (data-build="draw" on the svg, or data-build on the groups inside it, BUILDS), or mark it data-static-ok if it is meant'));
       }
     }
+  }
+
+  // A slide's group that is none of its run's (DECK_ANATOMY, #1188): the strip
+  // cannot light it, and shows the slide as still in the group before.
+  for (const u of stepRuns(stepSlides).unknown) {
+    out.push(finding('warn', 'step-group', u.slide, title(u.slide), u.groups
+      ? `data-step="${u.step}" is not one of its run's groups (${u.groups.join(', ')}) — the strip shows the slide as still in the group before: name one of them, or add it to data-steps on the slide the run starts on`
+      : `data-step="${u.step}" is on a slide in no run — a run starts on a slide with data-steps="…" and ends at the next chapter or data-steps-end: start one, or take data-step off`));
   }
 
   const tree = parseTree(src);

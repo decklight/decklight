@@ -46,8 +46,16 @@ export function slideTitle(section, i, body) {
  * on it. A comment is about what the audience sees.
  */
 export function slideBody(section) {
-  const content = [...section.children].filter((el) => !el.matches('aside, script, style'));
-  return content.map((el) => el.textContent).join(' ').replace(/\s+/g, ' ').trim();
+  // a run's strip (the engine's) and its authored list of groups are not what the slide says
+  const content = [...section.children].filter((el) => !el.matches('aside, script, style, .decklight-steps, nav.steps'));
+  // …nor is the strip a template's steps slot holds, inside the template's own markup
+  const said = (el) => {
+    if (!el.querySelector?.('.decklight-steps')) return el.textContent;
+    const copy = el.cloneNode(true);
+    for (const n of copy.querySelectorAll('.decklight-steps')) n.remove();
+    return copy.textContent;
+  };
+  return content.map(said).join(' ').replace(/\s+/g, ' ').trim();
 }
 
 /**
