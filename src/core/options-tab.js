@@ -5,7 +5,8 @@
  * The inspector's Options tab (PRESENTING_EDITING): a selected block's
  * settings as plain fields, the way a chart has its Data tab. For a code
  * block (CODE_AND_MATH): its language, line numbers, fit to its space, and its
- * line steps, a row each, filled by typing or by clicking lines in the block.
+ * line steps, a row each, filled by typing or by clicking lines in the block,
+ * each with the callout it shows beside its lines (#1182).
  *
  * It works as the Data tab does: the block's source is read from the file once,
  * a change shows on the slide at once (the block set up again from its source,
@@ -23,7 +24,7 @@ import { createEditCommit } from './edit-commit.js';
 import { pathFrom } from './colorpicker.js';
 import { nodeAtPath } from './authoring.js';
 import { UNDO_CHORD } from './undo-chord.js';
-import { CODE_LANGUAGES, FIT_MODES, fitAttr, fitOf, languageOf, lineCount, specOf, stepError, stepsOf, toggleLine } from '../../tools/code-options.mjs';
+import { CODE_LANGUAGES, FIT_MODES, calloutsOf, calloutsSpec, fitAttr, fitOf, languageOf, lineCount, specOf, stepError, stepsOf, toggleLine } from '../../tools/code-options.mjs';
 
 /** How long the fields rest before what they say is written: the chart grid's. */
 const QUIET_MS = 700;
@@ -112,7 +113,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
     // what the file has: the block's code, and its settings as last written
     let text = null;
     let total = 0;
-    let saved = null;     // { language, raw, numbers, fit, steps, endLit }
+    let saved = null;     // { language, raw, numbers, fit, steps, endLit, labels, keep }
     let state = null;     // what the slide shows now
     let srcStyle = null;  // the block's own style attribute in the file
     let problem = null;
@@ -124,6 +125,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
     let lastRow = null;   // the step a click on a line goes into
     const letGo = holdDraft(() => (dirty.size || saving ? `the code block’s settings on slide ${slide}` : null));
 
+    const copy = (o) => ({ ...o, steps: [...o.steps], labels: [...o.labels] });
     const settingsOf = (node) => {
       const code = node.querySelector(':scope > code');
       const raw = [...(code?.classList ?? [])].find((c) => c.startsWith('language-'))?.slice(9) ?? '';
@@ -133,6 +135,8 @@ export function createOptionsTab({ instance, editmode, toast }) {
         fit: fitOf(node.getAttribute('data-fit')),
         steps: stepsOf(node.getAttribute('data-lines')),
         endLit: node.getAttribute('data-lines-end') === 'all',
+        labels: calloutsOf(node.getAttribute('data-callouts')),
+        keep: node.hasAttribute('data-callouts-keep'),
       };
     };
     async function load() {
@@ -149,7 +153,7 @@ export function createOptionsTab({ instance, editmode, toast }) {
         total = lineCount(text);
         srcStyle = node.getAttribute('style');
         saved = settingsOf(node);
-        state = { ...saved, steps: [...saved.steps] };
+        state = copy(saved);
       } catch (e) {
         problem = `could not read the block from the file: ${String(e.message || e)}`;
       }
@@ -174,6 +178,9 @@ export function createOptionsTab({ instance, editmode, toast }) {
       }
       if (validSteps()) { const spec = specOf(state.steps); if (spec) pre.setAttribute('data-lines', spec); else pre.removeAttribute('data-lines'); }
       if (state.endLit) pre.setAttribute('data-lines-end', 'all'); else pre.removeAttribute('data-lines-end');
+      const callouts = calloutsSpec(state.labels);
+      if (callouts) pre.setAttribute('data-callouts', callouts); else pre.removeAttribute('data-callouts');
+      pre.toggleAttribute('data-callouts-keep', state.keep);
       // set up again from its source: highlighted, lined and stepped as at load
       code.textContent = text;
       const sec = pre.closest('section');
@@ -196,6 +203,9 @@ export function createOptionsTab({ instance, editmode, toast }) {
       if (dirty.has('fit')) set['data-fit'] = fitAttr(state.fit);
       if (dirty.has('steps') && validSteps()) set['data-lines'] = specOf(state.steps);
       if (dirty.has('endLit')) set['data-lines-end'] = state.endLit ? 'all' : null;
+      // a step's label moves with its step: held while the steps are
+      if (dirty.has('labels') && (!dirty.has('steps') || validSteps())) set['data-callouts'] = calloutsSpec(state.labels);
+      if (dirty.has('keep')) set['data-callouts-keep'] = state.keep ? true : null;
       return set;
     }
     function flush() {
@@ -203,13 +213,14 @@ export function createOptionsTab({ instance, editmode, toast }) {
       if (!dirty.size || !saved) return queue;
       const set = wanted();
       // steps a row refuses wait in the field; the rest of the burst goes
-      for (const k of ['language', 'numbers', 'fit', 'endLit']) dirty.delete(k);
+      for (const k of ['language', 'numbers', 'fit', 'endLit', 'keep']) dirty.delete(k);
       if (Object.hasOwn(set, 'data-lines')) dirty.delete('steps');
+      if (Object.hasOwn(set, 'data-callouts')) dirty.delete('labels');
       if (!Object.keys(set).length) { status(); return queue; }
       saving++;
       status();
-      const was = { ...saved, steps: [...saved.steps] };
-      const next = { ...state, steps: [...state.steps] };
+      const was = copy(saved);
+      const next = copy(state);
       const p = queue.then(() => commit.send('/deck/edit/element/options', { slide, index, path, tag: 'pre', set }))
         .then(() => {
           if (Object.hasOwn(set, 'language')) { saved.language = next.language; saved.raw = next.language; }
@@ -217,10 +228,12 @@ export function createOptionsTab({ instance, editmode, toast }) {
           if (Object.hasOwn(set, 'data-fit')) saved.fit = next.fit;
           if (Object.hasOwn(set, 'data-lines')) saved.steps = [...next.steps];
           if (Object.hasOwn(set, 'data-lines-end')) saved.endLit = next.endLit;
+          if (Object.hasOwn(set, 'data-callouts')) saved.labels = [...next.labels];
+          if (Object.hasOwn(set, 'data-callouts-keep')) saved.keep = next.keep;
         }, (e) => {
           // refused: the slide and the fields go back to what the file has
           failed = commit.notSaved('the code block’s settings', e);
-          state = { ...was, steps: [...was.steps] };
+          state = copy(was);
           show();
           paint();
           toast(failed, 6000);
@@ -282,12 +295,26 @@ export function createOptionsTab({ instance, editmode, toast }) {
         drop.addEventListener('click', (e) => {
           e.stopPropagation();
           state.steps.splice(i, 1);
+          if (state.labels.length > i) { state.labels.splice(i, 1); dirty.add('labels'); }
           if (lastRow !== null && lastRow >= state.steps.length) lastRow = state.steps.length ? state.steps.length - 1 : null;
           stepRows(list);
           change('steps');
           flush();
         });
-        line.append(n, input, drop, why);
+        // the step's callout: shown beside its lines while it is the step on screen
+        const label = Object.assign(document.createElement('input'), { type: 'text', className: 'ins-field ins-step-label', value: state.labels[i] ?? '', placeholder: 'a callout beside these lines' });
+        label.setAttribute('aria-label', `step ${i + 1}: its callout`);
+        label.addEventListener('keydown', (e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') { e.preventDefault(); flush(); }
+        });
+        label.addEventListener('input', () => {
+          while (state.labels.length <= i) state.labels.push('');
+          state.labels[i] = label.value;
+          change('labels');
+        });
+        label.addEventListener('blur', () => flush());
+        line.append(n, input, drop, why, label);
         list.append(line);
       });
     }
@@ -338,6 +365,9 @@ export function createOptionsTab({ instance, editmode, toast }) {
       box.dataset.key = 'steps';
       box.append(list, add, hint);
       grid.append(box);
+      // earlier callouts stay, muted, as the walk goes on (data-callouts-keep)
+      row(grid, 'keep', 'Keep earlier callouts', 'a step’s callout stays, muted, as the next steps come, so the last step shows the whole block annotated',
+        check('keep', 'Keep earlier callouts', null, () => state.keep, (v) => { state.keep = v; }));
       // the walk's end, lit with no click of its own (data-lines-end)
       row(grid, 'endLit', 'End with every line lit', 'after its last step the dimming lifts: at the next click, as the slide leaves, and in print, with no extra click',
         check('endLit', 'End with every line lit', null, () => state.endLit, (v) => { state.endLit = v; }));

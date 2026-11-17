@@ -39,6 +39,7 @@
 
   /* ── code ───────────────────────────────── */
   --code-bg: #272822;
+  --callout-ink: #5a9ccc;  /* a code callout's bracket (CODE_AND_MATH): the accent is too faint on the code's ground */
   --code-fg: #f8f8f2;
   --hl-keyword: #fa4e8c;
   --hl-string: #e6db74;

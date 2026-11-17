@@ -221,6 +221,17 @@ the last step's beat (at the next build, or as the slide leaves) and costs no
 click. Printed and exported, a stepped block shows whole anyway;
 \`data-lines-print="last"\` keeps the last step's dimming on the page.
 
+**Name what each line step lights with \`data-callouts\`, not with a comment
+typed into the code or a caption under it.** One label a step, \`|\` between
+them: \`<pre data-lines="1-2|3-5|6" data-callouts="The model it reasons
+with|The tools it may call|Where its answers go">\`. The label sits beside its
+lines while its step is on screen and costs no click, so the notes keep one
+\`[click]\` beat a step. Add \`data-callouts-keep\` when the last step should show
+the whole block annotated. A label with markup goes in \`<aside
+class="callouts"><p data-step="2">…</p></aside>\` on the slide. Keep labels
+short, a few words: they share the slide with the code. \`decklight check\`
+warns (\`code-callouts\`) at more labels than steps.
+
 **A diagram line that draws is one stroke, with everything on it.** A
 \`data-build="draw"\` container draws its strokes in; an arrowhead is a
 \`<marker>\` on the stroke's \`marker-end\` (it rides the tip), a dashed line is

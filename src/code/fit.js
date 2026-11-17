@@ -84,17 +84,21 @@ function contentBox(el) {
 }
 
 /**
- * Width a block keeps free at its right, in its own CSS px, that its lines may
- * not grow into. Nothing yet: it is the hook for the callouts' gutter (#1182),
- * which returns the gutter's width here for a block that has one, so fill
- * stops short of it while the block itself keeps its full width.
+ * Do a block's lines run into the gutter it keeps at its right for its
+ * callouts (#1182)? The gutter is the block's own padding, so the block does
+ * not scroll until a line is past the gutter too: the lines must end where it
+ * starts, which is the width of their `<code>`.
  */
-const reservedWidth = (/* pre */) => 0;
+function intoGutter(pre) {
+  if (!pre.classList.contains('callouts-gutter')) return false;
+  const code = pre.querySelector(':scope > code');
+  return !!code && code.scrollWidth > code.clientWidth + TOL;
+}
 
 /** Does the code, at its current size, sit inside every box between it and the slide? */
 function fitsNow(pres, chain) {
   for (const pre of pres) {
-    if (pre.scrollWidth + reservedWidth(pre) > pre.clientWidth + TOL || pre.scrollHeight > pre.clientHeight + TOL) return false;
+    if (pre.scrollWidth > pre.clientWidth + TOL || pre.scrollHeight > pre.clientHeight + TOL || intoGutter(pre)) return false;
   }
   for (let i = 0; i < chain.length; i++) {
     const box = contentBox(chain[i]);

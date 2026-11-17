@@ -19,7 +19,7 @@ import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { validateTheme, themeNameFrom, validThemeName, REQUIRED, markGates, MARK_TINT } from '../tools/theme-check.mjs';
+import { validateTheme, themeNameFrom, validThemeName, REQUIRED, markGates, MARK_TINT, calloutGates } from '../tools/theme-check.mjs';
 import { reportLines } from '../cli/theme.mjs';
 import { addedThemeLink, addedThemeStyle, setMarked, markedRefs, markedEntries, parseRef } from '../cli/theme-refs.mjs';
 import { MarketplaceError } from '../cli/marketplace.mjs';
@@ -407,4 +407,24 @@ test('a theme from elsewhere whose highlight would not read is warned, not refus
   assert.match(lines[0], /^✔/);
   assert.ok(lines.some((l) => /^ {2}⚠ .*set --mark-bg and --mark-fg/.test(l)), lines.join('\n'));
   assert.deepEqual(validateTheme(shipped).warnings, [], 'the shipped one sets its own pair');
+});
+
+// ── a code callout's bracket (CODE_AND_MATH, #1182) ─────────────────────────
+
+test('a code callout\'s bracket is the accent on the code\'s ground, unless the theme sets its own ink', () => {
+  const dark = { 'code-bg': '#26251f', accent: '#51483d' };
+  const faint = calloutGates(dark);
+  assert.equal(faint.length, 1);
+  assert.equal(faint[0].fg, 'accent');
+  assert.match(faint[0].message, /--accent on --code-bg: 1\.\d\d < 3 — a code callout's bracket would not show: set --callout-ink/);
+  assert.deepEqual(calloutGates({ ...dark, 'callout-ink': '#c9a978' }), [], 'its own ink reads');
+  assert.equal(calloutGates({ ...dark, 'callout-ink': '#3a3a30' })[0].fg, 'callout-ink', 'and is what is judged once set');
+  // a theme from elsewhere still applies: a warning, as the highlight's
+  const shipped = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'themes', 'reveal-serif.css'), 'utf8');
+  const older = shipped.replace(/\n\s*--callout-ink:[^\n]*/, '');
+  assert.notEqual(older, shipped, 'the fixture took the ink off');
+  const r = validateTheme(older);
+  assert.equal(r.ok, true);
+  assert.ok(r.warnings.some((w) => /set --callout-ink/.test(w)), JSON.stringify(r.warnings));
+  assert.deepEqual(validateTheme(shipped).warnings, [], 'the shipped one sets its own ink');
 });

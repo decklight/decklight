@@ -10,7 +10,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
 import { createHistory, setElementOptions, undoMeta, whatWrote } from '../cli/edit.mjs';
-import { CODE_LANGUAGES, FIT_MODES, fitAttr, fitOf, languageOf, lineCount, linesError, specOf, stepError, stepsOf, toggleLine } from '../tools/code-options.mjs';
+import { CODE_LANGUAGES, FIT_MODES, calloutBlocks, calloutSteps, calloutsOf, calloutsSpec, fitAttr, fitOf, languageOf, lineCount, linesError, specOf, stepError, stepsOf, toggleLine } from '../tools/code-options.mjs';
 import { hljs } from '../src/code/code.js';
 import { tmp } from './helpers.mjs';
 
@@ -80,6 +80,37 @@ test('a line walk that ends lit is one attribute on the <pre>, set and taken off
   assert.match(on, /<pre data-lines="1\|2" data-lines-end="all"><code class="language-js">/);
   assert.equal(setElementOptions(on, 1, 1, { tag: 'pre', set: { 'data-lines-end': null } }), DECK, 'taken off, the file is as it was');
   assert.throws(() => setElementOptions(DECK, 1, 1, { tag: 'pre', set: { 'data-lines-end': 'last' } }), /ends lit \(all\) or on its last step \(null\)/);
+});
+
+test('callouts read one label a step: | between them, \\| a bar in one, an empty entry a step with none (#1182)', () => {
+  assert.deepEqual(calloutsOf('The model|The tools|Where it goes'), ['The model', 'The tools', 'Where it goes']);
+  assert.deepEqual(calloutsOf('a||c'), ['a', '', 'c'], 'the second step has none');
+  assert.deepEqual(calloutsOf('a|b|'), ['a', 'b'], 'a trailing empty entry is no label');
+  assert.deepEqual(calloutsOf('x \\| y|z'), ['x | y', 'z']);
+  assert.deepEqual(calloutsOf('  spaced   out  |'), ['spaced out']);
+  assert.deepEqual(calloutsOf(null), []);
+  assert.deepEqual(calloutsOf(''), []);
+  // written back: escaped, trailing empties dropped, none taken off
+  assert.equal(calloutsSpec(['x | y', '', 'z', '']), 'x \\| y||z');
+  assert.equal(calloutsSpec(['', ' ']), null);
+  assert.deepEqual(calloutsOf(calloutsSpec(['a', 'b | c', ''])), ['a', 'b | c'], 'a round trip');
+  assert.deepEqual(calloutsOf(calloutsSpec(['', 'two'])), ['', 'two']);
+});
+
+test('a callouts aside labels the block it names, else the next stepped block no aside names (#1182)', () => {
+  const blocks = [{ id: 'a' }, { id: '' }, { id: 'c' }];
+  assert.deepEqual(calloutBlocks(blocks, [{ for: '#c' }, {}, {}]), [2, 0, 1], 'named first; the rest go in order to the unnamed');
+  assert.deepEqual(calloutBlocks(blocks, [{ for: 'nope' }]), [-1]);
+  assert.deepEqual(calloutBlocks([{}], [{}, {}]), [0, -1], 'one aside a block');
+  assert.deepEqual(calloutSteps([undefined, '3', undefined, 'x']), [1, 3, 4, 5]);
+});
+
+test('callouts and keeping them are written on the <pre> in place, and taken off (#1182)', () => {
+  const on = setElementOptions(DECK, 1, 1, { tag: 'pre', set: { 'data-callouts': 'The "start"|Then b', 'data-callouts-keep': true } });
+  assert.match(on, /<pre data-lines="1\|2" data-callouts="The &quot;start&quot;\|Then b" data-callouts-keep><code class="language-js">/);
+  assert.equal(setElementOptions(on, 1, 1, { tag: 'pre', set: { 'data-callouts': null, 'data-callouts-keep': null } }), DECK, 'taken off, the file is as it was');
+  assert.throws(() => setElementOptions(DECK, 1, 1, { tag: 'pre', set: { 'data-callouts': 'a\nb' } }), /a label a step/);
+  assert.throws(() => setElementOptions(DECK, 1, 1, { tag: 'pre', set: { 'data-callouts-keep': 'yes' } }), /on \(true\) or off \(null\)/);
 });
 
 test('a fit is off, shrink (bare) or fill, and moves between them in place (#1185)', () => {

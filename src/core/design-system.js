@@ -31,7 +31,7 @@ import { NAME_RE, isTemplateRef, parseTemplateRef } from '../../tools/design-sys
 export { isTemplateRef, parseTemplateRef };
 
 /** Direct children that stay where they are: what the slide carries, not what it shows. */
-const KEEP = 'aside.notes, aside.sources, aside.rehearse, script, style, .slide-bg, .decklight-hero-logo';
+const KEEP = 'aside.notes, aside.sources, aside.rehearse, aside.callouts, script, style, .slide-bg, .decklight-hero-logo';
 
 /** Tags a template clone may never contain, whatever its checks said — the last line. */
 const FORBIDDEN = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'FOREIGNOBJECT', 'LINK', 'META', 'BASE', 'FRAME', 'FRAMESET']);
