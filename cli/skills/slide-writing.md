@@ -93,7 +93,7 @@ and draw that instead:
 | Two options, before and after | A side-by-side with identical layout | `data-layout="split"` (COMPARISON_SLIDES) |
 | A memorable line or a voice of authority | A short quote | A quote or statement slide |
 | A concrete thing, place or feeling | A relevant full-bleed picture | `data-background-image`, `data-background-dim` |
-| How to do something in code | A trimmed snippet, one region highlighted at a time | `data-lines` (CODE_AND_MATH) |
+| How to do something in code | A trimmed snippet, one region highlighted at a time, each named beside it | `data-lines` with `data-callouts` (CODE_AND_MATH) |
 | How to do something in a terminal | A real recording | `decklight cast` (TERMINAL_RECORDINGS) |
 | Truly parallel items | A list of at most four, revealed one at a time | `data-build` on the list |
 

@@ -152,7 +152,10 @@ export function validateTheme(css) {
   // mark must show. These are WARNINGS: a theme written before highlights
   // existed (a marketplace's, a deck's own) still applies, and `theme gate`
   // names what to set. The shipped themes are held to them (test/contrast.mjs).
-  const warnings = markGates(tokens).map((m) => m.message);
+  // A line walk's callout (CODE_AND_MATH, #1182) draws its bracket in
+  // `--callout-ink`, the accent unless the theme says otherwise, on the code's
+  // ground: a warning too, for the same reason.
+  const warnings = [...markGates(tokens), ...calloutGates(tokens)].map((m) => m.message);
 
   return { ok: errors.length === 0, tokens, exceptions, missing, failures, errors, warnings, empty: false };
 }
@@ -227,6 +230,23 @@ export function markGates(tokens) {
     }
   }
   return out;
+}
+
+/** How far a callout's bracket stands from the code's ground: a graphic, not words (WCAG 1.4.11). */
+export const CALLOUT_MIN = 3.0;
+
+/**
+ * The callout bracket's gate (CODE_AND_MATH, #1182) for a theme's tokens, as
+ * failures (none: it passes): `--callout-ink`, else `--accent`, on every stop
+ * of `--code-bg`. The label itself is `--code-fg`, which the contract gates.
+ */
+export function calloutGates(tokens) {
+  const name = tokens['callout-ink'] ? 'callout-ink' : 'accent';
+  if (!tokens[name] || !tokens['code-bg']) return [];   // missing: already reported
+  const ratio = minContrast(tokens[name], tokens['code-bg']);
+  if (ratio === null || ratio >= CALLOUT_MIN) return [];
+  return [{ fg: name, bg: 'code-bg', min: CALLOUT_MIN, ratio,
+    message: `--${name} on --code-bg: ${ratio.toFixed(2)} < ${CALLOUT_MIN} — a code callout's bracket would not show: set --callout-ink` }];
 }
 
 /** The least OKLab lightness step between a panel and the tone of a box nested in it. */

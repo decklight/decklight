@@ -3,7 +3,7 @@
 
 // A code block's settings (SPEC CODE_AND_MATH), as the inspector's Options tab
 // offers them and the edit server writes them: its language, line numbers,
-// fit to its space, and the line steps. Pure and shared, so the page (which
+// fit to its space, the line steps and their callouts. Pure and shared, so the page (which
 // shows a change at once) and the server (which writes it) hold one closed set
 // and one reading of `data-lines`.
 
@@ -112,4 +112,63 @@ export function toggleLine(step, n) {
     i = j;
   }
   return out.join(',');
+}
+
+/**
+ * `data-callouts` as its labels, one a step in step order (#1182): `|` between
+ * them, `\|` a bar inside one, an empty entry a step with none. Trailing
+ * empties are no labels at all, so `a|b|` is two. None is [].
+ */
+export function calloutsOf(spec) {
+  if (spec == null) return [];
+  const s = String(spec);
+  const out = [''];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '\\' && s[i + 1] === '|') { out[out.length - 1] += '|'; i++; }
+    else if (s[i] === '|') out.push('');
+    else out[out.length - 1] += s[i];
+  }
+  const labels = out.map((t) => t.replace(/\s+/g, ' ').trim());
+  while (labels.length && labels[labels.length - 1] === '') labels.pop();
+  return labels;
+}
+
+/** The labels written back as `data-callouts` (a bar in one escaped), or null for none. */
+export function calloutsSpec(labels) {
+  const l = [...(labels ?? [])].map((t) => String(t ?? '').replace(/\s+/g, ' ').trim());
+  while (l.length && l[l.length - 1] === '') l.pop();
+  return l.length ? l.map((t) => t.replace(/\|/g, '\\|')).join('|') : null;
+}
+
+/**
+ * Which stepped block each `<aside class="callouts">` of a slide labels: the
+ * one its `data-for` names (an id, with or without `#`), else the next stepped
+ * block, in order, that no aside names. `blocks` are the slide's stepped
+ * blocks as `{ id }`, `asides` its callout asides as `{ for }`, both in
+ * document order; the answer is a block index (or -1, none) per aside.
+ */
+export function calloutBlocks(blocks, asides) {
+  const idOf = (v) => String(v ?? '').trim().replace(/^#/, '');
+  const named = new Set(asides.map((a) => idOf(a.for)).filter(Boolean));
+  const free = blocks.map((_, i) => i).filter((i) => !(blocks[i].id && named.has(blocks[i].id)));
+  let k = 0;
+  return asides.map((a) => {
+    const id = idOf(a.for);
+    if (id) return blocks.findIndex((b) => b.id === id);
+    return k < free.length ? free[k++] : -1;
+  });
+}
+
+/**
+ * The step each entry of a callouts aside labels: its `data-step` when it has
+ * one, else the step after the entry before it. `steps` are the entries'
+ * `data-step` values (undefined for none); the answer is 1-based.
+ */
+export function calloutSteps(steps) {
+  let n = 0;
+  return steps.map((s) => {
+    const v = parseInt(s ?? '', 10);
+    n = Number.isFinite(v) && v >= 1 ? v : n + 1;
+    return n;
+  });
 }

@@ -30,7 +30,7 @@ import { pathFrom } from './colorpicker.js';
 /** Children the engine put on a slide: not the file's, never moved, never counted. */
 const ENGINE_CHILD = '.slide-bg, .decklight-hero-logo, [data-ds-injected]';
 /** What a slide carries rather than shows (DECK_ANATOMY): it stays where it is. */
-const CARRIED = 'aside.notes, aside.sources, aside.rehearse, script, style';
+const CARRIED = 'aside.notes, aside.sources, aside.rehearse, aside.callouts, script, style';
 /** Something live on a slide: moved in the DOM it would restart, or lose its place. */
 const LIVE = '.terminal, video, audio, iframe, canvas';
 const RESELECT_KEY = 'decklight-move-select:' + (typeof location !== 'undefined' ? location.pathname : '');

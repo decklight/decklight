@@ -555,7 +555,7 @@ test('in Chrome, the [click] count is the browser\'s: a provider counts, and the
 two
 three</code></pre>
     <aside class="notes">Code. [click] Line two.</aside></section>
-  <section><h2>Ends lit</h2><pre data-lines="1|2|3" data-lines-end="all"><code>one
+  <section><h2>Ends lit</h2><pre data-lines="1|2|3" data-lines-end="all" data-callouts="One|Two|Three" data-callouts-keep><code>one
 two
 three</code></pre>
     <aside class="notes">Code. [click] One. [click] Two. [click] Three, and the whole of it.</aside></section>
@@ -564,7 +564,7 @@ three</code></pre>
     .filter((f) => f.rule === 'clicks-vs-builds').map((f) => `${f.slide}: ${f.message.split(':')[0]}`);
   const rendered = await json([]);
   assert.equal(rendered.length, 2, `one finding a slide, not the file's and the browser's both: ${JSON.stringify(rendered)}`);
-  assert.ok(!rendered.some((f) => f.startsWith('4:')), 'a walk that ends lit costs no click of its own (#1186)');
+  assert.ok(!rendered.some((f) => f.startsWith('4:')), 'a walk that ends lit costs no click of its own (#1186), nor do its callouts (#1182)');
   assert.equal(rendered[0], '2: 2 [click] markers, 3 build clicks');
   assert.match(rendered[1], /^3: 1 \[click\] marker, \d+ build clicks$/, 'code stepping counted by the runtime');
   assert.deepEqual(await json(['--no-render']), ['2: 2 [click] markers, 3 build clicks'],
@@ -592,6 +592,28 @@ test('code sized by hand is a warning that names data-fit (#1185)', () => {
   assert.match(found[0].message, /<pre> sets font-size: 1\.4em/);
   assert.deepEqual(found[0].at, { path: [1], tag: 'pre' }, 'the block is named, for Fix it');
   assert.match(found[1].message, /the slide sets font-size: 30px and holds code/);
+});
+
+test('callouts past the last line step are a warning, and cost no click of their own (#1182)', () => {
+  const html = deck(`  <section><h2>Fine</h2><pre data-lines="1|2" data-callouts="One|Two|"><code>a
+b</code></pre><aside class="notes">Code. [click] One. [click] Two.</aside></section>
+  <section><h2>Too many</h2><pre data-lines="1|2" data-callouts="One|Two|Three"><code>a
+b</code></pre></section>
+  <section><h2>No steps</h2><pre data-callouts="One"><code>a</code></pre></section>
+  <section><h2>Aside</h2><pre id="q" data-lines="1|2"><code>a
+b</code></pre><aside class="callouts" data-for="q"><p>One</p><p data-step="3">Three</p></aside></section>
+  <section><h2>Nothing to label</h2><pre data-lines="1"><code>a</code></pre><aside class="callouts" data-for="nope"><p>One</p></aside></section>
+  <section><h2>By order</h2><pre data-lines="1|2"><code>a
+b</code></pre><aside class="callouts"><p>One</p><p>Two</p></aside></section>`);
+  const all = staticFindings(html, everything);
+  const found = only(all, 'code-callouts');
+  assert.deepEqual(found.map((f) => f.slide), [2, 3, 4, 5], 'one label a step reads clean, in the attribute or in an aside');
+  assert.match(found[0].message, /3 callouts for 2 line steps — a label past step 2 is never shown/);
+  assert.deepEqual(found[0].at, { path: [1], tag: 'pre' });
+  assert.match(found[1].message, /give the block data-lines/);
+  assert.match(found[2].message, /labels step 3, and its block has 2 line steps/);
+  assert.match(found[3].message, /for "nope", and no block with data-lines on this slide has that id/);
+  assert.ok(!all.some((f) => f.slide === 1 && f.rule === 'clicks-vs-builds'), 'the walk with its callouts takes the clicks its notes have');
 });
 
 test('a framed web page is a warning: blank in no-trust mode, in a video export and offline', () => {

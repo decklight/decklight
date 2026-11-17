@@ -12298,6 +12298,23 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.offShown = !pre().hasAttribute('data-fit') && !pre().hasAttribute('data-fit-scale');
         await pause();
         r.offWritten = posts().at(-1)?.body.set['data-fit'] === null;
+        // a step's callout (#1182): a label field a step, on the slide at once,
+        // written to data-callouts in place, a bar escaped, no step added
+        const labels = [...document.querySelectorAll(`${I} .ins-step-label`)];
+        r.aLabelFieldAStep = labels.length === document.querySelectorAll(`${I} .ins-step`).length && labels.every((l) => l.value === '');
+        type(labels[0], 'The pair | of lines');
+        await settle();
+        r.calloutShown = pre().getAttribute('data-callouts') === 'The pair \\| of lines'
+          && pre().querySelector('.code-callout .code-callout-label')?.textContent === 'The pair | of lines'
+          && deck._records?.[4]?.groups.length === steps;
+        await pause();
+        r.calloutWritten = posts().at(-1)?.body.set['data-callouts'] === 'The pair \\| of lines';
+        const keep = q('dd[data-key="keep"] input');
+        keep.checked = true; keep.dispatchEvent(new Event('change', { bubbles: true }));
+        await settle();
+        r.keepShown = pre().hasAttribute('data-callouts-keep');
+        await pause();
+        r.keepWritten = posts().at(-1)?.body.set['data-callouts-keep'] === true;
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
       if (mode === 'chartdata') {

@@ -12,7 +12,7 @@ import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath, renderMathIn } from '../math/math.js';
 import { createSlideMedia } from './slide-media.js';
-import { initCode } from '../code/code.js';
+import { initCode, placeAllCallouts } from '../code/code.js';
 import { fitCode } from '../code/fit.js';
 import { openSpeakerView, installSpeakerBridge } from './speaker.js';
 import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown, queryInput } from './overlay.js';
@@ -363,8 +363,12 @@ function checkSplitConflict(sec, content, slideNo) {
 function checkOverflow(section, slideNo) {
   if (!section) return;
   // data-fit code is sized first, so the guardrail judges the fitted slide:
-  // every re-check is a layout change the fit must follow (SPEC CODE_AND_MATH)
+  // every re-check is a layout change the fit must follow (SPEC CODE_AND_MATH).
+  // A line walk's callouts take their side first (a gutter is room the fit
+  // leaves the code), then sit against the lines as the fit left them (#1182).
+  placeAllCallouts(section);
   fitCode(section);
+  placeAllCallouts(section);
   // Terminals scroll internally by design (SPEC TERMINAL_PLAYER scrollback viewport);
   // any other intentional scroller can opt out with data-scroll-ok (overflow.js clipReport).
   const clipped = !!clipReport(section);

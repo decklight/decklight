@@ -2847,11 +2847,12 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
  * set per tag. A code block's (CODE_AND_MATH): its language (the `language-`
  * class of its `<code>`), line numbers (bare), its fit (`data-fit` bare, or
  * `"fill"`, CODE_AND_MATH), its line
- * steps (`data-lines`), and whether the walk ends with every line lit
- * (`data-lines-end="all"`).
+ * steps (`data-lines`), whether the walk ends with every line lit
+ * (`data-lines-end="all"`), each step's callout (`data-callouts`, #1182) and
+ * whether earlier callouts stay (`data-callouts-keep`, bare).
  */
 export const ELEMENT_OPTIONS = {
-  pre: ['language', 'data-lines-numbers', 'data-fit', 'data-lines', 'data-lines-end'],
+  pre: ['language', 'data-lines-numbers', 'data-fit', 'data-lines', 'data-lines-end', 'data-callouts', 'data-callouts-keep'],
   // a video on a slide (DECK_ANATOMY): its file, its toggles (bare), its poster
   video: ['src', 'controls', 'loop', 'muted', 'autoplay', 'poster'],
   // a terminal (TERMINAL_PLAYER): a `<div class="terminal">`, its recording and how it plays
@@ -2870,7 +2871,7 @@ const TERMINAL_SHAPES = {
   'data-type-sound': [(v) => ['thocky', 'creamy', 'clacky', 'off'].includes(v), 'a typing sound is thocky, creamy, clacky or off'],
   'data-poster': [(v) => /^\d+$/.test(String(v)) && +v >= 0 && +v <= 99, 'a poster is how many steps show before it plays, 0 to 99'],
 };
-const BARE_OPTIONS = new Set(['data-lines-numbers', 'controls', 'loop', 'muted', 'autoplay']);
+const BARE_OPTIONS = new Set(['data-lines-numbers', 'data-callouts-keep', 'controls', 'loop', 'muted', 'autoplay']);
 
 /**
  * Slide N's element `index` (or the node at `path` inside it) given the
@@ -2896,6 +2897,7 @@ export function setElementOptions(html, slide, index, { path = [], tag = 'pre', 
     if (k === 'data-lines' && v !== null && (typeof v !== 'string' || v.length > 400)) throw new Error('data-lines is its steps, like 1-2|4, or null');
     if (k === 'data-fit' && v !== true && v !== 'fill' && v !== null) throw new Error('a fit is shrink (true), fill ("fill") or off (null)');
     if (k === 'data-lines-end' && v !== null && v !== 'all') throw new Error('a line walk ends lit (all) or on its last step (null)');
+    if (k === 'data-callouts' && v !== null && !(typeof v === 'string' && v.length <= 2000 && !/[\u0000-\u001f]/.test(v))) throw new Error('data-callouts is a label a step, like The model|The tools, or null');
   }
   const e = openElement(html, slide, index);
   const at = e.at(path, tag);

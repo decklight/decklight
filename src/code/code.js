@@ -3,7 +3,8 @@
 
 // Code highlighting + line stepping — SPEC CODE_AND_MATH.
 // Slim highlight.js registration (13 languages), themed via --hl-* tokens.
-// `data-lines` registers a build provider (one step per segment).
+// `data-lines` registers a build provider (one step per segment), and
+// `data-callouts` names what each step lights, beside its lines (#1182).
 
 import hljs from 'highlight.js/lib/core';
 import sql from 'highlight.js/lib/languages/sql';
@@ -19,6 +20,7 @@ import rust from 'highlight.js/lib/languages/rust';
 import xml from 'highlight.js/lib/languages/xml';
 import css from 'highlight.js/lib/languages/css';
 import plaintext from 'highlight.js/lib/languages/plaintext';
+import { calloutBlocks, calloutSteps, calloutsOf } from '../../tools/code-options.mjs';
 
 hljs.registerLanguage('sql', sql);
 hljs.registerLanguage('javascript', javascript);
@@ -127,6 +129,163 @@ function segmentLabel(seg, totalLines) {
  */
 export { hljs };
 
+// ── callouts (#1182) ─────────────────────────────────────────────────────────
+// A line step can name what it lights: `data-callouts="a|b|c"` on the <pre>,
+// or `<aside class="callouts"><p data-step="2">…</p></aside>` on the slide for
+// a label with markup. The current step's label is drawn in a gutter at the
+// block's right, level with the middle of its lines, a bracket spanning them;
+// a block whose room is too narrow for a gutter shows it just under its lines
+// instead, over the dimmed code, pushing nothing. The labels are a layer the
+// runtime adds inside the <pre> (after its <code>, so a path to the code is
+// unchanged); they arrive and leave with their step, so they cost no click.
+
+/** The room (CSS px of the slide) a block needs beside it before its callouts take a gutter. */
+export const CALLOUT_GUTTER_ROOM = 640;
+
+/** The label nodes the slide's callout asides give `pre`, by step (1-based). */
+function asideCallouts(pre) {
+  const sec = pre.closest('section');
+  const asides = sec ? [...sec.querySelectorAll('aside.callouts')] : [];
+  const out = new Map();
+  if (!asides.length) return out;
+  const blocks = [...sec.querySelectorAll('pre[data-lines]')].filter((p) => !p.closest('aside'));
+  const tied = calloutBlocks(blocks.map((b) => ({ id: b.id })), asides.map((a) => ({ for: a.getAttribute('data-for') })));
+  const me = blocks.indexOf(pre);
+  asides.forEach((a, k) => {
+    if (tied[k] !== me || me < 0) return;
+    const entries = [...a.children];
+    calloutSteps(entries.map((e) => e.getAttribute('data-step') ?? undefined)).forEach((s, j) => out.set(s, entries[j]));
+  });
+  return out;
+}
+
+/**
+ * Build `pre`'s callout layer for its `segments`, or take it away when no step
+ * has a label. Returns the callouts, one per step (null for a step without).
+ */
+function buildCallouts(pre, segments) {
+  pre.querySelector(':scope > .code-callouts')?.remove();
+  const fromAttr = calloutsOf(pre.getAttribute('data-callouts'));
+  const fromAside = asideCallouts(pre);
+  const items = segments.map((_, k) => {
+    const node = fromAside.get(k + 1);
+    const text = fromAttr[k];
+    if (!node && !text) return null;
+    const c = document.createElement('div');
+    c.className = 'code-callout';
+    c.dataset.step = String(k + 1);
+    const bracket = document.createElement('span');
+    bracket.className = 'code-callout-bracket';
+    const label = document.createElement('span');
+    label.className = 'code-callout-label';
+    if (node) label.append(...[...node.childNodes].map((n) => n.cloneNode(true)));
+    else label.textContent = text;
+    c.append(bracket, label);
+    return c;
+  });
+  const has = items.some(Boolean);
+  pre.classList.toggle('has-callouts', has);
+  if (!has) {
+    pre.classList.remove('callouts-gutter', 'callouts-under');
+    pre.__dlCallouts = null;
+    return items;
+  }
+  const layer = document.createElement('div');
+  layer.className = 'code-callouts';
+  layer.append(...items.filter(Boolean));
+  pre.append(layer);
+  pre.__dlCallouts = { layer, items, segments };
+  return items;
+}
+
+const px = (v) => parseFloat(v) || 0;
+const setPx = (el, prop, v) => {
+  const s = `${Math.round(v * 100) / 100}px`;
+  if (el.style[prop] !== s) el.style[prop] = s;
+};
+
+/**
+ * Lay `pre`'s callouts out against its lines as they stand: which side they
+ * take (a gutter, or under the lines when the room is narrow), and where each
+ * one sits. Every callout is placed, shown or not, so a step only changes
+ * which are seen. Nothing is measured on a block that is not laid out.
+ */
+export function placeCallouts(pre) {
+  const c = pre.__dlCallouts;
+  if (!c || !pre.isConnected || !pre.offsetWidth) return;
+  const parent = pre.parentElement;
+  const pcs = getComputedStyle(parent);
+  const room = parent.clientWidth - px(pcs.paddingLeft) - px(pcs.paddingRight);
+  const gutter = room >= CALLOUT_GUTTER_ROOM;
+  pre.classList.toggle('callouts-gutter', gutter);
+  pre.classList.toggle('callouts-under', !gutter);
+  const lines = [...pre.querySelectorAll(':scope > code > .code-line')];
+  const cs = getComputedStyle(pre);
+  const padL = px(cs.paddingLeft), padR = px(cs.paddingRight), padT = px(cs.paddingTop), padB = px(cs.paddingBottom);
+  const { layer, items, segments } = c;
+  const width = pre.clientWidth;
+  const bottom = pre.clientHeight - padB;
+  if (gutter) {
+    setPx(layer, 'left', width - padR);
+    setPx(layer, 'width', Math.max(0, padR - padL));
+  } else {
+    setPx(layer, 'left', padL);
+    setPx(layer, 'width', Math.max(0, width - padL - padR));
+  }
+  const placed = [];
+  items.forEach((item, k) => {
+    if (!item) return;
+    const mine = segments[k].map((n) => lines[n - 1]).filter(Boolean);
+    if (!mine.length) { item.hidden = true; return; }
+    item.hidden = false;
+    const top = Math.min(...mine.map((l) => l.offsetTop));
+    const end = Math.max(...mine.map((l) => l.offsetTop + l.offsetHeight));
+    const label = item.querySelector('.code-callout-label');
+    const h = label.offsetHeight;
+    if (gutter) {
+      setPx(item, 'top', top);
+      setPx(item, 'height', end - top);
+      placed.push({ label, top, want: (top + end) / 2 - h / 2, h });
+    } else {
+      // just under its lines (its bottom padding is room too), or just over
+      // them when the block ends there
+      const below = end + h <= pre.clientHeight || top - h < 0;
+      setPx(item, 'top', below ? end : top - h);
+      setPx(item, 'height', h);
+      label.style.removeProperty('top');
+    }
+  });
+  if (!gutter) return;
+  // labels level with their lines, nudged apart where two would overlap, and
+  // kept inside the block
+  const gap = 4;
+  placed.sort((a, b) => a.want - b.want);
+  let floor = padT;
+  for (const p of placed) { p.at = Math.max(p.want, floor); floor = p.at + p.h + gap; }
+  let ceiling = bottom;
+  for (const p of [...placed].reverse()) { p.at = Math.max(padT, Math.min(p.at, ceiling - p.h)); ceiling = p.at - gap; }
+  for (const p of placed) setPx(p.label, 'top', p.at - p.top);
+}
+
+/** Lay out every block's callouts on `section` (after a fit, a theme, a resize). */
+export function placeAllCallouts(section) {
+  if (!section?.offsetWidth) return;
+  for (const pre of section.querySelectorAll('pre.has-callouts')) placeCallouts(pre);
+}
+
+/** Show the callouts for step `i` of `count`: its own, and the earlier ones too with `data-callouts-keep`. */
+function showCallouts(pre, i) {
+  const c = pre.__dlCallouts;
+  if (!c) return;
+  const keep = pre.hasAttribute('data-callouts-keep');
+  c.items.forEach((item, k) => {
+    if (!item) return;
+    item.classList.toggle('callout-on', k + 1 === i);
+    item.classList.toggle('callout-kept', keep && k + 1 < i);
+  });
+  placeCallouts(pre);
+}
+
 export function initCode(root, registerBuildProvider) {
   root.querySelectorAll('pre > code').forEach((codeEl) => {
     const langClass = [...codeEl.classList].find((c) => c.startsWith('language-'));
@@ -148,6 +307,7 @@ export function initCode(root, registerBuildProvider) {
 
     const spec = pre.getAttribute('data-lines');
     if (!spec) {
+      buildCallouts(pre, []);
       if (pre.classList.contains('stepping')) {
         pre.classList.remove('stepping', 'lines-last', 'lines-past');
         registerBuildProvider(pre, null);   // no steps of its own any more
@@ -156,6 +316,7 @@ export function initCode(root, registerBuildProvider) {
     }
     const segments = parseLineRanges(spec, lineEls.length);
     pre.classList.add('stepping');
+    buildCallouts(pre, segments);
 
     // The walk's end is marked, never undone in the lines themselves: on its
     // last step the block wears `lines-last`, and `lines-past` once a later
@@ -168,6 +329,7 @@ export function initCode(root, registerBuildProvider) {
       label: (i) => (i === 0 ? 'code' : segmentLabel(segments[i - 1], lineEls.length)),
       apply(i) {
         pre.classList.toggle('lines-last', i === segments.length);
+        showCallouts(pre, i);
         lineEls.forEach((l) => l.classList.remove('line-hl', 'line-dim'));
         if (i === 0) return;
         const seg = new Set(segments[i - 1]);

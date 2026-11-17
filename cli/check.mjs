@@ -47,6 +47,7 @@ import {
   sectionInner, slideHeading, splitOpenTag,
 } from '../tools/deck-html.mjs';
 import { CLICK_MARK } from '../tools/sentences.mjs';
+import { calloutBlocks, calloutSteps, calloutsOf, stepsOf as lineStepsOf } from '../tools/code-options.mjs';
 import { clickMismatch, clickMismatchText, readClickMismatch } from '../tools/click-match.mjs';
 import { isTemplateRef, parseTemplateRef } from '../tools/design-system-format.mjs';
 import { auditDeck } from './audit.mjs';
@@ -786,6 +787,29 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
       const size = sizeOf(readAttrs(node.attrs));
       if (size) push('code-font-size', `<pre> sets font-size: ${size} — a size set by hand is right for one layout and clipped or tiny after the next edit: take it off and mark the block data-fit (data-fit="fill" to grow short code into the room)`, node);
     }
+    // a line walk's callouts (CODE_AND_MATH, #1182): a label a step, and a
+    // label past the last step is never shown. They cost no click of their own.
+    const stepped = pres.filter((n) => readAttrs(n.attrs)['data-lines'] !== undefined);
+    const steps = (n) => lineStepsOf(readAttrs(n.attrs)['data-lines']).length;
+    const tooMany = (have, n) => `${have} callout${have === 1 ? '' : 's'} for ${n} line step${n === 1 ? '' : 's'}`;
+    for (const node of pres) {
+      const a = readAttrs(node.attrs);
+      if (a['data-callouts'] === undefined) continue;
+      const have = calloutsOf(a['data-callouts']).length;
+      const n = a['data-lines'] === undefined ? 0 : steps(node);
+      if (have > n) push('code-callouts', `<pre> has ${tooMany(have, n)} — ${n ? `a label past step ${n} is never shown: one label a step, | between them, in step order` : 'callouts label line steps: give the block data-lines'}`, node);
+    }
+    const asides = [...descendants(tree)].filter((n) => n.tag === 'aside' && /(^|\s)callouts(\s|$)/.test(readAttrs(n.attrs).class ?? ''));
+    const tied = calloutBlocks(stepped.map((n) => ({ id: readAttrs(n.attrs).id })), asides.map((n) => ({ for: readAttrs(n.attrs)['data-for'] })));
+    asides.forEach((node, k) => {
+      const entries = node.children.filter((c) => c.tag);
+      const last = Math.max(0, ...calloutSteps(entries.map((c) => readAttrs(c.attrs)['data-step'])));
+      const block = stepped[tied[k]];
+      if (!block) {
+        const f = readAttrs(node.attrs)['data-for'];
+        push('code-callouts', f ? `the callouts aside is for "${f}", and no block with data-lines on this slide has that id` : 'the callouts aside has no block with data-lines on this slide to label', node);
+      } else if (last > steps(block)) push('code-callouts', `the callouts aside labels step ${last}, and its block has ${steps(block)} line step${steps(block) === 1 ? '' : 's'}: one label a step`, node);
+    });
     // a concept shape with its own fill (SVG_DIAGRAMS, #718): the concept
     // repaints the fill on every load, so the hand-set one is never seen
     // — each named apart from the slide's other concept shapes, quoting the fill it found

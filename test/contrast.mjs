@@ -28,6 +28,8 @@
 //   --ansi-* (16)     on --term-bg   ≥ 3.0
 //   a highlight (<mark>): --fg ≥ 4.5, --heading-color ≥ 3.0, --muted ≥ 2.6 on it,
 //     and it shows (OKLab ≥ 0.05 off --bg); a warning elsewhere, a failure here
+//   --callout-ink (else --accent) on --code-bg ≥ 3.0  ✦ (a code callout's bracket);
+//     a warning elsewhere, a failure here
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

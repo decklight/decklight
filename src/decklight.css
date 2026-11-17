@@ -138,7 +138,7 @@
 
 /* `sources` joins the list deliberately: this rule names the asides that are
    NOT the slide, so a new kind renders on the slide until it is added here. */
-.decklight aside.notes, .decklight aside.rehearse, .decklight aside.sources { display: none; }
+.decklight aside.notes, .decklight aside.rehearse, .decklight aside.sources, .decklight aside.callouts { display: none; }
 
 /* ---------- pinned titles (SPEC PRESENTING) ---------------------------------------
    The engine marks pinnable sections with data-pinned + inline --pin-y /
@@ -1332,6 +1332,101 @@
    its last step lit; data-lines-print="last" keeps that step's dimming */
 .decklight.decklight-print pre.stepping:not([data-lines-print="last"]) .code-line.line-dim,
 .decklight.decklight-capture-print pre.stepping:not([data-lines-print="last"]) .code-line.line-dim { opacity: 1; }
+
+/* callouts (#1182): a line step's label, drawn while its step is current, in a
+   gutter the block keeps at its right, level with the middle of its lines and
+   a bracket spanning them (code/code.js places them). A block whose room is
+   too narrow for a gutter shows the label just under its lines, over the dimmed
+   code, pushing nothing. The label is the code's ink on the code's ground, in
+   the body face; the bracket is --callout-ink (the accent unless the theme
+   says otherwise). CODE_AND_MATH */
+.decklight pre.has-callouts { position: relative; }
+.decklight pre.callouts-gutter { box-sizing: border-box; padding-right: calc(1em + var(--code-callout-width, 26%)); }
+.decklight .code-callouts {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  pointer-events: none;
+  font-family: var(--font-body, system-ui, sans-serif);
+  font-size: 0.6em;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1.3;
+  white-space: normal;
+  text-align: left;
+}
+.decklight section.dl-fit-measure .code-callouts { display: none; }
+/* a label's own markup (the aside form): words in code read as inline code, not as the block's */
+.decklight .code-callout-label code {
+  display: inline;
+  font-size: 0.95em;
+  line-height: inherit;
+  color: inherit;
+  white-space: normal;
+  background: var(--block-bg, rgba(128,128,128,.15));
+  padding: 0.05em 0.3em;
+  border-radius: 4px;
+}
+.decklight .code-callout {
+  --dl-callout-line: var(--callout-ink, var(--accent, #7aa2f7));
+  position: absolute;
+  left: 0;
+  right: 0;
+  color: var(--code-fg, #e6e6e6);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--build-duration) ease, visibility 0s linear var(--build-duration);
+}
+.decklight .code-callout.callout-on,
+.decklight .code-callout.callout-kept { opacity: 1; visibility: visible; transition: opacity var(--build-duration) ease, visibility 0s; }
+/* data-callouts-keep: an earlier step's label stays, muted, as the walk goes on */
+.decklight .code-callout.callout-kept { color: var(--hl-comment, #7d8799); --dl-callout-line: var(--hl-comment, #7d8799); }
+.decklight pre.callouts-gutter .code-callout-bracket {
+  position: absolute;
+  left: 0.7em;
+  top: 0.2em;
+  bottom: 0.2em;
+  width: 0.45em;
+  border: 0.16em solid var(--dl-callout-line);
+  border-left: none;
+  border-radius: 0 0.25em 0.25em 0;
+}
+.decklight pre.callouts-gutter .code-callout-label { position: absolute; left: 1.7em; right: 0; top: 0; }
+.decklight pre.callouts-under .code-callout-bracket { display: none; }
+.decklight pre.callouts-under .code-callout-label {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0.2em 0.7em;
+  background: var(--code-bg, #1d1f27);
+  border-left: 0.25em solid var(--dl-callout-line);
+  border-radius: 0 0.3em 0.3em 0;
+  box-shadow: var(--shadow, 0 6px 24px rgba(0,0,0,.25));
+}
+/* under the lines there is room for one: only the current step's */
+.decklight pre.callouts-under .code-callout.callout-kept:not(.callout-on) { opacity: 0; visibility: hidden; }
+/* a walk that ends lit (data-lines-end="all"): its last label leaves with the
+   dimming, or, kept, every label stays at full ink over the whole block */
+.decklight pre[data-lines-end="all"].lines-past:not([data-callouts-keep]) .code-callout,
+.decklight section.leaving pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) .code-callout,
+.decklight .ov-clone pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) .code-callout,
+.decklight.decklight-print pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) .code-callout,
+.decklight.decklight-capture pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) .code-callout { opacity: 0; visibility: hidden; }
+.decklight pre[data-lines-end="all"].lines-past[data-callouts-keep] .code-callout.callout-kept,
+.decklight section.leaving pre[data-lines-end="all"].lines-last[data-callouts-keep] .code-callout.callout-kept,
+.decklight .ov-clone pre[data-lines-end="all"].lines-last[data-callouts-keep] .code-callout.callout-kept,
+.decklight.decklight-print pre[data-lines-end="all"].lines-last[data-callouts-keep] .code-callout.callout-kept,
+.decklight.decklight-capture pre[data-lines-end="all"].lines-last[data-callouts-keep] .code-callout.callout-kept { color: var(--code-fg, #e6e6e6); --dl-callout-line: var(--callout-ink, var(--accent, #7aa2f7)); }
+/* the printed page shows the block whole, so every label in its gutter, at
+   full ink; a narrow block's one-at-a-time label has no place on it.
+   data-lines-print="last" prints the last step as the room saw it */
+.decklight.decklight-print pre.stepping.callouts-gutter:not([data-lines-print="last"]) .code-callout,
+.decklight.decklight-capture-print pre.stepping.callouts-gutter:not([data-lines-print="last"]) .code-callout {
+  opacity: 1; visibility: visible; color: var(--code-fg, #e6e6e6); --dl-callout-line: var(--callout-ink, var(--accent, #7aa2f7));
+}
+.decklight.decklight-print pre.stepping.callouts-under:not([data-lines-print="last"]) .code-callout,
+.decklight.decklight-capture-print pre.stepping.callouts-under:not([data-lines-print="last"]) .code-callout { opacity: 0; visibility: hidden; }
 
 /* hljs token → theme token mapping (no separate hljs theme files) */
 .decklight .hljs-keyword, .decklight .hljs-literal, .decklight .hljs-selector-tag { color: var(--hl-keyword, #c792ea); }
@@ -4348,6 +4443,8 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
 .decklight-inspector .ins-step-n { color: #8d94a1; text-align: right; font-variant-numeric: tabular-nums; }
 .decklight-inspector .ins-step .ins-btn { margin-left: 0; }
 .decklight-inspector .ins-step-why { grid-column: 2 / -1; color: #f2c46d; font-size: .92em; }
+/* the step's callout (#1182): its label, under its lines */
+.decklight-inspector .ins-step-label { grid-column: 2 / -1; }
 .decklight-inspector .ins-field.ins-invalid { border-color: #f2c46d; }
 .decklight-inspector .ins-step-add { margin-left: 0; }
 .decklight-inspector .ins-step-hint { margin-top: 6px; color: #8d94a1; font-size: .9em; }
