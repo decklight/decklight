@@ -229,6 +229,18 @@ and reduced motion show the value as written. The value is a number and its
 unit, a few characters: the words go in the label, and \`decklight check\` warns
 (\`figure-long\`) at a longer one (DECK_ANATOMY in the reference).
 
+**When a slide shows an exchange between a user, an agent and its tools, write
+a conversation, not boxes and arrows or a bullet list.** \`<div
+class="conversation" data-build>\` of turns, each \`<p data-role="user">\`,
+\`agent\`, \`tool\`, \`system\` or any word (its label); \`data-kind="thought"\` is
+the agent thinking, \`data-kind="tool-call"\` a call like \`get_order(4417)\`,
+and \`data-name="get_order"\` on the tool's answer names the tool. It builds a
+turn a click; a call and a JSON answer are coloured as code; a long one
+scrolls in its box, the newest turn in view, and prints whole. \`data-concept\`
+on a turn, or \`"roleConcepts": { "agent": "agent" }\` in the configuration,
+gives a speaker its diagram colour, so the agent is one colour on the
+transcript and in the diagram beside it (DECK_ANATOMY in the reference).
+
 **On a code slide, mark the block \`data-fit\` — never hand-tune its size.**
 \`<pre data-fit>\` sizes the code to the room the slide gives it, up to the
 deck's normal code size, and does it again when the slide changes: a caption

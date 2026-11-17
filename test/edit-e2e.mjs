@@ -680,6 +680,66 @@ try {
     check('ties', 'the third point dropped onto the second: one key on both', keys(/<ul[\s\S]*?<\/ul>/, 2) === '1 2 2', keys(/<ul[\s\S]*?<\/ul>/, 2));
     await page.close();
   });
+
+  // 12 · a conversation (DECK_ANATOMY): Add ▾ › Conversation places the
+  //      starter, its first turn typed in place; a tool's turn, coloured as
+  //      code, typed as its words; Turn ▸ changes a turn's speaker and kind,
+  //      adds one after and removes one, each one write that one undo takes back
+  await scenario('turns', async () => {
+    text.reset(); await wait(400);
+    const page = await open(text, '#/2/0');
+    const original = text.read();
+    await page.click('.eb-add'); await wait(300);
+    await menuRow(page, /^Conversation$/); await wait(900);
+    await page.keyboard.type('Where is my order 4417?');
+    await page.keyboard.press(`${MOD}+Enter`); await wait(1500);
+    const talk = () => (section(text.read(), 2).match(/<div class="conversation"[\s\S]*?<\/div>/) ?? [''])[0];
+    const turns = () => [...talk().matchAll(/<p ([^>]*)>([\s\S]*?)<\/p>/g)].map((m) => `${m[1]} | ${m[2]}`);
+    check('turns', 'Add places the conversation, its first turn typed over the placeholder',
+      /^<div class="conversation" data-build(="")?>/.test(talk()) && turns()[0] === 'data-role="user" | Where is my order 4417?' && turns().length === 4, talk().slice(0, 160));
+    // a tool's answer is coloured as code on the page, and typed as its words
+    await page.keyboard.press('Escape'); await wait(200);
+    const tool = page.locator(`${ACTIVE} .conversation > [data-role="tool"]`);
+    check('turns', 'a tool\'s JSON is coloured as code on the page', await tool.locator('[class^="hljs-"]').count() > 0);
+    await tool.dblclick(); await wait(400);
+    await page.keyboard.press(`${MOD}+a`);
+    await page.keyboard.type('{ "status": "delayed" }');
+    await page.keyboard.press(`${MOD}+Enter`); await wait(1500);
+    check('turns', 'typed as its words: the file has them, never the colouring', turns()[2] === 'data-role="tool" data-name="look_up" | { "status": "delayed" }' && !/hljs|turn-code/.test(text.read()), turns()[2]);
+    await page.waitForFunction(() => !!document.querySelector('.decklight-stage > section.active .conversation > [data-role="tool"] [class^="hljs-"]'), null, { timeout: 4000 }).catch(() => {});
+    check('turns', 'and coloured again once written', await tool.locator('[class^="hljs-"]').count() > 0);
+    // Turn ▸ on the last turn: a thought, said by the planner; one added after it; one removed
+    const turnMenu = async (n) => {
+      await page.keyboard.press('Escape'); await wait(200);
+      const box = await page.locator(`${ACTIVE} .conversation > p`).nth(n).boundingBox();
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' }); await wait(400);
+      await menuRow(page, /^Turn ▸$/);
+    };
+    const before = text.read();
+    const writes = () => text.saves(/conversation turn: /g);
+    const was = writes();
+    await turnMenu(3);
+    const offered = await page.locator('.decklight-ctxmenu .cm-row').allTextContents();
+    check('turns', 'Turn ▸ offers who speaks, the kinds, add and remove, its own ticked',
+      ['✓ agent', 'user', 'tool', 'system', '✓ Speech', 'Thought', 'Tool call', 'Add a turn after', 'Remove this turn'].every((l) => offered.includes(l)), offered);
+    await menuRow(page, /^Thought$/); await wait(1500);
+    check('turns', 'a kind: data-kind on that turn', turns()[3] === 'data-role="agent" data-kind="thought" | The agent\'s answer', turns()[3]);
+    await turnMenu(3);
+    await menuRow(page, /^system$/); await wait(1500);
+    check('turns', 'a speaker: data-role on that turn', turns()[3].startsWith('data-role="system" data-kind="thought"'), turns()[3]);
+    await turnMenu(0);
+    await menuRow(page, /^Add a turn after$/); await wait(1500);
+    check('turns', 'a turn added after: the agent answers the user', turns().length === 5 && turns()[1] === 'data-role="agent" | New turn', turns());
+    await turnMenu(1);
+    await menuRow(page, /^Remove this turn$/); await wait(1500);
+    check('turns', 'a turn removed', turns().length === 4 && !turns().some((t) => /New turn/.test(t)), turns());
+    check('turns', 'one write each', writes() - was === 4, writes() - was);
+    for (let i = 0; i < 4; i++) { await page.keyboard.press('Escape'); await page.keyboard.press(`${MOD}+z`); await wait(1300); }
+    check('turns', 'one undo each takes them back', text.read() === before);
+    for (let i = 0; i < 3; i++) { await page.keyboard.press(`${MOD}+z`); await wait(1300); }
+    check('turns', 'and the two typings and the conversation itself', text.read() === original);
+    await page.close();
+  });
 } finally {
   await browser.close().catch(() => {});
   for (const s of servers) s.kill();

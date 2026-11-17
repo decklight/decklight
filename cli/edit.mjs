@@ -40,6 +40,7 @@
 //   POST /deck/edit/element/duplicate → { slide, index, path?, tag? }  a copy of it (or of a node inside it) right after it
 //   POST /deck/edit/element/picture → { slide, index, path?, width?, alt?, src?, caption? }  one picture's size, alt, file or caption
 //   POST /deck/edit/element/options → { slide, index, path?, tag, set }  a code block's language, line numbers, fit, line steps
+//   POST /deck/edit/element/turn    → { slide, index, path, tag, op, value? }  a conversation's turn: its role, its kind, one added after, one removed
 //   POST /deck/edit/slide/background → { slide, src | null, take? }  the slide's background picture, or a picture made it
 //   POST /deck/edit/undo            → step the deck file back through the edit history
 //   POST /deck/edit/redo            → step it forward again
@@ -124,6 +125,7 @@ import {
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { CODE_LANGUAGES, languageOf, lineCount, linesError } from '../tools/code-options.mjs';
 import { webAddress } from '../tools/starters.mjs';
+import { TURN_KINDS, ROLE_WORD, nextTurnRole, callName } from '../tools/conversation.mjs';
 import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkReferences } from './deck-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides, trackDrift } from '../tools/narration-manifest.mjs';
@@ -2888,6 +2890,52 @@ export function setElementPicture(html, slide, index, { path = [], tag = 'img', 
   return e.html();
 }
 
+/** What a turn edit may do (Turn ▸, DECK_ANATOMY): its role, its kind, a turn after it, or it gone. */
+export const TURN_OPS = ['role', 'kind', 'add', 'remove'];
+
+/**
+ * One turn of a conversation (`<div class="conversation">`, DECK_ANATOMY), at
+ * `path` below slide N's element `index` (the conversation itself, or a column
+ * holding it), changed in ONE edit:
+ *   role    `value` a word (user, agent, tool, system or the author's own), written as `data-role`
+ *   kind    `value` speech, thought or tool-call: `data-kind`, none for speech
+ *   add     a turn after it, at its indentation: whoever speaks next (nextTurnRole),
+ *           a tool's answer named after the call it answers; answers the new turn's `path`
+ *   remove  it out of the conversation; the last turn stays (remove the conversation instead)
+ * A path that is not a turn of a conversation is refused, as a stale one is.
+ */
+export function setConversationTurn(html, slide, index, { path = [], tag = 'p', op, value = null } = {}) {
+  if (!TURN_OPS.includes(op)) throw new Error(`a turn's edit is ${TURN_OPS.join(', ')}`);
+  checkPath(path, { nested: true });
+  if (op === 'role' && !(typeof value === 'string' && ROLE_WORD.test(value))) throw new Error('a role is one word, like user, agent, tool or system');
+  if (op === 'kind' && !TURN_KINDS.includes(value)) throw new Error(`a turn's kind is ${TURN_KINDS.join(', ')}`);
+  const e = openElement(html, slide, index);
+  const at = e.at(path, tag);
+  const holder = e.at(path.slice(0, -1));
+  const holderAttrs = splitOpenTag(e.el.slice(holder.start, holder.end)).attrs;
+  if (!/^<div\b/i.test(holderAttrs) || !/(^|\s)conversation(\s|$)/.test(attrOf(holderAttrs, 'class') ?? '')) {
+    throw stale(`slide ${slide} #${index}: the file has no conversation turn at ${path.join('.')} — reload and try again`);
+  }
+  if (op === 'role') { e.edit(path, tag, (attrs) => withAttr(attrs, 'data-role', value)); return { html: e.html(), path }; }
+  if (op === 'kind') { e.edit(path, tag, (attrs) => withAttr(attrs, 'data-kind', value === 'speech' ? null : value)); return { html: e.html(), path }; }
+  const turns = elementChildRanges(e.el.slice(holder.start, holder.end)).filter((r) => !['aside', 'script', 'style', 'template'].includes(r.tag));
+  if (op === 'remove') {
+    if (turns.length <= 1) throw new Error('a conversation keeps one turn: remove the conversation instead');
+    e.el = withoutNodes(e.el, [[at.start, at.end]]);
+    return { html: e.html(), path };
+  }
+  // add: whoever speaks next, at the turn's own indentation
+  const { attrs, rest } = splitOpenTag(e.src(at));
+  const role = attrOf(attrs, 'data-role') ?? '';
+  const kind = attrOf(attrs, 'data-kind');
+  const next = nextTurnRole(role, kind);
+  const named = next === 'tool' ? callName(decodeText(rest.replace(/<\/[a-z][\w-]*>\s*$/i, '').replace(/<[^>]*>/g, ''))) : null;
+  const turn = `<p data-role="${escapeHtml(next)}"${named ? ` data-name="${escapeHtml(named)}"` : ''}>New turn</p>`;
+  const lead = e.lead(at);
+  e.splice(at.end, at.end, /^[ \t]*$/.test(lead) ? `\n${lead}${turn}` : turn);
+  return { html: e.html(), path: [...path.slice(0, -1), path.at(-1) + 1] };
+}
+
 /**
  * The settings an element's Options tab writes (PRESENTING_EDITING), a closed
  * set per tag. A code block's (CODE_AND_MATH): its language (the `language-`
@@ -3158,6 +3206,7 @@ const WRITE_LABELS = {
   '/deck/edit/element/insert': 'element added',
   '/deck/edit/element/picture': 'picture changed',
   '/deck/edit/element/options': 'element settings changed',
+  '/deck/edit/element/turn': 'conversation turn changed',
   '/deck/edit/slide/background': 'slide background set',
   '/deck/edit/slide/builds': 'build order set',
   '/deck/edit/concepts': 'concept colours saved',
@@ -3318,6 +3367,7 @@ const UNDO_LABELS = {
   '/deck/edit/element/insert': 'added element',
   '/deck/edit/element/picture': 'picture',
   '/deck/edit/element/options': 'settings',
+  '/deck/edit/element/turn': 'conversation turn',
   '/deck/edit/slide/background': 'slide background',
   '/deck/edit/slide/builds': 'build order',
   '/deck/edit/concepts': 'concept colours',

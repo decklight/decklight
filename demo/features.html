@@ -408,6 +408,21 @@
       </aside>
     </section>
 
+    <!-- ══ an agent's conversation, a turn a click ══ -->
+    <section>
+      <h2>An Agent at Work, Turn by Turn</h2>
+      <div class="conversation" data-build>
+        <p data-role="user">Where is my order 4417?</p>
+        <p data-role="agent" data-kind="thought">I need the order's latest status.</p>
+        <p data-role="agent" data-kind="tool-call">get_order(4417)</p>
+        <p data-role="tool" data-name="get_order">{ "status": "delayed", "eta": "Friday" }</p>
+        <p data-role="agent">It is delayed and should arrive Friday.</p>
+      </div>
+      <aside class="notes">
+        <p>A deck about agents keeps having to show a conversation, and it used to be boxes and arrows drawn by hand. Now it is a block: turns, each with who speaks.</p><p>[click]</p><p>The user asks, on the right.</p><p>[click]</p><p>The agent thinks, muted and italic.</p><p>[click]</p><p>It calls a tool, set as code.</p><p>[click]</p><p>The tool answers in JSON, coloured as code too.</p><p>[click]</p><p>And the agent replies. A long exchange scrolls in its box with the newest turn in view, and prints whole.</p>
+      </aside>
+    </section>
+
     <!-- ══ 15 · agent authoring ══ -->
     <section data-module="Authoring & themes">
       <h2>Slides From a Prompt</h2>

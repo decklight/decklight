@@ -30,11 +30,11 @@ export const MAX_VIDEO_BYTES = 200e6;
 /** What Add offers, in its order: the server's kinds, then the picture the bar always had. */
 export const ADD_KINDS = [
   ['heading', 'Heading'], ['text', 'Text'], ['bullets', 'Bullets'], ['numbered', 'Numbered list'],
-  ['quote', 'Quote'], ['figure', 'Figure'], ['table', 'Table'], ['code', 'Code'], ['formula', 'Formula'], ['columns', 'Two columns'],
+  ['quote', 'Quote'], ['figure', 'Figure'], ['conversation', 'Conversation'], ['table', 'Table'], ['code', 'Code'], ['formula', 'Formula'], ['columns', 'Two columns'],
   ['diagram', 'Diagram'], ['chart', 'Chart'], ['picture', 'Picture'], ['video', 'Video'], ['terminal', 'Terminal recording'], ['webpage', 'Web page'],
 ];
 const SAID = {
-  heading: 'a heading', text: 'text', bullets: 'a bullet list', numbered: 'a numbered list', quote: 'a quote', figure: 'a figure',
+  heading: 'a heading', text: 'text', bullets: 'a bullet list', numbered: 'a numbered list', quote: 'a quote', figure: 'a figure', conversation: 'a conversation',
   table: 'a table', code: 'a code block', formula: 'a formula', columns: 'two columns', diagram: 'a diagram', chart: 'a chart', video: 'a video', terminal: 'a terminal', webpage: 'a web page',
 };
 
@@ -47,6 +47,7 @@ export function typingTarget(kind, el) {
     case 'columns': return el.querySelector('h3, li');
     case 'code': return el.querySelector('code');
     case 'figure': return el.querySelector('[data-figure]');
+    case 'conversation': return el.querySelector(':scope > [data-role]');
     default: return null;
   }
 }

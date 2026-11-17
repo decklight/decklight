@@ -36,6 +36,7 @@
   --block-bg: #ece9e0;
   --block-border: 1px solid #d3d0c5;
   --block-radius: 8px;
+  --turn-ink: #4c6066;  /* a conversation's turn (DECK_ANATOMY): the body grey has no contrast to spare on the block's ground */
   --shadow: 0 5px 18px rgba(30, 30, 40, 0.12);
 
   /* ── code ───────────────────────────────── */

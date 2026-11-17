@@ -108,6 +108,36 @@ export function applyConcepts(root, concepts = {}) {
       t.style.setProperty(unfilled ? 'stroke' : 'fill', fill);
     }
   });
+  paintTurns(root, concepts);
+}
+
+// ── a conversation's turns (DECK_ANATOMY) ───────────────────────────────────
+// A turn of `<div class="conversation">` takes a concept as a shape does: its
+// own `data-concept`, else its role mapped to one by the configuration's
+// `roleConcepts` (`{ "agent": "agent" }`), so "the agent" is one colour in the
+// transcript and in the diagrams. The bubble is painted the concept's slot
+// (`--turn-concept`, read by decklight.css), its words the diagram ink.
+const CONCEPT_NAME = /^[a-z][a-z0-9-]{0,40}$/i;
+let roleConcepts = {};
+/** The configuration's `roleConcepts`, a role's concept: set once at init. */
+export function setRoleConcepts(map) {
+  roleConcepts = map && typeof map === 'object' && !Array.isArray(map) ? map : {};
+}
+/** The concept a conversation's turn wears, or null: its own, else its role's. */
+export function turnConcept(turn) {
+  const own = turn.getAttribute('data-concept');
+  const name = own || roleConcepts[turn.getAttribute('data-role') ?? ''];
+  return typeof name === 'string' && CONCEPT_NAME.test(name) ? name : null;
+}
+function paintTurns(root, concepts = {}) {
+  const turns = root.matches?.('.conversation') ? [...root.children] : [...(root.querySelectorAll?.('.conversation > *') ?? [])];
+  for (const turn of turns) {
+    const name = turnConcept(turn);
+    if (name) turn.style.setProperty('--turn-concept', conceptFill(name, concepts));
+    else turn.style.removeProperty('--turn-concept');
+    turn.classList.toggle('turn-concept', !!name);
+    if (!turn.getAttribute('style')) turn.removeAttribute('style');
+  }
 }
 
 const REF_ATTRS = [

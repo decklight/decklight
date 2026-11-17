@@ -32,13 +32,15 @@ export const DENSITY = Object.freeze({
 
 /**
  * What is not prose to read off the slide: the speaker's notes, code (its own
- * scroller and its own reading), diagrams, charts, terminal casts, tables (a
+ * scroller and its own reading), diagrams, charts, terminal casts, a
+ * conversation (DECK_ANATOMY: a transcript that scrolls in its own box and
+ * arrives a turn a click, read as it builds), tables (a
  * grid is scanned, not read), media chrome, and the headings themselves. A
  * subtitle is NOT among them: the engine makes the first paragraph under a
  * title one (.subtitle), and a 60-word subtitle is a paragraph to read like
  * any other. It is only left out of the paragraph COUNT (measureColumn).
  */
-const NOT_PROSE = 'aside, script, style, template, pre, svg, canvas, .chart, .terminal, table, '
+const NOT_PROSE = 'aside, script, style, template, pre, svg, canvas, .chart, .terminal, .conversation, table, '
   + '.slide-bg, .decklight-hero-logo, .decklight-steps, nav.steps, h1, h2, h3, h4, h5, h6, .pin-title';
 
 const TITLE_COMPANION = '.subtitle, .pin-subtitle, '

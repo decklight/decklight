@@ -792,6 +792,7 @@
             code: '<pre><code class="language-js">// New code\nconst answer = 42;</code></pre>',
             formula: '<p>$$e^{i\\pi} + 1 = 0$$</p>',
             figure: '<div class="figure">\n  <p data-figure>42%</p>\n  <p>What the number counts</p>\n  <small>One line of context</small>\n</div>',
+            conversation: '<div class="conversation" data-build>\n  <p data-role="user">A question the user asks</p>\n  <p data-role="agent" data-kind="tool-call">look_up("the question")</p>\n  <p data-role="tool" data-name="look_up">{ "answer": "what the tool found" }</p>\n  <p data-role="agent">The agent\'s answer</p>\n</div>',
             columns: `${COL}\n${COL}`,
             chart: '<div class="chart" data-chart="bar" data-title="New chart">\n  <script type="application/json">\n  { "labels": ["A", "B", "C"], "series": [ { "name": "Series", "data": [3, 5, 2] } ] }\n  <\/script>\n</div>',
             diagram: '<svg viewBox="0 0 640 200" width="640" data-build="draw" role="img" aria-label="New diagram">\n  <defs><marker id="dl-wire-1" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>\n  <g><rect x="40" y="56" width="200" height="88" rx="10" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/><text x="140" y="106" text-anchor="middle">Box A</text></g>\n  <line x1="244" y1="100" x2="392" y2="100" stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#dl-wire-1)"/>\n  <g><rect x="400" y="56" width="200" height="88" rx="10" style="fill: var(--d-fill-2); stroke: var(--d-stroke)" stroke-width="2"/><text x="500" y="106" text-anchor="middle">Box B</text></g>\n</svg>',
@@ -6351,7 +6352,7 @@
         const pick = (label) => click([...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === label));
         const active = () => document.querySelector('.decklight-stage > section.active');
         const inserts = () => CALLS.post.filter((c) => c.u.includes('/deck/edit/element/insert'));
-        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Figure', 'Table', 'Code', 'Formula', 'Two columns', 'Diagram', 'Chart', 'Picture', 'Video', 'Terminal recording', 'Web page'];
+        const KINDS = ['Heading', 'Text', 'Bullets', 'Numbered list', 'Quote', 'Figure', 'Conversation', 'Table', 'Code', 'Formula', 'Two columns', 'Diagram', 'Chart', 'Picture', 'Video', 'Terminal recording', 'Web page'];
         deck.goto(1, 0); await settle();
         const labels = [...(bar()?.querySelectorAll('.eb-btn .eb-label') ?? [])].map((n) => n.textContent);
         r.addSitsBesidePicture = labels.indexOf('Add ▾') === labels.indexOf('Picture') - 1;
@@ -6433,6 +6434,18 @@
           && figValue?.style.getPropertyValue('--figure-chars') === '3';
         r.figureValueInEdit = !!figValue?.isContentEditable && window.getSelection().toString() === '42%';
         figValue?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        press('Escape'); await settle();
+        // a conversation (DECK_ANATOMY): placed, shown whole though it builds, its call coloured as code, its first turn typed first
+        click(bar().querySelector('.eb-add')); await settle();
+        pick('Conversation'); await settle(); await settle();
+        const talk = [...active().querySelectorAll(':scope > .conversation')].at(-1);
+        const firstTurn = talk?.querySelector(':scope > [data-role="user"]');
+        r.conversationPlaced = inserts().at(-1)?.body.kind === 'conversation' && !!talk?.classList.contains('dl-selected')
+          && [...(talk?.children ?? [])].every((t) => t.getAttribute('data-build-state') !== 'pending');
+        r.conversationCallColoured = !!talk?.querySelector('[data-kind="tool-call"].turn-code .hljs-title, [data-kind="tool-call"].turn-code [class*="hljs-"]');
+        r.conversationTurnInEdit = !!firstTurn?.isContentEditable && window.getSelection().toString() === 'A question the user asks';
+        firstTurn?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
         await settle();
         press('Escape'); await settle();
         // a video: chosen (mp4 or webm), copied beside the deck, placed with its controls and selected

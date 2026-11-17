@@ -34,6 +34,9 @@
 //     a warning elsewhere, a failure here
 //   --steps-ink (else --accent) on --bg ≥ 3.0  ✦ (a run's current step, bold);
 //     a warning elsewhere, a failure here
+//   a conversation's turn: --turn-ink (else --fg) on --turn-bg (else --block-bg,
+//     over every stop of --bg) ≥ 4.5, and --turn-user-ink (else --accent-contrast)
+//     on --turn-user-bg (else --accent) ≥ 4.5  ✦; a warning elsewhere, a failure here
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -7,13 +7,14 @@
 import { scanSlide, applyBuildState, stepLabels, registerProvider, refitStroke } from './builds.js';
 import { configureTravel, finishTravel, tick as travelTick, travelling, tokenOf } from './travel.js';
 import { routeWire, routeConnectors } from './connectors.js';
-import { namespaceSvgIds, rescopeSvgIds, prefixSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf } from './svg.js';
+import { namespaceSvgIds, rescopeSvgIds, prefixSvgIds, applyConcepts, applyNesting, conceptFill, setFillRoles, fillRolesOf, setRoleConcepts } from './svg.js';
 import { initCharts, renderChart } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath, renderMathIn } from '../math/math.js';
 import { createSlideMedia } from './slide-media.js';
 import { createFigures } from './figure.js';
+import { setupConversations, fitConversations, showNewestIn } from './conversation.js';
 import { setupSteps } from './steps.js';
 import { initCode, placeAllCallouts } from '../code/code.js';
 import { fitCode } from '../code/fit.js';
@@ -45,6 +46,7 @@ import { createDeckSettings } from './deck-settings.js';
 import { createFindReplace } from './find-replace.js';
 import { createOptionsTab } from './options-tab.js';
 import { createTurnInto } from './turn-into.js';
+import { createConversationMenu } from './conversation-menu.js';
 import { createBlockResize } from './block-resize.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
@@ -372,6 +374,8 @@ function checkOverflow(section, slideNo) {
   placeAllCallouts(section);
   fitCode(section);
   placeAllCallouts(section);
+  // a conversation (DECK_ANATOMY): held to the room left, scrolling to its newest turn; whole and shrunk in print
+  fitConversations(section);
   // Terminals scroll internally by design (SPEC TERMINAL_PLAYER scrollback viewport);
   // any other intentional scroller can opt out with data-scroll-ok (overflow.js clipReport).
   const clipped = !!clipReport(section);
@@ -1903,6 +1907,7 @@ export function init(userConfig = {}) {
     if (charts === true) initCharts(sec);   // idempotent: only a chart not yet drawn is drawn
     else if (charts?.isConnected) { renderChart(charts); applyConcepts(charts, config.concepts); }
     if (math && sec.hasAttribute('data-math')) renderMathIn(sec);
+    setupConversations(sec);   // a turn typed over is coloured again (DECK_ANATOMY)
     for (const el of svgs) {
       if (!el?.isConnected) continue;
       addedSvgs += 1;
@@ -1976,7 +1981,9 @@ export function init(userConfig = {}) {
       setupSlideTemplates(this._sections, { warn: (m) => { console.warn(`decklight: ${m}`); debugLog('design-system', m); } });
       // a design system's fill roles are its diagram slots, before concepts and nesting paint any (SPEC DESIGN_SYSTEM_ROLES)
       setFillRoles(fillRolesOf(pageDesignSystems().values()));
+      setRoleConcepts(config.roleConcepts);  // a conversation's roles as concepts (DECK_ANATOMY)
       applyConcepts(stage, config.concepts); // idempotent; covers dynamic slides
+      setupConversations(stage);             // a tool's turns coloured as code, before anything measures
       setupHeroLogos(this._sections);        // idempotent; before pin measurement
       setupMedia(this._sections, { printMode }); // backgrounds first — .slide-bg must not read as content
       this._steps = setupSteps(this._sections); // a run's strip, numbered from the slides as they are now (DECK_ANATOMY)
@@ -3445,6 +3452,10 @@ export function init(userConfig = {}) {
   let figuresArrive = false;
   instance.on('slide', (e) => figures.arrive(figuresArrive ? e : {}, instance.state.step));
   instance.on('build', figures.built);
+  // a conversation keeps its newest turn in view as it builds, and as its slide arrives (DECK_ANATOMY)
+  const showConversations = () => showNewestIn(instance._sections[instance.state.slide - 1]);
+  instance.on('build', showConversations);
+  instance.on('slide', showConversations);
   instance.on('rescan', ({ slide }) => figures.adopt(instance._sections[slide - 1]));
   // a value typed over in place is measured again as it changes
   root.addEventListener('input', (e) => { const f = e.target?.closest?.('[data-figure]'); if (f?.parentElement) figures.adopt(f.parentElement); });
@@ -3871,6 +3882,7 @@ export function init(userConfig = {}) {
   instance._findReplace = findReplace;
   // Turn into ▸ on the element menu: a text block made another kind (turn-into.js)
   editmode.setTurnInto(createTurnInto({ instance: () => instance, editmode: () => editmode, toast }));
+  editmode.setConversationMenu(createConversationMenu({ editmode: () => editmode, toast }));
   editmode.setSlideRows((slide) => {
     const hidden = !!instance._sections?.[slide - 1]?.hasAttribute('data-hidden');
     return [

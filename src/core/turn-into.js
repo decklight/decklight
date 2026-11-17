@@ -29,7 +29,8 @@ export function createTurnInto({ instance, editmode, toast }) {
     if (!t?.top) return null;
     const n = t.node && t.top.contains(t.node) ? t.node : t.top;
     const b = n.matches?.('li') ? n.closest('ul, ol') : n.closest?.(BLOCKS);
-    return b && t.top.contains(b) && kindOf(b.tagName) && !b.closest('aside, pre, svg, table') ? b : null;
+    // a conversation's turn is a turn (DECK_ANATOMY): Turn ▸ changes its role and kind instead
+    return b && t.top.contains(b) && kindOf(b.tagName) && !b.closest('aside, pre, svg, table, .conversation') ? b : null;
   }
   /** Is `b` the slide's title: its first heading, the one every list names it by. */
   const isTitle = (b, sec) => b.matches('h1, h2') && [...sec.querySelectorAll('h1, h2')].find((h) => !h.closest('aside')) === b;
