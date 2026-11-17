@@ -94,6 +94,7 @@ export const ATTRIBUTE_DOCS = {
   'data-speed': { on: 'div.terminal', desc: 'Initial playback speed.' },
   'data-type-sound': { on: 'div.terminal', desc: 'The keyboard\'s sound (default thocky).' },
   'data-scroll-ok': { desc: 'This element scrolls on purpose: not counted as clipped.' },
+  'data-invisible-ok': { desc: 'This element is hidden on purpose: not reported as missing from print.' },
   'data-no-advance': { desc: 'A click on this element does not advance the deck.' },
   'data-slot': { desc: 'The template slot this element fills (on a slide) or is (in a template).' },
   'data-slot-hint': { on: 'template', desc: 'What an author is expected to put in this slot, e.g. h1,h2.' },

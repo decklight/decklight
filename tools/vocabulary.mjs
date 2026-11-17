@@ -130,6 +130,7 @@ export const ATTRIBUTES = [
 
   // ── anything ──────────────────────────────────────────────────────────────
   { name: 'data-scroll-ok', bare: true },
+  { name: 'data-invisible-ok', bare: true },
   { name: 'data-no-advance', bare: true },
 
   // ── design-system templates, and the slots a slide fills ──────────────────
@@ -160,7 +161,7 @@ export const ENGINE_ATTRIBUTES = [
   'data-draw-marker-end', 'data-draw-marker-start', 'data-draw-masked', 'data-draw-orig', 'data-ds-expanded',
   'data-ds-injected', 'data-ds-missing', 'data-ds-required-empty', 'data-eyelid', 'data-filmed', 'data-fit-scale',
   'data-font', 'data-font-meta', 'data-font-preview', 'data-font-version', 'data-generated', 'data-go', 'data-how',
-  'data-href', 'data-i', 'data-idle', 'data-key', 'data-markdown', 'data-markdown-removed', 'data-mouth',
+  'data-href', 'data-i', 'data-idle', 'data-invisible', 'data-invisible-more', 'data-key', 'data-markdown', 'data-markdown-removed', 'data-mouth',
   'data-n', 'data-nest-fill', 'data-noise', 'data-off', 'data-off-fix', 'data-off-undo', 'data-overflow',
   'data-overflow-by', 'data-part', 'data-phase', 'data-pinned', 'data-play', 'data-play-beat', 'data-plugin', 'data-point', 'data-pos',
   'data-poster', 'data-rate', 'data-redo', 'data-redo-beat', 'data-ref', 'data-roles', 'data-row', 'data-rule',

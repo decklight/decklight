@@ -50,6 +50,7 @@ import { createConversationMenu } from './conversation-menu.js';
 import { createBlockResize } from './block-resize.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
+import { finishAuthorAnimations, markInvisible } from './print-visibility.js';
 import { createPlaylist } from './playlist.js';
 import { createRangePicker } from './ranges.js';
 import { createChoiceCard } from './choice.js';
@@ -2125,6 +2126,9 @@ export function init(userConfig = {}) {
         applyBuildState(rec, step);
         this._emit('build', { slide, index: step, total: rec.groups.length, direction });
       }
+      // a still (a pptx picture, a shot, a video frame) is the slide as it ends
+      // up: an entrance the deck's own CSS animates is shown arrived (#1184)
+      if (captureMode) finishAuthorAnimations(this._sections[slide - 1]);
       this._updateChrome();
       this._updateHash(!sameSlide);
       this._notify();
@@ -3389,7 +3393,15 @@ export function init(userConfig = {}) {
   // header carries the reasoning for each.
   const overflowWatch = createOverflowWatch({
     sectionsOf: () => instance._sections,
-    checkOverflow,
+    // In a still, content that arrives or changes is finished as it settles too
+    // (an animation a late class starts), and in `?print` each re-check also
+    // says what the slide still does not show (`data-invisible`, #1184), for
+    // `decklight check` and `pdf` to read off the render.
+    checkOverflow: (section, slideNo) => {
+      if (printMode || captureMode) finishAuthorAnimations(section);
+      checkOverflow(section, slideNo);
+      if (printMode && section) markInvisible(section);
+    },
   });
   const watchOverflow = (sections) => overflowWatch.watch(sections);
 
@@ -4090,6 +4102,13 @@ export function init(userConfig = {}) {
       root.classList.add('decklight-print-' + printVariant);
       buildPrintPages(stage, instance._sections.filter((s) => showHidden || !s.hasAttribute('data-hidden')), printVariant);
     }
+    // An entrance the deck's own CSS animates ends where the live slide does:
+    // Chrome lays the page out again for print media and a running animation's
+    // value does not survive it, so it is finished here, the way builds are
+    // completed above (PRESENTING_OUTPUT, #1184). data-animate loops never end
+    // and are left alone. After the handout wrap: moving a section restarts its
+    // animations.
+    finishAuthorAnimations(stage);
     // All slides are visible in print — audit the whole deck for clipping.
     // (`decklight pdf` reads these attributes back out of this very render, so
     // this is the one that must not depend on another frame ever arriving.)

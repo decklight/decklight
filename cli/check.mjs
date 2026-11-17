@@ -59,7 +59,7 @@ import { composeRenames, migrationsOf } from '../tools/design-system-migrations.
 import { markedSources } from './theme-refs.mjs';
 import { parseColor, toOklab } from '../tools/color.mjs';
 import { ON_PALETTE_DISTANCE, offRoleColours, nearestRole, resolveTokenColours } from '../tools/brand-palette.mjs';
-import { printUrl } from './pdf.mjs';
+import { printUrl, invisibleSaid, INVISIBLE_ADVICE } from './pdf.mjs';
 import { configBlock } from './runtime-link.mjs';
 import { attributeFindings, configFindings } from '../tools/vocabulary.mjs';
 import { stepRuns } from '../tools/steps.mjs';
@@ -1115,6 +1115,13 @@ export function renderFindings(domHtml, { slides = 0 } = {}) {
       out.push(finding('warn', 'dense', slide, head,
         `crowded: ${attrs['data-dense']} (~3–4 bullets or ~2 short paragraphs per column, SPEC SLIDE_DENSITY)`
         + ' — split the slide rather than shrink it, or mark it data-dense-ok if it is meant'));
+    }
+    // content the print render does not show, once builds are complete and the
+    // deck's own animations finished (src/core/print-visibility.js, #1184): a
+    // hole in the PDF. A warning, not an error: the runtime cannot read intent.
+    const invisible = invisibleSaid(m[0]);
+    if (invisible) {
+      out.push(finding('warn', 'invisible-in-print', slide, head, `invisible in print: ${invisible} — ${INVISIBLE_ADVICE}`));
     }
     // [click] markers against build clicks, counted by the engine itself
     // (engine.js markClickMismatch): providers included, which the file cannot do
