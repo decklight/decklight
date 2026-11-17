@@ -327,7 +327,8 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
       rec('layoutpinned', document.querySelector('section[data-slide-index="8"]').hasAttribute('data-pinned')),
       rec('layouttop', (() => {
         const s = document.querySelector('section[data-slide-index="9"]');
-        return !s.hasAttribute('data-pinned') && getComputedStyle(s).justifyContent === 'flex-start';
+        // Chrome 158 reports the computed flex-start as flow-start: either is top-aligned
+        return !s.hasAttribute('data-pinned') && ['flex-start', 'flow-start'].includes(getComputedStyle(s).justifyContent);
       })()),
       rec('splitrow', (() => {
         const cs = getComputedStyle(document.querySelector('section[data-slide-index="10"]'));
