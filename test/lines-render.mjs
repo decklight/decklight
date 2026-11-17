@@ -16,7 +16,10 @@
  * lines and the label level with their middle; under its lines in a block too
  * narrow for a gutter, pushing nothing; earlier ones kept and muted with
  * `data-callouts-keep`; gone with the dimming of a walk that ends lit; and
- * every one of them on the printed page.
+ * every one of them on the printed page. A narrow block that shows several at
+ * once (kept, or printed) numbers them beside its lines, never over its code,
+ * and lists the labels under it, in room the block took from the start, and
+ * `data-fit` shrinks the code to leave that list room.
  *
  * Read as computed opacity, the thing the audience sees, not as class names.
  */
@@ -39,7 +42,7 @@ const file = path.join(dir, 'deck.html');
 writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="${path.join(root, 'dist/decklight.css')}">
 <link rel="stylesheet" href="${path.join(root, 'themes/aurora.css')}">
-<style>.decklight .code-line, .decklight .code-callout { transition: none !important; }</style></head>
+<style>.decklight .code-line, .decklight .code-callout, .decklight .code-callout-entry { transition: none !important; }</style></head>
 <body><div class="decklight">
 <section><h1>Cover</h1></section>
 <section><h2>Then a point</h2>${code('then', 'data-lines-end="all"')}<p data-build>And what it means.</p></section>
@@ -60,6 +63,18 @@ FROM t;</code></pre><p data-build>And then.</p></section>
 FROM t;</code></pre><aside class="callouts"><p>The <strong>columns</strong></p><p data-step="2">The table</p></aside></section>
 <section><h2>Long lines</h2><pre id="long" data-fit data-lines="1|2" data-callouts="The first, at some length|The second"><code class="language-js">const someVeryLongVariableName = await fetchTheThingFromTheServer(withThisArgument, andThatOne);
 const anotherQuiteLongName = someVeryLongVariableName.map((x) => x.value * 2).filter(Boolean);</code></pre></section>
+<section><h2>Narrow, kept</h2><div style="width: 520px; margin: 0 auto"><pre id="nark" data-lines="1|2-3|4" data-callouts="One|Two and three|Four" data-callouts-keep><code class="language-sql">SELECT a
+FROM t
+JOIN u ON t.id = u.id
+WHERE b = 1;</code></pre></div></section>
+<section><h2>Narrow, kept, fitted</h2><div id="tight" style="width: 520px; height: 300px; margin: 0 auto; overflow: hidden"><pre id="narf" data-fit data-lines="1-3|4-6|7-8" data-callouts="The first three lines, at some length|The middle of it|The end" data-callouts-keep><code class="language-sql">SELECT a,
+       b,
+       c
+FROM t
+JOIN u ON t.id = u.id
+JOIN v ON u.id = v.id
+WHERE b = 1
+ORDER BY a;</code></pre></div></section>
 </div>
 <pre id="test-sink">running…</pre>
 <script src="${path.join(root, 'dist/decklight.js')}"></script>
@@ -73,16 +88,34 @@ const callouts = () => Object.fromEntries([...document.querySelectorAll('.deckli
   const code = p.querySelector(':scope > code').getBoundingClientRect();
   const lines = [...p.querySelectorAll('.code-line')].map((l) => l.getBoundingClientRect());
   return [p.id, {
-    mode: p.classList.contains('callouts-gutter') ? 'gutter' : p.classList.contains('callouts-under') ? 'under' : null,
-    codeRight: code.right, codeFits: p.querySelector(':scope > code').scrollWidth <= p.querySelector(':scope > code').clientWidth + 1,
+    mode: ['gutter', 'under', 'legend'].find((m) => p.classList.contains(\`callouts-\${m}\`)) ?? null,
+    codeRight: code.right, codeBottom: code.bottom, preBottom: p.getBoundingClientRect().bottom,
+    codeFits: p.querySelector(':scope > code').scrollWidth <= p.querySelector(':scope > code').clientWidth + 1,
     height: p.offsetHeight, lines: lines.map((r) => [r.top, r.bottom]),
+    scale: p.getAttribute('data-fit-scale'),
+    legend: (() => {
+      const g = p.querySelector(':scope > .code-callout-legend');
+      const r = g.getBoundingClientRect();
+      return { shown: getComputedStyle(g).display !== 'none', top: r.top, bottom: r.bottom,
+        each: [...g.querySelectorAll('.code-callout-entry')].map((e) => {
+          const cs = getComputedStyle(e);
+          return { seen: cs.visibility === 'visible' ? +cs.opacity : 0, color: cs.color,
+            mark: e.querySelector('.code-callout-mark').textContent, text: e.querySelector('.code-callout-label').textContent };
+        }) };
+    })(),
     each: [...p.querySelectorAll('.code-callout')].map((c) => {
       const b = c.querySelector('.code-callout-bracket').getBoundingClientRect();
       const l = c.querySelector('.code-callout-label').getBoundingClientRect();
       const cs = getComputedStyle(c);
       return { step: +c.dataset.step, seen: cs.visibility === 'visible' ? +cs.opacity : 0, color: cs.color,
         bracket: [b.left, b.top, b.bottom, getComputedStyle(c.querySelector('.code-callout-bracket')).borderTopColor],
-        label: [l.left, l.top, l.bottom], strong: !!c.querySelector('.code-callout-label strong') };
+        label: [l.left, l.top, l.bottom], strong: !!c.querySelector('.code-callout-label strong'),
+        labelShown: getComputedStyle(c.querySelector('.code-callout-label')).display !== 'none',
+        mark: (() => {
+          const m = c.querySelector('.code-callout-mark');
+          const r = m.getBoundingClientRect();
+          return { shown: getComputedStyle(m).display !== 'none', text: m.textContent, left: r.left, mid: (r.top + r.bottom) / 2 };
+        })() };
     }),
   }];
 }));
@@ -116,13 +149,23 @@ setTimeout(() => {
     deck.goto(9, 2); out.endc2 = callouts().endc;
     deck.goto(9, 3); out.endc3 = callouts().endc;
     deck.goto(10, 1); out.asd1 = callouts().asd; out.asideShown = asideShown();
+    deck.goto(12, 0); out.nark0 = callouts().nark;
+    deck.goto(12, 1); out.nark1 = callouts().nark;
+    deck.goto(12, 2); out.nark2 = callouts().nark;
+    deck.goto(12, 3); out.nark3 = callouts().nark;
     deck.goto(11, 1);
   }
   out.print = location.search === '?print' ? callouts() : null;
   // the fit runs when the guardrail's watch first measures the slide
   setTimeout(() => {
     if (!location.search) out.long1 = callouts().long;
-    document.getElementById('test-sink').textContent = 'DECKLIGHT-LINES-RESULTS ' + JSON.stringify(out);
+    if (location.search) { document.getElementById('test-sink').textContent = 'DECKLIGHT-LINES-RESULTS ' + JSON.stringify(out); return; }
+    deck.goto(13, 3);
+    setTimeout(() => {
+      out.narf3 = callouts().narf;
+      out.tightBottom = document.getElementById('tight').getBoundingClientRect().bottom;
+      document.getElementById('test-sink').textContent = 'DECKLIGHT-LINES-RESULTS ' + JSON.stringify(out);
+    }, 300);
   }, 300);
 }, 300);
 </script></body></html>`);
@@ -176,6 +219,35 @@ const LIT = (v) => v === 1;
   check('callouts: an aside\'s label keeps its markup, and the aside is not shown', r.asd1.each[0].strong && r.asd1.each[0].seen === 1 && !r.asideShown,
     `strong=${r.asd1.each[0].strong} seen=${r.asd1.each[0].seen} aside shown=${r.asideShown}`);
   check('callouts: data-fit sizes the code to the left of the gutter', r.long1.mode === 'gutter' && r.long1.codeFits, `mode ${r.long1.mode} fits ${r.long1.codeFits}`);
+  check('callouts: a narrow block shows no legend for one at a time', r.nar1.mode === 'under' && !r.nar1.legend.shown && r.nar1.each.every((c) => !c.mark.shown),
+    `mode ${r.nar1.mode} legend ${r.nar1.legend.shown}`);
+  // a narrow block, kept: numbered markers beside the lines, the labels listed under the code
+  const k = (x) => x.legend.each.map((e) => e.seen);
+  check('callouts: narrow and kept, it numbers them in a legend', r.nark1.mode === 'legend' && r.nark1.legend.shown
+    && r.nark1.legend.each.map((e) => e.mark).join() === '1,2,3' && r.nark1.legend.each[1].text === 'Two and three',
+    `mode ${r.nark1.mode} ${JSON.stringify(r.nark1.legend.each.map((e) => [e.mark, e.text]))}`);
+  check('callouts: narrow and kept, the legend fills as the walk goes', JSON.stringify(k(r.nark0)) === '[0,0,0]' && JSON.stringify(k(r.nark1)) === '[1,0,0]'
+    && JSON.stringify(k(r.nark2)) === '[1,1,0]' && JSON.stringify(k(r.nark3)) === '[1,1,1]',
+    [r.nark0, r.nark1, r.nark2, r.nark3].map((x) => JSON.stringify(k(x))).join(' '));
+  check('callouts: narrow and kept, earlier ones muted', r.nark3.legend.each[0].color !== r.nark3.legend.each[2].color && r.nark3.each[0].color !== r.nark3.each[2].color,
+    `${r.nark3.legend.each[0].color} vs ${r.nark3.legend.each[2].color}`);
+  check('callouts: narrow and kept, the markers arrive with their steps', JSON.stringify(seen(r.nark2)) === '[1,1,0]'
+    && r.nark2.each.every((c) => c.mark.shown && !c.labelShown), JSON.stringify(seen(r.nark2)));
+  check('callouts: narrow and kept, markers beside the code, never over it', r.nark3.each.every((c) => c.mark.left >= r.nark3.codeRight - 1 && c.bracket[0] >= r.nark3.codeRight - 1),
+    `code right ${Math.round(r.nark3.codeRight)}, markers ${r.nark3.each.map((c) => Math.round(c.mark.left))}`);
+  {
+    const [top, bottom] = [r.nark3.lines[1][0], r.nark3.lines[2][1]];
+    const two = r.nark3.each[1];
+    check('callouts: narrow and kept, a marker is level with the middle of its lines', Math.abs(two.mark.mid - (top + bottom) / 2) < 3
+      && Math.abs(two.bracket[1] - top) < 8 && Math.abs(two.bracket[2] - bottom) < 8, `marker ${Math.round(two.mark.mid)}, lines ${Math.round((top + bottom) / 2)}`);
+  }
+  check('callouts: narrow and kept, the legend is under the code, inside the block', r.nark3.legend.top >= r.nark3.codeBottom - 1 && r.nark3.legend.bottom <= r.nark3.preBottom + 1,
+    `code bottom ${Math.round(r.nark3.codeBottom)} legend ${Math.round(r.nark3.legend.top)}-${Math.round(r.nark3.legend.bottom)} block ${Math.round(r.nark3.preBottom)}`);
+  check('callouts: narrow and kept, it pushes nothing as the walk goes', new Set([r.nark0, r.nark1, r.nark2, r.nark3].map((x) => x.height)).size === 1,
+    [r.nark0, r.nark1, r.nark2, r.nark3].map((x) => x.height).join(' '));
+  check('callouts: narrow and kept, data-fit shrinks the code to leave the legend room', r.narf3.mode === 'legend' && +r.narf3.scale < 1
+    && r.narf3.preBottom <= r.tightBottom + 1 && r.narf3.codeFits,
+    `scale ${r.narf3.scale} block bottom ${Math.round(r.narf3.preBottom)} room ${Math.round(r.tightBottom)} fits ${r.narf3.codeFits}`);
 }
 
 // ── print: every stepped block whole, unless it asks for its last step ─────
@@ -187,7 +259,13 @@ const LIT = (v) => v === 1;
   const shown = (b) => b.each.map((c) => c.seen);
   check('print: every callout in a gutter, at full ink', [r.print.gut, r.print.endc].every((b) => shown(b).every((v) => v === 1))
     && new Set(r.print.gut.each.map((c) => c.color)).size === 1, `${JSON.stringify(shown(r.print.gut))} ${JSON.stringify(shown(r.print.endc))}`);
-  check('print: a narrow block, with no gutter, prints none', shown(r.print.nar).every((v) => v === 0), JSON.stringify(shown(r.print.nar)));
+  check('print: a narrow block prints every label, numbered in a legend', r.print.nar.mode === 'legend' && r.print.nar.legend.each.every((e) => e.seen === 1)
+    && shown(r.print.nar).every((v) => v === 1) && r.print.nar.each.every((c) => c.mark.shown && !c.labelShown),
+    `mode ${r.print.nar.mode} legend ${JSON.stringify(r.print.nar.legend.each.map((e) => e.seen))} markers ${JSON.stringify(shown(r.print.nar))}`);
+  check('print: a narrow kept block, every label at full ink', r.print.nark.legend.each.every((e) => e.seen === 1)
+    && new Set(r.print.nark.legend.each.map((e) => e.color)).size === 1, JSON.stringify(r.print.nark.legend.each.map((e) => e.color)));
+  check('print: a narrow block\'s legend is inside the block', r.print.nar.legend.bottom <= r.print.nar.preBottom + 1 && r.print.nar.legend.top >= r.print.nar.codeBottom - 1,
+    `legend ${Math.round(r.print.nar.legend.top)}-${Math.round(r.print.nar.legend.bottom)} block ${Math.round(r.print.nar.preBottom)}`);
 }
 
 // ── stills ──────────────────────────────────────────────────────────────────

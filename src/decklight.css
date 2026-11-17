@@ -1586,16 +1586,19 @@
 /* callouts (#1182): a line step's label, drawn while its step is current, in a
    gutter the block keeps at its right, level with the middle of its lines and
    a bracket spanning them (code/code.js places them). A block whose room is
-   too narrow for a gutter shows the label just under its lines, over the dimmed
-   code, pushing nothing. The label is the code's ink on the code's ground, in
-   the body face; the bracket is --callout-ink (the accent unless the theme
-   says otherwise). CODE_AND_MATH */
+   too narrow for a gutter shows the one current label just under its lines,
+   pushing nothing; when it shows several at once (data-callouts-keep, the
+   printed page) each step has a numbered marker in a slim column at the
+   block's right, by a bracket spanning its lines, and the labels are listed
+   by number under the code, in the block's own flow. The label is the code's
+   ink on the code's ground, in the body face; the bracket and the marker's
+   ring are --callout-ink (the accent unless the theme says otherwise).
+   CODE_AND_MATH */
 .decklight pre.has-callouts { position: relative; }
 .decklight pre.callouts-gutter { box-sizing: border-box; padding-right: calc(1em + var(--code-callout-width, 26%)); }
-.decklight .code-callouts {
-  position: absolute;
-  top: 0;
-  height: 100%;
+.decklight pre.callouts-legend { box-sizing: border-box; padding-right: 2.4em; }
+.decklight .code-callouts,
+.decklight .code-callout-legend {
   pointer-events: none;
   font-family: var(--font-body, system-ui, sans-serif);
   font-size: 0.6em;
@@ -1605,6 +1608,7 @@
   white-space: normal;
   text-align: left;
 }
+.decklight .code-callouts { position: absolute; top: 0; height: 100%; }
 .decklight section.dl-fit-measure .code-callouts { display: none; }
 /* a label's own markup (the aside form): words in code read as inline code, not as the block's */
 .decklight .code-callout-label code {
@@ -1617,21 +1621,24 @@
   padding: 0.05em 0.3em;
   border-radius: 4px;
 }
-.decklight .code-callout {
+.decklight .code-callout { position: absolute; left: 0; right: 0; }
+.decklight .code-callout,
+.decklight .code-callout-entry {
   --dl-callout-line: var(--callout-ink, var(--accent, #7aa2f7));
-  position: absolute;
-  left: 0;
-  right: 0;
   color: var(--code-fg, #e6e6e6);
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--build-duration) ease, visibility 0s linear var(--build-duration);
 }
 .decklight .code-callout.callout-on,
-.decklight .code-callout.callout-kept { opacity: 1; visibility: visible; transition: opacity var(--build-duration) ease, visibility 0s; }
+.decklight .code-callout.callout-kept,
+.decklight .code-callout-entry.callout-on,
+.decklight .code-callout-entry.callout-kept { opacity: 1; visibility: visible; transition: opacity var(--build-duration) ease, visibility 0s; }
 /* data-callouts-keep: an earlier step's label stays, muted, as the walk goes on */
-.decklight .code-callout.callout-kept { color: var(--hl-comment, #7d8799); --dl-callout-line: var(--hl-comment, #7d8799); }
-.decklight pre.callouts-gutter .code-callout-bracket {
+.decklight .code-callout.callout-kept,
+.decklight .code-callout-entry.callout-kept { color: var(--hl-comment, #7d8799); --dl-callout-line: var(--hl-comment, #7d8799); }
+.decklight pre.callouts-gutter .code-callout-bracket,
+.decklight pre.callouts-legend .code-callout-bracket {
   position: absolute;
   left: 0.7em;
   top: 0.2em;
@@ -1654,29 +1661,56 @@
   border-radius: 0 0.3em 0.3em 0;
   box-shadow: var(--shadow, 0 6px 24px rgba(0,0,0,.25));
 }
-/* under the lines there is room for one: only the current step's */
-.decklight pre.callouts-under .code-callout.callout-kept:not(.callout-on) { opacity: 0; visibility: hidden; }
+/* a narrow block showing several: a step's number by its bracket, its words in the legend */
+.decklight .code-callout-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 1.5em;
+  height: 1.5em;
+  padding: 0 0.3em;
+  border: 0.13em solid var(--dl-callout-line);
+  border-radius: 0.75em;
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.decklight .code-callouts .code-callout-mark { display: none; }
+.decklight pre.callouts-legend .code-callouts .code-callout-mark { display: inline-flex; position: absolute; left: 1.45em; top: 50%; transform: translateY(-50%); }
+.decklight pre.callouts-legend .code-callouts .code-callout-label { display: none; }
+.decklight .code-callout-legend { display: none; }
+.decklight pre.callouts-legend .code-callout-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  margin-top: 0.8em;
+  padding-top: 0.7em;
+  border-top: 1px solid color-mix(in srgb, var(--hl-comment, #7d8799) 40%, transparent);
+}
+.decklight .code-callout-entry { display: flex; align-items: baseline; gap: 0.6em; }
+.decklight .code-callout-entry .code-callout-mark { flex: none; }
 /* a walk that ends lit (data-lines-end="all"): its last label leaves with the
    dimming, or, kept, every label stays at full ink over the whole block */
-.decklight pre[data-lines-end="all"].lines-past:not([data-callouts-keep]) .code-callout,
-.decklight section.leaving pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) .code-callout,
-.decklight .ov-clone pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) .code-callout,
-.decklight.decklight-print pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) .code-callout,
-.decklight.decklight-capture pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) .code-callout { opacity: 0; visibility: hidden; }
-.decklight pre[data-lines-end="all"].lines-past[data-callouts-keep] .code-callout.callout-kept,
-.decklight section.leaving pre[data-lines-end="all"].lines-last[data-callouts-keep] .code-callout.callout-kept,
-.decklight .ov-clone pre[data-lines-end="all"].lines-last[data-callouts-keep] .code-callout.callout-kept,
-.decklight.decklight-print pre[data-lines-end="all"].lines-last[data-callouts-keep] .code-callout.callout-kept,
-.decklight.decklight-capture pre[data-lines-end="all"].lines-last[data-callouts-keep] .code-callout.callout-kept { color: var(--code-fg, #e6e6e6); --dl-callout-line: var(--callout-ink, var(--accent, #7aa2f7)); }
-/* the printed page shows the block whole, so every label in its gutter, at
-   full ink; a narrow block's one-at-a-time label has no place on it.
-   data-lines-print="last" prints the last step as the room saw it */
-.decklight.decklight-print pre.stepping.callouts-gutter:not([data-lines-print="last"]) .code-callout,
-.decklight.decklight-capture-print pre.stepping.callouts-gutter:not([data-lines-print="last"]) .code-callout {
+.decklight pre[data-lines-end="all"].lines-past:not([data-callouts-keep]) :is(.code-callout, .code-callout-entry),
+.decklight section.leaving pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) :is(.code-callout, .code-callout-entry),
+.decklight .ov-clone pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) :is(.code-callout, .code-callout-entry),
+.decklight.decklight-print pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) :is(.code-callout, .code-callout-entry),
+.decklight.decklight-capture pre[data-lines-end="all"].lines-last:not([data-callouts-keep]) :is(.code-callout, .code-callout-entry) { opacity: 0; visibility: hidden; }
+.decklight pre[data-lines-end="all"].lines-past[data-callouts-keep] :is(.code-callout, .code-callout-entry).callout-kept,
+.decklight section.leaving pre[data-lines-end="all"].lines-last[data-callouts-keep] :is(.code-callout, .code-callout-entry).callout-kept,
+.decklight .ov-clone pre[data-lines-end="all"].lines-last[data-callouts-keep] :is(.code-callout, .code-callout-entry).callout-kept,
+.decklight.decklight-print pre[data-lines-end="all"].lines-last[data-callouts-keep] :is(.code-callout, .code-callout-entry).callout-kept,
+.decklight.decklight-capture pre[data-lines-end="all"].lines-last[data-callouts-keep] :is(.code-callout, .code-callout-entry).callout-kept { color: var(--code-fg, #e6e6e6); --dl-callout-line: var(--callout-ink, var(--accent, #7aa2f7)); }
+/* the printed page shows the block whole, so every label at full ink: in the
+   gutter, or numbered in a narrow block's legend (code.js gives a narrow
+   block the legend there). data-lines-print="last" prints the last step as
+   the room saw it */
+.decklight.decklight-print pre.stepping:is(.callouts-gutter, .callouts-legend):not([data-lines-print="last"]) :is(.code-callout, .code-callout-entry),
+.decklight.decklight-capture-print pre.stepping:is(.callouts-gutter, .callouts-legend):not([data-lines-print="last"]) :is(.code-callout, .code-callout-entry) {
   opacity: 1; visibility: visible; color: var(--code-fg, #e6e6e6); --dl-callout-line: var(--callout-ink, var(--accent, #7aa2f7));
 }
-.decklight.decklight-print pre.stepping.callouts-under:not([data-lines-print="last"]) .code-callout,
-.decklight.decklight-capture-print pre.stepping.callouts-under:not([data-lines-print="last"]) .code-callout { opacity: 0; visibility: hidden; }
 
 /* hljs token → theme token mapping (no separate hljs theme files) */
 .decklight .hljs-keyword, .decklight .hljs-literal, .decklight .hljs-selector-tag { color: var(--hl-keyword, #c792ea); }

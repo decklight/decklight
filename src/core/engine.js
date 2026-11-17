@@ -2139,7 +2139,7 @@ export function init(userConfig = {}) {
       const to = this._sections[slide - 1];
       // hero-logo slides carry their own large mark — hide the corner chrome
       root.classList.toggle('has-hero-logo', to?.hasAttribute('data-logo') ?? false);
-      if (from === to) { to.classList.add('active'); applyNesting(to); return; }
+      if (from === to) { to.classList.add('active'); applyNesting(to); placeAllCallouts(to); return; }
       const initial = !from || !from.classList.contains('active');
 
       const autoAnim = from && to && !initial &&
@@ -2153,6 +2153,9 @@ export function init(userConfig = {}) {
       // nested diagram fills need the slide laid out (bboxes), so the pass
       // runs here, once the slide is displayed, rather than in sync()
       applyNesting(to);
+      // so does a code walk's callouts' side: a narrow kept block's legend is
+      // room it holds from its first step, never one it takes on a click (#1182)
+      placeAllCallouts(to);
 
       if (initial || printMode) return;
 
