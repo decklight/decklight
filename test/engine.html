@@ -8951,7 +8951,21 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.addedPointFlagged = rows().some((x) => x.classList.contains('bl-unplaced') && /A new point/.test(x.textContent) && /no place in the order/.test(x.textContent));
         r.othersKeepTheirPlace = rows()[0]?.querySelector('.bl-label')?.textContent === 'Three';
         r.oneWriteEach = orders().length === 7;
-        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        // a table that builds (#1187): each body row a row of the tab, named by
+        // its cells' first words read apart, and Build ▸'s click moves for a cell's row
+        const tbl = document.createElement('table');
+        tbl.setAttribute('data-build', '');
+        tbl.innerHTML = '<thead><tr><th>Risk</th><th>Bound</th></tr></thead><tbody><tr><td>Tools fail</td><td>Retry budget</td></tr><tr><td>Models guess</td><td>Schema checks</td></tr></tbody>';
+        sec.insertBefore(tbl, sec.querySelector(':scope > aside'));
+        deck.refreshSlide(sec, { scan: true }); await settle(); await settle();
+        r.tableRowsNamedApart = /Tools fail Retry budget/.test(labels()) && /Models guess Schema checks/.test(labels()) && !/failRetry/.test(labels());
+        const [tr1, tr2] = tbl.querySelectorAll('tbody tr');
+        const moves = deck._buildEdit.clickMoves(tr2.querySelector('td'));
+        r.cellMenuIsItsRows = moves?.el === tr2 && typeof moves.withPrevious === 'function' && moves.ownClick === null
+          && deck._buildEdit.clickMoves(tr1.querySelector('td'))?.el === tr1;
+        r.headerIsNoStep = deck._buildEdit.clickMoves(tbl.querySelector('th')) === null;
+        tbl.remove(); deck.refreshSlide(sec, { scan: true }); await settle();
+        r.PASS =Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

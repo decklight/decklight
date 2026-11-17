@@ -26,6 +26,32 @@ const PACES = [['', 'default'], ['150', 'slow'], ['600', 'fast']];
 /** Not what a slide shows: its notes and the like, and what the engine put there. */
 const NOT_SHOWN = 'aside, script, style, template';
 
+/** What reads apart from its neighbours: a table's cells and rows, a list's points, a block. */
+const APART = new Set(['TD', 'TH', 'TR', 'LI', 'P', 'DIV', 'BR', 'DT', 'DD', 'BLOCKQUOTE', 'FIGCAPTION', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+
+/**
+ * An element's words as they read: `textContent`, with a space where one
+ * cell, point or block ends and the next begins, so a table row written
+ * `<td>Tools fail</td><td>Retry budget</td>` is "Tools fail Retry budget",
+ * not "Tools failRetry budget". Notes and the like are not read.
+ */
+export function wordsOf(el) {
+  let out = '';
+  const walk = (n) => {
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) out += c.data;
+      else if (c.nodeType === 1 && !c.matches(NOT_SHOWN)) {
+        const apart = APART.has(c.tagName);
+        if (apart) out += ' ';
+        walk(c);
+        if (apart) out += ' ';
+      }
+    }
+  };
+  walk(el);
+  return out;
+}
+
 /** A slide element (or a node in one) in a few words: its first words, or what kind of thing it is. */
 export function whatIs(el) {
   if (!el?.tagName) return 'step';
@@ -37,7 +63,7 @@ export function whatIs(el) {
     return strokes ? `diagram · ${strokes} stroke${strokes === 1 ? '' : 's'}` : 'diagram';
   }
   if (tag === 'pre') return 'code';
-  const words = firstWords(el.textContent);
+  const words = firstWords(wordsOf(el));
   if (words) return words;
   if (el.querySelector?.('img')) return 'picture';
   if (el.closest?.('svg')) return 'a shape';
@@ -209,10 +235,10 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
     const g = row.click - 1;
     // the same, with no drag: onto the click before it, or apart again
     if (g > 0 && !ownedRow(row) && !ownedRow(m.rows[g - 1])) {
-      tools.append(btn('⤒', `with previous: arrives with click ${row.click - 1}`, () => arrange(m, mergeClick(m.groups, g, g - 1), `arrives with click ${row.click - 1}`), 'ins-btn bl-with-prev'));
+      tools.append(btn('⤒', `arrive with the one before: click ${row.click - 1}`, () => arrange(m, mergeClick(m.groups, g, g - 1), `arrives with click ${row.click - 1}`), 'ins-btn bl-with-prev'));
     }
     if (row.items.length > 1 && !ownedRow(row)) {
-      tools.append(btn('split', 'on its own click: each of these arrives on a click of its own', () => arrange(m, splitClick(m.groups, g), 'each on its own click'), 'ins-btn bl-split'));
+      tools.append(btn('split', 'on its own click: each of these arrives on a click of its own again', () => arrange(m, splitClick(m.groups, g), 'each on its own click'), 'ins-btn bl-split'));
     }
     for (const it of row.items) {
       if (it.owner || !it.el?.isConnected) continue;   // a code line or a stroke's stage is its block's

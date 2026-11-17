@@ -18,6 +18,7 @@ import { authoredTop, authoredIndex } from './design-system.js';
 import { pathFrom } from './colorpicker.js';
 import { clearBuildMarks, stepShowing } from './builds.js';
 import { reselectAfterReload, forgetReselect } from './editbar.js';
+import { mergeClick, detachStep, clickOfStep, orderGroups } from './buildlist.js';
 
 /** The attributes each field writes, and how a value reads on the page. */
 const FIELDS = {
@@ -160,5 +161,38 @@ export function createBuildEdit({ instance, editmode, toast = () => {} }) {
     }
   }
 
-  return { set, order, addressOf: (node) => addressOf(inst(), node) };
+  /**
+   * The two click moves Build ▸ offers for the step `node` is in (a row of a
+   * table that builds, a point of a list, an element of its own): **Arrive
+   * with the one before** (its click joins the click before it) and **On its
+   * own click** (it leaves the click it shares). Each is the Builds tab's own
+   * arrangement, written by `order`: one write, one undo. Null where `node` is
+   * in no step, or in a code block's lines or a stroke's stages, which keep
+   * with their block; a move that cannot act here is null.
+   */
+  function clickMoves(node) {
+    const it = inst();
+    const sec = node?.closest?.('section');
+    const slide = sec ? it._sections?.indexOf(sec) : -1;
+    const rec = slide >= 0 ? it._records?.[slide] : null;
+    if (!rec) return null;
+    // the innermost step holding the node: a cell's row, a point's list item
+    let i = -1;
+    rec.steps.forEach((st, k) => { if (st.kind === 'dom' && st.el?.contains(node) && (i < 0 || rec.steps[i].el.contains(st.el))) i = k; });
+    if (i < 0) return null;
+    const g = clickOfStep(rec.groups, i);
+    if (g < 0) return null;
+    const owned = (x) => rec.groups[x]?.some((k) => rec.steps[k]?.kind === 'provider');
+    if (owned(g)) return null;
+    const nodes = rec.steps.map((st) => ({ node: st.el, count: st.kind === 'provider' ? st.provider?.count ?? 1 : 1 }));
+    const write = (groups, said) => () => order(sec, orderGroups(groups, nodes), said);
+    return {
+      el: rec.steps[i].el,
+      click: g + 1,
+      withPrevious: g > 0 && !owned(g - 1) ? write(mergeClick(rec.groups, g, g - 1), `arrives with click ${g}`) : null,
+      ownClick: rec.groups[g].length > 1 ? write(detachStep(rec.groups, g, i), 'on its own click') : null,
+    };
+  }
+
+  return { set, order, clickMoves, addressOf: (node) => addressOf(inst(), node) };
 }

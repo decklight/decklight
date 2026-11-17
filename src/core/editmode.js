@@ -2569,6 +2569,15 @@ export function createEditMode({
       // the element) — distinct from "remove effect", which strips data-build.
       rows.push(tick('none', 'none (instant)'));
       if (cur !== null) rows.push({ label: cur === '' ? '✓ the default build — remove it' : 'remove effect', run: () => commitEffect(null) });
+      // the click it plays on (the Builds tab's arrangement): a row of a table
+      // that builds, a point of a list, or an element of its own, as clicked
+      const moves = buildEdit?.clickMoves?.(menuTarget.clicked ?? buildNode(menuTarget));
+      if (moves && (moves.withPrevious || moves.ownClick)) {
+        const noop = () => {};
+        rows.push({ sep: true });
+        rows.push({ label: 'Arrive with the one before', disabled: !moves.withPrevious, run: moves.withPrevious ? () => { closeElementMenu(); moves.withPrevious(); } : noop });
+        rows.push({ label: 'On its own click', disabled: !moves.ownClick, run: moves.ownClick ? () => { closeElementMenu(); moves.ownClick(); } : noop });
+      }
     } else if (menuView === 'animate') {
       // Animate ▸ (PRESENTING_EDITING): a loop the element keeps while its slide is on screen, `data-animate`
       const node = buildNode(menuTarget);

@@ -291,6 +291,28 @@ test('setSlideBuildOrder stamps every step with its click, ties sharing a key, a
   assert.throws(() => setSlideBuildOrder(deck, 1, [[{ index: 1, path: [7] }]]), (e) => e.code === 'STALE');
 });
 
+test('setSlideBuildOrder ties two rows of a table that builds: one key on both, the rest renumbered, one click fewer', async () => {
+  const { buildClicks, parseTree } = await import('../cli/check.mjs');
+  const deck = '<div class="decklight">\n<section>\n  <table data-build>\n    <thead><tr><th>Risk</th><th>Bound</th></tr></thead>\n    <tbody>\n'
+    + '      <tr><td>Tools fail</td><td>Retry</td></tr>\n      <tr><td>Models guess</td><td>Schema</td></tr>\n'
+    + '      <tr><td>Loops repeat</td><td>Limit</td></tr>\n      <tr><td>Costs grow</td><td>Cap</td></tr>\n    </tbody>\n  </table>\n'
+    + '  <aside class="notes">Intro. [click] Tools and models. [click] Loops. [click] Costs.</aside>\n</section>\n</div>';
+  const tr = (i) => ({ index: 0, path: [1, i], tag: 'tr' });
+  // the second row dropped onto the first (Arrive with the one before)
+  const { html, orders } = setSlideBuildOrder(deck, 1, [[tr(0), tr(1)], [tr(2)], [tr(3)]]);
+  assert.deepEqual(orders.map((o) => o.order), ['1', '1', '2', '3']);
+  assert.match(html, /<tr data-build-order="1"><td>Tools fail[^\n]*\n {6}<tr data-build-order="1"><td>Models guess[^\n]*\n {6}<tr data-build-order="2">[^\n]*\n {6}<tr data-build-order="3">/);
+  assert.equal(html.replace(/ data-build-order="\d"/g, ''), deck, 'nothing else changed');
+  // check counts the tied rows as one click, and the three beats agree with it
+  const section = html.slice(html.indexOf('<section>'), html.indexOf('</section>') + 10);
+  assert.equal(buildClicks(parseTree(section)), 3);
+  const { staticFindings } = await import('../cli/check.mjs');
+  assert.ok(!staticFindings(`<!doctype html><html><body>${html}</body></html>`, {}).some((f) => f.rule === 'clicks-vs-builds'), 'no clicks-vs-builds once tied');
+  assert.ok(staticFindings(`<!doctype html><html><body>${deck}</body></html>`, {}).some((f) => f.rule === 'clicks-vs-builds'), 'the untied table is one click over its beats');
+  // On its own click: the file's own order again, every key off
+  assert.equal(setSlideBuildOrder(html, 1, [[tr(0)], [tr(1)], [tr(2)], [tr(3)]]).html, deck);
+});
+
 test('setSlideElementBuild writes to a nested node: a point of a list, not the list', () => {
   const deck = '<div class="decklight">\n<section>\n  <h2>T</h2>\n  <ul data-build>\n    <li>a</li>\n    <li>b</li>\n  </ul>\n</section>\n</div>';
   const pointed = setSlideElementBuild(deck, 1, 1, 'zoom', { path: [1], tag: 'li' });

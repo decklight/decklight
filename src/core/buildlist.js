@@ -88,6 +88,22 @@ export function splitClick(groups, g) {
 }
 
 /**
+ * Step `i` of click `g` on a click of its own, the others staying on theirs:
+ * before them when it comes first on the slide, else right after. What a
+ * menu's "On its own click" does for one row of a table or point of a list.
+ */
+export function detachStep(groups, g, i) {
+  const rest = groups[g]?.filter((x) => x !== i);
+  if (!rest || rest.length === groups[g].length || !rest.length) return groups.map((x) => x.slice());
+  const out = groups.map((x) => x.slice());
+  out.splice(g, 1, ...(i < Math.min(...rest) ? [[i], rest] : [rest, [i]]));
+  return out;
+}
+
+/** The click (index into `groups`) that step `i` plays on, or -1. */
+export const clickOfStep = (groups, i) => groups.findIndex((g) => g.includes(i));
+
+/**
  * The groups as the order route takes them: each click the nodes it brings,
  * `steps[i]` being `{ node, count }` (the node that carries a step's order, the
  * number of steps it brings). A node of several steps (a code block's lines, a
