@@ -60,7 +60,7 @@ import { markedSources } from './theme-refs.mjs';
 import { parseColor, toOklab } from '../tools/color.mjs';
 import { ON_PALETTE_DISTANCE, offRoleColours, nearestRole, resolveTokenColours } from '../tools/brand-palette.mjs';
 import { printUrl, invisibleSaid, INVISIBLE_ADVICE } from './pdf.mjs';
-import { configBlock } from './runtime-link.mjs';
+import { configBlock, hasDoctype, isDeck } from './runtime-link.mjs';
 import { attributeFindings, configFindings } from '../tools/vocabulary.mjs';
 import { stepRuns } from '../tools/steps.mjs';
 import { runMain } from './util.mjs';
@@ -705,6 +705,14 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
   const systems = configured.length ? designSystems(src) : new Map();
   const hold = brandHold(src, systems);
   const roles = roleHold(src, systems);
+  // A file with no doctype (#1190): every server and render puts one in front,
+  // but a browser opening the file itself lays it out in quirks mode, where a
+  // table loses the theme's text colour. A hint: Decklight's own paths are fine.
+  if (isDeck(src) && !hasDoctype(src)) {
+    out.push(finding('hint', 'no-doctype', null, 'head',
+      'no <!doctype html> at the top of the file — Decklight adds it when it serves or renders the deck, '
+      + 'but a browser opening the file itself lays it out in quirks mode: put <!doctype html> on its first line'));
+  }
   const offBrand = themeOffBrand(src, systems);
   if (offBrand) {
     out.push(finding('warn', 'theme-off-brand', null, 'head',
@@ -1208,7 +1216,9 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
     hints             the same words on boxes on several slides in different
                       colours: one idea, worth one concept (SVG_DIAGRAMS) · an
                       SVG diagram with no build, landing all at once
-                      (data-static-ok says it is meant)
+                      (data-static-ok says it is meant) · a file with no
+                      <!doctype html>, which a browser opening it directly
+                      lays out in quirks mode
 
   --no-render    the file half only — no Chrome, no render (a machine without
                  Chrome skips that half by itself, and says so)

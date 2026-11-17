@@ -553,6 +553,12 @@
   margin: 0.6em auto;
   border-collapse: collapse;
   text-align: left;
+  /* A page with no doctype is laid out in quirks mode, where a table takes
+     neither the colour nor the size of the text around it: the browser's
+     black on a dark theme (#1190). Inherit both, as standards mode does; the
+     size is an em of the parent's, so it inherits it already. This also holds
+     the help card's and the welcome card's tables, which live in the deck. */
+  color: inherit;
   font-size: 0.82em;
 }
 .decklight th, .decklight td {

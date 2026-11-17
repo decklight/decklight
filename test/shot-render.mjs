@@ -91,13 +91,87 @@ try {
   await server.close();
 }
 
-console.log('shot-render results:', JSON.stringify({ vuln, fixed, cspHeader }, null, 2));
+// ── a deck with no doctype (#1190) ──────────────────────────────────────────
+// A deck written as only its slides parses in quirks mode, where a table
+// takes neither the colour nor the size of the text around it: on a dark
+// theme its cells were the browser's black on black. Rendered twice: served
+// (what every render and server does, which puts the doctype in front) and
+// opened from the file itself (no server: the runtime's own table rule has to
+// hold the colour in quirks mode).
+const TABLE = '<table><thead><tr><th>A</th><th>B</th></tr></thead>'
+  + '<tbody><tr><td>one cell</td><td>two cell</td></tr></tbody></table>';
+const TABLE_PROBE = `<script type="module">
+setTimeout(() => {
+  const css = (el) => (el ? getComputedStyle(el) : null);
+  const section = document.querySelector('.decklight-stage > section') ?? document.querySelector('.decklight section');
+  const td = section?.querySelector('td');
+  const wel = document.querySelector('.decklight-welcome .wel-card');
+  const welTd = wel?.querySelector('td:nth-child(2)');
+  const pre = document.createElement('pre');
+  pre.textContent = 'DECKLIGHT-DOCTYPE-RESULTS ' + JSON.stringify({
+    compatMode: document.compatMode,
+    mounted: !!document.querySelector('.decklight-stage'),
+    sectionColor: css(section)?.color ?? null,
+    tdColor: css(td)?.color ?? null,
+    sectionSize: parseFloat(css(section)?.fontSize ?? 'NaN'),
+    tdSize: parseFloat(css(td)?.fontSize ?? 'NaN'),
+    welcomeColor: css(wel)?.color ?? null,
+    welcomeTdColor: css(welTd)?.color ?? null,
+  });
+  document.body.appendChild(pre);
+}, 600);
+</script>`;
+
+const servedDeck = join(root, 'no-doctype.html');
+writeFileSync(servedDeck, `<script type="application/json" data-decklight-config>{ "theme": "eclipse" }</script>
+<div class="decklight">
+<section><h2>Table</h2>${TABLE}</section>
+</div>
+${TABLE_PROBE}
+`);
+const doctypeServer = await serveForRender(root);
+let served;
+try {
+  const { stdout } = await run(chromeBin('shot-render'), chromeArgs(
+    '--virtual-time-budget=5000', '--dump-dom', `${doctypeServer.origin}/no-doctype.html?capture`,
+  ), { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  served = resultsFrom(stdout, 'DOCTYPE', 'a doctype-less deck, served');
+} finally {
+  await doctypeServer.close();
+}
+
+// The same slides opened as a file, with the runtime and a dark theme linked
+// by hand and still no doctype: quirks mode, which no server is there to fix.
+const repo = join(import.meta.dirname, '..');
+const fileUrl = (p) => 'file://' + join(repo, p);
+const quirksDeck = join(base, 'quirks.html');
+writeFileSync(quirksDeck, `<link rel="stylesheet" href="${fileUrl('dist/decklight.css')}">
+<link rel="stylesheet" href="${fileUrl('themes/eclipse.css')}">
+<div class="decklight">
+<section><h2>Table</h2>${TABLE}</section>
+</div>
+<script src="${fileUrl('dist/decklight.js')}"></script>
+${TABLE_PROBE}
+`);
+const quirks = resultsFrom(
+  dumpDom(`file://${quirksDeck}`, { budget: 5000, who: 'shot-render(quirks)', quietStderr: true }),
+  'DOCTYPE', 'a doctype-less deck, opened as a file');
+
+console.log('shot-render results:', JSON.stringify({ vuln, fixed, cspHeader, served, quirks }, null, 2));
 
 const checks = [
   ['file:// + flag leaks the out-of-tree secret (the danger is real)', vuln.leaked === true],
   ['http loopback origin cannot read it (the fix contains the deck)', fixed.leaked === false],
   ['the deck is served over an http origin, not file://', /^http:\/\/127\.0\.0\.1:/.test(fixed.origin)],
   ['every served response carries the present CSP header', cspHeader === CSP],
+  // #1190: served, a deck with no doctype is a standards-mode page
+  ['a deck with no doctype is served in standards mode', served.compatMode === 'CSS1Compat' && served.mounted],
+  ['served, its table cells take the theme\'s text colour', !!served.tdColor && served.tdColor === served.sectionColor],
+  // #1190: opened as a file, quirks mode, and the runtime's table rule still holds
+  ['opened as a file it is in quirks mode (the case the stylesheet covers)', quirks.compatMode === 'BackCompat' && quirks.mounted],
+  ['in quirks mode its table cells still take the theme\'s text colour', !!quirks.tdColor && quirks.tdColor === quirks.sectionColor],
+  ['in quirks mode the table is still sized off the slide\'s text', Math.abs(quirks.tdSize / quirks.sectionSize - served.tdSize / served.sectionSize) < 0.01],
+  ['in quirks mode the welcome card\'s table reads, when it shows', !quirks.welcomeColor || quirks.welcomeTdColor === quirks.welcomeColor],
 ];
 
 let ok = true;

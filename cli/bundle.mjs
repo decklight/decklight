@@ -46,7 +46,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, scriptSafe, runMain } from './util.mjs';
 import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
-import { configBlock, configTheme, firstExecutableScript, hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
+import { configBlock, configTheme, firstExecutableScript, hasEmbeddedRuntime, hasRuntime, linkRuntime, withDoctype } from './runtime-link.mjs';
 import { addedThemeStyle, markedRefs, markedShipped, markedSources, resolveThemeRef, stillValid } from './theme-refs.mjs';
 import { bundleDesignSystem, designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
 import { bundleFont, fontRefs, fontVerdict, resolveFontRef } from './font-refs.mjs';
@@ -428,6 +428,10 @@ if (linked) {
   html = linkRuntime(html);
   // said in the summary: the source deck carries no runtime of its own
 }
+// A bundle is served from wherever it lands, by a server that adds nothing:
+// a deck written without a doctype gets one here, or it would lay out in
+// quirks mode there (#1190). linkRuntime already did it for a linked deck.
+html = withDoctype(html);
 
 const themeLinkRe = /<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']*themes\/([\w-]+)\.css)["'][^>]*>/i;
 const themeLinkM = html.match(themeLinkRe);

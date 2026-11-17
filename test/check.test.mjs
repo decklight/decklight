@@ -42,6 +42,18 @@ test('a <section> that never closes is an error, named on its own slide', () => 
   assert.match(found[0].message, /never closed/);
 });
 
+test('a deck file with no doctype is a hint, once, for the deck; one with it, or a page that is no deck, is not (#1190)', () => {
+  const slides = '<div class="decklight">\n  <section><h2>Table</h2><table><tr><td>a</td></tr></table></section>\n</div>\n';
+  const found = only(staticFindings(slides, everything), 'no-doctype');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].level, 'hint', 'never a failed run: every server and render adds it');
+  assert.equal(found[0].slide, null, 'the deck’s, not a slide’s');
+  assert.match(found[0].message, /quirks mode/);
+  for (const ok of [deck('  <section><h2>A</h2></section>'), `﻿<!-- mine -->\n<!DOCTYPE html>\n${slides}`, '<p>no deck here</p>']) {
+    assert.deepEqual(only(staticFindings(ok, everything), 'no-doctype'), [], ok.slice(0, 30));
+  }
+});
+
 test('a concept shape that also sets its own fill is a warning: the concept paints over it (SVG_DIAGRAMS)', () => {
   const html = deck(`  <section><h2>Boxes</h2>
     <svg viewBox="0 0 10 10">

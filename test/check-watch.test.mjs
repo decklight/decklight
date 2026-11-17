@@ -140,7 +140,7 @@ test('decklight check --watch prints a fresh report on each save and exits 0 on 
   const dir = mkdtempSync(join(tmpdir(), 'dl-check-watch-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const file = join(dir, 'deck.html');
-  writeFileSync(file, '<div class="decklight"><section><h1>One</h1></section></div>');
+  writeFileSync(file, '<!doctype html><div class="decklight"><section><h1>One</h1></section></div>');
   await sleep(150);
   const said = [];
   const out = { isTTY: false, write: (s) => { said.push(s); } };
@@ -150,7 +150,7 @@ test('decklight check --watch prints a fresh report on each save and exits 0 on 
   assert.match(said[0], /^check: deck\.html · 1 slide · \d\d:\d\d:\d\d · watching for saves, Ctrl-C stops/);
   assert.match(said[0], /no findings/);
   await sleep(150);
-  writeFileSync(file, '<div class="decklight"><section><h1>One</h1></section><section><img src="gone.png" alt=""></section></div>');
+  writeFileSync(file, '<!doctype html><div class="decklight"><section><h1>One</h1></section><section><img src="gone.png" alt=""></section></div>');
   assert.ok(await until(() => said.length === 2), 'a save prints the check again');
   assert.match(said[1], /2 slides/);
   assert.match(said[1], /missing asset: gone\.png/);
