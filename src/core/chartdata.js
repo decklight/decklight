@@ -283,15 +283,48 @@ export function chartGrid(json, attrs = {}) {
       }
     }
     const name = member(s, 'name')?.value;
+    // where its line turns dashed: a row, or -1 for a reference naming none
+    const dash = member(s, 'dashFrom')?.value;
     series.push({
       name: name?.value != null ? String(name.value) : `series ${si + 1}`, named: !!name, kind, cells,
       band: lines ? band : null, marks: lines && kind === 'line' ? marks ?? labels.map(() => null) : null,
+      dash: lines && kind === 'line' && dash && dash.kind !== 'null' ? refAt(labels, dash) : null,
     });
   }
   const jsonTitle = member(tree, 'title')?.value;
   const titleFrom = attrs.title != null || !jsonTitle ? 'attr' : 'json';
   const title = titleFrom === 'attr' ? attrs.title ?? '' : String(jsonTitle.value ?? '');
-  return { ok: true, type, typeFrom, title, titleFrom, labels, series };
+  return { ok: true, type, typeFrom, title, titleFrom, labels, series, ...(isPie(type) ? {} : rulesOf(json, tree, labels)) };
+}
+
+/** A reference to a row as the grid shows it: `{ row, written }`, row -1 when it names no label (nor a position). */
+const refAt = (labels, node) => ({ row: resolveAt(labels, node?.value), written: node?.value == null ? '' : String(node.value) });
+
+/**
+ * The chart's own rules (CHARTS), on a chart with a value axis: `now`, `{ row,
+ * written, words }` (words '' when it says none: drawn as *now*), and
+ * `threshold`, `{ y, words }`, `y` the number as it is written; each null
+ * when the chart has none.
+ */
+function rulesOf(json, tree, labels) {
+  const n = member(tree, 'now')?.value;
+  let now = null;
+  if (n && n.kind !== 'null') {
+    const obj = n.kind === 'object';
+    const words = obj ? member(n, 'label')?.value?.value : null;
+    now = { ...refAt(labels, obj ? member(n, 'at')?.value : n), words: words != null ? String(words) : '' };
+  }
+  const t = member(tree, 'threshold')?.value;
+  let threshold = null;
+  if (t?.kind === 'object') {
+    const y = member(t, 'y')?.value;
+    const words = member(t, 'label')?.value?.value;
+    threshold = {
+      y: y?.kind === 'number' ? json.slice(y.start, y.end) : y?.kind === 'string' ? y.value.trim() : '',
+      words: words != null ? String(words) : '',
+    };
+  }
+  return { now, threshold };
 }
 
 /**
@@ -710,6 +743,148 @@ export function setMarkerLabel(json, row, col, text) {
   const has = member(m, 'label');
   if (!t) { const e = has ? objectRemove(m, 'label') : null; return e ? splice(out, [e]) : out; }
   return splice(out, [has ? replaceEdit(has.value, jsonString(t)) : objectInsert(out, m, m.members.length, 'label', jsonString(t))]);
+}
+
+// ---------------------------------------------------------------------------
+// where a line turns dashed, the chart's now and threshold, a band series
+// (CHARTS): each one change, a reference to a row written as its label
+
+/** A top-level key not there yet, put after the first of `after` the chart has (else at the end). */
+function topInsert(json, tree, name, raw, after) {
+  const k = Math.max(-1, ...after.map((a) => tree.members.findIndex((m) => m.name === a)));
+  return objectInsert(json, tree, k === -1 ? tree.members.length : k + 1, name, raw);
+}
+const colonOf = (json, obj) => (obj.members.length ? json.slice(obj.members[0].key.end, obj.members[0].value.start) : ': ');
+
+/**
+ * Series `col`'s line turns dashed from `row` on (its `dashFrom`, naming the
+ * row by its label, after its `data` and `band`), or is solid (`row` null,
+ * the key taken off). A reference already naming that row stays as written.
+ */
+export function setDashFrom(json, col, row) {
+  const { p, s } = seriesAt(json, col);
+  const m = member(s, 'dashFrom');
+  if (row == null) { const e = m ? objectRemove(s, 'dashFrom') : null; return e ? splice(json, [e]) : json; }
+  const labels = labelsOf(p);
+  if (row < 0 || row >= labels.length) throw new Error('no such row');
+  if (member(s, 'type')?.value?.value === 'band') throw new Error('a band series has no line to dash');
+  const raw = jsonString(labels[row]);
+  if (m) return resolveAt(labels, m.value.value) === row ? json : splice(json, [replaceEdit(m.value, raw)]);
+  const k = Math.max(s.members.findIndex((x) => x.name === 'data'), s.members.findIndex((x) => x.name === 'band'));
+  return splice(json, [objectInsert(json, s, k === -1 ? s.members.length : k + 1, 'dashFrom', raw)]);
+}
+
+/**
+ * The chart's now is at `row` (named by its label; a `{ "at": …, "label": … }`
+ * keeps its words), or there is none (`row` null). A new one goes after
+ * `labels`.
+ */
+export function setNow(json, row) {
+  const p = parts(json);
+  const m = member(p.tree, 'now');
+  if (row == null) return setTopKey(json, 'now', null);
+  const labels = labelsOf(p);
+  if (row < 0 || row >= labels.length) throw new Error('no such row');
+  const raw = jsonString(labels[row]);
+  if (m?.value.kind === 'object') {
+    const at = member(m.value, 'at');
+    if (at && resolveAt(labels, at.value.value) === row) return json;
+    return splice(json, [at ? replaceEdit(at.value, raw) : objectInsert(json, m.value, 0, 'at', raw)]);
+  }
+  if (m && m.value.kind !== 'null') return resolveAt(labels, m.value.value) === row ? json : splice(json, [replaceEdit(m.value, raw)]);
+  if (m) return splice(json, [replaceEdit(m.value, raw)]);
+  return splice(json, [topInsert(json, p.tree, 'now', raw, ['labels'])]);
+}
+
+/**
+ * The words on the now rule become `text`: `"now": "Tue"` turns into `{
+ * "at": "Tue", "label": "today" }`, and empty words (drawn *now*) turn it
+ * back, unless the object holds keys of its own.
+ */
+export function setNowLabel(json, text) {
+  const tree = parseJsonTree(json);
+  learnSeparator(json, tree);
+  const m = member(tree, 'now');
+  if (!m || m.value.kind === 'null') throw new Error('the chart has no now: pick its label first');
+  const t = String(text ?? '');
+  const v = m.value;
+  if (v.kind === 'object') {
+    const has = member(v, 'label');
+    const at = member(v, 'at');
+    if (t) return splice(json, [has ? replaceEdit(has.value, jsonString(t)) : objectInsert(json, v, v.members.length, 'label', jsonString(t))]);
+    if (at && v.members.every((x) => x.name === 'at' || x.name === 'label')) return splice(json, [replaceEdit(v, json.slice(at.value.start, at.value.end))]);
+    const e = has ? objectRemove(v, 'label') : null;
+    return e ? splice(json, [e]) : json;
+  }
+  if (!t) return json;
+  const colon = json.slice(m.key.end, v.start);
+  return splice(json, [replaceEdit(v, `{ "at"${colon}${json.slice(v.start, v.end)}, "label"${colon}${jsonString(t)} }`)]);
+}
+
+/**
+ * The chart's threshold is at `y` (a number as a cell takes one; empty takes
+ * the threshold off) with `words` on it (empty: none). Its other keys stay; a
+ * new one goes after `now`, else `labels`.
+ */
+export function setThreshold(json, y, words = '') {
+  const n = cellNumber(y);
+  if (!n.ok) throw new Error(`"${String(y).trim()}" is not a number`);
+  let tree = parseJsonTree(json);
+  learnSeparator(json, tree);
+  if (tree.kind !== 'object') throw new Error('its JSON is not an object');
+  const m = member(tree, 'threshold');
+  if (n.value === null) { const e = m ? objectRemove(tree, 'threshold') : null; return e ? splice(json, [e]) : json; }
+  const t = String(words ?? '');
+  if (m?.value.kind !== 'object') {
+    const colon = colonOf(json, tree);
+    const raw = `{ "y"${colon}${n.raw}${t ? `, "label"${colon}${jsonString(t)}` : ''} }`;
+    return splice(json, [m ? replaceEdit(m.value, raw) : topInsert(json, tree, 'threshold', raw, ['now', 'labels'])]);
+  }
+  // its y, then its words: one splice each, the second on the text the first left
+  const ym = member(m.value, 'y');
+  let out = splice(json, [ym ? replaceEdit(ym.value, n.raw) : objectInsert(json, m.value, 0, 'y', n.raw)]);
+  tree = parseJsonTree(out);
+  learnSeparator(out, tree);
+  const o = member(tree, 'threshold').value;
+  const has = member(o, 'label');
+  if (!t) { const e = has ? objectRemove(o, 'label') : null; return e ? splice(out, [e]) : out; }
+  return splice(out, [has ? replaceEdit(has.value, jsonString(t)) : objectInsert(out, o, o.members.length, 'label', jsonString(t))]);
+}
+
+/**
+ * A band series at the end (a range with no line of its own: a learned
+ * normal range), its low and its high each a copy of series `from`'s values
+ * (its band, for a band series; 0s with none), to be widened. Written the way
+ * the last series is, as addSeries writes one.
+ */
+export function addBandSeries(json, from = null, name = null) {
+  const p = parts(json);
+  const n = p.labels.items.length;
+  const src = from != null ? p.series.items[from] : null;
+  const b = src ? bandOf(src) : null;
+  const d = from != null ? p.data[from] : null;
+  const copy = (list) => Array.from({ length: n }, (_, k) => (list ? (list.items[k] ? json.slice(list.items[k].start, list.items[k].end) : 'null') : '0'));
+  const listOf = (list) => {
+    const sep = list && list.items.length >= 2 ? json.slice(list.items[0].end, list.items[1].start) : ', ';
+    return `[${copy(list).join(/\n/.test(sep) ? ', ' : sep)}]`;
+  };
+  const low = listOf(d ?? b?.low ?? null), high = listOf(d ?? b?.high ?? null);
+  const last = p.series.items.at(-1);
+  const lastText = last ? json.slice(last.start, last.end) : '{ }';
+  const colon = last?.kind === 'object' ? colonOf(json, last) : ': ';
+  const taken = new Set(p.series.items.map((s) => member(s, 'name')?.value?.value));
+  const nm = jsonString(name ?? (taken.has('range') ? `range ${p.series.items.length + 1}` : 'range'));
+  const band = `{ "low"${colon}${low}, "high"${colon}${high} }`;
+  let raw;
+  if (/\n/.test(lastText) && last?.kind === 'object' && last.members.length) {
+    const inner = indentAt(json, last.members[0].key.start);
+    const outer = indentAt(json, last.end - 1);
+    raw = `{\n${inner}"name"${colon}${nm},\n${inner}"type"${colon}"band",\n${inner}"band"${colon}${band}\n${outer}}`;
+  } else {
+    const pad = /^\{\s/.test(lastText) ? ' ' : '';
+    raw = `{${pad}"name"${colon}${nm}, "type"${colon}"band", "band"${colon}${band}${pad}}`;
+  }
+  return splice(json, [arrayInsert(json, p.series, p.series.items.length, [raw])]);
 }
 
 /** Top-level key `name` set to `raw` (JSON text), or removed with `raw` null; appended when new. */

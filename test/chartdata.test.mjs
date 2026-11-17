@@ -15,6 +15,7 @@ import {
   ASPECTS, aspectOf, setAspect, legendOf, setLegend,
   setPoint, addPoint, removePoint, addScatterSeries, setAxisTitle,
   setBandCell, addBand, removeBand, setMarker, setMarkerLabel,
+  setDashFrom, setNow, setNowLabel, setThreshold, addBandSeries,
 } from '../src/core/chartdata.js';
 import { parseChart } from '../src/core/charts.js';
 
@@ -381,4 +382,77 @@ test('a grid cell cleared is a gap the chart skips, and reopens empty (#1125)', 
   assert.equal(parseChart(cleared, { type: 'line' }).series[0].data[1], null);
   assert.equal(chartGrid(cleared, BAR).series[0].cells[1], '');
   assert.match(cleared, /\[120, null, 45\]/);
+});
+
+// ---------- dashFrom, now, threshold and a band series from the grid (CHARTS, #1189) ----------
+
+test('chartGrid: a line series shows where it turns dashed; a chart with axes its now and threshold', () => {
+  const g = chartGrid(FC, LINE);
+  assert.deepEqual(g.series[0].dash, { row: 1, written: '1' });
+  assert.equal(g.series[1].dash, null, 'a band series has no line to dash');
+  assert.deepEqual(g.now, { row: 1, written: 'Tue', words: '' });
+  assert.equal(g.threshold, null);
+  const t = chartGrid(FC.replace('"now": "Tue"', '"now": { "at": "Wed", "label": "today" }, "threshold": { "y": 0.80, "label": "alert" }'), LINE);
+  assert.deepEqual(t.now, { row: 2, written: 'Wed', words: 'today' });
+  assert.deepEqual(t.threshold, { y: '0.80', words: 'alert' });
+  assert.equal(chartGrid(FC.replace('"now": "Tue"', '"now": "Sun"'), LINE).now.row, -1, 'a now naming no label is said as written');
+  assert.equal(chartGrid('{"labels":["a"],"series":[{"data":[1]}],"now":"a"}', { type: 'pie' }).now, undefined, 'a pie has no axes');
+  assert.equal(chartGrid('{"labels":["a"],"series":[{"data":[1]}],"now":"a"}', BAR).now.row, 0, 'a bar chart draws a now');
+});
+
+test('setDashFrom: a line turns dashed from a row, named by its label; solid takes the key off', () => {
+  const plain = FC.replace(', "dashFrom": 1', '');
+  const j = setDashFrom(plain, 0, 2);
+  assert.match(j, /"data": \[1, 2, 3\], "dashFrom": "Wed", "markers"/);
+  assert.equal(setDashFrom(j, 0, null), plain);
+  assert.equal(setDashFrom(FC, 0, 1), FC, 'a position already naming the row stays as written');
+  assert.match(setDashFrom(FC, 0, 0), /"dashFrom": "Mon"/);
+  assert.throws(() => setDashFrom(FC, 1, 0), /a band series has no line to dash/);
+  assert.equal(parseChart(j, LINE).series[0].dashFrom, 2);
+  // after the band, when it has one
+  assert.match(setDashFrom(addBand(plain, 0), 0, 1), /"high": \[1, 2, 3\] \}, "dashFrom": "Tue"/);
+});
+
+test('setNow / setNowLabel: the now rule at a row, its words turning it into { at, label } and back', () => {
+  const none = FC.replace('\n  "now": "Tue",', '');
+  const j = setNow(none, 2);
+  assert.match(j, /"labels": \["Mon", "Tue", "Wed"\],\n  "now": "Wed",/, "after labels, on a line of its own as its neighbours are");
+  assert.equal(setNow(j, null), none);
+  assert.equal(setNow(FC, 1), FC);
+  const worded = setNowLabel(FC, 'today');
+  assert.match(worded, /"now": \{ "at": "Tue", "label": "today" \}/);
+  assert.equal(setNowLabel(worded, ''), FC, 'no words: back to the label alone');
+  assert.match(setNow(worded, 0), /"now": \{ "at": "Mon", "label": "today" \}/, 'moving it keeps its words');
+  assert.deepEqual(parseChart(setNow(worded, 0), LINE).now, { at: 0, label: 'today' });
+  assert.throws(() => setNowLabel(none, 'x'), /no now/);
+  // the references follow a row edit, the object form too
+  assert.equal(JSON.parse(setLabel(worded, 1, 'Tuesday')).now.at, 'Tuesday');
+  assert.equal(JSON.parse(removeRow(worded, 1)).now, undefined);
+});
+
+test('setThreshold: a y and its words; empty y takes it off; its own keys stay', () => {
+  const j = setThreshold(FC, '0.8', 'alert');
+  assert.match(j, /"now": "Tue",\n  "threshold": \{ "y": 0.8, "label": "alert" \},\n  "series"/, 'after now, on its own line like its neighbours');
+  assert.equal(setThreshold(j, '', 'alert'), FC);
+  assert.match(setThreshold(j, '2', ''), /"threshold": \{ "y": 2 \}/);
+  assert.match(setThreshold(setThreshold(j, '2', ''), '2', 'cap'), /"threshold": \{ "y": 2, "label": "cap" \}/);
+  assert.throws(() => setThreshold(j, '2x', ''), /not a number/);
+  const own = FC.replace('"now": "Tue",', '"now": "Tue", "threshold": { "label": "old", "y": 1, "x-note": 1 },');
+  assert.match(setThreshold(own, '3', 'new'), /\{ "label": "new", "y": 3, "x-note": 1 \}/);
+  assert.deepEqual(parseChart(j, LINE).threshold, { y: 0.8, label: 'alert' });
+});
+
+test('addBandSeries: a range at the end, a copy of the series it is made from, written as its neighbours', () => {
+  const j = addBandSeries(FC, 0);
+  assert.deepEqual(JSON.parse(j).series[2], { name: 'range', type: 'band', band: { low: [1, 2, 3], high: [1, 2, 3] } });
+  assert.match(j, /\{ "name": "range", "type": "band", "band": \{ "low": \[1, 2, 3\], "high": \[1, 2, 3\] \} \}/);
+  assert.equal(JSON.parse(addBandSeries(j, 0)).series[3].name, 'range 4', 'a second takes a name of its own');
+  assert.deepEqual(JSON.parse(addBandSeries(FC, 1)).series[2].band, { low: [0, 1, 2], high: [2, 3, 4] }, 'from a band series: its band');
+  assert.deepEqual(JSON.parse(addBandSeries(SRC, null)).series[2], { name: 'range', type: 'band', band: { low: [0, 0, 0], high: [0, 0, 0] } });
+  assert.equal(chartGrid(j, LINE).series[2].kind, 'band');
+  assert.equal(parseChart(j, LINE).series[2].kind, 'band');
+  assert.equal(removeSeries(j, 2), FC);
+  // multi-line series stay multi-line
+  const ml = '{ "labels": ["a", "b"],\n  "series": [\n    {\n      "name": "x",\n      "data": [1, 2]\n    }\n  ] }';
+  assert.match(addBandSeries(ml, 0), /\{\n      "name": "range",\n      "type": "band",\n      "band": \{ "low": \[1, 2\], "high": \[1, 2\] \}\n    \}/);
 });
