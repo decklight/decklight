@@ -335,5 +335,33 @@ const clipRun = (url) => {
     `rowInSlot=${r.rowInHolder} data-overflow=${r.flagged} "${r.what}"`);
 }
 
+{
+  // a template frame that hides its overflow and keeps a padded band at its
+  // foot, round a slot that is flex: 1 with no min-height (#1209). A diagram
+  // reaching into the band raises the frame's scrollHeight, since a flex box
+  // counts its end padding, yet nothing is painted past the frame's edge: the
+  // diagram is whole, and the slide must not be flagged.
+  const FRAMED = `<script type="application/json" data-design-system-meta="band">{"name":"band","version":"1.0.0","title":"Band"}</script>
+<template data-design-system-templates="band"><template data-template="diagram" data-title="Diagram">
+  <div class="band-frame"><div data-slot="title" data-slot-hint="h2"></div><div class="band-diagram" data-slot="diagram" data-slot-default></div></div>
+</template></template>
+<style>
+.decklight .band-frame { position: absolute; inset: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; padding: 40px 60px 120px; box-sizing: border-box; }
+.decklight .band-diagram { flex: 1; display: flex; }
+</style>`;
+  const SVG = `<svg data-slot="diagram" viewBox="0 0 800 330" style="max-width:95%; margin: 0 auto; display: block;">
+  <rect id="last-row" width="800" height="330"/></svg>`;
+  for (const [name, title] of [['two-line title', TITLE], ['short title', 'A short title']]) {
+    for (const print of [false, true]) {
+      const r = clipRun(clipDeck(`band-${name.replace(/\W+/g, '-')}${print ? '-print' : ''}`,
+        `<h2 data-slot="title">${title}</h2>${SVG}`, { head: FRAMED, attrs: ' data-template="band/diagram"', print }));
+      const t = `padded frame, ${name}${print ? ', print' : ''}:`;
+      check(`${t} the diagram is whole`, r.rowInSlide, `rowInSlide=${r.rowInSlide}`);
+      check(`${t} so nothing is flagged`, !r.flagged, `data-overflow=${r.flagged} "${r.what}" ${r.by}`);
+      if (!print) check(`${t} and nothing warns`, r.warns.length === 0, JSON.stringify(r.warns));
+    }
+  }
+}
+
 if (bad) { console.error('overflow-render: FAILED'); process.exit(1); }
 console.log('overflow-render: PASS');

@@ -223,6 +223,20 @@ const SCROLLS_BY_DESIGN = '.terminal, .conversation';
 const NOT_CONTENT = 'aside, script, style, template, .slide-bg';
 
 /**
+ * True when something inside `box` (an element or bare text) is painted
+ * below the box's own bottom edge. A flex box's end padding counts toward its
+ * scrollHeight with nothing painted past the edge: that is not clipping.
+ */
+function runsPast(box) {
+  const r = box.getBoundingClientRect();
+  const k = box.offsetHeight ? r.height / box.offsetHeight : 1;
+  const bottom = r.top + (box.clientTop + box.clientHeight) * k + 2 * k;
+  const range = box.ownerDocument.createRange();
+  range.selectNodeContents(box);
+  return range.getBoundingClientRect().bottom > bottom;
+}
+
+/**
  * What `box` cuts off at its bottom edge: the element running furthest past
  * it, followed down through anonymous wrappers to the first thing with a name
  * ("a diagram", "a list"). `content` when nothing nameable is found.
@@ -266,6 +280,7 @@ export function clipReport(section) {
     if (by <= 2 || (worst && by <= worst.by)) continue;
     if (el.hasAttribute('data-scroll-ok') || (el !== section && el.closest(SCROLLS_BY_DESIGN))) continue;
     if (getComputedStyle(el).overflowY === 'visible') continue;
+    if (el !== section && !runsPast(el)) continue;
     worst = { el, by };
   }
   if (!worst) return null;
