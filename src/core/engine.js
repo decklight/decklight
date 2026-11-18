@@ -15,6 +15,7 @@ import { initMath, renderMathIn } from '../math/math.js';
 import { createSlideMedia } from './slide-media.js';
 import { createFigures } from './figure.js';
 import { setupConversations, fitConversations, showNewestIn } from './conversation.js';
+import { fitVisuals } from './fit-visual.js';
 import { setupSteps } from './steps.js';
 import { initCode, placeAllCallouts } from '../code/code.js';
 import { fitCode } from '../code/fit.js';
@@ -377,6 +378,8 @@ function checkOverflow(section, slideNo) {
   placeAllCallouts(section);
   // a conversation (DECK_ANATOMY): held to the room left, scrolling to its newest turn; whole and shrunk in print
   fitConversations(section);
+  // a wrapped diagram or picture, or one alone in a split column, shrinks into the room left when the slide is cut (#1183)
+  fitVisuals(section);
   // Terminals scroll internally by design (SPEC TERMINAL_PLAYER scrollback viewport);
   // any other intentional scroller can opt out with data-scroll-ok (overflow.js clipReport).
   // Any box that hides its overflow counts, a template's slot included (#1183).

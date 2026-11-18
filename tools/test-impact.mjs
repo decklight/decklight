@@ -91,6 +91,7 @@ const RULES = [
   [/^src\/core\/print-visibility\.js$/, ['print-visibility-render', 'pdf-render', 'pptx-render', 'engine-render:builds'],
     'a still finishes the deck\'s own CSS entrances and names what print still does not show: the PDF, the pptx pictures, and the engine\'s loops left alone'],
   [/^src\/core\/overflow\.js$/, ['overflow-render', 'pin-render', 'engine-render:typing', 'engine-render:sources'], 'the overflow guardrail, the pinned-title case, and what clipped says: write mode\'s badge (clipbadge) and the inspector\'s fit row'],
+  [/^src\/core\/fit-visual\.js$/, ['overflow-render', 'split-render', 'pin-render', 'pdf-render'], 'a wrapped or split-column diagram shrinking under a long title: the guardrail it answers to, the split and pinned layouts it fits in, and the printed page'],
   [/^src\/core\/(builds-panel|buildlist|build-edit)\.js$/, ['engine-render:builds', 'engine-render:sources', 'engine-render:blocks'], 'the inspector\'s Builds tab and what it writes (buildpanel, buildsettings, buildorder, drawstages, buildselect, contextmenu) and the tab bar it sits in (inspector, inspectortabs)'],
   [/^src\/core\/several\.js$/, ['engine-render:blocks', 'edit-e2e'], 'several selected: the menu, keys and inspector acting on all of them (multiselect)'],
   [/^src\/core\/(block-kind|turn-into)\.js$/, ['engine-render:blocks', 'edit-e2e'], 'Turn into ▸, one block or several joined into one (turninto, multiselect)'],

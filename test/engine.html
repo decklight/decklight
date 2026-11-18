@@ -1983,11 +1983,13 @@
     }
     // Pictures after the drop (PRESENTING_EDITING): a slide with a picture of
     // its own and one in a figure in the columns, first in the deck; an upload
-    // answered here, since its body is the file and not JSON
+    // answered here, since its body is the file and not JSON. The slide runs
+    // past its bottom at the pictures' own sizes, which these modes are not
+    // about: data-scroll-ok keeps the runtime from shrinking them to fit (#1183)
     if (HARNESS_MODE.startsWith('picture')) {
       const svg = (w, h, fill) => `data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}'%3E%3Crect width='${w}' height='${h}' fill='${fill}'/%3E%3C/svg%3E`;
       document.querySelector('.decklight').insertAdjacentHTML('afterbegin', `
-        <section><h2>Pictures</h2>
+        <section data-scroll-ok><h2>Pictures</h2>
           <img class="pic-top" src="${svg(400, 200, '%23c33')}" alt="a wide red box">
           <div class="columns"><figure><img class="pic-fig" src="${svg(200, 200, '%2333c')}" alt=""></figure><p>beside it</p></div>
         </section>`);

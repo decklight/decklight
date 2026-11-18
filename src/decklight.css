@@ -582,6 +582,11 @@
 .decklight :where([data-slot][data-ds-injected]) > img:only-child,
 .decklight :where([data-slot][data-ds-injected]) > picture:only-child > img { object-fit: contain; }
 .decklight :where([data-slot][data-ds-injected]) > picture:only-child { display: contents; }
+/* A wrapped diagram or picture, or one alone in a split column, is shrunk by
+   the runtime when its slide is cut (fit-visual.js, data-fit-scale on it).
+   While write mode's handles resize it by hand it shows the size the hand
+   gives it; the fit is measured again when the drag ends. */
+.decklight.dl-pic-resizing :is(svg, img)[data-fit-scale] { max-height: none !important; }
 /* a framed web page (Add ▾ › Web page): the content's width at 16:9 unless it
    says its own size, at zero specificity so a deck's own rules win */
 .decklight :where(section iframe:not([width])) { width: 100%; }
