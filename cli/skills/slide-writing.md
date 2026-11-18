@@ -11,9 +11,9 @@ When a task covers both, plan once with the outline below and use both skills.
 
 ## The rule everything else follows from
 
-**The slide shows, the voice explains.** A slide holds one claim, as a
-sentence, and the evidence for it: a diagram, a number, a chart, a picture,
-code. The voice carries what a screen cannot: the reason, the link from the
+**The slide shows, the voice explains.** A slide makes one point and holds
+the evidence for it: a diagram, a number, a chart, a picture, code. What its
+headline says depends on the slide's job (see Write). The voice carries what a screen cannot: the reason, the link from the
 previous slide, the example, the answer to the viewer's doubt.
 
 Two consequences, both easy to get wrong:
@@ -63,8 +63,11 @@ Settle these before any slide exists. They are the same in the
 
 Then test the plan:
 
-- **Read the headlines in order, alone.** They should tell the whole story.
-  A headline that only names a topic ("Architecture") is a gap in the story.
+- **Read the headlines in order, alone.** The labels and questions should
+  read as the path of the lesson, the claims as its conclusions. Together
+  they tell the story. A topic name on a slide whose job is a conclusion
+  ("Architecture" over a benchmark) is a gap, and so is a deck of labels
+  only: somewhere it has to land something.
 - **The first slide after the title opens a problem, a question or a
   surprising fact.** Not an agenda, not an introduction of the speaker.
 - **Every slide serves the throughline** or is cut. Most material does not
@@ -75,11 +78,30 @@ If the material is really a document (it needs 150 words a page to make
 sense, or the reader must study a table), say so: a written page plus a short
 narrated summary serves the viewer better than a deck of dense slides.
 
-## Write: one claim, one piece of evidence
+## Write: one point, one piece of evidence
 
-**The headline is a sentence that could be false.** "Caching cut the bill by
-a third", not "Caching results". Two lines at most. A viewer who reads only
-the headline should get the point. Sentence case, no full stop.
+**The headline depends on the slide's job.** Every headline is in sentence
+case, with no full stop, two lines at most.
+
+| The slide's job | Headline | Example |
+|---|---|---|
+| Build up a thing part by part, or open a problem | A short label, or a question that gives nothing away | "The reasoning loop", "What happens inside one call?" |
+| Land a conclusion from evidence (a number, a comparison, a limit) | A claim: a sentence that could be false | "Twenty iterations is a ceiling, not a target" |
+| Sum up | Claims, one per point the viewer keeps | Key takeaways, each a sentence |
+
+- **How to choose.** If the voice is about to ask a question whose answer the
+  headline would state, the headline is a label or that question. A claim on
+  screen at beat zero gives away what the builds then spend five clicks
+  revealing, and a twelve-word sentence read during the voice's link from
+  the last slide is a sentence the viewer is not listening to.
+- **A claim headline lands the point on its own.** "Caching cut the bill by
+  a third", not "Caching results": a viewer who reads only the headline
+  should get the point. This is also the headline a slide needs when it is
+  met without the voice (a PDF, the overview, seeking in a video).
+- **On a build-up slide the claim may still appear, last**, once the picture
+  is complete and the voice has earned it: a closing line under the diagram,
+  `<p data-build>`, as the slide's final build (BUILD_AUTHORING). The label
+  stays as the headline.
 
 **The body is evidence, not a restatement.** Ask what the bullets really are,
 and draw that instead:
@@ -167,6 +189,43 @@ After, a claim and its evidence, with the story moved to the voice:
 `data-count` counting it up as the slide arrives. Two or three facts of the
 same weight go side by side in one `<div class="figures">`.)
 
+That slide lands a conclusion, so its headline is the claim. A build-up slide
+works the other way round. Before, the claim gives the diagram away at beat
+zero:
+
+```html
+<section>
+  <h2>Kafka keeps the events, Flink turns them into context for the agent</h2>
+  <svg viewBox="0 0 800 300" data-build>...</svg>
+</section>
+```
+
+After, a label at beat zero, the parts arriving with the voice, the claim as
+the last build:
+
+```html
+<section>
+  <h2>Where the agent's context comes from</h2>
+  <svg viewBox="0 0 800 300" data-build>
+    <g><!-- the events, in Kafka --></g>
+    <g><!-- Flink, joining them --></g>
+    <g><!-- the agent, reading the result --></g>
+  </svg>
+  <p data-build>Kafka keeps the events, Flink turns them into context</p>
+  <aside class="notes">
+    The agent answers from what it knows. So where does that come from?
+    [click]
+    It starts with every event the business produces, kept in Kafka.
+    [click]
+    Flink joins them as they arrive.
+    [click]
+    And the agent reads the result, fresh, on every call.
+    [click]
+    So the log keeps the facts, and the stream turns them into context.
+  </aside>
+</section>
+```
+
 ## Review: watch it as the viewer would
 
 Go through the deck slide by slide **with the notes hidden first**, as a
@@ -176,8 +235,10 @@ fix, never a general remark.
 
 1. Does the slide make one point, sayable in one sentence?
 2. Would a first-time viewer get it in about three seconds?
-3. Is the headline a full-sentence takeaway in two lines or fewer, not a
-   topic?
+3. Does the headline fit the slide's job, in two lines or fewer? A slide
+   that lands a conclusion needs a claim, not a topic label. A build-up
+   slide may carry a label or a question, and a claim headline there that
+   states what the builds reveal is a fault: it gives the answer away.
 4. Does the body show evidence for the headline, or does it restate what the
    voice says?
 5. Does any on-screen sentence repeat a narration sentence word for word?
@@ -193,7 +254,9 @@ fix, never a general remark.
 13. Does a chart have a takeaway title, labelled axes and one highlight? Does
     code show only the needed lines, large, with one highlighted region?
 14. Is the most consequential statement the most prominent text?
-15. Do the headlines, read in order, tell the whole story?
+15. Do the headlines, read in order, tell the whole story: the labels and
+    questions as the path, the claims as the conclusions? A deck of labels
+    only lands nothing.
 16. Decklight: no `crowded` warning, no overflow, no type shrunk by hand
     anywhere on the slide, including inline styles on inner elements.
 
@@ -233,6 +296,7 @@ does.
 | | Technical talk | Course or lesson | Demo or pitch | Internal update or decision |
 |---|---|---|---|---|
 | Where the answer sits | After the problem. Aim for intuition, not coverage | After the question: name it, show it, use it | The viewer's current pain first, then "today" against "with this" | First. Then two or three reasons, the risks, the ask |
+| Default headline | A claim on a result, a label or question on a slide that builds a mechanism | A label or question for a concept being introduced, a claim for what the learner should keep | A claim: what the product does for the viewer | A claim, starting with the decision |
 | Density | More text is earned by code, terms and equations | Strictest: one new concept per slide | Largest type, one number or picture per slide | Few words. Detail goes in a separate document |
 | Typical evidence | Diagram, trimmed code, one benchmark | Worked example built step by step | The product doing the thing, one capability at a time | One chart, one table of options |
 | Ending | Where the detail lives, what to try | What the learner can now do | One specific next step | The decision wanted, by when |
@@ -264,5 +328,6 @@ Write French slides from the idea, never from the English wording.
 - `npx decklight@latest check deck.html` is clean of `crowded` and
   `clicks-vs-builds`.
 - Nothing overflows (the `decklight` skill says how to render and check).
-- The headlines, read alone and in order, tell the story.
+- The headlines, read alone and in order, tell the story, and no build-up
+  slide gives away in its headline what its builds reveal.
 - No slide could be read aloud as its own narration.
