@@ -98,13 +98,18 @@ try {
 // (what every render and server does, which puts the doctype in front) and
 // opened from the file itself (no server: the runtime's own table rule has to
 // hold the colour in quirks mode).
-const TABLE = '<table><thead><tr><th>A</th><th>B</th></tr></thead>'
-  + '<tbody><tr><td>one cell</td><td>two cell</td></tr></tbody></table>';
+const TABLE = '<table><caption>Caption</caption><thead><tr><th>A</th><th>B</th></tr></thead>'
+  + '<tbody><tr><td>one cell</td><td>two cell</td></tr></tbody></table>'
+  // a table the author sized inline: its cells take that size, no smaller
+  + '<table class="sized" style="font-size:0.7em"><tbody><tr><td>sized cell</td></tr></tbody></table>';
 const TABLE_PROBE = `<script type="module">
 setTimeout(() => {
   const css = (el) => (el ? getComputedStyle(el) : null);
   const section = document.querySelector('.decklight-stage > section') ?? document.querySelector('.decklight section');
-  const td = section?.querySelector('td');
+  const table = section?.querySelector('table:not(.sized)');
+  const td = table?.querySelector('td');
+  const sized = section?.querySelector('table.sized');
+  const size = (el) => parseFloat(css(el)?.fontSize ?? 'NaN');
   const wel = document.querySelector('.decklight-welcome .wel-card');
   const welTd = wel?.querySelector('td:nth-child(2)');
   const pre = document.createElement('pre');
@@ -114,7 +119,14 @@ setTimeout(() => {
     sectionColor: css(section)?.color ?? null,
     tdColor: css(td)?.color ?? null,
     sectionSize: parseFloat(css(section)?.fontSize ?? 'NaN'),
-    tdSize: parseFloat(css(td)?.fontSize ?? 'NaN'),
+    tdSize: size(td),
+    // #1190: the table takes the size of the text it sits in, its cells set the smaller text
+    tableSize: size(table),
+    tableParentSize: size(table?.parentElement),
+    thSize: size(table?.querySelector('th')),
+    captionSize: size(table?.querySelector('caption')),
+    sizedParentSize: size(sized?.parentElement),
+    sizedTdSize: size(sized?.querySelector('td')),
     welcomeColor: css(wel)?.color ?? null,
     welcomeTdColor: css(welTd)?.color ?? null,
   });
@@ -171,6 +183,13 @@ const checks = [
   ['opened as a file it is in quirks mode (the case the stylesheet covers)', quirks.compatMode === 'BackCompat' && quirks.mounted],
   ['in quirks mode its table cells still take the theme\'s text colour', !!quirks.tdColor && quirks.tdColor === quirks.sectionColor],
   ['in quirks mode the table is still sized off the slide\'s text', Math.abs(quirks.tdSize / quirks.sectionSize - served.tdSize / served.sectionSize) < 0.01],
+  // #1190: the table is the size of the text around it and its cells are 0.82 of
+  // that, the size they had when the table itself was 0.82em, in both modes
+  ...[['served', served], ['in quirks mode', quirks]].flatMap(([how, r]) => [
+    [`${how}, the table takes its parent's font size`, Math.abs(r.tableSize - r.tableParentSize) < 0.01],
+    [`${how}, its cells, header and caption are 0.82 of it, as before`, [r.tdSize, r.thSize, r.captionSize].every((n) => Math.abs(n - 0.82 * r.tableParentSize) < 0.01)],
+    [`${how}, a table sized inline gives its cells that size`, Math.abs(r.sizedTdSize - 0.7 * r.sizedParentSize) < 0.01],
+  ]),
   ['in quirks mode the welcome card\'s table reads, when it shows', !quirks.welcomeColor || quirks.welcomeTdColor === quirks.welcomeColor],
 ];
 
