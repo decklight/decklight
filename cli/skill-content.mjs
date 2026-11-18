@@ -197,7 +197,10 @@ npx decklight@latest pdf deck.html -o /tmp/check.pdf
 Every \`⚠ slide N overflows\` line is a slide losing content, and it says what is cut
 (\`a diagram runs 77px past what the slide shows\`), even when a template's slot is
 what cuts it: split it, cut it,
-or move the detail into the notes. Run it after each batch of slides rather
+or move the detail into the notes. A diagram or picture alone in its box (a template
+slot, your own wrapper \`<div>\`, a split column) shrinks under a two-line title by
+itself, so don't hold titles to one line for it; one sharing its box with text is
+not resized, and is reported instead. Run it after each batch of slides rather
 than once at the end — and note that overflow is the *late* failure. A slide
 that fits can still be too crowded to present from; prefer ~3–4 bullets or ~2
 short paragraphs per column, and one idea per slide, over anything that merely

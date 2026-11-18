@@ -204,10 +204,14 @@ console.warn = ((orig) => (...a) => { warns.push(a.join(' ')); orig(...a); })(co
 Decklight.init();
 setTimeout(() => {
   const sec = document.getElementById('s');
-  const svg = sec.querySelector('svg');
-  const row = sec.querySelector('[id$="last-row"]');
+  const svg = sec.querySelector('svg, img');
+  const row = sec.querySelector('[id$="last-row"]') || svg;
   const holder = svg.closest('[data-ds-injected][data-slot]') || svg.parentElement;
+  let outer = svg;
+  while (outer.parentElement !== sec) outer = outer.parentElement;
   const r = row.getBoundingClientRect(), h = holder.getBoundingClientRect(), s = sec.getBoundingClientRect();
+  const o = outer.getBoundingClientRect();
+  const pad = parseFloat(getComputedStyle(sec).paddingBottom) * s.width / sec.offsetWidth;
   const k = s.width / sec.offsetWidth;
   const title = sec.querySelector('h2');
   document.getElementById('test-sink').textContent = 'DECKLIGHT-CLIP-RESULTS ' + JSON.stringify({
@@ -217,6 +221,9 @@ setTimeout(() => {
     titleLines: Math.round(title.getBoundingClientRect().height / k / parseFloat(getComputedStyle(title).lineHeight)),
     rowInHolder: r.bottom <= h.bottom + 1,
     rowInSlide: r.bottom <= s.bottom + 1,
+    rowInOuter: r.bottom <= o.bottom + 1,
+    outerInSlide: o.bottom <= s.bottom - pad + 1,
+    outerOver: Math.round((o.bottom - (s.bottom - pad)) / k),
     svgHeight: Math.round(svg.getBoundingClientRect().height / k),
     warns: warns.filter((w) => /overflows/.test(w)),
   });
@@ -233,18 +240,76 @@ const clipRun = (url) => {
 };
 
 {
-  // a plain deck: the author's own block box, hiding its overflow. Nothing
-  // gives the diagram the room, so it is cut, and the slide must say so.
+  // a plain deck: the author's own block box, hiding its overflow, with words
+  // sharing the box with the diagram. Its room is the words' as much as the
+  // diagram's, so the diagram is not resized: it is cut, and the slide must
+  // say so.
   for (const print of [false, true]) {
     const r = clipRun(clipDeck(`box${print ? '-print' : ''}`,
-      `<h2>${TITLE}</h2><div style="${SLOT}">${DIAGRAM}</div>`, { print }));
-    const t = print ? 'box, print:' : 'box:';
+      `<h2>${TITLE}</h2><div style="${SLOT}">A line of words above the diagram. ${DIAGRAM}</div>`, { print }));
+    const t = print ? 'box with words, print:' : 'box with words:';
     check(`${t} the title wraps to two lines`, r.titleLines === 2, `${r.titleLines} line(s)`);
     check(`${t} the diagram really is cut`, !r.rowInHolder, `rowInHolder=${r.rowInHolder}`);
     check(`${t} flagged`, r.flagged, `data-overflow=${r.flagged}`);
     check(`${t} the flag names the diagram`, r.what === 'a diagram' && r.by > 2, `what="${r.what}" by=${r.by}`);
     if (!print) check(`${t} the warning names it too`, r.warns.length === 1 && /a diagram/.test(r.warns[0]), JSON.stringify(r.warns));
   }
+}
+{
+  // the main visual of a plain slide, in the author's own wrappers: a box
+  // that hides its overflow round a plain div round the diagram, and a plain
+  // div alone, nothing else in either. It is given the room left under the
+  // two-line title and scales into it: its last row is whole, nothing flagged.
+  const WRAPS = [
+    ['wrapped, hidden box', (d) => `<div style="${SLOT}"><div>${d}</div></div>`],
+    ['wrapped, plain div', (d) => `<div class="figure-frame">${d}</div>`],
+  ];
+  for (const [name, wrap] of WRAPS) {
+    for (const print of [false, true]) {
+      const r = clipRun(clipDeck(`${name.replace(/\W+/g, '-')}${print ? '-print' : ''}`,
+        `<h2>${TITLE}</h2>${wrap(DIAGRAM)}`, { print }));
+      const t = `${name}${print ? ', print' : ''}:`;
+      check(`${t} the title wraps to two lines`, r.titleLines === 2, `${r.titleLines} line(s)`);
+      check(`${t} the diagram shrinks to the room`, r.svgHeight < 577, `${r.svgHeight}px tall`);
+      check(`${t} its last row is whole`, r.rowInHolder && r.rowInOuter && r.outerInSlide,
+        `inHolder=${r.rowInHolder} inWrapper=${r.rowInOuter} wrapperInSlide=${r.outerInSlide}`);
+      check(`${t} so nothing is flagged`, !r.flagged, `data-overflow=${r.flagged} "${r.what}" ${r.by}`);
+    }
+  }
+}
+{
+  // a split slide (COMPARISON_SLIDES) under a long title: a tall diagram, or
+  // picture, alone in its column takes the room the column has, not its own
+  // height, and scales into it. The list in the other column is left alone.
+  const TALL = `<svg viewBox="0 0 400 520" width="400">
+  <rect x="10" y="10" width="380" height="500" rx="12" fill="none" stroke="currentColor" stroke-width="4"/>
+  <rect id="last-row" x="30" y="440" width="340" height="60" rx="8" fill="currentColor" opacity=".35"/>
+</svg>`;
+  const PIC = `<img width="400" height="520" alt="A tall picture" src="data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 520"><rect width="400" height="520" fill="#888"/></svg>')}">`;
+  const LIST = '<ul><li>One point</li><li>Another point</li></ul>';
+  const CASES = [
+    ['split, diagram in a column', `<div class="column">${TALL}</div>${LIST}`, 520],
+    ['split, bare diagram', `${TALL}${LIST}`, 520],
+    ['split, picture in a column', `<div><picture><source media="(max-width: 1px)" srcset="${PIC.match(/src="([^"]+)"/)[1]}">${PIC}</picture></div>${LIST}`, 480],
+  ];
+  for (const [name, body, natural] of CASES) {
+    for (const print of [false, true]) {
+      const r = clipRun(clipDeck(`${name.replace(/\W+/g, '-')}${print ? '-print' : ''}`,
+        `<h2>${TITLE}, and longer</h2>${body}`, { attrs: ' data-layout="split"', print }));
+      const t = `${name}${print ? ', print' : ''}:`;
+      check(`${t} the title wraps to two lines`, r.titleLines === 2, `${r.titleLines} line(s)`);
+      check(`${t} the diagram shrinks to the room`, r.svgHeight < natural, `${r.svgHeight}px tall`);
+      check(`${t} it is whole, inside the slide`, r.rowInOuter && r.outerInSlide,
+        `inColumn=${r.rowInOuter} columnInSlide=${r.outerInSlide} ${r.svgHeight}px over=${r.outerOver}`);
+      check(`${t} so nothing is flagged`, !r.flagged, `data-overflow=${r.flagged} "${r.what}" ${r.by}`);
+    }
+  }
+}
+{
+  // a diagram that fits is left exactly as it was: the same wrapper, a short title
+  const r = clipRun(clipDeck('wrapped-fits', `<h2>Short</h2><div>${DIAGRAM.replace('width="1100"', 'width="500"')}</div>`));
+  check('wrapped, fits: left at its own size', Math.abs(r.svgHeight - 263) <= 1 && !r.flagged, `${r.svgHeight}px tall, flagged=${r.flagged}`);
 }
 {
   // a design-system template's diagram slot: the diagram is the slot's main
