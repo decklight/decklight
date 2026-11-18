@@ -102,6 +102,11 @@ the thing they describe.
 - **Ask, then reveal.** A question before `[click]`, the build as the answer,
   is the strongest pattern there is: "So did the agent stay on brand?
   `[click]` Check says no."
+  It only works if the screen has not already answered: on a slide that
+  builds its answer, the headline is a label or the question itself, and the
+  claim arrives as the last build (the `decklight-slide-writing` skill,
+  Write). If the headline states the answer, ask the slide-writing skill to
+  change it rather than asking a question the viewer can already read.
 - **Do not split a sentence across a `[click]`** unless you want the half
   second of silence in the middle of it.
 
