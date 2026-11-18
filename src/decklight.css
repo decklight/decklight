@@ -550,17 +550,29 @@
 .decklight.decklight-print .conversation { overflow: visible; max-height: none !important; flex-shrink: 0; }
 
 .decklight table {
-  margin: 0.6em auto;
+  /* 0.6em of the cells' smaller text, as when the table itself was 0.82em */
+  margin: 0.492em auto;
   border-collapse: collapse;
   text-align: left;
   /* A page with no doctype is laid out in quirks mode, where a table takes
      neither the colour nor the size of the text around it: the browser's
-     black on a dark theme (#1190). Inherit both, as standards mode does; the
-     size is an em of the parent's, so it inherits it already. This also holds
-     the help card's and the welcome card's tables, which live in the deck. */
+     black on a dark theme (#1190). Inherit both, as standards mode does. The
+     table is the slide's size and its cells (and caption) set the smaller
+     text, so the cells read the same with or without a doctype. This also
+     holds the help card's and the welcome card's tables, which live in the
+     deck. */
   color: inherit;
-  font-size: 0.82em;
+  font-size: inherit;
 }
+/* No weight of its own: a deck's own `td { font-size }` still wins, as it did
+   when the cells had no size here at all. */
+:where(.decklight th, .decklight td, .decklight caption) { font-size: 0.82em; }
+/* A table an author sized inline (a deck's markup, or write mode's Text size
+   on the table) sets its cells' size and its margin, as when the table was
+   0.82em itself and its cells only inherited. */
+.decklight table:where([style*="font-size"]) { margin: 0.6em auto; }
+:where(.decklight table[style*="font-size"] > * > tr > :is(th, td),
+  .decklight table[style*="font-size"] > caption) { font-size: inherit; }
 .decklight th, .decklight td {
   padding: 0.35em 0.9em;
   /* --block-border is a full border shorthand ("1px solid #…", themes may
