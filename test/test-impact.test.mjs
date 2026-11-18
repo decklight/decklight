@@ -63,6 +63,7 @@ test('a subsystem selects its own harness and not the whole suite', () => {
   assert.deepEqual(forPath('src/core/review.js').harnesses, ['review-render']);
   // pdf.mjs also says what prints with a hole (#1184): that harness prints a PDF too
   assert.deepEqual(forPath('cli/pdf.mjs').harnesses, ['pdf-render', 'print-visibility-render']);
+  assert.deepEqual(forPath('tools/invisible-in-print.mjs').harnesses, ['print-visibility-render', 'pdf-render']);
   assert.deepEqual(forPath('src/terminal/player.mjs').harnesses, ['player-render']);
   assert.ok(forPath('src/core/narration.js').harnesses.includes('narration-render:live'));
   assert.ok(!forPath('src/core/narration.js').harnesses.includes('pdf-render'),

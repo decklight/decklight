@@ -219,8 +219,8 @@ person who writes the deck in VS Code gets the same words as completions and
 \`section.active .box { animation: in .6s forwards }\` entrance from
 \`opacity: 0\` plays on screen, and a printed or exported slide shows it at its
 end; one that does not end visible (no \`forwards\`, or an element left at
-\`opacity: 0\`) is a hole in the PDF, and \`check\` and \`pdf\` name it
-(\`invisible-in-print\`, with the element). \`data-build\` (BUILDS) arrives on
+\`opacity: 0\`) is a hole in the PDF, and \`check\`, \`pdf\` and Check deck…
+name it (\`invisible-in-print\`, with the element). \`data-build\` (BUILDS) arrives on
 a click and prints whole.
 
 **For a comparison slide, use \`data-layout="split"\` — and do not also write

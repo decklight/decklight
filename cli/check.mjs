@@ -59,7 +59,8 @@ import { composeRenames, migrationsOf } from '../tools/design-system-migrations.
 import { markedSources } from './theme-refs.mjs';
 import { parseColor, toOklab } from '../tools/color.mjs';
 import { ON_PALETTE_DISTANCE, offRoleColours, nearestRole, resolveTokenColours } from '../tools/brand-palette.mjs';
-import { printUrl, invisibleSaid, INVISIBLE_ADVICE } from './pdf.mjs';
+import { printUrl, invisibleSaid } from './pdf.mjs';
+import { invisibleMessage } from '../tools/invisible-in-print.mjs';
 import { configBlock, hasDoctype, isDeck } from './runtime-link.mjs';
 import { attributeFindings, configFindings } from '../tools/vocabulary.mjs';
 import { stepRuns } from '../tools/steps.mjs';
@@ -1129,7 +1130,7 @@ export function renderFindings(domHtml, { slides = 0 } = {}) {
     // hole in the PDF. A warning, not an error: the runtime cannot read intent.
     const invisible = invisibleSaid(m[0]);
     if (invisible) {
-      out.push(finding('warn', 'invisible-in-print', slide, head, `invisible in print: ${invisible} — ${INVISIBLE_ADVICE}`));
+      out.push(finding('warn', 'invisible-in-print', slide, head, invisibleMessage(invisible)));
     }
     // [click] markers against build clicks, counted by the engine itself
     // (engine.js markClickMismatch): providers included, which the file cannot do

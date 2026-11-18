@@ -4003,6 +4003,8 @@ export function init(userConfig = {}) {
     accept: () => (editmode?.available() && conceptTools ? (s) => conceptTools.accept(s) : null),
     // the agent review's findings (cli/agent-review.mjs)
     agentFindings: () => editmode?.reviewFindings?.() ?? [],
+    // the print view it reads invisible-in-print from (#1184): this deck, `?print`, in the theme on screen
+    printSrc: () => `${location.pathname}?print&${themes.previewQuery().replace(/^\?/, '')}`,
     // the file's half of the check, and the two kinds of fix (PRESENTING_EDITING):
     // the server's own, and an ask to the A agent when this machine has one
     editmode: () => editmode,

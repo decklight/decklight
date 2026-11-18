@@ -125,6 +125,7 @@ const RULES = [
   [/^cli\/(init|starter-full)\.mjs$/, ['starter-render'], 'the starter deck init writes, walked in every theme'],
   [/^cli\/deckfile\.mjs$/, ['deckfile-render'], 'the .decklight container'],
   [/^cli\/pdf\.mjs$/, ['pdf-render', 'print-visibility-render'], 'PDF export, and what it says about a slide that prints with a hole'],
+  [/^tools\/invisible-in-print\.mjs$/, ['print-visibility-render', 'pdf-render'], 'the sentence pdf, check and the Check deck panel say about a slide that prints with a hole'],
   [/^cli\/pptx-export\.mjs$/, ['pptx-render', 'lines-render'], 'PowerPoint export, and the printed page it asks for (capture=print)'],
   [/^tools\/pptx-write\.mjs$/, ['pptx-render'], 'the file the PowerPoint export writes'],
   [/^cli\/(edit|shot)\.mjs$/, ['shot-render'], 'the deck server, and the screenshot containment it asserts'],
