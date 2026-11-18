@@ -26,6 +26,9 @@ import { argReader, isMain } from '../tools/args.mjs';
 import { renderThemeParams } from '../tools/render-theme.mjs';
 import { runAsync, CODEC_MS } from '../tools/exec.mjs';
 import { sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
+import { INVISIBLE_ADVICE, invisibleSaidOf } from '../tools/invisible-in-print.mjs';
+
+export { INVISIBLE_ADVICE };
 
 /**
  * How many slides the handout puts on a page — the runtime's own number,
@@ -164,10 +167,7 @@ const attrOf = (tag, name) => new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]
  * (`data-invisible-more`). '' when it shows everything.
  */
 export function invisibleSaid(tag) {
-  const what = attrOf(tag, 'data-invisible');
-  if (!what) return '';
-  const more = Number(attrOf(tag, 'data-invisible-more'));
-  return `${what}${more > 0 ? `, and ${more} more element${more === 1 ? '' : 's'}` : ''}`;
+  return invisibleSaidOf(attrOf(tag, 'data-invisible'), attrOf(tag, 'data-invisible-more'));
 }
 
 /** Each slide with something invisible in print, and what: `[{ n, said }]`. */
@@ -182,9 +182,7 @@ export function invisibleReport(html) {
   return out;
 }
 
-/** What usually makes such a hole, and the way out of it: said by pdf and check alike. */
-export const INVISIBLE_ADVICE = 'print shows an entrance the deck animates with its own CSS as it ends, '
-  + 'and this one does not end visible: make it a build (SPEC BUILDS), or mark it data-invisible-ok if it is meant';
+// INVISIBLE_ADVICE, said by pdf, check and the Check deck… panel alike, is tools/invisible-in-print.mjs's
 
 /**
  * Slides mixing data-layout="split" with their own column flexbox (SPEC

@@ -45,6 +45,28 @@ const KEYFRAMES = `
   /* the deck's own loop: it never ends, so it is never finished */
   @keyframes kf-turn { to { transform: rotate(360deg); } }
   section.active .spin { animation: kf-turn 2s linear infinite; }`;
+/**
+ * The Check deck… panel on the LIVE deck: it reads the print view off-screen
+ * and names the hole, while the entrance on stage keeps playing. The print
+ * frame it loads is this same file, so the probe stands aside there.
+ */
+const PANEL_PROBE = `if (!/[?&]print/.test(location.search)) setTimeout(() => {
+  const inst = document.querySelector('.decklight').__decklight;
+  inst._deckCheck.open();
+  inst._deckCheck.readPrint().then(() => {
+    const kf = document.getElementById('kf1');
+    const rows = inst.check().filter((f) => f.rule === 'invisible-in-print');
+    document.getElementById('test-sink').textContent = 'DECKLIGHT-PRINTVIS-RESULTS ' + JSON.stringify({
+      rows: rows.map((f) => ({ slide: f.slide, level: f.level, message: f.message, node: f.node ? f.node.id : null })),
+      kf1: getComputedStyle(kf).opacity,
+      kfState: kf.getAnimations().map((a) => a.playState),
+      frames: document.querySelectorAll('iframe').length,
+      open: inst._deckCheck.isOpen(),
+    });
+  });
+}, 300);`;
+/** The live entrance, slowed so it is still playing whenever the panel has read the print view. */
+const SLOW = 'section.active .kf { animation-duration: 60s; }';
 /** The same deck with the boxes simply there: what page 2 should print as. */
 const CONTROL = '.box { border: 3px solid currentColor; padding: 10px; margin: 8px; }';
 
@@ -53,7 +75,7 @@ const CONTROL = '.box { border: 3px solid currentColor; padding: 10px; margin: 8
  * one hidden outright, 4 a data-animate loop, 5 a build: the last three are
  * what must NOT change or be reported wrongly.
  */
-function deck(name, css, { probe = true } = {}) {
+function deck(name, css, { probe = true, panel = false } = {}) {
   const file = path.join(dir, `${name}.html`);
   writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="${path.join(root, 'dist/decklight.css')}">
@@ -83,7 +105,8 @@ const mm = window.matchMedia.bind(window);
 const reduced = mm('(prefers-reduced-motion: reduce)').matches;
 window.matchMedia = (q) => /reduce/.test(q) ? { matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} } : mm(q);
 Decklight.init();
-${probe ? `setTimeout(() => {
+${panel ? PANEL_PROBE : ''}
+${probe && !panel ? `setTimeout(() => {
   const secs = [...document.querySelectorAll('.decklight-stage section')];
   const op = (id) => { const el = document.getElementById(id); return el && getComputedStyle(el).opacity; };
   const loop = document.getElementById('loop');
@@ -157,6 +180,24 @@ const kf = deck('keyframes', KEYFRAMES);
   check('live: ...and running, not finished', r.kfState.length > 0 && r.kfState.every((s) => s === 'running'), JSON.stringify(r.kfState));
 }
 
+// ---- the Check deck panel: it judges the print view, and leaves the stage be ----
+let panelSaid = '';
+{
+  const r = probe(`file://${deck('panel', KEYFRAMES + SLOW, { panel: true })}#/2/0`);
+  check('panel: open', r.open === true, `open=${r.open}`);
+  check('panel: invisible-in-print on slide 3 only', r.rows.length === 1 && r.rows[0].slide === 3,
+    JSON.stringify(r.rows.map((f) => f.slide)));
+  check('panel: ...a warning naming the element and the other', r.rows[0]?.level === 'warn'
+    && /^invisible in print: a box “ends hidden” \(opacity 0\), and 1 more element — /.test(r.rows[0]?.message ?? ''),
+    r.rows[0]?.message ?? '(none)');
+  check('panel: ...and outlining its twin on stage', r.rows[0]?.node === 'gone', `node=${r.rows[0]?.node}`);
+  check('panel: the entrance that ends visible is not listed', !r.rows.some((f) => f.slide === 2), JSON.stringify(r.rows.map((f) => f.slide)));
+  check('panel: the live entrance was not finished by it', r.kfState.length > 0 && r.kfState.every((st) => st === 'running') && r.kf1 !== '1',
+    `${JSON.stringify(r.kfState)} opacity ${r.kf1}`);
+  check('panel: the print frame is dropped once read', r.frames === 0, `${r.frames} frames`);
+  panelSaid = r.rows[0]?.message ?? '';
+}
+
 // ---- the PDF: page 2 prints the boxes --------------------------------------
 // Page content streams are compared, keyframed deck against the same deck with
 // the boxes simply there. Text runs (Tj/TJ) count what was painted as words.
@@ -203,6 +244,7 @@ function pdfPages(file) {
     JSON.stringify(found.map((f) => f.slide)));
   check('check: it names the element', /a box “ends hidden” \(opacity 0\), and 1 more element/.test(found[0]?.message ?? ''),
     found[0]?.message ?? '(none)');
+  check('check: the panel says it in the same words', !!panelSaid && found[0]?.message === panelSaid, panelSaid || '(no panel row)');
 }
 
 if (bad) { console.error('print-visibility-render: FAILED'); process.exit(1); }

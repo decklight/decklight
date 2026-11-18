@@ -40,7 +40,10 @@
     // The restore overlay (R) is the exception — it only exists when an edit
     // server does, so that mode stands one up in miniature: enough of /deck/ping
     // and /deck/edit/history for the overlay to mount and list something real.
-    const HARNESS_MODE = new URLSearchParams(location.search).get('mode') ?? 'themepicker';
+    // Check deck… reads this page's print view in a hidden frame, as `?print` with no mode (#1184):
+    // there it is a deck, not a test
+    const HARNESS_MODE = new URLSearchParams(location.search).get('mode')
+      ?? (new URLSearchParams(location.search).has('print') ? 'print-probe' : 'themepicker');
     const FAKE_HISTORY = [
       { hash: 'aaaaaaa', when: '2 minutes ago', subject: 'tighten the closing slide' },
       { hash: 'bbbbbbb', when: '1 hour ago', subject: 'add the pros/cons split' },
@@ -1361,7 +1364,7 @@
   <script>
     const sink = document.getElementById('test-sink');
     const params = new URLSearchParams(location.search);
-    const mode = params.get('mode') ?? 'themepicker';
+    const mode = HARNESS_MODE;
     // `videoslide` (DECK_ANATOMY): a clip on slide 2 with controls, one on slide 3
     // marked autoplay, put there BEFORE init as an author would. The media
     // element is stubbed: headless Chrome has no clip to decode, and what is

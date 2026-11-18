@@ -207,3 +207,15 @@ test('check reports invisible-in-print as a warning on that slide, naming the el
   assert.match(found[0].message, /^invisible in print: a box “keyframed box 1” \(opacity 0\), and 2 more elements — /);
   assert.match(found[0].message, /SPEC BUILDS/);
 });
+
+test('one sentence for pdf, check and the Check deck panel (#1184)', async () => {
+  const { invisibleSaidOf, invisibleMessage, INVISIBLE_ADVICE } = await import('../tools/invisible-in-print.mjs');
+  assert.equal(invisibleSaidOf('a box “Batch” (opacity 0)', 0), 'a box “Batch” (opacity 0)');
+  assert.equal(invisibleSaidOf('a box “Batch” (opacity 0)', 1), 'a box “Batch” (opacity 0), and 1 more element');
+  assert.equal(invisibleSaidOf('a list (visibility hidden)', '3'), 'a list (visibility hidden), and 3 more elements', 'a count read off an attribute');
+  assert.equal(invisibleSaidOf('', 2), '', 'nothing named, nothing said');
+  assert.equal(invisibleMessage('a list (visibility hidden)'), `invisible in print: a list (visibility hidden) — ${INVISIBLE_ADVICE}`);
+  // check's own finding is that sentence, word for word: the panel says it so too
+  const found = renderFindings('<section data-invisible="a heading “Hi” (opacity 0)"><h2>Hi</h2></section>', { slides: 1 });
+  assert.equal(found[0].message, invisibleMessage('a heading “Hi” (opacity 0)'));
+});

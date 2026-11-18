@@ -22,6 +22,7 @@
  *   split-conflict    data-layout="split" fighting a flex shell
  *   clicks-vs-builds  [click] markers that do not match the build clicks (the engine's count)
  *   missing-media     an image or a video that did not load
+ *   invisible-in-print content the PRINT view would not show (read off-screen, below)
  *   markdown-slide    a data-markdown slide, which comes up empty
  *   static-diagram    (hint) an SVG diagram with no build, landing all at once
  *   label-overflow    a diagram label too long for its shape even wrapped (SVG_DIAGRAMS)
@@ -30,6 +31,23 @@
  *   unknown-value     a build effect, layout, route… an attribute does not take
  *   config-json       the configuration block is not JSON (an error: the deck booted on defaults)
  *   config-key        a configuration key Decklight does not read; config-value, a value it does not take
+ *
+ * INVISIBLE IN PRINT is the one the live page cannot measure on itself: an
+ * entrance the deck animates with its own CSS is at opacity 0 until it runs,
+ * rightly, and finishing it here would spoil it on stage. So the panel asks
+ * the print view (#1184): a hidden, same-origin iframe loads this deck with
+ * `?print`, where the runtime has already completed every build and finished
+ * the deck's own animations (print-visibility.js), and the panel names what
+ * still does not show there, with the same exemptions and the same sentence
+ * `decklight check` prints. It is read when the panel opens and after each
+ * write, the frame is dropped once read, and the live deck's animations are
+ * never touched: they belong to another document. Computing end states on the
+ * live page instead (each animation's last keyframe through the cascade)
+ * cannot see an inactive slide's entrance at all, since a `section.active`
+ * rule has made no animation there to read; the print view is the render
+ * `check` and `pdf` read, so the two can never disagree. Where the frame
+ * cannot be read (a file:// deck in a browser that keeps it apart), the row
+ * is simply absent.
  *
  * In write mode the edit server adds the FILE's half for the whole deck
  * (`GET /deck/edit/check`, cli/check.mjs's `staticFindings` with the same
@@ -71,6 +89,8 @@ import { injectedIn, createSpotlight } from './pick.js';
 import { fileElementAt } from './element-move.js';
 import { aiIcon } from './aiicon.js';
 import { IS_MAC } from './undo-chord.js';
+import { finishAuthorAnimations, invisibleContent } from './print-visibility.js';
+import { invisibleMessage, invisibleSaidOf } from '../../tools/invisible-in-print.mjs';
 
 const FIX_CHORD = IS_MAC ? '⌘⏎' : 'Ctrl+Enter';
 const FIX_ALL_CHORD = IS_MAC ? '⌘⇧⏎' : 'Ctrl+⇧Enter';
@@ -156,6 +176,8 @@ export function createDeckCheck({
   root, overlays, toast = () => {}, instance, goto, measureOverflow, labelOverflows = () => [], slideTitle,
   suggestions = () => [], accept = () => null,
   agentFindings = () => [],
+  // the deck's own print view (`?print`, in the theme on screen), loaded off-screen for invisible-in-print
+  printSrc = () => null,
   // the edit server behind the page: `available()` and `base()` for the
   // file's findings; `quickFix()` and `askAgent()` answer the fixer when the
   // page can write (and, for the agent, has one), else null
@@ -169,6 +191,10 @@ export function createDeckCheck({
   let served = null;      // true once the server answered, false once it refused — for the foot
   let want = null;        // a row to select once it is on screen: { rule, ref }
   let refreshTimer = null;
+  // the print view's half: what it does not show, by slide (Map n → { message, node }), the read that holds, the frame
+  let printed = null;
+  let printing = 0;
+  let printFrame = null;
   // the element a selected row is about, outlined on the stage like a selection
   const spot = createSpotlight(root);
 
@@ -194,6 +220,80 @@ export function createDeckCheck({
       file = j?.ok ? { findings: Array.isArray(j.findings) ? j.findings : [], slides: j.slides, deck: j.file } : null;
       if (el) paint();
     }).catch(() => { if (at === fetching) { served = false; if (el) paint(); } });
+  }
+
+  /**
+   * Read the print view (invisible-in-print): load the deck with `?print` in a
+   * hidden frame, wait for its runtime, and name on each slide what still does
+   * not show once builds are complete and the deck's own animations finished.
+   * Resolves when read (or given up on); a later read supersedes it.
+   */
+  function readPrint() {
+    const src = printSrc();
+    const at = ++printing;
+    printFrame?.remove();
+    printFrame = null;
+    if (!src || !document.body) { printed = null; return Promise.resolve(); }
+    const frame = document.createElement('iframe');
+    frame.className = 'decklight-print-probe';
+    frame.title = 'print view, read by Check deck';
+    frame.setAttribute('aria-hidden', 'true');
+    frame.tabIndex = -1;
+    // laid out at the deck's size (a display:none document runs no animation
+    // and lays nothing out), where nobody sees it or can reach it
+    frame.style.cssText = 'position:fixed;left:-20000px;top:0;width:1280px;height:720px;border:0;'
+      + 'visibility:hidden;pointer-events:none;';
+    printFrame = frame;
+    return new Promise((resolve) => {
+      let tries = 0, over = false;
+      const finish = (found) => {
+        if (over) return;
+        over = true;
+        clearTimeout(limit);
+        if (at === printing) { printed = found; printFrame = null; if (el) paint(); }
+        frame.remove();
+        resolve();
+      };
+      // a deck that never comes up (or a frame dropped before it loaded) is given up on
+      const limit = setTimeout(() => finish(at === printing ? printed : null), 20000);
+      const look = () => {
+        if (over) return;
+        if (at !== printing) { finish(null); return; }
+        let deck = null;
+        try { deck = frame.contentDocument?.querySelector('.decklight')?.__decklight ?? null; } catch { finish(null); return; }
+        if (!deck) { if (++tries > 200) finish(null); else setTimeout(look, 50); return; }
+        finish(printHoles(frame.contentWindow, deck));
+      };
+      frame.addEventListener('load', look, { once: true });
+      frame.src = src;
+      document.body.appendChild(frame);
+    });
+  }
+
+  /** What each slide of the print view does not show: `Map(n → { message, node })`, `node` its twin on stage. */
+  function printHoles(win, deck) {
+    const live = instance()?._sections ?? [];
+    const out = new Map();
+    (deck._sections ?? []).forEach((sec, i) => {
+      // the runtime finished these as the print view laid out; one a late
+      // class started since is finished too, as its own re-check would
+      finishAuthorAnimations(sec);
+      const found = invisibleContent(sec, { style: (e) => win.getComputedStyle(e) });
+      if (!found.length) return;
+      const said = invisibleSaidOf(`${found[0].what} (${found[0].why})`, found.length - 1);
+      out.set(i + 1, { message: invisibleMessage(said), node: twinOf(found[0].el, sec, live[i]) });
+    });
+    return out;
+  }
+
+  /** The element on stage at the same place under its slide as `el` under the print view's, or null. */
+  function twinOf(el, sec, liveSec) {
+    if (!liveSec) return null;
+    const path = [];
+    for (let n = el; n && n !== sec; n = n.parentElement) path.unshift([...n.parentElement.children].indexOf(n));
+    let node = liveSec;
+    for (const k of path) node = node?.children?.[k] ?? null;
+    return node && node.tagName === el.tagName ? node : null;
   }
 
   /** Every finding the open deck can answer for, slide order, errors first within a slide. */
@@ -230,6 +330,9 @@ export function createDeckCheck({
       for (const v of sec.querySelectorAll('video, audio')) {
         if (v.error) add('error', 'missing-media', `a ${v.tagName.toLowerCase()} did not load: ${v.currentSrc || v.getAttribute('src') || 'its source'}`);
       }
+      // what the print view does not show (read off-screen, readPrint): the element named, as check says it
+      const hole = printed?.get(n);
+      if (hole) out.push({ ...finding('warn', 'invisible-in-print', n, title, hole.message), ...(hole.node ? { node: hole.node } : {}) });
       const dense = slideDensity(sec);
       if (dense.length) add('warn', 'dense', `crowded: ${dense.join(', ')}. Split it rather than shrink it`);
       if (sec.hasAttribute('data-split-conflict')) {
@@ -375,6 +478,7 @@ export function createDeckCheck({
     window.addEventListener('resize', onResize);
     sel = 0;
     fetchFile();   // first: with no server it says so at once, and the foot reads right from the first paint
+    readPrint();
     paint();
   }
 
@@ -382,7 +486,7 @@ export function createDeckCheck({
   function refresh() {
     if (!el) return;
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => { if (el) { fetchFile(); paint(); } }, 60);
+    refreshTimer = setTimeout(() => { if (el) { fetchFile(); readPrint(); paint(); } }, 60);
   }
 
   function selectWanted() {
@@ -519,8 +623,9 @@ export function createDeckCheck({
   /** Outline the element a row is about, when it is on the slide showing; else nothing. */
   function outline(f) {
     const inst = instance();
-    const node = f?.at && f.slide === inst?.state?.slide
-      ? fileElementAt(inst._sections?.[f.slide - 1], f.at.path, f.at.tag) : null;
+    const here = f && f.slide === inst?.state?.slide;
+    const node = here && f.node?.isConnected ? f.node
+      : here && f.at ? fileElementAt(inst._sections?.[f.slide - 1], f.at.path, f.at.tag) : null;
     if (node) spot.show(node, { dim: false }); else spot.hide();
   }
   /** ⏎ or a click: to the slide, the panel staying put. */
@@ -562,6 +667,9 @@ export function createDeckCheck({
     spot.hide();
     el.remove();
     el = null;
+    printing += 1;   // a read still loading is dropped with its frame
+    printFrame?.remove();
+    printFrame = null;
     if (onResize) { window.removeEventListener('resize', onResize); onResize = null; }
     dock.release();
   }
@@ -587,5 +695,5 @@ export function createDeckCheck({
 
   overlays.register({ isOpen: () => !!el, close, keydown, save, modal: false, panel: true });
 
-  return { open, toggle, close, check, refresh, isOpen: () => !!el };
+  return { open, toggle, close, check, refresh, readPrint, isOpen: () => !!el };
 }
