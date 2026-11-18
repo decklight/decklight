@@ -1346,7 +1346,9 @@
    in a data-build="draw" svg, or one carrying data-build itself) */
 .decklight .build-step[data-build-style="draw"] .draw-stroke,
 .decklight .build-step.draw-stroke[data-build-style="draw"] {
-  stroke-dasharray: var(--draw-len);
+  /* the gap outruns the stroke: at one length, the next dash began where a
+     closed rounded outline closes, a speck on a pending step (#1214) */
+  stroke-dasharray: var(--draw-len) calc(var(--draw-len) * 2);
   stroke-dashoffset: var(--draw-len);
   transition: stroke-dashoffset calc(var(--build-duration) * 2.2) ease;
 }
