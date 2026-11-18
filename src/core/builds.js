@@ -186,7 +186,7 @@ function prepareStroke(s) {
     // masked stroke's reveal lives outside the step's CSS, so it is the
     // loop's too
     s.style.transition = 'none';
-    drawnBy(s).style.strokeDasharray = String(len);
+    drawnBy(s).style.strokeDasharray = drawDash(len);
     s._drawHeads ??= {};
     setDrawn(s, 0, len);
   }
@@ -253,7 +253,7 @@ function buildMask(s, len, dashes) {
   }
   const reveal = band(copy('none'), 'white');
   reveal.setAttribute('class', 'draw-mask-stroke');
-  reveal.style.strokeDasharray = String(len);
+  reveal.style.strokeDasharray = drawDash(len);
   reveal.style.strokeDashoffset = String(len);
   mask.appendChild(reveal);
   s.after(mask);
@@ -397,6 +397,16 @@ function revealHead(head, d, which) {
  * that is not a `<path>`: the shape's own attributes answer then
  * (stroke-geometry.js).
  */
+/**
+ * The dash a stroke draws by: one dash as long as the stroke, then a gap
+ * twice as long. The gap must outrun the stroke: with a gap of just the
+ * length, Chrome painted a speck where a closed rounded outline closes (the
+ * pattern's next dash, though `getTotalLength()` says it is out of reach), on
+ * a step not yet built (#1214). The CSS draw
+ * (`.draw-stroke`) writes the same pattern from `--draw-len`.
+ */
+const drawDash = (len) => `${len} ${len * 2}`;
+
 function strokeLength(s) {
   try { return s.getTotalLength(); } catch { return shapeLength(s); }
 }
@@ -462,13 +472,13 @@ export function refitStroke(s) {
   const mask = id ? s.ownerSVGElement?.querySelector(`[id="${CSS.escape(id)}"]`) : null;
   if (mask?.classList.contains('draw-mask')) {
     for (const c of mask.children) for (const a of GEOMETRY) if (s.hasAttribute(a)) c.setAttribute(a, s.getAttribute(a));
-    if (s._drawMask) s._drawMask.style.strokeDasharray = String(len);
+    if (s._drawMask) s._drawMask.style.strokeDasharray = drawDash(len);
   }
   if (!s._drawHeads) return;
   // the heads share the stroke's parent: its own transform is theirs too
   for (const h of Object.values(s._drawHeads)) h.prefix = s.getAttribute('transform') ? `${s.getAttribute('transform')} ` : '';
   // the frame loop draws it by a dash as long as the stroke (a restored authored dash pattern stays)
-  if (drawnBy(s) !== s || !s.dataset.drawOrig) drawnBy(s).style.strokeDasharray = String(len);
+  if (drawnBy(s) !== s || !s.dataset.drawOrig) drawnBy(s).style.strokeDasharray = drawDash(len);
   setDrawn(s, drawn >= was - 0.5 ? len : Math.min(drawn, len), len);
 }
 
@@ -584,7 +594,7 @@ function syncStroke(s, state) {
   if (s._drawHeads) {
     const len = strokeLen(s);
     if (state === 'pending') {
-      if (orig) s.style.strokeDasharray = String(len);
+      if (orig) s.style.strokeDasharray = drawDash(len);
       setMarkers(s, false);
       driveDraw(s, 0, len);
     } else {
@@ -653,7 +663,7 @@ function drawStopsProvider(s) {
   if (!s._drawHeads) {
     // no marker to ride, but the stages are still the frame loop's to draw
     s.style.transition = 'none';
-    drawnBy(s).style.strokeDasharray = String(len);
+    drawnBy(s).style.strokeDasharray = drawDash(len);
     s._drawHeads = {};
     setDrawn(s, 0, len);
   }
@@ -665,7 +675,7 @@ function drawStopsProvider(s) {
     apply(k) {
       const target = k > 0 ? stops[Math.min(k, stops.length) - 1] : 0;
       const orig = s.dataset.drawOrig;
-      if (orig && target < len) s.style.strokeDasharray = String(len);
+      if (orig && target < len) s.style.strokeDasharray = drawDash(len);
       driveDraw(s, target, len, () => {
         if (orig && target >= len) { s.style.strokeDasharray = orig; s.style.strokeDashoffset = '0'; }
       });

@@ -9911,6 +9911,12 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && fo('df-attr-op') === 0 && fo('df-inline-op') === 0 && fo('df-dashed') === 0;
         // the outline still draws: the stroke keeps its own opacity
         r.strokeStillDraws = op('df-boxed') === 1 && parseFloat(getComputedStyle(el('df-boxed')).strokeDashoffset) > 0;
+        // #1214: the dash's gap outruns the outline, on the stroke and in a dashed
+        // stroke's mask, so no next dash starts where a rounded outline closes
+        // (the gap computes to `calc(…px)`, hence the match)
+        const gapOutruns = (n, len) => { const [d, g] = getComputedStyle(n).strokeDasharray.match(/[\d.]+/g).map(parseFloat); return d >= len && g > len + 1; };
+        r.gapOutrunsStroke = gapOutruns(el('df-boxed'), el('df-boxed').getTotalLength())
+          && gapOutruns(el('df-dashed').ownerSVGElement.querySelector('.draw-mask-stroke'), el('df-dashed').getTotalLength());
         // a bare filled shape that is its own step falls back to fade, hidden too
         r.bareStepHidden = el('df-dot').getAttribute('data-build-style') === 'fade' && op('df-dot') < 0.01;
         deck.next(); await land();
