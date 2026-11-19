@@ -3131,6 +3131,9 @@
 .decklight-mic .rec-title { padding: 0 12px 2px; font-size: 12px; opacity: .55; }
 .decklight-mic .rec-script { max-height: 56vh; overflow-y: auto; }
 .decklight-mic .rec-script .rec-read, .decklight-mic .rec-script .rec-ahead { max-height: none; overflow: visible; }
+.decklight-mic .rec-read,
+.decklight-mic .rec-ahead p,
+.decklight-mic .rec-past span:last-child { white-space: pre-wrap; }
 .decklight-mic .rec-past { display: flex; gap: 10px; align-items: flex-start; padding: 4px 12px; font-size: 14px; opacity: .55; }
 .decklight-mic .rec-tick { flex: none; color: #7bd88f; }
 .decklight-mic .rec-cut { display: flex; align-items: center; gap: 8px; padding: 2px 12px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .55; }
@@ -3491,6 +3494,7 @@
   text-align: center;
   z-index: 45;
   pointer-events: none;
+  white-space: pre-wrap;
   display: none;
 }
 .decklight-captions.show { display: block; }

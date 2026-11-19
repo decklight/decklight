@@ -22,7 +22,7 @@ import { BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
 import {
   hintApplies, clipTallyLine, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack, parseVoiceQuery, voiceMatches,
-  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, notesPlain, notesDraft, notesWithBeat, stepPlan,
+  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, notesDisplaySegsOf, captionText, notesPlain, notesDraft, notesWithBeat, stepPlan,
 } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
@@ -199,6 +199,14 @@ test('the plan reads the same whitespace the file numbering does', () => {
   assert.deepEqual(recordPlan(segs, 1).map((b) => b.file), [1, 2]);
   assert.deepEqual(recordPlan(segs, 1).map((b) => b.text), ['One.', 'Two.']);
   assert.deepEqual(segmentFileIndex(segs), [1, null, 2]);
+});
+
+test('the recording plan can keep display paragraphs without changing beat files', () => {
+  const spoken = ['First paragraph. Second paragraph.', 'Next beat.'];
+  const shown = ['First paragraph.\n\nSecond paragraph.', 'Next beat.'];
+  const plan = recordPlan(spoken, 1, shown);
+  assert.deepEqual(plan.map((b) => b.file), [1, 2]);
+  assert.deepEqual(plan.map((b) => b.text), shown);
 });
 
 // ── proposeTrack — a track is a folder, named after the voice ─────────────
@@ -599,6 +607,13 @@ test('the notes editor shows each paragraph a blank line apart — the narration
     el('p', txt('[click]')), el('p', txt('Beat two.')), el('p', txt('More of it.')));
   assert.equal(notesDraft(aside), 'First para.\n\nSecond para, same one.\n\n⟨CLICK⟩\n\nBeat two.\n\nMore of it.');
   assert.equal(notesSegsOf(Object.assign(aside, { innerHTML: 'y' })).length, 2, 'the narration\'s beats are unchanged');
+  assert.deepEqual(notesDisplaySegsOf(aside), ['First para.\n\nSecond para, same one.', 'Beat two.\n\nMore of it.']);
+  assert.equal(captionText(notesDisplaySegsOf(aside), 0, 1), 'First para.\n\nSecond para, same one.');
+  assert.equal(captionText(notesDisplaySegsOf(aside), 1, 1), 'Beat two.\n\nMore of it.');
+});
+
+test('caption display removes pause and audio tags without flattening paragraphs', () => {
+  assert.equal(captionText([`First. ${PAUSE_MARK}\n\n[sighs] Second.`], 0, 0), 'First.\n\nSecond.');
 });
 
 test('the mic recorder edits one beat\'s words and leaves the [click] split and the other beats alone', async () => {
