@@ -265,6 +265,7 @@ const ENGINE_GROUPS = {
     'buildpanel',
     'buildselect',
     'buildreselect',
+    'waitinghidden',
   ],
 };
 const ENGINE_HARNESSES = Object.keys(ENGINE_GROUPS).map((g) => `engine-render:${g}`);

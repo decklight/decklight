@@ -1422,7 +1422,10 @@
    shown dimmed where it will land instead of hidden, so it takes a click and
    can be selected, typed in and removed. Its strokes are drawn and its fades
    in, as the overview shows them; the dimming is the one difference. The bar
-   off (presenting, fullscreen, the lock), print and export keep the builds. */
+   off (presenting, fullscreen, the lock), print and export keep the builds.
+   The author can also hide them while the bar is on: "Show steps still to
+   come" (D, the palette, the Builds tab; editbar.js) takes the class off, so
+   the slide plays click by click as when presenting, with no CSS of its own. */
 .decklight.dl-show-waiting .build-step[data-build-state="pending"] {
   visibility: visible !important;
   opacity: var(--dl-waiting-opacity, 0.35) !important;
@@ -4625,6 +4628,17 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
 }
 .decklight-editbar .eb-lock { margin-left: 4px; border-left: 1px solid rgba(255, 255, 255, .14); border-radius: 0 10px 10px 0; }
 .decklight-editbar .eb-file { display: none; }
+/* the steps still to come hidden (D, editbar.js): a chip at the end of the bar that shows them again */
+.decklight-editbar .eb-ahead {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 6px; padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent, #6af) 55%, transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #6af) 16%, transparent); color: inherit;
+  font: 500 12px/1 system-ui, sans-serif; cursor: pointer; white-space: nowrap;
+}
+.decklight-editbar .eb-ahead[hidden] { display: none; }
+.decklight-editbar .eb-ahead:hover { background: color-mix(in srgb, var(--accent, #6af) 28%, transparent); }
+.decklight-editbar .eb-ahead .eb-x { opacity: .7; }
 /* never wider than the window: on a narrow one the key hints go (the
    buttons' titles and the help still name them) and the buttons tighten */
 .decklight-editbar { max-width: calc(100% - 16px); box-sizing: border-box; }
@@ -4797,6 +4811,7 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
 /* the Builds tab (builds-panel.js): one row a click, in play order, with its beat */
 .decklight-inspector .ins-builds { margin: 2px 12px 8px; font-size: 12.5px; container-type: inline-size; }
 .decklight-inspector .ins-builds :is(.bl-start, .bl-extra, .bl-foot) { display: flex; gap: 8px; padding: 5px 0; color: #c3c8d1; }
+.decklight-inspector .ins-builds .bl-waiting { display: flex; align-items: center; gap: 6px; padding: 4px 0 6px; color: #c3c8d1; cursor: pointer; }
 .decklight-inspector .ins-builds .bl-head { flex: none; min-width: 7.5em; color: #8d94a1; }
 .decklight-inspector .ins-builds .bl-text { min-width: 0; overflow-wrap: break-word; }
 .decklight-inspector .ins-builds .bl-extra .bl-text { font-style: italic; }

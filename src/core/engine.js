@@ -1254,6 +1254,10 @@ export function init(userConfig = {}) {
       write({ label: 'Concept colors…', cat: 'Edit',
         alias: 'concept colours colors semantic diagram fill slot pin data-concept recurring same colour everywhere colour by meaning color by meaning legend idea shapes boxes attach group',
         run: () => conceptsEditor.open() }),
+      // the steps still to come, dimmed or hidden while the bar is on (editbar.js)
+      write({ label: editbar.showWaiting() ? 'Hide steps still to come' : 'Show steps still to come', cat: 'Edit', hint: 'D',
+        alias: 'waiting dimmed ghost upcoming audience preview pending builds steps ahead clicks play as presenting',
+        run: () => editbar.toggleWaiting() }),
       write({ label: editbar.hidden() ? 'Show the bar' : 'Hide the bar', cat: 'Edit',
         alias: 'editing bar toolbar hide show toggle chrome buttons', run: () => editbar.toggleHidden() }),
       // The lock is the one write row that stays while the deck is locked:
@@ -3149,6 +3153,12 @@ export function init(userConfig = {}) {
       // Anywhere else S is the speaker view: notes on the projected screen are
       // the one thing a presenter must never show the room.
       case 's': case 'S': if (editmode.available()) toggleEditor(); else speakerView(); break;
+      // D — the steps still to come, dimmed or hidden (PRESENTING_EDITING):
+      // with the bar on only, and never while text is being edited
+      case 'd': case 'D':
+        if (!editbar.isOpen() || authoring.editing()) return;
+        editbar.toggleWaiting();
+        break;
       case 't': case 'T': themes.openPicker(); break;
       case '/': openPalette(); break;
       case '>': changeNarrRate(+0.25); break;  // youtube's ⇧>
@@ -3971,6 +3981,7 @@ export function init(userConfig = {}) {
   inspector.addTab(createBuildsPanel({
     instance: () => instance, select: (node) => editbar.selectNode(node, { exact: true }),
     edit: buildEdit, writable: () => !!editmode.available?.(), toast,
+    waiting: { shown: () => editbar.showWaiting(), set: (v) => editbar.setShowWaiting(v), onChange: (fn) => editbar.onWaitingChange(fn) },
   }).tab, { after: 'data' });
   // a selected block's settings as fields: a code block's language, line numbers, fit and steps
   inspector.addTab(createOptionsTab({ instance: () => instance, editmode: () => editmode, toast }).tab, { after: 'data' });

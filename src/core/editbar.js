@@ -106,6 +106,25 @@ export function createEditBar({
     toast(want ? 'the bar is hidden — editing stays on; Show the bar in the palette brings it back' : 'the bar is back', 2600);
   }
   document.addEventListener('fullscreenchange', () => sync());
+
+  // ── the steps still to come, shown or hidden (PRESENTING_EDITING) ──────────
+  // With the bar on, what waits behind a build is shown dimmed so it takes a
+  // click. The author can switch that off to step through a slide as the
+  // audience sees it, click by click, without leaving write mode: `D`, a
+  // palette row, the Builds tab's checkbox, and the bar's chip while it is
+  // off. Remembered per deck in this browser; never the file, a print, an
+  // export or a presentation, which show the builds as they play anyway.
+  const WAITING_KEY = 'decklight-show-waiting:' + location.pathname;
+  let showWaiting = readPref(WAITING_KEY) !== '0';   // no storage: shown
+  const waitingListeners = new Set();
+  function setShowWaiting(want) {
+    want = !!want;
+    if (want === showWaiting) return;
+    showWaiting = want;
+    writePref(WAITING_KEY, want ? null : '0');   // no storage: this page only
+    sync();
+    for (const fn of waitingListeners) fn(want);
+  }
   const inOverlay = (node) => !!node?.closest?.('.decklight-narr, .decklight-ctxmenu, .decklight-palette, .decklight-editbar, .decklight-touch-controls, .decklight-controls');
 
   // ── the bar ───────────────────────────────────────────────────────────────
@@ -141,6 +160,19 @@ export function createEditBar({
       btn.addEventListener('click', (e) => { e.stopPropagation(); run(b.id, btn, e); });
       bar.append(btn);
     }
+    // the steps still to come hidden: said at the end of the bar, so the empty
+    // space never reads as lost content; a click shows them again
+    const ahead = document.createElement('button');
+    ahead.type = 'button';
+    ahead.className = 'eb-ahead';
+    ahead.title = 'the steps still to come are hidden: the slide plays as the audience sees it (D shows them)';
+    ahead.append(Object.assign(document.createElement('span'), { className: 'eb-label', textContent: 'Steps ahead hidden' }),
+      Object.assign(document.createElement('span'), { className: 'eb-x', textContent: '✕', ariaHidden: 'true' }));
+    ahead.setAttribute('aria-label', 'Steps ahead hidden: show them');
+    ahead.hidden = showWaiting;
+    ahead.addEventListener('mousedown', (e) => e.preventDefault());
+    ahead.addEventListener('click', (e) => { e.stopPropagation(); setShowWaiting(true); });
+    bar.append(ahead);
     paintHistory();
     root.appendChild(bar);
     placeBar(readPlace());
@@ -612,8 +644,11 @@ export function createEditBar({
     if (on()) mount(); else unmount();
     root.classList.toggle('dl-editmode', editingOn());
     // the steps still to come, dimmed and clickable: the bar on screen only,
-    // so presenting (fullscreen, the bar hidden, the lock) shows the builds as built
-    root.classList.toggle('dl-show-waiting', on());
+    // so presenting (fullscreen, the bar hidden, the lock) shows the builds as
+    // built, and only while the author has not hidden them (D)
+    root.classList.toggle('dl-show-waiting', on() && showWaiting);
+    const ahead = bar?.querySelector('.eb-ahead');
+    if (ahead) ahead.hidden = showWaiting;
   }
   editmode.onElementEditChange(sync);
   function reselect() {
@@ -688,5 +723,11 @@ export function createEditBar({
     /** Hidden by the person (not by fullscreen, not by the lock): what the palette row flips. */
     hidden: () => hiddenByUser,
     toggleHidden: () => setHidden(!hiddenByUser),
+    /** The steps still to come shown dimmed (the default) or hidden, as the audience sees them: this deck's choice. */
+    showWaiting: () => showWaiting,
+    setShowWaiting,
+    toggleWaiting: () => setShowWaiting(!showWaiting),
+    /** `fn(shown)` whenever that choice changes; returns the unsubscribe. */
+    onWaitingChange: (fn) => { waitingListeners.add(fn); return () => waitingListeners.delete(fn); },
   };
 }

@@ -94,7 +94,7 @@ function describe(st) {
  * build-edit.js's, and `writable()` says whether this page may write now
  * (without it, the tab is to read and move around).
  */
-export function createBuildsPanel({ instance, select = null, edit = null, writable = () => false, toast = () => {} }) {
+export function createBuildsPanel({ instance, select = null, edit = null, writable = () => false, toast = () => {}, waiting = null }) {
   const inst = () => instance();
 
   /** The slide's rows, read from the slide as it is now. */
@@ -120,6 +120,15 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
       const can = !!edit && writable();
       const at = inst().state?.slide === slide ? inst().state.step : 0;
       el.textContent = '';
+      // the steps still to come, dimmed or hidden while editing (editbar.js): the same choice as D and the palette
+      if (waiting && writable()) {
+        const lab = Object.assign(document.createElement('label'), { className: 'bl-waiting', title: 'off: the slide plays click by click as the audience sees it (D)' });
+        const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: waiting.shown() });
+        box.addEventListener('click', (e) => e.stopPropagation());
+        box.addEventListener('change', () => waiting.set(box.checked));
+        lab.append(box, ' Show steps still to come');
+        el.append(lab);
+      }
       if (m.start.length) {
         const start = line('bl-start', 'from the start', m.start.join(' · '));
         start.title = 'there from the start: no click brings it';
@@ -185,7 +194,8 @@ export function createBuildsPanel({ instance, select = null, edit = null, writab
     const onBuild = (e) => { if (!e || e.slide === undefined || e.slide === slide) paint(); };
     inst().on?.('build', onBuild);
     inst().on?.('rescan', onBuild);
-    return { el, destroy() { inst().off?.('build', onBuild); inst().off?.('rescan', onBuild); } };
+    const offWaiting = waiting?.onChange?.(() => paint());
+    return { el, destroy() { inst().off?.('build', onBuild); inst().off?.('rescan', onBuild); offWaiting?.(); } };
   }
 
   // ── what can be changed (write mode) ────────────────────────────────────
