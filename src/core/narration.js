@@ -242,17 +242,18 @@ export function langName(code) {
 export const ELEVENLABS_LANGS = ['en', 'es', 'fr', 'de', 'pt', 'it', 'nl', 'pl', 'ja', 'zh', 'ko', 'hi', 'ar',
   'ru', 'tr', 'sv', 'da', 'no', 'fi', 'cs', 'el', 'ro', 'hu', 'uk', 'id', 'ms', 'vi', 'fil', 'ta', 'bg', 'hr', 'sk'];
 
-export function recordPlan(segs, steps = 0) {
+export function recordPlan(segs, steps = 0, displaySegs = segs) {
   const parts = (segs ?? []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim());
+  const shown = (displaySegs ?? []).map((t) => String(t ?? '').trim());
   const index = segmentFileIndex(parts);
   // ⟨PAUSE⟩ stays in the text a reader is shown — it is their cue to hold —
   // but a beat of nothing else is not a take
   if (!index) {
     const text = parts.filter(Boolean).join(' ');
-    return hasWords(text) ? [{ seg: 0, step: 0, file: null, text }] : [];
+    return hasWords(text) ? [{ seg: 0, step: 0, file: null, text: shown[0] || text }] : [];
   }
   return parts
-    .map((text, k) => (hasWords(text) ? { seg: k, step: Math.min(k, steps), file: index[k], text } : null))
+    .map((text, k) => (hasWords(text) ? { seg: k, step: Math.min(k, steps), file: index[k], text: shown[k] || text } : null))
     .filter(Boolean);
 }
 
@@ -487,6 +488,25 @@ export function notesPlain(node, { blocks = false } = {}) {
 }
 // the elements a paragraph break is made of, for `notesDraft`
 const BLOCKS = new Set(['p', 'div', 'li', 'ul', 'ol', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr']);
+
+/**
+ * A notes element split into beats for display. Unlike `notesSegsOf`, this
+ * keeps the author's blank-line paragraph boundaries; unlike `notesDraft`,
+ * it stays in canonical marker form for the recorder and captions.
+ */
+export function notesDisplaySegsOf(aside) {
+  return notesPlain(aside, { blocks: true }).split(CLICK_MARK)
+    .map((beat) => beat.split(/\n[ \t]*\n/)
+      .map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n\n'));
+}
+
+/** The displayed transcript for one build step, with paragraph breaks kept. */
+export function captionText(segs, step, steps) {
+  const beats = step < steps ? [segs?.[step]] : (segs ?? []).slice(step);
+  return beats.map((beat) => stripAudioTags(stripPauses(beat ?? ''))
+    .split(/\n[ \t]*\n/).map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n\n'))
+    .filter(Boolean).join('\n\n').trim();
+}
 
 /**
  * A notes element as the notes editor shows it: each beat's paragraphs kept
@@ -866,6 +886,9 @@ export function createNarration({
   // reading the notes and clicking between segments.
   function notesSegs(sl) {
     return notesSegsOf(instance._sections?.[sl - 1]?.querySelector('aside.notes'));
+  }
+  function notesDisplaySegs(sl) {
+    return notesDisplaySegsOf(instance._sections?.[sl - 1]?.querySelector('aside.notes'));
   }
   const notesDraftOf = (sl) => notesDraft(instance._sections?.[sl - 1]?.querySelector('aside.notes'));
   // resolves { url, blob }: playback needs the object URL, the the synthesized recorder stitcher
@@ -1929,7 +1952,8 @@ export function createNarration({
     // stepSentences, not the raw segment: on the last step this is every
     // segment the slide has no build for, and a caption that showed only the
     // first would go quiet exactly where the voice does not (#350).
-    setCaption(stripAudioTags(stepSentences(instance.state.slide, instance.state.step).join(' ')));
+    setCaption(captionText(notesDisplaySegs(instance.state.slide), instance.state.step,
+      buildSteps(instance.state.slide)));
   }
   function showCaptions() {
     captionEl = document.createElement('div');
@@ -4177,7 +4201,7 @@ export function createNarration({
   function micRelist() {
     const was = micList[micFrom.s];
     micList = micSlides();
-    micPlans = micList.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
+    micPlans = micList.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl), notesDisplaySegs(sl)));
     const speaks = Math.max(0, micPlans.findIndex((p) => p.length));
     const k = micList.indexOf(was);
     if (k < 0) {
@@ -4269,7 +4293,7 @@ export function createNarration({
       const sec = instance._sections?.[sl - 1];
       const title = sec ? slideTitle(sec, sl - 1, slideBody(sec)) : `slide ${sl}`;
       const notes = !!notesText(sl);
-      const plan = notes ? recordPlan(notesSegs(sl), buildSteps(sl)) : [];
+      const plan = notes ? recordPlan(notesSegs(sl), buildSteps(sl), notesDisplaySegs(sl)) : [];
       const builds = buildSteps(sl);
       let status = 'not recorded', tone = '';
       if (!notes) [status, tone] = ['no notes · skipped', 'dim'];
@@ -4773,7 +4797,7 @@ export function createNarration({
     if (run !== micRun) return;
     const dir = base == null ? null : { base, name: target.dir };
     let stopped = false;
-    const plans = list.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl)));
+    const plans = list.map((sl) => recordPlan(notesSegs(sl), buildSteps(sl), notesDisplaySegs(sl)));
     // where the take starts, and (the row's end, or --beats) stops; a slide
     // entered past its first beat, or ended before its last, is recorded in
     // part around what is kept
