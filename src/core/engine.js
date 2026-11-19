@@ -3580,6 +3580,9 @@ export function init(userConfig = {}) {
     character, toggleNarration, toggleNarrPause, changeNarrRate, toggleCaptions,
     openRecordDialog, openMicRecorder, notesSegs, notesDraftOf,
   } = narration;
+  // Capture tools need the configured character without starting narration.
+  // Kept on the instance (rather than window) like the rest of the deck API.
+  instance.character = character;
   const openNarrPicker = narration.openPicker;
   instance.toggleNarration = toggleNarration;               // programmatic start/stop
   // The voice, for API callers and the render harnesses — a curated surface

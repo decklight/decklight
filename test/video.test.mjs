@@ -21,6 +21,7 @@ import {
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, folderNarration, parseBuildSteps, voiceoverArgs,
   videoOut, videoProgress, voiceoverProgress, ENCODINGS, videoOptions, subtitleCues, toSrt, toVtt, subtitlesOut,
   pauseMarks, parseMotion, motionFrames, motionPlan, MOTION_WINDOW_S,
+  extractFaceVisibility, readVisemes, characterFrames, parseCharacterConfig,
 } from '../tools/video.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
@@ -299,6 +300,22 @@ test('extractPauses reads data-narration-pause off each section, the built-in ho
   assert.deepEqual(extractPauses(html), [SLIDE_PAUSE_DEFAULT, 2, SLIDE_PAUSE_DEFAULT]);
   assert.equal(SLIDE_PAUSE_DEFAULT, SLIDE_PAUSE_S,
     'video.mjs and the runtime disagree about the built-in slide pause — src/ does not ship, so the constant is duplicated and this is its leash');
+});
+
+test('animated character frames follow viseme changes without changing total timing', () => {
+  const p = { slide: 2, step: 999, audio: 'slide-02.m4a', duration: 2.4, pad: 0.4 };
+  const frames = characterFrames(p, { cues: [{ t: 0, v: 'A' }, { t: .25, v: 'B' }, { t: .6, v: 'B' }, { t: 1, v: 'X' }] });
+  assert.deepEqual(frames.map((x) => [x.character, x.audioOffset, x.duration, x.pad]), [
+    ['A', 0, .25, 0], ['B', .25, .75, 0], ['X', 1, 1.4, .4],
+  ]);
+  assert.equal(frames.reduce((n, x) => n + x.duration, 0), p.duration);
+  const args = segmentArgs({ frame: 'f.png', audio: 'a.m4a', audioOffset: .25, duration: .75, pad: 0, fps: 30, out: 'o.mp4' });
+  assert.deepEqual(args.slice(args.indexOf('-ss'), args.indexOf('-ss') + 2), ['-ss', '0.250']);
+});
+
+test('character capture follows data-face hide and reads the browser probe config', () => {
+  assert.deepEqual(extractFaceVisibility('<section data-face="hide"></section><section><i data-face="hide"></i></section>'), [false, true]);
+  assert.deepEqual(parseCharacterConfig('<pre>DECKLIGHT-CHARACTER {"mode":"viseme","position":"br"}</pre>'), { mode: 'viseme', position: 'br' });
 });
 
 // --- ffmpeg arg builders --------------------------------------------------------
