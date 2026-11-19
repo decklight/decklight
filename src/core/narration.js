@@ -1363,7 +1363,7 @@ export function createNarration({
           // and the fallback animates until it does.
           if (character.mode !== 'off') {
             character.attachAudio(narrAudio);
-            character.beginSentence(sentenceKey(sl, step, i, sentences[i]), clip, said);
+            character.beginSentence(sentenceKey(sl, step, i, sentences[i]), clip, said, { slide: sl, beat: step + 1 });
           }
           // Both handlers cleared BEFORE the src moves: narrAudio is one shared
           // element across live and recorded playback, and a handler left behind
@@ -2906,6 +2906,7 @@ export function createNarration({
       cardFacts(card, [
         filmed.includes(sl) ? ['filmed', 'yes, with this slide'] : ['filmed', 'no: this slide was recorded without the camera', true],
         ...(narrFace.byBeat ? [['now', 'it changes beat by beat; saving sets one place for the whole slide', true]] : []),
+        ['also', 'places the 2D character, when it narrates instead'],
       ]);
       const setKind = (kind) => () => { narrFace.kind = kind; renderNarr('face'); };
       const WHERE = 'where';

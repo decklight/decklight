@@ -3588,7 +3588,7 @@
 .decklight-character.mode-video .still.missing { visibility: hidden; }
 .decklight-character.mode-video video { opacity: 0; transition: opacity .12s; }
 .decklight-character.mode-video video.live { opacity: 1; }
-/* where a filmed face shows (FACE_LAYOUT): data-face="hide" puts the overlay
+/* where the face shows (FACE_LAYOUT): data-face="hide" puts the overlay
    away for the beat (the voice plays on); data-face="full 1.4" gives it the
    whole deck, the slide stepped aside the way solo does it, the face cropped
    to fill the frame and zoomed on itself. Above solo in the cascade, so a
@@ -3605,6 +3605,19 @@
   overflow: hidden;
   filter: none;
   background: #000;
+}
+/* the 2D character full screen: the solo treatment, not a cover crop. The
+   bust centres at the solo size, a zoom scales it up to what the stage can
+   hold (never so far that the face leaves the frame), and it keeps its
+   shadow on the deck's own background rather than a black frame. */
+.decklight .decklight-character.face-full:not(.mode-video) {
+  inset: 0;
+  margin: auto;
+  overflow: visible;
+  background: none;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, .35));
+  width: min(calc(var(--character-solo-size, min(74vh, 74vw)) * var(--face-zoom, 1)), 96vh, 96vw);
+  height: min(calc(var(--character-solo-size, min(74vh, 74vw)) * var(--face-zoom, 1)), 96vh, 96vw);
 }
 .decklight-character.face-full.mode-video .still { display: none; }
 .decklight-character.face-full.mode-video video {

@@ -245,7 +245,7 @@ try {
     await until(() => /slide-02-02\.mp4$/.test(v()?.getAttribute('src') ?? ''));
     rec.stop();
     results.faceStopClears = !faceRoot.classList.contains('decklight-face-full') && !el().classList.contains('face-full');
-    // the live voice is always the medallion: data-face is a recorded track's
+    // a live sentence that says nothing of where it is said: the medallion
     rec.beginSlide({ dir: 'voices/filmed' }, 2, 2, 'voices/filmed/slide-02-02.wav');
     await until(() => el().classList.contains('face-full'));
     rec.beginSentence('live|1', null, 'Hi.');
@@ -253,6 +253,68 @@ try {
     rec.stop();
     faceRoot.remove();
     window.fetch = realFetch;
+  }
+
+  // ── the 2D character placed by data-face (FACE_LAYOUT) ──────────────────
+  // The same attribute places the drawn character as it places a filmed face:
+  // the corner, a named corner, hidden, or full screen with the slide stepped
+  // aside (the solo treatment, scaled by the zoom), per beat on a recorded
+  // track and per sentence on the live voice. The mouth keeps moving.
+  {
+    const twoRoot = Object.assign(document.createElement('div'), { className: 'decklight' });
+    twoRoot.style.cssText = 'position:relative;width:1280px;height:720px';
+    document.body.appendChild(twoRoot);
+    const faces = { 2: 'full 1.4', 3: 'top-left', 4: 'hide 2:corner' };
+    const two = createCharacter({
+      root: twoRoot, config: { narration: { character: { mode: 'viseme' } } }, debugLog: () => {}, toast: () => {},
+      faceOf: (sl) => faces[sl] ?? null,
+    });
+    two.setMode('viseme');   // the filmed run above left video mode in this page's storage
+    const a2 = { paused: false, ended: false, currentTime: 0, playbackRate: 1, addEventListener() {} };
+    two.attachAudio(a2);
+    const el = () => twoRoot.querySelector('.decklight-character');
+    const at = () => [el().classList.contains('face-hide') ? 'hide' : el().classList.contains('face-full') ? 'full' : 'corner',
+      twoRoot.classList.contains('decklight-face-full'), ['br', 'bl', 'tr', 'tl'].find((p) => el().classList.contains(`pos-${p}`))].join(' ');
+    const set = { dir: 'voices/drawn' };
+    two.beginSlide(set, 1);
+    results.twoSlide1 = at();
+    two.beginSlide(set, 2);
+    await new Promise((r) => setTimeout(r, 60));
+    results.twoSlide2 = at();
+    const w = el().getBoundingClientRect().width;
+    results.twoFullSize = w > 220 && w <= innerHeight && w <= innerWidth;
+    a2.currentTime = 0.7;
+    await raf2();
+    results.twoFullMouth = el().getAttribute('data-viseme');
+    results.twoFullArt = !!el().querySelector('svg') && getComputedStyle(el()).visibility === 'visible';
+    two.beginSlide(set, 3);
+    results.twoSlide3 = at();
+    two.beginSlide(set, 4, 1);
+    results.twoBeat1 = at();
+    two.beginSlide(set, 4, 2);
+    results.twoBeat2 = at();
+    // the live voice, sentence by sentence, at the beat it is said on
+    two.beginSentence('live|2|a', null, 'Hi.', { slide: 2, beat: 1 });
+    results.twoLiveFull = at();
+    two.beginSentence('live|4|a', null, 'Hi.', { slide: 4, beat: 1 });
+    results.twoLiveHide = at();
+    two.beginSentence('live|1|a', null, 'Hi.', { slide: 1, beat: 1 });
+    results.twoLiveCorner = at();
+    // solo wins: it owns the stage already
+    two.setSolo(true);
+    two.beginSlide(set, 2, 1);
+    results.twoSoloWins = !el().classList.contains('face-full') && !twoRoot.classList.contains('decklight-face-full')
+      && twoRoot.classList.contains('decklight-solo');
+    two.setSolo(false);
+    // full is only ever set while the character is on screen
+    two.beginSlide(set, 2, 2);
+    results.twoFullAgain = twoRoot.classList.contains('decklight-face-full');
+    two.stop();
+    results.twoStopClears = !twoRoot.classList.contains('decklight-face-full') && !el().classList.contains('face-full');
+    two.beginSlide(set, 2, 1);
+    two.setMode('off');
+    results.twoOffClears = !twoRoot.classList.contains('decklight-face-full') && !el().classList.contains('face-full');
+    twoRoot.remove();
   }
 
   // ── film yourself (src/core/film.js) ─────────────────────────────────────
@@ -349,6 +411,11 @@ try {
     && results.faceBeatClip && results.faceFilmedNoBridge
     && results.faceBeat1 === 'hide false 1' && results.faceBeat2 === 'full true 1.5' && results.faceBeat3 === 'corner false 1'
     && results.faceStopClears && results.faceLiveIsCorner && results.faceHoldsLastFrame
+    && results.twoSlide1 === 'corner false br' && results.twoSlide2 === 'full true br' && results.twoFullSize
+    && results.twoFullMouth === 'D' && results.twoFullArt
+    && results.twoSlide3 === 'corner false tl' && results.twoBeat1 === 'hide false br' && results.twoBeat2 === 'corner false br'
+    && results.twoLiveFull === 'full true br' && results.twoLiveHide === 'hide false br' && results.twoLiveCorner === 'corner false br'
+    && results.twoSoloWins && results.twoFullAgain && results.twoStopClears && results.twoOffClears
     && results.filmRefusalSaid && results.filmAskedNoMic && results.filmLivePreview && results.filmTipsShown
     && results.filmReviewPlaysTheTake && results.filmRetakeBackToReady && results.filmBridgeRefusalSaid
     && results.filmPosted && results.filmUsed && results.filmCameraReleased && results.filmOverlayGone;

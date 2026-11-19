@@ -133,17 +133,22 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     applyFace();
   }
 
-  // ── where a filmed face shows (FACE_LAYOUT) ─────────────────────────────
+  // ── where the face shows (FACE_LAYOUT) ─────────────────────────────────
   // `data-face` on a slide: the medallion (corner), nothing (hide), or the
-  // face over the whole stage with the slide stepped aside (full, at a zoom).
-  // Per beat, from the beat a value names until the next. It is the clip's
-  // place, so it holds only while a recorded track plays in video mode: the
-  // live voice, the 2D character and a stopped narration are always the
-  // corner. Full is a class on the ROOT, like solo, so the stage can step
-  // aside; and like solo it is only ever set while the face is on screen.
+  // character over the whole stage with the slide stepped aside (full, at a
+  // zoom). Per beat, from the beat a value names until the next: on a
+  // recorded track per beat file, on the live voice per sentence of the beat.
+  // A filmed or rendered face (video) fills the frame, cropped and zoomed on
+  // itself; the 2D character takes the solo treatment, the whole bust
+  // centred, the zoom scaling it up to what the stage holds, never cropped.
+  // Solo wins for the 2D character: it already owns the stage on every
+  // slide, so a slide's placement has nothing to add. A stopped narration is
+  // always the corner. Full is a class on the ROOT, like solo, so the stage
+  // can step aside; and like solo it is only ever set while the face is on
+  // screen.
   let face = FACE_CORNER;
   function applyFace() {
-    const on = mode === 'video' && !!el?.classList.contains('show');
+    const on = mode !== 'off' && !!el?.classList.contains('show') && !(solo && mode !== 'video');
     const at = on ? face : FACE_CORNER;
     el?.classList.toggle('face-full', at.kind === 'full');
     el?.classList.toggle('face-hide', at.kind === 'hide');
@@ -387,11 +392,14 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // A live sentence is about to play. NEVER awaited by the caller: if the
   // data isn't here yet it lands mid-sentence (viseme) or snaps into sync via
   // drift correction (video); meanwhile the fallback animates.
-  function beginSentence(key, clip, text) {
+  // `at` is where the sentence is said, { slide, beat } (beat 1-based, the
+  // build step + 1): the slide's data-face for that beat places the face.
+  // Without it, the corner.
+  function beginSentence(key, clip, text, at = null) {
     if (mode === 'off') return;
     show();
     currentKey = key;
-    setFace(FACE_CORNER);
+    setFace(at?.slide ? faceLayout(faceOf(at.slide), at.beat ?? 1) : FACE_CORNER);
     if (videoEl) delete videoEl.dataset.filmed;
     if (mode === 'viseme') {
       timeline = null;
@@ -481,6 +489,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     const key = `file|${set.dir}|${stem}`;
     if (currentKey === key) return;   // same beat re-armed — keep the timeline
     currentKey = key;
+    setFace(faceLayout(faceOf(slideNo), seg ?? 1));
     if (mode === 'viseme') {
       timeline = null;
       (async () => {
@@ -493,7 +502,6 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
         .then((tl) => { if (currentKey === key) timeline = tl; })
         .catch(() => { /* no sidecar for this beat — fallback animates */ });
     } else if (videoEl) {
-      setFace(faceLayout(faceOf(slideNo), seg ?? 1));
       // A RENDERED talking head stays per SLIDE: it is minutes of GPU time a
       // clip, and the element mirrors the audio's transport rather than
       // seeking to a timeline, so cutting it per beat would cost a great deal
