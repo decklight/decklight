@@ -582,6 +582,19 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     debugLog('lipsync', `character solo ${solo ? 'on' : 'off'}`);
   }
 
+  // Video export renders deterministic stills rather than playing narration
+  // in real time. Give that renderer the same mounted art and CSS surface as
+  // live playback, but let it choose the mouth for the frame explicitly.
+  // No clock or audio element is involved, so a frame can never race a timer.
+  function capture(v = 'X') {
+    if (mode !== 'viseme') return false;
+    mount();
+    el.classList.add('show');
+    setViseme(v);
+    applySolo();
+    return true;
+  }
+
   return {
     get mode() { return mode; },
     get engine() { return engine; },
@@ -590,6 +603,6 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     get bridgeInfo() { return bridgeInfo; },
     get bridge() { return BRIDGE; },
     setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
-    attachAudio, stop, probe, ensureTimeline,
+    attachAudio, stop, probe, ensureTimeline, capture,
   };
 }

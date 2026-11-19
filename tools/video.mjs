@@ -111,7 +111,8 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first —
                        over the --slides range only, when one is given
   --no-face            leave out the face you filmed while recording the
-                       narration. By default it shows the way each slide says
+                       narration and the animated character. By default they
+                       show the way each slide says
                        (data-face: the corner medallion, hidden, or full
                        screen at a zoom), in time with your voice
 
@@ -314,6 +315,43 @@ export function extractPauses(html) {
   });
 }
 
+/** data-face="hide" follows the same per-slide rule as the live narrator. */
+export function extractFaceVisibility(html) {
+  return sectionBodies(html).map((sec) => !/\bdata-face\s*=\s*["']hide["']/i.test(sec.slice(0, sec.indexOf('>'))));
+}
+
+/** Read and validate one recorded viseme sidecar. */
+export function readVisemes(file) {
+  if (!existsSync(file)) return null;
+  try {
+    const tl = JSON.parse(readFileSync(file, 'utf8'));
+    if (!Array.isArray(tl?.cues)) return null;
+    return { ...tl, cues: tl.cues.filter((c) => Number.isFinite(c?.t) && typeof c?.v === 'string').sort((a, b) => a.t - b.t) };
+  } catch { return null; }
+}
+
+/**
+ * Split one planned narration beat into deterministic character poses. Audio
+ * offsets keep the original recording continuous; the final interval retains
+ * the beat/slide padding. Duplicate adjacent shapes do not create extra work.
+ */
+export function characterFrames(p, timeline) {
+  if (!timeline?.cues?.length || !p.audio) return [{ ...p, character: null, audioOffset: 0 }];
+  const changes = [];
+  for (const cue of timeline.cues) {
+    const t = Math.max(0, Number(cue.t));
+    if (t >= p.duration) break;
+    if (changes.at(-1)?.v === cue.v) continue;
+    changes.push({ t, v: cue.v });
+  }
+  if (!changes.length || changes[0].t > 0) changes.unshift({ t: 0, v: 'X' });
+  return changes.map((cue, i) => {
+    const end = changes[i + 1]?.t ?? p.duration;
+    return { ...p, duration: round(end - cue.t), pad: i === changes.length - 1 ? p.pad : 0,
+      character: cue.v, audioOffset: round(cue.t) };
+  }).filter((x) => x.duration > 0);
+}
+
 /**
  * An oversized step: the engine clamps it to the slide's last build, so this
  * always renders a slide fully built however many steps it turns out to have.
@@ -469,19 +507,19 @@ export const ENCODINGS = {
  * goes discontinuous. -t bounds both the infinite loop and the infinite
  * anullsrc (-shortest can't end a segment whose streams are both endless).
  */
-export function segmentArgs({ frame, frames = null, audio, duration, fps, out, pad = TAIL_SECONDS, format = 'mp4', quality = 'standard', face = null, size = null }) {
+export function segmentArgs({ frame, frames = null, audio, audioOffset = 0, duration, fps, out, pad = TAIL_SECONDS, format = 'mp4', quality = 'standard', face = null, size = null }) {
   const enc = ENCODINGS[format];
   // A moving segment reads a numbered sequence (`frames: { pattern, count }`)
   // and holds its last picture for whatever the sequence does not cover, so
   // the segment is as long as the still would have been.
   const rest = frames ? Math.max(0, duration - frames.count / fps) : 0;
-  if (face && audio && size) return faceSegmentArgs({ frame, frames, rest, audio, duration, fps, out, pad, enc, quality, face, size });
+  if (face && audio && size) return faceSegmentArgs({ frame, frames, rest, audio, audioOffset, duration, fps, out, pad, enc, quality, face, size });
   return [
     '-y', ...(frames
       ? ['-framerate', String(fps), '-i', frames.pattern]
       : ['-loop', '1', '-framerate', String(fps), '-i', frame]),
     ...(audio
-      ? ['-i', audio, '-af', `apad=pad_dur=${pad}`]
+      ? [...(audioOffset ? ['-ss', Number(audioOffset).toFixed(3)] : []), '-i', audio, '-af', `apad=pad_dur=${pad}`]
       : ['-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=${enc.sampleRate}`]),
     ...(rest > 0 ? ['-vf', `tpad=stop_mode=clone:stop_duration=${rest.toFixed(3)}`] : []),
     ...enc.video(quality, !!frames), ...enc.audio(quality),
@@ -498,7 +536,7 @@ export function segmentArgs({ frame, frames = null, audio, duration, fps, out, p
  * as the deck holds it between beats. Same encoder, frame rate and size as
  * every other segment, so the concat's `-c copy` still joins them.
  */
-function faceSegmentArgs({ frame, frames, rest, audio, duration, fps, out, pad, enc, quality, face, size }) {
+function faceSegmentArgs({ frame, frames, rest, audio, audioOffset = 0, duration, fps, out, pad, enc, quality, face, size }) {
   const { w, h } = size;
   const hold = `tpad=stop_mode=clone:stop_duration=${Number(pad + 1).toFixed(3)}`;
   let graph;
@@ -520,7 +558,7 @@ function faceSegmentArgs({ frame, frames, rest, audio, duration, fps, out, pad, 
     '-y', ...(frames
       ? ['-framerate', String(fps), '-i', frames.pattern]
       : ['-loop', '1', '-framerate', String(fps), '-i', frame]),
-    '-i', audio, '-i', face.clip,
+    ...(audioOffset ? ['-ss', Number(audioOffset).toFixed(3)] : []), '-i', audio, '-i', face.clip,
     '-filter_complex', `${graph};[1:a]apad=pad_dur=${pad}[a]`,
     '-map', '[v]', '-map', '[a]', '-r', String(fps),
     ...enc.video(quality, true), ...enc.audio(quality),
@@ -830,6 +868,9 @@ const STEP_PROBE = `<script>
     var pre = document.createElement('pre');
     pre.textContent = 'DECKLIGHT-BUILD-STEPS ' + JSON.stringify(out) + '\\nDECKLIGHT-MOTION ' + JSON.stringify(moves);
     document.body.appendChild(pre);
+    var ch = document.createElement('pre');
+    ch.textContent = 'DECKLIGHT-CHARACTER ' + JSON.stringify(d.config && d.config.narration && d.config.narration.character || {});
+    document.body.appendChild(ch);
   }
   if (document.readyState === 'complete') setTimeout(report, 30);
   else window.addEventListener('load', function () { setTimeout(report, 30); });
@@ -940,6 +981,30 @@ export async function captureMotion(page, { url, slide, from = null, to, offset 
     await frameAt(i, await page.screenshot());
   }
 }
+export function parseCharacterConfig(dom) {
+  const m = /DECKLIGHT-CHARACTER (\{[^\n<]*\})/.exec(dom);
+  if (!m) return {};
+  try { return JSON.parse(m[1]); } catch { return {}; }
+}
+
+const CHARACTER_CAPTURE = `<script>
+(function () {
+  var pose = new URLSearchParams(location.search).get('character');
+  var at = Number(new URLSearchParams(location.search).get('characterTime')) || 0;
+  if (!pose) return;
+  function apply() {
+    var d = document.querySelector('.decklight') && document.querySelector('.decklight').__decklight;
+    if (d && d.character && d.character.capture(pose)) {
+      var el = document.querySelector('.decklight-character');
+      // Separate Chrome loads would otherwise freeze every blink and idle
+      // sway at the same phase. Seek CSS/Web animations to the audio time.
+      if (el && el.getAnimations) el.getAnimations({ subtree: true }).forEach(function (a) { a.currentTime = at * 1000; });
+    }
+  }
+  if (document.readyState === 'complete') setTimeout(apply, 30);
+  else window.addEventListener('load', function () { setTimeout(apply, 30); });
+})();
+</script>`;
 
 export async function videoMain(argv, { exec: execRaw = run, log = console.log } = {}) {
   const { opt } = argReader(argv);
@@ -1012,6 +1077,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
     const html = readFileSync(deck, 'utf8');
     const holds = extractHolds(html, hold);
     const pauses = extractPauses(html);
+    const faceVisible = extractFaceVisibility(html);
     if (!holds.length) throw new Error(`${basename(deck)} has no <section> slides`);
     const range = parseSlideRange(opt('--slides'), holds.length);
 
@@ -1093,8 +1159,9 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
     const renderQuery = `?${['capture', ...themeParams].join('&')}`;
     let probing = false;
     const inject = (text, file) => {
-      if (resolve(file) !== deck || !probing) return text;
-      return injectBeforeBodyEnd(exposeInstance(text), STEP_PROBE) ?? text;
+      if (resolve(file) !== deck) return text;
+      if (probing) return injectBeforeBodyEnd(exposeInstance(text), STEP_PROBE) ?? text;
+      return injectBeforeBodyEnd(text, CHARACTER_CAPTURE) ?? text;
     };
     const deckPath = '/' + relative(root, deck).split(sep).join('/');
 
@@ -1110,6 +1177,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       probing = true;
       let steps = null;
       let kinds = null;
+      let characterConfig = {};
       try {
         const dom = await exec(chrome, chromeArgs(
           '--hide-scrollbars', `--window-size=${w},${h}`,
@@ -1117,6 +1185,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
         ), { maxBuffer: 64 * 1024 * 1024 });
         steps = parseBuildSteps(dom.stdout, holds.length);
         kinds = parseMotion(dom.stdout, holds.length);
+        characterConfig = parseCharacterConfig(dom.stdout);
       } catch { /* fall through to one frame per slide */ }
       probing = false;
       if (!steps) console.warn('  builds: the deck did not report its build steps — one still per slide');
@@ -1124,9 +1193,22 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
 
       plan = planTimeline(narration?.slides ?? null, durations, holds, range,
         { steps, buildHold, pauses, marks: pauseMarks(html, steps), onWarn: (w) => console.warn(`  ${w}`) });
-      const slideCount = new Set(plan.map((p) => p.slide)).size;
+      const basePlan = plan;
+      const characterOn = characterConfig.mode === 'viseme' && !argv.includes('--no-face');
+      if (characterOn && narration) {
+        const expanded = [];
+        for (const p of plan) {
+          if (!p.audio || !faceVisible[p.slide - 1]) { expanded.push(p); continue; }
+          const sidecar = join(narration.dir, p.audio.replace(/\.[^.]+$/, '.visemes.json'));
+          const tl = readVisemes(sidecar);
+          if (!tl) throw new Error(`animated character needs ${basename(sidecar)} — run decklight narrate ${basename(deck)} --face`);
+          expanded.push(...characterFrames(p, tl));
+        }
+        plan = expanded;
+      }
+      const slideCount = new Set(basePlan.map((p) => p.slide)).size;
       log(`${basename(deck)}: ${slideCount} slide${slideCount === 1 ? '' : 's'}, `
-        + `${plan.filter((p) => p.audio).length} narrated`
+        + `${basePlan.filter((p) => p.audio).length} narrated`
         + (plan.length > slideCount ? `, ${plan.length} frames` : '')
         + (narration ? ` (${narration.dir})` : ' (silent)'));
 
@@ -1157,7 +1239,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
             const dir = join(work, `frames-${id}`);
             mkdirSync(dir);
             await captureMotion(page, {
-              url: `${server.origin}${deckPath}${renderQuery}`, slide: p.slide, from: m.from, to: p.step,
+              url: `${server.origin}${deckPath}${renderQuery}${p.character ? `&character=${encodeURIComponent(p.character)}&characterTime=${p.audioOffset ?? 0}` : ''}`, slide: p.slide, from: m.from, to: p.step,
               offset: m.offset, count: m.count, fps,
               frameAt: (i, png) => writeFileSync(join(dir, `${String(i).padStart(5, '0')}.png`), png),
             });
@@ -1173,14 +1255,14 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
               `--window-size=${w},${h}`,
               '--virtual-time-budget=1500',
               `--screenshot=${frame}`,
-              `${server.origin}${deckPath}${renderQuery}#/${p.slide}/${p.step}`,
+              `${server.origin}${deckPath}${renderQuery}${p.character ? `&character=${encodeURIComponent(p.character)}&characterTime=${p.audioOffset ?? 0}` : ''}#/${p.slide}/${p.step}`,
             ));
             if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
           }
           const seg = join(work, `seg-${id}.${ENCODINGS[format].ext}`);
           const face = faces ? faceFor(p, { narration, faces }) : null;
           await exec('ffmpeg', segmentArgs({
-            frame, frames, duration: p.duration, pad: p.pad, fps, out: seg, format, quality,
+            frame, frames, duration: p.duration, pad: p.pad, audioOffset: p.audioOffset, fps, out: seg, format, quality,
             audio: p.audio ? join(narration.dir, p.audio) : null,
             face, size: { w, h },
           }));
@@ -1208,7 +1290,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
           return k >= 0 ? (notesSegments(notes, { marks: true })?.[k] ?? '') : cleanNotes(notes, { marks: true });
         };
         const markHolds = markerPauses(html);
-        const cues = narration ? subtitleCues(plan, textOf, (p) => markHolds[p.slide - 1] ?? 0) : [];
+        const cues = narration ? subtitleCues(basePlan, textOf, (p) => markHolds[p.slide - 1] ?? 0) : [];
         const enc = ENCODINGS[format];
         if (!cues.length) {
           console.warn('  subtitles: nothing is spoken in this render — none written');
