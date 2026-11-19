@@ -166,6 +166,7 @@
     LK.buildreselect = LK.buildselect;
     LK.buildsettings = LK.buildpanel;
     LK.buildorder = LK.buildpanel;
+    LK.waitinghidden = LK.buildpanel;
     // neworderpoint: a list whose build order was written (Two plays first), a point to be added after One
     LK.neworderpoint = '<ul data-build>\n  <li data-build-order="2">One</li>\n  <li data-build-order="1">Two</li>\n</ul>';
     // multiselect (PRESENTING_EDITING, selecting several): four paragraphs under a title
@@ -9135,6 +9136,70 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         for (let k = 0; k < 20 && tStep.isConnected; k++) await settle();
         const removed = CALLS.post.filter((c) => c.u.includes('/deck/edit/element/remove')).at(-1)?.body;
         r.travelRemoved = removed?.tag === 'g' && Array.isArray(removed?.path) && !tStep.isConnected && groups() === before - 1 && !sec.querySelector('.travel-token');
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'waitinghidden') {
+        // the steps still to come hidden (PRESENTING_EDITING): D, the palette,
+        // the Builds tab's checkbox and the bar's chip are one choice; off,
+        // the slide plays click by click as presenting does, and it is kept per deck
+        await settle(); await settle();
+        deck.goto(3, 0); await settle();
+        const deckEl = document.querySelector('.decklight');
+        deckEl.classList.add('decklight-no-anim');   // no frames here: read the styles as they land
+        const sec = document.querySelector('.decklight-stage > section.active');
+        const [one, two, three] = [...sec.querySelectorAll('li')];
+        const KEY = 'decklight-show-waiting:' + location.pathname;
+        const look = (el) => getComputedStyle(el);
+        const dimmed = (el) => el.getAttribute('data-build-state') === 'pending' && look(el).visibility === 'visible' && Math.abs(parseFloat(look(el).opacity) - 0.35) < 0.01;
+        const gone = (el) => el.getAttribute('data-build-state') === 'pending' && (look(el).visibility === 'hidden' || look(el).opacity === '0');
+        const full = (el) => el.getAttribute('data-build-state') !== 'pending' && look(el).visibility === 'visible' && look(el).opacity === '1';
+        const chip = () => document.querySelector('.decklight-editbar .eb-ahead');
+        const chipShown = () => !!chip() && !chip().hidden && look(chip()).display !== 'none';
+        const P = '.decklight-inspector';
+        const box = () => document.querySelector(`${P} .bl-waiting input`);
+        r.shownByDefault = deckEl.classList.contains('dl-show-waiting') && dimmed(one) && dimmed(three) && !chipShown();
+        press('d'); await settle();
+        r.dHidesThem = !deckEl.classList.contains('dl-show-waiting') && gone(one) && gone(two) && gone(three);
+        r.chipSaysSo = chipShown() && chip().textContent.includes('Steps ahead hidden');
+        r.keptPerDeck = localStorage.getItem(KEY) === '0';
+        r.barStays = !!document.querySelector('.decklight-editbar') && deckEl.classList.contains('dl-editmode');
+        // → plays the next step as presenting; ← takes it away again
+        deck.next(); await settle();
+        r.nextShowsOne = deck.state.step === 1 && full(one) && gone(two) && gone(three);
+        deck.next(); await settle();
+        r.nextShowsTwo = deck.state.step === 2 && full(one) && full(two) && gone(three);
+        deck.prev(); await settle();
+        r.prevHidesAgain = deck.state.step === 1 && full(one) && gone(two);
+        // the Builds tab: its checkbox agrees, and a row still steps the slide and selects its point
+        press('i'); await settle(); await settle();
+        document.querySelector(`${P} .ins-tab[data-tab="builds"]`)?.click(); await settle();
+        r.checkboxAgrees = !!box() && box().checked === false;
+        [...document.querySelectorAll(`${P} .bl-row`)][2]?.querySelector('.bl-go')?.click(); await settle(); await settle();
+        r.rowStepsToItsClick = deck.state.step === 3 && full(three) && deck._selection()?.node === three;
+        deck.goto(3, 1); await settle();
+        box().click(); await settle();
+        r.checkboxShowsThem = deckEl.classList.contains('dl-show-waiting') && dimmed(two) && !chipShown() && localStorage.getItem(KEY) === null;
+        // the palette row, by one of its words, hides them again; the tab follows
+        press('Escape'); await settle();
+        r.paletteRowNamed = (() => { press('/'); for (const ch of 'ghost') press(ch); const ok = palNames().some((n) => n.startsWith('Hide steps still to come')); press('Escape'); press('Escape'); return ok; })();
+        runRow('upcoming'); await settle();
+        r.paletteHides = !deckEl.classList.contains('dl-show-waiting') && gone(two) && chipShown();
+        // the chip shows them again
+        chip().click(); await settle();
+        r.chipShowsThem = deckEl.classList.contains('dl-show-waiting') && dimmed(two) && !chipShown();
+        // presenting is unchanged: fullscreen hides the bar and the chip, and what waits is hidden whatever the choice
+        press('d'); await settle();
+        Object.defineProperty(document, 'fullscreenElement', { get: () => deckEl, configurable: true });
+        document.dispatchEvent(new Event('fullscreenchange')); await settle();
+        r.presentingUnchanged = !document.querySelector('.decklight-editbar') && gone(two);
+        press('d'); await settle();
+        r.dOffTheBarDoesNothing = !deckEl.classList.contains('dl-show-waiting') && localStorage.getItem(KEY) === '0';
+        Object.defineProperty(document, 'fullscreenElement', { get: () => null, configurable: true });
+        document.dispatchEvent(new Event('fullscreenchange')); await settle();
+        r.backHiddenAfterFullscreen = !deckEl.classList.contains('dl-show-waiting') && chipShown();
+        localStorage.removeItem(KEY);
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
