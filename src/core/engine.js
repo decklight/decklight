@@ -2844,6 +2844,7 @@ export function init(userConfig = {}) {
       <tr><td>A</td><td>ask an AI agent to edit the deck</td></tr>
       <tr><td>K</td><td>commit (${COMMIT_CHORD} while typing)</td></tr>
       <tr><td>H</td><td>history: every version, ${enter} restores one</td></tr>
+      <tr><td>D</td><td>show / hide the steps still to come, to step a slide as the audience sees it</td></tr>
       <tr><td>${IS_MAC ? '⌘C · ⌘X · ⌘V' : 'Ctrl+C · Ctrl+X · Ctrl+V'}</td><td>copy · cut · paste the selected element, here or in another deck</td></tr>
       <tr><td>${IS_MAC ? '⌥⌘C / ⌥⌘V' : 'Ctrl+Alt+C / V'}</td><td>copy / paste a shape's style</td></tr>
       <tr class="help-ctx"><td>${enter} · ⌫ · ${IS_MAC ? '⌘D' : 'Ctrl+D'} · Esc</td><td>on a selected element: edit · remove · duplicate · let go</td></tr>

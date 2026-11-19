@@ -166,11 +166,12 @@ test('no bare letter in the deck\'s key switch writes the file', () => {
 });
 
 test('one key per action: the aliases and the palette-only toggles stay unbound', () => {
-  // R was history's second key, P was ⎵'s, J toggled the progress bar and D
-  // the debug log. Each is a palette row now; a letter that comes back has to
-  // mean it, and has to come off this list.
+  // R was history's second key, P was ⎵'s and J toggled the progress bar.
+  // Each is a palette row now; a letter that comes back has to mean it, and
+  // has to come off this list. D (once the debug log) came back meaning the
+  // steps still to come, shown or hidden in write mode (PRESENTING_EDITING).
   const bound = boundKeys();
-  for (const k of ['r', 'p', 'j', 'd', 'l', 'z']) {
+  for (const k of ['r', 'p', 'j', 'l', 'z']) {
     assert.ok(!bound.has(k) && !bound.has(k.toUpperCase()), `${k.toUpperCase()} is bound again`);
   }
 });
