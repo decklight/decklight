@@ -169,6 +169,14 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
           ({ code, reason } = await runTool('voiceover', await voiceoverArgv(req),
             voiceoverProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'voice', n, of })), stop.signal));
         }
+        // The drawn character mouths from a sidecar per clip, and the render
+        // stops on the first one missing. Asked for by the card, they are
+        // made here first (hash-incremental: only what is missing or changed),
+        // so the export does what it showed rather than failing minutes in.
+        if (!code && !stop.signal.aborted && req.character === 'viseme' && (req.synthesize?.dir ?? req.narration)) {
+          broadcast('export', { state: 'slide', kind, phase: 'lips', n: 0, of: 0 });
+          ({ code, reason } = await runTool('lipsync', [resolve(dirname(deckPath), req.synthesize?.dir ?? req.narration), '--visemes'], () => {}, stop.signal));
+        }
         if (!code && !stop.signal.aborted) {
           const narration = req.synthesize?.dir ?? req.narration ?? null;
           ({ code, reason } = await runTool('video', [deckPath, '-o', out, ...themed,

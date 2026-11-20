@@ -53,7 +53,7 @@ import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { finishAuthorAnimations, markInvisible } from './print-visibility.js';
 import { createPlaylist } from './playlist.js';
-import { createRangePicker } from './ranges.js';
+import { createRangePicker, rangeLabel } from './ranges.js';
 import { createChoiceCard } from './choice.js';
 import { createOpenInEditor } from './open-in-editor.js';
 import { createConceptTools } from './concept-tools.js';
@@ -3563,7 +3563,7 @@ export function init(userConfig = {}) {
     })(),
     rangePicker, chapters: () => moduleNav.markers(),
     // the panel's Export video… row, where there is a server to render one
-    exportVideo: () => (editmode?.available() ? openVideoExport : null),
+    exportVideo: () => (editmode?.available() ? () => openVideoExport() : null),
     syncSoundBtn, updateDebugState, downloadFromUrl,
     // the synthesized recorder writes its slide-NN.wav next to the deck when there is a server that
     // owns the deck file; a thunk because editmode is built below this, and its
@@ -3784,24 +3784,32 @@ export function init(userConfig = {}) {
   function videoPrefs() {
     return readJson(VIDEO_PREFS, {});
   }
-  async function openVideoExport() {
+  // `was` is the card as it was left for the narration panel ({ slides,
+  // values }): coming back opens it on the same range and the same answers.
+  async function openVideoExport(was = {}) {
     const who = await narration.exportNarrator();
-    const prefs = videoPrefs();
+    const prefs = { ...videoPrefs(), ...(was.values ?? {}) };
     const at = (list, value, fallback) => Math.max(0, list.findIndex((o) => o.value === (value ?? fallback)));
     const NARRATOR = 'Narrator';
-    const toPanel = () => openNarrPicker('tracks');
+    // Change… is a round trip: the panel knows where it was opened from, and
+    // answering it (or Esc) comes back here with the range still chosen
+    const toPanel = (state) => openNarrPicker('tracks', {
+      back: { said: `Back to the export · ${rangeLabel(state.slides)}`, run: () => openVideoExport(state) },
+    });
     rangePicker.open({
       title: 'export a video',
       action: 'Export video',
       total: instance.state.totalSlides, slide: instance.state.slide, chapters: moduleNav.markers(),
+      current: was.slides ?? null,
       settings: [
-        { section: NARRATOR, key: 'narrator', name: 'Narrator', value: who.said, go: 'Change…', run: toPanel, notes: who.notes },
-        // slides with notes and no recording: held in silence, said before the render and not found after it
-        who.missing && { section: NARRATOR, key: 'missing', name: 'Missing', value: who.missing, warn: true,
-          go: who.fix?.go ?? 'Change…', run: who.fix?.run ?? toPanel },
-        !who.silent && { section: NARRATOR, key: 'preview', name: 'Preview', value: `slide ${instance.state.slide}, as the video will have it`,
+        { section: NARRATOR, key: 'narrator', name: 'Narrator', value: who.said, go: who.go, run: toPanel, notes: who.notes },
+        // slides with notes and no recording, in the range chosen: held in
+        // silence, said before the render and not found after it
+        who.missing && { section: NARRATOR, key: 'missing', name: 'Missing', value: who.missing,
+          go: who.fix?.go ?? 'Change…', run: who.fix ? () => who.fix.run() : toPanel },
+        !who.silent && { section: NARRATOR, key: 'preview', name: 'Preview', value: who.preview,
           go: '▶ Play', run: () => narration.previewSlide() },
-        !who.silent && { section: NARRATOR, key: 'sound', name: 'Sound', options: VIDEO_SOUND, index: 0 },
+        !who.silent && { section: NARRATOR, key: 'sound', name: 'Sound', options: VIDEO_SOUND, index: at(VIDEO_SOUND, was.values?.sound, 'on') },
         { key: 'format', name: 'Format', options: VIDEO_FORMATS, index: at(VIDEO_FORMATS, prefs.format, 'mp4') },
         { key: 'quality', name: 'Quality', options: VIDEO_QUALITIES, index: at(VIDEO_QUALITIES, prefs.quality, 'standard') },
         { key: 'subtitles', name: 'Subtitles', options: VIDEO_SUBTITLES, index: at(VIDEO_SUBTITLES, prefs.subtitles, 'none') },

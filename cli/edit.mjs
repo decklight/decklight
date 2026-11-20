@@ -5380,6 +5380,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
           mine,
           drift,
           faces,
+          // the clips with no viseme sidecar beside them: what the drawn
+          // character needs made before a video can have it (the export card says so)
+          nolips: wav.filter((e) => !entries.some((x) => x.name === e.name.replace(/\.[^.]+$/, '.visemes.json'))).length,
           ...(realign?.moves.length ? { realign: { moves: realign.moves, said: realign.said } } : {}),
           // what `decklight video` can render from: a manifest, or a
           // whole-slide file to read off the disk, which is what your own

@@ -89,7 +89,10 @@ export function rangeChoices({ slide, total, chapters = [] }) {
  * A setting with a `run` and no options is a LINK: something the card shows
  * and does not decide (the video export's narrator, chosen in the narration
  * panel), with the name of where it is changed at its right (`go`). Enter or a
- * click closes the card and runs it. A setting or a link may name its
+ * click closes the card and runs it with the card's state (`{ slides, values }`:
+ * the range chosen and each setting's value), so whoever it leaves for can come
+ * back to the same card. Its `value` may be a function of the range chosen,
+ * said again whenever the range changes. A setting or a link may name its
  * `section`; the card puts a header where the section changes ('Options'
  * where none is named).
  *
@@ -136,6 +139,15 @@ export function createRangePicker({ root, overlays }) {
     return rangeArg(r, want.total);
   }
 
+  /** The range an action card has chosen, as `--slides` spells it: null for every slide, or for a typed one that is not a range yet. */
+  function scopeNow() {
+    const row = rows[chosen];
+    if (!row) return null;
+    if (!row.custom) return row.slides ?? null;
+    const typed = parseRange(input.value, want.total);
+    return typed ? rangeArg(typed, want.total) : null;
+  }
+
   /** An action card's scope: marked on its row, and named on the button. */
   function choose(i) {
     chosen = i;
@@ -148,6 +160,13 @@ export function createRangePicker({ root, overlays }) {
     const typed = row.custom && parseRange(input.value, want.total);
     const what = row.custom ? (typed ? rangeLabel(rangeArg(typed, want.total)) : 'slides…') : rangeLabel(row.slides);
     go.querySelector('.range-go-label').textContent = `${want.action} · ${what}`;
+    // a link whose words depend on the range says them again
+    rows.forEach((r, j) => {
+      if (typeof r.link?.value !== 'function') return;
+      const said = r.link.value(scopeNow());
+      rowEls[j].querySelector('.range-setting-value').textContent = said.text;
+      rowEls[j].classList.toggle('range-link-warn', !!said.warn);
+    });
   }
 
   function finish(slides) {
@@ -163,8 +182,14 @@ export function createRangePicker({ root, overlays }) {
     // Enter on a setting turns it, like →: it is an answer to change, not a
     // way to start the export before the slides were even looked at.
     if (row.setting) { turn(i, 1); return; }
-    // a link leaves the card for where its answer is made
-    if (row.link) { const { run } = row.link; close(); run(); return; }
+    // a link leaves the card for where its answer is made, with what the card held
+    if (row.link) {
+      const { run } = row.link;
+      const state = { slides: scopeNow(), values: Object.fromEntries(settings.map((s) => [s.key, s.options[s.index].value])) };
+      close();
+      run(state);
+      return;
+    }
     if (row.go) {
       const scope = rows[chosen];
       if (!scope.custom) { finish(scope.slides); return; }
@@ -250,7 +275,7 @@ export function createRangePicker({ root, overlays }) {
         name.textContent = row.link.name;
         const value = document.createElement('span');
         value.className = 'narr-row-label range-setting-value';
-        value.textContent = row.link.value;
+        value.textContent = typeof row.link.value === 'function' ? '' : row.link.value;
         const goes = document.createElement('span');
         goes.className = 'range-link-go';
         goes.textContent = `${row.link.go} ›`;

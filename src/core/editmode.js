@@ -941,7 +941,8 @@ export function createEditMode({
               if (d.state === 'start') exportBusy = { kind: d.kind, what: d.what };
               else if (d.state === 'done') exportBusy = null;
               if (d.state === 'slide' && exportRun) {
-                exportRun.run.update(`${exportRun.doing} — ${d.phase === 'voice' ? 'voicing ' : ''}slide ${d.n} of ${d.of}…`);
+                exportRun.run.update(d.phase === 'lips' ? `${exportRun.doing} — making the character's lip-sync…`
+                  : `${exportRun.doing} — ${d.phase === 'voice' ? 'voicing ' : ''}slide ${d.n} of ${d.of}…`);
               }
               debugLog('export', `${d.kind} ${d.state}${d.n ? ` ${d.n}/${d.of}` : ''}`);
             } catch { /* malformed event */ }

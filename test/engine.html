@@ -2962,15 +2962,12 @@
         // the narration panel (the range card borrows its class)
         const PANEL = '.decklight-narr:not(.decklight-range)';
         const panelRow = (re) => [...document.querySelectorAll(`${PANEL} .narr-row`)].find((n) => re.test(n.textContent));
-        // V, a voice, V again, then the panel's own way on to the export
+        // Change… on the card, a voice in the panel: a round trip, back on the card
         const speakWith = async (re) => {
-          if (!document.querySelector(PANEL)) press('v');
+          link('narrator').click();
           await settle();
           panelRow(re).click();
           await settle();
-          press('v');
-          await settle();
-          panelRow(/^Export video…/).click();
           await settle();
           await settle();
         };
@@ -2990,30 +2987,54 @@
         // it says the deck has voices and where one is chosen.
         const sections = () => [...card().querySelectorAll('.rec-sect')].map((n) => n.textContent);
         r.sectionsAreSlidesNarratorOptions = sections().join() === 'Slides,Narrator,Options';
-        r.narratorIsNobody = /^Narrator\s*Nobody · slides only\s*Change… ›$/.test(link('narrator')?.textContent ?? '');
-        r.saysTheDeckHasVoices = notes().some((t) => /the deck is silent now · it has 3 saved voices · Change… picks who speaks/.test(t));
+        // nobody chosen is not nothing to choose: the card names what the deck has, and the way to pick
+        r.narratorIsNobody = /^Narrator\s*No narration selected\s*Choose a voice… ›$/.test(link('narrator')?.textContent ?? '');
+        r.saysTheDeckHasVoices = notes().some((t) => /3 saved voices in this deck · the video is silent until one is chosen/.test(t));
         r.noVoiceOrFaceToTurn = !settingRow('Voice') && !settingRow('Face') && !settingRow('Sound') && !link('preview');
         r.ownTakeNotOffered = !/voices\/beatsonly/.test(card()?.textContent ?? '');
         r.defaultsAreMp4Standard = /MP4/.test(settingRow('Format')) && /Standard/.test(settingRow('Quality'))
           && /None/.test(settingRow('Subtitles'));
-        // Change… leaves the card for the panel, where the answer is made
+        // Change… is a ROUND TRIP. Slides 2–3 and MOV are chosen first; the
+        // card leaves for the panel, which says where it came from; and Esc,
+        // or an answer, comes back to the same card with both still chosen.
+        for (const ch of '2-3') press(ch);
+        document.querySelector('.decklight-range input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle();
+        press('ArrowUp');              // Subtitles
+        press('ArrowUp');              // Quality
+        press('ArrowUp');              // Format
+        press('ArrowRight');           // → MOV
         link('narrator').click();
         await settle();
         r.changeOpensThePanel = !card() && !!document.querySelector(PANEL)
           && !CALLS.post.some((c) => c.u.includes('/deck/edit/export'));
-        // your own voice: two of the three slides with notes are recorded,
-        // and the card says which one the video would hold in silence
+        r.panelSaysTheWayBack = !!panelRow(/^‹ Back to the export · slides 2–3/) && !panelRow(/^Export video…/);
+        press('Escape');
+        await settle();
+        await settle();
+        r.escComesBack = !document.querySelector(PANEL) && /Export video · slides 2–3/.test(go()?.textContent ?? '')
+          && /MOV/.test(settingRow('Format')) && document.querySelector('.decklight-range input')?.value === '2-3';
+        // your own voice, chosen on the way: back on the card, named as the
+        // panel names it. Two of the three slides with notes are recorded, and
+        // the card says which one the video would hold in silence, FOR THE
+        // RANGE CHOSEN: slide 3 is in 2–3, and not in slide 1 alone.
         await speakWith(/^My voice/);
-        r.followsMyVoice = /^Narrator\s*My voice · your voice · slides only/.test(link('narrator')?.textContent ?? '');
+        r.followsMyVoice = /^Narrator\s*My voice · slides only\s*Change… ›$/.test(link('narrator')?.textContent ?? '')
+          && /Export video · slides 2–3/.test(go()?.textContent ?? '') && /MOV/.test(settingRow('Format'));
         r.saysTheGap = /^Missing\s*slide 3 has notes and no recording · silent in the video\s*(Record them|Change)… ›$/.test(link('missing')?.textContent ?? '')
           && link('missing').classList.contains('range-link-warn');
+        const box0 = document.querySelector('.decklight-range input');
+        box0.value = '1';
+        box0.dispatchEvent(new Event('input', { bubbles: true }));
+        r.gapFollowsTheRange = /^Missing\s*none in these slides/.test(link('missing')?.textContent ?? '')
+          && !link('missing').classList.contains('range-link-warn');
+        [...document.querySelectorAll('.decklight-range .narr-row')].find((n) => /^All slides/.test(n.textContent))?.click();
+        await settle();
         r.soundAndPreview = /With the narration/.test(settingRow('Sound')) && /slide \d+, as the video will have it/.test(link('preview')?.textContent ?? '');
-        press('Escape');
         // a machine-voiced track from older notes is regenerated on those slides first (#553), and says so
         await speakWith(/^Daniel/);
         r.staleTrackMarked = /^Narrator\s*Daniel · AI voice · slides only/.test(link('narrator')?.textContent ?? '')
           && notes().some((t) => /2 slides from older notes are regenerated first, in the same voice/.test(t)) && !link('missing');
-        press('Escape');
         // the AI voice that needs a connection is saved with the deck first,
         // in a folder of its own rather than the say one, and the card says
         // what that sends before anything is spent. With a cartoon character
@@ -3022,6 +3043,15 @@
         await speakWith(/^en_US-ryan-high/);
         r.followsTheAiVoice = /^Narrator\s*en_US-ryan-high · AI voice · with a cartoon character/.test(link('narrator')?.textContent ?? '')
           && notes().some((t) => /en_US-ryan-high is saved with the deck first, in voices\/en-us-ryan-high\/ · up to [\d,]+ characters on Piper/.test(t));
+        // …and what the character needs is made, and said, rather than found missing mid-render
+        r.saysTheLipSync = notes().some((t) => /the character's lip-sync is made with the voice, before the video/.test(t));
+        press('ArrowUp');              // back to MP4 and no subtitles, for the walk below
+        press('ArrowUp');
+        press('ArrowUp');
+        press('ArrowRight');
+        press('ArrowRight');
+        [...document.querySelectorAll('.decklight-range .narr-row')].find((n) => /^All slides/.test(n.textContent))?.click();
+        await settle();
         // The settings sit between the ranges and the button: ↑ reaches them
         // from the button, and ← → turn the one under the selection.
         press('ArrowRight');           // on the button, ← → change nothing
