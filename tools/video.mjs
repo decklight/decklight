@@ -236,7 +236,8 @@ export function voiceoverArgs(deck, { narration, slides } = {}) {
 export function extractFaces(html) {
   return sectionBodies(html).map((sec) => {
     const tag = sec.slice(0, sec.indexOf('>'));
-    return tag.match(/\sdata-face="([^"]*)"/)?.[1] ?? null;
+    const match = /\sdata-face\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+    return match?.[1] ?? match?.[2] ?? null;
   });
 }
 
@@ -252,9 +253,13 @@ export function faceFor(p, { narration, faces, exists = existsSync }) {
   if (!p.audio || !narration?.slides?.[p.slide - 1]?.face) return null;
   const clip = join(narration.dir, p.audio.replace(/\.[^.]+$/, '.mp4'));
   if (!exists(clip)) return null;
-  const beat = Number(/^slide-\d+-(\d+)\./.exec(basename(p.audio))?.[1] ?? 1);
-  const at = faceLayout(faces?.[p.slide - 1], beat);
+  const at = exportFaceLayout(p, faces);
   return at.kind === 'hide' ? null : { clip, ...at };
+}
+
+export function exportFaceLayout(p, faces) {
+  const beat = Number(/^slide-\d+-(\d+)\./.exec(basename(p.audio ?? ''))?.[1] ?? 1);
+  return faceLayout(faces?.[p.slide - 1], beat);
 }
 
 /** Per-slide hold seconds: data-video-hold="8" on the section, else the default. */
@@ -313,11 +318,6 @@ export function extractPauses(html) {
     const m = tag.match(/data-narration-pause="([\d.]+)"/);
     return m ? Number(m[1]) : SLIDE_PAUSE_DEFAULT;
   });
-}
-
-/** data-face="hide" follows the same per-slide rule as the live narrator. */
-export function extractFaceVisibility(html) {
-  return sectionBodies(html).map((sec) => !/\bdata-face\s*=\s*["']hide["']/i.test(sec.slice(0, sec.indexOf('>'))));
 }
 
 /** Read and validate one recorded viseme sidecar. */
@@ -869,7 +869,7 @@ const STEP_PROBE = `<script>
     pre.textContent = 'DECKLIGHT-BUILD-STEPS ' + JSON.stringify(out) + '\\nDECKLIGHT-MOTION ' + JSON.stringify(moves);
     document.body.appendChild(pre);
     var ch = document.createElement('pre');
-    ch.textContent = 'DECKLIGHT-CHARACTER ' + JSON.stringify(d.config && d.config.narration && d.config.narration.character || {});
+    ch.textContent = 'DECKLIGHT-CHARACTER ' + JSON.stringify({ mode: d?.config?.narration?.character?.mode });
     document.body.appendChild(ch);
   }
   if (document.readyState === 'complete') setTimeout(report, 30);
@@ -937,8 +937,10 @@ export function motionPlan(plan, kinds, fps) {
     const prev = plan[i - 1];
     const same = prev?.slide === p.slide;
     offset = same ? offset + prev.duration : 0;
-    const from = same ? prev.step : null;
-    return { count: motionFrames(kinds?.[p.slide - 1] ?? 0, { duration: p.duration, fps, entered: same }), from, offset: round(offset) };
+    const entered = same && prev.step !== p.step;
+    const from = entered ? prev.step : null;
+    const kind = p.character ? 2 : (kinds?.[p.slide - 1] ?? 0);
+    return { count: motionFrames(kind, { duration: p.duration, fps, entered }), from, offset: round(offset) };
   });
 }
 
@@ -989,12 +991,13 @@ export function parseCharacterConfig(dom) {
 
 const CHARACTER_CAPTURE = `<script>
 (function () {
-  var pose = new URLSearchParams(location.search).get('character');
-  var at = Number(new URLSearchParams(location.search).get('characterTime')) || 0;
+  var params = new URLSearchParams(location.search);
+  var pose = params.get('character');
+  var at = Number(params.get('characterTime')) || 0;
   if (!pose) return;
   function apply() {
     var d = document.querySelector('.decklight') && document.querySelector('.decklight').__decklight;
-    if (d && d.character && d.character.capture(pose)) {
+    if (d && d.character && d.character.capture(pose, JSON.parse(params.get('characterPlacement')) || undefined)) {
       var el = document.querySelector('.decklight-character');
       // Separate Chrome loads would otherwise freeze every blink and idle
       // sway at the same phase. Seek CSS/Web animations to the audio time.
@@ -1077,7 +1080,6 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
     const html = readFileSync(deck, 'utf8');
     const holds = extractHolds(html, hold);
     const pauses = extractPauses(html);
-    const faceVisible = extractFaceVisibility(html);
     if (!holds.length) throw new Error(`${basename(deck)} has no <section> slides`);
     const range = parseSlideRange(opt('--slides'), holds.length);
 
@@ -1194,15 +1196,20 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       plan = planTimeline(narration?.slides ?? null, durations, holds, range,
         { steps, buildHold, pauses, marks: pauseMarks(html, steps), onWarn: (w) => console.warn(`  ${w}`) });
       const basePlan = plan;
+      const faces = argv.includes('--no-face') ? null : extractFaces(html);
       const characterOn = characterConfig.mode === 'viseme' && !argv.includes('--no-face');
       if (characterOn && narration) {
         const expanded = [];
         for (const p of plan) {
-          if (!p.audio || !faceVisible[p.slide - 1]) { expanded.push(p); continue; }
+          const placement = exportFaceLayout(p, faces);
+          if (!p.audio || placement.kind === 'hide' || faceFor(p, { narration, faces })) {
+            expanded.push(p);
+            continue;
+          }
           const sidecar = join(narration.dir, p.audio.replace(/\.[^.]+$/, '.visemes.json'));
           const tl = readVisemes(sidecar);
           if (!tl) throw new Error(`animated character needs ${basename(sidecar)} — run decklight narrate ${basename(deck)} --face`);
-          expanded.push(...characterFrames(p, tl));
+          expanded.push(...characterFrames({ ...p, placement }, tl));
         }
         plan = expanded;
       }
@@ -1213,7 +1220,6 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
         + (narration ? ` (${narration.dir})` : ' (silent)'));
 
       // your face, where you filmed it, unless --no-face
-      const faces = argv.includes('--no-face') ? null : extractFaces(html);
       const filmed = faces ? plan.filter((p) => faceFor(p, { narration, faces })).length : 0;
       if (filmed) log(`  your face: on ${filmed} frame${filmed === 1 ? '' : 's'} (--no-face leaves it out)`);
       const segments = [];
@@ -1225,6 +1231,15 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
           const nn = String(p.slide).padStart(2, '0');
           const id = `${nn}-${String(f).padStart(3, '0')}`;
           const m = motion[f];
+          let url = `${server.origin}${deckPath}${renderQuery}`;
+          if (p.character) {
+            const query = new URLSearchParams({
+              character: p.character,
+              characterTime: String(m.offset),
+              characterPlacement: JSON.stringify(p.placement),
+            });
+            url += `&${query}`;
+          }
           let frame = null; let frames = null;
           // A page that will not open (Node < 22 has no WebSocket) is not an
           // error: the slide is a still, as every slide was before #914.
@@ -1239,7 +1254,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
             const dir = join(work, `frames-${id}`);
             mkdirSync(dir);
             await captureMotion(page, {
-              url: `${server.origin}${deckPath}${renderQuery}${p.character ? `&character=${encodeURIComponent(p.character)}&characterTime=${p.audioOffset ?? 0}` : ''}`, slide: p.slide, from: m.from, to: p.step,
+              url, slide: p.slide, from: m.from, to: p.step,
               offset: m.offset, count: m.count, fps,
               frameAt: (i, png) => writeFileSync(join(dir, `${String(i).padStart(5, '0')}.png`), png),
             });
@@ -1255,7 +1270,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
               `--window-size=${w},${h}`,
               '--virtual-time-budget=1500',
               `--screenshot=${frame}`,
-              `${server.origin}${deckPath}${renderQuery}${p.character ? `&character=${encodeURIComponent(p.character)}&characterTime=${p.audioOffset ?? 0}` : ''}#/${p.slide}/${p.step}`,
+              `${url}#/${p.slide}/${p.step}`,
             ));
             if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
           }

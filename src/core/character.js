@@ -594,11 +594,12 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // in real time. Give that renderer the same mounted art and CSS surface as
   // live playback, but let it choose the mouth for the frame explicitly.
   // No clock or audio element is involved, so a frame can never race a timer.
-  function capture(v = 'X') {
+  function capture(v = 'X', placement = FACE_CORNER) {
     if (mode !== 'viseme') return false;
     mount();
     el.classList.add('show');
     setViseme(v);
+    setFace(placement);
     applySolo();
     return true;
   }
