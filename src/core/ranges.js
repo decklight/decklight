@@ -86,6 +86,13 @@ export function rangeChoices({ slide, total, chapters = [] }) {
  * slides is a card in the way. `onPick(slides, values)` gets each setting's
  * value by its key.
  *
+ * A setting with a `run` and no options is a LINK: something the card shows
+ * and does not decide (the video export's narrator, chosen in the narration
+ * panel), with the name of where it is changed at its right (`go`). Enter or a
+ * click closes the card and runs it. A setting or a link may name its
+ * `section`; the card puts a header where the section changes ('Options'
+ * where none is named).
+ *
  * Register it BEFORE the narration panel: overlays that overlap give the
  * keyboard to the one registered first, and this one opens on top.
  */
@@ -133,7 +140,7 @@ export function createRangePicker({ root, overlays }) {
   function choose(i) {
     chosen = i;
     rows.forEach((row, j) => {
-      if (row.setting || row.go) return;
+      if (row.setting || row.go || row.link) return;
       rowEls[j].classList.toggle('narr-cur', j === i);
       rowEls[j].setAttribute('aria-checked', String(j === i));
     });
@@ -156,6 +163,8 @@ export function createRangePicker({ root, overlays }) {
     // Enter on a setting turns it, like →: it is an answer to change, not a
     // way to start the export before the slides were even looked at.
     if (row.setting) { turn(i, 1); return; }
+    // a link leaves the card for where its answer is made
+    if (row.link) { const { run } = row.link; close(); run(); return; }
     if (row.go) {
       const scope = rows[chosen];
       if (!scope.custom) { finish(scope.slides); return; }
@@ -175,9 +184,12 @@ export function createRangePicker({ root, overlays }) {
   function open({ title, lines = [], total, slide, chapters = [], current = null, settings: asked = [], action = null, onPick }) {
     if (el) close();
     want = { total, onPick, action };
-    settings = asked.filter((s) => s?.options?.length)
-      .map((s) => ({ ...s, index: Math.min(Math.max(0, s.index ?? 0), s.options.length - 1) }));
-    const settingRows = settings.map((setting) => ({ setting }));
+    // in the order asked: a setting to turn, or a link to follow
+    const settingRows = asked.filter((s) => s?.options?.length || typeof s?.run === 'function')
+      .map((s) => (s.options?.length
+        ? { setting: { ...s, index: Math.min(Math.max(0, s.index ?? 0), s.options.length - 1) } }
+        : { link: s }));
+    settings = settingRows.filter((r) => r.setting).map((r) => r.setting);
     const rangeRows = [...rangeChoices({ slide, total, chapters }), { label: 'Slides…', custom: true }];
     rows = action ? [...rangeRows, ...settingRows, { go: true }] : [...settingRows, ...rangeRows];
     el = document.createElement('div');
@@ -203,12 +215,13 @@ export function createRangePicker({ root, overlays }) {
       h.textContent = text;
       card.append(h);
     };
-    const isRange = (c) => !c.custom && !c.setting && !c.go;
+    const isRange = (c) => !c.custom && !c.setting && !c.go && !c.link;
+    const sectionOf = (c) => (c?.setting || c?.link ? (c.setting ?? c.link).section ?? 'Options' : null);
     const known = rows.some((c) => isRange(c) && c.slides === current);
     const lastSetting = rows.findLastIndex((c) => c.setting);
     rowEls = rows.map((row, i) => {
       if (action && i === 0) section('Slides');
-      if (action && row.setting && !rows[i - 1]?.setting) section('Options');
+      if (action && sectionOf(row) && sectionOf(row) !== sectionOf(rows[i - 1])) section(sectionOf(row));
       const r = document.createElement(row.go ? 'button' : 'div');
       if (row.go) {
         r.type = 'button';
@@ -226,6 +239,32 @@ export function createRangePicker({ root, overlays }) {
         note = document.createElement('div');
         note.className = 'rec-line rec-warn';
         card.append(note, foot);
+        return r;
+      }
+      if (row.link) {
+        // NARRATOR  My voice · with my camera ………… Change… ›
+        r.className = 'narr-row range-setting range-link' + (row.link.warn ? ' range-link-warn' : '');
+        if (row.link.key) r.dataset.link = row.link.key;
+        const name = document.createElement('span');
+        name.className = 'range-setting-name';
+        name.textContent = row.link.name;
+        const value = document.createElement('span');
+        value.className = 'narr-row-label range-setting-value';
+        value.textContent = row.link.value;
+        const goes = document.createElement('span');
+        goes.className = 'range-link-go';
+        goes.textContent = `${row.link.go} ›`;
+        r.append(name, value, goes);
+        r.addEventListener('mouseenter', () => { if (document.activeElement !== input) select(i, { focusBox: false }); });
+        r.addEventListener('click', () => { select(i, { focusBox: false }); pick(i); });
+        card.append(r);
+        // what the card must say about it before anything runs, under it
+        for (const n of row.link.notes ?? []) {
+          const line = document.createElement('div');
+          line.className = 'rec-line range-link-note' + (n.warn ? ' rec-warn' : '');
+          line.textContent = n.text;
+          card.append(line);
+        }
         return r;
       }
       if (row.setting) {

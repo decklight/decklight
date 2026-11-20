@@ -2432,6 +2432,9 @@
 /* the export card's settings: answers, not ranges */
 .decklight-range .range-setting { gap: 12px; }
 .decklight-range .range-setting-name { flex: 0 0 5.2em; opacity: .55; font-size: .85em; }
+.decklight-range .range-link .range-setting-value { flex: 1 1 auto; min-width: 0; }
+.decklight-range .range-link-go { flex: 0 0 auto; margin-left: auto; font-size: .85em; opacity: .7; white-space: nowrap; }
+.decklight-range .range-link-warn .range-setting-value { color: #ffcf8b; }
 .decklight-range .range-setting-last { margin-bottom: 6px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, .12); border-radius: 8px 8px 0 0; }
 /* an export card (an action): Slides, Options, and a button that runs it */
 .decklight-range .rec-sect {
@@ -2753,7 +2756,7 @@
 .decklight-ds-templates .dsl-preview { flex: 0 0 320px; height: 180px; overflow: hidden; border-radius: 8px; position: relative; background: var(--bg, #111); }
 .decklight-ds-templates .dsl-preview-slide { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform: scale(.25); transform-origin: 0 0;
   box-sizing: border-box; padding: 60px 80px; display: flex; flex-direction: column; justify-content: center; color: var(--fg, #eee); background: var(--bg, #111); }
-/* film yourself (V → Character): the camera in the medallion's own shape */
+/* make my portrait (V → who is on screen): the camera in the medallion's own shape */
 .decklight-film .narr-card { width: min(420px, 90vw); }
 .decklight-film .film-circle {
   position: relative;
@@ -2881,6 +2884,8 @@
 .decklight-narr .narr-group-hint { margin-left: 8px; letter-spacing: 0; text-transform: none; font-size: 1.25em; opacity: .85; }
 .decklight-narr .narr-row.narr-voice { align-items: center; padding: 0 4px 0 0; gap: 4px; }
 .decklight-narr .narr-row.narr-voice.narr-cur::after { content: none; }
+/* an answer that cannot be chosen yet keeps its buttons on its own line */
+.decklight-narr .narr-row.narr-voice.narr-blocked { flex-wrap: nowrap; }
 .decklight-narr .narr-voice .narr-pick { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 12px; }
 .decklight-narr .narr-voice .narr-radio {
   flex: 0 0 auto; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%;
@@ -2945,7 +2950,7 @@
 .decklight-narr .narr-row.narr-subrow { padding-left: 28px; }
 .decklight-narr .narr-step-val { white-space: nowrap; }
 .decklight-narr .narr-subrow .narr-step-val { min-width: 84px; }
-/* Place my face: a sketch of the slide with the face where it would show */
+/* Where…: a sketch of the slide with whoever is on screen where they would show */
 .decklight-narr .narr-face-sketch {
   position: relative; height: 118px; margin: 4px 12px 10px; border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, .15); background: rgba(255, 255, 255, .04);
@@ -3336,7 +3341,7 @@
   white-space: nowrap;
 }
 /* the palette's shape (palette.js): every command at the root, its category
-   as a dimmer prefix (`Voice: Live voice…`), and a write-mode row tagged */
+   as a dimmer prefix (`Voice: AI voice…`), and a write-mode row tagged */
 .decklight-palette .pal-right { display: inline-flex; align-items: center; gap: 8px; }
 .decklight-palette .pal-cat { opacity: .55; }
 /* with nothing typed: group headings, and the rows' own prefix out of sight
@@ -3539,7 +3544,7 @@
   .decklight-narr-hint { transform: translateX(-50%); transition: opacity .25s; }
 }
 
-/* animated character (N → Character…) — lip-synced narration companion.
+/* animated character (V → who is on screen) — lip-synced narration companion.
    The controller sets data-viseme on the overlay each frame; one
    [data-mouth] group shows at a time. [data-eyelid]/[data-idle] are the
    default art's blink + sway — custom art gets them for free too. */

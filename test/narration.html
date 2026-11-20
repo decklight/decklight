@@ -706,7 +706,7 @@
           deck.narration.openPicker();
           await wait(120);
           r.rows = labels();
-          r.offRowFirst = /^Silent/.test(r.rows[0] ?? '');
+          r.offRowFirst = /^Nobody/.test(r.rows[0] ?? '');
           r.offRowIsCurrent = rowsNow()[0]?.classList.contains('narr-cur') === true;
 
           // 4 · picking the track hands ⎵ to the voice — the second half of
@@ -1173,14 +1173,15 @@
           // folder — never the deck's, and `bundle` reads no other. With an
           // edit server up, every file must go through it instead.
           //
-          // Opened the way a person now reaches it: V → ＋ Add a voice… →
-          // Generate an AI recording (the palette's Record this deck… route). It had its own shortcut (⇧V) and nobody
-          // found it; the keys were rationalised and the shortcut went.
+          // Opened the way a person now reaches it: V, then Save with the
+          // deck on the AI voice's own row. It had its own shortcut (⇧V) and
+          // nobody found it, then a row behind "Add a voice"; now it is the
+          // button that takes an AI voice from needing a connection to saved.
+          const saveWithTheDeck = () => [...document.querySelectorAll('.decklight-narr .narr-voice[data-how="live"] .narr-act')]
+            .find((n) => /Save with the deck/.test(n.textContent));
           await new Promise((ok) => setTimeout(ok, 400));   // /deck/ping answers
-          deck.narration.openPicker('record');
-          await new Promise((ok) => setTimeout(ok, 100));
-          [...document.querySelectorAll('.decklight-narr .narr-row')]
-            .find((n) => /Generate an AI recording/.test(n.textContent))?.click();
+          deck.narration.openPicker('tracks');
+          (await until(() => saveWithTheDeck(), 3000))?.click();
           await new Promise((ok) => setTimeout(ok, 100));
           r.dialogOpens = !!document.querySelector('.decklight-record');
           // the target lands asynchronously (the server is asked what exists),
@@ -1221,10 +1222,8 @@
             // take has to go through the same door a person uses.
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
             await new Promise((ok) => setTimeout(ok, 200));
-            deck.narration.openPicker('record');
-            await new Promise((ok) => setTimeout(ok, 100));
-            [...document.querySelectorAll('.decklight-narr .narr-row')]
-              .find((n) => /Generate an AI recording/.test(n.textContent))?.click();
+            deck.narration.openPicker('tracks');
+            (await until(() => saveWithTheDeck(), 3000))?.click();
             await until(() => document.querySelector('.decklight-record .rec-dir'), 3000);
             document.querySelector('.decklight-record .narr-card .narr-row')?.click();
             const card2 = document.querySelector('.decklight-record .narr-card');
@@ -1458,16 +1457,17 @@
         }
 
         if (mode === 'filmrow') {
-          // V → Character, with Wav2Lip ready and no portrait: the video row
-          // points at filming, and the Film row opens the camera card
+          // V → who is on screen, with Wav2Lip ready and no portrait: the
+          // talking head's row says a portrait is what is missing, and its
+          // Make my portrait… button opens the camera card
           navigator.mediaDevices && (navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('denied', 'NotAllowedError')));
-          deck.narration.openPicker('character');
+          deck.narration.openPicker('screen');
           await new Promise((ok) => setTimeout(ok, 600));
-          const rows = [...document.querySelectorAll('.decklight-narr .narr-row')];
-          const film = rows.find((el) => /Film yourself/.test(el.textContent));
-          const video = rows.find((el) => /Neural video/.test(el.textContent));
-          r.filmRowShown = !!film;
-          r.videoRowPointsAtFilming = /film yourself, below/.test(video?.textContent ?? '');
+          const video = document.querySelector('.decklight-narr .narr-row[data-screen="head"]');
+          const film = [...(video?.querySelectorAll('.narr-act') ?? [])].find((el) => /Make my portrait…/.test(el.textContent));
+          r.filmRowShown = !!film && /^A talking head of me/.test(video?.textContent ?? '');
+          r.videoRowPointsAtFilming = video?.classList.contains('narr-blocked') === true
+            && /no portrait yet · Make my portrait… makes one/.test(video?.textContent ?? '');
           film?.click();
           await new Promise((ok) => setTimeout(ok, 400));
           const card = document.querySelector('.decklight-film');

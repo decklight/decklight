@@ -239,7 +239,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   }
 
   // Where the filmed face shows (FACE_LAYOUT), for one slide or several at
-  // once: Place my face's "this slide" and "every filmed slide". The value is
+  // once: Where…'s "this slide", "every filmed slide" and "every slide". The value is
   // read back through the one reader the deck and the video share, so the
   // file never holds a placement that reader would not understand.
   function faceRoute({ body, json }) {

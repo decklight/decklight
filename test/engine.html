@@ -352,12 +352,13 @@
         // your own take (no manifest, rendered off the disk), and a piper bridge.
         if (HARNESS_MODE === 'exportvideo' && u.includes('/deck/edit/narration/tracks')) {
           return json({ ok: true, tracks: [
-            { dir: 'voices/me', files: 3, segments: false, ext: 'wav', engine: null, voice: null, manifest: false, renders: true },
+            // …of two of the deck's three slides with notes: the third is the gap the card names
+            { dir: 'voices/me', files: 3, segments: false, ext: 'wav', engine: null, voice: null, manifest: false, renders: true, mine: true, slides: [1, 2], faces: [] },
             // only beats, no whole-slide file: nothing a render can play
             { dir: 'voices/beatsonly', files: 2, segments: true, ext: 'wav', engine: null, voice: null, manifest: false, renders: false },
-            { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true, stale: 0 },
+            { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true, stale: 0, slides: [1, 2, 3] },
             // voiced from notes the deck no longer has on two slides (#536): offered, marked
-            { dir: 'voices/older', files: 4, segments: false, ext: 'm4a', engine: 'say', voice: 'Daniel', manifest: true, stale: 2 },
+            { dir: 'voices/older', files: 4, segments: false, ext: 'm4a', engine: 'say', voice: 'Daniel', manifest: true, stale: 2, slides: [1, 2, 3] },
           ] });
         }
         if (HARNESS_MODE === 'exportvideo' && u.endsWith('/ping')) {
@@ -2096,8 +2097,15 @@
         location.hash = '#/5/0';
       }
     }
+    // exportvideo: three slides with something to say, and the voices the deck can play them in
+    if (HARNESS_MODE === 'exportvideo') {
+      [...document.querySelectorAll('.decklight > section')].slice(0, 3)
+        .forEach((sec, i) => sec.insertAdjacentHTML('beforeend', `<aside class="notes"><p>What slide ${i + 1} says.</p></aside>`));
+    }
     // exportpptx has a recorded voice too: it is what offers bundling the audio
-    const deck = Decklight.init(HARNESS_MODE === 'narration' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportmodule'
+    const deck = Decklight.init(HARNESS_MODE === 'exportvideo'
+      ? { narration: { files: [{ label: 'My voice', dir: 'voices/me', ext: 'wav' }, { label: 'voiceover', dir: 'voiceover' }, { label: 'Daniel · say', dir: 'voices/older' }] } }
+      : HARNESS_MODE === 'narration' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportmodule'
       ? { narration: { files: [{ label: 'Test voice', dir: 'voices/t', ext: 'wav' }] } }
       // a cross-file playlist AND markers: the playlist wins, and the finder
       // must not grow a second set of rows for the same idea
@@ -2944,49 +2952,93 @@
         await settle();
         // a pick the render cannot see on its own — a fresh browser (#547)
         deck.theme('eclipse');
+        const card = () => document.querySelector('.decklight-range .narr-card');
+        const rows = () => [...document.querySelectorAll('.decklight-range .narr-row')].map((n) => n.textContent);
+        const go = () => document.querySelector('.decklight-range .range-go');
+        const settingRow = (name) => [...document.querySelectorAll('.decklight-range .range-setting')]
+          .find((n) => n.querySelector('.range-setting-name')?.textContent === name)?.textContent ?? '';
+        const link = (key) => document.querySelector(`.decklight-range .range-link[data-link="${key}"]`);
+        const notes = () => [...document.querySelectorAll('.decklight-range .range-link-note')].map((n) => n.textContent);
+        // the narration panel (the range card borrows its class)
+        const PANEL = '.decklight-narr:not(.decklight-range)';
+        const panelRow = (re) => [...document.querySelectorAll(`${PANEL} .narr-row`)].find((n) => re.test(n.textContent));
+        // V, a voice, V again, then the panel's own way on to the export
+        const speakWith = async (re) => {
+          if (!document.querySelector(PANEL)) press('v');
+          await settle();
+          panelRow(re).click();
+          await settle();
+          press('v');
+          await settle();
+          panelRow(/^Export video…/).click();
+          await settle();
+          await settle();
+        };
         press('/');
         for (const ch of 'mp4') press(ch);
         r.rowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Export a video/.test(n.textContent));
         press('Enter');
         await settle();
         await settle();                       // the card waits on the tracks and the bridge
-        const card = () => document.querySelector('.decklight-range .narr-card');
-        const rows = () => [...document.querySelectorAll('.decklight-range .narr-row')].map((n) => n.textContent);
-        const go = () => document.querySelector('.decklight-range .range-go');
         r.asksWhichSlides = !!card() && /Slides/.test(card().querySelector('.rec-sect')?.textContent ?? '');
         // the button is where the card opens: one Enter exports what is already right
         r.opensOnTheButton = !!go()?.classList.contains('narr-sel') && /Export video · all slides/.test(go().textContent);
         r.offersRanges = rows().some((t) => /All slides/.test(t)) && rows().some((t) => /This slide/.test(t));
-        // The voice row starts on what a render would have used anyway — the
-        // voiceover/ folder, offers your own take as My voice one step back,
-        // and ← → turn it to the live voice, which proposes a new folder
-        // rather than the say one.
-        // The settings sit between the ranges and the button: ↑ reaches them
-        // from the button, and ← → turn the one under the selection.
-        const settingRow = (name) => [...document.querySelectorAll('.decklight-range .range-setting')]
-          .find((n) => n.querySelector('.range-setting-name')?.textContent === name)?.textContent ?? '';
-        r.startsOnTheRecordedTrack = /Samantha · say — voiceover\//.test(settingRow('Voice'));
+        // The narrator is not asked here: the card shows who speaks and who
+        // is on screen IN THE DECK, and nobody has chosen yet. It never picks a
+        // voice nobody picked (it used to open on the voiceover/ folder), and
+        // it says the deck has voices and where one is chosen.
+        const sections = () => [...card().querySelectorAll('.rec-sect')].map((n) => n.textContent);
+        r.sectionsAreSlidesNarratorOptions = sections().join() === 'Slides,Narrator,Options';
+        r.narratorIsNobody = /^Narrator\s*Nobody · slides only\s*Change… ›$/.test(link('narrator')?.textContent ?? '');
+        r.saysTheDeckHasVoices = notes().some((t) => /the deck is silent now · it has 3 saved voices · Change… picks who speaks/.test(t));
+        r.noVoiceOrFaceToTurn = !settingRow('Voice') && !settingRow('Face') && !settingRow('Sound') && !link('preview');
         r.ownTakeNotOffered = !/voices\/beatsonly/.test(card()?.textContent ?? '');
         r.defaultsAreMp4Standard = /MP4/.test(settingRow('Format')) && /Standard/.test(settingRow('Quality'))
-          && /None/.test(settingRow('Subtitles')) && /Your face/.test(settingRow('Face'));
+          && /None/.test(settingRow('Subtitles'));
+        // Change… leaves the card for the panel, where the answer is made
+        link('narrator').click();
+        await settle();
+        r.changeOpensThePanel = !card() && !!document.querySelector(PANEL)
+          && !CALLS.post.some((c) => c.u.includes('/deck/edit/export'));
+        // your own voice: two of the three slides with notes are recorded,
+        // and the card says which one the video would hold in silence
+        await speakWith(/^My voice/);
+        r.followsMyVoice = /^Narrator\s*My voice · your voice · slides only/.test(link('narrator')?.textContent ?? '');
+        r.saysTheGap = /^Missing\s*slide 3 has notes and no recording · silent in the video\s*(Record them|Change)… ›$/.test(link('missing')?.textContent ?? '')
+          && link('missing').classList.contains('range-link-warn');
+        r.soundAndPreview = /With the narration/.test(settingRow('Sound')) && /slide \d+, as the video will have it/.test(link('preview')?.textContent ?? '');
+        press('Escape');
+        // a machine-voiced track from older notes is regenerated on those slides first (#553), and says so
+        await speakWith(/^Daniel/);
+        r.staleTrackMarked = /^Narrator\s*Daniel · AI voice · slides only/.test(link('narrator')?.textContent ?? '')
+          && notes().some((t) => /2 slides from older notes are regenerated first, in the same voice/.test(t)) && !link('missing');
+        press('Escape');
+        // the AI voice that needs a connection is saved with the deck first,
+        // in a folder of its own rather than the say one, and the card says
+        // what that sends before anything is spent. With a cartoon character
+        // on screen in the deck, the video has it too.
+        deck.character.setMode('viseme');
+        await speakWith(/^en_US-ryan-high/);
+        r.followsTheAiVoice = /^Narrator\s*en_US-ryan-high · AI voice · with a cartoon character/.test(link('narrator')?.textContent ?? '')
+          && notes().some((t) => /en_US-ryan-high is saved with the deck first, in voices\/en-us-ryan-high\/ · up to [\d,]+ characters on Piper/.test(t));
+        // The settings sit between the ranges and the button: ↑ reaches them
+        // from the button, and ← → turn the one under the selection.
         press('ArrowRight');           // on the button, ← → change nothing
-        r.arrowsLeaveRangesAlone = /MP4/.test(settingRow('Format')) && /Samantha/.test(settingRow('Voice'));
-        press('ArrowUp');              // Face, left on
+        r.arrowsLeaveRangesAlone = /MP4/.test(settingRow('Format')) && /With the narration/.test(settingRow('Sound'));
         press('ArrowUp');              // Subtitles
         press('ArrowRight');           // → in the video
         press('ArrowUp');              // Quality
         press('ArrowUp');              // Format
         press('ArrowRight');           // → MOV
-        press('ArrowUp');              // Voice
-        press('ArrowLeft');            // ← your own voice, no manifest (rendered off the disk)
-        r.offersMyVoice = /My voice — voices\/me\//.test(settingRow('Voice'));
-        press('ArrowRight');           // → back to voiceover/
-        press('ArrowRight');           // → the track voiced from older notes, offered marked (#536)
-        // a machine-voiced track is re-voiced on those slides first (#553), and says so
-        r.staleTrackMarked = /Daniel · say — voices\/older\/ · 2 slides from older notes, re-voiced first/.test(settingRow('Voice'));
-        press('ArrowRight');           // → the live voice
+        press('ArrowUp');              // Sound
+        press('ArrowRight');           // → without sound, for this video only
+        r.soundTurnsOff = /Without sound/.test(settingRow('Sound'));
+        press('ArrowLeft');            // ← with the narration again
+        press('ArrowRight');           // (a link does not turn: ← → leave it alone)
+        press('ArrowLeft');
         r.arrowsTurnTheSettings = /In the video/.test(settingRow('Subtitles')) && /MOV/.test(settingRow('Format'))
-          && /Synthesize — en_US-ryan-high · piper → voices\/en-us-ryan-high\//.test(settingRow('Voice'));
+          && /With the narration/.test(settingRow('Sound'));
         // a click on a range chooses it, and runs nothing
         [...document.querySelectorAll('.decklight-range .narr-row')].find((n) => /This slide/.test(n.textContent))?.click();
         await settle();
@@ -3019,18 +3071,19 @@
         await settle();
         await settle();
         const sent = CALLS.post.find((c) => c.u.includes('/deck/edit/export'))?.body;
+        // the narrator the deck plays, sent as the render takes it: the AI
+        // voice voiced into its folder, and the character the panel has on screen
         r.postsTheRange = sent?.kind === 'video' && sent.slides === '2-3' && !('narration' in sent)
           && sent.synthesize?.engine === 'piper' && sent.synthesize.model === 'en_US-ryan-high'
           && sent.synthesize.voice === 'en_US-ryan-high' && sent.synthesize.dir === 'voices/en-us-ryan-high'
-          && sent.format === 'mov' && sent.quality === 'standard' && sent.subtitles === 'embed' && sent.face === 'on';
+          && sent.format === 'mov' && sent.quality === 'standard' && sent.subtitles === 'embed'
+          && sent.face === 'on' && sent.character === 'viseme';
         r.toldTheTheme = sent?.theme === 'eclipse';
-        r.remembersTheFormat = /"format":"mov"/.test(localStorage.getItem('decklight:video-export') ?? '');
+        r.remembersTheFormat = /"format":"mov"/.test(localStorage.getItem('decklight:video-export') ?? '')
+          && !/voice|face|sound/.test(localStorage.getItem('decklight:video-export') ?? '');
         r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t) && /its voice is in voices\/en-us-ryan-high\//.test(t));
-        r.PASS = r.rowIsThere && r.asksWhichSlides && r.opensOnTheButton && r.clickChoosesOnly && r.enterChoosesOnly && r.offersRanges && r.staleTrackMarked && r.offersMyVoice
-          && r.startsOnTheRecordedTrack && r.ownTakeNotOffered && r.defaultsAreMp4Standard && r.arrowsLeaveRangesAlone
-          && r.arrowsTurnTheSettings && r.remembersTheFormat && r.saysTheRenderPhase
-          && r.typingFillsTheBox && r.badRangeStaysOpen && r.nothingPostedYet && r.closesOnPick
-          && r.saysWhatItRenders && r.saysWhereItIs && r.postsTheRange && r.toldTheTheme && r.answered;
+        deck.character.setMode('off');
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
       if (mode === 'exportpptx' || mode === 'exportfail') {
@@ -10183,20 +10236,40 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.vOpensPanel = !!card;
         const rowText = () => [...document.querySelectorAll('.decklight-narr .narr-row')]
           .map((n) => n.textContent);
-        r.panelOffersRecording = rowText().some((t) => /Add a voice/.test(t));
+        // your own voice is a row before it exists, with the button that records it:
+        // there is no "Add a voice" door to find first
+        const voiceRows = () => [...document.querySelectorAll('.decklight-narr .narr-row.narr-voice')];
+        const mineRow = () => voiceRows().find((n) => /^My voice/.test(n.textContent));
+        r.panelOffersRecording = /not recorded yet|microphone/.test(mineRow()?.textContent ?? '')
+          && /Record…/.test(mineRow()?.querySelector('.narr-act')?.textContent ?? '')
+          && !rowText().some((t) => /Add a voice/.test(t));
         r.panelOffersCaptions = rowText().some((t) => /Captions/.test(t));
         r.panelOffersSpeed = rowText().some((t) => /Speed/.test(t));
-        // #919: who speaks is one list, Silent first, and a voice row has two
+        // #919: who speaks is one list, Nobody first, and a voice row has two
         // targets: the row selects it, the button at its right opens its card
         const voices = () => [...document.querySelectorAll('.decklight-narr .narr-row.narr-voice')];
-        r.silentFirst = /^Silent/.test(voices()[0]?.textContent ?? '');
+        r.silentFirst = /^Nobody/.test(voices()[0]?.textContent ?? '');
         const live = () => voices().find((n) => n.dataset.how === 'live');
         r.liveHasManage = !!live()?.querySelector('.narr-manage');
-        // the redesign: the live voice sits in a section that says how it
-        // arrives, carries a tag that says whose voice it is, and the panel
-        // says in words who speaks now
+        // one panel, two questions: who speaks, then who is on screen. How a
+        // voice arrives is no section of its own: the AI voice that is not
+        // saved says so under its name, and carries a tag saying whose it is
         const groups = [...document.querySelectorAll('.decklight-narr .narr-group')].map((g) => g.textContent);
-        r.liveSectionSaysHow = groups.some((g) => /^live/.test(g) && /generated as you present/.test(g));
+        r.twoQuestions = groups[0] === 'who speaks' && groups[1] === 'who is on screen'
+          && !groups.some((g) => /^(recorded|live)/.test(g));
+        r.liveSectionSaysHow = /needs a connection|no voice service running|not connected yet/.test(live()?.querySelector('.narr-sub')?.textContent ?? '');
+        // who is on screen: one list of four, nobody first and current on a deck with no character
+        const screens = () => [...document.querySelectorAll('.decklight-narr .narr-row[data-screen]')];
+        r.fourOnScreen = screens().map((n) => n.dataset.screen).join() === 'nobody,camera,cartoon,head'
+          && screens()[0].classList.contains('narr-cur');
+        // the camera's footage belongs to your own voice, and the row says so instead of failing
+        const cam = screens()[1];
+        r.cameraSaysWhy = cam.classList.contains('narr-blocked') && /your own voice/.test(cam.textContent);
+        // nothing asks about a character, a face or solo under another name
+        r.noOldDoors = !rowText().some((t) => /Character…|Place my face|Solo|Film yourself/.test(t));
+        // preview: blocked, with its reason, until somebody speaks
+        const prev = [...document.querySelectorAll('.decklight-narr .narr-row')].find((n) => /Preview slide/.test(n.textContent));
+        r.previewNeedsAVoice = !!prev && prev.classList.contains('narr-blocked') && /choose who speaks first/.test(prev.textContent);
         r.liveTaggedAi = /AI voice/.test(live()?.querySelector('.narr-tag')?.textContent ?? '');
         r.nowSaysWho = /speaking now: nobody/.test(document.querySelector('.decklight-narr .narr-now')?.textContent ?? '');
         // Speed is a stepper ← → turn, Captions a switch
@@ -10233,25 +10306,15 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         live()?.dispatchEvent(new MouseEvent('mouseenter'));   // rows select on hover
         press('ArrowRight');
         await settle();
-        r.arrowOpensCard = rowText().some((t) => /Change voice/.test(t)) && rowText().some((t) => /Generate an AI recording/.test(t))
-          && /saved\s*nothing/.test(document.querySelector('.decklight-narr .narr-facts')?.textContent ?? '');
-        press('ArrowLeft');
-        await settle();
-        r.arrowComesBack = rowText().some((t) => /Add a voice/.test(t));
-        // Add a voice drills into its own view, with every way to start one
-        const add = [...document.querySelectorAll('.decklight-narr .narr-row')]
-          .find((n) => /Add a voice/.test(n.textContent));
-        add.click();
-        await settle();
-        r.recordViewLists = rowText().some((t) => /Record my own voice/.test(t) && /your voice/.test(t))
-          && rowText().some((t) => /Use a live AI voice/.test(t))
-          && rowText().some((t) => /Generate an AI recording/.test(t));
-        // The synthesized row is BLOCKED here — this deck has no live voice —
-        // and a blocked row must refuse in place, with its reason, rather than
+        r.arrowOpensCard = rowText().some((t) => /Change voice/.test(t)) && rowText().some((t) => /Save with the deck/.test(t))
+          && /saved\s*not yet/.test(document.querySelector('.decklight-narr .narr-facts')?.textContent ?? '');
+        // Saving the AI voice with the deck is BLOCKED here — this deck has no
+        // voice service — so the home row does not offer the button, and the
+        // card's row must refuse in place, with its reason, rather than
         // closing the panel and refusing afterwards. `commitNarrRow` fires any
         // commit it is handed, so the guard has to be in the row itself.
         const synth = [...document.querySelectorAll('.decklight-narr .narr-row')]
-          .find((n) => /Generate an AI recording/.test(n.textContent));
+          .find((n) => /Save with the deck/.test(n.textContent));
         // (with no bridge here the browser's own voice is the live one, and it
         // is that, not the lack of a voice, that cannot be recorded)
         r.blockedRowSaysWhy = !!synth && /narr-blocked/.test(synth.className)
@@ -10262,10 +10325,41 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
           && !document.querySelector('.decklight-record');
         // no row anywhere offers a command to paste (#919)
         r.noCommands = !/decklight narrate/.test(document.querySelector('.decklight-narr')?.textContent ?? '');
-        // Esc walks back to the voices rather than closing outright
+        press('ArrowLeft');
+        await settle();
+        r.arrowComesBack = !!mineRow() && screens().length === 4;
+        r.homeHidesWhatCannotBeDone = ![...(live()?.querySelectorAll('.narr-act') ?? [])].some((b) => /Save with the deck/.test(b.textContent))
+          && [...(live()?.querySelectorAll('.narr-act') ?? [])].some((b) => /Change…|Choose…/.test(b.textContent));
+        // the cartoon character is one click: the panel closes on it, and V finds it current
+        screens()[2].click();
+        await settle();
+        r.cartoonChosen = !document.querySelector('.decklight-narr') && deck.character.mode === 'viseme';
+        press('v');
+        await settle();
+        r.cartoonCurrent = screens()[2].classList.contains('narr-cur') && !screens()[0].classList.contains('narr-cur');
+        // …and now that somebody is on screen, Where… is one control for them:
+        // fill the screen on every slide (what Solo was), or a place on this slide
+        const where = () => [...document.querySelectorAll('.decklight-narr .narr-row')].find((n) => /^Where…/.test(n.textContent));
+        r.whereOffered = /slide \d+: in the bottom right corner/.test(where()?.textContent ?? '');
+        where().click();
+        await settle();
+        const fill = () => [...document.querySelectorAll('.decklight-narr .narr-row')].find((n) => /^Fill the screen/.test(n.textContent));
+        r.whereIsOneView = /where the character shows · slide/.test(document.querySelector('.decklight-narr .narr-head')?.textContent ?? '')
+          && fill()?.getAttribute('role') === 'switch' && rowText().some((t) => /^In the corner/.test(t))
+          && rowText().some((t) => /^Full screen/.test(t)) && rowText().some((t) => /^Hidden/.test(t));
+        fill().click();
+        await settle();
+        r.fillIsSolo = deck.character.solo === true && fill()?.getAttribute('aria-checked') === 'true';
+        fill().click();
+        await settle();
+        // Esc walks back to the two questions rather than closing outright
         press('Escape');
         await settle();
-        r.escapeGoesBack = rowText().some((t) => /Add a voice/.test(t));
+        r.escapeGoesBack = !!mineRow() && screens().length === 4 && deck.character.solo === false;
+        screens()[0].click();   // nobody again, as the deck arrived
+        await settle();
+        press('v');
+        await settle();
         // V closes it — the key that opened it
         press('v');
         await settle();
@@ -10277,7 +10371,9 @@ r.notesFillsTheGutter = fills(n.el, n.ta);
         r.PASS = r.vOpensPanel && r.panelOffersRecording && r.panelOffersCaptions
           && r.panelOffersSpeed && r.silentFirst && r.liveHasManage
           && r.liveSectionSaysHow && r.liveTaggedAi && r.nowSaysWho && r.speedSteps && r.captionsIsSwitch && r.noSizeWhileOff && r.captionSizeSteps && r.arrowOpensCard && r.arrowComesBack
-          && r.recordViewLists && r.blockedRowSaysWhy && r.blockedRowKeptThePanel && r.noCommands
+          && r.twoQuestions && r.fourOnScreen && r.cameraSaysWhy && r.noOldDoors && r.previewNeedsAVoice
+          && r.blockedRowSaysWhy && r.blockedRowKeptThePanel && r.noCommands && r.homeHidesWhatCannotBeDone
+          && r.cartoonChosen && r.cartoonCurrent && r.whereOffered && r.whereIsOneView && r.fillIsSolo
           && r.escapeGoesBack && r.vCloses && r.nDoesNothing;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

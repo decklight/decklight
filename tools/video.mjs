@@ -110,6 +110,9 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --slides <a-b>       only this slide range (1-based, inclusive)
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first —
                        over the --slides range only, when one is given
+  --character <how>    viseme draws the animated character in every narrated
+                       frame, off leaves it out; by default the deck's own
+                       narration.character.mode decides
   --no-face            leave out the face you filmed while recording the
                        narration and the animated character. By default they
                        show the way each slide says
@@ -987,14 +990,29 @@ export function parseCharacterConfig(dom) {
   try { return JSON.parse(m[1]); } catch { return {}; }
 }
 
+/**
+ * Is the animated character in this render, and must the page be told to draw
+ * it? `--character` says it outright (the export card sends who is on screen
+ * in the deck, which a fresh browser cannot see); without it the deck's own
+ * `narration.character.mode` decides. `--no-face` leaves it out either way.
+ * Forced only when asked for by name: a deck whose config already turns the
+ * character on draws it unprompted.
+ */
+export function characterPlan(ask, configMode, noFace = false) {
+  if (ask !== undefined && !['viseme', 'off'].includes(ask)) throw new Error('--character must be viseme or off');
+  const on = (ask ?? configMode) === 'viseme' && !noFace;
+  return { on, force: on && ask === 'viseme' };
+}
+
 const CHARACTER_CAPTURE = `<script>
 (function () {
   var pose = new URLSearchParams(location.search).get('character');
+  var force = new URLSearchParams(location.search).get('characterForce') === '1';
   var at = Number(new URLSearchParams(location.search).get('characterTime')) || 0;
   if (!pose) return;
   function apply() {
     var d = document.querySelector('.decklight') && document.querySelector('.decklight').__decklight;
-    if (d && d.character && d.character.capture(pose)) {
+    if (d && d.character && d.character.capture(pose, force)) {
       var el = document.querySelector('.decklight-character');
       // Separate Chrome loads would otherwise freeze every blink and idle
       // sway at the same phase. Seek CSS/Web animations to the audio time.
@@ -1194,7 +1212,9 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       plan = planTimeline(narration?.slides ?? null, durations, holds, range,
         { steps, buildHold, pauses, marks: pauseMarks(html, steps), onWarn: (w) => console.warn(`  ${w}`) });
       const basePlan = plan;
-      const characterOn = characterConfig.mode === 'viseme' && !argv.includes('--no-face');
+      const { on: characterOn, force: characterForce } = characterPlan(opt('--character'), characterConfig.mode, argv.includes('--no-face'));
+      const characterQuery = (p) => (p.character
+        ? `&character=${encodeURIComponent(p.character)}&characterTime=${p.audioOffset ?? 0}${characterForce ? '&characterForce=1' : ''}` : '');
       if (characterOn && narration) {
         const expanded = [];
         for (const p of plan) {
@@ -1239,7 +1259,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
             const dir = join(work, `frames-${id}`);
             mkdirSync(dir);
             await captureMotion(page, {
-              url: `${server.origin}${deckPath}${renderQuery}${p.character ? `&character=${encodeURIComponent(p.character)}&characterTime=${p.audioOffset ?? 0}` : ''}`, slide: p.slide, from: m.from, to: p.step,
+              url: `${server.origin}${deckPath}${renderQuery}${characterQuery(p)}`, slide: p.slide, from: m.from, to: p.step,
               offset: m.offset, count: m.count, fps,
               frameAt: (i, png) => writeFileSync(join(dir, `${String(i).padStart(5, '0')}.png`), png),
             });
@@ -1255,7 +1275,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
               `--window-size=${w},${h}`,
               '--virtual-time-budget=1500',
               `--screenshot=${frame}`,
-              `${server.origin}${deckPath}${renderQuery}${p.character ? `&character=${encodeURIComponent(p.character)}&characterTime=${p.audioOffset ?? 0}` : ''}#/${p.slide}/${p.step}`,
+              `${server.origin}${deckPath}${renderQuery}${characterQuery(p)}#/${p.slide}/${p.step}`,
             ));
             if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
           }

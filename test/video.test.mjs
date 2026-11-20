@@ -21,8 +21,7 @@ import {
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, folderNarration, parseBuildSteps, voiceoverArgs,
   videoOut, videoProgress, voiceoverProgress, ENCODINGS, videoOptions, subtitleCues, toSrt, toVtt, subtitlesOut,
   pauseMarks, parseMotion, motionFrames, motionPlan, MOTION_WINDOW_S,
-  extractFaceVisibility, readVisemes, characterFrames, parseCharacterConfig,
-} from '../tools/video.mjs';
+  extractFaceVisibility, readVisemes, characterFrames, parseCharacterConfig, characterPlan } from '../tools/video.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
 // --- planTimeline -------------------------------------------------------------
@@ -316,6 +315,20 @@ test('animated character frames follow viseme changes without changing total tim
 test('character capture follows data-face hide and reads the browser probe config', () => {
   assert.deepEqual(extractFaceVisibility('<section data-face="hide"></section><section><i data-face="hide"></i></section>'), [false, true]);
   assert.deepEqual(parseCharacterConfig('<pre>DECKLIGHT-CHARACTER {"mode":"viseme","position":"br"}</pre>'), { mode: 'viseme', position: 'br' });
+});
+
+test('--character overrides the deck for one render: the export card sends who is on screen', () => {
+  // unasked, the deck's own config decides, and nothing is forced on the page
+  assert.deepEqual(characterPlan(undefined, 'viseme'), { on: true, force: false });
+  assert.deepEqual(characterPlan(undefined, undefined), { on: false, force: false });
+  // asked for by name on a deck that does not turn it on: drawn, and the page is told
+  assert.deepEqual(characterPlan('viseme', undefined), { on: true, force: true });
+  assert.deepEqual(characterPlan('viseme', 'video'), { on: true, force: true });
+  // nobody on screen in the deck's panel: left out, whatever the config says
+  assert.deepEqual(characterPlan('off', 'viseme'), { on: false, force: false });
+  // --no-face leaves it out either way
+  assert.deepEqual(characterPlan('viseme', 'viseme', true), { on: false, force: false });
+  assert.throws(() => characterPlan('cartoon', 'viseme'), /--character must be viseme or off/);
 });
 
 // --- ffmpeg arg builders --------------------------------------------------------

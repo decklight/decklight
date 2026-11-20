@@ -196,10 +196,10 @@ const catCmds = [
   { label: 'Find slide…', cat: 'Go to' },
   { label: 'Export to PDF…', cat: 'Share', alias: 'pdf file' },
   { label: 'Theme…', cat: 'Look', alias: 'colours' },
-  { label: 'Live voice…', cat: 'Voice', alias: 'tts engine' },
+  { label: 'AI voice…', cat: 'Voice', alias: 'tts engine' },
   { label: 'Print handout (three per page, new tab)', cat: 'Share', alias: 'pdf print handout' },
   { label: 'Export a PDF handout…', cat: 'Share', alias: 'pdf handout' },
-  { label: 'Character…', cat: 'Voice' },
+  { label: 'On screen…', cat: 'Voice' },
 ];
 const catRows = (query) => paletteRows({ commands: catCmds, query, categories: ['Go to', 'Look', 'Voice', 'Share'] });
 
@@ -210,20 +210,20 @@ test('a command is shown as its category, then its name', () => {
 
 test('with nothing typed, every command is at the root, category by category, in written order within each', () => {
   assert.deepEqual(catRows('').map(commandTitle), [
-    'Go to: Find slide…', 'Look: Theme…', 'Voice: Live voice…', 'Voice: Character…',
+    'Go to: Find slide…', 'Look: Theme…', 'Voice: AI voice…', 'Voice: On screen…',
     'Share: Export to PDF…', 'Share: Print handout (three per page, new tab)', 'Share: Export a PDF handout…',
   ]);
 });
 
 test('typing the category narrows to it, with or without its colon', () => {
-  assert.deepEqual(catRows('voice').map((c) => c.label), ['Live voice…', 'Character…']);
-  assert.deepEqual(catRows('voice:').map((c) => c.label), ['Live voice…', 'Character…']);
+  assert.deepEqual(catRows('voice').map((c) => c.label), ['AI voice…', 'On screen…']);
+  assert.deepEqual(catRows('voice:').map((c) => c.label), ['AI voice…', 'On screen…']);
 });
 
 test('every word typed must match, in any order', () => {
   assert.deepEqual(catRows('handout pdf').map((c) => c.label).sort(),
     ['Export a PDF handout…', 'Print handout (three per page, new tab)']);
-  assert.deepEqual(catRows('voice live').map((c) => c.label), ['Live voice…']);
+  assert.deepEqual(catRows('voice ai').map((c) => c.label), ['AI voice…']);
   assert.deepEqual(catRows('voice pdf').map((c) => c.label).filter((l) => !/Search/.test(l)), []);
 });
 
