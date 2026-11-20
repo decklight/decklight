@@ -248,7 +248,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   if (!videoEngines.length) {
     for (const p of setupNow.problems) console.log(`  video: ${p}`);
     if (!wav2lipDir && !sadtalkerDir) console.log(`  video: not set up — ${SETUP_HINT}`);
-    else if (!filmWhy) console.log('  video: or film yourself from the deck — V → Character → Film yourself');
+    else if (!filmWhy) console.log('  video: or make your portrait from the deck — V → A talking head of me → Make my portrait…');
   }
   // Wav2Lip with no portrait yet still serves: filming one is what the deck does next
   if (!visemeOk && !videoEngines.length && filmWhy) {
@@ -554,7 +554,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   if (asked === null) process.exit(0);
   server.listen(asked, '127.0.0.1', () => {
     const what = [visemeOk && 'visemes (rhubarb)', ...videoEngines.map((e) => `video (${e})`)].filter(Boolean).join(' · ')
-      || 'no portrait yet — film one from the deck (V → Character)';
+      || 'no portrait yet — make one from the deck (V → Make my portrait…)';
     const ready = visemeOk || videoEngines.length > 0;
     if (process.env.DECKLIGHT_BANNER) console.log(readyLine({ key: 'lips', text: `${what} · :${port}`, ...(ready ? { mark: 'ok' } : {}) }));
     else console.log(`decklight lipsync bridge on http://127.0.0.1:${port} — ${what} — Ctrl-C stops`);

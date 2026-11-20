@@ -842,7 +842,7 @@ if (!FFMPEG || !FFPROBE) {
   check('face sync', drift.length > 0 && drift.every((d) => d <= 0.125),
     `each clip as long as its WAV: ${mp4s.map((f, k) => `${f.replace('slide-0', '')}±${drift[k].toFixed(3)}`).join(' ')}`);
   check('face done', fManifest.slides?.[0]?.face === true && fManifest.slides?.[1]?.face === true && !fManifest.slides?.[2]
-    && /your face on 2 slides/.test(filmed.faceLine ?? '') && filmed.faceRows === 2 && filmed.charMode === 'video',
+    && /your camera filmed 2 slides/.test(filmed.faceLine ?? '') && filmed.faceRows === 2 && filmed.charMode === 'video',
   `manifest face=${fManifest.slides?.map((e) => e?.face ?? '-').join(',')} · card "${filmed.faceLine}" · character ${filmed.charMode}`);
 
   // a camera refused costs the face, never the take: the voice is recorded, and the card says why
