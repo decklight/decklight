@@ -67,3 +67,13 @@ test('a filmed portrait replaces one of its name, keeps the rest, and fills in t
   assert.deepEqual(withPortrait(null, 'filmed', r('/f.webm')).portraits, [`filmed=${r('/f.webm')}`]);
   assert.equal(portraitsDir({ XDG_CONFIG_HOME: r('/cfg') }), path.join(r('/cfg'), 'decklight', 'portraits'));
 });
+
+test('visemesWhyNot: the saved Rhubarb, else the one on PATH; a reason only when it is not there', async () => {
+  const { visemesWhyNot } = await import('../tools/lipsync-config.mjs');
+  const asked = [];
+  const probe = (have) => (bin) => { asked.push(bin); return have; };
+  assert.equal(visemesWhyNot({ config: {}, probe: probe(true) }), null);
+  assert.equal(visemesWhyNot({ config: {}, probe: probe(false) }), 'Rhubarb is not installed');
+  assert.equal(visemesWhyNot({ config: { rhubarb: '/opt/rhubarb/rhubarb' }, probe: probe(true) }), null);
+  assert.deepEqual(asked, ['rhubarb', 'rhubarb', '/opt/rhubarb/rhubarb']);
+});

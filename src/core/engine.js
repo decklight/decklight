@@ -3808,7 +3808,7 @@ export function init(userConfig = {}) {
         who.missing && { section: NARRATOR, key: 'missing', name: 'Missing', value: who.missing,
           go: who.fix?.go ?? 'Change…', run: who.fix ? () => who.fix.run() : toPanel },
         !who.silent && { section: NARRATOR, key: 'preview', name: 'Preview', value: who.preview,
-          go: '▶ Play', run: () => narration.previewSlide() },
+          go: 'Preview slide in deck', run: () => narration.previewSlide() },
         !who.silent && { section: NARRATOR, key: 'sound', name: 'Sound', options: VIDEO_SOUND, index: at(VIDEO_SOUND, was.values?.sound, 'on') },
         { key: 'format', name: 'Format', options: VIDEO_FORMATS, index: at(VIDEO_FORMATS, prefs.format, 'mp4') },
         { key: 'quality', name: 'Quality', options: VIDEO_QUALITIES, index: at(VIDEO_QUALITIES, prefs.quality, 'standard') },

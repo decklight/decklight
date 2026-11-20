@@ -2395,6 +2395,10 @@
   letter-spacing: .08em;
   padding: 10px 12px 2px;
 }
+/* the way back to where the panel was opened from (the export card): held
+   in sight at the top while the two questions under it scroll */
+.decklight-narr .narr-back { position: sticky; top: -14px; z-index: 1; background: #16181d; box-shadow: 0 1px 0 rgba(255, 255, 255, .12); }
+.decklight-narr .narr-row.narr-back.narr-sel { background: #3a3c41; }  /* opaque: rows scroll under it */
 .decklight-narr .narr-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
 .decklight-narr .narr-group { margin: 10px 12px 2px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .12); font-size: .68em; letter-spacing: .14em; text-transform: uppercase; opacity: .55; }
 .decklight-narr .narr-group:first-of-type { border-top: none; padding-top: 0; }

@@ -3237,6 +3237,9 @@ test('POST /deck/edit/narration/record?kind=manifest writes the take’s manifes
   writeFileSync(path.join(dir, 'voices', 'kore', 'slide-01.visemes.json'), '{"v":1,"duration":1,"cues":[]}');
   const lipped = (await (await fetch(base + '/deck/edit/narration/tracks')).json()).tracks.find((x) => x.dir === 'voices/kore');
   assert.equal(lipped.nolips, kore.files - 1, 'a clip with its sidecar is not counted');
+  // …and whether this machine can make it at all: a reason, or null
+  const said = (await (await fetch(base + '/deck/edit/narration/tracks')).json()).visemes;
+  assert.ok(said === null || typeof said === 'string', 'visemes: why not, or null');
   // what it refuses: no engine, a bad range, not JSON, a folder outside the deck
   assert.equal((await post({ voice: 'Kore', range: [1, 2], slides: {} })).status, 400);
   assert.equal((await post({ ...header, range: [2, 1], slides: {} })).status, 400);

@@ -82,6 +82,7 @@ import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import { LINE_DASHES, SHAPES, SHAPE_LABELS, shapeGeometry, shapeBox } from '../tools/diagram-shapes.mjs';
 import { resolve, relative, dirname, sep, basename } from 'node:path';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, valuesOf } from '../tools/video-options.mjs';
+import { visemesWhyNot } from '../tools/lipsync-config.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { agentAsk, agentCommand, agentModel, applyModelFlags, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, setAgentModel, takesModel, MODEL_ENV, claudeActivity } from './agents.mjs';
@@ -5401,7 +5402,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
         if (k.isDirectory() && !k.name.startsWith('.')) look(`${e.name}${sep}${k.name}`);
       }
     }
-    return json(200, { ok: true, tracks: seen });
+    // and whether the character's lip-sync can be made here, which a video
+    // export with the character does before its render (PRESENTING_OUTPUT)
+    return json(200, { ok: true, tracks: seen, visemes: visemesWhyNot() });
   }
 
   /**

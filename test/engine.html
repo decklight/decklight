@@ -359,7 +359,8 @@
             { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true, stale: 0, slides: [1, 2, 3] },
             // voiced from notes the deck no longer has on two slides (#536): offered, marked
             { dir: 'voices/older', files: 4, segments: false, ext: 'm4a', engine: 'say', voice: 'Daniel', manifest: true, stale: 2, slides: [1, 2, 3] },
-          ] });
+          // a machine without Rhubarb, when the test asks for one
+          ], visemes: window.__noRhubarb ? 'Rhubarb is not installed' : null });
         }
         if (HARNESS_MODE === 'exportvideo' && u.endsWith('/ping')) {
           return json({ ok: true, engine: 'piper', model: 'en_US-ryan-high', stylable: false, voices: [['en_US-ryan-high', 'local']] });
@@ -2968,6 +2969,9 @@
           await settle();
           panelRow(re).click();
           await settle();
+          // an answer leaves the panel open for the other question; ‹ Back returns
+          panelRow(/^‹ Back to the export/)?.click();
+          await settle();
           await settle();
           await settle();
         };
@@ -3039,12 +3043,40 @@
         // in a folder of its own rather than the say one, and the card says
         // what that sends before anything is spent. With a cartoon character
         // on screen in the deck, the video has it too.
-        deck.character.setMode('viseme');
-        await speakWith(/^en_US-ryan-high/);
+        // Both answers in one visit: the voice, then who is on screen, the
+        // panel open between them, and only ‹ Back goes back to the export.
+        link('narrator').click();
+        await settle();
+        panelRow(/^en_US-ryan-high/).click();
+        await settle();
+        r.answerKeepsThePanel = !!document.querySelector(PANEL) && !!panelRow(/^‹ Back to the export/);
+        const cartoon = document.querySelector(`${PANEL} [data-screen="cartoon"]`);
+        if (cartoon && !cartoon.classList.contains('narr-blocked')) cartoon.click(); else deck.character.setMode('viseme');
+        await settle();
+        r.secondAnswerToo = !!document.querySelector(PANEL) && deck.character.mode === 'viseme';
+        panelRow(/^‹ Back to the export/).click();
+        await settle();
+        await settle();
+        await settle();
         r.followsTheAiVoice = /^Narrator\s*en_US-ryan-high · AI voice · with a cartoon character/.test(link('narrator')?.textContent ?? '')
           && notes().some((t) => /en_US-ryan-high is saved with the deck first, in voices\/en-us-ryan-high\/ · up to [\d,]+ characters on Piper/.test(t));
         // …and what the character needs is made, and said, rather than found missing mid-render
         r.saysTheLipSync = notes().some((t) => /the character's lip-sync is made with the voice, before the video/.test(t));
+        // on a machine that cannot make it, said before the click, not found after it
+        window.__noRhubarb = true;
+        await speakWith(/^en_US-ryan-high/);
+        r.saysItCannotMakeTheLipSync = notes().some((t) => /cannot be made on this computer: Rhubarb is not installed · the export would stop/.test(t))
+          && !notes().some((t) => /is made with the voice, before the video/.test(t));
+        window.__noRhubarb = false;
+        await speakWith(/^en_US-ryan-high/);
+        r.previewInTheDeck = /Preview slide in deck/.test(link('preview')?.textContent ?? '');
+        // a talking head plays in the deck and not in a video: said beside Preview, before the click
+        deck.character.setMode('video');
+        await speakWith(/^en_US-ryan-high/);
+        r.headSaidBesidePreview = /The exported video will show slides only/.test(link('preview')?.textContent ?? '')
+          && link('preview').classList.contains('range-link-warn');
+        deck.character.setMode('viseme');
+        await speakWith(/^en_US-ryan-high/);
         press('ArrowUp');              // back to MP4 and no subtitles, for the walk below
         press('ArrowUp');
         press('ArrowUp');

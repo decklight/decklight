@@ -18,6 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
+import { run, PROBE_MS } from './exec.mjs';
 
 export function lipsyncConfigPath(env = process.env) {
   const base = env.XDG_CONFIG_HOME || join(env.HOME || homedir(), '.config');
@@ -43,6 +44,21 @@ export function withPortrait(config, name, file, setup = {}) {
   const kept = (next.portraits ?? []).filter((spec) => parsePortrait(spec)[0] !== name);
   next.portraits = [...kept, `${name}=${file}`];
   return next;
+}
+
+/** Whether `bin` runs here: a missing binary is ENOENT; one that runs and complains is still there. */
+function probeBin(bin) {
+  try { run(bin, ['--version'], { stdio: 'ignore', timeout: PROBE_MS }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
+}
+
+/**
+ * Why the drawn character's lip-sync cannot be made on this machine, or null.
+ * It is Rhubarb's (`lipsync --visemes`), and a video export with the character
+ * makes it before the render: the export card asks this first, so it can say
+ * so before the click rather than stop after it.
+ */
+export function visemesWhyNot({ config = loadLipsyncConfig() ?? {}, probe = probeBin } = {}) {
+  return probe(config.rhubarb ?? 'rhubarb') ? null : 'Rhubarb is not installed';
 }
 
 /** The saved setup, or null — a missing or unreadable file is "not set up", not an error. */
