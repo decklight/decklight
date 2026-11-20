@@ -21,7 +21,7 @@ import {
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, folderNarration, parseBuildSteps, voiceoverArgs,
   videoOut, videoProgress, voiceoverProgress, ENCODINGS, videoOptions, subtitleCues, toSrt, toVtt, subtitlesOut,
   pauseMarks, parseMotion, motionFrames, motionPlan, MOTION_WINDOW_S,
-  extractFaceVisibility, readVisemes, characterFrames, parseCharacterConfig,
+  extractFaces, exportFaceLayout, characterFrames, parseCharacterConfig,
 } from '../tools/video.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
@@ -314,7 +314,12 @@ test('animated character frames follow viseme changes without changing total tim
 });
 
 test('character capture follows data-face hide and reads the browser probe config', () => {
-  assert.deepEqual(extractFaceVisibility('<section data-face="hide"></section><section><i data-face="hide"></i></section>'), [false, true]);
+  const faces = extractFaces(`<section data-face="hide 3:full 9 4:corner"></section><section data-face='top-left'></section>`);
+  const layout = (slide, audio) => exportFaceLayout({ slide, audio }, faces);
+  assert.equal(layout(1, 'slide-01-02.wav').kind, 'hide');
+  assert.deepEqual(layout(1, 'slide-01-03.wav'), { kind: 'full', zoom: 4 });
+  assert.deepEqual(layout(1, 'slide-01-04.wav'), { kind: 'corner', zoom: 1 });
+  assert.deepEqual(layout(2, 'slide-02.wav'), { kind: 'corner', zoom: 1, at: 'tl' });
   assert.deepEqual(parseCharacterConfig('<pre>DECKLIGHT-CHARACTER {"mode":"viseme","position":"br"}</pre>'), { mode: 'viseme', position: 'br' });
 });
 
