@@ -355,7 +355,7 @@
             { dir: 'voices/me', files: 3, segments: false, ext: 'wav', engine: null, voice: null, manifest: false, renders: true },
             // only beats, no whole-slide file: nothing a render can play
             { dir: 'voices/beatsonly', files: 2, segments: true, ext: 'wav', engine: null, voice: null, manifest: false, renders: false },
-            { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true, stale: 0 },
+            { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true, faces: [1], stale: 0 },
             // voiced from notes the deck no longer has on two slides (#536): offered, marked
             { dir: 'voices/older', files: 4, segments: false, ext: 'm4a', engine: 'say', voice: 'Daniel', manifest: true, stale: 2 },
           ] });
@@ -2104,6 +2104,7 @@
       : HARNESS_MODE === 'chaptersplaylist'
         ? { playlist: { modules: [{ title: 'Part one', href: 'a.html' }, { title: 'Part two', href: 'b.html' }], index: 0 } }
         // the deck's own default font: a referenced package, by name
+        : HARNESS_MODE === 'exportvideo' ? { narration: { character: { mode: 'viseme' } } }
         : HARNESS_MODE === 'fonts' ? { font: 'sample' }
           : HARNESS_MODE === 'bleedoff' ? { bleed: false }
             // a deck that marks two shipped themes, opened with NO server —
@@ -2979,6 +2980,7 @@
         press('ArrowRight');           // → MOV
         press('ArrowUp');              // Voice
         press('ArrowLeft');            // ← your own voice, no manifest (rendered off the disk)
+        r.characterFollowsTrack = /The animated character/.test(settingRow('Character'));
         r.offersMyVoice = /My voice — voices\/me\//.test(settingRow('Voice'));
         press('ArrowRight');           // → back to voiceover/
         press('ArrowRight');           // → the track voiced from older notes, offered marked (#536)
@@ -2987,6 +2989,9 @@
         press('ArrowRight');           // → the live voice
         r.arrowsTurnTheSettings = /In the video/.test(settingRow('Subtitles')) && /MOV/.test(settingRow('Format'))
           && /Synthesize — en_US-ryan-high · piper → voices\/en-us-ryan-high\//.test(settingRow('Voice'));
+        press('ArrowRight');           // silent has no character to animate
+        r.silentHasNothing = /Nothing to show/.test(settingRow('Face'));
+        press('ArrowLeft');
         // a click on a range chooses it, and runs nothing
         [...document.querySelectorAll('.decklight-range .narr-row')].find((n) => /This slide/.test(n.textContent))?.click();
         await settle();
@@ -3026,7 +3031,7 @@
         r.toldTheTheme = sent?.theme === 'eclipse';
         r.remembersTheFormat = /"format":"mov"/.test(localStorage.getItem('decklight:video-export') ?? '');
         r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t) && /its voice is in voices\/en-us-ryan-high\//.test(t));
-        r.PASS = r.rowIsThere && r.asksWhichSlides && r.opensOnTheButton && r.clickChoosesOnly && r.enterChoosesOnly && r.offersRanges && r.staleTrackMarked && r.offersMyVoice
+        r.PASS = r.characterFollowsTrack && r.silentHasNothing && r.rowIsThere && r.asksWhichSlides && r.opensOnTheButton && r.clickChoosesOnly && r.enterChoosesOnly && r.offersRanges && r.staleTrackMarked && r.offersMyVoice
           && r.startsOnTheRecordedTrack && r.ownTakeNotOffered && r.defaultsAreMp4Standard && r.arrowsLeaveRangesAlone
           && r.arrowsTurnTheSettings && r.remembersTheFormat && r.saysTheRenderPhase
           && r.typingFillsTheBox && r.badRangeStaysOpen && r.nothingPostedYet && r.closesOnPick

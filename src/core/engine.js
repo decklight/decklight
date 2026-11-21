@@ -3788,7 +3788,16 @@ export function init(userConfig = {}) {
         { key: 'format', name: 'Format', options: VIDEO_FORMATS, index: at(VIDEO_FORMATS, prefs.format, 'mp4') },
         { key: 'quality', name: 'Quality', options: VIDEO_QUALITIES, index: at(VIDEO_QUALITIES, prefs.quality, 'standard') },
         { key: 'subtitles', name: 'Subtitles', options: VIDEO_SUBTITLES, index: at(VIDEO_SUBTITLES, prefs.subtitles, 'none') },
-        { key: 'face', name: 'Face', options: VIDEO_FACE, index: at(VIDEO_FACE, prefs.face, 'on') },
+        {
+          key: 'face', name: 'Face', options: VIDEO_FACE, index: at(VIDEO_FACE, prefs.face, 'on'),
+          describe({ voice: track }, option) {
+            if (track.filmed) return { name: 'Face', label: option.label };
+            if (config.narration?.character?.mode === 'viseme' && track.value.kind !== 'silent') {
+              return { name: 'Character', label: option.value === 'on' ? 'The animated character, as each slide places it' : option.label };
+            }
+            return { name: 'Face', label: 'Nothing to show', disabled: true };
+          },
+        },
       ],
       onPick: (slides, { voice: v, format, quality, subtitles, face }) => {
         // Remembered here and not per deck: a format is a habit of the person
