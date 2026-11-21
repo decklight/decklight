@@ -102,11 +102,24 @@ export function createRangePicker({ root, overlays }) {
     note.style.display = text ? '' : 'none';
   }
 
+  function refreshSettings() {
+    const selected = Object.fromEntries(settings.map((s) => [s.key, s.options[s.index]]));
+    rows.forEach(({ setting }, i) => {
+      if (!setting) return;
+      const option = selected[setting.key];
+      const display = setting.describe?.(selected, option);
+      const row = rowEls[i];
+      row.querySelector('.range-setting-name').textContent = display?.name ?? setting.name;
+      row.querySelector('.range-setting-value').textContent = display?.label ?? option.label;
+      row.setAttribute('aria-disabled', String(!!display?.disabled));
+    });
+  }
+
   function turn(i, by) {
     const s = rows[i]?.setting;
-    if (!s || s.options.length < 2) return;
+    if (!s || s.options.length < 2 || rowEls[i].getAttribute('aria-disabled') === 'true') return;
     s.index = (s.index + by + s.options.length) % s.options.length;
-    rowEls[i].querySelector('.range-setting-value').textContent = s.options[s.index].label;
+    refreshSettings();
   }
 
   function select(i, { focusBox = true } = {}) {
@@ -285,6 +298,7 @@ export function createRangePicker({ root, overlays }) {
       card.append(r);
       return r;
     });
+    refreshSettings();
     if (!action) {
       note = document.createElement('div');
       note.className = 'rec-line rec-warn';

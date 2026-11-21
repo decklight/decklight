@@ -6171,7 +6171,7 @@ export function createNarration({
         const slides = `${t.stale} slide${t.stale === 1 ? '' : 's'}`;
         const stale = !(t.stale > 0) ? ''
           : t.engine ? ` · ${slides} from older notes, re-voiced first` : ` · recorded from older notes on ${slides}`;
-        options.push({ label: `🔊 ${who} — ${t.dir}/${stale}`, value: { kind: 'recorded', dir: t.dir, stale: t.stale || 0, engine: t.engine ?? null } });
+        options.push({ filmed: !!t.faces?.length, label: `🔊 ${who} — ${t.dir}/${stale}`, value: { kind: 'recorded', dir: t.dir, stale: t.stale || 0, engine: t.engine ?? null } });
       }
       if (bridge && liveEngine) {
         const dir = synthTarget(tracks);

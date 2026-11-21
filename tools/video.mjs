@@ -1222,6 +1222,8 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       // your face, where you filmed it, unless --no-face
       const filmed = faces ? plan.filter((p) => faceFor(p, { narration, faces })).length : 0;
       if (filmed) log(`  your face: on ${filmed} frame${filmed === 1 ? '' : 's'} (--no-face leaves it out)`);
+      const animated = plan.filter((p) => p.character).length;
+      if (animated) log(`  animated character: on ${animated} frame${animated === 1 ? '' : 's'} (--no-face leaves it out)`);
       const segments = [];
       const motion = motionPlan(plan, kinds, fps);
       let page = null;   // the one CDP page every moving frame shares, opened on first need
