@@ -2466,6 +2466,8 @@
 .decklight-narr .narr-row.narr-sel { background: rgba(255, 255, 255, .14); }
 .decklight-narr .narr-row.narr-cur::after { content: ' ✓'; opacity: .7; }
 .decklight-narr .narr-flavor { opacity: .5; font-size: .85em; margin-left: 6px; }
+.decklight-narr .narr-tone-summary { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-narr .narr-tone-note { display: block; margin-left: 0; }
 /* An informational row in the settings panel: a fact, not a command. It keeps
    full contrast — unlike .narr-blocked, which dims a row to say "this one is
    not available to you" — and only loses the pointer cursor, because there is
