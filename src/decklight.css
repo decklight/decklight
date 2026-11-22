@@ -2947,22 +2947,31 @@
 .decklight-narr .narr-row.narr-subrow { padding-left: 28px; }
 .decklight-narr .narr-step-val { white-space: nowrap; }
 .decklight-narr .narr-subrow .narr-step-val { min-width: 84px; }
-/* Place my face: a sketch of the slide with the face where it would show */
+/* Face and character placement preview */
 .decklight-narr .narr-face-sketch {
   position: relative; height: 118px; margin: 4px 12px 10px; border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, .15); background: rgba(255, 255, 255, .04);
 }
 .decklight-narr .narr-face-dot {
-  position: absolute; width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%;
-  border: 2px solid var(--accent, #6af); background: rgba(255, 255, 255, .1);
-  display: flex; align-items: center; justify-content: center; font-size: .8em;
+  position: absolute; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; z-index: 1;
+  border: 1px solid currentColor; color: inherit; background: transparent; opacity: .45;
 }
 .decklight-narr .narr-face-at-br { right: 8px; bottom: 8px; }
 .decklight-narr .narr-face-at-bl { left: 8px; bottom: 8px; }
 .decklight-narr .narr-face-at-tr { right: 8px; top: 8px; }
 .decklight-narr .narr-face-at-tl { left: 8px; top: 8px; }
-.decklight-narr .narr-face-dot.narr-face-full { inset: 4px; width: auto; height: auto; border-radius: 6px; }
-.decklight-narr .narr-face-dot.narr-face-hide { display: none; }
+.decklight-narr .narr-face-full-preview {
+  position: absolute; inset: 0; margin: auto; width: var(--preview-size); height: var(--preview-size);
+  max-height: 100%; display: grid; place-items: center; border: 2px solid var(--accent, #6af); border-radius: 50%;
+}
+.decklight-narr .narr-face-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 12px 10px; }
+.decklight-narr .narr-face-presets button {
+  border: 1px solid currentColor; border-radius: 6px; padding: 4px 10px;
+  font: inherit; color: inherit; background: transparent; cursor: pointer;
+}
+.decklight-narr :is(.narr-face-dot, .narr-face-presets button)[aria-pressed="true"] {
+  border-color: var(--accent, #6af); background: color-mix(in srgb, var(--accent, #6af) 22%, transparent); opacity: 1;
+}
 /* the recorders' three steps: plan, record or generate, review */
 .decklight-narr .narr-steps { display: flex; gap: 6px; margin: 4px 12px 8px; padding: 0; list-style: none; font-size: .78em; }
 .decklight-narr .narr-steps li { flex: 1; padding-top: 5px; border-top: 3px solid rgba(255, 255, 255, .16); opacity: .55; }

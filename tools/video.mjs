@@ -249,12 +249,14 @@ export const FACE_CORNER_PX = { size: 220, margin: 28 };
  * (slide-NN-KK.mp4 beside slide-NN-KK.wav), on a slide whose manifest entry
  * says it was filmed, placed as the slide's `data-face` says for that beat.
  */
-export function faceFor(p, { narration, faces, exists = existsSync }) {
+export function faceFor(p, { narration, faces, defaultCorner, exists = existsSync }) {
   if (!p.audio || !narration?.slides?.[p.slide - 1]?.face) return null;
   const clip = join(narration.dir, p.audio.replace(/\.[^.]+$/, '.mp4'));
   if (!exists(clip)) return null;
   const at = exportFaceLayout(p, faces);
-  return at.kind === 'hide' ? null : { clip, ...at };
+  if (at.kind === 'hide') return null;
+  if (at.kind === 'corner' && !at.at && defaultCorner) return { clip, ...at, at: defaultCorner };
+  return { clip, ...at };
 }
 
 export function exportFaceLayout(p, faces) {
@@ -1220,7 +1222,8 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
         + (narration ? ` (${narration.dir})` : ' (silent)'));
 
       // your face, where you filmed it, unless --no-face
-      const filmed = faces ? plan.filter((p) => faceFor(p, { narration, faces })).length : 0;
+      const faceContext = { narration, faces, defaultCorner: characterConfig.position };
+      const filmed = faces ? plan.filter((p) => faceFor(p, faceContext)).length : 0;
       if (filmed) log(`  your face: on ${filmed} frame${filmed === 1 ? '' : 's'} (--no-face leaves it out)`);
       const animated = plan.filter((p) => p.character).length;
       if (animated) log(`  animated character: on ${animated} frame${animated === 1 ? '' : 's'} (--no-face leaves it out)`);
@@ -1277,7 +1280,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
             if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
           }
           const seg = join(work, `seg-${id}.${ENCODINGS[format].ext}`);
-          const face = faces ? faceFor(p, { narration, faces }) : null;
+          const face = faces ? faceFor(p, faceContext) : null;
           await exec('ffmpeg', segmentArgs({
             frame, frames, duration: p.duration, pad: p.pad, audioOffset: p.audioOffset, fps, out: seg, format, quality,
             audio: p.audio ? join(narration.dir, p.audio) : null,
