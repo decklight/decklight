@@ -147,15 +147,16 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // can step aside; and like solo it is only ever set while the face is on
   // screen.
   let face = FACE_CORNER;
+  let facePreview = null;
   function applyFace() {
     const on = mode !== 'off' && !!el?.classList.contains('show') && !(solo && mode !== 'video');
-    const at = on ? face : FACE_CORNER;
+    const at = on ? (facePreview ?? face) : FACE_CORNER;
     el?.classList.toggle('face-full', at.kind === 'full');
     el?.classList.toggle('face-hide', at.kind === 'hide');
     el?.style.setProperty('--face-zoom', String(at.zoom));
     // a corner a slide names (data-face="top-right") moves the medallion there
     // for that slide; anything else puts it back where the deck keeps it
-    const pos = at.kind === 'corner' && at.at ? at.at : (cfg.position ?? 'br');
+    const pos = at.kind === 'corner' && at.at ? at.at : (config.narration?.character?.position ?? 'br');
     for (const p of ['br', 'bl', 'tr', 'tl']) el?.classList.toggle(`pos-${p}`, p === pos);
     root.classList.toggle('decklight-face-full', at.kind === 'full');
   }
@@ -176,7 +177,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   function mount() {
     if (!el) {
       el = document.createElement('div');
-      el.className = 'decklight-character pos-' + (cfg.position ?? 'br');
+      el.className = 'decklight-character pos-' + (config.narration?.character?.position ?? 'br');
       el.setAttribute('aria-hidden', 'true');
       if (cfg.size) el.style.setProperty('--character-size', cfg.size + 'px');
       root.appendChild(el);
@@ -611,6 +612,10 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     get solo() { return solo; },
     get bridgeInfo() { return bridgeInfo; },
     get bridge() { return BRIDGE; },
+    previewFace(next) {
+      facePreview = next;
+      applyFace();
+    },
     setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
     attachAudio, stop, probe, ensureTimeline, capture,
   };

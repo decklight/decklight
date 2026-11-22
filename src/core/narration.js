@@ -2207,7 +2207,7 @@ export function createNarration({
     else if (narrView === 'engines' || narrView === 'langs' || narrView === 'library') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('character');
     else if (narrView === 'card' && narrConfirm) { narrConfirm = null; narrSel = 0; renderNarr('card'); }
-    else if (narrView === 'face') { narrFace = null; renderNarr('card'); }
+    else if (narrView === 'face') renderNarr(narrFace.from);
     else if (narrView === 'card' || narrView === 'add') renderNarr('tracks');
     else if (narrView === 'voices' || narrView === 'character') renderNarr('tracks');
     else closeNarrPicker();
@@ -2576,40 +2576,56 @@ export function createNarration({
     narrSel = 0;   // the yes, first
     renderNarr('card');
   }
-  // ── Place my face (FACE_LAYOUT): where the filmed face shows on a slide ──
-  // Chosen here, written to the slide's data-face, read by the one reader
-  // the deck and the video share. Nothing is filmed again: it only says how
-  // the footage you already have is shown.
-  let narrFace = null;   // the placement being chosen: { kind, zoom, at, byBeat }
-  const deckCorner = () => config.narration?.character?.position ?? 'br';
-  const CORNER_ORDER = ['br', 'bl', 'tl', 'tr'];
+  // Placement belongs to the slide, independent of which voice plays it.
+  let narrFace = null;
+  const CORNER_ORDER = ['tl', 'tr', 'bl', 'br'];
+  const deckCorner = () => {
+    const at = config.narration?.character?.position;
+    return CORNER_ORDER.includes(at) ? at : 'br';
+  };
   const cornerSaid = (at) => Object.keys(FACE_CORNERS).find((k) => FACE_CORNERS[k] === at).replace('-', ' ');
-  function openFacePlacement(t) {
-    const attr = instance._sections?.[instance.state.slide - 1]?.getAttribute('data-face') ?? null;
-    const at = faceLayout(attr, 1);
-    narrCardOf = t;
-    narrFace = { kind: at.kind, zoom: at.zoom, at: at.at ?? deckCorner(), byBeat: parseFaceLayout(attr).rules.some((r) => r.from > 1) };
-    narrSel = 0;
+  function openFacePlacement(from, scope = 'slide') {
+    const slide = instance.state.slide;
+    const attr = scope === 'slide' ? instance._sections?.[slide - 1]?.getAttribute('data-face') : null;
+    const placement = faceLayout(attr, 1);
+    narrFace = {
+      ...placement, from, scope, slide, at: placement.at ?? deckCorner(),
+      byBeat: parseFaceLayout(attr).rules.some((r) => r.from > 1),
+    };
     renderNarr('face');
   }
-  /** The placement as data-face writes it: the deck's own corner is no attribute at all. */
-  const faceChosen = () => faceValue(narrFace.kind === 'corner' && narrFace.at === deckCorner() ? { kind: 'corner' } : narrFace);
-  async function saveFace(slides) {
-    const face = faceChosen();
+  async function saveFace(slides, face) {
+    const draft = narrFace;
+    const base = editBase();
+    if (base == null || draft.saving) return;
+    draft.saving = true;
+    const isDefault = draft.scope === 'deck';
+    const path = isDefault ? '/deck/edit/config' : '/deck/edit/slide/face';
+    const corner = draft.at;
+    const payload = isDefault ? { set: { 'narration.character.position': corner } } : { slides, face };
     try {
-      const r = await fetch(`${editBase()}/deck/edit/slide/face`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slides, face }),
+      const r = await fetch(base + path, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
       });
-      if (!r.ok) throw new Error(String(r.status));
-    } catch (e) { toast(`could not place the face: ${e.message}`, 4000); return; }
-    for (const n of slides) {
-      const sec = instance._sections?.[n - 1];
-      if (face) sec?.setAttribute('data-face', face); else sec?.removeAttribute('data-face');
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? r.status);
+    } catch (e) {
+      toast(`could not save placement: ${e.message}`, 4000);
+      return;
+    } finally {
+      draft.saving = false;
     }
-    const where = narrFace.kind === 'hide' ? 'hidden' : narrFace.kind === 'full' ? `full screen at ${narrFace.zoom}×` : `in the ${cornerSaid(narrFace.at)} corner`;
-    toast(`your face: ${where} on ${slides.length === 1 ? `slide ${slides[0]}` : `${slides.length} slides`} · ${UNDO_CHORD} undoes it`, 3200);
-    narrFace = null;
-    renderNarr('card');
+    if (isDefault) {
+      config.narration ??= {};
+      config.narration.character ??= {};
+      config.narration.character.position = corner;
+    } else {
+      for (const n of slides) {
+        const sec = instance._sections?.[n - 1];
+        if (face) sec?.setAttribute('data-face', face); else sec?.removeAttribute('data-face');
+      }
+    }
+    toast(`placement saved · ${UNDO_CHORD} undoes it`, 3200);
+    if (narrEl && narrFace === draft) renderNarr(draft.from);
   }
   /** The live voice into a folder: the synthesized recorder, offered where a voice is added or kept. */
   function saveLiveRow() {
@@ -2644,6 +2660,10 @@ export function createNarration({
   function renderNarr(view) {
     const cameFrom = narrView;
     const customTone = liveCfg.tone === 'Custom' ? liveCfg.style : '';
+    if (cameFrom === 'face' && view !== 'face') {
+      narrFace = null;
+      character.previewFace(null);
+    }
     // The same view again — an answer from the server or the bridge, or a
     // toggle — keeps the row you were on: a late answer that put the
     // highlight back on the current voice would send your next → to the
@@ -2888,9 +2908,9 @@ export function createNarration({
         });
         if (k?.faces?.length) {
           narrRows.push({
-            text: 'Place my face…',
+            text: 'Face & character placement…',
             flavor: `where it shows on slide ${instance.state.slide}, and how zoomed · nothing is recorded again`,
-            commit: () => openFacePlacement(t),
+            commit: () => openFacePlacement('card'),
           });
         }
       } else if (!t.manifest && rangePicker) {
@@ -2916,66 +2936,85 @@ export function createNarration({
       }
       voiceTail(t);
     } else if (view === 'face' && narrFace) {
-      const t = narrCardOf;
-      const k = knownOf(t);
-      const sl = instance.state.slide;
-      const filmed = k?.faces ?? [];
-      head.textContent = `my face on slide ${sl}`;
-      cardTags(card, ['mine', 'recorded']);
-      // a sketch of the slide, with the face where it would be
+      const draft = narrFace;
+      const { slide, scope, from } = draft;
+      const isDefault = scope === 'deck';
+      const filmed = from === 'card' ? knownOf(narrCardOf)?.faces ?? [] : [];
+      head.textContent = isDefault ? 'Face & character · deck default' : `Face & character · slide ${slide}`;
+      character.previewFace(draft);
+      const change = (values) => {
+        Object.assign(draft, values);
+        renderNarr('face');
+      };
       const sketch = Object.assign(document.createElement('div'), { className: 'narr-face-sketch' });
-      sketch.setAttribute('aria-hidden', 'true');
-      sketch.appendChild(Object.assign(document.createElement('span'), {
-        className: `narr-face-dot narr-face-${narrFace.kind} narr-face-at-${narrFace.at}`,
-        textContent: narrFace.kind === 'full' ? `${narrFace.zoom}×` : '',
-      }));
+      sketch.setAttribute('role', 'group');
+      sketch.setAttribute('aria-label', 'Slide placement preview');
+      const previewButton = (label, className, selected, choose) => {
+        const button = Object.assign(document.createElement('button'), { type: 'button', className, textContent: label });
+        button.setAttribute('aria-pressed', String(selected));
+        button.addEventListener('click', () => {
+          choose();
+          narrEl?.querySelector(`button[aria-label="${button.getAttribute('aria-label')}"]`)?.focus();
+        });
+        return button;
+      };
+      for (const at of CORNER_ORDER) {
+        const corner = previewButton('', `narr-face-dot narr-face-at-${at}`,
+          draft.kind === 'corner' && draft.at === at, () => change({ kind: 'corner', at }));
+        corner.setAttribute('aria-label', cornerSaid(at));
+        sketch.appendChild(corner);
+      }
+      if (draft.kind === 'full') {
+        const full = Object.assign(document.createElement('span'), {
+          className: 'narr-face-full-preview', textContent: `${draft.zoom}×`,
+        });
+        full.style.setProperty('--preview-size', `${32 + 18 * draft.zoom}px`);
+        sketch.appendChild(full);
+      }
       card.appendChild(sketch);
-      cardFacts(card, [
-        filmed.includes(sl) ? ['filmed', 'yes, with this slide'] : ['filmed', 'no: this slide was recorded without the camera', true],
-        ...(narrFace.byBeat ? [['now', 'it changes beat by beat; saving sets one place for the whole slide', true]] : []),
-        ['also', 'places the 2D character, when it narrates instead'],
-      ]);
-      const setKind = (kind) => () => { narrFace.kind = kind; renderNarr('face'); };
-      const WHERE = 'where';
-      narrRows.push({ group: WHERE, text: 'In the corner', cur: narrFace.kind === 'corner', commit: setKind('corner') });
-      if (narrFace.kind === 'corner') {
-        const turn = (d) => {
-          const i = CORNER_ORDER.indexOf(narrFace.at);
-          narrFace.at = CORNER_ORDER[(i + d + CORNER_ORDER.length) % CORNER_ORDER.length];
-          renderNarr('face');
-        };
-        narrRows.push({
-          group: WHERE, text: 'Which corner', sub: true,
-          stepper: { value: cornerSaid(narrFace.at), less: () => turn(-1), more: () => turn(1) },
-          commit: () => turn(1),
-        });
-      }
-      narrRows.push({ group: WHERE, text: 'Full screen', flavor: 'the slide steps aside', cur: narrFace.kind === 'full', commit: setKind('full') });
-      if (narrFace.kind === 'full') {
-        const zoom = (d) => {
-          narrFace.zoom = Math.min(FACE_ZOOM_MAX, Math.max(1, narrFace.zoom + d));
-          renderNarr('face');
-        };
-        narrRows.push({
-          group: WHERE, text: 'Zoom', sub: true, flavor: 'how close your face is',
-          stepper: { value: `${narrFace.zoom}×`, less: () => zoom(-0.5), more: () => zoom(0.5) },
-          commit: () => zoom(narrFace.zoom >= FACE_ZOOM_MAX ? 1 - FACE_ZOOM_MAX : 0.5),
-        });
-      }
-      narrRows.push({ group: WHERE, text: 'Hidden', flavor: 'the voice plays on', cur: narrFace.kind === 'hide', commit: setKind('hide') });
-      const why = editBase() == null ? 'needs write mode — it writes the slide' : null;
+      if (draft.byBeat) cardFacts(card, [['now', 'Saving sets one placement for the whole slide.', true]]);
       narrRows.push({
-        text: `Save for slide ${sl}`,
-        blocked: why,
-        commit: () => (why ? toast(why, 4000) : saveFace([sl])),
+        text: isDefault ? `Placement for slide ${slide}…` : 'Deck default…',
+        flavor: isDefault ? 'Set an override for this slide' : `Current default: ${cornerSaid(deckCorner())}`,
+        commit: () => openFacePlacement(from, isDefault ? 'slide' : 'deck'),
       });
-      if (filmed.length > 1) {
-        narrRows.push({
-          text: `Save for every filmed slide`,
-          flavor: `${filmed.length} slides`,
-          blocked: why,
-          commit: () => (why ? toast(why, 4000) : saveFace(filmed)),
-        });
+      if (!isDefault) {
+        narrRows.push({ text: 'Corner', cur: draft.kind === 'corner', commit: () => change({ kind: 'corner' }) });
+        narrRows.push({ text: 'Full screen', cur: draft.kind === 'full', commit: () => change({ kind: 'full' }) });
+        if (draft.kind === 'full') {
+          const zoom = (delta) => change({ zoom: Math.min(FACE_ZOOM_MAX, Math.max(1, draft.zoom + delta)) });
+          const presets = Object.assign(document.createElement('div'), { className: 'narr-face-presets' });
+          presets.setAttribute('role', 'group');
+          presets.setAttribute('aria-label', 'Full-screen zoom presets');
+          for (const scale of [1, 1.5, 2, 3, FACE_ZOOM_MAX]) {
+            const label = `${scale}×`;
+            const preset = previewButton(label, '', draft.zoom === scale, () => change({ zoom: scale }));
+            preset.setAttribute('aria-label', label);
+            presets.appendChild(preset);
+          }
+          card.appendChild(presets);
+          narrRows.push({
+            text: 'Zoom', sub: true,
+            stepper: { value: `${draft.zoom}×`, less: () => zoom(-0.5), more: () => zoom(0.5) },
+            commit: () => zoom(draft.zoom >= FACE_ZOOM_MAX ? 1 - FACE_ZOOM_MAX : 0.5),
+          });
+        }
+        narrRows.push({ text: 'Hidden', cur: draft.kind === 'hide', commit: () => change({ kind: 'hide' }) });
+      }
+      const blocked = editBase() == null ? 'needs write mode to save placement' : null;
+      const save = (slides, face) => () => blocked ? toast(blocked, 4000) : saveFace(slides, face);
+      narrRows.push({
+        text: isDefault ? 'Save deck default' : `Save for slide ${slide}`, blocked,
+        commit: save([slide], faceValue(draft)),
+      });
+      if (!isDefault) {
+        narrRows.push({ text: 'Use deck default for this slide', blocked, commit: save([slide], '') });
+        if (filmed.length > 1) {
+          narrRows.push({
+            text: 'Save for every filmed slide', flavor: `${filmed.length} slides`, blocked,
+            commit: save(filmed, faceValue(draft)),
+          });
+        }
       }
     } else if (view === 'add') {
       head.textContent = 'add a voice';
@@ -3015,6 +3054,7 @@ export function createNarration({
         charProbed = true;
         character.probe().then(() => { if (narrEl && narrView === 'character') renderNarr('character'); });
       }
+      narrRows.push({ text: 'Face & character placement…', commit: () => openFacePlacement('character') });
       const bi = character.bridgeInfo;
       const vids = bi?.engines?.video ?? [];
       narrRows.push({ text: 'Off', cur: character.mode === 'off', commit: () => applyCharacter('off') });
@@ -3724,6 +3764,8 @@ export function createNarration({
     });
   }
   function closeNarrPicker() {
+    if (narrFace) character.previewFace(null);
+    narrFace = null;
     stopBusyRows();
     narrEl?.remove();
     narrEl = null;
@@ -5364,7 +5406,7 @@ export function createNarration({
     const says = micCamWhy
       ? `<span class="rec-check-why">${escapeHtml(micCamWhy)}: your voice is recorded without it</span>`
       : face
-        ? 'Your face is filmed with every beat and plays in the character\'s medallion with your voice. Afterwards, Place my face… (on your voice\'s card) moves it to another corner, full screen or out of the way, slide by slide.'
+        ? 'Your face is filmed with every beat and plays in the character\'s medallion with your voice. Afterwards, Face & character placement… (on your voice\'s card) moves it to another corner, full screen or out of the way, slide by slide.'
         : 'Film your face too, while you read: it plays with your voice in the deck and in its exported video.';
     return `<div class="rec-cam-row"><div class="rec-line"><span class="rec-seg" role="group" aria-label="film my face">${
       seg('on', '📹 film me too', face)}${seg('off', 'voice only', !face)}</span></div>
@@ -5569,7 +5611,7 @@ export function createNarration({
     const offer = useTrackRow(dir, 'Use my voice in this deck');
     card.innerHTML = `${recTop(stopped ? 'recording stopped' : 'your recording is saved', 'mine', 2)}
       <div class="rec-line rec-done-sum">${slides} slide${slides === 1 ? '' : 's'} · ${files} file${files === 1 ? '' : 's'}${secs ? ` · ${durationText(secs)}` : ''} · ${where}</div>
-      ${faces ? `<div class="rec-line rec-done-face">📹 your face on ${faces} slide${faces === 1 ? '' : 's'}: the character shows it with your voice whenever this track plays: V → My voice › → Place my face… chooses where, slide by slide</div>` : ''}
+      ${faces ? `<div class="rec-line rec-done-face">📹 your face on ${faces} slide${faces === 1 ? '' : 's'}: the character shows it with your voice whenever this track plays: V → My voice › → Face & character placement… chooses where, slide by slide</div>` : ''}
       ${faceWhy ? `<div class="rec-line rec-warn">${escapeHtml(faceWhy)}</div>` : ''}
       ${left ? `<div class="rec-line rec-done-left">stopped early: ${left} slide${left === 1 ? '' : 's'} not reached, left as ${left === 1 ? 'it was' : 'they were'}</div>` : ''}
       ${takeRows ? `<div class="rec-takes">${takeRows}</div>` : ''}
@@ -6103,6 +6145,10 @@ export function createNarration({
         if (e.key === 'Enter') { commitCustomTone(); return true; }
         if (e.key === 'Escape') { narrBack(); return true; }
         return false;
+      }
+      if (narrView === 'face' && e.key === 'Enter' && e.target?.matches('.narr-face-sketch button, .narr-face-presets button')) {
+        e.target.click();
+        return true;
       }
       switch (e.key) {
         case 'ArrowDown': selectNarrRow(narrSel + 1, { scroll: true }); break;

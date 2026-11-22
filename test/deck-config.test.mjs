@@ -49,6 +49,17 @@ test('the narration pauses nest under one key, which goes with its last pause', 
   assert.deepEqual(JSON.parse(inner(setDeckConfig(own, { 'narration.beatPause': null }))).narration, { voice: 'ada' });
 });
 
+test('the character corner updates one key and preserves the existing character and voice', () => {
+  const html = data('{"narration":{"character":{"mode":"viseme","position":"bl"},"voice":"ada"}}');
+  const key = 'narration.character.position';
+  const updated = setDeckConfig(html, { [key]: 'tr' });
+  assert.deepEqual(JSON.parse(inner(updated)).narration, { character: { mode: 'viseme', position: 'tr' }, voice: 'ada' });
+  assert.equal(deckSettings(updated).values[key], 'tr');
+  const bare = data(BLOCK);
+  assert.equal(setDeckConfig(setDeckConfig(bare, { [key]: 'tl' }), { [key]: 'br' }), bare);
+  assert.throws(() => setDeckConfig(html, { [key]: 'center' }), /not a value/);
+});
+
 test('a logo is one object: pictures beside the deck, a height, a corner', () => {
   const logo = { onLight: 'brand/logo.svg', onDark: 'brand/logo-dark.svg', height: 28, position: 'top-right' };
   const out = setDeckConfig(data(BLOCK), { logo });
