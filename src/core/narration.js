@@ -891,7 +891,7 @@ export function createNarration({
   // the lookahead worker, beginSentence per clip); recorded mode loads
   // slide-NN sidecar files. Configured in the V picker ("Character…").
   const character = createCharacter({
-    root, config, debugLog, toast,
+    root, config, debugLog, toast, onModeChange: refreshWritePreview,
     // where a filmed face shows, slide by slide and beat by beat (FACE_LAYOUT)
     faceOf: (sl) => instance._sections?.[sl - 1]?.getAttribute('data-face') ?? null,
   });
@@ -1936,7 +1936,10 @@ export function createNarration({
   /** The deck's own voice, for a gesture that is itself the choice (playDefault, below; the hint). */
   function playDefaultVoice() {
     if (narrating) return toggleNarration();   // the button stops it too
-    if (!narrSet) narrSet = narrSets[0] ?? (liveFound ? LIVE_TRACK : null);
+    if (!narrSet) {
+      narrSet = narrSets[0] ?? (liveFound ? LIVE_TRACK : null);
+      refreshWritePreview();
+    }
     if (narrSet) toggleNarration();
   }
   async function toggleNarration() {
@@ -2168,6 +2171,7 @@ export function createNarration({
           ? { track: trackKey(narrSet), dir: narrSet.dir }
           : { off: true });
     } catch { /* ignore */ }
+    refreshWritePreview();
   }
   function applyLive(toneLabel, styleText) {
     liveCfg = { voice: liveDraft ?? liveCfg.voice, tone: toneLabel, style: styleText };
@@ -2404,6 +2408,10 @@ export function createNarration({
    */
   let narrKnown = new Map();   // track dir → { dir, engine, voice, style, mine, drift, slides, … }
   const dirKey = (dir) => String(dir ?? '').replace(/^\.\//, '').replace(/\/+$/, '');
+  function rememberTracks(tracks) {
+    narrKnown = new Map(tracks.map((t) => [dirKey(t.dir), t]));
+    refreshWritePreview();
+  }
   const knownOf = (t) => (t?.dir ? narrKnown.get(dirKey(t.dir)) ?? null : null);
   /** Your own voice: the recorder says so in the manifest; `voices/me` before one is read. */
   const isMine = (t) => (knownOf(t) ? knownOf(t).mine === true : dirKey(t?.dir) === 'voices/me');
@@ -2578,6 +2586,44 @@ export function createNarration({
   }
   // Placement belongs to the slide, independent of which voice plays it.
   let narrFace = null;
+  const writePreviewKey = 'decklight-face-preview:' + location.pathname;
+  let writePreviewOn = readPref(writePreviewKey) !== 'off';
+  let writing = false;
+  const currentFaceTrack = () => knownOf(narrSet);
+  const canPreviewFace = () => writing && (character.mode === 'viseme' || !!currentFaceTrack()?.faces?.length);
+
+  function refreshWritePreview() {
+    if (!writePreviewOn || !canPreviewFace()) {
+      character.showWritePreview(null);
+      return;
+    }
+    const { slide, step } = instance.state;
+    const filmed = currentFaceTrack()?.faces?.includes(slide);
+    const kind = character.mode === 'viseme' ? 'viseme' : filmed ? 'filmed' : null;
+    const attr = instance._sections?.[slide - 1]?.getAttribute('data-face');
+    let at = faceLayout(attr, step + 1);
+    if (narrFace?.slide === slide) {
+      if (narrFace.scope === 'slide') at = narrFace;
+      else if (at.kind === 'corner' && !at.at) at = { ...at, at: narrFace.at };
+    }
+    character.showWritePreview(kind, at);
+  }
+  async function setWriteMode(on) {
+    writing = on;
+    refreshWritePreview();
+    if (!on || !narrSets.length) return;
+    const tracks = await knownTracks();
+    rememberTracks(tracks);
+  }
+  function toggleWritePreview() {
+    writePreviewOn = !writePreviewOn;
+    writePref(writePreviewKey, writePreviewOn ? null : 'off');
+    refreshWritePreview();
+  }
+  instance.on('slide', refreshWritePreview);
+  instance.on('build', refreshWritePreview);
+  instance.on('rescan', refreshWritePreview);
+
   const CORNER_ORDER = ['tl', 'tr', 'bl', 'br'];
   const deckCorner = () => {
     const at = config.narration?.character?.position;
@@ -2587,7 +2633,7 @@ export function createNarration({
   function openFacePlacement(from, scope = 'slide') {
     const slide = instance.state.slide;
     const attr = scope === 'slide' ? instance._sections?.[slide - 1]?.getAttribute('data-face') : null;
-    const placement = faceLayout(attr, 1);
+    const placement = faceLayout(attr, instance.state.step + 1);
     narrFace = {
       ...placement, from, scope, slide, at: placement.at ?? deckCorner(),
       byBeat: parseFaceLayout(attr).rules.some((r) => r.from > 1),
@@ -2624,6 +2670,7 @@ export function createNarration({
         if (face) sec?.setAttribute('data-face', face); else sec?.removeAttribute('data-face');
       }
     }
+    refreshWritePreview();
     toast(`placement saved · ${UNDO_CHORD} undoes it`, 3200);
     if (narrEl && narrFace === draft) renderNarr(draft.from);
   }
@@ -2663,6 +2710,7 @@ export function createNarration({
     if (cameFrom === 'face' && view !== 'face') {
       narrFace = null;
       character.previewFace(null);
+      refreshWritePreview();
     }
     // The same view again — an answer from the server or the bridge, or a
     // toggle — keeps the row you were on: a late answer that put the
@@ -2942,6 +2990,7 @@ export function createNarration({
       const filmed = from === 'card' ? knownOf(narrCardOf)?.faces ?? [] : [];
       head.textContent = isDefault ? 'Face & character · deck default' : `Face & character · slide ${slide}`;
       character.previewFace(draft);
+      refreshWritePreview();
       const change = (values) => {
         Object.assign(draft, values);
         renderNarr('face');
@@ -3750,7 +3799,7 @@ export function createNarration({
     // if there is news, and only on the views that show it
     knownTracks().then((tracks) => {
       const had = narrKnown.size;
-      narrKnown = new Map(tracks.map((t) => [dirKey(t.dir), t]));
+      rememberTracks(tracks);
       if (!narrEl || !(had || narrKnown.size)) return;
       if (view === 'record' && narrView !== 'card' && narrView !== 'add') return;
       if (view === 'record') renderNarr(route());
@@ -3764,8 +3813,11 @@ export function createNarration({
     });
   }
   function closeNarrPicker() {
-    if (narrFace) character.previewFace(null);
-    narrFace = null;
+    if (narrFace) {
+      narrFace = null;
+      character.previewFace(null);
+      refreshWritePreview();
+    }
     stopBusyRows();
     narrEl?.remove();
     narrEl = null;
@@ -4214,7 +4266,7 @@ export function createNarration({
       toast(`↔ ${dir}/ was not realigned — ${String(e.message ?? e)}`, 7000);
     }
     const tracks = await knownTracks();
-    narrKnown = new Map(tracks.map((t) => [dirKey(t.dir), t]));
+    rememberTracks(tracks);
     if (narrEl && narrView === 'tracks') renderNarr('tracks');
   }
   async function useRecordedTrack(btn, dir, cfg) {
@@ -6006,6 +6058,9 @@ export function createNarration({
     const faces = all.filter((d) => d.face).length;
     // filmed: the character shows it, in the medallion, the moment the track plays
     if (faces && character.mode !== 'video') character.setMode('video');
+    if (writing && toDisk && dirKey(narrSet?.dir) === dirKey(dir.name)) {
+      knownTracks().then(rememberTracks);
+    }
     const left = stopped ? list.slice(s).filter((x) => !saved.has(x)).length : 0;
     closeMic();
     if (run !== micRun) return;
@@ -6177,7 +6232,8 @@ export function createNarration({
   });
 
   return {
-    character,
+    character, setWriteMode, canPreviewFace, toggleWritePreview,
+    get writePreviewOn() { return writePreviewOn; },
     /** ⎵ and P — start, pause, resume. The whole verb, in one place. */
     playPause,
     /**
