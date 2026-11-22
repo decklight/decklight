@@ -2643,6 +2643,7 @@ export function createNarration({
   }
   function renderNarr(view) {
     const cameFrom = narrView;
+    const customTone = liveCfg.tone === 'Custom' ? liveCfg.style : '';
     // The same view again — an answer from the server or the bridge, or a
     // toggle — keeps the row you were on: a late answer that put the
     // highlight back on the current voice would send your next → to the
@@ -2823,7 +2824,9 @@ export function createNarration({
       if (liveEngine && liveStylable) {
         narrRows.push({
           text: 'Change tone…',
-          flavor: liveCfg.tone,
+          flavor: customTone || liveCfg.tone,
+          ellipsizeFlavor: !!customTone,
+          title: customTone,
           commit: () => { liveDraft = liveCfg.voice; renderNarr('tones'); },
         });
       }
@@ -3408,8 +3411,10 @@ export function createNarration({
       narrRows.push({
         text: 'Custom…',
         group: 'your own',
-        // the tone row says when the typed tone will not reach ElevenLabs as written
-        ...(custom && toneCut(liveCfg.style) ? { flavor: toneCut(liveCfg.style) } : {}),
+        flavor: customTone,
+        ellipsizeFlavor: !!customTone,
+        title: customTone,
+        toneNote: customTone ? toneCut(customTone) : null,
         cur: narrSet?.live && custom,
         commit: () => renderNarr('custom'),
       });
@@ -3551,7 +3556,19 @@ export function createNarration({
         const flavor = document.createElement('span');
         flavor.className = 'narr-flavor';
         flavor.textContent = row.flavor;
-        label.appendChild(flavor);
+        if (row.ellipsizeFlavor) {
+          const summary = document.createElement('span');
+          summary.className = 'narr-tone-summary';
+          summary.append(...label.childNodes, flavor);
+          label.appendChild(summary);
+        } else {
+          label.appendChild(flavor);
+        }
+      }
+      if (row.toneNote) {
+        label.appendChild(Object.assign(document.createElement('span'), {
+          className: 'narr-flavor narr-tone-note', textContent: row.toneNote,
+        }));
       }
       el.appendChild(label);
       // The fix gets its own line rather than joining the flavor: it is a
