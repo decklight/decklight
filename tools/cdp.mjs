@@ -16,6 +16,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { chromeArgs } from './chrome.mjs';
 
 const LISTENING = /DevTools listening on (ws:\/\/\S+)/;
@@ -28,17 +29,28 @@ const LISTENING = /DevTools listening on (ws:\/\/\S+)/;
  */
 export async function openPage(bin, { w, h, signal, startupMs = 15000, args = [] } = {}) {
   if (typeof WebSocket === 'undefined') throw new Error('animated capture needs Node 22 or newer (no WebSocket client here)');
+  signal?.throwIfAborted();
   const profile = mkdtempSync(join(tmpdir(), 'decklight-cdp-'));
   const child = spawn(bin, chromeArgs(
     '--hide-scrollbars', '--autoplay-policy=no-user-gesture-required',
     `--window-size=${w},${h}`, '--remote-debugging-port=0', `--user-data-dir=${profile}`, ...args, 'about:blank',
-  ), { stdio: ['ignore', 'ignore', 'pipe'], signal });
+  ), { stdio: ['ignore', 'ignore', 'pipe'] });
   child.on('error', () => {});   // an abort kills the child; the rejection below says why
-  const exited = new Promise((ok) => child.once('exit', ok));
+  const exited = new Promise((ok) => child.once('close', ok));
+  let stopBrowser = () => child.kill();
+  const abort = () => stopBrowser();
+  signal?.addEventListener('abort', abort, { once: true });
   // the profile goes only once Chrome has let go of it — it writes on the way out
   const cleanup = async () => {
-    if (child.exitCode === null && child.signalCode === null) { child.kill(); await exited; }
-    rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+    signal?.removeEventListener('abort', abort);
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await exited;
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+    } catch (error) {
+      // Windows can hold a profile lock briefly after the browser exits.
+      if (process.platform !== 'win32' || !['EPERM', 'EBUSY', 'ENOTEMPTY'].includes(error.code)) throw error;
+    }
   };
 
   let endpoint;
@@ -46,23 +58,37 @@ export async function openPage(bin, { w, h, signal, startupMs = 15000, args = []
     endpoint = await new Promise((ok, no) => {
       let seen = '';
       const timer = setTimeout(() => no(new Error('Chrome did not open its debugging port')), startupMs);
-      child.stderr.on('data', (d) => {
+      const readEndpoint = (d) => {
         seen += d;
         const m = LISTENING.exec(seen);
-        if (m) { clearTimeout(timer); ok(m[1]); }
-      });
+        if (m) {
+          child.stderr.off('data', readEndpoint);
+          child.stderr.resume();
+          clearTimeout(timer);
+          ok(m[1]);
+        }
+      };
+      child.stderr.on('data', readEndpoint);
       child.on('exit', () => { clearTimeout(timer); no(new Error('Chrome exited before it was ready')); });
+      child.once('error', (error) => { clearTimeout(timer); no(error); });
     });
   } catch (e) { await cleanup(); throw e; }
 
   const ws = new WebSocket(endpoint);
   try {
-    await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = () => no(new Error('could not reach Chrome\'s debugging port')); });
+    await new Promise((ok, no) => {
+      const fail = () => { clearTimeout(timer); no(new Error('could not reach Chrome\'s debugging port')); };
+      const timer = setTimeout(fail, startupMs);
+      ws.onopen = () => { clearTimeout(timer); ok(); };
+      ws.onerror = fail;
+      exited.then(fail);
+    });
   } catch (e) { await cleanup(); throw e; }
 
   let id = 0;
   const pending = new Map();
   const waiting = [];   // { method, sessionId, ok, no }
+  const listeners = new Set();
   // Chrome gone mid-capture: every call still waiting on it fails, rather than
   // the render hanging on an answer that will never come
   ws.onclose = () => {
@@ -80,6 +106,7 @@ export async function openPage(bin, { w, h, signal, startupMs = 15000, args = []
     } else {
       const i = waiting.findIndex((x) => x.method === msg.method && x.sessionId === msg.sessionId);
       if (i >= 0) waiting.splice(i, 1)[0].ok(msg.params);
+      for (const listener of listeners) listener(msg);
     }
   };
   const call = (method, params = {}, sessionId) => new Promise((ok, no) => {
@@ -87,8 +114,15 @@ export async function openPage(bin, { w, h, signal, startupMs = 15000, args = []
     pending.set(n, { ok, no, method });
     ws.send(JSON.stringify({ id: n, method, params, ...(sessionId ? { sessionId } : {}) }));
   });
+  stopBrowser = () => {
+    if (ws.readyState !== WebSocket.OPEN) return child.kill();
+    call('Browser.close').catch(() => {});
+    const timer = setTimeout(() => child.kill(), 1000);
+    exited.then(() => clearTimeout(timer));
+  };
 
   try {
+    signal?.throwIfAborted();
     const { targetId } = await call('Target.createTarget', { url: 'about:blank' });
     const { sessionId } = await call('Target.attachToTarget', { targetId, flatten: true });
     const send = (method, params) => call(method, params, sessionId);
@@ -101,6 +135,13 @@ export async function openPage(bin, { w, h, signal, startupMs = 15000, args = []
       send,
       /** The page's next `method` event, its params. */
       once,
+      on(method, callback) {
+        const listener = (msg) => {
+          if (msg.method === method && msg.sessionId === sessionId) callback(msg.params);
+        };
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
       /** Run an expression in the page; its (awaited) value comes back. */
       async evaluate(expression) {
         const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
@@ -116,11 +157,20 @@ export async function openPage(bin, { w, h, signal, startupMs = 15000, args = []
         await loaded;
       },
       /** A PNG of the viewport, as a Buffer. */
-      async screenshot() {
-        const { data } = await send('Page.captureScreenshot', { format: 'png' });
+      async screenshot(format = 'png') {
+        const { data } = await send('Page.captureScreenshot', { format, optimizeForSpeed: true });
         return Buffer.from(data, 'base64');
       },
-      async close() { try { ws.close(); } catch { /* already gone */ } await cleanup(); },
+      async close() {
+        if (ws.readyState === WebSocket.OPEN) {
+          // Browser.close lets Chrome stop its renderer processes and release
+          // the profile before Windows tries to remove it.
+          call('Browser.close').catch(() => {});
+          await Promise.race([exited, delay(1500, undefined, { ref: false })]);
+        }
+        try { ws.close(); } catch { /* already gone */ }
+        await cleanup();
+      },
     };
   } catch (e) { try { ws.close(); } catch { /* gone */ } await cleanup(); throw e; }
 }

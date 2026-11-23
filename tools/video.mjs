@@ -8,46 +8,20 @@
 //                   [--narration <dir>] [--size 1280x720] [--fps 30] [--hold 5]
 //                   [--build-hold <s>] [--theme <name> | --gen <b64url>] [--slides a-b] [--voiceover]
 //
-// A picture per FRAME — a narrated slide is one frame, fully built, held for its
-// audio; a silent slide builds as it goes, one frame per step — muxed with the
-// audio into one mp4, so a deck becomes a watchable, shareable video in one
-// command. Every frame of a silent slide holds --hold, builds included, so a
-// build lands at the pace the deck moves at; --build-hold paces the build-up
-// frames alone. Narration resolves --narration <dir> → <deckdir>/voiceover/
-// (the manifest tools/voiceover.mjs writes) → a fully silent deck where every
-// slide holds --hold seconds (per-slide override: data-video-hold="8" on the
-// section). Silent slides still carry a silent audio segment (anullsrc) so the
-// concatenated audio track stays continuous.
+// The timeline is shared by both render modes. Exact renders slides in a
+// bounded pool, prepares one document per beat, and seeks its animation and
+// mouth pose on the output frame clock. It encodes the beat with its whole
+// audio clip and caches completed slides. Live plays that timeline once
+// against the browser's audio clock and records its viewport in real time.
 //
-// A frame is a still unless the slide moves. Capture of a still is the
-// tools/shot.mjs mechanism: one one-shot headless Chrome per frame against the
-// deck served over http://127.0.0.1 at #/n/999 (an oversized step clamps to
-// the last build, so every slide renders fully built). The deck
-// is served under the `--no-trust` CSP, NOT opened over file:// with
-// --allow-file-access-from-files (#229): that flag let a deck's own JS read any
-// local file and exfiltrate it, and video renders decks you may not have
-// vetted. No puppeteer, no new deps.
-//
-// A slide that MOVES (an SVG <animate*>, a CSS animation, a build that
-// transitions in) is captured as a frame sequence at --fps instead (#914):
-// tools/cdp.mjs holds one page open over Node ≥22's own WebSocket, pauses every
-// animation, and sets the clock by hand, tick by tick — so the frames are
-// exactly 1/fps apart and a loop starts from its beginning when the slide
-// appears, not mid-cycle from page load. Chrome's screencast would give
-// whatever rate it paints at; a hand-set clock gives the rate asked for, the
-// same every run. A build's own transition plays in the first MOTION_WINDOW_S
-// of its frame (the rest is its last picture held), so audio timing never
-// moves: the segment lasts exactly as long as the still would have. Below
-// Node 22 a moving slide renders as a still, said once. Animation the page
-// drives from script (the character overlay, a terminal typing) is not on that
-// clock and stays still, and a cut between slides stays a cut. How far each slide builds, and whether it moves, is asked of the
-// deck itself in one extra load, because the grouping is the runtime's and a
-// second counter written here would be a copy that drifts.
+// Both render modes use the loopback render server's CSP. The capture process
+// never grants a deck file:// access to the rest of the machine.
 
 import { execFile, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
+import { availableParallelism, tmpdir } from 'node:os';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { chromeBin, chromeArgs } from './chrome.mjs';
@@ -55,7 +29,7 @@ import { openPage } from './cdp.mjs';
 import { argReader, isMain } from './args.mjs';
 import { renderThemeParams } from './render-theme.mjs';
 import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
-import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './video-options.mjs';
+import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_RENDER_MODES, valuesOf } from './video-options.mjs';
 import { splitSentences, speechRuns, stripAudioTags, PAUSE_MARK, CLICK_MARK, canonMarks } from './sentences.mjs';
 import { serveForRender } from '../cli/serve.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
@@ -65,6 +39,8 @@ import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } fro
 import { loadTtsConfig } from './tts-setup.mjs';
 import { createTtsCache } from './tts-cache.mjs';
 import { faceLayout } from './face-layout.mjs';
+import { videoCache, videoDigest, videoMarkup } from './video-cache.mjs';
+import { captureLive } from './video-live.mjs';
 
 const run = promisify(execFile);
 
@@ -92,6 +68,11 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --subtitles <how>    none (the default) · embed (a track the player can turn
                        on) · file (a .srt beside the video, .vtt for webm) —
                        what the narration says, timed against its audio
+  --render <mode>     exact (default, repeatable) or live (real-time capture,
+                      may drop frames and cannot resume)
+  --parallel <n>      maximum Chrome pages for exact render (default: up to 6,
+                      bounded by available cores); 1 renders serially
+  --no-cache         render every slide again in exact mode
   --size <WxH>         frame size (default 1280x720; both must be even)
   --fps <n>            video frame rate (default 30)
   --hold <s>           seconds a slide without narration holds (default 5;
@@ -578,9 +559,9 @@ export function concatList(segments) {
  * when there are subtitles to embed, mapping them in as a track of the
  * container's own kind (the only step that encodes anything, and it is text).
  */
-export function concatArgs(listFile, out, { format = 'mp4', subtitles = null } = {}) {
+export function concatArgs(input, out, { format = 'mp4', subtitles = null, concat = true } = {}) {
   const enc = ENCODINGS[format];
-  return ['-y', '-f', 'concat', '-safe', '0', '-i', listFile,
+  return ['-y', ...(concat ? ['-f', 'concat', '-safe', '0'] : []), '-i', input,
     ...(subtitles ? ['-i', subtitles, '-map', '0', '-map', '1'] : []),
     '-c', 'copy', ...(subtitles ? ['-c:s', enc.subtitleCodec] : []),
     ...(enc.faststart ? ['-movflags', '+faststart'] : []), out];
@@ -946,6 +927,13 @@ export function motionPlan(plan, kinds, fps) {
   });
 }
 
+async function loadBeat(page, url, slide, step) {
+  // A hash-only navigation doesn't fire load. Start each beat fresh.
+  await page.navigate('about:blank');
+  await page.navigate(`${url}#/${slide}/${step}`);
+  await page.evaluate('(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => new Promise((r) => setTimeout(r, 400)))');
+}
+
 /**
  * Photograph a moving frame: one page, every animation paused, the clock set by
  * hand to 0, 1/fps, 2/fps… — so frames are exactly a tick apart whatever the
@@ -958,12 +946,9 @@ export function motionPlan(plan, kinds, fps) {
  * A slide's own entry animation (on the section) is finished, never played: a
  * still cuts between slides, and so does this.
  */
-export async function captureMotion(page, { url, slide, from = null, to, offset = 0, count, fps, frameAt }) {
-  // about:blank first: a URL that differs only in its hash is a same-document
-  // navigation, which never fires load — and every capture wants a fresh page
-  await page.navigate('about:blank');
-  await page.navigate(`${url}#/${slide}/${from ?? to}`);
-  await page.evaluate('(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => new Promise((r) => setTimeout(r, 400)))');
+export async function captureMotion(page, { url, slide, from = null, to, offset = 0, count, fps, frameAt, poses = [] }) {
+  await loadBeat(page, url, slide, from ?? to);
+  if (poses.length) await page.evaluate(characterPose(poses[0]));
   await page.evaluate(`window.__dlBefore = new Set(document.getAnimations()); window.__dlSeek = (t, offset) => {
     const own = (el) => el && el.tagName === 'SECTION' && !el.parentElement.closest('section');
     for (const s of document.querySelectorAll('svg')) { try { s.pauseAnimations(); s.setCurrentTime(t + offset); } catch {} }
@@ -980,36 +965,135 @@ export async function captureMotion(page, { url, slide, from = null, to, offset 
   if (from != null) {
     await page.evaluate(`new Promise((r) => { document.querySelector('.decklight').__decklight.goto(${slide}, ${to}); requestAnimationFrame(() => setTimeout(r, 0)); })`);
   }
+  let poseIndex = 0;
   for (let i = 0; i < count; i++) {
-    await page.evaluate(`window.__dlSeek(${i / fps}, ${offset})`);
+    const time = i / fps;
+    const prior = poseIndex;
+    while (poses[poseIndex + 1]?.audioOffset <= time) poseIndex++;
+    const pose = poseIndex !== prior ? poses[poseIndex] : null;
+    await page.evaluate(`${pose ? characterPose(pose) + '; ' : ''}window.__dlSeek(${time}, ${offset})`);
     await frameAt(i, await page.screenshot());
   }
 }
+
+function characterPose({ character, placement }) {
+  return `document.querySelector('.decklight').__decklight.character.capture(${JSON.stringify(character)}, ${JSON.stringify(placement)})`;
+}
+async function renderExact({ plan, kinds, chrome, url, settings, work, exec, signal, log, parallel, cache, markup, refresh }) {
+  const { w, h, fps, format, quality } = settings;
+  const slides = new Map();
+  const motion = motionPlan(plan, kinds, fps);
+  for (const [i, beat] of plan.entries()) {
+    if (!slides.has(beat.slide)) slides.set(beat.slide, []);
+    slides.get(beat.slide).push({ beat, motion: motion[i] });
+  }
+  const jobs = [...slides];
+  const outputs = [];
+  const failed = new AbortController();
+  const captureSignal = AbortSignal.any([signal, failed.signal]);
+  const run = (bin, args) => exec(bin, args, { signal: captureSignal });
+  let next = 0;
+  let reused = 0;
+  let firstError;
+  let pages = 0;
+  const shared = videoDigest(JSON.stringify([markup.shared, url.slice(url.indexOf('?')), settings, 2]));
+  const files = new Map();
+  const digestFile = (file) => {
+    if (!files.has(file)) files.set(file, videoDigest(readFileSync(file)));
+    return files.get(file);
+  };
+  async function worker() {
+    let page;
+    try {
+      while (next < jobs.length) {
+        captureSignal.throwIfAborted();
+        const index = next++;
+        const [slide, beats] = jobs[index];
+        const nn = String(slide).padStart(2, '0');
+        const key = videoDigest(JSON.stringify([shared, markup.slides[slide - 1], beats.map(({ beat, motion }) => [
+          beat, motion, beat.audio && digestFile(beat.audio), beat.face && digestFile(beat.face.clip),
+          beat.visemeFile && digestFile(beat.visemeFile),
+        ])]));
+        const cached = !refresh && await cache.load(slide, key, work);
+        if (cached) {
+          reused++;
+          outputs[index] = cached;
+          log(`  slide ${nn}: reused`);
+          continue;
+        }
+        if (!page && typeof WebSocket !== 'undefined') {
+          page = await openPage(chrome, { w, h, signal: captureSignal });
+          await page.send('Page.addScriptToEvaluateOnNewDocument', { source: 'performance.setResourceTimingBufferSize(4096)' });
+          pages++;
+        }
+        const resources = new Set();
+        const segments = [];
+        for (const [i, { beat, motion: m }] of beats.entries()) {
+          const id = `${nn}-${i}`;
+          const dir = join(work, 'frames-' + id);
+          const frame = join(dir, '00000.png');
+          mkdirSync(dir);
+          const count = beat.poses.length ? Math.ceil(beat.duration * fps) : m.count;
+          if (page && count) {
+            await captureMotion(page, {
+              url, slide, from: m.from, to: beat.step, offset: m.offset, count, fps, poses: beat.poses,
+              frameAt: (f, png) => writeFile(join(dir, String(f).padStart(5, '0') + '.png'), png, { signal: captureSignal }),
+            });
+          } else if (page) {
+            await loadBeat(page, url, slide, beat.step);
+            writeFileSync(frame, await page.screenshot());
+          } else {
+            if (beat.poses.length) throw new Error('animated character export needs Node 22 or later');
+            await run(chrome, chromeArgs(
+              '--hide-scrollbars', '--autoplay-policy=no-user-gesture-required', `--window-size=${w},${h}`,
+              '--virtual-time-budget=1500', `--screenshot=${frame}`, `${url}#/${slide}/${beat.step}`,
+            ));
+          }
+          if (page) {
+            for (const resource of await page.evaluate("performance.getEntriesByType('resource').map((entry) => entry.name)")) {
+              resources.add(resource);
+            }
+          }
+          const out = join(work, `seg-${id}.${format}`);
+          const args = segmentArgs({
+            ...beat, frame, frames: count && page ? { pattern: join(dir, '%05d.png'), count } : null,
+            fps, out, format, quality, size: { w, h },
+          });
+          // Each worker can encode at the same time. Use the same encoder
+          // thread count in serial and parallel exports.
+          await run('ffmpeg', ['-filter_threads', '1', '-filter_complex_threads', '1',
+            ...args.slice(0, -1), '-threads:v', '2', out]);
+          rmSync(dir, { recursive: true, force: true });
+          segments.push(out);
+          const where = beat.step === LAST_STEP ? '' : ` · build ${beat.step}`;
+          const moving = count && page ? ` · moving ${(count / fps).toFixed(1)}s` : '';
+          log(`  slide ${nn}${where}: ${beat.duration.toFixed(1)}s ${beat.audio ? basename(beat.audio) : '(silence)'}${moving}`);
+        }
+        outputs[index] = segments;
+        if (page && markup.slides.length >= slide) {
+          await cache.save(slide, key, segments, resources).catch((error) => console.warn(`  video cache: ${error.message}`));
+        }
+      }
+    } catch (error) {
+      firstError ??= error;
+      failed.abort();
+    } finally {
+      await page?.close();
+    }
+  }
+  log(`  exact: up to ${parallel} Chrome pages in parallel`);
+  const results = await Promise.allSettled(Array.from({ length: parallel }, worker));
+  firstError ??= results.find((result) => result.status === 'rejected')?.reason;
+  if (firstError) throw firstError;
+  log(`  exact: ${pages} Chrome pages ran in parallel; reused ${reused} of ${jobs.length} slides`);
+  return outputs.flat();
+}
+
 export function parseCharacterConfig(dom) {
   const m = /DECKLIGHT-CHARACTER (\{[^\n<]*\})/.exec(dom);
   if (!m) return {};
   try { return JSON.parse(m[1]); } catch { return {}; }
 }
-
-const CHARACTER_CAPTURE = `<script>
-(function () {
-  var params = new URLSearchParams(location.search);
-  var pose = params.get('character');
-  var at = Number(params.get('characterTime')) || 0;
-  if (!pose) return;
-  function apply() {
-    var d = document.querySelector('.decklight') && document.querySelector('.decklight').__decklight;
-    if (d && d.character && d.character.capture(pose, JSON.parse(params.get('characterPlacement')) || undefined)) {
-      var el = document.querySelector('.decklight-character');
-      // Separate Chrome loads would otherwise freeze every blink and idle
-      // sway at the same phase. Seek CSS/Web animations to the audio time.
-      if (el && el.getAnimations) el.getAnimations({ subtree: true }).forEach(function (a) { a.currentTime = at * 1000; });
-    }
-  }
-  if (document.readyState === 'complete') setTimeout(apply, 30);
-  else window.addEventListener('load', function () { setTimeout(apply, 30); });
-})();
-</script>`;
 
 export async function videoMain(argv, { exec: execRaw = run, log = console.log } = {}) {
   const { opt } = argReader(argv);
@@ -1045,27 +1129,29 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
     process.exit(1);
   }
 
-  // Stopped part-way — the edit server's stop route sends SIGTERM. Every Chrome
-  // and ffmpeg in flight is killed through this signal and the next one never
-  // starts; the `finally` below takes the scratch frames, and the catch takes a
-  // file ffmpeg had begun writing, because a half-written video looks exactly
-  // like a finished one in a file browser. Anything not waiting on a child
-  // (re-voicing over the network) gets a moment, then the process goes anyway.
+  // The editor and Ctrl-C share cancellation. Abort the renderer's child
+  // processes and clean up the work directory before reporting completion.
   const stopping = new AbortController();
-  process.once('SIGTERM', () => {
-    stopping.abort();
-    setTimeout(() => process.exit(143), 3000).unref();
-  });
-  const exec = (bin, args, opts = {}) => execRaw(bin, args, { ...opts, signal: stopping.signal });
-  let writing = false;
+  const stop = () => stopping.abort();
+  const onMessage = (message) => { if (message === 'stop-video') stop(); };
+  process.once('SIGTERM', stop);
+  process.once('SIGINT', stop);
+  if (process.channel) {
+    process.on('message', onMessage);
+    process.channel.unref();
+  }
+  const exec = (bin, args, opts = {}) => execRaw(bin, args, { signal: stopping.signal, ...opts });
 
-  let out; let plan; let narration;
   try {
     const named = opt('-o', opt('--out'));
     const { format, quality, subtitles } = videoOptions({
       out: named, format: opt('--format'), quality: opt('--quality'), subtitles: opt('--subtitles'),
     });
-    out = resolve(named ?? videoOut(deck, opt('--slides'), format));
+    const render = opt('--render', 'exact');
+    if (!valuesOf(VIDEO_RENDER_MODES).includes(render)) throw new Error('--render must be exact or live');
+    const parallel = Number(opt('--parallel', String(Math.min(availableParallelism(), 6))));
+    if (!Number.isSafeInteger(parallel) || parallel < 1) throw new Error('--parallel must be a positive integer');
+    const out = resolve(named ?? videoOut(deck, opt('--slides'), format));
     const { w, h } = parseSize(opt('--size', '1280x720'));
     const fps = Number(opt('--fps', '30'));
     const hold = Number(opt('--hold', '5'));
@@ -1093,7 +1179,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
 
     // --no-narration is silence asked for by name: without it, a voiceover/
     // beside the deck narrates whether or not that was the voice wanted
-    narration = argv.includes('--no-narration') ? null : resolveNarration(deck, opt('--narration'));
+    let narration = argv.includes('--no-narration') ? null : resolveNarration(deck, opt('--narration'));
     // Is the track still THIS deck's notes? Each manifest slide carries the
     // hash of the notes it was voiced from; a slide whose notes moved since
     // would speak against its own captions, so it is named and, unless asked
@@ -1165,14 +1251,17 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
     const inject = (text, file) => {
       if (resolve(file) !== deck) return text;
       if (probing) return injectBeforeBodyEnd(exposeInstance(text), STEP_PROBE) ?? text;
-      return injectBeforeBodyEnd(text, CHARACTER_CAPTURE) ?? text;
+      return text;
     };
-    const deckPath = '/' + relative(root, deck).split(sep).join('/');
+    const deckPath = '/' + relative(root, deck).split(sep).map(encodeURIComponent).join('/');
 
+    const chrome = chromeBin('video');
     const work = mkdtempSync(join(tmpdir(), 'decklight-video-'));
-    const server = await serveForRender(root, { html: inject });
+    const media = new Map();
+    let server;
+    let total;
     try {
-      const chrome = chromeBin('video');
+      server = await serveForRender(root, { html: inject, media });
 
       // Ask the deck how far each slide builds, in one extra load, before any
       // frame is captured. A deck that will not answer is not an error: the
@@ -1184,9 +1273,9 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       let characterConfig = {};
       try {
         const dom = await exec(chrome, chromeArgs(
-          '--hide-scrollbars', `--window-size=${w},${h}`,
+          '--hide-scrollbars', `--window-size=${w},${h}`, `--user-data-dir=${join(work, 'probe')}`,
           '--virtual-time-budget=2500', '--dump-dom', `${server.origin}${deckPath}${renderQuery}`,
-        ), { maxBuffer: 64 * 1024 * 1024 });
+        ), { maxBuffer: 64 * 1024 * 1024, timeout: 20000 });
         steps = parseBuildSteps(dom.stdout, holds.length);
         kinds = parseMotion(dom.stdout, holds.length);
         characterConfig = parseCharacterConfig(dom.stdout);
@@ -1195,110 +1284,53 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       if (!steps) console.warn('  builds: the deck did not report its build steps — one still per slide');
       else if (!kinds) console.warn('  motion: the deck did not report which slides move — every frame a still');
 
-      plan = planTimeline(narration?.slides ?? null, durations, holds, range,
+      const basePlan = planTimeline(narration?.slides ?? null, durations, holds, range,
         { steps, buildHold, pauses, marks: pauseMarks(html, steps), onWarn: (w) => console.warn(`  ${w}`) });
-      const basePlan = plan;
-      const faces = argv.includes('--no-face') ? null : extractFaces(html);
-      const characterOn = characterConfig.mode === 'viseme' && !argv.includes('--no-face');
-      if (characterOn && narration) {
-        const expanded = [];
-        for (const p of plan) {
-          const placement = exportFaceLayout(p, faces);
-          if (!p.audio || placement.kind === 'hide' || faceFor(p, { narration, faces })) {
-            expanded.push(p);
-            continue;
-          }
-          const sidecar = join(narration.dir, p.audio.replace(/\.[^.]+$/, '.visemes.json'));
-          const tl = readVisemes(sidecar);
-          if (!tl) throw new Error(`animated character needs ${basename(sidecar)} — run decklight narrate ${basename(deck)} --face`);
-          expanded.push(...characterFrames({ ...p, placement }, tl));
-        }
-        plan = expanded;
-      }
-      const slideCount = new Set(basePlan.map((p) => p.slide)).size;
-      log(`${basename(deck)}: ${slideCount} slide${slideCount === 1 ? '' : 's'}, `
-        + `${basePlan.filter((p) => p.audio).length} narrated`
-        + (plan.length > slideCount ? `, ${plan.length} frames` : '')
-        + (narration ? ` (${narration.dir})` : ' (silent)'));
-
-      // your face, where you filmed it, unless --no-face
+      const faces = extractFaces(html);
+      const faceOn = !argv.includes('--no-face');
       const faceContext = { narration, faces, defaultCorner: characterConfig.position };
-      const filmed = faces ? plan.filter((p) => faceFor(p, faceContext)).length : 0;
-      if (filmed) log(`  your face: on ${filmed} frame${filmed === 1 ? '' : 's'} (--no-face leaves it out)`);
-      const animated = plan.filter((p) => p.character).length;
-      if (animated) log(`  animated character: on ${animated} frame${animated === 1 ? '' : 's'} (--no-face leaves it out)`);
-      const segments = [];
-      const motion = motionPlan(plan, kinds, fps);
-      let page = null;   // the one CDP page every moving frame shares, opened on first need
-      let stillsOnly = false;
-      try {
-        for (const [f, p] of plan.entries()) {
-          const nn = String(p.slide).padStart(2, '0');
-          const id = `${nn}-${String(f).padStart(3, '0')}`;
-          const m = motion[f];
-          let url = `${server.origin}${deckPath}${renderQuery}`;
-          if (p.character) {
-            const query = new URLSearchParams({
-              character: p.character,
-              characterTime: String(m.offset),
-              characterPlacement: JSON.stringify(p.placement),
-            });
-            url += `&${query}`;
-          }
-          let frame = null; let frames = null;
-          // A page that will not open (Node < 22 has no WebSocket) is not an
-          // error: the slide is a still, as every slide was before #914.
-          if (m.count && !page && !stillsOnly) {
-            try { page = await openPage(chrome, { w, h, signal: stopping.signal }); } catch (e) {
-              if (stopping.signal.aborted) throw e;
-              stillsOnly = true;
-              console.warn(`  motion: ${e.message} — moving slides render as stills`);
-            }
-          }
-          if (m.count && page) {
-            const dir = join(work, `frames-${id}`);
-            mkdirSync(dir);
-            await captureMotion(page, {
-              url, slide: p.slide, from: m.from, to: p.step,
-              offset: m.offset, count: m.count, fps,
-              frameAt: (i, png) => writeFileSync(join(dir, `${String(i).padStart(5, '0')}.png`), png),
-            });
-            frames = { pattern: join(dir, '%05d.png'), count: m.count };
-          } else {
-            frame = join(work, `frame-${id}.png`);
-            // one one-shot Chrome per still; LAST_STEP clamps to the last build.
-            // `?capture` says it is a render: every frame is a fresh load, and
-            // without it each one greeted the viewer with the voice-over hint (#548)
-            await exec(chrome, chromeArgs(
-              '--hide-scrollbars',
-              '--autoplay-policy=no-user-gesture-required',
-              `--window-size=${w},${h}`,
-              '--virtual-time-budget=1500',
-              `--screenshot=${frame}`,
-              `${url}#/${p.slide}/${p.step}`,
-            ));
-            if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
-          }
-          const seg = join(work, `seg-${id}.${ENCODINGS[format].ext}`);
-          const face = faces ? faceFor(p, faceContext) : null;
-          await exec('ffmpeg', segmentArgs({
-            frame, frames, duration: p.duration, pad: p.pad, audioOffset: p.audioOffset, fps, out: seg, format, quality,
-            audio: p.audio ? join(narration.dir, p.audio) : null,
-            face, size: { w, h },
-          }));
-          segments.push(seg);
-          const where = p.step === LAST_STEP ? '' : ` · build ${p.step}`;
-          const moving = frames ? ` · moving ${(m.count / fps).toFixed(1)}s` : '';
-          log(`  slide ${nn}${where}: ${p.duration.toFixed(1)}s ${p.audio ?? '(silence)'}${moving}`);
+      const plan = basePlan.map((p) => {
+        const face = faceOn ? faceFor(p, faceContext) : null;
+        const placement = exportFaceLayout(p, faces);
+        const audio = p.audio ? join(narration.dir, p.audio) : null;
+        let poses = [];
+        let visemeFile = null;
+        if (faceOn && characterConfig.mode === 'viseme' && audio && !face && placement.kind !== 'hide') {
+          visemeFile = audio.replace(/\.[^.]+$/, '.visemes.json');
+          const timeline = readVisemes(visemeFile);
+          if (!timeline) throw new Error('animated character needs ' + basename(visemeFile)
+            + ' — run decklight narrate ' + basename(deck) + ' --face');
+          poses = characterFrames({ ...p, placement }, timeline).filter((pose) => pose.character);
         }
-      } finally {
-        await page?.close();
-      }
+        return { ...p, audio, face, poses, visemeFile };
+      });
+      if (!plan.length) throw new Error('the selected range has no visible slides');
+      const slideCount = new Set(plan.map((p) => p.slide)).size;
+      log(basename(deck) + ': ' + slideCount + (slideCount === 1 ? ' slide, ' : ' slides, ')
+        + plan.filter((p) => p.audio).length + ' narrated (' + (narration?.dir ?? 'silent') + ')');
+      const characterBeats = plan.filter((p) => p.poses.length).length;
+      if (characterBeats) log(`  animated character: ${characterBeats} narration beat(s)`);
+      const url = server.origin + deckPath + renderQuery;
+      const settings = { w, h, fps, format, quality };
+      const segments = render === 'live'
+        ? [await captureLive({
+          plan, chrome, url: server.origin + deckPath + '?' + ['capture=live', ...themeParams].join('&'),
+          settings, work, exec, signal: stopping.signal, media, log,
+          encoding: ENCODINGS[format],
+        })]
+        : await renderExact({
+          plan, kinds, chrome, url, settings, work, exec, signal: stopping.signal, log,
+          parallel: Math.min(parallel, availableParallelism(), slideCount),
+          cache: videoCache({ out, origin: server.origin, deckUrl: url, signal: stopping.signal }),
+          markup: videoMarkup(await (await fetch(url, { signal: stopping.signal })).text()),
+          refresh: argv.includes('--no-cache'),
+        });
 
       // Subtitles are the words the audio speaks: the script voiceover wrote
       // beside each clip when there is one (it may have been edited to change
       // what is said), the deck's own notes for that beat when there is not.
       let embedded = null;
+      let sidecar = null;
       if (subtitles !== 'none') {
         const sections = sectionBodies(html);
         const textOf = (p) => {
@@ -1315,33 +1347,48 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
         if (!cues.length) {
           console.warn('  subtitles: nothing is spoken in this render — none written');
         } else {
-          const file = subtitles === 'embed' ? join(work, `subtitles.${enc.subtitleExt}`) : subtitlesOut(out, format);
+          const file = join(work, `subtitles.${enc.subtitleExt}`);
           writeFileSync(file, enc.subtitleExt === 'vtt' ? toVtt(cues) : toSrt(cues));
           if (subtitles === 'embed') embedded = file;
-          log(`  subtitles: ${cues.length} cue${cues.length === 1 ? '' : 's'} ${subtitles === 'embed' ? 'embedded' : `→ ${file}`}`);
+          else sidecar = file;
+          log(`  subtitles: ${cues.length} cue${cues.length === 1 ? '' : 's'} ${embedded ? 'embedded' : `→ ${subtitlesOut(out, format)}`}`);
         }
       }
 
-      const list = join(work, 'concat.txt');
-      writeFileSync(list, concatList(segments));
-      writing = true;
-      await exec('ffmpeg', concatArgs(list, out, { format, subtitles: embedded }));
-      writing = false;
+      const concat = render === 'exact';
+      const input = concat ? join(work, 'concat.txt') : segments[0];
+      if (concat) writeFileSync(input, concatList(segments));
+      const outputDir = mkdtempSync(join(dirname(out), '.decklight-output-'));
+      try {
+        const staged = join(outputDir, 'video.' + format);
+        await exec('ffmpeg', concatArgs(input, staged, { format, subtitles: embedded, concat }));
+        total = Number((await exec('ffprobe', ffprobeArgs(staged))).stdout.trim());
+        const stagedSidecar = sidecar && join(outputDir, basename(sidecar));
+        if (stagedSidecar) writeFileSync(stagedSidecar, readFileSync(sidecar));
+        stopping.signal.throwIfAborted();
+        renameSync(staged, out);
+        if (stagedSidecar) renameSync(stagedSidecar, subtitlesOut(out, format));
+      } finally {
+        rmSync(outputDir, { recursive: true, force: true });
+      }
     } finally {
-      await server.close();
-      rmSync(work, { recursive: true, force: true });
+      try { await server?.close(); } finally {
+        rmSync(work, { recursive: true, force: true, maxRetries: 5 });
+      }
     }
 
-    const total = Number((await exec('ffprobe', ffprobeArgs(out))).stdout.trim());
     log(`done → ${out} (${total.toFixed(1)}s)`);
   } catch (e) {
     if (stopping.signal.aborted) {
-      if (writing) rmSync(out, { force: true });
       console.error('decklight video: stopped — no video written');
       process.exit(143);
     }
     console.error(`decklight video: ${e.message}`);
     process.exit(1);
+  } finally {
+    process.removeListener('SIGTERM', stop);
+    process.removeListener('SIGINT', stop);
+    process.removeListener('message', onMessage);
   }
 }
 

@@ -157,7 +157,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       + `${req.synthesize ? `, voiced by ${req.synthesize.engine} into ${req.synthesize.dir}/` : ''} …`);
     broadcast('export', { state: 'start', kind, what: job.what });
     try {
-      let out, code, reason = null, subs = null, notes = null;
+      let out, code, reason = null, subs = null, notes = null, droppedFrames = 0;
       if (kind === 'video') {
         const { videoOut, videoProgress, voiceoverProgress, subtitlesOut } = await import('../tools/video.mjs');
         out = videoOut(deckPath, req.slides || null, req.format || 'mp4');
@@ -171,16 +171,22 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
         }
         if (!code && !stop.signal.aborted) {
           const narration = req.synthesize?.dir ?? req.narration ?? null;
+          const progress = videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of }));
           ({ code, reason } = await runTool('video', [deckPath, '-o', out, ...themed,
             ...(req.slides ? ['--slides', req.slides] : []),
             ...(req.format ? ['--format', req.format] : []),
             ...(req.quality ? ['--quality', req.quality] : []),
+            ...(req.render ? ['--render', req.render] : []),
             ...(req.subtitles ? ['--subtitles', req.subtitles] : []),
             ...(req.face === 'off' ? ['--no-face'] : []),
             ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : req.silent ? ['--no-narration'] : []),
             // the card showed the track as recorded from older notes and it was picked anyway (#536)
             ...(req.allowStale === true ? ['--allow-stale'] : [])],
-          videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of })), stop.signal));
+          (line) => {
+            const dropped = /^\s+live capture: warning — (\d+) dropped/.exec(line);
+            if (dropped) droppedFrames = Number(dropped[1]);
+            progress(line);
+          }, stop.signal));
         }
       } else if (kind === 'bundle') {
         // No -o: the CLI names the file, beside the deck, so the row and
@@ -227,7 +233,8 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
         ...(subs && existsSync(subs) ? { subtitles: relative(process.cwd(), subs) || basename(subs) } : {}),
       };
       broadcast('export', { state: 'done', kind, ok: true, file, seconds, ...voiced });
-      return json(200, { ok: true, kind, what: job.what, file, seconds, ...voiced, ...(notes ? { notes } : {}) });
+      return json(200, { ok: true, kind, what: job.what, file, seconds, ...voiced,
+        ...(notes ? { notes } : {}), ...(droppedFrames ? { droppedFrames } : {}) });
     } catch (e) {
       if (stop.signal.aborted) return stopped();
       // A render that hangs or a Chrome that dies is the export's problem,
@@ -288,10 +295,13 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
     const script = fileURLToPath(new URL(`../tools/${name}.mjs`, import.meta.url));
     const cwd = deckPath.startsWith(process.cwd() + sep) ? process.cwd() : dirname(deckPath);
     return new Promise((done) => {
-      const child = spawn(process.execPath, [script, ...argv], { cwd, env: unleashedEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+      const stopOverIPC = process.platform === 'win32' && name === 'video';
+      const stdio = ['ignore', 'pipe', 'pipe', ...(stopOverIPC ? ['ipc'] : [])];
+      const child = spawn(process.execPath, [script, ...argv], { cwd, env: unleashedEnv(), stdio });
       let hard = null;
       const stop = () => {
-        child.kill('SIGTERM');
+        if (stopOverIPC && child.connected) child.send('stop-video', () => {});
+        else child.kill('SIGTERM');
         hard = setTimeout(() => child.kill('SIGKILL'), STOP_GRACE_MS);
       };
       if (signal?.aborted) stop(); else signal?.addEventListener('abort', stop, { once: true });

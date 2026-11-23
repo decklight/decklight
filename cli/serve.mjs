@@ -227,7 +227,7 @@ function rangeOf(header, size) {
  * this machine and never the network. Nothing else escapes root or answers
  * for a missing path — a probe still learns nothing from a 404.
  */
-export function staticFiles(root, { index = '/index.html', html: rewriteHtml = null, knownTypesOnly = false } = {}) {
+export function staticFiles(root, { index = '/index.html', html: rewriteHtml = null, knownTypesOnly = false, media = null } = {}) {
   return (req, res, url) => {
     if (req.method !== 'GET') return false;
     const rel = url.pathname === '/' ? index : decodeURIComponent(url.pathname);
@@ -239,7 +239,10 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     // else's package, so its namespace is TERMINAL: it is answered from the
     // package or not at all, and every refusal is the same plain 404.
     const owner = namespacedKind(rel);
-    if (owner) {
+    if (media?.has(rel)) {
+      file = media.get(rel);
+      type = MIME[extname(file).toLowerCase()];
+    } else if (owner) {
       const asset = !dotted && owner.asset(rel);
       if (!asset) { res.writeHead(404); res.end('not found'); return true; }
       file = asset.file; type = asset.type; extra = asset.headers;
@@ -479,8 +482,8 @@ export const CSP = [
  * Returns `{ origin, close }` — `origin` is `http://127.0.0.1:<port>`, `close`
  * resolves when the listener is shut.
  */
-export async function serveForRender(root, { html = null } = {}) {
-  const files = staticFiles(root, { html });
+export async function serveForRender(root, { html = null, media = null } = {}) {
+  const files = staticFiles(root, { html, media });
 
   const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
     let url;

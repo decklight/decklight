@@ -12,9 +12,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ffprobeArgs } from '../tools/video.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,7 +29,7 @@ if (!have('ffmpeg') || !have('ffprobe')) {
 // chromeBin() exits the process when no browser exists, so probe it out-of-process
 const { spawnSync } = await import('node:child_process');
 const probe = spawnSync(process.execPath,
-  ['-e', `import('${join(root, 'tools', 'chrome.mjs').replaceAll('\\', '/')}').then(m => m.chromeBin('probe'))`]);
+  ['-e', `import(${JSON.stringify(pathToFileURL(join(root, 'tools', 'chrome.mjs')).href)}).then(m => m.chromeBin('probe'))`]);
 if (probe.status !== 0) {
   console.log('video-e2e: SKIP — no Chrome found (install one, or point $CHROME at it)');
   process.exit(0);
@@ -70,9 +69,9 @@ writeFileSync(deck, `<!doctype html>
 <script>Decklight.init({ transition: 'none' });</script>
 </body></html>`);
 
-const out = join(tmpdir(), `deck-e2e-${process.pid}.mp4`);
-const webm = join(tmpdir(), `deck-e2e-${process.pid}.webm`);
-const subbed = join(tmpdir(), `deck-e2e-${process.pid}-subs.mp4`);
+const out = join(dir, 'exact.mp4');
+const webm = join(dir, 'live.webm');
+const subbed = join(dir, 'subtitles.mp4');
 try {
   const log = execFileSync(process.execPath,
     [join(root, 'cli', 'decklight.mjs'), 'video', deck, '-o', out, '--hold', '1', '--fps', '10'],
@@ -81,6 +80,15 @@ try {
 
   assert.ok(existsSync(out), 'the mp4 exists');
   assert.ok(statSync(out).size > 1000, 'and is not an empty shell');
+  assert.match(log, /reused 0 of 2 slides/);
+  const source = readFileSync(deck, 'utf8');
+  writeFileSync(deck, source.replace('Slide two', 'Second slide'));
+  const rerendered = execFileSync(process.execPath,
+    [join(root, 'cli', 'decklight.mjs'), 'video', deck, '-o', out, '--hold', '1', '--fps', '10', '--parallel', '1'],
+    { encoding: 'utf8', cwd: root });
+  assert.match(rerendered, /slide 01: reused/);
+  assert.match(rerendered, /reused 1 of 2 slides/);
+  writeFileSync(deck, source);
 
   // Slide one's `data-build` list steps twice, and a silent slide gives every
   // build its own frame at the slide's hold — so 3 frames of 1s, then slide
@@ -126,7 +134,7 @@ try {
   <animate attributeName="cx" from="30" to="570" dur="1s" repeatCount="indefinite"/></circle></svg></section></div>
 <script src="../dist/decklight.js"></script><script>Decklight.init({ transition: 'none' });</script>
 </body></html>`);
-  const mover = join(tmpdir(), `deck-e2e-${process.pid}-mover.mp4`);
+  const mover = join(dir, 'mover.mp4');
   try {
     const moved = execFileSync(process.execPath,
       [join(root, 'cli', 'decklight.mjs'), 'video', moverDeck, '-o', mover, '--hold', '1', '--fps', '10'],
@@ -147,14 +155,14 @@ try {
   mkdirSync(vo);
   execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.5', '-c:a', 'aac', join(vo, 'slide-02.m4a')]);
   writeFileSync(join(vo, 'slide-02.txt'), 'Slide two speaks. Then it stops.');
-  writeFileSync(join(vo, 'manifest.json'), JSON.stringify({ slides: [null, { file: 'slide-02.m4a', hash: 'e2e' }] }));
+  writeFileSync(join(vo, 'manifest.json'), JSON.stringify({ slides: [null, { file: 'slide-02.m4a' }] }));
   const streamsOf = (file) => execFileSync('ffprobe', ['-v', 'error', '-show_entries',
     'stream=codec_type,codec_name', '-of', 'csv=p=0', file], { encoding: 'utf8' }).trim().split('\n');
   const render = (file, ...flags) => console.log(execFileSync(process.execPath,
     [join(root, 'cli', 'decklight.mjs'), 'video', deck, '-o', file, '--hold', '1', '--fps', '10', ...flags],
     { encoding: 'utf8', cwd: root }).trim());
 
-  render(webm, '--quality', 'draft', '--subtitles', 'embed');
+  render(webm, '--render', 'live', '--quality', 'draft', '--subtitles', 'embed');
   const ws = streamsOf(webm);
   for (const want of ['vp9,video', 'opus,audio', 'webvtt,subtitle']) assert.ok(ws.some((s) => s.includes(want)), `webm has ${want} (${ws})`);
 
@@ -167,6 +175,4 @@ try {
   console.log('video-e2e: OK — webm with an embedded WebVTT track, mp4 with a .srt beside it');
 } finally {
   rmSync(dir, { recursive: true, force: true });
-  rmSync(out, { force: true });
-  for (const f of [webm, subbed, subbed.replace(/\.mp4$/, '.srt')]) rmSync(f, { force: true });
 }
