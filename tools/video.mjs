@@ -1360,7 +1360,8 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       if (concat) writeFileSync(input, concatList(segments));
       const outputDir = mkdtempSync(join(dirname(out), '.decklight-output-'));
       try {
-        const staged = join(outputDir, 'video.' + format);
+        const name = basename(out);
+        const staged = join(outputDir, name.toLowerCase().endsWith('.' + format) ? name : name + '.' + format);
         await exec('ffmpeg', concatArgs(input, staged, { format, subtitles: embedded, concat }));
         total = Number((await exec('ffprobe', ffprobeArgs(staged))).stdout.trim());
         const stagedSidecar = sidecar && join(outputDir, basename(sidecar));
