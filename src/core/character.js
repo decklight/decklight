@@ -168,6 +168,9 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     applyFace();
     debugLog('lipsync', `face ${face.kind}${face.kind === 'full' && face.zoom !== 1 ? ` ×${face.zoom}` : ''}`);
   }
+  function placeAt(slide, beat) {
+    setFace(faceLayout(faceOf(slide), beat));
+  }
   function warnOnce() {
     if (warned) return;
     warned = true;
@@ -525,7 +528,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     });
   }
 
-  function beginSlide(set, slideNo, seg = null, audioUrl = null) {
+  function beginSlide(set, slideNo, seg = null, audioUrl = null, beat = seg ?? 1) {
     if (mode === 'off' || !set || set.live) return;
     show();
     const nn = String(slideNo).padStart(2, '0');
@@ -533,7 +536,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     const key = `file|${set.dir}|${stem}`;
     if (currentKey === key) return;   // same beat re-armed — keep the timeline
     currentKey = key;
-    setFace(faceLayout(faceOf(slideNo), seg ?? 1));
+    placeAt(slideNo, beat);
     if (mode === 'viseme') {
       timeline = null;
       (async () => {
@@ -660,7 +663,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
       facePreview = next;
       applyFace();
     },
-    showWritePreview, setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
+    placeAt, showWritePreview, setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
     attachAudio, stop, probe, ensureTimeline, capture,
   };
 }

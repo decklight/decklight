@@ -146,7 +146,7 @@ const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'audiotags', 'audiotagsv4', 'reccount', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss', 'stalebridge', 'foreignport', 'askingbridge', 'enginebar', 'voicelangs', 'endoftalk', 'filmrow',
   'writeface', 'writeface&filmed', 'writeface&off', 'writeface&nosrv', 'writeface&empty', 'writeface&print', 'writeface&capture',
   'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
-  'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'plainpause', 'segpause', 'segmanifest', 'segsigned', 'bundledaudio', 'off',
+  'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'plainpause', 'segpause', 'segpause&live', 'segmanifest', 'segsigned', 'bundledaudio', 'off',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'micoffstep&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
   const [m, extra] = mode.split('&');
@@ -412,6 +412,10 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
       + ` · Off stops it=${r.offStopped} and gives \u2334 back=${r.spaceAdvancesAgain}`
       + ` · remembered=${r.persistedOff}`
       + (r.exception ? ` \u00b7 ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'segpause&live') {
+    console.log(ok ? 'ok  ' : 'FAIL', mode, r);
     continue;
   }
   if (mode === 'plainpause' || mode === 'segpause') {

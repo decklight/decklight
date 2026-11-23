@@ -1711,7 +1711,7 @@ export function createNarration({
     narrAudio.playbackRate = narrRate;
     if (character.mode !== 'off') {
       character.attachAudio(narrAudio);
-      character.beginSlide(narrSet, sl, null, file);
+      character.beginSlide(narrSet, sl, null, file, step + 1);
       // no clips beside the track? the bridge starts on the next slide's now
       const next = sl < instance.state.totalSlides && notesText(sl + 1) ? slideFileUrl(sl + 1) : null;
       character.prefetchFiles(narrSet, sl, [file, next].filter(Boolean));
@@ -1822,7 +1822,7 @@ export function createNarration({
           // Per BEAT: the sidecar is cut to the same audio this element is
           // about to play, so the mouth cannot drift across a ⟨CLICK⟩ the way
           // one slide-long timeline replayed per beat inevitably did.
-          character.beginSlide(narrSet, sl, files[i].file, files[i].url);
+          character.beginSlide(narrSet, sl, files[i].file, files[i].url, step + 1);
           if (i === 0) character.prefetchFiles(narrSet, sl, upcomingFiles(sl, step));
         }
         // both cleared before the src moves — see playLive
@@ -1978,7 +1978,19 @@ export function createNarration({
     playSlideFile();
     syncSoundBtn();
   }
-  instance.on('slide', () => { if (narrating) playSlideFile(); });
+  // A paused chain is parked before it starts the next clip. The overlay
+  // still follows navigation, including builds on a whole-slide track.
+  function placePausedCharacter() {
+    if (!narrPaused || character.mode === 'off') return;
+    const { slide, step } = instance.state;
+    character.placeAt(slide, step + 1);
+  }
+
+  instance.on('slide', () => {
+    if (!narrating) return;
+    placePausedCharacter();
+    playSlideFile();
+  });
   // builds re-sync the live voice too — whether the advance came from the
   // narration itself or from the presenter pressing → mid-sentence
   // Builds re-sync the voice — whether the advance came from the narration
@@ -1987,6 +1999,7 @@ export function createNarration({
   // track restart its whole-slide file on every →.
   instance.on('build', () => {
     if (!narrating) return;
+    placePausedCharacter();
     if (narrSet?.live) playLive();
     else if (drivesBuilds) playRecorded();
   });
