@@ -1288,6 +1288,8 @@ export function init(userConfig = {}) {
         hint: '⎵', alias: 'play pause resume voice narration speak start stop', run: () => narration.playPause() },
       { label: 'Voice and narration…', cat: 'Voice', hint: 'V', alias: 'narration voice audio track picker panel', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', cat: 'Voice', alias: 'tts synthesize tone gemini elevenlabs engine', run: () => openNarrPicker('voices') },
+      narration.canPreviewFace() && { label: `${narration.writePreviewOn ? 'Hide' : 'Show'} face & character preview`, cat: 'Voice',
+        alias: 'overlay placement preview write mode', run: narration.toggleWritePreview },
       { label: 'Character…', cat: 'Voice', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
       { label: character.solo ? 'Show the slides with the character' : 'Show only the character', cat: 'Voice', alias: 'character solo centre center stage narrator only fullscreen avatar', run: () => narration.applySolo(!character.solo) },
       { label: 'Record this deck…', cat: 'Voice', alias: 'record narrate microphone mic voice wav offline batch teleprompter',
@@ -1577,6 +1579,8 @@ export function init(userConfig = {}) {
       // write mode only: the bar is editing's face, hidden or shown per deck
       ...(editmode?.available() ? [{ label: 'Editing bar', value: editbar.hidden() ? 'hidden' : 'shown',
         hint: '⏎ switches', stays: true, run: () => editbar.toggleHidden() }] : []),
+      ...(narration.canPreviewFace() ? [{ label: 'Face & character preview', value: narration.writePreviewOn ? 'on' : 'off',
+        hint: '⏎ switches', stays: true, run: narration.toggleWritePreview }] : []),
       // write mode only: Push lives in the commit window, which only an edit
       // server has
       ...(editmode?.available() ? [{ label: 'Push tags', value: editmode.pushTags() ? 'with the branch' : 'off',
@@ -3665,6 +3669,9 @@ export function init(userConfig = {}) {
     // the names the menu's Concept ▸ offers: the deck's, as its diagrams and its configuration know them (#718)
     knownConcepts: () => conceptsOn(stage, config.concepts ?? {}).map((c) => c.name),
   });
+  if (!printMode && !captureMode && !params.has('embedded')) {
+    editmode.onElementEditChange(narration.setWriteMode);
+  }
   // Putting shapes into a concept, from anywhere (SVG_DIAGRAMS): one write for
   // any number of shapes, in place, and the look-alikes offered after one
   conceptTools = createConceptTools({

@@ -3671,6 +3671,48 @@
 }
 .decklight.decklight-print .decklight-character { display: none !important; }
 
+/* Write mode reserves the same footprint without stepping the slide aside. */
+.decklight-character-preview,
+.decklight .decklight-character-preview.face-full {
+  opacity: .48;
+  pointer-events: none;
+  user-select: none;
+  background: transparent;
+  filter: none;
+}
+.decklight-character-preview [data-idle],
+.decklight-character-preview [data-eyelid] { animation: none; }
+.decklight-character-preview.mode-video,
+.decklight-character-preview.face-full {
+  outline: 2px dashed var(--fg, #fff);
+  outline-offset: -2px;
+}
+.decklight-character-preview.mode-video { border-radius: 50%; }
+.decklight .decklight-character-preview.face-full { border-radius: 0; }
+.decklight-character-preview[data-preview-label]:not([data-preview-label=""])::after {
+  content: attr(data-preview-label);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 100%;
+  background: var(--bg, #000);
+  color: var(--fg, #fff);
+  font: 600 13px/1.4 system-ui, sans-serif;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.decklight-character-preview.face-full::after { top: 6px; transform: translateX(-50%); }
+.decklight:fullscreen > .decklight-character-preview,
+.decklight.decklight-overview > .decklight-character-preview,
+.decklight:has(> .decklight-character.show:not(.decklight-character-preview)) > .decklight-character-preview {
+  display: none;
+}
+@media print {
+  .decklight-character-preview { display: none !important; }
+}
+
 /* notes editor (right-click a slide's background, or the palette) — E now
    arms element edit mode instead (below) */
 .decklight-editor .narr-card { width: min(640px, 88vw); }

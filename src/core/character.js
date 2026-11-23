@@ -84,7 +84,7 @@ export function lipCorrection(d, rate = 1) {
   return { seek: false, rate };
 }
 
-export function createCharacter({ root, config, debugLog, toast, faceOf = () => null }) {
+export function createCharacter({ root, config, debugLog, toast, faceOf = () => null, onModeChange = () => {} }) {
   const cfg = config.narration?.character ?? {};
   // Same origin by convention (#520), like the voice bridge: `open` proxies
   // `/deck/lipsync/*` to the lip-sync bridge it started; from disk, the bridge's
@@ -148,16 +148,18 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // screen.
   let face = FACE_CORNER;
   let facePreview = null;
+  function placeOverlay(overlay, at) {
+    if (!overlay) return;
+    overlay.classList.toggle('face-full', at.kind === 'full');
+    overlay.classList.toggle('face-hide', at.kind === 'hide');
+    overlay.style.setProperty('--face-zoom', String(at.zoom));
+    const pos = at.kind === 'corner' && at.at ? at.at : (config.narration?.character?.position ?? 'br');
+    for (const p of ['br', 'bl', 'tr', 'tl']) overlay.classList.toggle(`pos-${p}`, p === pos);
+  }
   function applyFace() {
     const on = mode !== 'off' && !!el?.classList.contains('show') && !(solo && mode !== 'video');
     const at = on ? (facePreview ?? face) : FACE_CORNER;
-    el?.classList.toggle('face-full', at.kind === 'full');
-    el?.classList.toggle('face-hide', at.kind === 'hide');
-    el?.style.setProperty('--face-zoom', String(at.zoom));
-    // a corner a slide names (data-face="top-right") moves the medallion there
-    // for that slide; anything else puts it back where the deck keeps it
-    const pos = at.kind === 'corner' && at.at ? at.at : (config.narration?.character?.position ?? 'br');
-    for (const p of ['br', 'bl', 'tr', 'tl']) el?.classList.toggle(`pos-${p}`, p === pos);
+    placeOverlay(el, at);
     root.classList.toggle('decklight-face-full', at.kind === 'full');
   }
   function setFace(next) {
@@ -215,29 +217,70 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
       videoEl.addEventListener('ended', () => { if (!videoEl?.dataset.filmed) videoEl?.classList.remove('live'); });
       for (const ev of ['emptied', 'error']) videoEl.addEventListener(ev, () => videoEl?.classList.remove('live'));
       el.appendChild(videoEl);
-    } else if (cfg.sprites) {
-      el.innerHTML = '';
+    } else {
+      mountArt(el, () => artMode === 'viseme');
+    }
+  }
+
+  function mountArt(overlay, stillCurrent) {
+    overlay.replaceChildren();
+    if (cfg.sprites) {
       for (const v of VISEMES) {
         if (!cfg.sprites[v]) continue;
         const img = document.createElement('img');
         img.src = cfg.sprites[v];
         img.setAttribute('data-mouth', v);
         img.alt = '';
-        el.appendChild(img);
+        overlay.appendChild(img);
       }
     } else if (typeof cfg.svg === 'string' && cfg.svg.startsWith('#')) {
-      el.innerHTML = '';
       const src = document.querySelector(cfg.svg);
-      if (src) el.appendChild(src.cloneNode(true));
+      if (src) overlay.appendChild(src.cloneNode(true));
     } else if (typeof cfg.svg === 'string' && /^\s*</.test(cfg.svg)) {
-      el.innerHTML = cfg.svg;
-    } else if (cfg.svg) {
-      el.innerHTML = DEFAULT_CHARACTER_SVG; // placeholder while the URL loads
-      fetch(cfg.svg).then((r) => r.text()).then((t) => { if (el && artMode === 'viseme') el.innerHTML = t; }).catch(() => { /* keep default */ });
+      overlay.innerHTML = cfg.svg;
     } else {
-      el.innerHTML = DEFAULT_CHARACTER_SVG;
+      overlay.innerHTML = DEFAULT_CHARACTER_SVG;
+      if (cfg.svg) {
+        fetch(cfg.svg).then((r) => r.ok ? r.text() : null).then((art) => {
+          if (art && stillCurrent()) overlay.innerHTML = art;
+        }).catch(() => { /* keep default */ });
+      }
     }
   }
+
+  // Editor chrome lives beside the stage, independently of the playback
+  // overlay. In particular it never puts face-full or solo on the root.
+  let writeOverlay;
+  function showWritePreview(kind, at) {
+    if (!kind || at.kind === 'hide') {
+      writeOverlay?.classList.remove('show');
+      return;
+    }
+    if (!writeOverlay) {
+      writeOverlay = document.createElement('div');
+      writeOverlay.className = 'decklight-character decklight-character-preview';
+      writeOverlay.setAttribute('aria-hidden', 'true');
+      writeOverlay.inert = true;
+      if (cfg.size) writeOverlay.style.setProperty('--character-size', cfg.size + 'px');
+      root.appendChild(writeOverlay);
+    }
+    const overlay = writeOverlay;
+    if (overlay.dataset.previewKind !== kind) {
+      overlay.dataset.previewKind = kind;
+      overlay.classList.toggle('mode-video', kind === 'filmed');
+      if (kind === 'viseme') {
+        overlay.dataset.viseme = 'X';
+        mountArt(overlay, () => overlay.dataset.previewKind === 'viseme');
+      } else {
+        overlay.replaceChildren();
+      }
+    }
+    placeOverlay(overlay, at);
+    overlay.dataset.previewLabel = at.kind === 'full' ? `Full screen · ${at.zoom}×`
+      : kind === 'filmed' ? 'Filmed face' : '';
+    overlay.classList.add('show');
+  }
+
   function show() {
     mount();
     el.classList.add('show');
@@ -574,6 +617,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     // that is meant to own the stage, show it now rather than wait for V
     else { warned = false; mount(); if (solo) show(); }
     applySolo();
+    onModeChange();
     debugLog('lipsync', mode === 'off' ? 'character off'
       : `character ${mode}${mode === 'video' ? ` · ${engine} · ${portrait}` : ''}`);
   }
@@ -616,7 +660,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
       facePreview = next;
       applyFace();
     },
-    setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
+    showWritePreview, setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
     attachAudio, stop, probe, ensureTimeline, capture,
   };
 }
