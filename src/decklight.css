@@ -3609,6 +3609,9 @@
    to fill the frame and zoomed on itself. Above solo in the cascade, so a
    full-screen beat in a solo deck is full screen. */
 .decklight-character.face-hide { visibility: hidden; }
+/* Builds and mouth shapes can override inherited visibility. Hide each group. */
+.decklight-character.face-hide,
+.decklight.decklight-face-full .decklight-stage { opacity: 0; }
 .decklight.decklight-face-full .decklight-stage,
 .decklight.decklight-face-full .decklight-progress,
 .decklight.decklight-face-full .decklight-slide-number { visibility: hidden; }
