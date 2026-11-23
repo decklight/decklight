@@ -2432,6 +2432,20 @@
 /* the export card's settings: answers, not ranges */
 .decklight-range .range-setting { gap: 12px; }
 .decklight-range .range-setting-name { flex: 0 0 5.2em; opacity: .55; font-size: .85em; }
+.decklight-range .range-setting-choices { display: grid; gap: 3px; }
+.decklight-range .range-setting-choices button {
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+.decklight-range .range-setting-choices button[aria-pressed="true"] {
+  border-color: var(--accent, #7ee787);
+}
 .decklight-range .range-setting-last { margin-bottom: 6px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, .12); border-radius: 8px 8px 0 0; }
 /* an export card (an action): Slides, Options, and a button that runs it */
 .decklight-range .rec-sect {

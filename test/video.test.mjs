@@ -21,9 +21,34 @@ import {
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, folderNarration, parseBuildSteps, voiceoverArgs,
   videoOut, videoProgress, voiceoverProgress, ENCODINGS, videoOptions, subtitleCues, toSrt, toVtt, subtitlesOut,
   pauseMarks, parseMotion, motionFrames, motionPlan, MOTION_WINDOW_S,
-  extractFaces, exportFaceLayout, characterFrames, parseCharacterConfig,
+  extractFaces, exportFaceLayout, characterFrames, parseCharacterConfig, captureMotion,
 } from '../tools/video.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
+
+test('exact character capture loads the deck once per beat regardless of mouth changes', async () => {
+  const navigations = [];
+  const frames = [];
+  const shapes = [];
+  const page = {
+    navigate: async (url) => navigations.push(url),
+    evaluate: async (script) => {
+      const match = /character\.capture\("([^"]+)"/.exec(script);
+      if (match) shapes.push(match[1]);
+    },
+    screenshot: async () => Buffer.from('frame'),
+  };
+  const url = 'http://localhost/deck.html?capture';
+  const poses = characterFrames(
+    { audio: 'slide.wav', duration: 0.4, placement: { kind: 'corner', at: 'br' } },
+    { cues: [{ t: 0, v: 'A' }, { t: 0.1, v: 'B' }, { t: 0.2, v: 'C' }, { t: 0.3, v: 'X' }] },
+  );
+  for (const step of [0, 1]) {
+    await captureMotion(page, { url, slide: 1, to: step, count: 4, fps: 10, poses, frameAt: (i) => frames.push(i) });
+  }
+  assert.deepEqual(navigations.filter((nav) => nav !== 'about:blank'), [url + '#/1/0', url + '#/1/1']);
+  assert.deepEqual(shapes, ['A', 'B', 'C', 'X', 'A', 'B', 'C', 'X']);
+  assert.deepEqual(frames, [0, 1, 2, 3, 0, 1, 2, 3]);
+});
 
 // --- planTimeline -------------------------------------------------------------
 

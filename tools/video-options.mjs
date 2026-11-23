@@ -30,6 +30,11 @@ export const VIDEO_SUBTITLES = [
   { value: 'file', label: 'Beside the video — .srt (.vtt for WebM)' },
 ];
 
+export const VIDEO_RENDER_MODES = [
+  { value: 'exact', label: 'Exact — repeatable frame by frame, using several cores to finish faster.' },
+  { value: 'live', label: 'Live capture — plays once in real time, may drop frames or lose lip-sync, and restarts if interrupted.' },
+];
+
 // your face, filmed while you recorded the narration (`--no-face` leaves it out)
 export const VIDEO_FACE = [
   { value: 'on', label: 'Your face, where you filmed it — as each slide places it' },

@@ -4374,7 +4374,7 @@ export function createEditMode({
   // What a bundle's card repeats of the notes `decklight bundle` prints after
   // the file: which chapter went in, and where the narration audio is.
   const BUNDLE_SAYS = /^(module \d+ of \d+:|narration audio:)/;
-  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null, face = null, audio = false, module = null } = {}) {
+  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null, render = null, face = null, audio = false, module = null } = {}) {
     const what = EXPORTS[kind];
     if (!what) return;
     // The server refuses a second export too (one browser, one output path);
@@ -4394,13 +4394,14 @@ export function createEditMode({
     // deck knows goes by name; one that lives only in this browser (a saved
     // custom theme, an unsaved roll) goes as its tokens.
     const { theme, gen } = renderTheme() ?? {};
-    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles, face, audio, module } })) return;
+    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles, render, face, audio, module } })) return;
     const doing = kind === 'video'
       ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
       : `exporting ${kind === 'bundle' && module != null ? `module ${module} ` : ''}to ${what}`
         + `${audio ? `, with the narration audio${AUDIO_HOW[audio] ? ` as ${AUDIO_HOW[audio]}` : ''}` : ''}`;
     // a bundle is seconds; anything else can be stopped, and says how
-    const run = progress(`${doing} — this takes a moment…${kind === 'bundle' ? '' : ` (${STOP_HOW})`}`);
+    const run = progress(`${doing} — this takes a moment…${kind === 'bundle' ? '' : ` (${STOP_HOW})`}`,
+      kind === 'video' ? stopRunning : null);
     exportRun = { run, what, doing, kind };
     try {
       const r = await fetch(editBase + '/deck/edit/export', {
@@ -4408,7 +4409,7 @@ export function createEditMode({
         body: JSON.stringify({
           kind,
           ...(theme ? { theme } : gen ? { gen } : {}),
-          ...(kind === 'video' ? { slides, format, quality, subtitles, ...(face ? { face } : {}), ...videoVoice(voice) } : {}),
+          ...(kind === 'video' ? { slides, format, quality, subtitles, render, ...(face ? { face } : {}), ...videoVoice(voice) } : {}),
           ...(kind === 'bundle' && audio ? { audio } : {}),
           ...(kind === 'bundle' && module != null ? { module } : {}),
         }),
@@ -4425,6 +4426,7 @@ export function createEditMode({
       }
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
       const says = (j.notes ?? []).filter((n) => BUNDLE_SAYS.test(n));
+      if (j.droppedFrames) says.push(`${j.droppedFrames} dropped or late frames`);
       run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}${j.subtitles ? ` · subtitles in ${j.subtitles}` : ''}`
         + `${j.voiced ? ` — its voice is in ${j.voiced}/` : ''}${says.map((n) => ` · ${n}`).join('')}`, says.length ? 9000 : undefined);
       debugLog('export', `${kind} → ${j.file}`);

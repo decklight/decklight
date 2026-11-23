@@ -59,7 +59,7 @@ import { createOpenInEditor } from './open-in-editor.js';
 import { createConceptTools } from './concept-tools.js';
 import { createStyleClip } from './style-clip.js';
 import { brandSnapper } from './colorpicker.js';
-import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE } from '../../tools/video-options.mjs';
+import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, VIDEO_RENDER_MODES } from '../../tools/video-options.mjs';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
 import { createDebugLog, stashDebug, unstashDebug } from './debuglog.js';
@@ -456,6 +456,7 @@ export function init(userConfig = {}) {
   // is the picker previews' mode and brings their postMessage and pref rules
   // with it; not `?print`: that reveals every build and changes the layout.
   const captureMode = params.has('capture');
+  const liveCapture = params.get('capture') === 'live';
   if (captureMode) config.controls = false;
   // `?all` presents the hidden slides too — the author checking one, or a
   // reviewer who needs to see everything. Never the default: a hidden slide is
@@ -500,7 +501,7 @@ export function init(userConfig = {}) {
   // a render is a still: a line walk that ends lit is drawn lit at its last
   // step, and `?capture=print` (the pptx export) is the printed page, whose
   // stepped blocks print whole (CODE_AND_MATH)
-  if (captureMode) root.classList.add('decklight-capture');
+  if (captureMode && !liveCapture) root.classList.add('decklight-capture');
   if (params.get('capture') === 'print') root.classList.add('decklight-capture-print');
 
   // Which dialog owns the keyboard right now. Filled in below the features, in
@@ -651,7 +652,7 @@ export function init(userConfig = {}) {
    * first and the last are worth remembering — so those two are the only ones
    * logged.
    */
-  function progressToast(msg) {
+  function progressToast(msg, onStop = null) {
     logOnly(msg);
     if (printMode || captureMode) return { update() {}, done() {} };
     if (!msgEl) {
@@ -661,15 +662,28 @@ export function init(userConfig = {}) {
     }
     const row = document.createElement('div');
     row.className = 'decklight-toast';
-    row.textContent = msg;
+    const message = document.createTextNode(msg);
+    row.append(message);
+    let stop;
+    if (onStop) {
+      row.classList.add('decklight-toast-ask');
+      stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'toast-act toast-dismiss';
+      stop.textContent = 'Stop';
+      stop.addEventListener('click', onStop);
+      row.append(' ', stop);
+    }
     msgEl.appendChild(row);
     requestAnimationFrame(() => row.classList.add('show'));
     trimStack();
     let over = false;
     return {
-      update(text) { if (!over) row.textContent = text; },
+      update(text) { if (!over) message.nodeValue = text; },
       done(text, ms = 3600) {
         over = true;
+        stop?.remove();
+        row.classList.remove('decklight-toast-ask');
         if (text) { row.textContent = text; logOnly(text); }
         setTimeout(() => {
           row.classList.remove('show');
@@ -2139,7 +2153,7 @@ export function init(userConfig = {}) {
       }
       // a still (a pptx picture, a shot, a video frame) is the slide as it ends
       // up: an entrance the deck's own CSS animates is shown arrived (#1184)
-      if (captureMode) finishAuthorAnimations(this._sections[slide - 1]);
+      if (captureMode && !liveCapture) finishAuthorAnimations(this._sections[slide - 1]);
       this._updateChrome();
       this._updateHash(!sameSlide);
       this._notify();
@@ -3419,7 +3433,7 @@ export function init(userConfig = {}) {
     // says what the slide still does not show (`data-invisible`, #1184), for
     // `decklight check` and `pdf` to read off the render.
     checkOverflow: (section, slideNo) => {
-      if (printMode || captureMode) finishAuthorAnimations(section);
+      if (printMode || (captureMode && !liveCapture)) finishAuthorAnimations(section);
       checkOverflow(section, slideNo);
       if (printMode && section) markInvisible(section);
     },
@@ -3474,7 +3488,7 @@ export function init(userConfig = {}) {
     root,
     sections: () => instance._sections,
     current: () => instance._sections[instance.state.slide - 1],
-    live: !printMode && !captureMode && !params.has('embedded'),
+    live: !printMode && (!captureMode || liveCapture) && !params.has('embedded'),
   });
   adoptSlideMedia = slideMediaDriver.adopt;
   instance._slideMedia = slideMediaDriver;   // the Options tab tells it a clip's ask changed
@@ -3487,7 +3501,7 @@ export function init(userConfig = {}) {
   const figures = createFigures({
     sections: () => instance._sections,
     current: () => instance._sections[instance.state.slide - 1],
-    live: !printMode && !captureMode && !params.has('embedded'),
+    live: !printMode && (!captureMode || liveCapture) && !params.has('embedded'),
   });
   instance._figures = figures;
   // a token along a wire (BUILD_ENTRANCES, travel.js): coloured by the deck's concepts; its clock, for a harness
@@ -3794,6 +3808,7 @@ export function init(userConfig = {}) {
         { key: 'voice', name: 'Voice', ...voice },
         { key: 'format', name: 'Format', options: VIDEO_FORMATS, index: at(VIDEO_FORMATS, prefs.format, 'mp4') },
         { key: 'quality', name: 'Quality', options: VIDEO_QUALITIES, index: at(VIDEO_QUALITIES, prefs.quality, 'standard') },
+        { key: 'render', name: 'Render', options: VIDEO_RENDER_MODES, expanded: true, index: at(VIDEO_RENDER_MODES, prefs.render, 'exact') },
         { key: 'subtitles', name: 'Subtitles', options: VIDEO_SUBTITLES, index: at(VIDEO_SUBTITLES, prefs.subtitles, 'none') },
         {
           key: 'face', name: 'Face', options: VIDEO_FACE, index: at(VIDEO_FACE, prefs.face, 'on'),
@@ -3806,11 +3821,11 @@ export function init(userConfig = {}) {
           },
         },
       ],
-      onPick: (slides, { voice: v, format, quality, subtitles, face }) => {
+      onPick: (slides, { voice: v, format, quality, subtitles, face, render }) => {
         // Remembered here and not per deck: a format is a habit of the person
         // exporting, and the voice is not remembered at all — it follows V.
-        writeJson(VIDEO_PREFS, { format, quality, subtitles, face });   // private mode: not remembered
-        editmode.exportDeck('video', { slides, voice: v, format, quality, subtitles, face });
+        writeJson(VIDEO_PREFS, { format, quality, subtitles, face, render });   // private mode: not remembered
+        editmode.exportDeck('video', { slides, voice: v, format, quality, subtitles, face, render });
       },
     });
   }

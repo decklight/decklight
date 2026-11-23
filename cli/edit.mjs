@@ -81,7 +81,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, wa
 import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import { LINE_DASHES, SHAPES, SHAPE_LABELS, shapeGeometry, shapeBox } from '../tools/diagram-shapes.mjs';
 import { resolve, relative, dirname, sep, basename } from 'node:path';
-import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, valuesOf } from '../tools/video-options.mjs';
+import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, VIDEO_RENDER_MODES, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { agentAsk, agentCommand, agentModel, applyModelFlags, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, setAgentModel, takesModel, MODEL_ENV, claudeActivity } from './agents.mjs';
@@ -354,10 +354,10 @@ export function previewError(why) {
  *   engine and this voice; anything else — a manifest for another voice, or
  *   audio with no manifest at all, which is what your own voice leaves — refuses.
  */
-export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles, face, allowStale } = {}, deckDir) {
+export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles, face, render, allowStale } = {}, deckDir) {
   if (allowStale != null && typeof allowStale !== 'boolean') return 'allowStale is yes or no';
   // the card's rows and the command's flags read one list (src/core/video-options.js)
-  for (const [field, value, list] of [['format', format, VIDEO_FORMATS], ['quality', quality, VIDEO_QUALITIES], ['subtitles', subtitles, VIDEO_SUBTITLES], ['face', face, VIDEO_FACE]]) {
+  for (const [field, value, list] of [['format', format, VIDEO_FORMATS], ['quality', quality, VIDEO_QUALITIES], ['subtitles', subtitles, VIDEO_SUBTITLES], ['face', face, VIDEO_FACE], ['render', render, VIDEO_RENDER_MODES]]) {
     if (value != null && !valuesOf(list).includes(value)) return `${field} must be ${valuesOf(list).join(', ')}`;
   }
   if (slides != null && slides !== '' && !(typeof slides === 'string' && /^\d+(?:-\d+)?$/.test(slides))) {
