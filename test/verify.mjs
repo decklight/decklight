@@ -57,7 +57,7 @@ const NARRATION_GROUPS = {
   live: ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'pausemark', 'aliases', 'audiotags', 'audiotagsv4', 'flaky', 'dead', 'keys', 'modules', 'xss', 'stalebridge', 'foreignport', 'askingbridge', 'enginebar', 'filmrow', 'writeface', 'writeface&filmed', 'writeface&off', 'writeface&nosrv', 'writeface&empty', 'writeface&print', 'writeface&capture', 'endoftalk', 'voicelangs', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited'],
   picker: ['roster', 'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'off', 'realsay'],
   recorded: ['recorded', 'manifest', 'expired', 'plainrec', 'plainpause', 'segmanifest', 'segsigned', 'bundledaudio'],
-  segments: ['segoverflow', 'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'segpause'],
+  segments: ['segoverflow', 'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'segpause', 'segpause&live'],
   record: ['record', 'record&dir', 'record&nosrv', 'reccount', 'recordseg', 'recordseg&pause', 'recordseg&badconfig', 'micwarn&record', 'micoffstep&record'],
 };
 const NARRATION_HARNESSES = Object.keys(NARRATION_GROUPS).map((g) => `narration-render:${g}`);
