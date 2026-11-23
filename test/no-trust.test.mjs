@@ -725,10 +725,14 @@ test('in a clone the readout answers, and a check finds the pushed commit', asyn
   assert.equal(before.pull.offered, false, 'a pull was offered without --upstream-pull');
   assert.equal(before.pull.reason, 'start with --upstream-pull');
 
+  // Join the startup check before pushing so the next request fetches again.
+  const check = async () => (await fetch(`${base}/deck/upstream/check`,
+    { method: 'POST', headers: ownOrigin(base) })).json();
+  assert.equal((await check()).state, 'up-to-date');
+
   pushFromSeed((d) => writeFileSync(path.join(d, 'talk.html'),
     DECK.replace('Alpha', 'Alpha Two')), 'sharpen the title');
-  const after = await (await fetch(`${base}/deck/upstream/check`,
-    { method: 'POST', headers: ownOrigin(base) })).json();
+  const after = await check();
   assert.equal(after.state, 'behind');
   assert.equal(after.behind, 1);
   assert.equal(after.commits[0].subject, 'sharpen the title');
