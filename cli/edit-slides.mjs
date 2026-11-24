@@ -37,7 +37,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import {
   notesTextToAside, setSlideNotes,
   sourcesToAside, setSlideSources,
-  setSlideTiming, setSlideLayout, setSlideHidden, setSlideFace,
+  setSlideTiming, setSlideLayout, LAYOUTS, setSlideHidden, setSlideFace,
   upsertNarrationTrack, configuredTrackDirs,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementBuildAttrs, setSlideBuildOrder, setDiagramOrder, groupDiagramNodes, setElementStyles, editedNodes, setElementAttr, setElementText, setElementLines, removeNestedElement, removeNestedElements, moveSlideElement,
   duplicateSlideElement, removeSlideElements, duplicateSlideElements, moveSlideElements, joinSlideElements } from './edit.mjs';
@@ -47,7 +47,7 @@ import { relativeAssets, pasteSection } from './paste.mjs';
 import { findInDeck, replaceInDeck } from './find-replace.mjs';
 import { setElementGeometry, setDiagramCanvas, addDiagramShape, duplicateDiagramNode, duplicateDiagramNodes, editConnector, CONNECTOR_OPS, GROUP_OPS } from './edit.mjs';
 import { oneline } from './git.mjs';
-import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange } from './design-system-edit.mjs';
+import { slotWriteProblem, slotMoveProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange, slideSlots } from './design-system-edit.mjs';
 import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
 import { markedSources } from './theme-refs.mjs';
 import { parseTemplateRef } from '../tools/design-system-format.mjs';
@@ -195,10 +195,16 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    *   { slide, layout: "acme/divider" }              convert or switch slide N
    *   { slide, layout: null }                          remove: back to a plain slide
    *   { slide, layout: "acme/divider", insert: true }  a new slide after slide N
+   *   { slide, template: null, layout: "split" }      leave the template for a built-in
+   *                                                     layout: both in ONE edit, so one
+   *                                                     undo, and never a moment with neither
    */
   function slideTemplateRoute({ body, json }) {
-    const { slide, template, insert } = JSON.parse(body || '{}');
+    const { slide, template, insert, layout } = JSON.parse(body || '{}');
     if (!Number.isInteger(slide) || slide < 1 || !(template === null || typeof template === 'string')) throw new Error('bad payload');
+    if (layout !== undefined && (template !== null || insert || !LAYOUTS.includes(layout))) {
+      return json(400, { ok: false, error: `a layout goes only with leaving a template (template: null), and is one of ${LAYOUTS.join(', ')}` });
+    }
     const html = readDeck();
     let def = null;
     if (template !== null) {
@@ -215,15 +221,47 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
         if (insert) return insertSlideTemplateSlide(deck, slide, def);
         const out = applySlideTemplate(deck, slide, def);
         report = out;
-        return out.html;
+        return layout === undefined ? out.html : setSlideLayout(out.html, slide, layout);
       }, html, voices.plans);
       if (done.error) return json(409, { ok: false, error: done.error });
       const { changed } = done;
-      const said = insert ? `a new ${def.ref} slide after slide ${slide}` : describeTemplateChange(report, def?.ref ?? '');
+      const said = insert ? `a new ${def.ref} slide after slide ${slide}`
+        : describeTemplateChange(report, def?.ref ?? '') + (layout === undefined ? '' : ` · layout ${layout}`);
       if (changed) console.log(`  slide template: slide ${slide} — ${said}`);
       return json(200, {
         ok: true, changed, said, ...(insert ? { inserted: slide + 1 } : { mode: report.mode, moved: report.moved, lacking: report.lacking }),
         ...history.counts(),
+      });
+    } catch (e) {
+      return json(404, { ok: false, error: oneline(e) });
+    }
+  }
+
+  /**
+   * What putting slide N into a template would do, WITHOUT writing it: the
+   * layout picker draws each template's thumbnail from this, so what a cell
+   * shows is what choosing it writes (the same applySlideTemplate, on the
+   * file). `template` empty is the plain slide, out of any template.
+   *   GET ?slide=N&template=acme/divider → { mode, moved, lacking, said, slots }
+   * `slots` is every child of the slide, in file order, and the slot it would
+   * name (null for none).
+   */
+  function slideTemplatePreviewRoute({ url, json }) {
+    const slide = Number(url.searchParams.get('slide'));
+    const value = url.searchParams.get('template') ?? '';
+    if (!Number.isInteger(slide) || slide < 1) return json(400, { ok: false, error: 'bad payload' });
+    try {
+      const html = readDeck();
+      let def = null;
+      if (value) {
+        const r = deckTemplate(html, value);
+        if (r.error) return json(409, { ok: false, error: r.error });
+        def = r.layout;
+      }
+      const out = applySlideTemplate(html, slide, def);
+      return json(200, {
+        ok: true, mode: out.mode, moved: out.moved, lacking: out.lacking,
+        said: describeTemplateChange(out, def?.ref ?? ''), slots: slideSlots(out.html, slide),
       });
     } catch (e) {
       return json(404, { ok: false, error: oneline(e) });
@@ -1589,6 +1627,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /deck/edit/element/remove', elementRemoveRoute);
   routes.set('POST /deck/edit/element/paste', elementPasteRoute);
   routes.set('GET /deck/edit/slide/source', slideSourceRoute);
+  routes.set('GET /deck/edit/slide/template/preview', slideTemplatePreviewRoute);
   routes.set('POST /deck/edit/element/content', elementContentRoute);
   routes.set('POST /deck/edit/element/effect', elementEffectRoute);
   routes.set('POST /deck/edit/element/build', elementBuildRoute);

@@ -789,6 +789,37 @@ try {
     check('forecast', 'one undo each takes them all back', fc.read() === original, fc.read().match(/<script type="application\/json">([\s\S]*?)<\/script>/)?.[1]);
     await page.close();
   });
+
+  // 14 · the layout picker (PRESENTING_EDITING): one cell per layout the ring
+  //      offers, a preview that writes nothing, Escape that puts the slide
+  //      back, ⏎ that writes once, one undo
+  await scenario('layout', async () => {
+    text.reset(); await wait(400);
+    const page = await open(text, '#/1/3');
+    const original = text.read();
+    const saves = () => text.saves(/layout saved/g);
+    const was = saves();
+    const ring = await page.evaluate(() => document.querySelector('.decklight').__decklight.layoutRing(1));
+    await page.click('.eb-layout'); await wait(600);
+    const cells = await page.locator('.decklight-layout-picker .dl-lp-cell').count();
+    check('layout', 'one cell per layout the slide can take', cells === ring.length && cells > 1, `${cells} cells, ring ${ring}`);
+    check('layout', 'no More layouts without a design system', await page.locator('.dl-lp-more').count() === 0);
+    check('layout', 'the current one is marked', await page.locator('.dl-lp-cell[aria-selected="true"]').getAttribute('aria-label') === 'layout auto, current');
+    await page.keyboard.press('ArrowRight'); await wait(400);
+    check('layout', 'the slide previews the focused layout', await page.locator(`.decklight-stage > section.dl-layout-preview[data-layout="${ring[1]}"]`).count() === 1);
+    check('layout', 'a preview writes nothing', text.read() === original && saves() === was);
+    await page.keyboard.press('Escape'); await wait(300);
+    check('layout', 'Escape closes and puts the slide back', await page.locator('.decklight-layout-picker, .dl-layout-preview, .dl-layout-previewed').count() === 0);
+    await page.click('.eb-layout'); await wait(600);
+    await page.keyboard.press('ArrowRight'); await wait(250);
+    await page.keyboard.press('Enter'); await wait(1500);
+    check('layout', '⏎ writes the layout into the file', new RegExp(`<section data-layout="${ring[1]}">`).test(text.read()), (text.read().match(/<section[^>]*>/) ?? [''])[0]);
+    check('layout', 'one write', saves() - was === 1, saves() - was);
+    check('layout', 'the bar names it', (await page.locator('.eb-layout .eb-label').textContent()) === `Layout · ${ring[1]}`);
+    await page.keyboard.press(`${MOD}+z`); await wait(1500);
+    check('layout', 'one undo takes it back', text.read() === original);
+    await page.close();
+  });
 } finally {
   await browser.close().catch(() => {});
   for (const s of servers) s.kill();

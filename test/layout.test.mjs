@@ -141,3 +141,32 @@ test('a slide template is not the ring\'s to cycle — L says so and changes not
   h.tick();
   assert.deepEqual(h.posted, [], 'and nothing is written to the file');
 });
+
+test('pick: the layout picker\'s one deliberate choice is written at once, not debounced', () => {
+  const h = harness();
+  assert.equal(h.cycler.pick('split'), true);
+  assert.equal(h.sections[0].getAttribute('data-layout'), 'split');
+  assert.deepEqual(h.posted, [{ slide: 1, layout: 'split' }], 'written now, with no timer to wait out');
+  assert.deepEqual(h.toasts, ['layout: split']);
+});
+
+test('pick: a cycle still pending is sent first, so the two land in the order they were made', () => {
+  const h = harness();
+  h.cycler.cycle(1);
+  assert.deepEqual(h.posted, [], 'the cycle waits for its burst to end');
+  h.cycler.pick('top');
+  assert.deepEqual(h.posted, [{ slide: 1, layout: 'centered' }, { slide: 1, layout: 'top' }]);
+  h.tick();
+  assert.equal(h.posted.length, 2, 'the flushed cycle is not sent twice');
+});
+
+test('pick: without the server, or on a template\'s slide, nothing is written', () => {
+  const off = harness({ available: false });
+  assert.equal(off.cycler.pick('split'), false);
+  assert.deepEqual(off.posted, []);
+  const tpl = section();
+  tpl.setAttribute('data-template', 'acme/divider');
+  const h = harness({ sections: [tpl] });
+  assert.equal(h.cycler.pick('split'), false, 'leaving a template is the template route\'s write, asked first');
+  assert.deepEqual(h.posted, []);
+});
