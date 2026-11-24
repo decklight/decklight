@@ -2494,7 +2494,11 @@ export function createNarration({
         : `${drift.length}${n ? ` of ${n}` : ''} slides out of date`);
     } else if (n != null) parts.push(`${n} slide${n === 1 ? '' : 's'}, up to date`);
     else parts.push('saved with the deck');
-    return { text: parts.join(' · '), warn: drift.length > 0 };
+    // the 2D character's lip-sync, out of step with this audio (#1244)
+    const lips = lipsStale(t);
+    if (lips) parts.push(`lip-sync out of date in ${lips} file${lips === 1 ? '' : 's'}`);
+    else if (lipsOf(t)?.job?.running) parts.push('making lip-sync…');
+    return { text: parts.join(' · '), warn: drift.length > 0 || lips > 0 };
   }
   /**
    * The fix, on the row itself: Re-record for your own voice, Regenerate for
@@ -2503,6 +2507,10 @@ export function createNarration({
    */
   function fixAct(t) {
     const drift = driftOf(t);
+    // the audio is current and only its lip-sync is not: cut it again (#1244)
+    if (!drift.length && lipsStale(t)) {
+      return { text: 'Update lip-sync', warn: true, run: () => (editBase() == null ? openVoiceCard(t) : updateLipsync(dirKey(t.dir))) };
+    }
     if (!drift.length) return null;
     const slides = drift.map((d) => d.slide);
     if (isMine(t)) {
@@ -2590,6 +2598,76 @@ export function createNarration({
     if (!k.engine) return 'this recording does not say which voice made it';
     if (onBrowser()) return "the browser's voice cannot be saved — regenerating needs the voice bridge";
     return null;
+  }
+  /**
+   * A track's 2D-character lip-sync, as the server found it (#1244):
+   * `{ of, stale, why, job }`, or null when the deck plays no 2D character.
+   */
+  const lipsOf = (t) => (character.mode === 'viseme' ? knownOf(t)?.lipsync ?? null : null);
+  /** Files whose lip-sync is not their audio's, and no job is already remaking them. */
+  const lipsStale = (t) => {
+    const l = lipsOf(t);
+    return l && l.stale > 0 && !l.job?.running ? l.stale : 0;
+  };
+  let rhubarbSaid = false;   // "Rhubarb is not installed" is said once a session
+  let lipsWatch = null;
+  /**
+   * Bring a track's lip-sync up to date: the edit server cuts every sidecar
+   * that is missing or another recording's with Rhubarb, in the background,
+   * and this follows its progress on the card. `quiet`: started by a
+   * recording rather than asked for — nothing to say when nothing is stale.
+   */
+  async function updateLipsync(dir, { quiet = false } = {}) {
+    const base = editBase();
+    if (base == null) return;
+    let j = null;
+    try {
+      const r = await fetch(`${base}/deck/edit/narration/lipsync?dir=${encodeURIComponent(dir)}`, { method: 'POST' });
+      j = await r.json();
+    } catch { /* server gone: the export remakes what is missing */ }
+    if (!j) return;
+    if (!j.ok) {
+      if (j.rhubarb === false && quiet && rhubarbSaid) return;
+      if (j.rhubarb === false) rhubarbSaid = true;
+      toast(j.error ?? 'lip-sync could not be made', 8000);
+      return;
+    }
+    if (!j.total) { if (!quiet) toast('lip-sync is up to date'); return; }
+    toast(`lip-sync: cutting ${j.total} file${j.total === 1 ? '' : 's'} with Rhubarb — this takes a while`, 5000);
+    watchLipsync(dir);
+  }
+  /** Poll the track list while a lip-sync job runs; the card repaints with its progress. */
+  function watchLipsync(dir) {
+    clearInterval(lipsWatch);
+    lipsWatch = setInterval(async () => {
+      rememberTracks(await knownTracks());
+      const l = narrKnown.get(dirKey(dir))?.lipsync;
+      if (narrEl && narrView === 'card' && !narrConfirm) renderNarr('card');
+      if (l?.job?.running) return;
+      clearInterval(lipsWatch);
+      lipsWatch = null;
+      if (l?.job?.error) toast(`lip-sync not made: ${l.job.error}`, 8000);
+      else if (l?.job) toast(`lip-sync: ${l.job.made} file${l.job.made === 1 ? '' : 's'} made`);
+    }, 3000);
+  }
+  /** The card's lip-sync line: up to date, being made, or how many files are not. */
+  function lipsFact(t) {
+    const l = lipsOf(t);
+    if (!l || !l.of) return null;
+    if (l.job?.running) return ['lip-sync', `making it: ${l.job.done} of ${l.job.total} files`];
+    if (!l.stale) return ['lip-sync', 'made from this recording'];
+    return ['lip-sync', `out of date in ${l.stale} of ${l.of} file${l.of === 1 ? '' : 's'} (${l.why})`, true];
+  }
+  /** The one action that brings it up to date. */
+  function lipsRow(t) {
+    const n = lipsStale(t);
+    const why = editBase() == null ? 'needs write mode — it writes the lip-sync files' : null;
+    return {
+      text: `Update lip-sync (${n} file${n === 1 ? '' : 's'})`,
+      flavor: why ? '' : 'cut again from the audio with Rhubarb · nothing is re-recorded',
+      blocked: why,
+      commit: () => (why ? toast(why, 5000) : updateLipsync(dirKey(t.dir))),
+    };
   }
   function armRevoice(t, slides) {
     narrCardOf = t;
@@ -2932,6 +3010,7 @@ export function createNarration({
         drift.length
           ? ['out of date', `${slidesSaid(slides)}: ${driftWhy(t, drift)}`, true]
           : k ? ['freshness', 'up to date with the notes'] : null,
+        lipsFact(t),
         ...(t === narrSet ? [['playing', 'this is the voice the deck plays']] : []),
       ].filter(Boolean));
       // The fix, first, and only when there is one to make
@@ -2956,6 +3035,8 @@ export function createNarration({
           commit: () => (why ? toast(why, 5000) : armRevoice(t, slides)),
         });
       }
+      // …and the lip-sync's, which costs nothing but time: Rhubarb, here (#1244)
+      if (lipsStale(t)) narrRows.push(lipsRow(t));
       if (mine) {
         narrRows.push({
           text: 'Record other slides…',
@@ -4082,7 +4163,8 @@ export function createNarration({
     const base = editBase();
     if (base == null) return [];
     try {
-      const r = await fetch(`${base}/deck/edit/narration/tracks`);
+      // a 2D character: ask whether each track's lip-sync is its audio's (#1244)
+      const r = await fetch(`${base}/deck/edit/narration/tracks${character.mode === 'viseme' ? '?character=viseme' : ''}`);
       const j = await r.json();
       return Array.isArray(j?.tracks) ? j.tracks : [];
     } catch { return []; }
@@ -4457,6 +4539,11 @@ export function createNarration({
     }
     if (run === recRun) {
       recTally = null;
+      // A 2D character mouths these files. The bridge cut a sidecar for each
+      // slide it could; any it could not (bridge down, a sentence it failed
+      // on) is cut on the server now, from the WAV on disk (#1244). Quiet
+      // when there is nothing to do; says once when Rhubarb is not here.
+      if (character.mode === 'viseme' && toDisk && dir) updateLipsync(dir.name, { quiet: true });
       renderRecordCard('done', {
         saved, total: list.length, dir: toDisk ? dir.name : null, segmented, label: target.label,
         clips: tally, engine: liveEngine,

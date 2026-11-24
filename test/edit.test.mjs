@@ -1678,6 +1678,46 @@ test('POST /deck/edit/narration/record writes slide-NN.wav into a folder beside 
   assert.ok(existsSync(path.join(dir, 'audio', 'take-2', 'slide-01.wav')));
 });
 
+// #1244: the voice card is told which tracks' 2D-character lip-sync is not
+// their audio's, and can ask for it to be cut again
+test('GET /deck/edit/narration/tracks?character=viseme says whose lip-sync is stale; POST …/lipsync remakes it, or says how to get Rhubarb', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  // no Rhubarb on PATH, and none saved: XDG_CONFIG_HOME is this test's own
+  const { base } = await startEdit(t, dir, { env: { PATH: dir, XDG_CONFIG_HOME: dir } });
+  const vo = path.join(dir, 'voiceover');
+  mkdirSync(vo, { recursive: true });
+  const take1 = Buffer.from('RIFF....WAVEfmt one');
+  writeFileSync(path.join(vo, 'slide-01.wav'), take1);
+  writeFileSync(path.join(vo, 'slide-02.wav'), Buffer.from('RIFF....WAVEfmt two'));
+  const { audioStamp } = await import('../tools/viseme-match.mjs');
+  const tl = (audio) => JSON.stringify({ v: 1, cues: [{ t: 0, v: 'X' }], duration: 1, audio: audioStamp(audio) });
+  writeFileSync(path.join(vo, 'slide-01.visemes.json'), tl(take1));
+  writeFileSync(path.join(vo, 'slide-02.visemes.json'), tl(take1));   // slide 1's: another recording
+
+  const track = async (q = '?character=viseme') => (await (await fetch(`${base}/deck/edit/narration/tracks${q}`)).json())
+    .tracks.find((x) => x.dir === 'voiceover');
+  assert.equal((await track('')).lipsync, undefined, 'no 2D character, nothing to say');
+  const l = (await track()).lipsync;
+  assert.equal(l.of, 2);
+  assert.equal(l.stale, 1);
+  assert.match(l.why, /^slide-02: it was made from another recording/);
+
+  const r = await fetch(`${base}/deck/edit/narration/lipsync?dir=voiceover`, { method: 'POST' });
+  assert.equal(r.status, 412);
+  const j = await r.json();
+  assert.equal(j.rhubarb, false);
+  assert.match(j.error, /Rhubarb is not installed.*decklight setup face --rhubarb/);
+  // a folder outside the deck is refused before anything is read
+  assert.equal((await fetch(`${base}/deck/edit/narration/lipsync?dir=..%2Fx`, { method: 'POST' })).status, 400);
+
+  // up to date: nothing to cut, whatever is installed
+  writeFileSync(path.join(vo, 'slide-02.visemes.json'), tl(readFileSync(path.join(vo, 'slide-02.wav'))));
+  assert.equal((await track()).lipsync.stale, 0);
+  assert.deepEqual(await (await fetch(`${base}/deck/edit/narration/lipsync?dir=voiceover`, { method: 'POST' })).json(),
+    { ok: true, total: 0, done: 0, made: 0, error: null, running: false });
+});
+
 // ── ⇧R: one file per ⟨CLICK⟩ beat, which is what steps the builds ─────────
 test('POST /deck/edit/narration/record?seg writes slide-NN-KK.wav — and refuses a seg it cannot name', async (t) => {
   const dir = tmp(t);
