@@ -147,6 +147,10 @@ test('faceFor: a filmed slide\'s clip beside its audio, placed as the slide says
   assert.equal(faceFor({ slide: 3, audio: 'slide-03-01.wav' }, { narration, faces, exists: all }), null);
   assert.deepEqual(faceFor({ slide: 3, audio: 'slide-03-02.wav' }, { narration, faces, exists: all }),
     { clip: path.join('/n', 'slide-03-02.mp4'), kind: 'corner', zoom: 1 });
+  assert.equal(faceFor({ slide: 3, audio: 'slide-03-02.wav' }, { narration, faces, defaultCorner: 'tl', exists: all }).at, 'tl');
+  assert.equal(faceFor({ slide: 3, audio: 'slide-03-02.wav' }, {
+    narration, faces: [null, null, 'bottom-left'], defaultCorner: 'tl', exists: all,
+  }).at, 'bl');
   // not filmed, silent, or the clip is gone: nothing
   assert.equal(faceFor({ slide: 2, audio: 'slide-02.wav' }, { narration, faces, exists: all }), null);
   assert.equal(faceFor({ slide: 1, audio: null }, { narration, faces, exists: all }), null);

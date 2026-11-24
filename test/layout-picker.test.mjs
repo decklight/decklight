@@ -1,0 +1,129 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
+// The layout picker's model (SPEC PRESENTING_EDITING): which cells it shows,
+// in what order, where focus starts, and what choosing one writes. The page
+// half (drawing the variants, the preview on the stage) is driven in a real
+// browser; this is the half that decides.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { currentChoice, pickerCells, builtinsShownAtOpen, pickerItems, initialFocus, writeFor, cellLabel, runQueued, failureLine, PLAN_CONCURRENCY, cellWarning, cellDetail, lookSize, lookStep } from '../src/core/layout-picker.js';
+
+const RING = ['auto', 'centered', 'top', 'split', 'split-flip'];
+const ACME = { name: 'acme', title: 'Acme Brand', templates: [{ id: 'section-divider', title: 'Section divider' }, { id: 'statement' }] };
+const sec = (attrs = {}) => ({ getAttribute: (k) => attrs[k] ?? null });
+
+test('currentChoice: a slide template, or the built-in layout (auto when it says none)', () => {
+  assert.deepEqual(currentChoice(sec()), { template: '', layout: 'auto' });
+  assert.deepEqual(currentChoice(sec({ 'data-layout': 'split' })), { template: '', layout: 'split' });
+  assert.deepEqual(currentChoice(sec({ 'data-template': 'acme/statement' })), { template: 'acme/statement', layout: 'auto' });
+});
+
+test('a deck without a design system: the built-in layouts only, shown, focus on the current one', () => {
+  const current = { template: '', layout: 'top' };
+  const cells = pickerCells({ ring: RING, systems: [], current });
+  assert.deepEqual(cells.templates, []);
+  assert.equal(builtinsShownAtOpen({ systems: [], current: { template: '', layout: 'auto' } }), true);
+  const items = pickerItems(cells, { hasSystems: false, shown: true });
+  assert.deepEqual(items.map((c) => c.key), RING.map((n) => `l:${n}`), 'no More layouts toggle');
+  assert.equal(items[initialFocus(items)].name, 'top');
+});
+
+test('a design-system deck: the templates first, the built-in layouts behind More layouts', () => {
+  const current = { template: '', layout: 'auto' };
+  const cells = pickerCells({ ring: RING, systems: [ACME], current });
+  assert.equal(builtinsShownAtOpen({ systems: [ACME], current }), false, 'a plain auto slide opens on the brand');
+  const items = pickerItems(cells, { hasSystems: true, shown: false });
+  assert.deepEqual(items.map((c) => c.key), ['t:acme/section-divider', 't:acme/statement', 'more']);
+  assert.equal(items[initialFocus(items)].ref, 'acme/section-divider', 'the current (auto) is out of sight: the first template');
+  assert.equal(items[0].name, 'Section divider', 'a template\'s own title when it has one');
+  assert.equal(items[1].name, 'statement', 'else its id');
+  const open = pickerItems(cells, { hasSystems: true, shown: true });
+  assert.deepEqual(open.slice(3).map((c) => c.name), RING, 'More layouts puts them after the toggle');
+});
+
+test('the current choice is always in sight: a slide on a built-in layout opens with them shown', () => {
+  assert.equal(builtinsShownAtOpen({ systems: [ACME], current: { template: '', layout: 'split' } }), true);
+  assert.equal(builtinsShownAtOpen({ systems: [ACME], current: { template: 'acme/statement', layout: 'auto' } }), false);
+  const cells = pickerCells({ ring: RING, systems: [ACME], current: { template: 'acme/statement', layout: 'auto' } });
+  const items = pickerItems(cells, { hasSystems: true, shown: false });
+  assert.equal(items[initialFocus(items)].ref, 'acme/statement', 'a templated slide focuses its template');
+});
+
+test('writeFor: what choosing a cell writes', () => {
+  const plain = { template: '', layout: 'auto' };
+  const templated = { template: 'acme/statement', layout: 'auto' };
+  const cellsP = pickerCells({ ring: RING, systems: [ACME], current: plain });
+  const cellsT = pickerCells({ ring: RING, systems: [ACME], current: templated });
+  const split = (cells) => cells.builtins.find((c) => c.name === 'split');
+  assert.deepEqual(writeFor(split(cellsP), plain), { kind: 'layout', name: 'split' }, 'a plain slide: the quiet layout write');
+  assert.equal(writeFor(cellsP.builtins.find((c) => c.name === 'auto'), plain), null, 'the current one writes nothing');
+  assert.deepEqual(writeFor(cellsP.templates[0], plain), { kind: 'template', body: { template: 'acme/section-divider' } }, 'into a template');
+  assert.deepEqual(writeFor(cellsT.templates[0], templated), { kind: 'template', body: { template: 'acme/section-divider' } }, 'to another');
+  assert.equal(writeFor(cellsT.templates[1], templated), null);
+  const leave = writeFor(split(cellsT), templated);
+  assert.deepEqual(leave, { kind: 'leave', body: { template: null, layout: 'split' }, confirm: true }, 'leaving a template asks first, then is one write');
+  assert.equal(split(cellsT).leaves, true);
+  assert.equal(writeFor({ kind: 'more' }, plain), null, 'the toggle writes nothing');
+});
+
+test('cellLabel: what a screen reader hears', () => {
+  const cells = pickerCells({ ring: RING, systems: [ACME], current: { template: 'acme/statement', layout: 'auto' } });
+  assert.equal(cellLabel(cells.templates[1]), 'Acme Brand template statement, current');
+  assert.equal(cellLabel(cells.builtins[3]), 'layout split, leaves the template');
+  assert.equal(cellLabel({ kind: 'more', shown: false }), 'More layouts');
+});
+
+test('runQueued: never more than the limit in flight, every job run, in order (#1240)', async () => {
+  let inFlight = 0, most = 0;
+  const started = [];
+  const jobs = Array.from({ length: 10 }, (_, i) => async () => {
+    started.push(i);
+    inFlight++; most = Math.max(most, inFlight);
+    await new Promise((r) => setTimeout(r, 2));
+    inFlight--;
+    if (i === 3) throw new Error('one fails');   // the others still run
+  });
+  await runQueued(jobs, PLAN_CONCURRENCY);
+  assert.equal(most, PLAN_CONCURRENCY);
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  await runQueued([], 2);   // nothing to do settles
+});
+
+test('failureLine: said once for the panel, each reason once (#1240)', () => {
+  assert.equal(failureLine([]), '');
+  assert.equal(failureLine([{ name: 'Quote', error: 'no answer in 8s' }]), 'no preview for Quote: no answer in 8s');
+  assert.equal(failureLine([{ name: 'Quote', error: 'no answer in 8s' }, { name: 'Cover', error: 'no answer in 8s' }, { name: 'Agenda', error: 'gone' }]),
+    'no preview for 3 templates: no answer in 8s; gone');
+});
+
+test('cellWarning and cellDetail: the tile says how many parts, the large preview names them (#1241)', () => {
+  assert.equal(cellWarning({}), '');
+  assert.equal(cellWarning({ error: 'gone', lacking: ['quote'] }), '');   // said in the status line
+  assert.equal(cellWarning({ lacking: ['quote'] }), '1 part has no slot');
+  assert.equal(cellWarning({ conflict: true, clip: {} }), 'fights its columns');
+  assert.equal(cellWarning({ clip: {} }), 'clips');
+  assert.equal(cellDetail({ lacking: ['quote', 'author'] }), '2 parts have no slot: "quote", "author"');
+  assert.equal(cellDetail({ clip: {} }), 'clips');
+});
+
+test('lookSize: the largest box at the deck\'s aspect ratio that fits the window with a margin (#1241)', () => {
+  const wide = lookSize({ vw: 1280, vh: 800, width: 1600, height: 900 });
+  assert.equal(Math.round(wide.width / wide.height * 100), Math.round(1600 / 900 * 100));
+  assert.ok(wide.width <= 1280 - 96 && wide.height <= 800 - 96 - 64);
+  assert.ok(wide.width === 1280 - 96 || wide.height === 800 - 96 - 64, 'one side touches the margin');
+  const tall = lookSize({ vw: 600, vh: 1200, width: 1600, height: 900 });
+  assert.equal(tall.width, 600 - 96);
+  assert.ok(lookSize({ vw: 10, vh: 10, width: 1600, height: 900 }).scale > 0);
+});
+
+test('lookStep: the arrows move from cell to cell, past the More layouts toggle, round the ends (#1241)', () => {
+  const items = [{ kind: 'template' }, { kind: 'template' }, { kind: 'more' }, { kind: 'layout' }];
+  assert.equal(lookStep(items, 0, 1), 1);
+  assert.equal(lookStep(items, 1, 1), 3);
+  assert.equal(lookStep(items, 3, 1), 0);
+  assert.equal(lookStep(items, 0, -1), 3);
+  assert.equal(lookStep(items, 3, -1), 1);
+  assert.equal(lookStep([{ kind: 'layout' }, { kind: 'more' }], 0, 1), 0);
+});

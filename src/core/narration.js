@@ -891,7 +891,7 @@ export function createNarration({
   // the lookahead worker, beginSentence per clip); recorded mode loads
   // slide-NN sidecar files. Chosen in the V panel (who is on screen).
   const character = createCharacter({
-    root, config, debugLog, toast,
+    root, config, debugLog, toast, onModeChange: refreshWritePreview,
     // where a filmed face shows, slide by slide and beat by beat (FACE_LAYOUT)
     faceOf: (sl) => instance._sections?.[sl - 1]?.getAttribute('data-face') ?? null,
   });
@@ -1722,7 +1722,7 @@ export function createNarration({
     narrAudio.playbackRate = narrRate;
     if (character.mode !== 'off') {
       character.attachAudio(narrAudio);
-      character.beginSlide(narrSet, sl, null, file);
+      character.beginSlide(narrSet, sl, null, file, step + 1);
       // no clips beside the track? the bridge starts on the next slide's now
       const next = sl < instance.state.totalSlides && notesText(sl + 1) ? slideFileUrl(sl + 1) : null;
       character.prefetchFiles(narrSet, sl, [file, next].filter(Boolean));
@@ -1833,7 +1833,7 @@ export function createNarration({
           // Per BEAT: the sidecar is cut to the same audio this element is
           // about to play, so the mouth cannot drift across a ⟨CLICK⟩ the way
           // one slide-long timeline replayed per beat inevitably did.
-          character.beginSlide(narrSet, sl, files[i].file, files[i].url);
+          character.beginSlide(narrSet, sl, files[i].file, files[i].url, step + 1);
           if (i === 0) character.prefetchFiles(narrSet, sl, upcomingFiles(sl, step));
         }
         // both cleared before the src moves — see playLive
@@ -1948,7 +1948,10 @@ export function createNarration({
   /** The deck's own voice, for a gesture that is itself the choice (playDefault, below; the hint). */
   function playDefaultVoice() {
     if (narrating) return toggleNarration();   // the button stops it too
-    if (!narrSet) narrSet = narrSets[0] ?? (liveFound ? LIVE_TRACK : null);
+    if (!narrSet) {
+      narrSet = narrSets[0] ?? (liveFound ? LIVE_TRACK : null);
+      refreshWritePreview();
+    }
     if (narrSet) toggleNarration();
   }
   async function toggleNarration() {
@@ -1987,7 +1990,19 @@ export function createNarration({
     playSlideFile();
     syncSoundBtn();
   }
-  instance.on('slide', () => { if (narrating) playSlideFile(); });
+  // A paused chain is parked before it starts the next clip. The overlay
+  // still follows navigation, including builds on a whole-slide track.
+  function placePausedCharacter() {
+    if (!narrPaused || character.mode === 'off') return;
+    const { slide, step } = instance.state;
+    character.placeAt(slide, step + 1);
+  }
+
+  instance.on('slide', () => {
+    if (!narrating) return;
+    placePausedCharacter();
+    playSlideFile();
+  });
   // builds re-sync the live voice too — whether the advance came from the
   // narration itself or from the presenter pressing → mid-sentence
   // Builds re-sync the voice — whether the advance came from the narration
@@ -1996,6 +2011,7 @@ export function createNarration({
   // track restart its whole-slide file on every →.
   instance.on('build', () => {
     if (!narrating) return;
+    placePausedCharacter();
     if (narrSet?.live) playLive();
     else if (drivesBuilds) playRecorded();
   });
@@ -2200,6 +2216,7 @@ export function createNarration({
           ? { track: trackKey(narrSet), dir: narrSet.dir }
           : { off: true });
     } catch { /* ignore */ }
+    refreshWritePreview();
   }
   function applyLive(toneLabel, styleText) {
     liveCfg = { voice: liveDraft ?? liveCfg.voice, tone: toneLabel, style: styleText };
@@ -2239,7 +2256,7 @@ export function createNarration({
     else if (narrView === 'engines' || narrView === 'langs' || narrView === 'library') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('tracks');
     else if (narrView === 'card' && narrConfirm) { narrConfirm = null; narrSel = 0; renderNarr('card'); }
-    else if (narrView === 'face') { narrFace = null; renderNarr('tracks'); }
+    else if (narrView === 'face') renderNarr(narrFace?.from ?? 'tracks');
     else if (narrView === 'card' || narrView === 'voices') renderNarr('tracks');
     else donePanel();
   }
@@ -2550,6 +2567,10 @@ export function createNarration({
    */
   let narrKnown = new Map();   // track dir → { dir, engine, voice, style, mine, drift, slides, … }
   const dirKey = (dir) => String(dir ?? '').replace(/^\.\//, '').replace(/\/+$/, '');
+  function rememberTracks(tracks) {
+    narrKnown = new Map(tracks.map((t) => [dirKey(t.dir), t]));
+    refreshWritePreview();
+  }
   const knownOf = (t) => (t?.dir ? narrKnown.get(dirKey(t.dir)) ?? null : null);
   /** Your own voice: the recorder says so in the manifest; `voices/me` before one is read. */
   const isMine = (t) => (knownOf(t) ? knownOf(t).mine === true : dirKey(t?.dir) === 'voices/me');
@@ -2622,7 +2643,11 @@ export function createNarration({
         : `${drift.length}${n ? ` of ${n}` : ''} slides out of date`);
     } else if (n != null) parts.push(`${n} slide${n === 1 ? '' : 's'}, up to date`);
     else if (isMine(t)) parts.push('saved with the deck');
-    return { text: parts.join(' · '), warn: drift.length > 0 };
+    // the 2D character's lip-sync, out of step with this audio (#1244)
+    const lips = lipsStale(t);
+    if (lips) parts.push(`lip-sync out of date in ${lips} file${lips === 1 ? '' : 's'}`);
+    else if (lipsOf(t)?.job?.running) parts.push('making lip-sync…');
+    return { text: parts.join(' · '), warn: drift.length > 0 || lips > 0 };
   }
   /**
    * The fix, on the row itself: Re-record for your own voice, Regenerate for
@@ -2631,6 +2656,10 @@ export function createNarration({
    */
   function fixAct(t) {
     const drift = driftOf(t);
+    // the audio is current and only its lip-sync is not: cut it again (#1244)
+    if (!drift.length && lipsStale(t)) {
+      return { text: 'Update lip-sync', warn: true, run: () => (editBase() == null ? openVoiceCard(t) : updateLipsync(dirKey(t.dir))) };
+    }
     if (!drift.length) return null;
     const slides = drift.map((d) => d.slide);
     if (isMine(t)) {
@@ -2714,6 +2743,76 @@ export function createNarration({
     if (onBrowser()) return "the browser's voice cannot be saved — regenerating needs the voice bridge";
     return null;
   }
+  /**
+   * A track's 2D-character lip-sync, as the server found it (#1244):
+   * `{ of, stale, why, job }`, or null when the deck plays no 2D character.
+   */
+  const lipsOf = (t) => (character.mode === 'viseme' ? knownOf(t)?.lipsync ?? null : null);
+  /** Files whose lip-sync is not their audio's, and no job is already remaking them. */
+  const lipsStale = (t) => {
+    const l = lipsOf(t);
+    return l && l.stale > 0 && !l.job?.running ? l.stale : 0;
+  };
+  let rhubarbSaid = false;   // "Rhubarb is not installed" is said once a session
+  let lipsWatch = null;
+  /**
+   * Bring a track's lip-sync up to date: the edit server cuts every sidecar
+   * that is missing or another recording's with Rhubarb, in the background,
+   * and this follows its progress on the card. `quiet`: started by a
+   * recording rather than asked for — nothing to say when nothing is stale.
+   */
+  async function updateLipsync(dir, { quiet = false } = {}) {
+    const base = editBase();
+    if (base == null) return;
+    let j = null;
+    try {
+      const r = await fetch(`${base}/deck/edit/narration/lipsync?dir=${encodeURIComponent(dir)}`, { method: 'POST' });
+      j = await r.json();
+    } catch { /* server gone: the export remakes what is missing */ }
+    if (!j) return;
+    if (!j.ok) {
+      if (j.rhubarb === false && quiet && rhubarbSaid) return;
+      if (j.rhubarb === false) rhubarbSaid = true;
+      toast(j.error ?? 'lip-sync could not be made', 8000);
+      return;
+    }
+    if (!j.total) { if (!quiet) toast('lip-sync is up to date'); return; }
+    toast(`lip-sync: cutting ${j.total} file${j.total === 1 ? '' : 's'} with Rhubarb — this takes a while`, 5000);
+    watchLipsync(dir);
+  }
+  /** Poll the track list while a lip-sync job runs; the card repaints with its progress. */
+  function watchLipsync(dir) {
+    clearInterval(lipsWatch);
+    lipsWatch = setInterval(async () => {
+      rememberTracks(await knownTracks());
+      const l = narrKnown.get(dirKey(dir))?.lipsync;
+      if (narrEl && narrView === 'card' && !narrConfirm) renderNarr('card');
+      if (l?.job?.running) return;
+      clearInterval(lipsWatch);
+      lipsWatch = null;
+      if (l?.job?.error) toast(`lip-sync not made: ${l.job.error}`, 8000);
+      else if (l?.job) toast(`lip-sync: ${l.job.made} file${l.job.made === 1 ? '' : 's'} made`);
+    }, 3000);
+  }
+  /** The card's lip-sync line: up to date, being made, or how many files are not. */
+  function lipsFact(t) {
+    const l = lipsOf(t);
+    if (!l || !l.of) return null;
+    if (l.job?.running) return ['lip-sync', `making it: ${l.job.done} of ${l.job.total} files`];
+    if (!l.stale) return ['lip-sync', 'made from this recording'];
+    return ['lip-sync', `out of date in ${l.stale} of ${l.of} file${l.of === 1 ? '' : 's'} (${l.why})`, true];
+  }
+  /** The one action that brings it up to date. */
+  function lipsRow(t) {
+    const n = lipsStale(t);
+    const why = editBase() == null ? 'needs write mode — it writes the lip-sync files' : null;
+    return {
+      text: `Update lip-sync (${n} file${n === 1 ? '' : 's'})`,
+      flavor: why ? '' : 'cut again from the audio with Rhubarb · nothing is re-recorded',
+      blocked: why,
+      commit: () => (why ? toast(why, 5000) : updateLipsync(dirKey(t.dir))),
+    };
+  }
   function armRevoice(t, slides) {
     narrCardOf = t;
     narrConfirm = { t, slides };
@@ -2721,38 +2820,97 @@ export function createNarration({
     renderNarr('card');
   }
   // ── Where… (FACE_LAYOUT): where whoever is on screen shows on a slide ──
-  // Chosen here, written to the slide's data-face, read by the one reader
-  // the deck and the video share. Nothing is filmed again: it only says how
-  // the footage you already have is shown.
-  let narrFace = null;   // the placement being chosen: { kind, zoom, at, byBeat }
-  const deckCorner = () => config.narration?.character?.position ?? 'br';
-  const CORNER_ORDER = ['br', 'bl', 'tl', 'tr'];
+  // Placement belongs to the slide, whichever voice plays it: written to the
+  // slide's data-face (or the deck's default corner), read by the one reader
+  // the deck and the video share.
+  let narrFace = null;
+  const writePreviewKey = 'decklight-face-preview:' + location.pathname;
+  let writePreviewOn = readPref(writePreviewKey) !== 'off';
+  let writing = false;
+  const currentFaceTrack = () => knownOf(narrSet);
+  const canPreviewFace = () => writing && (character.mode === 'viseme' || !!currentFaceTrack()?.faces?.length);
+
+  function refreshWritePreview() {
+    if (!writePreviewOn || !canPreviewFace()) {
+      character.showWritePreview(null);
+      return;
+    }
+    const { slide, step } = instance.state;
+    const filmed = currentFaceTrack()?.faces?.includes(slide);
+    const kind = character.mode === 'viseme' ? 'viseme' : filmed ? 'filmed' : null;
+    const attr = instance._sections?.[slide - 1]?.getAttribute('data-face');
+    let at = faceLayout(attr, step + 1);
+    if (narrFace?.slide === slide) {
+      if (narrFace.scope === 'slide') at = narrFace;
+      else if (at.kind === 'corner' && !at.at) at = { ...at, at: narrFace.at };
+    }
+    character.showWritePreview(kind, at);
+  }
+  async function setWriteMode(on) {
+    writing = on;
+    refreshWritePreview();
+    if (!on || !narrSets.length) return;
+    const tracks = await knownTracks();
+    rememberTracks(tracks);
+  }
+  function toggleWritePreview() {
+    writePreviewOn = !writePreviewOn;
+    writePref(writePreviewKey, writePreviewOn ? null : 'off');
+    refreshWritePreview();
+  }
+  instance.on('slide', refreshWritePreview);
+  instance.on('build', refreshWritePreview);
+  instance.on('rescan', refreshWritePreview);
+
+  const CORNER_ORDER = ['tl', 'tr', 'bl', 'br'];
+  const deckCorner = () => {
+    const at = config.narration?.character?.position;
+    return CORNER_ORDER.includes(at) ? at : 'br';
+  };
   const cornerSaid = (at) => Object.keys(FACE_CORNERS).find((k) => FACE_CORNERS[k] === at).replace('-', ' ');
-  function openFacePlacement() {
-    const attr = instance._sections?.[instance.state.slide - 1]?.getAttribute('data-face') ?? null;
-    const at = faceLayout(attr, 1);
-    narrFace = { kind: at.kind, zoom: at.zoom, at: at.at ?? deckCorner(), byBeat: parseFaceLayout(attr).rules.some((r) => r.from > 1) };
-    narrSel = 0;
+  function openFacePlacement(from = 'tracks', scope = 'slide') {
+    const slide = instance.state.slide;
+    const attr = scope === 'slide' ? instance._sections?.[slide - 1]?.getAttribute('data-face') : null;
+    const placement = faceLayout(attr, instance.state.step + 1);
+    narrFace = {
+      ...placement, from, scope, slide, at: placement.at ?? deckCorner(),
+      byBeat: parseFaceLayout(attr).rules.some((r) => r.from > 1),
+    };
     renderNarr('face');
   }
-  /** The placement as data-face writes it: the deck's own corner is no attribute at all. */
-  const faceChosen = () => faceValue(narrFace.kind === 'corner' && narrFace.at === deckCorner() ? { kind: 'corner' } : narrFace);
-  async function saveFace(slides) {
-    const face = faceChosen();
+  async function saveFace(slides, face) {
+    const draft = narrFace;
+    const base = editBase();
+    if (base == null || draft.saving) return;
+    draft.saving = true;
+    const isDefault = draft.scope === 'deck';
+    const path = isDefault ? '/deck/edit/config' : '/deck/edit/slide/face';
+    const corner = draft.at;
+    const payload = isDefault ? { set: { 'narration.character.position': corner } } : { slides, face };
     try {
-      const r = await fetch(`${editBase()}/deck/edit/slide/face`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slides, face }),
+      const r = await fetch(base + path, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
       });
-      if (!r.ok) throw new Error(String(r.status));
-    } catch (e) { toast(`could not place the face: ${e.message}`, 4000); return; }
-    for (const n of slides) {
-      const sec = instance._sections?.[n - 1];
-      if (face) sec?.setAttribute('data-face', face); else sec?.removeAttribute('data-face');
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? r.status);
+    } catch (e) {
+      toast(`could not save placement: ${e.message}`, 4000);
+      return;
+    } finally {
+      draft.saving = false;
     }
-    const where = narrFace.kind === 'hide' ? 'hidden' : narrFace.kind === 'full' ? `full screen at ${narrFace.zoom}×` : `in the ${cornerSaid(narrFace.at)} corner`;
-    toast(`on screen: ${where} on ${slides.length === 1 ? `slide ${slides[0]}` : `${slides.length} slides`} · ${UNDO_CHORD} undoes it`, 3200);
-    narrFace = null;
-    renderNarr('tracks');
+    if (isDefault) {
+      config.narration ??= {};
+      config.narration.character ??= {};
+      config.narration.character.position = corner;
+    } else {
+      for (const n of slides) {
+        const sec = instance._sections?.[n - 1];
+        if (face) sec?.setAttribute('data-face', face); else sec?.removeAttribute('data-face');
+      }
+    }
+    refreshWritePreview();
+    toast(`placement saved · ${UNDO_CHORD} undoes it`, 3200);
+    if (narrEl && narrFace === draft) renderNarr(draft.from);
   }
   /** The live voice into a folder: the synthesized recorder, offered where a voice is added or kept. */
   function saveLiveRow() {
@@ -2785,6 +2943,12 @@ export function createNarration({
   }
   function renderNarr(view) {
     const cameFrom = narrView;
+    const customTone = liveCfg.tone === 'Custom' ? liveCfg.style : '';
+    if (cameFrom === 'face' && view !== 'face') {
+      narrFace = null;
+      character.previewFace(null);
+      refreshWritePreview();
+    }
     // The same view again — an answer from the server or the bridge, or a
     // toggle — keeps the row you were on: a late answer that put the
     // highlight back on the current voice would send your next → to the
@@ -3011,7 +3175,9 @@ export function createNarration({
       if (liveEngine && liveStylable) {
         narrRows.push({
           text: 'Change tone…',
-          flavor: liveCfg.tone,
+          flavor: customTone || liveCfg.tone,
+          ellipsizeFlavor: !!customTone,
+          title: customTone,
           commit: () => { liveDraft = liveCfg.voice; renderNarr('tones'); },
         });
       }
@@ -3036,6 +3202,7 @@ export function createNarration({
         drift.length
           ? ['out of date', `${slidesSaid(slides)}: ${driftWhy(t, drift)}`, true]
           : k ? ['freshness', 'up to date with the notes'] : null,
+        lipsFact(t),
         ...(t === narrSet ? [['playing', 'this is the voice the deck plays']] : []),
       ].filter(Boolean));
       // The fix, first, and only when there is one to make
@@ -3060,6 +3227,8 @@ export function createNarration({
           commit: () => (why ? toast(why, 5000) : armRevoice(t, slides)),
         });
       }
+      // …and the lip-sync's, which costs nothing but time: Rhubarb, here (#1244)
+      if (lipsStale(t)) narrRows.push(lipsRow(t));
       if (mine) {
         narrRows.push({
           text: 'Record other slides…',
@@ -3094,23 +3263,56 @@ export function createNarration({
       }
       voiceTail(t);
     } else if (view === 'face' && narrFace) {
-      const sl = instance.state.slide;
+      // Where… (FACE_LAYOUT): where whoever is on screen shows. A slide's own
+      // place is written to its data-face; the default corner, for every slide
+      // without one, to the deck's config. Nothing is filmed again: it only
+      // says how what you already have is shown. The deck previews the draft
+      // as you change it, under the panel.
+      const draft = narrFace;
+      const { slide, scope, from } = draft;
+      const isDefault = scope === 'deck';
       const now = onScreen();
       const filmed = now === 'camera' ? filmedOf(narrSet) ?? [] : [];
-      head.textContent = `where ${now === 'cartoon' ? 'the character' : now === 'head' ? 'the talking head' : 'my camera'} shows · slide ${sl}`;
-      // a sketch of the slide, with the narrator where it would be
+      const whom = now === 'cartoon' ? 'the character' : now === 'head' ? 'the talking head' : now === 'camera' ? 'my camera' : 'the narrator';
+      head.textContent = isDefault ? `where ${whom} shows · the default corner` : `where ${whom} shows · slide ${slide}`;
+      character.previewFace(draft);
+      refreshWritePreview();
+      const change = (values) => {
+        Object.assign(draft, values);
+        renderNarr('face');
+      };
       const sketch = Object.assign(document.createElement('div'), { className: 'narr-face-sketch' });
-      sketch.setAttribute('aria-hidden', 'true');
-      sketch.appendChild(Object.assign(document.createElement('span'), {
-        className: `narr-face-dot narr-face-${narrFace.kind} narr-face-at-${narrFace.at}`,
-        textContent: narrFace.kind === 'full' ? `${narrFace.zoom}×` : '',
-      }));
+      sketch.setAttribute('role', 'group');
+      sketch.setAttribute('aria-label', 'Slide placement preview');
+      const previewButton = (label, className, selected, choose) => {
+        const button = Object.assign(document.createElement('button'), { type: 'button', className, textContent: label });
+        button.setAttribute('aria-pressed', String(selected));
+        button.addEventListener('click', () => {
+          choose();
+          narrEl?.querySelector(`button[aria-label="${button.getAttribute('aria-label')}"]`)?.focus();
+        });
+        return button;
+      };
+      for (const at of CORNER_ORDER) {
+        const corner = previewButton('', `narr-face-dot narr-face-at-${at}`,
+          draft.kind === 'corner' && draft.at === at, () => change({ kind: 'corner', at }));
+        corner.setAttribute('aria-label', cornerSaid(at));
+        sketch.appendChild(corner);
+      }
+      if (draft.kind === 'full') {
+        const full = Object.assign(document.createElement('span'), {
+          className: 'narr-face-full-preview', textContent: `${draft.zoom}×`,
+        });
+        full.style.setProperty('--preview-size', `${32 + 18 * draft.zoom}px`);
+        sketch.appendChild(full);
+      }
       card.appendChild(sketch);
       cardFacts(card, [
-        ...(now !== 'camera' ? []
-          : [filmedOf(narrSet) == null || filmed.includes(sl) ? ['filmed', 'yes, with this slide'] : ['filmed', 'no: this slide was recorded without the camera', true]]),
-        ...(narrFace.byBeat ? [['now', 'it changes beat by beat; saving sets one place for the whole slide', true]] : []),
-        ['saved', 'in the deck, slide by slide · nothing is filmed or recorded again'],
+        ...(isDefault || now !== 'camera' ? []
+          : [filmedOf(narrSet) == null || filmed.includes(slide) ? ['filmed', 'yes, with this slide'] : ['filmed', 'no: this slide was recorded without the camera', true]]),
+        ...(draft.byBeat ? [['now', 'it changes beat by beat; saving sets one place for the whole slide', true]] : []),
+        ['saved', isDefault ? 'in the deck: every slide without a place of its own uses it'
+          : 'in the deck, slide by slide · nothing is filmed or recorded again'],
         ...(character.solo ? [['but', 'the narrator fills the screen on every slide now, so a slide\'s own place waits', true]] : []),
       ]);
       // Fill the screen, on every slide: what Solo was. A choice of this
@@ -3122,55 +3324,50 @@ export function createNarration({
         switch: character.solo,
         commit: () => { character.setSolo(!character.solo); renderNarr('face'); },
       });
-      const setKind = (kind) => () => { narrFace.kind = kind; renderNarr('face'); };
-      const WHERE = `on slide ${sl}`;
-      narrRows.push({ group: WHERE, text: 'In the corner', cur: narrFace.kind === 'corner', commit: setKind('corner') });
-      if (narrFace.kind === 'corner') {
-        const turn = (d) => {
-          const i = CORNER_ORDER.indexOf(narrFace.at);
-          narrFace.at = CORNER_ORDER[(i + d + CORNER_ORDER.length) % CORNER_ORDER.length];
-          renderNarr('face');
-        };
-        narrRows.push({
-          group: WHERE, text: 'Which corner', sub: true,
-          stepper: { value: cornerSaid(narrFace.at), less: () => turn(-1), more: () => turn(1) },
-          commit: () => turn(1),
-        });
-      }
-      narrRows.push({ group: WHERE, text: 'Full screen', flavor: 'the slide steps aside', cur: narrFace.kind === 'full', commit: setKind('full') });
-      if (narrFace.kind === 'full') {
-        const zoom = (d) => {
-          narrFace.zoom = Math.min(FACE_ZOOM_MAX, Math.max(1, narrFace.zoom + d));
-          renderNarr('face');
-        };
-        narrRows.push({
-          group: WHERE, text: 'Zoom', sub: true, flavor: 'how close your face is',
-          stepper: { value: `${narrFace.zoom}×`, less: () => zoom(-0.5), more: () => zoom(0.5) },
-          commit: () => zoom(narrFace.zoom >= FACE_ZOOM_MAX ? 1 - FACE_ZOOM_MAX : 0.5),
-        });
-      }
-      narrRows.push({ group: WHERE, text: 'Hidden', flavor: 'the voice plays on', cur: narrFace.kind === 'hide', commit: setKind('hide') });
-      const why = editBase() == null ? 'needs write mode — it writes the slide' : null;
-      const every = Array.from({ length: instance.state.totalSlides }, (_, i) => i + 1);
       narrRows.push({
-        text: `Save for slide ${sl}`,
-        blocked: why,
-        commit: () => (why ? toast(why, 4000) : saveFace([sl])),
+        group: 'on every slide',
+        text: isDefault ? `A place for slide ${slide}…` : 'Default corner…',
+        flavor: isDefault ? 'a place of its own for this slide' : `now: the ${cornerSaid(deckCorner())} corner, wherever a slide has no place of its own`,
+        commit: () => openFacePlacement(from, isDefault ? 'slide' : 'deck'),
       });
-      if (filmed.length > 1) {
-        narrRows.push({
-          text: `Save for every filmed slide`,
-          flavor: `${filmed.length} slides`,
-          blocked: why,
-          commit: () => (why ? toast(why, 4000) : saveFace(filmed)),
-        });
-      } else if (now !== 'camera' && every.length > 1) {
-        narrRows.push({
-          text: 'Save for every slide',
-          flavor: `${every.length} slides`,
-          blocked: why,
-          commit: () => (why ? toast(why, 4000) : saveFace(every)),
-        });
+      const blocked = editBase() == null ? 'needs write mode — it writes the deck' : null;
+      const save = (slides, face) => () => (blocked ? toast(blocked, 4000) : saveFace(slides, face));
+      if (!isDefault) {
+        const WHERE = `on slide ${slide}`;
+        narrRows.push({ group: WHERE, text: 'In the corner', cur: draft.kind === 'corner', commit: () => change({ kind: 'corner' }) });
+        narrRows.push({ group: WHERE, text: 'Full screen', flavor: 'the slide steps aside', cur: draft.kind === 'full', commit: () => change({ kind: 'full' }) });
+        if (draft.kind === 'full') {
+          const zoom = (delta) => change({ zoom: Math.min(FACE_ZOOM_MAX, Math.max(1, draft.zoom + delta)) });
+          const presets = Object.assign(document.createElement('div'), { className: 'narr-face-presets' });
+          presets.setAttribute('role', 'group');
+          presets.setAttribute('aria-label', 'Full-screen zoom presets');
+          for (const scale of [1, 1.5, 2, 3, FACE_ZOOM_MAX]) {
+            const label = `${scale}×`;
+            const preset = previewButton(label, '', draft.zoom === scale, () => change({ zoom: scale }));
+            preset.setAttribute('aria-label', label);
+            presets.appendChild(preset);
+          }
+          card.appendChild(presets);
+          narrRows.push({
+            group: WHERE, text: 'Zoom', sub: true, flavor: 'how close',
+            stepper: { value: `${draft.zoom}×`, less: () => zoom(-0.5), more: () => zoom(0.5) },
+            commit: () => zoom(draft.zoom >= FACE_ZOOM_MAX ? 1 - FACE_ZOOM_MAX : 0.5),
+          });
+        }
+        narrRows.push({ group: WHERE, text: 'Hidden', flavor: 'the voice plays on', cur: draft.kind === 'hide', commit: () => change({ kind: 'hide' }) });
+      }
+      narrRows.push({
+        text: isDefault ? 'Save as the default corner' : `Save for slide ${slide}`, blocked,
+        commit: save([slide], faceValue(draft)),
+      });
+      if (!isDefault) {
+        narrRows.push({ text: 'Use the default corner on this slide', blocked, commit: save([slide], '') });
+        if (filmed.length > 1) {
+          narrRows.push({
+            text: 'Save for every filmed slide', flavor: `${filmed.length} slides`, blocked,
+            commit: save(filmed, faceValue(draft)),
+          });
+        }
       }
     } else if (view === 'charvideo') {
       head.textContent = 'a talking head of me · which portrait, made by which engine';
@@ -3530,8 +3727,10 @@ export function createNarration({
       narrRows.push({
         text: 'Custom…',
         group: 'your own',
-        // the tone row says when the typed tone will not reach ElevenLabs as written
-        ...(custom && toneCut(liveCfg.style) ? { flavor: toneCut(liveCfg.style) } : {}),
+        flavor: customTone,
+        ellipsizeFlavor: !!customTone,
+        title: customTone,
+        toneNote: customTone ? toneCut(customTone) : null,
         cur: narrSet?.live && custom,
         commit: () => renderNarr('custom'),
       });
@@ -3675,7 +3874,19 @@ export function createNarration({
         const flavor = document.createElement('span');
         flavor.className = 'narr-flavor';
         flavor.textContent = row.flavor;
-        label.appendChild(flavor);
+        if (row.ellipsizeFlavor) {
+          const summary = document.createElement('span');
+          summary.className = 'narr-tone-summary';
+          summary.append(...label.childNodes, flavor);
+          label.appendChild(summary);
+        } else {
+          label.appendChild(flavor);
+        }
+      }
+      if (row.toneNote) {
+        label.appendChild(Object.assign(document.createElement('span'), {
+          className: 'narr-flavor narr-tone-note', textContent: row.toneNote,
+        }));
       }
       el.appendChild(label);
       // The fix gets its own line rather than joining the flavor: it is a
@@ -3824,7 +4035,7 @@ export function createNarration({
     // if there is news, and only on the views that show it
     knownTracks().then((tracks) => {
       const had = narrKnown.size;
-      narrKnown = new Map(tracks.map((t) => [dirKey(t.dir), t]));
+      rememberTracks(tracks);
       if (!narrEl || !(had || narrKnown.size)) return;
       if (view === 'record' && narrView !== 'card' && narrView !== 'tracks') return;
       if (view === 'record') renderNarr(route());
@@ -3838,6 +4049,11 @@ export function createNarration({
     });
   }
   function closeNarrPicker() {
+    if (narrFace) {
+      narrFace = null;
+      character.previewFace(null);
+      refreshWritePreview();
+    }
     stopBusyRows();
     narrEl?.remove();
     narrEl = null;
@@ -4091,7 +4307,8 @@ export function createNarration({
     const base = editBase();
     if (base == null) return [];
     try {
-      const r = await fetch(`${base}/deck/edit/narration/tracks`);
+      // a 2D character: ask whether each track's lip-sync is its audio's (#1244)
+      const r = await fetch(`${base}/deck/edit/narration/tracks${character.mode === 'viseme' ? '?character=viseme' : ''}`);
       const j = await r.json();
       visemesWhy = typeof j?.visemes === 'string' ? j.visemes : null;
       return Array.isArray(j?.tracks) ? j.tracks : [];
@@ -4291,7 +4508,7 @@ export function createNarration({
       toast(`↔ ${dir}/ was not realigned — ${String(e.message ?? e)}`, 7000);
     }
     const tracks = await knownTracks();
-    narrKnown = new Map(tracks.map((t) => [dirKey(t.dir), t]));
+    rememberTracks(tracks);
     if (narrEl && narrView === 'tracks') renderNarr('tracks');
   }
   async function useRecordedTrack(btn, dir, cfg) {
@@ -4469,6 +4686,11 @@ export function createNarration({
     }
     if (run === recRun) {
       recTally = null;
+      // A 2D character mouths these files. The bridge cut a sidecar for each
+      // slide it could; any it could not (bridge down, a sentence it failed
+      // on) is cut on the server now, from the WAV on disk (#1244). Quiet
+      // when there is nothing to do; says once when Rhubarb is not here.
+      if (character.mode === 'viseme' && toDisk && dir) updateLipsync(dir.name, { quiet: true });
       renderRecordCard('done', {
         saved, total: list.length, dir: toDisk ? dir.name : null, segmented, label: target.label,
         clips: tally, engine: liveEngine,
@@ -6083,6 +6305,9 @@ export function createNarration({
     const faces = all.filter((d) => d.face).length;
     // filmed: the character shows it, in the medallion, the moment the track plays
     if (faces && character.mode !== 'video') character.setMode('video');
+    if (writing && toDisk && dirKey(narrSet?.dir) === dirKey(dir.name)) {
+      knownTracks().then(rememberTracks);
+    }
     const left = stopped ? list.slice(s).filter((x) => !saved.has(x)).length : 0;
     closeMic();
     if (run !== micRun) return;
@@ -6223,6 +6448,10 @@ export function createNarration({
         if (e.key === 'Escape') { narrBack(); return true; }
         return false;
       }
+      if (narrView === 'face' && e.key === 'Enter' && e.target?.matches('.narr-face-sketch button, .narr-face-presets button')) {
+        e.target.click();
+        return true;
+      }
       narrLand = null;
       switch (e.key) {
         case 'ArrowDown': selectNarrRow(narrSel + 1, { scroll: true }); break;
@@ -6251,7 +6480,8 @@ export function createNarration({
   });
 
   return {
-    character,
+    character, setWriteMode, canPreviewFace, toggleWritePreview,
+    get writePreviewOn() { return writePreviewOn; },
     /** ⎵ and P — start, pause, resume. The whole verb, in one place. */
     playPause,
     /**
@@ -6391,8 +6621,7 @@ export function createNarration({
       return {
         voice, silent, gaps, fix, notes, go,
         missing: gaps.length ? missingIn : null,
-        // the preview is the deck playing: where the video differs from it, the row says how
-        // said beside the Preview button, before the click: what the deck plays that the video will not
+        // the preview is the deck playing: what it plays that the video will not is said beside its button, before the click
         preview: !silent && screen === 'head' ? () => ({ text: 'The exported video will show slides only', warn: true })
           : `slide ${instance.state.slide}, as the video will have it`,
         said: silent && who !== 'Nobody' && !narrSet ? who : `${who} · ${seen}`,

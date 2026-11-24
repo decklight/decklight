@@ -201,6 +201,10 @@ export async function synthesizeSlides({
   }
   /** `audio` (in `from`, the synthesis format by default) into `dst` in the track's, or a plain write. */
   const encode = (audio, dst, from = synthExt) => {
+    // New audio takes its old lip-sync with it (#1244): a sidecar cut from the
+    // last take would have the character mouth that take. `decklight video`
+    // remakes what is missing; `decklight narrate <deck> --face` does too.
+    rmSync(dst.replace(/\.\w+$/, '.visemes.json'), { force: true });
     if (format === from) { writeFileSync(dst, audio); return; }
     const src = `${dst}.${from}`;
     writeFileSync(src, audio);
@@ -397,6 +401,7 @@ export async function synthesizeSlides({
       }
       const list = join(dir, `slide-${n}.concat`);
       writeFileSync(list, `${parts.map((p) => `file '${join(dir, p).replaceAll("'", "'\\''")}'`).join('\n')}\n`);
+      rmSync(join(dir, `slide-${n}.visemes.json`), { force: true });   // the slide's audio is new too
       run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', join(dir, file)], { stdio: 'ignore' });
       rmSync(list, { force: true });
       entries[i].segments = parts.map((p) => ({ file: p }));

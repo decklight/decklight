@@ -5,7 +5,8 @@
 // bridge running. Fully offline, like everything else here.
 //
 //   node tools/lipsync.mjs <voiceover-dir> [--visemes] [--video]
-//                          [--rhubarb <bin>]
+//                          [--rhubarb <bin>] [--remake slide-01,slide-02-01]
+//                          [--jobs N]
 //                          [--engine sadtalker|wav2lip] [--portrait <img>]
 //                          [--wav2lip-dir <repo> --wav2lip-ckpt <pth>]
 //                          [--sadtalker-dir <repo>] [--python python3]
@@ -29,17 +30,30 @@
 //
 // Incremental like voiceover.mjs: lipsync.json stores a hash of
 // (audio bytes, tool, engine, portrait) per slide, persisted after every
-// slide, so a rerun only regenerates what actually changed.
+// slide, so a rerun only regenerates what actually changed. Each sidecar also
+// carries `audio`, the hash of the audio it was cut from (tools/viseme-match.mjs),
+// so a reader can tell it from one another recording left behind (#1244): a
+// sidecar whose hash is current but which is NOT this audio's (copied in, or
+// written by another tool) is made again rather than kept. `--remake` names the
+// stems to make whatever the state says — what `decklight video` passes for
+// the sidecars it found out of step with their audio.
+//
+// Rhubarb is slow — minutes for a long slide — so viseme-only runs cut
+// `--jobs` files at once (default: a quarter of the cores, 1–4), and each line
+// says how far along the run is (`[3/12]`). A run that also renders video stays
+// one file at a time: a talking head already fills the GPU.
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, renameSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, join, basename } from 'node:path';
+import { availableParallelism } from 'node:os';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader } from './args.mjs';
 import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
 import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
 import { captioned, canonMarks } from './sentences.mjs';
 import { loadLipsyncConfig, parsePortrait } from './lipsync-config.mjs';
+import { audioStamp, visemeHash, visemeMismatch, wavDuration } from './viseme-match.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -68,10 +82,13 @@ const portrait = portraitArg
   ? savedPortraits.find(([name]) => name === portraitArg)?.[1] ?? resolve(portraitArg)
   : savedPortraits[0]?.[1];
 const python = opt('--python', saved.python ?? 'python3');
+const remake = opt('--remake') ? new Set(opt('--remake').split(',').filter(Boolean)) : null;
 // --veo: animate the portrait ONCE through Vertex (tools/veo.mjs) and give
 // wav2lip that clip instead of the still, so the recorded narrator moves
 // instead of staring. One billed call per portrait, cached next to the audio.
 // A saved `veo: true` turns it on here too, and --no-veo off.
+const jobsArg = Number(opt('--jobs', 0));
+const jobs = doVideo ? 1 : jobsArg >= 1 ? Math.floor(jobsArg) : defaultJobs();
 const veoOn = args.includes('--veo') || (saved.veo === true && !args.includes('--no-veo'));
 
 const veo = veoOn ? createVeo({
@@ -83,6 +100,11 @@ const veo = veoOn ? createVeo({
   faceY: Number(opt('--veo-face-y', saved.veoFaceY ?? 0.12)),
   cacheDir: dir,
 }) : null;
+
+/** A quarter of the cores, 1–4: Rhubarb threads within a file too. */
+function defaultJobs() {
+  return Math.max(1, Math.min(4, Math.floor(availableParallelism() / 4)));
+}
 
 const have = (bin, flags = ['--version']) => {
   try { run(bin, flags, { stdio: 'ignore', timeout: PROBE_MS }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
@@ -109,7 +131,7 @@ const ffmpegOk = have('ffmpeg', ['-version']);
 // else here.
 const stems = [...new Set(readdirSync(dir)
   .map((f) => f.match(/^(slide-\d+(?:-\d+)?)\.(wav|m4a)$/)?.[1])
-  .filter(Boolean))].sort();
+  .filter(Boolean))].sort().filter((st) => !remake || remake.has(st));
 const slides = stems.filter((st) => !/-\d+-\d+$/.test(st));
 const beats = stems.filter((st) => /-\d+-\d+$/.test(st));
 if (!stems.length) { console.error(`${dir}: no slide-NN.wav/.m4a files`); process.exit(1); }
@@ -136,6 +158,14 @@ const sha = (...parts) => {
   return h.digest('hex').slice(0, 16);
 };
 
+// A sidecar on disk under a current hash is kept only if it is THIS audio's:
+// the hash says what was made last, not what is in the file now.
+function keepsVisemes(file, audioBytes) {
+  try {
+    return !visemeMismatch(JSON.parse(readFileSync(file, 'utf8')), { audioBytes, duration: wavDuration(audioBytes) });
+  } catch { return false; }
+}
+
 function toWav(stem) {
   const wav = join(dir, `${stem}.wav`);
   if (existsSync(wav)) return { path: wav, tmp: false };
@@ -151,8 +181,10 @@ function toWav(stem) {
 // GPU time is spent.
 const face = veo && engine === 'wav2lip' ? await veo.motionFor(portrait) : portrait;
 
-let made = 0, kept = 0;
-for (const stem of stems) {
+let made = 0, kept = 0, finished = 0;
+// how far along the run is, counted in files: a stem's last job finishes it
+const of = (last) => `[${last ? ++finished : finished + 1}/${stems.length}]`;
+async function oneStem(stem) {
   // A beat gets visemes only. A talking head is minutes of GPU time per clip,
   // and the player's video element mirrors the audio's transport rather than
   // seeking a timeline — so cutting video per beat would cost a great deal to
@@ -163,19 +195,19 @@ for (const stem of stems) {
   const txtPath = join(dir, `${stem}.txt`);
   const text = existsSync(txtPath) ? readFileSync(txtPath, 'utf8').trim() : '';
   const st = (state[stem] ??= {});
-  const jobs = [];
-  if (doVisemes) jobs.push('visemes');
+  const work = [];
+  if (doVisemes) work.push('visemes');
   if (doVideo && !isBeat && filmed.has(stem)) console.log(`  ${stem}: video filmed with the recording — kept`);
-  else if (doVideo && !isBeat) jobs.push('video');
+  else if (doVideo && !isBeat) work.push('video');
 
-  for (const job of jobs) {
+  for (const job of work) {
     const outFile = join(dir, job === 'visemes' ? `${stem}.visemes.json` : `${stem}.mp4`);
     const hash = job === 'visemes'
-      ? sha('visemes|', text, '|', audioBytes)
+      ? visemeHash(text, audioBytes)
       : sha('video|', engine, '|', readFileSync(face), '|', audioBytes);   // `face`, so --veo re-renders
-    if (st[job] === hash && existsSync(outFile)) {
+    if (st[job] === hash && existsSync(outFile) && !remake && (job !== 'visemes' || keepsVisemes(outFile, audioBytes))) {
       kept++;
-      console.log(`  ${stem}: ${job} unchanged — kept`);
+      console.log(`  ${of(job === work.at(-1))} ${stem}: ${job} unchanged — kept`);
       continue;
     }
     const wav = toWav(stem);
@@ -187,11 +219,13 @@ for (const stem of stems) {
         // the script keeps its ⟨PAUSE⟩ holds (#560); Rhubarb is told the words
         const words = captioned(canonMarks(text));
         if (words) { dialogFile = join(dir, `${stem}.tmp.txt`); writeFileSync(dialogFile, words); }
-        const tl = await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut });
+        // stamped with the audio it was cut from, so no reader takes it for
+        // another recording's lip-sync, or another's for this one's
+        const tl = { ...await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut }), audio: audioStamp(audioBytes) };
         writeFileSync(outFile, JSON.stringify(tl));
         rmSync(tmpOut, { force: true });
         rmSync(join(dir, `${stem}.tmp.txt`), { force: true });
-        console.log(`  ${stem}: ${tl.cues.length} cues → ${basename(outFile)} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        console.log(`  ${of(job === work.at(-1))} ${stem}: ${tl.cues.length} cues → ${basename(outFile)} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       } else {
         const tmpMp4 = join(dir, `${stem}.tmp.mp4`);
         if (engine === 'wav2lip') {
@@ -211,7 +245,7 @@ for (const stem of stems) {
           await muteFaststart(tmpMp4, outFile);
           rmSync(tmpMp4, { force: true });
         } else renameSync(tmpMp4, outFile);
-        console.log(`  ${stem}: ${engine} → ${basename(outFile)} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        console.log(`  ${of(job === work.at(-1))} ${stem}: ${engine} → ${basename(outFile)} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       }
       st[job] = hash;
       made++;
@@ -222,5 +256,12 @@ for (const stem of stems) {
     }
   }
 }
+// a pool of `jobs` workers over the stems; the state is written by this one
+// process, so parallel files never clobber each other's entries
+if (jobs > 1 && stems.length > 1) console.log(`  cutting up to ${jobs} files at once`);
+const queue = [...stems];
+await Promise.all(Array.from({ length: Math.min(jobs, stems.length) }, async () => {
+  while (queue.length) await oneStem(queue.shift());
+}));
 writeFileSync(statePath, JSON.stringify(state, null, 1));
 console.log(`done → ${dir} (${made} generated${kept ? `, ${kept} unchanged` : ''})`);

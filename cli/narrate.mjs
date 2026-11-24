@@ -53,6 +53,7 @@ export const USAGE = `usage: decklight narrate <deck.html> [--mic] [--slides a-b
     --voice V    the engine's voice name
     --format F   m4a (a new track's default) · wav · mp3
     --reuse-text, --keep-wav, --no-cache          (decklight narrate <deck> --help --engine)
+    a deck with a 2D character gets the lip-sync of what was voiced too (--no-face: not)
     EXAMPLE: decklight narrate talk.html --engine chirp --voice Achernar
 
   you read the notes, into the microphone

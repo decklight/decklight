@@ -162,7 +162,10 @@
     // ?nosrv — no edit server answers, which is a `file://` deck or one served
     // without trust by `decklight <deck> --no-trust`: nothing here may write to disk, so the
     // browser's download folder is the honest fallback and must still work
-    const authored = recording && !params.has('nosrv');
+    const writeFace = mode === 'writeface';
+    const filmedFace = writeFace && params.has('filmed');
+    const authored = (recording || writeFace) && !params.has('nosrv');
+    if (writeFace && authored) window.EventSource = class extends EventTarget {};
     const ttsSeen = new Set();   // sentences the mock bridge has synthesized once
     window.__recorded = [];   // every /deck/edit/narration/record the deck posted
     window.__narrationWritten = [];   // …and every config it wrote back
@@ -183,7 +186,7 @@
       if (u.endsWith(MANIFEST_PATH)) {
         return new Response(manifestBody(), { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (authored && u.startsWith(AUTHOR)) {
+      if (authored && (u.startsWith(AUTHOR) || (writeFace && u.startsWith('/deck/')))) {
         if (u.endsWith('/deck/ping')) {
           // the basename guard the runtime applies: this page IS narration.html
           return new Response(JSON.stringify({ ok: true, name: 'narration.html', undo: 0, redo: 0 }),
@@ -194,9 +197,12 @@
           // rule 2 (refresh, do not accumulate takes) has something to find.
           // ?dir tests rule 3 instead — the deck's OWN configured folder — so
           // it reports nothing, or rule 2 would rightly win over it.
-          return new Response(JSON.stringify({ ok: true, tracks: params.has('dir') ? [] : [
+          return new Response(JSON.stringify({ ok: true, tracks: writeFace ? [{ dir: 'voices/me', faces: [1] }] : params.has('dir') ? [] : [
             { dir: 'voices/alnilam', files: 6, segments: false, ext: 'm4a', engine: 'mock', voice: 'Alnilam' },
           ] }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        if (writeFace && u.endsWith('/deck/edit/slide/face')) {
+          return Response.json({ ok: true });
         }
         if (u.endsWith('/deck/edit/narration')) {
           const cfg = JSON.parse(opts.body);
@@ -393,12 +399,13 @@
     const segmentModes = ['segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'segpause'];
     const segmentDeck = segmentModes.includes(mode);
     const plainDeck = mode === 'plainrec' || mode === 'plainpause';
+    const livePause = mode === 'segpause' && params.has('live');
     // `off` ships a recorded track and deliberately chooses NOTHING — it is the
     // only mode that leaves localStorage alone, because the default is the
     // thing under test.
     const offDeck = mode === 'off';
     const recordedDeck = mode === 'recorded' || mode === 'hint' || mode === 'switch'
-      || segmentDeck || plainDeck || offDeck || mode === 'bundledaudio';
+      || (segmentDeck && !livePause) || plainDeck || offDeck || mode === 'bundledaudio';
 
     // ── the segmented half of the harness deck ──────────────────────────────
     // Appended rather than written into the markup above, so every OTHER mode
@@ -463,6 +470,12 @@
       const track = { label: 'Test', dir: 'voices', ...(segmentDeck ? { segments: true } : {}) };
       cfg.narration = { ...(mode === 'switch' ? cfg.narration : {}), files: [track] };
     }
+    if (mode === 'segpause') {
+      const slides = document.querySelectorAll('.decklight > section');
+      slides[4].setAttribute('data-face', 'top-left 2:hide 3:full');
+      slides[5].setAttribute('data-face', 'full');
+      cfg.narration.character = { mode: 'viseme', position: 'br' };
+    }
     if (manifestDeck) cfg.narration = { files: [{ label: 'Algenib · cloud', manifest: MANIFEST_PATH }] };
     // ?dir — the deck already names a narration folder, so ⇧V records into THAT
     // one rather than seeding a second. The persisted LIVE voice still wins as
@@ -471,6 +484,24 @@
     // `recordseg&pause` lip-syncs the take too: the sidecars must be silent
     // exactly where the WAVs are, or the mouth drifts off the baked hold
     if (recording && params.has('pause')) cfg.narration.character = { mode: 'viseme', bridgeUrl: `${BRIDGE}/lip` };
+    if (writeFace) {
+      const [one, two, three, four] = document.querySelectorAll('.decklight > section');
+      one.innerHTML = '<h1>Quarterly results</h1><p style="position:absolute;bottom:80px;right:70px">Renewals rose 12%</p>';
+      two.setAttribute('data-face', 'hide');
+      three.setAttribute('data-face', 'full 1.2');
+      four.setAttribute('data-face', 'top-right 2:bottom-left');
+      four.insertAdjacentHTML('beforeend', '<p data-build>One build</p>');
+      if (filmedFace) {
+        cfg.narration.files = [{ label: 'My voice', dir: 'voices/me' }];
+        localStorage.setItem('decklight-narration:' + location.pathname, JSON.stringify({ dir: 'voices/me' }));
+      } else if (!params.has('empty')) {
+        cfg.narration.character = {
+          mode: 'viseme', position: 'br',
+          ...(params.has('shot') ? {} : { svg: '<svg viewBox="0 0 10 10" data-test-art=""><circle data-mouth="X" cx="5" cy="5" r="5"/></svg>' }),
+        };
+      }
+      if (params.has('off')) localStorage.setItem('decklight-face-preview:' + location.pathname, 'off');
+    }
     if (mode === 'modules') {
       cfg.playlist = {
         index: 0,
@@ -763,7 +794,7 @@
           const once = (list) => list.every((u, i) => list.indexOf(u) === i);
           const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-          deck.goto(5, 0);
+          deck.goto(mode === 'segpause' ? 6 : 5, 0);
           await wait(20);
           window.__audioSrcs.length = 0;    // the goto itself plays nothing — narration is off
           deck.toggleNarration();           // V
@@ -790,27 +821,53 @@
             return;
           }
           if (mode === 'segpause') {
-            await wait(60);                 // 05-01 is playing
+            if (livePause) await until(() => heard().length > 0);
+            else await wait(60);            // slide-06 is playing in full
             space();                        // ⏸
             await wait(20);
             window.__plays.length = 0;
+            const root = document.querySelector('.decklight');
+            const overlay = root.querySelector('.decklight-character');
+            const full = () => root.classList.contains('decklight-face-full')
+              && overlay.classList.contains('face-full');
+            const hidden = () => !root.classList.contains('decklight-face-full')
+              && overlay.classList.contains('face-hide') && getComputedStyle(overlay).opacity === '0';
+            r.startedFull = full();
+            deck.goto(5, 0);                // a per-beat slide, still paused
+            r.movedToCorner = !root.classList.contains('decklight-face-full')
+              && !overlay.classList.contains('face-full') && overlay.classList.contains('pos-tl');
+            if (params.has('placementshot')) return;
             deck.next();                    // a build while paused
+            r.hidOnBuild = hidden();
+            deck.next();
+            r.fullOnBuild = full() && getComputedStyle(root.querySelector('.decklight-stage')).opacity === '0';
+            deck.prev();
             await wait(400);
             r.heldOnBuild = heard().length === 0 && deck.state.step === 1;
             space();                        // ▶ — 05-02, not the rest of 05-01
             await wait(250);
-            r.resumedTheBeat = heard().join('|') === `${V}slide-05-02.m4a`;
+            r.heldPlacementOnResume = hidden();
+            r.resumedTheBeat = livePause ? heard().length === 1 : heard().join('|') === `${V}slide-05-02.m4a`;
+            if (livePause) {
+              r.PASS = r.startedFull && r.movedToCorner && r.hidOnBuild && r.fullOnBuild
+                && r.heldOnBuild && r.heldPlacementOnResume && r.resumedTheBeat;
+              sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+              return;
+            }
             space();                        // ⏸ mid 05-02
             await wait(20);
             window.__plays.length = 0;
             deck.goto(6, 0);                // a slide recorded whole, while paused
             await wait(400);
+            r.fullOnSlide = full();
             r.heldOnSlide = heard().length === 0 && deck.state.slide === 6;
             space();                        // ▶
             await wait(20);
             r.resumedTheSlide = heard().join('|') === `${V}slide-06.m4a`;
             r.heard = heard();
-            r.PASS = r.heldOnBuild && r.resumedTheBeat && r.heldOnSlide && r.resumedTheSlide;
+            r.PASS = r.heldOnBuild && r.resumedTheBeat && r.heldOnSlide && r.resumedTheSlide
+              && r.startedFull && r.movedToCorner && r.hidOnBuild && r.fullOnBuild
+              && r.fullOnSlide && r.heldPlacementOnResume;
             sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
             return;
           }
@@ -1452,6 +1509,55 @@
           const rows = [...document.querySelectorAll('.decklight-narr .narr-row-label')].map((n) => n.textContent);
           r.answerReplacesIt = rows.some((t) => /^mock/.test(t)) && !rows.some((t) => /^asking/.test(t));
           r.PASS = r.saysAsking && r.itMoves && r.asciiOnly && r.answerReplacesIt;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (writeFace) {
+          const preview = () => document.querySelector('.decklight-character-preview.show');
+          const row = () => deck.settings.rows().find((x) => x.label === 'Who is on screen, while editing');
+          await until(() => document.querySelector('.decklight-editbar') || params.has('print') || params.has('nosrv'));
+          if (params.has('print') || params.has('capture') || params.has('nosrv') || params.has('empty')) {
+            r.PASS = !preview() && !row();
+          } else if (filmedFace) {
+            const overlay = await until(preview);
+            r.placeholder = overlay?.classList.contains('mode-video') && overlay.dataset.previewLabel === 'Filmed face';
+            deck.goto(2, 0);
+            r.onlyFilmedSlides = !preview();
+            r.PASS = r.placeholder && r.onlyFilmedSlides;
+          } else if (params.has('off')) {
+            r.rememberedOff = row()?.value === 'off' && !preview();
+            row()?.run();
+            r.PASS = r.rememberedOff && !!preview() && row()?.value === 'on';
+          } else {
+            const overlay = await until(preview);
+            const stage = document.querySelector('.decklight-stage');
+            r.rest = overlay?.classList.contains('pos-br') && overlay.dataset.viseme === 'X' && !!overlay.querySelector('[data-test-art]');
+            r.editorChrome = overlay?.inert && getComputedStyle(overlay).pointerEvents === 'none' && !stage.contains(overlay);
+            deck.character.capture('A');
+            r.playbackTakesOver = getComputedStyle(overlay).display === 'none';
+            deck.character.stop();
+            r.previewReturns = getComputedStyle(overlay).display === 'block';
+            // V → who is on screen → Where…: the draft follows on the stage
+            deck.narration.openPicker('screen');
+            [...document.querySelectorAll('.narr-row')].find((el) => /^Where…/.test(el.textContent))?.click();
+            document.querySelector('.narr-face-dot[aria-label="top left"]')?.click();
+            r.pickerFollows = preview()?.classList.contains('pos-tl');
+            press('Escape', document.body);
+            r.cancelRestores = preview()?.classList.contains('pos-br');
+            deck.goto(2, 0);
+            r.hidden = !preview();
+            deck.goto(3, 0);
+            r.full = preview()?.classList.contains('face-full') && preview().dataset.previewLabel === 'Full screen · 1.2×'
+              && getComputedStyle(stage).visibility === 'visible';
+            deck.goto(4, 0);
+            r.corner = preview()?.classList.contains('pos-tr');
+            deck.goto(4, 1);
+            r.beat = preview()?.classList.contains('pos-bl');
+            row()?.run();
+            r.persisted = !preview() && localStorage.getItem('decklight-face-preview:' + location.pathname) === 'off';
+            r.PASS = r.rest && r.editorChrome && r.playbackTakesOver && r.previewReturns && r.pickerFollows && r.cancelRestores && r.hidden && r.full && r.corner && r.beat && r.persisted;
+          }
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

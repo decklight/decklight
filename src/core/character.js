@@ -30,6 +30,7 @@
 import { DEFAULT_CHARACTER_SVG, VISEMES } from './character-art.js';
 import { readJson, writeJson } from './prefs.js';
 import { faceLayout, FACE_CORNER } from '../../tools/face-layout.mjs';
+import { timelineFits } from '../../tools/viseme-fit.mjs';
 
 // ── pure core (unit-tested; no DOM) ─────────────────────────────────────────
 
@@ -84,7 +85,7 @@ export function lipCorrection(d, rate = 1) {
   return { seek: false, rate };
 }
 
-export function createCharacter({ root, config, debugLog, toast, faceOf = () => null }) {
+export function createCharacter({ root, config, debugLog, toast, faceOf = () => null, onModeChange = () => {} }) {
   const cfg = config.narration?.character ?? {};
   // Same origin by convention (#520), like the voice bridge: `open` proxies
   // `/deck/lipsync/*` to the lip-sync bridge it started; from disk, the bridge's
@@ -107,6 +108,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   let el = null, videoEl = null, artMode = null;
   let audioEl = null;
   let timeline = null;    // active viseme timeline for the playing clip
+  let unchecked = null;   // the audio a recorded sidecar is yet to be measured against (#1244)
   let currentKey = null;  // guards late async results against navigation
   let lastV = null, timer = 0, warned = false;
   let bridgeInfo;         // last /ping result (undefined = never probed)
@@ -147,16 +149,19 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // can step aside; and like solo it is only ever set while the face is on
   // screen.
   let face = FACE_CORNER;
+  let facePreview = null;
+  function placeOverlay(overlay, at) {
+    if (!overlay) return;
+    overlay.classList.toggle('face-full', at.kind === 'full');
+    overlay.classList.toggle('face-hide', at.kind === 'hide');
+    overlay.style.setProperty('--face-zoom', String(at.zoom));
+    const pos = at.kind === 'corner' && at.at ? at.at : (config.narration?.character?.position ?? 'br');
+    for (const p of ['br', 'bl', 'tr', 'tl']) overlay.classList.toggle(`pos-${p}`, p === pos);
+  }
   function applyFace() {
     const on = mode !== 'off' && !!el?.classList.contains('show') && !(solo && mode !== 'video');
-    const at = on ? face : FACE_CORNER;
-    el?.classList.toggle('face-full', at.kind === 'full');
-    el?.classList.toggle('face-hide', at.kind === 'hide');
-    el?.style.setProperty('--face-zoom', String(at.zoom));
-    // a corner a slide names (data-face="top-right") moves the medallion there
-    // for that slide; anything else puts it back where the deck keeps it
-    const pos = at.kind === 'corner' && at.at ? at.at : (cfg.position ?? 'br');
-    for (const p of ['br', 'bl', 'tr', 'tl']) el?.classList.toggle(`pos-${p}`, p === pos);
+    const at = on ? (facePreview ?? face) : FACE_CORNER;
+    placeOverlay(el, at);
     root.classList.toggle('decklight-face-full', at.kind === 'full');
   }
   function setFace(next) {
@@ -164,6 +169,9 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     face = next;
     applyFace();
     debugLog('lipsync', `face ${face.kind}${face.kind === 'full' && face.zoom !== 1 ? ` ×${face.zoom}` : ''}`);
+  }
+  function placeAt(slide, beat) {
+    setFace(faceLayout(faceOf(slide), beat));
   }
   function warnOnce() {
     if (warned) return;
@@ -176,7 +184,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   function mount() {
     if (!el) {
       el = document.createElement('div');
-      el.className = 'decklight-character pos-' + (cfg.position ?? 'br');
+      el.className = 'decklight-character pos-' + (config.narration?.character?.position ?? 'br');
       el.setAttribute('aria-hidden', 'true');
       if (cfg.size) el.style.setProperty('--character-size', cfg.size + 'px');
       root.appendChild(el);
@@ -214,29 +222,70 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
       videoEl.addEventListener('ended', () => { if (!videoEl?.dataset.filmed) videoEl?.classList.remove('live'); });
       for (const ev of ['emptied', 'error']) videoEl.addEventListener(ev, () => videoEl?.classList.remove('live'));
       el.appendChild(videoEl);
-    } else if (cfg.sprites) {
-      el.innerHTML = '';
+    } else {
+      mountArt(el, () => artMode === 'viseme');
+    }
+  }
+
+  function mountArt(overlay, stillCurrent) {
+    overlay.replaceChildren();
+    if (cfg.sprites) {
       for (const v of VISEMES) {
         if (!cfg.sprites[v]) continue;
         const img = document.createElement('img');
         img.src = cfg.sprites[v];
         img.setAttribute('data-mouth', v);
         img.alt = '';
-        el.appendChild(img);
+        overlay.appendChild(img);
       }
     } else if (typeof cfg.svg === 'string' && cfg.svg.startsWith('#')) {
-      el.innerHTML = '';
       const src = document.querySelector(cfg.svg);
-      if (src) el.appendChild(src.cloneNode(true));
+      if (src) overlay.appendChild(src.cloneNode(true));
     } else if (typeof cfg.svg === 'string' && /^\s*</.test(cfg.svg)) {
-      el.innerHTML = cfg.svg;
-    } else if (cfg.svg) {
-      el.innerHTML = DEFAULT_CHARACTER_SVG; // placeholder while the URL loads
-      fetch(cfg.svg).then((r) => r.text()).then((t) => { if (el && artMode === 'viseme') el.innerHTML = t; }).catch(() => { /* keep default */ });
+      overlay.innerHTML = cfg.svg;
     } else {
-      el.innerHTML = DEFAULT_CHARACTER_SVG;
+      overlay.innerHTML = DEFAULT_CHARACTER_SVG;
+      if (cfg.svg) {
+        fetch(cfg.svg).then((r) => r.ok ? r.text() : null).then((art) => {
+          if (art && stillCurrent()) overlay.innerHTML = art;
+        }).catch(() => { /* keep default */ });
+      }
     }
   }
+
+  // Editor chrome lives beside the stage, independently of the playback
+  // overlay. In particular it never puts face-full or solo on the root.
+  let writeOverlay;
+  function showWritePreview(kind, at) {
+    if (!kind || at.kind === 'hide') {
+      writeOverlay?.classList.remove('show');
+      return;
+    }
+    if (!writeOverlay) {
+      writeOverlay = document.createElement('div');
+      writeOverlay.className = 'decklight-character decklight-character-preview';
+      writeOverlay.setAttribute('aria-hidden', 'true');
+      writeOverlay.inert = true;
+      if (cfg.size) writeOverlay.style.setProperty('--character-size', cfg.size + 'px');
+      root.appendChild(writeOverlay);
+    }
+    const overlay = writeOverlay;
+    if (overlay.dataset.previewKind !== kind) {
+      overlay.dataset.previewKind = kind;
+      overlay.classList.toggle('mode-video', kind === 'filmed');
+      if (kind === 'viseme') {
+        overlay.dataset.viseme = 'X';
+        mountArt(overlay, () => overlay.dataset.previewKind === 'viseme');
+      } else {
+        overlay.replaceChildren();
+      }
+    }
+    placeOverlay(overlay, at);
+    overlay.dataset.previewLabel = at.kind === 'full' ? `Full screen · ${at.zoom}×`
+      : kind === 'filmed' ? 'Filmed face' : '';
+    overlay.classList.add('show');
+  }
+
   function show() {
     mount();
     el.classList.add('show');
@@ -330,6 +379,17 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     if (!el?.classList.contains('show')) return;
     if (mode === 'video') { syncVideo(); return; }
     if (!audioEl || audioEl.paused || audioEl.ended) { setViseme('X'); return; }
+    // A recorded beat's sidecar is measured against the audio once its length
+    // is known: one cut from another take (the audio was re-recorded, the
+    // sidecar left) would mouth THAT take, so the voice's loudness drives the
+    // mouth instead (#1244).
+    if (timeline && unchecked && audioEl.src === unchecked && audioEl.duration > 0 && Number.isFinite(audioEl.duration)) {
+      unchecked = null;
+      if (!timelineFits(timeline, audioEl.duration)) {
+        debugLog('lipsync', `${currentKey}: viseme sidecar lasts ${timeline.duration}s, its audio ${audioEl.duration.toFixed(2)}s — another recording's; following the voice instead`);
+        timeline = null;
+      }
+    }
     if (timeline) setViseme(cueAt(timeline, audioEl.currentTime));
     else if (FALLBACK === 'hide') setViseme('X');
     else if (ensureAnalyser()) setViseme(amplitudeViseme());
@@ -404,7 +464,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     if (mode === 'viseme') {
       timeline = null;
       ensureTimeline(key, Promise.resolve(clip), text)
-        .then((tl) => { if (currentKey === key) timeline = tl; })
+        .then((tl) => { if (currentKey === key) { timeline = tl; unchecked = null; } })
         .catch(() => warnOnce());
     } else {
       // this sentence's clip is not playing yet: the photo, not the last clip's frame
@@ -481,7 +541,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     });
   }
 
-  function beginSlide(set, slideNo, seg = null, audioUrl = null) {
+  function beginSlide(set, slideNo, seg = null, audioUrl = null, beat = seg ?? 1) {
     if (mode === 'off' || !set || set.live) return;
     show();
     const nn = String(slideNo).padStart(2, '0');
@@ -489,7 +549,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     const key = `file|${set.dir}|${stem}`;
     if (currentKey === key) return;   // same beat re-armed — keep the timeline
     currentKey = key;
-    setFace(faceLayout(faceOf(slideNo), seg ?? 1));
+    placeAt(slideNo, beat);
     if (mode === 'viseme') {
       timeline = null;
       (async () => {
@@ -499,7 +559,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
         if (!res.ok) throw new Error(String(res.status));
         return res.json();
       })()
-        .then((tl) => { if (currentKey === key) timeline = tl; })
+        .then((tl) => { if (currentKey === key) { timeline = tl; unchecked = audioUrl ? new URL(audioUrl, location.href).href : null; } })
         .catch(() => { /* no sidecar for this beat — fallback animates */ });
     } else if (videoEl) {
       // A RENDERED talking head stays per SLIDE: it is minutes of GPU time a
@@ -573,6 +633,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     // that is meant to own the stage, show it now rather than wait for V
     else { warned = false; mount(); if (solo) show(); }
     applySolo();
+    onModeChange();
     debugLog('lipsync', mode === 'off' ? 'character off'
       : `character ${mode}${mode === 'video' ? ` · ${engine} · ${portrait}` : ''}`);
   }
@@ -597,12 +658,13 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // `force` is the export card's answer: the character it was asked for,
   // whatever the deck's own config says (a fresh browser cannot see the
   // panel's choice, so the render is told).
-  function capture(v = 'X', force = false) {
+  function capture(v = 'X', placement = FACE_CORNER, force = false) {
     if (force) mode = 'viseme';
     if (mode !== 'viseme') return false;
     mount();
     el.classList.add('show');
     setViseme(v);
+    setFace(placement);
     applySolo();
     return true;
   }
@@ -614,7 +676,11 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     get solo() { return solo; },
     get bridgeInfo() { return bridgeInfo; },
     get bridge() { return BRIDGE; },
-    setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
+    previewFace(next) {
+      facePreview = next;
+      applyFace();
+    },
+    placeAt, showWritePreview, setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
     attachAudio, stop, probe, ensureTimeline, capture,
   };
 }

@@ -221,7 +221,7 @@ narrate, template, library, gate) are defined once in
 | `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder (`--audio` carries the narration inside the page) |
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
 | `pptx deck.html` | a PowerPoint file, every slide a picture, notes as notes |
-| `video deck.html` | a narrated video: mp4, mov or webm, with subtitles in it or beside it (`--format`, `--quality`, `--subtitles`; `--slides 5-9` for part of it, `--voiceover` synthesizes first; also **Export a video…** in the deck's palette, which can voice it with the live voice first) |
+| `video deck.html` | a narrated video in MP4, MOV or WebM, with optional subtitles. Choose `--render exact` (the default) or `--render live`, in the CLI or **Export a video…** in the palette. Use `--slides 5-9` for part of the deck and `--voiceover` to synthesize narration first. |
 | `enhance deck.html --slides 3` | add ElevenLabs v4 audio tags to the notes with the prompt ElevenLabs publishes: your agent drafts, decklight checks no word changed (`--all`, `--dry-run`) |
 | `enhance deck.html --spoken --slides 3` | write terse notes for the ear, as sentences a person would say: your agent rewrites, decklight checks every `[click]` and `[pause]` survived |
 | `enhance deck.html --match-slide --slides 3` | reword the notes to agree with what the slide shows, its terms, numbers and order: checked like `--spoken` |

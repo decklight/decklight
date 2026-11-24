@@ -373,6 +373,7 @@ export const DECK_SETTINGS = {
       && (v.position === undefined || LOGO_POSITIONS.includes(v.position)),
     dflt: undefined,
   },
+  'narration.character.position': { ok: (v) => ['br', 'bl', 'tl', 'tr'].includes(v), dflt: 'br' },
   'narration.slidePause': { ok: pause, dflt: 1 },
   'narration.beatPause': { ok: pause, dflt: 0.5 },
   'narration.sentencePause': { ok: pause, dflt: 0.25 },
@@ -394,27 +395,25 @@ export function setDeckConfig(html, set) {
   }
   const off = (key, v) => v === null || JSON.stringify(v) === JSON.stringify(DECK_SETTINGS[key].dflt);
   return withDeckConfigText(html, (text) => {
-    let t = text;
-    for (const [key, v] of Object.entries(set)) {
-      if (!key.startsWith('narration.')) {
-        t = withObjectKey(t, key, off(key, v) ? null : JSON.stringify(v));
-        if (t === null) return null;
-        continue;
-      }
-      // a nested key: spliced inside `narration`, which is made, or taken off with its last key
-      const sub = key.slice('narration.'.length);
-      const had = valueTextOf(t, 'narration');
-      if (had && !/^\{/.test(had.text)) return null;
-      const obj = had ? had.text : '{}';
-      const next = withObjectKey(obj, sub, off(key, v) ? null : JSON.stringify(v));
+    let next = text;
+    for (const [key, value] of Object.entries(set)) {
+      next = withConfigKey(next, key.split('.'), off(key, value) ? null : JSON.stringify(value));
       if (next === null) return null;
-      const empty = /^\{\s*\}$/.test(next);
-      if (had) t = empty ? withObjectKey(t, 'narration', null) : t.slice(0, had.from) + next + t.slice(had.to);
-      else if (!empty) t = withObjectKey(t, 'narration', next.replace(/^\{\s*/, '{ ').replace(/\s*\}$/, ' }'));
-      if (t === null) return null;
     }
-    return t;
+    return next;
   });
+}
+
+/** Splice a setting through its parent objects, pruning an emptied parent. */
+function withConfigKey(text, [key, ...path], valueText) {
+  if (!path.length) return withObjectKey(text, key, valueText);
+  const had = valueTextOf(text, key);
+  if (had && !had.text.startsWith('{')) return null;
+  const next = withConfigKey(had?.text ?? '{}', path, valueText);
+  if (next === null) return null;
+  if (/^\{\s*\}$/.test(next)) return withObjectKey(text, key, null);
+  if (had) return text.slice(0, had.from) + next + text.slice(had.to);
+  return withObjectKey(text, key, next);
 }
 
 /** Text as it goes between `<title>` and `</title>`: `&` and `<` escaped, one line. */
@@ -458,7 +457,7 @@ export function deckSettings(html) {
   const cfg = src.config ?? {};
   const values = {};
   for (const [key, rule] of Object.entries(DECK_SETTINGS)) {
-    const v = key.startsWith('narration.') ? cfg.narration?.[key.slice('narration.'.length)] : cfg[key];
+    const v = key.split('.').reduce((obj, part) => obj?.[part], cfg);
     values[key] = v === undefined ? (rule.dflt ?? null) : v;
   }
   return { title: deckTitle(html), values, editable: !src.why, why: src.why ?? null };

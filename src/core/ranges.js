@@ -112,11 +112,27 @@ export function createRangePicker({ root, overlays }) {
     note.style.display = text ? '' : 'none';
   }
 
+  function refreshSettings() {
+    const selected = Object.fromEntries(settings.map((s) => [s.key, s.options[s.index]]));
+    rows.forEach(({ setting }, i) => {
+      if (!setting) return;
+      const option = selected[setting.key];
+      const display = setting.describe?.(selected, option);
+      const row = rowEls[i];
+      row.querySelector('.range-setting-name').textContent = display?.name ?? setting.name;
+      const value = row.querySelector('.range-setting-value');
+      if (setting.expanded) {
+        [...value.children].forEach((button, j) => button.setAttribute('aria-pressed', String(j === setting.index)));
+      } else value.textContent = display?.label ?? option.label;
+      row.setAttribute('aria-disabled', String(!!display?.disabled));
+    });
+  }
+
   function turn(i, by) {
     const s = rows[i]?.setting;
-    if (!s || s.options.length < 2) return;
+    if (!s || s.options.length < 2 || rowEls[i].getAttribute('aria-disabled') === 'true') return;
     s.index = (s.index + by + s.options.length) % s.options.length;
-    rowEls[i].querySelector('.range-setting-value').textContent = s.options[s.index].label;
+    refreshSettings();
   }
 
   function select(i, { focusBox = true } = {}) {
@@ -299,7 +315,21 @@ export function createRangePicker({ root, overlays }) {
         name.textContent = row.setting.name;
         const value = document.createElement('span');
         value.className = 'narr-row-label range-setting-value';
-        value.textContent = row.setting.options[row.setting.index].label;
+        if (row.setting.expanded) {
+          value.classList.add('range-setting-choices');
+          for (const [j, option] of row.setting.options.entries()) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = option.label;
+            button.addEventListener('click', (e) => {
+              e.stopPropagation();
+              select(i, { focusBox: false });
+              row.setting.index = j;
+              refreshSettings();
+            });
+            value.append(button);
+          }
+        } else value.textContent = row.setting.options[row.setting.index].label;
         r.append(name, value);
         r.addEventListener('mouseenter', () => { if (document.activeElement !== input) select(i, { focusBox: false }); });
         r.addEventListener('click', () => { select(i, { focusBox: false }); turn(i, 1); });
@@ -349,6 +379,7 @@ export function createRangePicker({ root, overlays }) {
       card.append(r);
       return r;
     });
+    refreshSettings();
     if (!action) {
       note = document.createElement('div');
       note.className = 'rec-line rec-warn';
@@ -379,6 +410,7 @@ export function createRangePicker({ root, overlays }) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         select(sel + (e.key === 'ArrowDown' ? 1 : -1), { focusBox: false });
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') turn(sel, e.key === 'ArrowRight' ? 1 : -1);
+      else if ((e.key === 'Enter' || e.key === ' ') && e.target?.closest?.('.range-setting-choices button')) e.target.click();
       else if (e.key === 'Enter') pick();
       else if (e.key === 'Escape') close();
       // A digit starts a range: it lands in the box, and the box has the

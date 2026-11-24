@@ -46,6 +46,7 @@ import { aiIcon } from './aiicon.js';
 import { createEditCommit } from './edit-commit.js';
 import { landing } from './outside-edit.js';
 import { clipReport, clipSentence } from './overflow.js';
+import { sharedEventSource } from './shared-events.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
@@ -797,7 +798,7 @@ export function createEditMode({
           reopenNotes();      // …and the notes card a save reloaded, where the author was
           reopenContentEditor();   // …and the HTML editor, on the element its ⌘⏎ saved
           reopenPanel(root);       // …and whichever other panel held the slot (the inspector)
-          const es = new EventSource(base + '/deck/events');
+          const es = sharedEventSource(base + '/deck/events');
           // the server says what wrote the file; the debug log keeps it across
           // the reload. An outside edit of slides alone is swapped in place.
           es.onmessage = (ev) => fileChanged(ev.data);
@@ -941,8 +942,7 @@ export function createEditMode({
               if (d.state === 'start') exportBusy = { kind: d.kind, what: d.what };
               else if (d.state === 'done') exportBusy = null;
               if (d.state === 'slide' && exportRun) {
-                exportRun.run.update(d.phase === 'lips' ? `${exportRun.doing} — making the character's lip-sync…`
-                  : `${exportRun.doing} — ${d.phase === 'voice' ? 'voicing ' : ''}slide ${d.n} of ${d.of}…`);
+                exportRun.run.update(`${exportRun.doing} — ${d.phase === 'voice' ? 'voicing ' : ''}slide ${d.n} of ${d.of}…`);
               }
               debugLog('export', `${d.kind} ${d.state}${d.n ? ` ${d.n}/${d.of}` : ''}`);
             } catch { /* malformed event */ }
@@ -1344,7 +1344,7 @@ export function createEditMode({
       // overlay existing and being permanently empty.
       deckBase = base;
       presenting = true;
-      const es = new EventSource(base + '/deck/events');
+      const es = sharedEventSource(base + '/deck/events');
       // No `onmessage` handler: the unnamed `reload` message is write mode's,
       // and no-trust mode never sends one — it serves the audited bytes.
       wireClicker(base, es, j);
@@ -4375,7 +4375,7 @@ export function createEditMode({
   // What a bundle's card repeats of the notes `decklight bundle` prints after
   // the file: which chapter went in, and where the narration audio is.
   const BUNDLE_SAYS = /^(module \d+ of \d+:|narration audio:)/;
-  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null, face = null, character = null, audio = false, module = null } = {}) {
+  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null, render = null, face = null, character = null, audio = false, module = null } = {}) {
     const what = EXPORTS[kind];
     if (!what) return;
     // The server refuses a second export too (one browser, one output path);
@@ -4395,13 +4395,14 @@ export function createEditMode({
     // deck knows goes by name; one that lives only in this browser (a saved
     // custom theme, an unsaved roll) goes as its tokens.
     const { theme, gen } = renderTheme() ?? {};
-    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles, face, character, audio, module } })) return;
+    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles, render, face, character, audio, module } })) return;
     const doing = kind === 'video'
       ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
       : `exporting ${kind === 'bundle' && module != null ? `module ${module} ` : ''}to ${what}`
         + `${audio ? `, with the narration audio${AUDIO_HOW[audio] ? ` as ${AUDIO_HOW[audio]}` : ''}` : ''}`;
     // a bundle is seconds; anything else can be stopped, and says how
-    const run = progress(`${doing} — this takes a moment…${kind === 'bundle' ? '' : ` (${STOP_HOW})`}`);
+    const run = progress(`${doing} — this takes a moment…${kind === 'bundle' ? '' : ` (${STOP_HOW})`}`,
+      kind === 'video' ? stopRunning : null);
     exportRun = { run, what, doing, kind };
     try {
       const r = await fetch(editBase + '/deck/edit/export', {
@@ -4409,7 +4410,7 @@ export function createEditMode({
         body: JSON.stringify({
           kind,
           ...(theme ? { theme } : gen ? { gen } : {}),
-          ...(kind === 'video' ? { slides, format, quality, subtitles, ...(face ? { face } : {}), ...(character ? { character } : {}), ...videoVoice(voice) } : {}),
+          ...(kind === 'video' ? { slides, format, quality, subtitles, render, ...(face ? { face } : {}), ...(character ? { character } : {}), ...videoVoice(voice) } : {}),
           ...(kind === 'bundle' && audio ? { audio } : {}),
           ...(kind === 'bundle' && module != null ? { module } : {}),
         }),
@@ -4426,6 +4427,7 @@ export function createEditMode({
       }
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
       const says = (j.notes ?? []).filter((n) => BUNDLE_SAYS.test(n));
+      if (j.droppedFrames) says.push(`${j.droppedFrames} dropped or late frames`);
       run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}${j.subtitles ? ` · subtitles in ${j.subtitles}` : ''}`
         + `${j.voiced ? ` — its voice is in ${j.voiced}/` : ''}${says.map((n) => ` · ${n}`).join('')}`, says.length ? 9000 : undefined);
       debugLog('export', `${kind} → ${j.file}`);

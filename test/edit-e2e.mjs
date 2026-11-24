@@ -789,6 +789,108 @@ try {
     check('forecast', 'one undo each takes them all back', fc.read() === original, fc.read().match(/<script type="application\/json">([\s\S]*?)<\/script>/)?.[1]);
     await page.close();
   });
+
+  // 14 · the layout picker (PRESENTING_EDITING): one cell per layout the ring
+  //      offers, a preview that writes nothing, Escape that puts the slide
+  //      back, ⏎ that writes once, one undo
+  await scenario('layout', async () => {
+    text.reset(); await wait(400);
+    const page = await open(text, '#/1/3');
+    const original = text.read();
+    const saves = () => text.saves(/layout saved/g);
+    const was = saves();
+    const ring = await page.evaluate(() => document.querySelector('.decklight').__decklight.layoutRing(1));
+    await page.click('.eb-layout'); await wait(600);
+    const cells = await page.locator('.decklight-layout-picker .dl-lp-cell').count();
+    check('layout', 'one cell per layout the slide can take', cells === ring.length && cells > 1, `${cells} cells, ring ${ring}`);
+    check('layout', 'no More layouts without a design system', await page.locator('.dl-lp-more').count() === 0);
+    check('layout', 'the current one is marked', await page.locator('.dl-lp-cell[aria-selected="true"]').getAttribute('aria-label') === 'layout auto, current');
+    await page.keyboard.press('ArrowRight'); await wait(400);
+    check('layout', 'the slide previews the focused layout', await page.locator(`.decklight-stage > section.dl-layout-preview[data-layout="${ring[1]}"]`).count() === 1);
+    check('layout', 'a preview writes nothing', text.read() === original && saves() === was);
+    await page.keyboard.press('Escape'); await wait(300);
+    check('layout', 'Escape closes and puts the slide back', await page.locator('.decklight-layout-picker, .dl-layout-preview, .dl-layout-previewed').count() === 0);
+    // the large preview (#1241): space opens it, the arrows walk it, space or Esc goes back to the row
+    await page.click('.eb-layout'); await wait(600);
+    await page.keyboard.press('ArrowRight'); await wait(250);
+    await page.keyboard.press(' '); await wait(400);
+    const look = page.locator('.decklight-layout-look');
+    const lookName = () => look.locator('.dl-ll-name').textContent().catch(() => '');
+    check('layout', 'space opens the large preview of the focused tile', await look.count() === 1 && (await lookName()).endsWith(ring[1]), await lookName());
+    const box = await look.locator('.dl-ll-slide').boundingBox();
+    check('layout', 'as large as the window allows, at the deck\'s ratio', !!box && box.width > 900 && Math.abs(box.width / box.height - 16 / 9) < 0.02, JSON.stringify(box));
+    check('layout', 'the slide is drawn in it', await look.locator('.dl-ll-slide section').count() === 1);
+    await page.keyboard.press('ArrowRight'); await wait(300);
+    check('layout', '→ shows the next tile, and the row follows', (await lookName()).endsWith(ring[2 % ring.length])
+      && (await page.locator('.dl-lp-cell.dl-lp-focus').getAttribute('aria-label')) === `layout ${ring[2 % ring.length]}`, await lookName());
+    await page.keyboard.press('ArrowLeft'); await wait(300);
+    await page.keyboard.press(' '); await wait(250);
+    check('layout', 'space goes back to the row, on the same tile', await look.count() === 0 && await page.locator('.decklight-layout-picker').count() === 1
+      && (await page.locator('.dl-lp-cell.dl-lp-focus').getAttribute('aria-label')) === `layout ${ring[1]}`);
+    check('layout', 'the hint names it', /space: larger preview/.test(await page.locator('.dl-lp-foot').textContent()));
+    await page.keyboard.press(' '); await wait(300);
+    await page.keyboard.press('Escape'); await wait(250);
+    check('layout', 'Esc closes the preview, and the picker stays', await look.count() === 0 && await page.locator('.decklight-layout-picker').count() === 1);
+    await page.keyboard.press('Escape'); await wait(250);
+    check('layout', 'a second Esc closes the picker', await page.locator('.decklight-layout-picker').count() === 0);
+    check('layout', 'the large preview writes nothing', text.read() === original && saves() === was);
+    await page.click('.eb-layout'); await wait(600);
+    await page.keyboard.press('ArrowRight'); await wait(250);
+    await page.keyboard.press('Enter'); await wait(1500);
+    check('layout', '⏎ writes the layout into the file', new RegExp(`<section data-layout="${ring[1]}">`).test(text.read()), (text.read().match(/<section[^>]*>/) ?? [''])[0]);
+    check('layout', 'one write', saves() - was === 1, saves() - was);
+    check('layout', 'the bar names it', (await page.locator('.eb-layout .eb-label').textContent()) === `Layout · ${ring[1]}`);
+    await page.keyboard.press(`${MOD}+z`); await wait(1500);
+    check('layout', 'one undo takes it back', text.read() === original);
+    // ⏎ in the large preview chooses, as on the tile: one write, one undo
+    const before = saves();
+    await page.click('.eb-layout'); await wait(600);
+    await page.keyboard.press('ArrowRight'); await wait(250);
+    await page.keyboard.press(' '); await wait(400);
+    await page.keyboard.press('Enter'); await wait(1500);
+    check('layout', '⏎ in the large preview writes that layout, once', new RegExp(`<section data-layout="${ring[1]}">`).test(text.read()) && saves() - before === 1, saves() - before);
+    check('layout', 'and closes it', await page.locator('.decklight-layout-look, .decklight-layout-picker').count() === 0);
+    await page.keyboard.press(`${MOD}+z`); await wait(1500);
+    check('layout', 'one undo takes that back too', text.read() === original);
+    await page.close();
+  });
+
+  // Many tabs of one deck (#1240): one browser profile shares six sockets per
+  // origin, and every tab used to pin one to /deck/events. Seven tabs share
+  // one stream, so an editor read from the last still gets an answer, and a
+  // change to the file still reaches the first.
+  await scenario('tabs', async () => {
+    const srv = await serve('outside');
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pages = [];
+    try {
+      for (let i = 0; i < 7; i++) {
+        const page = await ctx.newPage();
+        page.on('pageerror', (e) => errors.push(e.message));
+        await page.goto(srv.url + '#/1/0', { timeout: 15000 });
+        await page.waitForSelector(ACTIVE, { timeout: 15000 });
+        pages.push(page);
+      }
+      await wait(1500);
+      const last = pages[6];
+      const read = await last.evaluate(async () => {
+        const t0 = performance.now();
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 6000);
+        try {
+          const r = await fetch('/deck/edit/element/source?slide=1&index=0', { signal: ctl.signal });
+          return { status: r.status, ms: Math.round(performance.now() - t0) };
+        } catch (e) { return { error: String(e), ms: Math.round(performance.now() - t0) }; } finally { clearTimeout(timer); }
+      });
+      check('tabs', 'seven tabs open, and an editor read from the last answers', read.status === 200, JSON.stringify(read));
+      await pages[0].evaluate(() => { window.__marker = 'kept'; });
+      writeFileSync(path.join(dir, 'outside.html'), FIXTURES.outside.replace('<h2>Alpha</h2>', '<h2>Alpha, edited</h2>'));
+      const seen = await pages[0].waitForFunction((sel) => /Alpha, edited/.test(document.querySelector(sel)?.textContent ?? ''), ACTIVE, { timeout: 6000 }).then(() => true, () => false);
+      check('tabs', 'the first tab still hears the file change', seen);
+    } finally {
+      await ctx.close().catch(() => {});
+    }
+  });
 } finally {
   await browser.close().catch(() => {});
   for (const s of servers) s.kill();

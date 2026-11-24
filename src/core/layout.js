@@ -1,19 +1,20 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Slide layout cycling (L / ⇧L) — SPEC PRESENTING.
+// Slide layout cycling — SPEC PRESENTING_EDITING. The bar's Layout button opens
+// the picker (layout-picker.js); cycling is the palette's row and the API's.
 //
 // Walking the current slide through the layout ring is an AUTHOR-mode edit,
 // not a presenting control: the pick lands on the section as `data-layout` and
 // is written back into the file through the edit server. Without that server
-// the key explains itself and changes nothing, so a presenter cannot silently
+// a press explains itself and changes nothing, so a presenter cannot silently
 // fork the deck from what is on disk — the thing they will hand someone later.
 //
 // TWO RULES WORTH TESTING, WHICH IS WHY THIS IS ITS OWN FILE:
 //
 //   THE RING SKIPS WHAT WOULD DO NOTHING. `pinned` is dropped when the slide
 //   already pins automatically, `split-flip` when there are not two content
-//   blocks to swap. Every press has to change something visible, or L reads
+//   blocks to swap. Every press has to change something visible, or cycling reads
 //   as broken on exactly the slides where the author most wants to try things.
 //
 //   THE WRITE-THROUGH IS DEBOUNCED, AND A SLIDE CHANGE FLUSHES IT. The DOM
@@ -47,7 +48,7 @@ export function nextInRing(ring, current, dir) {
 }
 
 /**
- * Wire L / ⇧L for a deck.
+ * Wire layout cycling, and the picker's one deliberate pick, for a deck.
  *
  * Every effect is injected: `apply` puts the pick on the section, `relayout`
  * re-derives pinned titles, split and the overflow flag, `post` is the
@@ -61,15 +62,19 @@ export function createLayoutCycler({
   let pending = null;   // { slide, name }
   let timer = null;
 
+  /** Write one pick to the file. */
+  function send(p) {
+    post({ slide: p.slide, layout: p.name })
+      .then(() => debugLog('layout', `slide ${p.slide}: ${p.name} → saved to file`))
+      .catch(() => toast('layout save failed — is the dev server still up?', 2200));
+  }
+
   /** Send the pending pick, if any. Called on debounce, and on a slide change. */
   function flush() {
     cancel(timer);
     const p = pending;
     pending = null;
-    if (!p) return;
-    post({ slide: p.slide, layout: p.name })
-      .then(() => debugLog('layout', `slide ${p.slide}: ${p.name} → saved to file`))
-      .catch(() => toast('layout save failed — is the dev server still up?', 2200));
+    if (p) send(p);
   }
 
   /** The ring the given slide would cycle through. */
@@ -114,5 +119,29 @@ export function createLayoutCycler({
     debugLog('layout', `slide ${idx}: ${name}`);
   }
 
-  return { ring, cycle, flush };
+  /**
+   * One deliberate pick (the layout picker's ⏎): applied and written AT
+   * ONCE, not debounced, because there is no burst to wait out. A cycle still
+   * pending is sent first, so the two land in the order they were made.
+   * Returns false when nothing was done (no server, a template's slide).
+   */
+  function pick(name, idx = slideOf()) {
+    if (!available()) {
+      toast(unavailableMessage(), 3200);
+      return false;
+    }
+    const sec = sectionAt(idx);
+    if (!sec || sec.getAttribute('data-template')) return false;
+    flush();
+    apply(sec, name);
+    send({ slide: idx, name });
+    const conflict = relayout(sec, idx);
+    toast(conflict
+      ? `layout: ${name} — fights this slide's own column flexbox; pick one`
+      : `layout: ${name}`);
+    debugLog('layout', `slide ${idx}: ${name} (picked)`);
+    return true;
+  }
+
+  return { ring, cycle, flush, pick };
 }

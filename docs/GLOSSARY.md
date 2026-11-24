@@ -29,7 +29,9 @@ holds a beat of silence.
 and links, hidden on the slide and shown in the inspector (`SLIDE_SOURCES`).
 
 **Layout.** How one slide places its content: `auto`, `centered`, `top`,
-`split`. Cycled from the bar's Layout button and written as `data-layout`.
+`split`. Chosen from the bar's Layout button, which shows the slide in
+each one (and in each slide template first, on a design system), and
+written as `data-layout`.
 
 **Connector.** A diagram's wire that stays attached: each shape it joins
 names itself `data-node`, and the wire says `data-from` and `data-to`. Moving
