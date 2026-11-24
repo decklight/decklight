@@ -38,7 +38,30 @@ try {
   };
   // 404 for a beat that was never cut — a track recorded before lipsync knew
   // how to cut them is exactly that, and it must not fall back to the slide's
-  window.fetch = async (url) => (String(url).includes('slide-01-09')
+  // a real recording for the beat with no sidecar: 0.25 s of silence, 0.6 s of
+  // an open vowel (harmonics of 140 Hz under resonances at 800 and 1300 Hz),
+  // silence again — what the deck reads a mouth from when nothing else says
+  const beatWav = (() => {
+    const sr = 16000, n = Math.round(1.1 * sr);
+    const pcm = new Int16Array(n);
+    for (let i = Math.round(0.25 * sr); i < Math.round(0.85 * sr); i++) {
+      let v = 0;
+      for (let h = 1; h * 140 < 4000; h++) {
+        const f = h * 140;
+        v += (1 / (1 + ((f - 800) / 90) ** 2) + 0.7 / (1 + ((f - 1300) / 120) ** 2)) * Math.sin(2 * Math.PI * f * i / sr);
+      }
+      pcm[i] = Math.max(-32767, Math.min(32767, v * 6000));
+    }
+    const buf = new ArrayBuffer(44 + n * 2), d = new DataView(buf);
+    const str = (at, t) => [...t].forEach((c, k) => d.setUint8(at + k, c.charCodeAt(0)));
+    str(0, 'RIFF'); d.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true); d.setUint32(24, sr, true);
+    d.setUint32(28, sr * 2, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); str(36, 'data'); d.setUint32(40, n * 2, true);
+    new Int16Array(buf, 44).set(pcm);
+    return buf;
+  })();
+  window.fetch = async (url) => (String(url).includes('beat-09.wav') ? new Response(beatWav, { status: 200, headers: { 'content-type': 'audio/wav' } })
+    : String(url).includes('slide-01-09')
     ? new Response('nope', { status: 404 })
     : new Response(JSON.stringify(timeline), {
       status: 200, headers: { 'content-type': 'application/json' },
@@ -96,6 +119,19 @@ try {
   await new Promise((r) => setTimeout(r, 30));
   await raf2();
   results.missingBeatDidNotReuseTheSlide = el?.getAttribute('data-viseme') !== 'E';
+
+  // …and with its audio to hand, that beat's mouth is read from the voice
+  // (tools/mouth.mjs): at rest in the silence, open in the vowel.
+  character.setMode('off'); character.setMode('viseme');   // a fresh beat key
+  character.beginSlide({ dir: 'voiceover' }, 1, 9, 'voiceover/beat-09.wav');
+  // the mock audio is no media element, so there is no loudness mouth: X until the read lands
+  audio.currentTime = 0.55;
+  // decoding is slow under the harness's virtual clock (seconds), instant in a browser
+  for (let i = 0; i < 400 && el?.getAttribute('data-viseme') === 'X'; i++) await new Promise((r) => setTimeout(r, 25));
+  results.voiceReadOpensOnTheVowel = el?.getAttribute('data-viseme');
+  audio.currentTime = 0.1;
+  await raf2();
+  results.voiceReadRestsInSilence = el?.getAttribute('data-viseme');
 
   // solo: the class lands on the ROOT (the stage is what gets hidden), and
   // only while the character is on screen — a stopped narration or a
@@ -396,6 +432,7 @@ try {
   }
 
   results.PASS = results.mounted && results.shown && results.mouthShapes === 9
+    && /^[CDE]$/.test(results.voiceReadOpensOnTheVowel) && results.voiceReadRestsInSilence === 'X'
     && results.videoFromFirstTrack && results.videoFollowsTheTrack
     && results.stillUnderTheVideo && results.videoHiddenUntilPlaying && results.videoShownWhilePlaying
     && results.photoBackWhenItEnds && results.stillFollowsThePortrait

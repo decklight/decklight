@@ -43,6 +43,7 @@ import { faceLayout } from './face-layout.mjs';
 import { videoCache, videoDigest, videoMarkup } from './video-cache.mjs';
 import { captureLive } from './video-live.mjs';
 import { visemeMismatch, wavDuration } from './viseme-match.mjs';
+import { mouthTimeline } from './mouth.mjs';
 
 const run = promisify(execFile);
 
@@ -341,10 +342,14 @@ function visemeCheck(dir) {
 
 /**
  * The viseme timeline for each `{ audio, file, duration }`, checked against
- * that audio. The CLI remakes bad sidecars by default and stops if that fails.
+ * that audio. The CLI remakes bad sidecars by default (tools/lipsync.mjs);
+ * when that cannot run (no Rhubarb), the mouth is read from the voice itself
+ * (tools/mouth.mjs), less exact than Rhubarb and nothing written to disk,
+ * rather than stopping. Only audio that cannot even be read stops the export.
+ * `skipBad` (exporting as-is) neither remakes nor reads.
  * Returns file → timeline.
  */
-export async function visemesFor(items, { dir, deck, log = console.log, remakeWith = remakeVisemes, skipBad = false } = {}) {
+export async function visemesFor(items, { dir, deck, log = console.log, remakeWith = remakeVisemes, readMouth = mouthFromVoice, skipBad = false } = {}) {
   if (!items.length) return new Map();
   const unique = [...new Map(items.map((it) => [it.file, it])).values()];
   const check = visemeCheck(dir);
@@ -366,13 +371,31 @@ export async function visemesFor(items, { dir, deck, log = console.log, remakeWi
     const r = check(b);
     if (r.why) left.push(b); else out.set(b.file, r.tl);
   }
-  if (left.length) {
-    throw new Error(`the animated character's lip-sync does not match its audio in ${files(left)}`
+  const unread = [];
+  for (const b of left) {
+    try { out.set(b.file, readMouth(b.audio)); } catch { unread.push(b); }
+  }
+  if (unread.length) {
+    throw new Error(`the animated character's lip-sync does not match its audio in ${files(unread)}`
       + `${failed ? ` and could not be remade here: ${failed}` : ''}`
       + ` — run decklight narrate ${basename(deck)} --face, or pass --no-face`);
   }
-  log(`  lip-sync: remade ${n} file${n === 1 ? '' : 's'} to match ${n === 1 ? 'its' : 'their'} audio`);
+  const read = left.length;
+  if (n > read) log(`  lip-sync: remade ${n - read} file${n - read === 1 ? '' : 's'} to match ${n - read === 1 ? 'its' : 'their'} audio`);
+  if (read) {
+    log(`  lip-sync: ${failed ? `Rhubarb could not run (${failed}), so ` : ''}`
+      + `${read} file${read === 1 ? ' is' : 's are'} read from the voice instead · install Rhubarb for a more exact mouth`);
+  }
   return out;
+}
+
+/** The built-in mouth for one audio file, decoded by ffmpeg (tools/mouth.mjs). */
+function mouthFromVoice(audio) {
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-i', audio, '-ac', '1', '-ar', '16000', '-f', 'f32le', '-'],
+    { maxBuffer: 1 << 28 });
+  if (r.status !== 0 || !r.stdout?.length) throw new Error(`ffmpeg could not read ${basename(audio)}`);
+  const raw = r.stdout;
+  return mouthTimeline(new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length)), 16000);
 }
 
 /** tools/lipsync.mjs on just these stems; the reason it failed, or null. */
@@ -1140,7 +1163,8 @@ async function renderExact({ plan, kinds, chrome, url, settings, work, exec, sig
         const nn = String(slide).padStart(2, '0');
         const key = videoDigest(JSON.stringify([shared, markup.slides[slide - 1], beats.map(({ beat, motion }) => [
           beat, motion, beat.audio && digestFile(beat.audio), beat.face && digestFile(beat.face.clip),
-          beat.visemeFile && digestFile(beat.visemeFile),
+          // a mouth read from the voice has no file (its poses, in `beat`, are the key)
+          beat.visemeFile && existsSync(beat.visemeFile) && digestFile(beat.visemeFile),
         ])]));
         const cached = !refresh && await cache.load(slide, key, work);
         if (cached) {

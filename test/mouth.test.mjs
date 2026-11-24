@@ -6,7 +6,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mouthTimeline, shapeOf } from '../src/core/mouth.js';
+import { mouthTimeline, shapeOf } from '../tools/mouth.mjs';
 
 const SR = 16000;
 /** A vowel-like buzz: harmonics of 140 Hz shaped by two resonances. */
@@ -51,4 +51,14 @@ test('the rules: hiss shows teeth, a quiet hum closes the lips, formants shape t
   assert.equal(shapeOf({ rel: -2, hiss: 0, open: 0.1, front: 0.9 }), 'B');
   assert.equal(shapeOf({ rel: -2, hiss: 0, open: 0.1, front: 0.1 }), 'F');
   assert.equal(shapeOf({ rel: -2, hiss: 0, open: 0.5, front: 0.1 }), 'E');
+});
+
+test('a voice decoded at 48 kHz reads as it does at 16 kHz: the reader works at 16 kHz either way', async () => {
+  const { at16k } = await import('../tools/mouth.mjs');
+  const at48 = (s16) => Float32Array.from({ length: s16.length * 3 }, (_, i) => s16[Math.floor(i / 3)]);
+  const voice = join(silence(0.3), vowel(0.5, 800, 1300), vowel(0.5, 300, 2400), silence(0.3));
+  const a = mouthTimeline(voice, SR), b = mouthTimeline(at48(voice), 48000);
+  assert.equal(b.duration, a.duration);
+  assert.deepEqual(b.cues.map((c) => c.v), a.cues.map((c) => c.v));
+  assert.equal(at16k(new Float32Array(480), 48000).samples.length, 160);
 });

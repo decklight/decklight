@@ -179,13 +179,32 @@ function placer(xs) {
 }
 
 /**
+ * The voice at 16 kHz, where the formant reading is tuned (its LPC order
+ * suits a 16 kHz band; a browser decodes at 44.1 or 48 kHz). Averaged over
+ * each step before it is picked, so nothing above 8 kHz folds back down.
+ */
+const RATE = 16000;
+export function at16k(samples, sampleRate) {
+  if (sampleRate <= RATE) return { samples, sampleRate };
+  const step = sampleRate / RATE;
+  const out = new Float32Array(Math.floor(samples.length / step));
+  for (let i = 0; i < out.length; i++) {
+    const a = Math.floor(i * step), b = Math.max(a + 1, Math.floor((i + 1) * step));
+    let sum = 0; for (let j = a; j < b; j++) sum += samples[j];
+    out[i] = sum / (b - a);
+  }
+  return { samples: out, sampleRate: RATE };
+}
+
+/**
  * The timeline for `samples` (mono, -1..1) at `sampleRate`: one shape per
  * frame, smoothed the way a mouth moves. A short silence between sounds is
  * lips closing, not resting; a shape held for less than a couple of frames is
  * folded into its longer neighbour; the mouth starts and ends at rest.
  */
-export function mouthTimeline(samples, sampleRate) {
-  const duration = samples.length / sampleRate;
+export function mouthTimeline(input, inputRate) {
+  const duration = input.length / inputRate;
+  const { samples, sampleRate } = at16k(input, inputRate);
   const frames = measure(samples, sampleRate);
   const level = speechLevel(frames);
   // the voice's own range, read from where it is clearly voicing
@@ -239,7 +258,8 @@ export function mouthTimeline(samples, sampleRate) {
  * The loudness-only mouth the deck falls back to today, as a timeline: what
  * the prototype is compared with. Four shapes from the frame's level.
  */
-export function loudnessTimeline(samples, sampleRate) {
+export function loudnessTimeline(input, inputRate) {
+  const { samples, sampleRate } = at16k(input, inputRate);
   const frames = measure(samples, sampleRate);
   const cues = [];
   for (const f of frames) {

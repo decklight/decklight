@@ -52,7 +52,7 @@ test('visemeMismatch: the stamp settles it, then lipsync.json, then the length',
   assert.equal(timelineFits(timeline(2.5), NaN), true, 'length not known yet: not judged');
 });
 
-test('the export does not play a foreign sidecar: it remakes it, or stops and names the command', async (t) => {
+test('the export does not play a foreign sidecar: it remakes it, or reads the mouth from the voice', async (t) => {
   const dir = tmp('viseme', t);
   const audio = path.join(dir, 'slide-01.wav');
   const file = path.join(dir, 'slide-01.visemes.json');
@@ -63,10 +63,18 @@ test('the export does not play a foreign sidecar: it remakes it, or stops and na
   const lines = [];
   const log = (l) => lines.push(l);
 
-  // no Rhubarb here: the export stops — never renders the wrong mouth silently
-  await assert.rejects(visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'rhubarb not found' }),
-    /lip-sync does not match its audio in slide-01\.visemes\.json and could not be remade here: rhubarb not found — run decklight narrate deck\.html --face/);
+  // no Rhubarb here: never the wrong take's mouth. The mouth is read from the
+  // voice itself, and the log says so and how to get a more exact one.
+  const fromVoice = { v: 1, kind: 'visemes', duration: 6, source: 'builtin', cues: [{ t: 0, v: 'X' }] };
+  const read = await visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'rhubarb not found', readMouth: () => fromVoice });
+  assert.equal(read.get(file), fromVoice);
   assert.ok(lines.some((l) => /slide-01\.visemes\.json does not match its audio — it lasts 2\.5s and its audio 6\.0s/.test(l)));
+  assert.ok(lines.some((l) => /Rhubarb could not run \(rhubarb not found\), so 1 file is read from the voice instead · install Rhubarb/.test(l)));
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).duration, 2.5, 'nothing is written: the old sidecar stays for Rhubarb to remake');
+  // audio that cannot be read at all still stops it, and names the command
+  await assert.rejects(visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'rhubarb not found', readMouth: () => { throw new Error('unreadable'); } }),
+    /lip-sync does not match its audio in slide-01\.visemes\.json and could not be remade here: rhubarb not found — run decklight narrate deck\.html --face/);
+  // exporting as-is (--no-remake-visemes) neither remakes nor reads: those beats have no mouth
   const skipped = await visemesFor(items, {
     dir, deck: 'deck.html', log, skipBad: true,
     remakeWith: () => assert.fail('exporting as-is must not remake lip-sync'),
@@ -90,7 +98,7 @@ test('the export does not play a foreign sidecar: it remakes it, or stops and na
 
   // a missing sidecar is remade the same way, instead of failing outright (#1220)
   fs.rmSync(file);
-  await assert.rejects(visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'no rhubarb' }), /narrate deck\.html --face/);
+  assert.equal((await visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'no rhubarb', readMouth: () => fromVoice })).get(file), fromVoice);
 });
 
 test('lipsync: a re-recorded beat gets a new sidecar, and one copied in over a current hash is not kept', { skip: winSkip }, (t) => {
