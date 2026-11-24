@@ -5310,9 +5310,27 @@ export async function editMain(args, { onListen = null, client } = {}) {
       console.log(`  filmed ${want}/${name} (${Math.round(size / 1024)} kB)`);
       return json(200, { ok: true, dir: want, file: name });
     }
+    let body = Buffer.concat(chunks);
+    // Lip-sync and its audio are one recording (#1244). A sidecar is stamped
+    // with the hash of the WAV it was cut from (uploaded just before it), so
+    // a reader can tell it from one another take left behind…
+    if (kind === 'visemes') {
+      try {
+        const tl = JSON.parse(body.toString('utf8'));
+        const wav = resolve(dir, `${stem}.wav`);
+        if (tl && typeof tl === 'object' && existsSync(wav)) {
+          const { audioStamp } = await import('../tools/viseme-match.mjs');
+          body = Buffer.from(JSON.stringify({ ...tl, audio: audioStamp(readFileSync(wav)) }));
+        }
+      } catch { /* not JSON: written as sent, and the export will say so */ }
+    }
     try {
       mkdirSync(dir, { recursive: true });
-      writeFileSync(resolve(dir, name), Buffer.concat(chunks));
+      writeFileSync(resolve(dir, name), body);
+      // …and new audio takes the old sidecar away with it: when no new one
+      // follows (the bridge was down), the character falls back to the voice's
+      // loudness and the export remakes it, instead of mouthing the last take.
+      if (kind === 'wav') rmSync(resolve(dir, `${stem}.visemes.json`), { force: true });
     } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
     console.log(`  recorded ${want}/${name} (${Math.round(size / 1024)} kB)`);
     return json(200, { ok: true, dir: want, file: name });

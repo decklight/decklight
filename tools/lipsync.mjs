@@ -5,7 +5,7 @@
 // bridge running. Fully offline, like everything else here.
 //
 //   node tools/lipsync.mjs <voiceover-dir> [--visemes] [--video]
-//                          [--rhubarb <bin>]
+//                          [--rhubarb <bin>] [--remake slide-01,slide-02-01]
 //                          [--engine sadtalker|wav2lip] [--portrait <img>]
 //                          [--wav2lip-dir <repo> --wav2lip-ckpt <pth>]
 //                          [--sadtalker-dir <repo>] [--python python3]
@@ -29,7 +29,13 @@
 //
 // Incremental like voiceover.mjs: lipsync.json stores a hash of
 // (audio bytes, tool, engine, portrait) per slide, persisted after every
-// slide, so a rerun only regenerates what actually changed.
+// slide, so a rerun only regenerates what actually changed. Each sidecar also
+// carries `audio`, the hash of the audio it was cut from (tools/viseme-match.mjs),
+// so a reader can tell it from one another recording left behind (#1244): a
+// sidecar whose hash is current but which is NOT this audio's (copied in, or
+// written by another tool) is made again rather than kept. `--remake` names the
+// stems to make whatever the state says — what `decklight video` passes for
+// the sidecars it found out of step with their audio.
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, renameSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -40,6 +46,7 @@ import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-e
 import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
 import { captioned, canonMarks } from './sentences.mjs';
 import { loadLipsyncConfig, parsePortrait } from './lipsync-config.mjs';
+import { audioStamp, visemeHash, visemeMismatch, wavDuration } from './viseme-match.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -68,6 +75,7 @@ const portrait = portraitArg
   ? savedPortraits.find(([name]) => name === portraitArg)?.[1] ?? resolve(portraitArg)
   : savedPortraits[0]?.[1];
 const python = opt('--python', saved.python ?? 'python3');
+const remake = opt('--remake') ? new Set(opt('--remake').split(',').filter(Boolean)) : null;
 // --veo: animate the portrait ONCE through Vertex (tools/veo.mjs) and give
 // wav2lip that clip instead of the still, so the recorded narrator moves
 // instead of staring. One billed call per portrait, cached next to the audio.
@@ -109,7 +117,7 @@ const ffmpegOk = have('ffmpeg', ['-version']);
 // else here.
 const stems = [...new Set(readdirSync(dir)
   .map((f) => f.match(/^(slide-\d+(?:-\d+)?)\.(wav|m4a)$/)?.[1])
-  .filter(Boolean))].sort();
+  .filter(Boolean))].sort().filter((st) => !remake || remake.has(st));
 const slides = stems.filter((st) => !/-\d+-\d+$/.test(st));
 const beats = stems.filter((st) => /-\d+-\d+$/.test(st));
 if (!stems.length) { console.error(`${dir}: no slide-NN.wav/.m4a files`); process.exit(1); }
@@ -135,6 +143,14 @@ const sha = (...parts) => {
   for (const p of parts) h.update(p);
   return h.digest('hex').slice(0, 16);
 };
+
+// A sidecar on disk under a current hash is kept only if it is THIS audio's:
+// the hash says what was made last, not what is in the file now.
+function keepsVisemes(file, audioBytes) {
+  try {
+    return !visemeMismatch(JSON.parse(readFileSync(file, 'utf8')), { audioBytes, duration: wavDuration(audioBytes) });
+  } catch { return false; }
+}
 
 function toWav(stem) {
   const wav = join(dir, `${stem}.wav`);
@@ -171,9 +187,9 @@ for (const stem of stems) {
   for (const job of jobs) {
     const outFile = join(dir, job === 'visemes' ? `${stem}.visemes.json` : `${stem}.mp4`);
     const hash = job === 'visemes'
-      ? sha('visemes|', text, '|', audioBytes)
+      ? visemeHash(text, audioBytes)
       : sha('video|', engine, '|', readFileSync(face), '|', audioBytes);   // `face`, so --veo re-renders
-    if (st[job] === hash && existsSync(outFile)) {
+    if (st[job] === hash && existsSync(outFile) && !remake && (job !== 'visemes' || keepsVisemes(outFile, audioBytes))) {
       kept++;
       console.log(`  ${stem}: ${job} unchanged — kept`);
       continue;
@@ -187,7 +203,9 @@ for (const stem of stems) {
         // the script keeps its ⟨PAUSE⟩ holds (#560); Rhubarb is told the words
         const words = captioned(canonMarks(text));
         if (words) { dialogFile = join(dir, `${stem}.tmp.txt`); writeFileSync(dialogFile, words); }
-        const tl = await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut });
+        // stamped with the audio it was cut from, so no reader takes it for
+        // another recording's lip-sync, or another's for this one's
+        const tl = { ...await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut }), audio: audioStamp(audioBytes) };
         writeFileSync(outFile, JSON.stringify(tl));
         rmSync(tmpOut, { force: true });
         rmSync(join(dir, `${stem}.tmp.txt`), { force: true });

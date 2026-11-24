@@ -30,6 +30,7 @@
 import { DEFAULT_CHARACTER_SVG, VISEMES } from './character-art.js';
 import { readJson, writeJson } from './prefs.js';
 import { faceLayout, FACE_CORNER } from '../../tools/face-layout.mjs';
+import { timelineFits } from '../../tools/viseme-fit.mjs';
 
 // ── pure core (unit-tested; no DOM) ─────────────────────────────────────────
 
@@ -107,6 +108,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   let el = null, videoEl = null, artMode = null;
   let audioEl = null;
   let timeline = null;    // active viseme timeline for the playing clip
+  let unchecked = null;   // the audio a recorded sidecar is yet to be measured against (#1244)
   let currentKey = null;  // guards late async results against navigation
   let lastV = null, timer = 0, warned = false;
   let bridgeInfo;         // last /ping result (undefined = never probed)
@@ -377,6 +379,17 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     if (!el?.classList.contains('show')) return;
     if (mode === 'video') { syncVideo(); return; }
     if (!audioEl || audioEl.paused || audioEl.ended) { setViseme('X'); return; }
+    // A recorded beat's sidecar is measured against the audio once its length
+    // is known: one cut from another take (the audio was re-recorded, the
+    // sidecar left) would mouth THAT take, so the voice's loudness drives the
+    // mouth instead (#1244).
+    if (timeline && unchecked && audioEl.src === unchecked && audioEl.duration > 0 && Number.isFinite(audioEl.duration)) {
+      unchecked = null;
+      if (!timelineFits(timeline, audioEl.duration)) {
+        debugLog('lipsync', `${currentKey}: viseme sidecar lasts ${timeline.duration}s, its audio ${audioEl.duration.toFixed(2)}s — another recording's; following the voice instead`);
+        timeline = null;
+      }
+    }
     if (timeline) setViseme(cueAt(timeline, audioEl.currentTime));
     else if (FALLBACK === 'hide') setViseme('X');
     else if (ensureAnalyser()) setViseme(amplitudeViseme());
@@ -451,7 +464,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     if (mode === 'viseme') {
       timeline = null;
       ensureTimeline(key, Promise.resolve(clip), text)
-        .then((tl) => { if (currentKey === key) timeline = tl; })
+        .then((tl) => { if (currentKey === key) { timeline = tl; unchecked = null; } })
         .catch(() => warnOnce());
     } else {
       // this sentence's clip is not playing yet: the photo, not the last clip's frame
@@ -546,7 +559,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
         if (!res.ok) throw new Error(String(res.status));
         return res.json();
       })()
-        .then((tl) => { if (currentKey === key) timeline = tl; })
+        .then((tl) => { if (currentKey === key) { timeline = tl; unchecked = audioUrl ? new URL(audioUrl, location.href).href : null; } })
         .catch(() => { /* no sidecar for this beat — fallback animates */ });
     } else if (videoEl) {
       // A RENDERED talking head stays per SLIDE: it is minutes of GPU time a
