@@ -17,7 +17,7 @@
 //      Out-of-range clamps rather than refusing: past the end means the end.
 //   2. A COMMAND — matched against its category, its name and its aliases,
 //      every word typed, in any order: "cc" finds Captions, "voice live" finds
-//      `Voice: Live voice…`, "rollback" finds History. A presenter reaches for
+//      `Voice: AI voice…`, "rollback" finds History. A presenter reaches for
 //      the word they think in, not the word the menu happens to use.
 //   3. ANYTHING ELSE — offered as a slide search. Only when nothing matched by
 //      PREFIX, though: typing "the" should not turn a palette that is already
@@ -25,7 +25,7 @@
 
 /**
  * The title a row is shown and matched under: its category, then its name,
- * the way VS Code's command palette reads (`Voice: Live voice…`). A row with
+ * the way VS Code's command palette reads (`Voice: AI voice…`). A row with
  * no category (the synthetic goto and search rows) is its name alone.
  */
 export const commandTitle = (c) => (c.cat ? `${c.cat}: ${c.label}` : c.label);

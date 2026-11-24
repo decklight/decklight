@@ -634,13 +634,13 @@ export const silencePcm = (rate, seconds) => new Uint8Array(2 * Math.round(rate 
 export function micWhy(e) {
   const n = e?.name ?? '';
   if (n === 'NotAllowedError' || n === 'SecurityError') {
-    return 'the microphone was blocked. Allow it for this page (the ⚙ or 🎤 in the address bar), then open the recorder again from the V panel (My voice ›, or ＋ Add a voice…)';
+    return 'the microphone was blocked. Allow it for this page (the ⚙ or 🎤 in the address bar), then open the recorder again from the V panel (My voice)';
   }
   if (n === 'NotFoundError' || n === 'OverconstrainedError') {
-    return 'no microphone was found. Plug one in, or pick one as the system input, then open the recorder again from the V panel (My voice ›, or ＋ Add a voice…)';
+    return 'no microphone was found. Plug one in, or pick one as the system input, then open the recorder again from the V panel (My voice)';
   }
   if (n === 'NotReadableError') {
-    return 'the microphone is busy — another app (a call, a recorder) is holding it. Close it and open the recorder again from the V panel (My voice ›, or ＋ Add a voice…)';
+    return 'the microphone is busy — another app (a call, a recorder) is holding it. Close it and open the recorder again from the V panel (My voice)';
   }
   return `the microphone could not be opened (${escapeHtml(String(e?.message || n || e))}).`;
 }
@@ -651,7 +651,7 @@ export function createNarration({
   openedMidTalk = false, rangePicker = null, chapters = () => [],
   syncSoundBtn, updateDebugState, downloadFromUrl, editBase = () => null,
   editReady = () => Promise.resolve(), openWriting = () => null,
-  editNotes = () => null,
+  editNotes = () => null, exportVideo = () => null,
 }) {
   // estimated $ across live-bridge calls (the x-tts-cost response header);
   // the D panel reads it back through status()
@@ -889,13 +889,13 @@ export function createNarration({
   // Animated lip-synced character (SPEC PRESENTING): an overlay whose mouth follows
   // the narration. Live mode rides the sentence pipeline below (prefetch in
   // the lookahead worker, beginSentence per clip); recorded mode loads
-  // slide-NN sidecar files. Configured in the V picker ("Character…").
+  // slide-NN sidecar files. Chosen in the V panel (who is on screen).
   const character = createCharacter({
     root, config, debugLog, toast, onModeChange: refreshWritePreview,
     // where a filmed face shows, slide by slide and beat by beat (FACE_LAYOUT)
     faceOf: (sl) => instance._sections?.[sl - 1]?.getAttribute('data-face') ?? null,
   });
-  // Film yourself (V → Character): a few seconds from the camera become the
+  // Make my portrait (V → who is on screen): a few seconds from the camera become the
   // talking head's portrait, prepared and kept by the lip-sync bridge.
   const film = createFilmRecorder({
     root, bridge: character.bridge, debugLog,
@@ -1275,6 +1275,17 @@ export function createNarration({
       if (!(await held(beatPause(sl), 'the next build'))) return;
       instance.next();
       return;
+    }
+    // a preview is of one slide: it ends where the slide does
+    if (previewOf != null) {
+      const mine = previewOf === sl;
+      previewOf = null;
+      if (mine) {
+        stopNarration(`preview of slide ${sl} over · ⎵ plays on from here, V changes it`);
+        // previewed from the export's round trip: back in the panel, with its way back
+        if (previewBack) openNarrPicker('tracks');
+        return;
+      }
     }
     if (narrationHolds(sl)) return;
     // The talk is over. Said, and the voice handed back — it used to stay
@@ -1876,6 +1887,7 @@ export function createNarration({
   // the one teardown: V, and the bridge giving up, must leave the same state
   function stopNarration(msg = 'narration off') {
     narrating = false;
+    previewOf = null;
     segGen++; // cancel any pending silent-beat advance
     bufferGen++;  // stop the lookahead loop
     narrPaused = false;
@@ -2163,6 +2175,26 @@ export function createNarration({
 
   // N: narration picker — tracks → live voices → tones → custom tone
   let narrEl = null, narrSel = 0, narrView = 'tracks', narrRows = [], liveDraft = null;
+  // the row a route opens the home view on (openNarrPicker), until a key or the pointer chooses another
+  let narrLand = null;
+  // Where the panel was opened FROM (the export card's Change…): { said, run }.
+  // Esc, V and its ‹ Back row go back there. An answer does not: switching
+  // from your filmed recording to an AI voice and a cartoon is two answers,
+  // and the first one used to send you back to the export halfway through.
+  let narrReturn = null;
+  function donePanel() {
+    const back = narrReturn;
+    closeNarrPicker();
+    back?.run();
+  }
+  /** An answer given: with somewhere to go back to, the panel stays open for the next one; else it closes. */
+  function answered() {
+    if (narrReturn && narrEl) renderNarr('tracks');
+    else closeNarrPicker();
+  }
+  // A preview started from a round trip leaves the panel to play the slide;
+  // the next time the panel opens (the preview ending, or V) the way back is still there.
+  let previewBack = null;
   // the tickers of rows that are waiting on something (`busy`), stopped on every re-render and close
   let busyStops = [];
   const stopBusyRows = () => { busyStops.forEach((stop) => stop()); busyStops = []; };
@@ -2222,44 +2254,158 @@ export function createNarration({
     if (narrView === 'custom') renderNarr('tones');
     else if (narrView === 'tones') renderNarr('voices');
     else if (narrView === 'engines' || narrView === 'langs' || narrView === 'library') renderNarr('voices');
-    else if (narrView === 'charvideo') renderNarr('character');
+    else if (narrView === 'charvideo') renderNarr('tracks');
     else if (narrView === 'card' && narrConfirm) { narrConfirm = null; narrSel = 0; renderNarr('card'); }
-    else if (narrView === 'face') renderNarr(narrFace.from);
-    else if (narrView === 'card' || narrView === 'add') renderNarr('tracks');
-    else if (narrView === 'voices' || narrView === 'character') renderNarr('tracks');
-    else closeNarrPicker();
+    else if (narrView === 'face') renderNarr(narrFace?.from ?? 'tracks');
+    else if (narrView === 'card' || narrView === 'voices') renderNarr('tracks');
+    else donePanel();
   }
   let charProbed = false; // one bridge probe per picker open
-  function filmRow(bi, what = 'yourself') {
+  function filmRow(bi, what = 'my portrait') {
     const why = bi.film ? cameraUnavailable() : bi.filmWhy;
     return {
-      text: `📹 Film ${what} — a few seconds that become your talking head`,
-      flavor: why ?? 'face the camera, mouth relaxed — no photo needed',
+      text: `Make ${what}…`,
+      flavor: why ?? 'a few seconds on camera become your talking head · no photo needed',
       blocked: why ?? null,
       commit: () => {
-        if (why) return toast(`film yourself: ${why}`, 7000);
+        if (why) return toast(`make my portrait: ${why}`, 7000);
         closeNarrPicker();
         film.open();
       },
     };
   }
+  // ── who is on screen ─────────────────────────────────────────────────────
+  // One answer out of four, where there used to be three features under
+  // three names: the camera that filmed you while you read (FACE_LAYOUT), the
+  // drawn character, and the talking head made from a portrait. Underneath
+  // they are still the character's modes: the camera's footage and a
+  // rendered head are both `video`, told apart by whether the voice that
+  // plays was filmed, since a filmed clip always wins over a rendered one.
+  const ON_SCREEN = 'who is on screen';
+  /** The slides of `t` filmed with the camera; null where nobody can say (no server to read the take). */
+  const filmedOf = (t) => (t && !t.live && isMine(t) ? (knownOf(t) ? knownOf(t).faces ?? [] : null) : []);
+  /** Why the camera's footage cannot be what is on screen, or null. */
+  function cameraWhy() {
+    if (!narrSet || narrSet.live || !isMine(narrSet)) return 'it is filmed while you record your own voice · choose My voice first';
+    const filmed = filmedOf(narrSet);
+    if (filmed && !filmed.length) return 'no slide was filmed yet · record with the camera on';
+    return null;
+  }
+  /** Who is on screen, as one answer: nobody, camera, cartoon or head. */
+  function onScreen() {
+    if (character.mode === 'off') return 'nobody';
+    if (character.mode === 'viseme') return 'cartoon';
+    return cameraWhy() ? 'head' : 'camera';
+  }
+  const ON_SCREEN_SAID = { nobody: 'slides only', camera: 'my camera', cartoon: 'a cartoon character', head: 'a talking head of me' };
   function applyCharacter(m, opts) {
     character.setMode(m, opts);
-    closeNarrPicker();
-    toast(m === 'off' ? 'character off'
-      : m === 'viseme' ? `🎭 character on — lips follow the narration${narrating ? '' : ' · V starts it'}`
-        : `🎥 character video — ${character.engine} · ${character.portrait}${narrating ? '' : ' · V starts narration'}`);
+    answered();
+    const now = onScreen();
+    toast(now === 'nobody' ? 'nobody on screen · slides only'
+      : now === 'cartoon' ? `🎭 a cartoon character is on screen · its lips follow the voice${narrating ? '' : ' · ⎵ plays'}`
+        : now === 'camera' ? `📹 your camera is on screen, on the slides you filmed${narrating ? '' : ' · ⎵ plays'}`
+          : `🎥 a talking head of you is on screen · ${character.engine} · ${character.portrait}${narrating ? '' : ' · ⎵ plays'}`);
   }
-  // solo: the narrator centre stage, the slide out of the way (SPEC PRESENTING)
+  // fill the screen: the narrator centre stage, the slide out of the way (SPEC PRESENTING)
   function applySolo(v) {
     if (character.mode === 'off') {
-      toast('turn the character on first — N · Character…');
+      toast('nobody is on screen yet · V → who is on screen');
       return;
     }
     character.setSolo(v);
     closeNarrPicker();
-    toast(v ? '🎭 solo — the narrator has the stage · N brings the slides back'
-      : 'solo off — the slides are back');
+    toast(v ? '🎭 the narrator fills the screen on every slide · V → Where… brings the slides back'
+      : 'the slides are back');
+  }
+  /** Where the narrator shows on the slide in front of you, in words: the Where… row's line. */
+  function whereSaid() {
+    if (character.solo) return 'fills the screen on every slide';
+    const sl = instance.state.slide;
+    const at = faceLayout(instance._sections?.[sl - 1]?.getAttribute('data-face') ?? null, 1);
+    return `slide ${sl}: ${at.kind === 'hide' ? 'hidden' : at.kind === 'full' ? `full screen${at.zoom !== 1 ? ` at ${at.zoom}×` : ''}`
+      : `in the ${cornerSaid(at.at ?? deckCorner())} corner`}`;
+  }
+  /** The rows of the second question, onto the home view. */
+  function onScreenRows() {
+    // availability comes from the lipsync bridge; probe once per picker
+    // open and re-render when the answer lands
+    if (!charProbed) {
+      charProbed = true;
+      character.probe().then(() => { if (narrEl && narrView === 'tracks') renderNarr('tracks'); });
+    }
+    const bi = character.bridgeInfo;
+    const vids = bi?.engines?.video ?? [];
+    const now = onScreen();
+    // drawn as the voices are (a radio, a name, a line under it), so the two
+    // questions read as two of the same thing; a row that cannot be chosen
+    // says why on that line
+    const row = (kind, { flavor, blocked, ...extra }) => ({
+      group: ON_SCREEN, voice: true, screen: kind, cur: now === kind,
+      sub: { text: blocked || flavor || '' }, blocked: blocked || null, ...extra,
+    });
+    narrRows.push(row('nobody', { text: 'Nobody', flavor: 'slides only', commit: () => applyCharacter('off') }));
+    const camWhy = cameraWhy();
+    const filmed = filmedOf(narrSet);
+    narrRows.push(row('camera', {
+      text: 'My camera',
+      flavor: camWhy ? '' : `you, as filmed while you read${filmed ? ` · ${filmed.length} slide${filmed.length === 1 ? '' : 's'} filmed` : ''}`,
+      blocked: camWhy,
+      commit: () => (camWhy ? toast(`my camera: ${camWhy}`, 5000) : applyCharacter('video')),
+    }));
+    narrRows.push(row('cartoon', {
+      text: 'A cartoon character',
+      flavor: bi?.engines?.viseme ? 'drawn · its lips follow the words'
+        : bi ? 'drawn · its lips follow the loudness (no rhubarb installed)' : 'drawn · its lips follow the loudness (no lip-sync bridge running)',
+      commit: () => applyCharacter('viseme'),
+    }));
+    // What stands in the way, said plainly — "run: decklight lipsync" used to
+    // be the answer to everything here, and on its own it gives no video.
+    const LIPS_SETUP = 'decklight lipsync --wav2lip-dir <Wav2Lip> --wav2lip-ckpt <wav2lip_gan.pth> --python <its python> --portrait me=<photo> --save';
+    const videoWhy = !bi ? 'the lip-sync bridge is not running' : (bi.videoWhy ?? 'no Wav2Lip or SadTalker set up');
+    // Wav2Lip is there and only the portrait is missing: filming is the fix
+    const filmFirst = !vids.length && bi?.film === true;
+    const heads = vids.length * Math.max(1, bi?.portraits?.length ?? 0);
+    narrRows.push(row('head', {
+      text: `A talking head of me${heads > 1 ? '…' : ''}`,
+      flavor: !vids.length ? ''
+        : now === 'camera' ? 'made from your portrait · it fills in the slides you did not film'
+          : 'made from your portrait, on your own computer',
+      blocked: vids.length ? null : filmFirst ? 'no portrait yet · Make my portrait… makes one' : `${videoWhy} · set it up once: ${LIPS_SETUP}, then restart decklight`,
+      // Make my portrait: the bridge says whether it can take a film (Wav2Lip
+      // and ffmpeg there); the browser, whether it has a camera to give one.
+      acts: bi && 'film' in bi ? [{ text: 'Make my portrait…', run: filmRow(bi).commit }] : [],
+      commit: () => {
+        if (heads > 1) renderNarr('charvideo');
+        else if (vids.length) applyCharacter('video', { engine: vids[0], portrait: bi?.portraits?.[0] ?? 'default' });
+        else if (filmFirst) toast('a talking head needs a portrait · Make my portrait… makes one', 6000);
+        else toast(`a talking head: ${videoWhy} — set it up once with ${LIPS_SETUP}, then restart decklight`, 9000);
+      },
+    }));
+    // where: one control for whoever is on screen (it was Solo for the
+    // character and Place my face… on your voice's card)
+    if (now !== 'nobody') {
+      narrRows.push({
+        group: ON_SCREEN,
+        sub: true,
+        text: 'Where…',
+        flavor: whereSaid(),
+        commit: () => openFacePlacement(),
+      });
+    }
+  }
+  // Preview this slide: the two answers together, on the slide in front of
+  // you, from its first beat to its last and no further (advanceFrom stops it).
+  let previewOf = null;
+  async function previewSlide() {
+    if (narrReturn) previewBack = narrReturn;
+    closeNarrPicker();
+    if (!narrSet) { toast('choose who speaks first · V', 3200); return; }
+    if (narrating) stopNarration('preview · from the top of the slide');
+    const sl = instance.state.slide;
+    if (instance.state.step !== 0) instance.goto(sl, 0);
+    await toggleNarration();
+    previewOf = narrating ? sl : null;
   }
   // ▶ voice preview: speaks a short test sentence through the live bridge
   // in the row's voice (neutral tone), so voices can be auditioned before
@@ -2489,11 +2635,14 @@ export function createNarration({
     const n = k?.slides?.length ?? k?.files;
     const parts = [];
     if (!isMine(t) && k?.engine) parts.push(engineName(k.engine));
+    // an AI voice is saved with the deck, or needs a connection: said on
+    // every one of them, where a section header used to say it for all
+    if (!isMine(t)) parts.push('saved with the deck');
     if (drift.length) {
       parts.push(drift.length === 1 ? `slide ${drift[0].slide} out of date`
         : `${drift.length}${n ? ` of ${n}` : ''} slides out of date`);
     } else if (n != null) parts.push(`${n} slide${n === 1 ? '' : 's'}, up to date`);
-    else parts.push('saved with the deck');
+    else if (isMine(t)) parts.push('saved with the deck');
     // the 2D character's lip-sync, out of step with this audio (#1244)
     const lips = lipsStale(t);
     if (lips) parts.push(`lip-sync out of date in ${lips} file${lips === 1 ? '' : 's'}`);
@@ -2529,11 +2678,11 @@ export function createNarration({
   /** Who the deck speaks with, in words: the line under the panel's title. */
   function nowSaid() {
     if (!narrSet) return 'nobody · the deck is silent';
-    if (narrSet.live) return `${liveCfg.voice} · AI voice · live`;
-    return `${voiceName(narrSet)} · ${isMine(narrSet) ? 'your voice' : 'AI voice'} · recorded`;
+    if (narrSet.live) return `${liveCfg.voice} · AI voice · needs a connection`;
+    return `${voiceName(narrSet)} · ${isMine(narrSet) ? 'your voice' : 'AI voice'} · saved with the deck`;
   }
   /** The tags a voice carries: whose voice it is, and how it arrives. */
-  const TAGS = { mine: 'your voice', ai: 'AI voice', recorded: 'recorded', live: 'live' };
+  const TAGS = { mine: 'your voice', ai: 'AI voice', recorded: 'saved with the deck', live: 'needs a connection' };
   function tagEls(tags) {
     return tags.map((k) => Object.assign(document.createElement('span'), {
       className: `narr-tag narr-tag-${k}`, textContent: TAGS[k],
@@ -2568,18 +2717,13 @@ export function createNarration({
   }
   let narrCardOf = null;     // the voice whose card is open: a track, or LIVE_TRACK
   let narrConfirm = null;    // a re-voice waiting for its yes: { t, slides }
-  /**
-   * A recording of your own voice is already among the voices the panel
-   * lists. Only those: a take on disk the deck does not play has no row, so
-   * hiding "Record my own voice" for it would leave no way to reach it.
-   */
-  const hasMyVoice = () => narrSets.some((t) => isMine(t));
   /** Make `t` the voice that plays — the row's ⏎ — and, asked to, start it. */
   function useVoice(t, { play = false } = {}) {
     narrSet = t;
     persistNarr();
-    closeNarrPicker();
-    toast(t.live ? `⚡ live voice: ${liveCfg.voice}` : `🔊 track: ${t.label}`);
+    // chosen from the export card, the panel stays open for who is on screen; asked to play, it closes
+    if (play) closeNarrPicker(); else answered();
+    toast(t.live ? `⚡ AI voice: ${liveCfg.voice}` : `🔊 voice: ${voiceName(t)}`);
     // switching voices mid-narration: a track may need its manifest first
     if (narrating) {
       if (t.live) playSlideFile();
@@ -2675,7 +2819,10 @@ export function createNarration({
     narrSel = 0;   // the yes, first
     renderNarr('card');
   }
-  // Placement belongs to the slide, independent of which voice plays it.
+  // ── Where… (FACE_LAYOUT): where whoever is on screen shows on a slide ──
+  // Placement belongs to the slide, whichever voice plays it: written to the
+  // slide's data-face (or the deck's default corner), read by the one reader
+  // the deck and the video share.
   let narrFace = null;
   const writePreviewKey = 'decklight-face-preview:' + location.pathname;
   let writePreviewOn = readPref(writePreviewKey) !== 'off';
@@ -2721,7 +2868,7 @@ export function createNarration({
     return CORNER_ORDER.includes(at) ? at : 'br';
   };
   const cornerSaid = (at) => Object.keys(FACE_CORNERS).find((k) => FACE_CORNERS[k] === at).replace('-', ' ');
-  function openFacePlacement(from, scope = 'slide') {
+  function openFacePlacement(from = 'tracks', scope = 'slide') {
     const slide = instance.state.slide;
     const attr = scope === 'slide' ? instance._sections?.[slide - 1]?.getAttribute('data-face') : null;
     const placement = faceLayout(attr, instance.state.step + 1);
@@ -2768,11 +2915,10 @@ export function createNarration({
   /** The live voice into a folder: the synthesized recorder, offered where a voice is added or kept. */
   function saveLiveRow() {
     const why = onBrowser() ? "the browser's voice cannot be saved — it needs the voice bridge"
-      : liveEngine ? null : 'choose an AI voice first — Use a live AI voice…';
+      : liveEngine ? null : 'choose an AI voice first · Change voice…';
     return {
-      text: 'Generate an AI recording…',
-      tags: ['ai', 'recorded'],
-      flavor: why ? '' : `${liveCfg.voice}, saved with the deck · plays anywhere, no voice service needed`,
+      text: 'Save with the deck…',
+      flavor: why ? '' : `generates a recording of ${liveCfg.voice} · it then plays anywhere, no connection needed`,
       blocked: why,
       commit: () => {
         if (why) return toast(why, 5000);
@@ -2807,7 +2953,7 @@ export function createNarration({
     // toggle — keeps the row you were on: a late answer that put the
     // highlight back on the current voice would send your next → to the
     // wrong card.
-    const keepSel = cameFrom === view && (view === 'tracks' || view === 'card' || view === 'add' || view === 'face') ? narrSel : -1;
+    const keepSel = cameFrom === view && (view === 'tracks' || view === 'card' || view === 'face') ? narrSel : -1;
     narrView = view;
     // ARRIVING here means you are looking for something, so the box takes the
     // keyboard. Re-rendering because you typed does not re-decide that — it is
@@ -2821,16 +2967,19 @@ export function createNarration({
     card.appendChild(head);
     narrRows = [];
     if (view === 'tracks') {
-      // WHO SPEAKS, as two questions answered on every row (#919, then the
-      // redesign after it): WHOSE voice it is (yours, or an AI voice) and HOW
-      // it arrives (recorded with the deck, or generated live as you present).
-      // The emoji and the grey folder path used to carry both, and nobody
-      // could tell "Gilles" the recording from "Gilles" the live voice. Now
-      // the sections say how, the tag says whose, and the line under the name
-      // says what made it and whether it still matches the notes. A row that
-      // has a fix carries it as a named button; the › at its right opens its
-      // card (→ too), and the row itself selects the voice (⏎, a click).
+      // ONE panel, two questions: WHO SPEAKS and WHO IS ON SCREEN. The first
+      // used to be asked as how a voice arrives (recorded, live) before whose
+      // it is, behind an "Add a voice" door with three more doors in it; the
+      // second lived in three places under three names (Character, your face,
+      // Solo). Now a voice is yours or an AI's, and whether it is saved with
+      // the deck or needs a connection is a line under its name, with the
+      // button that takes it from one to the other. A row that has a fix
+      // carries it as a named button; the › at its right opens its card (→
+      // too), and the row itself selects (⏎, a click).
       head.textContent = `narration · slide ${instance.state.slide}`;
+      // opened from the export card: the way back to it, as it was left, at
+      // the top, where it is still in sight after both answers in a tall panel
+      if (narrReturn) narrRows.push({ text: `‹ ${narrReturn.said}`, flavor: 'Esc', back: true, commit: donePanel });
       card.appendChild(Object.assign(document.createElement('div'), {
         className: 'narr-now', textContent: `speaking now: ${nowSaid()}`,
       }));
@@ -2849,56 +2998,105 @@ export function createNarration({
       // state the deck arrives in, so it reads as the top of a list of
       // choices rather than an escape hatch at the bottom of one — and it is
       // the row that hands ⎵ back to the deck (see voiceInPlay).
+      const WHO = 'who speaks';
       narrRows.push({
+        group: WHO,
         voice: true,
-        text: 'Silent',
+        text: 'Nobody',
+        sub: { text: 'the deck is silent' },
         status: { text: narrSets.length || liveFound ? '⎵ advances the deck' : '' },
         cur: !narrSet,
         commit: () => {
           const spoke = narrating || narrPaused;
           narrSet = null;
           persistNarr();
-          closeNarrPicker();
+          answered();
           // stopNarration toasts and resets the character; with nothing
           // playing there is nothing to stop, so the row says so itself
           if (spoke) stopNarration('🔇 narration off');
           else toast('🔇 narration off');
         },
       });
-      narrSets.forEach((t) => narrRows.push({
-        group: 'recorded',
-        hint: 'saved with the deck, plays anywhere',
+      const trackRow = (t) => ({
+        group: WHO,
+        how: 'recorded',
         voice: true,
         text: voiceName(t),
         tags: [isMine(t) ? 'mine' : 'ai'],
         sub: voiceLine(t),
-        act: fixAct(t),
+        acts: [fixAct(t)].filter(Boolean),
         cur: t === narrSet,
         commit: () => useVoice(t),
         manage: () => openVoiceCard(t),
-      }));
-      // The live voice is a voice like the others. Before a bridge has said
-      // what it speaks, its name would be a guess, so the row says what it is
-      // instead; picking it then goes to the roster to choose one.
+      });
+      // Your own voice first, and there before it exists: the row is where
+      // it gets recorded, which is what "Add a voice" used to be a door to.
+      const mine = narrSets.filter((t) => isMine(t));
+      mine.forEach((t) => narrRows.push(trackRow(t)));
+      if (!mine.length) {
+        const record = () => {
+          const why = micUnavailable();
+          if (why) return toast(why, 5000);
+          closeNarrPicker();
+          openMicRecorder();
+        };
+        narrRows.push({
+          group: WHO,
+          me: true,
+          voice: true,
+          text: 'My voice',
+          tags: ['mine'],
+          sub: { text: micUnavailable() || 'not recorded yet · read the script into your microphone' },
+          acts: [{ text: 'Record…', run: record }],
+          commit: record,
+        });
+      }
+      narrSets.filter((t) => !isMine(t)).forEach((t) => narrRows.push(trackRow(t)));
+      // The AI voice that is not saved: generated as you present. It is a
+      // voice like the others; what sets it apart is said under its name
+      // (needs a connection) with the button that ends it (Save with the
+      // deck). Before a bridge has said what it speaks, its name would be a
+      // guess, so the row says what it is and picking it goes to the roster.
       const named = !!(liveEngine || narrSet?.live || onBrowser());
+      const save = saveLiveRow();
       narrRows.push({
-        group: 'live',
-        hint: 'generated as you present, needs a connection',
+        group: WHO,
+        how: 'live',
         voice: true,
-        text: named ? liveCfg.voice : 'Live voice',
+        text: named ? liveCfg.voice : 'An AI voice',
         tags: ['ai'],
-        sub: { text: liveEngine ? `${engineName(liveEngine)} · connected`
+        sub: { text: liveEngine ? `${engineName(liveEngine)} · needs a connection while you present`
           : onBrowser() ? "the browser's own voice · no voice service running" : 'not connected yet · choose a voice' },
-        act: { text: named ? 'Change' : 'Choose', run: () => renderNarr('voices') },
+        acts: [
+          { text: named ? 'Change…' : 'Choose…', run: () => renderNarr('voices') },
+          // offered where it can be done; the card says why where it cannot
+          ...(save.blocked ? [] : [{ text: 'Save with the deck', run: save.commit }]),
+        ],
         cur: !!narrSet?.live,
         commit: () => (named ? useVoice(LIVE_TRACK) : renderNarr('voices')),
         manage: () => openVoiceCard(LIVE_TRACK),
       });
+      // WHO IS ON SCREEN. One list for what were three features: the camera
+      // that filmed you while you read, the drawn character, and the talking
+      // head made from a portrait. The first is footage and belongs to your
+      // own voice; the other two lip-sync whoever speaks.
+      onScreenRows();
+      // Hear and see the two answers together, on the slide in front of you
       narrRows.push({
-        text: '＋ Add a voice…',
-        flavor: 'your own, or an AI voice',
-        commit: () => renderNarr('add'),
+        text: `▶ Preview slide ${instance.state.slide}`,
+        flavor: narrSet ? 'as the audience gets it: the voice, and who is on screen · stops at the end of the slide' : '',
+        blocked: narrSet ? null : 'choose who speaks first',
+        commit: () => (narrSet ? previewSlide() : toast('choose who speaks first', 3200)),
       });
+      // …and the way on, where a video can be made: it carries these two answers
+      const exportIt = exportVideo();
+      if (exportIt && !narrReturn) {
+        narrRows.push({
+          text: 'Export video…',
+          flavor: 'with this narrator',
+          commit: () => { closeNarrPicker(); exportIt(); },
+        });
+      }
       const OPTIONS = 'options';
       // The two knobs that used to be keys and nothing else. They stay keys —
       // C and < / > still work — but a panel that claims to hold everything
@@ -2931,12 +3129,6 @@ export function createNarration({
         flavor: '< slower · > faster',
         stepper: { value: `${narrRate}×`, less: () => speed(-0.25), more: () => speed(0.25) },
         commit: () => speed(narrRate >= 2 ? -1.75 : 0.25),
-      });
-      narrRows.push({
-        group: OPTIONS,
-        text: 'Character…',
-        flavor: character.mode === 'off' ? 'an animated narrator' : character.mode === 'video' ? 'neural video · on' : '2D · on',
-        commit: () => renderNarr('character'),
       });
       // The script the voice reads: given ElevenLabs v4's audio tags, or
       // written for the ear, or matched to the slide. It writes the deck, so it needs the edit server;
@@ -2971,8 +3163,8 @@ export function createNarration({
       cardFacts(card, [
         ['made with', liveEngine ? `${engineName(liveEngine)}, voice “${liveCfg.voice}”`
           : onBrowser() ? "the browser's own voice" : 'no voice service has answered yet'],
-        ['saved', 'nothing: it is generated each time you present'],
-        ['needs', 'the voice service running while you present'],
+        ['saved', 'not yet: it is generated each time you present'],
+        ['needs', 'a connection to the voice service while you present'],
         ...(narrSet?.live ? [['playing', 'this is the voice the deck plays']] : []),
       ]);
       narrRows.push({
@@ -3048,13 +3240,6 @@ export function createNarration({
             openMicRecorder({ dir: dirKey(t.dir), label: t.label });
           },
         });
-        if (k?.faces?.length) {
-          narrRows.push({
-            text: 'Face & character placement…',
-            flavor: `where it shows on slide ${instance.state.slide}, and how zoomed · nothing is recorded again`,
-            commit: () => openFacePlacement('card'),
-          });
-        }
       } else if (!t.manifest && rangePicker) {
         const why = revoiceWhy(t);
         narrRows.push({
@@ -3078,11 +3263,18 @@ export function createNarration({
       }
       voiceTail(t);
     } else if (view === 'face' && narrFace) {
+      // Where… (FACE_LAYOUT): where whoever is on screen shows. A slide's own
+      // place is written to its data-face; the default corner, for every slide
+      // without one, to the deck's config. Nothing is filmed again: it only
+      // says how what you already have is shown. The deck previews the draft
+      // as you change it, under the panel.
       const draft = narrFace;
       const { slide, scope, from } = draft;
       const isDefault = scope === 'deck';
-      const filmed = from === 'card' ? knownOf(narrCardOf)?.faces ?? [] : [];
-      head.textContent = isDefault ? 'Face & character · deck default' : `Face & character · slide ${slide}`;
+      const now = onScreen();
+      const filmed = now === 'camera' ? filmedOf(narrSet) ?? [] : [];
+      const whom = now === 'cartoon' ? 'the character' : now === 'head' ? 'the talking head' : now === 'camera' ? 'my camera' : 'the narrator';
+      head.textContent = isDefault ? `where ${whom} shows · the default corner` : `where ${whom} shows · slide ${slide}`;
       character.previewFace(draft);
       refreshWritePreview();
       const change = (values) => {
@@ -3115,15 +3307,35 @@ export function createNarration({
         sketch.appendChild(full);
       }
       card.appendChild(sketch);
-      if (draft.byBeat) cardFacts(card, [['now', 'Saving sets one placement for the whole slide.', true]]);
+      cardFacts(card, [
+        ...(isDefault || now !== 'camera' ? []
+          : [filmedOf(narrSet) == null || filmed.includes(slide) ? ['filmed', 'yes, with this slide'] : ['filmed', 'no: this slide was recorded without the camera', true]]),
+        ...(draft.byBeat ? [['now', 'it changes beat by beat; saving sets one place for the whole slide', true]] : []),
+        ['saved', isDefault ? 'in the deck: every slide without a place of its own uses it'
+          : 'in the deck, slide by slide · nothing is filmed or recorded again'],
+        ...(character.solo ? [['but', 'the narrator fills the screen on every slide now, so a slide\'s own place waits', true]] : []),
+      ]);
+      // Fill the screen, on every slide: what Solo was. A choice of this
+      // browser, not of the deck, so it is a switch and saves nothing.
       narrRows.push({
-        text: isDefault ? `Placement for slide ${slide}…` : 'Deck default…',
-        flavor: isDefault ? 'Set an override for this slide' : `Current default: ${cornerSaid(deckCorner())}`,
+        group: 'on every slide',
+        text: 'Fill the screen',
+        flavor: 'the slides step aside for the narrator · in this browser, nothing is saved',
+        switch: character.solo,
+        commit: () => { character.setSolo(!character.solo); renderNarr('face'); },
+      });
+      narrRows.push({
+        group: 'on every slide',
+        text: isDefault ? `A place for slide ${slide}…` : 'Default corner…',
+        flavor: isDefault ? 'a place of its own for this slide' : `now: the ${cornerSaid(deckCorner())} corner, wherever a slide has no place of its own`,
         commit: () => openFacePlacement(from, isDefault ? 'slide' : 'deck'),
       });
+      const blocked = editBase() == null ? 'needs write mode — it writes the deck' : null;
+      const save = (slides, face) => () => (blocked ? toast(blocked, 4000) : saveFace(slides, face));
       if (!isDefault) {
-        narrRows.push({ text: 'Corner', cur: draft.kind === 'corner', commit: () => change({ kind: 'corner' }) });
-        narrRows.push({ text: 'Full screen', cur: draft.kind === 'full', commit: () => change({ kind: 'full' }) });
+        const WHERE = `on slide ${slide}`;
+        narrRows.push({ group: WHERE, text: 'In the corner', cur: draft.kind === 'corner', commit: () => change({ kind: 'corner' }) });
+        narrRows.push({ group: WHERE, text: 'Full screen', flavor: 'the slide steps aside', cur: draft.kind === 'full', commit: () => change({ kind: 'full' }) });
         if (draft.kind === 'full') {
           const zoom = (delta) => change({ zoom: Math.min(FACE_ZOOM_MAX, Math.max(1, draft.zoom + delta)) });
           const presets = Object.assign(document.createElement('div'), { className: 'narr-face-presets' });
@@ -3137,21 +3349,19 @@ export function createNarration({
           }
           card.appendChild(presets);
           narrRows.push({
-            text: 'Zoom', sub: true,
+            group: WHERE, text: 'Zoom', sub: true, flavor: 'how close',
             stepper: { value: `${draft.zoom}×`, less: () => zoom(-0.5), more: () => zoom(0.5) },
             commit: () => zoom(draft.zoom >= FACE_ZOOM_MAX ? 1 - FACE_ZOOM_MAX : 0.5),
           });
         }
-        narrRows.push({ text: 'Hidden', cur: draft.kind === 'hide', commit: () => change({ kind: 'hide' }) });
+        narrRows.push({ group: WHERE, text: 'Hidden', flavor: 'the voice plays on', cur: draft.kind === 'hide', commit: () => change({ kind: 'hide' }) });
       }
-      const blocked = editBase() == null ? 'needs write mode to save placement' : null;
-      const save = (slides, face) => () => blocked ? toast(blocked, 4000) : saveFace(slides, face);
       narrRows.push({
-        text: isDefault ? 'Save deck default' : `Save for slide ${slide}`, blocked,
+        text: isDefault ? 'Save as the default corner' : `Save for slide ${slide}`, blocked,
         commit: save([slide], faceValue(draft)),
       });
       if (!isDefault) {
-        narrRows.push({ text: 'Use deck default for this slide', blocked, commit: save([slide], '') });
+        narrRows.push({ text: 'Use the default corner on this slide', blocked, commit: save([slide], '') });
         if (filmed.length > 1) {
           narrRows.push({
             text: 'Save for every filmed slide', flavor: `${filmed.length} slides`, blocked,
@@ -3159,96 +3369,19 @@ export function createNarration({
           });
         }
       }
-    } else if (view === 'add') {
-      head.textContent = 'add a voice';
-      card.appendChild(Object.assign(document.createElement('div'), {
-        className: 'narr-lede',
-        textContent: 'How should the deck speak? You can add more than one voice and switch between them.',
-      }));
-      // Your own voice, only while there is none: once it exists, recording
-      // more of it is its card's business, and a second row here would be
-      // two doors to one room.
-      if (!hasMyVoice()) {
-        const micWhy = micUnavailable();
-        narrRows.push({
-          text: 'Record my own voice',
-          tags: ['mine', 'recorded'],
-          flavor: micWhy ? '' : 'read the script into your microphone · the deck turns its pages as you speak',
-          blocked: micWhy || null,
-          commit: () => {
-            if (micWhy) return toast(micWhy, 5000);
-            closeNarrPicker();
-            openMicRecorder();
-          },
-        });
-      }
-      narrRows.push(saveLiveRow());
-      narrRows.push({
-        text: 'Use a live AI voice…',
-        tags: ['ai', 'live'],
-        flavor: 'nothing is saved · generated as you present, needs the voice service',
-        commit: () => renderNarr('voices'),
-      });
-    } else if (view === 'character') {
-      head.textContent = 'character — an animated narrator lip-syncs the voice';
-      // availability comes from the lipsync bridge; probe once per picker
-      // open and re-render when the answer lands
-      if (!charProbed) {
-        charProbed = true;
-        character.probe().then(() => { if (narrEl && narrView === 'character') renderNarr('character'); });
-      }
-      narrRows.push({ text: 'Face & character placement…', commit: () => openFacePlacement('character') });
-      const bi = character.bridgeInfo;
-      const vids = bi?.engines?.video ?? [];
-      narrRows.push({ text: 'Off', cur: character.mode === 'off', commit: () => applyCharacter('off') });
-      // What stands in the way, said plainly — "run: decklight lipsync" used to
-      // be the answer to everything here, and on its own it gives no video.
-      const LIPS_SETUP = 'decklight lipsync --wav2lip-dir <Wav2Lip> --wav2lip-ckpt <wav2lip_gan.pth> --python <its python> --portrait me=<photo> --save';
-      const videoWhy = !bi ? 'the lip-sync bridge is not running' : (bi.videoWhy ?? 'no Wav2Lip or SadTalker set up');
-      // Wav2Lip is there and only the portrait is missing: filming is the fix
-      const filmFirst = !vids.length && bi?.film === true;
-      narrRows.push({
-        text: '🎭 2D character — offline visemes',
-        flavor: bi?.engines?.viseme ? '' : bi ? 'no rhubarb — amplitude fallback' : 'lip-sync bridge offline — amplitude fallback',
-        cur: character.mode === 'viseme',
-        commit: () => applyCharacter('viseme'),
-      });
-      narrRows.push({
-        text: `🎥 Neural video — local GPU${vids.length ? '…' : ''}`,
-        flavor: vids.length ? '' : filmFirst ? 'no portrait yet — film yourself, below' : videoWhy,
-        blocked: vids.length ? null : filmFirst ? 'film yourself first — the row below' : `set it up once: ${LIPS_SETUP}, then restart decklight`,
-        cur: character.mode === 'video',
-        commit: () => {
-          if (vids.length) renderNarr('charvideo');
-          else if (filmFirst) toast('neural video needs a portrait — 📹 Film yourself, below, makes one', 6000);
-          else toast(`neural video: ${videoWhy} — set it up once with ${LIPS_SETUP}, then restart decklight`, 9000);
-        },
-      });
-      // Film yourself: the bridge says whether it can take a film (Wav2Lip
-      // and ffmpeg there); the browser, whether it has a camera to give one.
-      if (bi && 'film' in bi) narrRows.push(filmRow(bi));
-      // a toggle, not a mode: solo works with either look above
-      if (character.mode !== 'off') {
-        narrRows.push({
-          text: `${character.solo ? '◉' : '○'} Solo — the narrator takes the stage`,
-          flavor: 'slide content steps aside',
-          cur: character.solo,
-          commit: () => applySolo(!character.solo),
-        });
-      }
     } else if (view === 'charvideo') {
-      head.textContent = 'neural video — pick engine · portrait';
+      head.textContent = 'a talking head of me · which portrait, made by which engine';
       const bi = character.bridgeInfo;
       for (const eng of bi?.engines?.video ?? []) {
         for (const p of (bi?.portraits?.length ? bi.portraits : ['default'])) {
           narrRows.push({
-            text: `🎥 ${eng} · ${p}`,
+            text: `${p} · ${eng}`,
             cur: character.mode === 'video' && character.engine === eng && character.portrait === p,
             commit: () => applyCharacter('video', { engine: eng, portrait: p }),
           });
         }
       }
-      if (bi && 'film' in bi) narrRows.push(filmRow(bi, 'a new one'));
+      if (bi && 'film' in bi) narrRows.push(filmRow(bi, 'a new portrait'));
     } else if (view === 'engines') {
       head.textContent = 'live voice — which engine speaks';
       // Asked fresh on every open. A presenter who just exported a key and
@@ -3663,7 +3796,7 @@ export function createNarration({
         const go = Object.assign(document.createElement('span'), { className: 'eb-go', textContent: 'change engine ›' });
         el.title = 'the engine decides which voices exist — change it here';
         el.append(k, name, model, go);
-        el.addEventListener('mouseenter', () => selectNarrRow(i));
+        el.addEventListener('mouseenter', () => { narrLand = null; selectNarrRow(i); });
         el.addEventListener('click', () => { selectNarrRow(i); commitNarrRow(); });
         // above the filter and the preview sentence: the first thing on the card
         card.insertBefore(el, head.nextSibling);
@@ -3674,10 +3807,11 @@ export function createNarration({
         //   43 of 113 slides out of date
         // Three targets on one row (#919, and its redesign): the row selects
         // the voice, the named button fixes it, and › opens its card.
-        el.className = 'narr-row narr-voice' + (row.cur ? ' narr-cur' : '');
+        el.className = 'narr-row narr-voice' + (row.cur ? ' narr-cur' : '') + (row.blocked ? ' narr-blocked' : '');
+        if (row.screen) el.dataset.screen = row.screen;   // who is on screen: nobody, camera, cartoon or head
         el.setAttribute('role', 'option');
         el.setAttribute('aria-selected', String(!!row.cur));
-        if (row.group) el.dataset.how = row.group;   // recorded, or live
+        if (row.how) el.dataset.how = row.how;   // recorded (saved with the deck), or live (needs a connection)
         const pick = Object.assign(document.createElement('span'), { className: 'narr-pick' });
         pick.appendChild(Object.assign(document.createElement('span'), { className: 'narr-radio' }));
         const words = Object.assign(document.createElement('span'), { className: 'narr-words' });
@@ -3694,14 +3828,14 @@ export function createNarration({
         el.appendChild(pick);
         const status = row.status?.text ?? '';
         if (status) el.appendChild(Object.assign(document.createElement('span'), { className: 'narr-status', textContent: status }));
-        if (row.act) {
+        for (const a of row.acts ?? []) {
           const act = document.createElement('button');
           act.type = 'button';
-          act.tabIndex = -1;   // the panel's keys reach the same thing: → opens the card, whose first row is the fix
-          act.className = 'narr-act' + (row.act.warn ? ' narr-act-warn' : '');
-          act.textContent = row.act.text;
-          act.setAttribute('aria-label', `${row.act.text} ${row.text}`);
-          act.addEventListener('click', (e) => { e.stopPropagation(); selectNarrRow(i); row.act.run(); });
+          act.tabIndex = -1;   // the panel's keys reach the same thing: → opens the card, whose rows hold every one of them
+          act.className = 'narr-act' + (a.warn ? ' narr-act-warn' : '');
+          act.textContent = a.text;
+          act.setAttribute('aria-label', `${a.text} ${row.text}`);
+          act.addEventListener('click', (e) => { e.stopPropagation(); selectNarrRow(i); a.run(); });
           el.appendChild(act);
         }
         if (row.manage) {
@@ -3714,7 +3848,7 @@ export function createNarration({
           btn.addEventListener('click', (e) => { e.stopPropagation(); selectNarrRow(i); row.manage(); });
           el.appendChild(btn);
         }
-        el.addEventListener('mouseenter', () => selectNarrRow(i));
+        el.addEventListener('mouseenter', () => { narrLand = null; selectNarrRow(i); });
         el.addEventListener('click', () => { selectNarrRow(i); commitNarrRow(); });
         card.appendChild(el);
         return;
@@ -3722,6 +3856,7 @@ export function createNarration({
       el.className = 'narr-row' + (row.cur ? ' narr-cur' : '')
         + (row.toggle ? ' narr-toggle' : '')
         + (row.sub === true ? ' narr-subrow' : '')
+        + (row.back ? ' narr-back' : '')
         + (row.blocked || row.blocked === '' ? ' narr-blocked' : '');
       if (row.title) el.title = row.title;
       const label = document.createElement('span');
@@ -3803,14 +3938,15 @@ export function createNarration({
         });
         el.appendChild(btn);
       }
-      el.addEventListener('mouseenter', () => selectNarrRow(i));
+      el.addEventListener('mouseenter', () => { narrLand = null; selectNarrRow(i); });
       el.addEventListener('click', () => { selectNarrRow(i); commitNarrRow(); });
       card.appendChild(el);
     });
     // Opening on the current row means opening SCROLLED to it — a saved voice
     // 90 rows down is otherwise a picker that looks like it forgot.
     const cur = narrRows.findIndex((r) => r.cur);
-    selectNarrRow(keepSel >= 0 && keepSel < narrRows.length ? keepSel : Math.max(0, cur), { scroll: true });
+    const land = narrLand && view === 'tracks' ? narrRows.findIndex(narrLand) : -1;
+    selectNarrRow(land >= 0 ? land : keepSel >= 0 && keepSel < narrRows.length ? keepSel : Math.max(0, cur), { scroll: true });
     // Last, because selectNarrRow scrolls and a focus() before it would be
     // undone. The caret goes to the END: this input is rebuilt on every
     // keystroke, and a caret that reset to 0 would type the query backwards.
@@ -3863,26 +3999,32 @@ export function createNarration({
     const v = narrEl?.querySelector('.narr-input')?.value.trim();
     if (v) applyLive('Custom', v);
   }
-  function openNarrPicker(view) {
-    if (narrEl && view === undefined) return closeNarrPicker(); // N toggles
+  function openNarrPicker(view, { back = null } = {}) {
+    if (narrEl && view === undefined) return donePanel(); // V toggles
+    narrReturn = back ?? previewBack;
+    previewBack = null;
     if (!narrEl) {
       narrEl = document.createElement('div');
       narrEl.className = 'decklight-narr';
       narrEl.innerHTML = '<div class="narr-card" role="listbox" aria-label="Narration"></div>';
-      closeOnBackdrop(narrEl, closeNarrPicker);
+      closeOnBackdrop(narrEl, donePanel);
       root.appendChild(narrEl);
     }
     // Always the home view, even with no tracks configured. It used to skip
     // straight to the voice roster when the list was empty, which made sense
-    // when the view WAS the list — but it now holds the live voice, the
-    // character, recording, captions and speed, and a deck with no track yet is
-    // exactly the deck whose owner needs to find "＋ Add a voice…".
-    // `record` (the palette's Record this deck…) is a route, not a view: the
-    // card of your own voice when there is one, else the place to add it.
+    // when the view WAS the list — but it now holds who speaks, who is on
+    // screen, recording, captions and speed, and a deck with no track yet is
+    // exactly the deck whose owner needs to find where a voice is recorded.
+    // Two names are routes, not views. `record` (the palette's Record this
+    // deck…): the card of your own voice when there is one, else the home
+    // view on the row that records it. `screen` (the palette's On screen…):
+    // the home view on the second question's answer.
+    narrLand = null;
     const route = () => {
+      if (view === 'screen') { narrLand = (r) => r.group === ON_SCREEN && r.cur; return 'tracks'; }
       if (view !== 'record') return view ?? 'tracks';
       const me = narrSets.find((t) => isMine(t));
-      if (!me) return 'add';
+      if (!me) { narrLand = (r) => r.me === true; return 'tracks'; }
       narrCardOf = me;
       return 'card';
     };
@@ -3895,15 +4037,15 @@ export function createNarration({
       const had = narrKnown.size;
       rememberTracks(tracks);
       if (!narrEl || !(had || narrKnown.size)) return;
-      if (view === 'record' && narrView !== 'card' && narrView !== 'add') return;
+      if (view === 'record' && narrView !== 'card' && narrView !== 'tracks') return;
       if (view === 'record') renderNarr(route());
-      else if (narrView === 'tracks' || narrView === 'card' || narrView === 'add') renderNarr(narrView);
+      else if (narrView === 'tracks' || narrView === 'card') renderNarr(narrView);
     });
     // ask the bridge what it can speak, and repaint if the answer changes the
     // list under the user — but only while they are still looking at it
     probeLive().then((p) => {
       if (!p || !narrEl) return;
-      if (narrView === 'voices' || narrView === 'tracks' || narrView === 'add' || (narrView === 'card' && !narrConfirm)) renderNarr(narrView);
+      if (narrView === 'voices' || narrView === 'tracks' || (narrView === 'card' && !narrConfirm)) renderNarr(narrView);
     });
   }
   function closeNarrPicker() {
@@ -3921,6 +4063,8 @@ export function createNarration({
     langDefaulted = false;
     libArmed = null;
     charProbed = false; // next open re-probes the lipsync bridge
+    narrLand = null;
+    narrReturn = null;
     narrConfirm = null; // nothing is spent behind a closed panel
   }
 
@@ -4166,9 +4310,12 @@ export function createNarration({
       // a 2D character: ask whether each track's lip-sync is its audio's (#1244)
       const r = await fetch(`${base}/deck/edit/narration/tracks${character.mode === 'viseme' ? '?character=viseme' : ''}`);
       const j = await r.json();
+      visemesWhy = typeof j?.visemes === 'string' ? j.visemes : null;
       return Array.isArray(j?.tracks) ? j.tracks : [];
     } catch { return []; }
   }
+  // why this machine cannot make the drawn character's lip-sync (the server says, with the tracks), or null
+  let visemesWhy = null;
   /**
    * What this recorder is about to write, and what the picker will call it.
    *
@@ -4551,7 +4698,7 @@ export function createNarration({
     }
   }
   function openRecordDialog() {
-    if (!narrSet?.live && !liveEngine) { toast('pick a live voice first — V → ＋ Add a voice… → A live voice'); return; }
+    if (!narrSet?.live && !liveEngine) { toast('choose an AI voice first · V → An AI voice → Choose…'); return; }
     if (recEl) return;
     recEl = document.createElement('div');
     recEl.className = 'decklight-narr decklight-record';
@@ -5558,10 +5705,10 @@ export function createNarration({
     const says = micCamWhy
       ? `<span class="rec-check-why">${escapeHtml(micCamWhy)}: your voice is recorded without it</span>`
       : face
-        ? 'Your face is filmed with every beat and plays in the character\'s medallion with your voice. Afterwards, Face & character placement… (on your voice\'s card) moves it to another corner, full screen or out of the way, slide by slide.'
-        : 'Film your face too, while you read: it plays with your voice in the deck and in its exported video.';
-    return `<div class="rec-cam-row"><div class="rec-line"><span class="rec-seg" role="group" aria-label="film my face">${
-      seg('on', '📹 film me too', face)}${seg('off', 'voice only', !face)}</span></div>
+        ? 'Your camera films you with every beat, and the deck shows it with your voice. Afterwards, V → Where… moves it to another corner, full screen or out of the way, slide by slide.'
+        : 'Record with your camera too, while you read: you are on screen with your voice, in the deck and in its exported video.';
+    return `<div class="rec-cam-row"><div class="rec-line"><span class="rec-seg" role="group" aria-label="record with my camera">${
+      seg('on', '📹 with my camera', face)}${seg('off', 'voice only', !face)}</span></div>
       <div class="rec-cam-slot"></div>
       <div class="rec-opt-why rec-cam-says">${says}</div></div>`;
   }
@@ -5763,7 +5910,7 @@ export function createNarration({
     const offer = useTrackRow(dir, 'Use my voice in this deck');
     card.innerHTML = `${recTop(stopped ? 'recording stopped' : 'your recording is saved', 'mine', 2)}
       <div class="rec-line rec-done-sum">${slides} slide${slides === 1 ? '' : 's'} · ${files} file${files === 1 ? '' : 's'}${secs ? ` · ${durationText(secs)}` : ''} · ${where}</div>
-      ${faces ? `<div class="rec-line rec-done-face">📹 your face on ${faces} slide${faces === 1 ? '' : 's'}: the character shows it with your voice whenever this track plays: V → My voice › → Face & character placement… chooses where, slide by slide</div>` : ''}
+      ${faces ? `<div class="rec-line rec-done-face">📹 your camera filmed ${faces} slide${faces === 1 ? '' : 's'}: you are on screen with your voice whenever it plays · V → Where… chooses where, slide by slide</div>` : ''}
       ${faceWhy ? `<div class="rec-line rec-warn">${escapeHtml(faceWhy)}</div>` : ''}
       ${left ? `<div class="rec-line rec-done-left">stopped early: ${left} slide${left === 1 ? '' : 's'} not reached, left as ${left === 1 ? 'it was' : 'they were'}</div>` : ''}
       ${takeRows ? `<div class="rec-takes">${takeRows}</div>` : ''}
@@ -6305,6 +6452,7 @@ export function createNarration({
         e.target.click();
         return true;
       }
+      narrLand = null;
       switch (e.key) {
         case 'ArrowDown': selectNarrRow(narrSel + 1, { scroll: true }); break;
         case 'ArrowUp': selectNarrRow(narrSel - 1, { scroll: true }); break;
@@ -6324,7 +6472,7 @@ export function createNarration({
           narrBack();
           break;
         case 'Escape': narrBack(); break;
-        case 'v': case 'V': closeNarrPicker(); break;   // the key that opened it
+        case 'v': case 'V': donePanel(); break;   // the key that opened it
         default: return false;
       }
       return true;
@@ -6362,51 +6510,126 @@ export function createNarration({
     toggleCaptions,
     openPicker: openNarrPicker,
     /**
-     * The voices a video export can carry (PRESENTING), for its card: every
-     * folder beside the deck that `decklight video` can render from (one with a
-     * manifest, or your own voice, which leaves none and is read off the
-     * disk), the live voice when a bridge is
-     * speaking — voiced into a folder first, so a second export does not pay
-     * again — and silence.
+     * What a video export carries (PRESENTING_OUTPUT), for its card: the
+     * narrator the deck plays, said in the panel's own words. The card used to
+     * ask the voice again, in a third vocabulary, and "Face" in a fourth; now
+     * it shows the two answers the panel holds and sends them.
      *
-     * The one already chosen goes first: the live voice when V is set to it,
-     * the recorded track V plays, the `voiceover/` a render would have found on
-     * its own, else silence. Never a paid engine nobody picked.
+     * - `voice`: the request's voice. The recorded track V plays; the AI
+     *   voice that needs a connection, voiced into a folder first, so a second
+     *   export does not pay again; else silence. Never a voice nobody picked.
+     * - `face`, `character`: who is on screen, as the render takes it: the
+     *   camera's footage and the drawn character go in a video, a rendered
+     *   talking head does not (it is made per sentence on your own GPU), and
+     *   the card says so rather than promising it.
+     * - `notes`: what the card must say before anything is spent: a voice
+     *   saved first and what that sends, slides regenerated first, a voice
+     *   that cannot go in a video.
+     * - `gaps`: the slides with notes and no recording, which the video holds
+     *   in silence, and `fix`, the way to fill them from here.
      */
-    async exportSources() {
+    async exportNarrator() {
       const [tracks, bridge] = await Promise.all([knownTracks(), probeLive()]);
-      const options = [];
-      for (const t of tracks.filter((x) => x.manifest || x.renders)) {
-        // no manifest is a take by hand: voices/me is the recorder's name for
-        // yours, and the picker's (proposeTrack)
-        const who = t.voice ? `${t.voice}${t.engine ? ` · ${t.engine}` : ''}`
-          : t.dir === proposeTrack({ mine: true }).dir ? 'My voice'
-            : t.mine || !t.manifest ? 'recorded by hand' : 'recorded';
-        // a track voiced from other notes than the deck has now is offered,
-        // marked — picking it says so on the export, and the render is told
-        // the choice was seen (#536). A machine-voiced one is re-voiced on
-        // those slides before the render, in its own voice (#553), so the mark
-        // says THAT rather than warning about audio the file will not have.
-        const slides = `${t.stale} slide${t.stale === 1 ? '' : 's'}`;
-        const stale = !(t.stale > 0) ? ''
-          : t.engine ? ` · ${slides} from older notes, re-voiced first` : ` · recorded from older notes on ${slides}`;
-        options.push({ filmed: !!t.faces?.length, label: `🔊 ${who} — ${t.dir}/${stale}`, value: { kind: 'recorded', dir: t.dir, stale: t.stale || 0, engine: t.engine ?? null } });
+      // the panel's own picture of each voice, so who is on screen is read
+      // from what the server says now and not from the last time V was open
+      if (tracks.length || narrKnown.size) narrKnown = new Map(tracks.map((t) => [dirKey(t.dir), t]));
+      const notes = [];
+      let voice = { kind: 'silent' };
+      let who = 'Nobody';
+      let go = 'Change…';
+      let nolips = 0;
+      let gaps = [];
+      let fix = null;
+      const count = (n) => `${n} slide${n === 1 ? '' : 's'}`;
+      if (narrSet?.live) {
+        who = `${liveCfg.voice} · AI voice`;
+        nolips = -1;   // every clip is new: its lip-sync is made with it
+        if (bridge && liveEngine) {
+          const dir = synthTarget(tracks);
+          voice = { kind: 'live', engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveStyle(), dir };
+          const every = Array.from({ length: instance.state.totalSlides }, (_, i) => i + 1);
+          notes.push({ text: `${liveCfg.voice} is saved with the deck first, in ${dir}/ · up to ${voiceChars(every).toLocaleString()} characters on ${engineName(liveEngine)}` });
+        } else {
+          notes.push({ warn: true, text: onBrowser() ? "the browser's own voice cannot go in a video · it will be silent"
+            : 'the voice service is not answering · the video will be silent' });
+        }
+      } else if (narrSet) {
+        const t = tracks.find((x) => dirKey(x.dir) === dirKey(narrSet.dir));
+        // the voice by its name: "My voice" says whose it is without a tag after it
+        who = isMine(narrSet) ? voiceName(narrSet) : `${voiceName(narrSet)} · AI voice`;
+        nolips = t?.nolips ?? 0;
+        if (t && (t.manifest || t.renders)) {
+          voice = { kind: 'recorded', dir: t.dir, stale: t.stale || 0, engine: t.engine ?? null };
+          // a track voiced from other notes than the deck has now is said,
+          // and the render is told the choice was seen (#536). An AI one is
+          // regenerated on those slides before the render, in its own voice
+          // (#553), so the line says THAT rather than warning about audio
+          // the file will not have.
+          if (t.stale > 0) {
+            notes.push(t.engine ? { text: `${count(t.stale)} from older notes ${t.stale === 1 ? 'is' : 'are'} regenerated first, in the same voice` }
+              : { warn: true, text: `recorded from older notes on ${count(t.stale)}` });
+          }
+          const has = new Set(t.slides ?? []);
+          for (let sl = 1; sl <= instance.state.totalSlides; sl++) {
+            if (instance._sections?.[sl - 1]?.hasAttribute('data-hidden')) continue;
+            if (notesText(sl) && !has.has(sl)) gaps.push(sl);
+          }
+          if (gaps.length) {
+            const set = narrSet;
+            if (isMine(set)) {
+              const why = micUnavailable();
+              if (!why) fix = { go: 'Record them…', run: () => openMicRecorder({ dir: dirKey(set.dir), label: set.label, only: gaps }) };
+            } else if (!revoiceWhy(set)) {
+              fix = { go: 'Regenerate them…', run: () => { openNarrPicker('tracks'); armRevoice(set, gaps); } };
+            }
+          }
+        } else {
+          notes.push({ warn: true, text: narrSet.manifest ? 'a voice hosted elsewhere cannot go in a video · it will be silent'
+            : 'this voice has no whole-slide recordings to make a video from · it will be silent' });
+        }
+      } else {
+        // Nobody chosen is not the same as nothing to choose: an older deck
+        // with recordings beside it says so, with the way to pick one
+        const saved = tracks.filter((x) => x.manifest || x.renders).length;
+        if (saved || (bridge && liveEngine)) {
+          who = 'No narration selected';
+          go = 'Choose a voice…';
+          notes.push({ text: `${saved ? `${saved} saved voice${saved === 1 ? '' : 's'} in this deck · ` : ''}the video is silent until one is chosen` });
+        }
       }
-      if (bridge && liveEngine) {
-        const dir = synthTarget(tracks);
-        options.push({
-          label: `⚡ Synthesize — ${liveCfg.voice} · ${liveEngine} → ${dir}/`,
-          value: { kind: 'live', engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveStyle(), dir },
-        });
+      const screen = onScreen();
+      const silent = voice.kind === 'silent';
+      // nobody speaks, nobody is on screen: a face and a character are placed on narrated frames
+      const shown = silent ? 'nobody' : screen;
+      const seen = shown === 'camera' ? 'with my camera' : shown === 'cartoon' ? 'with a cartoon character' : 'slides only';
+      // the drawn character mouths from a file per clip: made before the render, and said
+      if (shown === 'cartoon' && nolips && visemesWhy) {
+        // said before the click: the export would stop at its first step
+        notes.push({ warn: true, text: `the character's lip-sync cannot be made on this computer: ${visemesWhy} · the export would stop · choose Nobody on screen, or set it up once: decklight setup face --rhubarb <path>` });
+      } else if (shown === 'cartoon' && nolips) {
+        notes.push({ text: nolips < 0 ? "the character's lip-sync is made with the voice, before the video"
+          : `the character's lip-sync is made first, for ${nolips} clip${nolips === 1 ? '' : 's'} that ${nolips === 1 ? 'has' : 'have'} none` });
       }
-      options.push({ label: '🔇 Silent', value: { kind: 'silent' } });
-      const find = (ok) => options.findIndex((o) => ok(o.value));
-      let index = narrSet?.live ? find((v) => v.kind === 'live') : -1;
-      if (index < 0 && narrSet?.dir) index = find((v) => v.dir === narrSet.dir);
-      if (index < 0) index = find((v) => v.dir === 'voiceover');
-      if (index < 0) index = options.length - 1;
-      return { options, index };
+      /** The gaps inside a range as `--slides` spells it (null: every slide), in words. */
+      const missingIn = (range) => {
+        const m = /^(\d+)(?:-(\d+))?$/.exec(range ?? '');
+        const inside = m ? gaps.filter((sl) => sl >= Number(m[1]) && sl <= Number(m[2] ?? m[1])) : gaps;
+        return inside.length
+          ? { warn: true, text: `${slidesSaid(inside)} ${inside.length === 1 ? 'has' : 'have'} notes and no recording · silent in the video` }
+          : { warn: false, text: 'none in these slides' };
+      };
+      return {
+        voice, silent, gaps, fix, notes, go,
+        missing: gaps.length ? missingIn : null,
+        // the preview is the deck playing: what it plays that the video will not is said beside its button, before the click
+        preview: !silent && screen === 'head' ? () => ({ text: 'The exported video will show slides only', warn: true })
+          : `slide ${instance.state.slide}, as the video will have it`,
+        said: silent && who !== 'Nobody' && !narrSet ? who : `${who} · ${seen}`,
+        face: shown === 'camera' || shown === 'cartoon' ? 'on' : 'off',
+        character: shown === 'cartoon' ? 'viseme' : 'off',
+      };
     },
+    previewSlide,
     openRecordDialog,
     openMicRecorder,
     applySolo,

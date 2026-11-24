@@ -59,7 +59,7 @@ async function playTalk(beats, audioUrl, fps) {
     const shape = beat.poses[current];
     if (shape && current !== pose) {
       pose = current;
-      deck.character.capture(shape.character, shape.placement);
+      deck.character.capture(shape.character, shape.placement, shape.force);
     }
   }
   show(0);
@@ -90,7 +90,7 @@ export async function captureLive({ plan, chrome, url, settings, work, exec, sig
     audioFiles.push(file);
     const face = beat.face && { kind: beat.face.kind, at: beat.face.at, zoom: beat.face.zoom, url: '/decklight-live/face-' + i + '.mp4' };
     if (face) media.set(face.url, beat.face.clip);
-    const poses = beat.poses.map(({ character, placement, audioOffset }) => ({ character, placement, audioOffset }));
+    const poses = beat.poses.map(({ character, placement, audioOffset, force }) => ({ character, placement, audioOffset, force }));
     beats.push({ slide: beat.slide, step: beat.step, start: duration, face, poses });
     duration += beat.duration;
   }

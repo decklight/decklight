@@ -80,7 +80,7 @@ export function faceLayout(attr, beat = 1) {
 
 /**
  * One placement for a whole slide, written back as `data-face` (the V panel's
- * Place my face): '' for the default corner, which is no attribute at all.
+ * the panel's Where…): '' for the default corner, which is no attribute at all.
  * The inverse of faceLayout for a slide-wide value.
  */
 export function faceValue({ kind, zoom = 1, at } = {}) {

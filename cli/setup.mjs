@@ -38,7 +38,7 @@ export const USAGE = `usage: decklight setup <voice | face> …
   decklight setup face --portrait me=<photo.jpg | clip.mp4> [--wav2lip-dir <checkout>
                        --wav2lip-ckpt <wav2lip_gan.pth>] [--sadtalker-dir <checkout>]
                        [--python <its venv python>]
-    remember a talking head for the narrator (V → Character): the portrait
+    remember a talking head for the narrator (V → who is on screen): the portrait
     and the local lip-sync models. Saved; decklight <deck> starts the
     lip-sync bridge with it. A clip can also be filmed in the deck.
     Also saved when given: --cache-dir, --rhubarb, and --veo (animate the

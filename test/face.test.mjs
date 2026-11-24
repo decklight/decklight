@@ -193,3 +193,9 @@ test('the export card\'s Face is on or off, and nothing else', () => {
   assert.equal(videoExportProblem({ face: 'off' }, '/x'), null);
   assert.match(videoExportProblem({ face: 'maybe' }, '/x'), /face must be on, off/);
 });
+
+test('the export card says who is on screen: a character is viseme or off, and nothing else', () => {
+  assert.equal(videoExportProblem({ character: 'viseme' }, '/x'), null);
+  assert.equal(videoExportProblem({ character: 'off' }, '/x'), null);
+  assert.match(videoExportProblem({ character: 'video' }, '/x'), /character must be viseme, off/);
+});

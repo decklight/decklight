@@ -82,6 +82,7 @@ import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import { LINE_DASHES, SHAPES, SHAPE_LABELS, shapeGeometry, shapeBox } from '../tools/diagram-shapes.mjs';
 import { resolve, relative, dirname, sep, basename } from 'node:path';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, VIDEO_RENDER_MODES, valuesOf } from '../tools/video-options.mjs';
+import { visemesWhyNot } from '../tools/lipsync-config.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { agentAsk, agentCommand, agentModel, applyModelFlags, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, setAgentModel, takesModel, MODEL_ENV, claudeActivity } from './agents.mjs';
@@ -343,7 +344,8 @@ export function previewError(why) {
  *
  * - `slides` is the command's own `--slides` spelling; `format`, `quality` and
  *   `subtitles` its `--format`, `--quality` and `--subtitles`; `face: 'off'`
- *   its `--no-face`.
+ *   its `--no-face`; `character` its `--character` (who is on screen in the
+ *   deck, which a fresh browser cannot see).
  * - The voice is ONE of three: `narration` names a recorded folder (inside the
  *   deck's directory, holding a manifest or whole-slide audio — a render that cannot find its audio
  *   should refuse, not come out silent); `synthesize` asks for the live voice
@@ -354,8 +356,9 @@ export function previewError(why) {
  *   engine and this voice; anything else — a manifest for another voice, or
  *   audio with no manifest at all, which is what your own voice leaves — refuses.
  */
-export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles, face, render, allowStale } = {}, deckDir) {
+export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles, face, character, render, allowStale } = {}, deckDir) {
   if (allowStale != null && typeof allowStale !== 'boolean') return 'allowStale is yes or no';
+  if (character != null && !['viseme', 'off'].includes(character)) return 'character must be viseme, off';
   // the card's rows and the command's flags read one list (src/core/video-options.js)
   for (const [field, value, list] of [['format', format, VIDEO_FORMATS], ['quality', quality, VIDEO_QUALITIES], ['subtitles', subtitles, VIDEO_SUBTITLES], ['face', face, VIDEO_FACE], ['render', render, VIDEO_RENDER_MODES]]) {
     if (value != null && !valuesOf(list).includes(value)) return `${field} must be ${valuesOf(list).join(', ')}`;
@@ -396,7 +399,7 @@ export function videoExportProblem({ slides, narration, synthesize, silent, form
   let audio = false;
   try { audio = readdirSync(resolve(deckDir, narration)).some((f) => /^slide-\d+\.(wav|m4a|mp3)$/.test(f)); } catch { /* no folder */ }
   if (!audio && !existsSync(resolve(deckDir, narration, 'manifest.json'))) {
-    return `no recorded narration in ${narration}/ — record the deck first (V → ＋ Add a voice…)`;
+    return `no recorded narration in ${narration}/ — record the deck first (V → My voice → Record…)`;
   }
   return null;
 }
@@ -462,7 +465,7 @@ export function setSlideHidden(html, slide, hidden) {
 
 /**
  * Where the filmed face shows on a slide (FACE_LAYOUT): `data-face` on the
- * section, written from the V panel's Place my face. An empty value is the
+ * section, written from the V panel's Where…. An empty value is the
  * default corner, which is no attribute at all.
  */
 export function setSlideFace(html, slide, face) {
@@ -5156,7 +5159,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return json(200, { ok: true, forgotten: had });
   }
 
-  // ── the recorder's offline recordings — V → Generate an AI recording, or your voice (PRESENTING) ───────────────────────────────
+  // ── the recorder's offline recordings — V → Save with the deck, or your voice (PRESENTING) ───────────────────────────────
   // The player used to hand every stitched slide to the browser's DOWNLOAD
   // path, which is why a deck's voice arrived as thirty slide-NN.wav in
   // whatever folder the OS calls Downloads — never the deck's, and on
@@ -5458,6 +5461,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
           mine,
           drift,
           faces,
+          // the clips with no viseme sidecar beside them: what the drawn
+          // character needs made before a video can have it (the export card says so)
+          nolips: wav.filter((e) => !entries.some((x) => x.name === e.name.replace(/\.[^.]+$/, '.visemes.json'))).length,
           ...(realign?.moves.length ? { realign: { moves: realign.moves, said: realign.said } } : {}),
           // what `decklight video` can render from: a manifest, or a
           // whole-slide file to read off the disk, which is what your own
@@ -5478,7 +5484,9 @@ export async function editMain(args, { onListen = null, client } = {}) {
         if (k.isDirectory() && !k.name.startsWith('.')) look(`${e.name}${sep}${k.name}`);
       }
     }
-    return json(200, { ok: true, tracks: seen });
+    // and whether the character's lip-sync can be made here, which a video
+    // export with the character does before its render (PRESENTING_OUTPUT)
+    return json(200, { ok: true, tracks: seen, visemes: visemesWhyNot() });
   }
 
   /**

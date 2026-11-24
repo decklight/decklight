@@ -176,7 +176,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   function warnOnce() {
     if (warned) return;
     warned = true;
-    toast('the lip-sync bridge is not running — the mouth follows the voice\'s loudness instead. decklight starts it once rhubarb is installed or a talking head is set up (V → Character says how)', 6000);
+    toast('the lip-sync bridge is not running — the mouth follows the voice\'s loudness instead. decklight starts it once rhubarb is installed or a talking head is set up (V → who is on screen says how)', 6000);
     debugLog('lipsync', 'bridge unreachable — amplitude fallback');
   }
 
@@ -655,7 +655,11 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // in real time. Give that renderer the same mounted art and CSS surface as
   // live playback, but let it choose the mouth for the frame explicitly.
   // No clock or audio element is involved, so a frame can never race a timer.
-  function capture(v = 'X', placement = FACE_CORNER) {
+  // `force` is the export card's answer: the character it was asked for,
+  // whatever the deck's own config says (a fresh browser cannot see the
+  // panel's choice, so the render is told).
+  function capture(v = 'X', placement = FACE_CORNER, force = false) {
+    if (force) mode = 'viseme';
     if (mode !== 'viseme') return false;
     mount();
     el.classList.add('show');

@@ -53,13 +53,13 @@ import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { finishAuthorAnimations, markInvisible } from './print-visibility.js';
 import { createPlaylist } from './playlist.js';
-import { createRangePicker } from './ranges.js';
+import { createRangePicker, rangeLabel } from './ranges.js';
 import { createChoiceCard } from './choice.js';
 import { createOpenInEditor } from './open-in-editor.js';
 import { createConceptTools } from './concept-tools.js';
 import { createStyleClip } from './style-clip.js';
 import { brandSnapper } from './colorpicker.js';
-import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, VIDEO_RENDER_MODES } from '../../tools/video-options.mjs';
+import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_RENDER_MODES } from '../../tools/video-options.mjs';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
 import { createDebugLog, stashDebug, unstashDebug } from './debuglog.js';
@@ -1180,7 +1180,7 @@ export function init(userConfig = {}) {
    * The order categories are listed in when nothing is typed: where a
    * presenter goes first, then the slide in hand, then everything else. Every
    * command names one (`cat`) and the palette shows it as a prefix, the way
-   * VS Code's command palette reads: `Voice: Live voice…`, `Share: Export to
+   * VS Code's command palette reads: `Voice: AI voice…`, `Share: Export to
    * PDF…`. All of them sit at the root; typing the category narrows to it.
    */
   const PALETTE_CATEGORIES = ['Running', 'Go to', 'Slide', 'Edit', 'Look', 'Voice', 'Present', 'Review', 'Git', 'Share', 'Help', 'Preferences'];
@@ -1305,11 +1305,11 @@ export function init(userConfig = {}) {
       { label: `${narration.status().paused ? 'Resume' : narration.status().narrating ? 'Pause' : 'Play'} the voice`, cat: 'Voice',
         hint: '⎵', alias: 'play pause resume voice narration speak start stop', run: () => narration.playPause() },
       { label: 'Voice and narration…', cat: 'Voice', hint: 'V', alias: 'narration voice audio track picker panel', run: () => openNarrPicker('tracks') },
-      { label: 'Live voice…', cat: 'Voice', alias: 'tts synthesize tone gemini elevenlabs engine', run: () => openNarrPicker('voices') },
-      narration.canPreviewFace() && { label: `${narration.writePreviewOn ? 'Hide' : 'Show'} face & character preview`, cat: 'Voice',
-        alias: 'overlay placement preview write mode', run: narration.toggleWritePreview },
-      { label: 'Character…', cat: 'Voice', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
-      { label: character.solo ? 'Show the slides with the character' : 'Show only the character', cat: 'Voice', alias: 'character solo centre center stage narrator only fullscreen avatar', run: () => narration.applySolo(!character.solo) },
+      { label: 'AI voice…', cat: 'Voice', alias: 'live voice tts synthesize tone gemini elevenlabs engine', run: () => openNarrPicker('voices') },
+      { label: 'On screen…', cat: 'Voice', alias: 'character avatar lipsync face camera cartoon talking head visemes narrator', run: () => openNarrPicker('screen') },
+      narration.canPreviewFace() && { label: `${narration.writePreviewOn ? 'Hide' : 'Show'} who is on screen, while editing`, cat: 'Voice',
+        alias: 'overlay placement preview write mode face character camera cartoon narrator where', run: narration.toggleWritePreview },
+      { label: character.solo ? 'Bring the slides back' : 'Narrator fills the screen', cat: 'Voice', alias: 'character solo centre center stage narrator only fullscreen full screen avatar show only the character slides', run: () => narration.applySolo(!character.solo) },
       { label: 'Record this deck…', cat: 'Voice', alias: 'record narrate microphone mic voice wav offline batch teleprompter',
         run: () => openNarrPicker('record') },
       { label: `${narration.status().captionsOn ? 'Hide' : 'Show'} captions`, cat: 'Voice', hint: 'C', alias: 'captions on off cc subtitles closed caption', run: toggleCaptions },
@@ -1597,7 +1597,7 @@ export function init(userConfig = {}) {
       // write mode only: the bar is editing's face, hidden or shown per deck
       ...(editmode?.available() ? [{ label: 'Editing bar', value: editbar.hidden() ? 'hidden' : 'shown',
         hint: '⏎ switches', stays: true, run: () => editbar.toggleHidden() }] : []),
-      ...(narration.canPreviewFace() ? [{ label: 'Face & character preview', value: narration.writePreviewOn ? 'on' : 'off',
+      ...(narration.canPreviewFace() ? [{ label: 'Who is on screen, while editing', value: narration.writePreviewOn ? 'on' : 'off',
         hint: '⏎ switches', stays: true, run: narration.toggleWritePreview }] : []),
       // write mode only: Push lives in the commit window, which only an edit
       // server has
@@ -3672,6 +3672,8 @@ export function init(userConfig = {}) {
       return !!t && (t.slide !== 1 || t.step !== 0);
     })(),
     rangePicker, chapters: () => moduleNav.markers(),
+    // the panel's Export video… row, where there is a server to render one
+    exportVideo: () => (editmode?.available() ? () => openVideoExport() : null),
     syncSoundBtn, updateDebugState, downloadFromUrl,
     // the synthesized recorder writes its slide-NN.wav next to the deck when there is a server that
     // owns the deck file; a thunk because editmode is built below this, and its
@@ -3878,46 +3880,67 @@ export function init(userConfig = {}) {
   }
   editmode.onMarketplaces?.(() => { offerMarketplaceUpdates(); });
 
-  // The video export (PRESENTING): which slides, and how — voice, format,
+  // The video export (PRESENTING_OUTPUT): which slides, and how — format,
   // quality, subtitles — on one card, then the door every export uses. A range
   // chosen is only chosen: the Export button runs it, as Start runs the
-  // recorder. Each setting starts on the answer already chosen, so the common
-  // case is one Enter: the voice V speaks with, and the format, quality and
-  // subtitles this browser picked last time. ← → turn them.
+  // recorder. The NARRATOR is not asked here: the video carries who speaks and
+  // who is on screen in the deck, as the narration panel (V) holds them, and
+  // the card shows that as one line with the way to change it. It used to ask
+  // the voice again, in other words, and the face in a row of its own, and
+  // which voice it opened on depended on a screen you were not looking at.
+  // What is left to decide here is whether this one video has sound at all.
   const VIDEO_PREFS = 'decklight:video-export';
+  const VIDEO_SOUND = [
+    { value: 'on', label: 'With the narration' },
+    { value: 'off', label: 'Without sound — this video only' },
+  ];
   function videoPrefs() {
     return readJson(VIDEO_PREFS, {});
   }
-  async function openVideoExport() {
-    const voice = await narration.exportSources();
-    const prefs = videoPrefs();
+  // `was` is the card as it was left for the narration panel ({ slides,
+  // values }): coming back opens it on the same range and the same answers.
+  async function openVideoExport(was = {}) {
+    const who = await narration.exportNarrator();
+    const prefs = { ...videoPrefs(), ...(was.values ?? {}) };
     const at = (list, value, fallback) => Math.max(0, list.findIndex((o) => o.value === (value ?? fallback)));
+    const NARRATOR = 'Narrator';
+    // Change… is a round trip: the panel knows where it was opened from, and
+    // answering it (or Esc) comes back here with the range still chosen
+    const toPanel = (state) => openNarrPicker('tracks', {
+      back: { said: `Back to the export · ${rangeLabel(state.slides)}`, run: () => openVideoExport(state) },
+    });
     rangePicker.open({
       title: 'export a video',
       action: 'Export video',
       total: instance.state.totalSlides, slide: instance.state.slide, chapters: moduleNav.markers(),
+      current: was.slides ?? null,
       settings: [
-        { key: 'voice', name: 'Voice', ...voice },
+        { section: NARRATOR, key: 'narrator', name: 'Narrator', value: who.said, go: who.go, run: toPanel, notes: who.notes },
+        // slides with notes and no recording, in the range chosen: held in
+        // silence, said before the render and not found after it
+        who.missing && { section: NARRATOR, key: 'missing', name: 'Missing', value: who.missing,
+          go: who.fix?.go ?? 'Change…', run: who.fix ? () => who.fix.run() : toPanel },
+        !who.silent && { section: NARRATOR, key: 'preview', name: 'Preview', value: who.preview,
+          go: 'Preview slide in deck', run: () => narration.previewSlide() },
+        !who.silent && { section: NARRATOR, key: 'sound', name: 'Sound', options: VIDEO_SOUND, index: at(VIDEO_SOUND, was.values?.sound, 'on') },
         { key: 'format', name: 'Format', options: VIDEO_FORMATS, index: at(VIDEO_FORMATS, prefs.format, 'mp4') },
         { key: 'quality', name: 'Quality', options: VIDEO_QUALITIES, index: at(VIDEO_QUALITIES, prefs.quality, 'standard') },
         { key: 'render', name: 'Render', options: VIDEO_RENDER_MODES, expanded: true, index: at(VIDEO_RENDER_MODES, prefs.render, 'exact') },
         { key: 'subtitles', name: 'Subtitles', options: VIDEO_SUBTITLES, index: at(VIDEO_SUBTITLES, prefs.subtitles, 'none') },
-        {
-          key: 'face', name: 'Face', options: VIDEO_FACE, index: at(VIDEO_FACE, prefs.face, 'on'),
-          describe({ voice: track }, option) {
-            if (track.filmed) return { name: 'Face', label: option.label };
-            if (config.narration?.character?.mode === 'viseme' && track.value.kind !== 'silent') {
-              return { name: 'Character', label: option.value === 'on' ? 'The animated character, as each slide places it' : option.label };
-            }
-            return { name: 'Face', label: 'Nothing to show', disabled: true };
-          },
-        },
       ],
-      onPick: (slides, { voice: v, format, quality, subtitles, face, render }) => {
+      onPick: (slides, { sound, format, quality, subtitles, render }) => {
         // Remembered here and not per deck: a format is a habit of the person
-        // exporting, and the voice is not remembered at all — it follows V.
-        writeJson(VIDEO_PREFS, { format, quality, subtitles, face, render });   // private mode: not remembered
-        editmode.exportDeck('video', { slides, voice: v, format, quality, subtitles, face, render });
+        // exporting. The narrator is not remembered at all — it follows V —
+        // and neither is "without sound", which is an answer about one video.
+        writeJson(VIDEO_PREFS, { format, quality, subtitles, render });   // private mode: not remembered
+        const mute = who.silent || sound === 'off';
+        editmode.exportDeck('video', {
+          slides, format, quality, subtitles, render,
+          voice: mute ? { kind: 'silent' } : who.voice,
+          // a face and a character are placed on narrated frames: none without the voice
+          face: mute ? 'off' : who.face,
+          character: mute ? 'off' : who.character,
+        });
       },
     });
   }

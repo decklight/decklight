@@ -127,7 +127,7 @@ export async function ttsMain(args) {
           nothing). Unset, a sentence under 60 characters goes at robust: short
           input is where these models stutter.
           --tts-format mp3 if your plan has no PCM output (costs you the panel's
-          Generate an AI recording and lip-sync, both of which read WAV).
+          Save with the deck and lip-sync, both of which read WAV).
 
   <installed>  any engine from a marketplace (decklight library add engine <name>) — --engine
           takes its name like any of the six above, and the picker treats it the same.

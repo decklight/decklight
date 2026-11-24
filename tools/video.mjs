@@ -93,6 +93,9 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --slides <a-b>       only this slide range (1-based, inclusive)
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first —
                        over the --slides range only, when one is given
+  --character <how>    viseme draws the animated character in every narrated
+                       frame, off leaves it out; by default the deck's own
+                       narration.character.mode decides
   --no-face            leave out the face you filmed while recording the
                        narration and the animated character. By default they
                        show the way each slide says
@@ -1042,8 +1045,8 @@ export async function captureMotion(page, { url, slide, from = null, to, offset 
   }
 }
 
-function characterPose({ character, placement }) {
-  return `document.querySelector('.decklight').__decklight.character.capture(${JSON.stringify(character)}, ${JSON.stringify(placement)})`;
+function characterPose({ character, placement, force = false }) {
+  return `document.querySelector('.decklight').__decklight.character.capture(${JSON.stringify(character)}, ${JSON.stringify(placement)}, ${force})`;
 }
 async function renderExact({ plan, kinds, chrome, url, settings, work, exec, signal, log, parallel, cache, markup, refresh }) {
   const { w, h, fps, format, quality } = settings;
@@ -1159,6 +1162,20 @@ export function parseCharacterConfig(dom) {
   const m = /DECKLIGHT-CHARACTER (\{[^\n<]*\})/.exec(dom);
   if (!m) return {};
   try { return JSON.parse(m[1]); } catch { return {}; }
+}
+
+/**
+ * Is the animated character in this render, and must the page be told to draw
+ * it? `--character` says it outright (the export card sends who is on screen
+ * in the deck, which a fresh browser cannot see); without it the deck's own
+ * `narration.character.mode` decides. `--no-face` leaves it out either way.
+ * Forced only when asked for by name: a deck whose config already turns the
+ * character on draws it unprompted.
+ */
+export function characterPlan(ask, configMode, noFace = false) {
+  if (ask !== undefined && !['viseme', 'off'].includes(ask)) throw new Error('--character must be viseme or off');
+  const on = (ask ?? configMode) === 'viseme' && !noFace;
+  return { on, force: on && ask === 'viseme' };
 }
 
 export async function videoMain(argv, { exec: execRaw = run, log = console.log } = {}) {
@@ -1355,11 +1372,14 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       const faces = extractFaces(html);
       const faceOn = !argv.includes('--no-face');
       const faceContext = { narration, faces, defaultCorner: characterConfig.position };
+      // the drawn character: the export card names it (a fresh browser cannot
+      // see the panel's choice), else the deck's own config decides
+      const { on: characterOn, force: characterForce } = characterPlan(opt('--character'), characterConfig.mode, !faceOn);
       const drafts = basePlan.map((p) => {
         const face = faceOn ? faceFor(p, faceContext) : null;
         const placement = exportFaceLayout(p, faces);
         const audio = p.audio ? join(narration.dir, p.audio) : null;
-        const visemeFile = faceOn && characterConfig.mode === 'viseme' && audio && !face && placement.kind !== 'hide'
+        const visemeFile = characterOn && audio && !face && placement.kind !== 'hide'
           ? audio.replace(/\.[^.]+$/, '.visemes.json') : null;
         return { p, audio, face, placement, visemeFile };
       });
@@ -1373,6 +1393,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       const plan = drafts.map(({ p, audio, face, placement, visemeFile }) => {
         const poses = visemeFile
           ? characterFrames({ ...p, placement }, timelines.get(visemeFile)).filter((pose) => pose.character)
+            .map((pose) => ({ ...pose, force: characterForce }))
           : [];
         return { ...p, audio, face, poses, visemeFile };
       });

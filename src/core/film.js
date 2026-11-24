@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Film yourself for the talking head (SPEC PRESENTING, character): a few
+// Make my portrait, for the talking head (SPEC PRESENTING, character): a few
 // seconds from the camera, recorded in the deck, sent to the lip-sync bridge,
 // which prepares it like any filmed portrait (tools/lipsync-engines.mjs
 // `prepareClip`) and keeps it. The alternative was "film it on your phone,
@@ -69,18 +69,18 @@ export function createFilmRecorder({
     stopBusy();
     const circle = (inner = '') => `<div class="film-circle"><video class="film-video" muted playsinline autoplay></video>${inner}</div>`;
     if (next === 'why') {
-      c.innerHTML = `<div class="narr-head">film yourself</div>
+      c.innerHTML = `<div class="narr-head">make my portrait</div>
         <div class="rec-line rec-warn">${escapeHtml(data.why)}</div>
         <div class="rec-hint">Esc to close</div>`;
       return;
     }
     if (next === 'opening') {
-      c.innerHTML = `<div class="narr-head">film yourself</div><div class="rec-line film-busy"></div>`;
+      c.innerHTML = `<div class="narr-head">make my portrait</div><div class="rec-line film-busy"></div>`;
       stopBusy = thinking((t) => { const b = c.querySelector('.film-busy'); if (b) b.textContent = t; }, { label: 'opening the camera' });
       return;
     }
     if (next === 'ready') {
-      c.innerHTML = `<div class="narr-head">film yourself — ${seconds} s for your talking head</div>
+      c.innerHTML = `<div class="narr-head">make my portrait — ${seconds} s on camera for your talking head</div>
         ${circle('<div class="film-mark"></div>')}
         <div class="film-below">${TIPS}<div class="narr-row narr-sel film-go">● Record ${seconds} s</div></div>
         <div class="rec-hint">Enter to record · Esc to cancel</div>`;
@@ -106,14 +106,14 @@ export function createFilmRecorder({
       return;
     }
     if (next === 'saving') {
-      c.innerHTML = `<div class="narr-head">film yourself</div>
+      c.innerHTML = `<div class="narr-head">make my portrait</div>
         <div class="rec-line film-busy"></div>
         <div class="rec-line">finding your face in every second of it, and making the loop — once; a minute at most</div>`;
       stopBusy = thinking((t) => { const b = c.querySelector('.film-busy'); if (b) b.textContent = t; }, { label: 'the bridge is preparing it' });
       return;
     }
     if (next === 'failed') {
-      c.innerHTML = `<div class="narr-head">film yourself</div>
+      c.innerHTML = `<div class="narr-head">make my portrait</div>
         <div class="rec-line rec-warn">${escapeHtml(data.error)}</div>
         ${stream ? '<div class="narr-row narr-sel film-retake">Retake</div>' : ''}
         <div class="rec-hint">${stream ? 'Enter or R to retake · ' : ''}Esc to close</div>`;
@@ -125,7 +125,7 @@ export function createFilmRecorder({
     if (el) return;
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-record decklight-film';
-    el.innerHTML = '<div class="narr-card" role="dialog" aria-label="Film yourself"></div>';
+    el.innerHTML = '<div class="narr-card" role="dialog" aria-label="Make my portrait"></div>';
     closeOnBackdrop(el, close);
     root.appendChild(el);
     const mine = ++run;
@@ -149,7 +149,7 @@ export function createFilmRecorder({
     if (!c) return;
     c.querySelector('.film-mark').textContent = text;
     c.querySelector('.film-circle').classList.toggle('rec', next === 'recording');
-    c.querySelector('.narr-head').textContent = next === 'recording' ? `● recording — ${seconds} s` : 'film yourself — get ready';
+    c.querySelector('.narr-head').textContent = next === 'recording' ? `● recording — ${seconds} s` : 'make my portrait — get ready';
     c.querySelector('.film-below').innerHTML = '<div class="rec-line film-hold">hold still — mouth relaxed, don\'t talk</div>';
     c.querySelector('.rec-hint').textContent = 'Esc to stop';
   }
