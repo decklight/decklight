@@ -63,13 +63,16 @@ import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_FACE, VIDEO_REND
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
 import { createDebugLog, stashDebug, unstashDebug } from './debuglog.js';
-import { createLayoutCycler } from './layout.js';
+import { createLayoutCycler, ringFor } from './layout.js';
+import { boundedFetch } from './devmode.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { createDesignSystemsPicker, createSlideTemplatePicker, createLookOffer } from './design-systems.js';
 import { createMarketplaces, autoCheckToastText } from './marketplaces.js';
 import { createConceptsEditor, conceptsOn, conceptSuggestions, markConceptHints } from './concepts.js';
-import { setupSlideTemplates, isTemplateRef, pageDesignSystems } from './design-system.js';
+import { setupSlideTemplates, isTemplateRef, pageDesignSystems, fileIndexOf, authoredIndex } from './design-system.js';
+import { createLayoutPicker } from './layout-picker.js';
+import { createEditCommit } from './edit-commit.js';
 import { createFonts } from './fonts.js';
 import { createBleed } from './bleed.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
@@ -320,7 +323,7 @@ function splitContent(sec) {
     !el.matches('h1, h2, .subtitle, aside, script, style, .decklight-hero-logo, .slide-bg, .decklight-steps, nav.steps'));
 }
 
-function setupSplit(sections, slideNumber = (i) => i + 1) {
+function setupSplit(sections, slideNumber = (i) => i + 1, { quiet = false } = {}) {
   sections.forEach((sec, i) => {
     sec.querySelectorAll(':scope > .split-columns, :scope > .split-footer')
       .forEach((el) => el.classList.remove('split-columns', 'split-footer'));
@@ -330,7 +333,7 @@ function setupSplit(sections, slideNumber = (i) => i + 1) {
       return;
     }
     const content = splitContent(sec);
-    checkSplitConflict(sec, content, slideNumber(i));
+    checkSplitConflict(sec, content, slideNumber(i), quiet);
     if (content.length === 1 && content[0].matches('ul, ol')) {
       content[0].classList.add('split-columns');
       return;
@@ -349,14 +352,14 @@ function setupSplit(sections, slideNumber = (i) => i + 1) {
  * a computed display, so an inline style and a stylesheet class both count.
  * Column-direction flex is fine: it stacks, it does not take sides.
  */
-function checkSplitConflict(sec, content, slideNo) {
+function checkSplitConflict(sec, content, slideNo, quiet = false) {
   const conflict = content.some((el) => {
     const cs = getComputedStyle(el);
     return /flex$/.test(cs.display) && cs.flexDirection.startsWith('row');
   });
   const was = sec.hasAttribute('data-split-conflict');
   sec.toggleAttribute('data-split-conflict', conflict);
-  if (conflict && !was) {
+  if (conflict && !was && !quiet) {
     console.warn(`Decklight: slide ${slideNo} combines data-layout="split" with its own column flexbox — `
       + 'two layout systems fight; drop the data-layout or the flex shell (SPEC COMPARISON_SLIDES)');
   }
@@ -367,7 +370,7 @@ function checkSplitConflict(sec, content, slideNo) {
  * into an overflow:auto box and reads as clipped. Warn (console) and mark
  * (data-overflow attribute) so both humans and headless probes can catch it.
  */
-function checkOverflow(section, slideNo) {
+function checkOverflow(section, slideNo, { quiet = false } = {}) {
   if (!section) return;
   // data-fit code is sized first, so the guardrail judges the fitted slide:
   // every re-check is a layout change the fit must follow (SPEC CODE_AND_MATH).
@@ -397,7 +400,7 @@ function checkOverflow(section, slideNo) {
   // Only on the way IN. The check re-runs whenever the slide's content changes
   // size (watchOverflow), so warning on every pass would turn one clipped slide
   // into a console full of the same line.
-  if (clip && !was) {
+  if (clip && !was && !quiet) {
     console.warn(`Decklight: slide ${slideNo} content overflows and is clipped: ${clip.what} runs ${clip.by}px past the bottom of `
       + `${clip.inSlide ? 'the slide' : 'the box that holds it'} — reduce content or font size`);
   }
@@ -1236,6 +1239,7 @@ export function init(userConfig = {}) {
       write({ label: 'Move slide down', cat: 'Slide', alias: 'reorder later after swap', run: () => editmode.slideOp('down') }),
       write({ label: 'Delete this slide', cat: 'Slide', alias: 'remove slide drop', run: () => editmode.slideOp('delete') }),
       write({ label: `${currentHidden() ? 'Unhide' : 'Hide'} this slide`, cat: 'Slide', alias: 'hidden hide skip cut backup keep out of the talk unhide show', run: () => setHidden(instance.state.slide, !currentHidden()) }),
+      write({ label: 'Slide layout…', cat: 'Slide', alias: 'layout picker template arrange pin centered top split columns', run: () => layoutPicker?.open() }),
       write({ label: 'Cycle slide layout', cat: 'Slide', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) }),
       // Two rows, not one row with a mode in it: one adds a slide, the other
       // rewrites one you wrote, and ⏎ should not depend on a keystroke you
@@ -1988,6 +1992,94 @@ export function init(userConfig = {}) {
   });
   const cycleLayout = (dir) => layout.cycle(dir);
   const layoutRing = (idx) => layout.ring(idx);
+
+  // ----- the layout picker (SPEC PRESENTING_EDITING) ---------------------------
+  // The bar's Layout button. Every cell, and every preview on the stage, is a
+  // VARIANT of the slide: its own elements, cloned from the live slide (so a
+  // chart is drawn, code is lit), out of any template, then given a built-in
+  // layout or put into a template the way the server would put it there.
+  const LP_SKIP_ATTR = /^data-(template|ds-|overflow|split-conflict|pinned|bled$|layout$)/;
+  /** The slide as a plain slide: `{ section, kids: [[clone, fileIndex]] }`, nothing attached. */
+  function plainVariant(sec) {
+    const out = document.createElement('section');
+    for (const a of sec.attributes) if (!LP_SKIP_ATTR.test(a.name)) out.setAttribute(a.name, a.value);
+    out.classList.remove('active', 'pin-measure', 'past', 'future', 'dl-layout-previewed');
+    for (const p of ['--pin-y', '--pin-sub-y', '--pin-space']) out.style.removeProperty(p);
+    const kids = [];
+    // what the engine put in front of the content: a background, the hero logo
+    for (const el of sec.querySelectorAll(':scope > .slide-bg, :scope > .decklight-hero-logo')) out.appendChild(el.cloneNode(true));
+    const authored = sec.hasAttribute('data-ds-expanded')
+      ? [...sec.querySelectorAll('*')].filter((el) => fileIndexOf(el) !== undefined).map((el) => [el, fileIndexOf(el)])
+      : [...sec.children].filter((el) => !el.matches('.slide-bg, .decklight-hero-logo, .decklight-steps')).map((el) => [el, authoredIndex(sec, el)]);
+    authored.sort((a, b) => a[1] - b[1]);
+    for (const [el, i] of authored) {
+      if (el.matches('aside, script, style')) continue;
+      const c = el.cloneNode(true);
+      c.classList.remove('pin-title', 'pin-subtitle', 'split-columns', 'split-footer', 'dl-selected', 'dl-hover', 'dl-also');
+      out.appendChild(c);
+      kids.push([c, i]);
+    }
+    // a picture, not a form: cloned radios would uncheck the live slide's
+    out.querySelectorAll('input, button, select, textarea').forEach((inp) => { inp.removeAttribute('name'); inp.disabled = true; });
+    return { section: out, kids };
+  }
+  let lpSerial = 0;
+  /** Slide `idx` as `cell` would show it: a built-in layout, or a template with the server's slot plan. */
+  function layoutVariant(idx, cell, plan) {
+    const sec = instance._sections[idx - 1];
+    if (!sec) return null;
+    const { section, kids } = plainVariant(sec);
+    if (cell.kind === 'layout') {
+      if (cell.name !== 'auto') section.setAttribute('data-layout', cell.name);
+    } else {
+      const slots = plan?.slots ?? [];
+      for (const [c, i] of kids) {
+        const slot = slots[i];
+        if (slot) c.setAttribute('data-slot', slot); else c.removeAttribute('data-slot');
+      }
+      section.setAttribute('data-template', cell.ref);
+      const was = sec.getAttribute('data-layout');
+      if (was) section.setAttribute('data-layout', was);   // the server leaves it, and a template ignores it
+    }
+    section.classList.add('active', 'dl-lp-variant');
+    rescopeSvgIds(section, `lp${++lpSerial}-`);   // else url(#…) resolves to the live slide's
+    return section;
+  }
+  /** Lay out a variant that is in the page: its template, pinned title, split; and measure it. */
+  function settleVariant(section, idx) {
+    if (section.hasAttribute('data-template')) setupSlideTemplates([section], { systems: pageDesignSystems() });
+    applyNesting(section);
+    setupPinnedTitles([section], config);
+    setupSplit([section], () => idx, { quiet: true });
+    checkOverflow(section, idx, { quiet: true });
+    return { clip: section.getAttribute('data-overflow') || null, conflict: section.hasAttribute('data-split-conflict') };
+  }
+  /** Show a variant on the stage, over the live slide, which stays as it is underneath. → restore() */
+  function showVariant(idx, section) {
+    const live = instance._sections[idx - 1];
+    if (!live) return () => {};
+    section.classList.add('dl-layout-preview');
+    live.after(section);
+    live.classList.add('dl-layout-previewed');
+    settleVariant(section, idx);
+    return () => { section.remove(); live.classList.remove('dl-layout-previewed'); };
+  }
+  /** The deck's design systems and their templates, as the page carries them; a referenced one it lacks, said. */
+  function pickerSystems() {
+    const out = [];
+    for (const meta of document.querySelectorAll('script[type="application/json"][data-design-system-meta]')) {
+      let m;
+      try { m = JSON.parse(meta.textContent); } catch { continue; }
+      if (!m?.name) continue;
+      out.push({ name: m.name, title: m.title || m.name, templates: (m.templates ?? []).filter((t) => t && typeof t.id === 'string').map((t) => ({ id: t.id, title: t.title })) });
+    }
+    for (const ref of Array.isArray(config.designSystems) ? config.designSystems : []) {
+      const name = String(ref).split('@')[0];
+      if (name && !out.some((s) => s.name === name)) out.push({ name, title: name, templates: [], why: 'not available on this machine, so its templates cannot be shown' });
+    }
+    return out;
+  }
+  let layoutPicker = null;   // made once editmode is (below): it writes through it
 
   const instance = {
     root, stage, config,
@@ -3909,7 +4001,49 @@ export function init(userConfig = {}) {
     toggleEditor, cycleLayout, deckHistory,
     enabled: () => !printMode && !params.has('embedded') && !captureMode,
     addMenu: (btn) => addContent.open(btn),
+    layoutMenu: () => layoutPicker.open(),
   });
+  // The layout picker (layout-picker.js): the bar's Layout button and the
+  // palette's Slide layout…; every write goes through the edit server
+  const layoutCommit = createEditCommit(editmode);
+  layoutPicker = createLayoutPicker({
+    root, toast, debugLog: (...a) => debugLog(...a),
+    slideOf: () => instance.state.slide,
+    sectionAt: (idx) => instance._sections[idx - 1],
+    available: () => editmode.available(),
+    unavailableMessage: () => editmode.cannot('picking a layout'),
+    anchor: () => editbar.layoutButton(),
+    opening: () => overlays.opening(layoutPicker),
+    page: {
+      systems: pickerSystems,
+      // the ring of the slide as a PLAIN slide: what it can take once out of a template
+      ring: (idx) => {
+        const sec = instance._sections[idx - 1];
+        if (!sec) return [];
+        if (!sec.hasAttribute('data-template')) return layout.ring(idx);
+        const plain = plainVariant(sec).section;
+        return ringFor({ autoPins: autoPinY(plain, config) !== null, hasSplitPair: splitContent(plain).length > 1 });
+      },
+      plan: async (idx, ref) => {
+        const q = new URLSearchParams({ slide: String(idx), template: ref });
+        const r = await boundedFetch(`${editmode.base()}/deck/edit/slide/template/preview?${q}`);
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) throw new Error(j.error || `the edit server answered ${r.status}`);
+        return j;
+      },
+      variant: layoutVariant,
+      settle: settleVariant,
+      show: showVariant,
+      pick: (name, idx) => { layout.pick(name, idx); editbar.refresh(); },
+      // a template is laid out at load, so this write reloads every page (not quiet)
+      sendTemplate: (body) => layoutCommit.post('/deck/edit/slide/template', body, { quiet: false }),
+      slideSize: () => ({ width: config.width, height: config.height }),
+    },
+  });
+  overlays.register(layoutPicker);
+  // another slide, or another page's pick of this one: the picker is about a slide that has changed
+  instance.on('slide', () => layoutPicker.cancel());
+  root.addEventListener('decklight:layout', () => layoutPicker.cancel());
   // Moving things within a slide (element-move.js): the menu's Move rows, Control-Shift-↑ / ↓ and the handle's drag
   editmode.setElementMove(createElementMove({
     root, instance, editmode, toast, debugLog, select: (el) => editbar.selectNode(el, { exact: true }),

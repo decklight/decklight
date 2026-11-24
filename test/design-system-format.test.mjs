@@ -324,7 +324,9 @@ test('nothing about design systems says "layout": the code, and SPEC DESIGN_SYST
   ];
   assert.ok(files.length >= 4, `the globs found too little: ${files}`);
   const allowed = (file, line) => line.includes('ds-layout-attr')
-    || (file === 'src/core/design-system.js' && line.includes('the built-in `data-layout`'));
+    || (file === 'src/core/design-system.js' && line.includes('the built-in `data-layout`'))
+    // leaving a template for a built-in layout (PRESENTING_EDITING): the built-in word, said as such
+    || (file === 'SPEC.md' && line.includes('names a built-in layout'));
   const word = /\blayouts?\b/i;   // grep -w -i 'layouts?': a hyphen is a boundary
   const found = [];
   for (const file of files) {

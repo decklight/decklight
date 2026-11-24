@@ -157,6 +157,17 @@ export function applySlideTemplate(html, slide, template) {
   return { html: parts.join(''), mode, moved, lacking: [...new Set(lacking)] };
 }
 
+/**
+ * Each of slide `n`'s children in file order, and the slot it names (null for
+ * none): what the edit bar's picker (PRESENTING_EDITING) needs to draw a
+ * slide put into a template before anything is written. Its index is the one `/deck/edit/element/*`
+ * addresses, and the one the page stamps on the element it expanded.
+ */
+export function slideSlots(html, slide) {
+  const { parts, idx } = locateSlide(html, slide);
+  return sectionChildRanges(parts[idx]).map((r) => openTag(parts[idx].slice(r.start, r.end)).attrs['data-slot'] ?? null);
+}
+
 /** A tag a hint suggests for a new slide's slot, or `p`. */
 const tagFor = (hint) => hintTags(hint).find((t) => /^(h[1-6]|p|ul|ol|blockquote|figure|div)$/.test(t)) ?? 'p';
 const titleCase = (name) => name.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());

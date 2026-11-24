@@ -7978,12 +7978,17 @@
         await settle();
         press('Escape');
         await settle();
-        // Layout cycles the slide and says where it landed
+        // Layout opens the picker (PRESENTING_EDITING): a cell per layout the
+        // ring offers, and choosing one applies it and says where it landed
         bar().querySelector('.eb-layout').click();
         await settle();
-        r.layoutButtonCycles = sec1.getAttribute('data-layout') === 'centered' && labels().includes('Layout · centered');
+        const picker = document.querySelector('.decklight-layout-picker');
+        r.layoutButtonOpensThePicker = !!picker && picker.querySelectorAll('.dl-lp-cell').length === deck.layoutRing(1).length;
+        picker?.querySelector('.dl-lp-cell[aria-label^="layout centered"]')?.click();
+        await settle();
+        r.layoutPickerPicks = sec1.getAttribute('data-layout') === 'centered' && labels().includes('Layout · centered')
+          && !document.querySelector('.decklight-layout-picker, .dl-layout-preview');
         // the pick is written in place: quiet, from this page — and one picked on another page lands here without a reload
-        await new Promise((res) => setTimeout(res, 700));   // the ring's debounce
         const lp = CALLS.post.filter((c) => c.u.includes('/deck/edit/slide/layout')).pop()?.body;
         r.layoutWriteIsQuiet = lp?.quiet === true && typeof lp?.from === 'string' && lp.from.length > 0;
         window.__es.emit('layout', { slide: 1, layout: 'split', from: 'another-page' });
@@ -8020,7 +8025,7 @@
           && r.hiddenKeepsEditing && r.shownAgain && r.fullscreenHides && r.leavingShows && r.chipShown && r.chipHidesInFullscreen && r.chipBackAfter && r.presentChordStaysInWriteMode && r.buildWantsASelection && r.clickSelects && r.buildOpensTheEffects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu && r.slideMenuHides
-          && r.layoutButtonCycles && r.layoutWriteIsQuiet && r.layoutFromElsewhereLands && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
+          && r.layoutButtonOpensThePicker && r.layoutPickerPicks && r.layoutWriteIsQuiet && r.layoutFromElsewhereLands && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
           && r.doneCloses && r.paletteOffersEditing;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

@@ -43,7 +43,7 @@ const BUTTONS = [
   { id: 'text', label: 'Text', key: '⏎', title: 'select some text and press Enter, or double-click it' },
   { id: 'add', label: 'Add ▾', key: '', title: 'add a heading, text, a list, a quote, a table, code, two columns, a diagram, a chart or a picture' },
   { id: 'picture', label: 'Picture', key: '', title: 'add a picture (or drop one onto the slide)' },
-  { id: 'layout', label: 'Layout', key: '', title: 'cycle this slide\'s layout (⇧-click backwards)' },
+  { id: 'layout', label: 'Layout', key: '', title: 'choose how this slide is arranged: a template of the deck\'s design system, or a built-in layout' },
   { id: 'build', label: 'Build ▾', key: '', title: 'how the selected element arrives: fade, zoom, draw… (select it first)' },
   { id: 'notes', label: 'Notes', key: 'S', title: 'edit the speaker notes' },
   { id: 'slide', label: 'Slide ▾', key: '', title: 'new, duplicate, move or delete this slide' },
@@ -78,7 +78,7 @@ function nodeAtFilePath(top, path) {
 export function createEditBar({
   root, instance, editmode, authoring, toast, debugLog = () => {},
   toggleEditor, cycleLayout, deckHistory, enabled = () => true,
-  addMenu = null,
+  addMenu = null, layoutMenu = null,
 }) {
   let bar = null, handle = null, fileInput = null;
   let selected = null;   // the element target (editmode.elementTargetOf) under the outline
@@ -125,12 +125,14 @@ export function createEditBar({
     sync();
     for (const fn of waitingListeners) fn(want);
   }
-  const inOverlay = (node) => !!node?.closest?.('.decklight-narr, .decklight-ctxmenu, .decklight-palette, .decklight-editbar, .decklight-touch-controls, .decklight-controls');
+  const inOverlay = (node) => !!node?.closest?.('.decklight-narr, .decklight-ctxmenu, .decklight-palette, .decklight-editbar, .decklight-touch-controls, .decklight-controls, .decklight-layout-picker');
 
   // ── the bar ───────────────────────────────────────────────────────────────
   function layoutLabel() {
     const sec = instance._sections[instance.state.slide - 1];
-    return sec?.getAttribute('data-layout') || 'auto';
+    // a slide on a template is laid out by it: the bar names the template
+    const template = sec?.getAttribute('data-template') || '';
+    return template.includes('/') ? template : sec?.getAttribute('data-layout') || 'auto';
   }
   function mount() {
     if (bar) return;
@@ -145,6 +147,7 @@ export function createEditBar({
       btn.className = `eb-btn eb-${b.id}`;
       btn.title = b.title;
       btn.dataset.action = b.id;
+      if (b.id === 'layout') btn.setAttribute('aria-haspopup', 'dialog');
       const label = document.createElement('span');
       label.className = 'eb-label';
       label.textContent = b.label;
@@ -297,7 +300,7 @@ export function createEditBar({
       }
       case 'add': addMenu?.(btn); break;
       case 'picture': choosePicture(); break;
-      case 'layout': cycleLayout(e?.shiftKey ? -1 : 1); refresh(); break;
+      case 'layout': if (layoutMenu) layoutMenu(); else { cycleLayout(1); refresh(); } break;
       case 'notes': toggleEditor(); break;
       // the effects were behind a right-click and a submenu; the bar says
       // they exist, and the menu ticks the one the element has
@@ -707,6 +710,8 @@ export function createEditBar({
     },
     /** The bar's Add ▾ button while the bar is on screen (the Add menu opens above it), else null. */
     addButton: () => bar?.querySelector('.eb-add') ?? null,
+    /** The bar's Layout button while the bar is on screen (the layout picker opens above it), else null. */
+    layoutButton: () => bar?.querySelector('.eb-layout') ?? null,
     choosePicture,
     /** Select the element `node` is in, or `node` itself inside a diagram (the inspector's picker and breadcrumb). */
     selectNode(node, { exact = false } = {}) {

@@ -4729,6 +4729,74 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
 /* never wider than the window: on a narrow one the key hints go (the
    buttons' titles and the help still name them) and the buttons tighten */
 .decklight-editbar { max-width: calc(100% - 16px); box-sizing: border-box; }
+/* ---------- the layout picker (layout-picker.js, PRESENTING_EDITING) ----------
+   One short row above the bar: no taller than about a fifth of the stage, so
+   the slide it previews stays in view. The cells shrink rather than wrap, and
+   a long row scrolls sideways. Chrome, like the bar: the same glass. */
+.decklight-layout-picker {
+  position: fixed; z-index: 62;
+  max-width: min(92vw, 980px); box-sizing: border-box;
+  padding: 8px 8px 6px; border-radius: 12px;
+  border: 1px solid rgba(160, 160, 160, .28);
+  background: rgba(20, 20, 22, .9); color: #e6e6e6;
+  font: 500 12px/1.2 system-ui, sans-serif;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  outline: none;
+}
+.decklight-layout-picker .dl-lp-row { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.decklight-layout-picker .dl-lp-group { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.decklight-layout-picker .dl-lp-more + .dl-lp-builtin { padding-left: 10px; border-left: 1px solid rgba(255, 255, 255, .14); }
+/* the popover holds focus for its arrow keys; the focused CELL is what is marked */
+.decklight .decklight-layout-picker.decklight-layout-picker:is(:focus, :focus-visible) { outline: none; }
+.decklight-layout-picker .dl-lp-head { color: #a9a9b2; font-size: 11px; margin-left: 2px; white-space: nowrap; }
+.decklight-layout-picker .dl-lp-cells { display: flex; gap: 6px; }
+.decklight-layout-picker .dl-lp-note { color: #a9a9b2; max-width: 220px; line-height: 1.35; padding: 4px 2px; }
+.decklight-layout-picker .dl-lp-cell {
+  position: relative; flex: none; width: clamp(72px, 9vw, 112px);
+  padding: 3px; border-radius: 8px; border: 2px solid transparent; cursor: pointer;
+}
+.decklight-layout-picker .dl-lp-thumb {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden;
+  border-radius: 4px; border: 1px solid rgba(255, 255, 255, .14); background: rgba(255, 255, 255, .04);
+  pointer-events: none;
+}
+.decklight-layout-picker .dl-lp-thumb.dl-lp-pending { background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(255,255,255,.1), rgba(255,255,255,.04)); }
+/* a slide at its own size, scaled into the cell: the stage's rules lay it out */
+.decklight-layout-picker .dl-lp-thumb > .decklight-stage.dl-lp-stage {
+  position: absolute; top: 0; left: 0; transform-origin: top left; z-index: auto; perspective: none;
+}
+.decklight-layout-picker .dl-lp-name { display: block; margin-top: 4px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.decklight-layout-picker .dl-lp-dot { color: var(--accent, #7c9cff); font-size: 9px; vertical-align: 1px; }
+.decklight-layout-picker .dl-lp-leaves {
+  position: absolute; top: 6px; right: 6px; width: 16px; height: 16px; border-radius: 999px;
+  display: grid; place-items: center; font-size: 10px; background: rgba(20, 20, 22, .85); color: #ffd27a;
+}
+.decklight-layout-picker .dl-lp-warn { display: block; text-align: center; color: #ffb36b; font-size: 10.5px; min-height: 0; }
+.decklight-layout-picker .dl-lp-warn:empty { display: none; }
+.decklight-layout-picker .dl-lp-cell.dl-lp-focus { border-color: var(--accent, #7c9cff); background: rgba(124, 156, 255, .14); }
+.decklight-layout-picker .dl-lp-more {
+  flex: none; align-self: center; margin-top: 14px; padding: 8px 10px; border-radius: 8px; white-space: nowrap; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .2);
+}
+.decklight-layout-picker .dl-lp-more.dl-lp-focus { border-color: var(--accent, #7c9cff); background: rgba(124, 156, 255, .14); }
+.decklight-layout-picker .dl-lp-foot { margin: 6px 2px 0; color: #a9a9b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.decklight-layout-picker .dl-lp-confirm { max-width: 520px; padding: 4px 6px; line-height: 1.45; font-size: 13px; }
+.decklight-layout-picker .dl-lp-confirm p { margin: 0 0 6px; }
+.decklight-layout-picker .dl-lp-confirm b { color: #fff; }
+.decklight-layout-picker .dl-lp-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.decklight-layout-picker .dl-lp-actions button {
+  font: inherit; padding: 7px 12px; border-radius: 8px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .2); background: transparent; color: inherit;
+}
+.decklight-layout-picker .dl-lp-actions .dl-lp-leave { background: var(--accent, #7c9cff); color: var(--accent-contrast, #0b0d14); border-color: transparent; font-weight: 600; }
+.decklight-layout-picker .dl-lp-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+/* a preview sits over the live slide, which stays where it is underneath;
+   the live slide's art bled past the stage (bleed.js) is not the preview's */
+.decklight-stage > section.dl-layout-previewed { visibility: hidden; }
+.decklight:has(.decklight-stage > section.dl-layout-previewed) > .decklight-bleed { visibility: hidden; }
+.decklight-stage > section.dl-layout-preview { z-index: 3; transition: none; pointer-events: none; }
+
 @media (max-width: 960px) {
   .decklight-editbar .eb-key { display: none; }
   .decklight-editbar .eb-btn { padding: 8px 8px; }

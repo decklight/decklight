@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmp as scratch, stop } from './helpers.mjs';
 import {
-  slotWriteProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange, slideTemplateOf,
+  slotWriteProblem, applySlideTemplate, insertSlideTemplateSlide, describeTemplateChange, slideTemplateOf, slideSlots,
 } from '../cli/design-system-edit.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -142,6 +142,60 @@ test('POST /deck/edit/slide/template: convert, switch, insert and remove — eac
   assert.match((await post(base, '/deck/edit/slide/template', { slide: 1, template: 'acme/nope' })).error, /acme@acme-mkt has no template "nope" — it has section-divider, statement/);
   assert.match((await post(base, '/deck/edit/slide/template', { slide: 1, template: 'other/x' })).error, /does not use a design system called "other"/);
   assert.equal((await post(base, '/deck/edit/slide/template', { slide: 1, template: null, insert: true })).status, 400);
+  assert.equal(readFileSync(deckPath, 'utf8'), original);
+});
+
+test('slideSlots: each child of a slide in file order and the slot it names, notes included as null', () => {
+  assert.deepEqual(slideSlots(deck(PLAIN), 1), [null, null, null, null]);
+  assert.deepEqual(slideSlots(applySlideTemplate(deck(PLAIN), 1, DIVIDER).html, 1), ['title', 'kicker', null, null],
+    'the index is the one /deck/edit/element/* addresses; a leftover and the notes name no slot');
+});
+
+test('GET /deck/edit/slide/template/preview says what a template would do, and writes nothing (the layout picker)', async (t) => {
+  const h = home(t);
+  const { base, deck: deckPath } = await startEditingTour(t, h, deck(PLAIN));
+  const original = readFileSync(deckPath, 'utf8');
+  const get = async (q) => { const r = await fetch(`${base}/deck/edit/slide/template/preview${q}`); return { status: r.status, ...(await r.json()) }; };
+  const into = await get('?slide=1&template=acme/section-divider');
+  assert.equal(into.status, 200, JSON.stringify(into));
+  assert.equal(into.mode, 'convert');
+  assert.deepEqual(into.slots, ['title', 'kicker', null, null]);
+  assert.match(into.said, /h2 → title \(hint h1,h2\)/);
+  const plain = await get('?slide=1&template=');
+  assert.equal(plain.mode, 'remove');
+  assert.deepEqual(plain.slots, [null, null, null, null]);
+  assert.match((await get('?slide=1&template=acme/nope')).error, /has no template "nope"/);
+  assert.equal((await get('?slide=0&template=acme/statement')).status, 400);
+  assert.equal(readFileSync(deckPath, 'utf8'), original, 'a preview is never a write');
+});
+
+test('POST /deck/edit/slide/template with a layout leaves the template and takes the layout in one undo', async (t) => {
+  const h = home(t);
+  const { base, deck: deckPath } = await startEditingTour(t, h, deck(PLAIN));
+  const original = readFileSync(deckPath, 'utf8');
+  await post(base, '/deck/edit/slide/template', { slide: 1, template: 'acme/section-divider' });
+  const templated = readFileSync(deckPath, 'utf8');
+  const left = await post(base, '/deck/edit/slide/template', { slide: 1, template: null, layout: 'split' });
+  assert.equal(left.status, 200, JSON.stringify(left));
+  assert.equal(left.mode, 'remove');
+  assert.match(left.said, / · layout split$/);
+  const now = readFileSync(deckPath, 'utf8');
+  assert.equal(slideTemplateOf(now, 1), '', 'out of the template');
+  assert.match(now, /<section class="plain" data-layout="split">/);
+  assert.match(now, /<h2 data-slot="title">A title<\/h2>/, 'the slot names stay, so the template can take the slide back');
+  // back into the same template: the file it was in the template, byte for byte
+  await post(base, '/deck/edit/slide/template', { slide: 1, template: 'acme/section-divider' });
+  await post(base, '/deck/edit/slide/template', { slide: 1, template: null, layout: 'auto' });
+  await post(base, '/deck/edit/undo', {});
+  await post(base, '/deck/edit/undo', {});
+  assert.equal(readFileSync(deckPath, 'utf8'), now, 'each change is one undo');
+  await post(base, '/deck/edit/undo', {});
+  assert.equal(readFileSync(deckPath, 'utf8'), templated, 'leaving and taking the layout was ONE undo');
+  await post(base, '/deck/edit/undo', {});
+  assert.equal(readFileSync(deckPath, 'utf8'), original);
+  // a layout only goes with leaving, and only a built-in one
+  assert.equal((await post(base, '/deck/edit/slide/template', { slide: 1, template: 'acme/statement', layout: 'split' })).status, 400);
+  assert.equal((await post(base, '/deck/edit/slide/template', { slide: 1, template: null, layout: 'three-up' })).status, 400);
   assert.equal(readFileSync(deckPath, 'utf8'), original);
 });
 

@@ -86,6 +86,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'GET /deck/edit/element/source',
     'GET /deck/edit/find',
     'GET /deck/edit/slide/source',
+    'GET /deck/edit/slide/template/preview',
     'POST /deck/edit/asset',
     'POST /deck/edit/concepts',
     'POST /deck/edit/element/build',
