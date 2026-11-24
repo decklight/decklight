@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { currentChoice, pickerCells, builtinsShownAtOpen, pickerItems, initialFocus, writeFor, cellLabel, runQueued, failureLine, PLAN_CONCURRENCY } from '../src/core/layout-picker.js';
+import { currentChoice, pickerCells, builtinsShownAtOpen, pickerItems, initialFocus, writeFor, cellLabel, runQueued, failureLine, PLAN_CONCURRENCY, cellWarning, cellDetail, lookSize, lookStep } from '../src/core/layout-picker.js';
 
 const RING = ['auto', 'centered', 'top', 'split', 'split-flip'];
 const ACME = { name: 'acme', title: 'Acme Brand', templates: [{ id: 'section-divider', title: 'Section divider' }, { id: 'statement' }] };
@@ -96,4 +96,34 @@ test('failureLine: said once for the panel, each reason once (#1240)', () => {
   assert.equal(failureLine([{ name: 'Quote', error: 'no answer in 8s' }]), 'no preview for Quote: no answer in 8s');
   assert.equal(failureLine([{ name: 'Quote', error: 'no answer in 8s' }, { name: 'Cover', error: 'no answer in 8s' }, { name: 'Agenda', error: 'gone' }]),
     'no preview for 3 templates: no answer in 8s; gone');
+});
+
+test('cellWarning and cellDetail: the tile says how many parts, the large preview names them (#1241)', () => {
+  assert.equal(cellWarning({}), '');
+  assert.equal(cellWarning({ error: 'gone', lacking: ['quote'] }), '');   // said in the status line
+  assert.equal(cellWarning({ lacking: ['quote'] }), '1 part has no slot');
+  assert.equal(cellWarning({ conflict: true, clip: {} }), 'fights its columns');
+  assert.equal(cellWarning({ clip: {} }), 'clips');
+  assert.equal(cellDetail({ lacking: ['quote', 'author'] }), '2 parts have no slot: "quote", "author"');
+  assert.equal(cellDetail({ clip: {} }), 'clips');
+});
+
+test('lookSize: the largest box at the deck\'s aspect ratio that fits the window with a margin (#1241)', () => {
+  const wide = lookSize({ vw: 1280, vh: 800, width: 1600, height: 900 });
+  assert.equal(Math.round(wide.width / wide.height * 100), Math.round(1600 / 900 * 100));
+  assert.ok(wide.width <= 1280 - 96 && wide.height <= 800 - 96 - 64);
+  assert.ok(wide.width === 1280 - 96 || wide.height === 800 - 96 - 64, 'one side touches the margin');
+  const tall = lookSize({ vw: 600, vh: 1200, width: 1600, height: 900 });
+  assert.equal(tall.width, 600 - 96);
+  assert.ok(lookSize({ vw: 10, vh: 10, width: 1600, height: 900 }).scale > 0);
+});
+
+test('lookStep: the arrows move from cell to cell, past the More layouts toggle, round the ends (#1241)', () => {
+  const items = [{ kind: 'template' }, { kind: 'template' }, { kind: 'more' }, { kind: 'layout' }];
+  assert.equal(lookStep(items, 0, 1), 1);
+  assert.equal(lookStep(items, 1, 1), 3);
+  assert.equal(lookStep(items, 3, 1), 0);
+  assert.equal(lookStep(items, 0, -1), 3);
+  assert.equal(lookStep(items, 3, -1), 1);
+  assert.equal(lookStep([{ kind: 'layout' }, { kind: 'more' }], 0, 1), 0);
 });
