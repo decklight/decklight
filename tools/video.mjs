@@ -35,6 +35,7 @@ import { serveForRender } from '../cli/serve.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
 import { staleSlides, slideTexts, priorSlideTexts, slideNotes, markerPauses } from './narration-manifest.mjs';
 import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs';
+import { lipsyncAfterVoicing } from './lipsync-auto.mjs';
 import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } from './tts-engines.mjs';
 import { loadTtsConfig } from './tts-setup.mjs';
 import { createTtsCache } from './tts-cache.mjs';
@@ -819,6 +820,7 @@ export function resolveNarration(deckPath, narrationDir) {
 export async function revoiceStale({
   html, narration, stale, log = console.log, env = process.env,
   create = createEngine, status = engineStatus, cache = createTtsCache(),
+  lipsync = lipsyncAfterVoicing,
 }) {
   const { dir, engine } = narration;
   if (!engine || !ENGINES.includes(engine)) {
@@ -860,6 +862,9 @@ export async function revoiceStale({
         format: trackFormat(prev) ?? 'wav', range: { from: n, to: n }, prev, cache, log,
       });
     }
+    // the re-voiced slides' lip-sync, cut from their new audio in one parallel
+    // run (#1244) — before the export checks every sidecar it will play
+    if (lipsync) await lipsync({ html, dir, log });
     return { ok: true };
   } catch (e) {
     return { ok: false, why: e.message };
@@ -1253,7 +1258,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       // in its own voice, and the check runs again on what that wrote (#553).
       let unrevoiced = null;
       if (stale.length && !argv.includes('--no-revoice')) {
-        const r = await revoiceStale({ html, narration, stale, log });
+        const r = await revoiceStale({ html, narration, stale, log, ...(argv.includes('--no-face') ? { lipsync: null } : {}) });
         if (r.ok) {
           narration = resolveNarration(deck, narration.dir);
           ({ stale } = staleSlides(narration, slideTexts(html), range, priorSlideTexts(html)));

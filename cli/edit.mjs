@@ -5168,6 +5168,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
   // Ahead of the shared body read below because this body is BINARY and
   // megabytes of it: a slide of speech is ~48 kB a second, so the string
   // concat and its 1 MB ceiling would both be wrong.
+  /** A track folder named by a request, inside the served root; null for one that is not. */
+  function trackDir(want) {
+    const bad = want.length > 200 || /^[/\\]/.test(want) || /^[a-zA-Z]:/.test(want)
+      || want.split(/[/\\]/).includes('..');
+    const dir = bad ? null : resolve(deckPath, '..', want);
+    return dir && (dir.startsWith(root + sep) || dir === root) ? dir : null;
+  }
   async function recordRoute({ req, url, json }) {
     const slide = Number(url.searchParams.get('slide'));
     const kind = url.searchParams.get('kind');
@@ -5191,12 +5198,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // and `..`, absolute paths and Windows drive letters are refused before
     // it, because `resolve` would happily swallow all three.
     const want = url.searchParams.get('dir') || 'voiceover';
-    const bad = want.length > 200 || /^[/\\]/.test(want) || /^[a-zA-Z]:/.test(want)
-      || want.split(/[/\\]/).includes('..');
-    const dir = bad ? null : resolve(deckPath, '..', want);
-    if (!dir || (!dir.startsWith(root + sep) && dir !== root)) {
-      return json(400, { ok: false, error: 'the recording folder must sit inside the deck\'s own directory' });
-    }
+    const dir = trackDir(want);
+    if (!dir) return json(400, { ok: false, error: 'the recording folder must sit inside the deck\'s own directory' });
     const stem = `slide-${String(slide).padStart(2, '0')}`
       + (seg === null ? '' : `-${String(seg).padStart(2, '0')}`);
     const name = `${stem}.${kind === 'wav' ? 'wav' : kind === 'face' ? 'mp4' : 'visemes.json'}`;
@@ -5336,14 +5339,73 @@ export async function editMain(args, { onListen = null, client } = {}) {
     return json(200, { ok: true, dir: want, file: name });
   }
 
+  // Lip-sync that follows the audio (#1244, SPEC CHARACTER). A track's
+  // sidecars are checked against its audio (tools/lipsync-auto.mjs) for the
+  // voice card, and remade here in the background — Rhubarb takes minutes on
+  // a long slide — after the deck generated a recording the bridge could not
+  // cut lip-sync for, or when the card's "Update lip-sync" asks. One job per
+  // folder; its progress is in the tracks answer, which the deck polls.
+  const lipsyncJobs = new Map();   // track dir, as the deck names it → { total, done, made, error, running }
+  async function lipsyncRoute({ url, json }) {
+    const want = url.searchParams.get('dir') || 'voiceover';
+    const dir = trackDir(want);
+    if (!dir) return json(400, { ok: false, error: 'the track folder must sit inside the deck\'s own directory' });
+    const key = want.split(/[/\\]/).filter(Boolean).join('/');
+    const running = lipsyncJobs.get(key);
+    if (running?.running) return json(200, { ok: true, ...running });
+    const { lipsyncStatus, makeLipsync, haveRhubarb, RHUBARB_HINT } = await import('../tools/lipsync-auto.mjs');
+    const stems = lipsyncStatus(dir).stale.map((st) => st.stem);
+    if (!stems.length) {
+      lipsyncJobs.delete(key);
+      return json(200, { ok: true, total: 0, done: 0, made: 0, error: null, running: false });
+    }
+    if (!haveRhubarb()) return json(412, { ok: false, rhubarb: false, error: RHUBARB_HINT });
+    const job = { total: stems.length, done: 0, made: 0, error: null, running: true };
+    lipsyncJobs.set(key, job);
+    console.log(`  lip-sync: cutting ${stems.length} file${stems.length === 1 ? '' : 's'} in ${key}/ with Rhubarb…`);
+    makeLipsync(dir, stems, {
+      log: (line) => {
+        console.log(line);
+        const m = /\[(\d+)\/\d+\]/.exec(line);
+        if (m) job.done = Math.max(job.done, Number(m[1]));
+      },
+    }).then((r) => {
+      Object.assign(job, { running: false, made: r.made, error: r.why, done: r.ok ? job.total : job.done });
+      console.log(r.ok ? `  lip-sync: ${r.made} file${r.made === 1 ? '' : 's'} made in ${key}/`
+        : `  lip-sync: not made in ${key}/ — ${r.why}`);
+    });
+    return json(200, { ok: true, ...job });
+  }
+
+  /**
+   * A track's lip-sync, for the voice card: of the files the 2D character
+   * plays, how many have a sidecar that is missing or another recording's,
+   * the first reason, and the job remaking them, if there is one.
+   */
+  function lipsyncOf(lips, rel) {
+    const key = rel.split(/[/\\]/).filter(Boolean).join('/');
+    const { stems, stale } = lips.lipsyncStatus(resolve(deckPath, '..', rel));
+    const job = lipsyncJobs.get(key);
+    return {
+      of: stems.length,
+      stale: stale.length,
+      why: stale[0] ? `${stale[0].stem}: ${stale[0].why}` : null,
+      ...(job ? { job: { ...job } } : {}),
+    };
+  }
+
   // What tracks already sit next to this deck. The runtime cannot see the
   // filesystem — which is why `segments: true` is opt-in at all — so it
   // cannot know that `voices/rachel` is taken before proposing it. One
   // question, asked when a recorder opens.
-  function tracksRoute({ json }) {
+  async function tracksRoute({ url, json }) {
     const root2 = resolve(deckPath, '..');
     const seen = [];
     const deck = readDeck();
+    // the deck says which character it plays (a viewer may have switched it
+    // from what the file configures); only a 2D one mouths a sidecar
+    const lips = url?.searchParams?.get('character') === 'viseme'
+      ? await import('../tools/lipsync-auto.mjs') : null;
     const texts = slideTexts(deck);
     const prior = priorSlideTexts(deck);
     const look = (rel) => {
@@ -5402,6 +5464,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
           // voice leaves (folderNarration). Beats alone render nothing.
           renders: manifest || wav.some((e) => /^slide-\d+\./.test(e.name)),
           stale,
+          // …and whether the 2D character's lip-sync is this audio's (#1244)
+          ...(lips ? { lipsync: lipsyncOf(lips, rel) } : {}),
         });
       }
       return entries;
@@ -6001,6 +6065,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
 
     'POST /deck/edit/narration/record': recordRoute,
     'GET /deck/edit/narration/tracks': tracksRoute,
+    'POST /deck/edit/narration/lipsync': lipsyncRoute,
     'POST /deck/edit/narration/realign': realignRoute,
 
     'POST /deck/edit/agent': agentRoute,

@@ -60,6 +60,7 @@ import { cueFor, cutNote } from './tone-cue.mjs';
 import { argReader } from './args.mjs';
 import { sectionBodies } from './deck-html.mjs';
 import { parseSlideRange } from './video.mjs';
+import { lipsyncAfterVoicing } from './lipsync-auto.mjs';
 import { synthesizeSlides, readTrack, trackFormat, planLine, TRACK_FORMATS, DEFAULT_FORMAT } from './narration-synth.mjs';
 
 const args = process.argv.slice(2);
@@ -99,6 +100,9 @@ track has one voice.
   --slides a-b   voice only this range (1-based, inclusive; "7" for one slide)
                  — every other slide's files and manifest entry are left alone
   --no-cache     re-synthesize every slide, ignoring the shared clip cache
+  --no-face      a deck with a 2D character (narration.character.mode: 'viseme')
+                 has the lip-sync of what was voiced cut afterwards, with
+                 Rhubarb, in parallel; this skips it
 
 Synthesis is cached on disk (~/.cache/decklight/tts) under a key made of
 (engine, model, format, voice, style, text) — the SAME key the live bridge
@@ -117,7 +121,7 @@ if (args.includes('--help') || args.includes('-h')) { console.log(HELP); process
 // take `out` for the deck.
 const VALUE_OPTIONS = new Set(['-o', '--engine', '--voice', '--style', '--data-dir', '--project',
   '--location', '--lang', '--tts-model', '--tts-format', '--slides', '--format']);
-const SWITCHES = new Set(['--reuse-text', '--keep-wav', '--no-cache']);
+const SWITCHES = new Set(['--reuse-text', '--keep-wav', '--no-cache', '--no-face']);
 let deckPath;
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -211,6 +215,9 @@ try {
     console.log(`${retried.length} take${retried.length === 1 ? '' : 's'} retried, worth a listen:`);
     for (const line of retried) console.log(`  ${line}`);
   }
+  // a deck with a 2D character mouths this audio: its lip-sync is cut now,
+  // from what was just written, rather than left for --face (#1244)
+  if (!args.includes('--no-face')) await lipsyncAfterVoicing({ html, dir: outDir });
 } catch (e) {
   console.error(`decklight narrate: ${e.message}`);
   process.exitCode = 1;
