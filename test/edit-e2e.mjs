@@ -820,6 +820,43 @@ try {
     check('layout', 'one undo takes it back', text.read() === original);
     await page.close();
   });
+
+  // Many tabs of one deck (#1240): one browser profile shares six sockets per
+  // origin, and every tab used to pin one to /deck/events. Seven tabs share
+  // one stream, so an editor read from the last still gets an answer, and a
+  // change to the file still reaches the first.
+  await scenario('tabs', async () => {
+    const srv = await serve('outside');
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pages = [];
+    try {
+      for (let i = 0; i < 7; i++) {
+        const page = await ctx.newPage();
+        page.on('pageerror', (e) => errors.push(e.message));
+        await page.goto(srv.url + '#/1/0', { timeout: 15000 });
+        await page.waitForSelector(ACTIVE, { timeout: 15000 });
+        pages.push(page);
+      }
+      await wait(1500);
+      const last = pages[6];
+      const read = await last.evaluate(async () => {
+        const t0 = performance.now();
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 6000);
+        try {
+          const r = await fetch('/deck/edit/element/source?slide=1&index=0', { signal: ctl.signal });
+          return { status: r.status, ms: Math.round(performance.now() - t0) };
+        } catch (e) { return { error: String(e), ms: Math.round(performance.now() - t0) }; } finally { clearTimeout(timer); }
+      });
+      check('tabs', 'seven tabs open, and an editor read from the last answers', read.status === 200, JSON.stringify(read));
+      await pages[0].evaluate(() => { window.__marker = 'kept'; });
+      writeFileSync(path.join(dir, 'outside.html'), FIXTURES.outside.replace('<h2>Alpha</h2>', '<h2>Alpha, edited</h2>'));
+      const seen = await pages[0].waitForFunction((sel) => /Alpha, edited/.test(document.querySelector(sel)?.textContent ?? ''), ACTIVE, { timeout: 6000 }).then(() => true, () => false);
+      check('tabs', 'the first tab still hears the file change', seen);
+    } finally {
+      await ctx.close().catch(() => {});
+    }
+  });
 } finally {
   await browser.close().catch(() => {});
   for (const s of servers) s.kill();

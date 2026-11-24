@@ -46,6 +46,7 @@ import { aiIcon } from './aiicon.js';
 import { createEditCommit } from './edit-commit.js';
 import { landing } from './outside-edit.js';
 import { clipReport, clipSentence } from './overflow.js';
+import { sharedEventSource } from './shared-events.js';
 
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
@@ -797,7 +798,7 @@ export function createEditMode({
           reopenNotes();      // …and the notes card a save reloaded, where the author was
           reopenContentEditor();   // …and the HTML editor, on the element its ⌘⏎ saved
           reopenPanel(root);       // …and whichever other panel held the slot (the inspector)
-          const es = new EventSource(base + '/deck/events');
+          const es = sharedEventSource(base + '/deck/events');
           // the server says what wrote the file; the debug log keeps it across
           // the reload. An outside edit of slides alone is swapped in place.
           es.onmessage = (ev) => fileChanged(ev.data);
@@ -1343,7 +1344,7 @@ export function createEditMode({
       // overlay existing and being permanently empty.
       deckBase = base;
       presenting = true;
-      const es = new EventSource(base + '/deck/events');
+      const es = sharedEventSource(base + '/deck/events');
       // No `onmessage` handler: the unnamed `reload` message is write mode's,
       // and no-trust mode never sends one — it serves the audited bytes.
       wireClicker(base, es, j);

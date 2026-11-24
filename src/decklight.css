@@ -4780,6 +4780,10 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
   border: 1px solid rgba(255, 255, 255, .2);
 }
 .decklight-layout-picker .dl-lp-more.dl-lp-focus { border-color: var(--accent, #7c9cff); background: rgba(124, 156, 255, .14); }
+.decklight-layout-picker .dl-lp-status { display: flex; align-items: center; gap: 8px; margin: 6px 2px 0; color: #ffb36b; }
+.decklight-layout-picker .dl-lp-status[hidden] { display: none; }
+.decklight-layout-picker .dl-lp-status span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-layout-picker .dl-lp-retry { font: inherit; color: inherit; background: transparent; border: 1px solid currentColor; border-radius: 4px; padding: 1px 8px; cursor: pointer; }
 .decklight-layout-picker .dl-lp-foot { margin: 6px 2px 0; color: #a9a9b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .decklight-layout-picker .dl-lp-confirm { max-width: 520px; padding: 4px 6px; line-height: 1.45; font-size: 13px; }
 .decklight-layout-picker .dl-lp-confirm p { margin: 0 0 6px; }
