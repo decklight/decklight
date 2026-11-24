@@ -1662,7 +1662,16 @@ test('POST /deck/edit/narration/record writes slide-NN.wav into a folder beside 
     method: 'POST', body: tl,
   })).json();
   assert.equal(v.file, 'slide-07.visemes.json');
-  assert.equal(readFileSync(path.join(dir, 'voiceover', 'slide-07.visemes.json'), 'utf8'), tl);
+  // …stamped with the WAV it was cut from (#1244), so no reader takes it for
+  // the lip-sync of a later take
+  const { audioStamp } = await import('../tools/viseme-match.mjs');
+  const sidecar = path.join(dir, 'voiceover', 'slide-07.visemes.json');
+  assert.deepEqual(JSON.parse(readFileSync(sidecar, 'utf8')), { frames: [], audio: audioStamp(wav) });
+
+  // A new take of the audio takes the old sidecar away: when the deck cannot
+  // cut a new one (the bridge is down), nothing is left to mouth the old take.
+  await fetch(base + '/deck/edit/narration/record?slide=7&kind=wav&dir=voiceover', { method: 'POST', body: Buffer.from('RIFF....WAVEfmt 2') });
+  assert.ok(!existsSync(sidecar), "the old take's sidecar is gone");
 
   // a deck that names its own narration folder records into THAT one
   await fetch(base + '/deck/edit/narration/record?slide=1&kind=wav&dir=audio%2Ftake-2', { method: 'POST', body: wav });
@@ -1705,7 +1714,9 @@ test('POST /deck/edit/narration/record?seg writes slide-NN-KK.wav — and refuse
     method: 'POST', body: tl,
   })).json();
   assert.equal(v.file, 'slide-04-02.visemes.json');
-  assert.equal(readFileSync(path.join(dir, 'voiceover', 'slide-04-02.visemes.json'), 'utf8'), tl);
+  const { audioStamp } = await import('../tools/viseme-match.mjs');
+  assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'voiceover', 'slide-04-02.visemes.json'), 'utf8')),
+    { ...JSON.parse(tl), audio: audioStamp(wav) }, "stamped with the BEAT's audio, not the slide's");
 });
 
 // ── the Camera option: your face, filmed with every beat ─────────────────

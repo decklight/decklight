@@ -41,6 +41,7 @@ import { createTtsCache } from './tts-cache.mjs';
 import { faceLayout } from './face-layout.mjs';
 import { videoCache, videoDigest, videoMarkup } from './video-cache.mjs';
 import { captureLive } from './video-live.mjs';
+import { visemeMismatch } from './viseme-match.mjs';
 
 const run = promisify(execFile);
 
@@ -311,6 +312,66 @@ export function readVisemes(file) {
     if (!Array.isArray(tl?.cues)) return null;
     return { ...tl, cues: tl.cues.filter((c) => Number.isFinite(c?.t) && typeof c?.v === 'string').sort((a, b) => a.t - b.t) };
   } catch { return null; }
+}
+
+const LIPSYNC = fileURLToPath(new URL('./lipsync.mjs', import.meta.url));
+
+/**
+ * The viseme timeline for each `{ audio, file, duration }`, checked against
+ * that audio (tools/viseme-match.mjs). A sidecar that is missing, unreadable
+ * or another recording's is remade through tools/lipsync.mjs; when that cannot
+ * run (no Rhubarb), the export stops and names the command that makes them.
+ * Returns file → timeline.
+ */
+export async function visemesFor(items, { dir, deck, log = console.log, remakeWith = remakeVisemes } = {}) {
+  const unique = [...new Map(items.map((it) => [it.file, it])).values()];
+  let state = {};
+  try { state = JSON.parse(readFileSync(join(dir, 'lipsync.json'), 'utf8')); } catch { /* none kept */ }
+  const check = (it) => {
+    const tl = readVisemes(it.file);
+    if (!tl) return { tl: null, why: existsSync(it.file) ? 'it is not a viseme timeline' : 'it is missing' };
+    const stem = basename(it.file, '.visemes.json');
+    const txt = join(dirname(it.file), `${stem}.txt`);
+    const why = visemeMismatch(tl, {
+      audioBytes: existsSync(it.audio) ? readFileSync(it.audio) : null,
+      stateHash: state[stem]?.visemes ?? null,
+      text: existsSync(txt) ? readFileSync(txt, 'utf8').trim() : '',
+      duration: it.duration,
+    });
+    return { tl, why };
+  };
+  const out = new Map();
+  const bad = [];
+  for (const it of unique) {
+    const r = check(it);
+    if (r.why) bad.push({ ...it, why: r.why }); else out.set(it.file, r.tl);
+  }
+  if (!bad.length) return out;
+  const n = bad.length;
+  const files = (list) => list.map((b) => basename(b.file)).join(', ');
+  for (const b of bad) log(`  lip-sync: ${basename(b.file)} does not match its audio — ${b.why}`);
+  log(`  lip-sync: remaking ${n} file${n === 1 ? '' : 's'} with Rhubarb…`);
+  const failed = await remakeWith(dir, bad.map((b) => basename(b.file, '.visemes.json')));
+  const left = [];
+  for (const b of bad) {
+    const r = check(b);
+    if (r.why) left.push(b); else out.set(b.file, r.tl);
+  }
+  if (left.length) {
+    throw new Error(`the animated character's lip-sync does not match its audio in ${files(left)}`
+      + `${failed ? ` and could not be remade here: ${failed}` : ''}`
+      + ` — run decklight narrate ${basename(deck)} --face, or pass --no-face`);
+  }
+  log(`  lip-sync: remade ${n} file${n === 1 ? '' : 's'} to match ${n === 1 ? 'its' : 'their'} audio`);
+  return out;
+}
+
+/** tools/lipsync.mjs on just these stems; the reason it failed, or null. */
+function remakeVisemes(dir, stems) {
+  const r = spawnSync(process.execPath, [LIPSYNC, dir, '--visemes', '--remake', stems.join(',')],
+    { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8' });
+  if (r.status === 0) return null;
+  return String(r.stderr ?? r.error?.message ?? '').trim().split('\n').pop() || `lipsync exited ${r.status}`;
 }
 
 /**
@@ -1289,19 +1350,25 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       const faces = extractFaces(html);
       const faceOn = !argv.includes('--no-face');
       const faceContext = { narration, faces, defaultCorner: characterConfig.position };
-      const plan = basePlan.map((p) => {
+      const drafts = basePlan.map((p) => {
         const face = faceOn ? faceFor(p, faceContext) : null;
         const placement = exportFaceLayout(p, faces);
         const audio = p.audio ? join(narration.dir, p.audio) : null;
-        let poses = [];
-        let visemeFile = null;
-        if (faceOn && characterConfig.mode === 'viseme' && audio && !face && placement.kind !== 'hide') {
-          visemeFile = audio.replace(/\.[^.]+$/, '.visemes.json');
-          const timeline = readVisemes(visemeFile);
-          if (!timeline) throw new Error('animated character needs ' + basename(visemeFile)
-            + ' — run decklight narrate ' + basename(deck) + ' --face');
-          poses = characterFrames({ ...p, placement }, timeline).filter((pose) => pose.character);
-        }
+        const visemeFile = faceOn && characterConfig.mode === 'viseme' && audio && !face && placement.kind !== 'hide'
+          ? audio.replace(/\.[^.]+$/, '.visemes.json') : null;
+        return { p, audio, face, placement, visemeFile };
+      });
+      // Every sidecar is checked against the audio it will play beside before
+      // a frame is drawn (#1244): one another recording left behind would have
+      // the character mouth that recording. Missing or out of step, it is
+      // made again when Rhubarb is here, and the export stops otherwise.
+      const timelines = await visemesFor(drafts.filter((d) => d.visemeFile)
+        .map((d) => ({ audio: d.audio, file: d.visemeFile, duration: durations[d.p.audio] })),
+      { dir: narration?.dir, deck, log });
+      const plan = drafts.map(({ p, audio, face, placement, visemeFile }) => {
+        const poses = visemeFile
+          ? characterFrames({ ...p, placement }, timelines.get(visemeFile)).filter((pose) => pose.character)
+          : [];
         return { ...p, audio, face, poses, visemeFile };
       });
       if (!plan.length) throw new Error('the selected range has no visible slides');
