@@ -102,6 +102,35 @@ export function cellLabel(cell) {
   return `${what}${cell.current ? ', current' : ''}${cell.leaves ? ', leaves the template' : ''}`;
 }
 
+/** How many dry runs the picker has in flight at once: a deck of ten templates does not need ten free sockets. */
+export const PLAN_CONCURRENCY = 2;
+
+/**
+ * Run `jobs` (functions returning promises) at most `limit` at a time, in
+ * order. Resolves when all have settled; a failure is the job's own to handle.
+ */
+export function runQueued(jobs, limit = PLAN_CONCURRENCY) {
+  let next = 0;
+  const worker = async () => {
+    while (next < jobs.length) {
+      const job = jobs[next++];
+      try { await job(); } catch { /* the job's own */ }
+    }
+  };
+  return Promise.all(Array.from({ length: Math.max(1, Math.min(limit, jobs.length)) }, worker)).then(() => {});
+}
+
+/**
+ * The picker's status line once dry runs failed: said once for the panel, not on
+ * every tile. `failed` is the template cells whose preview could not be made.
+ */
+export function failureLine(failed) {
+  if (!failed.length) return '';
+  const reasons = [...new Set(failed.map((c) => c.error).filter(Boolean))];
+  const what = failed.length === 1 ? `no preview for ${failed[0].name}` : `no preview for ${failed.length} templates`;
+  return reasons.length ? `${what}: ${reasons.join('; ')}` : what;
+}
+
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /**
@@ -144,13 +173,6 @@ export function createLayoutPicker({
     };
     st.items = pickerItems(cells, { hasSystems: systems.length > 0, shown });
     st.focus = initialFocus(st.items);
-    // the server's dry run for every template, asked once: what a cell shows is what choosing it writes
-    for (const t of cells.templates) {
-      st.plans.set(t.ref, page.plan(idx, t.ref).then(
-        (p) => { t.plan = p; t.lacking = p?.lacking ?? []; },
-        (e) => { t.error = String(e?.message ?? e); },
-      ).then(() => { if (st && el) { drawThumb(t); paintCell(t); } }));
-    }
     el = document.createElement('div');
     el.className = 'decklight-layout-picker';
     el.setAttribute('role', 'dialog');
@@ -162,6 +184,7 @@ export function createLayoutPicker({
     place();
     el.focus({ preventScroll: true });
     document.addEventListener('pointerdown', outside, true);
+    askPlans();
     debugLog('layout', `picker open on slide ${idx}: ${st.items.length} items`);
   }
 
@@ -182,6 +205,50 @@ export function createLayoutPicker({
     el = null;
     st = null;
     anchor()?.focus?.({ preventScroll: true });
+  }
+
+  /**
+   * The server's dry run for every template still without one: what a cell
+   * shows is what choosing it writes. Queued, a few at a time, so the picker
+   * never needs one free connection per template; asked again by Retry.
+   */
+  function askPlans() {
+    if (!st) return;
+    const mine = st;
+    const todo = mine.cells.templates.filter((t) => !t.plan && !mine.plans.has(t.ref));
+    for (const t of todo) { delete t.error; drawThumb(t); paintCell(t); }
+    paintStatus();
+    runQueued(todo.map((t) => () => {
+      if (st !== mine) return undefined;   // closed, or opened again: nothing to ask for
+      const p = page.plan(mine.idx, t.ref).then(
+        (plan) => { t.plan = plan; t.lacking = plan?.lacking ?? []; },
+        (e) => { t.error = String(e?.message ?? e); },
+      ).then(() => {
+        mine.plans.delete(t.ref);
+        if (st === mine && el) { drawThumb(t); paintCell(t); paintStatus(); if (mine.items[mine.focus] === t) { foot(describeFocus()); preview(t); } }
+      });
+      mine.plans.set(t.ref, p);
+      return p;
+    }));
+  }
+
+  /** The one line that says why previews are missing, with a retry; empty while none failed. */
+  function paintStatus() {
+    const box = el?.querySelector('.dl-lp-status');
+    if (!box || !st) return;
+    const failed = st.cells.templates.filter((t) => t.error);
+    const line = failureLine(failed);
+    box.hidden = !line;
+    if (!line) { box.replaceChildren(); return; }
+    const text = document.createElement('span');
+    text.textContent = line;
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'dl-lp-retry';
+    retry.textContent = 'Retry';
+    retry.title = 'ask for the missing previews again (R)';
+    retry.addEventListener('click', () => { askPlans(); el?.focus({ preventScroll: true }); });
+    box.replaceChildren(text, retry);
   }
 
   function unpreview() {
@@ -241,7 +308,7 @@ export function createLayoutPicker({
       for (const c of cells.builtins) html += cellHtml(c);
       html += '</div></div>';
     }
-    html += '</div><div class="dl-lp-foot" aria-live="polite"></div>';
+    html += '</div><div class="dl-lp-status" role="status" hidden></div><div class="dl-lp-foot" aria-live="polite"></div>';
     el.innerHTML = html;
     el.querySelectorAll('[data-i]').forEach((n) => {
       const i = Number(n.dataset.i);
@@ -249,6 +316,7 @@ export function createLayoutPicker({
       n.addEventListener('click', () => { focusAt(i, { scroll: false }); choose(); });
     });
     for (const c of [...cells.templates, ...(st.shown ? cells.builtins : [])]) { drawThumb(c); paintCell(c); }
+    paintStatus();
     focusAt(st.focus, { preview: false });
   }
 
@@ -285,13 +353,15 @@ export function createLayoutPicker({
   function paintCell(cell) {
     const node = el?.querySelector(`.dl-lp-thumb[data-key="${CSS.escape(cell.key)}"]`)?.parentElement;
     if (!node) return;
-    const warn = cell.error ? 'no preview'
+    // a failed dry run is said once, in the status line; the tile only shows its dash
+    const warn = cell.error ? ''
       : cell.lacking?.length ? `${cell.lacking.length} part${cell.lacking.length === 1 ? ' has' : 's have'} no slot`
         : cell.conflict ? 'fights its columns'
           : cell.clip ? 'clips' : '';
     node.querySelector('.dl-lp-warn').textContent = warn;
     node.classList.toggle('dl-lp-warned', !!warn);
-    node.title = [cell.name, warn].filter(Boolean).join(' · ');
+    node.classList.toggle('dl-lp-failed', !!cell.error);
+    node.title = [cell.name, warn || (cell.error ? 'no preview' : '')].filter(Boolean).join(' · ');
   }
 
   function foot(text) { const f = el?.querySelector('.dl-lp-foot'); if (f) f.textContent = text; }
@@ -302,7 +372,7 @@ export function createLayoutPicker({
     if (!c) return '';
     if (c.kind === 'more') return c.shown ? '⏎ hides the built-in layouts · Esc closes' : '⏎ shows the built-in layouts · Esc closes';
     if (c.current) return `${c.name} is this slide's ${c.kind === 'template' ? 'template' : 'layout'} · Esc closes`;
-    if (c.kind === 'template' && c.error) return `${c.name}: ${c.error}`;
+    if (c.kind === 'template' && c.error) return `${c.name}: no preview · R retries · Esc closes`;
     return `previewing ${c.name}${c.leaves ? ' (leaves the template)' : ''} · ⏎ apply · Esc keep ${keep}`;
   }
 
@@ -403,6 +473,7 @@ export function createLayoutPicker({
       case 'End': focusAt(st.items.length - 1); return true;
       case 'Enter': case ' ': choose(); return true;
       case 'Escape': close(); return true;
+      case 'r': case 'R': if (!e.metaKey && !e.ctrlKey && !e.altKey && st.cells.templates.some((t) => t.error)) askPlans(); return true;
       default: return true;   // the picker is up: the deck does not move behind it
     }
   }

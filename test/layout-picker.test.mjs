@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { currentChoice, pickerCells, builtinsShownAtOpen, pickerItems, initialFocus, writeFor, cellLabel } from '../src/core/layout-picker.js';
+import { currentChoice, pickerCells, builtinsShownAtOpen, pickerItems, initialFocus, writeFor, cellLabel, runQueued, failureLine, PLAN_CONCURRENCY } from '../src/core/layout-picker.js';
 
 const RING = ['auto', 'centered', 'top', 'split', 'split-flip'];
 const ACME = { name: 'acme', title: 'Acme Brand', templates: [{ id: 'section-divider', title: 'Section divider' }, { id: 'statement' }] };
@@ -73,4 +73,27 @@ test('cellLabel: what a screen reader hears', () => {
   assert.equal(cellLabel(cells.templates[1]), 'Acme Brand template statement, current');
   assert.equal(cellLabel(cells.builtins[3]), 'layout split, leaves the template');
   assert.equal(cellLabel({ kind: 'more', shown: false }), 'More layouts');
+});
+
+test('runQueued: never more than the limit in flight, every job run, in order (#1240)', async () => {
+  let inFlight = 0, most = 0;
+  const started = [];
+  const jobs = Array.from({ length: 10 }, (_, i) => async () => {
+    started.push(i);
+    inFlight++; most = Math.max(most, inFlight);
+    await new Promise((r) => setTimeout(r, 2));
+    inFlight--;
+    if (i === 3) throw new Error('one fails');   // the others still run
+  });
+  await runQueued(jobs, PLAN_CONCURRENCY);
+  assert.equal(most, PLAN_CONCURRENCY);
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  await runQueued([], 2);   // nothing to do settles
+});
+
+test('failureLine: said once for the panel, each reason once (#1240)', () => {
+  assert.equal(failureLine([]), '');
+  assert.equal(failureLine([{ name: 'Quote', error: 'no answer in 8s' }]), 'no preview for Quote: no answer in 8s');
+  assert.equal(failureLine([{ name: 'Quote', error: 'no answer in 8s' }, { name: 'Cover', error: 'no answer in 8s' }, { name: 'Agenda', error: 'gone' }]),
+    'no preview for 3 templates: no answer in 8s; gone');
 });

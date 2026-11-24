@@ -1359,6 +1359,11 @@
       emit(type, data) { for (const fn of this._l[type] ?? []) fn({ data: JSON.stringify(data) }); }
       close() {}
     };
+    // …and each page gets its own: the harness runs page after page on one
+    // origin, and a stream shared across tabs (shared-events.js) would hand
+    // the stub to whichever page still holds the lock. The sharing itself is
+    // checked in test/shared-events.test.mjs and edit-e2e's `tabs`.
+    window.BroadcastChannel = undefined;
   </script>
 
   <script src="../dist/decklight.js"></script>
