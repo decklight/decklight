@@ -40,9 +40,9 @@ import { deckConfigSource } from '../cli/runtime-link.mjs';
 const LIPSYNC = fileURLToPath(new URL('./lipsync.mjs', import.meta.url));
 
 /** Said once, when audio was written and its lip-sync could not be. */
-export const RHUBARB_HINT = 'lip-sync not made: Rhubarb is not installed — install it from '
-  + 'https://github.com/DanielSWolf/rhubarb-lip-sync and run decklight setup face --rhubarb <bin>; '
-  + 'then decklight narrate <deck> --face (or the voice card\'s "Update lip-sync") makes it';
+export const RHUBARB_HINT = 'lip-sync files not made: Rhubarb is not installed, so the deck and the video read the mouth '
+  + 'from the voice, less exactly. For Rhubarb\'s, install it from https://github.com/DanielSWolf/rhubarb-lip-sync '
+  + 'and run decklight setup face --rhubarb <bin>; then decklight narrate <deck> --face (or the voice card\'s "Update lip-sync") makes them';
 
 /** The deck's configured character mode: 'viseme', 'video', 'off', or null when it names none. */
 export function characterMode(html) {
