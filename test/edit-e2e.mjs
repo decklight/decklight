@@ -810,6 +810,30 @@ try {
     check('layout', 'a preview writes nothing', text.read() === original && saves() === was);
     await page.keyboard.press('Escape'); await wait(300);
     check('layout', 'Escape closes and puts the slide back', await page.locator('.decklight-layout-picker, .dl-layout-preview, .dl-layout-previewed').count() === 0);
+    // the large preview (#1241): space opens it, the arrows walk it, space or Esc goes back to the row
+    await page.click('.eb-layout'); await wait(600);
+    await page.keyboard.press('ArrowRight'); await wait(250);
+    await page.keyboard.press(' '); await wait(400);
+    const look = page.locator('.decklight-layout-look');
+    const lookName = () => look.locator('.dl-ll-name').textContent().catch(() => '');
+    check('layout', 'space opens the large preview of the focused tile', await look.count() === 1 && (await lookName()).endsWith(ring[1]), await lookName());
+    const box = await look.locator('.dl-ll-slide').boundingBox();
+    check('layout', 'as large as the window allows, at the deck\'s ratio', !!box && box.width > 900 && Math.abs(box.width / box.height - 16 / 9) < 0.02, JSON.stringify(box));
+    check('layout', 'the slide is drawn in it', await look.locator('.dl-ll-slide section').count() === 1);
+    await page.keyboard.press('ArrowRight'); await wait(300);
+    check('layout', '→ shows the next tile, and the row follows', (await lookName()).endsWith(ring[2 % ring.length])
+      && (await page.locator('.dl-lp-cell.dl-lp-focus').getAttribute('aria-label')) === `layout ${ring[2 % ring.length]}`, await lookName());
+    await page.keyboard.press('ArrowLeft'); await wait(300);
+    await page.keyboard.press(' '); await wait(250);
+    check('layout', 'space goes back to the row, on the same tile', await look.count() === 0 && await page.locator('.decklight-layout-picker').count() === 1
+      && (await page.locator('.dl-lp-cell.dl-lp-focus').getAttribute('aria-label')) === `layout ${ring[1]}`);
+    check('layout', 'the hint names it', /space: larger preview/.test(await page.locator('.dl-lp-foot').textContent()));
+    await page.keyboard.press(' '); await wait(300);
+    await page.keyboard.press('Escape'); await wait(250);
+    check('layout', 'Esc closes the preview, and the picker stays', await look.count() === 0 && await page.locator('.decklight-layout-picker').count() === 1);
+    await page.keyboard.press('Escape'); await wait(250);
+    check('layout', 'a second Esc closes the picker', await page.locator('.decklight-layout-picker').count() === 0);
+    check('layout', 'the large preview writes nothing', text.read() === original && saves() === was);
     await page.click('.eb-layout'); await wait(600);
     await page.keyboard.press('ArrowRight'); await wait(250);
     await page.keyboard.press('Enter'); await wait(1500);
@@ -818,6 +842,16 @@ try {
     check('layout', 'the bar names it', (await page.locator('.eb-layout .eb-label').textContent()) === `Layout · ${ring[1]}`);
     await page.keyboard.press(`${MOD}+z`); await wait(1500);
     check('layout', 'one undo takes it back', text.read() === original);
+    // ⏎ in the large preview chooses, as on the tile: one write, one undo
+    const before = saves();
+    await page.click('.eb-layout'); await wait(600);
+    await page.keyboard.press('ArrowRight'); await wait(250);
+    await page.keyboard.press(' '); await wait(400);
+    await page.keyboard.press('Enter'); await wait(1500);
+    check('layout', '⏎ in the large preview writes that layout, once', new RegExp(`<section data-layout="${ring[1]}">`).test(text.read()) && saves() - before === 1, saves() - before);
+    check('layout', 'and closes it', await page.locator('.decklight-layout-look, .decklight-layout-picker').count() === 0);
+    await page.keyboard.press(`${MOD}+z`); await wait(1500);
+    check('layout', 'one undo takes that back too', text.read() === original);
     await page.close();
   });
 

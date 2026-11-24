@@ -131,6 +131,46 @@ export function failureLine(failed) {
   return reasons.length ? `${what}: ${reasons.join('; ')}` : what;
 }
 
+/**
+ * What is wrong with a cell, on its tile: clipped, fights its columns, has no
+ * slot for some content. A failed dry run is said in the status line instead.
+ */
+export function cellWarning(cell) {
+  if (!cell || cell.error) return '';
+  if (cell.lacking?.length) return `${cell.lacking.length} part${cell.lacking.length === 1 ? ' has' : 's have'} no slot`;
+  if (cell.conflict) return 'fights its columns';
+  if (cell.clip) return 'clips';
+  return '';
+}
+
+/** The tile's note in full, for the large preview: the parts without a slot named. */
+export function cellDetail(cell) {
+  const warn = cellWarning(cell);
+  if (!warn || !cell.lacking?.length) return warn;
+  return `${warn}: ${cell.lacking.map((s) => `"${s}"`).join(', ')}`;
+}
+
+/**
+ * The large preview's slide (#1241): the largest box at the deck's aspect
+ * ratio that fits the window less `margin` on every side and `chrome` (the
+ * panel's title and key line) below it, and the scale that takes a slide there.
+ */
+export function lookSize({ vw, vh, width, height, margin = 48, chrome = 64 }) {
+  const room = { w: Math.max(1, vw - 2 * margin), h: Math.max(1, vh - 2 * margin - chrome) };
+  const scale = Math.min(room.w / width, room.h / height);
+  return { width: Math.round(width * scale), height: Math.round(height * scale), scale };
+}
+
+/** The item the large preview moves to from `at` by `step`: a cell, never the More layouts toggle. */
+export function lookStep(items, at, step) {
+  const n = items.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (((at + step * k) % n) + n) % n;
+    if (items[i]?.kind !== 'more') return i;
+  }
+  return at;
+}
+
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /**
@@ -150,7 +190,8 @@ export function createLayoutPicker({
   anchor = () => null, toast = () => {}, debugLog = () => {}, opening = () => {},
 }) {
   let el = null;
-  let st = null;   // { idx, current, cells, items, focus, shown, plans, restore, previewKey, confirm, thumbs }
+  let look = null;   // the large preview (#1241), over the stage while it is open
+  let st = null;  // { idx, current, cells, items, focus, shown, plans, restore, previewKey, confirm, thumbs }
   let previewTimer = null;
   let reloadGuard = null;
 
@@ -190,7 +231,7 @@ export function createLayoutPicker({
 
   /** A press anywhere else cancels: the Layout button's own click toggles instead. */
   function outside(e) {
-    if (!el || el.contains(e.target)) return;
+    if (!el || el.contains(e.target) || look?.contains(e.target)) return;
     if (anchor()?.contains(e.target)) return;
     close();
   }
@@ -200,6 +241,7 @@ export function createLayoutPicker({
     if (!el) return;
     clearTimeout(previewTimer);
     document.removeEventListener('pointerdown', outside, true);
+    closeLook({ refocus: false });
     if (!keepPreview) unpreview();
     el.remove();
     el = null;
@@ -218,6 +260,7 @@ export function createLayoutPicker({
     const todo = mine.cells.templates.filter((t) => !t.plan && !mine.plans.has(t.ref));
     for (const t of todo) { delete t.error; drawThumb(t); paintCell(t); }
     paintStatus();
+    if (look) paintLook();
     runQueued(todo.map((t) => () => {
       if (st !== mine) return undefined;   // closed, or opened again: nothing to ask for
       const p = page.plan(mine.idx, t.ref).then(
@@ -225,7 +268,7 @@ export function createLayoutPicker({
         (e) => { t.error = String(e?.message ?? e); },
       ).then(() => {
         mine.plans.delete(t.ref);
-        if (st === mine && el) { drawThumb(t); paintCell(t); paintStatus(); if (mine.items[mine.focus] === t) { foot(describeFocus()); preview(t); } }
+        if (st === mine && el) { drawThumb(t); paintCell(t); paintStatus(); if (mine.items[mine.focus] === t) { foot(describeFocus()); preview(t); if (look) paintLook(); } }
       });
       mine.plans.set(t.ref, p);
       return p;
@@ -354,10 +397,7 @@ export function createLayoutPicker({
     const node = el?.querySelector(`.dl-lp-thumb[data-key="${CSS.escape(cell.key)}"]`)?.parentElement;
     if (!node) return;
     // a failed dry run is said once, in the status line; the tile only shows its dash
-    const warn = cell.error ? ''
-      : cell.lacking?.length ? `${cell.lacking.length} part${cell.lacking.length === 1 ? ' has' : 's have'} no slot`
-        : cell.conflict ? 'fights its columns'
-          : cell.clip ? 'clips' : '';
+    const warn = cellWarning(cell);
     node.querySelector('.dl-lp-warn').textContent = warn;
     node.classList.toggle('dl-lp-warned', !!warn);
     node.classList.toggle('dl-lp-failed', !!cell.error);
@@ -371,9 +411,9 @@ export function createLayoutPicker({
     const keep = st.current.template || st.current.layout;
     if (!c) return '';
     if (c.kind === 'more') return c.shown ? '⏎ hides the built-in layouts · Esc closes' : '⏎ shows the built-in layouts · Esc closes';
-    if (c.current) return `${c.name} is this slide's ${c.kind === 'template' ? 'template' : 'layout'} · Esc closes`;
-    if (c.kind === 'template' && c.error) return `${c.name}: no preview · R retries · Esc closes`;
-    return `previewing ${c.name}${c.leaves ? ' (leaves the template)' : ''} · ⏎ apply · Esc keep ${keep}`;
+    if (c.current) return `${c.name} is this slide's ${c.kind === 'template' ? 'template' : 'layout'} · space: larger preview · Esc closes`;
+    if (c.kind === 'template' && c.error) return `${c.name}: no preview · R retries · space: larger preview · Esc closes`;
+    return `previewing ${c.name}${c.leaves ? ' (leaves the template)' : ''} · ⏎ apply · space: larger preview · Esc keep ${keep}`;
   }
 
   function focusAt(i, { scroll = true, preview: show = true } = {}) {
@@ -442,6 +482,107 @@ export function createLayoutPicker({
     place();
   }
 
+  // ── the large preview (#1241) ─────────────────────────────────────────────
+  // Space on a tile: the same variant the tile shows, as large as the window
+  // allows, at the deck's aspect ratio. Quick Look's gesture: space or Esc
+  // goes back to the row, the arrows move to the next tile (the row's focus
+  // moves with it), ⏎ chooses. Like the tile, it never writes.
+
+  function openLook() {
+    const c = st?.items[st.focus];
+    if (!c || c.kind === 'more' || look) return;
+    look = document.createElement('div');
+    look.className = 'decklight-layout-look';
+    look.setAttribute('role', 'dialog');
+    look.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      if (e.target === look) closeLook();   // the backdrop: back to the row
+    });
+    root.appendChild(look);
+    paintLook();
+    window.addEventListener('resize', paintLook);
+    debugLog('layout', `large preview of ${c.name}`);
+  }
+
+  function closeLook({ refocus = true } = {}) {
+    if (!look) return;
+    window.removeEventListener('resize', paintLook);
+    look.remove();
+    look = null;
+    if (refocus && el) { el.focus({ preventScroll: true }); foot(describeFocus()); }
+  }
+
+  function paintLook() {
+    if (!look || !st) return;
+    const c = st.items[st.focus];
+    if (!c || c.kind === 'more') { closeLook(); return; }
+    const { width, height } = page.slideSize();
+    const size = lookSize({ vw: window.innerWidth, vh: window.innerHeight, width, height });
+    const what = c.kind === 'template' ? `${c.systemTitle} · ${c.name}` : `${st.systems.length ? 'Built-in · ' : 'Layout · '}${c.name}`;
+    const marks = [c.current ? 'current' : '', c.leaves ? 'leaves the template' : ''].filter(Boolean).join(' · ');
+    const others = st.items.filter((x) => x.kind !== 'more').length > 1;
+    look.setAttribute('aria-label', `Large preview: ${cellLabel(c)}`);
+    look.innerHTML = `<div class="dl-ll-panel" style="width:${size.width}px">`
+      + `<div class="dl-ll-head"><b class="dl-ll-name">${esc(what)}</b>${marks ? `<span class="dl-ll-marks">${esc(marks)}</span>` : ''}<span class="dl-ll-note"></span></div>`
+      + `<div class="dl-ll-slide" style="width:${size.width}px;height:${size.height}px"></div>`
+      + `<div class="dl-ll-keys">${others ? '← → other layouts · ' : ''}⏎ ${c.current ? 'keep' : 'apply'} · space or Esc back to the row</div></div>`;
+    const box = look.querySelector('.dl-ll-slide');
+    const note = look.querySelector('.dl-ll-note');
+    if (c.kind === 'template' && !c.plan) {
+      if (c.error) {
+        box.classList.add('dl-ll-failed');
+        const why = document.createElement('p');
+        why.textContent = `No preview of ${c.name}: ${c.error}`;
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'dl-lp-retry';
+        retry.textContent = 'Retry';
+        retry.title = 'ask for the preview again (R)';
+        retry.addEventListener('click', () => askPlans());
+        box.replaceChildren(why, retry);
+      } else {
+        box.classList.add('dl-ll-pending');
+        box.textContent = 'making the preview…';
+      }
+      return;
+    }
+    const section = page.variant(st.idx, c, c.plan);
+    if (!section) return;
+    const stage = document.createElement('div');
+    stage.className = 'decklight-stage dl-lp-stage';
+    stage.setAttribute('aria-hidden', 'true');
+    stage.style.width = width + 'px';
+    stage.style.height = height + 'px';
+    stage.style.transform = `scale(${size.scale})`;
+    stage.appendChild(section);
+    box.replaceChildren(stage);
+    const fit = page.settle(section, st.idx);
+    // a built-in cell hidden behind More layouts was never drawn: its marks come from here
+    if (c.clip === undefined) { c.clip = fit?.clip || null; c.conflict = !!fit?.conflict; }
+    const detail = cellDetail(c);
+    note.textContent = detail;
+    note.hidden = !detail;
+  }
+
+  /** ←/→ in the large preview: the next tile, skipping the More layouts toggle; the row's focus follows. */
+  function lookMove(step) {
+    const i = lookStep(st.items, st.focus, step);
+    if (i === st.focus) return;
+    focusAt(i);
+    paintLook();
+  }
+
+  function lookKeydown(e) {
+    switch (e.key) {
+      case ' ': case 'Escape': closeLook(); return true;
+      case 'ArrowRight': case 'ArrowDown': lookMove(1); return true;
+      case 'ArrowLeft': case 'ArrowUp': lookMove(-1); return true;
+      case 'Enter': closeLook({ refocus: false }); choose(); return true;
+      case 'r': case 'R': if (!e.metaKey && !e.ctrlKey && !e.altKey && st.cells.templates.some((t) => t.error)) askPlans(); return true;
+      default: return true;   // the preview is up: nothing moves behind it, narration included
+    }
+  }
+
   /** Just above the Layout button, kept inside the window; centred low on the stage without one. */
   function place() {
     if (!el) return;
@@ -466,12 +607,15 @@ export function createLayoutPicker({
       if (e.key === 'Tab') { const b = [...el.querySelectorAll('button')]; const i = b.indexOf(document.activeElement); b[(i + (e.shiftKey ? -1 : 1) + b.length) % b.length]?.focus(); return true; }
       return true;
     }
+    if (look) return lookKeydown(e);
     switch (e.key) {
       case 'ArrowRight': case 'ArrowDown': focusAt(st.focus + 1); return true;
       case 'ArrowLeft': case 'ArrowUp': focusAt(st.focus - 1); return true;
       case 'Home': focusAt(0); return true;
       case 'End': focusAt(st.items.length - 1); return true;
-      case 'Enter': case ' ': choose(); return true;
+      case 'Enter': choose(); return true;
+      // space is Quick Look's while the picker is up, never narration's (#1241)
+      case ' ': if (st.items[st.focus]?.kind === 'more') toggleBuiltins(); else openLook(); return true;
       case 'Escape': close(); return true;
       case 'r': case 'R': if (!e.metaKey && !e.ctrlKey && !e.altKey && st.cells.templates.some((t) => t.error)) askPlans(); return true;
       default: return true;   // the picker is up: the deck does not move behind it
