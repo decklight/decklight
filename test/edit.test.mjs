@@ -2966,11 +2966,10 @@ test('/deck/edit/export re-voices a machine-voiced track\'s stale slide in the t
 });
 
 test('/deck/edit/export never synthesizes over a recorded take, and passes an engine\'s refusal through', async (t) => {
-  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base } = await videoSession(t, { deck: SPOKEN_DECK });
   const ask = async (body) => {
     const res = await post(base, '/deck/edit/export', { kind: 'video', ...body });
-    return { status: res.status, error: (await res.json()).error };
+    return { status: res.status, ...await res.json() };
   };
   // your own voice: audio, and no manifest
   mkdirSync(path.join(dir, 'voices', 'me'), { recursive: true });
@@ -2997,11 +2996,16 @@ test('/deck/edit/export never synthesizes over a recorded take, and passes an en
   assert.equal(r.status, 400);
   assert.match(r.error, /one voice at a time/);
 
-  // An engine that cannot start is refused by voiceover, in its own words, and
-  // nothing is rendered after it.
-  r = await ask({ slides: '2', synthesize: { engine: 'elevenlabs', voice: 'Rachel', dir: 'voices/eleven' } });
-  assert.equal(r.status, 500);
-  assert.match(r.error, /ElevenLabs needs an API key/);
+  const request = { slides: '2', synthesize: { engine: 'elevenlabs', voice: 'Rachel', dir: 'voices/eleven' } };
+  r = await ask(request);
+  assert.equal(r.status, 409);
+  assert.deepEqual(r.preflight.missing, [2]);
+  assert.equal(r.preflight.repairError, undefined);
+  // An approved repair that cannot start returns the engine's reason and
+  // lets the user decide whether to export as-is.
+  r = await ask({ ...request, fix: true });
+  assert.equal(r.status, 409);
+  assert.match(r.preflight.repairError, /ElevenLabs needs an API key/);
   assert.ok(!existsSync(path.join(dir, 'deck.slides-2.mp4')));
 });
 
