@@ -21,6 +21,7 @@ import { BROWSER_ENGINE, browserPing, speakSentence } from './browser-voice.js';
 import { faceLayout, faceValue, parseFaceLayout, FACE_CORNERS, FACE_ZOOM_MAX } from '../../tools/face-layout.mjs';
 import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, writtenMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
+import { withTimeout, retrying, failureReason, notSavedLine, slidesPhrase, TTS_TIMEOUT_MS } from './take-retry.js';
 import { slideTitle, slideBody } from './finder.js';
 import { thinking } from './thinking.js';
 import { escapeHtml } from './escape.js';
@@ -974,15 +975,34 @@ export function createNarration({
       const p = (async () => {
         const t0 = Date.now();
         try {
-          const res = await fetch(LIVE_URL, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text, voice: request.voice, style: request.style,
-              ...(request.voiceId ? { voiceId: request.voiceId } : {}),
-              ...(request.engine ? { engine: request.engine } : {}) }),
-          });
-          if (!res.ok) throw new Error(await res.text() || String(res.status));
-          const blob = await res.blob();
+          // A sentence that does not answer in TTS_TIMEOUT_MS has failed
+          // (#1253): one stuck connection used to hold a whole take for as
+          // long as the browser kept it open — 7.5 minutes, once.
+          const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+          const { res, blob } = await withTimeout((async () => {
+            let res;
+            try {
+              res = await fetch(LIVE_URL, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ text, voice: request.voice, style: request.style,
+                  ...(request.voiceId ? { voiceId: request.voiceId } : {}),
+                  ...(request.engine ? { engine: request.engine } : {}) }),
+                ...(ctl ? { signal: ctl.signal } : {}),
+              });
+            } catch (e) {
+              // no answer at all: the bridge is not there, or dropped us
+              const err = e instanceof Error ? e : new Error(String(e));
+              err.tts = true;
+              throw err;
+            }
+            if (!res.ok) {
+              const err = new Error(await res.text().catch(() => '') || String(res.status));
+              err.status = res.status;
+              throw err;
+            }
+            return { res, blob: await res.blob() };
+          })(), TTS_TIMEOUT_MS, () => ctl?.abort());
           const cost = parseFloat(res.headers?.get?.('x-tts-cost') ?? '') || 0;
           if (cost) ttsSpend += cost;
           // The bridge says which clips it synthesized and which it replayed
@@ -999,7 +1019,8 @@ export function createNarration({
           if (take) debugLog('tts', `${label} · retried: ${decodeURIComponent(take)}`);
           return { url: URL.createObjectURL(blob), blob };
         } catch (e) {
-          debugLog('tts', `${label} · ${request.voice} FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s (${String(e.message || e)})`);
+          debugLog('tts', `${label} · ${request.voice} FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s`
+            + `${e?.status ? ` · ${e.status}` : e?.timedOut ? ' · timed out' : ''} (${String(e.message || e)})`);
           throw e;
         }
       })();
@@ -4263,13 +4284,27 @@ export function createNarration({
         ? `Set <code>narration: { files: '${escapeHtml(dir)}', ext: 'wav'${seg} }</code> to play them back without the bridge — <code>decklight bundle</code> picks the folder up from there.`
           + (data.segmented ? ' <strong>segments</strong> is what makes them step the builds.' : '')
         : `Move them next to the deck and point <code>narration.files</code> at that folder with <code>ext: 'wav'${seg}</code> to play them back without the bridge.`;
+      // the slides it did NOT save, named, with why and a way to retry them
+      // (#1253) — a count alone sent you to the voice panel to find out
+      const missed = notSavedLine(data.failed);
+      const retry = data.again
+        ? `<div class="narr-row narr-sel rec-retry" role="button" tabindex="0">Try ${data.again.slides.length === 1 ? 'it' : 'them'} again — ${escapeHtml(slidesPhrase(data.again.slides))}</div>`
+        : '';
       card.innerHTML = `${recTop(cancelled ? 'generating stopped' : 'the recording is ready', 'ai', 2)}
         <div class="rec-line">${saved} / ${total} slide${total === 1 ? '' : 's'} ${where}</div>
+        ${missed ? `<div class="rec-line rec-warn rec-missed">${escapeHtml(missed)}</div>` : ''}
         ${clips ? `<div class="rec-line">${escapeHtml(clips)}</div>` : ''}
         <div class="rec-line">${next}</div>
-        ${useTrackRow(dir)}
-        ${doneHint(dir)}`;
+        ${retry}
+        ${retry ? useTrackRow(dir).replace('narr-row narr-sel rec-use', 'narr-row rec-use') : useTrackRow(dir)}
+        ${retry ? '<div class="rec-hint">⏎ tries again · Esc closes</div>' : doneHint(dir)}`;
       wireUseTrack(card, dir, { ext: 'wav', label: data.label, ...(data.segmented ? { segments: true } : {}) });
+      const again = card.querySelector('.rec-retry');
+      if (again) {
+        const go = () => recordAgain(data.again);
+        again.addEventListener('click', go);
+        again.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      }
     }
   }
   // Slide files are STITCHED FROM THE SENTENCE CACHE: every clip already
@@ -4313,7 +4348,12 @@ export function createNarration({
       // the whole-slide take still holds it, as the live voice does
       if (bare) chunks.push(bare * hold);
       for (let i = 0; i < sentences.length; i++) {
-        const clip = await fetchLiveSentence(sl, step, i, sentences[i], request); // cache-first
+        // cache-first; a failure evicts itself from liveCache, so each retry
+        // is a real request — one transient error costs seconds, not the slide
+        const clip = await retrying(() => fetchLiveSentence(sl, step, i, sentences[i], request), {
+          cancelled: () => run !== recRun,
+          onRetry: (e, n) => debugLog('tts', `slide ${sl} seg ${step} #${i + 1} · try ${n + 1} after ${String(e?.message || e)}`),
+        });
         if (run !== recRun) return null;
         if (!clip) continue;
         const buf = await clip.blob.arrayBuffer();
@@ -4711,9 +4751,9 @@ export function createNarration({
       + ' writes them next to the deck instead.';
   }
 
-  async function startRecording({ track = null, resolved = null } = {}) {
+  async function startRecording({ track = null, resolved = null, again = null } = {}) {
     // the browser speaks to the speakers and gives no audio back: nothing to stitch
-    if (!track && onBrowser()) {
+    if (!track && !again && onBrowser()) {
       toast("the browser's voice cannot be recorded — start a bridge: decklight <deck.html>", 5000);
       return;
     }
@@ -4724,9 +4764,14 @@ export function createNarration({
     const live = liveVoiceRequest();
     let request;
     try {
-      const implicit = live.engine === 'elevenlabs' && liveCfg.defaultVoice;
-      const identity = resolved ?? await bridgeVoice({ ...live, voice: implicit ? null : live.voice });
-      request = { ...identity, style: track ? track.style ?? '' : live.style };
+      // `again`: Try them again — the very voice and style the take used,
+      // not whatever the live voice has been switched to since
+      if (again) request = again;
+      else {
+        const implicit = live.engine === 'elevenlabs' && liveCfg.defaultVoice;
+        const identity = resolved ?? await bridgeVoice({ ...live, voice: implicit ? null : live.voice });
+        request = { ...identity, style: track ? track.style ?? '' : live.style };
+      }
     } catch (e) {
       if (run !== recRun) return;
       toast(e.message, 5000);
@@ -4735,6 +4780,9 @@ export function createNarration({
     }
     if (run !== recRun) return;
     let done = 0, saved = 0, toDisk = 0, segmented = false;
+    // the slides this take did not save, and why (#1253): the toast is long
+    // gone by the time a many-minute take ends, so the done card says it
+    const failed = [];
     // A fresh tally per take (#565): what THIS run reused and what it paid for
     const tally = recTally = { seen: new Set(), reused: 0, sent: 0, cost: 0 };
     // Awaited, not sampled: editBase() is null both for "no server" and for
@@ -4820,7 +4868,10 @@ export function createNarration({
           if (run !== recRun) return;
         }
       } catch (e) {
-        toast(`slide ${sl}: ${e.message || 'recording failed'}`, 5000);
+        if (run !== recRun) return;
+        const reason = failureReason(e, engineName(request.engine));
+        failed.push({ slide: sl, reason });
+        toast(`slide ${sl}: ${reason}`, 5000);
       }
       done++;
       if (run === recRun) renderRecordCard('progress', { done, total: list.length, elapsedMs: Date.now() - t0 });
@@ -4834,7 +4885,8 @@ export function createNarration({
       if (character.mode === 'viseme' && toDisk && dir) updateLipsync(dir.name, { quiet: true });
       renderRecordCard('done', {
         saved, total: list.length, dir: toDisk ? dir.name : null, segmented, label: target.label,
-        clips: tally, engine: request.engine,
+        clips: tally, engine: request.engine, failed,
+        again: failed.length ? { track, request, target, slides: failed.map((f) => f.slide) } : null,
       });
     }
   }
@@ -4855,6 +4907,26 @@ export function createNarration({
         recTarget = targetFor({ mine: false }, tracks);
         renderRecordCard('confirm', { total: slidesWithNotes().length, target: recTarget });
       });
+  }
+  /**
+   * Try them again (#1253): record only the slides the last take did not save,
+   * as the same voice and style, into the same folder. Whole-deck takes, voice
+   * panel regenerations and the export card's Regenerate them… all end on the
+   * same done card, so all three get this.
+   */
+  async function recordAgain({ track, request, target, slides }) {
+    if (!recEl || recView !== 'done') return;
+    const keep = { slides: recSlides, head: recHead, target: recTarget };
+    recSlides = new Set(slides);
+    recHead = `trying ${slidesPhrase(slides)} again`;
+    recTarget = target;
+    try {
+      await startRecording({ track, again: request });
+    } finally {
+      recSlides = keep.slides;
+      recHead = keep.head;
+      recTarget = keep.target;
+    }
   }
   function closeRecordDialog() {
     recRun++; // invalidate any in-flight recording loop
@@ -6565,6 +6637,7 @@ export function createNarration({
       if (e.key === 'Escape') closeRecordDialog();
       else if (e.key === 'Enter') {
         if (recView === 'confirm') startRecording();
+        else if (recView === 'done' && recEl.querySelector('.rec-retry')) recEl.querySelector('.rec-retry').click();
         else if (pendingUseTrack(recEl)) pendingUseTrack(recEl).click();
         else if (recView !== 'progress') closeRecordDialog();
       } else return false;

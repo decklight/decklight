@@ -148,7 +148,7 @@ const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'audiota
   'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'plainpause', 'segpause', 'segpause&live', 'segmanifest', 'segsigned', 'bundledaudio', 'off',
   'trackvoice&case=named', 'trackvoice&case=renamed', 'trackvoice&case=legacy', 'trackvoice&case=set', 'trackvoice&case=removed',
-  'record', 'record&default', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'micoffstep&record', 'realsay'];
+  'record', 'record&flakethree', 'record&dead', 'record&default', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'micoffstep&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m) || only.includes(m.split('&')[0])) : MODES)) {
   const [m, extra] = mode.split('&');
   let bridge = null;
@@ -476,6 +476,15 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m) || only.i
   if (mode === 'recorded') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} silent slide stays quiet=${r.quietOnSlideWithNoNotes}`
       + ` · missing file warns=${r.warnsOnMissingFile}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (m === 'record' && (extra === 'flakethree' || extra === 'dead')) {
+    if (!ok) console.error('   ', JSON.stringify(r));
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(12)} `
+      + (extra === 'flakethree'
+        ? `slide 3 failed once: saved ${r.wavSlides?.join(',')} after ${r.threeCalls} asks`
+        : `slide 3 failed every time: "${r.missed}" · offered "${r.retryRow}" · the retry saved only 3=${r.retrySavedThree}`)
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

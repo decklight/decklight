@@ -404,8 +404,14 @@
           });
         }
         // `&dead` on another mode: the bridge dies PARTWAY — slide three's words never arrive
-        const diesOnThree = params.has('dead') && /three/i.test(bodies[bodies.length - 1]?.text ?? '');
-        const fail = mode === 'dead' || diesOnThree || (mode === 'flaky' && calls === 1);
+        const isThree = /three/i.test(bodies[bodies.length - 1]?.text ?? '');
+        if (isThree) window.__threeCalls = (window.__threeCalls ?? 0) + 1;
+        // …until `__healThree` says the outage is over (Try them again, #1253)
+        const diesOnThree = params.has('dead') && isThree && !window.__healThree;
+        // `&flakethree`: slide three's sentence fails its FIRST ask only — a
+        // transient fault the recorder must retry past (#1253)
+        const flakesOnThree = params.has('flakethree') && isThree && window.__threeCalls === 1;
+        const fail = mode === 'dead' || diesOnThree || flakesOnThree || (mode === 'flaky' && calls === 1);
         if (fail) { failures++; return new Response('Quota exceeded', { status: 429 }); }
         return new Response(new Blob([new Uint8Array(64)], { type: 'audio/wav' }), { status: 200 });
       }
@@ -1346,6 +1352,48 @@
           };
           const card = document.querySelector('.decklight-record .narr-card');
           r.finished = await untilRecorded(card);
+          if (mode === 'record' && (params.has('flakethree') || params.has('dead'))) {
+            // A take in which slide three's sentence fails (#1253): once, and
+            // the retry saves it; every time, and the done card names it, says
+            // why, and Try it again records it — and only it.
+            const wavs = () => window.__recorded.filter((p) => p.kind === 'wav' && p.seg == null).map((p) => p.slide);
+            r.card = card?.textContent ?? '';
+            r.wavSlides = wavs();
+            r.threeCalls = window.__threeCalls ?? 0;
+            r.missed = card?.querySelector('.rec-missed')?.textContent ?? '';
+            r.retryRow = card?.querySelector('.rec-retry')?.textContent ?? '';
+            if (params.has('flakethree')) {
+              r.savedAll = r.wavSlides.join(',') === '1,3,4' && /3 \/ 3 slides/.test(r.card);
+              r.retriedTheSentence = r.threeCalls === 2;
+              r.nothingMissed = !r.missed && !r.retryRow;
+              r.PASS = r.finished && r.savedAll && r.retriedTheSentence && r.nothingMissed;
+            } else {
+              r.countedIt = /2 \/ 3 slides/.test(r.card);
+              r.namedTheSlide = /^slide 3 not saved: /.test(r.missed);
+              r.gaveTheReason = /answered 429: Quota exceeded, after 3 tries/.test(r.missed);
+              r.retriedBeforeGivingUp = r.threeCalls === 3;
+              r.offeredTheRetry = /Try it again — slide 3/.test(r.retryRow);
+              r.hintSaysEnterRetries = /⏎ tries again/.test(r.card);
+              const posted = window.__recorded.length;
+              const asked = bodies.length;
+              window.__healThree = true;
+              press('Enter', document.body);   // the keyboard path: Enter retries first
+              await new Promise((ok) => setTimeout(ok, 20));
+              r.again = await untilRecorded(document.querySelector('.decklight-record .narr-card'));
+              const card2 = document.querySelector('.decklight-record .narr-card');
+              r.card2 = card2?.textContent ?? '';
+              const later = window.__recorded.slice(posted);
+              r.retrySavedThree = later.filter((p) => p.kind === 'wav' && p.seg == null).map((p) => p.slide).join(',') === '3';
+              r.retryAskedOnlyThree = bodies.slice(asked).every((b) => /three/i.test(b.text ?? ''));
+              r.retrySameVoice = bodies.slice(asked).every((b) => b.voice === bodies[0].voice && b.style === bodies[0].style);
+              r.retryCountsOne = /1 \/ 1 slide /.test(r.card2) && !card2?.querySelector('.rec-missed');
+              r.PASS = r.finished && r.countedIt && r.namedTheSlide && r.gaveTheReason && r.retriedBeforeGivingUp
+                && r.offeredTheRetry && r.hintSaysEnterRetries && r.again && r.retrySavedThree
+                && r.retryAskedOnlyThree && r.retrySameVoice && r.retryCountsOne;
+            }
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
           if (mode === 'reccount') {
             // What this take cost (#565): first run synthesizes everything,
             // and a second run over the same notes pays for nothing.
