@@ -144,10 +144,12 @@ export function pickVoice(roster, requested) {
   if (!requested) return roster[0];
   const squash = (t) => String(t).trim().toLowerCase().replace(/\s+/g, '');
   const want = String(requested).trim().toLowerCase();
-  const exact = roster.find((v) => v.id === requested)
-    ?? roster.find((v) => v.name.toLowerCase() === want)
-    ?? roster.find((v) => squash(v.name) === squash(want));
-  if (exact) return exact;
+  const byId = roster.find((v) => v.id === requested);
+  if (byId) return byId;
+  const exact = roster.filter((v) => v.name.toLowerCase() === want);
+  if (exact.length) return exact.length === 1 ? exact[0] : null;
+  const normalized = roster.filter((v) => squash(v.name) === squash(want));
+  if (normalized.length) return normalized.length === 1 ? normalized[0] : null;
   const byShortName = roster.filter((v) => squash(shortName(v.name)) === squash(want));
   return byShortName.length === 1 ? byShortName[0] : null;
 }
@@ -209,16 +211,16 @@ export function createSynth({
   const headers = { 'xi-api-key': key };
 
   let roster = null;
-  function listVoices() {
+  function listVoices({ refresh = false } = {}) {
+    if (refresh) roster = null;
     roster ??= (async () => {
       const res = await fetchImpl(`${API}/voices`, { headers });
       if (!res.ok) throw new Error(synthError(res.status, await res.text(), { format }));
-      const shaped = shapeVoices(await res.json());
-      if (!shaped.length) throw new Error('ElevenLabs returned no voices for this key');
-      return shaped;
+      return shapeVoices(await res.json());
     })();
-    roster.catch(() => { roster = null; });
-    return roster;
+    const pending = roster;
+    pending.catch(() => { if (roster === pending) roster = null; });
+    return pending;
   }
 
   /**

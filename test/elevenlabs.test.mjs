@@ -14,7 +14,7 @@ import {
   voiceLangs, shapeLibrary,
 } from '../tools/elevenlabs-tts.mjs';
 import { TONES, cutNote } from '../tools/tone-cue.mjs';
-import { createEngine, ENGINES } from '../tools/tts-engines.mjs';
+import { createEngine, ENGINES, resolveTtsVoice } from '../tools/tts-engines.mjs';
 import { suggestEngine } from '../tools/tts-setup.mjs';
 import { planServices } from '../cli/open.mjs';
 
@@ -318,6 +318,18 @@ test('the roster is fetched once and shared by every synth', async () => {
   const { synth, listVoices } = createSynth({ key: 'k', fetchImpl });
   await Promise.all([synth('a', {}), synth('b', {}), listVoices()]);
   assert.equal(fetchImpl.calls.filter((c) => c.url.endsWith('/voices')).length, 1);
+});
+
+test('recording resolves the live roster before synthesis, even after the saved voice is removed', async () => {
+  const voices = { voices: [...VOICES.voices] };
+  const fetchImpl = fakeFetch({ voices });
+  const tts = { name: 'elevenlabs', ...createSynth({ key: 'k', fetchImpl }) };
+  const picked = await resolveTtsVoice(tts);
+  assert.deepEqual([picked.name, picked.id, picked.request], ['Gilles', 'c1', 'c1']);
+  voices.voices = voices.voices.filter((v) => v.voice_id !== 'c1');
+  await assert.rejects(resolveTtsVoice(tts, { voice: picked.name, voiceId: picked.id, refresh: true }), /Voice “Gilles” is unavailable/);
+  assert.equal(fetchImpl.calls.filter((call) => call.url.endsWith('/voices')).length, 2);
+  assert.ok(fetchImpl.calls.every((call) => call.init.method !== 'POST'));
 });
 
 test('a voice this key cannot speak is refused by name, listing the ones it can', async () => {

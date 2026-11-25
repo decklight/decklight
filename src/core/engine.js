@@ -3775,6 +3775,7 @@ export function init(userConfig = {}) {
     captionsOn: () => narration.status().captionsOn, toggleCaptions,
     // a reviewed script, heard in the live voice (fixreview.js)
     speak: (text, btn) => narration.hear(text, btn),
+    openTrackVoice: narration.openTrackVoice,
     // the names the menu's Concept ▸ offers: the deck's, as its diagrams and its configuration know them (#718)
     knownConcepts: () => conceptsOn(stage, config.concepts ?? {}).map((c) => c.name),
   });

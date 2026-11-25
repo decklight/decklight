@@ -147,8 +147,9 @@ const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'audiota
   'writeface', 'writeface&filmed', 'writeface&off', 'writeface&nosrv', 'writeface&empty', 'writeface&print', 'writeface&capture',
   'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'plainpause', 'segpause', 'segpause&live', 'segmanifest', 'segsigned', 'bundledaudio', 'off',
-  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'micoffstep&record', 'realsay'];
-for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
+  'trackvoice&case=named', 'trackvoice&case=renamed', 'trackvoice&case=legacy', 'trackvoice&case=set', 'trackvoice&case=removed',
+  'record', 'record&default', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'micoffstep&record', 'realsay'];
+for (const mode of (only.length ? MODES.filter((m) => only.includes(m) || only.includes(m.split('&')[0])) : MODES)) {
   const [m, extra] = mode.split('&');
   let bridge = null;
   if (m === 'realsay') {
@@ -169,6 +170,10 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
   timings.push([mode, took]);
   const ok = r.PASS === true;
   if (!ok) bad++;
+  if (m === 'trackvoice') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} ${JSON.stringify(r)}`);
+    continue;
+  }
   if (m === 'manifest' || m === 'expired') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} `
       + (r.expiredCase

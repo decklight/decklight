@@ -114,7 +114,7 @@ export function markerPauses(html) {
  * `format` is the audio's extension, wav unless a header says otherwise —
  * ElevenLabs alone can be told to speak mp3.
  */
-export function manifestKey({ engine, model, voice, style, format } = {}, text) {
+export function manifestKey({ engine, model, voice, voiceId, style, format } = {}, text) {
   const e = engine ?? '';
   const fixed = e === 'piper';
   const defaultVoice = e === 'say' || e === 'sapi';
@@ -123,7 +123,7 @@ export function manifestKey({ engine, model, voice, style, format } = {}, text) 
     engine: e,
     model: fixed || defaultVoice ? undefined : (model ?? undefined),
     format: format ?? 'wav',
-    voice: fixed ? model : defaultVoice ? (voice ?? model) : voice,
+    voice: fixed ? model : (voiceId ?? voice ?? (defaultVoice ? model : undefined)),
     style: stylable ? style : undefined,
     text,
   });
@@ -140,9 +140,24 @@ export const manifestHash = (header, text) => manifestKey(header, text).slice(0,
 export const legacyHash = ({ engine, voice, style } = {}, text) => createHash('sha256')
   .update(`${engine}|${voice}|${style}|${text}`).digest('hex').slice(0, 16);
 
+/** Record a voice identity without changing what the existing hashes vouch for. */
+export function withTrackVoice(manifest, { voice, voiceId }) {
+  const before = manifest.voiceId ?? manifest.voice;
+  const changed = before !== (voiceId ?? voice);
+  return {
+    ...manifest, voice, ...(voiceId ? { voiceId } : {}),
+    slides: changed ? manifest.slides.map((entry) => (entry?.hash && !Object.hasOwn(entry, 'hashVoice')
+      ? { ...entry, hashVoice: before ?? null } : entry)) : manifest.slides,
+  };
+}
+
 /** Does this manifest slide entry vouch for `text`, under its header? */
 export function entryMatches(header, entry, text) {
   if (!entry?.hash) return true;   // a hand-recorded take carries no hash to disagree
+  if (Object.hasOwn(entry, 'hashVoice')) {
+    // A legacy take can keep its original notes hash after the voice is identified.
+    header = { ...header, voice: entry.hashVoice, voiceId: undefined };
+  }
   if (entry.hash === manifestHash(header, text)) return true;
   return header?.model === undefined && entry.hash === legacyHash(header, text);
 }
@@ -268,6 +283,6 @@ export function recorderManifest({ prev, header, texts, range, recorded, recorde
     if (take.face) entry.face = true;
     slides.push(entry);
   }
-  const { engine, model, voice, style } = header;
-  return { engine, model, voice, style, recorder, slides };
+  const { engine, model, voice, voiceId, style, format } = header;
+  return { engine, model, voice, ...(voiceId ? { voiceId } : {}), style, ...(format ? { format } : {}), recorder, slides };
 }

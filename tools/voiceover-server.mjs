@@ -7,6 +7,7 @@
 // credentials (nor run piper), so this process holds them and exposes:
 //
 //   GET  /ping    → { ok, engine, model, voices, stylable, audioTags }   (player probes)
+//   GET  /voice   → resolved voice identity, or the roster with ?roster=1
 //   GET  /voices  → [[name, flavor], …]
 //   POST /tts     → audio/wav                                 { text, voice, style }
 //
@@ -64,7 +65,7 @@ export function openVoiceSettings(exec = execFile, platform = process.platform) 
   }
   exec('open', [VOICE_SETTINGS_URI], () => { /* fire and forget — Settings owns the rest */ });
 }
-import { resolveEngine, engineBlocker, engineMenu, engineStatus, ENGINES } from './tts-engines.mjs';
+import { resolveEngine, engineBlocker, engineMenu, engineStatus, ENGINES, listVoiceIdentities, resolveTtsVoice } from './tts-engines.mjs';
 import { loadTtsConfig, runSetupWizard, ttsConfigPath } from './tts-setup.mjs';
 import { argReader, isMain, parsePort, badPort } from './args.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
@@ -431,13 +432,29 @@ export async function ttsMain(args) {
         return sendJson(res, 200, { ok: true, ...added, voices: await voiceRoster(h) });
       } catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 502, { ok: false, error: String(e.message ?? e) }); }
     }
+    if (req.method === 'GET' && url.pathname === '/tts/voice') {
+      try {
+        const { engine, refIds } = await engineFor(asked);
+        if (url.searchParams.has('roster')) {
+          return sendJson(res, 200, { voices: await listVoiceIdentities(engine, { refresh: true }) });
+        }
+        const voice = url.searchParams.get('voice');
+        const voiceId = url.searchParams.get('voiceId') || refIds.get(voice);
+        const picked = await resolveTtsVoice(engine, { voice, voiceId, refresh: true });
+        return sendJson(res, 200, {
+          voice: picked.name, voiceId: picked.id, engine: engine.name, model: engine.model, audioTags: engine.audioTags === true,
+        });
+      } catch (e) {
+        return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 502, { error: e.message });
+      }
+    }
     if (req.method === 'GET' && url.pathname === '/tts/voices') {
       try { return sendJson(res, 200, await voiceRoster(await engineFor(asked))); }
       catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 500, { ok: false, error: String(e) }); }
     }
     if (req.method === 'POST' && url.pathname === '/tts') {
       try {
-        const { text: said, voice: picked, style, engine: wanted } = JSON.parse((await readBody(req)).toString());
+        const { text: said, voice: picked, voiceId: requestedId, style, engine: wanted } = JSON.parse((await readBody(req)).toString());
         // the engine THIS tab speaks with — never whichever another tab last chose
         let h;
         try { h = await engineFor(wanted || asked); }
@@ -447,12 +464,14 @@ export async function ttsMain(args) {
         // never read aloud by one that cannot (SPEC `PRESENTING`)
         const text = forEngine(engine, said);
         if (!text?.trim()) { res.writeHead(400, CORS); return res.end('no text'); }
-        const voice = refIds.get(picked) ?? picked;
+        const { request: voice, id } = await resolveTtsVoice(engine, {
+          voice: picked, voiceId: requestedId ?? refIds.get(picked),
+        });
         // The key is the SAME function `decklight narrate` hashes with, and
         // that is the point: a sentence previewed here and then batch-recorded
         // is one synthesis, not two identical bills (SPEC `NARRATION`).
         const ext = extFor(engine.synth.mimeType ?? 'audio/wav');
-        const key = clipKey(engine, { voice, style, text });
+        const key = clipKey(engine, { voice: id ?? voice, style, text });
         let fresh = !cache.has(key);
         if (fresh) {
           const bytes = disk.read(key, ext);

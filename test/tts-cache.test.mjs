@@ -365,6 +365,8 @@ test('a folder recorded before the key gained `model` is not re-synthesized', as
   const mPath = path.join(out, 'manifest.json');
   const m = JSON.parse(fs.readFileSync(mPath, 'utf8'));
   delete m.model;
+  delete m.voiceId;
+  m.voice = 'Samantha';
   m.slides[0].hash = createHash('sha256')
     .update(`say|Samantha|${CLI_STYLE}|${NOTE}`).digest('hex').slice(0, 16);
   fs.writeFileSync(mPath, JSON.stringify(m, null, 1));

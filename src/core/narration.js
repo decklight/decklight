@@ -714,6 +714,16 @@ export function createNarration({
   // `?engine=` on the bridge's GETs: THIS tab's engine, never a switch of the
   // bridge — one bridge serves every tab, each on the engine its voice is on
   const forEngine = (url, name) => (name ? `${url}${url.includes('?') ? '&' : '?'}engine=${encodeURIComponent(name)}` : url);
+  async function bridgeVoice({ engine, voice, voiceId, roster = false }) {
+    const query = new URLSearchParams();
+    if (voice) query.set('voice', voice);
+    if (voiceId) query.set('voiceId', voiceId);
+    if (roster) query.set('roster', '1');
+    const r = await fetch(forEngine(`${TTS}/voice?${query}`, engine));
+    const answer = await r.json().catch(() => null);
+    if (!r.ok || !answer) throw new Error(answer?.error ?? 'the voice bridge could not identify the voice');
+    return answer;
+  }
   let liveVoices = GEMINI_VOICES;
   let liveStylable = true;  // only gemini takes a delivery instruction
   let liveAudioTags = false; // ElevenLabs v3/v4 act on [whispers]; any other voice has them taken out
@@ -807,7 +817,7 @@ export function createNarration({
     liveAudioTags = p.audioTags === true;
     if (liveVoices.length && !liveVoices.some(([n]) => n === liveCfg.voice)) {
       const was = liveCfg.voice;
-      liveCfg = { ...liveCfg, voice: liveVoices[0][0] };
+      liveCfg = { ...liveCfg, voice: liveVoices[0][0], defaultVoice: true };
       persistNarr();
       debugLog('tts', `voice ${was} is not on this bridge — using ${liveCfg.voice}`);
       if (narrSet?.live) toast(`voice ${was} → ${liveCfg.voice} (this bridge speaks its own roster)`, 2600);
@@ -843,7 +853,7 @@ export function createNarration({
   };
   const narrSets = narrationTracks(config.narration);
   const LIVE_TRACK = { live: true };
-  let liveCfg = { voice: 'Alnilam', tone: TONES[0][0], style: TONES[0][1] };
+  let liveCfg = { voice: 'Alnilam', tone: TONES[0][0], style: TONES[0][1], defaultVoice: true };
   /**
    * OFF until somebody picks, even on a deck that ships a recorded track.
    *
@@ -933,13 +943,16 @@ export function createNarration({
     return notesDisplaySegsOf(instance._sections?.[sl - 1]?.querySelector('aside.notes'));
   }
   const notesDraftOf = (sl) => notesDraft(instance._sections?.[sl - 1]?.querySelector('aside.notes'));
+  const liveVoiceRequest = () => ({
+    engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveStyle(), audioTags: liveAudioTags,
+  });
   // resolves { url, blob }: playback needs the object URL, the the synthesized recorder stitcher
   // needs the raw bytes — one cache serves both
-  function synthLive(text, key, label) {
+  function synthLive(text, key, label, request) {
     // an audio tag is direction for a voice that can act on it; any other is
     // sent the words alone, and a sentence that was ONLY direction is no clip
     // (cached as nothing, so the prefetch window moves past it)
-    if (!liveAudioTags) text = stripAudioTags(text);
+    if (!request.audioTags) text = stripAudioTags(text);
     if (!text || !text.trim()) {
       if (key && !liveCache.has(key)) liveCache.set(key, Promise.resolve(null));
       return Promise.resolve(null);
@@ -949,7 +962,7 @@ export function createNarration({
     // when the bridge answers, by the header it sends.
     // The browser's voice has no clip to fetch: the sentence IS the clip, and
     // playLive speaks it. Nothing is billed and nothing can be stitched.
-    if (onBrowser()) {
+    if (request.engine === BROWSER_ENGINE) {
       if (!liveCache.has(key)) liveCache.set(key, Promise.resolve({ speech: text }));
       return liveCache.get(key);
     }
@@ -964,9 +977,11 @@ export function createNarration({
           const res = await fetch(LIVE_URL, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text, voice: liveCfg.voice, style: liveStyle(), ...(liveEngine ? { engine: liveEngine } : {}) }),
+            body: JSON.stringify({ text, voice: request.voice, style: request.style,
+              ...(request.voiceId ? { voiceId: request.voiceId } : {}),
+              ...(request.engine ? { engine: request.engine } : {}) }),
           });
-          if (!res.ok) throw new Error(String(res.status));
+          if (!res.ok) throw new Error(await res.text() || String(res.status));
           const blob = await res.blob();
           const cost = parseFloat(res.headers?.get?.('x-tts-cost') ?? '') || 0;
           if (cost) ttsSpend += cost;
@@ -976,7 +991,7 @@ export function createNarration({
             if (res.headers?.get?.('x-tts-cached') === '1') tally.reused++;
             else { tally.sent++; tally.cost += cost; }
           }
-          debugLog('tts', `${label} · ${liveCfg.voice} · ${text.length} chars → ${((Date.now() - t0) / 1000).toFixed(1)}s`
+          debugLog('tts', `${label} · ${request.voice} · ${text.length} chars → ${((Date.now() - t0) / 1000).toFixed(1)}s`
             + (cost ? ` · ~$${cost.toFixed(4)}` : ''));
           // a take whose length did not fit its text, sampled again by the
           // bridge (`x-tts-take`): named here with its slide, worth a listen
@@ -984,7 +999,7 @@ export function createNarration({
           if (take) debugLog('tts', `${label} · retried: ${decodeURIComponent(take)}`);
           return { url: URL.createObjectURL(blob), blob };
         } catch (e) {
-          debugLog('tts', `${label} · ${liveCfg.voice} FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s (${String(e.message || e)})`);
+          debugLog('tts', `${label} · ${request.voice} FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s (${String(e.message || e)})`);
           throw e;
         }
       })();
@@ -1030,10 +1045,10 @@ export function createNarration({
    * `audioTags`): there each is sent as that tag, inside the sentence, and
    * decklight holds nothing (`voicedPauses`).
    */
-  function stepAudio(sl, step) {
+  function stepAudio(sl, step, audioTags = liveAudioTags) {
     const segs = notesSegs(sl);
     const beats = step < buildSteps(sl) ? [segs[step]] : segs.slice(step);
-    return stepPlan(liveAudioTags ? beats.map(voicedPauses) : beats);
+    return stepPlan(audioTags ? beats.map(voicedPauses) : beats);
   }
   const stepSentences = (sl, step) => stepAudio(sl, step).sentences;
 
@@ -1059,7 +1074,8 @@ export function createNarration({
     debugLog('narr', msg);
   }
 
-  const sentenceKey = (sl, step, i, text) => liveClipKey(sl, step, i, text, liveCfg.voice, liveStyle());
+  const sentenceKey = (sl, step, i, text, request = liveVoiceRequest()) =>
+    JSON.stringify([request.engine, request.model, liveClipKey(sl, step, i, text, request.voiceId ?? request.voice, request.style)]);
   /**
    * The clip for sentence `i` of slide `sl`'s step `step`, synthesized or
    * cached.
@@ -1068,9 +1084,9 @@ export function createNarration({
    * sentence list — which every loop that walks a step does. Without it this
    * re-segments the whole slide to fetch ONE sentence, once per sentence.
    */
-  function fetchLiveSentence(sl, step, i, text) {
+  function fetchLiveSentence(sl, step, i, text, request = liveVoiceRequest()) {
     const sentence = text ?? stepSentences(sl, step)[i] ?? '';
-    return synthLive(sentence, sentenceKey(sl, step, i, sentence), `slide ${sl} seg ${step} #${i + 1}`);
+    return synthLive(sentence, sentenceKey(sl, step, i, sentence, request), `slide ${sl} seg ${step} #${i + 1}`, request);
   }
   // data-narration="hold": an interactive slide (quiz, exercise, live
   // demo) — narration plays whatever notes it has and builds still sync,
@@ -2255,6 +2271,7 @@ export function createNarration({
     else if (narrView === 'tones') renderNarr('voices');
     else if (narrView === 'engines' || narrView === 'langs' || narrView === 'library') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('tracks');
+    else if (narrView === 'trackvoice') { narrVoiceChoice = null; renderNarr('card'); }
     else if (narrView === 'card' && narrConfirm) { narrConfirm = null; narrSel = 0; renderNarr('card'); }
     else if (narrView === 'face') renderNarr(narrFace?.from ?? 'tracks');
     else if (narrView === 'card' || narrView === 'voices') renderNarr('tracks');
@@ -2576,6 +2593,7 @@ export function createNarration({
   const isMine = (t) => (knownOf(t) ? knownOf(t).mine === true : dirKey(t?.dir) === 'voices/me');
   /** A track's slides out of step with the notes, in slide order. */
   const driftOf = (t) => knownOf(t)?.drift ?? [];
+  const missingTrackVoice = (k) => !!(k?.engine && !k.voice && !k.voiceId);
   /**
    * The fix is named for what it costs (#919): your own voice is
    * RE-RECORDED, which is you at the microphone; an AI voice's recording is
@@ -2635,6 +2653,7 @@ export function createNarration({
     const n = k?.slides?.length ?? k?.files;
     const parts = [];
     if (!isMine(t) && k?.engine) parts.push(engineName(k.engine));
+    if (missingTrackVoice(k)) parts.push('voice not recorded');
     // an AI voice is saved with the deck, or needs a connection: said on
     // every one of them, where a section header used to say it for all
     if (!isMine(t)) parts.push('saved with the deck');
@@ -2647,7 +2666,7 @@ export function createNarration({
     const lips = lipsStale(t);
     if (lips) parts.push(`lip-sync out of date in ${lips} file${lips === 1 ? '' : 's'}`);
     else if (lipsOf(t)?.job?.running) parts.push('making lip-sync…');
-    return { text: parts.join(' · '), warn: drift.length > 0 || lips > 0 };
+    return { text: parts.join(' · '), warn: missingTrackVoice(k) || drift.length > 0 || lips > 0 };
   }
   /**
    * The fix, on the row itself: Re-record for your own voice, Regenerate for
@@ -2716,7 +2735,8 @@ export function createNarration({
     card.appendChild(dl);
   }
   let narrCardOf = null;     // the voice whose card is open: a track, or LIVE_TRACK
-  let narrConfirm = null;    // a re-voice waiting for its yes: { t, slides }
+  let narrConfirm = null;    // a re-voice waiting for its yes
+  let narrVoiceChoice = null;
   /** Make `t` the voice that plays — the row's ⏎ — and, asked to, start it. */
   function useVoice(t, { play = false } = {}) {
     narrSet = t;
@@ -2740,7 +2760,6 @@ export function createNarration({
     const k = knownOf(t);
     if (!k) return editBase() == null ? 'needs write mode — it writes the recording' : 'reading the recording…';
     if (!k.engine) return 'this recording does not say which voice made it';
-    if (onBrowser()) return "the browser's voice cannot be saved — regenerating needs the voice bridge";
     return null;
   }
   /**
@@ -2813,11 +2832,82 @@ export function createNarration({
       commit: () => (why ? toast(why, 5000) : updateLipsync(dirKey(t.dir))),
     };
   }
+  async function chooseTrackVoice(t, { slides = null, onSaved = null } = {}) {
+    const k = knownOf(t);
+    if (!missingTrackVoice(k)) return;
+    narrCardOf = t;
+    narrConfirm = null;
+    const choice = narrVoiceChoice = { t, slides, onSaved, voices: null, error: null, saving: false };
+    renderNarr('trackvoice');
+    try {
+      const { voices } = await bridgeVoice({ engine: k.engine, roster: true });
+      choice.voices = voices;
+      if (!voices?.length) choice.error = `No voices available on ${engineName(k.engine)}`;
+    } catch (e) {
+      choice.error = e.message;
+    }
+    if (narrEl && narrVoiceChoice === choice) renderNarr('trackvoice');
+  }
+
+  async function saveTrackVoice(choice, picked) {
+    if (choice.saving) return;
+    const { t, slides, onSaved } = choice;
+    const k = knownOf(t);
+    const base = editBase();
+    if (!missingTrackVoice(k) || base == null) return;
+    choice.saving = true;
+    choice.error = null;
+    renderNarr('trackvoice');
+    try {
+      const r = await fetch(`${base}/deck/edit/narration/record?slide=1&kind=voice&dir=${encodeURIComponent(dirKey(t.dir))}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ engine: k.engine, voice: picked.name, voiceId: picked.id }),
+      });
+      const saved = await r.json();
+      if (!r.ok || !saved.ok) throw new Error(saved.error ?? 'the voice could not be saved');
+      narrKnown.set(dirKey(t.dir), { ...k, voice: saved.voice, voiceId: saved.voiceId });
+      if (!narrEl || narrVoiceChoice !== choice) return;
+      narrVoiceChoice = null;
+      if (onSaved) { closeNarrPicker(); onSaved(); }
+      else if (slides) armRevoice(t, slides);
+      else renderNarr('card');
+    } catch (e) {
+      choice.saving = false;
+      choice.error = e.message;
+      if (narrEl && narrVoiceChoice === choice) renderNarr('trackvoice');
+    }
+  }
+
   function armRevoice(t, slides) {
+    if (missingTrackVoice(knownOf(t))) return chooseTrackVoice(t, { slides });
     narrCardOf = t;
     narrConfirm = { t, slides };
     narrSel = 0;   // the yes, first
     renderNarr('card');
+  }
+
+  async function confirmRevoice(confirm) {
+    if (confirm.pending) return;
+    const { t, slides } = confirm;
+    const k = knownOf(t);
+    if (!k?.engine || recEl) return;
+    if (missingTrackVoice(k)) return chooseTrackVoice(t, { slides });
+    confirm.pending = true;
+    confirm.error = null;
+    renderNarr('card');
+    try {
+      const resolved = await bridgeVoice(k);
+      if (!narrEl || narrConfirm !== confirm) return;
+      if (!resolved.voice && !resolved.voiceId) throw new Error('the voice bridge returned no voice');
+      closeNarrPicker();
+      await revoiceTrack(t, slides, k, resolved);
+    } catch (e) {
+      confirm.error = e.message;
+    } finally {
+      confirm.pending = false;
+      if (narrEl && narrConfirm === confirm) renderNarr('card');
+    }
   }
   // ── Where… (FACE_LAYOUT): where whoever is on screen shows on a slide ──
   // Placement belongs to the slide, whichever voice plays it: written to the
@@ -3140,17 +3230,38 @@ export function createNarration({
         blocked: openWriting() ? null : 'needs write mode — it writes the notes',
         commit: () => { const go = openWriting(); if (!go) { toast('the writing tools need write mode — they write the notes', 4000); return; } closeNarrPicker(); go(); },
       });
+    } else if (view === 'trackvoice' && narrVoiceChoice) {
+      const choice = narrVoiceChoice;
+      head.textContent = 'Which voice made this recording?';
+      cardFacts(card, [
+        ['voice', 'voice not recorded', true],
+        ['choice', 'saved in the track’s manifest'],
+        ...(choice.error ? [['could not set voice', choice.error, true]] : []),
+      ]);
+      narrRows.push({ text: 'Cancel', flavor: 'Esc', commit: narrBack });
+      if (!choice.voices && !choice.error) {
+        narrRows.push({ text: 'Loading voices…', blocked: true, commit: () => {} });
+      }
+      for (const picked of choice.voices ?? []) {
+        narrRows.push({
+          text: picked.name, flavor: picked.flavor, blocked: choice.saving,
+          commit: () => saveTrackVoice(choice, picked),
+        });
+      }
     } else if (view === 'card' && narrConfirm) {
       // A regeneration is paid per character, so it asks once, inside the
       // card, with the figure — and Esc or Cancel leaves without spending anything.
-      const { t, slides } = narrConfirm;
+      const confirm = narrConfirm;
+      const { t, slides } = confirm;
       const k = knownOf(t);
       head.textContent = `regenerate ${slidesSaid(slides)} as ${k?.voice ?? voiceName(t)}?`;
       cardTags(card, ['ai', 'recorded']);
+      if (confirm.error) cardFacts(card, [['could not regenerate', confirm.error, true]]);
       narrRows.push({
         text: `Regenerate ${slidesSaid(slides)}`,
         flavor: `about ${voiceChars(slides).toLocaleString()} characters on ${k?.engine ? engineName(k.engine) : 'its engine'} · only ${slides.length === 1 ? 'that slide is' : 'those slides are'} replaced`,
-        commit: () => { narrConfirm = null; closeNarrPicker(); revoiceTrack(t, slides); },
+        blocked: confirm.pending,
+        commit: () => confirmRevoice(confirm),
       });
       narrRows.push({
         text: 'Cancel',
@@ -3196,6 +3307,7 @@ export function createNarration({
         ['made with', mine ? 'your microphone'
           : k?.engine ? `${engineName(k.engine)}${k.voice ? `, voice “${k.voice}”` : ''}`
             : t.manifest ? 'hosted elsewhere' : 'not recorded in the track'],
+        ...(missingTrackVoice(k) ? [['voice', 'voice not recorded', true]] : []),
         ['saved in', t.manifest ? 'hosted, not in the deck folder' : `${dirKey(t.dir)}/, beside the deck`],
         ...(t.manifest ? [['signature', manifestFlavor(t)]] : []),
         ...(n != null ? [['covers', `${n} slide${n === 1 ? '' : 's'}`]] : []),
@@ -3222,9 +3334,17 @@ export function createNarration({
         const why = revoiceWhy(t);
         narrRows.push({
           text: `Regenerate ${slidesSaid(slides)}`,
-          flavor: why ? '' : `~${voiceChars(slides).toLocaleString()} characters · the same voice and style`,
+          flavor: why ? '' : missingTrackVoice(k) ? 'choose the track’s voice first'
+            : `~${voiceChars(slides).toLocaleString()} characters · the same voice and style`,
           blocked: why,
           commit: () => (why ? toast(why, 5000) : armRevoice(t, slides)),
+        });
+      }
+      if (missingTrackVoice(k)) {
+        narrRows.push({
+          text: 'Set the track’s voice…',
+          flavor: 'saves the voice in the manifest without generating audio',
+          commit: () => chooseTrackVoice(t),
         });
       }
       // …and the lip-sync's, which costs nothing but time: Rhubarb, here (#1244)
@@ -4033,7 +4153,7 @@ export function createNarration({
     // who voiced each track and which slides are out of step with the notes
     // (#850), from the server that can read their manifests; repainted only
     // if there is news, and only on the views that show it
-    knownTracks().then((tracks) => {
+    editReady().then(knownTracks).then((tracks) => {
       const had = narrKnown.size;
       rememberTracks(tracks);
       if (!narrEl || !(had || narrKnown.size)) return;
@@ -4066,6 +4186,7 @@ export function createNarration({
     narrLand = null;
     narrReturn = null;
     narrConfirm = null; // nothing is spent behind a closed panel
+    narrVoiceChoice = null;
   }
 
   // the synthesized recorder: batch-record the whole deck offline with the current live voice/tone.
@@ -4176,7 +4297,7 @@ export function createNarration({
    * than after it — and no trailing `data-narration-pause`, which `advanceFrom`
    * honours itself and would otherwise be held twice.
    */
-  async function stitchSlideWav(sl, run) {
+  async function stitchSlideWav(sl, run, request) {
     const max = buildSteps(sl);
     const index = segmentFileIndex(notesSegs(sl));
     const hold = markerPause(sl);
@@ -4187,12 +4308,12 @@ export function createNarration({
     const voiced = (list) => list.some((c) => typeof c !== 'number');
     let rate = 0;
     for (let step = 0; step <= max; step++) {
-      const { sentences, segStarts, segRuns, before, after, bare } = stepAudio(sl, step);
+      const { sentences, segStarts, segRuns, before, after, bare } = stepAudio(sl, step, request.audioTags);
       // a beat with nothing but ⟨PAUSE⟩ has no file of its own to hold in —
       // the whole-slide take still holds it, as the live voice does
       if (bare) chunks.push(bare * hold);
       for (let i = 0; i < sentences.length; i++) {
-        const clip = await fetchLiveSentence(sl, step, i, sentences[i]); // cache-first
+        const clip = await fetchLiveSentence(sl, step, i, sentences[i], request); // cache-first
         if (run !== recRun) return null;
         if (!clip) continue;
         const buf = await clip.blob.arrayBuffer();
@@ -4232,7 +4353,7 @@ export function createNarration({
   // Cache-first through the character's own promise cache — sentences whose
   // visemes the lookahead already fetched are free. Any failure (bridge
   // down) just skips the sidecar; the WAV still records.
-  async function stitchSlideVisemes(sl, run) {
+  async function stitchSlideVisemes(sl, run, request) {
     if (character.mode !== 'viseme') return null;
     const max = buildSteps(sl);
     const index = segmentFileIndex(notesSegs(sl));
@@ -4245,11 +4366,11 @@ export function createNarration({
     let carry = 0;
     try {
       for (let step = 0; step <= max; step++) {
-        const { sentences, segStarts, segRuns, before, after, bare } = stepAudio(sl, step);
+        const { sentences, segStarts, segRuns, before, after, bare } = stepAudio(sl, step, request.audioTags);
         carry += bare * hold;
         for (let i = 0; i < sentences.length; i++) {
           const tl = await character.ensureTimeline(
-            sentenceKey(sl, step, i, sentences[i]), fetchLiveSentence(sl, step, i, sentences[i]), stripAudioTags(sentences[i]));
+            sentenceKey(sl, step, i, sentences[i], request), fetchLiveSentence(sl, step, i, sentences[i], request), stripAudioTags(sentences[i]));
           if (run !== recRun) return null;
           if (!tl) continue;
           const breath = sentencePause(sl);
@@ -4378,7 +4499,7 @@ export function createNarration({
    * second look, and that folder may hold somebody's own take.
    */
   function synthTarget(tracks) {
-    const same = tracks.find((t) => t.manifest && t.engine === liveEngine && t.voice === liveCfg.voice);
+    const same = tracks.find((t) => t.manifest && t.engine === liveEngine && t.voice && t.voice === liveCfg.voice);
     return same ? same.dir : proposeTrack({ engine: liveEngine, voice: liveCfg.voice }, tracks.map((t) => t.dir)).dir;
   }
 
@@ -4590,15 +4711,29 @@ export function createNarration({
       + ' writes them next to the deck instead.';
   }
 
-  async function startRecording() {
+  async function startRecording({ track = null, resolved = null } = {}) {
     // the browser speaks to the speakers and gives no audio back: nothing to stitch
-    if (onBrowser()) {
+    if (!track && onBrowser()) {
       toast("the browser's voice cannot be recorded — start a bridge: decklight <deck.html>", 5000);
       return;
     }
     const list = slidesWithNotes();
     const run = ++recRun;
     const t0 = Date.now();
+    renderRecordCard('progress', { done: 0, total: list.length, elapsedMs: 0 });
+    const live = liveVoiceRequest();
+    let request;
+    try {
+      const implicit = live.engine === 'elevenlabs' && liveCfg.defaultVoice;
+      const identity = resolved ?? await bridgeVoice({ ...live, voice: implicit ? null : live.voice });
+      request = { ...identity, style: track ? track.style ?? '' : live.style };
+    } catch (e) {
+      if (run !== recRun) return;
+      toast(e.message, 5000);
+      renderRecordCard('confirm', { total: list.length, target: recTarget });
+      return;
+    }
+    if (run !== recRun) return;
     let done = 0, saved = 0, toDisk = 0, segmented = false;
     // A fresh tally per take (#565): what THIS run reused and what it paid for
     const tally = recTally = { seen: new Set(), reused: 0, sent: 0, cost: 0 };
@@ -4610,8 +4745,15 @@ export function createNarration({
     // `== null`, never falsy: the edit server's prefix is '' when it is the
     // origin serving this deck, which is most of the time.
     const base = editBase();
-    const target = recTarget ?? targetFor({ mine: false }, await knownTracks());
+    const tracks = track ? [] : await knownTracks();
     if (run !== recRun) return;
+    const target = recTarget ?? targetFor({ mine: false }, tracks);
+    const existing = tracks.find((t) => dirKey(t.dir) === dirKey(target.dir));
+    if (missingTrackVoice(existing)) {
+      toast('Set the track’s voice in the voice panel before regenerating it, or choose a new folder.', 5500);
+      renderRecordCard('confirm', { total: list.length, target });
+      return;
+    }
     const dir = base == null ? null : { base, name: target.dir };
     // The take's manifest (#535): which slides this run recorded and their
     // beats, posted after every slide so an aborted take still leaves a
@@ -4629,22 +4771,21 @@ export function createNarration({
     const only = !!recSlides;
     const saveManifest = async (sl) => {
       if (!dir) return;
-      try {
-        await fetch(`${dir.base}/deck/edit/narration/record?slide=1&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveStyle(),
-            range: only ? [sl, sl] : range, slides: only ? { [sl]: recorded[sl] } : recorded,
-          }),
-        });
-      } catch { /* the files are on disk; the manifest is the next slide's to retry */ }
+      const r = await fetch(`${dir.base}/deck/edit/narration/record?slide=1&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          engine: request.engine, model: track?.model ?? request.model, voice: request.voice, voiceId: request.voiceId,
+          style: request.style, ...(track ? { revoice: true, previousVoice: track.voice } : {}),
+          range: only ? [sl, sl] : range, slides: only ? { [sl]: recorded[sl] } : recorded,
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? 'the manifest could not be saved');
     };
-    renderRecordCard('progress', { done, total: list.length, elapsedMs: 0 });
     for (const sl of list) {
       if (run !== recRun) return;
       try {
-        const take = await stitchSlideWav(sl, run);
+        const take = await stitchSlideWav(sl, run, request);
         if (run !== recRun) return; // cancelled mid-synthesis — don't save
         if (take?.wav) {
           if (await saveRecording(sl, 'wav', take.wav, dir)) toDisk++;
@@ -4662,7 +4803,7 @@ export function createNarration({
           }
           // character on: the matching viseme sidecar is written too, so the
           // recorded set plays back lip-synced without the bridge
-          const tl = await stitchSlideVisemes(sl, run);
+          const tl = await stitchSlideVisemes(sl, run, request);
           if (run !== recRun) return;
           if (tl?.slide) {
             await saveRecording(sl, 'visemes',
@@ -4678,8 +4819,8 @@ export function createNarration({
           await saveManifest(sl);
           if (run !== recRun) return;
         }
-      } catch {
-        toast(`slide ${sl}: recording failed`);
+      } catch (e) {
+        toast(`slide ${sl}: ${e.message || 'recording failed'}`, 5000);
       }
       done++;
       if (run === recRun) renderRecordCard('progress', { done, total: list.length, elapsedMs: Date.now() - t0 });
@@ -4693,7 +4834,7 @@ export function createNarration({
       if (character.mode === 'viseme' && toDisk && dir) updateLipsync(dir.name, { quiet: true });
       renderRecordCard('done', {
         saved, total: list.length, dir: toDisk ? dir.name : null, segmented, label: target.label,
-        clips: tally, engine: liveEngine,
+        clips: tally, engine: request.engine,
       });
     }
   }
@@ -4726,15 +4867,10 @@ export function createNarration({
    * the engine, voice and style its manifest records, whatever the live voice
    * is set to now. The synthesized recorder does the work; for one run it
    * speaks as the track, writes into the track's folder and walks only those
-   * slides, and then everything it borrowed is put back.
+   * slides, with its own synthesis settings.
    */
-  async function revoiceTrack(t, slides) {
-    const k = knownOf(t);
-    if (!k?.engine || recEl) return;
-    const was = { cfg: liveCfg, engine: liveEngine, model: liveModel };
-    liveCfg = { voice: k.voice ?? liveCfg.voice, tone: 'as recorded', style: k.style ?? '' };
-    liveEngine = k.engine;
-    liveModel = k.model ?? (k.engine === was.engine ? liveModel : null);
+  async function revoiceTrack(t, slides, k, resolved) {
+    if (recEl) return;
     recSlides = new Set(slides);
     recHead = `regenerating ${voiceName(t)}`;
     recTarget = { dir: dirKey(t.dir), label: t.label, why: 'refresh', clash: k };
@@ -4744,11 +4880,8 @@ export function createNarration({
     closeOnBackdrop(recEl, closeRecordDialog);
     root.appendChild(recEl);
     try {
-      await startRecording();
+      await startRecording({ track: k, resolved });
     } finally {
-      liveCfg = was.cfg;
-      liveEngine = was.engine;
-      liveModel = was.model;
       recSlides = null;
       recHead = null;
     }
@@ -6509,6 +6642,16 @@ export function createNarration({
     changeNarrRate,
     toggleCaptions,
     openPicker: openNarrPicker,
+    async openTrackVoice(dir, onSaved) {
+      const key = dirKey(dir);
+      rememberTracks(await knownTracks());
+      const k = knownOf({ dir: key });
+      if (!k) { toast('the recording could not be found', 5000); return; }
+      if (!missingTrackVoice(k)) { onSaved(); return; }
+      const t = narrSets.find((item) => dirKey(item.dir) === key) ?? { dir: key };
+      openNarrPicker('tracks');
+      chooseTrackVoice(t, { onSaved });
+    },
     /**
      * What a video export carries (PRESENTING_OUTPUT), for its card: the
      * narrator the deck plays, said in the panel's own words. The card used to
@@ -6560,6 +6703,9 @@ export function createNarration({
         nolips = t?.nolips ?? 0;
         if (t && (t.manifest || t.renders)) {
           voice = { kind: 'recorded', dir: t.dir, stale: t.stale || 0, engine: t.engine ?? null };
+          if (missingTrackVoice(t)) {
+            notes.push({ warn: true, text: 'voice not recorded · set the track’s voice in the voice panel before regenerating' });
+          }
           if (t.stale > 0) {
             notes.push({ warn: true, text: `recorded from older notes on ${count(t.stale)}` });
           }

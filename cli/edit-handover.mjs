@@ -153,11 +153,13 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
     };
     const checkTrack = () => video.checkVideoTrack(html, track, range, { face: req.face !== 'off', character: req.character });
     const needsFix = () => report.missing.length || report.stale.length || report.lipsync.length;
+    const hasTrackVoice = () => track?.fresh || !!(track?.engine && (track.voice || track.voiceId));
     const preflight = () => {
       const engine = track?.engine ?? (track?.fresh ? req.synthesize.engine : null);
       const audioSlides = new Set([...report.missing, ...report.stale]).size;
       return json(409, { ok: false, error: 'the selected voice needs attention before recording', preflight: {
-        ...report, engine, audioSlides, canFix: !audioSlides || !!engine,
+        ...report, engine, audioSlides, canFix: !audioSlides || hasTrackVoice(),
+        ...(audioSlides && engine && !hasTrackVoice() ? { voiceUnknown: true } : {}),
         metered: ['elevenlabs', 'gemini', 'chirp'].includes(engine),
       } });
     };
@@ -171,7 +173,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
         return json(400, { ok: false, error: oneline(e) });
       }
       if (!anyway && needsFix() && (req.fix !== true || ((report.missing.length || report.stale.length)
-        && !track?.engine && !track?.fresh))) return preflight();
+        && !hasTrackVoice()))) return preflight();
     }
     const { findChrome } = await import('../tools/chrome.mjs');
     // every file but the bundle is a render; the bundle launches no browser

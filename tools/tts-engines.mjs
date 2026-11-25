@@ -50,7 +50,7 @@ import { delimiter, join } from 'node:path';
 import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId, authHeaders } from './gemini-tts.mjs';
 import { run, PROBE_MS, NETWORK_MS } from './exec.mjs';
 import {
-  createSynth as createElevenLabs, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
+  createSynth as createElevenLabs, pickVoice, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
   DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL, readsAudioTags,
 } from './elevenlabs-tts.mjs';
 import {
@@ -428,6 +428,32 @@ function createNative({
   };
 }
 
+export async function listVoiceIdentities(engine, { refresh = false } = {}) {
+  if (engine.listVoices) {
+    return (await engine.listVoices({ refresh })).map(({ id, name, flavor }) => ({ id: id ?? name, name, flavor }));
+  }
+  return (engine.voices ?? []).map(([name, flavor]) => ({ id: name, name, flavor }));
+}
+
+/** Resolve before a cache lookup or synthesis, so the key and audio describe the same voice. */
+export async function resolveTtsVoice(engine, { voice, voiceId, refresh = false } = {}) {
+  const roster = await listVoiceIdentities(engine, { refresh });
+  const asked = voice || engine.defaultVoice || (engine.modelIsDefaultVoice || engine.voiceIsFixed ? engine.model : null);
+  if (!roster.length && !engine.listVoices && !voiceId) {
+    return { name: asked ?? null, id: null, request: asked ?? undefined };
+  }
+  const picked = voiceId ? roster.find((v) => v.id === voiceId)
+    : engine.name === 'elevenlabs' ? pickVoice(roster, asked)
+      : asked ? roster.find((v) => v.name === asked)
+        ?? (engine.name === 'say' ? roster.find((v) => baseName(v.name) === asked) : null)
+        : roster[0];
+  if (!picked) {
+    const label = voice || voiceId || asked;
+    throw new Error(label ? `Voice “${label}” is unavailable on ${engine.name}` : `${engine.name} has no voices available`);
+  }
+  return { ...picked, request: engine.listVoices ? picked.id : picked.name };
+}
+
 export function createEngine(opts = {}) {
   return buildEngine(opts);
 }
@@ -551,7 +577,7 @@ function buildEngine({
     return {
       name: 'chirp', model: 'chirp3-hd', needsProject: true, stylable: false,
       cost: 'first 1M chars/month free',
-      voices: GEMINI_VOICES,
+      defaultVoice: 'Alnilam', voices: GEMINI_VOICES,
       synth: createChirp({ project, lang: lang ?? 'en-US' }),
     };
   }
@@ -559,7 +585,7 @@ function buildEngine({
   return {
     name: 'gemini', model: m, needsProject: true, stylable: true,
     cost: 'billed per call — no free tier',
-    voices: GEMINI_VOICES,
+    defaultVoice: 'Alnilam', voices: GEMINI_VOICES,
     synth: createGemini({ project, ttsModel: m, location }),
   };
 }
