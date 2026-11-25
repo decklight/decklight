@@ -59,7 +59,7 @@ const NARRATION_GROUPS = {
   recorded: ['recorded', 'manifest', 'expired', 'plainrec', 'plainpause', 'segmanifest', 'segsigned', 'bundledaudio'],
   segments: ['segoverflow', 'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'segpause', 'segpause&live'],
   record: ['trackvoice&case=named', 'trackvoice&case=renamed', 'trackvoice&case=legacy', 'trackvoice&case=set', 'trackvoice&case=removed',
-    'record', 'record&default', 'record&dir', 'record&nosrv', 'reccount', 'recordseg', 'recordseg&pause', 'recordseg&badconfig', 'micwarn&record', 'micoffstep&record'],
+    'record', 'record&flakethree', 'record&dead', 'record&default', 'record&dir', 'record&nosrv', 'reccount', 'recordseg', 'recordseg&pause', 'recordseg&badconfig', 'micwarn&record', 'micoffstep&record'],
 };
 const NARRATION_HARNESSES = Object.keys(NARRATION_GROUPS).map((g) => `narration-render:${g}`);
 
