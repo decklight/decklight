@@ -165,6 +165,27 @@ try {
   render(webm, '--render', 'live', '--quality', 'draft', '--subtitles', 'embed');
   const ws = streamsOf(webm);
   for (const want of ['vp9,video', 'opus,audio', 'webvtt,subtitle']) assert.ok(ws.some((s) => s.includes(want)), `webm has ${want} (${ws})`);
+  // The picture still moves near the end: the last slide, not a frame frozen
+  // earlier in the talk (#1254).
+  const liveLen = Number(execFileSync('ffprobe', ffprobeArgs(webm), { encoding: 'utf8' }).trim());
+  const liveHash = (t) => execFileSync('ffmpeg', ['-v', 'error', '-ss', String(t), '-i', webm, '-frames:v', '1', '-f', 'md5', '-'], { encoding: 'utf8' }).trim();
+  assert.notEqual(liveHash(0.5), liveHash(liveLen - 0.3), 'the live capture reaches the last slide');
+
+  // A stall stops the capture and says where and why, rather than writing a
+  // video whose rest is one frame: a dead animation loop, then a page error.
+  for (const [fault, reason] of [['freeze@1.5', /stopped animating/], ['throw@3.5', /page error: Error: simulated failure/]]) {
+    const stalled = join(dir, 'stalled.webm');
+    const run = spawnSync(process.execPath,
+      [join(root, 'cli', 'decklight.mjs'), 'video', deck, '-o', stalled, '--hold', '1', '--fps', '10', '--render', 'live', '--quality', 'draft'],
+      { encoding: 'utf8', cwd: root, env: { ...process.env, DECKLIGHT_TEST_LIVE_FAULT: fault } });
+    const said = run.stdout + run.stderr;
+    assert.notEqual(run.status, 0, `${fault}: the export fails\n${said}`);
+    assert.match(said, /live capture stopped at slide \d+, 0:0\d into the talk/, said);
+    assert.match(said, reason, said);
+    assert.ok(!existsSync(stalled), `${fault}: no video is written`);
+    console.log(`video-e2e: ${fault} → ${said.split('\n').find((line) => line.includes('live capture stopped')).trim()}`);
+  }
+  console.log('video-e2e: OK — a live capture reaches its end, and a stalled one fails naming the slide and the cause');
 
   render(subbed, '--subtitles', 'file');
   const srt = readFileSync(subbed.replace(/\.mp4$/, '.srt'), 'utf8');
