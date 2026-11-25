@@ -27,13 +27,14 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
+import { resolveTtsVoice } from './tts-engines.mjs';
 import { checkedSynth, takeLine } from './take-check.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
-import { slideNotes, priorSlideTexts, manifestHash, markerPauses } from './narration-manifest.mjs';
+import { slideNotes, priorSlideTexts, manifestHash, markerPauses, entryMatches, withTrackVoice } from './narration-manifest.mjs';
 import { PAUSE_MARK, speechRuns, hasWords, canonMarks, writtenMarks, forEngine, voicedPauses } from './sentences.mjs';
+import { writeFileAtomic } from './atomic-write.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -43,7 +44,7 @@ export const TRACK_FORMATS = ['wav', 'm4a', 'mp3'];
 export const DEFAULT_FORMAT = 'm4a';
 
 /** The manifest header's own keys — everything else in a header is carried. */
-const HEADER_KEYS = ['engine', 'model', 'voice', 'style', 'format', 'slides'];
+const HEADER_KEYS = ['engine', 'model', 'voice', 'voiceId', 'style', 'format', 'slides'];
 
 /**
  * The format an existing track is in: the extension its slide files carry,
@@ -75,11 +76,13 @@ export function readTrack(dir) {
  * it was never voiced under. Refused rather than resolved: the fix is to voice
  * the whole track, or to put the other voice in its own folder.
  */
-export function voiceDrift(prev, { engine, model, voice }, { modelIsVoice = true } = {}) {
+export function voiceDrift(prev, { engine, model, voice, voiceId }, { modelIsVoice = true } = {}) {
   if (!prev?.slides?.some(Boolean)) return null;
   const was = [];
   if (prev.engine != null && prev.engine !== engine) was.push(`engine ${prev.engine}`);
-  if (prev.voice != null && voice != null && prev.voice !== voice) was.push(`voice ${prev.voice}`);
+  const differentVoice = prev.voiceId && voiceId
+    ? prev.voiceId !== voiceId : prev.voice != null && voice != null && prev.voice !== voice;
+  if (differentVoice) was.push(`voice ${prev.voice ?? prev.voiceId}`);
   // a header written before `model` was recorded has none to disagree with;
   // and for say/sapi the "model" is only the voice a bridge booted with — the
   // voice that spoke is `voice` — so it has nothing to say about identity
@@ -160,7 +163,7 @@ export function findEncoder(run = runBounded) {
  * hash still matches and whose file is on disk is kept, whoever made it.
  */
 export async function synthesizeSlides({
-  html, dir, tts, voice, style, format = DEFAULT_FORMAT, range = null, prev = null,
+  html, dir, tts, voice, voiceId, style, format = DEFAULT_FORMAT, range = null, prev = null,
   cache, reuseTextFrom = [], keepWav = false, log = console.log,
   run = runBounded, encoder = undefined, force = false,
 }) {
@@ -172,13 +175,26 @@ export async function synthesizeSlides({
   const slides = raw.map((r) => (r ? cleanNotes(r, { marks: true }) : ''));
   const holds = markerPauses(html);
   const span = range ?? { from: 1, to: slides.length };
-  if (range && prev) {
-    const drift = voiceDrift(prev, { engine: tts.name, model: tts.model ?? null, voice }, { modelIsVoice: !tts.modelIsDefaultVoice });
-    if (drift) {
-      throw new Error(`${dir} is voiced in ${drift} — voicing slides ${span.from}–${span.to} in another would leave the `
-        + 'track in two voices; voice the whole track, or give the other voice its own folder (-o)');
-    }
+  const existing = prev?.slides?.some(Boolean) && prev.engine === tts.name;
+  if (existing && !voice && !voiceId && !prev.voice && !prev.voiceId) {
+    throw new Error(`${dir} has no recorded voice — set it in the voice panel or pass --voice`);
   }
+  const picked = await resolveTtsVoice(tts, voice || voiceId
+    ? { voice, voiceId } : { voice: existing ? prev.voice : null, voiceId: existing ? prev.voiceId : null });
+  const identity = { voice: picked.name, voiceId: picked.id };
+  const drift = voiceDrift(prev, {
+    engine: tts.name, model: tts.model ?? null, ...identity,
+    // Before IDs were stored, the saved name could be an engine alias.
+    voice: existing && (!voice || voice === prev.voice) ? prev.voice ?? identity.voice : identity.voice,
+  }, {
+    modelIsVoice: !tts.modelIsDefaultVoice,
+  });
+  if (range && drift) {
+    throw new Error(`${dir} is voiced in ${drift} — voicing slides ${span.from}–${span.to} in another would leave the `
+      + 'track in two voices; voice the whole track, or give the other voice its own folder (-o)');
+  }
+  const sameVoice = !drift && existing;
+  const priorTrack = sameVoice && (range || prev.voice || prev.voiceId) ? withTrackVoice(prev, identity) : null;
 
   const synthExt = extFor(tts.synth.mimeType ?? 'audio/wav');
   // An encoder is needed only to change what the engine spoke into something
@@ -218,15 +234,7 @@ export async function synthesizeSlides({
     rmSync(src, { force: true });
   };
 
-  // `--voice` omitted on ElevenLabs means "the first of your voices", and the
-  // deck's picker offers that roster in that order — so the name is resolved
-  // HERE, for the key. Left undefined it would hash differently from the
-  // identical sentence the bridge just synthesized, and the cross-process
-  // reuse the cache exists for would silently never hit.
-  let keyVoice = voice;
-  if (!keyVoice && tts.listVoices) {
-    try { keyVoice = (await tts.listVoices())[0]?.name; } catch { /* keep it undefined */ }
-  }
+  const keyVoice = picked.id ?? picked.request;
   // Every take that was sampled again because its length did not fit its
   // text (#1005), as `slide N: …` lines: the run ends with them, a list of
   // what is worth a listen.
@@ -239,7 +247,7 @@ export async function synthesizeSlides({
     const key = clipKey(tts, { voice: keyVoice, style, text });
     const hit = cache.read(key, synthExt);
     if (hit) return { wav: hit, usage: { chars: 0, cost: 0 }, cached: true };
-    const out = await checkedSynth(tts, text, { voice, style });
+    const out = await checkedSynth(tts, text, { voice: picked.request, style });
     if (out.take) {
       const line = `${where}: ${takeLine(text, out.take)}`;
       retried.push(line);
@@ -293,40 +301,19 @@ export async function synthesizeSlides({
       usage: { cost: outs.reduce((sum, o) => sum + (o.usage?.cost ?? 0), 0) },
     };
   };
-  // The header names every input the slide hash is taken over, and the hash
-  // is taken FROM it — `manifestHash`, the function `decklight video` checks
-  // with (#557). Stamped from the engine instead, a default-voice ElevenLabs
-  // track hashed under the resolved voice beside a header with none, and the
-  // check could never reproduce it: a re-voiced slide stayed stale forever.
-  //
-  // A track that already has audio keeps its own terms. Its `voice: null` is
-  // the default voice, which is what an unasked-for voice resolves to, and its
-  // format (absent: wav) is what its other slides were stamped under —
-  // resolving either would turn every slide outside a range stale against a
-  // header they were never checked under. A fresh track, or one whose header
-  // never named a voice, gets the resolved one; with it, the hash is the clip
-  // key shortened, as before.
-  const inherits = prev?.slides?.some(Boolean) && prev.engine === tts.name;
-  const headerVoice = voice ?? (inherits && prev.voice === null ? null : keyVoice) ?? null;
-  const headerFormat = inherits ? prev.format : synthExt === 'wav' ? undefined : synthExt;
+  // Match the hash to the header the freshness checker will read. An existing
+  // track keeps its synthesis format, which is the format its hashes include.
+  const headerFormat = existing ? prev.format : synthExt === 'wav' ? undefined : synthExt;
   const header = {
-    engine: tts.name, model: tts.model ?? null, voice: headerVoice, style,
+    engine: tts.name, model: tts.model ?? null, voice: identity.voice, style,
+    ...(identity.voiceId ? { voiceId: identity.voiceId } : {}),
     ...(headerFormat ? { format: headerFormat } : {}),
   };
   const slideHash = (text) => manifestHash(header, text);
-  // What this core stamped before #557 — the clip key, under a header that
-  // did not always name its voice or format. Still these words in this voice,
-  // so a slide carrying it is kept and re-stamped rather than paid for again.
   const clipHash = (text) => clipKey(tts, { voice: keyVoice, style, text }).slice(0, 16);
-  // ONE-TIME MIGRATION. The hash gained `model` and lost the style no engine
-  // reads, so a folder recorded before that hashes differently — and would be
-  // re-synthesized in full, handing an ElevenLabs user a bill for clips already
-  // on disk. A slide matching the OLD formula is accepted once and re-stamped;
-  // only a header without `model` can claim it, so it cannot be claimed twice.
-  const legacyHash = (text) => createHash('sha256')
-    .update(`${header.engine}|${voice}|${style}|${text}`).digest('hex').slice(0, 16);
-  const preDatesModel = prev && prev.model === undefined
-    && prev.engine === header.engine && prev.voice === voice && prev.style === style;
+  // Before the header stored voice IDs, some takes used the voice name's clip key.
+  const nameHash = (text) => clipKey(tts, { voice: picked.name, style, text }).slice(0, 16);
+  const sameStyle = sameVoice && manifestHash(prev, '') === manifestHash({ ...prev, style }, '');
   // A slide the DECK's recorder voiced was stamped over the file's old reading
   // of the notes, before entities were decoded; it spoke the decoded words all
   // along, so a stamp matching that reading still vouches for them.
@@ -336,14 +323,14 @@ export async function synthesizeSlides({
   // the track's, and a refresh of it keeps it.
   const extras = Object.fromEntries(Object.entries(prev ?? {}).filter(([k]) => !HEADER_KEYS.includes(k)));
   const manifestOf = (entries) => ({ ...extras, ...header, slides: entries });
-  const save = (entries) => writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifestOf(entries), null, 1));
+  const save = (entries) => writeFileAtomic(join(dir, 'manifest.json'), JSON.stringify(manifestOf(entries), null, 1));
 
   const plan = slides.map((slide, i) => {
     const n = String(i + 1).padStart(2, '0');
     // Outside the range the track's own entry stands, segments and all: a
     // ranged run is a surgical redo, the promise `decklight narrate --mic --slides`
     // makes, and the video rendered from this folder still finds the rest.
-    if (i + 1 < span.from || i + 1 > span.to) return { entry: prev?.slides?.[i] ?? null };
+    if (i + 1 < span.from || i + 1 > span.to) return { entry: priorTrack?.slides?.[i] ?? null };
     // no words — or nothing but ⟨PAUSE⟩ and audio tags: direction with nothing to direct
     if (!hasWords(slide)) return { entry: null };
     const txt = join(dir, `slide-${n}.txt`);
@@ -361,8 +348,9 @@ export async function synthesizeSlides({
     // asked for another (`--format`) is converting it.
     const was = prev?.slides?.[i];
     const kept = !force && was?.file && extname(was.file) === `.${format}`
-      && (was.hash === hash || was.hash === clipHash(text) || (preDatesModel && was.hash === legacyHash(text))
-        || (oldReading[i] && was.hash === slideHash(oldReading[i])))
+      && (was.hash === hash || was.hash === clipHash(text) || (sameVoice && was.hash === nameHash(text))
+        || (sameVoice && sameStyle && was.hash && (prev.voice || prev.voiceId)
+          && (entryMatches(prev, was, text) || (oldReading[i] && entryMatches(prev, was, oldReading[i])))))
       && existsSync(join(dir, was.file));
     return { n, txt, prior, text, file, hash, was, kept };
   });
@@ -371,14 +359,15 @@ export async function synthesizeSlides({
   mkdirSync(dir, { recursive: true });
   let skipped = 0;
   let cost = 0;
-  const entries = [];
+  const entries = plan.map((slide, i) => (slide.txt ? priorTrack?.slides?.[i] ?? null : slide.entry));
   for (const [i, slide] of plan.entries()) {
     const { n, txt, prior, text, file, hash, was, kept } = slide;
-    if (!txt) { entries.push(slide.entry); continue; }
+    if (!txt) continue;
     writeFileSync(txt, writtenMarks(text));   // read back through canonMarks: the hash is of `text`
-    entries.push({ file, hash });
+    entries[i] = { file, hash };
     if (kept) {
       entries[i] = { ...was, hash };
+      delete entries[i].hashVoice;
       // Carry the segments across only while they are still on disk — the
       // manifest is the one thing that knows they are there.
       if (!was.segments?.every((sg) => existsSync(join(dir, sg.file)))) delete entries[i].segments;

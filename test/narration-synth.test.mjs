@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import {
   synthesizeSlides, trackFormat, voiceDrift, readTrack, TRACK_FORMATS, readWav, joinWav,
 } from '../tools/narration-synth.mjs';
-import { recorderManifest, slideTexts, priorSlideTexts, manifestHash, staleSlides } from '../tools/narration-manifest.mjs';
+import { recorderManifest, slideTexts, priorSlideTexts, manifestHash, staleSlides, withTrackVoice } from '../tools/narration-manifest.mjs';
 import { createTtsCache } from '../tools/tts-cache.mjs';
 import { createEngine } from '../tools/tts-engines.mjs';
 import { PACE } from '../tools/take-check.mjs';
@@ -55,10 +55,15 @@ function pacedWavOf(text) {
  */
 function fakeTts({ name = 'fake', model = 'm1', ...traits } = {}) {
   const said = [];
+  const spokenVoices = [];
   const take = PACE[name] ? pacedWavOf : wavOf;
-  const synth = Object.assign(async (text) => { said.push(text); return { wav: take(text), usage: { cost: 0 } }; },
+  const synth = Object.assign(async (text, { voice } = {}) => {
+    said.push(text);
+    spokenVoices.push(voice);
+    return { wav: take(text), usage: { cost: 0 } };
+  },
     { mimeType: 'audio/wav' });
-  return { name, model, stylable: false, synth, said, ...traits };
+  return { name, model, stylable: false, synth, said, spokenVoices, ...traits };
 }
 
 const noCache = () => createTtsCache({ enabled: false });
@@ -410,33 +415,61 @@ import { clipKey } from '../tools/tts-cache.mjs';
 
 /** A stand-in ElevenLabs: no --voice means the first of the account's voices. */
 const elevenTts = (mimeType = 'audio/wav') => {
-  const tts = fakeTts({ name: 'elevenlabs', model: 'eleven_multilingual_v2', listVoices: async () => [{ name: 'Aria' }, { name: 'Chris' }] });
+  const tts = fakeTts({ name: 'elevenlabs', model: 'eleven_multilingual_v2', listVoices: async () => [{ name: 'Aria', id: 'voice-a' }, { name: 'Chris', id: 'voice-c' }] });
   tts.synth.mimeType = mimeType;
   return tts;
 };
 
-test('revoice: a default-voice track the recorder made is current after its stale slide is re-voiced (#557)', async (t) => {
+test('revoice: a track with no voice needs an explicit choice and keeps untouched notes hashes', async (t) => {
   const dir = tmp('revoice-default-voice', t);
   const header = { engine: 'elevenlabs', model: 'eleven_multilingual_v2', voice: null, style: '' };
   const recorded = recorderManifest({ prev: null, header, texts: slideTexts(THREE), range: { from: 1, to: 3 }, recorded: { 1: {}, 2: {}, 3: {} } });
   mkdirSync(dir, { recursive: true });
-  for (const s of recorded.slides) writeFileSync(path.join(dir, s.file), 'a take');
-  writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(recorded));
+  for (const entry of recorded.slides) writeFileSync(path.join(dir, entry.file), 'a take');
+  const file = path.join(dir, 'manifest.json');
+  writeFileSync(file, JSON.stringify(recorded));
 
-  const edited = deck(['One says this.', 'Two has moved on.', 'Three says the rest.']);
-  const narration = { ...readTrack(dir), dir };
-  const { stale } = staleSlides(narration, slideTexts(edited));
-  assert.deepEqual(stale, [2]);
-
+  const html = deck(['One says this.', 'Two has moved on.', 'Three says the rest.']);
   const tts = elevenTts();
-  const r = await revoiceStale({ html: edited, narration, stale, log: quiet, cache: noCache(), status: ready, create: () => tts });
+  const opts = { html, stale: [2], log: quiet, cache: noCache(), status: ready, create: () => tts, lipsync: null };
+  const refused = await revoiceStale({ ...opts, narration: { ...recorded, dir } });
+  assert.match(refused.why, /no recorded voice/);
+  assert.deepEqual(tts.said, []);
+  assert.deepEqual(readTrack(dir), recorded);
+
+  const identified = withTrackVoice(recorded, { voice: 'Chris', voiceId: 'voice-c' });
+  writeFileSync(file, JSON.stringify(identified));
+  const r = await revoiceStale({ ...opts, narration: { ...identified, dir } });
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(tts.said, ['Two has moved on.']);
+  assert.deepEqual(tts.spokenVoices, ['voice-c']);
   const now = readTrack(dir);
-  assert.deepEqual(staleSlides(now, slideTexts(edited)).stale, [], 'the check reproduces the stamp it wrote');
-  assert.equal(now.voice, null, 'the header still says "the default voice" — not dropped, not resolved under the other slides');
-  assert.ok(!('format' in now), 'nor given a format the other slides were not stamped under');
-  assert.deepEqual([now.slides[0], now.slides[2]], [recorded.slides[0], recorded.slides[2]]);
+  assert.deepEqual(staleSlides(now, slideTexts(html)).stale, []);
+  assert.deepEqual([now.voice, now.voiceId], ['Chris', 'voice-c']);
+  assert.deepEqual([now.slides[0], now.slides[2]], [identified.slides[0], identified.slides[2]]);
+});
+
+test('revoice: the ID survives a rename, and a removed ID never falls back to a matching name', async (t) => {
+  const dir = tmp('revoice-renamed-voice', t);
+  const initial = elevenTts();
+  await run({ html: THREE, dir, tts: initial, voice: 'Chris', style: '', format: 'wav' });
+  const prev = readTrack(dir);
+  const tts = elevenTts();
+  const html = deck(['One says this.', 'Two has moved on.', 'Three says the rest.']);
+  const opts = { html, narration: { ...prev, dir }, stale: [2], log: quiet, cache: noCache(), status: ready, create: () => tts, lipsync: null };
+  tts.listVoices = async () => [{ name: 'Chris', id: 'other-id' }, { name: 'Renamed Chris', id: 'voice-c' }];
+  const repaired = await revoiceStale(opts);
+  assert.equal(repaired.ok, true, repaired.why);
+  assert.deepEqual(tts.spokenVoices, ['voice-c']);
+  const renamed = readTrack(dir);
+  assert.deepEqual([renamed.voice, renamed.voiceId], ['Renamed Chris', 'voice-c']);
+  assert.deepEqual(staleSlides(renamed, slideTexts(html)).stale, []);
+
+  tts.listVoices = async () => [{ name: 'Chris', id: 'other-id' }];
+  const refused = await revoiceStale(opts);
+  assert.match(refused.why, /Voice “Chris” is unavailable/);
+  assert.deepEqual(tts.spokenVoices, ['voice-c']);
+  assert.deepEqual(readTrack(dir), renamed);
 });
 
 test('a fresh track voiced without --voice names the voice and format its hashes were taken under (#557)', async (t) => {
@@ -444,9 +477,10 @@ test('a fresh track voiced without --voice names the voice and format its hashes
   const fakeRun = (bin, args) => writeFileSync(args[args.length - 1], `${bin}-out`);
   const tts = elevenTts('audio/mpeg');
   const { manifest } = await run({ html: THREE, dir, tts, voice: undefined, style: '', format: 'wav', encoder: 'ffmpeg', run: fakeRun });
-  assert.deepEqual([manifest.voice, manifest.format], ['Aria', 'mp3']);
+  assert.deepEqual([manifest.voice, manifest.voiceId, manifest.format], ['Aria', 'voice-a', 'mp3']);
+  assert.deepEqual(tts.spokenVoices, ['voice-a', 'voice-a', 'voice-a']);
   assert.deepEqual(staleSlides(readTrack(dir), slideTexts(THREE)).stale, []);
-  assert.equal(manifest.slides[0].hash, clipKey(tts, { voice: 'Aria', style: '', text: 'One says this.' }).slice(0, 16),
+  assert.equal(manifest.slides[0].hash, clipKey(tts, { voice: 'voice-a', style: '', text: 'One says this.' }).slice(0, 16),
     'and the hash is still the clip key, shortened');
 });
 
@@ -462,7 +496,8 @@ test('a track stamped before #557 is kept and re-stamped — current again, noth
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(prev));
   assert.deepEqual(staleSlides(prev, texts).stale, [1, 2, 3], 'the render refused it');
 
-  const { skipped } = await run({ html: THREE, dir, tts, voice: undefined, style: '', format: 'wav', prev });
+  await assert.rejects(run({ html: THREE, dir, tts, voice: undefined, style: '', format: 'wav', prev }), /pass --voice/);
+  const { skipped } = await run({ html: THREE, dir, tts, voice: 'Aria', style: '', format: 'wav', prev });
   assert.equal(tts.said.length, 0);
   assert.equal(skipped, 3);
   assert.deepEqual(staleSlides(readTrack(dir), texts).stale, []);

@@ -56,6 +56,7 @@ export function createEditMode({
   captionsOn = () => false, toggleCaptions = null,
   choiceCard = null,
   speak = null,
+  openTrackVoice = null,
 }) {
   // An error, said in full (PRESENTING_EDITING): every failure message here
   // used to be cut at sixty or eighty characters, mid-sentence, which is
@@ -963,23 +964,26 @@ export function createEditMode({
       probeSettled();   // asked everything, wired up nothing
     })();
   }
-  function offerVideoRepair(report, retry) {
+  function offerVideoRepair(report, retry, voice) {
     const slides = (list) => list.length > 5 ? `${list.length} slides`
       : `slide${list.length === 1 ? '' : 's'} ${list.join(', ')}`;
-    const { missing, stale, lipsync, engine, audioSlides, canFix, metered, repairError } = report;
+    const { missing, stale, lipsync, engine, audioSlides, canFix, metered, repairError, voiceUnknown } = report;
     const summary = [
       missing.length && `Missing audio on ${slides(missing)}.`,
       stale.length && `Older notes were used on ${slides(stale)}.`,
       lipsync.length && `${lipsync.length} lip-sync file${lipsync.length === 1 ? ' is' : 's are'} missing or out of date on ${slides([...new Set(lipsync.map((item) => item.slide))])}.`,
-      audioSlides && (engine
+      voiceUnknown && 'The track’s voice was not recorded. Set it before regenerating.',
+      audioSlides && !voiceUnknown && (engine
         ? `Fixing will voice ${audioSlides} slide${audioSlides === 1 ? '' : 's'} with ${engine}${metered ? ' and may incur charges' : ''}.`
         : 'Re-record these slides to update the audio.'),
-      (lipsync.length || (audioSlides && engine)) && 'Lip-sync takes a few seconds per audio file when needed.',
+      (lipsync.length || (audioSlides && engine && !voiceUnknown)) && 'Lip-sync takes a few seconds per audio file when needed.',
       repairError && `Repair stopped. ${repairError}`,
     ].filter(Boolean).join(' ');
     if (!actionToast) return toast(summary, 6500);
     actionToast(summary, [
       ...(canFix ? [['Fix and export', () => { retry('fix'); }]] : []),
+      ...(voiceUnknown && voice?.dir && openTrackVoice
+        ? [['Set the track’s voice…', () => openTrackVoice(voice.dir, () => retry(null))]] : []),
       ['Export anyway', () => { retry('anyway'); }],
       ['Cancel', () => {}],
     ]);
@@ -4441,7 +4445,7 @@ export function createEditMode({
       }
       if (j.preflight) {
         run.close();
-        offerVideoRepair(j.preflight, (choice) => exportDeck(kind, { ...opts, repair: choice }));
+        offerVideoRepair(j.preflight, (choice) => exportDeck(kind, { ...opts, repair: choice }), voice);
         return;
       }
       if (j.stopped) {

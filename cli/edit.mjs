@@ -5182,7 +5182,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const slide = Number(url.searchParams.get('slide'));
     const kind = url.searchParams.get('kind');
     if (!Number.isInteger(slide) || slide < 1 || slide > 9999) return json(400, { ok: false, error: 'bad slide' });
-    if (!['wav', 'visemes', 'manifest', 'face', 'face-join'].includes(kind)) return json(400, { ok: false, error: 'bad kind' });
+    if (!['wav', 'visemes', 'manifest', 'voice', 'face', 'face-join'].includes(kind)) return json(400, { ok: false, error: 'bad kind' });
     // `seg` is the per-⟨CLICK⟩ file number — the audio that lets a recording
     // step the builds (slide-NN-KK.wav) and the viseme timeline cut to
     // match it (slide-NN-KK.visemes.json). Absent means the whole slide.
@@ -5245,17 +5245,31 @@ export async function editMain(args, { onListen = null, client } = {}) {
     // the notes each hash covers are read from the deck file here, the way
     // voiceover and video read them, so the three can never disagree on the
     // text. Written after every slide, so an aborted take is a valid partial.
-    if (kind === 'manifest') {
+    if (kind === 'manifest' || kind === 'voice') {
       if (size > 1e6) return json(413, { ok: false, error: 'manifest too large' });
       let req2;
       try { req2 = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(400, { ok: false, error: 'the manifest is not JSON' }); }
       const str = (v, max = 120) => (typeof v === 'string' && v.length <= max && /^[\w .:+()'-]*$/.test(v) ? v : null);
+      const voiceField = (v) => (typeof v === 'string' && v.length <= 500 && v.trim() && !/[\u0000-\u001f\u007f]/.test(v) ? v : null);
+      const identity = { voice: voiceField(req2.voice), voiceId: voiceField(req2.voiceId) };
+      const file = resolve(dir, 'manifest.json');
+      const { recorderManifest, withTrackVoice, slideTexts, slideBeats } = await import('../tools/narration-manifest.mjs');
+      let prev = null;
+      try { prev = JSON.parse(readFileSync(file, 'utf8')); } catch { /* first take here */ }
+      if (kind === 'voice') {
+        if (!identity.voice || !identity.voiceId) return json(400, { ok: false, error: 'choose a voice from the engine’s roster' });
+        if (!Array.isArray(prev?.slides) || !prev.engine || prev.engine !== req2.engine || prev.voice || prev.voiceId) {
+          return json(409, { ok: false, error: 'the track has changed — reopen the voice panel' });
+        }
+        writeFileAtomic(file, JSON.stringify(withTrackVoice(prev, identity), null, 2) + '\n');
+        return json(200, { ok: true, ...identity });
+      }
       // `mine`: your own voice (#850), which no engine voiced. Its manifest
       // carries the beats as you read them, so a moved ⟨CLICK⟩ can be told
       // from changed words, and the notes hash `decklight video` checks.
       const mine = req2.mine === true;
       const header = mine ? { engine: null, model: null, voice: null, style: null }
-        : { engine: str(req2.engine, 40), model: str(req2.model), voice: str(req2.voice), style: typeof req2.style === 'string' && req2.style.length <= 400 ? req2.style : null };
+        : { engine: str(req2.engine, 40), model: str(req2.model), ...identity, style: typeof req2.style === 'string' && req2.style.length <= 400 ? req2.style : null };
       if (!mine && !header.engine) return json(400, { ok: false, error: 'the manifest names no engine' });
       const from = Number(req2.range?.[0]), to = Number(req2.range?.[1]);
       if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from || to > 9999) return json(400, { ok: false, error: 'bad range' });
@@ -5265,9 +5279,16 @@ export async function editMain(args, { onListen = null, client } = {}) {
         if (!Number.isInteger(n) || n < from || n > to) continue;
         recorded[n] = { segments: Array.isArray(v?.segments) ? v.segments.map(Number) : [], ...(v?.face === true ? { face: true } : {}) };
       }
-      const { recorderManifest, slideTexts, slideBeats } = await import('../tools/narration-manifest.mjs');
-      let prev = null;
-      try { prev = JSON.parse(readFileSync(resolve(dir, 'manifest.json'), 'utf8')); } catch { /* first take here */ }
+      if (!mine && Array.isArray(prev?.slides) && prev.engine === header.engine && header.voice
+        && (prev.voiceId ? prev.voiceId === header.voiceId : prev.voice === header.voice
+          || (req2.revoice === true && prev.voice === req2.previousVoice))) {
+        prev = withTrackVoice(prev, identity);
+        if (prev.format) header.format = prev.format;
+        if (req2.revoice === true) {
+          header.model = prev.model;
+          header.style = prev.style;
+        }
+      }
       // A folder of your voice recorded before it had a manifest: its other
       // slides are on disk, and a manifest naming only this one would hide
       // them from `decklight video`, which trusts a manifest over the files.
@@ -5299,7 +5320,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
       }
       try {
         mkdirSync(dir, { recursive: true });
-        writeFileSync(resolve(dir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+        writeFileAtomic(file, JSON.stringify(manifest, null, 2) + '\n');
         // the script beside each file, as voiceover writes it — `--reuse-text` reads it back
         const texts = slideTexts(readDeck());
         for (const n of Object.keys(recorded)) writeFileSync(resolve(dir, `slide-${String(n).padStart(2, '0')}.txt`), texts[n - 1] ?? '');
@@ -5416,13 +5437,13 @@ export async function editMain(args, { onListen = null, client } = {}) {
       try { entries = readdirSync(resolve(root2, rel), { withFileTypes: true }); } catch { return; }
       const wav = entries.filter((e) => e.isFile() && /^slide-\d+(-\d+)?\.(wav|m4a|mp3)$/.test(e.name));
       if (wav.length) {
-        let engine = null; let voice = null; let model = null; let style = null; let manifest = false; let stale = 0; let mine = false;
+        let engine = null; let voice = null; let voiceId = null; let model = null; let style = null; let manifest = false; let stale = 0; let mine = false;
         let drift = [];
         let realign = null;
         let faces = [];
         try {
           const m = JSON.parse(readFileSync(resolve(root2, rel, 'manifest.json'), 'utf8'));
-          engine = m.engine ?? null; voice = m.voice ?? null; manifest = true; mine = m.recorder === 'mic';
+          engine = m.engine ?? null; voice = m.voice ?? null; voiceId = m.voiceId ?? null; manifest = true; mine = m.recorder === 'mic';
           // …and the rest of who voiced it, so the V panel re-voices a
           // synthesized track as itself rather than as the live voice (#919)
           model = m.model ?? null; style = m.style ?? null;
@@ -5455,6 +5476,7 @@ export async function editMain(args, { onListen = null, client } = {}) {
           ext: (wav[0].name.split('.').pop()),
           engine,
           voice,
+          voiceId,
           model,
           style,
           manifest,

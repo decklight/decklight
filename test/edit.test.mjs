@@ -2870,6 +2870,25 @@ test('/deck/edit/export checks a hand-recorded track before starting capture', a
   assert.doesNotMatch(log(), /export: deck\.html/);
 });
 
+test('/deck/edit/export asks for an unknown track voice before repairing narration', async (t) => {
+  const dir = tmp(t);
+  const track = path.join(dir, 'voices', 'legacy');
+  mkdirSync(track, { recursive: true });
+  writeFileSync(path.join(dir, 'deck.html'), SPOKEN_DECK);
+  writeFileSync(path.join(track, 'slide-01.wav'), 'recorded audio');
+  writeFileSync(path.join(track, 'manifest.json'), JSON.stringify({
+    engine: 'elevenlabs', voice: null, slides: [{ file: 'slide-01.wav' }, null],
+  }));
+  const { base, log } = await startEdit(t, dir);
+  const response = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/legacy', fix: true });
+  assert.equal(response.status, 409);
+  const { preflight } = await response.json();
+  assert.deepEqual(preflight.missing, [2]);
+  assert.equal(preflight.canFix, false);
+  assert.equal(preflight.voiceUnknown, true);
+  assert.doesNotMatch(log(), /export: deck\.html/);
+});
+
 test('/deck/edit/export renders a video of just the slides asked for, named for them', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t);
@@ -3279,7 +3298,7 @@ test('POST /deck/edit/narration/record?kind=manifest writes the take’s manifes
   const wav = Buffer.from('RIFF....WAVEfmt ');
   await fetch(base + '/deck/edit/narration/record?slide=1&kind=wav&dir=voices%2Fkore', { method: 'POST', body: wav });
   await fetch(base + '/deck/edit/narration/record?slide=1&kind=wav&seg=1&dir=voices%2Fkore', { method: 'POST', body: wav });
-  const header = { engine: 'gemini', model: 'gemini-2.5-pro-tts', voice: 'Kore', style: 'warm, welcoming' };
+  const header = { engine: 'gemini', model: 'gemini-2.5-pro-tts', voice: 'Kore', voiceId: 'Kore', style: 'warm, welcoming' };
   const post = (body) => fetch(base + '/deck/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fkore', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
@@ -3307,6 +3326,7 @@ test('POST /deck/edit/narration/record?kind=manifest writes the take’s manifes
   assert.equal(kore?.manifest, true);
   assert.equal(kore?.engine, 'gemini');
   assert.equal(kore?.voice, 'Kore');
+  assert.equal(kore?.voiceId, 'Kore');
   assert.ok(kore?.slides?.includes(1), 'which slides it holds, for the recorder\'s plan card');
   // …and how many of its clips have no lip-sync beside them: what the export
   // card says is made first when a cartoon character is on screen
@@ -3322,6 +3342,35 @@ test('POST /deck/edit/narration/record?kind=manifest writes the take’s manifes
   assert.equal((await post({ ...header, range: [2, 1], slides: {} })).status, 400);
   assert.equal((await fetch(base + '/deck/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fkore', { method: 'POST', body: '{nope' })).status, 400);
   assert.equal((await fetch(base + '/deck/edit/narration/record?slide=1&kind=manifest&dir=..%2Fout', { method: 'POST', body: '{}' })).status, 400);
+});
+
+test('setting a legacy track’s voice only updates its manifest and preserves note freshness', async (t) => {
+  const dir = tmp(t);
+  const track = path.join(dir, 'voices', 'legacy');
+  mkdirSync(track, { recursive: true });
+  writeFileSync(path.join(dir, 'deck.html'), SPOKEN_DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const { recorderManifest, slideTexts, staleSlides } = await import('../tools/narration-manifest.mjs');
+  const header = { engine: 'elevenlabs', model: 'eleven_v4', voice: null, style: '' };
+  const texts = slideTexts(SPOKEN_DECK);
+  const original = recorderManifest({ header, texts, range: { from: 1, to: 2 }, recorded: { 1: {}, 2: {} } });
+  original.slides[1].hash = 'older-notes-hash';
+  const file = path.join(track, 'manifest.json');
+  writeFileSync(file, JSON.stringify(original));
+  const wav = path.join(track, 'slide-01.wav');
+  writeFileSync(wav, 'original audio');
+  const setVoice = (voice, voiceId) => fetch(base + '/deck/edit/narration/record?slide=1&kind=voice&dir=voices%2Flegacy', {
+    method: 'POST', body: JSON.stringify({ engine: header.engine, voice, voiceId }),
+  });
+
+  const r = await setVoice('Capucine, voix française', 'capucine-id');
+  assert.equal(r.status, 200);
+  const saved = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual([saved.voice, saved.voiceId], ['Capucine, voix française', 'capucine-id']);
+  assert.deepEqual(staleSlides(saved, texts).stale, [2]);
+  assert.equal(readFileSync(wav, 'utf8'), 'original audio');
+  assert.equal((await setVoice('Another voice', 'another-id')).status, 409);
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).voiceId, 'capucine-id');
 });
 
 // ── your own voice keeps a manifest: the beats as read (#850) ───────────────

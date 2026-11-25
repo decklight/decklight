@@ -85,12 +85,12 @@ A folder that already holds a track is REFRESHED as that track: its engine,
 voice, style and format are the defaults, so voicing one stale slide of a track
 the deck's recorder made writes wav in the same voice, beside the rest. A flag
 overrides any of them; a --slides run in another voice is refused, since a
-track has one voice.
+track has one voice. A track with no saved voice requires --voice.
 
   -o <dir>       output folder (default: <deck>/voiceover)
   --engine       piper (local, free, default) · chirp · gemini · elevenlabs
   --voice        the engine's voice name (piper: a model name; elevenlabs: omit
-                 for the first of YOUR voices)
+                 for the first of YOUR voices on a fresh track)
   --format       m4a (default for a new track) · wav · mp3 (an existing track
                  keeps its own)
   --reuse-text   re-voice the existing slide-NN.txt (edit one to change what is
@@ -155,8 +155,9 @@ const engine = opt('--engine', prev?.engine ?? 'piper');
 const track = prev?.engine === engine ? prev : null;   // its header speaks for THIS engine only
 // elevenlabs has no default name worth guessing: the roster is the account's,
 // and undefined means "the first of yours", which is what you came for
-const voice = opt('--voice', track ? track.voice : engine === 'piper' ? 'en_US-ryan-high'
-  : engine === 'elevenlabs' ? undefined : 'Alnilam');
+const askedVoice = opt('--voice');
+const voice = askedVoice ?? track?.voice ?? undefined;
+const voiceId = askedVoice == null ? track?.voiceId : undefined;
 let style = opt('--style', track?.style ??
   'Read in a warm, welcoming tone, like a friendly battle-hardened senior ' +
   'engineer who is still curious about new technology.');
@@ -201,7 +202,7 @@ try {
   const cache = createTtsCache({ enabled: !args.includes('--no-cache') });
   cache.prune();
   const { skipped, cost, retried } = await synthesizeSlides({
-    html, dir: outDir, tts, voice, style, format,
+    html, dir: outDir, tts, voice, voiceId, style, format,
     range: opt('--slides') ? range : null, prev, cache, reuseTextFrom,
     keepWav: args.includes('--keep-wav'),
   });

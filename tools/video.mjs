@@ -799,7 +799,7 @@ export function resolveNarration(deckPath, narrationDir, { allowEmpty = false } 
       throw new Error(`${path}: not a voiceover manifest (no slides array) — regenerate it with tools/voiceover.mjs`);
     }
     // the header rides along: the freshness check hashes the deck's notes under it
-    return { dir, slides: m.slides, engine: m.engine, model: m.model, voice: m.voice, style: m.style, recorder: m.recorder };
+    return { dir, slides: m.slides, engine: m.engine, model: m.model, voice: m.voice, voiceId: m.voiceId, style: m.style, format: m.format, recorder: m.recorder };
   };
   if (narrationDir) return load(resolve(narrationDir), true);
   return load(join(resolve(deckPath, '..'), 'voiceover'), false);
@@ -889,6 +889,9 @@ export async function revoiceStale({
   const project = env.GOOGLE_CLOUD_PROJECT ?? saved?.project ?? null;
   const dataDir = savedFor?.dataDir ?? (engine === 'piper' ? piperModelDir(env) : null);
   const voice = narration.voice ?? undefined;
+  if (!voice && !narration.voiceId) {
+    return { ok: false, why: `${basename(dir)}/ has no recorded voice — set it in the voice panel before regenerating` };
+  }
   const st = status(engine, { env, project, dataDir, voice: engine === 'piper' ? (voice ?? narration.model) : voice });
   if (!st.ready) {
     const b = engineBlocker(st, { env });
@@ -915,7 +918,7 @@ export async function revoiceStale({
       signal?.throwIfAborted();
       const prev = readTrack(dir);
       await synthesizeSlides({
-        html, dir, tts, voice, style: narration.style ?? undefined,
+        html, dir, tts, voice, voiceId: narration.voiceId, style: narration.style ?? undefined,
         format: trackFormat(prev) ?? 'wav', range: { from: n, to: n }, prev, cache, log,
         force: missing.includes(n),
       });

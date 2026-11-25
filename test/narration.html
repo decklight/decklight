@@ -158,13 +158,18 @@
     // on the mode: every OTHER mode must keep failing that probe, or a fetch
     // left pending would freeze Chrome's virtual clock and hang the page.
     const AUTHOR = 'http://127.0.0.1:8788';
+    const trackVoice = mode === 'trackvoice';
+    const trackCase = params.get('case');
+    const defaultVoice = mode === 'record' && params.has('default');
+    const legacyVoice = trackCase === 'legacy' || trackCase === 'set';
+    const voiceRoster = [{ name: 'Live Voice', id: 'live-id' }, { name: 'Capucine', id: 'track-id' }];
     const recording = mode === 'record' || mode === 'recordseg' || mode === 'reccount';
     // ?nosrv — no edit server answers, which is a `file://` deck or one served
     // without trust by `decklight <deck> --no-trust`: nothing here may write to disk, so the
     // browser's download folder is the honest fallback and must still work
     const writeFace = mode === 'writeface';
     const filmedFace = writeFace && params.has('filmed');
-    const authored = (recording || writeFace) && !params.has('nosrv');
+    const authored = (recording || writeFace || trackVoice) && !params.has('nosrv');
     if (writeFace && authored) window.EventSource = class extends EventTarget {};
     const ttsSeen = new Set();   // sentences the mock bridge has synthesized once
     window.__recorded = [];   // every /deck/edit/narration/record the deck posted
@@ -197,7 +202,12 @@
           // rule 2 (refresh, do not accumulate takes) has something to find.
           // ?dir tests rule 3 instead — the deck's OWN configured folder — so
           // it reports nothing, or rule 2 would rightly win over it.
-          return new Response(JSON.stringify({ ok: true, tracks: writeFace ? [{ dir: 'voices/me', faces: [1] }] : params.has('dir') ? [] : [
+          return new Response(JSON.stringify({ ok: true, tracks: writeFace ? [{ dir: 'voices/me', faces: [1] }] : trackVoice ? [{
+            dir: 'voices/track', manifest: true, engine: 'elevenlabs', model: 'eleven_v4',
+            voice: legacyVoice ? null : trackCase === 'renamed' ? 'Before rename' : 'Capucine',
+            voiceId: trackCase === 'renamed' || trackCase === 'removed' ? 'track-id' : null,
+            drift: [{ slide: 1, why: 'text' }], slides: [1], files: 1, style: 'recorded style',
+          }] : params.has('dir') || defaultVoice ? [] : [
             { dir: 'voices/alnilam', files: 6, segments: false, ext: 'm4a', engine: 'mock', voice: 'Alnilam' },
           ] }), { status: 200, headers: { 'content-type': 'application/json' } });
         }
@@ -227,7 +237,9 @@
             json: typeof opts.body === 'string' ? JSON.parse(opts.body)
               : q.get('kind') === 'visemes' ? JSON.parse(new TextDecoder().decode(buf)) : null,
           });
-          return new Response(JSON.stringify({ ok: true, dir: q.get('dir') }),
+          return new Response(JSON.stringify({ ok: true, dir: q.get('dir'),
+            ...(q.get('kind') === 'voice' ? JSON.parse(opts.body) : {}),
+          }),
             { status: 200, headers: { 'content-type': 'application/json' } });
         }
         return new Response('', { status: 404 });
@@ -301,10 +313,27 @@
           { name: 'gemini', ready: false, why: 'needs a Google Cloud project', fix: 'export GOOGLE_CLOUD_PROJECT=<id>' },
         ] }), { status: 200, headers: { 'content-type': 'application/json' } });
       }
+      if (u.includes('/tts/voice?')) {
+        const q = new URL(u).searchParams;
+        const voice = q.get('voice');
+        const id = q.get('voiceId');
+        if (!trackVoice && !defaultVoice) {
+          return Response.json({ voice: voice ?? 'Alnilam', voiceId: voice ?? 'Alnilam', engine: 'mock', model: 'mock', audioTags: false });
+        }
+        const voices = trackCase === 'removed' ? voiceRoster.slice(0, 1) : voiceRoster;
+        if (q.has('roster')) return Response.json({ voices });
+        const picked = id ? voices.find((v) => v.id === id) : voice ? voices.find((v) => v.name === voice) : voices[0];
+        window.__voiceRequests ??= [];
+        window.__voiceRequests.push({ voice, id, engine: q.get('engine') });
+        return picked ? Response.json({ voice: picked.name, voiceId: picked.id, engine: 'elevenlabs', model: 'eleven_v4', audioTags: false })
+          : Response.json({ error: 'Voice “' + voice + '” is unavailable on elevenlabs' }, { status: 502 });
+      }
       if (u.endsWith('/ping')) {
         // xss: the roster is somebody ELSE'S text — an ElevenLabs voice is
         // named by whoever shared it, and that name may be markup
-        const roster = mode === 'roster'
+        const roster = trackVoice || defaultVoice
+          ? { engine: 'elevenlabs', model: 'eleven_v4', stylable: false, voices: voiceRoster.map((v) => [v.name, 'cloned']) }
+          : mode === 'roster'
           ? { engine: 'elevenlabs', model: 'eleven_multilingual_v2', stylable: false, voices: [['My Voice', 'cloned'], ['Rachel', 'calm']] }
           : mode === 'xss'
             ? { engine: 'elevenlabs', model: 'eleven_multilingual_v2', stylable: false, voices: [['<img src=x onerror="window.__xss=true">', '<b>bold claim</b>'], ['Rachel', 'calm']] }
@@ -444,7 +473,7 @@
     // erase the whole question.
     // …and the plain `hint` mode seeds none either: the pill is for somebody
     // who has never picked, and its click has to play the deck's voice for them
-    if (offDeck || (mode === 'hint' && !params.has('print') && !params.has('capture') && !params.has('midtalk'))) localStorage.removeItem(key);
+    if (defaultVoice || offDeck || (mode === 'hint' && !params.has('print') && !params.has('capture') && !params.has('midtalk'))) localStorage.removeItem(key);
     else localStorage.setItem(key, JSON.stringify(
       manifestDeck ? { track: MANIFEST_PATH }
         // `switch` STARTS live and swaps to the recorded track mid-sentence —
@@ -481,6 +510,7 @@
     // one rather than seeding a second. The persisted LIVE voice still wins as
     // the source, which is what ⇧V needs to run at all.
     if (recording && params.has('dir')) cfg.narration.files = 'voices';
+    if (trackVoice) cfg.narration.files = [{ dir: 'voices/track', label: 'Recorded take' }];
     // `recordseg&pause` lip-syncs the take too: the sidecars must be silent
     // exactly where the WAVs are, or the mouth drifts off the baked hold
     if (recording && params.has('pause')) cfg.narration.character = { mode: 'viseme', bridgeUrl: `${BRIDGE}/lip` };
@@ -1224,6 +1254,52 @@
           return;
         }
 
+        if (trackVoice) {
+          const panel = () => document.querySelector('.decklight-narr:not(.decklight-record)');
+          const find = (sel, text) => [...(panel()?.querySelectorAll(sel) ?? [])].find((e) => e.textContent.includes(text));
+          const heading = () => panel()?.querySelector('.narr-head')?.textContent ?? '';
+          deck.narration.openPicker('tracks');
+          const regenerate = await until(() => find('.narr-act', 'Regenerate'));
+          const initial = calls;
+          r.liveVoiceBefore = deck.narration.status().voice;
+          r.foundRegenerate = !!regenerate;
+          r.labelsUnknown = !legacyVoice || panel()?.textContent.includes('voice not recorded');
+          if (trackCase === 'set') {
+            const row = find('.narr-row', 'Recorded take');
+            row?.querySelector('.narr-manage')?.click();
+            (await until(() => find('.narr-row', 'Set the track’s voice')))?.click();
+          } else regenerate?.click();
+          if (legacyVoice) {
+            const choice = await until(() => find('.narr-row', 'Capucine'));
+            r.askedFirst = /Which voice/.test(heading()) && /saved in the track’s manifest/.test(panel()?.textContent ?? '');
+            r.noneSelected = ![...panel().querySelectorAll('.narr-row.narr-sel')].some((el) => /Capucine|Live Voice/.test(el.textContent));
+            r.noWorkBeforeChoice = calls === initial && window.__recorded.length === 0;
+            choice?.click();
+            await until(() => window.__recorded.some((p) => p.kind === 'voice'));
+            r.savedChoice = window.__recorded.find((p) => p.kind === 'voice')?.json?.voiceId === 'track-id';
+            r.noAudioOnChoice = calls === initial && window.__recorded.every((p) => p.kind === 'voice');
+          }
+          if (trackCase !== 'set') {
+            (await until(() => find('.narr-row', 'Regenerate slide 1')))?.click();
+            if (trackCase === 'removed') {
+              r.refusedByName = !!(await until(() => find('.narr-facts', 'Voice “Capucine” is unavailable')));
+              r.noSynthesis = calls === initial && window.__recorded.length === 0;
+            } else {
+              await until(() => window.__recorded.some((p) => p.kind === 'manifest'));
+              const posted = window.__recorded.find((p) => p.kind === 'manifest')?.json;
+              r.usedStoredVoice = bodies.slice(initial).length > 0
+                && bodies.slice(initial).every((b) => b.engine === 'elevenlabs' && b.voice === 'Capucine' && b.voiceId === 'track-id' && b.style === 'recorded style');
+              r.keptIdentity = posted?.voice === 'Capucine' && posted?.voiceId === 'track-id' && posted.range.join() === '1,1';
+              r.liveUnchanged = deck.narration.status().voice === r.liveVoiceBefore && r.liveVoiceBefore === 'Live Voice';
+            }
+          }
+          r.voiceRequests = window.__voiceRequests;
+          r.PASS = r.labelsUnknown && (!legacyVoice || (r.askedFirst && r.noneSelected && r.noWorkBeforeChoice && r.savedChoice && r.noAudioOnChoice))
+            && (trackCase === 'set' || (trackCase === 'removed' ? r.refusedByName && r.noSynthesis : r.usedStoredVoice && r.keptIdentity && r.liveUnchanged));
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
         if (recording) {
           // The recorder used to hand every stitched slide to the browser, which
           // is how a recorded deck ended up as slide-NN.wav in the OS download
@@ -1314,7 +1390,10 @@
           const manifests = r.posted.filter((p) => p.kind === 'manifest').map((p) => p.json);
           r.manifestPerSlide = !authored || manifests.length === r.slides.length;
           const last = manifests[manifests.length - 1];
-          r.manifestNamesTheVoice = !authored || (last?.engine === 'mock' && last?.voice === 'Alnilam' && Array.isArray(last?.range));
+          r.manifestNamesTheVoice = !authored || (defaultVoice
+            ? last?.engine === 'elevenlabs' && last?.voice === 'Live Voice' && last?.voiceId === 'live-id'
+              && window.__voiceRequests?.[0]?.voice === null && bodies.some((b) => b.voiceId === 'live-id')
+            : last?.engine === 'mock' && last?.voice === 'Alnilam' && last?.voiceId === 'Alnilam' && Array.isArray(last?.range));
           r.manifestListsTheSlides = !authored || Object.keys(last?.slides ?? {}).join(',') === r.slides.join(',');
           r.manifestCarriesBeats = !authored || mode !== 'recordseg' || (last?.slides?.[5]?.segments?.length === 3);
 
@@ -1344,7 +1423,7 @@
           // A TRACK IS A FOLDER, named after the voice: recording a second
           // voice into the first one's folder is what this replaced. `?dir`
           // still wins — it is what the person asked for out loud.
-          r.dirIsRight = r.dir === (params.has('dir') ? 'voices' : 'voices/alnilam');
+          r.dirIsRight = r.dir === (params.has('dir') ? 'voices' : defaultVoice ? 'voices/live-voice' : 'voices/alnilam');
           // and the card names where they landed, plus the line that plays them
           r.saidWhere = text.includes(`${r.dir}/`) && !/downloads/.test(text);
           r.namedTheConfig = text.includes(`files: '${r.dir}', ext: 'wav'`);
