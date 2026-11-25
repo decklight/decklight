@@ -67,6 +67,11 @@ test('the export does not play a foreign sidecar: it remakes it, or stops and na
   await assert.rejects(visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'rhubarb not found' }),
     /lip-sync does not match its audio in slide-01\.visemes\.json and could not be remade here: rhubarb not found — run decklight narrate deck\.html --face/);
   assert.ok(lines.some((l) => /slide-01\.visemes\.json does not match its audio — it lasts 2\.5s and its audio 6\.0s/.test(l)));
+  const skipped = await visemesFor(items, {
+    dir, deck: 'deck.html', log, skipBad: true,
+    remakeWith: () => assert.fail('exporting as-is must not remake lip-sync'),
+  });
+  assert.equal(skipped.has(file), false);
 
   // Rhubarb here: just that stem is remade, and the log says how many
   lines.length = 0;

@@ -30,19 +30,19 @@ import { argReader, isMain } from './args.mjs';
 import { renderThemeParams } from './render-theme.mjs';
 import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_RENDER_MODES, valuesOf } from './video-options.mjs';
-import { splitSentences, speechRuns, stripAudioTags, PAUSE_MARK, CLICK_MARK, canonMarks } from './sentences.mjs';
+import { splitSentences, speechRuns, stripAudioTags, PAUSE_MARK, CLICK_MARK, canonMarks, hasWords } from './sentences.mjs';
 import { serveForRender } from '../cli/serve.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
-import { staleSlides, slideTexts, priorSlideTexts, slideNotes, markerPauses } from './narration-manifest.mjs';
+import { staleSlides, slideTexts, priorSlideTexts, slideNotes, slideBeats, scriptDrift, markerPauses } from './narration-manifest.mjs';
 import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs';
-import { lipsyncAfterVoicing } from './lipsync-auto.mjs';
+import { characterMode, lipsyncAfterVoicing } from './lipsync-auto.mjs';
 import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } from './tts-engines.mjs';
 import { loadTtsConfig } from './tts-setup.mjs';
 import { createTtsCache } from './tts-cache.mjs';
 import { faceLayout } from './face-layout.mjs';
 import { videoCache, videoDigest, videoMarkup } from './video-cache.mjs';
 import { captureLive } from './video-live.mjs';
-import { visemeMismatch } from './viseme-match.mjs';
+import { visemeMismatch, wavDuration } from './viseme-match.mjs';
 
 const run = promisify(execFile);
 
@@ -63,6 +63,7 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
                        stale slides are re-voiced first (below)
   --no-revoice         leave a machine-voiced track's stale slides as they are:
                        refuse them, or render them old with --allow-stale
+  --no-remake-visemes  leave missing or mismatched lip-sync unused
   --format <f>         mp4 (H.264/AAC, the default) · mov (H.264/AAC) · webm
                        (VP9/Opus); read off -o's extension when that names one
   --quality <q>        draft (quick, small) · standard (the default) · high
@@ -196,16 +197,15 @@ export function videoProgress(onSlide) {
 
 /**
  * The same, for `tools/voiceover.mjs` when an export voices its slides first:
- * its plan line ends `· N to voice`, and each slide line after it — synthesized,
- * or kept from an earlier run — is one of those N done.
+ * count completed synthesis against the work left after checking the track.
  */
 export function voiceoverProgress(onSlide) {
   let of = 0;
   let n = 0;
   return (line) => {
-    const head = / · (\d+) to voice$/.exec(line);
+    const head = /^\s+voice work: (\d+) slides to synthesize$/.exec(line);
     if (head) { of = Number(head[1]); return; }
-    if (of && /^\s+slide \d+: /.test(line)) onSlide(++n, of);
+    if (of && /^\s+slide \d+: \d+ chars → /.test(line)) onSlide(++n, of);
   };
 }
 
@@ -320,30 +320,34 @@ export function readVisemes(file) {
 
 const LIPSYNC = fileURLToPath(new URL('./lipsync.mjs', import.meta.url));
 
-/**
- * The viseme timeline for each `{ audio, file, duration }`, checked against
- * that audio (tools/viseme-match.mjs). A sidecar that is missing, unreadable
- * or another recording's is remade through tools/lipsync.mjs; when that cannot
- * run (no Rhubarb), the export stops and names the command that makes them.
- * Returns file → timeline.
- */
-export async function visemesFor(items, { dir, deck, log = console.log, remakeWith = remakeVisemes } = {}) {
-  const unique = [...new Map(items.map((it) => [it.file, it])).values()];
+function visemeCheck(dir) {
   let state = {};
   try { state = JSON.parse(readFileSync(join(dir, 'lipsync.json'), 'utf8')); } catch { /* none kept */ }
-  const check = (it) => {
+  return (it) => {
     const tl = readVisemes(it.file);
     if (!tl) return { tl: null, why: existsSync(it.file) ? 'it is not a viseme timeline' : 'it is missing' };
     const stem = basename(it.file, '.visemes.json');
     const txt = join(dirname(it.file), `${stem}.txt`);
+    const audioBytes = existsSync(it.audio) ? readFileSync(it.audio) : null;
     const why = visemeMismatch(tl, {
-      audioBytes: existsSync(it.audio) ? readFileSync(it.audio) : null,
+      audioBytes,
       stateHash: state[stem]?.visemes ?? null,
       text: existsSync(txt) ? readFileSync(txt, 'utf8').trim() : '',
-      duration: it.duration,
+      duration: it.duration ?? wavDuration(audioBytes),
     });
     return { tl, why };
   };
+}
+
+/**
+ * The viseme timeline for each `{ audio, file, duration }`, checked against
+ * that audio. The CLI remakes bad sidecars by default and stops if that fails.
+ * Returns file → timeline.
+ */
+export async function visemesFor(items, { dir, deck, log = console.log, remakeWith = remakeVisemes, skipBad = false } = {}) {
+  if (!items.length) return new Map();
+  const unique = [...new Map(items.map((it) => [it.file, it])).values()];
+  const check = visemeCheck(dir);
   const out = new Map();
   const bad = [];
   for (const it of unique) {
@@ -354,6 +358,7 @@ export async function visemesFor(items, { dir, deck, log = console.log, remakeWi
   const n = bad.length;
   const files = (list) => list.map((b) => basename(b.file)).join(', ');
   for (const b of bad) log(`  lip-sync: ${basename(b.file)} does not match its audio — ${b.why}`);
+  if (skipBad) return out;
   log(`  lip-sync: remaking ${n} file${n === 1 ? '' : 's'} with Rhubarb…`);
   const failed = await remakeWith(dir, bad.map((b) => basename(b.file, '.visemes.json')));
   const left = [];
@@ -776,13 +781,14 @@ export function folderNarration(dir) {
  * (a silent deck).
  * @returns {{ dir, slides }|null}
  */
-export function resolveNarration(deckPath, narrationDir) {
+export function resolveNarration(deckPath, narrationDir, { allowEmpty = false } = {}) {
   const load = (dir, required) => {
     const path = join(dir, 'manifest.json');
     if (!existsSync(path)) {
       if (required) {
         const byHand = folderNarration(dir);
         if (byHand) return byHand;
+        if (allowEmpty) return { dir, slides: [] };
         throw new Error(`--narration: no manifest.json and no slide-NN audio in ${dir} — `
           + 'record it first (decklight narrate, or decklight video --voiceover)');
       }
@@ -793,10 +799,57 @@ export function resolveNarration(deckPath, narrationDir) {
       throw new Error(`${path}: not a voiceover manifest (no slides array) — regenerate it with tools/voiceover.mjs`);
     }
     // the header rides along: the freshness check hashes the deck's notes under it
-    return { dir, slides: m.slides, engine: m.engine, model: m.model, voice: m.voice, style: m.style };
+    return { dir, slides: m.slides, engine: m.engine, model: m.model, voice: m.voice, style: m.style, recorder: m.recorder };
   };
   if (narrationDir) return load(resolve(narrationDir), true);
   return load(join(resolve(deckPath, '..'), 'voiceover'), false);
+}
+
+/** Check the chosen track without writing audio, sidecars, or video. */
+export async function checkVideoTrack(html, narration, range, { face = true, character } = {}) {
+  const report = { missing: [], stale: [], lipsync: [] };
+  if (!narration) return report;
+  const texts = slideTexts(html);
+  const hidden = sectionBodies(html).map(isHiddenSection);
+  const faces = extractFaces(html);
+  const { on } = characterPlan(character, characterMode(html), !face);
+  const checkVisemes = on ? visemeCheck(narration.dir) : null;
+  const { stale } = staleSlides(narration, texts, range, priorSlideTexts(html));
+  const oldNotes = new Set(stale);
+  const manualBeats = narration.engine ? null : slideBeats(html);
+  const checked = new Set();
+  for (let n = range.from; n <= range.to; n++) {
+    if (hidden[n - 1]) continue;
+    const entry = narration.slides[n - 1];
+    if (oldNotes.has(n) || (manualBeats && scriptDrift(entry, manualBeats[n - 1]))) report.stale.push(n);
+    const files = [entry?.file, ...(entry?.segments ?? []).map((segment) => segment.file)];
+    const recordedBeats = entry?.segments?.length ?? 0;
+    const missingBeat = recordedBeats > 0 && recordedBeats < (entry.beats?.length
+      ?? (entry.hash ? 0 : manualBeats?.[n - 1]?.length ?? 0));
+    if (missingBeat || ((hasWords(texts[n - 1] ?? '') || entry)
+      && files.some((file) => !file || !existsSync(join(narration.dir, file))))) {
+      report.missing.push(n);
+    }
+    if (!checkVisemes) continue;
+    for (const audioName of files) {
+      if (!audioName || checked.has(audioName)) continue;
+      const p = { slide: n, audio: audioName };
+      const audio = join(narration.dir, audioName);
+      if (!existsSync(audio) || exportFaceLayout(p, faces).kind === 'hide' || faceFor(p, { narration, faces })) continue;
+      checked.add(audioName);
+      const file = audio.replace(/\.[^.]+$/, '.visemes.json');
+      const { why, tl } = checkVisemes({ audio, file });
+      let mismatch = why;
+      // Older sidecars may only have a duration to compare.
+      if (!mismatch && typeof tl.audio !== 'string' && !audio.endsWith('.wav')) {
+        let duration;
+        try { duration = Number((await run('ffprobe', ffprobeArgs(audio), { timeout: PROBE_MS })).stdout.trim()); } catch { /* unavailable */ }
+        mismatch = visemeMismatch(tl, { duration });
+      }
+      if (mismatch) report.lipsync.push({ slide: n, audio: audioName, why: mismatch });
+    }
+  }
+  return report;
 }
 
 /**
@@ -823,7 +876,7 @@ export function resolveNarration(deckPath, narrationDir) {
 export async function revoiceStale({
   html, narration, stale, log = console.log, env = process.env,
   create = createEngine, status = engineStatus, cache = createTtsCache(),
-  lipsync = lipsyncAfterVoicing,
+  lipsync = lipsyncAfterVoicing, missing = [], onSlide = null, signal = null,
 }) {
   const { dir, engine } = narration;
   if (!engine || !ENGINES.includes(engine)) {
@@ -858,12 +911,15 @@ export async function revoiceStale({
     log(`  re-voicing ${stale.length === 1 ? `slide ${stale[0]}` : `slides ${stale.join(', ')}`} in the track's own voice — `
       + `${clips} clip${clips === 1 ? '' : 's'} from ${engine}${voice ? ` (${voice})` : ''}`
       + `${typeof tts.cost === 'string' ? `, ${tts.cost}` : ''}; any sentence already voiced comes from the clip cache`);
-    for (const n of stale) {
+    for (const [i, n] of stale.entries()) {
+      signal?.throwIfAborted();
       const prev = readTrack(dir);
       await synthesizeSlides({
         html, dir, tts, voice, style: narration.style ?? undefined,
         format: trackFormat(prev) ?? 'wav', range: { from: n, to: n }, prev, cache, log,
+        force: missing.includes(n),
       });
+      onSlide?.(i + 1, stale.length);
     }
     // the re-voiced slides' lip-sync, cut from their new audio in one parallel
     // run (#1244) — before the export checks every sidecar it will play
@@ -1268,7 +1324,9 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
     // would speak against its own captions, so it is named and, unless asked
     // for by name, refused (#536). Only the slides being rendered are checked.
     if (narration) {
+      const visible = argv.includes('--no-remake-visemes') ? sectionBodies(html).map((sec) => !isHiddenSection(sec)) : null;
       let { stale, hashless } = staleSlides(narration, slideTexts(html), range, priorSlideTexts(html));
+      if (visible) stale = stale.filter((n) => visible[n - 1]);
       if (hashless) log(`  narration: ${hashless} slide${hashless === 1 ? '' : 's'} in ${basename(narration.dir)}/ carr${hashless === 1 ? 'ies' : 'y'} no notes hash (recorded by hand) — not checked`);
       for (const n of stale) console.warn(`  slide ${n}: narration was recorded from different notes`);
       // A machine-voiced track fixes itself: its stale slides are voiced again
@@ -1279,6 +1337,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
         if (r.ok) {
           narration = resolveNarration(deck, narration.dir);
           ({ stale } = staleSlides(narration, slideTexts(html), range, priorSlideTexts(html)));
+          if (visible) stale = stale.filter((n) => visible[n - 1]);
         } else {
           unrevoiced = r.why;
           console.warn(`  not re-voiced: ${r.why}`);
@@ -1389,9 +1448,9 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       // made again when Rhubarb is here, and the export stops otherwise.
       const timelines = await visemesFor(drafts.filter((d) => d.visemeFile)
         .map((d) => ({ audio: d.audio, file: d.visemeFile, duration: durations[d.p.audio] })),
-      { dir: narration?.dir, deck, log });
+      { dir: narration?.dir, deck, log, skipBad: argv.includes('--no-remake-visemes') });
       const plan = drafts.map(({ p, audio, face, placement, visemeFile }) => {
-        const poses = visemeFile
+        const poses = visemeFile && timelines.has(visemeFile)
           ? characterFrames({ ...p, placement }, timelines.get(visemeFile)).filter((pose) => pose.character)
             .map((pose) => ({ ...pose, force: characterForce }))
           : [];

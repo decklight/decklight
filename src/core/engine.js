@@ -657,7 +657,7 @@ export function init(userConfig = {}) {
    */
   function progressToast(msg, onStop = null) {
     logOnly(msg);
-    if (printMode || captureMode) return { update() {}, done() {} };
+    if (printMode || captureMode) return { update() {}, done() {}, close() {} };
     if (!msgEl) {
       msgEl = document.createElement('div');
       msgEl.className = 'decklight-messages';
@@ -683,6 +683,7 @@ export function init(userConfig = {}) {
     let over = false;
     return {
       update(text) { if (!over) message.nodeValue = text; },
+      close() { over = true; row.remove(); },
       done(text, ms = 3600) {
         over = true;
         stop?.remove();

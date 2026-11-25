@@ -191,8 +191,6 @@ if (tts.audioTags) {
   if (cut) console.log(`tone ${cut}`);
 }
 
-// `· N to voice` closes the line because the edit server reads it: an export
-// that voices its slides first counts them off against this number.
 console.log(planLine(basename(deckPath), html, range, !!opt('--slides')));
 const reuseTextFrom = args.includes('--reuse-text')
   // falls back to the deck's default voiceover/ scripts so a second take

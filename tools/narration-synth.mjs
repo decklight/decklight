@@ -162,7 +162,7 @@ export function findEncoder(run = runBounded) {
 export async function synthesizeSlides({
   html, dir, tts, voice, style, format = DEFAULT_FORMAT, range = null, prev = null,
   cache, reuseTextFrom = [], keepWav = false, log = console.log,
-  run = runBounded, encoder = undefined,
+  run = runBounded, encoder = undefined, force = false,
 }) {
   if (!TRACK_FORMATS.includes(format)) throw new Error(`a track is ${TRACK_FORMATS.join(', ')} — not ${format}`);
   const raw = slideNotes(html);
@@ -338,27 +338,21 @@ export async function synthesizeSlides({
   const manifestOf = (entries) => ({ ...extras, ...header, slides: entries });
   const save = (entries) => writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifestOf(entries), null, 1));
 
-  mkdirSync(dir, { recursive: true });
-  let skipped = 0;
-  let cost = 0;
-  const entries = [];
-  for (let i = 0; i < slides.length; i++) {
+  const plan = slides.map((slide, i) => {
     const n = String(i + 1).padStart(2, '0');
     // Outside the range the track's own entry stands, segments and all: a
     // ranged run is a surgical redo, the promise `decklight narrate --mic --slides`
     // makes, and the video rendered from this folder still finds the rest.
-    if (i + 1 < span.from || i + 1 > span.to) { entries.push(prev?.slides?.[i] ?? null); continue; }
+    if (i + 1 < span.from || i + 1 > span.to) return { entry: prev?.slides?.[i] ?? null };
     // no words — or nothing but ⟨PAUSE⟩ and audio tags: direction with nothing to direct
-    if (!hasWords(slides[i])) { entries.push(null); continue; }
+    if (!hasWords(slide)) return { entry: null };
     const txt = join(dir, `slide-${n}.txt`);
     // reused text: a second take (another engine or voice) narrates the SAME
     // words, not a re-roll
     const prior = reuseTextFrom.map((d) => join(d, `slide-${n}.txt`)).find((f) => existsSync(f));
-    const text = prior ? canonMarks(readFileSync(prior, 'utf8')).replace(/\s+/g, ' ').trim() : slides[i];
+    const text = prior ? canonMarks(readFileSync(prior, 'utf8')).replace(/\s+/g, ' ').trim() : slide;
     const file = `slide-${n}.${format}`;
-    writeFileSync(txt, writtenMarks(text));   // read back through canonMarks: the hash is of `text`
     const hash = slideHash(text);
-    entries.push({ file, hash });
 
     // Unchanged: the audio on disk is still these words in this voice. The
     // file checked is the one the ENTRY names — a slide another producer wrote
@@ -366,10 +360,24 @@ export async function synthesizeSlides({
     // A file in another format is not kept: a track is one format, and a run
     // asked for another (`--format`) is converting it.
     const was = prev?.slides?.[i];
-    if (was?.file && extname(was.file) === `.${format}`
+    const kept = !force && was?.file && extname(was.file) === `.${format}`
       && (was.hash === hash || was.hash === clipHash(text) || (preDatesModel && was.hash === legacyHash(text))
         || (oldReading[i] && was.hash === slideHash(oldReading[i])))
-      && existsSync(join(dir, was.file))) {
+      && existsSync(join(dir, was.file));
+    return { n, txt, prior, text, file, hash, was, kept };
+  });
+  log(`  voice work: ${plan.filter((slide) => slide.txt && !slide.kept).length} slides to synthesize`);
+
+  mkdirSync(dir, { recursive: true });
+  let skipped = 0;
+  let cost = 0;
+  const entries = [];
+  for (const [i, slide] of plan.entries()) {
+    const { n, txt, prior, text, file, hash, was, kept } = slide;
+    if (!txt) { entries.push(slide.entry); continue; }
+    writeFileSync(txt, writtenMarks(text));   // read back through canonMarks: the hash is of `text`
+    entries.push({ file, hash });
+    if (kept) {
       entries[i] = { ...was, hash };
       // Carry the segments across only while they are still on disk — the
       // manifest is the one thing that knows they are there.
@@ -423,7 +431,7 @@ export async function synthesizeSlides({
   return { manifest: manifestOf(entries), skipped, cost, retried };
 }
 
-/** The plan line `decklight narrate` prints — the edit server reads its `· N to voice`. */
+/** The notes and range summary `decklight narrate` prints. */
 export function planLine(name, html, range, ranged) {
   const texts = slideNotes(html).map((r) => (r ? cleanNotes(r) : ''));
   const span = range ?? { from: 1, to: texts.length };

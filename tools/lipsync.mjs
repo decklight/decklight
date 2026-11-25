@@ -83,6 +83,16 @@ const portrait = portraitArg
   : savedPortraits[0]?.[1];
 const python = opt('--python', saved.python ?? 'python3');
 const remake = opt('--remake') ? new Set(opt('--remake').split(',').filter(Boolean)) : null;
+// A video export names the exact take it will play, even if a lossless
+// intermediate with the same stem sits beside it.
+const requestedAudio = opt('--audio-files');
+const audioFiles = requestedAudio ? JSON.parse(requestedAudio) : null;
+if (audioFiles && (!Array.isArray(audioFiles) || audioFiles.some((file) =>
+  typeof file !== 'string' || !/^slide-\d+(?:-\d+)?\.(wav|m4a|mp3)$/.test(file)))) {
+  console.error('--audio-files must name slide audio files in the track');
+  process.exit(1);
+}
+const audioByStem = new Map(audioFiles?.map((file) => [file.replace(/\.[^.]+$/, ''), file]));
 // --veo: animate the portrait ONCE through Vertex (tools/veo.mjs) and give
 // wav2lip that clip instead of the still, so the recorded narrator moves
 // instead of staring. One billed call per portrait, cached next to the audio.
@@ -129,9 +139,9 @@ const ffmpegOk = have('ffmpeg', ['-version']);
 // progressively wronger after it. Cutting one per beat is the fix, and it costs
 // only Rhubarb passes: they are seconds each, and incremental like everything
 // else here.
-const stems = [...new Set(readdirSync(dir)
+const stems = (audioFiles ? [...audioByStem.keys()] : [...new Set(readdirSync(dir)
   .map((f) => f.match(/^(slide-\d+(?:-\d+)?)\.(wav|m4a)$/)?.[1])
-  .filter(Boolean))].sort().filter((st) => !remake || remake.has(st));
+  .filter(Boolean))]).sort().filter((st) => !remake || remake.has(st));
 const slides = stems.filter((st) => !/-\d+-\d+$/.test(st));
 const beats = stems.filter((st) => /-\d+-\d+$/.test(st));
 if (!stems.length) { console.error(`${dir}: no slide-NN.wav/.m4a files`); process.exit(1); }
@@ -166,13 +176,11 @@ function keepsVisemes(file, audioBytes) {
   } catch { return false; }
 }
 
-function toWav(stem) {
-  const wav = join(dir, `${stem}.wav`);
-  if (existsSync(wav)) return { path: wav, tmp: false };
-  const m4a = join(dir, `${stem}.m4a`);
+function toWav(stem, audioFile) {
+  if (audioFile.endsWith('.wav')) return { path: audioFile, tmp: false };
   const tmp = join(dir, `${stem}.tmp.wav`);
-  if (ffmpegOk) run('ffmpeg', ['-y', '-i', m4a, tmp], { stdio: 'ignore', timeout: CODEC_MS, why: 'the encoder is stuck on this file — check it plays, then retry' });
-  else run('afconvert', ['-f', 'WAVE', '-d', 'LEI16', m4a, tmp], { timeout: CODEC_MS, why: 'the encoder is stuck on this file — check it plays, then retry' });
+  if (ffmpegOk) run('ffmpeg', ['-y', '-i', audioFile, tmp], { stdio: 'ignore', timeout: CODEC_MS, why: 'the encoder is stuck on this file — check it plays, then retry' });
+  else run('afconvert', ['-f', 'WAVE', '-d', 'LEI16', audioFile, tmp], { timeout: CODEC_MS, why: 'the encoder is stuck on this file — check it plays, then retry' });
   return { path: tmp, tmp: true };
 }
 
@@ -190,7 +198,8 @@ async function oneStem(stem) {
   // seeking a timeline — so cutting video per beat would cost a great deal to
   // fix a smaller error than the visemes had.
   const isBeat = /-\d+-\d+$/.test(stem);
-  const audioFile = ['wav', 'm4a'].map((e) => join(dir, `${stem}.${e}`)).find(existsSync);
+  const audioFile = audioFiles ? join(dir, audioByStem.get(stem))
+    : ['wav', 'm4a'].map((e) => join(dir, `${stem}.${e}`)).find(existsSync);
   const audioBytes = readFileSync(audioFile);
   const txtPath = join(dir, `${stem}.txt`);
   const text = existsSync(txtPath) ? readFileSync(txtPath, 'utf8').trim() : '';
@@ -205,12 +214,12 @@ async function oneStem(stem) {
     const hash = job === 'visemes'
       ? visemeHash(text, audioBytes)
       : sha('video|', engine, '|', readFileSync(face), '|', audioBytes);   // `face`, so --veo re-renders
-    if (st[job] === hash && existsSync(outFile) && !remake && (job !== 'visemes' || keepsVisemes(outFile, audioBytes))) {
+    if (st[job] === hash && existsSync(outFile) && !remake && !audioFiles && (job !== 'visemes' || keepsVisemes(outFile, audioBytes))) {
       kept++;
       console.log(`  ${of(job === work.at(-1))} ${stem}: ${job} unchanged — kept`);
       continue;
     }
-    const wav = toWav(stem);
+    const wav = toWav(stem, audioFile);
     try {
       const t0 = Date.now();
       if (job === 'visemes') {

@@ -356,8 +356,10 @@ export function previewError(why) {
  *   engine and this voice; anything else — a manifest for another voice, or
  *   audio with no manifest at all, which is what your own voice leaves — refuses.
  */
-export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles, face, character, render, allowStale } = {}, deckDir) {
+export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles, face, character, render, allowStale, fix } = {}, deckDir) {
   if (allowStale != null && typeof allowStale !== 'boolean') return 'allowStale is yes or no';
+  if (fix != null && typeof fix !== 'boolean') return 'fix is yes or no';
+  if (fix && allowStale) return 'choose either fixing the track or exporting as it is';
   if (character != null && !['viseme', 'off'].includes(character)) return 'character must be viseme, off';
   // the card's rows and the command's flags read one list (src/core/video-options.js)
   for (const [field, value, list] of [['format', format, VIDEO_FORMATS], ['quality', quality, VIDEO_QUALITIES], ['subtitles', subtitles, VIDEO_SUBTITLES], ['face', face, VIDEO_FACE], ['render', render, VIDEO_RENDER_MODES]]) {
@@ -394,11 +396,9 @@ export function videoExportProblem({ slides, narration, synthesize, silent, form
   if (narration == null || narration === '') return null;
   const bad = folderProblem(narration, deckDir, 'the narration');
   if (bad) return bad;
-  // a manifest, or the audio itself: your own voice leaves no manifest, and
-  // `decklight video` reads the files (folderNarration)
-  let audio = false;
-  try { audio = readdirSync(resolve(deckDir, narration)).some((f) => /^slide-\d+\.(wav|m4a|mp3)$/.test(f)); } catch { /* no folder */ }
-  if (!audio && !existsSync(resolve(deckDir, narration, 'manifest.json'))) {
+  // An existing folder may have lost all its recordings. Preflight reports
+  // that the same way it reports a partly missing track.
+  try { readdirSync(resolve(deckDir, narration)); } catch {
     return `no recorded narration in ${narration}/ — record the deck first (V → My voice → Record…)`;
   }
   return null;

@@ -384,7 +384,12 @@
             : { file: 'deck-standalone.html', notes: [] }) });
         }
         if (u.includes('/deck/edit/export')) {
-          const kind = JSON.parse(init?.body ?? '{}').kind;
+          const { kind, fix } = JSON.parse(init?.body ?? '{}');
+          if (HARNESS_MODE === 'exportvideo' && !fix) {
+            return json({ ok: false, preflight: {
+              missing: [2, 3], stale: [], lipsync: [], audioSlides: 2, engine: 'piper', canFix: true,
+            } }, 409);
+          }
           return HARNESS_MODE === 'exportfail'
             ? json({ ok: false, error: 'no Chrome found — install one, or point $CHROME at it' }, 503)
             : json({ ok: true, kind, file: kind === 'pptx' ? 'deck.pptx' : kind === 'video' ? 'deck.slides-2-3.mp4'
@@ -3042,10 +3047,10 @@
         [...document.querySelectorAll('.decklight-range .narr-row')].find((n) => /^All slides/.test(n.textContent))?.click();
         await settle();
         r.soundAndPreview = /With the narration/.test(settingRow('Sound')) && /slide \d+, as the video will have it/.test(link('preview')?.textContent ?? '');
-        // a machine-voiced track from older notes is regenerated on those slides first (#553), and says so
+        // a machine-voiced track from older notes is marked
         await speakWith(/^Daniel/);
         r.staleTrackMarked = /^Narrator\s*Daniel · AI voice · slides only/.test(link('narrator')?.textContent ?? '')
-          && notes().some((t) => /2 slides from older notes are regenerated first, in the same voice/.test(t)) && !link('missing');
+          && notes().some((t) => /recorded from older notes on 2 slides/.test(t)) && !link('missing');
         // the AI voice that needs a connection is saved with the deck first,
         // in a folder of its own rather than the say one, and the card says
         // what that sends before anything is spent. With a cartoon character
@@ -3066,14 +3071,14 @@
         await settle();
         await settle();
         r.followsTheAiVoice = /^Narrator\s*en_US-ryan-high · AI voice · with a cartoon character/.test(link('narrator')?.textContent ?? '')
-          && notes().some((t) => /en_US-ryan-high is saved with the deck first, in voices\/en-us-ryan-high\/ · up to [\d,]+ characters on Piper/.test(t));
+          && notes().some((t) => /Fix and export saves missing narration in voices\/en-us-ryan-high\/ · up to [\d,]+ characters on Piper/.test(t));
         // …and what the character needs is made, and said, rather than found missing mid-render
-        r.saysTheLipSync = notes().some((t) => /the character's lip-sync is made with the voice, before the video/.test(t));
+        r.saysTheLipSync = notes().some((t) => /Fix and export also updates the character's lip-sync/.test(t));
         // on a machine that cannot make it, said before the click, not found after it
         window.__noRhubarb = true;
         await speakWith(/^en_US-ryan-high/);
-        r.saysItCannotMakeTheLipSync = notes().some((t) => /cannot be made on this computer: Rhubarb is not installed · the export would stop/.test(t))
-          && !notes().some((t) => /is made with the voice, before the video/.test(t));
+        r.saysItCannotMakeTheLipSync = notes().some((t) => /cannot be made on this computer: Rhubarb is not installed · you can export/.test(t))
+          && !notes().some((t) => /Fix and export also updates/.test(t));
         window.__noRhubarb = false;
         await speakWith(/^en_US-ryan-high/);
         r.previewInTheDeck = /Preview slide in deck/.test(link('preview')?.textContent ?? '');
@@ -3135,21 +3140,22 @@
         r.enterChoosesOnly = !!card() && !CALLS.post.some((c) => c.u.includes('/deck/edit/export'))
           && /Export video · slides 2–3/.test(go().textContent) && go().classList.contains('narr-sel');
         press('Enter');                // on the button now: export
-        // read BEFORE yielding: the stand-in server answers within one settle,
-        // and its answer rewrites the very row being checked
         r.closesOnPick = !card();
         const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
-        r.saysWhatItRenders = said().some((t) => /voicing and rendering a video of slides 2–3/.test(t));
+        r.saysWhatItRenders = said().some((t) => /exporting a video of slides 2–3/.test(t));
+        await settle();
+        const action = (label) => [...document.querySelectorAll('.toast-act')].find((b) => b.textContent === label);
+        r.asksBeforeFixing = said().some((t) => /Missing audio on slides 2, 3/.test(t))
+          && !!action('Export anyway') && !!action('Cancel') && !!action('Fix and export');
+        action('Fix and export')?.click();
         window.__es.emit('export', { state: 'slide', kind: 'video', phase: 'voice', n: 1, of: 2 });
-        r.saysWhereItIs = said().some((t) => /slides 2–3 — voicing slide 1 of 2/.test(t));
+        r.saysWhereItIs = said().some((t) => /slides 2–3 — voicing 1 of 2/.test(t));
         window.__es.emit('export', { state: 'slide', kind: 'video', phase: 'render', n: 2, of: 2 });
-        r.saysTheRenderPhase = said().some((t) => /slides 2–3 — slide 2 of 2/.test(t));
+        r.saysTheRenderPhase = said().some((t) => /slides 2–3 — rendering slide 2 of 2/.test(t));
         await settle();
         await settle();
-        const sent = CALLS.post.find((c) => c.u.includes('/deck/edit/export'))?.body;
-        // the narrator the deck plays, sent as the render takes it: the AI
-        // voice voiced into its folder, and the character the panel has on screen
-        r.postsTheRange = sent?.kind === 'video' && sent.slides === '2-3' && !('narration' in sent)
+        const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/export')).at(-1)?.body;
+        r.postsTheRange = sent?.kind === 'video' && sent.fix && sent.slides === '2-3' && !('narration' in sent)
           && sent.synthesize?.engine === 'piper' && sent.synthesize.model === 'en_US-ryan-high'
           && sent.synthesize.voice === 'en_US-ryan-high' && sent.synthesize.dir === 'voices/en-us-ryan-high'
           && sent.format === 'mov' && sent.quality === 'standard' && sent.subtitles === 'embed'

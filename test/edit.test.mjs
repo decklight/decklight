@@ -2852,6 +2852,24 @@ async function videoSession(t, { deck = DECK } = {}) {
   return { dir, ...(await startEdit(t, dir, { env })) };
 }
 
+test('/deck/edit/export checks a hand-recorded track before starting capture', async (t) => {
+  const dir = tmp(t);
+  const track = path.join(dir, 'voices', 'mine');
+  mkdirSync(track, { recursive: true });
+  writeFileSync(path.join(dir, 'deck.html'), SPOKEN_DECK);
+  writeFileSync(path.join(track, 'slide-01.wav'), 'recorded audio');
+  const { base, log } = await startEdit(t, dir);
+  for (const fix of [false, true]) {
+    const response = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/mine', fix });
+    assert.equal(response.status, 409);
+    const { preflight } = await response.json();
+    assert.deepEqual(preflight.missing, [2]);
+    assert.equal(preflight.canFix, false);
+  }
+  assert.ok(!existsSync(path.join(dir, 'deck.mp4')));
+  assert.doesNotMatch(log(), /export: deck\.html/);
+});
+
 test('/deck/edit/export renders a video of just the slides asked for, named for them', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t);
@@ -2882,9 +2900,9 @@ test('/deck/edit/export refuses a video it cannot make as asked, and says why', 
   r = await ask({ narration: 'voices' });
   assert.equal(r.status, 400);
   assert.match(r.error, /no recorded narration in voices\//, 'a track with no audio refuses rather than rendering silent');
-  // past the deck's end is the COMMAND's refusal, passed through in its words
+  // The range is checked before trying to record.
   r = await ask({ slides: '9' });
-  assert.equal(r.status, 500);
+  assert.equal(r.status, 400);
   assert.match(r.error, /--slides 9 is outside this deck/);
   assert.ok(!existsSync(path.join(dir, 'deck.slides-9.mp4')));
   assert.equal((await (await fetch(base + '/deck/ping')).json()).ok, true, 'the session survives its refusal');
@@ -2894,7 +2912,12 @@ test('/deck/edit/export voices the range with the live voice first, into a folde
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base, log } = await videoSession(t, { deck: SPOKEN_DECK });
   const synthesize = { engine: 'piper', model: 'en_US-ryan-high', voice: 'en_US-ryan-high', style: 'warm', dir: 'voices/en-us-ryan-high' };
-  const r = await (await post(base, '/deck/edit/export', { kind: 'video', slides: '2', synthesize })).json();
+  const pick = { kind: 'video', slides: '2', synthesize };
+  const check = await post(base, '/deck/edit/export', pick);
+  assert.equal(check.status, 409);
+  assert.deepEqual((await check.json()).preflight.missing, [2]);
+  assert.ok(!existsSync(path.join(dir, synthesize.dir)));
+  const r = await (await post(base, '/deck/edit/export', { ...pick, fix: true })).json();
   assert.equal(r.ok, true, `export refused: ${r.error}\n${log()}`);
   assert.equal(r.file, 'deck.slides-2.mp4');
   assert.equal(r.voiced, 'voices/en-us-ryan-high', 'the deck is told where the voice went');
@@ -2909,11 +2932,10 @@ test('/deck/edit/export voices the range with the live voice first, into a folde
   assert.match(log(), /voicing slide 2 only · 1 to voice/);
   assert.match(log(), /1 narrated/, 'the render found the voice it had just been given');
 
-  // the same export again re-pays nothing: the folder is refreshed in place and
-  // the unchanged slide is kept
-  const again = await (await post(base, '/deck/edit/export', { kind: 'video', slides: '2', synthesize })).json();
+  // A clean track goes straight to video the second time.
+  const again = await (await post(base, '/deck/edit/export', pick)).json();
   assert.equal(again.ok, true, again.error);
-  assert.match(log(), /slide 02: unchanged — kept/);
+  assert.equal(log().match(/voice work:/g)?.length, 1);
 });
 
 test('/deck/edit/export re-voices a machine-voiced track\'s stale slide in the track\'s own voice, then renders (#553)', async (t) => {
@@ -2923,7 +2945,7 @@ test('/deck/edit/export re-voices a machine-voiced track\'s stale slide in the t
   mkdirSync(path.join(dir, '.local', 'share', 'piper'), { recursive: true });
   writeFileSync(path.join(dir, '.local', 'share', 'piper', 'en_US-ryan-high.onnx'), '');
   const synthesize = { engine: 'piper', model: 'en_US-ryan-high', voice: 'en_US-ryan-high', style: 'warm', dir: 'voices/ryan' };
-  assert.equal((await (await post(base, '/deck/edit/export', { kind: 'video', synthesize })).json()).ok, true, log());
+  assert.equal((await (await post(base, '/deck/edit/export', { kind: 'video', synthesize, fix: true })).json()).ok, true, log());
   const track = path.join(dir, 'voices', 'ryan');
   const before = JSON.parse(readFileSync(path.join(track, 'manifest.json'), 'utf8'));
 
@@ -2932,7 +2954,7 @@ test('/deck/edit/export re-voices a machine-voiced track\'s stale slide in the t
   let n = 0;
   writeFileSync(deckFile, readFileSync(deckFile, 'utf8').replace(/Said aloud\./g, (m) => (++n === 2 ? 'Said differently now.' : m)));
 
-  const r = await (await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/ryan' })).json();
+  const r = await (await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/ryan', fix: true })).json();
   assert.equal(r.ok, true, `the stale slide was refused rather than re-voiced: ${r.error}\n${log()}`);
   assert.match(log(), /re-voicing slide 2 in the track's own voice — 1 clip from piper \(en_US-ryan-high\)/);
   const after = JSON.parse(readFileSync(path.join(track, 'manifest.json'), 'utf8'));
@@ -2944,11 +2966,10 @@ test('/deck/edit/export re-voices a machine-voiced track\'s stale slide in the t
 });
 
 test('/deck/edit/export never synthesizes over a recorded take, and passes an engine\'s refusal through', async (t) => {
-  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base } = await videoSession(t, { deck: SPOKEN_DECK });
   const ask = async (body) => {
     const res = await post(base, '/deck/edit/export', { kind: 'video', ...body });
-    return { status: res.status, error: (await res.json()).error };
+    return { status: res.status, ...await res.json() };
   };
   // your own voice: audio, and no manifest
   mkdirSync(path.join(dir, 'voices', 'me'), { recursive: true });
@@ -2975,11 +2996,16 @@ test('/deck/edit/export never synthesizes over a recorded take, and passes an en
   assert.equal(r.status, 400);
   assert.match(r.error, /one voice at a time/);
 
-  // An engine that cannot start is refused by voiceover, in its own words, and
-  // nothing is rendered after it.
-  r = await ask({ slides: '2', synthesize: { engine: 'elevenlabs', voice: 'Rachel', dir: 'voices/eleven' } });
-  assert.equal(r.status, 500);
-  assert.match(r.error, /ElevenLabs needs an API key/);
+  const request = { slides: '2', synthesize: { engine: 'elevenlabs', voice: 'Rachel', dir: 'voices/eleven' } };
+  r = await ask(request);
+  assert.equal(r.status, 409);
+  assert.deepEqual(r.preflight.missing, [2]);
+  assert.equal(r.preflight.repairError, undefined);
+  // An approved repair that cannot start returns the engine's reason and
+  // lets the user decide whether to export as-is.
+  r = await ask({ ...request, fix: true });
+  assert.equal(r.status, 409);
+  assert.match(r.preflight.repairError, /ElevenLabs needs an API key/);
   assert.ok(!existsSync(path.join(dir, 'deck.slides-2.mp4')));
 });
 
@@ -3565,12 +3591,11 @@ test('/deck/edit/export refuses a narration recorded from other notes, names the
   assert.equal(tracks.find((x) => x.dir === 'voices/samantha')?.stale, 1, 'one slide recorded from older notes');
   // refused by default, with the slide and the way out
   let r = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/samantha' });
-  assert.equal(r.status, 500);
-  const why = (await r.json()).error;
-  assert.match(why, /recorded from older notes on slide 2/);
-  // an engine's track is re-voiced, never "re-recorded" (#919)
-  assert.match(why, /re-voice it from the deck \(V, then › on samantha\) or pass --allow-stale/);
-  assert.match(log(), /slide 2: narration was recorded from different notes/);
+  assert.equal(r.status, 409);
+  const { preflight } = await r.json();
+  assert.deepEqual(preflight.stale, [2]);
+  assert.equal(preflight.canFix, true);
+  assert.ok(!existsSync(path.join(dir, 'deck.mp4')));
   // a range that does not reach the stale slide is not stopped by it
   r = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/samantha', slides: '1' });
   assert.equal((await r.json()).ok, true, 'slide 1 alone is in step');
@@ -3601,8 +3626,10 @@ test('/deck/edit/export renders your own voice, which leaves no manifest — and
   assert.equal((await r.json()).ok, true);
   assert.match(log(), /carr(y|ies) no notes hash \(recorded by hand\) — not checked/, 'and it says the take was not checked');
   const no = await post(base, '/deck/edit/export', { kind: 'video', narration: 'voices/beats' });
-  assert.equal(no.status, 400);
-  assert.match((await no.json()).error, /no recorded narration in voices\/beats\//);
+  assert.equal(no.status, 409);
+  const { preflight } = await no.json();
+  assert.deepEqual(preflight.missing, [1, 2]);
+  assert.equal(preflight.canFix, false);
 });
 
 // ── the inspector's file facts (I, PRESENTING) ────────────────────────────
