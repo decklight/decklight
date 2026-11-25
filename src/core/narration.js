@@ -6548,7 +6548,7 @@ export function createNarration({
           const dir = synthTarget(tracks);
           voice = { kind: 'live', engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveStyle(), dir };
           const every = Array.from({ length: instance.state.totalSlides }, (_, i) => i + 1);
-          notes.push({ text: `${liveCfg.voice} is saved with the deck first, in ${dir}/ · up to ${voiceChars(every).toLocaleString()} characters on ${engineName(liveEngine)}` });
+          notes.push({ text: `Fix and export saves missing narration in ${dir}/ · up to ${voiceChars(every).toLocaleString()} characters on ${engineName(liveEngine)}` });
         } else {
           notes.push({ warn: true, text: onBrowser() ? "the browser's own voice cannot go in a video · it will be silent"
             : 'the voice service is not answering · the video will be silent' });
@@ -6560,14 +6560,8 @@ export function createNarration({
         nolips = t?.nolips ?? 0;
         if (t && (t.manifest || t.renders)) {
           voice = { kind: 'recorded', dir: t.dir, stale: t.stale || 0, engine: t.engine ?? null };
-          // a track voiced from other notes than the deck has now is said,
-          // and the render is told the choice was seen (#536). An AI one is
-          // regenerated on those slides before the render, in its own voice
-          // (#553), so the line says THAT rather than warning about audio
-          // the file will not have.
           if (t.stale > 0) {
-            notes.push(t.engine ? { text: `${count(t.stale)} from older notes ${t.stale === 1 ? 'is' : 'are'} regenerated first, in the same voice` }
-              : { warn: true, text: `recorded from older notes on ${count(t.stale)}` });
+            notes.push({ warn: true, text: `recorded from older notes on ${count(t.stale)}` });
           }
           const has = new Set(t.slides ?? []);
           for (let sl = 1; sl <= instance.state.totalSlides; sl++) {
@@ -6604,11 +6598,10 @@ export function createNarration({
       const seen = shown === 'camera' ? 'with my camera' : shown === 'cartoon' ? 'with a cartoon character' : 'slides only';
       // the drawn character mouths from a file per clip: made before the render, and said
       if (shown === 'cartoon' && nolips && visemesWhy) {
-        // said before the click: the export would stop at its first step
-        notes.push({ warn: true, text: `the character's lip-sync cannot be made on this computer: ${visemesWhy} · the export would stop · choose Nobody on screen, or set it up once: decklight setup face --rhubarb <path>` });
+        notes.push({ warn: true, text: `the character's lip-sync cannot be made on this computer: ${visemesWhy} · you can export with the lip-sync already available` });
       } else if (shown === 'cartoon' && nolips) {
-        notes.push({ text: nolips < 0 ? "the character's lip-sync is made with the voice, before the video"
-          : `the character's lip-sync is made first, for ${nolips} clip${nolips === 1 ? '' : 's'} that ${nolips === 1 ? 'has' : 'have'} none` });
+        notes.push({ text: nolips < 0 ? "Fix and export also updates the character's lip-sync"
+          : `${nolips} clip${nolips === 1 ? ' needs' : 's need'} updated lip-sync` });
       }
       /** The gaps inside a range as `--slides` spells it (null: every slide), in words. */
       const missingIn = (range) => {

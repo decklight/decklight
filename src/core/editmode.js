@@ -942,7 +942,8 @@ export function createEditMode({
               if (d.state === 'start') exportBusy = { kind: d.kind, what: d.what };
               else if (d.state === 'done') exportBusy = null;
               if (d.state === 'slide' && exportRun) {
-                exportRun.run.update(`${exportRun.doing} — ${d.phase === 'voice' ? 'voicing ' : ''}slide ${d.n} of ${d.of}…`);
+                const step = { voice: 'voicing', lipsync: 'updating lip-sync', render: 'rendering slide' }[d.phase] ?? 'slide';
+                exportRun.run.update(`${exportRun.doing} — ${step} ${d.n} of ${d.of}…`);
               }
               debugLog('export', `${d.kind} ${d.state}${d.n ? ` ${d.n}/${d.of}` : ''}`);
             } catch { /* malformed event */ }
@@ -962,6 +963,28 @@ export function createEditMode({
       probeSettled();   // asked everything, wired up nothing
     })();
   }
+  function offerVideoRepair(report, retry) {
+    const slides = (list) => list.length > 5 ? `${list.length} slides`
+      : `slide${list.length === 1 ? '' : 's'} ${list.join(', ')}`;
+    const { missing, stale, lipsync, engine, audioSlides, canFix, metered, repairError } = report;
+    const summary = [
+      missing.length && `Missing audio on ${slides(missing)}.`,
+      stale.length && `Older notes were used on ${slides(stale)}.`,
+      lipsync.length && `${lipsync.length} lip-sync file${lipsync.length === 1 ? ' is' : 's are'} missing or out of date on ${slides([...new Set(lipsync.map((item) => item.slide))])}.`,
+      audioSlides && (engine
+        ? `Fixing will voice ${audioSlides} slide${audioSlides === 1 ? '' : 's'} with ${engine}${metered ? ' and may incur charges' : ''}.`
+        : 'Re-record these slides to update the audio.'),
+      (lipsync.length || (audioSlides && engine)) && 'Lip-sync takes a few seconds per audio file when needed.',
+      repairError && `Repair stopped. ${repairError}`,
+    ].filter(Boolean).join(' ');
+    if (!actionToast) return toast(summary, 6500);
+    actionToast(summary, [
+      ...(canFix ? [['Fix and export', () => { retry('fix'); }]] : []),
+      ['Export anyway', () => { retry('anyway'); }],
+      ['Cancel', () => {}],
+    ]);
+  }
+
 
   // ── the lock (PRESENTING) ─────────────────────────────────────────────────
   // Editing is on from the moment write mode answers; the lock is the one
@@ -4375,7 +4398,7 @@ export function createEditMode({
   // What a bundle's card repeats of the notes `decklight bundle` prints after
   // the file: which chapter went in, and where the narration audio is.
   const BUNDLE_SAYS = /^(module \d+ of \d+:|narration audio:)/;
-  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null, render = null, face = null, character = null, audio = false, module = null } = {}) {
+  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null, render = null, face = null, character = null, audio = false, module = null, repair = null } = {}) {
     const what = EXPORTS[kind];
     if (!what) return;
     // The server refuses a second export too (one browser, one output path);
@@ -4383,21 +4406,16 @@ export function createEditMode({
     if (exportRun) { toast('already exporting — one at a time'); return; }
     // A video is of SOMETHING — a range, a voice — and takes minutes, so the row
     // says which slides it is rendering rather than just that it is busy.
-    const voicing = kind === 'video' && voice?.kind === 'live';
-    const older = kind === 'video' && voice?.kind === 'recorded' && voice.stale > 0
-      ? (voice.engine
-        ? ` — re-voicing ${voice.stale} slide${voice.stale === 1 ? '' : 's'} from older notes first, in its own voice`
-        : ` — its voice was recorded from older notes on ${voice.stale} slide${voice.stale === 1 ? '' : 's'}`)
-      : '';
     // In the theme on screen (#547). The render is a fresh browser that cannot
     // see this one's pick, so it is TOLD: without this it opened on the deck's
     // default — or on its first inline theme block. A theme with a name the
     // deck knows goes by name; one that lives only in this browser (a saved
     // custom theme, an unsaved roll) goes as its tokens.
     const { theme, gen } = renderTheme() ?? {};
-    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles, render, face, character, audio, module } })) return;
+    const opts = { slides, voice, format, quality, subtitles, render, face, character, audio, module, repair };
+    if (markConfirmed(theme, { kind, opts })) return;
     const doing = kind === 'video'
-      ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
+      ? `${repair === 'fix' ? 'preparing' : 'exporting'} a video of ${rangeLabel(slides)}`
       : `exporting ${kind === 'bundle' && module != null ? `module ${module} ` : ''}to ${what}`
         + `${audio ? `, with the narration audio${AUDIO_HOW[audio] ? ` as ${AUDIO_HOW[audio]}` : ''}` : ''}`;
     // a bundle is seconds; anything else can be stopped, and says how
@@ -4411,6 +4429,7 @@ export function createEditMode({
           kind,
           ...(theme ? { theme } : gen ? { gen } : {}),
           ...(kind === 'video' ? { slides, format, quality, subtitles, render, ...(face ? { face } : {}), ...(character ? { character } : {}), ...videoVoice(voice) } : {}),
+          ...(repair === 'fix' ? { fix: true } : repair === 'anyway' ? { allowStale: true } : {}),
           ...(kind === 'bundle' && audio ? { audio } : {}),
           ...(kind === 'bundle' && module != null ? { module } : {}),
         }),
@@ -4418,6 +4437,11 @@ export function createEditMode({
       const j = await r.json().catch(() => ({}));
       if (j.unmarked) {
         armMark(j.unmarked, theme, run, { bundles: kind === 'bundle' });
+        return;
+      }
+      if (j.preflight) {
+        run.close();
+        offerVideoRepair(j.preflight, (choice) => exportDeck(kind, { ...opts, repair: choice }));
         return;
       }
       if (j.stopped) {

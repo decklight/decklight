@@ -141,11 +141,44 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       if (bad) return json(400, { ok: false, error: bad });
     }
     if (exporting) return json(409, { ok: false, error: 'an export is already running' });
+    const video = kind === 'video' ? await import('../tools/video.mjs') : null;
+    const narration = req.synthesize?.dir ?? req.narration ?? null;
+    let track, report, html, range;
+    const anyway = req.allowStale === true;
+    const readTrack = () => {
+      if (req.silent) return null;
+      const dir = narration ? resolve(dirname(deckPath), narration) : null;
+      if (req.synthesize && !existsSync(resolve(dir, 'manifest.json'))) return { dir, slides: [], fresh: true };
+      return video.resolveNarration(deckPath, dir, { allowEmpty: true });
+    };
+    const checkTrack = () => video.checkVideoTrack(html, track, range, { face: req.face !== 'off', character: req.character });
+    const needsFix = () => report.missing.length || report.stale.length || report.lipsync.length;
+    const preflight = () => {
+      const engine = track?.engine ?? (track?.fresh ? req.synthesize.engine : null);
+      const audioSlides = new Set([...report.missing, ...report.stale]).size;
+      return json(409, { ok: false, error: 'the selected voice needs attention before recording', preflight: {
+        ...report, engine, audioSlides, canFix: !audioSlides || !!engine,
+        metered: ['elevenlabs', 'gemini', 'chirp'].includes(engine),
+      } });
+    };
+    if (video) {
+      try {
+        html = readDeck();
+        range = video.parseSlideRange(req.slides, video.extractHolds(html).length);
+        track = readTrack();
+        if (!anyway) report = await checkTrack();
+      } catch (e) {
+        return json(400, { ok: false, error: oneline(e) });
+      }
+      if (!anyway && needsFix() && (req.fix !== true || ((report.missing.length || report.stale.length)
+        && !track?.engine && !track?.fresh))) return preflight();
+    }
     const { findChrome } = await import('../tools/chrome.mjs');
     // every file but the bundle is a render; the bundle launches no browser
     if (kind !== 'bundle' && !findChrome()) {
       return json(503, { ok: false, error: 'no Chrome found — install one, or point $CHROME at it' });
     }
+    if (exporting) return json(409, { ok: false, error: 'an export is already running' });
     exporting = true;
     // Every kind but the bundle: the bundle launches nothing and is seconds
     // from done, so there is nothing to stop part-way.
@@ -159,19 +192,50 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
     try {
       let out, code, reason = null, subs = null, notes = null, droppedFrames = 0;
       if (kind === 'video') {
-        const { videoOut, videoProgress, voiceoverProgress, subtitlesOut } = await import('../tools/video.mjs');
+        const { videoOut, videoProgress, voiceoverProgress, subtitlesOut, revoiceStale } = video;
         out = videoOut(deckPath, req.slides || null, req.format || 'mp4');
         subs = req.subtitles === 'file' ? subtitlesOut(out, req.format || 'mp4') : null;
-        // Two phases, each told apart on the channel: voicing is minutes on a
-        // cloud engine, and a row that said "rendering" through all of it would
-        // read as stuck on slide one.
-        if (req.synthesize) {
-          ({ code, reason } = await runTool('voiceover', await voiceoverArgv(req),
-            voiceoverProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'voice', n, of })), stop.signal));
+        const tick = (phase) => (n, of) => broadcast('export', { state: 'slide', kind, phase, n, of });
+        if (!anyway && needsFix()) {
+          const slides = [...new Set([...report.missing, ...report.stale])].sort((a, b) => a - b);
+          if (slides.length && track.engine) {
+            const result = await revoiceStale({
+              html, narration: track, stale: slides, missing: report.missing, lipsync: null,
+              onSlide: tick('voice'), signal: stop.signal,
+            });
+            if (!result.ok) ({ code, reason } = { code: 1, reason: result.why });
+          } else if (slides.length) {
+            ({ code, reason } = await runTool('voiceover', [...await voiceoverArgv(req), '--no-face'],
+              voiceoverProgress(tick('voice')), stop.signal));
+          }
+          if (!code && !stop.signal.aborted) {
+            track = readTrack();
+            report = await checkTrack();
+            if (report.lipsync.length) {
+              let done = 0;
+              const files = [...new Set(report.lipsync.map((item) => item.audio))];
+              const lipTick = tick('lipsync');
+              lipTick(0, files.length);
+              ({ code, reason } = await runTool('lipsync',
+                [track.dir, '--visemes', '--no-veo', '--audio-files', JSON.stringify(files)],
+                (line) => { if (/cues →/.test(line)) lipTick(++done, files.length); }, stop.signal));
+            }
+          }
+          if (!stop.signal.aborted) {
+            html = readDeck();
+            range = video.parseSlideRange(req.slides, video.extractHolds(html).length);
+            track = readTrack();
+            report = await checkTrack();
+            if (needsFix()) {
+              if (reason) report.repairError = reason;
+              broadcast('export', { state: 'done', kind, ok: false });
+              return preflight();
+            }
+            code = 0;
+          }
         }
         if (!code && !stop.signal.aborted) {
-          const narration = req.synthesize?.dir ?? req.narration ?? null;
-          const progress = videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of }));
+          const progress = videoProgress(tick('render'));
           ({ code, reason } = await runTool('video', [deckPath, '-o', out, ...themed,
             ...(req.slides ? ['--slides', req.slides] : []),
             ...(req.format ? ['--format', req.format] : []),
@@ -180,9 +244,10 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
             ...(req.subtitles ? ['--subtitles', req.subtitles] : []),
             ...(req.face === 'off' ? ['--no-face'] : []),
             ...(req.character ? ['--character', req.character] : []),
-            ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : req.silent ? ['--no-narration'] : []),
-            // the card showed the track as recorded from older notes and it was picked anyway (#536)
-            ...(req.allowStale === true ? ['--allow-stale'] : [])],
+            ...(narration && track?.slides.length ? ['--narration', track.dir] : narration || req.silent ? ['--no-narration'] : []),
+            // Preflight owns repairs for the card, including the as-is path.
+            '--no-revoice', '--no-remake-visemes',
+            ...(anyway ? ['--allow-stale'] : [])],
           (line) => {
             const dropped = /^\s+live capture: warning — (\d+) dropped/.exec(line);
             if (dropped) droppedFrames = Number(dropped[1]);
@@ -230,7 +295,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       // A render with nothing spoken writes no subtitles and says so; the deck
       // is told of a file only when there is one to open.
       const voiced = {
-        ...(req.synthesize ? { voiced: req.synthesize.dir } : {}),
+        ...(req.synthesize && track?.slides.length ? { voiced: req.synthesize.dir } : {}),
         ...(subs && existsSync(subs) ? { subtitles: relative(process.cwd(), subs) || basename(subs) } : {}),
       };
       broadcast('export', { state: 'done', kind, ok: true, file, seconds, ...voiced });

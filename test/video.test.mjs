@@ -21,8 +21,10 @@ import {
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, folderNarration, parseBuildSteps, voiceoverArgs,
   videoOut, videoProgress, voiceoverProgress, ENCODINGS, videoOptions, subtitleCues, toSrt, toVtt, subtitlesOut,
   pauseMarks, parseMotion, motionFrames, motionPlan, MOTION_WINDOW_S,
-  extractFaces, exportFaceLayout, characterFrames, parseCharacterConfig, captureMotion, characterPlan,
+  extractFaces, exportFaceLayout, characterFrames, parseCharacterConfig, captureMotion, characterPlan, checkVideoTrack,
 } from '../tools/video.mjs';
+import { manifestHash, slideTexts } from '../tools/narration-manifest.mjs';
+import { audioStamp } from '../tools/viseme-match.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
 test('exact character capture loads the deck once per beat regardless of mouth changes', async () => {
@@ -165,16 +167,60 @@ test('videoProgress: one tick per slide, counted against the slides in the rende
   assert.deepEqual(ticks, ['1/2', '2/2'], 'a slide that builds is still one slide');
 });
 
-test('voiceoverProgress: voiced and kept slides both count against the plan line', () => {
+test('voiceoverProgress: a fully kept track emits no ticks', () => {
+  const ticks = [];
+  const read = voiceoverProgress((n, of) => ticks.push(`${n}/${of}`));
+  read('talk.html: 2 slides, 2 with notes · 2 to voice');
+  read('  voice work: 0 slides to synthesize');
+  read('  slide 01: unchanged — kept');
+  read('  slide 02: unchanged — kept (2 segments)');
+  assert.deepEqual(ticks, []);
+});
+
+test('voiceoverProgress: only synthesized slides count in a partly kept track', () => {
   const ticks = [];
   const read = voiceoverProgress((n, of) => ticks.push(`${n}/${of}`));
   read('  slide 02: before the plan line, nothing to count against');
   read('talk.html: 5 slides, 4 with notes — voicing slides 2–4 only · 3 to voice');
+  read('  voice work: 2 slides to synthesize');
   read('  slide 02: 24 chars → slide-02.m4a · cached');
   read('  slide 03: unchanged — kept');
   read('  slide 04: 31 chars → slide-04.m4a (2 [click] segments)');
   read('done → /d/voices/ryan');
-  assert.deepEqual(ticks, ['1/3', '2/3', '3/3']);
+  assert.deepEqual(ticks, ['1/2', '2/2']);
+});
+
+test('video track preflight reports only missing audio, old notes, and bad lip-sync in scope', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'decklight-video-track-'));
+  t.after(() => rmTemp(dir));
+  const html = '<script type="application/json" data-decklight-config>{"narration":{"character":{"mode":"viseme"}}}</script>'
+    + ['One', 'Two', 'Three', 'Four', 'Five', 'Six'].map((note, i) =>
+      `<section${i === 5 ? ' data-face="hide"' : ''}><aside class="notes">${note}</aside></section>`).join('');
+  const header = { engine: 'piper', model: 'voice', voice: 'voice' };
+  const slides = slideTexts(html).map((notes, i) => ({
+    file: `slide-0${i + 1}.wav`, hash: manifestHash(header, i === 2 ? 'Old notes' : notes),
+  }));
+  slides[1].segments = [{ file: 'slide-02-01.wav' }, { file: 'slide-02-02.wav' }];
+  for (const n of [1, 3, 4, 5, 6]) writeFileSync(join(dir, `slide-0${n}.wav`), `take ${n}`);
+  for (const n of [1, 3, 5]) {
+    const audio = audioStamp(Buffer.from(n === 5 ? 'previous take' : `take ${n}`));
+    writeFileSync(join(dir, `slide-0${n}.visemes.json`), JSON.stringify({ audio, cues: [] }));
+  }
+  const track = { ...header, dir, slides };
+  const clean = { missing: [], stale: [], lipsync: [] };
+  assert.deepEqual(await checkVideoTrack(html, track, { from: 1, to: 1 }), clean);
+  assert.deepEqual(await checkVideoTrack(html, track, { from: 6, to: 6 }), clean);
+  const scope = { from: 2, to: 5 };
+  assert.deepEqual(await checkVideoTrack(html, track, scope), {
+    missing: [2], stale: [3], lipsync: [
+      { slide: 4, audio: 'slide-04.wav', why: 'it is missing' },
+      { slide: 5, audio: 'slide-05.wav', why: 'it was made from another recording' },
+    ],
+  });
+  writeFileSync(join(dir, 'slide-02.wav'), 'whole slide 2');
+  assert.deepEqual(await checkVideoTrack(html, track, scope, { face: false }), {
+    missing: [2], stale: [3], lipsync: [],
+  }, 'a missing beat is reported even when the whole slide exists');
 });
 
 // --- formats, quality and subtitles ------------------------------------------
