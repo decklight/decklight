@@ -22,6 +22,8 @@
 // waiting on it. Nothing here reads those bindings until a request arrives.
 
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { keepAwake } from './keep-awake.mjs';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -63,8 +65,10 @@ export function moduleProblem(module) {
  * it ends, so `/deck/ping` can tell a page that loads mid-render there is one
  * to stop.
  */
-export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn, broadcast = () => {}, onExport = () => {} }) {
+export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn, broadcast = () => {}, onExport = () => {}, inhibit = keepAwake }) {
   let exporting = false; // an export in flight — one browser, one output path, any kind
+  let latest = null;
+  const results = new Map();
   let stopExport = null; // stops it, while it is one that can be stopped
   let publishing = false; // a publish in flight — one push at a time
 
@@ -102,7 +106,31 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
    * And it can be STOPPED (`exportStopRoute`), so a ten-minute video started
    * on the wrong slides is not a reason to kill the session it runs in.
    */
-  async function exportRoute({ url, body, json }) {
+  async function exportRoute(request) {
+    const id = request.url.searchParams.get('id') ?? randomUUID();
+    if (!/^[a-z0-9-]{1,80}$/i.test(id)) return request.json(400, { ok: false, error: 'invalid export ID' });
+    if (results.has(id)) return request.json(409, { ok: false, error: 'export ID already used' });
+    let snapshot = { id, state: 'pending' };
+    results.set(id, snapshot);
+    const update = (data) => {
+      snapshot = { ...snapshot, ...data };
+      results.set(id, snapshot);
+      latest = snapshot;
+      broadcast('export', snapshot);
+    };
+    try {
+      const { code, result } = await runExport(request, { update, json: (code, result) => ({ code, result }) });
+      if (snapshot.state === 'pending') results.set(id, { id, state: 'done', kind: result.kind, result });
+      else update({ state: 'done', result, ...result });
+      return request.json(code, result);
+    } finally {
+      if (results.get(id)?.state === 'pending') results.delete(id);
+      const finished = [...results].filter(([, job]) => job.state === 'done');
+      for (const [key] of finished.slice(0, -32)) results.delete(key);
+    }
+  }
+
+  async function runExport({ body }, { update, json }) {
     const req = JSON.parse(body || '{}');
     const kind = req.kind ?? 'pptx';
     const job = EXPORT_KINDS[kind];
@@ -190,14 +218,17 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
     const started = Date.now();
     console.log(`  export: ${basename(deckPath)} → ${job.what}${req.slides ? ` of slides ${req.slides}` : ''}`
       + `${req.synthesize ? `, voiced by ${req.synthesize.engine} into ${req.synthesize.dir}/` : ''} …`);
-    broadcast('export', { state: 'start', kind, what: job.what });
+    let awake;
     try {
+      awake = await inhibit();
+      update({ state: 'start', kind, what: job.what, awake: awake.active });
+      if (stop.signal.aborted) return stopped();
       let out, code, reason = null, subs = null, notes = null, droppedFrames = 0;
       if (kind === 'video') {
         const { videoOut, videoProgress, voiceoverProgress, subtitlesOut, revoiceStale } = video;
         out = videoOut(deckPath, req.slides || null, req.format || 'mp4');
         subs = req.subtitles === 'file' ? subtitlesOut(out, req.format || 'mp4') : null;
-        const tick = (phase) => (n, of) => broadcast('export', { state: 'slide', kind, phase, n, of });
+        const tick = (phase) => (n, of) => update({ state: 'slide', phase, n, of });
         if (!anyway && needsFix()) {
           const slides = [...new Set([...report.missing, ...report.stale])].sort((a, b) => a - b);
           if (slides.length && track.engine) {
@@ -230,7 +261,6 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
             report = await checkTrack();
             if (needsFix()) {
               if (reason) report.repairError = reason;
-              broadcast('export', { state: 'done', kind, ok: false });
               return preflight();
             }
             code = 0;
@@ -279,7 +309,7 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
         out = pptxOut(deckPath);
         code = await pptxMain([deckPath, ...themed], {
           log: (line) => console.log(`  ${line}`),
-          onSlide: (n, of) => broadcast('export', { state: 'slide', kind, n, of }),
+          onSlide: (n, of) => update({ state: 'slide', n, of }),
           signal: stop.signal,
         });
       } else {
@@ -291,7 +321,6 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       const file = relative(process.cwd(), out) || basename(out);
       const seconds = Math.round((Date.now() - started) / 100) / 10;
       if (code !== 0) {
-        broadcast('export', { state: 'done', kind, ok: false });
         return json(500, { ok: false, error: reason ?? 'the export refused — see the edit server\'s output' });
       }
       // A render with nothing spoken writes no subtitles and says so; the deck
@@ -300,7 +329,6 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
         ...(req.synthesize && track?.slides.length ? { voiced: req.synthesize.dir } : {}),
         ...(subs && existsSync(subs) ? { subtitles: relative(process.cwd(), subs) || basename(subs) } : {}),
       };
-      broadcast('export', { state: 'done', kind, ok: true, file, seconds, ...voiced });
       return json(200, { ok: true, kind, what: job.what, file, seconds, ...voiced,
         ...(notes ? { notes } : {}), ...(droppedFrames ? { droppedFrames } : {}) });
     } catch (e) {
@@ -312,9 +340,9 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       // sentence is what fits on a card, and the card has the list already.
       const said = e instanceof CommandError ? e.message.split('\n')[0].replace(/\s+—[^—]*:$/, '') : oneline(e);
       console.log(`  export: ${job.what} failed — ${said}`);
-      broadcast('export', { state: 'done', kind, ok: false, error: said });
       return json(500, { ok: false, error: said });
     } finally {
+      await awake?.release();
       exporting = false;
       stopExport = null;
       onExport(null);
@@ -326,7 +354,6 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
     function stopped() {
       const kept = req.synthesize && existsSync(resolve(dirname(deckPath), req.synthesize.dir)) ? { voiced: req.synthesize.dir } : {};
       console.log(`  export: ${job.what} stopped — nothing written`);
-      broadcast('export', { state: 'done', kind, ok: false, stopped: true, ...kept });
       return json(200, { ok: false, stopped: true, kind, what: job.what, ...kept });
     }
   }
@@ -621,6 +648,10 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
   }
 
   routes.set('POST /deck/edit/export', exportRoute);
+  routes.set('GET /deck/edit/export/status', ({ url, json }) => {
+    const id = url.searchParams.get('id');
+    return json(200, { ok: true, job: id ? results.get(id) ?? null : latest });
+  });
   routes.set('POST /deck/edit/export/stop', exportStopRoute);
   routes.set('GET /deck/edit/export/estimate', exportEstimateRoute);
   routes.set('GET /deck/edit/inspect', inspectRoute);

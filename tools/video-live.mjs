@@ -214,11 +214,19 @@ export async function captureLive({ plan, chrome, url, settings, work, exec, sig
       log(`  live capture: recording ${duration.toFixed(1)}s at ${fps} fps`);
       let failure = null;
       let state = null;
+      let lastSample = started;
       // where the page last was: a frozen page is named where it froze, not
       // where the capture noticed
       const where = () => {
-        const talk = Math.min(duration, state ? (state.errorAt ?? state.time) : (Date.now() - started) / 1000);
+        const talk = Math.min(duration, state ? (state.errorAt ?? state.time) : (lastSample - started) / 1000);
         return `slide ${beats[beatAt(beats, talk)].slide}, ${clock(talk)} into the talk`;
+      };
+      // Check before sampling or querying Chrome. After resume the page may
+      // already have jumped to the last slide, with no new frames to record.
+      const checkClock = () => {
+        const now = Date.now();
+        if (now - lastSample > 5000) failure = 'the computer went to sleep or stopped responding';
+        if (!failure) lastSample = now;
       };
       // Once a second: is the page still moving through the talk? A stall
       // stops the capture with where and why; a video whose second half is
@@ -227,8 +235,12 @@ export async function captureLive({ plan, chrome, url, settings, work, exec, sig
         let warned = 0;
         while (!failure) {
           await delay(1000, undefined, { signal: watching.signal });
+          checkClock();
+          if (failure) break;
           const now = Date.now();
           const read = await Promise.race([page.evaluate(READ_STATE), delay(5000, 'timeout', { signal: watching.signal, ref: false })]);
+          checkClock();
+          if (failure) break;
           if (read === 'timeout') { failure = 'the page did not answer for 5 s'; break; }
           state = read;
           for (const event of state?.events ?? []) log('  live capture: ' + event);
@@ -255,6 +267,8 @@ export async function captureLive({ plan, chrome, url, settings, work, exec, sig
         const target = started + index * 1000 / fps;
         const wait = target - Date.now();
         if (wait > 0) await delay(wait, undefined, { signal });
+        checkClock();
+        if (failure) throw stalled();
         const actual = Math.min(count - 1, Math.max(index, Math.floor((Date.now() - started) * fps / 1000)));
         const image = latest;
         for (let missing = index; missing < actual; missing++) {
@@ -271,10 +285,13 @@ export async function captureLive({ plan, chrome, url, settings, work, exec, sig
         }
       }
       await delay(Math.max(0, started + duration * 1000 - Date.now()), undefined, { signal });
+      checkClock();
       if (failure) throw stalled();
       // A still viewport need not send a new image. Count missed animation
       // ticks and late sampling, without counting the same stall twice.
       const final = await page.evaluate(READ_STATE);
+      checkClock();
+      if (failure) throw stalled();
       for (const event of final?.events ?? []) log('  live capture: ' + event);
       if (final?.error) { failure = 'page error: ' + final.error; throw stalled(); }
       dropped = Math.min(count, Math.max(dropped, final?.dropped ?? 0));
