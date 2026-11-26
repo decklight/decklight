@@ -165,7 +165,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v5
 
@@ -195,7 +195,7 @@ jobs:
       - name: unit tests
         run: npm test -- --test-timeout=300000
         env:
-          TEST_SHARD: ${{ matrix.shard }}/2
+          TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
 
   windows-test-gate:
     # Branch protection requires this exact name, including the skipped check
