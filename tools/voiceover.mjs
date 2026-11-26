@@ -59,6 +59,7 @@ import { createTtsCache } from './tts-cache.mjs';
 import { cueFor, cutNote } from './tone-cue.mjs';
 import { argReader } from './args.mjs';
 import { deckLang, sectionBodies } from './deck-html.mjs';
+import { defaultTrackDir } from './deck-family.mjs';
 import { parseSlideRange } from './video.mjs';
 import { lipsyncAfterVoicing } from './lipsync-auto.mjs';
 import { synthesizeSlides, readTrack, trackFormat, planLine, TRACK_FORMATS, DEFAULT_FORMAT } from './narration-synth.mjs';
@@ -144,7 +145,8 @@ try { range = parseSlideRange(opt('--slides'), sectionBodies(html).length); } ca
   console.error(`decklight narrate: ${e.message}`);
   process.exit(1);
 }
-const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
+// `voiceover`, or `voices-fr/voiceover` for the French of a deck: two languages never share a folder
+const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), defaultTrackDir(resolve(deckPath)))));
 
 // The track already in the folder, if any, and what it was voiced with: the
 // defaults for everything a flag does not say. Refreshing a track is voicing it
@@ -198,7 +200,7 @@ console.log(planLine(basename(deckPath), html, range, !!opt('--slides')));
 const reuseTextFrom = args.includes('--reuse-text')
   // falls back to the deck's default voiceover/ scripts so a second take
   // (other engine/voice) narrates the SAME text, not a re-roll
-  ? [outDir, join(resolve(deckPath, '..'), 'voiceover')]
+  ? [outDir, join(resolve(deckPath, '..'), defaultTrackDir(resolve(deckPath)))]
   : [];
 try {
   const cache = createTtsCache({ enabled: !args.includes('--no-cache') });

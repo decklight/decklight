@@ -37,6 +37,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { slideBeats, slideTexts, priorSlideTexts, entryMatches, scriptDrift } from './narration-manifest.mjs';
+import { deckFamily, ownsTrack, readManifest } from './deck-family.mjs';
 
 /** A per-slide file of a track: `slide-NN` then an optional `-KK` beat, then its extension. */
 const SLIDE_FILE = /^slide-(\d+)((?:-\d+)?\..+)$/;
@@ -96,16 +97,21 @@ function inverseStep(step) {
  * than `except`. Track folders are found by walking beside the deck, and one
  * that belongs to another deck is not this deck's to renumber.
  */
-function holdsDeck(dir, except = null) {
+function holdsDeck(dir, except = []) {
   let names = [];
-  try { names = readdirSync(dir).filter((n) => /\.html?$/i.test(n) && n !== except); } catch { return false; }
+  try { names = readdirSync(dir).filter((n) => /\.html?$/i.test(n) && !except.includes(n)); } catch { return false; }
   return names.some((n) => {
     try { return /class\s*=\s*["'][^"']*\bdecklight\b/.test(readFileSync(join(dir, n), 'utf8')); } catch { return false; }
   });
 }
 
-/** Is `deckPath` the only deck in its folder? */
-export const aloneInFolder = (deckPath) => !holdsDeck(dirname(deckPath), basename(deckPath));
+/**
+ * Is `deckPath` the only deck in its folder? The same deck in other
+ * languages (`talk.fr.html` beside `talk.html`) is not another deck: a
+ * translation must not cost the deck the recordings that follow its slides.
+ */
+export const aloneInFolder = (deckPath, family = deckFamily(deckPath)) => !holdsDeck(dirname(deckPath),
+  [basename(deckPath), ...family.members.map((f) => f.name)]);
 
 /** Is this folder a voice track: per-slide audio, or a manifest with slides? */
 function isTrack(abs) {
@@ -121,7 +127,9 @@ function isTrack(abs) {
  * names, and — when it is the only deck there — every folder up to two levels
  * down (`voices/<voice>`, the convention) that is a track: slide audio, or a
  * manifest with slides. A folder holding a deck of its own is another deck's,
- * and is neither taken nor walked into. Nothing outside the deck's directory.
+ * and is neither taken nor walked into; a track in the language of another
+ * file of the deck's family (`voices-fr/…` beside `talk.html`) is that
+ * file's, and is not taken either. Nothing outside the deck's directory.
  */
 export function voiceFolders(deckPath, configured = []) {
   const deckDir = dirname(deckPath);
@@ -134,11 +142,12 @@ export function voiceFolders(deckPath, configured = []) {
     const rel = typeof c === 'string' ? inside(c.replace(/\/+$/, '')) : null;
     if (rel && existsSync(resolve(deckDir, rel))) out.add(rel);
   }
-  if (aloneInFolder(deckPath)) {
+  const family = deckFamily(deckPath);
+  if (aloneInFolder(deckPath, family)) {
     const look = (rel) => {
       const abs = resolve(deckDir, rel);
       if (rel !== '.' && holdsDeck(abs)) return [];
-      if (rel !== '.' && isTrack(abs)) out.add(rel);
+      if (rel !== '.' && isTrack(abs) && ownsTrack(family, rel, readManifest(abs))) out.add(rel);
       let entries;
       try { entries = readdirSync(abs, { withFileTypes: true }); } catch { return []; }
       return entries.filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules');

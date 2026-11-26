@@ -24,7 +24,9 @@
 // Deliberately NOT `decklight <deck>`: recording is not editing. Git is off,
 // no bridge is started, nothing is spent. You are reading your own notes aloud.
 
+import { resolve } from 'node:path';
 import { editMain } from './edit.mjs';
+import { deckFamily, tracksRoot } from '../tools/deck-family.mjs';
 import { openUrl } from './open-browser.mjs';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
@@ -210,7 +212,8 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   out.write('  V → My voice opens the recorder again · → ends a beat and reveals the next build · Esc stops\n');
   if (remote) out.write('  the phone remote is on: scan the QR on the recorder\'s card; next ends a beat, retake redoes it\n');
   if (args.includes('--camera')) out.write('  the camera is on: your face is filmed with every beat, beside its audio\n');
-  out.write(`  files land in ${dir ?? 'voices/me'}, next to the deck.`
+  // `voices/me`, or `voices-fr/me` for the French of a deck (PRESENTING_VOICE)
+  out.write(`  files land in ${dir ?? `${tracksRoot(deckFamily(resolve(deck)))}/me`}, next to the deck.`
     + `${dir ? '' : ' Recording again refreshes it.'}`
     + `${slides ? ` Only slide${/-/.test(slides) ? 's' : ''} ${slides}${beats ? `, beat${/-/.test(beats) ? 's' : ''} ${beats}` : ''}.` : ''}`
     + ' Ctrl-C when you are done.\n');

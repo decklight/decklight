@@ -289,6 +289,9 @@ export async function ttsMain(args) {
     // ElevenLabs v3/v4 act on [whispers]-style tags; for any other engine
     // the player (and /tts) take them out rather than have them read aloud
     audioTags: h.engine.audioTags === true,
+    // the language the engine is told with every sentence, when it is told
+    // one: the panel says so beside the voice, and says when it is not
+    ...(h.engine.lang ? { lang: h.engine.lang } : {}),
     // the engine's standing note — for `say` with no Siri voice this is
     // the download hint, and the picker keys its install row off it
     ...(h.engine.caveat ? { caveat: h.engine.caveat } : {}),
