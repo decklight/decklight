@@ -77,7 +77,7 @@ test('lipsyncStatus: a missing or foreign sidecar is stale, a stamped one is not
   assert.deepEqual(lipsyncStatus(dir).stale.map((s) => s.stem), ['slide-03']);
 });
 
-test('after voicing: a 2D character gets its stale sidecars cut; without one nothing runs; without Rhubarb it says so once', async (t) => {
+test('after voicing: a 2D character gets its stale sidecars cut; without one nothing runs; without Rhubarb they are read from the voice, and it says so once', async (t) => {
   const dir = tmp('lipauto', t);
   const html = deck(['One says this.', 'Two says that.']);
   await voice(html, dir);
@@ -88,10 +88,14 @@ test('after voicing: a 2D character gets its stale sidecars cut; without one not
   assert.deepEqual(await lipsyncAfterVoicing({ html: deck(['x'], null), dir, log, make: () => assert.fail('no character') }), { ran: false, made: 0, why: null });
   assert.deepEqual(lines, []);
 
-  // no Rhubarb: the audio stays, the hint is said, nothing fails
-  const r = await lipsyncAfterVoicing({ html, dir, log, have: () => false, make: () => assert.fail('no rhubarb') });
-  assert.equal(r.why, RHUBARB_HINT);
+  // no Rhubarb: the files are still made (read from the voice, by the same
+  // tool), and the hint for Rhubarb's is said once; nothing is written here
+  let fromVoice = null;
+  const r = await lipsyncAfterVoicing({ html, dir, log, have: () => false, make: async (d, stems) => { fromVoice = stems; return { ok: true, made: stems.length }; } });
+  assert.deepEqual(fromVoice, ['slide-01', 'slide-02']);
+  assert.equal(r.ran, true);
   assert.equal(lines.filter((l) => l.includes(RHUBARB_HINT)).length, 1);
+  assert.ok(lines.some((l) => /cutting 2 files for the 2D character in .*, read from the voice/.test(l)));
   assert.ok(fs.existsSync(path.join(dir, 'slide-01.wav')));
 
   // Rhubarb: every stem without lip-sync, in one run

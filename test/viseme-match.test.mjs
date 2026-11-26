@@ -136,3 +136,35 @@ test('lipsync: a re-recorded beat gets a new sidecar, and one copied in over a c
   })), { dir: vo, deck: 'deck.html', log: () => {}, remakeWith: () => assert.fail('nothing to remake') })
     .then((m) => assert.equal(m.size, 2));
 });
+
+test('a sidecar read from the voice stands in for Rhubarb only while Rhubarb is missing', () => {
+  const audio = Buffer.from('RIFF....WAVEfmt the take');
+  const builtin = { v: 1, kind: 'visemes', duration: 1, source: 'builtin', cues: [{ t: 0, v: 'X' }], audio: audioStamp(audio) };
+  assert.equal(visemeMismatch(builtin, { audioBytes: audio, rhubarb: false }), null);
+  assert.match(visemeMismatch(builtin, { audioBytes: audio, rhubarb: true }), /read from the voice, and Rhubarb is here/);
+  // Rhubarb's own is never taken for one
+  assert.equal(visemeMismatch({ ...builtin, source: 'rhubarb' }, { audioBytes: audio, rhubarb: true }), null);
+});
+
+test('lipsync: without Rhubarb the mouth is read from the voice, and Rhubarb replaces it once it is here', { skip: winSkip }, (t) => {
+  const dir = tmp('viseme', t);
+  const vo = path.join(dir, 'voiceover');
+  fs.mkdirSync(vo);
+  fs.writeFileSync(path.join(vo, 'slide-01.wav'), wav(2.72, 1));
+  const read = () => JSON.parse(fs.readFileSync(path.join(vo, 'slide-01.visemes.json'), 'utf8'));
+  const run = (bin) => execFileSync('node', [LIPSYNC, vo, '--rhubarb', bin], { encoding: 'utf8' });
+
+  // no Rhubarb: a file all the same, marked, stamped, and progress said as Rhubarb's is
+  const out = run(path.join(dir, 'no-such-rhubarb'));
+  assert.match(out, /Rhubarb is not installed: the mouth is read from the voice instead/);
+  assert.match(out, /\[1\/1\] slide-01: \d+ cues → slide-01\.visemes\.json · read from the voice/);
+  assert.equal(read().source, 'builtin');
+  assert.equal(read().audio, audioStamp(fs.readFileSync(path.join(vo, 'slide-01.wav'))));
+  // still no Rhubarb: kept
+  assert.match(run(path.join(dir, 'no-such-rhubarb')), /0 generated, 1 unchanged/);
+
+  // Rhubarb arrives: the voice's stand-in is out of date, and made properly
+  const stub = writeRhubarbStub(dir, path.join(here, 'fixtures', 'rhubarb-out.json'));
+  assert.match(run(stub), /1 generated/);
+  assert.notEqual(read().source, 'builtin');
+});

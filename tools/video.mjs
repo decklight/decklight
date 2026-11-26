@@ -35,7 +35,7 @@ import { serveForRender } from '../cli/serve.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
 import { staleSlides, slideTexts, priorSlideTexts, slideNotes, slideBeats, scriptDrift, markerPauses } from './narration-manifest.mjs';
 import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs';
-import { characterMode, lipsyncAfterVoicing } from './lipsync-auto.mjs';
+import { characterMode, lipsyncAfterVoicing, haveRhubarb } from './lipsync-auto.mjs';
 import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } from './tts-engines.mjs';
 import { loadTtsConfig } from './tts-setup.mjs';
 import { createTtsCache } from './tts-cache.mjs';
@@ -43,7 +43,7 @@ import { faceLayout } from './face-layout.mjs';
 import { videoCache, videoDigest, videoMarkup } from './video-cache.mjs';
 import { captureLive } from './video-live.mjs';
 import { visemeMismatch, wavDuration } from './viseme-match.mjs';
-import { mouthTimeline } from './mouth.mjs';
+import { mouthFromFile } from './mouth-file.mjs';
 
 const run = promisify(execFile);
 
@@ -321,7 +321,12 @@ export function readVisemes(file) {
 
 const LIPSYNC = fileURLToPath(new URL('./lipsync.mjs', import.meta.url));
 
-function visemeCheck(dir) {
+// whether Rhubarb runs here, asked once per process: a sidecar read from the
+// voice stands in for Rhubarb's only while it does not (tools/viseme-match.mjs)
+let rhubarbKnown;
+const rhubarbHere = () => (rhubarbKnown ??= haveRhubarb());
+
+function visemeCheck(dir, rhubarb = rhubarbHere()) {
   let state = {};
   try { state = JSON.parse(readFileSync(join(dir, 'lipsync.json'), 'utf8')); } catch { /* none kept */ }
   return (it) => {
@@ -335,6 +340,7 @@ function visemeCheck(dir) {
       stateHash: state[stem]?.visemes ?? null,
       text: existsSync(txt) ? readFileSync(txt, 'utf8').trim() : '',
       duration: it.duration ?? wavDuration(audioBytes),
+      rhubarb,
     });
     return { tl, why };
   };
@@ -349,10 +355,10 @@ function visemeCheck(dir) {
  * `skipBad` (exporting as-is) neither remakes nor reads.
  * Returns file → timeline.
  */
-export async function visemesFor(items, { dir, deck, log = console.log, remakeWith = remakeVisemes, readMouth = mouthFromVoice, skipBad = false } = {}) {
+export async function visemesFor(items, { dir, deck, log = console.log, remakeWith = remakeVisemes, readMouth = mouthFromFile, skipBad = false, rhubarb } = {}) {
   if (!items.length) return new Map();
   const unique = [...new Map(items.map((it) => [it.file, it])).values()];
-  const check = visemeCheck(dir);
+  const check = visemeCheck(dir, rhubarb);
   const out = new Map();
   const bad = [];
   for (const it of unique) {
@@ -389,14 +395,6 @@ export async function visemesFor(items, { dir, deck, log = console.log, remakeWi
   return out;
 }
 
-/** The built-in mouth for one audio file, decoded by ffmpeg (tools/mouth.mjs). */
-function mouthFromVoice(audio) {
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-i', audio, '-ac', '1', '-ar', '16000', '-f', 'f32le', '-'],
-    { maxBuffer: 1 << 28 });
-  if (r.status !== 0 || !r.stdout?.length) throw new Error(`ffmpeg could not read ${basename(audio)}`);
-  const raw = r.stdout;
-  return mouthTimeline(new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length)), 16000);
-}
 
 /** tools/lipsync.mjs on just these stems; the reason it failed, or null. */
 function remakeVisemes(dir, stems) {
@@ -829,14 +827,14 @@ export function resolveNarration(deckPath, narrationDir, { allowEmpty = false } 
 }
 
 /** Check the chosen track without writing audio, sidecars, or video. */
-export async function checkVideoTrack(html, narration, range, { face = true, character } = {}) {
+export async function checkVideoTrack(html, narration, range, { face = true, character, rhubarb } = {}) {
   const report = { missing: [], stale: [], lipsync: [] };
   if (!narration) return report;
   const texts = slideTexts(html);
   const hidden = sectionBodies(html).map(isHiddenSection);
   const faces = extractFaces(html);
   const { on } = characterPlan(character, characterMode(html), !face);
-  const checkVisemes = on ? visemeCheck(narration.dir) : null;
+  const checkVisemes = on ? visemeCheck(narration.dir, rhubarb) : null;
   const { stale } = staleSlides(narration, texts, range, priorSlideTexts(html));
   const oldNotes = new Set(stale);
   const manualBeats = narration.engine ? null : slideBeats(html);
