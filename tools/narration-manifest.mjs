@@ -114,7 +114,7 @@ export function markerPauses(html) {
  * `format` is the audio's extension, wav unless a header says otherwise —
  * ElevenLabs alone can be told to speak mp3.
  */
-export function manifestKey({ engine, model, voice, voiceId, style, format } = {}, text) {
+export function manifestKey({ engine, model, voice, voiceId, style, format, lang } = {}, text) {
   const e = engine ?? '';
   const fixed = e === 'piper';
   const defaultVoice = e === 'say' || e === 'sapi';
@@ -126,6 +126,8 @@ export function manifestKey({ engine, model, voice, voiceId, style, format } = {
     voice: fixed ? model : (voiceId ?? voice ?? (defaultVoice ? model : undefined)),
     style: stylable ? style : undefined,
     text,
+    // the language the engine was told, when the header records one
+    lang: lang || undefined,
   });
 }
 

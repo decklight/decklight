@@ -58,7 +58,7 @@ import { audioStamp, visemeHash, visemeMismatch, wavDuration } from './viseme-ma
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
 if (!dirArg || args.includes('--help')) {
-  console.error('usage: lipsync.mjs <voiceover-dir> [--visemes] [--video] [--rhubarb bin]\n'
+  console.error('usage: lipsync.mjs <voiceover-dir> [--visemes] [--video] [--rhubarb bin] [--lang fr]\n'
     + '                   [--engine sadtalker|wav2lip] [--portrait img]\n'
     + '                   [--wav2lip-dir repo --wav2lip-ckpt pth] [--sadtalker-dir repo] [--python bin]');
   process.exit(dirArg ? 0 : 1);
@@ -69,6 +69,9 @@ const doVideo = args.includes('--video');
 const doVisemes = args.includes('--visemes') || !doVideo; // visemes by default
 const saved = loadLipsyncConfig() ?? {};
 const rhubarb = opt('--rhubarb', saved.rhubarb ?? 'rhubarb');
+// the language spoken in this folder (`decklight narrate --face` passes the
+// deck's own): anything but English is heard by sound, not by English words
+const lang = opt('--lang');
 const wav2lipDir = opt('--wav2lip-dir', saved.wav2lipDir);
 const wav2lipCkpt = opt('--wav2lip-ckpt', saved.wav2lipCkpt);
 const sadtalkerDir = opt('--sadtalker-dir', saved.sadtalkerDir);
@@ -230,7 +233,7 @@ async function oneStem(stem) {
         if (words) { dialogFile = join(dir, `${stem}.tmp.txt`); writeFileSync(dialogFile, words); }
         // stamped with the audio it was cut from, so no reader takes it for
         // another recording's lip-sync, or another's for this one's
-        const tl = { ...await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut }), audio: audioStamp(audioBytes) };
+        const tl = { ...await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut, lang }), audio: audioStamp(audioBytes) };
         writeFileSync(outFile, JSON.stringify(tl));
         rmSync(tmpOut, { force: true });
         rmSync(join(dir, `${stem}.tmp.txt`), { force: true });
