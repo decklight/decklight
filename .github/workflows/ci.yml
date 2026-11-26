@@ -50,7 +50,7 @@ concurrency:
 # check counts as passing — so the gates are on the jobs, not the triggers.
 jobs:
   test:
-    name: build · test · render
+    name: unit tests · Ubuntu
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -73,15 +73,39 @@ jobs:
       - name: unit tests
         run: npm test
 
+  render:
+    name: render · Ubuntu
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --omit=optional
+
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+
       - name: build, render, contrast, palette (npm run verify)
         run: npm run verify
         env:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          VERIFY_SHARD: ${{ matrix.shard }}/3
 
       # The deck has to still LOOK like a deck. A render harness proves the DOM;
       # this proves the pixels, and it is the same tool the ready-to-dev loop uses
       # to show a reviewer what a change actually did.
       - name: screenshot the demo deck
+        if: matrix.shard == 1
         run: |
           mkdir -p .shots
           node tools/shot.mjs demo/showcase.html -o .shots/showcase.png --wait 2500
@@ -90,7 +114,7 @@ jobs:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
 
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: always() && matrix.shard == 1
         with:
           name: shots
           path: .shots/
@@ -99,6 +123,23 @@ jobs:
           # still goes green
           include-hidden-files: true
           retention-days: 14
+
+  build-test-render:
+    # Keep the required check name stable and fail it if any dependency fails,
+    # is cancelled, or is skipped. The render matrix covers the entire suite.
+    name: build · test · render
+    needs: [test, render]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: require unit tests and every render shard
+        env:
+          UNIT_RESULT: ${{ needs.test.result }}
+          RENDER_RESULT: ${{ needs.render.result }}
+        run: |
+          echo "Unit tests: $UNIT_RESULT"
+          echo "Render matrix: $RENDER_RESULT"
+          [[ "$UNIT_RESULT" == success && "$RENDER_RESULT" == success ]]
 
   # Windows is where the bug that started the soak came from — a raw ENOENT on
   # any path with a space in it, on every profile named "Firstname Lastname" —
