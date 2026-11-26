@@ -194,6 +194,43 @@ try {
   assert.match(srt, /Then it stops\.\n$/);
   assert.ok(!streamsOf(subbed).some((s) => s.includes('subtitle')), 'a sidecar is not also a track');
   console.log('video-e2e: OK — webm with an embedded WebVTT track, mp4 with a .srt beside it');
+
+  // Sample the title, narrator and unmarked sibling independently. A green
+  // character is also a stand-in for a filmed face composited by FFmpeg.
+  writeFileSync(deck, `<!doctype html><html><head><link rel="stylesheet" href="../dist/decklight.css">
+    <style>.decklight { --bg: black; --character-solo-size: 40vh; }
+    .title, .body { position: absolute; left: 5%; width: 30%; height: 15%; margin: 0; }
+    .title { top: 5%; } .title span { display:block; height:100%; background:red; animation:write-in .4s steps(1,end) both; }
+    @keyframes write-in { from {opacity:0} to {opacity:1} }
+    .body { bottom: 5%; background: blue; visibility: visible; }
+    </style></head><body><div class="decklight"><section>Intro</section><section data-face="full" data-template="sample/divider">
+    <h2 class="title" data-slot="title"><span>Divider</span></h2><p class="body">Body</p></section></div>
+    <script type="application/json" data-design-system-meta="sample">{}</script>
+    <template data-design-system-templates="sample"><template data-template="divider">
+      <div><div data-slot="title" data-face-keep></div><div data-slot-default></div></div>
+    </template></template>
+    <script src="../dist/decklight.js"></script><script>
+    Decklight.init({transition:'none', narration:{character:{mode:'viseme',
+      svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="lime"/></svg>'}}});
+    </script></body></html>`);
+  writeFileSync(join(vo, 'slide-02.visemes.json'), JSON.stringify({ duration: 1.5, cues: [{ t: 0, v: 'X' }] }));
+  const pixel = (file, x, y, time = '0.8') => [...execFileSync('ffmpeg', ['-v', 'error', '-ss', time, '-i', file,
+    '-frames:v', '1', '-vf', `crop=8:8:iw*${x}:ih*${y},scale=1:1`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])];
+  for (const kind of ['exact', 'live', 'filmed']) {
+    if (kind === 'filmed') {
+      execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=lime:s=320x180:d=1.5', join(vo, 'slide-02.mp4')]);
+      writeFileSync(join(vo, 'manifest.json'), JSON.stringify({ slides: [null, { file: 'slide-02.m4a', face: true }] }));
+    }
+    const file = join(dir, 'divider-' + kind + '.mp4');
+    render(file, '--slides', '2', '--render', kind === 'live' ? 'live' : 'exact', '--quality', 'draft');
+    const title = pixel(file, .08, .08), narrator = pixel(file, .5, .5), body = pixel(file, .08, .88);
+    assert.ok(title[0] > 200 && title[1] < 40, `${kind}: kept title is red (${title})`);
+    if (kind !== 'live') assert.ok(pixel(file, .08, .08, '0.1')[0] < 40, `${kind}: title animates into view`);
+    assert.ok(narrator[1] > 200 && narrator[0] < 40, `${kind}: narrator is green (${narrator})`);
+    assert.ok(body[2] < 40 && (kind === 'filmed' ? body[1] > 200 : body[1] < 40),
+      `${kind}: the blue sibling is hidden (${body})`);
+  }
+  console.log('video-e2e: OK — template title over drawn and filmed full-screen narrators');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

@@ -525,6 +525,7 @@
       one.innerHTML = '<h1>Quarterly results</h1><p style="position:absolute;bottom:80px;right:70px">Renewals rose 12%</p>';
       two.setAttribute('data-face', 'hide');
       three.setAttribute('data-face', 'full 1.2');
+      three.insertAdjacentHTML('beforeend', '<h2 data-face-keep>Divider</h2><p class="unkept" style="visibility:visible">Body</p>');
       four.setAttribute('data-face', 'top-right 2:bottom-left');
       four.insertAdjacentHTML('beforeend', '<p data-build>One build</p>');
       if (filmedFace) {
@@ -1646,6 +1647,13 @@
           await until(() => document.querySelector('.decklight-editbar') || params.has('print') || params.has('nosrv'));
           if (params.has('print') || params.has('capture') || params.has('nosrv') || params.has('empty')) {
             r.PASS = !preview() && !row();
+            if (params.has('print')) {
+              const page = document.querySelector('section.decklight-face-page');
+              r.printed = !!page?.querySelector('.decklight-face-still [data-test-art]')
+                && getComputedStyle(page.querySelector('[data-face-keep]')).visibility === 'visible'
+                && getComputedStyle(page.querySelector('.unkept')).opacity === '0';
+              r.PASS &&= r.printed;
+            }
           } else if (filmedFace) {
             const overlay = await until(preview);
             r.placeholder = overlay?.classList.contains('mode-video') && overlay.dataset.previewLabel === 'Filmed face';
@@ -1676,7 +1684,9 @@
             r.hidden = !preview();
             deck.goto(3, 0);
             r.full = preview()?.classList.contains('face-full') && preview().dataset.previewLabel === 'Full screen · 1.2×'
-              && getComputedStyle(stage).visibility === 'visible';
+              && getComputedStyle(stage).opacity === '1'
+              && getComputedStyle(stage.querySelector('section.active [data-face-keep]')).visibility === 'visible'
+              && getComputedStyle(stage.querySelector('section.active .unkept')).opacity === '0';
             deck.goto(4, 0);
             r.corner = preview()?.classList.contains('pos-tr');
             deck.goto(4, 1);
