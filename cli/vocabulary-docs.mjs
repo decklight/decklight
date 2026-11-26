@@ -37,6 +37,7 @@ export const ATTRIBUTE_DOCS = {
   'data-dense-ok': { on: 'section', desc: 'This slide is meant to be dense: no crowded warning for it.' },
   'data-timing': { on: 'section', desc: 'Planned seconds on this slide, for rehearsal.' },
   'data-face': { on: 'section', desc: 'Where the filmed face shows on this slide: a corner, hide, or full with a zoom.' },
+  'data-face-keep': { on: 'slide content or section', desc: 'Keep this element over a full-screen narrator. Set to none on the section to hide all slide content, including template defaults.' },
   'data-narration': { on: 'section', desc: 'hold: narration never moves off this slide by itself.' },
   'data-narration-pause': { on: 'section', desc: 'Seconds the slide holds after its narration ends.' },
   'data-narration-beat-pause': { on: 'section', desc: 'Seconds between one build\'s narration and the next.' },

@@ -597,7 +597,8 @@ function faceSegmentArgs({ frame, frames, rest, audio, audioOffset = 0, duration
     const zw = Math.ceil((w * face.zoom) / 2) * 2;
     const zh = Math.ceil((h * face.zoom) / 2) * 2;
     graph = `[2:v]fps=${fps},scale=${zw}:${zh}:force_original_aspect_ratio=increase,`
-      + `crop=${w}:${h}:(iw-${w})/2:(ih-${h})*0.4,setsar=1,${hold},format=yuv420p[v]`;
+      + `crop=${w}:${h}:(iw-${w})/2:(ih-${h})*0.4,setsar=1,${hold},format=yuv420p`
+      + (face.keep ? '[f];[f][0:v]overlay=eof_action=repeat,format=yuv420p[v]' : '[v]');
   } else {
     const d = FACE_CORNER_PX.size;
     const m = FACE_CORNER_PX.margin;
@@ -980,7 +981,8 @@ const STEP_PROBE = `<script>
     pre.textContent = 'DECKLIGHT-BUILD-STEPS ' + JSON.stringify(out) + '\\nDECKLIGHT-MOTION ' + JSON.stringify(moves);
     document.body.appendChild(pre);
     var ch = document.createElement('pre');
-    ch.textContent = 'DECKLIGHT-CHARACTER ' + JSON.stringify({ mode: d?.config?.narration?.character?.mode });
+    ch.textContent = 'DECKLIGHT-CHARACTER ' + JSON.stringify({ mode: d?.config?.narration?.character?.mode,
+      keep: d?._sections?.map(s => !s.matches('[data-face-keep="none"]') && !!s.querySelector('[data-face-keep]')) });
     document.body.appendChild(ch);
   }
   if (document.readyState === 'complete') setTimeout(report, 30);
@@ -1050,7 +1052,7 @@ export function motionPlan(plan, kinds, fps) {
     offset = same ? offset + prev.duration : 0;
     const entered = same && prev.step !== p.step;
     const from = entered ? prev.step : null;
-    const kind = p.character ? 2 : (kinds?.[p.slide - 1] ?? 0);
+    const kind = p.character || p.face?.keep ? 2 : (kinds?.[p.slide - 1] ?? 0);
     return { count: motionFrames(kind, { duration: p.duration, fps, entered }), from, offset: round(offset) };
   });
 }
@@ -1124,7 +1126,7 @@ async function renderExact({ plan, kinds, chrome, url, settings, work, exec, sig
   let reused = 0;
   let firstError;
   let pages = 0;
-  const shared = videoDigest(JSON.stringify([markup.shared, url.slice(url.indexOf('?')), settings, 2]));
+  const shared = videoDigest(JSON.stringify([markup.shared, url.slice(url.indexOf('?')), settings, 3]));
   const files = new Map();
   const digestFile = (file) => {
     if (!files.has(file)) files.set(file, videoDigest(readFileSync(file)));
@@ -1162,19 +1164,24 @@ async function renderExact({ plan, kinds, chrome, url, settings, work, exec, sig
           const frame = join(dir, '00000.png');
           mkdirSync(dir);
           const count = beat.poses.length ? Math.ceil(beat.duration * fps) : m.count;
+          const layer = beat.face?.keep;
+          const beatUrl = new URL(url);
+          if (layer) beatUrl.searchParams.set('capture', 'face-layer');
+          if (page) await page.send('Emulation.setDefaultBackgroundColorOverride', layer ? { color: { r: 0, g: 0, b: 0, a: 0 } } : {});
           if (page && count) {
             await captureMotion(page, {
-              url, slide, from: m.from, to: beat.step, offset: m.offset, count, fps, poses: beat.poses,
+              url: beatUrl, slide, from: m.from, to: beat.step, offset: m.offset, count, fps, poses: beat.poses,
               frameAt: (f, png) => writeFile(join(dir, String(f).padStart(5, '0') + '.png'), png, { signal: captureSignal }),
             });
           } else if (page) {
-            await loadBeat(page, url, slide, beat.step);
+            await loadBeat(page, beatUrl, slide, beat.step);
             writeFileSync(frame, await page.screenshot());
           } else {
             if (beat.poses.length) throw new Error('animated character export needs Node 22 or later');
             await run(chrome, chromeArgs(
               '--hide-scrollbars', '--autoplay-policy=no-user-gesture-required', `--window-size=${w},${h}`,
-              '--virtual-time-budget=1500', `--screenshot=${frame}`, `${url}#/${slide}/${beat.step}`,
+              ...(layer ? ['--default-background-color=00000000'] : []),
+              '--virtual-time-budget=1500', `--screenshot=${frame}`, `${beatUrl}#/${slide}/${beat.step}`,
             ));
           }
           if (page) {
@@ -1439,6 +1446,7 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       const { on: characterOn, force: characterForce } = characterPlan(opt('--character'), characterConfig.mode, !faceOn);
       const drafts = basePlan.map((p) => {
         const face = faceOn ? faceFor(p, faceContext) : null;
+        if (face?.kind === 'full' && characterConfig.keep?.[p.slide - 1]) face.keep = true;
         const placement = exportFaceLayout(p, faces);
         const audio = p.audio ? join(narration.dir, p.audio) : null;
         const visemeFile = characterOn && audio && !face && placement.kind !== 'hide'

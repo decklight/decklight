@@ -4299,6 +4299,11 @@ export function init(userConfig = {}) {
 
   instance.saveGeneratedTheme = (name) => saveGeneratedTheme(name); // ⌃⇧T; name skips the prompt
 
+  if (printMode || params.get('capture') === 'print') {
+    const track = narration.status().track ?? narrationTracks(config.narration)[0];
+    instance._sections.forEach((s, i) => character.printFace(s, i + 1, instance._records[i].groups.length + 1, track));
+  }
+
   if (printMode) {
     root.classList.add('decklight-print');
     instance._sections.forEach((s, i) => {
@@ -4348,6 +4353,10 @@ export function init(userConfig = {}) {
     if (i !== target.slide - 1) applyBuildState(instance._records[i], 0);
   });
   instance.goto(target.slide, target.step, { force: true });
+  if (params.get('capture') === 'face-layer') {
+    document.documentElement.classList.add('decklight-face-layer');
+    root.classList.add('decklight-face-full');
+  }
   figuresArrive = true;
 
   root.__decklight = instance;
