@@ -3163,8 +3163,9 @@
         action('Fix and export')?.click();
         window.__es.emit('export', { state: 'slide', kind: 'video', phase: 'voice', n: 1, of: 2 });
         r.saysWhereItIs = said().some((t) => /slides 2–3 — voicing 1 of 2/.test(t));
-        window.__es.emit('export', { state: 'slide', kind: 'video', phase: 'render', n: 2, of: 2 });
+        window.__es.emit('export', { state: 'slide', kind: 'video', phase: 'render', n: 2, of: 2, awake: true, displayAwake: true });
         r.saysTheRenderPhase = said().some((t) => /slides 2–3 — rendering slide 2 of 2/.test(t));
+        r.saysTheScreenStaysOn = said().some((t) => /keeping this computer awake and the screen on/.test(t));
         await settle();
         await settle();
         const sent = CALLS.post.filter((c) => c.u.includes('/deck/edit/export')).at(-1)?.body;

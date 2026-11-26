@@ -4308,7 +4308,8 @@ export function createEditMode({
     const step = { voice: 'voicing', lipsync: 'updating lip-sync', render: 'rendering slide' }[job.phase] ?? 'slide';
     const where = job.state === 'slide' ? ` — ${step} ${job.n} of ${job.of}…` : '…';
     current.run.update(current.doing + where
-      + (job.awake ? ' · keeping this computer awake until the export is done' : '')
+      + (job.displayAwake ? ' · keeping this computer awake and the screen on until the export is done'
+        : job.awake ? ' · keeping this computer awake until the export is done' : '')
       + (job.kind === 'bundle' ? '' : ` (${STOP_HOW})`));
   }
 

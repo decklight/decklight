@@ -1,11 +1,12 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
 import { openPage } from './cdp.mjs';
 
 // Runs inside the deck. The page keeps time by its own wall clock, the same
@@ -146,6 +147,29 @@ export function liveFault(spec) {
   return m ? { kind: m[1], at: Number(m[2]) } : null;
 }
 
+const exec = promisify(execFile);
+
+// Consult host evidence only after a frame stall. A generic Chrome stall can
+// look identical, so a missing power event leaves the original diagnosis.
+export async function displayStall({ platform = process.platform, tick, now, run = exec }) {
+  if (platform !== 'darwin') return null;
+  const read = (file, args) => run(file, args, { timeout: 3000, maxBuffer: 16 * 1024 * 1024 })
+    .then(({ stdout }) => stdout, () => '');
+  const [power, session] = await Promise.all([
+    read('/usr/bin/pmset', ['-g', 'log']),
+    read('/usr/sbin/ioreg', ['-n', 'Root', '-d1']),
+  ]);
+  let display;
+  for (const match of power.matchAll(/^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d) ([+-]\d{4})[^\n]*?\bDisplay is turned (off|on)\b/gm)) {
+    const [, date, time, zone, state] = match;
+    const at = Date.parse(`${date}T${time}${zone}`);
+    if (at >= tick - 2000 && at <= now) display = state;
+  }
+  if (display === 'off') return 'the display turned off';
+  if (/"(?:CGSSessionScreenIsLocked|IOConsoleLocked)"\s*=\s*(?:Yes|true|1)\b/i.test(session)) return 'the screen locked';
+  return null;
+}
+
 const READ_STATE = '(() => { const s = window.__dlLive; return s ? { ...s, events: s.events.splice(0) } : null; })()';
 
 export async function captureLive({ plan, chrome, url, settings, work, exec, signal, media, log, encoding }) {
@@ -257,18 +281,23 @@ export async function captureLive({ plan, chrome, url, settings, work, exec, sig
           }
         }
       })().catch((err) => { if (!watching.signal.aborted) failure ??= 'lost the page: ' + err.message; });
-      const stalled = () => Object.assign(new Error(`live capture stopped at ${where()}: ${failure}`), { liveStall: true });
+      const stalled = async () => {
+        const position = where();
+        const frameStall = state && failure?.startsWith('the page stopped animating');
+        const display = frameStall ? await displayStall({ tick: state.tick, now: Date.now() }) : null;
+        return Object.assign(new Error(`live capture stopped at ${position}: ${display ?? failure}`), { liveStall: true });
+      };
       let index = 0;
       let currentSlide = null;
       let previous;
       while (index < count) {
         signal.throwIfAborted();
-        if (failure) throw stalled();
+        if (failure) throw await stalled();
         const target = started + index * 1000 / fps;
         const wait = target - Date.now();
         if (wait > 0) await delay(wait, undefined, { signal });
         checkClock();
-        if (failure) throw stalled();
+        if (failure) throw await stalled();
         const actual = Math.min(count - 1, Math.max(index, Math.floor((Date.now() - started) * fps / 1000)));
         const image = latest;
         for (let missing = index; missing < actual; missing++) {
@@ -286,14 +315,14 @@ export async function captureLive({ plan, chrome, url, settings, work, exec, sig
       }
       await delay(Math.max(0, started + duration * 1000 - Date.now()), undefined, { signal });
       checkClock();
-      if (failure) throw stalled();
+      if (failure) throw await stalled();
       // A still viewport need not send a new image. Count missed animation
       // ticks and late sampling, without counting the same stall twice.
       const final = await page.evaluate(READ_STATE);
       checkClock();
-      if (failure) throw stalled();
+      if (failure) throw await stalled();
       for (const event of final?.events ?? []) log('  live capture: ' + event);
-      if (final?.error) { failure = 'page error: ' + final.error; throw stalled(); }
+      if (final?.error) { failure = 'page error: ' + final.error; throw await stalled(); }
       dropped = Math.min(count, Math.max(dropped, final?.dropped ?? 0));
     } finally {
       watching.abort();

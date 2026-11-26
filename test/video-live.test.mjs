@@ -9,7 +9,50 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { liveStall, liveFault, clock } from '../tools/video-live.mjs';
+import { EventEmitter } from 'node:events';
+import { liveStall, liveFault, clock, displayStall } from '../tools/video-live.mjs';
+import { keepAwake } from '../cli/keep-awake.mjs';
+
+test('live capture adds the display assertion on macOS and Windows', async () => {
+  for (const platform of ['darwin', 'win32', 'linux']) {
+    for (const display of [false, true]) {
+      let args;
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stdin = Object.assign(new EventEmitter(), { end: () => child.emit('close') });
+      child.kill = () => child.emit('close');
+      const awake = await keepAwake({ platform, display, launch: (_bin, argv) => {
+        args = argv;
+        queueMicrotask(() => {
+          child.emit('spawn');
+          child.stdout.emit('data', 'ready\n');
+        });
+        return child;
+      } });
+      assert.equal(awake.active, true);
+      assert.equal(awake.displayActive, display && platform !== 'linux');
+      if (platform === 'darwin') assert.equal(args.includes('-d'), display);
+      if (platform === 'win32') assert.match(args.at(-1), display ? /2147483651/ : /2147483649/);
+      if (platform === 'linux') assert.ok(args.includes('--what=idle:sleep'));
+      await awake.release();
+    }
+  }
+});
+
+test('macOS watchdog identifies a recent display-off or lock and ignores stale events', async () => {
+  const tick = Date.parse('2026-11-26T14:11:44+0100');
+  const off = '2026-11-26 14:11:45 +0100 Display Display is turned off\n';
+  const on = '2026-11-26 14:11:46 +0100 Display Display is turned on\n';
+  const check = (power, session = '', at = tick) => displayStall({
+    platform: 'darwin', tick: at, now: at + 3000,
+    run: async (file) => ({ stdout: file.endsWith('/pmset') ? power : session }),
+  });
+  assert.equal(await check(off), 'the display turned off');
+  assert.equal(await check(off + on), null);
+  assert.equal(await check(off, '', tick + 10000), null);
+  assert.equal(await check('', '"CGSSessionScreenIsLocked"=Yes'), 'the screen locked');
+  assert.equal(await check('', '"IOConsoleLocked"=No'), null);
+});
 
 const beats = [
   { slide: 1, step: 0, start: 0, end: 10 },

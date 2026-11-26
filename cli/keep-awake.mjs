@@ -5,12 +5,12 @@ import { spawn } from 'node:child_process';
 
 // The helper owns the assertion. Its stdin closes even if Decklight is killed.
 // macOS also watches Decklight's PID directly.
-const windows = `
+const windows = (display) => `
 Add-Type -Namespace Decklight -Name Power -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("kernel32.dll")]
 public static extern uint SetThreadExecutionState(uint flags);
 '@
-if (![Decklight.Power]::SetThreadExecutionState(2147483649)) { exit 1 }
+if (![Decklight.Power]::SetThreadExecutionState(${display ? 2147483651 : 2147483649})) { exit 1 }
 try {
   [Console]::WriteLine('ready')
   [void][Console]::In.ReadToEnd()
@@ -19,13 +19,13 @@ try {
 }
 `;
 
-export async function keepAwake({ platform = process.platform, launch = spawn } = {}) {
+export async function keepAwake({ display = false, platform = process.platform, launch = spawn } = {}) {
   const commands = {
-    darwin: ['caffeinate', ['-i', '-w', String(process.pid)]],
+    darwin: ['caffeinate', [...(display ? ['-d'] : []), '-i', '-w', String(process.pid)]],
     linux: ['systemd-inhibit', ['--what=idle:sleep', '--mode=block', '--who=Decklight',
       '--why=Exporting a deck', process.execPath, '-e',
       'console.log("ready"); process.stdin.resume()']],
-    win32: ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', windows]],
+    win32: ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', windows(display)]],
   };
   const command = commands[platform];
   if (!command) return { active: false, release: async () => {} };
@@ -56,6 +56,9 @@ export async function keepAwake({ platform = process.platform, launch = spawn } 
   });
   return {
     active,
+    // Linux requests the desktop's idle inhibitor. Whether the compositor
+    // also keeps the display on depends on the desktop session.
+    displayActive: active && display && (platform === 'darwin' || platform === 'win32'),
     async release() {
       child.stdin.end();
       if (platform === 'darwin') child.kill();
