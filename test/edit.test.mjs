@@ -1710,6 +1710,10 @@ test('GET /deck/edit/narration/tracks?character=viseme says whose lip-sync is st
   assert.equal(j.running, true);
   assert.equal(j.total, 1);
   assert.equal(j.fromVoice, true);
+  // these WAVs are stand-ins no decoder can read: the job ends, saying so, and is not left running
+  let job;
+  for (let i = 0; i < 100 && (job = (await track()).lipsync.job)?.running; i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.equal(job?.running, false);
   // a folder outside the deck is refused before anything is read
   assert.equal((await fetch(`${base}/deck/edit/narration/lipsync?dir=..%2Fx`, { method: 'POST' })).status, 400);
 
