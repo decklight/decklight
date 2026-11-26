@@ -6,7 +6,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mouthTimeline, shapeOf } from '../tools/mouth.mjs';
+import { mouthTimeline, shapeOf, wavSamples } from '../tools/mouth.mjs';
 
 const SR = 16000;
 /** A vowel-like buzz: harmonics of 140 Hz shaped by two resonances. */
@@ -61,4 +61,37 @@ test('a voice decoded at 48 kHz reads as it does at 16 kHz: the reader works at 
   assert.equal(b.duration, a.duration);
   assert.deepEqual(b.cues.map((c) => c.v), a.cues.map((c) => c.v));
   assert.equal(at16k(new Float32Array(480), 48000).samples.length, 160);
+});
+
+/** `samples` as a WAV file: `format` 1 (integer PCM) or 3 (float), every channel the same. */
+function toWav(samples, { bits = 16, channels = 1, format = 1, rate = SR, list = false } = {}) {
+  const width = bits / 8, size = samples.length * width * channels, extra = list ? 12 : 0;
+  const d = new DataView(new ArrayBuffer(44 + extra + size));
+  const str = (at, t) => [...t].forEach((c, k) => d.setUint8(at + k, c.charCodeAt(0)));
+  str(0, 'RIFF'); d.setUint32(4, 36 + extra + size, true); str(8, 'WAVE');
+  str(12, 'fmt '); d.setUint32(16, 16, true); d.setUint16(20, format, true); d.setUint16(22, channels, true);
+  d.setUint32(24, rate, true); d.setUint32(28, rate * width * channels, true); d.setUint16(32, width * channels, true); d.setUint16(34, bits, true);
+  let at = 36;
+  if (list) { str(at, 'LIST'); d.setUint32(at + 4, 4, true); str(at + 8, 'INFO'); at += 12; }
+  str(at, 'data'); d.setUint32(at + 4, size, true); at += 8;
+  for (const v of samples) for (let c = 0; c < channels; c++, at += width) {
+    if (format === 3) d.setFloat32(at, v, true);
+    else if (bits === 16) d.setInt16(at, Math.round(v * 32767), true);
+    else if (bits === 24) { const n = Math.round(v * 8388607); d.setUint8(at, n & 255); d.setUint8(at + 1, (n >> 8) & 255); d.setInt8(at + 2, n >> 16); }
+  }
+  return new Uint8Array(d.buffer);
+}
+
+test('a WAV is read without a decoder: 16- and 24-bit, float, stereo, a chunk before the audio', () => {
+  const voice = join(silence(0.2), vowel(0.4, 800, 1300), silence(0.2));
+  const direct = mouthTimeline(voice, SR).cues.map((c) => c.v).join('');
+  for (const opts of [{}, { bits: 24, channels: 2 }, { bits: 32, format: 3 }, { list: true }]) {
+    const pcm = wavSamples(toWav(voice, opts));
+    assert.equal(pcm.sampleRate, SR, JSON.stringify(opts));
+    assert.equal(pcm.samples.length, voice.length, JSON.stringify(opts));
+    assert.equal(mouthTimeline(pcm.samples, pcm.sampleRate).cues.map((c) => c.v).join(''), direct, JSON.stringify(opts));
+  }
+  // anything else is left to a decoder
+  assert.equal(wavSamples(new TextEncoder().encode('ID3 an mp3, not a wav')), null);
+  assert.equal(wavSamples(toWav(voice, { bits: 16, format: 2 })), null);   // ADPCM
 });

@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,6 +162,18 @@ test('lipsync: without Rhubarb the mouth is read from the voice, and Rhubarb rep
   assert.equal(read().audio, audioStamp(fs.readFileSync(path.join(vo, 'slide-01.wav'))));
   // still no Rhubarb: kept
   assert.match(run(path.join(dir, 'no-such-rhubarb')), /0 generated, 1 unchanged/);
+
+  // no Rhubarb and no ffmpeg: a WAV is still read, a file that is not one is skipped and said
+  fs.writeFileSync(path.join(vo, 'slide-02.m4a'), 'not audio ffmpeg would know');
+  const bare = fs.mkdtempSync(path.join(dir, 'bin-'));
+  fs.symlinkSync(process.execPath, path.join(bare, 'node'));
+  const r = spawnSync(process.execPath, [LIPSYNC, vo, '--rhubarb', path.join(dir, 'no-such-rhubarb')],
+    { encoding: 'utf8', env: { ...process.env, PATH: bare } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stdout, /slide-02: skipped · slide-02\.m4a is not a WAV, and reading it needs ffmpeg/);
+  assert.match(r.stderr, /1 file got no lip-sync: slide-02/);
+  assert.equal(read().source, 'builtin');
+  fs.rmSync(path.join(vo, 'slide-02.m4a'));
 
   // Rhubarb arrives: the voice's stand-in is out of date, and made properly
   const stub = writeRhubarbStub(dir, path.join(here, 'fixtures', 'rhubarb-out.json'));

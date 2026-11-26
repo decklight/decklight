@@ -197,6 +197,55 @@ export function at16k(samples, sampleRate) {
 }
 
 /**
+ * A WAV's voice as mono samples (-1..1) and its rate, or null for anything
+ * this does not read (not a WAV, a compressed one, a format it does not know):
+ * the caller decodes those some other way. Integer PCM at 8, 16, 24 or 32
+ * bits and 32-bit float, channels averaged. Pure, so the deck and Node read a
+ * recording the same way without a decoder: a headless browser's media stack
+ * and a machine without ffmpeg both stopped the mouth before this.
+ */
+export function wavSamples(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const tag = (at) => String.fromCharCode(u8[at], u8[at + 1], u8[at + 2], u8[at + 3]);
+  if (u8.length < 12 || tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return null;
+  let fmt = null;
+  for (let at = 12; at + 8 <= u8.length;) {
+    const id = tag(at), body = at + 8;
+    let size = d.getUint32(at + 4, true);
+    if (id === 'fmt ' && size >= 16) {
+      let format = d.getUint16(body, true);
+      // WAVE_FORMAT_EXTENSIBLE names the real format in its sub-format GUID
+      if (format === 0xfffe && size >= 26) format = d.getUint16(body + 24, true);
+      fmt = { format, channels: d.getUint16(body + 2, true), rate: d.getUint32(body + 4, true), bits: d.getUint16(body + 14, true) };
+    } else if (id === 'data') {
+      if (!fmt || !fmt.channels || !fmt.rate) return null;
+      // a streamed WAV says 0 or 0xFFFFFFFF: its data runs to the end
+      if (!size || body + size > u8.length) size = u8.length - body;
+      const { format, channels, rate, bits } = fmt, width = bits / 8;
+      const read = format === 3 && bits === 32 ? (o) => d.getFloat32(o, true)
+        : format !== 1 ? null
+        : bits === 8 ? (o) => (d.getUint8(o) - 128) / 128
+        : bits === 16 ? (o) => d.getInt16(o, true) / 32768
+        : bits === 24 ? (o) => ((d.getUint8(o) | (d.getUint8(o + 1) << 8) | (d.getInt8(o + 2) << 16))) / 8388608
+        : bits === 32 ? (o) => d.getInt32(o, true) / 2147483648
+        : null;
+      if (!read) return null;
+      const n = Math.floor(size / (width * channels));
+      const samples = new Float32Array(n);
+      for (let i = 0, o = body; i < n; i++) {
+        let sum = 0;
+        for (let c = 0; c < channels; c++, o += width) sum += read(o);
+        samples[i] = sum / channels;
+      }
+      return { samples, sampleRate: rate };
+    }
+    at = body + size + (size & 1);
+  }
+  return null;
+}
+
+/**
  * The timeline for `samples` (mono, -1..1) at `sampleRate`: one shape per
  * frame, smoothed the way a mouth moves. A short silence between sounds is
  * lips closing, not resting; a shape held for less than a couple of frames is

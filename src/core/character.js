@@ -33,7 +33,7 @@ import { DEFAULT_CHARACTER_SVG, VISEMES } from './character-art.js';
 import { readJson, writeJson } from './prefs.js';
 import { faceLayout, FACE_CORNER } from '../../tools/face-layout.mjs';
 import { timelineFits } from '../../tools/viseme-fit.mjs';
-import { mouthTimeline } from '../../tools/mouth.mjs';
+import { mouthTimeline, wavSamples } from '../../tools/mouth.mjs';
 
 // ── pure core (unit-tested; no DOM) ─────────────────────────────────────────
 
@@ -337,10 +337,11 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     return !!analyser;
   }
   // ── the mouth read from the voice (no bridge, no sidecar) ────────────────
-  // The audio decoded once at 16 kHz, where tools/mouth.mjs reads it (an
-  // offline context decodes straight to its own rate), then its timeline.
-  // One promise per audio, shared by every beat that plays it; a failure
-  // (file://, a codec this browser lacks) leaves the loudness mouth.
+  // The audio read once, then its timeline: a WAV directly (no media stack,
+  // which a headless browser may lack), anything else decoded at 16 kHz,
+  // where tools/mouth.mjs reads it (an offline context decodes straight to
+  // its own rate). One promise per audio, shared by every beat that plays it;
+  // a failure (file://, a codec this browser lacks) leaves the loudness mouth.
   const voiceReads = new Map();
   function readFromVoice(key, bytes) {
     if (FALLBACK !== 'voice') return Promise.resolve(null);
@@ -348,10 +349,14 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
       const p = (async () => {
         const buf = await bytes();
         if (!buf) return null;
-        const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-        const audio = await new Offline(1, 1, 16000).decodeAudioData(buf);
+        let pcm = wavSamples(buf);
+        if (!pcm) {
+          const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+          const audio = await new Offline(1, 1, 16000).decodeAudioData(buf);
+          pcm = { samples: audio.getChannelData(0), sampleRate: audio.sampleRate };
+        }
         const t0 = performance.now();
-        const tl = mouthTimeline(audio.getChannelData(0), audio.sampleRate);
+        const tl = mouthTimeline(pcm.samples, pcm.sampleRate);
         debugLog('lipsync', `mouth read from the voice: ${key} · ${tl.cues.length} cues in ${Math.round(performance.now() - t0)} ms`);
         return tl;
       })();

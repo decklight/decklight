@@ -196,6 +196,7 @@ function toWav(stem, audioFile) {
 const face = veo && engine === 'wav2lip' ? await veo.motionFor(portrait) : portrait;
 
 let made = 0, kept = 0, finished = 0;
+const unread = [];   // stems whose voice could not be read (no Rhubarb, no decoder)
 // how far along the run is, counted in files: a stem's last job finishes it
 const of = (last) => `[${last ? ++finished : finished + 1}/${stems.length}]`;
 async function oneStem(stem) {
@@ -228,7 +229,14 @@ async function oneStem(stem) {
     if (job === 'visemes' && !rhubarbHere) {
       // read from the voice: no WAV to make, and seconds for the whole track
       const t0 = Date.now();
-      const tl = { ...mouthFromFile(audioFile), audio: audioStamp(audioBytes) };
+      let read;
+      try { read = mouthFromFile(audioFile); } catch (e) {
+        // one unreadable file is said and skipped, not the end of the track
+        unread.push(stem);
+        console.log(`  ${of(job === work.at(-1))} ${stem}: skipped · ${e.message}`);
+        continue;
+      }
+      const tl = { ...read, audio: audioStamp(audioBytes) };
       writeFileSync(outFile, JSON.stringify(tl));
       console.log(`  ${of(job === work.at(-1))} ${stem}: ${tl.cues.length} cues → ${basename(outFile)} · read from the voice · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       st[job] = hash;
@@ -291,3 +299,7 @@ await Promise.all(Array.from({ length: Math.min(jobs, stems.length) }, async () 
 }));
 writeFileSync(statePath, JSON.stringify(state, null, 1));
 console.log(`done → ${dir} (${made} generated${kept ? `, ${kept} unchanged` : ''})`);
+if (unread.length) {
+  console.error(`${unread.length} file${unread.length === 1 ? '' : 's'} got no lip-sync: ${unread.join(', ')} · install ffmpeg (or Rhubarb) to read ${unread.length === 1 ? 'it' : 'them'}`);
+  process.exitCode = 1;
+}

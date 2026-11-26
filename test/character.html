@@ -126,7 +126,7 @@ try {
   character.beginSlide({ dir: 'voiceover' }, 1, 9, 'voiceover/beat-09.wav');
   // the mock audio is no media element, so there is no loudness mouth: X until the read lands
   audio.currentTime = 0.55;
-  // decoding is slow under the harness's virtual clock (seconds), instant in a browser
+  // a WAV is read without the browser's decoder, but still a few ticks of the harness clock
   for (let i = 0; i < 400 && el?.getAttribute('data-viseme') === 'X'; i++) await new Promise((r) => setTimeout(r, 25));
   results.voiceReadOpensOnTheVowel = el?.getAttribute('data-viseme');
   audio.currentTime = 0.1;
