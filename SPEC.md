@@ -21,6 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` · `PRESENTING_NAVIGATION` · `PRESENTING_CHROME` · `PRESENTING_LOOK` · `PRESENTING_MODES` · `PRESENTING_EDITING` · `PRESENTING_WRITING` · `PRESENTING_VOICE` · `PRESENTING_BROWSER_VOICE` · `FACE_LAYOUT` · `PRESENTING_FIT` · `PRESENTING_OUTPUT` | moving through a deck, the presenter's chrome, themes, write and no-trust mode, editing, the writing tools, the voice, the browser's own voice when no bridge answers, keeping a slide on the slide, and print and export |
 | `REVIEW` | reviewer comments on a deck, anchored to slides and carried by git |
+| `TRANSLATIONS` · `TRANSLATION_UNITS` · `TRANSLATION_RECORD` · `TRANSLATE_CLI` · `TRANSLATION_VOICE` · `TRANSLATION_SWITCH` | **draft, not built**: a deck in several languages, each a file generated from the source deck and a record of its translated text, with its own voice, captions and video |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
 | `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `UNIT_VERSIONS` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | **in [`PLATFORM.md`](PLATFORM.md)**: catalogs of themes, templates, skills and engines, registered not fetched; the unit library, its pins, gates and calling conventions; voices, agents and engines as units |
 | `DESIGN_SYSTEMS` · `BRAND_PALETTE` · `DESIGN_SYSTEM_ROLES` · `DESIGN_SYSTEM_MIGRATIONS` | a company's tokens, art and slide templates, published once and referenced by every deck built on it; its palette, and the themes drawn from it; its roles, which each theme sets; what each major version renamed, and the deck that took an older one |
@@ -1671,6 +1672,222 @@ the thing with a schedule and the thing with hands applies directly.
 This persists where ink (PRESENTING) is deliberately ephemeral, and the two must not be confused in the
 vocabulary either: ink is the **presenter** marking a slide during a talk and is cleared on every slide change;
 a review comment is a **reviewer** writing to the author before one. Different actor, different lifetime.
+
+## TRANSLATIONS · A deck in several languages
+
+> **Draft: this section is not built.** It is written ahead of the code so the design can be argued with
+> before it costs anything. What is already built of it lives in PRESENTING_VOICE and is marked *(built)*
+> under TRANSLATION_VOICE. The banner comes out when the section lands with its implementation.
+
+A talk given in English is asked for in French, and the usual answer is a copy: `talk-fr.html`, translated
+once, and wrong from the first edit to the original, with nothing to say which slides are wrong. A decklight
+translation is therefore **not a copy somebody maintains**. It is the source deck with its words replaced,
+regenerated whenever either side changes, and the replacing is recorded so that decklight can always say what
+is behind, without a model and without anybody remembering.
+
+**Three files, one of them written by hand.** `talk.html` is the **source**: the only file whose structure
+anybody edits. `talk.fr.html` is the **translation**: a whole deck, a sibling of the source, opened, checked,
+voiced, bundled and published like any other, with `<html lang="fr">`. `talk.fr.translation.json` is the
+**record** (`TRANSLATION_RECORD`): every piece of source text the translation was made from, beside the text
+it was given. All three are committed. The language in the two names is a BCP 47 tag as the author wrote it
+(`fr`, `pt-BR`, `zh-Hans`). The source says which languages it has, `"languages": ["fr", "es"]` in its
+configuration block (DECK_ANATOMY), and a translation says what it is one of, `"translationOf": "talk.html"`,
+which decklight writes and nobody types. The source may be in any language: `<html lang>` on the source is
+what the translation is made *from*.
+
+**The translation takes its structure from the source, always.** Every section, attribute, class, build,
+image, chart and diagram in `talk.fr.html` is the source's, re-read at every run; only the units below
+differ. A slide added, moved, restyled or rebuilt in the source is added, moved, restyled or rebuilt in every
+language by the next `decklight translate`, at no model cost when its words did not change. This is what
+PRESENTING_WRITING already guarantees for one slide (an agent that is shown text runs can only change words),
+applied to a whole deck and kept.
+
+**So a translation is edited in its words, and only there.** A French title that reads badly is fixed in
+`talk.fr.html`, in write mode or in an editor, and the fix is kept (`TRANSLATION_RECORD`). A French slide that
+needs a different layout cannot have one: write mode on a deck with `translationOf` offers the text and notes
+editors and refuses the tools that change structure (add, delete, move, layout, element edits), saying which
+file to make the change in. `decklight translate` never silently overwrites a structural difference it finds
+in a translation: it stops, names the slide, and goes ahead only with `--discard-structure`. A slide that
+overflows in French is fixed by shorter French, which is the authoring skill's rule for any language (rewrite
+until it fits, do not shrink the type).
+
+### TRANSLATION_UNITS · What is translated
+
+A **unit** is one piece of text with a kind. A slide's units, in order:
+
+- **`run`**: each text run of the slide, exactly as PRESENTING_WRITING cuts them: the text between tags,
+  outside the notes, code, `pre`, `kbd`, `samp`, scripts, styles and SVG, in reading order.
+- **`beat`**: each beat of the speaker notes, the notes cut at `[click]` (DECK_ANATOMY). The markers are not
+  part of a unit and cannot be translated away: a translated slide has the source's beats, in the source's
+  order, by construction. Inside a beat, every `[pause]` and every audio tag (`[whispers]`) must come back,
+  spelled as it went, since a tag is a direction to the voice and not prose; paragraphs stay a blank line apart.
+- **`attr`**: the words a slide carries in attributes: `alt`, `aria-label`, `title`, `data-module`,
+  `data-steps` and `data-step`. The last three are matched to each other across slides by their text
+  (DECK_ANATOMY), which holds in translation because the same source text is given the same translation
+  (`TRANSLATION_RECORD`).
+- **`label`**: the words in a diagram or a chart: SVG `<text>` (SVG_DIAGRAMS), and a chart's title, axis
+  titles, category and series names (CHARTS). Numbers are data and are not units.
+
+The deck has two units of its own: its `<title>`, and the language itself (`<html lang>`, and `dir="rtl"` on
+`<html>` for a language written right to left).
+
+**Never translated:** code and `pre` blocks, math, terminal recordings (a cast is a recording of what was
+typed, TERMINAL_RECORDINGS), URLs, file names, and the pixels of an image or a video. `decklight translate`
+lists the slides carrying a cast or an image so the author knows where the source language still shows; it
+does not guess whether an image has words in it.
+
+### TRANSLATION_RECORD · The record, and what "behind" means
+
+```json
+{
+  "version": 1,
+  "source": "talk.html",
+  "from": "en",
+  "lang": "fr",
+  "glossary": { "build": "build", "deck": "présentation" },
+  "slides": [
+    [
+      { "kind": "run",  "state": "reviewed", "source": "Ship on Friday",  "target": "Livraison vendredi" },
+      { "kind": "run",  "state": "machine",  "source": "Three things changed", "target": "Trois changements" },
+      { "kind": "beat", "state": "machine",  "source": "We ship on Friday. [pause] Here is why.", "target": "Nous livrons vendredi. [pause] Voici pourquoi." }
+    ]
+  ]
+}
+```
+
+One array per slide, in the translation's slide order, one unit per line so a re-translated sentence is a
+one-line diff. `source` is the text the unit was translated **from**, kept whole and not as a hash, because
+the two questions a hash cannot answer are the ones that matter: *what did it say when this was translated*,
+and *what should the model be shown as the previous version*. `target` is what decklight last wrote into the
+translation. `state` is `machine` (a model's answer, unread as far as decklight knows) or `reviewed` (a person
+wrote or changed it).
+
+**Slides are matched by what they say.** A slide has no stable identity (REVIEW), and the record does not
+invent one. For each slide of the source, decklight looks for the record's slide holding the same units
+(all of them, then most of them, a slide being claimed once); a unit is `current` when that slide holds a
+pair with its kind and exactly its source text. A unit whose slide was not found, or was found without it,
+is looked up across the whole record by kind and source text, a `reviewed` pair before a `machine` one, then
+the first in order. So a moved slide, a duplicated slide and a sentence lifted from one slide to another are
+all `current`, and cost nothing. What is left is one of two things:
+
+- **`changed`**: the matched slide holds a pair of the same kind in the same place whose source text is no
+  longer in the source. The unit was reworded. The old pair is the previous version: it goes to the model with
+  the new text, so a one-word edit to a sentence gets a one-word edit to its translation and not a new one.
+- **`missing`**: there is nothing to start from.
+
+A language is **behind** when it has a unit that is `changed` or `missing`. That is computed from the two
+files and the record, by string comparison, on every `decklight check`, `translate --status` and open in write
+mode: it needs no model, no network and no timestamp, and it cannot be wrong about a deck somebody edited by
+hand, in a rebase, or on another machine.
+
+**A person's correction is kept, and is known to be one.** Before anything else, a run reads the translation
+as it stands: a unit whose text is no longer the record's `target` was edited by somebody, so the record takes
+the new text and marks it `reviewed`. Nothing is asked of the author to make this work: fixing the French is
+editing the French. A `reviewed` unit is never re-asked while its source text stands. When its source is
+reworded it is `changed` like any other, re-asked with the person's translation as the previous version, comes
+back `machine`, and the run's report names it (*slide 7: a reviewed translation was redone, the source
+changed*), because that is the one case where a model's words replace a person's.
+
+**The glossary** is the record's own: source term to target term, a term mapped to itself being one that
+stays as it is (product names, `build`). It is sent with every ask and checked on every answer. An agent may
+propose entries on a first run; from then on it is the author's, edited in the file.
+
+**A translation that is behind still opens, and says so.** A run with no agent, or one whose answer failed,
+leaves a `changed` unit showing its previous translation and puts the source text in for a `missing` one: a
+deck with one English sentence in it is better than a deck that will not open, as long as nothing pretends
+otherwise. `decklight check` on a translation fails on either (`translation-stale`, `translation-missing`,
+naming the slide and quoting the source text), on a structure that is not the source's
+(`translation-structure`) and on an `<html lang>` that is not the record's (`translation-lang`). On the source
+it warns, per language, how many units are behind (`translation-behind`): the source is not broken by having
+been edited.
+
+### TRANSLATE_CLI · `decklight translate`
+
+```
+decklight translate <deck.html> [--to fr,es] [--slides 3,5-8] [--agent <name>] [--agent-model <m>]
+                                [--status | --check] [--dry-run] [--no-agent] [--discard-structure]
+```
+
+`<deck.html>` is the source (a translation given by mistake is resolved to its source, and said). With no
+`--to`, every language in `languages`; a language named for the first time is added there. The run, per
+language: read back the author's corrections; match; ask for the units that are `changed` or `missing`; check
+the answers; write the translation and the record together; render the translation and re-ask for what does
+not fit.
+
+- **Decklight does not translate, an agent does, and decklight writes the file.** The agent is the one
+  `enhance` and the writing tools use (PRESENTING_VOICE, PRESENTING_WRITING): a coding agent's CLI, run
+  read-only, one ask per slide, three at a time. There is no translation API key to configure and no call
+  from the runtime, ever: a deck is translated while it is written, and what the audience opens is text.
+- **One ask carries a whole slide.** Its runs, beats, attributes and labels go together, numbered, with the
+  deck's title, the glossary, the previous version of each `changed` unit, and the authoring skills' notes for
+  the target language where they have any (lengths, spacing and number conventions, which terms stay in
+  English). The slide and its script are translated in one breath so that they agree on their terms, which a
+  listener notices at once when they do not.
+- **Only what passes a check is written** (`translateProblem`): every unit answered and none emptied; no
+  markup in an answer; a beat's `[pause]` markers and audio tags all present; every glossary term rendered as
+  the glossary says; an answer in the target language's script where the source's differs. A slide whose
+  answer fails keeps what it had and the run says why, as an enhance does; the run exits 2.
+- **Fit is measured, not estimated.** Text grows in translation by an amount no rule predicts (a three-word
+  English title can double in German), so the run renders the translated deck headlessly and reads the same
+  overflow mark PRESENTING_FIT sets. A slide that overflows is asked again for shorter text, the limit named
+  in characters, twice at most; one that still overflows is written and reported, and fails `check` as any
+  overflowing slide does. Decklight never shrinks the type to make a translation fit.
+- `--status` prints, per language, the units `current`, `changed`, `missing` and `reviewed`, and the slides
+  behind; `--check` is the same with exit 1 when any language is behind, for CI. Neither starts an agent.
+  `--dry-run` runs the agent and prints what would change. `--no-agent` regenerates the translations from the
+  record alone: the structure catches up, the words that need a model stay behind and are counted.
+
+### TRANSLATION_VOICE · Voice, captions and video per language
+
+A translation is a deck, so everything in PRESENTING_VOICE applies to it unchanged: its notes are its script,
+its captions are its notes, and a take is stale when the beat it was voiced from changes, which a
+re-translated beat does. What a second language in the same folder needs:
+
+- **A take belongs to a language** *(built, PRESENTING_VOICE)*. A track's language is its folder's
+  (`voices-fr/anna`), else the `lang` in its manifest, and a deck lists, checks, renumbers and gives a face to
+  the tracks in its own language only; a track that says no language is the source's. A translation's tracks
+  are written to `voices-<lang>/<voice>` beside the source's `voices/<voice>` (`voices-fr/me` for your own
+  voice in French), so two languages recorded in the same voice never share a folder.
+- **A deck and its translations count as one deck** *(built)* for the rule that lets a recording follow its
+  slide when slides move (PRESENTING_VOICE): adding `talk.fr.html` beside `talk.html` does not switch it
+  off. *Not built:* a slide moved in the source moves each language's takes at the run that moves the slide.
+- **The engine is told the language** *(built)*. The deck's `<html lang>` goes with every synthesis to an
+  engine that takes one and is in the cache key, so a sentence spelled alike in two languages is not served
+  one language's clip in the other. *Not built:* picking the default voice of an engine that has one per
+  language.
+- **Captions are cut for the language**: sentence ends and closing quotation marks follow the deck's language
+  *(built)*, and so do line lengths *(not built)*. **Lip-sync** uses the recogniser that does not assume
+  English for any other language *(built)*.
+- **One video per language**: `decklight video talk.fr.html` writes `talk.fr.mp4` and its captions as
+  `talk.fr.vtt`, the language tagged in both.
+- **A video voiced by an AI voice says so in its metadata**, by default and in any language, source deck
+  included: the file's comment tag names the engine and that the voice is synthetic. `--disclose` adds a
+  visible line at the start, in the deck's language; `--no-disclose` writes neither. A take in your own
+  voice (`voices/me`, `voices-<lang>/me`) carries nothing.
+- **Pronunciation is fixed by rewording**, as in any deck: the notes are also the captions, so they are never
+  respelled for the voice.
+
+### TRANSLATION_SWITCH · Changing language while presenting
+
+A deck with `languages`, and each of its translations, shows **Language** rows in the `/` palette: the
+source's language and each translation's, each named in its own language. Choosing one opens that file at the same slide and step, which is the same place because
+the structure is the same. It is a link to a sibling file: nothing is fetched, merged or translated in the
+page, and no-trust mode needs no new permission for it (PRESENTING_MODES). A translation that is behind says
+so beside its name in write mode and nowhere else. **A bundled or published file travels alone unless asked otherwise.** `bundle` and `publish` take
+`--languages all|fr,es`: each language named is written as its own self-contained file beside the output
+(`out.html`, `out.fr.html`), and the switch in each links the others. Without the option the file is one
+language and shows no switch, since a link to a file that did not travel is a dead row.
+
+**What this is not.** Not translation at presentation time: no model, no network call and no browser
+translation runs in front of an audience. Not one file holding every language: a language is a deck, with its
+own history, review file (`talk.fr.review.jsonl`, anchored to the French text as REVIEW anchors any comment)
+and voice. Not an interchange format: the record is decklight's own, and XLIFF or gettext export is left to
+whoever needs to send a deck to an agency. Not live interpretation of a speaker.
+
+**Decided, and deferred.** Structure is the source's with no per-language exception: no swapped image, no
+slide for one market. The first deck that needs one is the argument for designing it. Right-to-left and
+CJK are not in the first version: `dir` is written, but no theme has been verified right to left, and
+caption line breaking for a language written without spaces needs a segmenter this section does not name.
 
 ## JS_API · Public JS API
 
