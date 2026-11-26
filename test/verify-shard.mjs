@@ -23,12 +23,12 @@
  * a shard that quietly ran nothing, or everything, would be the silent kind
  * of green.
  */
-export function parseShard(spec) {
+export function parseShard(spec, name = 'VERIFY_SHARD') {
   const m = /^\s*(\d+)\s*\/\s*(\d+)\s*$/.exec(spec ?? '');
-  if (!m) throw new Error(`VERIFY_SHARD must be "i/n", got "${spec}"`);
+  if (!m) throw new Error(`${name} must be "i/n", got "${spec}"`);
   const [index, count] = [Number(m[1]), Number(m[2])];
-  if (count < 1 || index < 1 || index > count) {
-    throw new Error(`VERIFY_SHARD "${spec}": need 1 ≤ i ≤ n`);
+  if (!Number.isSafeInteger(count) || count < 1 || index < 1 || index > count) {
+    throw new Error(`${name} "${spec}": need 1 ≤ i ≤ n`);
   }
   return { index, count };
 }

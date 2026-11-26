@@ -43,7 +43,7 @@ import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader, isMain, parsePort, badPort } from './args.mjs';
-import { runRhubarb, runWav2lip, runSadtalker, muteFaststart, prepareStill, faceBox, headCrop, mouthComposite, isClip, prepareClip, CLIP_MAX_SECONDS } from './lipsync-engines.mjs';
+import { runRhubarb, rhubarbRecognizer, runWav2lip, runSadtalker, muteFaststart, prepareStill, faceBox, headCrop, mouthComposite, isClip, prepareClip, CLIP_MAX_SECONDS } from './lipsync-engines.mjs';
 import { loadLipsyncConfig, saveLipsyncConfig, lipsyncConfigPath, videoSetup, SETUP_HINT, portraitsDir, withPortrait } from './lipsync-config.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
 import { readyLine } from '../cli/banner.mjs';
@@ -149,6 +149,9 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   // so a talking head set up once starts with every `decklight <deck>`.
   const saved = loadLipsyncConfig() ?? {};
   const rhubarb = opt('--rhubarb', saved.rhubarb ?? 'rhubarb');
+  // the deck's language, passed by `decklight <deck>`: picks Rhubarb's recogniser
+  const lang = opt('--lang');
+  const recognizer = rhubarbRecognizer(lang);
   const python = opt('--python', saved.python ?? 'python3');
   const wav2lipDir = opt('--wav2lip-dir', saved.wav2lipDir);
   const wav2lipCkpt = opt('--wav2lip-ckpt', saved.wav2lipCkpt);
@@ -276,7 +279,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   };
 
   async function visemes(wav, text) {
-    const key = sha('viseme|', text, '|', wav);
+    const key = sha(recognizer ? `viseme:${recognizer}|` : 'viseme|', text, '|', wav);
     const out = join(cacheDir, `${key}.json`);
     if (existsSync(out)) return { body: readFileSync(out), cached: true };
     await dedup(key, () => rhubarbQ(async () => {
@@ -288,7 +291,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
       if (text.trim()) writeFileSync(tmpTxt, text);
       try {
         const t0 = Date.now();
-        const tl = await runRhubarb(rhubarb, { wav: tmpWav, dialogFile: text.trim() ? tmpTxt : undefined, out: tmpOut, timeout: 120000 });
+        const tl = await runRhubarb(rhubarb, { wav: tmpWav, dialogFile: text.trim() ? tmpTxt : undefined, out: tmpOut, timeout: 120000, lang });
         writeFileSync(out, JSON.stringify(tl));
         console.log(`  viseme: ${(wav.length / 1024).toFixed(0)} KB wav → ${tl.cues.length} cues · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       } finally {

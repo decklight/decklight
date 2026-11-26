@@ -3631,13 +3631,28 @@
    whole deck, the slide stepped aside the way solo does it, the face cropped
    to fill the frame and zoomed on itself. Above solo in the cascade, so a
    full-screen beat in a solo deck is full screen. */
-.decklight-character.face-hide { visibility: hidden; }
 /* Builds and mouth shapes can override inherited visibility. Hide each group. */
-.decklight-character.face-hide,
-.decklight.decklight-face-full .decklight-stage { opacity: 0; }
-.decklight.decklight-face-full .decklight-stage,
-.decklight.decklight-face-full .decklight-progress,
-.decklight.decklight-face-full .decklight-slide-number { visibility: hidden; }
+.decklight-character.face-hide { visibility: hidden; opacity: 0; }
+.decklight:is(.decklight-face-full, .decklight-face-preview-full:not(:fullscreen, .decklight-overview):not(:has(> .decklight-character.show:not(.decklight-character-preview)))) {
+  > :is(.decklight-stage, .decklight-progress, .decklight-slide-number) { visibility: hidden; }
+  > .decklight-stage { opacity: 0; }
+  > .decklight-stage:has(> section.active:not([data-face-keep="none"]) [data-face-keep]) {
+    opacity: 1;
+    z-index: 45; /* above the narrator (44), below the later captions (45) */
+    > :not(section.active) { opacity: 0 !important; }
+  }
+}
+/* Keep the original boxes in flow, including every ancestor that positions
+   or animates a kept title. Hide whole sibling branches even when a build
+   explicitly sets visibility on its children. */
+:where(.decklight-face-full, .decklight-face-preview-full:not(:fullscreen, .decklight-overview):not(:has(> .decklight-character.show:not(.decklight-character-preview)))) > .decklight-stage > section.active,
+.decklight section.decklight-face-page {
+  visibility: hidden;
+  :where(&:not([data-face-keep="none"]) [data-face-keep]) { visibility: visible; }
+  & :not([data-face-keep], section [data-face-keep] *, :has([data-face-keep]), .decklight-face-still, .decklight-face-still *),
+  &[data-face-keep="none"] > :not(.decklight-face-still) { visibility: hidden !important; opacity: 0 !important; }
+  & :has([data-face-keep]):not([data-face-keep], section [data-face-keep] *) { visibility: hidden !important; }
+}
 .decklight .decklight-character.face-full {
   inset: 0;
   margin: 0;
@@ -3696,8 +3711,17 @@
   to { transform: rotate(1.1deg) translateY(1.5px); }
 }
 .decklight.decklight-print .decklight-character { display: none !important; }
+.decklight section.decklight-face-page > .decklight-face-still {
+  display: block !important;
+  visibility: visible;
+  z-index: -1;
+}
+/* Exact video photographs this transparent layer above a filmed face. */
+html.decklight-face-layer, .decklight-face-layer body, .decklight-face-layer .decklight { background: transparent !important; }
+.decklight-face-layer .decklight::before,
+.decklight-face-layer .decklight > :not(.decklight-stage) { display: none !important; }
 
-/* Write mode reserves the same footprint without stepping the slide aside. */
+/* Write mode draws the narrator's footprint over the same slide composition. */
 .decklight-character-preview,
 .decklight .decklight-character-preview.face-full {
   opacity: .48;

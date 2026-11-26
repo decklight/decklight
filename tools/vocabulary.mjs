@@ -57,6 +57,7 @@ export const ATTRIBUTES = [
   { name: 'data-dense-ok', bare: true },
   { name: 'data-timing', number: true },
   { name: 'data-face' },
+  { name: 'data-face-keep', kind: 'full-screen narrator content', values: ['none'], bare: true },
   { name: 'data-narration', kind: 'narration setting', values: ['hold'] },
   { name: 'data-narration-pause', number: true },
   { name: 'data-narration-beat-pause', number: true },

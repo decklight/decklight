@@ -32,6 +32,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { firstPositional, isMain } from '../tools/args.mjs';
+import { deckLang } from '../tools/deck-html.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
 import { configuredTrackDirs } from './edit.mjs';
 
@@ -165,8 +166,11 @@ function faceMain(plan, argv) {
   // --face and --dir NAME are this command's, not the tool's
   const deckAt = argv.indexOf(plan.deck);
   const rest = argv.filter((a, i) => i !== deckAt && a !== '--face' && (dirAt === -1 || (i !== dirAt && i !== dirAt + 1)));
+  // the deck's language picks the recogniser, unless --lang already did
+  const lang = deckLang(html);
+  const langArgs = lang && !rest.includes('--lang') ? ['--lang', lang] : [];
   for (const dir of folders) {
-    const r = spawnSync(process.execPath, [LIPSYNC, dir, ...rest], { stdio: 'inherit' });
+    const r = spawnSync(process.execPath, [LIPSYNC, dir, ...rest, ...langArgs], { stdio: 'inherit' });
     if (r.status !== 0) return r.status ?? 1;
   }
   return 0;

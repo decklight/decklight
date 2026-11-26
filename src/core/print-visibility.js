@@ -123,9 +123,13 @@ function hasContent(el) {
 export function invisibleContent(section, { style = (el) => getComputedStyle(el) } = {}) {
   const out = [];
   if (!section || section.matches?.(SKIP)) return out;
+  const facePage = section.matches?.('.decklight-face-page');
+  if (facePage && section.dataset.faceKeep === 'none') return out;
   const walk = (parent, opacity, hidden) => {
     for (const el of parent.children) {
       if (el.matches(SKIP)) continue;
+      const onPathToKeep = facePage && !el.closest('[data-face-keep]');
+      if (onPathToKeep && !el.querySelector('[data-face-keep]')) continue;
       const cs = style(el);
       if (cs.display === 'none') continue;
       const own = cs.opacity === '' ? 1 : Number.parseFloat(cs.opacity);
@@ -134,10 +138,10 @@ export function invisibleContent(section, { style = (el) => getComputedStyle(el)
       if (op === 0 && hasContent(el)) { out.push({ el, what: nameOf(el), why: 'opacity 0' }); continue; }
       // visibility is inherited, and a child can take it back: name the element
       // where it turns hidden, if anything under it that has words stays so
-      if (invisible && !hidden && stillHidden(el, style)) { out.push({ el, what: nameOf(el), why: 'visibility hidden' }); continue; }
+      if (!onPathToKeep && invisible && !hidden && stillHidden(el, style)) { out.push({ el, what: nameOf(el), why: 'visibility hidden' }); continue; }
       if (op === 0) continue;   // an empty transparent box: nothing in it to miss
       if (String(el.tagName).toUpperCase() === 'SVG' || el.ownerSVGElement) continue;
-      walk(el, op, invisible);
+      walk(el, op, invisible && !onPathToKeep);
     }
   };
   walk(section, 1, false);

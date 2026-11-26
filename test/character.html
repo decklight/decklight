@@ -298,7 +298,8 @@ try {
   // track and per sentence on the live voice. The mouth keeps moving.
   {
     const twoRoot = Object.assign(document.createElement('div'), { className: 'decklight' });
-    twoRoot.style.cssText = 'position:relative;width:1280px;height:720px';
+    twoRoot.style.cssText = 'position:relative;width:1280px;height:720px;--build-duration:0s';
+    twoRoot.innerHTML = '<div class="decklight-stage"><section class="active"><div><h2 data-face-keep><span>Divider</span></h2><p style="visibility:visible">Body</p></div></section></div>';
     document.body.appendChild(twoRoot);
     const faces = { 2: 'full 1.4', 3: 'top-left', 4: 'hide 2:corner' };
     const two = createCharacter({
@@ -323,7 +324,26 @@ try {
     await raf2();
     results.twoFullMouth = el().getAttribute('data-viseme');
     results.twoFullArt = !!el().querySelector('svg') && getComputedStyle(el()).visibility === 'visible';
+    const stage = twoRoot.querySelector('.decklight-stage');
+    const section = stage.querySelector('section');
+    const title = section.querySelector('span');
+    const body = section.querySelector('p');
+    results.kept = getComputedStyle(stage).opacity === '1' && getComputedStyle(title).visibility === 'visible'
+      && getComputedStyle(body).opacity === '0' && +getComputedStyle(stage).zIndex > +getComputedStyle(el()).zIndex;
+    const heading = title.parentElement;
+    heading.classList.add('build-step');
+    heading.dataset.buildState = 'pending';
+    const pending = getComputedStyle(title).visibility === 'hidden';
+    heading.dataset.buildState = 'done';
+    results.keptBuild = pending && getComputedStyle(title).visibility === 'visible';
+    heading.removeAttribute('data-face-keep');
+    results.removedKeep = getComputedStyle(stage).opacity === '0';
+    heading.setAttribute('data-face-keep', '');
+    section.dataset.faceKeep = 'none';
+    results.optedOut = getComputedStyle(stage).opacity === '0';
+    delete section.dataset.faceKeep;
     two.beginSlide(set, 3);
+    results.bodyReturns = getComputedStyle(body).opacity === '1';
     results.twoSlide3 = at();
     two.beginSlide(set, 4, 1);
     results.twoBeat1 = at();
@@ -449,7 +469,8 @@ try {
     && results.faceBeat1 === 'hide false 1' && results.faceBeat2 === 'full true 1.5' && results.faceBeat3 === 'corner false 1'
     && results.faceStopClears && results.faceLiveIsCorner && results.faceHoldsLastFrame
     && results.twoSlide1 === 'corner false br' && results.twoSlide2 === 'full true br' && results.twoFullSize
-    && results.twoFullMouth === 'D' && results.twoFullArt
+    && results.twoFullMouth === 'D' && results.twoFullArt && results.kept && results.keptBuild
+    && results.removedKeep && results.optedOut && results.bodyReturns
     && results.twoSlide3 === 'corner false tl' && results.twoBeat1 === 'hide false br' && results.twoBeat2 === 'corner false br'
     && results.twoLiveFull === 'full true br' && results.twoLiveHide === 'hide false br' && results.twoLiveCorner === 'corner false br'
     && results.twoSoloWins && results.twoFullAgain && results.twoStopClears && results.twoOffClears

@@ -15,9 +15,15 @@
  * clip that is only a laugh, or, on an engine that cannot act on tags, a clip
  * of nothing.
  */
+// A sentence ends at `.`, `!`, `?` or `…`, or at their full-width forms
+// (`。！？`, which Chinese and Japanese write with no space after), and takes
+// with it whatever closes around it: an English quote or bracket, a French
+// guillemet (`« Non. »`, the space before it included), a CJK bracket.
+const SENTENCE = /[^.!?…。！？]+[.!?…。！？]+(?:[”’"')\]」』）]|[   ]?»)*|[^.!?…。！？]+$/g;
+
 export function splitSentences(text) {
   const out = [];
-  for (let s of ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? []).map((x) => x.trim()).filter(Boolean)) {
+  for (let s of ((text ?? '').match(SENTENCE) ?? []).map((x) => x.trim()).filter(Boolean)) {
     // a `[pause]` a voice holds itself (`voicedPauses`) belongs to the words
     // BEFORE it, as a ⟨PAUSE⟩ does — and so does any tag ahead of it
     const held = out.length ? LEADING_PAUSE.exec(s) : null;

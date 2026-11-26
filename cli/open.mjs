@@ -31,10 +31,11 @@ import { onPath, detectAgents, AGENTS } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import {
   ENGINES as TTS_ENGINES, PIPER_DEFAULT_VOICE, piperModelDir, engineStatus,
-  piperDownloadCmd, piperDownloadLine,
+  piperDownloadCmd, piperDownloadLine, voiceLang,
 } from '../tools/tts-engines.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV } from '../tools/elevenlabs-tts.mjs';
 import { loadTtsConfig } from '../tools/tts-setup.mjs';
+import { deckLang } from '../tools/deck-html.mjs';
 import { detectLocalVoice } from '../tools/local-voice.mjs';
 import { relative } from 'node:path';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
@@ -213,11 +214,22 @@ export function movedFlagLines(args = []) {
  * the bridges go through the dispatcher, the edit server (no longer a
  * command there) runs its own module.
  */
+/** The `<html lang>` of the deck `args` names, or null: a URL, or a file not there yet, has none to read. */
+function langOfDeck(args) {
+  try { return deckLang(readFileSync(firstPositional(args, VALUE_FLAGS), 'utf8')); } catch { return null; }
+}
+
 export function planServices({
   args = [], env = process.env, hasBin = onPath, saved = null, lipsync = null,
   detect = detectLocalVoice, exists = existsSync,
+  // the deck's `<html lang>`, read by the caller: this function touches no file
+  deckLanguage = null,
 } = {}) {
   const { opt } = argReader(args);
+  // the language the voice is asked for: the deck's own when it is not in
+  // English, else the one saved by `setup voice --lang` (PRESENTING_VOICE)
+  const lang = voiceLang({ deck: deckLanguage, saved: saved?.lang });
+  const langFromDeck = lang !== undefined && lang !== saved?.lang;
   const has = (flag) => args.includes(flag);
   const pass = (flag) => (opt(flag) !== undefined ? [flag, opt(flag)] : []);
 
@@ -263,7 +275,7 @@ export function planServices({
   // --tts-engine, a saved engine, or a project all win over this: flags decide,
   // detection only fills a vacuum.
   const chosen = opt('--tts-engine', saved?.engine);
-  const native = chosen || project ? null : detect({ lang: saved?.lang });
+  const native = chosen || project ? null : detect({ lang });
   // Only a NATIVE voice is claimed automatically. It is the one engine that
   // needs no setup at all — no install, no download, no credential — so using
   // it silently costs the presenter nothing. piper is deliberately NOT picked
@@ -279,6 +291,8 @@ export function planServices({
     // picked for its system voice would try to reach Vertex AI instead
     ...(has('--tts-engine') || saved?.engine || ttsEngine !== 'gemini' ? ['--engine', ttsEngine] : []),
     ...(cloudVoice ? ['--project', project] : []),
+    // the deck's language is the one setting the saved config cannot hold
+    ...(langFromDeck ? ['--lang', lang] : []),
     // every other setting the bridge reads from the saved config itself
   ];
   // The SAME readiness check the bridge runs when the deck asks what it may
@@ -289,7 +303,7 @@ export function planServices({
   const ttsVoice = saved?.voice ?? PIPER_DEFAULT_VOICE;
   const ttsData = saved?.dataDir ?? piperModelDir(env);
   const status = engineStatus(ttsEngine, {
-    env, project, voice: ttsVoice, dataDir: ttsData, lang: saved?.lang,
+    env, project, voice: ttsVoice, dataDir: ttsData, lang,
     // every probe threaded through, `detect` included: these are the injection
     // points that let planServices be tested on any machine, and a readiness
     // check reaching for the REAL PATH or the REAL synthesizer would decide a
@@ -359,7 +373,7 @@ export function planServices({
       entry: CLI,
       // every setting comes from lipsync.json; Veo, the one that spends
       // money, only when `setup face --veo` asked for it there
-      args: ['lipsync', '--port', lipPort],
+      args: ['lipsync', '--port', lipPort, ...(deckLanguage ? ['--lang', deckLanguage] : [])],
       url: `http://127.0.0.1:${lipPort}`,
     });
   }
@@ -417,7 +431,7 @@ export async function openMain(args) {
     return 1;
   }
 
-  let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
+  let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig(), deckLanguage: langOfDeck(args) });
   let deck = plan.deck;
   if (!deck) {
     console.error('decklight needs a deck: decklight <deck.html>\n');
@@ -446,7 +460,7 @@ export async function openMain(args) {
     // no-trust mode never commits the deck; the clone's git is what H reads
     if (!noTrust && !args.includes('--no-git') && !args.includes('--git')) args.push('--git');
     deck = local;
-    plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
+    plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig(), deckLanguage: langOfDeck(args) });
   }
   // no-trust mode names a missing deck itself, the same way for a file, a
   // container and a --check
@@ -537,7 +551,7 @@ export async function openMain(args) {
       // could only offer what was on. Init says so in a line; --git-mode
       // timer is the way to the plain cadence.
       rl.close();
-      plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
+      plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig(), deckLanguage: langOfDeck(args) });
     } else {
       console.log('  git: no repository here — pass --git to create one and keep every version of the deck');
     }

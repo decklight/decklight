@@ -262,6 +262,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // overlay. In particular it never puts face-full or solo on the root.
   let writeOverlay;
   function showWritePreview(kind, at) {
+    root.classList.toggle('decklight-face-preview-full', !!kind && at.kind === 'full');
     if (!kind || at.kind === 'hide') {
       writeOverlay?.classList.remove('show');
       return;
@@ -289,6 +290,44 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
     overlay.dataset.previewLabel = at.kind === 'full' ? `Full screen · ${at.zoom}×`
       : kind === 'filmed' ? 'Filmed face' : '';
     overlay.classList.add('show');
+  }
+
+  // PDF and PowerPoint have one fully built picture per slide. Give each
+  // full-screen slide its own resting narrator, inside its print page.
+  function printFace(section, slide, beat, track) {
+    if (mode === 'off' || !section.hasAttribute('data-face')) return;
+    const at = faceLayout(section.getAttribute('data-face'), beat);
+    if (at.kind !== 'full' || (mode === 'viseme' && solo)) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'decklight-character decklight-face-still show';
+    overlay.setAttribute('aria-hidden', 'true');
+    placeOverlay(overlay, at);
+    const showStillFrame = () => {
+      section.classList.add('decklight-face-page');
+      section.append(overlay);
+    };
+    if (mode === 'video') {
+      if (!track?.dir) return;
+      const stem = track.dir + '/slide-' + String(slide).padStart(2, '0');
+      const video = document.createElement('video');
+      video.className = 'live';
+      video.muted = true;
+      video.preload = 'auto';
+      for (const file of [stem + '-' + String(beat).padStart(2, '0'), stem]) {
+        const source = document.createElement('source');
+        source.src = file + '.mp4#t=0.001';
+        video.append(source);
+      }
+      overlay.classList.add('mode-video');
+      overlay.append(video);
+      // Some slides have only audio. Keep their ordinary printed slide
+      // unless one of the recorded clips really has a frame to show.
+      video.addEventListener('loadeddata', showStillFrame, { once: true });
+    } else {
+      overlay.dataset.viseme = 'X';
+      mountArt(overlay, () => overlay.isConnected);
+      showStillFrame();
+    }
   }
 
   function show() {
@@ -725,7 +764,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
       facePreview = next;
       applyFace();
     },
-    placeAt, showWritePreview, setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
+    placeAt, showWritePreview, printFace, setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
     attachAudio, stop, probe, ensureTimeline, capture,
   };
 }
