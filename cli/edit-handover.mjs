@@ -220,8 +220,8 @@ export function registerHandoverRoutes(routes, { readDeck, deckPath, root, gitOn
       + `${req.synthesize ? `, voiced by ${req.synthesize.engine} into ${req.synthesize.dir}/` : ''} …`);
     let awake;
     try {
-      awake = await inhibit();
-      update({ state: 'start', kind, what: job.what, awake: awake.active });
+      awake = await inhibit({ display: kind === 'video' && req.render === 'live' });
+      update({ state: 'start', kind, what: job.what, awake: awake.active, displayAwake: awake.displayActive });
       if (stop.signal.aborted) return stopped();
       let out, code, reason = null, subs = null, notes = null, droppedFrames = 0;
       if (kind === 'video') {

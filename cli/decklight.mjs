@@ -159,9 +159,11 @@ try {
     process.exitCode = r.status ?? 1;
   } else {
     const mod = await import(new URL(command.module, import.meta.url));
+    const renderOption = rest.indexOf('--render');
+    const display = cmd === 'video' && renderOption >= 0 && rest[renderOption + 1] === 'live';
     const awake = ['video', 'pdf', 'pptx', 'bundle'].includes(cmd)
       && !rest.some((arg) => arg === '--help' || arg === '-h')
-      ? await (await import('./keep-awake.mjs')).keepAwake() : null;
+      ? await (await import('./keep-awake.mjs')).keepAwake({ display }) : null;
     let code;
     try {
       code = await mod[command.main](...(command.args ? command.args(rest, cmd) : [rest]));
