@@ -44,7 +44,7 @@ export const TRACK_FORMATS = ['wav', 'm4a', 'mp3'];
 export const DEFAULT_FORMAT = 'm4a';
 
 /** The manifest header's own keys — everything else in a header is carried. */
-const HEADER_KEYS = ['engine', 'model', 'voice', 'voiceId', 'style', 'format', 'slides'];
+const HEADER_KEYS = ['engine', 'model', 'voice', 'voiceId', 'style', 'format', 'lang', 'slides'];
 
 /**
  * The format an existing track is in: the extension its slide files carry,
@@ -304,10 +304,15 @@ export async function synthesizeSlides({
   // Match the hash to the header the freshness checker will read. An existing
   // track keeps its synthesis format, which is the format its hashes include.
   const headerFormat = existing ? prev.format : synthExt === 'wav' ? undefined : synthExt;
+  // The language the engine is told (tts.lang), kept like the format: a track
+  // recorded before a deck's language reached the voice keeps a header
+  // without one, or its untouched slides would all read as stale.
+  const headerLang = existing ? prev.lang : tts.lang;
   const header = {
     engine: tts.name, model: tts.model ?? null, voice: identity.voice, style,
     ...(identity.voiceId ? { voiceId: identity.voiceId } : {}),
     ...(headerFormat ? { format: headerFormat } : {}),
+    ...(headerLang ? { lang: headerLang } : {}),
   };
   const slideHash = (text) => manifestHash(header, text);
   const clipHash = (text) => clipKey(tts, { voice: keyVoice, style, text }).slice(0, 16);

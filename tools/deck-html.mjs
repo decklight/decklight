@@ -22,6 +22,16 @@ export const NOTES_ASIDE = /<aside class="notes">([\s\S]*?)<\/aside>/;
  * What video and voiceover walk to count slides and pull notes — they MUST see
  * the same list, which is exactly why they share this.
  */
+/**
+ * The deck's language: `<html lang>`, as written (`fr`, `pt-BR`), or null.
+ * It is what the voice is asked to speak (SPEC PRESENTING_VOICE) and what
+ * captions and lip-sync are cut for, so it is read here, once, from the file.
+ */
+export const deckLang = (html) => {
+  const m = /<html\b[^>]*?\slang\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(String(html ?? ''));
+  return (m?.[1] ?? m?.[2] ?? m?.[3] ?? '').trim() || null;
+};
+
 export const sectionBodies = (html) => html.split(/<section\b/).slice(1);
 
 /**

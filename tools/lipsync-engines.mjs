@@ -33,10 +33,28 @@ const bufOpts = (timeout, inherit) => ({
   ...(inherit ? { stdio: 'inherit' } : { maxBuffer: 64 * 1024 * 1024 }),
 });
 
-/** rhubarb: `wav` (+ optional `dialogFile`) → normalized viseme timeline. */
-export async function runRhubarb(rhubarb, { wav, dialogFile, out, timeout } = {}) {
-  const dialog = dialogFile ? ['--dialogFile', dialogFile] : [];
-  await run(rhubarb, ['-f', 'json', '-o', out, '--machineReadable', ...dialog, wav],
+/**
+ * Rhubarb's recogniser for a language. Its default (pocketSphinx) recognises
+ * English WORDS and guides itself by the dialog text, so on French audio it
+ * hears English that is not there and the mouth follows that. `phonetic`
+ * recognises sounds and knows no language. English, and a deck that names no
+ * language, keep the default: it is the better of the two on English.
+ */
+export const rhubarbRecognizer = (lang) => {
+  const primary = String(lang ?? '').trim().split(/[-_]/)[0].toLowerCase();
+  return primary && primary !== 'en' ? 'phonetic' : null;
+};
+
+/** rhubarb's argv. The dialog text guides the English recogniser, so it goes only to that one. */
+export function rhubarbArgs({ wav, dialogFile, out, lang } = {}) {
+  const recognizer = rhubarbRecognizer(lang);
+  return ['-f', 'json', '-o', out, '--machineReadable',
+    ...(recognizer ? ['-r', recognizer] : dialogFile ? ['--dialogFile', dialogFile] : []), wav];
+}
+
+/** rhubarb: `wav` (+ optional `dialogFile`) → normalized viseme timeline. `lang` picks the recogniser. */
+export async function runRhubarb(rhubarb, { wav, dialogFile, out, timeout, lang } = {}) {
+  await run(rhubarb, rhubarbArgs({ wav, dialogFile, out, lang }),
     timeout ? { timeout } : {});
   return normalizeRhubarb(JSON.parse(readFileSync(out, 'utf8')));
 }

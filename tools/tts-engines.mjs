@@ -51,13 +51,50 @@ import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId
 import { run, PROBE_MS, NETWORK_MS } from './exec.mjs';
 import {
   createSynth as createElevenLabs, pickVoice, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
-  DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL, readsAudioTags,
+  DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL, readsAudioTags, languageCode,
 } from './elevenlabs-tts.mjs';
 import {
   detectLocalVoice, sayArgs, sapiArgs, winrtArgs, TIER_LABEL, withoutSupersededPlain, baseName,
 } from './local-voice.mjs';
 
 export const ENGINES = ['gemini', 'chirp', 'piper', 'elevenlabs', 'say', 'sapi'];
+
+/** `fr-CA` → `fr`; null for nothing. */
+export const primaryLang = (lang) => String(lang ?? '').trim().split(/[-_]/)[0].toLowerCase() || null;
+
+/**
+ * The language the voice is asked for (SPEC PRESENTING_VOICE): a `--lang`
+ * flag, else the deck's own `<html lang>` when the deck is not in English,
+ * else the language saved by `decklight setup voice --lang`.
+ *
+ * An English deck names no language here, deliberately. `en` is what
+ * `decklight init` writes into every deck, so it says "nobody chose" far more
+ * often than "this is English", and it must not outrank a language somebody
+ * saved on purpose; and English is what every engine assumed before a deck's
+ * language reached it, so sending nothing is what keeps those takes current.
+ */
+export function voiceLang({ flag, deck, saved } = {}) {
+  const fromDeck = primaryLang(deck) && primaryLang(deck) !== 'en' ? deck : undefined;
+  return flag ?? fromDeck ?? saved ?? undefined;
+}
+
+// Chirp names a voice by locale (`fr-FR-Chirp3-HD-Kore`), and a deck usually
+// says only `fr`. The region each bare language gets; a deck that says
+// `fr-CA` is taken at its word.
+const CHIRP_REGION = {
+  ar: 'ar-XA', de: 'de-DE', en: 'en-US', es: 'es-ES', fr: 'fr-FR', hi: 'hi-IN', it: 'it-IT', ja: 'ja-JP',
+  ko: 'ko-KR', nl: 'nl-NL', pl: 'pl-PL', pt: 'pt-BR', ru: 'ru-RU', tr: 'tr-TR', zh: 'cmn-CN',
+};
+/** The Chirp locale for a language tag; throws on one it cannot place, never guesses English. */
+export function chirpLocale(lang) {
+  const tag = String(lang ?? '').trim().replace('_', '-');
+  if (!tag) return 'en-US';
+  const full = /^([a-z]{2,3})-([a-z]{2})$/i.exec(tag);
+  if (full) return `${full[1].toLowerCase()}-${full[2].toUpperCase()}`;
+  const region = CHIRP_REGION[primaryLang(tag)];
+  if (!region) throw new Error(`chirp needs a locale for the language '${tag}' — pass --lang, as in --lang ${primaryLang(tag)}-XX`);
+  return region;
+}
 /** The two engines that are already on the machine — nothing to install. */
 export const NATIVE_ENGINES = ['say', 'sapi'];
 
@@ -543,10 +580,13 @@ function buildEngine({
     const isV3 = m === ELEVENLABS_V3_MODEL;
     const tagged = readsAudioTags(m);
     const { listVoices, synth, searchLibrary, addLibraryVoice } = createElevenLabs({
-      key: elevenLabsKey(env), model: m, format: format ?? 'pcm', stability,
+      key: elevenLabsKey(env), model: m, format: format ?? 'pcm', stability, lang,
     });
+    // the language this model is told to speak, which is then part of what a
+    // clip is (tools/tts-cache.mjs); absent for English and for a model told none
+    const told = languageCode(m, lang);
     return {
-      name: 'elevenlabs', model: m, needsProject: false,
+      name: 'elevenlabs', model: m, needsProject: false, ...(told ? { lang: told } : {}),
       // v3 and v4 read audio tags as direction — every other ElevenLabs model
       // would read a tag's brackets aloud as words, so the tone step and a
       // deck's own tags ([whispers], [laughs]) are for those models only,
@@ -574,11 +614,14 @@ function buildEngine({
     };
   }
   if (engine === 'chirp') {
+    const locale = chirpLocale(lang);
     return {
       name: 'chirp', model: 'chirp3-hd', needsProject: true, stylable: false,
+      // en-US is what chirp spoke before it was told anything, and stays unnamed
+      ...(locale !== 'en-US' ? { lang: locale } : {}),
       cost: 'first 1M chars/month free',
       defaultVoice: 'Alnilam', voices: GEMINI_VOICES,
-      synth: createChirp({ project, lang: lang ?? 'en-US' }),
+      synth: createChirp({ project, lang: locale }),
     };
   }
   const m = model ?? 'gemini-2.5-pro-tts';

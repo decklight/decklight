@@ -40,6 +40,23 @@ export const TAG_MODELS = ['eleven_v3', 'eleven_v4', 'eleven_v4_turbo'];
 /** Does this ElevenLabs model act on `[whispers]`-style audio tags? */
 export const readsAudioTags = (model) => TAG_MODELS.includes(model);
 
+// The models that are sent `language_code`. Left to itself a model guesses the
+// language from the text, and a beat that is a product name, a number or two
+// words is exactly the text it guesses wrong. A model outside this list is
+// sent none, as before: eleven_multilingual_v2 does not take the field.
+export const LANGUAGE_MODELS = [...TAG_MODELS, 'eleven_turbo_v2_5', 'eleven_flash_v2_5'];
+
+/**
+ * The `language_code` a deck's language asks of `model`, or undefined: the
+ * two-letter code of a deck that is not in English, on a model that takes one.
+ * English is sent nothing, which is what every deck was sent before the
+ * language reached the voice: an English take recorded then is still the take.
+ */
+export function languageCode(model, lang) {
+  const code = String(lang ?? '').trim().split(/[-_]/)[0].toLowerCase();
+  return /^[a-z]{2}$/.test(code) && code !== 'en' && LANGUAGE_MODELS.includes(model) ? code : undefined;
+}
+
 // The tag models' stability slider is not the continuous 0–1 knob older
 // models expose: ElevenLabs documents exactly these three named positions.
 // Creative follows a tag hardest and drifts most; Robust barely moves and
@@ -189,8 +206,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * probe rather than needing a restart.
  */
 export function createSynth({
-  key, model = DEFAULT_MODEL, format = 'pcm', stability, fetchImpl = fetch,
+  key, model = DEFAULT_MODEL, format = 'pcm', stability, lang, fetchImpl = fetch,
 } = {}) {
+  const language = languageCode(model, lang);
   if (!key) {
     throw new Error(`ElevenLabs needs an API key — set $${KEY_ENV} `
       + '(create one at https://elevenlabs.io/app/settings/api-keys)');
@@ -263,7 +281,7 @@ export function createSynth({
   }
 
   async function call(text, voice, short) {
-    const payload = { text, model_id: model };
+    const payload = { text, model_id: model, ...(language ? { language_code: language } : {}) };
     // Unasked, the account's own voice settings are left alone — sending a
     // voice_settings object at all overrides them, even to "no opinion".
     // The one exception is a short sentence on a tag model, held at Robust.

@@ -3,7 +3,7 @@
 
 /**
  * The synthesis cache on disk — one clip per (engine, model, format, voice,
- * style, text), shared by everything that speaks.
+ * style, text, and the language the engine was told), shared by everything that speaks.
  *
  * It lived inside tools/voiceover-server.mjs and served only the free local
  * engines, on the argument that a cloud engine's output drifts with the
@@ -74,8 +74,13 @@ export const CACHE_EXTS = ['.wav', '.mp3'];
  * written as an ESCAPE, not a raw byte: git calls any file with a NUL in its
  * first 8 KB binary, and this file would silently become undiffable.
  */
-export function cacheKey({ engine, model, format, voice, style, text } = {}) {
-  const fields = [engine, model, format, voice, style, text];
+export function cacheKey({ engine, model, format, voice, style, text, lang } = {}) {
+  // `lang` is the language an engine was TOLD to speak, and only that: an
+  // engine told none (every one, before a deck's language reached the voice)
+  // hashes exactly as it always has, so no clip and no recorded take goes
+  // stale for a field it never had. Told one, "Six" in French and "Six" in
+  // English are different audio under different names.
+  const fields = [engine, model, format, voice, style, text, ...(lang ? [lang] : [])];
   return createHash('sha256')
     .update(fields.map((f) => f ?? '').join('\u0000'))
     .digest('hex');
@@ -127,6 +132,7 @@ export function clipKey(engine, { voice, style, text } = {}) {
     voice: voiceId,
     style: engine?.stylable ? style : undefined,
     text,
+    lang: engine?.lang,
   });
 }
 

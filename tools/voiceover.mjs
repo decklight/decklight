@@ -54,11 +54,11 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import { homedir } from 'node:os';
-import { createEngine } from './tts-engines.mjs';
+import { createEngine, voiceLang } from './tts-engines.mjs';
 import { createTtsCache } from './tts-cache.mjs';
 import { cueFor, cutNote } from './tone-cue.mjs';
 import { argReader } from './args.mjs';
-import { sectionBodies } from './deck-html.mjs';
+import { deckLang, sectionBodies } from './deck-html.mjs';
 import { parseSlideRange } from './video.mjs';
 import { lipsyncAfterVoicing } from './lipsync-auto.mjs';
 import { synthesizeSlides, readTrack, trackFormat, planLine, TRACK_FORMATS, DEFAULT_FORMAT } from './narration-synth.mjs';
@@ -176,7 +176,9 @@ let tts;
 try {
   tts = createEngine({
     engine, project, voice, dataDir, model,
-    location: opt('--location'), lang: opt('--lang'), format: opt('--tts-format'),
+    location: opt('--location'), format: opt('--tts-format'),
+    // the deck's own language, unless --lang says otherwise (PRESENTING_VOICE)
+    lang: voiceLang({ flag: opt('--lang'), deck: deckLang(html) }),
   });
 } catch (e) {
   console.error(e.message);
