@@ -159,7 +159,15 @@ try {
     process.exitCode = r.status ?? 1;
   } else {
     const mod = await import(new URL(command.module, import.meta.url));
-    const code = await mod[command.main](...(command.args ? command.args(rest, cmd) : [rest]));
+    const awake = ['video', 'pdf', 'pptx', 'bundle'].includes(cmd)
+      && !rest.some((arg) => arg === '--help' || arg === '-h')
+      ? await (await import('./keep-awake.mjs')).keepAwake() : null;
+    let code;
+    try {
+      code = await mod[command.main](...(command.args ? command.args(rest, cmd) : [rest]));
+    } finally {
+      await awake?.release();
+    }
     // A main that returns a number is naming its exit code; one that returns
     // nothing exits 0 unless it threw. Both conventions exist today, and this
     // is the one place that has to know.

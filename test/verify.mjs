@@ -144,6 +144,7 @@ const ENGINE_GROUPS = {
   ],
   handover: [
     'exportpptx',
+    'exportreconnect',
     'exportfail',
     'exportvideo',
     'exportmodule',

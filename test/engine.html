@@ -346,6 +346,19 @@
       // and the export itself. `exportfail` is the same deck with a server
       // that refuses, which is the branch that must not leave the row looking
       // like it silently did nothing.
+      if (u.includes('/deck/edit/export/status') && HARNESS_MODE.startsWith('export')) {
+        if (window.__exportDisconnected) throw new TypeError('Failed to fetch');
+        return json({ ok: true, job: window.__exportJob ?? null });
+      }
+      if (HARNESS_MODE === 'exportreconnect') {
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/edit/export?id=')) {
+          const id = new URL(u, location.href).searchParams.get('id');
+          window.__exportJob = { id, kind: 'pptx', what: 'PowerPoint', state: 'slide', n: 3, of: 5, awake: true };
+          window.__exportDisconnected = true;
+          throw new TypeError('Failed to fetch');
+        }
+      }
       if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail' || HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportmodule') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         // The video card's voices: a folder recorded by `say` (a manifest),
@@ -3169,6 +3182,24 @@
         r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
       }
 
+      if (mode === 'exportreconnect') {
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join('\n');
+        await settle();
+        press('/');
+        for (const ch of 'powerpoint') press(ch);
+        press('Enter');
+        await settle();
+        r.checking = /checking export status/.test(said()) && !/could not export/.test(said());
+        window.__exportDisconnected = false;
+        window.__es.onopen();
+        await settle();
+        r.resumed = /slide 3 of 5/.test(said()) && /keeping this computer awake/.test(said());
+        Object.assign(window.__exportJob, { state: 'done', result: { ok: true, file: 'deck.pptx' } });
+        window.__es.onopen();
+        await settle();
+        r.finished = /wrote deck\.pptx/.test(said()) && !/could not export/.test(said());
+        r.PASS = r.checking && r.resumed && r.finished;
+      }
       if (mode === 'exportpptx' || mode === 'exportfail') {
         const Q = '.decklight-palette', ROW = '.pal-row';
         await settle();                       // let /deck/ping settle: editAvailable

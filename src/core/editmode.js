@@ -806,7 +806,12 @@ export function createEditMode({
           // the server gone (stopped, crashed, the laptop asleep): said at once,
           // because every save from here fails until it is back
           es.onerror = () => { if (!offline && !offlineTimer) offlineTimer = setTimeout(() => { offlineTimer = 0; setOffline(true); }, OFFLINE_GRACE_MS); };
-          es.onopen = () => { clearTimeout(offlineTimer); offlineTimer = 0; if (offline) setOffline(false); };
+          es.onopen = () => {
+            clearTimeout(offlineTimer);
+            offlineTimer = 0;
+            if (offline) setOffline(false);
+            syncExport();
+          };
           // the lock turned, in this tab or another: every page follows
           es.addEventListener('lock', (ev) => {
             try { setLocked(JSON.parse(ev.data).locked === true); } catch { /* malformed */ }
@@ -940,15 +945,12 @@ export function createEditMode({
           es.addEventListener('export', (ev) => {
             try {
               const d = JSON.parse(ev.data);
-              if (d.state === 'start') exportBusy = { kind: d.kind, what: d.what };
-              else if (d.state === 'done') exportBusy = null;
-              if (d.state === 'slide' && exportRun) {
-                const step = { voice: 'voicing', lipsync: 'updating lip-sync', render: 'rendering slide' }[d.phase] ?? 'slide';
-                exportRun.run.update(`${exportRun.doing} — ${step} ${d.n} of ${d.of}…`);
-              }
+              exportRevision++;
+              showExport(d);
               debugLog('export', `${d.kind} ${d.state}${d.n ? ` ${d.n}/${d.of}` : ''}`);
             } catch { /* malformed event */ }
           });
+          syncExport();
           debugLog('edit', `live reload connected${base ? ` (${base})` : ''}`
             + (editAgents.length ? ` · agents: ${editAgents.map((a) => a.name).join(', ')}` : ''));
           probeSettled();
@@ -4273,6 +4275,74 @@ export function createEditMode({
     bundle: 'one file',
   };
   let exportRun = null;
+  let exportRevision = 0;
+  let exportNumber = 0;
+  const exportKey = 'decklight-export:' + location.pathname;
+
+  function rememberExport(id) {
+    try {
+      if (id) sessionStorage.setItem(exportKey, id);
+      else sessionStorage.removeItem(exportKey);
+    } catch { /* storage unavailable */ }
+  }
+
+  function showExport(job, attach = false) {
+    if (job.state === 'pending') return;
+    const done = job.state === 'done';
+    if (!done) exportBusy = job;
+    else if (!exportBusy?.id || exportBusy.id === job.id) exportBusy = null;
+    if (!exportRun && attach) {
+      const what = job.what ?? EXPORTS[job.kind];
+      if (!what) return;
+      const doing = `exporting to ${what}`;
+      exportRun = { id: job.id, what, doing, kind: job.kind, recovering: true,
+        run: progress(doing, job.kind === 'video' ? stopRunning : null) };
+      rememberExport(job.id);
+    }
+    const current = exportRun;
+    if (!current || (job.id && current.id !== job.id)) return;
+    if (done) {
+      if (job.result) finishExport(current, job.result);
+      return;
+    }
+    const step = { voice: 'voicing', lipsync: 'updating lip-sync', render: 'rendering slide' }[job.phase] ?? 'slide';
+    const where = job.state === 'slide' ? ` — ${step} ${job.n} of ${job.of}…` : '…';
+    current.run.update(current.doing + where
+      + (job.awake ? ' · keeping this computer awake until the export is done' : '')
+      + (job.kind === 'bundle' ? '' : ` (${STOP_HOW})`));
+  }
+
+  async function syncExport() {
+    const current = exportRun;
+    let id = current?.id;
+    try {
+      id ||= sessionStorage.getItem(exportKey);
+    } catch { /* storage unavailable */ }
+    const revision = exportRevision;
+    try {
+      const response = await fetch(editBase + '/deck/edit/export/status' + (id ? `?id=${encodeURIComponent(id)}` : ''),
+        { cache: 'no-store' });
+      if (!response.ok) return;
+      const { job } = await response.json();
+      if (current !== exportRun) return;
+      if (revision !== exportRevision) {
+        if (!current || current.recovering) syncExport();
+        return;
+      }
+      if (job) {
+        if (job.state === 'pending' && (current?.recovering || !current && id)) setTimeout(syncExport, 1000);
+        showExport(job, !current && (job.state !== 'done' || !!id));
+      } else if (current?.recovering) {
+        current.run.done('export status is unavailable', 5200);
+        exportRun = null;
+        rememberExport(null);
+        exportBusy = null;
+      } else if (!current) {
+        exportBusy = null;
+        if (id) rememberExport(null);
+      }
+    } catch { /* the event stream will query again when it reconnects */ }
+  }
 
   // ── stopping a long job (PRESENTING) ─────────────────────────────────────
   // A video is minutes, an agent run up to ten, and one started on the wrong
@@ -4425,9 +4495,13 @@ export function createEditMode({
     // a bundle is seconds; anything else can be stopped, and says how
     const run = progress(`${doing} — this takes a moment…${kind === 'bundle' ? '' : ` (${STOP_HOW})`}`,
       kind === 'video' ? stopRunning : null);
-    exportRun = { run, what, doing, kind };
+    const id = `${PAGE_ID}-${++exportNumber}`;
+    const current = { id, run, what, doing, kind, theme, opts, voice };
+    exportRun = current;
+    rememberExport(id);
+    let j, status;
     try {
-      const r = await fetch(editBase + '/deck/edit/export', {
+      const r = await fetch(editBase + '/deck/edit/export?id=' + id, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           kind,
@@ -4438,12 +4512,29 @@ export function createEditMode({
           ...(kind === 'bundle' && module != null ? { module } : {}),
         }),
       });
-      const j = await r.json().catch(() => ({}));
+      status = r.status;
+      j = await r.json();
+    } catch {
+      if (exportRun !== current) return;
+      current.recovering = true;
+      run.update(`${doing} — checking export status…`);
+      syncExport();
+      return;
+    }
+    finishExport(current, j, status);
+  }
+
+  function finishExport(current, j, status) {
+    if (exportRun !== current) return;
+    const { run, what, kind, theme, opts, voice } = current;
+    exportRun = null;
+    rememberExport(null);
+    try {
       if (j.unmarked) {
         armMark(j.unmarked, theme, run, { bundles: kind === 'bundle' });
         return;
       }
-      if (j.preflight) {
+      if (j.preflight && opts) {
         run.close();
         offerVideoRepair(j.preflight, (choice) => exportDeck(kind, { ...opts, repair: choice }), voice);
         return;
@@ -4453,7 +4544,7 @@ export function createEditMode({
         debugLog('export', `${kind} stopped`);
         return;
       }
-      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      if (!j.ok) throw new Error(j.error || `the server said ${status}`);
       const says = (j.notes ?? []).filter((n) => BUNDLE_SAYS.test(n));
       if (j.droppedFrames) says.push(`${j.droppedFrames} dropped or late frames`);
       run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}${j.subtitles ? ` · subtitles in ${j.subtitles}` : ''}`
@@ -4462,8 +4553,6 @@ export function createEditMode({
     } catch (e) {
       run.done(`could not export to ${what} — ${e.message}`, 5200);
       debugLog('export', `${kind} failed: ${e.message}`);
-    } finally {
-      exportRun = null;
     }
   }
 

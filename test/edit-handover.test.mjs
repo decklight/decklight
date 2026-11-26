@@ -20,7 +20,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { registerHandoverRoutes } from '../cli/edit-handover.mjs';
 import { tmp } from './helpers.mjs';
@@ -66,7 +66,7 @@ const ONE_FILE = `<!doctype html>
  * is over its `let`; `root` is the deck's own directory, the repository a
  * publish would push from when the test makes it one.
  */
-function harness(t, html = DECK, { git = false, exports = [] } = {}) {
+function harness(t, html = DECK, { git = false, exports = [], inhibit } = {}) {
   const dir = tmp('edit-handover', t);
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, html);
@@ -79,6 +79,7 @@ function harness(t, html = DECK, { git = false, exports = [] } = {}) {
     gitOn: () => state.gitOn,
     broadcast: (e, d) => sent.push([e, d]),
     onExport: (job) => exports.push(job),
+    inhibit,
   });
   return { routes, readDeck, deck, dir, sent, state };
 }
@@ -105,6 +106,7 @@ test('every hand-over route the server dispatches is registered here', () => {
   assert.deepEqual([...routes.keys()].sort(), [
     'GET /deck/edit/check',
     'GET /deck/edit/export/estimate',
+    'GET /deck/edit/export/status',
     'GET /deck/edit/inspect',
     'GET /deck/edit/publish/plan',
     'POST /deck/edit/export',
@@ -158,6 +160,24 @@ test('POST /deck/edit/export/stop with nothing running says so', async (t) => {
   assert.deepEqual(await call(routes, 'POST /deck/edit/export/stop'), { code: 409, body: { ok: false, error: 'no export is running' } });
 });
 
+test('a stop during assertion acquisition releases it without launching the renderer', async (t) => {
+  const chrome = process.env.CHROME;
+  process.env.CHROME = process.execPath;
+  t.after(() => { if (chrome === undefined) delete process.env.CHROME; else process.env.CHROME = chrome; });
+  let requestAssertion;
+  const acquiring = new Promise((resolve) => { requestAssertion = resolve; });
+  let released = false;
+  const { routes } = harness(t, DECK, { inhibit: () => new Promise((resolve) => {
+    requestAssertion(() => resolve({ active: true, release: async () => { released = true; } }));
+  }) });
+  const request = call(routes, 'POST /deck/edit/export', { body: { kind: 'pdf' } });
+  const grant = await acquiring;
+  assert.equal((await call(routes, 'POST /deck/edit/export/stop')).code, 200);
+  grant();
+  assert.equal((await request).body.stopped, true);
+  assert.equal(released, true);
+});
+
 test('an export stopped part-way kills its Chrome, writes nothing and says it stopped — the server carries on', async (t) => {
   if (process.platform === 'win32') return t.skip('a shell script stands in for Chrome');
   // a Chrome that never finishes: what a ten-minute render looks like from here
@@ -168,19 +188,70 @@ test('an export stopped part-way kills its Chrome, writes nothing and says it st
   process.env.CHROME = bin;
   t.after(() => { if (was === undefined) delete process.env.CHROME; else process.env.CHROME = was; });
   const exports = [];
-  const { routes, dir, sent } = harness(t, DECK, { exports });
+  let awake = false;
+  const { routes, dir, sent } = harness(t, DECK, { exports, inhibit: async () => {
+    awake = true;
+    return { active: true, release: async () => { awake = false; } };
+  } });
   const t0 = Date.now();
   const running = call(routes, 'POST /deck/edit/export', { body: { kind: 'pdf' } });
   await new Promise((r) => setTimeout(r, 300));
   assert.deepEqual(exports, [{ kind: 'pdf', what: 'PDF' }], '/deck/ping hears there is an export to stop');
+  assert.equal(awake, true);
   assert.deepEqual(await call(routes, 'POST /deck/edit/export/stop'), { code: 200, body: { ok: true } });
   const r = await running;
   assert.ok(Date.now() - t0 < 10_000, 'it stopped when asked, not when Chrome gave up');
   assert.deepEqual(r, { code: 200, body: { ok: false, stopped: true, kind: 'pdf', what: 'PDF' } });
-  assert.deepEqual(sent.at(-1), ['export', { state: 'done', kind: 'pdf', ok: false, stopped: true }]);
+  assert.equal(sent.at(-1)[1].state, 'done');
+  assert.deepEqual(sent.at(-1)[1].result, r.body);
+  assert.equal(awake, false);
   assert.deepEqual(exports.at(-1), null, 'and that it is over');
   assert.deepEqual(readdirSync(dir), ['talk.html'], 'no PDF, half-written or otherwise');
   assert.equal((await call(routes, 'POST /deck/edit/export/stop')).code, 409, 'nothing left to stop');
+});
+
+test('export status survives the request and the sleep assertion is released on success and failure', async (t) => {
+  let awake = false;
+  let releases = 0;
+  let finish;
+  const { routes, dir } = harness(t, DECK, { inhibit: async () => {
+    awake = true;
+    return { active: true, release: () => new Promise((resolve) => {
+      finish = () => { awake = false; releases++; resolve(); };
+    }) };
+  } });
+  const get = (id) => call(routes, 'GET /deck/edit/export/status', { query: '?id=' + id });
+  const run = (id, body) => call(routes, 'POST /deck/edit/export', { body, query: '?id=' + id });
+  const first = run('success', { kind: 'bundle' });
+  await waitForRelease(first);
+  assert.equal(awake, true);
+  assert.equal((await get('success')).body.job.state, 'start');
+  assert.equal((await get('success')).body.job.awake, true);
+  finish();
+  const success = await first;
+  assert.equal(success.code, 200, success.body.error);
+  assert.deepEqual((await get('success')).body.job.result, success.body);
+  assert.equal(awake, false);
+  assert.equal(releases, 1);
+
+  const output = path.join(dir, 'talk-standalone.html');
+  unlinkSync(output);
+  mkdirSync(output); // a file cannot replace this directory
+  finish = null;
+  const second = run('failure', { kind: 'bundle' });
+  await waitForRelease(second);
+  assert.equal(awake, true);
+  finish();
+  const failed = await second;
+  assert.equal(failed.code, 500);
+  assert.deepEqual((await get('failure')).body.job.result, failed.body);
+  assert.equal(awake, false);
+  assert.equal(releases, 2);
+
+  async function waitForRelease(request) {
+    const early = request.then(({ body }) => assert.fail(body.error ?? 'export returned before releasing the assertion'));
+    while (!finish) await Promise.race([early, new Promise((resolve) => setImmediate(resolve))]);
+  }
 });
 
 test('GET /deck/edit/export/estimate sizes a bundle without writing it, in the theme on screen or the deck\'s own', async (t) => {
