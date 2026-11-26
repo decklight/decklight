@@ -233,6 +233,17 @@ export function voiceMatches(name, locale, query, langs = []) {
     : n.includes(t.any) || l.includes(t.any)));
 }
 
+/**
+ * What the live voice's row says about language, for a deck that is not in
+ * English: the language the engine is told, or that it is told none — a
+ * French deck read by a voice nobody told is the thing worth seeing before
+ * the room hears it. Nothing for an English deck, which is told nothing.
+ */
+export function liveLangNote(told, deck) {
+  if (told) return ` · ${langName(told)}`;
+  return deck && deck !== 'en' ? ` · not told the deck is ${langName(deck)}` : '';
+}
+
 /** A language code as a presenter reads it: 'es' → 'Spanish'. The code itself if the browser has no name for it. */
 export function langName(code) {
   try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code; } catch { return code; }
@@ -296,11 +307,15 @@ export function floatToPcm16(samples) {
  * already hold audio (the edit server can see them; the deck cannot), and a
  * collision takes the next free suffix rather than overwriting or refusing —
  * the proposal is editable on the card, so a wrong guess costs a keystroke.
+ *
+ * `root` is `voices`, or `voices-fr` for the French of a deck that has
+ * another language beside it: two languages recorded in one voice never share
+ * a folder. The edit server says which (it can see the other file).
  */
-export function proposeTrack({ engine, voice, mine = false } = {}, taken = []) {
+export function proposeTrack({ engine, voice, mine = false, root = 'voices' } = {}, taken = []) {
   const slug = (t) => String(t ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '').slice(0, 40);
-  const base = mine ? 'voices/me' : `voices/${slug(voice) || slug(engine) || 'take'}`;
+  const base = mine ? `${root}/me` : `${root}/${slug(voice) || slug(engine) || 'take'}`;
   const used = new Set(taken);
   let dir = base;
   for (let n = 2; used.has(dir); n++) dir = `${base}-${n}`;
@@ -729,6 +744,8 @@ export function createNarration({
   let liveStylable = true;  // only gemini takes a delivery instruction
   let liveAudioTags = false; // ElevenLabs v3/v4 act on [whispers]; any other voice has them taken out
   let liveEngine = null;
+  // the language the bridge's engine is told with every sentence, or null
+  let liveLang = null;
   let liveModel = null;   // what the bridge said it speaks with — an export voices with the same
   let liveCaveat = null;   // the engine's standing note — say's Siri hint rides here
   // Which collapsed voice shelves this OPEN of the picker has unfolded. Never
@@ -816,6 +833,7 @@ export function createNarration({
     if (Array.isArray(p.voices) && p.voices.length) liveVoices = p.voices;
     liveStylable = p.stylable !== false;
     liveAudioTags = p.audioTags === true;
+    liveLang = typeof p.lang === 'string' && p.lang ? p.lang : null;
     if (liveVoices.length && !liveVoices.some(([n]) => n === liveCfg.voice)) {
       const was = liveCfg.voice;
       liveCfg = { ...liveCfg, voice: liveVoices[0][0], defaultVoice: true };
@@ -2611,7 +2629,7 @@ export function createNarration({
   }
   const knownOf = (t) => (t?.dir ? narrKnown.get(dirKey(t.dir)) ?? null : null);
   /** Your own voice: the recorder says so in the manifest; `voices/me` before one is read. */
-  const isMine = (t) => (knownOf(t) ? knownOf(t).mine === true : dirKey(t?.dir) === 'voices/me');
+  const isMine = (t) => (knownOf(t) ? knownOf(t).mine === true : /^voices(?:-[a-z0-9-]+)?\/me$/.test(dirKey(t?.dir)));
   /** A track's slides out of step with the notes, in slide order. */
   const driftOf = (t) => knownOf(t)?.drift ?? [];
   const missingTrackVoice = (k) => !!(k?.engine && !k.voice && !k.voiceId);
@@ -3176,7 +3194,7 @@ export function createNarration({
         voice: true,
         text: named ? liveCfg.voice : 'An AI voice',
         tags: ['ai'],
-        sub: { text: liveEngine ? `${engineName(liveEngine)} · needs a connection while you present`
+        sub: { text: liveEngine ? `${engineName(liveEngine)}${liveLangNote(liveLang, deckLang())} · needs a connection while you present`
           : onBrowser() ? "the browser's own voice · no voice service running" : 'not connected yet · choose a voice' },
         acts: [
           { text: named ? 'Change…' : 'Choose…', run: () => renderNarr('voices') },
@@ -4472,11 +4490,14 @@ export function createNarration({
       const r = await fetch(`${base}/deck/edit/narration/tracks${character.mode === 'viseme' ? '?character=viseme' : ''}`);
       const j = await r.json();
       visemesWhy = typeof j?.visemes === 'string' ? j.visemes : null;
+      tracksRoot = plainFolder(j?.root) ?? 'voices';
       return Array.isArray(j?.tracks) ? j.tracks : [];
     } catch { return []; }
   }
   // why this machine cannot make the drawn character's lip-sync (the server says, with the tracks), or null
   let visemesWhy = null;
+  // where a new take goes: `voices`, or `voices-fr` for the French of a deck (the server says, with the tracks)
+  let tracksRoot = 'voices';
   /**
    * What this recorder is about to write, and what the picker will call it.
    *
@@ -4498,7 +4519,7 @@ export function createNarration({
   function targetFor({ mine }, tracks) {
     const engine = mine ? null : liveEngine;   // adoptBridge keeps this current
     const voice = mine ? null : liveCfg?.voice;
-    const who = mine ? { mine: true } : { engine, voice };
+    const who = mine ? { mine: true, root: tracksRoot } : { engine, voice, root: tracksRoot };
     const proposed = proposeTrack(who, tracks.map((t) => t.dir));
     // The "take 2" in a proposed label belongs to a NEW folder that had to step
     // around an existing one. Refreshing that same folder, or writing to one
@@ -4540,7 +4561,7 @@ export function createNarration({
    */
   function synthTarget(tracks) {
     const same = tracks.find((t) => t.manifest && t.engine === liveEngine && t.voice && t.voice === liveCfg.voice);
-    return same ? same.dir : proposeTrack({ engine: liveEngine, voice: liveCfg.voice }, tracks.map((t) => t.dir)).dir;
+    return same ? same.dir : proposeTrack({ engine: liveEngine, voice: liveCfg.voice, root: tracksRoot }, tracks.map((t) => t.dir)).dir;
   }
 
   const RECORD_DIR = 'voiceover';
