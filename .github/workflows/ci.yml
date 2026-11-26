@@ -155,11 +155,15 @@ jobs:
   # test/soak.mjs branches on (test/soak-platform.test.mjs), which is otherwise
   # only ever checked by pretending.
   windows:
-    name: test · windows
+    name: unit tests · Windows
     # not in the merge queue — see WHICH JOBS RUN WHEN at the top
     if: github.event_name != 'merge_group'
     runs-on: windows-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v5
 
@@ -188,6 +192,23 @@ jobs:
       # slow.
       - name: unit tests
         run: npm test -- --test-timeout=300000
+        env:
+          TEST_SHARD: ${{ matrix.shard }}/2
+
+  windows-test-gate:
+    # Branch protection requires this exact name, including the skipped check
+    # on merge-group commits. On a PR, any unsuccessful shard fails the gate.
+    name: test · windows
+    needs: windows
+    if: always() && github.event_name != 'merge_group'
+    runs-on: ubuntu-latest
+    steps:
+      - name: require every Windows test shard
+        env:
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+        run: |
+          echo "Windows unit test matrix: $WINDOWS_RESULT"
+          [[ "$WINDOWS_RESULT" == success ]]
 
   # `npm test` answers "does the code run there". This asks the other question
   # (#309): does it LOOK right there. They are different investigations, and the

@@ -28,6 +28,7 @@ import { readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseShard, shardOf } from './verify-shard.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const files = readdirSync(here).filter((f) => f.endsWith('.test.mjs')).sort();
@@ -60,8 +61,25 @@ const batch = (list, extra = []) => spawnSync(
   { stdio: 'inherit', cwd: join(here, '..') },
 ).status ?? 1;
 
-const parallel = files.filter((f) => !SERIAL.has(f));
-const serial = files.filter((f) => SERIAL.has(f));
-const a = batch(parallel);
+let shard;
+if (process.env.TEST_SHARD !== undefined) {
+  try {
+    shard = parseShard(process.env.TEST_SHARD, 'TEST_SHARD');
+  } catch (error) {
+    console.error(error.message);
+    process.exit(2);
+  }
+}
+const select = (list) => shard ? shardOf(list, shard) : list;
+const parallel = select(files.filter((f) => !SERIAL.has(f)));
+const serial = select(files.filter((f) => SERIAL.has(f)));
+if (shard) {
+  if (!parallel.length && !serial.length) {
+    console.error(`TEST_SHARD ${shard.index}/${shard.count} selected no test files`);
+    process.exit(2);
+  }
+  console.log(`TEST_SHARD ${shard.index}/${shard.count}: ${parallel.length} parallel and ${serial.length} serial test files`);
+}
+const a = parallel.length ? batch(parallel) : 0;
 const b = serial.length ? batch(serial, ['--test-concurrency=1']) : 0;
 process.exit(a || b);
