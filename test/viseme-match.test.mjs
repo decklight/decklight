@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,7 +52,7 @@ test('visemeMismatch: the stamp settles it, then lipsync.json, then the length',
   assert.equal(timelineFits(timeline(2.5), NaN), true, 'length not known yet: not judged');
 });
 
-test('the export does not play a foreign sidecar: it remakes it, or stops and names the command', async (t) => {
+test('the export does not play a foreign sidecar: it remakes it, or reads the mouth from the voice', async (t) => {
   const dir = tmp('viseme', t);
   const audio = path.join(dir, 'slide-01.wav');
   const file = path.join(dir, 'slide-01.visemes.json');
@@ -63,10 +63,18 @@ test('the export does not play a foreign sidecar: it remakes it, or stops and na
   const lines = [];
   const log = (l) => lines.push(l);
 
-  // no Rhubarb here: the export stops — never renders the wrong mouth silently
-  await assert.rejects(visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'rhubarb not found' }),
-    /lip-sync does not match its audio in slide-01\.visemes\.json and could not be remade here: rhubarb not found — run decklight narrate deck\.html --face/);
+  // no Rhubarb here: never the wrong take's mouth. The mouth is read from the
+  // voice itself, and the log says so and how to get a more exact one.
+  const fromVoice = { v: 1, kind: 'visemes', duration: 6, source: 'builtin', cues: [{ t: 0, v: 'X' }] };
+  const read = await visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'rhubarb not found', readMouth: () => fromVoice });
+  assert.equal(read.get(file), fromVoice);
   assert.ok(lines.some((l) => /slide-01\.visemes\.json does not match its audio — it lasts 2\.5s and its audio 6\.0s/.test(l)));
+  assert.ok(lines.some((l) => /Rhubarb could not run \(rhubarb not found\), so 1 file is read from the voice instead · install Rhubarb/.test(l)));
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).duration, 2.5, 'nothing is written: the old sidecar stays for Rhubarb to remake');
+  // audio that cannot be read at all still stops it, and names the command
+  await assert.rejects(visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'rhubarb not found', readMouth: () => { throw new Error('unreadable'); } }),
+    /lip-sync does not match its audio in slide-01\.visemes\.json and could not be remade here: rhubarb not found — run decklight narrate deck\.html --face/);
+  // exporting as-is (--no-remake-visemes) neither remakes nor reads: those beats have no mouth
   const skipped = await visemesFor(items, {
     dir, deck: 'deck.html', log, skipBad: true,
     remakeWith: () => assert.fail('exporting as-is must not remake lip-sync'),
@@ -90,7 +98,7 @@ test('the export does not play a foreign sidecar: it remakes it, or stops and na
 
   // a missing sidecar is remade the same way, instead of failing outright (#1220)
   fs.rmSync(file);
-  await assert.rejects(visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'no rhubarb' }), /narrate deck\.html --face/);
+  assert.equal((await visemesFor(items, { dir, deck: 'deck.html', log, remakeWith: () => 'no rhubarb', readMouth: () => fromVoice })).get(file), fromVoice);
 });
 
 test('lipsync: a re-recorded beat gets a new sidecar, and one copied in over a current hash is not kept', { skip: winSkip }, (t) => {
@@ -127,4 +135,48 @@ test('lipsync: a re-recorded beat gets a new sidecar, and one copied in over a c
     audio: path.join(vo, `${st}.wav`), file: path.join(vo, `${st}.visemes.json`), duration: 2.72,
   })), { dir: vo, deck: 'deck.html', log: () => {}, remakeWith: () => assert.fail('nothing to remake') })
     .then((m) => assert.equal(m.size, 2));
+});
+
+test('a sidecar read from the voice stands in for Rhubarb only while Rhubarb is missing', () => {
+  const audio = Buffer.from('RIFF....WAVEfmt the take');
+  const builtin = { v: 1, kind: 'visemes', duration: 1, source: 'builtin', cues: [{ t: 0, v: 'X' }], audio: audioStamp(audio) };
+  assert.equal(visemeMismatch(builtin, { audioBytes: audio, rhubarb: false }), null);
+  assert.match(visemeMismatch(builtin, { audioBytes: audio, rhubarb: true }), /read from the voice, and Rhubarb is here/);
+  // Rhubarb's own is never taken for one
+  assert.equal(visemeMismatch({ ...builtin, source: 'rhubarb' }, { audioBytes: audio, rhubarb: true }), null);
+});
+
+test('lipsync: without Rhubarb the mouth is read from the voice, and Rhubarb replaces it once it is here', { skip: winSkip }, (t) => {
+  const dir = tmp('viseme', t);
+  const vo = path.join(dir, 'voiceover');
+  fs.mkdirSync(vo);
+  fs.writeFileSync(path.join(vo, 'slide-01.wav'), wav(2.72, 1));
+  const read = () => JSON.parse(fs.readFileSync(path.join(vo, 'slide-01.visemes.json'), 'utf8'));
+  const run = (bin) => execFileSync('node', [LIPSYNC, vo, '--rhubarb', bin], { encoding: 'utf8' });
+
+  // no Rhubarb: a file all the same, marked, stamped, and progress said as Rhubarb's is
+  const out = run(path.join(dir, 'no-such-rhubarb'));
+  assert.match(out, /Rhubarb is not installed: the mouth is read from the voice instead/);
+  assert.match(out, /\[1\/1\] slide-01: \d+ cues → slide-01\.visemes\.json · read from the voice/);
+  assert.equal(read().source, 'builtin');
+  assert.equal(read().audio, audioStamp(fs.readFileSync(path.join(vo, 'slide-01.wav'))));
+  // still no Rhubarb: kept
+  assert.match(run(path.join(dir, 'no-such-rhubarb')), /0 generated, 1 unchanged/);
+
+  // no Rhubarb and no ffmpeg: a WAV is still read, a file that is not one is skipped and said
+  fs.writeFileSync(path.join(vo, 'slide-02.m4a'), 'not audio ffmpeg would know');
+  const bare = fs.mkdtempSync(path.join(dir, 'bin-'));
+  fs.symlinkSync(process.execPath, path.join(bare, 'node'));
+  const r = spawnSync(process.execPath, [LIPSYNC, vo, '--rhubarb', path.join(dir, 'no-such-rhubarb')],
+    { encoding: 'utf8', env: { ...process.env, PATH: bare } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stdout, /slide-02: skipped · slide-02\.m4a is not a WAV, and reading it needs ffmpeg/);
+  assert.match(r.stderr, /1 file got no lip-sync: slide-02/);
+  assert.equal(read().source, 'builtin');
+  fs.rmSync(path.join(vo, 'slide-02.m4a'));
+
+  // Rhubarb arrives: the voice's stand-in is out of date, and made properly
+  const stub = writeRhubarbStub(dir, path.join(here, 'fixtures', 'rhubarb-out.json'));
+  assert.match(run(stub), /1 generated/);
+  assert.notEqual(read().source, 'builtin');
 });

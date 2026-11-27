@@ -1703,11 +1703,17 @@ test('GET /deck/edit/narration/tracks?character=viseme says whose lip-sync is st
   assert.equal(l.stale, 1);
   assert.match(l.why, /^slide-02: it was made from another recording/);
 
+  // no Rhubarb here (as in CI): the job still starts, reading the mouth from the voice
   const r = await fetch(`${base}/deck/edit/narration/lipsync?dir=voiceover`, { method: 'POST' });
-  assert.equal(r.status, 412);
+  assert.equal(r.status, 200);
   const j = await r.json();
-  assert.equal(j.rhubarb, false);
-  assert.match(j.error, /Rhubarb is not installed.*decklight setup face --rhubarb/);
+  assert.equal(j.running, true);
+  assert.equal(j.total, 1);
+  assert.equal(j.fromVoice, true);
+  // these WAVs are stand-ins no decoder can read: the job ends, saying so, and is not left running
+  let job;
+  for (let i = 0; i < 100 && (job = (await track()).lipsync.job)?.running; i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.equal(job?.running, false);
   // a folder outside the deck is refused before anything is read
   assert.equal((await fetch(`${base}/deck/edit/narration/lipsync?dir=..%2Fx`, { method: 'POST' })).status, 400);
 

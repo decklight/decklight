@@ -18,9 +18,10 @@
  *   - `makeLipsync(dir, stems)`: tools/lipsync.mjs on just those stems, in
  *     parallel (`--jobs`), its `[k/N]` progress passed on line by line.
  *
- * Without Rhubarb nothing is cut and nothing fails: the audio is written, the
- * caller says ONCE how to get lip-sync (`RHUBARB_HINT`), and the export makes
- * what is missing later or names the command.
+ * Without Rhubarb the sidecars are still made, read from the voice
+ * (tools/mouth.mjs, marked `source: 'builtin'`), and the caller says ONCE how
+ * to get Rhubarb's (`RHUBARB_HINT`). Once Rhubarb is here those count as out
+ * of date (tools/viseme-match.mjs), so the next run replaces them.
  *
  * A slide filmed with your face (the manifest's `face`, and its .mp4 beside
  * the audio) plays the film, not the character, so it is never counted or cut.
@@ -40,9 +41,9 @@ import { deckConfigSource } from '../cli/runtime-link.mjs';
 const LIPSYNC = fileURLToPath(new URL('./lipsync.mjs', import.meta.url));
 
 /** Said once, when audio was written and its lip-sync could not be. */
-export const RHUBARB_HINT = 'lip-sync not made: Rhubarb is not installed — install it from '
-  + 'https://github.com/DanielSWolf/rhubarb-lip-sync and run decklight setup face --rhubarb <bin>; '
-  + 'then decklight narrate <deck> --face (or the voice card\'s "Update lip-sync") makes it';
+export const RHUBARB_HINT = 'lip-sync read from the voice: Rhubarb is not installed, which makes it more exact. '
+  + 'Install it from https://github.com/DanielSWolf/rhubarb-lip-sync and run decklight setup face --rhubarb <bin>; '
+  + 'then decklight narrate <deck> --face (or the voice card\'s "Update lip-sync") remakes it';
 
 /** The deck's configured character mode: 'viseme', 'video', 'off', or null when it names none. */
 export function characterMode(html) {
@@ -57,6 +58,14 @@ export function rhubarbBin(env = process.env) {
 /** Whether Rhubarb runs here. */
 export function haveRhubarb(bin = rhubarbBin(), probe = run) {
   try { probe(bin, ['--version'], { stdio: 'ignore', timeout: PROBE_MS }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
+}
+
+// asked at most every 30 s: the voice card polls the status, and installing
+// Rhubarb mid-session should still be noticed
+let rhubarbSeen = null;
+function rhubarbNow() {
+  if (!rhubarbSeen || Date.now() - rhubarbSeen.at > 30_000) rhubarbSeen = { at: Date.now(), have: haveRhubarb() };
+  return rhubarbSeen.have;
 }
 
 /** The stems of slides filmed with your face: they play the film, never the character. */
@@ -77,7 +86,7 @@ const statKey = (f) => { try { const s = statSync(f); return `${s.size}:${s.mtim
  * audio the character plays, and those whose sidecar is missing or is not
  * this audio's, each `{ stem, why }`.
  */
-export function lipsyncStatus(dir) {
+export function lipsyncStatus(dir, { rhubarb = rhubarbNow() } = {}) {
   let names;
   try { names = readdirSync(dir); } catch { return { stems: [], stale: [] }; }
   const audioOf = new Map();
@@ -96,7 +105,7 @@ export function lipsyncStatus(dir) {
     const audio = audioOf.get(stem);
     const side = join(dir, `${stem}.visemes.json`);
     const txt = join(dir, `${stem}.txt`);
-    const key = [statKey(audio), statKey(side), statKey(txt), state[stem]?.visemes ?? ''].join('|');
+    const key = [statKey(audio), statKey(side), statKey(txt), state[stem]?.visemes ?? '', rhubarb].join('|');
     const hit = memo.get(side);
     let why;
     if (hit?.[0] === key) why = hit[1];
@@ -114,6 +123,7 @@ export function lipsyncStatus(dir) {
             stateHash: state[stem]?.visemes ?? null,
             text: existsSync(txt) ? readFileSync(txt, 'utf8').trim() : '',
             duration: audio.endsWith('.wav') ? wavDuration(bytes) : null,
+            rhubarb,
           });
         }
       }
@@ -174,13 +184,12 @@ export function makeLipsync(dir, stems = null, { log = console.log, jobs = null,
  */
 export async function lipsyncAfterVoicing({ html, dir, log = console.log, have = haveRhubarb, make = makeLipsync }) {
   if (characterMode(html) !== 'viseme') return { ran: false, made: 0, why: null };
-  const stems = lipsyncStatus(dir).stale.map((s) => s.stem);
+  const rhubarb = have();
+  const stems = lipsyncStatus(dir, { rhubarb }).stale.map((s) => s.stem);
   if (!stems.length) return { ran: false, made: 0, why: null };
-  if (!have()) {
-    log(`  ${RHUBARB_HINT}`);
-    return { ran: false, made: 0, why: RHUBARB_HINT };
-  }
-  log(`  lip-sync: cutting ${stems.length} file${stems.length === 1 ? '' : 's'} for the 2D character in ${basename(dir)}/ with Rhubarb…`);
+  if (!rhubarb) log(`  ${RHUBARB_HINT}`);
+  log(`  lip-sync: cutting ${stems.length} file${stems.length === 1 ? '' : 's'} for the 2D character in ${basename(dir)}/`
+    + `${rhubarb ? ' with Rhubarb' : ', read from the voice'}…`);
   const r = await make(dir, stems, { log });
   if (!r.ok) log(`  lip-sync: not made — ${r.why}; decklight narrate <deck> --face tries again`);
   else log(`  lip-sync: ${r.made} file${r.made === 1 ? '' : 's'} made`);

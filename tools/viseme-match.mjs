@@ -56,11 +56,16 @@ export function wavDuration(bytes) {
 
 /**
  * Why `tl` is not the lip-sync of this audio, or null when nothing says so.
+ * `rhubarb`: whether Rhubarb runs here. A sidecar read from the voice
+ * (tools/mouth.mjs, `source: 'builtin'`) stands in for Rhubarb's only while
+ * Rhubarb is missing: once it is here, every reader takes that sidecar as out
+ * of date, so the next lip-sync run or export replaces it with Rhubarb's.
  * `audioBytes`: the audio file. `stateHash`/`text`: lipsync.json's entry for
  * the stem and the script beside it. `duration`: the audio's, in seconds.
  * Anything not given is not checked.
  */
-export function visemeMismatch(tl, { audioBytes = null, stateHash = null, text = '', duration = null } = {}) {
+export function visemeMismatch(tl, { audioBytes = null, stateHash = null, text = '', duration = null, rhubarb = false } = {}) {
+  if (rhubarb && tl?.source === 'builtin') return 'it was read from the voice, and Rhubarb is here to make it';
   if (typeof tl?.audio === 'string' && audioBytes) {
     return tl.audio === audioStamp(audioBytes) ? null : 'it was made from another recording';
   }

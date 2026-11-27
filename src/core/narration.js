@@ -2412,7 +2412,7 @@ export function createNarration({
     narrRows.push(row('cartoon', {
       text: 'A cartoon character',
       flavor: bi?.engines?.viseme ? 'drawn · its lips follow the words'
-        : bi ? 'drawn · its lips follow the loudness (no rhubarb installed)' : 'drawn · its lips follow the loudness (no lip-sync bridge running)',
+        : 'drawn · its lips are read from the voice (Rhubarb, not running here, makes them more exact)',
       commit: () => applyCharacter('viseme'),
     }));
     // What stands in the way, said plainly — "run: decklight lipsync" used to
@@ -6838,7 +6838,8 @@ export function createNarration({
       const seen = shown === 'camera' ? 'with my camera' : shown === 'cartoon' ? 'with a cartoon character' : 'slides only';
       // the drawn character mouths from a file per clip: made before the render, and said
       if (shown === 'cartoon' && nolips && visemesWhy) {
-        notes.push({ warn: true, text: `the character's lip-sync cannot be made on this computer: ${visemesWhy} · you can export with the lip-sync already available` });
+        // said before the click: without Rhubarb the mouth is read from the voice, less exactly
+        notes.push({ text: `the character's lip-sync is read from the voice, less exactly than Rhubarb would · ${visemesWhy} · set it up once: decklight setup face --rhubarb <path>` });
       } else if (shown === 'cartoon' && nolips) {
         notes.push({ text: nolips < 0 ? "Fix and export also updates the character's lip-sync"
           : `${nolips} clip${nolips === 1 ? ' needs' : 's need'} updated lip-sync` });

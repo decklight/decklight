@@ -3090,7 +3090,7 @@
         // on a machine that cannot make it, said before the click, not found after it
         window.__noRhubarb = true;
         await speakWith(/^en_US-ryan-high/);
-        r.saysItCannotMakeTheLipSync = notes().some((t) => /cannot be made on this computer: Rhubarb is not installed · you can export/.test(t))
+        r.saysItCannotMakeTheLipSync = notes().some((t) => /lip-sync is read from the voice, less exactly than Rhubarb would · Rhubarb is not installed/.test(t))
           && !notes().some((t) => /Fix and export also updates/.test(t));
         window.__noRhubarb = false;
         await speakWith(/^en_US-ryan-high/);

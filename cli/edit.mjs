@@ -5378,16 +5378,17 @@ export async function editMain(args, { onListen = null, client } = {}) {
     const key = want.split(/[/\\]/).filter(Boolean).join('/');
     const running = lipsyncJobs.get(key);
     if (running?.running) return json(200, { ok: true, ...running });
-    const { lipsyncStatus, makeLipsync, haveRhubarb, RHUBARB_HINT } = await import('../tools/lipsync-auto.mjs');
+    const { lipsyncStatus, makeLipsync, haveRhubarb } = await import('../tools/lipsync-auto.mjs');
     const stems = lipsyncStatus(dir).stale.map((st) => st.stem);
     if (!stems.length) {
       lipsyncJobs.delete(key);
       return json(200, { ok: true, total: 0, done: 0, made: 0, error: null, running: false });
     }
-    if (!haveRhubarb()) return json(412, { ok: false, rhubarb: false, error: RHUBARB_HINT });
-    const job = { total: stems.length, done: 0, made: 0, error: null, running: true };
+    // without Rhubarb the files are read from the voice (tools/lipsync.mjs), and the job says which
+    const rhubarb = haveRhubarb();
+    const job = { total: stems.length, done: 0, made: 0, error: null, running: true, ...(rhubarb ? {} : { fromVoice: true }) };
     lipsyncJobs.set(key, job);
-    console.log(`  lip-sync: cutting ${stems.length} file${stems.length === 1 ? '' : 's'} in ${key}/ with Rhubarb…`);
+    console.log(`  lip-sync: cutting ${stems.length} file${stems.length === 1 ? '' : 's'} in ${key}/${rhubarb ? ' with Rhubarb' : ', read from the voice'}…`);
     makeLipsync(dir, stems, {
       log: (line) => {
         console.log(line);

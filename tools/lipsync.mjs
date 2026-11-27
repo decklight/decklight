@@ -12,7 +12,8 @@
 //                          [--sadtalker-dir <repo>] [--python python3]
 //
 // Outputs, next to the audio they belong to (config: narration.files dir):
-//   --visemes (default) — slide-NN.visemes.json  (timeline v1, via Rhubarb)
+//   --visemes (default) — slide-NN.visemes.json  (timeline v1, via Rhubarb;
+//                         without it, read from the voice: tools/mouth.mjs)
 //   --video             — slide-NN.mp4           (muted talking head)
 //
 // Rhubarb wants WAV: slide-NN.wav is used when present (voiceover.mjs
@@ -54,6 +55,7 @@ import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
 import { captioned, canonMarks } from './sentences.mjs';
 import { loadLipsyncConfig, parsePortrait } from './lipsync-config.mjs';
 import { audioStamp, visemeHash, visemeMismatch, wavDuration } from './viseme-match.mjs';
+import { mouthFromFile } from './mouth-file.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -122,9 +124,13 @@ function defaultJobs() {
 const have = (bin, flags = ['--version']) => {
   try { run(bin, flags, { stdio: 'ignore', timeout: PROBE_MS }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
 };
-if (doVisemes && !have(rhubarb)) {
-  console.error(`rhubarb not found — install https://github.com/DanielSWolf/rhubarb-lip-sync, then decklight setup face --rhubarb <bin>`);
-  process.exit(1);
+// Without Rhubarb the mouth is read from the voice (tools/mouth.mjs): less
+// exact, seconds for a whole track, and marked `source: 'builtin'`, so every
+// reader takes it as out of date once Rhubarb is here (tools/viseme-match.mjs).
+const rhubarbHere = !doVisemes || have(rhubarb);
+if (!rhubarbHere) {
+  console.log('  Rhubarb is not installed: the mouth is read from the voice instead, less exactly. '
+    + 'For Rhubarb\'s, install https://github.com/DanielSWolf/rhubarb-lip-sync, then decklight setup face --rhubarb <bin>');
 }
 if (doVideo) {
   if (!portrait || !existsSync(portrait)) { console.error(portrait ? `portrait not found: ${portrait}` : '--video needs a portrait: --portrait <image>, or decklight setup face --portrait me=<image>'); process.exit(1); }
@@ -175,7 +181,7 @@ const sha = (...parts) => {
 // the hash says what was made last, not what is in the file now.
 function keepsVisemes(file, audioBytes) {
   try {
-    return !visemeMismatch(JSON.parse(readFileSync(file, 'utf8')), { audioBytes, duration: wavDuration(audioBytes) });
+    return !visemeMismatch(JSON.parse(readFileSync(file, 'utf8')), { audioBytes, duration: wavDuration(audioBytes), rhubarb: rhubarbHere });
   } catch { return false; }
 }
 
@@ -193,6 +199,7 @@ function toWav(stem, audioFile) {
 const face = veo && engine === 'wav2lip' ? await veo.motionFor(portrait) : portrait;
 
 let made = 0, kept = 0, finished = 0;
+const unread = [];   // stems whose voice could not be read (no Rhubarb, no decoder)
 // how far along the run is, counted in files: a stem's last job finishes it
 const of = (last) => `[${last ? ++finished : finished + 1}/${stems.length}]`;
 async function oneStem(stem) {
@@ -220,6 +227,24 @@ async function oneStem(stem) {
     if (st[job] === hash && existsSync(outFile) && !remake && !audioFiles && (job !== 'visemes' || keepsVisemes(outFile, audioBytes))) {
       kept++;
       console.log(`  ${of(job === work.at(-1))} ${stem}: ${job} unchanged — kept`);
+      continue;
+    }
+    if (job === 'visemes' && !rhubarbHere) {
+      // read from the voice: no WAV to make, and seconds for the whole track
+      const t0 = Date.now();
+      let read;
+      try { read = mouthFromFile(audioFile); } catch (e) {
+        // one unreadable file is said and skipped, not the end of the track
+        unread.push(stem);
+        console.log(`  ${of(job === work.at(-1))} ${stem}: skipped · ${e.message}`);
+        continue;
+      }
+      const tl = { ...read, audio: audioStamp(audioBytes) };
+      writeFileSync(outFile, JSON.stringify(tl));
+      console.log(`  ${of(job === work.at(-1))} ${stem}: ${tl.cues.length} cues → ${basename(outFile)} · read from the voice · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      st[job] = hash;
+      made++;
+      writeFileSync(statePath, JSON.stringify(state, null, 1));
       continue;
     }
     const wav = toWav(stem, audioFile);
@@ -277,3 +302,7 @@ await Promise.all(Array.from({ length: Math.min(jobs, stems.length) }, async () 
 }));
 writeFileSync(statePath, JSON.stringify(state, null, 1));
 console.log(`done → ${dir} (${made} generated${kept ? `, ${kept} unchanged` : ''})`);
+if (unread.length) {
+  console.error(`${unread.length} file${unread.length === 1 ? '' : 's'} got no lip-sync: ${unread.join(', ')} · install ffmpeg (or Rhubarb) to read ${unread.length === 1 ? 'it' : 'them'}`);
+  process.exitCode = 1;
+}

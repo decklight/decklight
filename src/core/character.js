@@ -22,15 +22,18 @@
 // audio itself. Caches hold PROMISES keyed like liveCache (failures
 // self-evict), so play and prefetch share one request.
 //
-// Degradation: if the bridge is down or a timeline hasn't landed when the
-// sentence starts, fall back per config — 'amplitude' (default) drives a
-// coarse 4-shape mouth from a WebAudio analyser, 'hide' shows the idle face.
+// Degradation: if the bridge is down, or a recorded beat has no sidecar (or
+// another take's), fall back per config — 'voice' (default) reads the mouth
+// from the audio itself (tools/mouth.mjs: no Rhubarb, less exact), with the
+// coarse loudness mouth while that is read; 'amplitude' is the loudness mouth
+// alone, from a WebAudio analyser; 'hide' shows the idle face.
 // Audio playback NEVER waits on lip-sync.
 
 import { DEFAULT_CHARACTER_SVG, VISEMES } from './character-art.js';
 import { readJson, writeJson } from './prefs.js';
 import { faceLayout, FACE_CORNER } from '../../tools/face-layout.mjs';
 import { timelineFits } from '../../tools/viseme-fit.mjs';
+import { mouthTimeline, wavSamples } from '../../tools/mouth.mjs';
 
 // ── pure core (unit-tested; no DOM) ─────────────────────────────────────────
 
@@ -92,7 +95,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // own default port. `narration.character.bridgeUrl` overrides both.
   const BRIDGE = cfg.bridgeUrl
     ?? (/^https?:$/.test(location.protocol) ? `${location.origin}/deck/lipsync` : 'http://127.0.0.1:8789');
-  const FALLBACK = cfg.fallback ?? 'amplitude';
+  const FALLBACK = cfg.fallback ?? 'voice';
   const storeKey = 'decklight-character:' + location.pathname;
 
   let mode = cfg.mode ?? 'off';           // 'off' | 'viseme' | 'video'
@@ -176,8 +179,10 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   function warnOnce() {
     if (warned) return;
     warned = true;
-    toast('the lip-sync bridge is not running — the mouth follows the voice\'s loudness instead. decklight starts it once rhubarb is installed or a talking head is set up (V → who is on screen says how)', 6000);
-    debugLog('lipsync', 'bridge unreachable — amplitude fallback');
+    toast(FALLBACK === 'voice'
+      ? 'the lip-sync bridge is not running — the mouth is read from the voice instead, less exactly. decklight starts the bridge once rhubarb is installed or a talking head is set up (V → who is on screen says how)'
+      : 'the lip-sync bridge is not running — the mouth follows the voice\'s loudness instead. decklight starts it once rhubarb is installed or a talking head is set up (V → who is on screen says how)', 6000);
+    debugLog('lipsync', `bridge unreachable — ${FALLBACK} fallback`);
   }
 
   // ── overlay DOM ──────────────────────────────────────────────────────────
@@ -356,7 +361,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // taint) — then the mouth just rests, which is the fallback's fallback.
   let audioCtx = null, analyser = null, tapped = null, ampBuf = null;
   function ensureAnalyser() {
-    if (FALLBACK !== 'amplitude' || !audioEl) return false;
+    if ((FALLBACK !== 'amplitude' && FALLBACK !== 'voice') || !audioEl) return false;
     if (tapped === audioEl) return !!analyser;
     tapped = audioEl;
     try {
@@ -369,6 +374,42 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
       ampBuf = new Uint8Array(analyser.fftSize);
     } catch { analyser = null; }
     return !!analyser;
+  }
+  // ── the mouth read from the voice (no bridge, no sidecar) ────────────────
+  // The audio read once, then its timeline: a WAV directly (no media stack,
+  // which a headless browser may lack), anything else decoded at 16 kHz,
+  // where tools/mouth.mjs reads it (an offline context decodes straight to
+  // its own rate). One promise per audio, shared by every beat that plays it;
+  // a failure (file://, a codec this browser lacks) leaves the loudness mouth.
+  const voiceReads = new Map();
+  function readFromVoice(key, bytes) {
+    if (FALLBACK !== 'voice') return Promise.resolve(null);
+    if (!voiceReads.has(key)) {
+      const p = (async () => {
+        const buf = await bytes();
+        if (!buf) return null;
+        let pcm = wavSamples(buf);
+        if (!pcm) {
+          const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+          const audio = await new Offline(1, 1, 16000).decodeAudioData(buf);
+          pcm = { samples: audio.getChannelData(0), sampleRate: audio.sampleRate };
+        }
+        const t0 = performance.now();
+        const tl = mouthTimeline(pcm.samples, pcm.sampleRate);
+        debugLog('lipsync', `mouth read from the voice: ${key} · ${tl.cues.length} cues in ${Math.round(performance.now() - t0)} ms`);
+        return tl;
+      })();
+      p.catch(() => { if (voiceReads.get(key) === p) voiceReads.delete(key); });
+      voiceReads.set(key, p);
+    }
+    return voiceReads.get(key);
+  }
+  const fetchBytes = (url) => () => fetch(url).then((r) => (r.ok ? r.arrayBuffer() : null));
+  /** When no timeline came for `key`, the one read from its audio. */
+  function voiceFor(key, bytes) {
+    readFromVoice(key, bytes)
+      .then((tl) => { if (tl && currentKey === key && !timeline) { timeline = tl; unchecked = null; } })
+      .catch(() => { /* the loudness mouth stays */ });
   }
   function amplitudeViseme() {
     analyser.getByteTimeDomainData(ampBuf);
@@ -427,6 +468,7 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
       if (!timelineFits(timeline, audioEl.duration)) {
         debugLog('lipsync', `${currentKey}: viseme sidecar lasts ${timeline.duration}s, its audio ${audioEl.duration.toFixed(2)}s — another recording's; following the voice instead`);
         timeline = null;
+        voiceFor(currentKey, fetchBytes(audioEl.src));
       }
     }
     if (timeline) setViseme(cueAt(timeline, audioEl.currentTime));
@@ -504,7 +546,10 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
       timeline = null;
       ensureTimeline(key, Promise.resolve(clip), text)
         .then((tl) => { if (currentKey === key) { timeline = tl; unchecked = null; } })
-        .catch(() => warnOnce());
+        .catch(() => {
+          warnOnce();
+          if (clip?.blob) voiceFor(key, () => clip.blob.arrayBuffer());
+        });
     } else {
       // this sentence's clip is not playing yet: the photo, not the last clip's frame
       videoEl?.classList.remove('live');
@@ -532,11 +577,10 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
   // timeline cut for the whole slide starts at zero against every one of them —
   // the mouth is right for the first beat and progressively wronger after it.
   //
-  // A missing beat sidecar deliberately falls through to NO timeline rather
-  // than to the slide's: the amplitude fallback is honest about not knowing,
-  // while the slide's timeline would be confidently wrong in exactly the way
-  // this exists to fix. (Tracks made before lipsync learned to cut beats are
-  // that case, and they animate rather than mouth the wrong words.)
+  // A missing beat sidecar deliberately falls through to the beat's OWN audio
+  // (its mouth read from the voice) rather than to the slide's timeline, which
+  // would be confidently wrong in exactly the way this exists to fix. (Tracks
+  // made before lipsync learned to cut beats are that case.)
   // ── a recorded track with no clips beside it ─────────────────────────────
   // `decklight lipsync` renders slide-NN.mp4 beside a track, as a batch. A
   // track you just recorded has none — so the head stood still over your own
@@ -599,7 +643,8 @@ export function createCharacter({ root, config, debugLog, toast, faceOf = () => 
         return res.json();
       })()
         .then((tl) => { if (currentKey === key) { timeline = tl; unchecked = audioUrl ? new URL(audioUrl, location.href).href : null; } })
-        .catch(() => { /* no sidecar for this beat — fallback animates */ });
+        // no sidecar for this beat: its mouth is read from its own audio
+        .catch(() => { if (audioUrl) voiceFor(key, fetchBytes(audioUrl)); });
     } else if (videoEl) {
       // A RENDERED talking head stays per SLIDE: it is minutes of GPU time a
       // clip, and the element mirrors the audio's transport rather than
