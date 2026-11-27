@@ -3194,7 +3194,7 @@ export function createNarration({
         voice: true,
         text: named ? liveCfg.voice : 'An AI voice',
         tags: ['ai'],
-        sub: { text: liveEngine ? `${engineName(liveEngine)}${liveLangNote(liveLang, deckLang())} · needs a connection while you present`
+        sub: { text: liveEngine ? `${engineName(liveEngine)}${onBrowser() ? '' : liveLangNote(liveLang, deckLang())} · needs a connection while you present`
           : onBrowser() ? "the browser's own voice · no voice service running" : 'not connected yet · choose a voice' },
         acts: [
           { text: named ? 'Change…' : 'Choose…', run: () => renderNarr('voices') },
